@@ -37,6 +37,17 @@
         "typescript": "^6.0.3",
       },
     },
+    "apps/web": {
+      "name": "@podium/web",
+      "version": "0.0.0",
+      "dependencies": {
+        "@podium/core": "workspace:*",
+        "@podium/terminal-client": "workspace:*",
+      },
+      "devDependencies": {
+        "typescript": "^6.0.3",
+      },
+    },
     "packages/agent-bridge": {
       "name": "@podium/agent-bridge",
       "version": "0.0.0",
@@ -229,6 +240,8 @@
     "@podium/terminal-client": ["@podium/terminal-client@workspace:packages/terminal-client"],
 
     "@podium/tsconfig": ["@podium/tsconfig@workspace:tooling/tsconfig"],
+
+    "@podium/web": ["@podium/web@workspace:apps/web"],
 
     "@rolldown/binding-android-arm64": ["@rolldown/binding-android-arm64@1.0.3", "", { "os": "android", "cpu": "arm64" }, "sha512-454rs7jHngixp/NMxd5srYD57OnzSlZ/eFTETjORQHLwJG1lRtmNOJcBerZlfu4GjKqeq8aCCIQrMdHyhI51Hw=="],
 
