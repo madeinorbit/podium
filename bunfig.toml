@@ -1,0 +1,4 @@
+# Bun configuration — https://bun.sh/docs/runtime/bunfig
+# Workspace packages are symlinked into node_modules automatically.
+[install]
+exact = false
