@@ -34,7 +34,7 @@ export function spawnAgent(opts: SpawnOptions): AgentSession {
   let rows = opts.rows
   let seq = 0
   let disposed = false
-  let nudgeTimer: ReturnType<typeof setTimeout> | undefined
+  let cancelNudge: (() => void) | undefined
   const frameCbs = new Set<(f: AgentFrame) => void>()
   const exitCbs = new Set<(code: number) => void>()
 
@@ -81,15 +81,28 @@ export function spawnAgent(opts: SpawnOptions): AgentSession {
     redraw() {
       if (disposed) return
       if (rows <= 1) {
-        proc.write('\x0c') // Ctrl-L fallback when a nudge is impossible
+        proc.write('\x0c') // Ctrl-L fallback when a one-row nudge is impossible
         return
       }
-      if (nudgeTimer) clearTimeout(nudgeTimer) // cancel any in-flight nudge
+      cancelNudge?.() // drop any in-flight nudge
+      // Shrink one row, then restore — but only AFTER the child emits a frame in
+      // response to the shrink. A timer-based restore races the child's scheduling:
+      // under load both resizes can land before the child reads the intermediate
+      // size, so the net size is unchanged and Node suppresses the 'resize' event
+      // (tty._refreshSize only fires on a real dimension change) — no repaint.
+      // Acking on the next frame guarantees the child observed the shrink, so the
+      // restore is always a genuine size change that forces a repaint.
       proc.resize(cols, rows - 1)
-      nudgeTimer = setTimeout(() => {
-        nudgeTimer = undefined
+      const restore = () => {
+        frameCbs.delete(restore)
+        cancelNudge = undefined
         if (!disposed) proc.resize(cols, rows)
-      }, 0)
+      }
+      cancelNudge = () => {
+        frameCbs.delete(restore)
+        cancelNudge = undefined
+      }
+      frameCbs.add(restore)
     },
     geometry() {
       return { cols, rows }
@@ -97,7 +110,7 @@ export function spawnAgent(opts: SpawnOptions): AgentSession {
     dispose() {
       if (disposed) return
       disposed = true
-      if (nudgeTimer) clearTimeout(nudgeTimer)
+      cancelNudge?.()
       frameCbs.clear()
       exitCbs.clear()
       try {

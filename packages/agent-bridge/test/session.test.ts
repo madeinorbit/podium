@@ -89,7 +89,7 @@ describe('spawnAgent core', () => {
     const s = start()
     try {
       const c = collect(s)
-      await waitFor(() => c.maxPaint() >= 1)
+      await waitFor(() => c.text.includes('last-input=')) // initial render fully drained
       const before = c.maxPaint()
       s.redraw()
       await waitFor(() => c.maxPaint() > before)
