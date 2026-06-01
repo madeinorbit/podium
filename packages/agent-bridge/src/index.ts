@@ -3,3 +3,4 @@
  * redraw, frames). Speaks @podium/protocol geometry types.
  */
 export * from './session'
+export * from './discovery/index.js'
