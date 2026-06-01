@@ -49,11 +49,11 @@ export function spawnAgent(opts: SpawnOptions): AgentSession {
   proc.onData((data: string) => {
     const frame: AgentFrame = { seq, data: Buffer.from(data, 'utf8').toString('base64') }
     seq += 1
-    for (const cb of frameCbs) cb(frame)
+    for (const cb of [...frameCbs]) cb(frame)
   })
 
   proc.onExit(({ exitCode }) => {
-    for (const cb of exitCbs) cb(exitCode)
+    for (const cb of [...exitCbs]) cb(exitCode)
   })
 
   return {
