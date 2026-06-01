@@ -192,4 +192,38 @@ describe('createClaudeCodeConversationProvider', () => {
       }),
     )
   })
+
+  test('reports lazy-load parse failures with parse diagnostic context', async () => {
+    const root = await createRoot()
+    await writeClaudeSession(root, 'projects/-repo-project/claude-session-1.jsonl')
+    const provider = createClaudeCodeConversationProvider()
+    const scan = await provider.scanRoot(root)
+    const summary = scan.conversations[0]
+    expect(summary).toBeDefined()
+    await writeFile(summary!.source.path, '{"ok":true}\nnot-json\n')
+
+    let error: unknown
+    try {
+      await provider.loadConversation(summary!)
+    } catch (cause) {
+      error = cause
+    }
+
+    expect(error).toBeInstanceOf(AgentConversationLoadError)
+    expect(error).toEqual(
+      expect.objectContaining({
+        message: expect.stringContaining('Could not parse Claude Code conversation'),
+        cause: {
+          diagnostics: [
+            expect.objectContaining({
+              severity: 'warning',
+              providerId: 'claude-code-jsonl',
+              message: expect.stringContaining('Could not parse JSONL line 2'),
+              cause: expect.any(SyntaxError),
+            }),
+          ],
+        },
+      }),
+    )
+  })
 })

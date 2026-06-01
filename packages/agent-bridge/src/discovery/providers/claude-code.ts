@@ -89,6 +89,7 @@ async function loadConversation(summary: AgentConversationSummary): Promise<Agen
 
     throw new AgentConversationLoadError(
       `Could not parse Claude Code conversation ${summary.source.path}`,
+      { cause: { diagnostics: parsed.diagnostics } },
     )
   }
 
