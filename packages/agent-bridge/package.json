@@ -20,7 +20,8 @@
     "access": "public"
   },
   "dependencies": {
-    "@podium/protocol": "workspace:*"
+    "@podium/protocol": "workspace:*",
+    "node-pty": "^1.0.0"
   },
   "scripts": {
     "build": "tsup",
