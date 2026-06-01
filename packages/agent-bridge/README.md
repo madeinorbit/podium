@@ -43,7 +43,9 @@ for (const summary of result.conversations) {
 const conversation = await loadAgentConversation(result.conversations[0])
 ```
 
-The scan result contains conversation summaries for listing and filtering.
+The scan result contains conversation summaries for listing and filtering, plus
+diagnostics for malformed candidate files and unreadable roots or files where
+the scan can continue instead of crashing.
 Call `loadAgentConversation` with a summary when full messages are needed. The
 scanner does not generate summaries, embeddings, search indexes, or grouping
 metadata itself.
