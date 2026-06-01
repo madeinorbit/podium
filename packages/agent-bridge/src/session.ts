@@ -34,6 +34,7 @@ export function spawnAgent(opts: SpawnOptions): AgentSession {
   let rows = opts.rows
   let seq = 0
   let disposed = false
+  let nudgeTimer: ReturnType<typeof setTimeout> | undefined
   const frameCbs = new Set<(f: AgentFrame) => void>()
   const exitCbs = new Set<(code: number) => void>()
 
@@ -78,7 +79,15 @@ export function spawnAgent(opts: SpawnOptions): AgentSession {
       proc.resize(c, r)
     },
     redraw() {
-      throw new Error('not implemented')
+      if (disposed) return
+      if (rows <= 1) {
+        proc.write('\x0c') // Ctrl-L fallback when a nudge is impossible
+        return
+      }
+      proc.resize(cols, rows - 1)
+      nudgeTimer = setTimeout(() => {
+        if (!disposed) proc.resize(cols, rows)
+      }, 0)
     },
     geometry() {
       return { cols, rows }
@@ -86,6 +95,7 @@ export function spawnAgent(opts: SpawnOptions): AgentSession {
     dispose() {
       if (disposed) return
       disposed = true
+      if (nudgeTimer) clearTimeout(nudgeTimer)
       frameCbs.clear()
       exitCbs.clear()
       try {

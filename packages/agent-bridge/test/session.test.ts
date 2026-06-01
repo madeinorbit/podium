@@ -71,4 +71,19 @@ describe('spawnAgent core', () => {
       s.dispose()
     }
   })
+
+  it('redraw() forces a fresh repaint even when geometry is unchanged', async () => {
+    const s = start()
+    try {
+      const c = collect(s)
+      await waitFor(() => c.maxPaint() >= 1)
+      const before = c.maxPaint()
+      s.redraw()
+      await waitFor(() => c.maxPaint() > before)
+      expect(c.maxPaint()).toBeGreaterThan(before)
+      expect(s.geometry()).toEqual({ cols: 80, rows: 24 }) // geometry restored
+    } finally {
+      s.dispose()
+    }
+  })
 })
