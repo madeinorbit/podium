@@ -25,7 +25,7 @@ export function collect(session: AgentSession): Collector {
       let max = 0
       let m: RegExpExecArray | null = re.exec(buffer)
       while (m !== null) {
-        max = Math.max(max, Number(m[1]))
+        max = Math.max(max, Number(m[1] ?? 0))
         m = re.exec(buffer)
       }
       return max
