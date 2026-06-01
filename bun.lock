@@ -40,6 +40,17 @@
         "typescript": "^6.0.3",
       },
     },
+    "packages/terminal-client": {
+      "name": "@podium/terminal-client",
+      "version": "0.0.0",
+      "dependencies": {
+        "@podium/protocol": "workspace:*",
+      },
+      "devDependencies": {
+        "tsup": "^8.5.1",
+        "typescript": "^6.0.3",
+      },
+    },
     "tooling/tsconfig": {
       "name": "@podium/tsconfig",
       "version": "0.0.0",
@@ -187,6 +198,8 @@
     "@podium/core": ["@podium/core@workspace:packages/core"],
 
     "@podium/protocol": ["@podium/protocol@workspace:packages/protocol"],
+
+    "@podium/terminal-client": ["@podium/terminal-client@workspace:packages/terminal-client"],
 
     "@podium/tsconfig": ["@podium/tsconfig@workspace:tooling/tsconfig"],
 
