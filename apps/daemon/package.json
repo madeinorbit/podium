@@ -1,0 +1,17 @@
+{
+  "name": "@podium/daemon",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@podium/agent-bridge": "workspace:*",
+    "@podium/protocol": "workspace:*",
+    "@podium/core": "workspace:*"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^6.0.3"
+  }
+}
