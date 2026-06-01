@@ -12,7 +12,7 @@ export async function pathExists(path: string): Promise<boolean> {
     await stat(path)
     return true
   } catch (error) {
-    if (isNodeError(error) && error.code === 'ENOENT') return false
+    if (isMissingPathError(error)) return false
     throw error
   }
 }
@@ -21,7 +21,7 @@ export async function isDirectory(path: string): Promise<boolean> {
   try {
     return (await stat(path)).isDirectory()
   } catch (error) {
-    if (isNodeError(error) && error.code === 'ENOENT') return false
+    if (isMissingPathError(error)) return false
     throw error
   }
 }
@@ -32,7 +32,7 @@ export async function canonicalPath(path: string): Promise<string> {
   try {
     return await realpath(absolute)
   } catch (error) {
-    if (isNodeError(error) && error.code === 'ENOENT') return absolute
+    if (isMissingPathError(error)) return absolute
     throw error
   }
 }
@@ -46,7 +46,7 @@ export async function listFilesRecursive(
   async function walk(directory: string): Promise<void> {
     const entries = await readdir(directory, { withFileTypes: true })
 
-    for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
+    for (const entry of entries.sort(compareDirentNames)) {
       const fullPath = join(directory, entry.name)
       if (entry.isDirectory()) {
         await walk(fullPath)
@@ -58,6 +58,16 @@ export async function listFilesRecursive(
 
   await walk(root)
   return files
+}
+
+function compareDirentNames(left: { name: string }, right: { name: string }): number {
+  if (left.name < right.name) return -1
+  if (left.name > right.name) return 1
+  return 0
+}
+
+export function isMissingPathError(error: unknown): boolean {
+  return isNodeError(error) && (error.code === 'ENOENT' || error.code === 'ENOTDIR')
 }
 
 export function isNodeError(error: unknown): error is NodeJS.ErrnoException {

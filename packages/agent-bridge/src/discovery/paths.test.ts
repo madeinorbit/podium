@@ -17,6 +17,16 @@ describe('pathExists and isDirectory', () => {
     expect(await pathExists('/definitely/not/here')).toBe(false)
     expect(await isDirectory('/definitely/not/here')).toBe(false)
   })
+
+  test('return false when an intermediate path segment is a file', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'podium-paths-'))
+    const file = join(root, 'file')
+    const child = join(file, 'child')
+    await writeFile(file, '{}\n')
+
+    expect(await pathExists(child)).toBe(false)
+    expect(await isDirectory(child)).toBe(false)
+  })
 })
 
 describe('canonicalPath', () => {
@@ -29,6 +39,15 @@ describe('canonicalPath', () => {
 
     expect(await canonicalPath(link)).toBe(await realpath(target))
   })
+
+  test('falls back to the absolute path when an intermediate path segment is a file', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'podium-paths-'))
+    const file = join(root, 'file')
+    const child = join(file, 'child')
+    await writeFile(file, '{}\n')
+
+    await expect(canonicalPath(child)).resolves.toBe(child)
+  })
 })
 
 describe('listFilesRecursive', () => {
@@ -36,10 +55,12 @@ describe('listFilesRecursive', () => {
     const root = await mkdtemp(join(tmpdir(), 'podium-list-'))
     await mkdir(join(root, 'nested'), { recursive: true })
     await writeFile(join(root, 'b.jsonl'), '{}\n')
+    await writeFile(join(root, 'B.jsonl'), '{}\n')
     await writeFile(join(root, 'a.txt'), 'ignore')
     await writeFile(join(root, 'nested', 'a.jsonl'), '{}\n')
 
     await expect(listFilesRecursive(root, (file) => file.endsWith('.jsonl'))).resolves.toEqual([
+      join(root, 'B.jsonl'),
       join(root, 'b.jsonl'),
       join(root, 'nested', 'a.jsonl'),
     ])
