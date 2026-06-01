@@ -1,7 +1,7 @@
 # Agent Conversation Scanner Design
 
 - **Date:** 2026-06-01
-- **Status:** Approved design, pending written-spec review
+- **Status:** Approved design, updated with product goals
 - **Scope:** A metadata-first local conversation scanner for Codex and Claude Code,
   implemented in `@podium/agent-bridge` and extensible to future agents.
 
@@ -19,11 +19,30 @@ scanner.
 The scanner returns conversation metadata first. Full conversation content is loaded only
 when a caller explicitly asks for it.
 
+## Product Goals This Enables
+
+This library is the local discovery foundation for a broader conversation index. It
+should preserve enough native metadata and relationships for later layers to build:
+
+- a unified history of all agent sessions across Codex, Claude Code, and future agents,
+- recognizable titles for browsing old sessions,
+- generated topic summaries and work-status summaries,
+- grouping by goal, project, code area, touched files, or task intent,
+- hybrid full-text and semantic search,
+- read-only transcript viewing without starting an agent,
+- resume affordances for conversations that the native agent can resume,
+- future cross-agent restart or handoff flows.
+
+The finder library does not generate summaries, embeddings, or groupings itself. It
+should expose enough metadata, source references, and lazy transcript loading for an
+indexing layer to do that work later.
+
 ## 2. Non-goals
 
 - No broad hard-disk crawl.
 - No indexing or full-text search.
 - No server persistence.
+- No generated summaries or embeddings.
 - No UI.
 - No agent process or PTY lifecycle changes.
 - No writes to agent data directories.
@@ -54,14 +73,27 @@ type AgentConversationSummary = {
   id: string
   agentKind: AgentKind
   title?: string
+  titleSource?: 'native' | 'filename' | 'path' | 'heuristic'
   projectPath?: string
+  parentConversationId?: string
+  statusHint?: 'unknown' | 'active' | 'completed' | 'blocked' | 'archived'
   createdAt?: Date
   updatedAt?: Date
   messageCount?: number
+  git?: {
+    branch?: string
+    sha?: string
+    originUrl?: string
+  }
+  resume?: {
+    kind: string
+    value: string
+  }
   source: {
     providerId: string
     root: string
     path: string
+    relatedPaths?: string[]
   }
 }
 
@@ -78,7 +110,7 @@ type AgentConversation = AgentConversationSummary & {
 }
 
 type AgentConversationDiagnostic = {
-  severity: "warning" | "error"
+  severity: 'warning' | 'error'
   providerId?: string
   root?: string
   path?: string
@@ -106,6 +138,10 @@ Defaults:
 - `agents` defaults to all built-in providers.
 - `extraRoots` is additive. It does not replace defaults unless `includeDefaults` is
   explicitly `false`.
+
+Fields such as `titleSource`, `statusHint`, `git`, `resume`, and `source.relatedPaths`
+are best-effort. Providers should populate them when native agent metadata exposes them
+cheaply, and omit them otherwise.
 
 ## 5. Provider Model
 
@@ -135,6 +171,8 @@ Provider responsibilities:
 - Know the agent's default data directories.
 - Decide which files under an agent data directory are conversation files.
 - Parse enough data during scan to produce summaries.
+- Preserve native titles, previews, archive/status flags, parent/child relationships,
+  resume references, and git/project metadata when available.
 - Parse full content during load.
 - Return diagnostics for malformed or unreadable files without failing the whole scan.
 
@@ -147,6 +185,27 @@ Scanner responsibilities:
 - Deduplicate results.
 - Sort results in a stable, useful order.
 - Expose diagnostics without throwing for partial failures.
+
+## Native Sources
+
+Codex v1 sources:
+
+- `~/.codex/sessions/**/*.jsonl` is the transcript source.
+- `~/.codex/state_*.sqlite` is an optional metadata index. When present, use it to
+  enrich summaries with native title, preview/status hints, cwd, git metadata, token
+  counts, parent/child thread edges, and the JSONL transcript path.
+- `~/.codex/history.jsonl` is prompt/input history, not a transcript source. It can be
+  considered later as a recent-input or title signal.
+- `~/.codex/logs_*.sqlite`, `goals_*.sqlite`, and `memories_*.sqlite` are derived or
+  auxiliary stores. They are not required for v1 transcript discovery.
+
+Claude Code v1 sources:
+
+- `~/.claude/projects/*/*.jsonl` is the top-level transcript source.
+- `~/.claude/projects/*/<session>/subagents/*.jsonl` should be discovered as child
+  conversations when present, with `parentConversationId` set to the owning session.
+- `~/.claude/tasks/*/*.json` is task-board state, not a transcript source. It can be
+  used later to enrich work status, task subject/description, and dependency metadata.
 
 ## 6. Roots and Disk Access
 
@@ -236,6 +295,8 @@ Required coverage:
 - missing roots do not fail the scan,
 - malformed files produce diagnostics,
 - duplicate roots or symlinked paths dedupe results,
+- Codex SQLite metadata enriches JSONL summaries when present,
+- Claude Code subagent JSONL files are linked to parent conversations,
 - scanning returns summaries without full messages,
 - loading returns normalized messages,
 - provider selection limits results to requested agents.
@@ -246,6 +307,8 @@ Required coverage:
 - Codex and Claude Code providers can discover fixture conversations from their data
   roots.
 - Scanning returns metadata summaries and diagnostics.
+- Native metadata enriches summaries where available without making those metadata stores
+  mandatory.
 - Full message content is loaded only through the explicit load API.
 - The package typechecks.
 - Focused Vitest coverage passes.
