@@ -19,11 +19,8 @@ export const HelloMessage = z.object({
   viewport: Viewport,
 })
 export const InputMessage = z.object({ type: z.literal('input'), data: z.string() })
-export const ResizeMessage = z.object({
-  type: z.literal('resize'),
-  cols: positiveInt,
-  rows: positiveInt,
-})
+// Client's requested terminal grid (client -> server). Same shape as Geometry.
+export const ResizeMessage = z.object({ type: z.literal('resize'), ...Geometry.shape })
 export const RequestControlMessage = z.object({ type: z.literal('requestControl') })
 export const RedrawRequestMessage = z.object({ type: z.literal('redrawRequest') })
 
@@ -55,11 +52,8 @@ export const ControllerChangedMessage = z.object({
   controllerId: z.string(),
   geometry: Geometry,
 })
-export const GeometryMessage = z.object({
-  type: z.literal('geometry'),
-  cols: positiveInt,
-  rows: positiveInt,
-})
+// Server's authoritative PTY size, for spectator letterboxing (server -> client).
+export const GeometryMessage = z.object({ type: z.literal('geometry'), ...Geometry.shape })
 export const AgentExitMessage = z.object({ type: z.literal('agentExit'), code: z.number().int() })
 
 export const ServerMessage = z.discriminatedUnion('type', [
@@ -96,6 +90,8 @@ export const ControlMessage = z.discriminatedUnion('type', [
 ])
 export type ControlMessage = z.infer<typeof ControlMessage>
 
+// Codecs. parse* functions throw on malformed JSON (SyntaxError) or on a schema
+// mismatch (ZodError); callers handle both.
 // ---- codec ----
 type AnyMessage = ClientMessage | ServerMessage | DaemonMessage | ControlMessage
 
