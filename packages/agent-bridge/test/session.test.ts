@@ -57,14 +57,18 @@ describe('spawnAgent core', () => {
 
   it('emits exit when the agent process ends', async () => {
     const s = start()
-    let code: number | undefined
-    s.onExit((c) => {
-      code = c
-    })
-    const c = collect(s)
-    await waitFor(() => c.text.includes('paint='))
-    s.write(toB64('\x03')) // Ctrl-C → fixture exits 0
-    await waitFor(() => code !== undefined)
-    expect(code).toBe(0)
+    try {
+      let code: number | undefined
+      s.onExit((c) => {
+        code = c
+      })
+      const c = collect(s)
+      await waitFor(() => c.text.includes('paint='))
+      s.write(toB64('\x03')) // Ctrl-C → fixture exits 0
+      await waitFor(() => code !== undefined)
+      expect(code).toBe(0)
+    } finally {
+      s.dispose()
+    }
   })
 })

@@ -20,6 +20,7 @@ export interface AgentSession {
   readonly pid: number
   onFrame(cb: (frame: AgentFrame) => void): () => void
   onExit(cb: (code: number) => void): () => void
+  /** base64 of input bytes to inject into the PTY */
   write(dataBase64: string): void
   resize(cols: number, rows: number): void
   /** Force a real repaint even when geometry is unchanged. */
@@ -67,9 +68,11 @@ export function spawnAgent(opts: SpawnOptions): AgentSession {
       return () => exitCbs.delete(cb)
     },
     write(dataBase64) {
-      proc.write(Buffer.from(dataBase64, 'base64').toString('utf8'))
+      if (disposed) return
+      proc.write(Buffer.from(dataBase64, 'base64'))
     },
     resize(c, r) {
+      if (disposed) return
       cols = c
       rows = r
       proc.resize(c, r)
