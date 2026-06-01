@@ -14,6 +14,17 @@
         "vitest": "^4.1.8",
       },
     },
+    "apps/server": {
+      "name": "@podium/server",
+      "version": "0.0.0",
+      "dependencies": {
+        "@podium/core": "workspace:*",
+        "@podium/protocol": "workspace:*",
+      },
+      "devDependencies": {
+        "typescript": "^6.0.3",
+      },
+    },
     "packages/agent-bridge": {
       "name": "@podium/agent-bridge",
       "version": "0.0.0",
@@ -198,6 +209,8 @@
     "@podium/core": ["@podium/core@workspace:packages/core"],
 
     "@podium/protocol": ["@podium/protocol@workspace:packages/protocol"],
+
+    "@podium/server": ["@podium/server@workspace:apps/server"],
 
     "@podium/terminal-client": ["@podium/terminal-client@workspace:packages/terminal-client"],
 
