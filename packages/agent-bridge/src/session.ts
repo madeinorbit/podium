@@ -84,8 +84,10 @@ export function spawnAgent(opts: SpawnOptions): AgentSession {
         proc.write('\x0c') // Ctrl-L fallback when a nudge is impossible
         return
       }
+      if (nudgeTimer) clearTimeout(nudgeTimer) // cancel any in-flight nudge
       proc.resize(cols, rows - 1)
       nudgeTimer = setTimeout(() => {
+        nudgeTimer = undefined
         if (!disposed) proc.resize(cols, rows)
       }, 0)
     },
