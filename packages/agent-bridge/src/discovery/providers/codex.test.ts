@@ -1,8 +1,9 @@
 import { DatabaseSync } from 'node:sqlite'
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, test } from 'vitest'
+import { AgentConversationLoadError } from '../types.js'
 import { createCodexConversationProvider } from './codex.js'
 
 async function createRoot(): Promise<string> {
@@ -149,6 +150,31 @@ describe('createCodexConversationProvider', () => {
       expect.objectContaining({ role: 'assistant', content: 'scanner built' }),
     ])
     expect(conversation.raw).toEqual(expect.any(Array))
+  })
+
+  test('reports deleted lazy-load files as load failures with the original cause', async () => {
+    const root = await createRoot()
+    await writeCodexSession(root, 'sessions/2026/06/01/session.jsonl')
+    const provider = createCodexConversationProvider()
+    const scan = await provider.scanRoot(root)
+    const summary = scan.conversations[0]
+    expect(summary).toBeDefined()
+    await rm(summary!.source.path)
+
+    let error: unknown
+    try {
+      await provider.loadConversation(summary!)
+    } catch (cause) {
+      error = cause
+    }
+
+    expect(error).toBeInstanceOf(AgentConversationLoadError)
+    expect(error).toEqual(
+      expect.objectContaining({
+        message: expect.stringContaining('Could not load Codex conversation'),
+        cause: expect.objectContaining({ code: 'ENOENT' }),
+      }),
+    )
   })
 
   test('reports malformed candidate files without failing the whole root', async () => {

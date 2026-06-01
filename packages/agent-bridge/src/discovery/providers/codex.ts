@@ -85,7 +85,17 @@ async function loadConversation(summary: AgentConversationSummary): Promise<Agen
   }
 
   if (parsed.diagnostics.length > 0) {
-    throw new AgentConversationLoadError(`Could not parse Codex conversation ${summary.source.path}`)
+    const readDiagnostic = parsed.diagnostics.find(
+      (diagnostic) => diagnostic.message === 'Codex session file cannot be read',
+    )
+    if (readDiagnostic) {
+      throw new AgentConversationLoadError(
+        'Could not load Codex conversation from ' + summary.source.path,
+        { cause: readDiagnostic.cause },
+      )
+    }
+
+    throw new AgentConversationLoadError('Could not parse Codex conversation ' + summary.source.path)
   }
 
   return { ...summary, messages: codexMessages(parsed.records), raw: parsed.records }
