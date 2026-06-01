@@ -16,43 +16,56 @@ function start() {
 describe('spawnAgent core', () => {
   it('emits an initial frame with the PTY geometry', async () => {
     const s = start()
-    const c = collect(s)
-    await waitFor(() => c.text.includes('cols=80 rows=24'))
-    expect(c.text).toContain('PODIUM-FIXTURE')
-    expect(s.geometry()).toEqual({ cols: 80, rows: 24 })
-    s.dispose()
+    try {
+      const c = collect(s)
+      await waitFor(() => c.text.includes('cols=80 rows=24'))
+      expect(c.text).toContain('PODIUM-FIXTURE')
+      expect(s.geometry()).toEqual({ cols: 80, rows: 24 })
+    } finally {
+      s.dispose()
+    }
   })
 
   it('round-trips input to the PTY', async () => {
     const s = start()
-    const c = collect(s)
-    await waitFor(() => c.text.includes('paint='))
-    s.write(toB64('a')) // 'a' === 0x61
-    await waitFor(() => c.text.includes('last-input=61'))
-    expect(c.text).toContain('last-input=61')
-    s.dispose()
+    try {
+      const c = collect(s)
+      await waitFor(() => c.text.includes('paint='))
+      s.write(toB64('a')) // 'a' === 0x61
+      await waitFor(() => c.text.includes('last-input=61'))
+      expect(c.text).toContain('last-input=61')
+    } finally {
+      s.dispose()
+    }
   })
 
   it('resizes the PTY and the TUI repaints at the new geometry', async () => {
     const s = start()
-    const c = collect(s)
-    await waitFor(() => c.text.includes('cols=80 rows=24'))
-    s.resize(100, 30)
-    await waitFor(() => c.text.includes('cols=100 rows=30'))
-    expect(s.geometry()).toEqual({ cols: 100, rows: 30 })
-    s.dispose()
+    try {
+      const c = collect(s)
+      await waitFor(() => c.text.includes('cols=80 rows=24'))
+      s.resize(100, 30)
+      await waitFor(() => c.text.includes('cols=100 rows=30'))
+      expect(s.geometry()).toEqual({ cols: 100, rows: 30 })
+    } finally {
+      s.dispose()
+    }
   })
 
   it('assigns monotonically increasing frame seq', async () => {
     const s = start()
-    const c = collect(s)
-    s.write(toB64('x')) // force at least one extra repaint
-    await waitFor(() => c.seqs.length >= 2)
-    const seqs = c.seqs
-    for (let i = 1; i < seqs.length; i += 1) {
-      expect(seqs[i] as number).toBeGreaterThan(seqs[i - 1] as number)
+    try {
+      const c = collect(s)
+      s.write(toB64('x')) // force at least one extra repaint
+      await waitFor(() => c.seqs.length >= 2)
+      const seqs = c.seqs
+      expect(seqs[0]).toBe(0)
+      for (let i = 1; i < seqs.length; i += 1) {
+        expect(seqs[i] as number).toBeGreaterThan(seqs[i - 1] as number)
+      }
+    } finally {
+      s.dispose()
     }
-    s.dispose()
   })
 
   it('emits exit when the agent process ends', async () => {

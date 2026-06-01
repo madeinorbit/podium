@@ -42,4 +42,8 @@ describe('protocol codec', () => {
     const msg = { type: 'redraw' } as const
     expect(parseControlMessage(encode(msg))).toEqual(msg)
   })
+
+  it('throws on malformed JSON', () => {
+    expect(() => parseClientMessage('{bad json')).toThrow()
+  })
 })
