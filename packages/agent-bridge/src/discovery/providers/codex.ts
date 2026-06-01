@@ -18,7 +18,7 @@ import type {
   ProviderScanResult,
 } from '../types.js'
 import { AgentConversationLoadError } from '../types.js'
-import { readCodexStateMetadata, type CodexThreadMetadata } from './codex-state.js'
+import { type CodexThreadMetadata, readCodexStateMetadata } from './codex-state.js'
 
 export function createCodexConversationProvider(): ConversationProvider {
   return {
@@ -90,18 +90,23 @@ async function loadConversation(summary: AgentConversationSummary): Promise<Agen
     )
     if (readDiagnostic) {
       throw new AgentConversationLoadError(
-        'Could not load Codex conversation from ' + summary.source.path,
+        `Could not load Codex conversation from ${summary.source.path}`,
         { cause: readDiagnostic.cause },
       )
     }
 
-    throw new AgentConversationLoadError('Could not parse Codex conversation ' + summary.source.path)
+    throw new AgentConversationLoadError(
+      `Could not parse Codex conversation ${summary.source.path}`,
+    )
   }
 
   return { ...summary, messages: codexMessages(parsed.records), raw: parsed.records }
 }
 
-async function readCodexRecords(file: string, root: string): Promise<{
+async function readCodexRecords(
+  file: string,
+  root: string,
+): Promise<{
   records: unknown[]
   diagnostics: AgentConversationDiagnostic[]
 }> {
@@ -135,7 +140,8 @@ async function summarizeCodexRecords(
   const messages = codexMessages(records)
   if (!meta && !metadata && messages.length === 0) return undefined
 
-  const id = metadata?.id ?? (meta ? stringField(meta, 'id') : undefined) ?? basename(file, '.jsonl')
+  const id =
+    metadata?.id ?? (meta ? stringField(meta, 'id') : undefined) ?? basename(file, '.jsonl')
   const dates = records.map(recordTimestamp).filter((date): date is Date => date !== undefined)
 
   return {
@@ -155,7 +161,8 @@ async function summarizeCodexRecords(
       providerId: 'codex-jsonl',
       root,
       path: file,
-      relatedPaths: metadata?.rolloutPath && metadata.rolloutPath !== file ? [metadata.rolloutPath] : undefined,
+      relatedPaths:
+        metadata?.rolloutPath && metadata.rolloutPath !== file ? [metadata.rolloutPath] : undefined,
     },
   }
 }

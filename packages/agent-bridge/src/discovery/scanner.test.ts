@@ -2,8 +2,8 @@ import { mkdir, mkdtemp, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, test } from 'vitest'
-import { AgentConversationLoadError, type AgentConversationSummary } from './types.js'
 import { loadAgentConversation, scanAgentConversations } from './scanner.js'
+import { AgentConversationLoadError, type AgentConversationSummary } from './types.js'
 
 async function createHome(): Promise<string> {
   return await mkdtemp(join(tmpdir(), 'podium-scanner-'))
@@ -159,8 +159,9 @@ describe('loadAgentConversation', () => {
     const result = await scanAgentConversations({ homeDir, agents: ['codex'] })
     const summary = result.conversations[0]
     expect(summary).toBeDefined()
+    if (!summary) throw new Error('Expected conversation summary')
 
-    const conversation = await loadAgentConversation(summary!)
+    const conversation = await loadAgentConversation(summary)
 
     expect(conversation.messages).toEqual([
       expect.objectContaining({ role: 'user', content: 'codex scan' }),

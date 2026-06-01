@@ -1,7 +1,4 @@
-import type {
-  AgentConversationDiagnostic,
-  AgentConversationRole,
-} from './types.js'
+import type { AgentConversationDiagnostic, AgentConversationRole } from './types.js'
 
 type ParseJsonLinesContext = {
   providerId: string

@@ -96,7 +96,9 @@ async function loadConversation(summary: AgentConversationSummary): Promise<Agen
   return { ...summary, messages: claudeMessages(parsed.records), raw: parsed.records }
 }
 
-async function listClaudeConversationFiles(projectsRoot: string): Promise<ClaudeConversationFile[]> {
+async function listClaudeConversationFiles(
+  projectsRoot: string,
+): Promise<ClaudeConversationFile[]> {
   const files: ClaudeConversationFile[] = []
   const projectDirs = await readdir(projectsRoot, { withFileTypes: true })
 
@@ -167,7 +169,9 @@ async function summarizeClaudeRecords(
   const summaryRecord = records.find(
     (record) => isRecord(record) && stringField(record, 'customTitle'),
   )
-  const sessionRecord = records.find((record) => isRecord(record) && stringField(record, 'sessionId'))
+  const sessionRecord = records.find(
+    (record) => isRecord(record) && stringField(record, 'sessionId'),
+  )
   if (messages.length === 0 && !summaryRecord && !sessionRecord) return undefined
 
   const canonical = await canonicalPath(file.path)

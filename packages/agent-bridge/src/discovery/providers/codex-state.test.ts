@@ -1,7 +1,7 @@
-import { DatabaseSync } from 'node:sqlite'
 import { mkdir, mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { DatabaseSync } from 'node:sqlite'
 import { describe, expect, test } from 'vitest'
 import { readCodexStateMetadata } from './codex-state.js'
 

@@ -1,33 +1,31 @@
 import { describe, expect, test } from 'vitest'
 import {
-  AgentConversationLoadError,
-  loadAgentConversation,
-  scanAgentConversations,
   type AgentConversation,
   type AgentConversationDiagnostic,
+  type AgentConversationGitMetadata,
+  AgentConversationLoadError,
   type AgentConversationMessage,
+  type AgentConversationResumeRef,
   type AgentConversationRole,
   type AgentConversationSource,
+  type AgentConversationStatusHint,
   type AgentConversationSummary,
   type AgentConversationTitleSource,
-  type AgentConversationStatusHint,
-  type AgentConversationGitMetadata,
-  type AgentConversationResumeRef,
+  type AgentKind,
   type ConversationProvider,
   type ConversationProviderContext,
+  loadAgentConversation,
   type ProviderScanResult,
-  type AgentKind,
   type ScanAgentConversationsOptions,
   type ScanAgentConversationsResult,
+  scanAgentConversations,
 } from './index.js'
 
 describe('public package exports', () => {
   test('exports conversation scanner runtime API from the package index', () => {
     expect(scanAgentConversations).toEqual(expect.any(Function))
     expect(loadAgentConversation).toEqual(expect.any(Function))
-    expect(new AgentConversationLoadError('load failed')).toBeInstanceOf(
-      AgentConversationLoadError,
-    )
+    expect(new AgentConversationLoadError('load failed')).toBeInstanceOf(AgentConversationLoadError)
   })
 
   test('exports public conversation scanner types from the package index', () => {
@@ -54,6 +52,6 @@ describe('public package exports', () => {
   })
 })
 
-function expectTypeExport<T>(): void {
+function expectTypeExport<_T>(): void {
   expect(true).toBe(true)
 }

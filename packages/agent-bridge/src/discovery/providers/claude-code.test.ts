@@ -70,7 +70,9 @@ describe('createClaudeCodeConversationProvider', () => {
 
     expect(result.diagnostics).toEqual([])
     expect(result.conversations).toHaveLength(2)
-    const parent = result.conversations.find((conversation) => conversation.id === 'claude-session-1')
+    const parent = result.conversations.find(
+      (conversation) => conversation.id === 'claude-session-1',
+    )
     const child = result.conversations.find((conversation) => conversation.id === 'agent-a')
 
     expect(parent).toEqual(
@@ -104,7 +106,9 @@ describe('createClaudeCodeConversationProvider', () => {
         source: expect.objectContaining({
           providerId: 'claude-code-jsonl',
           root,
-          relatedPaths: [join(root, 'projects/-repo-project/claude-session-1/subagents/agent-a.meta.json')],
+          relatedPaths: [
+            join(root, 'projects/-repo-project/claude-session-1/subagents/agent-a.meta.json'),
+          ],
         }),
       }),
     )
@@ -138,8 +142,9 @@ describe('createClaudeCodeConversationProvider', () => {
     const scan = await provider.scanRoot(root)
     const summary = scan.conversations[0]
     expect(summary).toBeDefined()
+    if (!summary) throw new Error('Expected Claude Code conversation summary')
 
-    const conversation = await provider.loadConversation(summary!)
+    const conversation = await provider.loadConversation(summary)
 
     expect(conversation.messages).toEqual([
       expect.objectContaining({ role: 'user', content: 'scan conversations' }),
@@ -175,11 +180,12 @@ describe('createClaudeCodeConversationProvider', () => {
     const scan = await provider.scanRoot(root)
     const summary = scan.conversations[0]
     expect(summary).toBeDefined()
-    await rm(summary!.source.path)
+    if (!summary) throw new Error('Expected Claude Code conversation summary')
+    await rm(summary.source.path)
 
     let error: unknown
     try {
-      await provider.loadConversation(summary!)
+      await provider.loadConversation(summary)
     } catch (cause) {
       error = cause
     }
@@ -200,11 +206,12 @@ describe('createClaudeCodeConversationProvider', () => {
     const scan = await provider.scanRoot(root)
     const summary = scan.conversations[0]
     expect(summary).toBeDefined()
-    await writeFile(summary!.source.path, '{"ok":true}\nnot-json\n')
+    if (!summary) throw new Error('Expected Claude Code conversation summary')
+    await writeFile(summary.source.path, '{"ok":true}\nnot-json\n')
 
     let error: unknown
     try {
-      await provider.loadConversation(summary!)
+      await provider.loadConversation(summary)
     } catch (cause) {
       error = cause
     }

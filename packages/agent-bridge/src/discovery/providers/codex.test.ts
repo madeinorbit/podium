@@ -1,7 +1,7 @@
-import { DatabaseSync } from 'node:sqlite'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { DatabaseSync } from 'node:sqlite'
 import { describe, expect, test } from 'vitest'
 import { AgentConversationLoadError } from '../types.js'
 import { createCodexConversationProvider } from './codex.js'
@@ -10,7 +10,11 @@ async function createRoot(): Promise<string> {
   return await mkdtemp(join(tmpdir(), 'podium-codex-'))
 }
 
-async function writeCodexSession(root: string, relativePath: string, id = 'codex-session-1'): Promise<string> {
+async function writeCodexSession(
+  root: string,
+  relativePath: string,
+  id = 'codex-session-1',
+): Promise<string> {
   const file = join(root, relativePath)
   await mkdir(join(file, '..'), { recursive: true })
   await writeFile(
@@ -24,7 +28,11 @@ async function writeCodexSession(root: string, relativePath: string, id = 'codex
       JSON.stringify({
         timestamp: '2026-06-01T10:01:00.000Z',
         type: 'response_item',
-        payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'build scanner' }] },
+        payload: {
+          type: 'message',
+          role: 'user',
+          content: [{ type: 'input_text', text: 'build scanner' }],
+        },
       }),
       JSON.stringify({
         timestamp: '2026-06-01T10:02:00.000Z',
@@ -142,8 +150,9 @@ describe('createCodexConversationProvider', () => {
     const scan = await provider.scanRoot(root)
     const summary = scan.conversations[0]
     expect(summary).toBeDefined()
+    if (!summary) throw new Error('Expected Codex conversation summary')
 
-    const conversation = await provider.loadConversation(summary!)
+    const conversation = await provider.loadConversation(summary)
 
     expect(conversation.messages).toEqual([
       expect.objectContaining({ role: 'user', content: 'build scanner' }),
@@ -159,11 +168,12 @@ describe('createCodexConversationProvider', () => {
     const scan = await provider.scanRoot(root)
     const summary = scan.conversations[0]
     expect(summary).toBeDefined()
-    await rm(summary!.source.path)
+    if (!summary) throw new Error('Expected Codex conversation summary')
+    await rm(summary.source.path)
 
     let error: unknown
     try {
-      await provider.loadConversation(summary!)
+      await provider.loadConversation(summary)
     } catch (cause) {
       error = cause
     }
