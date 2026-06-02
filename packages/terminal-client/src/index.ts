@@ -1,11 +1,8 @@
 /**
- * @podium/terminal-client
- *
- * Framework-agnostic browser client that presents Podium agent terminal sessions on
- * web and mobile: xterm.js rendering, mobile key toolbar, touch/scroll policy,
- * reconnect/backpressure handling, controller/spectator multi-client rendering, and a
- * separate transcript view. Speaks {@link @podium/protocol}.
- *
- * Skeleton only — no implementation yet.
+ * @podium/terminal-client — browser presentation client. Phase 3a: the framework-
+ * agnostic core (connection state machine, viewport seam, key encoder). Rendering,
+ * the mobile toolbar, and the DOM viewport source land in Phase 3b.
  */
-export {}
+export * from './connection'
+export * from './keys'
+export * from './viewport'
