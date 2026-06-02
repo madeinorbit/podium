@@ -57,6 +57,17 @@
         "typescript": "^6.0.3",
       },
     },
+    "e2e": {
+      "name": "@podium/e2e",
+      "version": "0.0.0",
+      "dependencies": {
+        "@podium/protocol": "workspace:*",
+        "ws": "^8.18.0",
+      },
+      "devDependencies": {
+        "@types/ws": "^8.5.13",
+      },
+    },
     "packages/agent-bridge": {
       "name": "@podium/agent-bridge",
       "version": "0.0.0",
@@ -249,6 +260,8 @@
     "@podium/core": ["@podium/core@workspace:packages/core"],
 
     "@podium/daemon": ["@podium/daemon@workspace:apps/daemon"],
+
+    "@podium/e2e": ["@podium/e2e@workspace:e2e"],
 
     "@podium/protocol": ["@podium/protocol@workspace:packages/protocol"],
 

@@ -10,7 +10,8 @@
   "workspaces": [
     "apps/*",
     "packages/*",
-    "tooling/*"
+    "tooling/*",
+    "e2e"
   ],
   "scripts": {
     "build": "bun run --filter './packages/*' build",
