@@ -44,7 +44,11 @@ describe('SessionConnection', () => {
   it('sends hello + redrawRequest on open and marks connected', () => {
     const { sock, conn } = connect()
     const sent = sock.sentClient()
-    expect(sent[0]).toEqual({ type: 'hello', clientId: '', viewport: { cols: 80, rows: 24, dpr: 2 } })
+    expect(sent[0]).toEqual({
+      type: 'hello',
+      clientId: '',
+      viewport: { cols: 80, rows: 24, dpr: 2 },
+    })
     expect(sent.some((m) => m.type === 'redrawRequest')).toBe(true)
     expect(conn.state().connected).toBe(true)
   })
@@ -52,7 +56,13 @@ describe('SessionConnection', () => {
   it('adopts identity + role=controller from welcome when it is the controller', () => {
     const { sock, conn } = connect()
     sock.deliver(
-      encode({ type: 'welcome', clientId: 'c0', sessionId: 's1', controllerId: 'c0', geometry: { cols: 100, rows: 30 } }),
+      encode({
+        type: 'welcome',
+        clientId: 'c0',
+        sessionId: 's1',
+        controllerId: 'c0',
+        geometry: { cols: 100, rows: 30 },
+      }),
     )
     const s = conn.state()
     expect(s.clientId).toBe('c0')
@@ -64,7 +74,15 @@ describe('SessionConnection', () => {
 
   it('decodes outputFrame data to utf8 and tracks seq + epoch', () => {
     const { sock, conn, frames } = connect()
-    sock.deliver(encode({ type: 'welcome', clientId: 'c0', sessionId: 's1', controllerId: 'c0', geometry: { cols: 80, rows: 24 } }))
+    sock.deliver(
+      encode({
+        type: 'welcome',
+        clientId: 'c0',
+        sessionId: 's1',
+        controllerId: 'c0',
+        geometry: { cols: 80, rows: 24 },
+      }),
+    )
     sock.deliver(encode({ type: 'outputFrame', seq: 7, epoch: 2, data: 'aGVsbG8=' }))
     expect(frames.at(-1)).toBe('hello')
     expect(conn.state().lastSeq).toBe(7)
@@ -73,8 +91,18 @@ describe('SessionConnection', () => {
 
   it('becomes spectator when controllerChanged names another client', () => {
     const { sock, conn } = connect()
-    sock.deliver(encode({ type: 'welcome', clientId: 'c0', sessionId: 's1', controllerId: 'c0', geometry: { cols: 80, rows: 24 } }))
-    sock.deliver(encode({ type: 'controllerChanged', controllerId: 'c1', geometry: { cols: 40, rows: 30 } }))
+    sock.deliver(
+      encode({
+        type: 'welcome',
+        clientId: 'c0',
+        sessionId: 's1',
+        controllerId: 'c0',
+        geometry: { cols: 80, rows: 24 },
+      }),
+    )
+    sock.deliver(
+      encode({ type: 'controllerChanged', controllerId: 'c1', geometry: { cols: 40, rows: 30 } }),
+    )
     const s = conn.state()
     expect(s.role).toBe('spectator')
     expect(s.controllerId).toBe('c1')
