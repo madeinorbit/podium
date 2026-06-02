@@ -21,6 +21,9 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
   view.mount(el)
   const fitted = view.fit()
 
+  let wasController = false
+  let onControllerEnter: (() => void) | undefined
+
   const connection = new SessionConnection({
     url: opts.url,
     viewport: { cols: fitted.cols, rows: fitted.rows, dpr: globalThis.devicePixelRatio ?? 1 },
@@ -31,9 +34,29 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
       }
       el.dataset.role = state.role
       el.dataset.epoch = String(state.epoch)
+      if (state.role === 'controller') {
+        if (!wasController) {
+          wasController = true
+          onControllerEnter?.()
+        }
+      } else {
+        wasController = false
+      }
       opts.onState?.(state)
     },
   })
+
+  // On becoming controller, fit the terminal to THIS client's viewport and tell the
+  // agent. The element's initial layout resize fires before the welcome makes us
+  // controller, so without this the session stays at the daemon's initial grid.
+  onControllerEnter = () => {
+    requestAnimationFrame(() => {
+      const s = connection.state()
+      if (s.role !== 'controller') return
+      const grid = view.fit()
+      if (grid.cols !== s.cols || grid.rows !== s.rows) connection.sendResize(grid.cols, grid.rows)
+    })
+  }
 
   const offInput = view.onData((data) => connection.sendInput(data))
 

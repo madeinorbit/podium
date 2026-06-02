@@ -99,6 +99,26 @@ test('physical keyboard input reaches the agent', async ({ page }) => {
   await waitText(page, 'last-input=78')
 })
 
+test('controller fits the terminal to its own viewport, not the daemon default', async ({
+  page,
+}, testInfo: TestInfo) => {
+  await page.goto(appUrl())
+  await waitText(page, 'PODIUM-FIXTURE')
+  await expect.poll(async () => (await state(page)).role, { timeout: 10_000 }).toBe('controller')
+  // The daemon spawns the fixture at 80 cols. A correctly-fitted client resizes the
+  // agent to match its own viewport on connect — wider on desktop, narrower on a phone.
+  // Before the fit-on-connect fix the session stayed stuck at the daemon's 80 cols.
+  await expect
+    .poll(async () => (await state(page)).cols as number, { timeout: 10_000 })
+    .not.toBe(80)
+  const cols = (await state(page)).cols as number
+  if (testInfo.project.name === 'chromium-desktop') {
+    expect(cols).toBeGreaterThan(80)
+  } else {
+    expect(cols).toBeLessThan(80)
+  }
+})
+
 test('Take control button bumps epoch', async ({ page }) => {
   await page.goto(appUrl())
   await waitText(page, 'PODIUM-FIXTURE')
