@@ -6,21 +6,20 @@
   "dependencies": {
     "@podium/terminal-client": "workspace:*",
     "@podium/core": "workspace:*",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "@xterm/xterm": "^5.5.0"
+    "lucide-react": "^0.468.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit",
-    "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "dev": "vite --host 0.0.0.0",
+    "preview": "vite preview --host 0.0.0.0",
+    "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
     "typescript": "^6.0.3",
-    "vite": "^6.0.0",
-    "@vitejs/plugin-react": "^4.3.4",
-    "@types/react": "^18.3.12",
-    "@types/react-dom": "^18.3.1"
+    "vite": "^8.0.16"
   }
 }
