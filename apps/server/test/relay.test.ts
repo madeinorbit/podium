@@ -90,3 +90,117 @@ describe('RelayHub — daemon side + lifecycle', () => {
     expect(() => hub.onDaemonMessage({ type: 'agentExit', code: 1 })).not.toThrow()
   })
 })
+
+describe('RelayHub — client control', () => {
+  function setup() {
+    const hub = new RelayHub()
+    const daemon = capture<ControlMessage>()
+    hub.attachDaemon(daemon.send)
+    hub.onDaemonMessage({
+      type: 'bind',
+      sessionId: 's1',
+      cmd: 'fixture',
+      geometry: { cols: 80, rows: 24 },
+    })
+    return { hub, daemon }
+  }
+
+  it('forwards input from the controller to the daemon', () => {
+    const { hub, daemon } = setup()
+    const a = capture<ServerMessage>()
+    const id = hub.attachClient(a.send)
+    hub.onClientMessage(id, { type: 'input', data: 'YQ==' })
+    expect(daemon.msgs).toContainEqual({ type: 'input', data: 'YQ==' })
+  })
+
+  it('drops input from a non-controller (spectator)', () => {
+    const { hub, daemon } = setup()
+    const a = capture<ServerMessage>()
+    const b = capture<ServerMessage>()
+    hub.attachClient(a.send)
+    const idB = hub.attachClient(b.send)
+    hub.onClientMessage(idB, { type: 'input', data: 'YQ==' })
+    expect(daemon.msgs).not.toContainEqual({ type: 'input', data: 'YQ==' })
+  })
+
+  it('applies a controller resize to the session geometry and forwards it', () => {
+    const { hub, daemon } = setup()
+    const a = capture<ServerMessage>()
+    const id = hub.attachClient(a.send)
+    hub.onClientMessage(id, { type: 'resize', cols: 120, rows: 40 })
+    expect(hub.info().geometry).toEqual({ cols: 120, rows: 40 })
+    expect(daemon.msgs).toContainEqual({ type: 'resize', cols: 120, rows: 40 })
+  })
+
+  it('does not change session geometry on a spectator resize', () => {
+    const { hub, daemon } = setup()
+    const a = capture<ServerMessage>()
+    const b = capture<ServerMessage>()
+    hub.attachClient(a.send)
+    const idB = hub.attachClient(b.send)
+    hub.onClientMessage(idB, { type: 'resize', cols: 50, rows: 20 })
+    expect(hub.info().geometry).toEqual({ cols: 80, rows: 24 })
+    expect(daemon.msgs).not.toContainEqual({ type: 'resize', cols: 50, rows: 20 })
+  })
+
+  it('takeover: requestControl bumps epoch, resizes+redraws the daemon, broadcasts to all', () => {
+    const { hub, daemon } = setup()
+    const a = capture<ServerMessage>()
+    const b = capture<ServerMessage>()
+    hub.attachClient(a.send)
+    const idB = hub.attachClient(b.send)
+    hub.onClientMessage(idB, { type: 'resize', cols: 40, rows: 30 })
+    hub.onClientMessage(idB, { type: 'requestControl' })
+    expect(hub.info().controllerId).toBe(idB)
+    expect(hub.info().epoch).toBe(1)
+    expect(hub.info().geometry).toEqual({ cols: 40, rows: 30 })
+    expect(daemon.msgs).toContainEqual({ type: 'resize', cols: 40, rows: 30 })
+    expect(daemon.msgs).toContainEqual({ type: 'redraw' })
+    expect(a.msgs).toContainEqual({
+      type: 'controllerChanged',
+      controllerId: idB,
+      geometry: { cols: 40, rows: 30 },
+    })
+    expect(b.msgs).toContainEqual({ type: 'geometry', cols: 40, rows: 30 })
+  })
+
+  it('frames after a takeover carry the bumped epoch', () => {
+    const { hub } = setup()
+    const a = capture<ServerMessage>()
+    const b = capture<ServerMessage>()
+    hub.attachClient(a.send)
+    const idB = hub.attachClient(b.send)
+    hub.onClientMessage(idB, { type: 'requestControl' })
+    hub.onDaemonMessage({ type: 'agentFrame', seq: 9, data: 'eA==' })
+    expect(a.msgs.at(-1)).toEqual({ type: 'outputFrame', seq: 9, epoch: 1, data: 'eA==' })
+  })
+
+  it('redrawRequest forwards a redraw to the daemon', () => {
+    const { hub, daemon } = setup()
+    const a = capture<ServerMessage>()
+    const id = hub.attachClient(a.send)
+    hub.onClientMessage(id, { type: 'redrawRequest' })
+    expect(daemon.msgs).toContainEqual({ type: 'redraw' })
+  })
+
+  it('hello updates the client viewport used on takeover', () => {
+    const { hub } = setup()
+    const a = capture<ServerMessage>()
+    const b = capture<ServerMessage>()
+    hub.attachClient(a.send)
+    const idB = hub.attachClient(b.send)
+    hub.onClientMessage(idB, {
+      type: 'hello',
+      clientId: idB,
+      viewport: { cols: 33, rows: 21, dpr: 2 },
+    })
+    hub.onClientMessage(idB, { type: 'requestControl' })
+    expect(hub.info().geometry).toEqual({ cols: 33, rows: 21 })
+  })
+
+  it('ignores client messages for an unknown id', () => {
+    const { hub, daemon } = setup()
+    expect(() => hub.onClientMessage('ghost', { type: 'redrawRequest' })).not.toThrow()
+    expect(daemon.msgs).not.toContainEqual({ type: 'redraw' })
+  })
+})

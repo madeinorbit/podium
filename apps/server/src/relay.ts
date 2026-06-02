@@ -24,7 +24,6 @@ export interface SessionInfo {
 }
 
 export class RelayHub {
-  // biome-ignore lint/correctness/noUnusedPrivateClassMembers: used by attachDaemon/detachDaemon; Task 3+ will read it
   private daemonSend: Send<ControlMessage> | undefined
   private sessionId = ''
   private cmd = ''
@@ -47,7 +46,7 @@ export class RelayHub {
       case 'bind':
         this.sessionId = msg.sessionId
         this.cmd = msg.cmd
-        this.geometry = msg.geometry
+        this.geometry = { ...msg.geometry }
         break
       case 'agentFrame':
         this.broadcast({ type: 'outputFrame', seq: msg.seq, epoch: this.epoch, data: msg.data })
@@ -69,7 +68,7 @@ export class RelayHub {
       clientId: id,
       sessionId: this.sessionId,
       controllerId,
-      geometry: this.geometry,
+      geometry: { ...this.geometry },
     })
     return id
   }
@@ -82,8 +81,40 @@ export class RelayHub {
     }
   }
 
-  onClientMessage(_id: string, _msg: ClientMessage): void {
-    throw new Error('not implemented')
+  onClientMessage(id: string, msg: ClientMessage): void {
+    const client = this.clients.get(id)
+    if (client === undefined) return
+    switch (msg.type) {
+      case 'hello':
+        client.viewport = { cols: msg.viewport.cols, rows: msg.viewport.rows }
+        break
+      case 'resize':
+        client.viewport = { cols: msg.cols, rows: msg.rows }
+        if (id === this.controllerId) {
+          this.geometry = { cols: msg.cols, rows: msg.rows }
+          this.daemonSend?.({ type: 'resize', cols: msg.cols, rows: msg.rows })
+        }
+        break
+      case 'input':
+        if (id === this.controllerId) this.daemonSend?.({ type: 'input', data: msg.data })
+        break
+      case 'requestControl':
+        this.controllerId = id
+        this.geometry = { ...client.viewport }
+        this.epoch += 1
+        this.daemonSend?.({ type: 'resize', cols: this.geometry.cols, rows: this.geometry.rows })
+        this.daemonSend?.({ type: 'redraw' })
+        this.broadcast({
+          type: 'controllerChanged',
+          controllerId: id,
+          geometry: { ...this.geometry },
+        })
+        this.broadcast({ type: 'geometry', cols: this.geometry.cols, rows: this.geometry.rows })
+        break
+      case 'redrawRequest':
+        this.daemonSend?.({ type: 'redraw' })
+        break
+    }
   }
 
   info(): SessionInfo {
