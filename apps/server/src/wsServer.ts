@@ -49,6 +49,10 @@ export function attachWebSockets(server: Server, hub: RelayHub): WsHandle {
   return {
     close() {
       return new Promise<void>((resolve) => {
+        // Terminate existing connections so wss.close() resolves immediately rather
+        // than waiting for clients to disconnect on their own.
+        for (const ws of daemonWss.clients) ws.terminate()
+        for (const ws of clientWss.clients) ws.terminate()
         daemonWss.close(() => clientWss.close(() => resolve()))
       })
     },

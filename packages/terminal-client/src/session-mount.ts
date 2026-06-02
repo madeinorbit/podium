@@ -52,7 +52,15 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
       sendInput: (s: string) => connection.sendInput(s),
       takeControl: () => connection.requestControl(),
       simulateKeyboard: (inset: number) => {
-        el.style.height = inset > 0 ? `calc(100% - ${inset}px)` : ''
+        // Percentage heights don't resolve when the parent has auto height, so we
+        // compute the explicit pixel value from the element's current rendered height.
+        // This ensures FitAddon sees a genuinely smaller container and recomputes rows.
+        if (inset > 0) {
+          const currentH = el.getBoundingClientRect().height
+          el.style.height = `${Math.max(0, currentH - inset)}px`
+        } else {
+          el.style.height = ''
+        }
         const grid = view.fit()
         connection.sendResize(grid.cols, grid.rows)
       },

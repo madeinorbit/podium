@@ -73,6 +73,7 @@
         "ws": "^8.18.0",
       },
       "devDependencies": {
+        "@playwright/test": "^1.60.0",
         "@types/ws": "^8.5.13",
       },
     },
