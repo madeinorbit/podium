@@ -21,8 +21,11 @@
         "@podium/agent-bridge": "workspace:*",
         "@podium/core": "workspace:*",
         "@podium/protocol": "workspace:*",
+        "ws": "^8.18.0",
       },
       "devDependencies": {
+        "@types/ws": "^8.5.13",
+        "tsx": "^4.22.4",
         "typescript": "^6.0.3",
       },
     },

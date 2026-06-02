@@ -6,12 +6,15 @@
   "dependencies": {
     "@podium/agent-bridge": "workspace:*",
     "@podium/protocol": "workspace:*",
-    "@podium/core": "workspace:*"
+    "@podium/core": "workspace:*",
+    "ws": "^8.18.0"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
-    "typescript": "^6.0.3"
+    "typescript": "^6.0.3",
+    "@types/ws": "^8.5.13",
+    "tsx": "^4.22.4"
   }
 }
