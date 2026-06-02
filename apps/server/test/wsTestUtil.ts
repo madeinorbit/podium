@@ -8,6 +8,16 @@ export function openWs(url: string): Promise<WebSocket> {
   })
 }
 
+/** Returns the WebSocket immediately so listeners can be registered before open. */
+export function connectWs(url: string): { ws: WebSocket; opened: Promise<void> } {
+  const ws = new WebSocket(url)
+  const opened = new Promise<void>((resolve, reject) => {
+    ws.once('open', resolve)
+    ws.once('error', reject)
+  })
+  return { ws, opened }
+}
+
 export function waitMessage<T>(
   ws: WebSocket,
   parse: (raw: string) => T,
@@ -34,4 +44,12 @@ export function waitMessage<T>(
     }
     ws.on('message', onMessage)
   })
+}
+
+export async function waitFor(pred: () => boolean, timeoutMs = 3000): Promise<void> {
+  const start = Date.now()
+  while (!pred()) {
+    if (Date.now() - start > timeoutMs) throw new Error('waitFor: timed out')
+    await new Promise((r) => setTimeout(r, 20))
+  }
 }
