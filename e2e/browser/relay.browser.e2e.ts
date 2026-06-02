@@ -88,3 +88,12 @@ test('toolbar Ctrl-C reaches the agent (fixture exits)', async ({ page }) => {
   // fixture exits 0 → agentExit relayed. Assert the client still has a session (no crash).
   await expect.poll(async () => (await state(page)).connected, { timeout: 10_000 }).toBe(true)
 })
+
+test('physical keyboard input reaches the agent', async ({ page }) => {
+  await page.goto(appUrl())
+  await waitText(page, 'PODIUM-FIXTURE')
+  await page.locator('#term').click() // focus the terminal
+  await page.keyboard.type('x')
+  // the fixture echoes the last input chunk as hex; 'x' === 0x78
+  await waitText(page, 'last-input=78')
+})

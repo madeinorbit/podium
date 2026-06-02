@@ -65,6 +65,15 @@ export class TerminalView {
     return (h >>> 0).toString(16)
   }
 
+  onData(cb: (data: string) => void): () => void {
+    const sub = this.term.onData(cb)
+    return () => sub.dispose()
+  }
+
+  focus(): void {
+    this.term.focus()
+  }
+
   dispose(): void {
     this.term.dispose()
   }

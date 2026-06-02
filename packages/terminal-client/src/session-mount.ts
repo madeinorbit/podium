@@ -33,6 +33,8 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
     },
   })
 
+  const offInput = view.onData((data) => connection.sendInput(data))
+
   const viewport = new DomViewportSource(el)
   const offViewport = viewport.onChange(() => {
     if (connection.state().role !== 'controller') return
@@ -43,6 +45,7 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
   const offToolbar = opts.toolbarEl ? mountKeyToolbar(opts.toolbarEl, connection) : () => {}
 
   connection.connect()
+  view.focus()
 
   if (opts.test) {
     ;(globalThis as unknown as { __podium?: unknown }).__podium = {
@@ -71,6 +74,7 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
     connection,
     view,
     dispose() {
+      offInput()
       offViewport()
       offToolbar()
       viewport.dispose()
