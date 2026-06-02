@@ -1,4 +1,4 @@
-import { SessionConnection } from './connection'
+import { type ConnectionState, SessionConnection } from './connection'
 import { DomViewportSource } from './dom-viewport'
 import { TerminalView } from './terminal-view'
 import { mountKeyToolbar } from './toolbar'
@@ -7,6 +7,7 @@ export interface MountSessionOptions {
   url: string
   toolbarEl?: HTMLElement
   test?: boolean
+  onState?: (state: ConnectionState) => void
 }
 
 export interface MountedSession {
@@ -30,6 +31,7 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
       }
       el.dataset.role = state.role
       el.dataset.epoch = String(state.epoch)
+      opts.onState?.(state)
     },
   })
 

@@ -97,3 +97,12 @@ test('physical keyboard input reaches the agent', async ({ page }) => {
   // the fixture echoes the last input chunk as hex; 'x' === 0x78
   await waitText(page, 'last-input=78')
 })
+
+test('Take control button bumps epoch', async ({ page }) => {
+  await page.goto(appUrl())
+  await waitText(page, 'PODIUM-FIXTURE')
+  await page.click('button[data-action="take-control"]')
+  await expect
+    .poll(async () => (await state(page)).epoch, { timeout: 10_000 })
+    .toBeGreaterThanOrEqual(1)
+})
