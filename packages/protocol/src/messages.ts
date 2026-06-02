@@ -74,10 +74,16 @@ export const BindMessage = z.object({
 })
 export const RedrawMessage = z.object({ type: z.literal('redraw') })
 
+export const AgentFrameMessage = z.object({
+  type: z.literal('agentFrame'),
+  seq: z.number().int().nonnegative(),
+  data: z.string(),
+})
+
 // daemon -> server
 export const DaemonMessage = z.discriminatedUnion('type', [
   BindMessage,
-  OutputFrameMessage,
+  AgentFrameMessage,
   AgentExitMessage,
 ])
 export type DaemonMessage = z.infer<typeof DaemonMessage>

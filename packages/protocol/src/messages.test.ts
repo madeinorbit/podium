@@ -46,4 +46,9 @@ describe('protocol codec', () => {
   it('throws on malformed JSON', () => {
     expect(() => parseClientMessage('{bad json')).toThrow()
   })
+
+  it('round-trips a daemon agentFrame message', () => {
+    const msg = { type: 'agentFrame', seq: 7, data: 'aGVsbG8=' } as const
+    expect(parseDaemonMessage(encode(msg))).toEqual(msg)
+  })
 })
