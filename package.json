@@ -27,6 +27,7 @@
   "devDependencies": {
     "@biomejs/biome": "^2.4.16",
     "@changesets/cli": "^2.31.0",
+    "@playwright/test": "^1.60.0",
     "@types/node": "^25.9.1",
     "tsup": "^8.5.1",
     "tsx": "^4.22.4",
