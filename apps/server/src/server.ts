@@ -4,6 +4,7 @@ import { trpcServer } from '@hono/trpc-server'
 import { Hono } from 'hono'
 import { RelayHub } from './relay'
 import { appRouter } from './router'
+import { attachWebSockets } from './wsServer'
 
 export interface ServerHandle {
   port: number
@@ -19,13 +20,17 @@ export function startServer(opts: { port?: number } = {}): Promise<ServerHandle>
 
   return new Promise<ServerHandle>((resolve) => {
     const server = serve({ fetch: app.fetch, port: opts.port ?? 0 }, (info) => {
+      const ws = attachWebSockets(server as unknown as Server, hub)
       resolve({
         port: info.port,
         hub,
         close: () =>
-          new Promise<void>((res) => {
-            ;(server as unknown as Server).close(() => res())
-          }),
+          ws.close().then(
+            () =>
+              new Promise<void>((res) => {
+                ;(server as unknown as Server).close(() => res())
+              }),
+          ),
       })
     })
   })
