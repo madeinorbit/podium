@@ -1,4 +1,4 @@
-import { expect, type Page, test } from '@playwright/test'
+import { expect, type Page, type TestInfo, test } from '@playwright/test'
 import { type Relay, startRelay } from './harness'
 
 let relay: Relay
@@ -81,7 +81,8 @@ test('synthetic keyboard resizes the agent and reconverges', async ({ page }) =>
   await waitText(page, `rows=${after}`)
 })
 
-test('toolbar Ctrl-C reaches the agent (fixture exits)', async ({ page }) => {
+test('toolbar Ctrl-C reaches the agent (fixture exits)', async ({ page }, testInfo: TestInfo) => {
+  test.skip(testInfo.project.name === 'chromium-desktop', 'key toolbar is mobile-only')
   await page.goto(appUrl())
   await waitText(page, 'PODIUM-FIXTURE')
   await page.click('#toolbar button[data-key="Ctrl-C"]')

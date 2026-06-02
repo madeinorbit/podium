@@ -22,7 +22,7 @@ export default defineConfig({
         launchOptions: { args: ['--no-sandbox', '--disable-dev-shm-usage'] },
       },
     },
-    { name: 'webkit', use: { ...devices['Desktop Safari'] } },
+    { name: 'webkit-iphone', use: { ...devices['iPhone 13'] } },
   ],
   webServer: {
     command:
