@@ -1,8 +1,10 @@
 /**
- * @podium/terminal-client — browser presentation client. Phase 3a: the framework-
- * agnostic core (connection state machine, viewport seam, key encoder). Rendering,
- * the mobile toolbar, and the DOM viewport source land in Phase 3b.
+ * @podium/terminal-client — browser presentation client for Podium agent sessions.
  */
 export * from './connection'
+export * from './dom-viewport'
 export * from './keys'
+export * from './session-mount'
+export * from './terminal-view'
+export * from './toolbar'
 export * from './viewport'

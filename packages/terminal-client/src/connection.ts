@@ -34,8 +34,11 @@ export interface SessionConnectionOptions {
   onState?: (state: ConnectionState) => void
 }
 
-function toBase64(bytes: string): string {
-  return btoa(bytes)
+function utf8ToBase64(text: string): string {
+  const bytes = new TextEncoder().encode(text)
+  let bin = ''
+  for (const b of bytes) bin += String.fromCharCode(b)
+  return btoa(bin)
 }
 
 function fromBase64Utf8(b64: string): string {
@@ -66,6 +69,7 @@ export class SessionConnection {
   }
 
   connect(): void {
+    if (this.socket !== undefined) return
     const socket = this.makeSocket(this.opts.url)
     this.socket = socket
     socket.onopen = () => {
@@ -82,7 +86,7 @@ export class SessionConnection {
   }
 
   sendInput(bytes: string): void {
-    this.sendRaw({ type: 'input', data: toBase64(bytes) })
+    this.sendRaw({ type: 'input', data: utf8ToBase64(bytes) })
   }
 
   sendResize(cols: number, rows: number): void {
@@ -106,7 +110,8 @@ export class SessionConnection {
       clientId: this.clientId,
       controllerId: this.controllerId,
       sessionId: this.sessionId,
-      role: this.clientId !== '' && this.clientId === this.controllerId ? 'controller' : 'spectator',
+      role:
+        this.clientId !== '' && this.clientId === this.controllerId ? 'controller' : 'spectator',
       cols: this.cols,
       rows: this.rows,
       epoch: this.epoch,
@@ -122,38 +127,43 @@ export class SessionConnection {
   }
 
   private onServerMessage(raw: string): void {
-    let msg: ReturnType<typeof parseServerMessage>
     try {
-      msg = parseServerMessage(raw)
+      const msg = parseServerMessage(raw)
+      switch (msg.type) {
+        case 'welcome':
+          this.clientId = msg.clientId
+          this.sessionId = msg.sessionId
+          this.controllerId = msg.controllerId
+          this.cols = msg.geometry.cols
+          this.rows = msg.geometry.rows
+          this.emitState()
+          break
+        case 'outputFrame': {
+          this.lastSeq = msg.seq
+          this.epoch = msg.epoch
+          const text = fromBase64Utf8(msg.data)
+          this.emitState()
+          this.opts.onFrame?.(text)
+          break
+        }
+        case 'controllerChanged':
+          this.controllerId = msg.controllerId
+          this.cols = msg.geometry.cols
+          this.rows = msg.geometry.rows
+          this.emitState()
+          break
+        case 'geometry':
+          this.cols = msg.cols
+          this.rows = msg.rows
+          this.emitState()
+          break
+        case 'agentExit':
+          this.emitState()
+          break
+      }
     } catch {
-      return
+      // malformed JSON, schema mismatch, or bad base64 — drop the frame
     }
-    switch (msg.type) {
-      case 'welcome':
-        this.clientId = msg.clientId
-        this.sessionId = msg.sessionId
-        this.controllerId = msg.controllerId
-        this.cols = msg.geometry.cols
-        this.rows = msg.geometry.rows
-        break
-      case 'outputFrame':
-        this.lastSeq = msg.seq
-        this.epoch = msg.epoch
-        this.opts.onFrame?.(fromBase64Utf8(msg.data))
-        break
-      case 'controllerChanged':
-        this.controllerId = msg.controllerId
-        this.cols = msg.geometry.cols
-        this.rows = msg.geometry.rows
-        break
-      case 'geometry':
-        this.cols = msg.cols
-        this.rows = msg.rows
-        break
-      case 'agentExit':
-        break
-    }
-    this.emitState()
   }
 
   private sendRaw(msg: Parameters<typeof encode>[0]): void {
