@@ -546,4 +546,30 @@ describe('inspectGitRepositoryPath', () => {
       }),
     ])
   })
+
+  test('reports unreadable .git pointer targets as diagnostics', async () => {
+    const root = await createTempRoot()
+    const worktree = join(root, 'unreadable-pointer')
+    const unreadableParent = join(root, 'unreadable-admin-parent')
+    const adminDir = join(unreadableParent, 'admin')
+    await mkdir(worktree)
+    await mkdir(adminDir, { recursive: true })
+    await writeFile(join(worktree, '.git'), `gitdir: ${adminDir}\n`)
+    await chmod(unreadableParent, 0o000)
+
+    try {
+      const result = await inspectGitRepositoryPath(worktree)
+
+      expect(result.repository).toBeUndefined()
+      expect(result.diagnostics).toEqual([
+        expect.objectContaining({
+          severity: 'warning',
+          path: join(worktree, '.git'),
+          message: 'Could not read Git pointer target metadata',
+        }),
+      ])
+    } finally {
+      await chmod(unreadableParent, 0o700)
+    }
+  })
 })

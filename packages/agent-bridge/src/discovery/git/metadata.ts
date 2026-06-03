@@ -287,7 +287,20 @@ async function readGitPointerFile(
   }
 
   const resolvedGitDir = gitDir
-  if (!(await isDirectory(resolvedGitDir))) {
+  let gitDirStats: Awaited<ReturnType<typeof stat>> | undefined
+  try {
+    gitDirStats = await statOptional(resolvedGitDir)
+  } catch (error) {
+    diagnostics.push({
+      severity: 'warning',
+      path: gitPath,
+      message: 'Could not read Git pointer target metadata',
+      cause: error,
+    })
+    return undefined
+  }
+
+  if (!gitDirStats?.isDirectory()) {
     diagnostics.push({
       severity: 'warning',
       path: gitPath,
