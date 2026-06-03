@@ -40,10 +40,44 @@ export async function scanGitRepositoriesAtPath(
   path: string,
   options: ScanGitRepositoriesAtPathOptions = {},
 ): Promise<ScanGitRepositoriesResult> {
-  const root = await canonicalPath(expandHome(path, options.homeDir ?? homedir()))
+  const expanded = expandHome(path, options.homeDir ?? homedir())
   const diagnostics: GitDiscoveryDiagnostic[] = []
+  let root: string
 
-  if (!(await isDirectory(root))) {
+  try {
+    root = await canonicalPath(expanded)
+  } catch (error) {
+    return {
+      repositories: [],
+      diagnostics: [
+        {
+          severity: 'warning',
+          path: expanded,
+          message: 'Could not resolve Git scan root',
+          cause: error,
+        },
+      ],
+    }
+  }
+
+  let rootIsDirectory: boolean
+  try {
+    rootIsDirectory = await isDirectory(root)
+  } catch (error) {
+    return {
+      repositories: [],
+      diagnostics: [
+        {
+          severity: 'warning',
+          path: root,
+          message: 'Could not read Git scan root',
+          cause: error,
+        },
+      ],
+    }
+  }
+
+  if (!rootIsDirectory) {
     return {
       repositories: [],
       diagnostics: [

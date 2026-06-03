@@ -124,6 +124,32 @@ describe('scanGitRepositoriesAtPath', () => {
     ])
   })
 
+  test('warns and returns no repositories when the scan root cannot be resolved', async () => {
+    const root = await createTempRoot()
+    const locked = join(root, 'locked')
+    const child = join(locked, 'child')
+    await mkdir(locked)
+    await chmod(locked, 0)
+
+    let result: Awaited<ReturnType<typeof scanGitRepositoriesAtPath>>
+    try {
+      result = await scanGitRepositoriesAtPath(child)
+    } finally {
+      await chmod(locked, 0o700).catch(() => {})
+    }
+
+    expect(result).toEqual({
+      repositories: [],
+      diagnostics: [
+        expect.objectContaining({
+          severity: 'warning',
+          path: child,
+          message: 'Could not resolve Git scan root',
+        }),
+      ],
+    })
+  })
+
   test('expands home-relative roots against the provided home directory', async () => {
     const home = await createTempRoot()
     const repo = await writeNormalRepo(join(home, 'projects'), 'repo')
