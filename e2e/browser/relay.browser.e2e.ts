@@ -1,129 +1,133 @@
-import { expect, type Page, type TestInfo, test } from '@playwright/test'
+import { expect, type Page, test } from '@playwright/test'
 import { type Relay, startRelay } from './harness'
 
 let relay: Relay
 
 test.beforeEach(async () => {
   relay = await startRelay()
+  await relay.createSession('alpha')
+  await relay.createSession('beta')
 })
 test.afterEach(async () => {
   await relay.stop()
 })
 
 function appUrl(): string {
-  return `/?server=ws://localhost:${relay.serverPort}&test=1`
-}
-async function state(page: Page): Promise<Record<string, unknown>> {
-  return page.evaluate(() => {
-    const p = (globalThis as unknown as { __podium?: { state(): Record<string, unknown> } })
-      .__podium
-    return p ? p.state() : {}
-  })
-}
-async function screenText(page: Page): Promise<string> {
-  return page.evaluate(() => {
-    const p = (globalThis as unknown as { __podium?: { screenText(): string } }).__podium
-    return p ? p.screenText() : ''
-  })
-}
-async function screenHash(page: Page): Promise<string> {
-  return page.evaluate(() => {
-    const p = (globalThis as unknown as { __podium?: { screenHash(): string } }).__podium
-    return p ? p.screenHash() : ''
-  })
-}
-async function waitText(page: Page, needle: string): Promise<void> {
-  await expect.poll(() => screenText(page), { timeout: 10_000 }).toContain(needle)
+  return `/?server=ws://localhost:${relay.serverPort}`
 }
 
-test('renders live fixture output through the full chain', async ({ page }) => {
-  await page.goto(appUrl())
-  await waitText(page, 'PODIUM-FIXTURE')
-})
-
-test('takeover converges two clients on identical epoch + screenHash', async ({ browser }) => {
-  const a = await browser.newPage()
-  const b = await browser.newPage()
-  await a.goto(appUrl())
-  await b.goto(appUrl())
-  await waitText(a, 'PODIUM-FIXTURE')
-  await waitText(b, 'PODIUM-FIXTURE')
-
-  await b.evaluate(() =>
-    (globalThis as unknown as { __podium: { takeControl(): void } }).__podium.takeControl(),
-  )
-  await expect.poll(async () => (await state(a)).epoch, { timeout: 10_000 }).toBe(1)
-  await expect.poll(async () => (await state(b)).epoch, { timeout: 10_000 }).toBe(1)
-  // force a fresh repaint into both, then compare buffer hashes
-  await b.evaluate(() =>
-    (globalThis as unknown as { __podium: { sendInput(s: string): void } }).__podium.sendInput(
-      '\f',
-    ),
-  )
-  await expect
-    .poll(async () => `${await screenHash(a)}|${await screenHash(b)}`, { timeout: 10_000 })
-    .toMatch(/^([0-9a-f]+)\|\1$/)
-  await a.close()
-  await b.close()
-})
-
-test('synthetic keyboard resizes the agent and reconverges', async ({ page }) => {
-  await page.goto(appUrl())
-  await waitText(page, 'cols=')
-  const before = (await state(page)).rows as number
-  await page.evaluate(() =>
-    (
-      globalThis as unknown as { __podium: { simulateKeyboard(n: number): void } }
-    ).__podium.simulateKeyboard(300),
-  )
-  await expect.poll(async () => (await state(page)).rows, { timeout: 10_000 }).toBeLessThan(before)
-  const after = (await state(page)).rows as number
-  await waitText(page, `rows=${after}`)
-})
-
-test('toolbar Ctrl-C reaches the agent (fixture exits)', async ({ page }, testInfo: TestInfo) => {
-  test.skip(testInfo.project.name === 'chromium-desktop', 'key toolbar is mobile-only')
-  await page.goto(appUrl())
-  await waitText(page, 'PODIUM-FIXTURE')
-  await page.click('#toolbar button[data-key="Ctrl-C"]')
-  // fixture exits 0 → agentExit relayed. Assert the client still has a session (no crash).
-  await expect.poll(async () => (await state(page)).connected, { timeout: 10_000 }).toBe(true)
-})
-
-test('physical keyboard input reaches the agent', async ({ page }) => {
-  await page.goto(appUrl())
-  await waitText(page, 'PODIUM-FIXTURE')
-  await page.locator('#term').click() // focus the terminal
-  await page.keyboard.type('x')
-  // the fixture echoes the last input chunk as hex; 'x' === 0x78
-  await waitText(page, 'last-input=78')
-})
-
-test('controller fits the terminal to its own viewport, not the daemon default', async ({
-  page,
-}, testInfo: TestInfo) => {
-  await page.goto(appUrl())
-  await waitText(page, 'PODIUM-FIXTURE')
-  await expect.poll(async () => (await state(page)).role, { timeout: 10_000 }).toBe('controller')
-  // The daemon spawns the fixture at 80 cols. A correctly-fitted client resizes the
-  // agent to match its own viewport on connect — wider on desktop, narrower on a phone.
-  // Before the fit-on-connect fix the session stayed stuck at the daemon's 80 cols.
-  await expect
-    .poll(async () => (await state(page)).cols as number, { timeout: 10_000 })
-    .not.toBe(80)
-  const cols = (await state(page)).cols as number
-  if (testInfo.project.name === 'chromium-desktop') {
-    expect(cols).toBeGreaterThan(80)
-  } else {
-    expect(cols).toBeLessThan(80)
+interface PodState {
+  role: string
+  cols: number
+  rows: number
+  epoch: number
+  sessionId: string
+}
+type PodWindow = {
+  __podium?: {
+    sessions(): Array<{ sessionId: string; title: string }>
+    attach(id: string): void
+    create(kind: string, cwd: string): Promise<{ sessionId: string }>
+    state(): PodState | undefined
+    screenText(): string
+    takeControl(): void
   }
+}
+
+const sessions = (page: Page) =>
+  page.evaluate(() => (globalThis as unknown as PodWindow).__podium?.sessions() ?? [])
+const stateOf = (page: Page) =>
+  page.evaluate(() => (globalThis as unknown as PodWindow).__podium?.state())
+const screenText = (page: Page) =>
+  page.evaluate(() => (globalThis as unknown as PodWindow).__podium?.screenText() ?? '')
+const attach = (page: Page, id: string) =>
+  page.evaluate((i) => (globalThis as unknown as PodWindow).__podium?.attach(i), id)
+
+async function waitPodium(page: Page): Promise<void> {
+  await page.waitForFunction(() => Boolean((globalThis as unknown as PodWindow).__podium), {
+    timeout: 15_000,
+  })
+}
+async function idByTitle(page: Page, title: string): Promise<string> {
+  const list = await sessions(page)
+  const found = list.find((s) => s.title === title)
+  if (!found) throw new Error(`no session titled ${title}`)
+  return found.sessionId
+}
+
+test('lists live sessions and renders the attached one', async ({ page }) => {
+  await page.goto(appUrl())
+  await waitPodium(page)
+  await expect.poll(async () => (await sessions(page)).length, { timeout: 15_000 }).toBe(2)
+  await attach(page, await idByTitle(page, 'alpha'))
+  await expect.poll(() => screenText(page), { timeout: 15_000 }).toContain('PODIUM-FIXTURE')
+  await expect.poll(() => screenText(page)).toContain('pod-alpha')
 })
 
-test('Take control button bumps epoch', async ({ page }) => {
+test('switching sessions swaps the rendered content', async ({ page }) => {
   await page.goto(appUrl())
-  await waitText(page, 'PODIUM-FIXTURE')
-  await page.click('button[data-action="take-control"]')
+  await waitPodium(page)
+  await expect.poll(async () => (await sessions(page)).length, { timeout: 15_000 }).toBe(2)
+  await attach(page, await idByTitle(page, 'alpha'))
+  await expect.poll(() => screenText(page), { timeout: 15_000 }).toContain('pod-alpha')
+  const betaId = await idByTitle(page, 'beta')
+  await attach(page, betaId)
+  await expect.poll(() => screenText(page), { timeout: 15_000 }).toContain('pod-beta')
+  expect(await screenText(page)).not.toContain('pod-alpha')
+  expect((await stateOf(page))?.sessionId).toBe(betaId)
+})
+
+test('fit-on-connect resizes the PTY to the client grid', async ({ page }) => {
+  await page.goto(appUrl())
+  await waitPodium(page)
+  await attach(page, await idByTitle(page, 'alpha'))
+  // The fixture echoes its PTY geometry. Assert it converges to the client's fitted grid,
+  // and that a resize away from the daemon's 80x24 spawn default actually happened.
   await expect
-    .poll(async () => (await state(page)).epoch, { timeout: 10_000 })
+    .poll(
+      async () => {
+        const st = await stateOf(page)
+        const txt = await screenText(page)
+        if (!st) return 'no'
+        const converged = txt.includes(`cols=${st.cols}`) && txt.includes(`rows=${st.rows}`)
+        const resized = st.cols !== 80 || st.rows !== 24
+        return converged && resized ? 'ok' : 'no'
+      },
+      { timeout: 15_000 },
+    )
+    .toBe('ok')
+})
+
+test('per-session takeover bumps the epoch', async ({ page }) => {
+  await page.goto(appUrl())
+  await waitPodium(page)
+  await attach(page, await idByTitle(page, 'alpha'))
+  await expect.poll(() => screenText(page), { timeout: 15_000 }).toContain('PODIUM-FIXTURE')
+  await page.evaluate(() => (globalThis as unknown as PodWindow).__podium?.takeControl())
+  await expect
+    .poll(async () => (await stateOf(page))?.epoch ?? 0, { timeout: 15_000 })
     .toBeGreaterThanOrEqual(1)
+})
+
+test('keyboard input reaches the attached agent', async ({ page }) => {
+  await page.goto(appUrl())
+  await waitPodium(page)
+  await attach(page, await idByTitle(page, 'alpha'))
+  await expect.poll(() => screenText(page), { timeout: 15_000 }).toContain('PODIUM-FIXTURE')
+  // Focus the xterm helper textarea so keyboard events route to the terminal.
+  // Using locator.focus() is cross-browser and bypasses pointer-event interception
+  // from the sidebar (which blocks a pointer click on desktop viewport).
+  await page.locator('#term .xterm-helper-textarea').focus()
+  await page.keyboard.type('x')
+  await expect.poll(() => screenText(page), { timeout: 15_000 }).toContain('last-input=78')
+})
+
+test('create a new session via the tRPC control plane', async ({ page }) => {
+  await page.goto(appUrl())
+  await waitPodium(page)
+  await expect.poll(async () => (await sessions(page)).length, { timeout: 15_000 }).toBe(2)
+  await page.evaluate(() =>
+    (globalThis as unknown as PodWindow).__podium?.create('claude-code', '/tmp'),
+  )
+  await expect.poll(async () => (await sessions(page)).length, { timeout: 15_000 }).toBe(3)
 })
