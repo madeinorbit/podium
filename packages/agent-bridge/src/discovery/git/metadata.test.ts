@@ -200,4 +200,40 @@ describe('inspectGitRepositoryPath', () => {
       }),
     ])
   })
+
+  test('keeps branch but rejects loose branch ref with trailing whitespace after SHA', async () => {
+    const root = await createTempRoot()
+    const repo = await writeNormalRepo(root)
+    await writeFile(join(repo, '.git', 'refs', 'heads', 'main'), `${mainSha} \n`)
+
+    const result = await inspectGitRepositoryPath(repo)
+
+    expect(result.repository).toEqual(expect.objectContaining({ branch: 'main' }))
+    expect(result.repository).not.toHaveProperty('headSha')
+    expect(result.diagnostics).toEqual([
+      expect.objectContaining({
+        severity: 'warning',
+        path: join(repo, '.git', 'refs', 'heads', 'main'),
+        message: 'Invalid git branch ref metadata',
+      }),
+    ])
+  })
+
+  test('keeps branch but rejects loose branch ref with leading whitespace before SHA', async () => {
+    const root = await createTempRoot()
+    const repo = await writeNormalRepo(root)
+    await writeFile(join(repo, '.git', 'refs', 'heads', 'main'), ` ${mainSha}\n`)
+
+    const result = await inspectGitRepositoryPath(repo)
+
+    expect(result.repository).toEqual(expect.objectContaining({ branch: 'main' }))
+    expect(result.repository).not.toHaveProperty('headSha')
+    expect(result.diagnostics).toEqual([
+      expect.objectContaining({
+        severity: 'warning',
+        path: join(repo, '.git', 'refs', 'heads', 'main'),
+        message: 'Invalid git branch ref metadata',
+      }),
+    ])
+  })
 })

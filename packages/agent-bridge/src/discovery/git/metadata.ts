@@ -110,7 +110,7 @@ async function readHeadMetadata(
 
   if (ref === undefined) return { branch }
 
-  const headSha = ref.trim()
+  const headSha = trimLineEnding(ref)
   if (!isGitSha(headSha)) {
     diagnostics.push({
       severity: 'warning',
