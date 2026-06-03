@@ -56,4 +56,58 @@ describe('inspectGitRepositoryPath', () => {
     expect(result.repository).toBeUndefined()
     expect(result.diagnostics).toEqual([])
   })
+
+  test('does not set headSha from detached HEAD with non-SHA content', async () => {
+    const root = await createTempRoot()
+    const repo = await writeNormalRepo(root)
+    await writeFile(join(repo, '.git', 'HEAD'), 'not-a-sha\n')
+
+    const result = await inspectGitRepositoryPath(repo)
+
+    expect(result.repository).not.toHaveProperty('branch')
+    expect(result.repository).not.toHaveProperty('headSha')
+    expect(result.diagnostics).toEqual([
+      expect.objectContaining({
+        severity: 'warning',
+        path: join(repo, '.git', 'HEAD'),
+        message: 'Invalid git HEAD metadata',
+      }),
+    ])
+  })
+
+  test('keeps branch but does not set headSha from loose branch ref with non-SHA content', async () => {
+    const root = await createTempRoot()
+    const repo = await writeNormalRepo(root)
+    await writeFile(join(repo, '.git', 'refs', 'heads', 'main'), 'not-a-sha\n')
+
+    const result = await inspectGitRepositoryPath(repo)
+
+    expect(result.repository).toEqual(expect.objectContaining({ branch: 'main' }))
+    expect(result.repository).not.toHaveProperty('headSha')
+    expect(result.diagnostics).toEqual([
+      expect.objectContaining({
+        severity: 'warning',
+        path: join(repo, '.git', 'refs', 'heads', 'main'),
+        message: 'Invalid git branch ref metadata',
+      }),
+    ])
+  })
+
+  test('does not set branch or headSha from HEAD pointing at a tag ref', async () => {
+    const root = await createTempRoot()
+    const repo = await writeNormalRepo(root)
+    await writeFile(join(repo, '.git', 'HEAD'), 'ref: refs/tags/v1\n')
+
+    const result = await inspectGitRepositoryPath(repo)
+
+    expect(result.repository).not.toHaveProperty('branch')
+    expect(result.repository).not.toHaveProperty('headSha')
+    expect(result.diagnostics).toEqual([
+      expect.objectContaining({
+        severity: 'warning',
+        path: join(repo, '.git', 'HEAD'),
+        message: 'Invalid git HEAD metadata',
+      }),
+    ])
+  })
 })

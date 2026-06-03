@@ -91,7 +91,14 @@ async function readHeadMetadata(
   const value = head.trim()
   const branch = parseHeadBranch(value)
   if (branch === undefined) {
-    return value.length === 0 ? {} : { headSha: value }
+    if (isGitSha(value)) return { headSha: value }
+
+    diagnostics.push({
+      severity: 'warning',
+      path: headPath,
+      message: 'Invalid git HEAD metadata',
+    })
+    return {}
   }
 
   const refPath = join(commonGitDir, 'refs', 'heads', branch)
@@ -100,12 +107,24 @@ async function readHeadMetadata(
     diagnostics,
     'Could not read git branch ref metadata',
   )
-  const headSha = ref?.trim()
 
-  return {
-    branch,
-    ...(headSha === undefined || headSha.length === 0 ? {} : { headSha }),
+  if (ref === undefined) return { branch }
+
+  const headSha = ref.trim()
+  if (!isGitSha(headSha)) {
+    diagnostics.push({
+      severity: 'warning',
+      path: refPath,
+      message: 'Invalid git branch ref metadata',
+    })
+    return { branch }
   }
+
+  return { branch, headSha }
+}
+
+function isGitSha(value: string): boolean {
+  return /^[0-9a-fA-F]{40,64}$/.test(value)
 }
 
 function parseHeadBranch(head: string): string | undefined {
