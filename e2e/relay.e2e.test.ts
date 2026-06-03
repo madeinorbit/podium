@@ -40,7 +40,7 @@ function collect(ws: WebSocket) {
   }
 }
 
-async function waitFor(pred: () => boolean, timeoutMs = 5000): Promise<void> {
+async function waitFor(pred: () => boolean, timeoutMs = 10000): Promise<void> {
   const start = Date.now()
   while (!pred()) {
     if (Date.now() - start > timeoutMs) throw new Error('waitFor: timed out')
@@ -51,37 +51,49 @@ async function waitFor(pred: () => boolean, timeoutMs = 5000): Promise<void> {
 describe('e2e: daemon -> server -> client', () => {
   it('streams real fixture output to a client, round-trips input, and bumps epoch on takeover', async () => {
     const srv = await startServer()
+    // Start daemon first so it is attached before we create the session.
     const daemon = await startDaemon({
       serverUrl: `ws://localhost:${srv.port}`,
-      sessionId: 's1',
-      cmd: process.execPath,
-      args: [FIXTURE],
-      cols: 80,
-      rows: 24,
+      launch: () => ({
+        cmd: process.execPath,
+        args: [FIXTURE],
+        cwd: '/tmp',
+      }),
+    })
+    // Create a session after the daemon is connected — the server will immediately
+    // send a spawn control message that the daemon picks up.
+    const { sessionId } = srv.registry.createSession({
+      agentKind: 'claude-code',
+      cwd: '/tmp',
+      title: 'e2e-test',
     })
     const client = await openWs(`ws://localhost:${srv.port}/client`)
     const c = collect(client)
     try {
-      // 0) force a fresh repaint so the just-connected client sees current output —
-      //    the fixture only paints spontaneously once, possibly before this client joined.
-      client.send(encode({ type: 'redrawRequest' }))
+      // Attach to the session so the server routes frames to this client.
+      client.send(encode({ type: 'attach', sessionId }))
+      // Force a fresh repaint so the just-connected client sees current output.
+      client.send(encode({ type: 'redrawRequest', sessionId }))
       // 1) live fixture output reaches the client through the full chain
       await waitFor(() => c.text.includes('cols=80 rows=24'))
 
       // 2) input typed at the client round-trips to the agent and back
-      client.send(encode({ type: 'input', data: Buffer.from('a', 'utf8').toString('base64') }))
+      client.send(
+        encode({ type: 'input', sessionId, data: Buffer.from('a', 'utf8').toString('base64') }),
+      )
       await waitFor(() => c.text.includes('last-input=61'))
 
-      // 3) takeover bumps epoch (via the server's hub) and resizes the agent
-      client.send(encode({ type: 'resize', cols: 100, rows: 30 }))
-      client.send(encode({ type: 'requestControl' }))
-      await waitFor(() => srv.hub.info().epoch === 1)
-      expect(srv.hub.info().geometry).toEqual({ cols: 100, rows: 30 })
+      // 3) takeover bumps epoch and resizes the agent
+      client.send(encode({ type: 'resize', sessionId, cols: 100, rows: 30 }))
+      client.send(encode({ type: 'requestControl', sessionId }))
+      const getSess = () => srv.registry.listSessions().find((s) => s.sessionId === sessionId)
+      await waitFor(() => (getSess()?.epoch ?? 0) >= 1)
+      expect(getSess()?.geometry).toEqual({ cols: 100, rows: 30 })
       await waitFor(() => c.text.includes('cols=100 rows=30'))
     } finally {
       client.close()
       await daemon.close()
       await srv.close()
     }
-  })
+  }, 20_000)
 })

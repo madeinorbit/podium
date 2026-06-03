@@ -1,12 +1,16 @@
-import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { describe, expect, test } from 'vitest'
 
-const appSource = readFileSync(join(import.meta.dir, '../src/App.tsx'), 'utf8')
+const dir = dirname(fileURLToPath(import.meta.url))
+const appSource = readFileSync(join(dir, '../src/App.tsx'), 'utf8')
 
 describe('Podium prototype information architecture', () => {
   test('uses work modes instead of a feature-browser section rail', () => {
-    expect(appSource).toContain("type ModeId = 'product' | 'dev' | 'spec' | 'search' | 'settings'")
+    expect(appSource).toContain(
+      "type ModeId = 'product' | 'dev' | 'spec' | 'search' | 'settings' | 'live'",
+    )
     expect(appSource).not.toContain('type SectionId =')
     expect(appSource).not.toContain('function FeatureSurface')
   })
