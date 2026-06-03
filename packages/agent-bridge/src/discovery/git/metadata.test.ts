@@ -321,6 +321,57 @@ describe('inspectGitRepositoryPath', () => {
     ])
   })
 
+  test('skips registered worktrees whose target git path is not a pointer file', async () => {
+    const root = await createTempRoot()
+    const repo = await writeNormalRepo(root)
+    const commonGitDir = join(repo, '.git')
+    const adminDir = join(commonGitDir, 'worktrees', 'not-pointer')
+    const targetGitDir = join(root, 'not-pointer', '.git')
+    const gitdir = join(adminDir, 'gitdir')
+    await mkdir(adminDir, { recursive: true })
+    await mkdir(targetGitDir, { recursive: true })
+    await writeFile(gitdir, `${targetGitDir}\n`)
+    await writeFile(join(adminDir, 'HEAD'), 'ref: refs/heads/main\n')
+
+    const result = await readRegisteredWorktrees(commonGitDir)
+
+    expect(result.worktrees).toEqual([])
+    expect(result.diagnostics).toEqual([
+      expect.objectContaining({
+        severity: 'warning',
+        path: gitdir,
+        message: 'Git worktree target is not a pointer file',
+      }),
+    ])
+  })
+
+  test('skips registered worktrees whose target pointer does not point back to registration', async () => {
+    const root = await createTempRoot()
+    const repo = await writeNormalRepo(root)
+    const commonGitDir = join(repo, '.git')
+    const adminDir = join(commonGitDir, 'worktrees', 'wrong-pointer')
+    const otherAdminDir = join(root, 'other-admin')
+    const worktree = join(root, 'wrong-pointer')
+    const gitdir = join(adminDir, 'gitdir')
+    await mkdir(adminDir, { recursive: true })
+    await mkdir(otherAdminDir, { recursive: true })
+    await mkdir(worktree, { recursive: true })
+    await writeFile(join(worktree, '.git'), `gitdir: ${otherAdminDir}\n`)
+    await writeFile(gitdir, `${join(worktree, '.git')}\n`)
+    await writeFile(join(adminDir, 'HEAD'), 'ref: refs/heads/main\n')
+
+    const result = await readRegisteredWorktrees(commonGitDir)
+
+    expect(result.worktrees).toEqual([])
+    expect(result.diagnostics).toEqual([
+      expect.objectContaining({
+        severity: 'warning',
+        path: gitdir,
+        message: 'Git worktree target does not point back to registration',
+      }),
+    ])
+  })
+
   test('detects a bare repository when the scanned directory is the Git admin dir', async () => {
     const root = await createTempRoot()
     const bare = await writeBareRepo(root)
@@ -343,6 +394,17 @@ describe('inspectGitRepositoryPath', () => {
     const root = await createTempRoot()
     const repo = await writeNormalRepo(root)
     await writeFile(join(repo, '.git', 'config'), '[core]\n\tbare = false\n')
+
+    const result = await inspectGitRepositoryPath(join(repo, '.git'))
+
+    expect(result.repository).toBeUndefined()
+    expect(result.diagnostics).toEqual([])
+  })
+
+  test('uses the last recognized core bare config value', async () => {
+    const root = await createTempRoot()
+    const repo = await writeNormalRepo(root)
+    await writeFile(join(repo, '.git', 'config'), '[core]\n\tbare = true\n\tbare = false\n')
 
     const result = await inspectGitRepositoryPath(join(repo, '.git'))
 

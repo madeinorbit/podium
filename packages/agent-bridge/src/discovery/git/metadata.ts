@@ -154,11 +154,42 @@ async function readRegisteredWorktree(
   }
 
   const resolvedGitFilePath = resolveMetadataPath(dirname(gitdirPath), gitFilePath)
-  if ((await statOptional(resolvedGitFilePath)) === undefined) {
+  const gitFileStats = await statOptional(resolvedGitFilePath)
+  if (gitFileStats === undefined) {
     diagnostics.push({
       severity: 'warning',
       path: gitdirPath,
       message: 'Git worktree target is missing',
+    })
+    return undefined
+  }
+
+  if (!gitFileStats.isFile()) {
+    diagnostics.push({
+      severity: 'warning',
+      path: gitdirPath,
+      message: 'Git worktree target is not a pointer file',
+    })
+    return undefined
+  }
+
+  const pointer = await readRequiredMetadataFile(
+    resolvedGitFilePath,
+    diagnostics,
+    'Could not read git worktree target metadata',
+  )
+
+  if (pointer === undefined) return undefined
+
+  const backPointerGitDir = parseGitPointerTargetPath(pointer, resolvedGitFilePath)
+  if (
+    backPointerGitDir === undefined ||
+    (await canonicalPath(backPointerGitDir)) !== (await canonicalPath(gitDir))
+  ) {
+    diagnostics.push({
+      severity: 'warning',
+      path: gitdirPath,
+      message: 'Git worktree target does not point back to registration',
     })
     return undefined
   }
@@ -199,8 +230,8 @@ async function readGitPointerFile(
 
   if (pointer === undefined) return undefined
 
-  const line = trimLineEnding(firstLine(pointer))
-  if (!line.startsWith('gitdir:')) {
+  const gitDir = parseGitPointerTargetPath(pointer, gitPath)
+  if (gitDir === undefined) {
     diagnostics.push({
       severity: 'warning',
       path: gitPath,
@@ -209,17 +240,7 @@ async function readGitPointerFile(
     return undefined
   }
 
-  const gitDir = line.slice('gitdir:'.length).trim()
-  if (gitDir.length === 0) {
-    diagnostics.push({
-      severity: 'warning',
-      path: gitPath,
-      message: 'Malformed Git pointer file',
-    })
-    return undefined
-  }
-
-  const resolvedGitDir = resolveMetadataPath(dirname(gitPath), gitDir)
+  const resolvedGitDir = gitDir
   if (!(await isDirectory(resolvedGitDir))) {
     diagnostics.push({
       severity: 'warning',
@@ -351,6 +372,16 @@ function firstLine(value: string): string {
   return value
 }
 
+function parseGitPointerTargetPath(pointer: string, gitPath: string): string | undefined {
+  const line = trimLineEnding(firstLine(pointer))
+  if (!line.startsWith('gitdir:')) return undefined
+
+  const gitDir = line.slice('gitdir:'.length).trim()
+  if (gitDir.length === 0) return undefined
+
+  return resolveMetadataPath(dirname(gitPath), gitDir)
+}
+
 function parseHeadBranch(head: string): string | undefined {
   const prefix = 'ref: refs/heads/'
   if (!head.startsWith(prefix)) return undefined
@@ -426,6 +457,7 @@ async function readCoreBareConfig(gitDir: string): Promise<boolean | undefined> 
 
 function parseCoreBare(config: string): boolean | undefined {
   let inCoreSection = false
+  let parsedBare: boolean | undefined
 
   for (const rawLine of config.split(/\r?\n/)) {
     const line = rawLine.trim()
@@ -444,12 +476,13 @@ function parseCoreBare(config: string): boolean | undefined {
 
     const value = normalizeGitConfigBooleanValue(bare[1] ?? '')
     if (value === '' || value === 'false' || value === 'no' || value === 'off' || value === '0') {
-      return false
+      parsedBare = false
+      continue
     }
-    if (value === 'true' || value === 'yes' || value === 'on' || value === '1') return true
+    if (value === 'true' || value === 'yes' || value === 'on' || value === '1') parsedBare = true
   }
 
-  return undefined
+  return parsedBare
 }
 
 function normalizeGitConfigBooleanValue(value: string): string {
