@@ -132,7 +132,27 @@ function parseHeadBranch(head: string): string | undefined {
   if (!head.startsWith(prefix)) return undefined
 
   const branch = head.slice(prefix.length).trim()
-  return branch.length === 0 ? undefined : branch
+  return isSafeGitBranchRef(branch) ? branch : undefined
+}
+
+function isSafeGitBranchRef(ref: string): boolean {
+  if (ref.length === 0) return false
+  if (ref.startsWith('/') || ref.endsWith('/')) return false
+  if (ref.endsWith('.')) return false
+  if (ref === '@') return false
+  if (ref.includes('\\')) return false
+  if (ref.includes('@{') || ref.includes('..') || ref.includes('//')) return false
+  if (/[\x00-\x20\x7f?*\[~^:]/.test(ref)) return false
+
+  return ref.split('/').every((segment) => {
+    return (
+      segment.length > 0 &&
+      segment !== '.' &&
+      segment !== '..' &&
+      !segment.startsWith('.') &&
+      !segment.endsWith('.lock')
+    )
+  })
 }
 
 async function readOriginUrl(

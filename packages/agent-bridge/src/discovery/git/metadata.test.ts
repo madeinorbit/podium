@@ -110,4 +110,40 @@ describe('inspectGitRepositoryPath', () => {
       }),
     ])
   })
+
+  test('does not read normalized branch ref paths from malformed branch HEAD metadata', async () => {
+    const root = await createTempRoot()
+    const repo = await writeNormalRepo(root)
+    await writeFile(join(repo, '.git', 'HEAD'), 'ref: refs/heads/foo/../main\n')
+
+    const result = await inspectGitRepositoryPath(repo)
+
+    expect(result.repository).not.toHaveProperty('branch')
+    expect(result.repository).not.toHaveProperty('headSha')
+    expect(result.diagnostics).toEqual([
+      expect.objectContaining({
+        severity: 'warning',
+        path: join(repo, '.git', 'HEAD'),
+        message: 'Invalid git HEAD metadata',
+      }),
+    ])
+  })
+
+  test('does not set branch or headSha from HEAD pointing at an invalid lock ref', async () => {
+    const root = await createTempRoot()
+    const repo = await writeNormalRepo(root)
+    await writeFile(join(repo, '.git', 'HEAD'), 'ref: refs/heads/main.lock\n')
+
+    const result = await inspectGitRepositoryPath(repo)
+
+    expect(result.repository).not.toHaveProperty('branch')
+    expect(result.repository).not.toHaveProperty('headSha')
+    expect(result.diagnostics).toEqual([
+      expect.objectContaining({
+        severity: 'warning',
+        path: join(repo, '.git', 'HEAD'),
+        message: 'Invalid git HEAD metadata',
+      }),
+    ])
+  })
 })
