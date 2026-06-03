@@ -17,8 +17,10 @@ export async function scanGitRepositories(
   options: ScanGitRepositoriesOptions = {},
 ): Promise<ScanGitRepositoriesResult> {
   const homeDir = options.homeDir ?? homedir()
-  const roots = [...(options.roots ?? [])]
-  if (options.includeHome !== false) roots.push(homeDir)
+  const roots = await dedupeScanRoots(
+    [...(options.roots ?? []), ...(options.includeHome === false ? [] : [homeDir])],
+    homeDir,
+  )
 
   if (roots.length === 0) return { repositories: [], diagnostics: [] }
 
@@ -175,6 +177,27 @@ type ScanDirectoryContext = {
   ignoredDirectoryNames: ReadonlySet<string>
   maxDepth: number
   repositories: GitRepositorySummary[]
+}
+
+async function dedupeScanRoots(roots: readonly string[], homeDir: string): Promise<string[]> {
+  const deduped: string[] = []
+  const seen = new Set<string>()
+
+  for (const root of roots) {
+    const expanded = expandHome(root, homeDir)
+    let key: string
+    try {
+      key = await canonicalPath(expanded)
+    } catch {
+      key = expanded
+    }
+
+    if (seen.has(key)) continue
+    seen.add(key)
+    deduped.push(root)
+  }
+
+  return deduped
 }
 
 async function scanDirectory(

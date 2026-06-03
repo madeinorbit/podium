@@ -37,6 +37,19 @@ async function writeLinkedWorktree(root: string): Promise<{ main: string; worktr
   return { main, worktree }
 }
 
+async function writeRepoWithStaleRegisteredWorktree(root: string): Promise<{
+  repo: string
+  staleGitdir: string
+}> {
+  const repo = await writeNormalRepo(root, 'repo')
+  const staleAdminDir = join(repo, '.git', 'worktrees', 'stale')
+  const staleGitdir = join(staleAdminDir, 'gitdir')
+  await mkdir(staleAdminDir, { recursive: true })
+  await writeFile(staleGitdir, `${join(root, 'missing-worktree', '.git')}\n`)
+  await writeFile(join(staleAdminDir, 'HEAD'), 'ref: refs/heads/main\n')
+  return { repo, staleGitdir }
+}
+
 describe('scanGitRepositories', () => {
   test('scans the provided home directory by default', async () => {
     const home = await createTempRoot()
@@ -68,6 +81,22 @@ describe('scanGitRepositories', () => {
     const result = await scanner.scanGitRepositories({ includeHome: false })
 
     expect(result).toEqual({ repositories: [], diagnostics: [] })
+  })
+
+  test('dedupes equivalent explicit home and default home roots before scanning', async () => {
+    const home = await createTempRoot()
+    const { repo, staleGitdir } = await writeRepoWithStaleRegisteredWorktree(home)
+
+    const result = await scanner.scanGitRepositories({ roots: [home], homeDir: home })
+
+    expect(result.repositories.map((repository) => repository.path)).toEqual([repo])
+    expect(result.diagnostics).toEqual([
+      expect.objectContaining({
+        severity: 'warning',
+        path: staleGitdir,
+        message: 'Git worktree target is missing',
+      }),
+    ])
   })
 })
 
