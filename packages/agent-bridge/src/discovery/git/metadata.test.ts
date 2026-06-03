@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, test } from 'vitest'
@@ -319,6 +319,36 @@ describe('inspectGitRepositoryPath', () => {
         message: 'Git worktree target is missing',
       }),
     ])
+  })
+
+  test('warns and skips registered worktrees when target git file cannot be read', async () => {
+    const root = await createTempRoot()
+    const repo = await writeNormalRepo(root)
+    const commonGitDir = join(repo, '.git')
+    const adminDir = join(commonGitDir, 'worktrees', 'unreadable-target')
+    const unreadableWorktree = join(root, 'unreadable-target')
+    const targetGitFile = join(unreadableWorktree, '.git')
+    const gitdir = join(adminDir, 'gitdir')
+    await mkdir(adminDir, { recursive: true })
+    await mkdir(unreadableWorktree, { recursive: true })
+    await writeFile(gitdir, `${targetGitFile}\n`)
+    await writeFile(join(adminDir, 'HEAD'), 'ref: refs/heads/main\n')
+    await chmod(unreadableWorktree, 0o000)
+
+    try {
+      const result = await readRegisteredWorktrees(commonGitDir)
+
+      expect(result.worktrees).toEqual([])
+      expect(result.diagnostics).toEqual([
+        expect.objectContaining({
+          severity: 'warning',
+          path: gitdir,
+          message: 'Could not read git worktree target metadata',
+        }),
+      ])
+    } finally {
+      await chmod(unreadableWorktree, 0o700)
+    }
   })
 
   test('skips registered worktrees whose target git path is not a pointer file', async () => {

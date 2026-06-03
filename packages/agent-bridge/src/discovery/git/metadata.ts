@@ -154,7 +154,19 @@ async function readRegisteredWorktree(
   }
 
   const resolvedGitFilePath = resolveMetadataPath(dirname(gitdirPath), gitFilePath)
-  const gitFileStats = await statOptional(resolvedGitFilePath)
+  let gitFileStats: Awaited<ReturnType<typeof stat>> | undefined
+  try {
+    gitFileStats = await statOptional(resolvedGitFilePath)
+  } catch (error) {
+    diagnostics.push({
+      severity: 'warning',
+      path: gitdirPath,
+      message: 'Could not read git worktree target metadata',
+      cause: error,
+    })
+    return undefined
+  }
+
   if (gitFileStats === undefined) {
     diagnostics.push({
       severity: 'warning',
@@ -182,11 +194,24 @@ async function readRegisteredWorktree(
   if (pointer === undefined) return undefined
 
   const backPointerGitDir = parseGitPointerTargetPath(pointer, resolvedGitFilePath)
+  const canonicalBackPointerGitDir = await readCanonicalWorktreeTargetPath(
+    backPointerGitDir,
+    gitdirPath,
+    diagnostics,
+    'Git worktree target does not point back to registration',
+  )
+  const canonicalRegisteredGitDir = await readCanonicalWorktreeTargetPath(
+    gitDir,
+    gitdirPath,
+    diagnostics,
+    'Git worktree target does not point back to registration',
+  )
   if (
-    backPointerGitDir === undefined ||
-    (await canonicalPath(backPointerGitDir)) !== (await canonicalPath(gitDir))
+    canonicalBackPointerGitDir === undefined ||
+    canonicalRegisteredGitDir === undefined ||
+    canonicalBackPointerGitDir !== canonicalRegisteredGitDir
   ) {
-    diagnostics.push({
+    pushWarningDiagnostic(diagnostics, {
       severity: 'warning',
       path: gitdirPath,
       message: 'Git worktree target does not point back to registration',
@@ -215,6 +240,27 @@ async function readRegisteredWorktree(
     ...head,
     ...(locked ? { locked: true } : {}),
     ...(prunable ? { prunable: true } : {}),
+  }
+}
+
+async function readCanonicalWorktreeTargetPath(
+  path: string | undefined,
+  diagnosticPath: string,
+  diagnostics: GitDiscoveryDiagnostic[],
+  message: string,
+): Promise<string | undefined> {
+  if (path === undefined) return undefined
+
+  try {
+    return await canonicalPath(path)
+  } catch (error) {
+    pushWarningDiagnostic(diagnostics, {
+      severity: 'warning',
+      path: diagnosticPath,
+      message,
+      cause: error,
+    })
+    return undefined
   }
 }
 
