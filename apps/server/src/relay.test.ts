@@ -152,4 +152,24 @@ describe('SessionRegistry', () => {
     })
     await expect(p).resolves.toMatchObject({ conversations: [{ id: 'x' }], diagnostics: [] })
   })
+
+  it('scanRepos correlates the daemon scanReposResult back to the caller', async () => {
+    const reg = new SessionRegistry()
+    const daemon: ControlMessage[] = []
+    reg.attachDaemon((m) => daemon.push(m))
+    const p = reg.scanRepos(['/home/u/src'])
+    const req = daemon.find((m) => m.type === 'scanReposRequest') as
+      | { requestId: string; roots: string[] }
+      | undefined
+    expect(req).toBeDefined()
+    if (!req) throw new Error('scanReposRequest not sent')
+    expect(req.roots).toEqual(['/home/u/src'])
+    reg.onDaemonMessage({
+      type: 'scanReposResult',
+      requestId: req.requestId,
+      repositories: [{ path: '/r', kind: 'repository', worktrees: [] }],
+      diagnostics: [],
+    })
+    await expect(p).resolves.toMatchObject({ repositories: [{ path: '/r' }], diagnostics: [] })
+  })
 })

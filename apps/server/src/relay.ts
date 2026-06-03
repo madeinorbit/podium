@@ -7,6 +7,8 @@ import type {
   ConversationSummaryWire,
   DaemonMessage,
   Geometry,
+  GitDiscoveryDiagnosticWire,
+  GitRepositoryWire,
   ResumeRef,
   ServerMessage,
   SessionMeta,
@@ -21,14 +23,23 @@ export interface ScanResult {
   diagnostics: ConversationDiagnosticWire[]
 }
 
+export interface ScanReposResult {
+  repositories: GitRepositoryWire[]
+  diagnostics: GitDiscoveryDiagnosticWire[]
+}
+
 /** Registry of all sessions + the single daemon link + all client connections. Routes by sessionId. */
 export class SessionRegistry {
   private daemonSend: Send<ControlMessage> | undefined
   private readonly sessions = new Map<string, Session>()
   private readonly clients = new Map<string, ClientConn>()
   private readonly pendingScans = new Map<string, (r: ScanResult) => void>()
+  private readonly pendingRepoScans = new Map<string, (r: ScanReposResult) => void>()
   private nextClientNum = 0
   private nextSessionNum = 0
+  // Shared by scan() ('r' prefix) and scanRepos() ('rr' prefix). Each scan
+  // variant must use a distinct string prefix so ids never collide across the
+  // separate pending maps.
   private nextRequestNum = 0
 
   attachDaemon(send: Send<ControlMessage>): void {
@@ -90,6 +101,25 @@ export class SessionRegistry {
         resolve(r)
       })
       this.toDaemon({ type: 'scanRequest', requestId })
+    })
+  }
+
+  scanRepos(roots: string[]): Promise<ScanReposResult> {
+    const requestId = `rr${this.nextRequestNum++}`
+    return new Promise<ScanReposResult>((resolve) => {
+      const timer = setTimeout(() => {
+        this.pendingRepoScans.delete(requestId)
+        resolve({
+          repositories: [],
+          diagnostics: [{ severity: 'error', path: '', message: 'repos scan timed out' }],
+        })
+      }, SCAN_TIMEOUT_MS)
+      timer.unref?.()
+      this.pendingRepoScans.set(requestId, (r) => {
+        clearTimeout(timer)
+        resolve(r)
+      })
+      this.toDaemon({ type: 'scanReposRequest', requestId, roots })
     })
   }
 
@@ -200,6 +230,14 @@ export class SessionRegistry {
         if (resolve) {
           this.pendingScans.delete(msg.requestId)
           resolve({ conversations: msg.conversations, diagnostics: msg.diagnostics })
+        }
+        break
+      }
+      case 'scanReposResult': {
+        const resolve = this.pendingRepoScans.get(msg.requestId)
+        if (resolve) {
+          this.pendingRepoScans.delete(msg.requestId)
+          resolve({ repositories: msg.repositories, diagnostics: msg.diagnostics })
         }
         break
       }
