@@ -200,10 +200,7 @@ async function dedupeScanRoots(roots: readonly string[], homeDir: string): Promi
   return deduped
 }
 
-async function scanDirectory(
-  item: ScanItem,
-  context: ScanDirectoryContext,
-): Promise<ScanItem[]> {
+async function scanDirectory(item: ScanItem, context: ScanDirectoryContext): Promise<ScanItem[]> {
   let result: Awaited<ReturnType<typeof inspectGitRepositoryPath>>
   try {
     result = await inspectGitRepositoryPath(item.path)
@@ -227,7 +224,7 @@ async function scanDirectory(
 
   if (item.depth >= context.maxDepth) return []
 
-  let entries
+  let entries: Array<{ name: string; isDirectory(): boolean }>
   try {
     entries = await readdir(item.path, { withFileTypes: true })
   } catch (error) {
@@ -373,19 +370,13 @@ function compareScanItems(left: ScanItem, right: ScanItem): number {
   return compareStrings(left.path, right.path)
 }
 
-function compareRepositories(
-  left: GitRepositorySummary,
-  right: GitRepositorySummary,
-): number {
+function compareRepositories(left: GitRepositorySummary, right: GitRepositorySummary): number {
   const pathComparison = compareStrings(left.path, right.path)
   if (pathComparison !== 0) return pathComparison
   return compareStrings(left.commonGitDir, right.commonGitDir)
 }
 
-function compareDiagnostics(
-  left: GitDiscoveryDiagnostic,
-  right: GitDiscoveryDiagnostic,
-): number {
+function compareDiagnostics(left: GitDiscoveryDiagnostic, right: GitDiscoveryDiagnostic): number {
   const pathComparison = compareStrings(left.path, right.path)
   if (pathComparison !== 0) return pathComparison
 

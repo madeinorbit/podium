@@ -1,11 +1,7 @@
 import { readdir, readFile, stat } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
 import { canonicalPath, isMissingPathError } from '../paths.js'
-import type {
-  GitDiscoveryDiagnostic,
-  GitRepositorySummary,
-  GitWorktreeSummary,
-} from './types.js'
+import type { GitDiscoveryDiagnostic, GitRepositorySummary, GitWorktreeSummary } from './types.js'
 
 export type InspectGitRepositoryResult = {
   repository?: GitRepositorySummary
@@ -69,7 +65,7 @@ export async function readRegisteredWorktrees(
   const resolvedCommonGitDir = await canonicalPath(commonGitDir)
   const worktreesDir = join(resolvedCommonGitDir, 'worktrees')
 
-  let entries
+  let entries: Array<{ name: string; isDirectory(): boolean }>
   try {
     entries = await readdir(worktreesDir, { withFileTypes: true })
   } catch (error) {
@@ -459,7 +455,7 @@ function isSafeGitBranchRef(ref: string): boolean {
   if (ref === '@') return false
   if (ref.includes('\\')) return false
   if (ref.includes('@{') || ref.includes('..') || ref.includes('//')) return false
-  if (/[\x00-\x20\x7f?*\[~^:]/.test(ref)) return false
+  if (hasUnsafeGitBranchCharacter(ref)) return false
 
   return ref.split('/').every((segment) => {
     return (
@@ -470,6 +466,17 @@ function isSafeGitBranchRef(ref: string): boolean {
       !segment.endsWith('.lock')
     )
   })
+}
+
+function hasUnsafeGitBranchCharacter(ref: string): boolean {
+  for (const character of ref) {
+    const codePoint = character.codePointAt(0)
+    if (codePoint === undefined) continue
+    if (codePoint <= 0x20 || codePoint === 0x7f) return true
+    if ('?*[~^:'.includes(character)) return true
+  }
+
+  return false
 }
 
 async function readOriginUrl(
@@ -558,11 +565,7 @@ function parseCoreBare(config: string): boolean | undefined {
 function normalizeGitConfigBooleanValue(value: string): string {
   const uncommented = stripGitConfigComments(value).trim()
   const quote = uncommented[0]
-  if (
-    (quote === '"' || quote === "'") &&
-    uncommented.endsWith(quote) &&
-    uncommented.length >= 2
-  ) {
+  if ((quote === '"' || quote === "'") && uncommented.endsWith(quote) && uncommented.length >= 2) {
     return uncommented.slice(1, -1).trim().toLowerCase()
   }
 
