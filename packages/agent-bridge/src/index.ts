@@ -4,4 +4,5 @@
  */
 
 export * from './discovery/index.js'
+export * from './launch.js'
 export * from './session'

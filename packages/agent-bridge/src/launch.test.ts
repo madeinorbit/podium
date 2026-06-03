@@ -12,7 +12,10 @@ describe('agentLaunchCommand', () => {
 
   it('resumes claude by session id', () => {
     expect(
-      agentLaunchCommand('claude-code', { cwd: '/proj', resume: { kind: 'claude-session', value: 'abc' } }),
+      agentLaunchCommand('claude-code', {
+        cwd: '/proj',
+        resume: { kind: 'claude-session', value: 'abc' },
+      }),
     ).toEqual({ cmd: 'claude', args: ['--resume', 'abc'], cwd: '/proj' })
   })
 
