@@ -442,12 +442,49 @@ function parseCoreBare(config: string): boolean | undefined {
     const bare = line.match(/^bare\s*=\s*(.*)$/i)
     if (!bare) continue
 
-    const value = bare[1]?.trim().toLowerCase()
-    if (value === 'false' || value === 'no' || value === 'off' || value === '0') return false
+    const value = normalizeGitConfigBooleanValue(bare[1] ?? '')
+    if (value === '' || value === 'false' || value === 'no' || value === 'off' || value === '0') {
+      return false
+    }
     if (value === 'true' || value === 'yes' || value === 'on' || value === '1') return true
   }
 
   return undefined
+}
+
+function normalizeGitConfigBooleanValue(value: string): string {
+  const uncommented = stripGitConfigComments(value).trim()
+  const quote = uncommented[0]
+  if (
+    (quote === '"' || quote === "'") &&
+    uncommented.endsWith(quote) &&
+    uncommented.length >= 2
+  ) {
+    return uncommented.slice(1, -1).trim().toLowerCase()
+  }
+
+  return uncommented.toLowerCase()
+}
+
+function stripGitConfigComments(value: string): string {
+  let quote: '"' | "'" | undefined
+
+  for (let index = 0; index < value.length; index += 1) {
+    const character = value[index]
+    if (quote !== undefined) {
+      if (character === quote) quote = undefined
+      continue
+    }
+
+    if (character === '"' || character === "'") {
+      quote = character
+      continue
+    }
+
+    if (character === '#' || character === ';') return value.slice(0, index)
+  }
+
+  return value
 }
 
 async function markerExists(

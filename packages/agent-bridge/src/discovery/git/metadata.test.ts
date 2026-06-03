@@ -350,6 +350,22 @@ describe('inspectGitRepositoryPath', () => {
     expect(result.diagnostics).toEqual([])
   })
 
+  test.each([
+    '[core]\n\tbare = false # comment\n',
+    '[core]\n\tbare = false ; comment\n',
+    '[core]\n\tbare = "false"\n',
+    '[core]\n\tbare =\n',
+  ])('does not treat git admin dirs with false bare config form %# as bare', async (config) => {
+    const root = await createTempRoot()
+    const repo = await writeNormalRepo(root)
+    await writeFile(join(repo, '.git', 'config'), config)
+
+    const result = await inspectGitRepositoryPath(join(repo, '.git'))
+
+    expect(result.repository).toBeUndefined()
+    expect(result.diagnostics).toEqual([])
+  })
+
   test('reports malformed .git pointer files as diagnostics', async () => {
     const root = await createTempRoot()
     const worktree = join(root, 'broken')
