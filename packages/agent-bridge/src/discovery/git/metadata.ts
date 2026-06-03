@@ -88,7 +88,7 @@ async function readHeadMetadata(
 
   if (head === undefined) return {}
 
-  const value = head.trim()
+  const value = trimLineEnding(head)
   const branch = parseHeadBranch(value)
   if (branch === undefined) {
     if (isGitSha(value)) return { headSha: value }
@@ -124,14 +124,20 @@ async function readHeadMetadata(
 }
 
 function isGitSha(value: string): boolean {
-  return /^[0-9a-fA-F]{40,64}$/.test(value)
+  return /^[0-9a-f]{40}$/i.test(value) || /^[0-9a-f]{64}$/i.test(value)
+}
+
+function trimLineEnding(value: string): string {
+  if (value.endsWith('\r\n')) return value.slice(0, -2)
+  if (value.endsWith('\n') || value.endsWith('\r')) return value.slice(0, -1)
+  return value
 }
 
 function parseHeadBranch(head: string): string | undefined {
   const prefix = 'ref: refs/heads/'
   if (!head.startsWith(prefix)) return undefined
 
-  const branch = head.slice(prefix.length).trim()
+  const branch = head.slice(prefix.length)
   return isSafeGitBranchRef(branch) ? branch : undefined
 }
 
