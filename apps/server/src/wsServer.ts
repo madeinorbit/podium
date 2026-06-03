@@ -1,13 +1,13 @@
 import type { Server } from 'node:http'
 import { encode, parseClientMessage, parseDaemonMessage } from '@podium/protocol'
 import { WebSocketServer } from 'ws'
-import type { RelayHub } from './relay'
+import type { SessionRegistry } from './relay'
 
 export interface WsHandle {
   close(): Promise<void>
 }
 
-export function attachWebSockets(server: Server, hub: RelayHub): WsHandle {
+export function attachWebSockets(server: Server, registry: SessionRegistry): WsHandle {
   const daemonWss = new WebSocketServer({ noServer: true })
   const clientWss = new WebSocketServer({ noServer: true })
 
@@ -23,34 +23,32 @@ export function attachWebSockets(server: Server, hub: RelayHub): WsHandle {
   })
 
   daemonWss.on('connection', (ws) => {
-    hub.attachDaemon((msg) => ws.send(encode(msg)))
+    registry.attachDaemon((msg) => ws.send(encode(msg)))
     ws.on('message', (raw: import('ws').RawData) => {
       try {
-        hub.onDaemonMessage(parseDaemonMessage(raw.toString()))
+        registry.onDaemonMessage(parseDaemonMessage(raw.toString()))
       } catch {
         // ignore malformed daemon frames
       }
     })
-    ws.on('close', () => hub.detachDaemon())
+    ws.on('close', () => registry.detachDaemon())
   })
 
   clientWss.on('connection', (ws) => {
-    const id = hub.attachClient((msg) => ws.send(encode(msg)))
+    const id = registry.attachClient((msg) => ws.send(encode(msg)))
     ws.on('message', (raw: import('ws').RawData) => {
       try {
-        hub.onClientMessage(id, parseClientMessage(raw.toString()))
+        registry.onClientMessage(id, parseClientMessage(raw.toString()))
       } catch {
         // ignore malformed client frames
       }
     })
-    ws.on('close', () => hub.detachClient(id))
+    ws.on('close', () => registry.detachClient(id))
   })
 
   return {
     close() {
       return new Promise<void>((resolve) => {
-        // Terminate existing connections so wss.close() resolves immediately rather
-        // than waiting for clients to disconnect on their own.
         for (const ws of daemonWss.clients) ws.terminate()
         for (const ws of clientWss.clients) ws.terminate()
         daemonWss.close(() => clientWss.close(() => resolve()))

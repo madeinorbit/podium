@@ -8,7 +8,14 @@ function sink() {
 }
 const G = { cols: 80, rows: 24 }
 const bind = (sessionId: string) =>
-  ({ type: 'bind', sessionId, cmd: 'claude', cwd: '/', agentKind: 'claude-code', geometry: G }) as const
+  ({
+    type: 'bind',
+    sessionId,
+    cmd: 'claude',
+    cwd: '/',
+    agentKind: 'claude-code',
+    geometry: G,
+  }) as const
 
 describe('SessionRegistry', () => {
   it('create spawns via the daemon and lists the session as starting', () => {
@@ -20,7 +27,13 @@ describe('SessionRegistry', () => {
       expect.objectContaining({ type: 'spawn', sessionId, agentKind: 'claude-code', cwd: '/proj' }),
     )
     expect(reg.listSessions()).toMatchObject([
-      { sessionId, status: 'starting', agentKind: 'claude-code', cwd: '/proj', origin: { kind: 'spawn' } },
+      {
+        sessionId,
+        status: 'starting',
+        agentKind: 'claude-code',
+        cwd: '/proj',
+        origin: { kind: 'spawn' },
+      },
     ])
   })
 
@@ -36,7 +49,11 @@ describe('SessionRegistry', () => {
       title: 'old',
     })
     expect(daemon).toContainEqual(
-      expect.objectContaining({ type: 'spawn', sessionId, resume: { kind: 'codex-thread', value: 't9' } }),
+      expect.objectContaining({
+        type: 'spawn',
+        sessionId,
+        resume: { kind: 'codex-thread', value: 't9' },
+      }),
     )
     expect(reg.listSessions()[0]).toMatchObject({
       origin: { kind: 'resume', conversationId: 'c9' },
@@ -126,9 +143,10 @@ describe('SessionRegistry', () => {
     const p = reg.scan()
     const req = daemon.find((m) => m.type === 'scanRequest') as { requestId: string } | undefined
     expect(req).toBeDefined()
+    if (!req) throw new Error('scanRequest not sent')
     reg.onDaemonMessage({
       type: 'scanResult',
-      requestId: req!.requestId,
+      requestId: req.requestId,
       conversations: [{ id: 'x', agentKind: 'claude-code', providerId: 'p' }],
       diagnostics: [],
     })

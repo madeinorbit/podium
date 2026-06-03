@@ -33,9 +33,10 @@ describe('appRouter', () => {
     await Promise.resolve()
     const req = daemon.find((m) => m.type === 'scanRequest') as { requestId: string } | undefined
     expect(req).toBeDefined()
+    if (!req) throw new Error('scanRequest not sent')
     registry.onDaemonMessage({
       type: 'scanResult',
-      requestId: req!.requestId,
+      requestId: req.requestId,
       conversations: [],
       diagnostics: [],
     })

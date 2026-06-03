@@ -15,6 +15,7 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
+    "build": "tsc --noEmit",
     "test": "vitest run --passWithNoTests"
   },
   "devDependencies": {
