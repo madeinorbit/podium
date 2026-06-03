@@ -5,12 +5,15 @@
 let paint = 0
 let lastInput = ''
 
+const labelIdx = process.argv.indexOf('--label')
+const label = labelIdx >= 0 ? (process.argv[labelIdx + 1] ?? '') : ''
+
 function render() {
   paint += 1
   const cols = process.stdout.columns ?? 0
   const rows = process.stdout.rows ?? 0
   process.stdout.write('\x1b[2J\x1b[H')
-  process.stdout.write(`PODIUM-FIXTURE cols=${cols} rows=${rows} paint=${paint}\r\n`)
+  process.stdout.write(`PODIUM-FIXTURE cols=${cols} rows=${rows} paint=${paint} label=${label}\r\n`)
   process.stdout.write(`last-input=${lastInput}\r\n`)
 }
 
