@@ -1,10 +1,11 @@
-import { type ConnectionState, SessionConnection } from './connection'
+import type { ConnectionState, SessionConnection, SocketHub } from './connection'
 import { DomViewportSource } from './dom-viewport'
 import { TerminalView } from './terminal-view'
 import { mountKeyToolbar } from './toolbar'
 
 export interface MountSessionOptions {
-  url: string
+  hub: SocketHub
+  sessionId: string
   toolbarEl?: HTMLElement
   test?: boolean
   onState?: (state: ConnectionState) => void
@@ -17,6 +18,7 @@ export interface MountedSession {
 }
 
 export function mountSession(el: HTMLElement, opts: MountSessionOptions): MountedSession {
+  const { hub, sessionId } = opts
   const view = new TerminalView()
   view.mount(el)
   const fitted = view.fit()
@@ -24,9 +26,7 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
   let wasController = false
   let onControllerEnter: (() => void) | undefined
 
-  const connection = new SessionConnection({
-    url: opts.url,
-    viewport: { cols: fitted.cols, rows: fitted.rows, dpr: globalThis.devicePixelRatio ?? 1 },
+  const connection = hub.attach(sessionId, {
     onFrame: (text) => view.write(text),
     onState: (state) => {
       if (view.cols() !== state.cols || view.rows() !== state.rows) {
@@ -45,10 +45,12 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
       opts.onState?.(state)
     },
   })
+  // The terminal was created at `fitted`; make sure the agent matches our viewport.
+  connection.sendResize(fitted.cols, fitted.rows)
 
-  // On becoming controller, fit the terminal to THIS client's viewport and tell the
-  // agent. The element's initial layout resize fires before the welcome makes us
-  // controller, so without this the session stays at the daemon's initial grid.
+  // On becoming controller, fit the terminal to THIS client's viewport and tell the agent.
+  // The initial layout resize fires before we are made controller, so without this the
+  // session would stay at the daemon's initial grid.
   onControllerEnter = () => {
     requestAnimationFrame(() => {
       const s = connection.state()
@@ -69,7 +71,6 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
 
   const offToolbar = opts.toolbarEl ? mountKeyToolbar(opts.toolbarEl, connection) : () => {}
 
-  connection.connect()
   view.focus()
 
   if (opts.test) {
@@ -79,22 +80,15 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
       screenText: () => view.screenText(),
       sendInput: (s: string) => connection.sendInput(s),
       takeControl: () => connection.requestControl(),
+      sessions: () => hub.sessions(),
+      attach: (id: string) => hub.attach(id),
       simulateKeyboard: (inset: number) => {
-        // Percentage heights don't resolve when the parent has auto height, so we
-        // compute the explicit pixel value from the element's current rendered height.
-        // This ensures FitAddon sees a genuinely smaller container and recomputes rows.
-        // With flex:1 layouts, flex-grow overrides a plain height. We set flex:none +
-        // explicit height so the element actually renders at the smaller size.
-        // FitAddon reads getComputedStyle(el).height, so the reflow must complete first.
-        // We ensure the inset is at least 50% of the container so that row reduction
-        // is reliable across different viewport sizes (e.g. fullscreen vs 70vh).
         if (inset > 0) {
           const currentH = el.getBoundingClientRect().height
           const effectiveInset = Math.max(inset, Math.ceil(currentH * 0.5))
           const newH = `${Math.max(1, currentH - effectiveInset)}px`
           el.style.flex = 'none'
           el.style.height = newH
-          // Force a synchronous reflow so FitAddon reads the updated height
           void el.offsetHeight
         } else {
           el.style.flex = ''
@@ -115,7 +109,7 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
       offViewport()
       offToolbar()
       viewport.dispose()
-      connection.dispose()
+      hub.detach(sessionId)
       view.dispose()
     },
   }

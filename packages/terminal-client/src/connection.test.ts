@@ -1,4 +1,4 @@
-import { type ServerMessage, encode } from '@podium/protocol'
+import { encode, type ServerMessage } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import { SocketHub, type WebSocketLike } from './connection'
 
@@ -138,7 +138,12 @@ describe('SessionConnection (hub-backed)', () => {
       geometry: { cols: 90, rows: 30 },
       epoch: 0,
     })
-    expect(conn.state()).toMatchObject({ role: 'controller', cols: 90, rows: 30, controllerId: 'c0' })
+    expect(conn.state()).toMatchObject({
+      role: 'controller',
+      cols: 90,
+      rows: 30,
+      controllerId: 'c0',
+    })
     sock.recv({
       type: 'controllerChanged',
       sessionId: 's1',

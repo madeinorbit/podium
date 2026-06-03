@@ -1,4 +1,4 @@
-import { type ServerMessage, type SessionMeta, encode, parseServerMessage } from '@podium/protocol'
+import { encode, parseServerMessage, type ServerMessage, type SessionMeta } from '@podium/protocol'
 
 export interface WebSocketLike {
   send(data: string): void
@@ -78,7 +78,11 @@ export class SocketHub {
     this.socket = socket
     socket.onopen = () => {
       this.connectedFlag = true
-      this.sendRaw({ type: 'hello', clientId: this.clientIdValue, viewport: { ...this.opts.viewport } })
+      this.sendRaw({
+        type: 'hello',
+        clientId: this.clientIdValue,
+        viewport: { ...this.opts.viewport },
+      })
       for (const sessionId of this.connections.keys()) this.sendRaw({ type: 'attach', sessionId })
       this.notifyConnections()
     }
@@ -169,7 +173,12 @@ export class SessionConnection {
   private epoch = 0
   private lastSeq = -1
 
-  constructor(hub: SocketHub, sessionId: string, cb: SessionCallbacks, viewport: ConnectionViewport) {
+  constructor(
+    hub: SocketHub,
+    sessionId: string,
+    cb: SessionCallbacks,
+    viewport: ConnectionViewport,
+  ) {
     this.hub = hub
     this.sessionId = sessionId
     this.cb = cb
