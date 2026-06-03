@@ -3,6 +3,7 @@ import { serve } from '@hono/node-server'
 import { trpcServer } from '@hono/trpc-server'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
+import { RepoRegistry } from './repo-registry'
 import { SessionRegistry } from './relay'
 import { appRouter } from './router'
 import { attachWebSockets } from './wsServer'
@@ -13,12 +14,14 @@ export interface ServerHandle {
   close(): Promise<void>
 }
 
-export function startServer(opts: { port?: number } = {}): Promise<ServerHandle> {
+export async function startServer(opts: { port?: number } = {}): Promise<ServerHandle> {
   const registry = new SessionRegistry()
+  const repos = new RepoRegistry()
+  await repos.load()
   const app = new Hono()
   app.get('/health', (c) => c.text('ok'))
   app.use('/trpc/*', cors())
-  app.use('/trpc/*', trpcServer({ router: appRouter, createContext: () => ({ registry }) }))
+  app.use('/trpc/*', trpcServer({ router: appRouter, createContext: () => ({ registry, repos }) }))
 
   return new Promise<ServerHandle>((resolve) => {
     const server = serve({ fetch: app.fetch, port: opts.port ?? 0 }, (info) => {
