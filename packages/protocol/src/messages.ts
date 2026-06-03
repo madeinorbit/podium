@@ -33,7 +33,7 @@ export const SessionMeta = z.object({
   title: z.string(),
   cwd: z.string(),
   status: SessionStatus,
-  exitCode: z.number().int().optional(),
+  exitCode: z.number().int().optional(), // present only when status === 'exited'
   controllerId: z.string().nullable(),
   geometry: Geometry,
   epoch: z.number().int().nonnegative(),
@@ -49,6 +49,7 @@ export const ConversationGit = z.object({
   sha: z.string().optional(),
   originUrl: z.string().optional(),
 })
+export type ConversationGit = z.infer<typeof ConversationGit>
 export const ConversationSummaryWire = z.object({
   id: z.string(),
   agentKind: AgentKind,
@@ -87,6 +88,7 @@ export const InputMessage = z.object({
   sessionId: z.string(),
   data: z.string(),
 })
+// Client's requested terminal grid; controller-authoritative. Geometry shape + sessionId.
 export const ResizeMessage = z.object({
   type: z.literal('resize'),
   sessionId: z.string(),
@@ -134,11 +136,13 @@ export const ControllerChangedMessage = z.object({
   controllerId: z.string().nullable(),
   geometry: Geometry,
 })
+// Server's authoritative PTY size, per session — lets spectators letterbox.
 export const GeometryMessage = z.object({
   type: z.literal('geometry'),
   sessionId: z.string(),
   ...Geometry.shape,
 })
+// Shared in both directions: daemon -> server AND server -> client (identical shape).
 export const AgentExitMessage = z.object({
   type: z.literal('agentExit'),
   sessionId: z.string(),

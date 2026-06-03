@@ -51,6 +51,23 @@ describe('shared schemas', () => {
     expect(SessionMeta.parse(meta)).toEqual(meta)
   })
 
+  it('round-trips a SessionMeta (starting, no controller yet)', () => {
+    const meta = {
+      sessionId: 's3',
+      agentKind: 'claude-code' as const,
+      title: 'new',
+      cwd: '/w',
+      status: 'starting' as const,
+      controllerId: null,
+      geometry: { cols: 80, rows: 24 },
+      epoch: 0,
+      clientCount: 0,
+      createdAt: '2026-06-03T00:00:00.000Z',
+      origin: { kind: 'spawn' as const },
+    }
+    expect(SessionMeta.parse(meta)).toEqual(meta)
+  })
+
   it('parses AgentKind and ResumeRef', () => {
     expect(AgentKind.parse('codex')).toBe('codex')
     expect(ResumeRef.parse({ kind: 'claude-session', value: 'abc' })).toEqual({
@@ -81,6 +98,11 @@ describe('ClientMessage', () => {
   it('rejects input without sessionId', () => {
     expect(() => parseClientMessage(JSON.stringify({ type: 'input', data: 'x' }))).toThrow()
   })
+  it('rejects resize with non-positive cols', () => {
+    expect(() =>
+      parseClientMessage(JSON.stringify({ type: 'resize', sessionId: 's1', cols: 0, rows: 24 })),
+    ).toThrow()
+  })
 })
 
 describe('ServerMessage', () => {
@@ -101,6 +123,7 @@ describe('ServerMessage', () => {
   const cases: ServerMessage[] = [
     { type: 'welcome', clientId: 'c0' },
     { type: 'attached', sessionId: 's1', controllerId: 'c0', geometry, epoch: 0 },
+    { type: 'attached', sessionId: 's1', controllerId: null, geometry, epoch: 0 },
     { type: 'outputFrame', sessionId: 's1', seq: 3, epoch: 1, data: 'eA==' },
     { type: 'controllerChanged', sessionId: 's1', controllerId: 'c1', geometry },
     { type: 'geometry', sessionId: 's1', cols: 100, rows: 30 },
