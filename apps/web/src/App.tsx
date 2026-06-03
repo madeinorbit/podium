@@ -641,7 +641,9 @@ function stateClass(value: string) {
 }
 
 export function App() {
-  const [activeMode, setActiveMode] = useState<ModeId>('product')
+  const [activeMode, setActiveMode] = useState<ModeId>(
+    new URLSearchParams(window.location.search).has('server') ? 'live' : 'product',
+  )
   const [activeSetting, setActiveSetting] = useState<SettingId>('environment')
   const [streams, setStreams] = useState<WorkItem[]>(initialWork)
   const [selectedStreamId, setSelectedStreamId] = useState('relay-ui')
