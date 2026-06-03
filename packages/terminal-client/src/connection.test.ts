@@ -179,4 +179,37 @@ describe('SessionConnection (hub-backed)', () => {
     expect(frames).toEqual(['hello'])
     expect(conn.state()).toMatchObject({ lastSeq: 5, epoch: 2 })
   })
+
+  it('applies geometry updates', () => {
+    const { sock, hub } = setup()
+    hub.connect()
+    sock.open()
+    const conn = hub.attach('s1')
+    sock.recv({ type: 'geometry', sessionId: 's1', cols: 111, rows: 41 })
+    expect(conn.state()).toMatchObject({ cols: 111, rows: 41 })
+  })
+
+  it('handles agentExit without throwing and still emits state', () => {
+    const { sock, hub } = setup()
+    hub.connect()
+    sock.open()
+    const states: string[] = []
+    hub.attach('s1', { onState: (s) => states.push(s.role) })
+    expect(() => sock.recv({ type: 'agentExit', sessionId: 's1', code: 0 })).not.toThrow()
+    expect(states.length).toBeGreaterThan(0)
+  })
+
+  it('re-attach updates callbacks without sending a second attach', () => {
+    const { sock, hub } = setup()
+    hub.connect()
+    sock.open()
+    hub.attach('s1')
+    const before = sock.parsed().filter((m) => m.type === 'attach' && m.sessionId === 's1').length
+    const frames: string[] = []
+    hub.attach('s1', { onFrame: (t) => frames.push(t) })
+    const after = sock.parsed().filter((m) => m.type === 'attach' && m.sessionId === 's1').length
+    expect(after).toBe(before) // no duplicate attach
+    sock.recv({ type: 'outputFrame', sessionId: 's1', seq: 0, epoch: 0, data: btoa('hi') })
+    expect(frames).toEqual(['hi'])
+  })
 })

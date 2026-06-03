@@ -89,6 +89,7 @@ export class SocketHub {
     socket.onmessage = (ev) => this.route(String(ev.data))
     socket.onclose = () => {
       this.connectedFlag = false
+      this.socket = undefined
       this.notifyConnections()
     }
   }
@@ -121,8 +122,8 @@ export class SocketHub {
     return () => this.sessionObservers.delete(cb)
   }
 
-  /** Used by SessionConnection to send its sessionId-tagged messages. */
-  send(msg: Parameters<typeof encode>[0]): void {
+  /** @internal Used by SessionConnection to send its sessionId-tagged messages. */
+  _send(msg: Parameters<typeof encode>[0]): void {
     this.sendRaw(msg)
   }
 
@@ -150,11 +151,11 @@ export class SocketHub {
       for (const o of this.sessionObservers) o(this.sessionList)
       return
     }
-    this.connections.get(msg.sessionId)?.ingest(msg)
+    this.connections.get(msg.sessionId)?._ingest(msg)
   }
 
   private notifyConnections(): void {
-    for (const c of this.connections.values()) c.notifyHubChange()
+    for (const c of this.connections.values()) c._notifyHubChange()
   }
 
   private sendRaw(msg: Parameters<typeof encode>[0]): void {
@@ -191,21 +192,21 @@ export class SessionConnection {
   }
 
   sendInput(bytes: string): void {
-    this.hub.send({ type: 'input', sessionId: this.sessionId, data: utf8ToBase64(bytes) })
+    this.hub._send({ type: 'input', sessionId: this.sessionId, data: utf8ToBase64(bytes) })
   }
 
   sendResize(cols: number, rows: number): void {
     this.cols = cols
     this.rows = rows
-    this.hub.send({ type: 'resize', sessionId: this.sessionId, cols, rows })
+    this.hub._send({ type: 'resize', sessionId: this.sessionId, cols, rows })
   }
 
   requestControl(): void {
-    this.hub.send({ type: 'requestControl', sessionId: this.sessionId })
+    this.hub._send({ type: 'requestControl', sessionId: this.sessionId })
   }
 
   redraw(): void {
-    this.hub.send({ type: 'redrawRequest', sessionId: this.sessionId })
+    this.hub._send({ type: 'redrawRequest', sessionId: this.sessionId })
   }
 
   state(): ConnectionState {
@@ -223,8 +224,8 @@ export class SessionConnection {
     }
   }
 
-  /** Hub-internal: apply a session-scoped server message. */
-  ingest(msg: ServerMessage): void {
+  /** @internal Hub-internal: apply a session-scoped server message. */
+  _ingest(msg: ServerMessage): void {
     switch (msg.type) {
       case 'attached':
         this.controllerId = msg.controllerId
@@ -258,8 +259,8 @@ export class SessionConnection {
     }
   }
 
-  /** Hub-internal: connection/clientId changed → recompute role. */
-  notifyHubChange(): void {
+  /** @internal Hub-internal: connection/clientId changed → recompute role. */
+  _notifyHubChange(): void {
     this.emit()
   }
 
