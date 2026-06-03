@@ -80,14 +80,31 @@ export const HelloMessage = z.object({
   clientId: z.string(),
   viewport: Viewport,
 })
-export const InputMessage = z.object({ type: z.literal('input'), data: z.string() })
-// Client's requested terminal grid (client -> server). Same shape as Geometry.
-export const ResizeMessage = z.object({ type: z.literal('resize'), ...Geometry.shape })
-export const RequestControlMessage = z.object({ type: z.literal('requestControl') })
-export const RedrawRequestMessage = z.object({ type: z.literal('redrawRequest') })
+export const AttachMessage = z.object({ type: z.literal('attach'), sessionId: z.string() })
+export const DetachMessage = z.object({ type: z.literal('detach'), sessionId: z.string() })
+export const InputMessage = z.object({
+  type: z.literal('input'),
+  sessionId: z.string(),
+  data: z.string(),
+})
+export const ResizeMessage = z.object({
+  type: z.literal('resize'),
+  sessionId: z.string(),
+  ...Geometry.shape,
+})
+export const RequestControlMessage = z.object({
+  type: z.literal('requestControl'),
+  sessionId: z.string(),
+})
+export const RedrawRequestMessage = z.object({
+  type: z.literal('redrawRequest'),
+  sessionId: z.string(),
+})
 
 export const ClientMessage = z.discriminatedUnion('type', [
   HelloMessage,
+  AttachMessage,
+  DetachMessage,
   InputMessage,
   ResizeMessage,
   RequestControlMessage,

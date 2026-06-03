@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   AgentKind,
+  type ClientMessage,
   ConversationSummaryWire,
   ResumeRef,
   SessionMeta,
@@ -58,5 +59,23 @@ describe('shared schemas', () => {
   it('round-trips a ConversationSummaryWire with optional fields omitted', () => {
     const min = { id: 'x', agentKind: 'claude-code' as const, providerId: 'claude-code-jsonl' }
     expect(ConversationSummaryWire.parse(min)).toEqual(min)
+  })
+})
+
+describe('ClientMessage', () => {
+  const cases: ClientMessage[] = [
+    { type: 'hello', clientId: 'c1', viewport: { cols: 80, rows: 24, dpr: 2 } },
+    { type: 'attach', sessionId: 's1' },
+    { type: 'detach', sessionId: 's1' },
+    { type: 'input', sessionId: 's1', data: 'aGk=' },
+    { type: 'resize', sessionId: 's1', cols: 100, rows: 30 },
+    { type: 'requestControl', sessionId: 's1' },
+    { type: 'redrawRequest', sessionId: 's1' },
+  ]
+  it.each(cases)('round-trips %j', (msg) => {
+    expect(parseClientMessage(encode(msg))).toEqual(msg)
+  })
+  it('rejects input without sessionId', () => {
+    expect(() => parseClientMessage(JSON.stringify({ type: 'input', data: 'x' }))).toThrow()
   })
 })
