@@ -171,7 +171,10 @@ export const SpawnMessage = z.object({
   geometry: Geometry,
 })
 export const KillMessage = z.object({ type: z.literal('kill'), sessionId: z.string() })
-export const ScanRequestMessage = z.object({ type: z.literal('scanRequest'), requestId: z.string() })
+export const ScanRequestMessage = z.object({
+  type: z.literal('scanRequest'),
+  requestId: z.string(),
+})
 export const RedrawMessage = z.object({ type: z.literal('redraw'), sessionId: z.string() })
 
 export const ControlMessage = z.discriminatedUnion('type', [

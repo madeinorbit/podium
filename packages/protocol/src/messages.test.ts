@@ -5,14 +5,14 @@ import {
   type ControlMessage,
   ConversationSummaryWire,
   type DaemonMessage,
-  ResumeRef,
-  SessionMeta,
-  type ServerMessage,
   encode,
   parseClientMessage,
   parseControlMessage,
   parseDaemonMessage,
   parseServerMessage,
+  ResumeRef,
+  type ServerMessage,
+  SessionMeta,
 } from './messages'
 
 describe('shared schemas', () => {
@@ -146,5 +146,14 @@ describe('DaemonMessage (daemon -> server)', () => {
   ]
   it.each(cases)('round-trips %j', (msg) => {
     expect(parseDaemonMessage(encode(msg))).toEqual(msg)
+  })
+})
+
+describe('codec', () => {
+  it('throws on malformed JSON', () => {
+    expect(() => parseClientMessage('{not json')).toThrow()
+  })
+  it('throws on unknown type', () => {
+    expect(() => parseServerMessage(JSON.stringify({ type: 'nope' }))).toThrow()
   })
 })
