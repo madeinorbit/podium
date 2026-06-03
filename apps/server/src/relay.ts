@@ -44,7 +44,9 @@ export class SessionRegistry {
     return [...this.sessions.values()].map((s) => s.toMeta())
   }
 
-  createSession(input: { agentKind: AgentKind; cwd: string; title?: string }): { sessionId: string } {
+  createSession(input: { agentKind: AgentKind; cwd: string; title?: string }): {
+    sessionId: string
+  } {
     return this.spawn({ ...input, origin: { kind: 'spawn' } })
   }
 
