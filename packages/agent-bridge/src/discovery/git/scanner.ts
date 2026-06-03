@@ -99,7 +99,19 @@ async function scanDirectory(
   item: ScanItem,
   context: ScanDirectoryContext,
 ): Promise<ScanItem[]> {
-  const result = await inspectGitRepositoryPath(item.path)
+  let result: Awaited<ReturnType<typeof inspectGitRepositoryPath>>
+  try {
+    result = await inspectGitRepositoryPath(item.path)
+  } catch (error) {
+    context.diagnostics.push({
+      severity: 'warning',
+      path: item.path,
+      message: 'Could not inspect Git scan directory',
+      cause: error,
+    })
+    return []
+  }
+
   context.diagnostics.push(...result.diagnostics)
 
   if (result.repository !== undefined) {

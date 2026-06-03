@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, symlink, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, test } from 'vitest'
@@ -60,6 +60,30 @@ describe('scanGitRepositoriesAtPath', () => {
     const result = await scanGitRepositoriesAtPath(root)
 
     expect(result.repositories.map((repo) => repo.path)).toEqual([visible])
+  })
+
+  test('continues scanning when a child directory cannot be inspected', async () => {
+    const root = await createTempRoot()
+    const locked = join(root, 'locked')
+    await mkdir(locked)
+    const visible = await writeNormalRepo(root, 'visible')
+    await chmod(locked, 0)
+
+    let result: Awaited<ReturnType<typeof scanGitRepositoriesAtPath>>
+    try {
+      result = await scanGitRepositoriesAtPath(root)
+    } finally {
+      await chmod(locked, 0o700).catch(() => {})
+    }
+
+    expect(result.repositories.map((repo) => repo.path)).toEqual([visible])
+    expect(result.diagnostics).toContainEqual(
+      expect.objectContaining({
+        severity: 'warning',
+        path: locked,
+        message: 'Could not inspect Git scan directory',
+      }),
+    )
   })
 
   test('dedupes explicit symlinked roots by canonical repository path', async () => {
