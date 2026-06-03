@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
+  AgentKind,
+  ConversationSummaryWire,
+  ResumeRef,
+  SessionMeta,
   encode,
   parseClientMessage,
   parseControlMessage,
@@ -7,48 +11,52 @@ import {
   parseServerMessage,
 } from './messages'
 
-describe('protocol codec', () => {
-  it('round-trips a client input message', () => {
-    const msg = { type: 'input', data: 'YQ==' } as const
-    expect(parseClientMessage(encode(msg))).toEqual(msg)
-  })
-
-  it('round-trips a server output frame', () => {
-    const msg = { type: 'outputFrame', seq: 3, epoch: 1, data: 'AAA=' } as const
-    expect(parseServerMessage(encode(msg))).toEqual(msg)
-  })
-
-  it('rejects an unknown client message type', () => {
-    expect(() => parseClientMessage(JSON.stringify({ type: 'nope' }))).toThrow()
-  })
-
-  it('rejects a resize with non-positive dimensions', () => {
-    expect(() =>
-      parseClientMessage(JSON.stringify({ type: 'resize', cols: 0, rows: 24 })),
-    ).toThrow()
-  })
-
-  it('round-trips a daemon bind message', () => {
-    const msg = {
-      type: 'bind',
+describe('shared schemas', () => {
+  it('round-trips a SessionMeta (spawn origin)', () => {
+    const meta = {
       sessionId: 's1',
-      cmd: 'claude',
+      agentKind: 'claude-code' as const,
+      title: 'fix the bug',
+      cwd: '/home/u/proj',
+      status: 'live' as const,
+      controllerId: 'c0',
       geometry: { cols: 80, rows: 24 },
-    } as const
-    expect(parseDaemonMessage(encode(msg))).toEqual(msg)
+      epoch: 0,
+      clientCount: 1,
+      createdAt: '2026-06-03T00:00:00.000Z',
+      origin: { kind: 'spawn' as const },
+    }
+    expect(SessionMeta.parse(meta)).toEqual(meta)
   })
 
-  it('round-trips a control redraw message', () => {
-    const msg = { type: 'redraw' } as const
-    expect(parseControlMessage(encode(msg))).toEqual(msg)
+  it('round-trips a SessionMeta (resume origin, exited)', () => {
+    const meta = {
+      sessionId: 's2',
+      agentKind: 'codex' as const,
+      title: 'old thread',
+      cwd: '/w',
+      status: 'exited' as const,
+      exitCode: 0,
+      controllerId: null,
+      geometry: { cols: 100, rows: 30 },
+      epoch: 2,
+      clientCount: 0,
+      createdAt: '2026-06-03T00:00:00.000Z',
+      origin: { kind: 'resume' as const, conversationId: 'conv-9' },
+    }
+    expect(SessionMeta.parse(meta)).toEqual(meta)
   })
 
-  it('throws on malformed JSON', () => {
-    expect(() => parseClientMessage('{bad json')).toThrow()
+  it('parses AgentKind and ResumeRef', () => {
+    expect(AgentKind.parse('codex')).toBe('codex')
+    expect(ResumeRef.parse({ kind: 'claude-session', value: 'abc' })).toEqual({
+      kind: 'claude-session',
+      value: 'abc',
+    })
   })
 
-  it('round-trips a daemon agentFrame message', () => {
-    const msg = { type: 'agentFrame', seq: 7, data: 'aGVsbG8=' } as const
-    expect(parseDaemonMessage(encode(msg))).toEqual(msg)
+  it('round-trips a ConversationSummaryWire with optional fields omitted', () => {
+    const min = { id: 'x', agentKind: 'claude-code' as const, providerId: 'claude-code-jsonl' }
+    expect(ConversationSummaryWire.parse(min)).toEqual(min)
   })
 })

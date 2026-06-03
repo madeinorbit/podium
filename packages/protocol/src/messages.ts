@@ -12,6 +12,68 @@ export const Viewport = z.object({
 })
 export type Viewport = z.infer<typeof Viewport>
 
+export const AgentKind = z.enum(['claude-code', 'codex'])
+export type AgentKind = z.infer<typeof AgentKind>
+
+export const ResumeRef = z.object({ kind: z.string(), value: z.string() })
+export type ResumeRef = z.infer<typeof ResumeRef>
+
+export const SessionStatus = z.enum(['starting', 'live', 'exited'])
+export type SessionStatus = z.infer<typeof SessionStatus>
+
+export const SessionOrigin = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('spawn') }),
+  z.object({ kind: z.literal('resume'), conversationId: z.string() }),
+])
+export type SessionOrigin = z.infer<typeof SessionOrigin>
+
+export const SessionMeta = z.object({
+  sessionId: z.string(),
+  agentKind: AgentKind,
+  title: z.string(),
+  cwd: z.string(),
+  status: SessionStatus,
+  exitCode: z.number().int().optional(),
+  controllerId: z.string().nullable(),
+  geometry: Geometry,
+  epoch: z.number().int().nonnegative(),
+  clientCount: z.number().int().nonnegative(),
+  createdAt: z.string(), // ISO 8601
+  origin: SessionOrigin,
+})
+export type SessionMeta = z.infer<typeof SessionMeta>
+
+// Discovery payloads on the wire — dates are ISO strings (Date is not JSON-safe).
+export const ConversationGit = z.object({
+  branch: z.string().optional(),
+  sha: z.string().optional(),
+  originUrl: z.string().optional(),
+})
+export const ConversationSummaryWire = z.object({
+  id: z.string(),
+  agentKind: AgentKind,
+  title: z.string().optional(),
+  projectPath: z.string().optional(),
+  parentConversationId: z.string().optional(),
+  statusHint: z.string().optional(),
+  createdAt: z.string().optional(),
+  updatedAt: z.string().optional(),
+  messageCount: z.number().int().nonnegative().optional(),
+  git: ConversationGit.optional(),
+  resume: ResumeRef.optional(),
+  providerId: z.string(),
+})
+export type ConversationSummaryWire = z.infer<typeof ConversationSummaryWire>
+
+export const ConversationDiagnosticWire = z.object({
+  severity: z.enum(['warning', 'error']),
+  providerId: z.string().optional(),
+  root: z.string().optional(),
+  path: z.string().optional(),
+  message: z.string(),
+})
+export type ConversationDiagnosticWire = z.infer<typeof ConversationDiagnosticWire>
+
 // ---- Browser client -> server ----
 export const HelloMessage = z.object({
   type: z.literal('hello'),
