@@ -1,0 +1,17 @@
+:root {
+  --app: #0e0e12; --panel: #16161c; --panel-raised: #1d1d25; --surface: #25252f;
+  --border: #2a2a34; --border-strong: #3a3a46;
+  --fg: #d7d7e0; --fg-bright: #f3f3f8; --dim: #9a9aa8; --faint: #6a6a78;
+  --accent: #f59e0b; --success: #34d399; --warning: #fbbf24; --danger: #f87171;
+  --r: 6px;
+}
+* { box-sizing: border-box; }
+html, body, #root { height: 100%; margin: 0; }
+body {
+  background: var(--app); color: var(--fg);
+  font: 14px/1.4 ui-sans-serif, system-ui, -apple-system, sans-serif;
+}
+.dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+.dot.starting { background: var(--warning); }
+.dot.live { background: var(--success); }
+.dot.exited { background: var(--faint); }
