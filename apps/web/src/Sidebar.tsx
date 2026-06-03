@@ -1,7 +1,7 @@
-import { useState } from 'react'
 import type { JSX } from 'react'
-import { useStore } from './store'
+import { useState } from 'react'
 import { reposToViews, sessionsForWorktree } from './derive'
+import { useStore } from './store'
 
 export function Sidebar(): JSX.Element {
   const { repos, sessions, selectedWorktree, setSelectedWorktree, trpc, rescanRepos } = useStore()
@@ -29,7 +29,15 @@ export function Sidebar(): JSX.Element {
     <aside className="sidebar">
       <div className="sidebar-head">
         <span className="label">WORKTREES</span>
-        <button type="button" onClick={() => { setAdding((v) => !v); setError(null) }}>+ Add repo</button>
+        <button
+          type="button"
+          onClick={() => {
+            setAdding((v) => !v)
+            setError(null)
+          }}
+        >
+          + Add repo
+        </button>
       </div>
       {adding && (
         <div className="add-repo">
@@ -38,9 +46,10 @@ export function Sidebar(): JSX.Element {
             placeholder="/absolute/path/to/repo"
             onChange={(e) => setPath(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && void addRepo()}
-            autoFocus
           />
-          <button type="button" onClick={() => void addRepo()}>Add</button>
+          <button type="button" onClick={() => void addRepo()}>
+            Add
+          </button>
           {error && <div className="add-repo-error">{error}</div>}
         </div>
       )}

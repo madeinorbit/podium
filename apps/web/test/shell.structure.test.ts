@@ -1,8 +1,9 @@
-import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
+import { describe, expect, it } from 'vitest'
 
-const read = (rel: string) => readFileSync(fileURLToPath(new URL(`../src/${rel}`, import.meta.url)), 'utf8')
+const read = (rel: string) =>
+  readFileSync(fileURLToPath(new URL(`../src/${rel}`, import.meta.url)), 'utf8')
 
 describe('web shell structure', () => {
   it('AppShell gates on connection and renders sidebar + workspace', () => {

@@ -145,8 +145,7 @@ describe('daemon multi-bridge', () => {
     await waitFor(() => received.some((m) => m.type === 'scanReposResult'))
 
     const result = received.find(
-      (m): m is Extract<DaemonMessage, { type: 'scanReposResult' }> =>
-        m.type === 'scanReposResult',
+      (m): m is Extract<DaemonMessage, { type: 'scanReposResult' }> => m.type === 'scanReposResult',
     )
     expect(result?.requestId).toBe('rr-1')
     expect(result?.repositories.map((r) => r.path)).toContain(repo)
@@ -174,6 +173,6 @@ describe('daemon multi-bridge', () => {
         m.type === 'scanReposResult' && m.requestId === 'rr-2',
     )
     expect(result?.repositories.map((r) => r.path)).toContain(repo)
-    expect((result?.diagnostics.length ?? 0)).toBeGreaterThan(0)
+    expect(result?.diagnostics.length ?? 0).toBeGreaterThan(0)
   })
 })

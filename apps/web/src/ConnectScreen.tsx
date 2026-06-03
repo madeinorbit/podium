@@ -1,5 +1,5 @@
-import { useState } from 'react'
 import type { JSX } from 'react'
+import { useState } from 'react'
 
 export function ConnectScreen({ onConnect }: { onConnect: (origin: string) => void }): JSX.Element {
   const [draft, setDraft] = useState('ws://localhost:8787')
@@ -10,7 +10,9 @@ export function ConnectScreen({ onConnect }: { onConnect: (origin: string) => vo
         <span>Relay server</span>
         <input value={draft} onChange={(e) => setDraft(e.target.value)} />
       </label>
-      <button type="button" onClick={() => onConnect(draft)}>Connect</button>
+      <button type="button" onClick={() => onConnect(draft)}>
+        Connect
+      </button>
     </div>
   )
 }

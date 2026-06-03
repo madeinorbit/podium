@@ -1,9 +1,9 @@
-import { useEffect, useState } from 'react'
 import type { JSX } from 'react'
-import { useStore } from './store'
-import { reposToViews, sessionsForWorktree } from './derive'
+import { useEffect, useState } from 'react'
 import { AgentPanel } from './AgentPanel'
+import { reposToViews, sessionsForWorktree } from './derive'
 import { NewPanelMenu } from './NewPanelMenu'
+import { useStore } from './store'
 
 export function MobileApp(): JSX.Element {
   const store = useStore()
@@ -37,21 +37,35 @@ export function MobileApp(): JSX.Element {
             </button>
           ))}
           {worktree && (
-            <button type="button" className="tab-add" onClick={() => setMenuOpen((v) => !v)}>+</button>
+            <button type="button" className="tab-add" onClick={() => setMenuOpen((v) => !v)}>
+              +
+            </button>
           )}
         </div>
       </header>
       {menuOpen && worktree && (
-        <NewPanelMenu worktree={worktree} onOpened={(sid) => { setPane('A', sid); setMenuOpen(false) }} />
+        <NewPanelMenu
+          worktree={worktree}
+          onOpened={(sid) => {
+            setPane('A', sid)
+            setMenuOpen(false)
+          }}
+        />
       )}
       <div className="mobile-body">
-        {paneA ? <AgentPanel sessionId={paneA} /> : <div className="pane-empty">No panel — use + to start one.</div>}
+        {paneA ? (
+          <AgentPanel sessionId={paneA} />
+        ) : (
+          <div className="pane-empty">No panel — use + to start one.</div>
+        )}
       </div>
       {pickerOpen && (
         <div className="picker-sheet">
           <div className="sheet-head">
             <span className="label">WORKTREES</span>
-            <button type="button" onClick={() => setPickerOpen(false)}>✕</button>
+            <button type="button" onClick={() => setPickerOpen(false)}>
+              ✕
+            </button>
           </div>
           {repoViews.map((repo) => (
             <div key={repo.path}>
@@ -61,7 +75,10 @@ export function MobileApp(): JSX.Element {
                   key={wt.path}
                   type="button"
                   className="sheet-row"
-                  onClick={() => { setSelectedWorktree(wt.path); setPickerOpen(false) }}
+                  onClick={() => {
+                    setSelectedWorktree(wt.path)
+                    setPickerOpen(false)
+                  }}
                 >
                   {wt.branch ?? wt.path.split('/').pop()}
                 </button>

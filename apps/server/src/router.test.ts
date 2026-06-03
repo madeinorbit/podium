@@ -2,14 +2,16 @@ import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { RepoRegistry } from './repo-registry'
 import { SessionRegistry } from './relay'
+import { RepoRegistry } from './repo-registry'
 import { appRouter } from './router'
 
 function caller() {
   const registry = new SessionRegistry()
   registry.attachDaemon(() => {})
-  const repos = new RepoRegistry(join(tmpdir(), `podium-router-${Math.random().toString(36).slice(2)}.json`))
+  const repos = new RepoRegistry(
+    join(tmpdir(), `podium-router-${Math.random().toString(36).slice(2)}.json`),
+  )
   return { registry, call: appRouter.createCaller({ registry, repos }) }
 }
 
@@ -32,7 +34,12 @@ describe('appRouter', () => {
     const daemon: import('@podium/protocol').ControlMessage[] = []
     const registry = new SessionRegistry()
     registry.attachDaemon((m) => daemon.push(m))
-    const call = appRouter.createCaller({ registry, repos: new RepoRegistry(join(tmpdir(), `podium-disc-${Math.random().toString(36).slice(2)}.json`)) })
+    const call = appRouter.createCaller({
+      registry,
+      repos: new RepoRegistry(
+        join(tmpdir(), `podium-disc-${Math.random().toString(36).slice(2)}.json`),
+      ),
+    })
     const p = call.discovery.scan()
     // Yield so the tRPC handler's async body (registry.scan → pendingScans.set) runs before we feed the result.
     await Promise.resolve()

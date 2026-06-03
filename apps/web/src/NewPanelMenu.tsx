@@ -1,6 +1,6 @@
 import type { JSX } from 'react'
-import { useStore } from './store'
 import { resumableForWorktree } from './derive'
+import { useStore } from './store'
 import type { WorktreeView } from './types'
 
 export function NewPanelMenu({
@@ -31,8 +31,12 @@ export function NewPanelMenu({
 
   return (
     <div className="new-panel-menu">
-      <button type="button" onClick={() => void create('claude-code')}>New Claude</button>
-      <button type="button" onClick={() => void create('codex')}>New Codex</button>
+      <button type="button" onClick={() => void create('claude-code')}>
+        New Claude
+      </button>
+      <button type="button" onClick={() => void create('codex')}>
+        New Codex
+      </button>
       <div className="menu-section">Resume</div>
       {resumable.length === 0 && <div className="menu-empty">No matching history</div>}
       {resumable.map((c) => (

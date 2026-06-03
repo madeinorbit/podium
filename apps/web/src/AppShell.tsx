@@ -1,11 +1,11 @@
-import { useEffect, useState } from 'react'
 import type { JSX } from 'react'
-import { parseServer } from './trpc'
-import { StoreProvider } from './store'
+import { useEffect, useState } from 'react'
 import { ConnectScreen } from './ConnectScreen'
-import { Sidebar } from './Sidebar'
-import { Workspace } from './Workspace'
 import { MobileApp } from './MobileApp'
+import { Sidebar } from './Sidebar'
+import { StoreProvider } from './store'
+import { parseServer } from './trpc'
+import { Workspace } from './Workspace'
 
 function useIsMobile(): boolean {
   const [m, setM] = useState(() => window.matchMedia('(max-width: 768px)').matches)

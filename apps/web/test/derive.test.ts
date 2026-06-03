@@ -1,11 +1,11 @@
+import type { ConversationSummaryWire, GitRepositoryWire, SessionMeta } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import {
   reposToViews,
-  sessionsForWorktree,
-  resumableForWorktree,
   resumableForRepoFallback,
+  resumableForWorktree,
+  sessionsForWorktree,
 } from '../src/derive'
-import type { ConversationSummaryWire, GitRepositoryWire, SessionMeta } from '@podium/protocol'
 
 const repo: GitRepositoryWire = {
   path: '/src/app',

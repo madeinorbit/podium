@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from 'react'
+import { type MountedSession, mountSession } from '@podium/terminal-client'
 import type { JSX } from 'react'
-import { mountSession, type MountedSession } from '@podium/terminal-client'
+import { useEffect, useRef, useState } from 'react'
 import { useStore } from './store'
 
 export function AgentPanel({ sessionId }: { sessionId: string }): JSX.Element {

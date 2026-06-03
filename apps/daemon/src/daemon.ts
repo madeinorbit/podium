@@ -2,9 +2,9 @@ import {
   type AgentConversationDiagnostic,
   type AgentConversationSummary,
   type AgentSession,
+  agentLaunchCommand,
   type GitDiscoveryDiagnostic,
   type GitRepositorySummary,
-  agentLaunchCommand,
   scanAgentConversations,
   scanGitRepositoriesAtPath,
   spawnAgent,
@@ -14,9 +14,9 @@ import {
   type ConversationDiagnosticWire,
   type ConversationSummaryWire,
   type DaemonMessage,
+  encode,
   type GitDiscoveryDiagnosticWire,
   type GitRepositoryWire,
-  encode,
   parseControlMessage,
 } from '@podium/protocol'
 import WebSocket, { type RawData } from 'ws'

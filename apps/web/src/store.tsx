@@ -1,10 +1,15 @@
-import {
-  createContext, useContext, useEffect, useMemo, useRef, useState,
-  type ReactNode,
-} from 'react'
-import type { JSX } from 'react'
 import type { ConversationSummaryWire, GitRepositoryWire, SessionMeta } from '@podium/protocol'
 import { SocketHub } from '@podium/terminal-client'
+import type { JSX } from 'react'
+import {
+  createContext,
+  type ReactNode,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 import { makeTrpc, parseServer, type Trpc } from './trpc'
 
 export interface Store {
@@ -26,12 +31,22 @@ export interface Store {
 
 const Ctx = createContext<Store | null>(null)
 
-export function StoreProvider({ origin, children }: { origin: string; children: ReactNode }): JSX.Element {
+export function StoreProvider({
+  origin,
+  children,
+}: {
+  origin: string
+  children: ReactNode
+}): JSX.Element {
   const cfg = useMemo(() => parseServer(`?server=${origin}`), [origin])
   if (!cfg) throw new Error(`bad server origin: ${origin}`)
 
   const hub = useMemo(
-    () => new SocketHub({ url: cfg.wsClientUrl, viewport: { cols: 80, rows: 24, dpr: globalThis.devicePixelRatio ?? 1 } }),
+    () =>
+      new SocketHub({
+        url: cfg.wsClientUrl,
+        viewport: { cols: 80, rows: 24, dpr: globalThis.devicePixelRatio ?? 1 },
+      }),
     [cfg.wsClientUrl],
   )
   const trpc = useMemo(() => makeTrpc(cfg.httpOrigin), [cfg.httpOrigin])
@@ -75,12 +90,20 @@ export function StoreProvider({ origin, children }: { origin: string; children: 
   }, [hub, rescanRepos, rescanConversations])
 
   const value: Store = {
-    hub, trpc, repos, conversations, sessions,
-    selectedWorktree, setSelectedWorktree,
-    paneA, paneB,
+    hub,
+    trpc,
+    repos,
+    conversations,
+    sessions,
+    selectedWorktree,
+    setSelectedWorktree,
+    paneA,
+    paneB,
     setPane: (pane, id) => (pane === 'A' ? setPaneA(id) : setPaneB(id)),
-    split, toggleSplit: () => setSplit((s) => !s),
-    rescanRepos, rescanConversations,
+    split,
+    toggleSplit: () => setSplit((s) => !s),
+    rescanRepos,
+    rescanConversations,
   }
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }

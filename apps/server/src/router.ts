@@ -1,8 +1,8 @@
 import { AgentKind, ResumeRef } from '@podium/protocol'
 import { initTRPC, TRPCError } from '@trpc/server'
 import { z } from 'zod'
-import type { RepoRegistry } from './repo-registry'
 import type { SessionRegistry } from './relay'
+import type { RepoRegistry } from './repo-registry'
 
 export interface Context {
   registry: SessionRegistry
@@ -34,22 +34,21 @@ export const appRouter = t.router({
   }),
   repos: t.router({
     list: t.procedure.query(({ ctx }) => ctx.repos.list()),
-    add: t.procedure
-      .input(z.object({ path: z.string() }))
-      .mutation(async ({ ctx, input }) => {
-        try {
-          await ctx.repos.add(input.path)
-        } catch (e) {
-          throw new TRPCError({ code: 'BAD_REQUEST', message: e instanceof Error ? e.message : String(e) })
-        }
-        return ctx.repos.list()
-      }),
-    remove: t.procedure
-      .input(z.object({ path: z.string() }))
-      .mutation(async ({ ctx, input }) => {
-        await ctx.repos.remove(input.path)
-        return ctx.repos.list()
-      }),
+    add: t.procedure.input(z.object({ path: z.string() })).mutation(async ({ ctx, input }) => {
+      try {
+        await ctx.repos.add(input.path)
+      } catch (e) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: e instanceof Error ? e.message : String(e),
+        })
+      }
+      return ctx.repos.list()
+    }),
+    remove: t.procedure.input(z.object({ path: z.string() })).mutation(async ({ ctx, input }) => {
+      await ctx.repos.remove(input.path)
+      return ctx.repos.list()
+    }),
   }),
   discovery: t.router({
     scan: t.procedure.mutation(({ ctx }) => ctx.registry.scan()),

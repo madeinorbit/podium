@@ -1,9 +1,9 @@
-import { useEffect, useState } from 'react'
 import type { JSX } from 'react'
-import { useStore } from './store'
-import { reposToViews, sessionsForWorktree } from './derive'
+import { useEffect, useState } from 'react'
 import { AgentPanel } from './AgentPanel'
+import { reposToViews, sessionsForWorktree } from './derive'
 import { NewPanelMenu } from './NewPanelMenu'
+import { useStore } from './store'
 import type { WorktreeView } from './types'
 
 export function Workspace(): JSX.Element {
@@ -38,8 +38,12 @@ export function Workspace(): JSX.Element {
             <span className={`dot ${t.status}`} /> {t.agentKind}
           </button>
         ))}
-        <button type="button" className="tab-add" onClick={() => setMenuOpen((v) => !v)}>+</button>
-        <button type="button" className="tab-split" onClick={toggleSplit}>⊟ split</button>
+        <button type="button" className="tab-add" onClick={() => setMenuOpen((v) => !v)}>
+          +
+        </button>
+        <button type="button" className="tab-split" onClick={toggleSplit}>
+          ⊟ split
+        </button>
         {menuOpen && (
           <NewPanelMenu
             worktree={worktree}
@@ -54,7 +58,11 @@ export function Workspace(): JSX.Element {
         <div className="pane">{paneA ? <AgentPanel sessionId={paneA} /> : <Empty />}</div>
         {split && (
           <div className="pane">
-            {paneB ? <AgentPanel sessionId={paneB} /> : <PanePicker tabs={tabs} onPick={(id) => setPane('B', id)} />}
+            {paneB ? (
+              <AgentPanel sessionId={paneB} />
+            ) : (
+              <PanePicker tabs={tabs} onPick={(id) => setPane('B', id)} />
+            )}
           </div>
         )}
       </div>
@@ -77,7 +85,9 @@ function PanePicker({
     <div className="pane-picker">
       <div>Pick a panel for this pane:</div>
       {tabs.map((t) => (
-        <button key={t.sessionId} type="button" onClick={() => onPick(t.sessionId)}>{t.agentKind}</button>
+        <button key={t.sessionId} type="button" onClick={() => onPick(t.sessionId)}>
+          {t.agentKind}
+        </button>
       ))}
     </div>
   )
