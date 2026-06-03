@@ -25,6 +25,7 @@ import {
   PanelRightClose,
   Pause,
   Play,
+  Radio,
   RotateCcw,
   Search,
   Settings,
@@ -39,10 +40,11 @@ import {
 } from 'lucide-react'
 import type { ComponentType, CSSProperties } from 'react'
 import { useMemo, useState } from 'react'
+import { LiveSessions } from './LiveSessions'
 
 type Icon = ComponentType<{ className?: string; size?: number; strokeWidth?: number }>
 
-type ModeId = 'product' | 'dev' | 'spec' | 'search' | 'settings'
+type ModeId = 'product' | 'dev' | 'spec' | 'search' | 'settings' | 'live'
 type SettingId = 'environment' | 'skills' | 'notifications' | 'usage'
 type DevDrawer = 'files' | 'diff' | 'git'
 type HistoryMode = 'Hybrid' | 'Keyword' | 'Semantic'
@@ -132,6 +134,7 @@ type AttentionEvent = {
 
 const modes: Mode[] = [
   { id: 'product', label: 'Product', icon: LayoutGrid },
+  { id: 'live', label: 'Live', icon: Radio },
   { id: 'dev', label: 'Dev', icon: SquareTerminal },
   { id: 'spec', label: 'Spec', icon: FileText },
   { id: 'search', label: 'Search', icon: History },
@@ -838,6 +841,8 @@ export function App() {
                 attentionEvents={attentionEvents}
               />
             )}
+
+            {activeMode === 'live' && <LiveSessions />}
 
             {activeMode === 'dev' && (
               <DevWorkbench

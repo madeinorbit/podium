@@ -1199,3 +1199,73 @@ pre {
     box-shadow: var(--shadow);
   }
 }
+
+.live-layout {
+  display: grid;
+  grid-template-columns: 300px 1fr;
+  gap: 12px;
+  height: 100%;
+  min-height: 0;
+}
+.live-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow-y: auto;
+  min-height: 0;
+}
+.live-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  padding: 8px;
+  border-radius: 8px;
+}
+.live-row.active {
+  outline: 2px solid var(--accent, #6d9eeb);
+}
+.live-row > button:first-child {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  flex: 1;
+  background: none;
+  border: 0;
+  color: inherit;
+  cursor: pointer;
+}
+.live-kill {
+  font-size: 11px;
+}
+.live-stage {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.live-term {
+  flex: 1;
+  min-height: 0;
+  background: #000;
+  border-radius: 8px;
+  overflow: hidden;
+}
+.live-toolbar {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding-top: 6px;
+}
+.live-connect {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: 420px;
+}
+@media (pointer: coarse) {
+  .live-layout {
+    grid-template-columns: 1fr;
+  }
+}

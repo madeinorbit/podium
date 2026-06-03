@@ -6,6 +6,7 @@
   "dependencies": {
     "@podium/terminal-client": "workspace:*",
     "@podium/server": "workspace:*",
+    "@podium/protocol": "workspace:*",
     "@podium/core": "workspace:*",
     "@trpc/client": "^11.0.0",
     "lucide-react": "^0.468.0",
