@@ -5,6 +5,7 @@ import {
   ConversationSummaryWire,
   ResumeRef,
   SessionMeta,
+  type ServerMessage,
   encode,
   parseClientMessage,
   parseControlMessage,
@@ -77,5 +78,34 @@ describe('ClientMessage', () => {
   })
   it('rejects input without sessionId', () => {
     expect(() => parseClientMessage(JSON.stringify({ type: 'input', data: 'x' }))).toThrow()
+  })
+})
+
+describe('ServerMessage', () => {
+  const geometry = { cols: 80, rows: 24 }
+  const sessionMeta = {
+    sessionId: 's1',
+    agentKind: 'claude-code' as const,
+    title: 't',
+    cwd: '/w',
+    status: 'live' as const,
+    controllerId: 'c0',
+    geometry,
+    epoch: 0,
+    clientCount: 1,
+    createdAt: '2026-06-03T00:00:00.000Z',
+    origin: { kind: 'spawn' as const },
+  }
+  const cases: ServerMessage[] = [
+    { type: 'welcome', clientId: 'c0' },
+    { type: 'attached', sessionId: 's1', controllerId: 'c0', geometry, epoch: 0 },
+    { type: 'outputFrame', sessionId: 's1', seq: 3, epoch: 1, data: 'eA==' },
+    { type: 'controllerChanged', sessionId: 's1', controllerId: 'c1', geometry },
+    { type: 'geometry', sessionId: 's1', cols: 100, rows: 30 },
+    { type: 'agentExit', sessionId: 's1', code: 0 },
+    { type: 'sessionsChanged', sessions: [sessionMeta] },
+  ]
+  it.each(cases)('round-trips %j', (msg) => {
+    expect(parseServerMessage(encode(msg))).toEqual(msg)
   })
 })

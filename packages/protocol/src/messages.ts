@@ -113,34 +113,50 @@ export const ClientMessage = z.discriminatedUnion('type', [
 export type ClientMessage = z.infer<typeof ClientMessage>
 
 // ---- Server -> browser client ----
-export const WelcomeMessage = z.object({
-  type: z.literal('welcome'),
-  clientId: z.string(),
+export const WelcomeMessage = z.object({ type: z.literal('welcome'), clientId: z.string() })
+export const AttachedMessage = z.object({
+  type: z.literal('attached'),
   sessionId: z.string(),
-  controllerId: z.string(),
+  controllerId: z.string().nullable(),
   geometry: Geometry,
+  epoch: z.number().int().nonnegative(),
 })
 export const OutputFrameMessage = z.object({
   type: z.literal('outputFrame'),
+  sessionId: z.string(),
   seq: z.number().int().nonnegative(),
   epoch: z.number().int().nonnegative(),
   data: z.string(),
 })
 export const ControllerChangedMessage = z.object({
   type: z.literal('controllerChanged'),
-  controllerId: z.string(),
+  sessionId: z.string(),
+  controllerId: z.string().nullable(),
   geometry: Geometry,
 })
-// Server's authoritative PTY size, for spectator letterboxing (server -> client).
-export const GeometryMessage = z.object({ type: z.literal('geometry'), ...Geometry.shape })
-export const AgentExitMessage = z.object({ type: z.literal('agentExit'), code: z.number().int() })
+export const GeometryMessage = z.object({
+  type: z.literal('geometry'),
+  sessionId: z.string(),
+  ...Geometry.shape,
+})
+export const AgentExitMessage = z.object({
+  type: z.literal('agentExit'),
+  sessionId: z.string(),
+  code: z.number().int(),
+})
+export const SessionsChangedMessage = z.object({
+  type: z.literal('sessionsChanged'),
+  sessions: z.array(SessionMeta),
+})
 
 export const ServerMessage = z.discriminatedUnion('type', [
   WelcomeMessage,
+  AttachedMessage,
   OutputFrameMessage,
   ControllerChangedMessage,
   GeometryMessage,
   AgentExitMessage,
+  SessionsChangedMessage,
 ])
 export type ServerMessage = z.infer<typeof ServerMessage>
 
