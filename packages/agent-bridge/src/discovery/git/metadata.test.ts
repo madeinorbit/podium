@@ -2,9 +2,10 @@ import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, test } from 'vitest'
-import { inspectGitRepositoryPath } from './metadata.js'
+import { inspectGitRepositoryPath, readRegisteredWorktrees } from './metadata.js'
 
 const mainSha = '1111111111111111111111111111111111111111'
+const featureSha = '2222222222222222222222222222222222222222'
 
 async function createTempRoot(): Promise<string> {
   return await mkdtemp(join(tmpdir(), 'podium-git-discovery-'))
@@ -22,6 +23,28 @@ async function writeNormalRepo(root: string, name = 'repo'): Promise<string> {
     '[core]\n\trepositoryformatversion = 0\n[remote "origin"]\n\turl = git@github.com:podium/repo.git\n',
   )
   return repo
+}
+
+async function writeLinkedWorktree(root: string): Promise<{ main: string; worktree: string }> {
+  const main = await writeNormalRepo(root, 'main')
+  const worktree = join(root, 'main-feature')
+  const adminDir = join(main, '.git', 'worktrees', 'main-feature')
+  await mkdir(worktree, { recursive: true })
+  await mkdir(adminDir, { recursive: true })
+  await writeFile(join(worktree, '.git'), `gitdir: ${adminDir}\n`)
+  await writeFile(join(adminDir, 'commondir'), '../..\n')
+  await writeFile(join(adminDir, 'gitdir'), `${join(worktree, '.git')}\n`)
+  await writeFile(join(adminDir, 'HEAD'), 'ref: refs/heads/feature\n')
+  await writeFile(join(main, '.git', 'refs', 'heads', 'feature'), `${featureSha}\n`)
+  return { main, worktree }
+}
+
+async function writeBareRepo(root: string): Promise<string> {
+  const bare = join(root, 'repo.git')
+  await mkdir(join(bare, 'objects'), { recursive: true })
+  await mkdir(join(bare, 'refs'), { recursive: true })
+  await writeFile(join(bare, 'HEAD'), `${mainSha}\n`)
+  return bare
 }
 
 describe('inspectGitRepositoryPath', () => {
@@ -233,6 +256,80 @@ describe('inspectGitRepositoryPath', () => {
         severity: 'warning',
         path: join(repo, '.git', 'refs', 'heads', 'main'),
         message: 'Invalid git branch ref metadata',
+      }),
+    ])
+  })
+
+  test('detects a linked worktree through a .git pointer file', async () => {
+    const root = await createTempRoot()
+    const { main, worktree } = await writeLinkedWorktree(root)
+
+    const result = await inspectGitRepositoryPath(worktree)
+
+    expect(result.diagnostics).toEqual([])
+    expect(result.repository).toEqual(
+      expect.objectContaining({
+        path: worktree,
+        kind: 'worktree',
+        gitDir: join(main, '.git', 'worktrees', 'main-feature'),
+        commonGitDir: join(main, '.git'),
+        mainWorktreePath: main,
+        branch: 'feature',
+        headSha: featureSha,
+      }),
+    )
+  })
+
+  test('reads registered linked worktrees from the common Git directory', async () => {
+    const root = await createTempRoot()
+    const { main, worktree } = await writeLinkedWorktree(root)
+
+    const result = await readRegisteredWorktrees(join(main, '.git'))
+
+    expect(result.diagnostics).toEqual([])
+    expect(result.worktrees).toEqual([
+      expect.objectContaining({
+        path: worktree,
+        gitDir: join(main, '.git', 'worktrees', 'main-feature'),
+        commonGitDir: join(main, '.git'),
+        branch: 'feature',
+        headSha: featureSha,
+      }),
+    ])
+  })
+
+  test('detects a bare repository when the scanned directory is the Git admin dir', async () => {
+    const root = await createTempRoot()
+    const bare = await writeBareRepo(root)
+
+    const result = await inspectGitRepositoryPath(bare)
+
+    expect(result.diagnostics).toEqual([])
+    expect(result.repository).toEqual(
+      expect.objectContaining({
+        path: bare,
+        kind: 'bare',
+        gitDir: bare,
+        commonGitDir: bare,
+        headSha: mainSha,
+      }),
+    )
+  })
+
+  test('reports malformed .git pointer files as diagnostics', async () => {
+    const root = await createTempRoot()
+    const worktree = join(root, 'broken')
+    await mkdir(worktree)
+    await writeFile(join(worktree, '.git'), 'not-a-pointer\n')
+
+    const result = await inspectGitRepositoryPath(worktree)
+
+    expect(result.repository).toBeUndefined()
+    expect(result.diagnostics).toEqual([
+      expect.objectContaining({
+        severity: 'warning',
+        path: join(worktree, '.git'),
+        message: 'Malformed Git pointer file',
       }),
     ])
   })

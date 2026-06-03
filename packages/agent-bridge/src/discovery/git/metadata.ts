@@ -1,5 +1,5 @@
-import { readFile, stat } from 'node:fs/promises'
-import { join, resolve } from 'node:path'
+import { readdir, readFile, stat } from 'node:fs/promises'
+import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
 import { canonicalPath, isMissingPathError } from '../paths.js'
 import type {
   GitDiscoveryDiagnostic,
@@ -15,42 +15,226 @@ export type InspectGitRepositoryResult = {
 export async function inspectGitRepositoryPath(path: string): Promise<InspectGitRepositoryResult> {
   const diagnostics: GitDiscoveryDiagnostic[] = []
   const repositoryPath = await canonicalPath(path)
-  const gitDirPath = join(repositoryPath, '.git')
+  const gitPath = join(repositoryPath, '.git')
+  const gitPathStats = await statOptional(gitPath)
 
-  if (!(await isDirectory(gitDirPath))) {
-    return { diagnostics }
-  }
-
-  const gitDir = await canonicalPath(gitDirPath)
-  const commonGitDir = await readCommonGitDir(gitDir, diagnostics)
-  const head = await readHeadMetadata(gitDir, commonGitDir, diagnostics)
-  const originUrl = await readOriginUrl(commonGitDir, diagnostics)
-
-  return {
-    repository: {
+  if (gitPathStats?.isDirectory()) {
+    const gitDir = await canonicalPath(gitPath)
+    const repository = await readRepositorySummary({
       path: repositoryPath,
       kind: 'repository',
       gitDir,
-      commonGitDir,
       mainWorktreePath: repositoryPath,
-      ...head,
-      ...(originUrl === undefined ? {} : { originUrl }),
-    },
-    diagnostics,
+      diagnostics,
+    })
+    return { repository, diagnostics }
   }
+
+  if (gitPathStats?.isFile()) {
+    const gitDir = await readGitPointerFile(gitPath, diagnostics)
+    if (gitDir === undefined) return { diagnostics }
+
+    const commonGitDir = await readCommonGitDir(gitDir, diagnostics)
+    const repository = await readRepositorySummary({
+      path: repositoryPath,
+      kind: 'worktree',
+      gitDir,
+      commonGitDir,
+      mainWorktreePath: inferMainWorktreePath(commonGitDir),
+      diagnostics,
+    })
+    return { repository, diagnostics }
+  }
+
+  if (gitPathStats !== undefined) return { diagnostics }
+
+  if (await isBareGitAdminDir(repositoryPath)) {
+    const repository = await readRepositorySummary({
+      path: repositoryPath,
+      kind: 'bare',
+      gitDir: repositoryPath,
+      commonGitDir: repositoryPath,
+      diagnostics,
+    })
+    return { repository, diagnostics }
+  }
+
+  return { diagnostics }
 }
 
 export async function readRegisteredWorktrees(
-  _commonGitDir: string,
+  commonGitDir: string,
 ): Promise<{ worktrees: GitWorktreeSummary[]; diagnostics: GitDiscoveryDiagnostic[] }> {
-  return { worktrees: [], diagnostics: [] }
+  const diagnostics: GitDiscoveryDiagnostic[] = []
+  const resolvedCommonGitDir = await canonicalPath(commonGitDir)
+  const worktreesDir = join(resolvedCommonGitDir, 'worktrees')
+
+  let entries
+  try {
+    entries = await readdir(worktreesDir, { withFileTypes: true })
+  } catch (error) {
+    if (isMissingPathError(error)) return { worktrees: [], diagnostics }
+
+    diagnostics.push({
+      severity: 'warning',
+      path: worktreesDir,
+      message: 'Could not read git worktrees metadata',
+      cause: error,
+    })
+    return { worktrees: [], diagnostics }
+  }
+
+  const worktrees: GitWorktreeSummary[] = []
+  for (const entry of entries.sort(compareDirentNames)) {
+    if (!entry.isDirectory()) continue
+
+    const gitDir = await canonicalPath(join(worktreesDir, entry.name))
+    const worktree = await readRegisteredWorktree(gitDir, resolvedCommonGitDir, diagnostics)
+    if (worktree !== undefined) worktrees.push(worktree)
+  }
+
+  worktrees.sort((left, right) => compareStrings(left.path, right.path))
+  return { worktrees, diagnostics }
+}
+
+type ReadRepositorySummaryOptions = {
+  path: string
+  kind: GitRepositorySummary['kind']
+  gitDir: string
+  commonGitDir?: string
+  mainWorktreePath?: string
+  diagnostics: GitDiscoveryDiagnostic[]
+}
+
+async function readRepositorySummary({
+  path,
+  kind,
+  gitDir,
+  commonGitDir,
+  mainWorktreePath,
+  diagnostics,
+}: ReadRepositorySummaryOptions): Promise<GitRepositorySummary> {
+  const resolvedCommonGitDir = commonGitDir ?? (await readCommonGitDir(gitDir, diagnostics))
+  const head = await readHeadMetadata(gitDir, resolvedCommonGitDir, diagnostics)
+  const originUrl = await readOriginUrl(resolvedCommonGitDir, diagnostics)
+
+  return {
+    path,
+    kind,
+    gitDir,
+    commonGitDir: resolvedCommonGitDir,
+    ...(mainWorktreePath === undefined ? {} : { mainWorktreePath }),
+    ...head,
+    ...(originUrl === undefined ? {} : { originUrl }),
+  }
+}
+
+async function readRegisteredWorktree(
+  gitDir: string,
+  commonGitDir: string,
+  diagnostics: GitDiscoveryDiagnostic[],
+): Promise<GitWorktreeSummary | undefined> {
+  const gitdirPath = join(gitDir, 'gitdir')
+  const gitdir = await readRequiredMetadataFile(
+    gitdirPath,
+    diagnostics,
+    'Could not read git worktree gitdir metadata',
+  )
+
+  if (gitdir === undefined) return undefined
+
+  const gitFilePath = trimLineEnding(firstLine(gitdir)).trim()
+  if (gitFilePath.length === 0) {
+    diagnostics.push({
+      severity: 'warning',
+      path: gitdirPath,
+      message: 'Invalid git worktree gitdir metadata',
+    })
+    return undefined
+  }
+
+  const resolvedGitFilePath = await canonicalPath(resolveMetadataPath(dirname(gitdirPath), gitFilePath))
+  const path = await canonicalPath(dirname(resolvedGitFilePath))
+  const head = await readHeadMetadata(gitDir, commonGitDir, diagnostics)
+  const locked = await markerExists(
+    join(gitDir, 'locked'),
+    diagnostics,
+    'Could not read git worktree locked metadata',
+  )
+  const prunable = await markerExists(
+    join(gitDir, 'prunable'),
+    diagnostics,
+    'Could not read git worktree prunable metadata',
+  )
+
+  return {
+    path,
+    gitDir,
+    commonGitDir,
+    ...head,
+    ...(locked ? { locked: true } : {}),
+    ...(prunable ? { prunable: true } : {}),
+  }
+}
+
+async function readGitPointerFile(
+  gitPath: string,
+  diagnostics: GitDiscoveryDiagnostic[],
+): Promise<string | undefined> {
+  const pointer = await readRequiredMetadataFile(
+    gitPath,
+    diagnostics,
+    'Could not read Git pointer file',
+  )
+
+  if (pointer === undefined) return undefined
+
+  const line = trimLineEnding(firstLine(pointer))
+  if (!line.startsWith('gitdir:')) {
+    diagnostics.push({
+      severity: 'warning',
+      path: gitPath,
+      message: 'Malformed Git pointer file',
+    })
+    return undefined
+  }
+
+  const gitDir = line.slice('gitdir:'.length).trim()
+  if (gitDir.length === 0) {
+    diagnostics.push({
+      severity: 'warning',
+      path: gitPath,
+      message: 'Malformed Git pointer file',
+    })
+    return undefined
+  }
+
+  return await canonicalPath(resolveMetadataPath(dirname(gitPath), gitDir))
+}
+
+async function isBareGitAdminDir(path: string): Promise<boolean> {
+  return (
+    (await isFile(join(path, 'HEAD'))) &&
+    (await isDirectory(join(path, 'objects'))) &&
+    (await isDirectory(join(path, 'refs')))
+  )
 }
 
 async function isDirectory(path: string): Promise<boolean> {
+  const stats = await statOptional(path)
+  return stats?.isDirectory() ?? false
+}
+
+async function isFile(path: string): Promise<boolean> {
+  const stats = await statOptional(path)
+  return stats?.isFile() ?? false
+}
+
+async function statOptional(path: string): Promise<Awaited<ReturnType<typeof stat>> | undefined> {
   try {
-    return (await stat(path)).isDirectory()
+    return await stat(path)
   } catch (error) {
-    if (isMissingPathError(error)) return false
+    if (isMissingPathError(error)) return undefined
     throw error
   }
 }
@@ -133,6 +317,16 @@ function trimLineEnding(value: string): string {
   return value
 }
 
+function firstLine(value: string): string {
+  const lineFeedIndex = value.indexOf('\n')
+  if (lineFeedIndex !== -1) return value.slice(0, lineFeedIndex)
+
+  const carriageReturnIndex = value.indexOf('\r')
+  if (carriageReturnIndex !== -1) return value.slice(0, carriageReturnIndex)
+
+  return value
+}
+
 function parseHeadBranch(head: string): string | undefined {
   const prefix = 'ref: refs/heads/'
   if (!head.startsWith(prefix)) return undefined
@@ -195,6 +389,45 @@ function parseOriginUrl(config: string): string | undefined {
   }
 
   return undefined
+}
+
+async function markerExists(
+  path: string,
+  diagnostics: GitDiscoveryDiagnostic[],
+  message: string,
+): Promise<boolean> {
+  try {
+    await stat(path)
+    return true
+  } catch (error) {
+    if (isMissingPathError(error)) return false
+
+    diagnostics.push({
+      severity: 'warning',
+      path,
+      message,
+      cause: error,
+    })
+    return false
+  }
+}
+
+function resolveMetadataPath(baseDirectory: string, path: string): string {
+  return isAbsolute(path) ? path : resolve(baseDirectory, path)
+}
+
+function inferMainWorktreePath(commonGitDir: string): string | undefined {
+  return basename(commonGitDir) === '.git' ? dirname(commonGitDir) : undefined
+}
+
+function compareDirentNames(left: { name: string }, right: { name: string }): number {
+  return compareStrings(left.name, right.name)
+}
+
+function compareStrings(left: string, right: string): number {
+  if (left < right) return -1
+  if (left > right) return 1
+  return 0
 }
 
 async function readRequiredMetadataFile(
