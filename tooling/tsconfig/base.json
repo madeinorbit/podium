@@ -12,6 +12,7 @@
     "noFallthroughCasesInSwitch": true,
     "verbatimModuleSyntax": true,
     "isolatedModules": true,
+    "customConditions": ["@podium/source"],
     "esModuleInterop": true,
     "resolveJsonModule": true,
     "skipLibCheck": true,

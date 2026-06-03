@@ -45,11 +45,10 @@ bun install
 
 ## Cross-package imports
 
-All `src/` are empty in the skeleton, so no package imports another yet. When the first
-real cross-package import lands between a *published* library and its consumer, add a
-`"@podium/source": "./src/index.ts"` export condition (and `customConditions` in the
-tsconfig base) so typecheck resolves to source without requiring a prior build. Until
-then, build libraries before any consumer that imports their `dist` output.
+Published workspace libraries expose a local `"@podium/source": "./src/index.ts"`
+export condition, and the shared TypeScript/Vitest config resolves that condition during
+development. This lets typecheck and tests use source without requiring a prior build,
+while normal package consumers still resolve the published `dist` output.
 
 ## Releasing the libraries
 

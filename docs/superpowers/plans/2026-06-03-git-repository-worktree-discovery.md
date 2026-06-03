@@ -1299,7 +1299,7 @@ Expected: PASS with `tsup` producing `dist`.
 Run:
 
 ```bash
-bun test
+bun run test
 ```
 
 Expected: PASS for all repository tests.
