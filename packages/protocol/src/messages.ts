@@ -161,35 +161,64 @@ export const ServerMessage = z.discriminatedUnion('type', [
 export type ServerMessage = z.infer<typeof ServerMessage>
 
 // ---- Daemon <-> server ----
-export const BindMessage = z.object({
-  type: z.literal('bind'),
+// server -> daemon
+export const SpawnMessage = z.object({
+  type: z.literal('spawn'),
   sessionId: z.string(),
-  cmd: z.string(),
+  agentKind: AgentKind,
+  cwd: z.string(),
+  resume: ResumeRef.optional(),
   geometry: Geometry,
 })
-export const RedrawMessage = z.object({ type: z.literal('redraw') })
+export const KillMessage = z.object({ type: z.literal('kill'), sessionId: z.string() })
+export const ScanRequestMessage = z.object({ type: z.literal('scanRequest'), requestId: z.string() })
+export const RedrawMessage = z.object({ type: z.literal('redraw'), sessionId: z.string() })
 
-export const AgentFrameMessage = z.object({
-  type: z.literal('agentFrame'),
-  seq: z.number().int().nonnegative(),
-  data: z.string(),
-})
-
-// daemon -> server
-export const DaemonMessage = z.discriminatedUnion('type', [
-  BindMessage,
-  AgentFrameMessage,
-  AgentExitMessage,
-])
-export type DaemonMessage = z.infer<typeof DaemonMessage>
-
-// server -> daemon
 export const ControlMessage = z.discriminatedUnion('type', [
+  SpawnMessage,
+  KillMessage,
+  ScanRequestMessage,
   InputMessage,
   ResizeMessage,
   RedrawMessage,
 ])
 export type ControlMessage = z.infer<typeof ControlMessage>
+
+// daemon -> server
+export const BindMessage = z.object({
+  type: z.literal('bind'),
+  sessionId: z.string(),
+  cmd: z.string(),
+  cwd: z.string(),
+  agentKind: AgentKind,
+  geometry: Geometry,
+})
+export const AgentFrameMessage = z.object({
+  type: z.literal('agentFrame'),
+  sessionId: z.string(),
+  seq: z.number().int().nonnegative(),
+  data: z.string(),
+})
+export const SpawnErrorMessage = z.object({
+  type: z.literal('spawnError'),
+  sessionId: z.string(),
+  message: z.string(),
+})
+export const ScanResultMessage = z.object({
+  type: z.literal('scanResult'),
+  requestId: z.string(),
+  conversations: z.array(ConversationSummaryWire),
+  diagnostics: z.array(ConversationDiagnosticWire),
+})
+
+export const DaemonMessage = z.discriminatedUnion('type', [
+  BindMessage,
+  AgentFrameMessage,
+  AgentExitMessage,
+  SpawnErrorMessage,
+  ScanResultMessage,
+])
+export type DaemonMessage = z.infer<typeof DaemonMessage>
 
 // Codecs. parse* functions throw on malformed JSON (SyntaxError) or on a schema
 // mismatch (ZodError); callers handle both.

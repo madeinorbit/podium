@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest'
 import {
   AgentKind,
   type ClientMessage,
+  type ControlMessage,
   ConversationSummaryWire,
+  type DaemonMessage,
   ResumeRef,
   SessionMeta,
   type ServerMessage,
@@ -107,5 +109,42 @@ describe('ServerMessage', () => {
   ]
   it.each(cases)('round-trips %j', (msg) => {
     expect(parseServerMessage(encode(msg))).toEqual(msg)
+  })
+})
+
+describe('ControlMessage (server -> daemon)', () => {
+  const geometry = { cols: 80, rows: 24 }
+  const cases: ControlMessage[] = [
+    { type: 'spawn', sessionId: 's1', agentKind: 'claude-code', cwd: '/w', geometry },
+    {
+      type: 'spawn',
+      sessionId: 's2',
+      agentKind: 'codex',
+      cwd: '/w',
+      resume: { kind: 'codex-thread', value: 'id9' },
+      geometry,
+    },
+    { type: 'kill', sessionId: 's1' },
+    { type: 'scanRequest', requestId: 'r1' },
+    { type: 'input', sessionId: 's1', data: 'aGk=' },
+    { type: 'resize', sessionId: 's1', cols: 100, rows: 30 },
+    { type: 'redraw', sessionId: 's1' },
+  ]
+  it.each(cases)('round-trips %j', (msg) => {
+    expect(parseControlMessage(encode(msg))).toEqual(msg)
+  })
+})
+
+describe('DaemonMessage (daemon -> server)', () => {
+  const geometry = { cols: 80, rows: 24 }
+  const cases: DaemonMessage[] = [
+    { type: 'bind', sessionId: 's1', cmd: 'claude', cwd: '/w', agentKind: 'claude-code', geometry },
+    { type: 'agentFrame', sessionId: 's1', seq: 0, data: 'eA==' },
+    { type: 'agentExit', sessionId: 's1', code: 0 },
+    { type: 'spawnError', sessionId: 's1', message: 'enoent' },
+    { type: 'scanResult', requestId: 'r1', conversations: [], diagnostics: [] },
+  ]
+  it.each(cases)('round-trips %j', (msg) => {
+    expect(parseDaemonMessage(encode(msg))).toEqual(msg)
   })
 })
