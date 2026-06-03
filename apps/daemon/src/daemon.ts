@@ -34,7 +34,9 @@ function summaryToWire(s: AgentConversationSummary): ConversationSummaryWire {
     agentKind: s.agentKind,
     ...(s.title !== undefined ? { title: s.title } : {}),
     ...(s.projectPath !== undefined ? { projectPath: s.projectPath } : {}),
-    ...(s.parentConversationId !== undefined ? { parentConversationId: s.parentConversationId } : {}),
+    ...(s.parentConversationId !== undefined
+      ? { parentConversationId: s.parentConversationId }
+      : {}),
     ...(s.statusHint !== undefined ? { statusHint: s.statusHint } : {}),
     ...(s.createdAt ? { createdAt: s.createdAt.toISOString() } : {}),
     ...(s.updatedAt ? { updatedAt: s.updatedAt.toISOString() } : {}),

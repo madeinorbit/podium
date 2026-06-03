@@ -1,7 +1,7 @@
 import { fileURLToPath } from 'node:url'
 import { type DaemonMessage, encode, parseDaemonMessage } from '@podium/protocol'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { type WebSocket as WS, WebSocketServer } from 'ws'
+import { WebSocketServer, type WebSocket as WS } from 'ws'
 import { type DaemonHandle, startDaemon } from './daemon'
 
 const FIXTURE = fileURLToPath(
@@ -75,9 +75,13 @@ describe('daemon multi-bridge', () => {
     send({ type: 'kill', sessionId: 's1' })
     send({ type: 'resize', sessionId: 's2', cols: 90, rows: 30 })
     // s2 repaints at the new width...
-    await waitFor(() => frames().some((f) => f.sessionId === 's2' && decode(f.data).includes('cols=90')))
+    await waitFor(() =>
+      frames().some((f) => f.sessionId === 's2' && decode(f.data).includes('cols=90')),
+    )
     await new Promise((r) => setTimeout(r, 100))
     // ...and the killed s1 never reports the new size (resize was routed only to s2).
-    expect(frames().some((f) => f.sessionId === 's1' && decode(f.data).includes('cols=90'))).toBe(false)
+    expect(frames().some((f) => f.sessionId === 's1' && decode(f.data).includes('cols=90'))).toBe(
+      false,
+    )
   })
 })
