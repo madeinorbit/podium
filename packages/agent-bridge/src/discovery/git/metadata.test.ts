@@ -401,6 +401,59 @@ describe('inspectGitRepositoryPath', () => {
     expect(result.diagnostics).toEqual([])
   })
 
+  test('parses core bare config after a commented section header', async () => {
+    const root = await createTempRoot()
+    const repo = await writeNormalRepo(root)
+    await writeFile(join(repo, '.git', 'config'), '[core] # comment\n\tbare = false\n')
+
+    const result = await inspectGitRepositoryPath(join(repo, '.git'))
+
+    expect(result.repository).toBeUndefined()
+    expect(result.diagnostics).toEqual([])
+  })
+
+  test('treats a bare core config key without assignment as true', async () => {
+    const root = await createTempRoot()
+    const bare = await writeBareRepo(root)
+    await writeFile(join(bare, 'config'), '[core]\n\tbare = false\n\tbare\n')
+
+    const result = await inspectGitRepositoryPath(bare)
+
+    expect(result.diagnostics).toEqual([])
+    expect(result.repository).toEqual(
+      expect.objectContaining({
+        path: bare,
+        kind: 'bare',
+        gitDir: bare,
+        commonGitDir: bare,
+      }),
+    )
+  })
+
+  test('continues bare detection with diagnostics when bare config cannot be read', async () => {
+    const root = await createTempRoot()
+    const bare = await writeBareRepo(root)
+    await mkdir(join(bare, 'config'))
+
+    const result = await inspectGitRepositoryPath(bare)
+
+    expect(result.repository).toEqual(
+      expect.objectContaining({
+        path: bare,
+        kind: 'bare',
+        gitDir: bare,
+        commonGitDir: bare,
+      }),
+    )
+    expect(result.diagnostics).toEqual([
+      expect.objectContaining({
+        severity: 'warning',
+        path: join(bare, 'config'),
+        message: 'Could not read git config metadata',
+      }),
+    ])
+  })
+
   test('uses the last recognized core bare config value', async () => {
     const root = await createTempRoot()
     const repo = await writeNormalRepo(root)

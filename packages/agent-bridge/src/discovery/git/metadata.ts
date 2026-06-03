@@ -48,7 +48,7 @@ export async function inspectGitRepositoryPath(path: string): Promise<InspectGit
 
   if (gitPathStats !== undefined) return { diagnostics }
 
-  if (await isBareGitAdminDir(repositoryPath)) {
+  if (await isBareGitAdminDir(repositoryPath, diagnostics)) {
     const repository = await readRepositorySummary({
       path: repositoryPath,
       kind: 'bare',
@@ -253,7 +253,10 @@ async function readGitPointerFile(
   return await canonicalPath(resolvedGitDir)
 }
 
-async function isBareGitAdminDir(path: string): Promise<boolean> {
+async function isBareGitAdminDir(
+  path: string,
+  diagnostics: GitDiscoveryDiagnostic[],
+): Promise<boolean> {
   const hasBareShape =
     (await isFile(join(path, 'HEAD'))) &&
     (await isDirectory(join(path, 'objects'))) &&
@@ -261,7 +264,7 @@ async function isBareGitAdminDir(path: string): Promise<boolean> {
 
   if (!hasBareShape) return false
 
-  const coreBare = await readCoreBareConfig(path)
+  const coreBare = await readCoreBareConfig(path, diagnostics)
   return coreBare !== false
 }
 
@@ -446,13 +449,16 @@ function parseOriginUrl(config: string): string | undefined {
   return undefined
 }
 
-async function readCoreBareConfig(gitDir: string): Promise<boolean | undefined> {
-  try {
-    return parseCoreBare(await readFile(join(gitDir, 'config'), 'utf8'))
-  } catch (error) {
-    if (isMissingPathError(error)) return undefined
-    throw error
-  }
+async function readCoreBareConfig(
+  gitDir: string,
+  diagnostics: GitDiscoveryDiagnostic[],
+): Promise<boolean | undefined> {
+  const config = await readOptionalMetadataFile(
+    join(gitDir, 'config'),
+    diagnostics,
+    'Could not read git config metadata',
+  )
+  return config === undefined ? undefined : parseCoreBare(config)
 }
 
 function parseCoreBare(config: string): boolean | undefined {
@@ -460,7 +466,7 @@ function parseCoreBare(config: string): boolean | undefined {
   let parsedBare: boolean | undefined
 
   for (const rawLine of config.split(/\r?\n/)) {
-    const line = rawLine.trim()
+    const line = stripGitConfigComments(rawLine).trim()
     if (line.length === 0 || line.startsWith('#') || line.startsWith(';')) continue
 
     const section = line.match(/^\[(.+)\]$/)
@@ -471,10 +477,15 @@ function parseCoreBare(config: string): boolean | undefined {
 
     if (!inCoreSection) continue
 
-    const bare = line.match(/^bare\s*=\s*(.*)$/i)
+    const bare = line.match(/^bare(?:\s*=\s*(.*))?$/i)
     if (!bare) continue
 
-    const value = normalizeGitConfigBooleanValue(bare[1] ?? '')
+    if (bare[1] === undefined) {
+      parsedBare = true
+      continue
+    }
+
+    const value = normalizeGitConfigBooleanValue(bare[1])
     if (value === '' || value === 'false' || value === 'no' || value === 'off' || value === '0') {
       parsedBare = false
       continue
@@ -586,7 +597,7 @@ async function readMetadataFile(
   } catch (error) {
     if (!warnOnMissing && isMissingPathError(error)) return undefined
 
-    diagnostics.push({
+    pushWarningDiagnostic(diagnostics, {
       severity: 'warning',
       path,
       message,
@@ -594,4 +605,23 @@ async function readMetadataFile(
     })
     return undefined
   }
+}
+
+function pushWarningDiagnostic(
+  diagnostics: GitDiscoveryDiagnostic[],
+  diagnostic: GitDiscoveryDiagnostic,
+): void {
+  if (
+    diagnostics.some((existing) => {
+      return (
+        existing.severity === diagnostic.severity &&
+        existing.path === diagnostic.path &&
+        existing.message === diagnostic.message
+      )
+    })
+  ) {
+    return
+  }
+
+  diagnostics.push(diagnostic)
 }
