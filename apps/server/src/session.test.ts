@@ -126,6 +126,15 @@ describe('Session', () => {
     )
   })
 
+  it('takeover uses the client current viewport (e.g. updated via hello after attach)', () => {
+    const s = makeSession()
+    const a = makeClient('a')
+    s.attachClient(a)
+    a.viewport = { cols: 33, rows: 21 } // registry updates ClientConn.viewport on hello
+    s.requestControl('a')
+    expect(s.geometry).toEqual({ cols: 33, rows: 21 })
+  })
+
   it('marks exited and broadcasts agentExit', () => {
     const s = makeSession()
     const a = makeClient('a')

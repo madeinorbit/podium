@@ -31,7 +31,7 @@ export const appRouter = t.router({
       .mutation(({ ctx, input }) => ctx.registry.killSession(input)),
   }),
   discovery: t.router({
-    scan: t.procedure.query(({ ctx }) => ctx.registry.scan()),
+    scan: t.procedure.mutation(({ ctx }) => ctx.registry.scan()),
   }),
 })
 

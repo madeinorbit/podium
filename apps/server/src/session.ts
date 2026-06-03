@@ -43,7 +43,6 @@ export class Session {
   controllerId: string | null = null
   private readonly toDaemon: Send<ControlMessage>
   private readonly clients = new Map<string, ClientConn>()
-  private readonly viewports = new Map<string, Geometry>()
 
   constructor(init: SessionInit) {
     this.sessionId = init.sessionId
@@ -62,7 +61,6 @@ export class Session {
 
   attachClient(client: ClientConn): void {
     this.clients.set(client.id, client)
-    this.viewports.set(client.id, { ...client.viewport })
     if (this.controllerId === null) this.controllerId = client.id
     client.send({
       type: 'attached',
@@ -75,7 +73,6 @@ export class Session {
 
   detachClient(clientId: string): void {
     this.clients.delete(clientId)
-    this.viewports.delete(clientId)
     if (this.controllerId === clientId) {
       this.controllerId = this.clients.keys().next().value ?? null
       if (this.controllerId !== null) {
@@ -91,7 +88,6 @@ export class Session {
 
   detachAll(): void {
     this.clients.clear()
-    this.viewports.clear()
     this.controllerId = null
   }
 
@@ -102,7 +98,8 @@ export class Session {
   }
 
   handleResize(clientId: string, cols: number, rows: number): void {
-    this.viewports.set(clientId, { cols, rows })
+    const client = this.clients.get(clientId)
+    if (client) client.viewport = { cols, rows }
     if (clientId === this.controllerId) {
       this.geometry = { cols, rows }
       this.toDaemon({ type: 'resize', sessionId: this.sessionId, cols, rows })
@@ -112,7 +109,7 @@ export class Session {
   requestControl(clientId: string): void {
     if (!this.clients.has(clientId)) return
     this.controllerId = clientId
-    this.geometry = { ...(this.viewports.get(clientId) ?? this.geometry) }
+    this.geometry = { ...(this.clients.get(clientId)?.viewport ?? this.geometry) }
     this.epoch += 1
     this.toDaemon({
       type: 'resize',

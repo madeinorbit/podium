@@ -55,7 +55,7 @@ describe('SessionRegistry', () => {
         resume: { kind: 'codex-thread', value: 't9' },
       }),
     )
-    expect(reg.listSessions()[0]).toMatchObject({
+    expect(reg.listSessions().at(0)).toMatchObject({
       origin: { kind: 'resume', conversationId: 'c9' },
       title: 'old',
     })
