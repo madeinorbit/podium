@@ -1,4 +1,4 @@
-import { encode, parseServerMessage } from '@podium/protocol'
+import { type ServerMessage, type SessionMeta, encode, parseServerMessage } from '@podium/protocol'
 
 export interface WebSocketLike {
   send(data: string): void
@@ -17,7 +17,7 @@ export interface ConnectionViewport {
 export interface ConnectionState {
   connected: boolean
   clientId: string
-  controllerId: string
+  controllerId: string | null
   sessionId: string
   role: 'controller' | 'spectator'
   cols: number
@@ -26,12 +26,15 @@ export interface ConnectionState {
   lastSeq: number
 }
 
-export interface SessionConnectionOptions {
+export interface SessionCallbacks {
+  onFrame?: (text: string) => void
+  onState?: (state: ConnectionState) => void
+}
+
+export interface SocketHubOptions {
   url: string
   viewport: ConnectionViewport
   makeSocket?: (url: string) => WebSocketLike
-  onFrame?: (text: string) => void
-  onState?: (state: ConnectionState) => void
 }
 
 function utf8ToBase64(text: string): string {
@@ -46,26 +49,27 @@ function fromBase64Utf8(b64: string): string {
   return new TextDecoder().decode(Uint8Array.from(bin, (c) => c.charCodeAt(0)))
 }
 
-export class SessionConnection {
-  private readonly opts: SessionConnectionOptions
+/** One ws, multiplexed across N sessions. Owns the connection + server-assigned clientId. */
+export class SocketHub {
+  private readonly opts: SocketHubOptions
   private readonly makeSocket: (url: string) => WebSocketLike
   private socket: WebSocketLike | undefined
-  private viewport: ConnectionViewport
-  private connected = false
-  private clientId = ''
-  private controllerId = ''
-  private sessionId = ''
-  private cols: number
-  private rows: number
-  private epoch = 0
-  private lastSeq = -1
+  private connectedFlag = false
+  private clientIdValue = ''
+  private sessionList: SessionMeta[] = []
+  private readonly connections = new Map<string, SessionConnection>()
+  private readonly sessionObservers = new Set<(s: SessionMeta[]) => void>()
 
-  constructor(opts: SessionConnectionOptions) {
+  constructor(opts: SocketHubOptions) {
     this.opts = opts
     this.makeSocket = opts.makeSocket ?? ((url) => new WebSocket(url) as unknown as WebSocketLike)
-    this.viewport = { ...opts.viewport }
-    this.cols = opts.viewport.cols
-    this.rows = opts.viewport.rows
+  }
+
+  get connected(): boolean {
+    return this.connectedFlag
+  }
+  get clientId(): string {
+    return this.clientIdValue
   }
 
   connect(): void {
@@ -73,45 +77,136 @@ export class SessionConnection {
     const socket = this.makeSocket(this.opts.url)
     this.socket = socket
     socket.onopen = () => {
-      this.connected = true
-      this.sendRaw({ type: 'hello', clientId: this.clientId, viewport: { ...this.viewport } })
-      this.sendRaw({ type: 'redrawRequest' })
-      this.emitState()
+      this.connectedFlag = true
+      this.sendRaw({ type: 'hello', clientId: this.clientIdValue, viewport: { ...this.opts.viewport } })
+      for (const sessionId of this.connections.keys()) this.sendRaw({ type: 'attach', sessionId })
+      this.notifyConnections()
     }
-    socket.onmessage = (ev) => this.onServerMessage(String(ev.data))
+    socket.onmessage = (ev) => this.route(String(ev.data))
     socket.onclose = () => {
-      this.connected = false
-      this.emitState()
+      this.connectedFlag = false
+      this.notifyConnections()
     }
+  }
+
+  attach(sessionId: string, cb: SessionCallbacks = {}): SessionConnection {
+    let conn = this.connections.get(sessionId)
+    if (conn === undefined) {
+      conn = new SessionConnection(this, sessionId, cb, this.opts.viewport)
+      this.connections.set(sessionId, conn)
+      if (this.connectedFlag) this.sendRaw({ type: 'attach', sessionId })
+    } else {
+      conn.setCallbacks(cb)
+    }
+    return conn
+  }
+
+  detach(sessionId: string): void {
+    if (this.connections.delete(sessionId) && this.connectedFlag) {
+      this.sendRaw({ type: 'detach', sessionId })
+    }
+  }
+
+  sessions(): SessionMeta[] {
+    return this.sessionList
+  }
+
+  onSessions(cb: (s: SessionMeta[]) => void): () => void {
+    this.sessionObservers.add(cb)
+    cb(this.sessionList)
+    return () => this.sessionObservers.delete(cb)
+  }
+
+  /** Used by SessionConnection to send its sessionId-tagged messages. */
+  send(msg: Parameters<typeof encode>[0]): void {
+    this.sendRaw(msg)
+  }
+
+  dispose(): void {
+    this.socket?.close()
+    this.socket = undefined
+    this.connectedFlag = false
+    this.notifyConnections()
+  }
+
+  private route(raw: string): void {
+    let msg: ServerMessage
+    try {
+      msg = parseServerMessage(raw)
+    } catch {
+      return
+    }
+    if (msg.type === 'welcome') {
+      this.clientIdValue = msg.clientId
+      this.notifyConnections()
+      return
+    }
+    if (msg.type === 'sessionsChanged') {
+      this.sessionList = msg.sessions
+      for (const o of this.sessionObservers) o(this.sessionList)
+      return
+    }
+    this.connections.get(msg.sessionId)?.ingest(msg)
+  }
+
+  private notifyConnections(): void {
+    for (const c of this.connections.values()) c.notifyHubChange()
+  }
+
+  private sendRaw(msg: Parameters<typeof encode>[0]): void {
+    this.socket?.send(encode(msg))
+  }
+}
+
+/** A per-session view of the hub: tagged sends + the session's authoritative state. */
+export class SessionConnection {
+  readonly sessionId: string
+  private readonly hub: SocketHub
+  private cb: SessionCallbacks
+  private controllerId: string | null = null
+  private cols: number
+  private rows: number
+  private epoch = 0
+  private lastSeq = -1
+
+  constructor(hub: SocketHub, sessionId: string, cb: SessionCallbacks, viewport: ConnectionViewport) {
+    this.hub = hub
+    this.sessionId = sessionId
+    this.cb = cb
+    this.cols = viewport.cols
+    this.rows = viewport.rows
+  }
+
+  setCallbacks(cb: SessionCallbacks): void {
+    this.cb = cb
   }
 
   sendInput(bytes: string): void {
-    this.sendRaw({ type: 'input', data: utf8ToBase64(bytes) })
+    this.hub.send({ type: 'input', sessionId: this.sessionId, data: utf8ToBase64(bytes) })
   }
 
   sendResize(cols: number, rows: number): void {
-    this.viewport = { ...this.viewport, cols, rows }
     this.cols = cols
     this.rows = rows
-    this.sendRaw({ type: 'resize', cols, rows })
+    this.hub.send({ type: 'resize', sessionId: this.sessionId, cols, rows })
   }
 
   requestControl(): void {
-    this.sendRaw({ type: 'requestControl' })
+    this.hub.send({ type: 'requestControl', sessionId: this.sessionId })
   }
 
   redraw(): void {
-    this.sendRaw({ type: 'redrawRequest' })
+    this.hub.send({ type: 'redrawRequest', sessionId: this.sessionId })
   }
 
   state(): ConnectionState {
+    const clientId = this.hub.clientId
     return {
-      connected: this.connected,
-      clientId: this.clientId,
+      connected: this.hub.connected,
+      clientId,
       controllerId: this.controllerId,
       sessionId: this.sessionId,
-      role:
-        this.clientId !== '' && this.clientId === this.controllerId ? 'controller' : 'spectator',
+      role: clientId !== '' && clientId === this.controllerId ? 'controller' : 'spectator',
       cols: this.cols,
       rows: this.rows,
       epoch: this.epoch,
@@ -119,58 +214,47 @@ export class SessionConnection {
     }
   }
 
-  dispose(): void {
-    this.socket?.close()
-    this.socket = undefined
-    this.connected = false
-    this.emitState()
-  }
-
-  private onServerMessage(raw: string): void {
-    try {
-      const msg = parseServerMessage(raw)
-      switch (msg.type) {
-        case 'welcome':
-          this.clientId = msg.clientId
-          this.sessionId = msg.sessionId
-          this.controllerId = msg.controllerId
-          this.cols = msg.geometry.cols
-          this.rows = msg.geometry.rows
-          this.emitState()
-          break
-        case 'outputFrame': {
-          this.lastSeq = msg.seq
-          this.epoch = msg.epoch
-          const text = fromBase64Utf8(msg.data)
-          this.emitState()
-          this.opts.onFrame?.(text)
-          break
-        }
-        case 'controllerChanged':
-          this.controllerId = msg.controllerId
-          this.cols = msg.geometry.cols
-          this.rows = msg.geometry.rows
-          this.emitState()
-          break
-        case 'geometry':
-          this.cols = msg.cols
-          this.rows = msg.rows
-          this.emitState()
-          break
-        case 'agentExit':
-          this.emitState()
-          break
-      }
-    } catch {
-      // malformed JSON, schema mismatch, or bad base64 — drop the frame
+  /** Hub-internal: apply a session-scoped server message. */
+  ingest(msg: ServerMessage): void {
+    switch (msg.type) {
+      case 'attached':
+        this.controllerId = msg.controllerId
+        this.cols = msg.geometry.cols
+        this.rows = msg.geometry.rows
+        this.epoch = msg.epoch
+        this.emit()
+        break
+      case 'outputFrame':
+        this.lastSeq = msg.seq
+        this.epoch = msg.epoch
+        this.emit()
+        this.cb.onFrame?.(fromBase64Utf8(msg.data))
+        break
+      case 'controllerChanged':
+        this.controllerId = msg.controllerId
+        this.cols = msg.geometry.cols
+        this.rows = msg.geometry.rows
+        this.emit()
+        break
+      case 'geometry':
+        this.cols = msg.cols
+        this.rows = msg.rows
+        this.emit()
+        break
+      case 'agentExit':
+        this.emit()
+        break
+      default:
+        break
     }
   }
 
-  private sendRaw(msg: Parameters<typeof encode>[0]): void {
-    this.socket?.send(encode(msg))
+  /** Hub-internal: connection/clientId changed → recompute role. */
+  notifyHubChange(): void {
+    this.emit()
   }
 
-  private emitState(): void {
-    this.opts.onState?.(this.state())
+  private emit(): void {
+    this.cb.onState?.(this.state())
   }
 }
