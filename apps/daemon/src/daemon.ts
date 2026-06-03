@@ -2,8 +2,11 @@ import {
   type AgentConversationDiagnostic,
   type AgentConversationSummary,
   type AgentSession,
+  type GitDiscoveryDiagnostic,
+  type GitRepositorySummary,
   agentLaunchCommand,
   scanAgentConversations,
+  scanGitRepositoriesAtPath,
   spawnAgent,
 } from '@podium/agent-bridge'
 import {
@@ -11,6 +14,8 @@ import {
   type ConversationDiagnosticWire,
   type ConversationSummaryWire,
   type DaemonMessage,
+  type GitDiscoveryDiagnosticWire,
+  type GitRepositoryWire,
   encode,
   parseControlMessage,
 } from '@podium/protocol'
@@ -55,6 +60,27 @@ function diagnosticToWire(d: AgentConversationDiagnostic): ConversationDiagnosti
     ...(d.path !== undefined ? { path: d.path } : {}),
     message: d.message,
   }
+}
+
+function repoToWire(r: GitRepositorySummary): GitRepositoryWire {
+  return {
+    path: r.path,
+    kind: r.kind,
+    ...(r.branch !== undefined ? { branch: r.branch } : {}),
+    ...(r.headSha !== undefined ? { headSha: r.headSha } : {}),
+    ...(r.originUrl !== undefined ? { originUrl: r.originUrl } : {}),
+    worktrees: (r.worktrees ?? []).map((w) => ({
+      path: w.path,
+      ...(w.branch !== undefined ? { branch: w.branch } : {}),
+      ...(w.headSha !== undefined ? { headSha: w.headSha } : {}),
+      ...(w.locked !== undefined ? { locked: w.locked } : {}),
+      ...(w.prunable !== undefined ? { prunable: w.prunable } : {}),
+    })),
+  }
+}
+
+function gitDiagnosticToWire(d: GitDiscoveryDiagnostic): GitDiscoveryDiagnosticWire {
+  return { severity: d.severity, path: d.path, message: d.message }
 }
 
 export function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
@@ -125,6 +151,33 @@ export function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     }
   }
 
+  const scanRepos = async (requestId: string, roots: string[]): Promise<void> => {
+    const repositories: GitRepositoryWire[] = []
+    const diagnostics: GitDiscoveryDiagnosticWire[] = []
+    try {
+      for (const root of roots) {
+        try {
+          const result = await scanGitRepositoriesAtPath(root)
+          for (const repo of result.repositories) repositories.push(repoToWire(repo))
+          for (const d of result.diagnostics) diagnostics.push(gitDiagnosticToWire(d))
+        } catch (err) {
+          diagnostics.push({
+            severity: 'error',
+            path: root,
+            message: err instanceof Error ? err.message : String(err),
+          })
+        }
+      }
+    } catch (err) {
+      diagnostics.push({
+        severity: 'error',
+        path: '',
+        message: err instanceof Error ? err.message : String(err),
+      })
+    }
+    send({ type: 'scanReposResult', requestId, repositories, diagnostics })
+  }
+
   ws.on('message', (raw: RawData) => {
     let msg: ControlMessage
     try {
@@ -155,6 +208,9 @@ export function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
         break
       case 'scanRequest':
         void scan(msg.requestId)
+        break
+      case 'scanReposRequest':
+        void scanRepos(msg.requestId, msg.roots)
         break
     }
   })

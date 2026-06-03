@@ -131,4 +131,49 @@ describe('daemon multi-bridge', () => {
     })
     expect(typeof conv?.createdAt).toBe('string') // Date → ISO string (mapper exercised)
   })
+
+  it('scanReposRequest returns a wire-valid repository for a seeded repo root', async () => {
+    // Hand-build a minimal git repo (mirrors packages/agent-bridge git scanner fixtures).
+    const root = await mkdtemp(join(tmpdir(), 'podium-repos-'))
+    const repo = join(root, 'app')
+    const gitDir = join(repo, '.git')
+    await mkdir(join(gitDir, 'refs', 'heads'), { recursive: true })
+    await writeFile(join(gitDir, 'HEAD'), 'ref: refs/heads/main\n')
+    await writeFile(join(gitDir, 'refs', 'heads', 'main'), `${'1'.repeat(40)}\n`)
+
+    send({ type: 'scanReposRequest', requestId: 'rr-1', roots: [root] })
+    await waitFor(() => received.some((m) => m.type === 'scanReposResult'))
+
+    const result = received.find(
+      (m): m is Extract<DaemonMessage, { type: 'scanReposResult' }> =>
+        m.type === 'scanReposResult',
+    )
+    expect(result?.requestId).toBe('rr-1')
+    expect(result?.repositories.map((r) => r.path)).toContain(repo)
+    const found = result?.repositories.find((r) => r.path === repo)
+    expect(found?.branch).toBe('main')
+    expect(Array.isArray(found?.worktrees)).toBe(true)
+  })
+
+  it('scanReposRequest isolates a bad root: good repo returned, diagnostic for the bad one', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'podium-repos-ok-'))
+    const repo = join(root, 'app')
+    const gitDir = join(repo, '.git')
+    await mkdir(join(gitDir, 'refs', 'heads'), { recursive: true })
+    await writeFile(join(gitDir, 'HEAD'), 'ref: refs/heads/main\n')
+    await writeFile(join(gitDir, 'refs', 'heads', 'main'), `${'1'.repeat(40)}\n`)
+    const bad = join(root, 'does-not-exist')
+
+    send({ type: 'scanReposRequest', requestId: 'rr-2', roots: [bad, repo] })
+    await waitFor(() =>
+      received.some((m) => m.type === 'scanReposResult' && m.requestId === 'rr-2'),
+    )
+
+    const result = received.find(
+      (m): m is Extract<DaemonMessage, { type: 'scanReposResult' }> =>
+        m.type === 'scanReposResult' && m.requestId === 'rr-2',
+    )
+    expect(result?.repositories.map((r) => r.path)).toContain(repo)
+    expect((result?.diagnostics.length ?? 0)).toBeGreaterThan(0)
+  })
 })
