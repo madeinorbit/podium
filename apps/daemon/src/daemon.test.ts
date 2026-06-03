@@ -1,3 +1,6 @@
+import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { type DaemonMessage, encode, parseDaemonMessage } from '@podium/protocol'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -83,5 +86,49 @@ describe('daemon multi-bridge', () => {
     expect(frames().some((f) => f.sessionId === 's1' && decode(f.data).includes('cols=90'))).toBe(
       false,
     )
+  })
+
+  it('scanRequest maps a discovered conversation to a wire-valid scanResult', async () => {
+    // Isolate HOME to a temp dir seeded with one minimal claude conversation: fast +
+    // deterministic (vs the dev's real ~/.claude, which can be thousands of files), and it
+    // actually exercises summaryToWire. parseDaemonMessage (beforeEach) schema-validates
+    // every received message, so a Date leak or a dropped providerId would fail at parse.
+    const home = await mkdtemp(join(tmpdir(), 'podium-scan-'))
+    const projDir = join(home, '.claude', 'projects', 'proj')
+    await mkdir(projDir, { recursive: true })
+    await writeFile(
+      join(projDir, 'sess.jsonl'),
+      `${[
+        JSON.stringify({
+          sessionId: 'sess-9',
+          cwd: '/home/proj',
+          timestamp: '2026-06-01T00:00:00.000Z',
+          message: { role: 'user', content: 'hi' },
+        }),
+        JSON.stringify({
+          timestamp: '2026-06-01T00:01:00.000Z',
+          message: { role: 'assistant', content: 'yo' },
+        }),
+      ].join('\n')}\n`,
+    )
+    const prevHome = process.env.HOME
+    process.env.HOME = home
+    try {
+      send({ type: 'scanRequest', requestId: 'req-1' })
+      await waitFor(() => received.some((m) => m.type === 'scanResult'))
+    } finally {
+      process.env.HOME = prevHome
+    }
+    const result = received.find(
+      (m): m is Extract<DaemonMessage, { type: 'scanResult' }> => m.type === 'scanResult',
+    )
+    expect(result?.requestId).toBe('req-1')
+    const conv = result?.conversations.find((c) => c.id === 'sess-9')
+    expect(conv).toMatchObject({
+      agentKind: 'claude-code',
+      providerId: 'claude-code-jsonl',
+      resume: { kind: 'claude-session', value: 'sess-9' },
+    })
+    expect(typeof conv?.createdAt).toBe('string') // Date → ISO string (mapper exercised)
   })
 })
