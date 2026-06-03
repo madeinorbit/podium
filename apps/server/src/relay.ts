@@ -1,134 +1,211 @@
+import { basename } from 'node:path'
 import type {
+  AgentKind,
   ClientMessage,
   ControlMessage,
+  ConversationDiagnosticWire,
+  ConversationSummaryWire,
   DaemonMessage,
   Geometry,
+  ResumeRef,
   ServerMessage,
+  SessionMeta,
 } from '@podium/protocol'
+import { type ClientConn, type Send, Session } from './session'
 
-export type Send<T> = (msg: T) => void
+const DEFAULT_GEOMETRY: Geometry = { cols: 80, rows: 24 }
+const SCAN_TIMEOUT_MS = 10_000
 
-interface ClientConn {
-  id: string
-  send: Send<ServerMessage>
-  viewport: Geometry
+export interface ScanResult {
+  conversations: ConversationSummaryWire[]
+  diagnostics: ConversationDiagnosticWire[]
 }
 
-export interface SessionInfo {
-  sessionId: string
-  cmd: string
-  controllerId: string | null
-  geometry: Geometry
-  epoch: number
-  clientCount: number
-}
-
-export class RelayHub {
+/** Registry of all sessions + the single daemon link + all client connections. Routes by sessionId. */
+export class SessionRegistry {
   private daemonSend: Send<ControlMessage> | undefined
-  private sessionId = ''
-  private cmd = ''
-  private geometry: Geometry = { cols: 80, rows: 24 }
-  private epoch = 0
-  private controllerId: string | undefined
+  private readonly sessions = new Map<string, Session>()
   private readonly clients = new Map<string, ClientConn>()
+  private readonly pendingScans = new Map<string, (r: ScanResult) => void>()
   private nextClientNum = 0
+  private nextSessionNum = 0
+  private nextRequestNum = 0
 
   attachDaemon(send: Send<ControlMessage>): void {
     this.daemonSend = send
   }
-
   detachDaemon(): void {
     this.daemonSend = undefined
   }
+  private readonly toDaemon: Send<ControlMessage> = (msg) => this.daemonSend?.(msg)
 
-  onDaemonMessage(msg: DaemonMessage): void {
-    switch (msg.type) {
-      case 'bind':
-        this.sessionId = msg.sessionId
-        this.cmd = msg.cmd
-        this.geometry = { ...msg.geometry }
-        break
-      case 'agentFrame':
-        this.broadcast({ type: 'outputFrame', seq: msg.seq, epoch: this.epoch, data: msg.data })
-        break
-      case 'agentExit':
-        this.broadcast({ type: 'agentExit', code: msg.code })
-        break
-    }
+  // ---- tRPC control plane ----
+  listSessions(): SessionMeta[] {
+    return [...this.sessions.values()].map((s) => s.toMeta())
   }
 
-  attachClient(send: Send<ServerMessage>): string {
-    const id = `c${this.nextClientNum}`
-    this.nextClientNum += 1
-    this.clients.set(id, { id, send, viewport: { ...this.geometry } })
-    if (this.controllerId === undefined) this.controllerId = id
-    const controllerId = this.controllerId
-    send({
-      type: 'welcome',
-      clientId: id,
-      sessionId: this.sessionId,
-      controllerId,
-      geometry: { ...this.geometry },
+  createSession(input: { agentKind: AgentKind; cwd: string; title?: string }): { sessionId: string } {
+    return this.spawn({ ...input, origin: { kind: 'spawn' } })
+  }
+
+  resumeSession(input: {
+    agentKind: AgentKind
+    cwd: string
+    resume: ResumeRef
+    conversationId: string
+    title?: string
+  }): { sessionId: string } {
+    return this.spawn({
+      agentKind: input.agentKind,
+      cwd: input.cwd,
+      title: input.title,
+      origin: { kind: 'resume', conversationId: input.conversationId },
+      resume: input.resume,
     })
+  }
+
+  killSession(input: { sessionId: string }): void {
+    this.toDaemon({ type: 'kill', sessionId: input.sessionId })
+    this.sessions.get(input.sessionId)?.detachAll()
+    this.sessions.delete(input.sessionId)
+    for (const c of this.clients.values()) c.attached.delete(input.sessionId)
+    this.broadcastSessions()
+  }
+
+  scan(): Promise<ScanResult> {
+    const requestId = `r${this.nextRequestNum++}`
+    return new Promise<ScanResult>((resolve) => {
+      const timer = setTimeout(() => {
+        this.pendingScans.delete(requestId)
+        resolve({
+          conversations: [],
+          diagnostics: [{ severity: 'error', message: 'discovery scan timed out' }],
+        })
+      }, SCAN_TIMEOUT_MS)
+      timer.unref?.()
+      this.pendingScans.set(requestId, (r) => {
+        clearTimeout(timer)
+        resolve(r)
+      })
+      this.toDaemon({ type: 'scanRequest', requestId })
+    })
+  }
+
+  private spawn(input: {
+    agentKind: AgentKind
+    cwd: string
+    title?: string
+    origin: SessionMeta['origin']
+    resume?: ResumeRef
+  }): { sessionId: string } {
+    const sessionId = `s${this.nextSessionNum++}`
+    const session = new Session({
+      sessionId,
+      agentKind: input.agentKind,
+      cwd: input.cwd,
+      title: input.title || basename(input.cwd) || input.cwd,
+      origin: input.origin,
+      createdAt: new Date().toISOString(),
+      geometry: { ...DEFAULT_GEOMETRY },
+      toDaemon: this.toDaemon,
+    })
+    this.sessions.set(sessionId, session)
+    this.toDaemon({
+      type: 'spawn',
+      sessionId,
+      agentKind: input.agentKind,
+      cwd: input.cwd,
+      ...(input.resume ? { resume: input.resume } : {}),
+      geometry: { ...DEFAULT_GEOMETRY },
+    })
+    this.broadcastSessions()
+    return { sessionId }
+  }
+
+  // ---- ws data plane: clients ----
+  attachClient(send: Send<ServerMessage>): string {
+    const id = `c${this.nextClientNum++}`
+    this.clients.set(id, { id, send, viewport: { ...DEFAULT_GEOMETRY }, attached: new Set() })
+    send({ type: 'welcome', clientId: id })
+    send({ type: 'sessionsChanged', sessions: this.listSessions() })
     return id
   }
 
   detachClient(id: string): void {
+    const client = this.clients.get(id)
+    if (!client) return
+    for (const sessionId of client.attached) this.sessions.get(sessionId)?.detachClient(id)
     this.clients.delete(id)
-    if (this.controllerId === id) {
-      const next = this.clients.keys().next()
-      this.controllerId = next.done ? undefined : next.value
-    }
+    this.broadcastSessions()
   }
 
   onClientMessage(id: string, msg: ClientMessage): void {
     const client = this.clients.get(id)
-    if (client === undefined) return
+    if (!client) return
     switch (msg.type) {
       case 'hello':
         client.viewport = { cols: msg.viewport.cols, rows: msg.viewport.rows }
         break
-      case 'resize':
-        client.viewport = { cols: msg.cols, rows: msg.rows }
-        if (id === this.controllerId) {
-          this.geometry = { cols: msg.cols, rows: msg.rows }
-          this.daemonSend?.({ type: 'resize', cols: msg.cols, rows: msg.rows })
-        }
+      case 'attach': {
+        const session = this.sessions.get(msg.sessionId)
+        if (!session) return
+        client.attached.add(msg.sessionId)
+        session.attachClient(client)
+        this.broadcastSessions()
+        break
+      }
+      case 'detach':
+        client.attached.delete(msg.sessionId)
+        this.sessions.get(msg.sessionId)?.detachClient(id)
+        this.broadcastSessions()
         break
       case 'input':
-        if (id === this.controllerId) this.daemonSend?.({ type: 'input', data: msg.data })
+        this.sessions.get(msg.sessionId)?.handleInput(id, msg.data)
+        break
+      case 'resize':
+        this.sessions.get(msg.sessionId)?.handleResize(id, msg.cols, msg.rows)
         break
       case 'requestControl':
-        this.controllerId = id
-        this.geometry = { ...client.viewport }
-        this.epoch += 1
-        this.daemonSend?.({ type: 'resize', cols: this.geometry.cols, rows: this.geometry.rows })
-        this.daemonSend?.({ type: 'redraw' })
-        this.broadcast({
-          type: 'controllerChanged',
-          controllerId: id,
-          geometry: { ...this.geometry },
-        })
-        this.broadcast({ type: 'geometry', cols: this.geometry.cols, rows: this.geometry.rows })
+        this.sessions.get(msg.sessionId)?.requestControl(id)
+        this.broadcastSessions()
         break
       case 'redrawRequest':
-        this.daemonSend?.({ type: 'redraw' })
+        this.sessions.get(msg.sessionId)?.redraw()
         break
     }
   }
 
-  info(): SessionInfo {
-    return {
-      sessionId: this.sessionId,
-      cmd: this.cmd,
-      controllerId: this.controllerId ?? null,
-      geometry: { ...this.geometry },
-      epoch: this.epoch,
-      clientCount: this.clients.size,
+  // ---- ws data plane: daemon ----
+  onDaemonMessage(msg: DaemonMessage): void {
+    switch (msg.type) {
+      case 'bind':
+        this.sessions.get(msg.sessionId)?.markLive(msg.cmd, msg.geometry)
+        this.broadcastSessions()
+        break
+      case 'agentFrame':
+        this.sessions.get(msg.sessionId)?.onFrame(msg.seq, msg.data)
+        break
+      case 'agentExit':
+        this.sessions.get(msg.sessionId)?.onExit(msg.code)
+        this.broadcastSessions()
+        break
+      case 'spawnError':
+        this.sessions.get(msg.sessionId)?.markSpawnError(msg.message)
+        this.broadcastSessions()
+        break
+      case 'scanResult': {
+        const resolve = this.pendingScans.get(msg.requestId)
+        if (resolve) {
+          this.pendingScans.delete(msg.requestId)
+          resolve({ conversations: msg.conversations, diagnostics: msg.diagnostics })
+        }
+        break
+      }
     }
   }
 
-  private broadcast(msg: ServerMessage): void {
+  private broadcastSessions(): void {
+    const msg: ServerMessage = { type: 'sessionsChanged', sessions: this.listSessions() }
     for (const c of this.clients.values()) c.send(msg)
   }
 }
