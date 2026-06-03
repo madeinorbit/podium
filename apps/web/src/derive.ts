@@ -2,21 +2,27 @@ import type { ConversationSummaryWire, GitRepositoryWire, SessionMeta } from '@p
 import type { RepoView, WorktreeView } from './types'
 
 export function reposToViews(repos: GitRepositoryWire[]): RepoView[] {
-  return repos.map((r) => {
-    const main: WorktreeView = {
-      path: r.path,
-      ...(r.branch !== undefined ? { branch: r.branch } : {}),
-      repoPath: r.path,
-      isMain: true,
-    }
-    const linked: WorktreeView[] = r.worktrees.map((w) => ({
-      path: w.path,
-      ...(w.branch !== undefined ? { branch: w.branch } : {}),
-      repoPath: r.path,
-      isMain: false,
-    }))
-    return { path: r.path, name: r.path.split('/').pop() || r.path, worktrees: [main, ...linked] }
-  })
+  // Scanning a path that contains worktrees returns both the parent repo (with its
+  // worktrees[]) and each worktree as its own top-level entry. Drop the standalone
+  // duplicates so each worktree shows once, nested under its parent.
+  const linkedWorktreePaths = new Set(repos.flatMap((r) => r.worktrees.map((w) => w.path)))
+  return repos
+    .filter((r) => !linkedWorktreePaths.has(r.path))
+    .map((r) => {
+      const main: WorktreeView = {
+        path: r.path,
+        ...(r.branch !== undefined ? { branch: r.branch } : {}),
+        repoPath: r.path,
+        isMain: true,
+      }
+      const linked: WorktreeView[] = r.worktrees.map((w) => ({
+        path: w.path,
+        ...(w.branch !== undefined ? { branch: w.branch } : {}),
+        repoPath: r.path,
+        isMain: false,
+      }))
+      return { path: r.path, name: r.path.split('/').pop() || r.path, worktrees: [main, ...linked] }
+    })
 }
 
 export function sessionsForWorktree(sessions: SessionMeta[], worktreePath: string): SessionMeta[] {

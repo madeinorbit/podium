@@ -27,6 +27,7 @@ export interface Store {
   toggleSplit: () => void
   rescanRepos: () => Promise<void>
   rescanConversations: () => Promise<void>
+  killSession: (sessionId: string) => Promise<void>
 }
 
 const Ctx = createContext<Store | null>(null)
@@ -74,6 +75,14 @@ export function StoreProvider({
     },
     [trpc],
   )
+  const killSession = useMemo(
+    () => async (sessionId: string) => {
+      await trpc.sessions.kill.mutate({ sessionId }).catch(() => {})
+      setPaneA((p) => (p === sessionId ? null : p))
+      setPaneB((p) => (p === sessionId ? null : p))
+    },
+    [trpc],
+  )
 
   useEffect(() => {
     const off = hub.onSessions(setSessions)
@@ -104,6 +113,7 @@ export function StoreProvider({
     toggleSplit: () => setSplit((s) => !s),
     rescanRepos,
     rescanConversations,
+    killSession,
   }
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }

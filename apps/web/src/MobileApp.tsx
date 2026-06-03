@@ -7,7 +7,7 @@ import { useStore } from './store'
 
 export function MobileApp(): JSX.Element {
   const store = useStore()
-  const { sessions, selectedWorktree, setSelectedWorktree, paneA, setPane } = store
+  const { sessions, selectedWorktree, setSelectedWorktree, paneA, setPane, killSession } = store
   const repoViews = reposToViews(store.repos)
   const worktree = repoViews.flatMap((r) => r.worktrees).find((w) => w.path === selectedWorktree)
   const tabs = worktree ? sessionsForWorktree(sessions, worktree.path) : []
@@ -27,14 +27,23 @@ export function MobileApp(): JSX.Element {
         </button>
         <div className="mobile-tabs">
           {tabs.map((t) => (
-            <button
-              key={t.sessionId}
-              type="button"
-              className={t.sessionId === paneA ? 'tab active' : 'tab'}
-              onClick={() => setPane('A', t.sessionId)}
-            >
-              <span className={`dot ${t.status}`} /> {t.agentKind}
-            </button>
+            <span key={t.sessionId} className="tab-wrap">
+              <button
+                type="button"
+                className={t.sessionId === paneA ? 'tab active' : 'tab'}
+                onClick={() => setPane('A', t.sessionId)}
+              >
+                <span className={`dot ${t.status}`} /> {t.agentKind}
+              </button>
+              <button
+                type="button"
+                className="tab-kill"
+                title="Kill session"
+                onClick={() => void killSession(t.sessionId)}
+              >
+                ✕
+              </button>
+            </span>
           ))}
           {worktree && (
             <button type="button" className="tab-add" onClick={() => setMenuOpen((v) => !v)}>

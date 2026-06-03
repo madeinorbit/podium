@@ -45,6 +45,24 @@ describe('reposToViews', () => {
       { path: '/src/app-feat', branch: 'feat', repoPath: '/src/app', isMain: false },
     ])
   })
+
+  it('dedupes worktrees that also appear as standalone repo entries', () => {
+    const parent: GitRepositoryWire = {
+      path: '/src/app',
+      kind: 'repository',
+      branch: 'main',
+      worktrees: [{ path: '/src/app-feat', branch: 'feat' }],
+    }
+    const standalone: GitRepositoryWire = {
+      path: '/src/app-feat',
+      kind: 'worktree',
+      branch: 'feat',
+      worktrees: [],
+    }
+    const views = reposToViews([parent, standalone])
+    expect(views.map((v) => v.path)).toEqual(['/src/app'])
+    expect(views[0].worktrees.map((w) => w.path)).toEqual(['/src/app', '/src/app-feat'])
+  })
 })
 
 describe('sessionsForWorktree', () => {

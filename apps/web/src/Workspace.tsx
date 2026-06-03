@@ -8,7 +8,8 @@ import type { WorktreeView } from './types'
 
 export function Workspace(): JSX.Element {
   const store = useStore()
-  const { sessions, selectedWorktree, paneA, paneB, setPane, split, toggleSplit } = store
+  const { sessions, selectedWorktree, paneA, paneB, setPane, split, toggleSplit, killSession } =
+    store
   const [menuOpen, setMenuOpen] = useState(false)
 
   const worktree: WorktreeView | undefined = reposToViews(store.repos)
@@ -29,14 +30,23 @@ export function Workspace(): JSX.Element {
     <section className="workspace">
       <div className="tabbar">
         {tabs.map((t) => (
-          <button
-            key={t.sessionId}
-            type="button"
-            className={t.sessionId === paneA ? 'tab active' : 'tab'}
-            onClick={() => setPane('A', t.sessionId)}
-          >
-            <span className={`dot ${t.status}`} /> {t.agentKind}
-          </button>
+          <span key={t.sessionId} className="tab-wrap">
+            <button
+              type="button"
+              className={t.sessionId === paneA ? 'tab active' : 'tab'}
+              onClick={() => setPane('A', t.sessionId)}
+            >
+              <span className={`dot ${t.status}`} /> {t.agentKind}
+            </button>
+            <button
+              type="button"
+              className="tab-kill"
+              title="Kill session"
+              onClick={() => void killSession(t.sessionId)}
+            >
+              ✕
+            </button>
+          </span>
         ))}
         <button type="button" className="tab-add" onClick={() => setMenuOpen((v) => !v)}>
           +

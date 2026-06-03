@@ -455,3 +455,20 @@ body {
 .sheet-row:hover {
   background: var(--panel-raised);
 }
+
+.tab-wrap {
+  display: inline-flex;
+  align-items: center;
+}
+.tab-kill {
+  background: transparent;
+  border: 0;
+  color: var(--faint);
+  cursor: pointer;
+  font-size: 11px;
+  padding: 0 6px;
+  line-height: 1;
+}
+.tab-kill:hover {
+  color: var(--danger);
+}
