@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'vite'
 
 const allowedHosts = ['podium-host.example.com']
@@ -17,6 +18,17 @@ const proxy = {
 }
 
 export default defineConfig({
+  resolve: {
+    alias: {
+      '@podium/protocol': fileURLToPath(
+        new URL('../../packages/protocol/src/index.ts', import.meta.url),
+      ),
+      '@podium/terminal-client': fileURLToPath(
+        new URL('../../packages/terminal-client/src/index.ts', import.meta.url),
+      ),
+    },
+    conditions: ['@podium/source'],
+  },
   server: { host: '0.0.0.0', port: 55555, strictPort: true, allowedHosts, proxy },
   preview: { host: '0.0.0.0', port: 55555, strictPort: true, allowedHosts, proxy },
 })
