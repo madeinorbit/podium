@@ -1,3 +1,6 @@
+import { mkdtemp } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { type DaemonHandle, startDaemon } from '../../apps/daemon/src/daemon'
 import { type ServerHandle, startServer } from '../../apps/server/src/server'
@@ -8,7 +11,8 @@ const FIXTURE = fileURLToPath(
 
 export interface Relay {
   serverPort: number
-  hub: ServerHandle['hub']
+  registry: ServerHandle['registry']
+  createSession(label: string): Promise<string>
   stop(): Promise<void>
 }
 
@@ -16,15 +20,21 @@ export async function startRelay(): Promise<Relay> {
   const server: ServerHandle = await startServer()
   const daemon: DaemonHandle = await startDaemon({
     serverUrl: `ws://localhost:${server.port}`,
-    sessionId: 's1',
-    cmd: process.execPath,
-    args: [FIXTURE],
-    cols: 80,
-    rows: 24,
+    // Spawn the deterministic fixture; label it by its cwd so each session renders distinct content.
+    launch: (_kind, opts) => ({
+      cmd: process.execPath,
+      args: [FIXTURE, '--label', opts.cwd],
+      cwd: opts.cwd,
+    }),
   })
   return {
     serverPort: server.port,
-    hub: server.hub,
+    registry: server.registry,
+    async createSession(label) {
+      const dir = await mkdtemp(join(tmpdir(), `pod-${label}-`))
+      return server.registry.createSession({ agentKind: 'claude-code', cwd: dir, title: label })
+        .sessionId
+    },
     async stop() {
       await daemon.close()
       await server.close()
