@@ -75,6 +75,33 @@ export const ConversationDiagnosticWire = z.object({
 })
 export type ConversationDiagnosticWire = z.infer<typeof ConversationDiagnosticWire>
 
+export const GitWorktreeWire = z.object({
+  path: z.string(),
+  branch: z.string().optional(),
+  headSha: z.string().optional(),
+  locked: z.boolean().optional(),
+  prunable: z.boolean().optional(),
+})
+export type GitWorktreeWire = z.infer<typeof GitWorktreeWire>
+
+export const GitRepositoryWire = z.object({
+  path: z.string(),
+  kind: z.enum(['repository', 'worktree', 'bare']),
+  branch: z.string().optional(),
+  headSha: z.string().optional(),
+  originUrl: z.string().optional(),
+  // Always present on the wire; defaults to [] so producers may omit it safely.
+  worktrees: z.array(GitWorktreeWire).default([]),
+})
+export type GitRepositoryWire = z.infer<typeof GitRepositoryWire>
+
+export const GitDiscoveryDiagnosticWire = z.object({
+  severity: z.enum(['warning', 'error']),
+  path: z.string(),
+  message: z.string(),
+})
+export type GitDiscoveryDiagnosticWire = z.infer<typeof GitDiscoveryDiagnosticWire>
+
 // ---- Browser client -> server ----
 export const HelloMessage = z.object({
   type: z.literal('hello'),
@@ -179,12 +206,18 @@ export const ScanRequestMessage = z.object({
   type: z.literal('scanRequest'),
   requestId: z.string(),
 })
+export const ScanReposRequestMessage = z.object({
+  type: z.literal('scanReposRequest'),
+  requestId: z.string(),
+  roots: z.array(z.string()),
+})
 export const RedrawMessage = z.object({ type: z.literal('redraw'), sessionId: z.string() })
 
 export const ControlMessage = z.discriminatedUnion('type', [
   SpawnMessage,
   KillMessage,
   ScanRequestMessage,
+  ScanReposRequestMessage,
   InputMessage,
   ResizeMessage,
   RedrawMessage,
@@ -217,6 +250,12 @@ export const ScanResultMessage = z.object({
   conversations: z.array(ConversationSummaryWire),
   diagnostics: z.array(ConversationDiagnosticWire),
 })
+export const ScanReposResultMessage = z.object({
+  type: z.literal('scanReposResult'),
+  requestId: z.string(),
+  repositories: z.array(GitRepositoryWire),
+  diagnostics: z.array(GitDiscoveryDiagnosticWire),
+})
 
 export const DaemonMessage = z.discriminatedUnion('type', [
   BindMessage,
@@ -224,6 +263,7 @@ export const DaemonMessage = z.discriminatedUnion('type', [
   AgentExitMessage,
   SpawnErrorMessage,
   ScanResultMessage,
+  ScanReposResultMessage,
 ])
 export type DaemonMessage = z.infer<typeof DaemonMessage>
 

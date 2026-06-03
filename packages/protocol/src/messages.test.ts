@@ -6,6 +6,7 @@ import {
   ConversationSummaryWire,
   type DaemonMessage,
   encode,
+  GitRepositoryWire,
   parseClientMessage,
   parseControlMessage,
   parseDaemonMessage,
@@ -80,6 +81,16 @@ describe('shared schemas', () => {
     const min = { id: 'x', agentKind: 'claude-code' as const, providerId: 'claude-code-jsonl' }
     expect(ConversationSummaryWire.parse(min)).toEqual(min)
   })
+
+  it('round-trips a GitRepositoryWire with worktrees', () => {
+    const repo = {
+      path: '/r',
+      kind: 'repository' as const,
+      branch: 'main',
+      worktrees: [{ path: '/r-wt', branch: 'feat' }],
+    }
+    expect(GitRepositoryWire.parse(repo)).toEqual(repo)
+  })
 })
 
 describe('ClientMessage', () => {
@@ -149,6 +160,7 @@ describe('ControlMessage (server -> daemon)', () => {
     },
     { type: 'kill', sessionId: 's1' },
     { type: 'scanRequest', requestId: 'r1' },
+    { type: 'scanReposRequest', requestId: 'rr1', roots: ['/home/u/src'] },
     { type: 'input', sessionId: 's1', data: 'aGk=' },
     { type: 'resize', sessionId: 's1', cols: 100, rows: 30 },
     { type: 'redraw', sessionId: 's1' },
@@ -166,6 +178,20 @@ describe('DaemonMessage (daemon -> server)', () => {
     { type: 'agentExit', sessionId: 's1', code: 0 },
     { type: 'spawnError', sessionId: 's1', message: 'enoent' },
     { type: 'scanResult', requestId: 'r1', conversations: [], diagnostics: [] },
+    {
+      type: 'scanReposResult',
+      requestId: 'rr1',
+      repositories: [
+        {
+          path: '/home/u/src/app',
+          kind: 'repository',
+          branch: 'main',
+          headSha: 'abc',
+          worktrees: [{ path: '/home/u/src/app-feat', branch: 'feat', locked: false }],
+        },
+      ],
+      diagnostics: [{ severity: 'warning', path: '/bad', message: 'nope' }],
+    },
   ]
   it.each(cases)('round-trips %j', (msg) => {
     expect(parseDaemonMessage(encode(msg))).toEqual(msg)
