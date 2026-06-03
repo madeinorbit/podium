@@ -219,15 +219,29 @@ async function readGitPointerFile(
     return undefined
   }
 
-  return await canonicalPath(resolveMetadataPath(dirname(gitPath), gitDir))
+  const resolvedGitDir = resolveMetadataPath(dirname(gitPath), gitDir)
+  if (!(await isDirectory(resolvedGitDir))) {
+    diagnostics.push({
+      severity: 'warning',
+      path: gitPath,
+      message: 'Git pointer target is missing',
+    })
+    return undefined
+  }
+
+  return await canonicalPath(resolvedGitDir)
 }
 
 async function isBareGitAdminDir(path: string): Promise<boolean> {
-  return (
+  const hasBareShape =
     (await isFile(join(path, 'HEAD'))) &&
     (await isDirectory(join(path, 'objects'))) &&
     (await isDirectory(join(path, 'refs')))
-  )
+
+  if (!hasBareShape) return false
+
+  const coreBare = await readCoreBareConfig(path)
+  return coreBare !== false
 }
 
 async function isDirectory(path: string): Promise<boolean> {
@@ -396,6 +410,41 @@ function parseOriginUrl(config: string): string | undefined {
 
     const url = line.match(/^url\s*=\s*(.*)$/)
     if (url) return url[1]?.trim()
+  }
+
+  return undefined
+}
+
+async function readCoreBareConfig(gitDir: string): Promise<boolean | undefined> {
+  try {
+    return parseCoreBare(await readFile(join(gitDir, 'config'), 'utf8'))
+  } catch (error) {
+    if (isMissingPathError(error)) return undefined
+    throw error
+  }
+}
+
+function parseCoreBare(config: string): boolean | undefined {
+  let inCoreSection = false
+
+  for (const rawLine of config.split(/\r?\n/)) {
+    const line = rawLine.trim()
+    if (line.length === 0 || line.startsWith('#') || line.startsWith(';')) continue
+
+    const section = line.match(/^\[(.+)\]$/)
+    if (section) {
+      inCoreSection = section[1]?.trim().toLowerCase() === 'core'
+      continue
+    }
+
+    if (!inCoreSection) continue
+
+    const bare = line.match(/^bare\s*=\s*(.*)$/i)
+    if (!bare) continue
+
+    const value = bare[1]?.trim().toLowerCase()
+    if (value === 'false' || value === 'no' || value === 'off' || value === '0') return false
+    if (value === 'true' || value === 'yes' || value === 'on' || value === '1') return true
   }
 
   return undefined

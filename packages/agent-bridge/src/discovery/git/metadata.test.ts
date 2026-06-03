@@ -339,6 +339,17 @@ describe('inspectGitRepositoryPath', () => {
     )
   })
 
+  test('does not treat a non-bare repository admin directory as a bare repository', async () => {
+    const root = await createTempRoot()
+    const repo = await writeNormalRepo(root)
+    await writeFile(join(repo, '.git', 'config'), '[core]\n\tbare = false\n')
+
+    const result = await inspectGitRepositoryPath(join(repo, '.git'))
+
+    expect(result.repository).toBeUndefined()
+    expect(result.diagnostics).toEqual([])
+  })
+
   test('reports malformed .git pointer files as diagnostics', async () => {
     const root = await createTempRoot()
     const worktree = join(root, 'broken')
@@ -353,6 +364,24 @@ describe('inspectGitRepositoryPath', () => {
         severity: 'warning',
         path: join(worktree, '.git'),
         message: 'Malformed Git pointer file',
+      }),
+    ])
+  })
+
+  test('reports missing .git pointer targets as diagnostics', async () => {
+    const root = await createTempRoot()
+    const worktree = join(root, 'stale-pointer')
+    await mkdir(worktree)
+    await writeFile(join(worktree, '.git'), 'gitdir: ../missing-admin\n')
+
+    const result = await inspectGitRepositoryPath(worktree)
+
+    expect(result.repository).toBeUndefined()
+    expect(result.diagnostics).toEqual([
+      expect.objectContaining({
+        severity: 'warning',
+        path: join(worktree, '.git'),
+        message: 'Git pointer target is missing',
       }),
     ])
   })
