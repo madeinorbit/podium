@@ -153,8 +153,18 @@ async function readRegisteredWorktree(
     return undefined
   }
 
-  const resolvedGitFilePath = await canonicalPath(resolveMetadataPath(dirname(gitdirPath), gitFilePath))
-  const path = await canonicalPath(dirname(resolvedGitFilePath))
+  const resolvedGitFilePath = resolveMetadataPath(dirname(gitdirPath), gitFilePath)
+  if ((await statOptional(resolvedGitFilePath)) === undefined) {
+    diagnostics.push({
+      severity: 'warning',
+      path: gitdirPath,
+      message: 'Git worktree target is missing',
+    })
+    return undefined
+  }
+
+  const canonicalGitFilePath = await canonicalPath(resolvedGitFilePath)
+  const path = await canonicalPath(dirname(canonicalGitFilePath))
   const head = await readHeadMetadata(gitDir, commonGitDir, diagnostics)
   const locked = await markerExists(
     join(gitDir, 'locked'),

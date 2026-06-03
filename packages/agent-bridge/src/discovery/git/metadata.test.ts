@@ -298,6 +298,29 @@ describe('inspectGitRepositoryPath', () => {
     ])
   })
 
+  test('skips stale registered worktrees whose target git file is missing', async () => {
+    const root = await createTempRoot()
+    const repo = await writeNormalRepo(root)
+    const commonGitDir = join(repo, '.git')
+    const staleAdminDir = join(commonGitDir, 'worktrees', 'stale')
+    const staleGitFile = join(root, 'missing-worktree', '.git')
+    const staleGitdir = join(staleAdminDir, 'gitdir')
+    await mkdir(staleAdminDir, { recursive: true })
+    await writeFile(staleGitdir, `${staleGitFile}\n`)
+    await writeFile(join(staleAdminDir, 'HEAD'), 'ref: refs/heads/main\n')
+
+    const result = await readRegisteredWorktrees(commonGitDir)
+
+    expect(result.worktrees).toEqual([])
+    expect(result.diagnostics).toEqual([
+      expect.objectContaining({
+        severity: 'warning',
+        path: staleGitdir,
+        message: 'Git worktree target is missing',
+      }),
+    ])
+  })
+
   test('detects a bare repository when the scanned directory is the Git admin dir', async () => {
     const root = await createTempRoot()
     const bare = await writeBareRepo(root)
