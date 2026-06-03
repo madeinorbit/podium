@@ -7,9 +7,39 @@ import type {
   FindGitWorktreesResult,
   GitDiscoveryDiagnostic,
   GitRepositorySummary,
+  GitWorktreeSummary,
   ScanGitRepositoriesAtPathOptions,
+  ScanGitRepositoriesOptions,
   ScanGitRepositoriesResult,
 } from './types.js'
+
+export async function scanGitRepositories(
+  options: ScanGitRepositoriesOptions = {},
+): Promise<ScanGitRepositoriesResult> {
+  const homeDir = options.homeDir ?? homedir()
+  const roots = [...(options.roots ?? [])]
+  if (options.includeHome !== false) roots.push(homeDir)
+
+  if (roots.length === 0) return { repositories: [], diagnostics: [] }
+
+  const repositories: GitRepositorySummary[] = []
+  const diagnostics: GitDiscoveryDiagnostic[] = []
+  for (const root of roots) {
+    const result = await scanGitRepositoriesAtPath(root, {
+      homeDir,
+      maxDepth: options.maxDepth,
+      concurrency: options.concurrency,
+      ignoredDirectoryNames: options.ignoredDirectoryNames,
+    })
+    repositories.push(...result.repositories)
+    diagnostics.push(...result.diagnostics)
+  }
+
+  return {
+    repositories: dedupeRepositories(repositories).sort(compareRepositories),
+    diagnostics: diagnostics.sort(compareDiagnostics),
+  }
+}
 
 export const defaultGitIgnoredDirectoryNames = [
   '.git',
@@ -118,8 +148,26 @@ export async function scanGitRepositoriesAtPath(
   }
 }
 
-export async function findGitWorktrees(): Promise<FindGitWorktreesResult> {
-  throw new Error('findGitWorktrees is added in Task 4')
+export async function findGitWorktrees(repoPath: string): Promise<FindGitWorktreesResult> {
+  const diagnostics: GitDiscoveryDiagnostic[] = []
+  const inspected = await inspectGitRepositoryPath(repoPath)
+  diagnostics.push(...inspected.diagnostics)
+
+  if (inspected.repository === undefined) {
+    throw new Error(`Path is not a Git repository, worktree, or bare repository: ${repoPath}`)
+  }
+
+  const worktreesResult = await readRegisteredWorktrees(inspected.repository.commonGitDir)
+  diagnostics.push(...worktreesResult.diagnostics)
+
+  const repository = await resolveFindRepository(inspected.repository, diagnostics)
+  const repositoryWithWorktrees = attachWorktrees(repository, worktreesResult.worktrees)
+
+  return {
+    repository: repositoryWithWorktrees,
+    worktrees: worktreesResult.worktrees,
+    diagnostics: diagnostics.sort(compareDiagnostics),
+  }
 }
 
 type ScanDirectoryContext = {
@@ -149,7 +197,8 @@ async function scanDirectory(
   context.diagnostics.push(...result.diagnostics)
 
   if (result.repository !== undefined) {
-    context.repositories.push(await withRegisteredWorktrees(result.repository, context.diagnostics))
+    const repositories = await withRegisteredWorktrees(result.repository, context.diagnostics)
+    context.repositories.push(...repositories)
     return []
   }
 
@@ -177,14 +226,70 @@ async function scanDirectory(
 async function withRegisteredWorktrees(
   repository: GitRepositorySummary,
   diagnostics: GitDiscoveryDiagnostic[],
-): Promise<GitRepositorySummary> {
-  if (repository.kind === 'worktree') return repository
+): Promise<GitRepositorySummary[]> {
+  if (repository.kind === 'worktree') return [repository]
 
   const result = await readRegisteredWorktrees(repository.commonGitDir)
   diagnostics.push(...result.diagnostics)
 
-  if (result.worktrees.length === 0) return repository
-  return { ...repository, worktrees: result.worktrees }
+  const repositoryWithWorktrees = attachWorktrees(repository, result.worktrees)
+  return [
+    repositoryWithWorktrees,
+    ...result.worktrees.map((worktree) => toWorktreeRepository(worktree, repository)),
+  ]
+}
+
+async function resolveFindRepository(
+  repository: GitRepositorySummary,
+  diagnostics: GitDiscoveryDiagnostic[],
+): Promise<GitRepositorySummary> {
+  if (repository.kind !== 'worktree') return repository
+
+  if (repository.mainWorktreePath !== undefined) {
+    const mainResult = await inspectGitRepositoryPath(repository.mainWorktreePath)
+    diagnostics.push(...mainResult.diagnostics)
+    if (
+      mainResult.repository !== undefined &&
+      mainResult.repository.kind !== 'worktree' &&
+      mainResult.repository.commonGitDir === repository.commonGitDir
+    ) {
+      return mainResult.repository
+    }
+  }
+
+  const commonResult = await inspectGitRepositoryPath(repository.commonGitDir)
+  diagnostics.push(...commonResult.diagnostics)
+  if (commonResult.repository !== undefined && commonResult.repository.kind !== 'worktree') {
+    return commonResult.repository
+  }
+
+  return repository
+}
+
+function attachWorktrees(
+  repository: GitRepositorySummary,
+  worktrees: readonly GitWorktreeSummary[],
+): GitRepositorySummary {
+  if (repository.kind === 'worktree' || worktrees.length === 0) return repository
+  return { ...repository, worktrees: [...worktrees] }
+}
+
+function toWorktreeRepository(
+  worktree: GitWorktreeSummary,
+  mainRepository: GitRepositorySummary,
+): GitRepositorySummary {
+  return {
+    path: worktree.path,
+    kind: 'worktree',
+    gitDir: worktree.gitDir,
+    commonGitDir: worktree.commonGitDir,
+    ...(mainRepository.mainWorktreePath === undefined
+      ? {}
+      : { mainWorktreePath: mainRepository.mainWorktreePath }),
+    ...(worktree.branch === undefined ? {} : { branch: worktree.branch }),
+    ...(worktree.headSha === undefined ? {} : { headSha: worktree.headSha }),
+    ...(mainRepository.originUrl === undefined ? {} : { originUrl: mainRepository.originUrl }),
+  }
 }
 
 async function runBounded<T>(

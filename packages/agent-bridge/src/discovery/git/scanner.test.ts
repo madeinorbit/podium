@@ -2,7 +2,9 @@ import { chmod, mkdir, mkdtemp, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, test } from 'vitest'
-import { scanGitRepositoriesAtPath } from './scanner.js'
+import * as scanner from './scanner.js'
+
+const { scanGitRepositoriesAtPath } = scanner
 
 const mainSha = '1111111111111111111111111111111111111111'
 const featureSha = '2222222222222222222222222222222222222222'
@@ -34,6 +36,40 @@ async function writeLinkedWorktree(root: string): Promise<{ main: string; worktr
   await writeFile(join(main, '.git', 'refs', 'heads', 'feature'), `${featureSha}\n`)
   return { main, worktree }
 }
+
+describe('scanGitRepositories', () => {
+  test('scans the provided home directory by default', async () => {
+    const home = await createTempRoot()
+    const repo = await writeNormalRepo(join(home, 'projects'), 'repo')
+
+    const result = await scanner.scanGitRepositories({ homeDir: home })
+
+    expect(result.diagnostics).toEqual([])
+    expect(result.repositories.map((repository) => repository.path)).toEqual([repo])
+  })
+
+  test('scans explicit roots when home is excluded', async () => {
+    const home = await createTempRoot()
+    await writeNormalRepo(home, 'ignored-home-repo')
+    const root = await createTempRoot()
+    const repo = await writeNormalRepo(root, 'repo')
+
+    const result = await scanner.scanGitRepositories({
+      roots: [root],
+      homeDir: home,
+      includeHome: false,
+    })
+
+    expect(result.diagnostics).toEqual([])
+    expect(result.repositories.map((repository) => repository.path)).toEqual([repo])
+  })
+
+  test('returns empty when home excluded and no roots are provided', async () => {
+    const result = await scanner.scanGitRepositories({ includeHome: false })
+
+    expect(result).toEqual({ repositories: [], diagnostics: [] })
+  })
+})
 
 describe('scanGitRepositoriesAtPath', () => {
   test('discovers nested repositories and linked worktrees in deterministic path order', async () => {
@@ -179,7 +215,7 @@ describe('scanGitRepositoriesAtPath', () => {
     const result = await scanGitRepositoriesAtPath(main)
 
     expect(result.diagnostics).toEqual([])
-    expect(result.repositories).toHaveLength(1)
+    expect(result.repositories).toHaveLength(2)
     expect(result.repositories[0]).toEqual(
       expect.objectContaining({
         path: main,
@@ -192,5 +228,123 @@ describe('scanGitRepositoriesAtPath', () => {
         ],
       }),
     )
+  })
+
+  test('includes registered worktrees as separate summaries and attached worktrees', async () => {
+    const root = await createTempRoot()
+    const { main, worktree } = await writeLinkedWorktree(root)
+
+    const result = await scanGitRepositoriesAtPath(main)
+
+    expect(result.diagnostics).toEqual([])
+    expect(result.repositories.map((repository) => repository.path)).toEqual([main, worktree])
+    expect(result.repositories).toEqual([
+      expect.objectContaining({
+        path: main,
+        kind: 'repository',
+        worktrees: [
+          expect.objectContaining({
+            path: worktree,
+            branch: 'feature',
+            headSha: featureSha,
+          }),
+        ],
+      }),
+      expect.objectContaining({
+        path: worktree,
+        kind: 'worktree',
+        gitDir: join(main, '.git', 'worktrees', 'main-feature'),
+        commonGitDir: join(main, '.git'),
+        mainWorktreePath: main,
+        branch: 'feature',
+        headSha: featureSha,
+      }),
+    ])
+  })
+})
+
+describe('findGitWorktrees', () => {
+  test('from a main repository returns repository plus all registered worktrees', async () => {
+    const root = await createTempRoot()
+    const { main, worktree } = await writeLinkedWorktree(root)
+
+    const result = await scanner.findGitWorktrees(main)
+
+    expect(result.diagnostics).toEqual([])
+    expect(result.repository).toEqual(
+      expect.objectContaining({
+        path: main,
+        kind: 'repository',
+        worktrees: [
+          expect.objectContaining({
+            path: worktree,
+            branch: 'feature',
+            headSha: featureSha,
+          }),
+        ],
+      }),
+    )
+    expect(result.worktrees).toEqual([
+      expect.objectContaining({
+        path: worktree,
+        branch: 'feature',
+        headSha: featureSha,
+      }),
+    ])
+  })
+
+  test('from a linked worktree resolves the main repository and returns all registered worktrees', async () => {
+    const root = await createTempRoot()
+    const { main, worktree } = await writeLinkedWorktree(root)
+
+    const result = await scanner.findGitWorktrees(worktree)
+
+    expect(result.diagnostics).toEqual([])
+    expect(result.repository).toEqual(
+      expect.objectContaining({
+        path: main,
+        kind: 'repository',
+        worktrees: [
+          expect.objectContaining({
+            path: worktree,
+            branch: 'feature',
+            headSha: featureSha,
+          }),
+        ],
+      }),
+    )
+    expect(result.worktrees).toEqual([
+      expect.objectContaining({
+        path: worktree,
+        branch: 'feature',
+        headSha: featureSha,
+      }),
+    ])
+  })
+
+  test('rejects a non-repository path', async () => {
+    const root = await createTempRoot()
+    const directory = join(root, 'plain')
+    await mkdir(directory)
+
+    await expect(scanner.findGitWorktrees(directory)).rejects.toThrow(
+      `Path is not a Git repository, worktree, or bare repository: ${directory}`,
+    )
+  })
+})
+
+describe('git discovery barrel exports', () => {
+  test('are importable from the git index', async () => {
+    const git = await import('./index.js')
+
+    expect(git.scanGitRepositoriesAtPath).toBe(scanGitRepositoriesAtPath)
+    expect(git.findGitWorktrees).toBe(scanner.findGitWorktrees)
+  })
+
+  test('are importable from the discovery package barrel', async () => {
+    const discovery = await import('../index.js')
+
+    expect(discovery.scanGitRepositoriesAtPath).toBe(scanGitRepositoriesAtPath)
+    expect(discovery.findGitWorktrees).toBe(scanner.findGitWorktrees)
   })
 })
