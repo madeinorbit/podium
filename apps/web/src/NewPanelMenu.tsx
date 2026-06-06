@@ -1,5 +1,11 @@
+import type { AgentKind } from '@podium/protocol'
 import type { JSX } from 'react'
-import { reposToViews, resumableForRepoFallback, resumableForWorktree } from './derive'
+import {
+  mergeResumable,
+  reposToViews,
+  resumableForRepoFallback,
+  resumableForWorktree,
+} from './derive'
 import { useStore } from './store'
 import type { WorktreeView } from './types'
 
@@ -19,9 +25,9 @@ export function NewPanelMenu({
   const fallback = worktree.isMain
     ? resumableForRepoFallback(conversations, worktree.repoPath, repoWorktreePaths)
     : []
-  const resumable = [...exact, ...fallback]
+  const resumable = mergeResumable(exact, fallback)
 
-  async function create(agentKind: 'claude-code' | 'codex') {
+  async function create(agentKind: AgentKind) {
     const { sessionId } = await trpc.sessions.create.mutate({ agentKind, cwd: worktree.path })
     onOpened(sessionId)
   }
@@ -44,6 +50,9 @@ export function NewPanelMenu({
       </button>
       <button type="button" onClick={() => void create('codex')}>
         New Codex
+      </button>
+      <button type="button" onClick={() => void create('shell')}>
+        New Shell
       </button>
       <div className="menu-section">Resume</div>
       {resumable.length === 0 && <div className="menu-empty">No matching history</div>}

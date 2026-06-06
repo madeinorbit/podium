@@ -2,7 +2,7 @@ import { AgentKind, ResumeRef } from '@podium/protocol'
 import { initTRPC, TRPCError } from '@trpc/server'
 import { z } from 'zod'
 import type { SessionRegistry } from './relay'
-import type { RepoRegistry } from './repo-registry'
+import { browseDirectories, type RepoRegistry } from './repo-registry'
 
 export interface Context {
   registry: SessionRegistry
@@ -49,6 +49,20 @@ export const appRouter = t.router({
       await ctx.repos.remove(input.path)
       return ctx.repos.list()
     }),
+    browse: t.procedure
+      .input(
+        z.object({ path: z.string().optional(), includeHidden: z.boolean().optional() }).optional(),
+      )
+      .query(async ({ input }) => {
+        try {
+          return await browseDirectories(input?.path, { includeHidden: input?.includeHidden })
+        } catch (e) {
+          throw new TRPCError({
+            code: 'BAD_REQUEST',
+            message: e instanceof Error ? e.message : String(e),
+          })
+        }
+      }),
   }),
   discovery: t.router({
     scan: t.procedure.mutation(({ ctx }) => ctx.registry.scan()),

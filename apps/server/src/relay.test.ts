@@ -37,6 +37,17 @@ describe('SessionRegistry', () => {
     ])
   })
 
+  it('create can spawn a shell session', () => {
+    const reg = new SessionRegistry()
+    const daemon: ControlMessage[] = []
+    reg.attachDaemon((m) => daemon.push(m))
+    const { sessionId } = reg.createSession({ agentKind: 'shell', cwd: '/proj' })
+    expect(daemon).toContainEqual(
+      expect.objectContaining({ type: 'spawn', sessionId, agentKind: 'shell', cwd: '/proj' }),
+    )
+    expect(reg.listSessions()).toMatchObject([{ sessionId, agentKind: 'shell', cwd: '/proj' }])
+  })
+
   it('resume spawns with the resume ref + resume origin', () => {
     const reg = new SessionRegistry()
     const daemon: ControlMessage[] = []

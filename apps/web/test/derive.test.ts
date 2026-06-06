@@ -1,6 +1,8 @@
 import type { ConversationSummaryWire, GitRepositoryWire, SessionMeta } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import {
+  mergeResumable,
+  panelLabel,
   reposToViews,
   resumableForRepoFallback,
   resumableForWorktree,
@@ -100,5 +102,20 @@ describe('resumable matching', () => {
   it('does not match a sibling path as under the repo', () => {
     const sibling = conv('/src/application', 's')
     expect(resumableForRepoFallback([sibling], '/src/app', []).map((c) => c.id)).toEqual([])
+  })
+})
+
+describe('mergeResumable', () => {
+  it('dedupes conversations that appear in both exact and fallback lists', () => {
+    const shared = conv('/src/app', 'facaab0d-326c-4915-9018-c1fd8f4a4e5b')
+    expect(mergeResumable([shared], [shared])).toEqual([shared])
+  })
+})
+
+describe('panelLabel', () => {
+  it('maps agent kinds to display names', () => {
+    expect(panelLabel('claude-code')).toBe('Claude')
+    expect(panelLabel('codex')).toBe('Codex')
+    expect(panelLabel('shell')).toBe('Shell')
   })
 })

@@ -1,23 +1,49 @@
 import type { JSX } from 'react'
 import { useEffect, useState } from 'react'
 import { AgentPanel } from './AgentPanel'
-import { reposToViews, sessionsForWorktree } from './derive'
+import { formatAppError } from './AppErrorPage'
+import { panelLabel, reposToViews, sessionsForWorktree } from './derive'
 import { NewPanelMenu } from './NewPanelMenu'
+import { RepoPickerModal } from './RepoPickerModal'
 import { useStore } from './store'
 
 export function MobileApp(): JSX.Element {
   const store = useStore()
-  const { sessions, selectedWorktree, setSelectedWorktree, paneA, setPane, killSession } = store
+  const {
+    sessions,
+    selectedWorktree,
+    setSelectedWorktree,
+    paneA,
+    setPane,
+    killSession,
+    trpc,
+    rescanRepos,
+  } = store
+  const { reposLoading, repoDiagnostics } = store
   const repoViews = reposToViews(store.repos)
   const worktree = repoViews.flatMap((r) => r.worktrees).find((w) => w.path === selectedWorktree)
   const tabs = worktree ? sessionsForWorktree(sessions, worktree.path) : []
   const [pickerOpen, setPickerOpen] = useState(false)
+  const [repoPickerOpen, setRepoPickerOpen] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     if (paneA && tabs.some((t) => t.sessionId === paneA)) return
     setPane('A', tabs[0]?.sessionId ?? null)
   }, [tabs, paneA, setPane])
+
+  async function addRepo(path: string): Promise<void> {
+    try {
+      await trpc.repos.add.mutate({ path })
+      await rescanRepos()
+      setError(null)
+    } catch (e) {
+      const message = formatAppError(e, 'Failed to add repo')
+      setError(message)
+      throw new Error(message)
+    }
+  }
 
   return (
     <div className="mobile-shell">
@@ -33,7 +59,7 @@ export function MobileApp(): JSX.Element {
                 className={t.sessionId === paneA ? 'tab active' : 'tab'}
                 onClick={() => setPane('A', t.sessionId)}
               >
-                <span className={`dot ${t.status}`} /> {t.agentKind}
+                <span className={`dot ${t.status}`} /> {panelLabel(t.agentKind)}
               </button>
               <button
                 type="button"
@@ -72,10 +98,23 @@ export function MobileApp(): JSX.Element {
         <div className="picker-sheet">
           <div className="sheet-head">
             <span className="label">WORKTREES</span>
-            <button type="button" onClick={() => setPickerOpen(false)}>
-              ✕
-            </button>
+            <div className="sheet-actions">
+              <button type="button" onClick={() => setRepoPickerOpen(true)}>
+                + Add repo
+              </button>
+              <button type="button" onClick={() => setPickerOpen(false)}>
+                ✕
+              </button>
+            </div>
           </div>
+          {error && <div className="add-repo-error sidebar-error">{error}</div>}
+          {(reposLoading || repoDiagnostics.length > 0) && (
+            <div className="scan-status">
+              {reposLoading
+                ? 'Scanning repositories...'
+                : `Scan finished with ${repoDiagnostics.length} warning${repoDiagnostics.length === 1 ? '' : 's'}.`}
+            </div>
+          )}
           {repoViews.map((repo) => (
             <div key={repo.path}>
               <div className="repo-name">{repo.name}</div>
@@ -94,8 +133,18 @@ export function MobileApp(): JSX.Element {
               ))}
             </div>
           ))}
-          {repoViews.length === 0 && <div className="empty">No repos. Add one on desktop.</div>}
+          {repoViews.length === 0 && (
+            <div className="empty">
+              {reposLoading ? 'Scanning repositories...' : 'No repos found. Add a folder to scan.'}
+            </div>
+          )}
         </div>
+      )}
+      {repoPickerOpen && (
+        <RepoPickerModal
+          onClose={() => setRepoPickerOpen(false)}
+          onPick={(path) => addRepo(path)}
+        />
       )}
     </div>
   )

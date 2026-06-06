@@ -1,28 +1,35 @@
 import type { JSX } from 'react'
 import { useState } from 'react'
-import { reposToViews, sessionsForWorktree } from './derive'
+import { formatAppError } from './AppErrorPage'
+import { panelLabel, reposToViews, sessionsForWorktree } from './derive'
+import { RepoPickerModal } from './RepoPickerModal'
 import { useStore } from './store'
 
 export function Sidebar(): JSX.Element {
-  const { repos, sessions, selectedWorktree, setSelectedWorktree, trpc, rescanRepos } = useStore()
+  const {
+    repos,
+    reposLoading,
+    repoDiagnostics,
+    sessions,
+    selectedWorktree,
+    setSelectedWorktree,
+    trpc,
+    rescanRepos,
+  } = useStore()
   const repoViews = reposToViews(repos)
-  const [adding, setAdding] = useState(false)
-  const [path, setPath] = useState('')
+  const [pickerOpen, setPickerOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  async function addRepo() {
-    const p = path.trim()
-    if (!p) return
+  async function addRepo(path: string): Promise<void> {
     try {
-      await trpc.repos.add.mutate({ path: p })
+      await trpc.repos.add.mutate({ path })
+      await rescanRepos()
+      setError(null)
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to add repo')
-      return
+      const message = formatAppError(e, 'Failed to add repo')
+      setError(message)
+      throw new Error(message)
     }
-    setError(null)
-    setPath('')
-    setAdding(false)
-    await rescanRepos()
   }
 
   return (
@@ -32,25 +39,19 @@ export function Sidebar(): JSX.Element {
         <button
           type="button"
           onClick={() => {
-            setAdding((v) => !v)
+            setPickerOpen(true)
             setError(null)
           }}
         >
           + Add repo
         </button>
       </div>
-      {adding && (
-        <div className="add-repo">
-          <input
-            value={path}
-            placeholder="/absolute/path/to/repo"
-            onChange={(e) => setPath(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && void addRepo()}
-          />
-          <button type="button" onClick={() => void addRepo()}>
-            Add
-          </button>
-          {error && <div className="add-repo-error">{error}</div>}
+      {error && <div className="add-repo-error sidebar-error">{error}</div>}
+      {(reposLoading || repoDiagnostics.length > 0) && (
+        <div className="scan-status">
+          {reposLoading
+            ? 'Scanning repositories...'
+            : `Scan finished with ${repoDiagnostics.length} warning${repoDiagnostics.length === 1 ? '' : 's'}.`}
         </div>
       )}
       <div className="sidebar-list">
@@ -72,7 +73,7 @@ export function Sidebar(): JSX.Element {
                   </button>
                   {wtSessions.map((s) => (
                     <div key={s.sessionId} className="panel-row">
-                      <span className={`dot ${s.status}`} /> {s.agentKind}
+                      <span className={`dot ${s.status}`} /> {panelLabel(s.agentKind)}
                     </div>
                   ))}
                 </div>
@@ -80,8 +81,15 @@ export function Sidebar(): JSX.Element {
             })}
           </div>
         ))}
-        {repoViews.length === 0 && <div className="empty">Add a repo to get started.</div>}
+        {repoViews.length === 0 && (
+          <div className="empty">
+            {reposLoading ? 'Scanning repositories...' : 'No repos found. Add a folder to scan.'}
+          </div>
+        )}
       </div>
+      {pickerOpen && (
+        <RepoPickerModal onClose={() => setPickerOpen(false)} onPick={(path) => addRepo(path)} />
+      )}
     </aside>
   )
 }

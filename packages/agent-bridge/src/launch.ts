@@ -25,6 +25,10 @@ export function agentLaunchCommand(kind: AgentKind, opts: LaunchOptions): Launch
       return { cmd: 'claude', args: resume ? ['--resume', resume.value] : [], cwd }
     case 'codex':
       return { cmd: 'codex', args: resume ? ['resume', resume.value] : [], cwd }
+    case 'shell': {
+      const shell = process.env.SHELL || '/bin/bash'
+      return { cmd: shell, args: [], cwd }
+    }
     default: {
       const exhaustive: never = kind
       throw new Error(`Unknown agent kind: ${String(exhaustive)}`)

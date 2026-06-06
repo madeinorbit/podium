@@ -237,6 +237,7 @@ body {
 
 /* ---- workspace ---- */
 .workspace {
+  position: relative;
   flex: 1;
   display: flex;
   flex-direction: column;
@@ -282,11 +283,13 @@ body {
 .tab-split {
   margin-left: auto;
 }
-.new-panel-menu {
+.workspace-menu-layer {
   position: absolute;
-  top: 100%;
+  top: 40px;
   left: 8px;
-  z-index: 20;
+  z-index: 35;
+}
+.new-panel-menu {
   margin-top: 2px;
   background: var(--panel-raised);
   border: 1px solid var(--border-strong);
@@ -471,4 +474,200 @@ body {
 }
 .tab-kill:hover {
   color: var(--danger);
+}
+
+/* ---- error fallback ---- */
+.app-error-page {
+  min-height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: var(--app);
+}
+.app-error-panel {
+  width: min(520px, 100%);
+  border: 1px solid var(--border-strong);
+  background: var(--panel);
+  border-radius: var(--r);
+  padding: 20px;
+}
+.app-error-panel h1 {
+  margin: 8px 0;
+  font-size: 22px;
+  color: var(--fg-bright);
+}
+.app-error-panel p {
+  margin: 0;
+  color: var(--dim);
+  overflow-wrap: anywhere;
+}
+.app-error-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 16px;
+}
+.app-error-actions button {
+  background: var(--accent);
+  color: #1a1205;
+  border: 0;
+  border-radius: var(--r);
+  padding: 7px 12px;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.app-error-actions button.secondary {
+  background: var(--surface);
+  color: var(--fg);
+  border: 1px solid var(--border-strong);
+}
+
+/* ---- repo picker ---- */
+.sidebar-error {
+  padding: 0 12px 8px;
+}
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.58);
+}
+.repo-picker-modal {
+  width: min(640px, 100%);
+  max-height: min(720px, calc(100dvh - 32px));
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.55);
+  overflow: hidden;
+}
+.repo-picker-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 14px 10px;
+  border-bottom: 1px solid var(--border);
+}
+.repo-picker-path {
+  margin-top: 4px;
+  color: var(--fg-bright);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.repo-picker-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+}
+.icon-button,
+.repo-picker-add,
+.repo-picker-toggle,
+.sheet-actions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 30px;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  color: var(--fg);
+  border-radius: var(--r);
+  padding: 5px 9px;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.icon-button:disabled,
+.repo-picker-add:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+.repo-picker-toggle.active {
+  color: var(--fg-bright);
+  border-color: var(--accent);
+}
+.repo-picker-add {
+  margin-left: auto;
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #1a1205;
+  font-weight: 600;
+}
+.scan-status {
+  padding: 6px 12px 8px;
+  color: var(--dim);
+  font-size: 12px;
+}
+.repo-picker-error {
+  padding: 8px 14px;
+  color: var(--danger);
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+}
+.repo-picker-list {
+  flex: 1;
+  min-height: 180px;
+  overflow-y: auto;
+  padding: 6px;
+}
+.repo-picker-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  background: transparent;
+  border: 0;
+  color: var(--fg);
+  border-radius: var(--r);
+  padding: 8px;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+.repo-picker-row:hover {
+  background: var(--surface);
+  color: var(--fg-bright);
+}
+.repo-picker-row span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sheet-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+@media (max-width: 768px) {
+  .modal-backdrop {
+    align-items: stretch;
+    padding: 0;
+  }
+  .repo-picker-modal {
+    width: 100%;
+    max-height: 100dvh;
+    border-radius: 0;
+    border-left: 0;
+    border-right: 0;
+  }
+  .repo-picker-toolbar {
+    flex-wrap: wrap;
+  }
+  .repo-picker-toggle,
+  .repo-picker-add {
+    width: 100%;
+    margin-left: 0;
+  }
 }

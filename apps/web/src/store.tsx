@@ -1,4 +1,9 @@
-import type { ConversationSummaryWire, GitRepositoryWire, SessionMeta } from '@podium/protocol'
+import type {
+  ConversationSummaryWire,
+  GitDiscoveryDiagnosticWire,
+  GitRepositoryWire,
+  SessionMeta,
+} from '@podium/protocol'
 import { SocketHub } from '@podium/terminal-client'
 import type { JSX } from 'react'
 import {
@@ -10,12 +15,16 @@ import {
   useRef,
   useState,
 } from 'react'
-import { makeTrpc, parseServer, type Trpc } from './trpc'
+import { formatAppError } from './AppErrorPage'
+import { reposToViews } from './derive'
+import { makeTrpc, parseServerOrigin, type Trpc } from './trpc'
 
 export interface Store {
   hub: SocketHub
   trpc: Trpc
   repos: GitRepositoryWire[]
+  reposLoading: boolean
+  repoDiagnostics: GitDiscoveryDiagnosticWire[]
   conversations: ConversationSummaryWire[]
   sessions: SessionMeta[]
   selectedWorktree: string | null
@@ -34,12 +43,14 @@ const Ctx = createContext<Store | null>(null)
 
 export function StoreProvider({
   origin,
+  onFatalError,
   children,
 }: {
   origin: string
+  onFatalError: (message: string) => void
   children: ReactNode
 }): JSX.Element {
-  const cfg = useMemo(() => parseServer(`?server=${origin}`), [origin])
+  const cfg = useMemo(() => parseServerOrigin(origin), [origin])
   if (!cfg) throw new Error(`bad server origin: ${origin}`)
 
   const hub = useMemo(
@@ -47,12 +58,15 @@ export function StoreProvider({
       new SocketHub({
         url: cfg.wsClientUrl,
         viewport: { cols: 80, rows: 24, dpr: globalThis.devicePixelRatio ?? 1 },
+        onError: (message) => onFatalError(message),
       }),
-    [cfg.wsClientUrl],
+    [cfg.wsClientUrl, onFatalError],
   )
   const trpc = useMemo(() => makeTrpc(cfg.httpOrigin), [cfg.httpOrigin])
 
   const [repos, setRepos] = useState<GitRepositoryWire[]>([])
+  const [reposLoading, setReposLoading] = useState(false)
+  const [repoDiagnostics, setRepoDiagnostics] = useState<GitDiscoveryDiagnosticWire[]>([])
   const [conversations, setConversations] = useState<ConversationSummaryWire[]>([])
   const [sessions, setSessions] = useState<SessionMeta[]>([])
   const [selectedWorktree, setSelectedWorktree] = useState<string | null>(null)
@@ -63,15 +77,21 @@ export function StoreProvider({
 
   const rescanRepos = useMemo(
     () => async () => {
-      const r = await trpc.discovery.scanRepos.mutate().catch(() => null)
-      if (r) setRepos(r.repositories)
+      setReposLoading(true)
+      try {
+        const r = await trpc.discovery.scanRepos.mutate()
+        setRepos(r.repositories)
+        setRepoDiagnostics(r.diagnostics)
+      } finally {
+        setReposLoading(false)
+      }
     },
     [trpc],
   )
   const rescanConversations = useMemo(
     () => async () => {
-      const r = await trpc.discovery.scan.mutate().catch(() => null)
-      if (r) setConversations(r.conversations)
+      const r = await trpc.discovery.scan.mutate()
+      setConversations(r.conversations)
     },
     [trpc],
   )
@@ -85,23 +105,41 @@ export function StoreProvider({
   )
 
   useEffect(() => {
+    const worktrees = reposToViews(repos).flatMap((repo) => repo.worktrees)
+    if (selectedWorktree && worktrees.some((worktree) => worktree.path === selectedWorktree)) {
+      return
+    }
+    setSelectedWorktree(worktrees[0]?.path ?? null)
+  }, [repos, selectedWorktree])
+
+  useEffect(() => {
     const off = hub.onSessions(setSessions)
-    hub.connect()
+    const connectTimer = setTimeout(() => {
+      try {
+        hub.connect()
+      } catch (e) {
+        onFatalError(formatAppError(e, 'WebSocket connection failed'))
+      }
+    }, 0)
     if (!started.current) {
       started.current = true
-      void rescanRepos()
-      void rescanConversations()
+      void Promise.all([rescanRepos(), rescanConversations()]).catch((e) => {
+        onFatalError(formatAppError(e, 'Could not load Podium data'))
+      })
     }
     return () => {
+      clearTimeout(connectTimer)
       off()
       hub.dispose()
     }
-  }, [hub, rescanRepos, rescanConversations])
+  }, [hub, onFatalError, rescanRepos, rescanConversations])
 
   const value: Store = {
     hub,
     trpc,
     repos,
+    reposLoading,
+    repoDiagnostics,
     conversations,
     sessions,
     selectedWorktree,

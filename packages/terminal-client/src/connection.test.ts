@@ -7,11 +7,15 @@ class FakeSocket implements WebSocketLike {
   onopen: ((ev: unknown) => void) | null = null
   onmessage: ((ev: { data: unknown }) => void) | null = null
   onclose: ((ev: unknown) => void) | null = null
+  onerror: ((ev: unknown) => void) | null = null
   send(data: string): void {
     this.sent.push(data)
   }
   close(): void {
     this.onclose?.({})
+  }
+  error(): void {
+    this.onerror?.({})
   }
   open(): void {
     this.onopen?.({})
@@ -121,6 +125,34 @@ describe('SocketHub', () => {
     expect(() =>
       sock.recv({ type: 'outputFrame', sessionId: 'ghost', seq: 0, epoch: 0, data: b64('x') }),
     ).not.toThrow()
+  })
+
+  it('notifies connection errors so the app can render a fallback', () => {
+    const sock = new FakeSocket()
+    const errors: string[] = []
+    const hub = new SocketHub({
+      url: 'ws://x',
+      viewport: { cols: 80, rows: 24, dpr: 1 },
+      makeSocket: () => sock,
+      onError: (message) => errors.push(message),
+    })
+    hub.connect()
+    sock.error()
+    expect(errors).toEqual(['WebSocket connection failed'])
+  })
+
+  it('does not report an intentional dispose before the socket opens as a connection error', () => {
+    const sock = new FakeSocket()
+    const errors: string[] = []
+    const hub = new SocketHub({
+      url: 'ws://x',
+      viewport: { cols: 80, rows: 24, dpr: 1 },
+      makeSocket: () => sock,
+      onError: (message) => errors.push(message),
+    })
+    hub.connect()
+    hub.dispose()
+    expect(errors).toEqual([])
   })
 })
 

@@ -6,6 +6,7 @@ export interface WebSocketLike {
   onopen: ((ev: unknown) => void) | null
   onmessage: ((ev: { data: unknown }) => void) | null
   onclose: ((ev: unknown) => void) | null
+  onerror?: ((ev: unknown) => void) | null
 }
 
 export interface ConnectionViewport {
@@ -35,6 +36,7 @@ export interface SocketHubOptions {
   url: string
   viewport: ConnectionViewport
   makeSocket?: (url: string) => WebSocketLike
+  onError?: (message: string, event?: unknown) => void
 }
 
 function utf8ToBase64(text: string): string {
@@ -49,6 +51,11 @@ function fromBase64Utf8(b64: string): string {
   return new TextDecoder().decode(Uint8Array.from(bin, (c) => c.charCodeAt(0)))
 }
 
+function errorMessage(error: unknown, fallback: string): string {
+  if (error instanceof Error && error.message.trim()) return `${fallback}: ${error.message}`
+  return fallback
+}
+
 /** One ws, multiplexed across N sessions. Owns the connection + server-assigned clientId. */
 export class SocketHub {
   private readonly opts: SocketHubOptions
@@ -57,6 +64,7 @@ export class SocketHub {
   private connectedFlag = false
   private clientIdValue = ''
   private sessionList: SessionMeta[] = []
+  private intentionalClose = false
   private readonly connections = new Map<string, SessionConnection>()
   private readonly sessionObservers = new Set<(s: SessionMeta[]) => void>()
 
@@ -74,9 +82,21 @@ export class SocketHub {
 
   connect(): void {
     if (this.socket !== undefined) return
-    const socket = this.makeSocket(this.opts.url)
+
+    let socket: WebSocketLike
+    try {
+      socket = this.makeSocket(this.opts.url)
+    } catch (err) {
+      this.opts.onError?.(errorMessage(err, 'WebSocket connection failed'), err)
+      return
+    }
+
+    let opened = false
+    let reportedError = false
+    this.intentionalClose = false
     this.socket = socket
     socket.onopen = () => {
+      opened = true
       this.connectedFlag = true
       this.sendRaw({
         type: 'hello',
@@ -87,7 +107,14 @@ export class SocketHub {
       this.notifyConnections()
     }
     socket.onmessage = (ev) => this.route(String(ev.data))
+    socket.onerror = (ev) => {
+      reportedError = true
+      this.opts.onError?.('WebSocket connection failed', ev)
+    }
     socket.onclose = () => {
+      if (!this.intentionalClose && !opened && !reportedError) {
+        this.opts.onError?.('WebSocket connection closed before connecting')
+      }
       this.connectedFlag = false
       this.socket = undefined
       this.notifyConnections()
@@ -128,6 +155,7 @@ export class SocketHub {
   }
 
   dispose(): void {
+    this.intentionalClose = true
     this.socket?.close()
     this.socket = undefined
     this.connectedFlag = false

@@ -1,5 +1,20 @@
-import type { ConversationSummaryWire, GitRepositoryWire, SessionMeta } from '@podium/protocol'
+import type { AgentKind, ConversationSummaryWire, GitRepositoryWire, SessionMeta } from '@podium/protocol'
 import type { RepoView, WorktreeView } from './types'
+
+export function panelLabel(agentKind: AgentKind): string {
+  switch (agentKind) {
+    case 'claude-code':
+      return 'Claude'
+    case 'codex':
+      return 'Codex'
+    case 'shell':
+      return 'Shell'
+    default: {
+      const exhaustive: never = agentKind
+      return exhaustive
+    }
+  }
+}
 
 export function reposToViews(repos: GitRepositoryWire[]): RepoView[] {
   // Scanning a path that contains worktrees returns both the parent repo (with its
@@ -50,4 +65,19 @@ export function resumableForRepoFallback(
       !wt.has(c.projectPath) &&
       (c.projectPath === repoPath || c.projectPath.startsWith(`${repoPath}/`)),
   )
+}
+
+/** Merge worktree-exact + repo-fallback resume lists without duplicate conversation ids. */
+export function mergeResumable(
+  exact: ConversationSummaryWire[],
+  fallback: ConversationSummaryWire[],
+): ConversationSummaryWire[] {
+  const seen = new Set<string>()
+  const out: ConversationSummaryWire[] = []
+  for (const c of [...exact, ...fallback]) {
+    if (seen.has(c.id)) continue
+    seen.add(c.id)
+    out.push(c)
+  }
+  return out
 }

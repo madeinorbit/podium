@@ -1,8 +1,8 @@
-import { mkdtemp, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { RepoRegistry } from './repo-registry'
+import { browseDirectories, RepoRegistry } from './repo-registry'
 
 async function tmpFile(): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), 'podium-reporeg-'))
@@ -46,5 +46,24 @@ describe('RepoRegistry', () => {
     const reg = new RepoRegistry(file)
     await reg.load()
     expect(reg.list()).toEqual([])
+  })
+
+  it('browses server-side directories from HOME by default', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'podium-browse-home-'))
+    await mkdir(join(home, 'src'), { recursive: true })
+    await mkdir(join(home, 'notes'), { recursive: true })
+    await mkdir(join(home, '.cache'), { recursive: true })
+
+    const prevHome = process.env.HOME
+    process.env.HOME = home
+    try {
+      const listing = await browseDirectories()
+      expect(listing.path).toBe(home)
+      expect(listing.entries.map((entry) => entry.name)).toEqual(['notes', 'src'])
+      const withHidden = await browseDirectories(undefined, { includeHidden: true })
+      expect(withHidden.entries.map((entry) => entry.name)).toEqual(['.cache', 'notes', 'src'])
+    } finally {
+      process.env.HOME = prevHome
+    }
   })
 })

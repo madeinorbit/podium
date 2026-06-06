@@ -12,7 +12,7 @@ export const Viewport = z.object({
 })
 export type Viewport = z.infer<typeof Viewport>
 
-export const AgentKind = z.enum(['claude-code', 'codex'])
+export const AgentKind = z.enum(['claude-code', 'codex', 'shell'])
 export type AgentKind = z.infer<typeof AgentKind>
 
 export const ResumeRef = z.object({ kind: z.string(), value: z.string() })

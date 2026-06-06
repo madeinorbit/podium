@@ -6,7 +6,7 @@ import {
   type GitDiscoveryDiagnostic,
   type GitRepositorySummary,
   scanAgentConversations,
-  scanGitRepositoriesAtPath,
+  scanGitRepositories,
   spawnAgent,
 } from '@podium/agent-bridge'
 import {
@@ -154,20 +154,14 @@ export function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
   const scanRepos = async (requestId: string, roots: string[]): Promise<void> => {
     const repositories: GitRepositoryWire[] = []
     const diagnostics: GitDiscoveryDiagnosticWire[] = []
+
+    const addResult = (result: Awaited<ReturnType<typeof scanGitRepositories>>): void => {
+      for (const repo of result.repositories) repositories.push(repoToWire(repo))
+      for (const d of result.diagnostics) diagnostics.push(gitDiagnosticToWire(d))
+    }
+
     try {
-      for (const root of roots) {
-        try {
-          const result = await scanGitRepositoriesAtPath(root)
-          for (const repo of result.repositories) repositories.push(repoToWire(repo))
-          for (const d of result.diagnostics) diagnostics.push(gitDiagnosticToWire(d))
-        } catch (err) {
-          diagnostics.push({
-            severity: 'error',
-            path: root,
-            message: err instanceof Error ? err.message : String(err),
-          })
-        }
-      }
+      addResult(await scanGitRepositories({ roots, homeDir: process.env.HOME || undefined }))
     } catch (err) {
       diagnostics.push({
         severity: 'error',

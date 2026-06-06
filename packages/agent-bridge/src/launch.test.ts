@@ -36,4 +36,30 @@ describe('agentLaunchCommand', () => {
   it('threads cwd through unchanged', () => {
     expect(agentLaunchCommand('claude-code', { cwd: '/a/b/c' }).cwd).toBe('/a/b/c')
   })
+
+  it('spawns an interactive shell in the worktree cwd', () => {
+    const prev = process.env.SHELL
+    process.env.SHELL = '/bin/zsh'
+    try {
+      expect(agentLaunchCommand('shell', { cwd: '/w' })).toEqual({
+        cmd: '/bin/zsh',
+        args: [],
+        cwd: '/w',
+      })
+    } finally {
+      if (prev === undefined) delete process.env.SHELL
+      else process.env.SHELL = prev
+    }
+  })
+
+  it('falls back to bash when SHELL is unset', () => {
+    const prev = process.env.SHELL
+    delete process.env.SHELL
+    try {
+      expect(agentLaunchCommand('shell', { cwd: '/w' }).cmd).toBe('/bin/bash')
+    } finally {
+      if (prev === undefined) delete process.env.SHELL
+      else process.env.SHELL = prev
+    }
+  })
 })

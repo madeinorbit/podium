@@ -1,7 +1,8 @@
+import type { AgentKind } from '@podium/protocol'
 import type { JSX } from 'react'
 import { useEffect, useState } from 'react'
 import { AgentPanel } from './AgentPanel'
-import { reposToViews, sessionsForWorktree } from './derive'
+import { panelLabel, reposToViews, sessionsForWorktree } from './derive'
 import { NewPanelMenu } from './NewPanelMenu'
 import { useStore } from './store'
 import type { WorktreeView } from './types'
@@ -36,7 +37,7 @@ export function Workspace(): JSX.Element {
               className={t.sessionId === paneA ? 'tab active' : 'tab'}
               onClick={() => setPane('A', t.sessionId)}
             >
-              <span className={`dot ${t.status}`} /> {t.agentKind}
+              <span className={`dot ${t.status}`} /> {panelLabel(t.agentKind)}
             </button>
             <button
               type="button"
@@ -54,7 +55,9 @@ export function Workspace(): JSX.Element {
         <button type="button" className="tab-split" onClick={toggleSplit}>
           ⊟ split
         </button>
-        {menuOpen && (
+      </div>
+      {menuOpen && (
+        <div className="workspace-menu-layer">
           <NewPanelMenu
             worktree={worktree}
             onOpened={(sid) => {
@@ -62,8 +65,8 @@ export function Workspace(): JSX.Element {
               setMenuOpen(false)
             }}
           />
-        )}
-      </div>
+        </div>
+      )}
       <div className={split ? 'panes split' : 'panes'}>
         <div className="pane">{paneA ? <AgentPanel sessionId={paneA} /> : <Empty />}</div>
         {split && (
@@ -88,7 +91,7 @@ function PanePicker({
   tabs,
   onPick,
 }: {
-  tabs: { sessionId: string; agentKind: string }[]
+  tabs: { sessionId: string; agentKind: AgentKind }[]
   onPick: (id: string) => void
 }): JSX.Element {
   return (
@@ -96,7 +99,7 @@ function PanePicker({
       <div>Pick a panel for this pane:</div>
       {tabs.map((t) => (
         <button key={t.sessionId} type="button" onClick={() => onPick(t.sessionId)}>
-          {t.agentKind}
+          {panelLabel(t.agentKind)}
         </button>
       ))}
     </div>

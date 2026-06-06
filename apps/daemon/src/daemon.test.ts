@@ -154,6 +154,62 @@ describe('daemon multi-bridge', () => {
     expect(Array.isArray(found?.worktrees)).toBe(true)
   })
 
+  it('scanReposRequest with no roots discovers repositories under HOME', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'podium-home-repos-'))
+    const repo = join(home, 'src', 'app')
+    const gitDir = join(repo, '.git')
+    await mkdir(join(gitDir, 'refs', 'heads'), { recursive: true })
+    await writeFile(join(gitDir, 'HEAD'), 'ref: refs/heads/main\n')
+    await writeFile(join(gitDir, 'refs', 'heads', 'main'), `${'2'.repeat(40)}\n`)
+
+    const prevHome = process.env.HOME
+    process.env.HOME = home
+    try {
+      send({ type: 'scanReposRequest', requestId: 'rr-home', roots: [] })
+      await waitFor(() =>
+        received.some((m) => m.type === 'scanReposResult' && m.requestId === 'rr-home'),
+      )
+    } finally {
+      process.env.HOME = prevHome
+    }
+
+    const result = received.find(
+      (m): m is Extract<DaemonMessage, { type: 'scanReposResult' }> =>
+        m.type === 'scanReposResult' && m.requestId === 'rr-home',
+    )
+    expect(result?.repositories.map((r) => r.path)).toContain(repo)
+  })
+
+  it('scanReposRequest includes HOME discovery alongside explicit roots', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'podium-home-plus-roots-'))
+    const homeRepo = join(home, 'src', 'home-app')
+    const extraRoot = await mkdtemp(join(tmpdir(), 'podium-extra-root-'))
+    const extraRepo = join(extraRoot, 'extra-app')
+    for (const repo of [homeRepo, extraRepo]) {
+      const gitDir = join(repo, '.git')
+      await mkdir(join(gitDir, 'refs', 'heads'), { recursive: true })
+      await writeFile(join(gitDir, 'HEAD'), 'ref: refs/heads/main\n')
+      await writeFile(join(gitDir, 'refs', 'heads', 'main'), `${'3'.repeat(40)}\n`)
+    }
+
+    const prevHome = process.env.HOME
+    process.env.HOME = home
+    try {
+      send({ type: 'scanReposRequest', requestId: 'rr-home-plus-root', roots: [extraRoot] })
+      await waitFor(() =>
+        received.some((m) => m.type === 'scanReposResult' && m.requestId === 'rr-home-plus-root'),
+      )
+    } finally {
+      process.env.HOME = prevHome
+    }
+
+    const result = received.find(
+      (m): m is Extract<DaemonMessage, { type: 'scanReposResult' }> =>
+        m.type === 'scanReposResult' && m.requestId === 'rr-home-plus-root',
+    )
+    expect(result?.repositories.map((r) => r.path).sort()).toEqual([extraRepo, homeRepo].sort())
+  })
+
   it('scanReposRequest isolates a bad root: good repo returned, diagnostic for the bad one', async () => {
     const root = await mkdtemp(join(tmpdir(), 'podium-repos-ok-'))
     const repo = join(root, 'app')
