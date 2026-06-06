@@ -2,7 +2,7 @@ import type { JSX } from 'react'
 
 export function formatAppError(error: unknown, fallback = 'Something went wrong'): string {
   const message = rawErrorMessage(error)
-  if (message?.includes('No procedure found on path "discovery.scanRepos"')) {
+  if (message?.includes('No procedure found on path "discovery.')) {
     return 'This relay server is running an older Podium backend that does not support repo discovery. Restart the relay from this branch, or connect to a matching relay server.'
   }
   return message ?? fallback

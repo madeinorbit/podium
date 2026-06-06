@@ -151,7 +151,11 @@ export function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     }
   }
 
-  const scanRepos = async (requestId: string, roots: string[]): Promise<void> => {
+  const scanRepos = async (
+    requestId: string,
+    roots: string[],
+    opts: { includeHome?: boolean; maxDepth?: number } = {},
+  ): Promise<void> => {
     const repositories: GitRepositoryWire[] = []
     const diagnostics: GitDiscoveryDiagnosticWire[] = []
 
@@ -161,7 +165,14 @@ export function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     }
 
     try {
-      addResult(await scanGitRepositories({ roots, homeDir: process.env.HOME || undefined }))
+      addResult(
+        await scanGitRepositories({
+          roots,
+          homeDir: process.env.HOME || undefined,
+          ...(opts.includeHome === undefined ? {} : { includeHome: opts.includeHome }),
+          ...(opts.maxDepth === undefined ? {} : { maxDepth: opts.maxDepth }),
+        }),
+      )
     } catch (err) {
       diagnostics.push({
         severity: 'error',
@@ -204,7 +215,10 @@ export function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
         void scan(msg.requestId)
         break
       case 'scanReposRequest':
-        void scanRepos(msg.requestId, msg.roots)
+        void scanRepos(msg.requestId, msg.roots, {
+          ...(msg.includeHome === undefined ? {} : { includeHome: msg.includeHome }),
+          ...(msg.maxDepth === undefined ? {} : { maxDepth: msg.maxDepth }),
+        })
         break
     }
   })

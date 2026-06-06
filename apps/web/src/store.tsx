@@ -24,6 +24,9 @@ export interface Store {
   trpc: Trpc
   repos: GitRepositoryWire[]
   reposLoading: boolean
+  /** True once the first repo refresh has resolved — lets the UI distinguish
+   *  "still loading" from "registry is genuinely empty" (first-run onboarding). */
+  reposLoaded: boolean
   repoDiagnostics: GitDiscoveryDiagnosticWire[]
   conversations: ConversationSummaryWire[]
   sessions: SessionMeta[]
@@ -34,7 +37,9 @@ export interface Store {
   setPane: (pane: 'A' | 'B', sessionId: string | null) => void
   split: boolean
   toggleSplit: () => void
-  rescanRepos: () => Promise<void>
+  /** Enrich the registered repos with branch/worktree metadata (fast — no
+   *  filesystem walk). Discovery scanning happens explicitly via the scan flow. */
+  refreshRepos: () => Promise<void>
   rescanConversations: () => Promise<void>
   killSession: (sessionId: string) => Promise<void>
 }
@@ -66,6 +71,7 @@ export function StoreProvider({
 
   const [repos, setRepos] = useState<GitRepositoryWire[]>([])
   const [reposLoading, setReposLoading] = useState(false)
+  const [reposLoaded, setReposLoaded] = useState(false)
   const [repoDiagnostics, setRepoDiagnostics] = useState<GitDiscoveryDiagnosticWire[]>([])
   const [conversations, setConversations] = useState<ConversationSummaryWire[]>([])
   const [sessions, setSessions] = useState<SessionMeta[]>([])
@@ -75,15 +81,16 @@ export function StoreProvider({
   const [split, setSplit] = useState(false)
   const started = useRef(false)
 
-  const rescanRepos = useMemo(
+  const refreshRepos = useMemo(
     () => async () => {
       setReposLoading(true)
       try {
-        const r = await trpc.discovery.scanRepos.mutate()
+        const r = await trpc.discovery.refreshRepos.mutate()
         setRepos(r.repositories)
         setRepoDiagnostics(r.diagnostics)
       } finally {
         setReposLoading(false)
+        setReposLoaded(true)
       }
     },
     [trpc],
@@ -123,7 +130,7 @@ export function StoreProvider({
     }, 0)
     if (!started.current) {
       started.current = true
-      void Promise.all([rescanRepos(), rescanConversations()]).catch((e) => {
+      void Promise.all([refreshRepos(), rescanConversations()]).catch((e) => {
         onFatalError(formatAppError(e, 'Could not load Podium data'))
       })
     }
@@ -132,13 +139,14 @@ export function StoreProvider({
       off()
       hub.dispose()
     }
-  }, [hub, onFatalError, rescanRepos, rescanConversations])
+  }, [hub, onFatalError, refreshRepos, rescanConversations])
 
   const value: Store = {
     hub,
     trpc,
     repos,
     reposLoading,
+    reposLoaded,
     repoDiagnostics,
     conversations,
     sessions,
@@ -149,7 +157,7 @@ export function StoreProvider({
     setPane: (pane, id) => (pane === 'A' ? setPaneA(id) : setPaneB(id)),
     split,
     toggleSplit: () => setSplit((s) => !s),
-    rescanRepos,
+    refreshRepos,
     rescanConversations,
     killSession,
   }

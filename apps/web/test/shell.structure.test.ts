@@ -26,15 +26,32 @@ describe('web shell structure', () => {
     expect(src).toContain('setTimeout')
     expect(src).toContain('clearTimeout')
   })
-  it('repo add flow uses the server-side picker on desktop and mobile', () => {
-    expect(read('Sidebar.tsx')).toContain('RepoPickerModal')
-    expect(read('MobileApp.tsx')).toContain('RepoPickerModal')
+  it('repo add flow uses the scan flow on desktop and mobile', () => {
+    expect(read('Sidebar.tsx')).toContain('RepoScanFlow')
+    expect(read('MobileApp.tsx')).toContain('RepoScanFlow')
   })
-  it('repo picker hides hidden directories by default with a toggle', () => {
+  it('repo picker browses folders, hides hidden by default, and offers a scan action', () => {
     const src = read('RepoPickerModal.tsx')
     expect(src).toContain('showHidden')
     expect(src).toContain('includeHidden')
     expect(src).toContain('Show hidden')
+    expect(src).toContain('onScan')
+    expect(src).toContain('Scan for repos here')
+  })
+  it('first run shows the onboarding wizard only once repos are known empty', () => {
+    const src = read('AppShell.tsx')
+    expect(src).toContain('OnboardingWizard')
+    expect(src).toContain('reposLoaded')
+    expect(src).toContain('repos.length === 0')
+  })
+  it('scan flow ranks results and persists the selection', () => {
+    const flow = read('RepoScanFlow.tsx')
+    expect(flow).toContain('scanFolder')
+    expect(flow).toContain('rankRepoCandidates')
+    expect(flow).toContain('addMany')
+    const results = read('RepoScanResults.tsx')
+    expect(results).toContain('PROJECTS')
+    expect(results).toContain('HIDDEN / SYSTEM')
   })
   it('workspace renders the new-panel menu outside the scrolling tabbar', () => {
     const src = read('Workspace.tsx')

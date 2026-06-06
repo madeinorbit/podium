@@ -1,24 +1,14 @@
 import type { JSX } from 'react'
 import { useEffect, useState } from 'react'
 import { AgentPanel } from './AgentPanel'
-import { formatAppError } from './AppErrorPage'
 import { panelLabel, reposToViews, sessionsForWorktree } from './derive'
 import { NewPanelMenu } from './NewPanelMenu'
-import { RepoPickerModal } from './RepoPickerModal'
+import { RepoScanFlow } from './RepoScanFlow'
 import { useStore } from './store'
 
 export function MobileApp(): JSX.Element {
   const store = useStore()
-  const {
-    sessions,
-    selectedWorktree,
-    setSelectedWorktree,
-    paneA,
-    setPane,
-    killSession,
-    trpc,
-    rescanRepos,
-  } = store
+  const { sessions, selectedWorktree, setSelectedWorktree, paneA, setPane, killSession } = store
   const { reposLoading, repoDiagnostics } = store
   const repoViews = reposToViews(store.repos)
   const worktree = repoViews.flatMap((r) => r.worktrees).find((w) => w.path === selectedWorktree)
@@ -26,24 +16,11 @@ export function MobileApp(): JSX.Element {
   const [pickerOpen, setPickerOpen] = useState(false)
   const [repoPickerOpen, setRepoPickerOpen] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
-  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     if (paneA && tabs.some((t) => t.sessionId === paneA)) return
     setPane('A', tabs[0]?.sessionId ?? null)
   }, [tabs, paneA, setPane])
-
-  async function addRepo(path: string): Promise<void> {
-    try {
-      await trpc.repos.add.mutate({ path })
-      await rescanRepos()
-      setError(null)
-    } catch (e) {
-      const message = formatAppError(e, 'Failed to add repo')
-      setError(message)
-      throw new Error(message)
-    }
-  }
 
   return (
     <div className="mobile-shell">
@@ -107,11 +84,10 @@ export function MobileApp(): JSX.Element {
               </button>
             </div>
           </div>
-          {error && <div className="add-repo-error sidebar-error">{error}</div>}
           {(reposLoading || repoDiagnostics.length > 0) && (
             <div className="scan-status">
               {reposLoading
-                ? 'Scanning repositories...'
+                ? 'Loading repositories...'
                 : `Scan finished with ${repoDiagnostics.length} warning${repoDiagnostics.length === 1 ? '' : 's'}.`}
             </div>
           )}
@@ -135,15 +111,15 @@ export function MobileApp(): JSX.Element {
           ))}
           {repoViews.length === 0 && (
             <div className="empty">
-              {reposLoading ? 'Scanning repositories...' : 'No repos found. Add a folder to scan.'}
+              {reposLoading ? 'Loading repositories...' : 'No repos yet. Add a folder to scan.'}
             </div>
           )}
         </div>
       )}
       {repoPickerOpen && (
-        <RepoPickerModal
+        <RepoScanFlow
           onClose={() => setRepoPickerOpen(false)}
-          onPick={(path) => addRepo(path)}
+          onDone={() => setRepoPickerOpen(false)}
         />
       )}
     </div>

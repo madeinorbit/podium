@@ -210,6 +210,12 @@ export const ScanReposRequestMessage = z.object({
   type: z.literal('scanReposRequest'),
   requestId: z.string(),
   roots: z.array(z.string()),
+  // When false, $HOME is not auto-added as a scan root (so a scan stays rooted at
+  // exactly `roots`). When omitted, the daemon keeps its legacy home-inclusive default.
+  includeHome: z.boolean().optional(),
+  // Bound on how deep the walk descends from each root. 0 only inspects the roots
+  // themselves (used to enrich already-registered repos without a filesystem walk).
+  maxDepth: z.number().int().nonnegative().optional(),
 })
 export const RedrawMessage = z.object({ type: z.literal('redraw'), sessionId: z.string() })
 

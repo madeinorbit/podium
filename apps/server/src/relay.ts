@@ -104,7 +104,10 @@ export class SessionRegistry {
     })
   }
 
-  scanRepos(roots: string[]): Promise<ScanReposResult> {
+  scanRepos(
+    roots: string[],
+    opts: { includeHome?: boolean; maxDepth?: number } = {},
+  ): Promise<ScanReposResult> {
     const requestId = `rr${this.nextRequestNum++}`
     return new Promise<ScanReposResult>((resolve) => {
       const timer = setTimeout(() => {
@@ -119,7 +122,13 @@ export class SessionRegistry {
         clearTimeout(timer)
         resolve(r)
       })
-      this.toDaemon({ type: 'scanReposRequest', requestId, roots })
+      this.toDaemon({
+        type: 'scanReposRequest',
+        requestId,
+        roots,
+        ...(opts.includeHome === undefined ? {} : { includeHome: opts.includeHome }),
+        ...(opts.maxDepth === undefined ? {} : { maxDepth: opts.maxDepth }),
+      })
     })
   }
 

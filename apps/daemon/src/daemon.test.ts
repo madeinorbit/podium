@@ -219,7 +219,9 @@ describe('daemon multi-bridge', () => {
     await writeFile(join(gitDir, 'refs', 'heads', 'main'), `${'1'.repeat(40)}\n`)
     const bad = join(root, 'does-not-exist')
 
-    send({ type: 'scanReposRequest', requestId: 'rr-2', roots: [bad, repo] })
+    // includeHome:false keeps the scan scoped to these temp roots (this test is about
+    // isolating a bad root, not about home inclusion) — fast and deterministic.
+    send({ type: 'scanReposRequest', requestId: 'rr-2', roots: [bad, repo], includeHome: false })
     await waitFor(() =>
       received.some((m) => m.type === 'scanReposResult' && m.requestId === 'rr-2'),
     )

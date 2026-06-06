@@ -1,4 +1,9 @@
-import type { AgentKind, ConversationSummaryWire, GitRepositoryWire, SessionMeta } from '@podium/protocol'
+import type {
+  AgentKind,
+  ConversationSummaryWire,
+  GitRepositoryWire,
+  SessionMeta,
+} from '@podium/protocol'
 import type { RepoView, WorktreeView } from './types'
 
 export function panelLabel(agentKind: AgentKind): string {

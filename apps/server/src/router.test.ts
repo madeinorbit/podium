@@ -85,15 +85,47 @@ describe('repos router', () => {
     await expect(call.repos.add({ path: 'relative/path' })).rejects.toThrow()
   })
 
-  it('discovery.scanRepos forwards registry roots and resolves', async () => {
+  it('repos.addMany persists each path and reports failures', async () => {
+    const { call } = await repoCaller()
+    const res = await call.repos.addMany({ paths: ['/abs/a', '/abs/b', 'relative/bad'] })
+    expect(res.repos).toEqual(['/abs/a', '/abs/b'])
+    expect(res.failed.map((f) => f.path)).toEqual(['relative/bad'])
+    expect(await call.repos.list()).toEqual(['/abs/a', '/abs/b'])
+  })
+
+  type ReposReq =
+    | { requestId: string; roots: string[]; includeHome?: boolean; maxDepth?: number }
+    | undefined
+
+  it('discovery.refreshRepos enriches registered roots in place (no home walk)', async () => {
     const { call, repos, registry, daemon } = await repoCaller()
     await repos.add('/abs/app')
-    const p = call.discovery.scanRepos()
+    const p = call.discovery.refreshRepos()
     await Promise.resolve()
-    const req = daemon.find((m) => m.type === 'scanReposRequest') as
-      | { requestId: string; roots: string[] }
-      | undefined
+    const req = daemon.find((m) => m.type === 'scanReposRequest') as ReposReq
     expect(req?.roots).toEqual(['/abs/app'])
+    expect(req?.includeHome).toBe(false)
+    expect(req?.maxDepth).toBe(0)
+    if (!req) throw new Error('no scanReposRequest')
+    registry.onDaemonMessage({
+      type: 'scanReposResult',
+      requestId: req.requestId,
+      repositories: [],
+      diagnostics: [],
+    })
+    await expect(p).resolves.toEqual({ repositories: [], diagnostics: [] })
+  })
+
+  it('discovery.scanFolder scans the chosen folder to a bounded depth', async () => {
+    const { call, registry, daemon } = await repoCaller()
+    const p = call.discovery.scanFolder({ path: '/some/dir' })
+    // scanFolder has a Zod input, so its handler runs a tick later than the
+    // input-less procedures; a macrotask flushes the validation + handler first.
+    await new Promise((resolve) => setTimeout(resolve))
+    const req = daemon.find((m) => m.type === 'scanReposRequest') as ReposReq
+    expect(req?.roots).toEqual(['/some/dir'])
+    expect(req?.includeHome).toBe(false)
+    expect(req?.maxDepth).toBe(6)
     if (!req) throw new Error('no scanReposRequest')
     registry.onDaemonMessage({
       type: 'scanReposResult',

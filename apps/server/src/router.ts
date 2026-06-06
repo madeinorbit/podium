@@ -45,6 +45,21 @@ export const appRouter = t.router({
       }
       return ctx.repos.list()
     }),
+    // Persist a selected set in one call (the scan-and-select flow). Each path is
+    // added independently so one bad entry doesn't drop the rest; failures are reported.
+    addMany: t.procedure
+      .input(z.object({ paths: z.array(z.string()) }))
+      .mutation(async ({ ctx, input }) => {
+        const failed: { path: string; message: string }[] = []
+        for (const path of input.paths) {
+          try {
+            await ctx.repos.add(path)
+          } catch (e) {
+            failed.push({ path, message: e instanceof Error ? e.message : String(e) })
+          }
+        }
+        return { repos: ctx.repos.list(), failed }
+      }),
     remove: t.procedure.input(z.object({ path: z.string() })).mutation(async ({ ctx, input }) => {
       await ctx.repos.remove(input.path)
       return ctx.repos.list()
@@ -66,7 +81,22 @@ export const appRouter = t.router({
   }),
   discovery: t.router({
     scan: t.procedure.mutation(({ ctx }) => ctx.registry.scan()),
-    scanRepos: t.procedure.mutation(({ ctx }) => ctx.registry.scanRepos(ctx.repos.list())),
+    // Load path: enrich only the already-registered repos with branch/worktree metadata.
+    // maxDepth:0 inspects each registered root in place, so this never walks the
+    // filesystem and stays fast regardless of how many repos live under $HOME.
+    refreshRepos: t.procedure.mutation(({ ctx }) =>
+      ctx.registry.scanRepos(ctx.repos.list(), { includeHome: false, maxDepth: 0 }),
+    ),
+    // Discovery path: walk a user-picked folder (never all of $HOME) to a bounded
+    // depth and return candidates for the selection screen.
+    scanFolder: t.procedure
+      .input(z.object({ path: z.string(), maxDepth: z.number().int().positive().optional() }))
+      .mutation(({ ctx, input }) =>
+        ctx.registry.scanRepos([input.path], {
+          includeHome: false,
+          maxDepth: input.maxDepth ?? 6,
+        }),
+      ),
   }),
 })
 

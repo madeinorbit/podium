@@ -1,5 +1,5 @@
-import { Check, ChevronUp, Eye, EyeOff, Folder, Home, RefreshCw, X } from 'lucide-react'
-import type { JSX } from 'react'
+import { Check, ChevronUp, Eye, EyeOff, Folder, Home, RefreshCw, Search, X } from 'lucide-react'
+import type { JSX, ReactNode } from 'react'
 import { useCallback, useEffect, useState } from 'react'
 import { formatAppError } from './AppErrorPage'
 import { useStore } from './store'
@@ -19,14 +19,22 @@ type DirectoryListing = {
 export function RepoPickerModal({
   onClose,
   onPick,
+  onScan,
+  intro,
 }: {
   onClose: () => void
+  /** Add exactly the browsed folder as a repo (for when you know the path). */
   onPick: (path: string) => Promise<void>
+  /** Scan the browsed folder for repos and hand the parent the ranked candidates. */
+  onScan?: (path: string) => Promise<void>
+  /** Optional header content (used by the onboarding wizard for a welcome line). */
+  intro?: ReactNode
 }): JSX.Element {
   const { trpc } = useStore()
   const [listing, setListing] = useState<DirectoryListing | null>(null)
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [scanning, setScanning] = useState(false)
   const [showHidden, setShowHidden] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -55,6 +63,8 @@ export function RepoPickerModal({
     void load(listing?.path, next)
   }
 
+  const busy = loading || saving || scanning
+
   async function pickCurrent(): Promise<void> {
     if (!listing) return
     setSaving(true)
@@ -69,12 +79,26 @@ export function RepoPickerModal({
     }
   }
 
+  async function scanCurrent(): Promise<void> {
+    if (!listing || !onScan) return
+    setScanning(true)
+    setError(null)
+    try {
+      // The parent transitions to the results view on success and unmounts this modal.
+      await onScan(listing.path)
+    } catch (e) {
+      setError(formatAppError(e, 'Could not scan folder'))
+      setScanning(false)
+    }
+  }
+
   return (
     <div className="modal-backdrop" role="presentation">
       <div className="repo-picker-modal" role="dialog" aria-modal="true" aria-label="Add repo">
         <div className="repo-picker-head">
           <div>
-            <div className="label">ADD REPO</div>
+            <div className="label">{onScan ? 'FIND REPOSITORIES' : 'ADD REPO'}</div>
+            {intro && <div className="repo-picker-intro">{intro}</div>}
             <div className="repo-picker-path">{listing?.path ?? 'Loading...'}</div>
           </div>
           <button type="button" className="icon-button" onClick={onClose} aria-label="Close">
@@ -85,7 +109,7 @@ export function RepoPickerModal({
           <button
             type="button"
             className="icon-button"
-            disabled={!listing || loading}
+            disabled={!listing || busy}
             onClick={() => listing && void load(listing.homePath)}
             aria-label="Home"
             title="Home"
@@ -95,7 +119,7 @@ export function RepoPickerModal({
           <button
             type="button"
             className="icon-button"
-            disabled={!listing?.parentPath || loading}
+            disabled={!listing?.parentPath || busy}
             onClick={() => listing?.parentPath && void load(listing.parentPath)}
             aria-label="Up"
             title="Up"
@@ -105,7 +129,7 @@ export function RepoPickerModal({
           <button
             type="button"
             className="icon-button"
-            disabled={!listing || loading}
+            disabled={!listing || busy}
             onClick={() => listing && void load(listing.path)}
             aria-label="Refresh"
             title="Refresh"
@@ -115,22 +139,45 @@ export function RepoPickerModal({
           <button
             type="button"
             className={showHidden ? 'repo-picker-toggle active' : 'repo-picker-toggle'}
-            disabled={loading}
+            disabled={busy}
             onClick={toggleHidden}
             aria-pressed={showHidden}
           >
             {showHidden ? <Eye size={16} /> : <EyeOff size={16} />}
             Show hidden
           </button>
-          <button
-            type="button"
-            className="repo-picker-add"
-            disabled={!listing || loading || saving}
-            onClick={() => void pickCurrent()}
-          >
-            <Check size={16} />
-            Add this folder
-          </button>
+          {onScan ? (
+            <>
+              <button
+                type="button"
+                className="repo-picker-secondary"
+                disabled={!listing || busy}
+                onClick={() => void pickCurrent()}
+              >
+                <Check size={16} />
+                Add this folder
+              </button>
+              <button
+                type="button"
+                className="repo-picker-add"
+                disabled={!listing || busy}
+                onClick={() => void scanCurrent()}
+              >
+                <Search size={16} />
+                {scanning ? 'Scanning...' : 'Scan for repos here'}
+              </button>
+            </>
+          ) : (
+            <button
+              type="button"
+              className="repo-picker-add"
+              disabled={!listing || busy}
+              onClick={() => void pickCurrent()}
+            >
+              <Check size={16} />
+              Add this folder
+            </button>
+          )}
         </div>
         {error && <div className="repo-picker-error">{error}</div>}
         <div className="repo-picker-list" aria-busy={loading}>
@@ -145,6 +192,7 @@ export function RepoPickerModal({
                 className="repo-picker-row"
                 key={entry.path}
                 onClick={() => void load(entry.path)}
+                disabled={busy}
               >
                 <Folder size={16} />
                 <span>{entry.name}</span>

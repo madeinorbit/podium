@@ -1,56 +1,27 @@
 import type { JSX } from 'react'
 import { useState } from 'react'
-import { formatAppError } from './AppErrorPage'
 import { panelLabel, reposToViews, sessionsForWorktree } from './derive'
-import { RepoPickerModal } from './RepoPickerModal'
+import { RepoScanFlow } from './RepoScanFlow'
 import { useStore } from './store'
 
 export function Sidebar(): JSX.Element {
-  const {
-    repos,
-    reposLoading,
-    repoDiagnostics,
-    sessions,
-    selectedWorktree,
-    setSelectedWorktree,
-    trpc,
-    rescanRepos,
-  } = useStore()
+  const { repos, reposLoading, repoDiagnostics, sessions, selectedWorktree, setSelectedWorktree } =
+    useStore()
   const repoViews = reposToViews(repos)
   const [pickerOpen, setPickerOpen] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  async function addRepo(path: string): Promise<void> {
-    try {
-      await trpc.repos.add.mutate({ path })
-      await rescanRepos()
-      setError(null)
-    } catch (e) {
-      const message = formatAppError(e, 'Failed to add repo')
-      setError(message)
-      throw new Error(message)
-    }
-  }
 
   return (
     <aside className="sidebar">
       <div className="sidebar-head">
         <span className="label">WORKTREES</span>
-        <button
-          type="button"
-          onClick={() => {
-            setPickerOpen(true)
-            setError(null)
-          }}
-        >
+        <button type="button" onClick={() => setPickerOpen(true)}>
           + Add repo
         </button>
       </div>
-      {error && <div className="add-repo-error sidebar-error">{error}</div>}
       {(reposLoading || repoDiagnostics.length > 0) && (
         <div className="scan-status">
           {reposLoading
-            ? 'Scanning repositories...'
+            ? 'Loading repositories...'
             : `Scan finished with ${repoDiagnostics.length} warning${repoDiagnostics.length === 1 ? '' : 's'}.`}
         </div>
       )}
@@ -82,13 +53,11 @@ export function Sidebar(): JSX.Element {
           </div>
         ))}
         {repoViews.length === 0 && (
-          <div className="empty">
-            {reposLoading ? 'Scanning repositories...' : 'No repos found. Add a folder to scan.'}
-          </div>
+          <div className="empty">No repos yet. Use “+ Add repo” to scan a folder.</div>
         )}
       </div>
       {pickerOpen && (
-        <RepoPickerModal onClose={() => setPickerOpen(false)} onPick={(path) => addRepo(path)} />
+        <RepoScanFlow onClose={() => setPickerOpen(false)} onDone={() => setPickerOpen(false)} />
       )}
     </aside>
   )
