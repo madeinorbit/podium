@@ -12,3 +12,11 @@ coverage/
 # Playwright
 e2e/test-results/
 e2e/playwright-report/
+
+# Brainstorming visual companion
+.superpowers/
+
+# Agent harness session state + nested worktrees (not part of this repo's lint/test scope)
+.claude/
+.claire/
+.gstack/

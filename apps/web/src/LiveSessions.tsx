@@ -1,15 +1,16 @@
 import type { ConversationSummaryWire, SessionMeta } from '@podium/protocol'
 import { type MountedSession, mountSession, SocketHub } from '@podium/terminal-client'
 import { useEffect, useRef, useState } from 'react'
-import { makeTrpc, parseServer, type Trpc } from './trpc'
+import { makeTrpc, parseServer, type ServerConfig, serverConfig, type Trpc } from './trpc'
 
 type AgentKind = 'claude-code' | 'codex'
 
 export function LiveSessions() {
-  const initial = parseServer(window.location.search)
-  const [origin, setOrigin] = useState<string | null>(
-    initial ? new URLSearchParams(window.location.search).get('server') : null,
-  )
+  // Default to the page origin — the dev host serves the web app and proxies /client + /trpc
+  // to the backend on the same port, so we connect with no `?server=` param. An explicit
+  // `?server=` (or the override panel below) still points the UI at any other relay.
+  const [cfg, setCfg] = useState<ServerConfig>(() => serverConfig(window.location))
+  const [showOverride, setShowOverride] = useState(false)
   const [originDraft, setOriginDraft] = useState('ws://localhost:8787')
   const [sessions, setSessions] = useState<SessionMeta[]>([])
   const [discovered, setDiscovered] = useState<ConversationSummaryWire[]>([])
@@ -24,11 +25,8 @@ export function LiveSessions() {
   const toolbarRef = useRef<HTMLDivElement | null>(null)
   const mountedRef = useRef<MountedSession | null>(null)
 
-  // Connect the hub + tRPC when we have a server origin.
+  // Connect the hub + tRPC. `cfg` is same-origin by default, or an explicit override.
   useEffect(() => {
-    if (!origin) return
-    const cfg = parseServer(`?server=${origin}`)
-    if (!cfg) return
     const hub = new SocketHub({
       url: cfg.wsClientUrl,
       viewport: { cols: 80, rows: 24, dpr: globalThis.devicePixelRatio ?? 1 },
@@ -83,7 +81,7 @@ export function LiveSessions() {
       trpcRef.current = null
       delete (globalThis as unknown as { __podium?: unknown }).__podium
     }
-  }, [origin])
+  }, [cfg])
 
   // Mount the terminal for the selected session.
   useEffect(() => {
@@ -102,20 +100,12 @@ export function LiveSessions() {
     }
   }, [selectedId])
 
-  if (!origin) {
-    return (
-      <div className="live-connect">
-        <p className="eyebrow">Live sessions</p>
-        <h2>Connect to a daemon relay</h2>
-        <label>
-          <span>Server</span>
-          <input value={originDraft} onChange={(e) => setOriginDraft(e.target.value)} />
-        </label>
-        <button type="button" onClick={() => setOrigin(originDraft)}>
-          Connect
-        </button>
-      </div>
-    )
+  function applyOverride() {
+    const parsed = parseServer(`?server=${originDraft}`)
+    if (parsed) {
+      setCfg({ ...parsed, override: true })
+      setShowOverride(false)
+    }
   }
 
   async function createSession() {
@@ -219,8 +209,39 @@ export function LiveSessions() {
             >
               Take control
             </button>
+            <button
+              type="button"
+              data-action="toggle-relay"
+              title={cfg.override ? cfg.wsClientUrl : 'same-origin'}
+              onClick={() => setShowOverride((v) => !v)}
+            >
+              Relay{cfg.override ? ' •' : ''}
+            </button>
           </div>
         </div>
+        {showOverride && (
+          <div className="live-connect compact">
+            <label>
+              <span>Relay server</span>
+              <input value={originDraft} onChange={(e) => setOriginDraft(e.target.value)} />
+            </label>
+            <button type="button" data-action="apply-relay" onClick={applyOverride}>
+              Connect
+            </button>
+            {cfg.override && (
+              <button
+                type="button"
+                data-action="reset-relay"
+                onClick={() => {
+                  setCfg(serverConfig(window.location))
+                  setShowOverride(false)
+                }}
+              >
+                Use this host
+              </button>
+            )}
+          </div>
+        )}
         <div ref={termRef} id="term" className="live-term" />
         <div ref={toolbarRef} id="toolbar" className="live-toolbar" />
       </section>
