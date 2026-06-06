@@ -1,4 +1,6 @@
 import { FitAddon } from '@xterm/addon-fit'
+import { WebLinksAddon } from '@xterm/addon-web-links'
+import { WebglAddon } from '@xterm/addon-webgl'
 import { type ITheme, Terminal } from '@xterm/xterm'
 // xterm renders its rows, cursor, selection overlay and the hidden char-measure /
 // helper-textarea elements relative to styles in this sheet. Without it the measure
@@ -72,11 +74,32 @@ export class TerminalView {
     })
     this.fitAddon = new FitAddon()
     this.term.loadAddon(this.fitAddon)
+    // Make URLs in output clickable; open in a new tab with no referrer/opener.
+    this.term.loadAddon(
+      new WebLinksAddon((_event, uri) => {
+        window.open(uri, '_blank', 'noopener,noreferrer')
+      }),
+    )
   }
 
   mount(el: HTMLElement): void {
     this.term.open(el)
+    // The WebGL renderer must be attached after open(). It is GPU-backed and far
+    // cheaper for the high-throughput output agents produce, but can fail (headless,
+    // blocklisted GPU) or lose its context (browsers cap live WebGL contexts, which
+    // split panes + many tabs can exhaust). Both cases fall back to the DOM renderer.
+    this.tryLoadWebgl()
     this.wireClipboard(el)
+  }
+
+  private tryLoadWebgl(): void {
+    try {
+      const webgl = new WebglAddon()
+      webgl.onContextLoss(() => webgl.dispose()) // drop back to the DOM renderer
+      this.term.loadAddon(webgl)
+    } catch {
+      // WebGL unavailable; the DOM renderer stays active
+    }
   }
 
   write(text: string): void {
