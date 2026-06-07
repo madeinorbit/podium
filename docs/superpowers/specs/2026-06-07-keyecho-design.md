@@ -48,6 +48,17 @@ it. **Existing colocated tests stay put — no churn.**
 the top-level `tests/` umbrella. **Per-package rule:** unit colocated, integration in
 `test/`.
 
+`tests/` is **not** a `{unit, integration, smoke, e2e}` type taxonomy. Test *type* is
+expressed by *where* a test sits — colocated (`src/`), per-package (`test/`), or the
+cross-system suite — not by central folders. Unit and integration tests never
+centralize. The only genuinely overarching category is cross-system tests, and
+**e2e + smoke are one family** (they already cohabit in the existing suite:
+`relay.e2e.test.ts` + `run-resume-smoke.ts`). So `tests/` holds exactly two *kinds*:
+the one cross-system **suite** (`tests/e2e`) and shared test **fixtures**
+(`tests/keyecho`). That two-kind membership is what justifies the umbrella; were
+`keyecho` to live elsewhere, `tests/` would hold a lone `e2e` and we'd keep `e2e/` at
+the root instead.
+
 ## Decision: `e2e` moves under `tests/`
 
 `e2e/` → **`tests/e2e`**, and root `workspaces` `"e2e"` becomes `"tests/*"` (covering
@@ -60,11 +71,27 @@ for fixtures/jigs — but that re-splits the umbrella, so the move is recommende
 
 ## Where `keyecho` and its tests live
 
-`keyecho` is a reusable **test fixture/harness**, not a unit of any existing package
-→ its own workspace package **`@podium/keyecho` at `tests/keyecho`** (bin `keyecho`;
-deps `ink`, `react`, `node-pty`). Its *own* tests follow the convention: the pure
-parser's unit tests are colocated in `src/`; the `node-pty` harness that boots the
-real app is an integration test in `tests/keyecho/test/`.
+`keyecho` is a **fake agent CLI** — a test double for `claude`/`codex` that sits on the
+*same side of the PTY as the real agent*, opposite `agent-bridge`. Its job is to verify
+a keystroke survives the **entire path** (browser `terminal-client` → `protocol` →
+`apps/server` → `apps/daemon` → `agent-bridge` → PTY → agent), which spans every
+package, so it belongs to none of them. It is therefore **standalone, private** test
+infrastructure: its own workspace package **`@podium/keyecho` at `tests/keyecho`**
+(`"private": true`, bin `keyecho`; deps `ink`, `react`, `node-pty`).
+
+Explicitly **not** inside `agent-bridge`: that is the lean published (★) Node half and
+keeps its *own* zero-dep fixture (`packages/agent-bridge/test/fixtures/fixture-tui.mjs`)
+for its *own* tests; folding an Ink+React, human-runnable jig into it would be a
+category error and pull `ink`/`react` into a published library's dev surface.
+
+Its *own* tests follow the convention: the pure parser's unit tests are colocated in
+`src/`; the `node-pty` harness that boots the real app is an integration test in
+`tests/keyecho/test/`.
+
+*Promotion path (not now):* if `keyecho` later proves worth open-sourcing as a
+keystroke-fidelity conformance tool, it moves to `packages/keyecho` as a published (★)
+peer of `agent-bridge`/`terminal-client` — a cheap move precisely because it is already
+standalone. YAGNI until there's a reason.
 
 ## Where tests that *use* `keyecho` live
 
