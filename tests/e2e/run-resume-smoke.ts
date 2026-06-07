@@ -4,13 +4,13 @@
  * error. This validates that `claude --resume <id>` (built by agentLaunchCommand) actually
  * attaches. No prompt is typed, so it spends no quota.
  *
- * Run: bunx tsx e2e/run-resume-smoke.ts
+ * Run: bunx tsx tests/e2e/run-resume-smoke.ts
  */
 import { scanAgentConversations } from '@podium/agent-bridge'
 import { encode } from '@podium/protocol'
 import WebSocket from 'ws'
-import { startDaemon } from '../apps/daemon/src/daemon'
-import { startServer } from '../apps/server/src/server'
+import { startDaemon } from '../../apps/daemon/src/daemon'
+import { startServer } from '../../apps/server/src/server'
 
 const SERVER_PORT = Number(process.env.PORT ?? 8788)
 // biome-ignore lint/suspicious/noControlCharactersInRegex: stripping ANSI for a readable preview

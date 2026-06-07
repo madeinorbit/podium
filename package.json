@@ -11,8 +11,7 @@
     "apps/*",
     "packages/*",
     "tooling/*",
-    "tests/*",
-    "e2e"
+    "tests/*"
   ],
   "scripts": {
     "build": "bun run --filter './packages/*' build",

@@ -2,11 +2,11 @@ import { fileURLToPath } from 'node:url'
 import { encode, parseServerMessage } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import WebSocket from 'ws'
-import { startDaemon } from '../apps/daemon/src/daemon'
-import { startServer } from '../apps/server/src/server'
+import { startDaemon } from '../../apps/daemon/src/daemon'
+import { startServer } from '../../apps/server/src/server'
 
 const FIXTURE = fileURLToPath(
-  new URL('../packages/agent-bridge/test/fixtures/fixture-tui.mjs', import.meta.url),
+  new URL('../../packages/agent-bridge/test/fixtures/fixture-tui.mjs', import.meta.url),
 )
 
 function openWs(url: string): Promise<WebSocket> {

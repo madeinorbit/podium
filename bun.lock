@@ -70,19 +70,6 @@
         "vite": "^8.0.16",
       },
     },
-    "e2e": {
-      "name": "@podium/e2e",
-      "version": "0.0.0",
-      "dependencies": {
-        "@podium/agent-bridge": "workspace:*",
-        "@podium/protocol": "workspace:*",
-        "ws": "^8.18.0",
-      },
-      "devDependencies": {
-        "@playwright/test": "^1.60.0",
-        "@types/ws": "^8.5.13",
-      },
-    },
     "packages/agent-bridge": {
       "name": "@podium/agent-bridge",
       "version": "0.0.0",
@@ -127,6 +114,19 @@
         "tsup": "^8.5.1",
         "typescript": "^6.0.3",
         "vitest": "^4.1.8",
+      },
+    },
+    "tests/e2e": {
+      "name": "@podium/e2e",
+      "version": "0.0.0",
+      "dependencies": {
+        "@podium/agent-bridge": "workspace:*",
+        "@podium/protocol": "workspace:*",
+        "ws": "^8.18.0",
+      },
+      "devDependencies": {
+        "@playwright/test": "^1.60.0",
+        "@types/ws": "^8.5.13",
       },
     },
     "tests/keyecho": {
@@ -301,7 +301,7 @@
 
     "@podium/daemon": ["@podium/daemon@workspace:apps/daemon"],
 
-    "@podium/e2e": ["@podium/e2e@workspace:e2e"],
+    "@podium/e2e": ["@podium/e2e@workspace:tests/e2e"],
 
     "@podium/keyecho": ["@podium/keyecho@workspace:tests/keyecho"],
 

@@ -10,8 +10,8 @@ coverage/
 .turbo/
 
 # Playwright
-e2e/test-results/
-e2e/playwright-report/
+tests/e2e/test-results/
+tests/e2e/playwright-report/
 
 # Brainstorming visual companion
 .superpowers/

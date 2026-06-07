@@ -4,12 +4,12 @@
  * creates one starter session, and prints the URLs to open (desktop + phone). The web Live
  * section (opened by `?server=`) lists sessions; create / resume / kill more from the UI.
  *
- * Run: bunx tsx e2e/serve.ts   (Ctrl-C to stop)
+ * Run: bunx tsx tests/e2e/serve.ts   (Ctrl-C to stop)
  * Pair with: bun run --filter @podium/web build && bun run --filter @podium/web preview -- --host --port 4318
  */
 import { networkInterfaces } from 'node:os'
-import { startDaemon } from '../apps/daemon/src/daemon'
-import { startServer } from '../apps/server/src/server'
+import { startDaemon } from '../../apps/daemon/src/daemon'
+import { startServer } from '../../apps/server/src/server'
 
 const PORT = Number(process.env.PORT ?? 8787)
 const WEB_PORT = Number(process.env.WEB_PORT ?? 4318)

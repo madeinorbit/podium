@@ -4,13 +4,13 @@
  * the real `claude` TUI renders through the MULTI-SESSION relay. A prompt is typed only if
  * the PROMPT env var is set (that one uses your claude quota); the default run is render-only.
  *
- * Run: bunx tsx e2e/run-claude-demo.ts            (render-only)
- *      PROMPT='what is 2+2? one word' bunx tsx e2e/run-claude-demo.ts
+ * Run: bunx tsx tests/e2e/run-claude-demo.ts            (render-only)
+ *      PROMPT='what is 2+2? one word' bunx tsx tests/e2e/run-claude-demo.ts
  */
 import { encode } from '@podium/protocol'
 import WebSocket from 'ws'
-import { startDaemon } from '../apps/daemon/src/daemon'
-import { startServer } from '../apps/server/src/server'
+import { startDaemon } from '../../apps/daemon/src/daemon'
+import { startServer } from '../../apps/server/src/server'
 
 const SERVER_PORT = Number(process.env.PORT ?? 8787)
 const PROMPT = process.env.PROMPT
