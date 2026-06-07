@@ -68,6 +68,25 @@ describe('spawnAgent core', () => {
     }
   })
 
+  it('advertises a color-capable terminal (TERM + COLORTERM) to the agent', async () => {
+    // The frontend is xterm.js (24-bit color). The agent must see TERM=xterm-256color
+    // and COLORTERM=truecolor or supports-color/chalk-based CLIs emit muted or no color.
+    const s = spawnAgent({
+      cmd: process.execPath,
+      args: ['-e', 'process.stdout.write(`TERM=${process.env.TERM};COLORTERM=${process.env.COLORTERM}\\n`)'],
+      cols: 80,
+      rows: 24,
+    })
+    try {
+      const c = collect(s)
+      await waitFor(() => c.text.includes('COLORTERM='))
+      expect(c.text).toContain('TERM=xterm-256color')
+      expect(c.text).toContain('COLORTERM=truecolor')
+    } finally {
+      s.dispose()
+    }
+  })
+
   it('emits exit when the agent process ends', async () => {
     const s = start()
     try {

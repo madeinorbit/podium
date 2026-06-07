@@ -43,7 +43,13 @@ export function spawnAgent(opts: SpawnOptions): AgentSession {
     cols,
     rows,
     cwd: opts.cwd ?? process.cwd(),
-    env: { ...process.env, ...opts.env } as Record<string, string>,
+    // The frontend is xterm.js, which renders 24-bit color. `name` pins
+    // TERM=xterm-256color (node-pty writes it into the child env); COLORTERM is the
+    // companion signal supports-color/chalk read to unlock truecolor. Without it agents
+    // like Claude Code degrade to a 256-color approximation of their real palette. We
+    // assert it after process.env (the frontend's capability doesn't depend on how the
+    // daemon was launched) but before opts.env so callers/tests can still override.
+    env: { ...process.env, COLORTERM: 'truecolor', ...opts.env } as Record<string, string>,
   })
 
   proc.onData((data: string) => {
