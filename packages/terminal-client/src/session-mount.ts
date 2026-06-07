@@ -24,6 +24,7 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
   const fitted = view.fit()
 
   let wasController = false
+  let lastEpoch = -1
   let onControllerEnter: (() => void) | undefined
 
   const connection = hub.attach(sessionId, {
@@ -31,6 +32,11 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
     onState: (state) => {
       if (view.cols() !== state.cols || view.rows() !== state.rows) {
         view.resize(state.cols, state.rows)
+      }
+      // Drop stale pre-fit output (e.g. an 80-col shell prompt) before repaint.
+      if (state.epoch !== lastEpoch) {
+        lastEpoch = state.epoch
+        view.clear()
       }
       el.dataset.role = state.role
       el.dataset.epoch = String(state.epoch)
@@ -57,6 +63,8 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
       if (s.role !== 'controller') return
       const grid = view.fit()
       if (grid.cols !== s.cols || grid.rows !== s.rows) connection.sendResize(grid.cols, grid.rows)
+      view.clear()
+      connection.redraw()
     })
   }
 
