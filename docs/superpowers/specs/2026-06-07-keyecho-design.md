@@ -25,35 +25,79 @@ deterministic way to assert that a given keypress arrives at the far end intact.
 `keyecho` is that far-end fixture: run it inside the PTY and it echoes exactly what
 it received, so the whole transport can be tested with hard pass/fail evidence.
 
-## Location & packaging
+## Test layout (repo-wide convention)
 
-New top-level **`tests/`** workspace (add `tests/*` to root `package.json`
-`workspaces`, alongside `apps/*`, `packages/*`, `tooling/*`, `e2e`). First package:
-**`tests/keyecho`**. It is a workspace package because it carries its own deps
-(`ink`, `react`, `node-pty`). The existing `e2e` workspace is unchanged.
+`keyecho` should not get a bespoke home — it should fall out of one clear, repo-wide
+rule. The repo already follows a sound three-tier pattern de facto; this formalizes
+it. **Existing colocated tests stay put — no churn.**
+
+1. **Unit — colocated `src/foo.test.ts`** beside `foo.ts`. The default for testing a
+   single module. Publish-safe: `tsup` bundles only what's reachable from
+   `entry: ['src/index.ts']` (treeshaken) and packages ship `files: ["dist"]`, so
+   colocated tests never reach `dist`; `tsconfig include: ["src"]` still type-checks
+   them.
+2. **Integration / structure — `<package>/test/`** (+ `test/fixtures/`,
+   `test/helpers.ts`). Used when a test needs fixtures, spawns processes, or
+   exercises the package as a black box via its public entry. This is exactly why
+   `packages/agent-bridge/test/session.test.ts` (spawns a PTY fixture) and
+   `apps/web/test/` (source-structure guards) already sit outside `src`.
+3. **Cross-package end-to-end — the `tests/e2e` workspace** (multiple services, real
+   PTY, browser, network).
+
+**Global rule:** anything that is not a colocated unit test of one module lives under
+the top-level `tests/` umbrella. **Per-package rule:** unit colocated, integration in
+`test/`.
+
+## Decision: `e2e` moves under `tests/`
+
+`e2e/` → **`tests/e2e`**, and root `workspaces` `"e2e"` becomes `"tests/*"` (covering
+both `tests/e2e` and `tests/keyecho`). One discoverable umbrella for all
+non-colocated, cross-cutting tests + shared test infrastructure. The package name
+(`@podium/e2e`), its internal relative paths, and its `playwright.config.ts` are
+unchanged, so churn is limited to the workspace glob plus a grep for stray `e2e/`
+path references. *(Fallback if rejected: leave `e2e/` at root and use `tests/` only
+for fixtures/jigs — but that re-splits the umbrella, so the move is recommended.)*
+
+## Where `keyecho` and its tests live
+
+`keyecho` is a reusable **test fixture/harness**, not a unit of any existing package
+→ its own workspace package **`@podium/keyecho` at `tests/keyecho`** (bin `keyecho`;
+deps `ink`, `react`, `node-pty`). Its *own* tests follow the convention: the pure
+parser's unit tests are colocated in `src/`; the `node-pty` harness that boots the
+real app is an integration test in `tests/keyecho/test/`.
+
+## Where tests that *use* `keyecho` live
+
+Validating Podium's keystroke fidelity (browser → server → PTY) is cross-package
+end-to-end, so those specs live in **`tests/e2e`**, which adds `@podium/keyecho` as a
+dependency and launches it as the far-end agent. `keyecho` is a *dependency of* e2e,
+never a host of e2e tests.
 
 ```
-tests/keyecho/
-  package.json            # name @podium/keyecho, bin "keyecho", deps ink/react
-  src/
-    events.ts             # CaptureEvent types + formatters (hex, caret, label)
-    parser.ts             # pure decodeInput(Buffer) -> InputEvent[]   (no I/O)
-    sources/
-      types.ts            # InputSource interface
-      raw.ts              # raw stdin + parser.ts            (mode: raw)
-      ink.tsx             # Ink useInput pipeline            (mode: ink)
-      # codex.ts          # later: codex's stack             (mode: codex)
-    app.tsx               # Ink UI: mode mgmt, tagged log, status, hotkeys
-    cli.tsx               # entrypoint (tsx/node), TTY guard, terminal restore
-  src/parser.test.ts      # unit: every sequence decodes correctly
-  src/harness/
-    shortcuts.ts          # Claude Code shortcut table: name -> bytes -> expect
-    driver.ts             # node-pty: boot real app, inject bytes, capture, assert
-  src/harness/shortcuts.test.ts  # integration: each shortcut round-trips per mode
+tests/                         # workspace umbrella (tests/* in root workspaces)
+  keyecho/                     # @podium/keyecho — the jig (reusable test fixture)
+    package.json               #   bin "keyecho"; deps ink, react, node-pty
+    src/
+      events.ts                #   CaptureEvent types + formatters (hex, caret, label)
+      parser.ts                #   pure decodeInput(Buffer) -> InputEvent[] (no I/O)
+      parser.test.ts           #   UNIT (colocated)
+      sources/{types,raw,ink}  #   InputSource: raw stdin / Ink useInput (codex later)
+      app.tsx                  #   Ink UI: mode mgmt, tagged log, status, hotkeys
+      cli.tsx                  #   entrypoint (tsx/node), TTY guard, terminal restore
+    test/                      #   INTEGRATION (boots real app in a PTY)
+      shortcuts.ts             #   Claude Code shortcut table: name -> bytes -> expect
+      driver.ts                #   node-pty driver: inject bytes, capture, assert
+      shortcuts.test.ts        #   each shortcut round-trips, per mode
+  e2e/                         # MOVED from root — @podium/e2e (cross-package E2E)
+    ...existing specs...
+    keystroke-fidelity.e2e.test.ts   # NEW; depends on @podium/keyecho
+
+packages/<pkg>/src/foo.test.ts       # unit (colocated) — default everywhere
+packages/<pkg>/test/                 # integration + fixtures/helpers (when needed)
 ```
 
-Run via `tsx` (Node, matching Claude Code) — not bun — to keep Ink + `node-pty`
-behavior identical to the real agent runtime.
+Run `keyecho` via `tsx` (Node, matching Claude Code) — not bun — to keep Ink +
+`node-pty` behavior identical to the real agent runtime.
 
 ## Architecture
 
