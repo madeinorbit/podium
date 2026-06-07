@@ -93,6 +93,11 @@ export class TerminalView {
   }
 
   private tryLoadWebgl(): void {
+    // GPU rendering is on by default, but some GPUs/drivers paint xterm's WebGL glyph
+    // atlas without color — output renders monochrome even though the data and theme
+    // carry color. The DOM renderer always colors correctly, so offer an escape hatch:
+    // `?gpu=off` (or localStorage['podium:gpu']='off') skips WebGL and keeps DOM.
+    if (!gpuEnabled()) return
     try {
       const webgl = new WebglAddon()
       webgl.onContextLoss(() => webgl.dispose()) // drop back to the DOM renderer
@@ -230,6 +235,22 @@ export class TerminalView {
     const text = await readClipboard()
     if (text) this.term.paste(text)
   }
+}
+
+/** WebGL (GPU) rendering is on by default. Disable it with `?gpu=off` in the URL or
+ *  `localStorage['podium:gpu'] = 'off'` when a GPU/driver renders the WebGL atlas without
+ *  color. Guarded so it is a safe no-op (returns true) outside a browser, e.g. in tests. */
+function gpuEnabled(): boolean {
+  try {
+    const loc = (globalThis as { location?: { search?: string } }).location
+    if (loc?.search && new URLSearchParams(loc.search).get('gpu') === 'off') return false
+    if ((globalThis as { localStorage?: Storage }).localStorage?.getItem('podium:gpu') === 'off') {
+      return false
+    }
+  } catch {
+    // no DOM (tests / SSR) — leave GPU rendering enabled
+  }
+  return true
 }
 
 async function writeClipboard(text: string): Promise<void> {
