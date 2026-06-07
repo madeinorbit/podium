@@ -11,6 +11,7 @@
     "apps/*",
     "packages/*",
     "tooling/*",
+    "tests/*",
     "e2e"
   ],
   "scripts": {

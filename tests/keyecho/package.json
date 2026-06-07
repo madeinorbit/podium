@@ -1,0 +1,31 @@
+{
+  "name": "@podium/keyecho",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Keyboard/mouse echo test jig: a fake agent CLI that reflects every input byte it receives, for verifying keystroke fidelity through Podium's PTY pipeline.",
+  "exports": {
+    ".": {
+      "@podium/source": "./src/index.ts",
+      "types": "./src/index.ts",
+      "import": "./src/index.ts"
+    }
+  },
+  "scripts": {
+    "start": "tsx src/cli.tsx",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "ink": "^6.0.0",
+    "react": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.1",
+    "@types/react": "^19.0.0",
+    "node-pty": "^1.0.0",
+    "tsx": "^4.22.4",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.8"
+  }
+}
