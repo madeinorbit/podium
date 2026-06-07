@@ -54,14 +54,10 @@ describe('agent-bridge forwards keystrokes to the agent (keyecho)', () => {
   afterAll(() => session?.dispose())
 
   for (const f of FIDELITY) {
-    it(
-      `forwards ${f.label}`,
-      async () => {
-        session.write(toB64(f.bytes))
-        await waitFor(() => text().includes(f.label), 8000)
-        expect(text()).toContain(f.label)
-      },
-      10000,
-    )
+    it(`forwards ${f.label}`, async () => {
+      session.write(toB64(f.bytes))
+      await waitFor(() => text().includes(f.label), 8000)
+      expect(text()).toContain(f.label)
+    }, 10000)
   }
 })

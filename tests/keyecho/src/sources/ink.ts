@@ -7,7 +7,10 @@ let inkSeq = 0
 /** Build a KeyEvent from Ink's (input, key) callback. */
 export function inkKeyToEvent(input: string, key: Record<string, boolean>): KeyEvent {
   inkSeq += 1
-  const name = Object.keys(key).find((k) => key[k] && k !== 'ctrl' && k !== 'meta' && k !== 'shift') ?? input ?? ''
+  const name =
+    Object.keys(key).find((k) => key[k] && k !== 'ctrl' && k !== 'meta' && k !== 'shift') ??
+    input ??
+    ''
   const ctrl = !!key.ctrl
   const meta = !!key.meta
   const shift = !!key.shift

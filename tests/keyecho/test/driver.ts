@@ -40,7 +40,8 @@ export function bootKeyecho(args: string[] = []): Keyecho {
         const started = nowMs()
         const tick = () => {
           if (pred(text())) return resolve()
-          if (nowMs() - started > timeoutMs) return reject(new Error(`timeout; last text:\n${text().slice(-600)}`))
+          if (nowMs() - started > timeoutMs)
+            return reject(new Error(`timeout; last text:\n${text().slice(-600)}`))
           setTimeout(tick, 30)
         }
         tick()

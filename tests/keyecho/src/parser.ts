@@ -15,20 +15,39 @@ function nextSeq(): number {
 
 const cap = (s: string): string => (s.length <= 1 ? s : s.charAt(0).toUpperCase() + s.slice(1))
 
-function key(bytes: number[], partial: Omit<KeyEvent, 'kind' | 'source' | 'seq' | 'bytes'>): KeyEvent {
+function key(
+  bytes: number[],
+  partial: Omit<KeyEvent, 'kind' | 'source' | 'seq' | 'bytes'>,
+): KeyEvent {
   return { kind: 'key', source: 'raw', seq: nextSeq(), bytes, ...partial }
 }
 
-function mouseEvent(bytes: number[], partial: Omit<MouseEv, 'kind' | 'source' | 'seq' | 'bytes'>): MouseEv {
+function mouseEvent(
+  bytes: number[],
+  partial: Omit<MouseEv, 'kind' | 'source' | 'seq' | 'bytes'>,
+): MouseEv {
   return { kind: 'mouse', source: 'raw', seq: nextSeq(), bytes, ...partial }
 }
 
 function pasteEvent(bytes: number[], text: string): PasteEv {
-  return { kind: 'paste', source: 'raw', seq: nextSeq(), bytes, text, label: `Paste (${text.length} chars)` }
+  return {
+    kind: 'paste',
+    source: 'raw',
+    seq: nextSeq(),
+    bytes,
+    text,
+    label: `Paste (${text.length} chars)`,
+  }
 }
 
 function unknown(bytes: number[]): UnknownEvent {
-  return { kind: 'unknown', source: 'raw', seq: nextSeq(), bytes, label: `Unknown(${bytes.length}b)` }
+  return {
+    kind: 'unknown',
+    source: 'raw',
+    seq: nextSeq(),
+    bytes,
+    label: `Unknown(${bytes.length}b)`,
+  }
 }
 
 const CTRL_LETTER = (b: number): string => String.fromCharCode(b + 0x60) // 0x01 -> 'a'
@@ -41,9 +60,21 @@ function decodeControl(b: number, bytes: number[]): KeyEvent {
       return key(bytes, { name: 'tab', ctrl: false, meta: false, shift: false, label: 'Tab' })
     case 0x08:
     case 0x7f:
-      return key(bytes, { name: 'backspace', ctrl: false, meta: false, shift: false, label: 'Backspace' })
+      return key(bytes, {
+        name: 'backspace',
+        ctrl: false,
+        meta: false,
+        shift: false,
+        label: 'Backspace',
+      })
     case 0x00:
-      return key(bytes, { name: 'space', ctrl: true, meta: false, shift: false, label: 'Ctrl+Space' })
+      return key(bytes, {
+        name: 'space',
+        ctrl: true,
+        meta: false,
+        shift: false,
+        label: 'Ctrl+Space',
+      })
     default: {
       const letter = CTRL_LETTER(b) // 0x01..0x1a => a..z (covers 0x0a 'j')
       return key(bytes, {
@@ -147,7 +178,10 @@ function parseCsi(buf: Buffer, start: number): { event: InputEvent; len: number 
         const mod = decodeModifier(params[1])
         const charCode = params[2] ?? 0
         const name = NAMED_KEY_BY_CODE[charCode] ?? String.fromCharCode(charCode)
-        return { event: key(bytes, { name, ...mod, label: withMods(cap(name), mod) }), len: bytes.length }
+        return {
+          event: key(bytes, { name, ...mod, label: withMods(cap(name), mod) }),
+          len: bytes.length,
+        }
       }
       const tilde = CSI_TILDE[code]
       const mod = decodeModifier(params[1])
@@ -162,7 +196,13 @@ function parseCsi(buf: Buffer, start: number): { event: InputEvent; len: number 
     if (known) {
       if (finalChar === 'Z') {
         return {
-          event: key(bytes, { name: 'tab', shift: true, meta: false, ctrl: false, label: 'Shift+Tab' }),
+          event: key(bytes, {
+            name: 'tab',
+            shift: true,
+            meta: false,
+            ctrl: false,
+            label: 'Shift+Tab',
+          }),
           len: bytes.length,
         }
       }
@@ -180,7 +220,8 @@ function decodeSgrButton(cb: number): { action: 'press' | 'move' | 'wheel'; butt
   const isMotion = (cb & 0x20) !== 0
   const low = cb & 0x03
   if (isWheel) return { action: 'wheel', button: low === 0 ? 'wheelUp' : 'wheelDown' }
-  const button: MouseButton = low === 0 ? 'left' : low === 1 ? 'middle' : low === 2 ? 'right' : 'none'
+  const button: MouseButton =
+    low === 0 ? 'left' : low === 1 ? 'middle' : low === 2 ? 'right' : 'none'
   if (isMotion) return { action: 'move', button }
   return { action: 'press', button }
 }
@@ -268,7 +309,13 @@ export function decodeInput(buf: Buffer): { events: InputEvent[]; rest: Buffer }
         const bytes = [b, next, c]
         events.push(
           ss3
-            ? key(bytes, { name: ss3.name, ctrl: false, meta: false, shift: false, label: ss3.label })
+            ? key(bytes, {
+                name: ss3.name,
+                ctrl: false,
+                meta: false,
+                shift: false,
+                label: ss3.label,
+              })
             : unknown(bytes),
         )
         i += 3
@@ -276,7 +323,9 @@ export function decodeInput(buf: Buffer): { events: InputEvent[]; rest: Buffer }
       }
 
       if (next === undefined || next === 0x1b) {
-        events.push(key([b], { name: 'escape', ctrl: false, meta: false, shift: false, label: 'Escape' }))
+        events.push(
+          key([b], { name: 'escape', ctrl: false, meta: false, shift: false, label: 'Escape' }),
+        )
         i += 1
         continue
       }
@@ -287,7 +336,13 @@ export function decodeInput(buf: Buffer): { events: InputEvent[]; rest: Buffer }
       const innerBytes = [b, buf[i + 1] as number]
       if (ie && ie.kind === 'key') {
         events.push(
-          key(innerBytes, { name: ie.name, ctrl: ie.ctrl, meta: true, shift: ie.shift, label: `Alt+${cap(ie.name)}` }),
+          key(innerBytes, {
+            name: ie.name,
+            ctrl: ie.ctrl,
+            meta: true,
+            shift: ie.shift,
+            label: `Alt+${cap(ie.name)}`,
+          }),
         )
       } else {
         events.push(unknown(innerBytes))
@@ -304,12 +359,25 @@ export function decodeInput(buf: Buffer): { events: InputEvent[]; rest: Buffer }
 
     // Printable run: collect bytes >= 0x20 (not DEL, not ESC) and decode as UTF-8.
     let j = i
-    while (j < buf.length && (buf[j] as number) >= 0x20 && (buf[j] as number) !== 0x7f && (buf[j] as number) !== 0x1b) {
+    while (
+      j < buf.length &&
+      (buf[j] as number) >= 0x20 &&
+      (buf[j] as number) !== 0x7f &&
+      (buf[j] as number) !== 0x1b
+    ) {
       j += 1
     }
     const text = buf.subarray(i, j).toString('utf8')
     for (const ch of text) {
-      events.push(key([...Buffer.from(ch, 'utf8')], { name: ch, ctrl: false, meta: false, shift: false, label: ch }))
+      events.push(
+        key([...Buffer.from(ch, 'utf8')], {
+          name: ch,
+          ctrl: false,
+          meta: false,
+          shift: false,
+          label: ch,
+        }),
+      )
     }
     i = j
   }

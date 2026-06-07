@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { type KeyEvent, formatEvent, toCaret, toHex } from './events.js'
+import { formatEvent, type KeyEvent, toCaret, toHex } from './events.js'
 
 describe('formatters', () => {
   it('toHex renders space-separated lowercase bytes', () => {

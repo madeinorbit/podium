@@ -69,7 +69,11 @@ describe('parser: CSI', () => {
   })
 
   it('Shift+Enter via modifyOtherKeys ESC [ 27 ; 2 ; 13 ~', () => {
-    expect(keys('\x1b[27;2;13~')[0]).toMatchObject({ name: 'enter', shift: true, label: 'Shift+Enter' })
+    expect(keys('\x1b[27;2;13~')[0]).toMatchObject({
+      name: 'enter',
+      shift: true,
+      label: 'Shift+Enter',
+    })
   })
 
   it('partial CSI returns rest', () => {
@@ -112,8 +116,20 @@ describe('parser: SS3 / escape / meta', () => {
 
 describe('parser: SGR mouse', () => {
   it('left press and release', () => {
-    expect(mouse('\x1b[<0;12;3M')).toMatchObject({ kind: 'mouse', action: 'press', button: 'left', x: 12, y: 3 })
-    expect(mouse('\x1b[<0;12;3m')).toMatchObject({ kind: 'mouse', action: 'release', button: 'left', x: 12, y: 3 })
+    expect(mouse('\x1b[<0;12;3M')).toMatchObject({
+      kind: 'mouse',
+      action: 'press',
+      button: 'left',
+      x: 12,
+      y: 3,
+    })
+    expect(mouse('\x1b[<0;12;3m')).toMatchObject({
+      kind: 'mouse',
+      action: 'release',
+      button: 'left',
+      x: 12,
+      y: 3,
+    })
   })
 
   it('wheel up and down', () => {

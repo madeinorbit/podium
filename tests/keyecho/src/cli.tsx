@@ -20,7 +20,9 @@ async function main() {
   const opts = parseArgs(process.argv.slice(2))
   process.on('exit', restore)
   process.on('SIGTERM', () => process.exit(0))
-  const { waitUntilExit } = render(<App mode={opts.mode} lock={opts.lock} />, { exitOnCtrlC: false })
+  const { waitUntilExit } = render(<App mode={opts.mode} lock={opts.lock} />, {
+    exitOnCtrlC: false,
+  })
   await waitUntilExit()
   restore()
 }

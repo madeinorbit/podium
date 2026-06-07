@@ -77,7 +77,8 @@ export function App({ mode: initialMode, lock }: { mode: Mode; lock: boolean }) 
     <Box flexDirection="column">
       <Text>
         keyecho · mode=<Text color="cyan">{mode}</Text> · mouse=
-        {anyMotion ? 'all-motion' : 'click+drag'} · {lock ? 'LOCKED' : 'hotkeys on'} · events={log.length}
+        {anyMotion ? 'all-motion' : 'click+drag'} · {lock ? 'LOCKED' : 'hotkeys on'} · events=
+        {log.length}
       </Text>
       <Box flexDirection="column">
         {visible.map((e) => (
