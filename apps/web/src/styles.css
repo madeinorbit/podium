@@ -27,6 +27,7 @@ body,
 body {
   background: var(--app);
   color: var(--fg);
+  overscroll-behavior: none;
   font:
     14px / 1.4 ui-sans-serif,
     system-ui,
@@ -390,8 +391,72 @@ body {
   min-height: 0;
   padding: 4px 6px;
 }
+/* Key accessory bar: a flat, scrollable strip of terminal/agent keys.
+   Hidden on desktop (the hardware keyboard has these) — only shown inside the
+   mobile shell, where it rides directly above the soft keyboard. */
 .agent-panel .toolbar {
+  display: none;
+}
+.mobile-shell .agent-panel .toolbar {
+  display: flex;
   flex-shrink: 0;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px calc(6px + env(safe-area-inset-bottom, 0px));
+  background: var(--panel);
+  border-top: 1px solid var(--border);
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+}
+.mobile-shell .agent-panel .toolbar::-webkit-scrollbar {
+  display: none;
+}
+.toolbar .key {
+  flex: 0 0 auto;
+  min-width: 40px;
+  height: 38px;
+  padding: 0 11px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r);
+  color: var(--fg-bright);
+  font:
+    13px / 1 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    monospace;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  transition: background 0.06s ease;
+}
+.toolbar .key:active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #1a1205;
+}
+/* Sticky modifier (Ctrl): lit while armed for the next keystroke. */
+.toolbar .key.mod.armed {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #1a1205;
+}
+.toolbar .key-sep {
+  flex: 0 0 auto;
+  align-self: center;
+  width: 1px;
+  height: 20px;
+  margin: 0 2px;
+  background: var(--border-strong);
 }
 
 /* ---- mobile ---- */

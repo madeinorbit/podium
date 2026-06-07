@@ -60,7 +60,13 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
     })
   }
 
-  const offInput = view.onData((data) => connection.sendInput(data))
+  const toolbar = opts.toolbarEl ? mountKeyToolbar(opts.toolbarEl, connection) : null
+
+  // Route keyboard input through the toolbar so an armed modifier (e.g. Ctrl)
+  // transforms the next character the soft keyboard sends.
+  const offInput = view.onData((data) =>
+    connection.sendInput(toolbar ? toolbar.applyModifiers(data) : data),
+  )
 
   const viewport = new DomViewportSource(el)
   const offViewport = viewport.onChange(() => {
@@ -68,8 +74,6 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
     const grid = view.fit()
     connection.sendResize(grid.cols, grid.rows)
   })
-
-  const offToolbar = opts.toolbarEl ? mountKeyToolbar(opts.toolbarEl, connection) : () => {}
 
   view.focus()
 
@@ -116,7 +120,7 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
     dispose() {
       offInput()
       offViewport()
-      offToolbar()
+      toolbar?.dispose()
       viewport.dispose()
       hub.detach(sessionId)
       view.dispose()

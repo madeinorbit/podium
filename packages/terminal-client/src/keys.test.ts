@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { ctrlSequence, keySequence } from './keys'
+import { ctrlByte, ctrlSequence, keySequence } from './keys'
 
 describe('key sequences', () => {
   it('maps named keys to terminal byte sequences', () => {
     expect(keySequence('Escape')).toBe('\x1b')
     expect(keySequence('Tab')).toBe('\t')
+    expect(keySequence('ShiftTab')).toBe('\x1b[Z')
     expect(keySequence('Enter')).toBe('\r')
     expect(keySequence('Backspace')).toBe('\x7f')
     expect(keySequence('ArrowUp')).toBe('\x1b[A')
@@ -23,5 +24,17 @@ describe('key sequences', () => {
 
   it('throws on a non-letter ctrl target', () => {
     expect(() => ctrlSequence('1')).toThrow()
+  })
+
+  it('ctrlByte maps letters and ignores everything else', () => {
+    expect(ctrlByte('c')).toBe('\x03')
+    expect(ctrlByte('A')).toBe('\x01')
+    expect(ctrlByte('e')).toBe('\x05')
+    // Non-letters, escape sequences, and multi-char chunks pass through (null).
+    expect(ctrlByte('1')).toBeNull()
+    expect(ctrlByte('/')).toBeNull()
+    expect(ctrlByte('\x1b')).toBeNull()
+    expect(ctrlByte('')).toBeNull()
+    expect(ctrlByte('ab')).toBeNull()
   })
 })

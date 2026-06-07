@@ -6,7 +6,33 @@ import { NewPanelMenu } from './NewPanelMenu'
 import { RepoScanFlow } from './RepoScanFlow'
 import { useStore } from './store'
 
+/**
+ * Pin the mobile shell to the *visual* viewport. The layout viewport (what `dvh`
+ * tracks) does not shrink when the soft keyboard opens on iOS, so a bottom-anchored
+ * key bar would hide behind the keyboard. Tracking `visualViewport.height` into
+ * `--viewport-h` shrinks the shell to the visible area, leaving the key bar flush
+ * above the keyboard. No-op where `visualViewport` is unavailable (falls back to
+ * the `100dvh` default in CSS).
+ */
+function useVisualViewportHeight(): void {
+  useEffect(() => {
+    const vv = window.visualViewport
+    if (!vv) return
+    const root = document.documentElement
+    const apply = () => root.style.setProperty('--viewport-h', `${Math.round(vv.height)}px`)
+    apply()
+    vv.addEventListener('resize', apply)
+    vv.addEventListener('scroll', apply)
+    return () => {
+      vv.removeEventListener('resize', apply)
+      vv.removeEventListener('scroll', apply)
+      root.style.removeProperty('--viewport-h')
+    }
+  }, [])
+}
+
 export function MobileApp(): JSX.Element {
+  useVisualViewportHeight()
   const store = useStore()
   const { sessions, selectedWorktree, setSelectedWorktree, paneA, setPane, killSession } = store
   const { reposLoading, repoDiagnostics } = store
