@@ -179,6 +179,14 @@ export const SessionsChangedMessage = z.object({
   type: z.literal('sessionsChanged'),
   sessions: z.array(SessionMeta),
 })
+// A single session's live title changed (an agent set its terminal title via OSC).
+// Sent on its own rather than rebroadcasting the whole session list, because agents
+// emit these at spinner frame-rate (~10 Hz) and the payload is tiny.
+export const SessionTitleChangedMessage = z.object({
+  type: z.literal('sessionTitleChanged'),
+  sessionId: z.string(),
+  title: z.string(),
+})
 
 export const ServerMessage = z.discriminatedUnion('type', [
   WelcomeMessage,
@@ -188,6 +196,7 @@ export const ServerMessage = z.discriminatedUnion('type', [
   GeometryMessage,
   AgentExitMessage,
   SessionsChangedMessage,
+  SessionTitleChangedMessage,
 ])
 export type ServerMessage = z.infer<typeof ServerMessage>
 
@@ -250,6 +259,13 @@ export const SpawnErrorMessage = z.object({
   sessionId: z.string(),
   message: z.string(),
 })
+// Live terminal title sniffed from the agent's PTY (OSC 0/1/2). The daemon
+// detects it in the byte stream and forwards it so the server can label the panel.
+export const TitleMessage = z.object({
+  type: z.literal('title'),
+  sessionId: z.string(),
+  title: z.string(),
+})
 export const ScanResultMessage = z.object({
   type: z.literal('scanResult'),
   requestId: z.string(),
@@ -268,6 +284,7 @@ export const DaemonMessage = z.discriminatedUnion('type', [
   AgentFrameMessage,
   AgentExitMessage,
   SpawnErrorMessage,
+  TitleMessage,
   ScanResultMessage,
   ScanReposResultMessage,
 ])

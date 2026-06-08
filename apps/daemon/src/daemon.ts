@@ -109,6 +109,7 @@ export function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
       session.onFrame((frame) =>
         send({ type: 'agentFrame', sessionId: msg.sessionId, seq: frame.seq, data: frame.data }),
       )
+      session.onTitle((title) => send({ type: 'title', sessionId: msg.sessionId, title }))
       session.onExit((code) => {
         bridges.delete(msg.sessionId)
         send({ type: 'agentExit', sessionId: msg.sessionId, code })

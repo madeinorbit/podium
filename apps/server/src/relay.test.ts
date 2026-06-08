@@ -183,4 +183,35 @@ describe('SessionRegistry', () => {
     })
     await expect(p).resolves.toMatchObject({ repositories: [{ path: '/r' }], diagnostics: [] })
   })
+
+  it('a daemon title updates the session and pushes sessionTitleChanged to clients', () => {
+    const reg = new SessionRegistry()
+    reg.attachDaemon(() => {})
+    const { sessionId } = reg.createSession({ agentKind: 'claude-code', cwd: '/proj' })
+    const c = sink()
+    reg.attachClient(c.send)
+    c.sent.length = 0 // drop the welcome + initial sessionsChanged
+
+    reg.onDaemonMessage({ type: 'title', sessionId, title: '✳ rename functionality' })
+
+    expect(c.sent).toContainEqual({
+      type: 'sessionTitleChanged',
+      sessionId,
+      title: '✳ rename functionality',
+    })
+    // Not a full list rebroadcast.
+    expect(c.sent.some((m) => m.type === 'sessionsChanged')).toBe(false)
+    // Late joiners see it via listSessions().
+    expect(reg.listSessions().at(0)).toMatchObject({ sessionId, title: '✳ rename functionality' })
+  })
+
+  it('ignores a title for an unknown session', () => {
+    const reg = new SessionRegistry()
+    reg.attachDaemon(() => {})
+    const c = sink()
+    reg.attachClient(c.send)
+    c.sent.length = 0
+    reg.onDaemonMessage({ type: 'title', sessionId: 'nope', title: 'x' })
+    expect(c.sent).toEqual([])
+  })
 })

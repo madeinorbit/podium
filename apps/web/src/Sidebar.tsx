@@ -1,8 +1,9 @@
 import type { JSX } from 'react'
 import { useState } from 'react'
-import { panelLabel, reposToViews, sessionsForWorktree } from './derive'
+import { reposToViews, sessionsForWorktree } from './derive'
 import { RepoScanFlow } from './RepoScanFlow'
 import { useStore } from './store'
+import { WorkerLabel } from './WorkerLabel'
 
 export function Sidebar(): JSX.Element {
   const {
@@ -62,7 +63,7 @@ export function Sidebar(): JSX.Element {
                           setPane('A', s.sessionId)
                         }}
                       >
-                        <span className={`dot ${s.status}`} /> {panelLabel(s.agentKind)}
+                        <span className={`dot ${s.status}`} /> <WorkerLabel session={s} />
                       </button>
                     )
                   })}

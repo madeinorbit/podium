@@ -1,5 +1,6 @@
 import type { Geometry } from '@podium/protocol'
 import { type IPty, spawn } from 'node-pty'
+import { createTitleScanner } from './osc-title.js'
 
 export interface SpawnOptions {
   cmd: string
@@ -19,6 +20,8 @@ export interface AgentFrame {
 export interface AgentSession {
   readonly pid: number
   onFrame(cb: (frame: AgentFrame) => void): () => void
+  /** Live terminal title (OSC 0/1/2) the agent set, emitted on each change. */
+  onTitle(cb: (title: string) => void): () => void
   onExit(cb: (code: number) => void): () => void
   /** base64 of input bytes to inject into the PTY */
   write(dataBase64: string): void
@@ -37,6 +40,9 @@ export function spawnAgent(opts: SpawnOptions): AgentSession {
   let cancelNudge: (() => void) | undefined
   const frameCbs = new Set<(f: AgentFrame) => void>()
   const exitCbs = new Set<(code: number) => void>()
+  const titleCbs = new Set<(t: string) => void>()
+  const titleScanner = createTitleScanner()
+  let lastTitle: string | undefined
 
   const proc: IPty = spawn(opts.cmd, opts.args ?? [], {
     name: 'xterm-256color',
@@ -56,6 +62,14 @@ export function spawnAgent(opts: SpawnOptions): AgentSession {
     const frame: AgentFrame = { seq, data: Buffer.from(data, 'utf8').toString('base64') }
     seq += 1
     for (const cb of [...frameCbs]) cb(frame)
+    for (const raw of titleScanner.push(data)) {
+      // Strip stray control chars; keep the spinner/brand glyphs. Skip empty
+      // titles and unchanged repeats so we don't churn the relay.
+      const title = raw.replace(/\p{Cc}/gu, '').trim()
+      if (!title || title === lastTitle) continue
+      lastTitle = title
+      for (const cb of [...titleCbs]) cb(title)
+    }
   })
 
   proc.onExit(({ exitCode }) => {
@@ -69,6 +83,10 @@ export function spawnAgent(opts: SpawnOptions): AgentSession {
     onFrame(cb) {
       frameCbs.add(cb)
       return () => frameCbs.delete(cb)
+    },
+    onTitle(cb) {
+      titleCbs.add(cb)
+      return () => titleCbs.delete(cb)
     },
     onExit(cb) {
       exitCbs.add(cb)
@@ -118,6 +136,7 @@ export function spawnAgent(opts: SpawnOptions): AgentSession {
       disposed = true
       cancelNudge?.()
       frameCbs.clear()
+      titleCbs.clear()
       exitCbs.clear()
       try {
         proc.kill()

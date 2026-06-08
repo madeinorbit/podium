@@ -83,6 +83,40 @@ describe('SocketHub', () => {
     expect(seen.at(-1)).toBe(1)
   })
 
+  it('patches a single session title on sessionTitleChanged and notifies observers', () => {
+    const { sock, hub } = setup()
+    const meta = {
+      sessionId: 's1',
+      agentKind: 'claude-code' as const,
+      title: 'proj',
+      cwd: '/w',
+      status: 'live' as const,
+      controllerId: 'c0',
+      geometry: { cols: 80, rows: 24 },
+      epoch: 0,
+      clientCount: 1,
+      createdAt: '2026-06-03T00:00:00.000Z',
+      origin: { kind: 'spawn' as const },
+    }
+    const titles: string[] = []
+    hub.onSessions((s) => {
+      if (s[0]) titles.push(s[0].title)
+    })
+    hub.connect()
+    sock.open()
+    sock.recv({ type: 'sessionsChanged', sessions: [meta] })
+    sock.recv({ type: 'sessionTitleChanged', sessionId: 's1', title: '⠹ podium' })
+    expect(hub.sessions().at(0)?.title).toBe('⠹ podium')
+    expect(titles.at(-1)).toBe('⠹ podium')
+    // An unchanged title doesn't churn observers.
+    const count = titles.length
+    sock.recv({ type: 'sessionTitleChanged', sessionId: 's1', title: '⠹ podium' })
+    expect(titles.length).toBe(count)
+    // A title for an unknown session is ignored.
+    sock.recv({ type: 'sessionTitleChanged', sessionId: 'ghost', title: 'x' })
+    expect(titles.length).toBe(count)
+  })
+
   it('attach sends an attach message and returns a SessionConnection', () => {
     const { sock, hub } = setup()
     hub.connect()

@@ -2,9 +2,11 @@ import { type MountedSession, mountSession } from '@podium/terminal-client'
 import type { JSX } from 'react'
 import { useEffect, useRef, useState } from 'react'
 import { useStore } from './store'
+import { WorkerLabel } from './WorkerLabel'
 
 export function AgentPanel({ sessionId }: { sessionId: string }): JSX.Element {
-  const { hub } = useStore()
+  const { hub, sessions } = useStore()
+  const session = sessions.find((s) => s.sessionId === sessionId)
   const termRef = useRef<HTMLDivElement | null>(null)
   const toolbarRef = useRef<HTMLDivElement | null>(null)
   const mountedRef = useRef<MountedSession | null>(null)
@@ -28,6 +30,7 @@ export function AgentPanel({ sessionId }: { sessionId: string }): JSX.Element {
   return (
     <div className="agent-panel">
       <div className="agent-panel-bar">
+        {session && <WorkerLabel session={session} />}
         <span className="state">{role}</span>
         <button type="button" onClick={() => mountedRef.current?.connection.requestControl()}>
           Take control

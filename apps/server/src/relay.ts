@@ -234,6 +234,22 @@ export class SessionRegistry {
         this.sessions.get(msg.sessionId)?.markSpawnError(msg.message)
         this.broadcastSessions()
         break
+      case 'title': {
+        const session = this.sessions.get(msg.sessionId)
+        if (!session) break
+        session.setTitle(msg.title)
+        // A dedicated per-session message — not broadcastSessions(). Agents emit
+        // titles at spinner frame-rate; rebroadcasting the whole list each time
+        // would be wasteful, and late-joining clients still get the title via
+        // listSessions() on attach.
+        const update: ServerMessage = {
+          type: 'sessionTitleChanged',
+          sessionId: msg.sessionId,
+          title: msg.title,
+        }
+        for (const c of this.clients.values()) c.send(update)
+        break
+      }
       case 'scanResult': {
         const resolve = this.pendingScans.get(msg.requestId)
         if (resolve) {

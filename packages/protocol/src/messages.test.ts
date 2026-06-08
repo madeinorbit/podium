@@ -141,6 +141,7 @@ describe('ServerMessage', () => {
     { type: 'geometry', sessionId: 's1', cols: 100, rows: 30 },
     { type: 'agentExit', sessionId: 's1', code: 0 },
     { type: 'sessionsChanged', sessions: [sessionMeta] },
+    { type: 'sessionTitleChanged', sessionId: 's1', title: '✳ rename functionality' },
   ]
   it.each(cases)('round-trips %j', (msg) => {
     expect(parseServerMessage(encode(msg))).toEqual(msg)
@@ -178,6 +179,7 @@ describe('DaemonMessage (daemon -> server)', () => {
     { type: 'agentFrame', sessionId: 's1', seq: 0, data: 'eA==' },
     { type: 'agentExit', sessionId: 's1', code: 0 },
     { type: 'spawnError', sessionId: 's1', message: 'enoent' },
+    { type: 'title', sessionId: 's1', title: '⠹ podium' },
     { type: 'scanResult', requestId: 'r1', conversations: [], diagnostics: [] },
     {
       type: 'scanReposResult',

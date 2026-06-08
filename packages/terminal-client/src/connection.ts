@@ -179,6 +179,16 @@ export class SocketHub {
       for (const o of this.sessionObservers) o(this.sessionList)
       return
     }
+    if (msg.type === 'sessionTitleChanged') {
+      let changed = false
+      this.sessionList = this.sessionList.map((s) => {
+        if (s.sessionId !== msg.sessionId || s.title === msg.title) return s
+        changed = true
+        return { ...s, title: msg.title }
+      })
+      if (changed) for (const o of this.sessionObservers) o(this.sessionList)
+      return
+    }
     this.connections.get(msg.sessionId)?._ingest(msg)
   }
 

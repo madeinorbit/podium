@@ -154,6 +154,11 @@ export class Session {
     this.broadcast({ type: 'agentExit', sessionId: this.sessionId, code: -1 })
   }
 
+  /** Adopt a live terminal title the agent set (OSC). Replaces the cwd-derived default. */
+  setTitle(title: string): void {
+    this.title = title
+  }
+
   markLive(cmd: string, geometry: Geometry): void {
     this.cmd = cmd
     if (this.status === 'starting') this.status = 'live'

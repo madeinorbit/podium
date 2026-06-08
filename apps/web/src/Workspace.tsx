@@ -1,11 +1,12 @@
-import type { AgentKind } from '@podium/protocol'
+import type { SessionMeta } from '@podium/protocol'
 import type { JSX } from 'react'
 import { useEffect, useState } from 'react'
 import { AgentPanel } from './AgentPanel'
-import { panelLabel, reposToViews, sessionsForWorktree } from './derive'
+import { reposToViews, sessionsForWorktree } from './derive'
 import { NewPanelMenu } from './NewPanelMenu'
 import { useStore } from './store'
 import type { WorktreeView } from './types'
+import { WorkerLabel } from './WorkerLabel'
 
 export function Workspace(): JSX.Element {
   const store = useStore()
@@ -37,7 +38,7 @@ export function Workspace(): JSX.Element {
               className={t.sessionId === paneA ? 'tab active' : 'tab'}
               onClick={() => setPane('A', t.sessionId)}
             >
-              <span className={`dot ${t.status}`} /> {panelLabel(t.agentKind)}
+              <span className={`dot ${t.status}`} /> <WorkerLabel session={t} />
             </button>
             <button
               type="button"
@@ -91,7 +92,7 @@ function PanePicker({
   tabs,
   onPick,
 }: {
-  tabs: { sessionId: string; agentKind: AgentKind }[]
+  tabs: SessionMeta[]
   onPick: (id: string) => void
 }): JSX.Element {
   return (
@@ -99,7 +100,7 @@ function PanePicker({
       <div>Pick a panel for this pane:</div>
       {tabs.map((t) => (
         <button key={t.sessionId} type="button" onClick={() => onPick(t.sessionId)}>
-          {panelLabel(t.agentKind)}
+          <WorkerLabel session={t} />
         </button>
       ))}
     </div>

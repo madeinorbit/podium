@@ -879,3 +879,26 @@ body {
     grid-row: 2;
   }
 }
+
+/* ---- worker label: live name + muted kind tag ---- */
+.worker-label {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+.worker-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.worker-kind {
+  flex: none;
+  font-variant: all-small-caps;
+  letter-spacing: 0.04em;
+  font-size: 0.82em;
+  color: var(--faint);
+}
+.agent-panel-bar .worker-name {
+  color: var(--fg-bright);
+}

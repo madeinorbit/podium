@@ -1,10 +1,11 @@
 import type { JSX } from 'react'
 import { useEffect, useState } from 'react'
 import { AgentPanel } from './AgentPanel'
-import { panelLabel, reposToViews, sessionsForWorktree } from './derive'
+import { reposToViews, sessionsForWorktree } from './derive'
 import { NewPanelMenu } from './NewPanelMenu'
 import { RepoScanFlow } from './RepoScanFlow'
 import { useStore } from './store'
+import { WorkerLabel } from './WorkerLabel'
 
 /**
  * Pin the mobile shell to the *visual* viewport. The layout viewport (what `dvh`
@@ -62,7 +63,7 @@ export function MobileApp(): JSX.Element {
                 className={t.sessionId === paneA ? 'tab active' : 'tab'}
                 onClick={() => setPane('A', t.sessionId)}
               >
-                <span className={`dot ${t.status}`} /> {panelLabel(t.agentKind)}
+                <span className={`dot ${t.status}`} /> <WorkerLabel session={t} />
               </button>
               <button
                 type="button"
