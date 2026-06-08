@@ -5,8 +5,16 @@ import { RepoScanFlow } from './RepoScanFlow'
 import { useStore } from './store'
 
 export function Sidebar(): JSX.Element {
-  const { repos, reposLoading, repoDiagnostics, sessions, selectedWorktree, setSelectedWorktree } =
-    useStore()
+  const {
+    repos,
+    reposLoading,
+    repoDiagnostics,
+    sessions,
+    selectedWorktree,
+    setSelectedWorktree,
+    paneA,
+    setPane,
+  } = useStore()
   const repoViews = reposToViews(repos)
   const [pickerOpen, setPickerOpen] = useState(false)
 
@@ -42,11 +50,22 @@ export function Sidebar(): JSX.Element {
                     <span className="branch">{wt.branch ?? wt.path.split('/').pop()}</span>
                     {wt.isMain && <span className="tag">main</span>}
                   </button>
-                  {wtSessions.map((s) => (
-                    <div key={s.sessionId} className="panel-row">
-                      <span className={`dot ${s.status}`} /> {panelLabel(s.agentKind)}
-                    </div>
-                  ))}
+                  {wtSessions.map((s) => {
+                    const panelActive = active && paneA === s.sessionId
+                    return (
+                      <button
+                        key={s.sessionId}
+                        type="button"
+                        className={panelActive ? 'panel-row active' : 'panel-row'}
+                        onClick={() => {
+                          setSelectedWorktree(wt.path)
+                          setPane('A', s.sessionId)
+                        }}
+                      >
+                        <span className={`dot ${s.status}`} /> {panelLabel(s.agentKind)}
+                      </button>
+                    )
+                  })}
                 </div>
               )
             })}

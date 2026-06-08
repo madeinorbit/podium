@@ -225,9 +225,23 @@ body {
   display: flex;
   align-items: center;
   gap: 6px;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: 0;
   padding: 3px 12px 3px 28px;
+  font: inherit;
   font-size: 12px;
   color: var(--dim);
+  cursor: pointer;
+}
+.panel-row:hover {
+  background: var(--panel-raised);
+  color: var(--fg);
+}
+.panel-row.active {
+  background: var(--surface);
+  color: var(--fg-bright);
 }
 .empty,
 .menu-empty {

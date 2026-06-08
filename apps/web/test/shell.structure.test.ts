@@ -30,6 +30,14 @@ describe('web shell structure', () => {
     expect(read('Sidebar.tsx')).toContain('RepoScanFlow')
     expect(read('MobileApp.tsx')).toContain('RepoScanFlow')
   })
+  it('sidebar work panels navigate directly to the panel when clicked', () => {
+    const src = read('Sidebar.tsx')
+    // Each panel row is an interactive button (not an inert div) that focuses the
+    // session: select its worktree and point pane A at it.
+    expect(src).toContain("className={panelActive ? 'panel-row active' : 'panel-row'}")
+    expect(src).toContain('setSelectedWorktree(wt.path)')
+    expect(src).toContain("setPane('A', s.sessionId)")
+  })
   it('repo picker browses folders, hides hidden by default, and offers a scan action', () => {
     const src = read('RepoPickerModal.tsx')
     expect(src).toContain('showHidden')
