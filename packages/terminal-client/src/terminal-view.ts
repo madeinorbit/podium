@@ -68,7 +68,15 @@ export class TerminalView {
       lineHeight: 1.15,
       letterSpacing: 0,
       drawBoldTextInBrightColors: true,
-      macOptionIsMeta: true,
+      // Option must stay a "third-level shift" (compose), NOT Meta. On non-US Mac
+      // layouts (Swiss, German, French, …) the bracket/brace/pipe/at/hash keys are
+      // ALL typed via Option (e.g. Swiss `[`=⌥5, `]`=⌥6, `{`=⌥8, `}`=⌥9). With
+      // macOptionIsMeta:true xterm intercepts Option+<key> and sends ESC+<key>
+      // (Meta) instead of letting the OS compose the character, so those users can
+      // type no brackets at all — coding is impossible. false lets the OS compose;
+      // special keys below keyCode 48 (Option+Enter=ESC CR, Option+arrows) still
+      // send their Meta sequences, so Claude Code's Option+Enter newline is kept.
+      macOptionIsMeta: false,
       scrollSensitivity: 3,
       theme: opts.theme ?? DEFAULT_THEME,
     })

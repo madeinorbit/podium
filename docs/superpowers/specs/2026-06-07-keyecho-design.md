@@ -272,6 +272,44 @@ byte-level correctness is proven by the `node-pty` harness regardless.
 | Mouse wheel up/down | `ESC[<64;x;yM` / `ESC[<65;x;yM` | scrollback |
 | Mouse click | `ESC[<0;x;yM` / `ESC[<0;x;ym` | press / release |
 
+## Browser key → bytes fidelity (added 2026-06-08)
+
+keyecho and `keystroke-fidelity.e2e.test.ts` both inject **raw bytes** into
+`agent-bridge` → PTY. They prove "byte X survives to the agent" but are blind to the
+**first hop**: whether `xterm.js` produces the *right* bytes for a given physical key +
+modifiers + keyboard layout. That translation is `xterm`'s keydown handler, governed by
+the `macOptionIsMeta` option in `packages/terminal-client/src/terminal-view.ts`.
+
+This is where the real "Option/Alt keys do nothing on a Swiss Mac" bug lived:
+`macOptionIsMeta: true` made `xterm` hijack Option as Meta, so `Option+5` (Swiss `[`)
+emitted `ESC 5` instead of letting macOS compose `[` — every bracket/brace/pipe/at on a
+non-US Mac layout was lost. keyecho could never have caught it because the wrong bytes
+were generated *above* the layer keyecho tests. Fix: `macOptionIsMeta: false` (Option
+stays a third-level/compose shift; special keys < keyCode 48 like `Option+Enter` still
+send their Meta sequence, so Claude Code's newline survives).
+
+The gap is now closed by a colocated unit test
+(`packages/terminal-client/src/terminal-view.keyboard.test.ts`) that mounts the **real**
+`TerminalView` in `happy-dom` and drives synthetic `KeyboardEvent`s through it, asserting
+the bytes on `onData`. No real browser needed. Two fidelity traps it documents (and any
+future browser-key test must respect):
+
+1. **`xterm` forces `isMac=false` under Node.** `isMac` is a module-load-time const, and
+   `xterm` short-circuits to `platform='node'` whenever `process.title` exists — always
+   true under vitest. Delete `process.title` *before* importing `xterm`, or the test
+   silently runs the Linux Alt-as-Meta path and never touches the macOS branch.
+2. **The composed character does not arrive on `keydown`.** On macOS the OS composes the
+   glyph and fires a follow-up `input` event — but only if `xterm` didn't `preventDefault`
+   the keydown. A faithful jig must replay that keydown→(input) contract, not just dispatch
+   keydown.
+
+A *fully* real-browser version (Playwright/CDP driving xterm in Chrome, then asserting
+keyecho at the far end) would close the loop end-to-end, but cannot reproduce this
+particular bug for free: the Option→`[` composition happens in the **OS keyboard layer
+above the browser**, which a Linux CI browser doesn't run, so the composed `key`/`text`
+fields must still be injected to mimic macOS. The happy-dom unit test is the cheap,
+deterministic guard; the browser e2e is a (later) belt-and-suspenders.
+
 ## Out of scope (YAGNI)
 
 - `codex` source (stubbed interface only; added when codex testing starts).
