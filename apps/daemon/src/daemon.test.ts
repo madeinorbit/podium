@@ -2,6 +2,7 @@ import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { isTmuxAvailable, killTmuxServer, tmuxHasSession } from '@podium/agent-bridge'
 import { type DaemonMessage, encode, parseDaemonMessage } from '@podium/protocol'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { WebSocketServer, type WebSocket as WS } from 'ws'
@@ -34,6 +35,8 @@ describe('daemon multi-bridge', () => {
     })
     daemon = await startDaemon({
       serverUrl: `ws://localhost:${port}`,
+      // direct node-pty path keeps these fixtures/assertions deterministic (no tmux dependency)
+      tmux: false,
       // inject the deterministic fixture instead of real claude/codex
       launch: (_kind, opts) => ({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
     })
@@ -232,5 +235,52 @@ describe('daemon multi-bridge', () => {
     )
     expect(result?.repositories.map((r) => r.path)).toContain(repo)
     expect(result?.diagnostics.length ?? 0).toBeGreaterThan(0)
+  })
+})
+
+describe.skipIf(!isTmuxAvailable())('daemon tmux survival', () => {
+  it('keeps the tmux session alive after the daemon closes', async () => {
+    const sessionId = `survive-${process.pid}`
+    const label = `podium-${sessionId}`
+    const wss = new WebSocketServer({ port: 0 })
+    await new Promise<void>((r) => wss.once('listening', () => r()))
+    const port = (wss.address() as { port: number }).port
+
+    const received: DaemonMessage[] = []
+    let serverSocket!: WS
+    const connected = new Promise<void>((r) => {
+      wss.once('connection', (ws) => {
+        serverSocket = ws
+        ws.on('message', (raw) => received.push(parseDaemonMessage(raw.toString())))
+        r()
+      })
+    })
+
+    const daemon = await startDaemon({
+      serverUrl: `ws://localhost:${port}`,
+      tmux: true,
+      launch: (_kind, opts) => ({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
+    })
+    await connected
+
+    try {
+      serverSocket.send(
+        encode({ type: 'spawn', sessionId, agentKind: 'claude-code', cwd: '/tmp', geometry: G }),
+      )
+      // wait for the daemon to confirm it bound the session
+      const start = Date.now()
+      while (!received.some((m) => m.type === 'bind' && m.sessionId === sessionId)) {
+        if (Date.now() - start > 5000) throw new Error('bind timed out')
+        await new Promise((r) => setTimeout(r, 20))
+      }
+      expect(tmuxHasSession(label)).toBe(true)
+
+      // closing the daemon only detaches the tmux client — the agent server survives.
+      await daemon.close()
+      expect(tmuxHasSession(label)).toBe(true)
+    } finally {
+      killTmuxServer(label)
+      await new Promise<void>((r) => wss.close(() => r()))
+    }
   })
 })

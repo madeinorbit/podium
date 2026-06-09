@@ -5,9 +5,12 @@ import {
   agentLaunchCommand,
   type GitDiscoveryDiagnostic,
   type GitRepositorySummary,
+  isTmuxAvailable,
+  killTmuxServer,
   scanAgentConversations,
   scanGitRepositories,
   spawnAgent,
+  spawnTmuxAgent,
 } from '@podium/agent-bridge'
 import {
   type ControlMessage,
@@ -25,6 +28,8 @@ export interface DaemonOptions {
   serverUrl: string
   /** Map an agent kind to a spawn command. Defaults to agentLaunchCommand; tests inject a fixture. */
   launch?: typeof agentLaunchCommand
+  /** Force tmux on/off. Defaults to isTmuxAvailable(); tests set it for determinism. */
+  tmux?: boolean
 }
 
 export interface DaemonHandle {
@@ -85,6 +90,10 @@ function gitDiagnosticToWire(d: GitDiscoveryDiagnostic): GitDiscoveryDiagnosticW
 
 export function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
   const launch = opts.launch ?? agentLaunchCommand
+  const tmuxMode = opts.tmux ?? isTmuxAvailable()
+  if (opts.tmux === undefined && !tmuxMode) {
+    console.warn('[podium] tmux not found — sessions will not survive a daemon restart')
+  }
   const ws = new WebSocket(`${opts.serverUrl}/daemon`)
   const bridges = new Map<string, AgentSession>()
 
@@ -98,13 +107,23 @@ export function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
         cwd: msg.cwd,
         ...(msg.resume ? { resume: msg.resume } : {}),
       })
-      const session = spawnAgent({
-        cmd: cmd.cmd,
-        args: cmd.args,
-        cwd: cmd.cwd,
-        cols: msg.geometry.cols,
-        rows: msg.geometry.rows,
-      })
+      const label = `podium-${msg.sessionId}`
+      const session = tmuxMode
+        ? spawnTmuxAgent({
+            label,
+            cmd: cmd.cmd,
+            args: cmd.args,
+            cwd: cmd.cwd,
+            cols: msg.geometry.cols,
+            rows: msg.geometry.rows,
+          })
+        : spawnAgent({
+            cmd: cmd.cmd,
+            args: cmd.args,
+            cwd: cmd.cwd,
+            cols: msg.geometry.cols,
+            rows: msg.geometry.rows,
+          })
       bridges.set(msg.sessionId, session)
       session.onFrame((frame) =>
         send({ type: 'agentFrame', sessionId: msg.sessionId, seq: frame.seq, data: frame.data }),
@@ -200,6 +219,7 @@ export function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
         if (session) {
           session.dispose()
           bridges.delete(msg.sessionId)
+          if (tmuxMode) killTmuxServer(`podium-${msg.sessionId}`)
         }
         break
       }
@@ -225,6 +245,8 @@ export function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
   })
 
   const disposeAll = (): void => {
+    // For tmux sessions, dispose() only detaches the client, so the agent survives the
+    // daemon going down — do NOT kill the servers here.
     for (const session of bridges.values()) session.dispose()
     bridges.clear()
   }
