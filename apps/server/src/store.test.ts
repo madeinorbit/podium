@@ -1,6 +1,6 @@
-import { mkdtemp } from 'node:fs/promises'
+import { mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import type { SessionRow } from './store'
 import { SessionStore } from './store'
@@ -91,5 +91,28 @@ describe('SessionStore sessions', () => {
     store.upsertSession(r)
     expect(store.loadSessions()).toEqual([r])
     store.close()
+  })
+})
+
+describe('SessionStore repos.json import', () => {
+  it('imports a sibling repos.json into an empty db, once', async () => {
+    const file = await tmpDbPath()
+    await writeFile(join(dirname(file), 'repos.json'), JSON.stringify(['/a', '/b']))
+    const a = new SessionStore(file)
+    expect(a.listRepos()).toEqual(['/a', '/b'])
+    a.close()
+    // Re-open: repos already present, so a (possibly changed) json is NOT re-imported.
+    await writeFile(join(dirname(file), 'repos.json'), JSON.stringify(['/c']))
+    const b = new SessionStore(file)
+    expect(b.listRepos()).toEqual(['/a', '/b'])
+    b.close()
+  })
+
+  it('tolerates a missing or corrupt repos.json', async () => {
+    const missing = await tmpDbPath()
+    expect(new SessionStore(missing).listRepos()).toEqual([])
+    const corrupt = await tmpDbPath()
+    await writeFile(join(dirname(corrupt), 'repos.json'), 'not json')
+    expect(new SessionStore(corrupt).listRepos()).toEqual([])
   })
 })
