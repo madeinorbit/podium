@@ -1,5 +1,6 @@
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
+import { spawnAgent } from './session'
 import {
   attachTmuxAgent,
   isTmuxAvailable,
@@ -100,4 +101,49 @@ describe.skipIf(!hasTmux)('tmux integration', () => {
     await wait(200)
     expect(tmuxHasSession(label)).toBe(false)
   }, 15000)
+})
+
+describe.skipIf(!hasTmux)('tmux input-fidelity parity', () => {
+  // The exact byte sequences that matter for agent control: Ctrl-C, Alt/Meta (ESC+char),
+  // arrow keys (CSI), bracketed paste markers, and multi-byte UTF-8.
+  const SAMPLES: Record<string, string> = {
+    ctrlC: '03',
+    altX: '1b78', // ESC + 'x'  (Meta-x)
+    upArrow: '1b5b41', // ESC [ A
+    utf8: 'c3a9', // 'é'
+  }
+  const HEX_FIXTURE = fileURLToPath(new URL('../test/fixtures/stdin-hex.mjs', import.meta.url))
+
+  async function received(via: 'tmux' | 'direct', hex: string): Promise<string> {
+    const bytes = Buffer.from(hex, 'hex')
+    let out = ''
+    let session: import('./session').AgentSession
+    let label = ''
+    if (via === 'tmux') {
+      label = `podium-fid-${process.pid}-${hex}`
+      killTmuxServer(label)
+      session = spawnTmuxAgent({ label, cmd: 'node', args: [HEX_FIXTURE], cols: 80, rows: 24 })
+    } else {
+      session = spawnAgent({ cmd: 'node', args: [HEX_FIXTURE], cols: 80, rows: 24 })
+    }
+    session.onFrame((f) => {
+      out += Buffer.from(f.data, 'base64').toString('utf8')
+    })
+    await wait(500)
+    session.write(bytes.toString('base64'))
+    await wait(500)
+    session.dispose()
+    if (via === 'tmux') killTmuxServer(label)
+    const m = out.match(/<([0-9a-f]*)>/g)
+    return (m ?? []).join('')
+  }
+
+  for (const [name, hex] of Object.entries(SAMPLES)) {
+    it(`delivers ${name} (${hex}) through tmux identically to direct node-pty`, async () => {
+      const direct = await received('direct', hex)
+      const tmux = await received('tmux', hex)
+      expect(direct).toContain(hex) // sanity: direct path delivers the bytes
+      expect(tmux).toContain(hex) // PARITY: tmux delivers the same bytes
+    }, 15000)
+  }
 })
