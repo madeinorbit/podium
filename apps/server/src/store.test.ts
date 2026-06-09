@@ -2,6 +2,7 @@ import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import type { SessionRow } from './store'
 import { SessionStore } from './store'
 
 async function tmpDbPath(): Promise<string> {
@@ -35,6 +36,60 @@ describe('SessionStore repos', () => {
   it('exposes loadSessions() as [] on a fresh db (tables exist)', () => {
     const store = new SessionStore(':memory:')
     expect(store.loadSessions()).toEqual([])
+    store.close()
+  })
+})
+
+function row(overrides: Partial<SessionRow> = {}): SessionRow {
+  return {
+    id: 'id-1',
+    agentKind: 'claude-code',
+    cwd: '/proj',
+    title: 'proj',
+    originKind: 'spawn',
+    conversationId: null,
+    resumeKind: null,
+    resumeValue: null,
+    status: 'starting',
+    exitCode: null,
+    tmuxLabel: 'podium-id-1',
+    createdAt: '2026-06-09T00:00:00.000Z',
+    lastActiveAt: '2026-06-09T00:00:00.000Z',
+    ...overrides,
+  }
+}
+
+describe('SessionStore sessions', () => {
+  it('upserts, loads, updates in place (preserving created_at), and deletes', async () => {
+    const file = await tmpDbPath()
+    const a = new SessionStore(file)
+    a.upsertSession(row())
+    a.upsertSession(
+      row({ status: 'live', title: 'renamed', lastActiveAt: '2026-06-09T00:05:00.000Z' }),
+    )
+    a.close()
+
+    const b = new SessionStore(file)
+    expect(b.loadSessions()).toEqual([
+      row({ status: 'live', title: 'renamed', lastActiveAt: '2026-06-09T00:05:00.000Z' }),
+    ])
+    b.deleteSession('id-1')
+    expect(b.loadSessions()).toEqual([])
+    b.close()
+  })
+
+  it('round-trips resume metadata', () => {
+    const store = new SessionStore(':memory:')
+    const r = row({
+      id: 'id-2',
+      originKind: 'resume',
+      conversationId: 'c9',
+      resumeKind: 'codex-thread',
+      resumeValue: 't9',
+      tmuxLabel: 'podium-id-2',
+    })
+    store.upsertSession(r)
+    expect(store.loadSessions()).toEqual([r])
     store.close()
   })
 })

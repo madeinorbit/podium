@@ -46,6 +46,7 @@ export class SessionStore {
     return rows.map((r) => r.path)
   }
 
+  // No path validation here by design — RepoRegistry (the caller) rejects empty/non-absolute paths.
   addRepo(path: string): void {
     this.db
       .prepare('INSERT OR IGNORE INTO repos (path, added_at) VALUES (?, ?)')
