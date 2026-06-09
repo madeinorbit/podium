@@ -129,6 +129,7 @@ export class SessionStore {
   // ---- schema ----
   private migrate(): void {
     this.db.exec('PRAGMA journal_mode = WAL')
+    this.db.exec('PRAGMA busy_timeout = 5000')
     this.db.exec('CREATE TABLE IF NOT EXISTS repos (path TEXT PRIMARY KEY, added_at TEXT NOT NULL)')
     this.db.exec(
       `CREATE TABLE IF NOT EXISTS sessions (

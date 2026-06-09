@@ -1,18 +1,18 @@
 import { randomUUID } from 'node:crypto'
 import { basename } from 'node:path'
-import type {
+import {
   AgentKind,
-  ClientMessage,
-  ControlMessage,
-  ConversationDiagnosticWire,
-  ConversationSummaryWire,
-  DaemonMessage,
-  Geometry,
-  GitDiscoveryDiagnosticWire,
-  GitRepositoryWire,
-  ResumeRef,
-  ServerMessage,
-  SessionMeta,
+  type ClientMessage,
+  type ControlMessage,
+  type ConversationDiagnosticWire,
+  type ConversationSummaryWire,
+  type DaemonMessage,
+  type Geometry,
+  type GitDiscoveryDiagnosticWire,
+  type GitRepositoryWire,
+  type ResumeRef,
+  type ServerMessage,
+  type SessionMeta,
 } from '@podium/protocol'
 import { type ClientConn, type Send, Session } from './session'
 import { SessionStore } from './store'
@@ -53,13 +53,23 @@ export class SessionRegistry {
 
   private loadFromStore(): void {
     for (const r of this.store.loadSessions()) {
+      const kind = AgentKind.safeParse(r.agentKind)
+      if (!kind.success) {
+        console.warn(
+          `[podium] skipping persisted session ${r.id}: invalid agentKind ${JSON.stringify(r.agentKind)}`,
+        )
+        continue
+      }
       // Layer 1 has no process survival yet: any session that was live/starting
       // when we went down is now dead. Reconstruct it as exited so the panel is
       // still listed and re-resumable, and persist the correction.
       const exitCode = r.status === 'exited' ? r.exitCode : (r.exitCode ?? -1)
+      if (r.originKind === 'resume' && !r.conversationId) {
+        console.warn(`[podium] persisted resume session ${r.id} has no conversationId`)
+      }
       const session = new Session({
         sessionId: r.id,
-        agentKind: r.agentKind as AgentKind,
+        agentKind: kind.data,
         cwd: r.cwd,
         title: r.title,
         origin:

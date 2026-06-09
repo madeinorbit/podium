@@ -2,7 +2,7 @@ import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { ControlMessage, ServerMessage } from '@podium/protocol'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from './relay'
 import { SessionStore } from './store'
 
@@ -274,5 +274,46 @@ describe('SessionRegistry', () => {
       status: 'exited',
     })
     store2.close()
+  })
+
+  it('skips a persisted session with an invalid agentKind on load', () => {
+    const store = new SessionStore(':memory:')
+    store.upsertSession({
+      id: 'good',
+      agentKind: 'claude-code',
+      cwd: '/a',
+      title: 'good',
+      originKind: 'spawn',
+      conversationId: null,
+      resumeKind: null,
+      resumeValue: null,
+      status: 'live',
+      exitCode: null,
+      tmuxLabel: 'podium-good',
+      createdAt: '2026-06-09T00:00:00.000Z',
+      lastActiveAt: '2026-06-09T00:00:00.000Z',
+    })
+    store.upsertSession({
+      id: 'bad',
+      agentKind: 'bogus-agent',
+      cwd: '/b',
+      title: 'bad',
+      originKind: 'spawn',
+      conversationId: null,
+      resumeKind: null,
+      resumeValue: null,
+      status: 'live',
+      exitCode: null,
+      tmuxLabel: 'podium-bad',
+      createdAt: '2026-06-09T00:00:00.000Z',
+      lastActiveAt: '2026-06-09T00:00:00.000Z',
+    })
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const reg = new SessionRegistry(store)
+    const ids = reg.listSessions().map((m) => m.sessionId)
+    expect(ids).toContain('good')
+    expect(ids).not.toContain('bad')
+    expect(warn).toHaveBeenCalled()
+    warn.mockRestore()
   })
 })
