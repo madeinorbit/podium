@@ -2,10 +2,12 @@ import type {
   AgentKind,
   ControlMessage,
   Geometry,
+  ResumeRef,
   ServerMessage,
   SessionMeta,
   SessionOrigin,
 } from '@podium/protocol'
+import type { SessionRow } from './store'
 
 export type Send<T> = (msg: T) => void
 
@@ -25,6 +27,11 @@ export interface SessionInit {
   createdAt: string
   geometry: Geometry
   toDaemon: Send<ControlMessage>
+  resume?: ResumeRef
+  tmuxLabel?: string
+  lastActiveAt?: string
+  status?: 'starting' | 'live' | 'exited'
+  exitCode?: number
 }
 
 /** One agent's relay state: controller gating, geometry/epoch, and its attached clients. */
@@ -34,6 +41,9 @@ export class Session {
   readonly cwd: string
   readonly origin: SessionOrigin
   readonly createdAt: string
+  readonly tmuxLabel: string
+  readonly resume?: ResumeRef
+  lastActiveAt: string
   title: string
   cmd = ''
   status: 'starting' | 'live' | 'exited' = 'starting'
@@ -53,6 +63,11 @@ export class Session {
     this.createdAt = init.createdAt
     this.geometry = { ...init.geometry }
     this.toDaemon = init.toDaemon
+    this.tmuxLabel = init.tmuxLabel ?? `podium-${init.sessionId}`
+    this.resume = init.resume
+    this.lastActiveAt = init.lastActiveAt ?? init.createdAt
+    if (init.status) this.status = init.status
+    if (init.exitCode !== undefined) this.exitCode = init.exitCode
   }
 
   get clientCount(): number {
@@ -156,14 +171,34 @@ export class Session {
 
   /** Adopt a live terminal title the agent set (OSC). Replaces the cwd-derived default. */
   setTitle(title: string): void {
+    this.lastActiveAt = new Date().toISOString()
     this.title = title
   }
 
   markLive(cmd: string, geometry: Geometry): void {
+    this.lastActiveAt = new Date().toISOString()
     this.cmd = cmd
     if (this.status === 'starting') this.status = 'live'
     // Adopt the daemon's geometry only if no controller has resized us yet.
     if (this.controllerId === null) this.geometry = { ...geometry }
+  }
+
+  toRow(): SessionRow {
+    return {
+      id: this.sessionId,
+      agentKind: this.agentKind,
+      cwd: this.cwd,
+      title: this.title,
+      originKind: this.origin.kind,
+      conversationId: this.origin.kind === 'resume' ? this.origin.conversationId : null,
+      resumeKind: this.resume?.kind ?? null,
+      resumeValue: this.resume?.value ?? null,
+      status: this.status,
+      exitCode: this.exitCode ?? null,
+      tmuxLabel: this.tmuxLabel,
+      createdAt: this.createdAt,
+      lastActiveAt: this.lastActiveAt,
+    }
   }
 
   toMeta(): SessionMeta {

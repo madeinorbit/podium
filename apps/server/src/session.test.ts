@@ -144,4 +144,25 @@ describe('Session', () => {
     expect(a.sent).toContainEqual({ type: 'agentExit', sessionId: 's1', code: 0 })
     expect(s.toMeta()).toMatchObject({ status: 'exited', exitCode: 0 })
   })
+
+  it('serializes to a persistable row, defaulting tmuxLabel/lastActiveAt', () => {
+    const s = makeSession()
+    expect(s.toRow()).toMatchObject({
+      id: 's1',
+      agentKind: 'claude-code',
+      cwd: '/w',
+      title: 'w',
+      originKind: 'spawn',
+      conversationId: null,
+      resumeKind: null,
+      resumeValue: null,
+      status: 'starting',
+      exitCode: null,
+      tmuxLabel: 'podium-s1',
+      createdAt: '2026-06-03T00:00:00.000Z',
+      lastActiveAt: '2026-06-03T00:00:00.000Z',
+    })
+    s.onExit(3)
+    expect(s.toRow()).toMatchObject({ status: 'exited', exitCode: 3 })
+  })
 })
