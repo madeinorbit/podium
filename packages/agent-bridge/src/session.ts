@@ -33,21 +33,10 @@ export interface AgentSession {
 }
 
 export function spawnAgent(opts: SpawnOptions): AgentSession {
-  let cols = opts.cols
-  let rows = opts.rows
-  let seq = 0
-  let disposed = false
-  let cancelNudge: (() => void) | undefined
-  const frameCbs = new Set<(f: AgentFrame) => void>()
-  const exitCbs = new Set<(code: number) => void>()
-  const titleCbs = new Set<(t: string) => void>()
-  const titleScanner = createTitleScanner()
-  let lastTitle: string | undefined
-
   const proc: IPty = spawn(opts.cmd, opts.args ?? [], {
     name: 'xterm-256color',
-    cols,
-    rows,
+    cols: opts.cols,
+    rows: opts.rows,
     cwd: opts.cwd ?? process.cwd(),
     // The frontend is xterm.js, which renders 24-bit color. `name` pins
     // TERM=xterm-256color (node-pty writes it into the child env); COLORTERM is the
@@ -57,6 +46,20 @@ export function spawnAgent(opts: SpawnOptions): AgentSession {
     // daemon was launched) but before opts.env so callers/tests can still override.
     env: { ...process.env, COLORTERM: 'truecolor', ...opts.env } as Record<string, string>,
   })
+  return wrapPty(proc)
+}
+
+export function wrapPty(proc: IPty): AgentSession {
+  let cols = proc.cols
+  let rows = proc.rows
+  let seq = 0
+  let disposed = false
+  let cancelNudge: (() => void) | undefined
+  const frameCbs = new Set<(f: AgentFrame) => void>()
+  const exitCbs = new Set<(code: number) => void>()
+  const titleCbs = new Set<(t: string) => void>()
+  const titleScanner = createTitleScanner()
+  let lastTitle: string | undefined
 
   proc.onData((data: string) => {
     const frame: AgentFrame = { seq, data: Buffer.from(data, 'utf8').toString('base64') }
