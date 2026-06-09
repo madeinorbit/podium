@@ -5,5 +5,5 @@
 // is exactly the input path the daemon uses (xterm.js sends raw bytes). Applied here so
 // BOTH the tmux and direct node-pty paths are measured identically.
 if (process.stdin.isTTY) process.stdin.setRawMode(true)
-process.stdin.on('data', (d) => process.stdout.write('<' + d.toString('hex') + '>'))
+process.stdin.on('data', (d) => process.stdout.write(`<${d.toString('hex')}>`))
 setInterval(() => {}, 1000)
