@@ -1,17 +1,13 @@
-import { mkdtemp } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
 import { appRouter } from './router'
+import { SessionStore } from './store'
 
 function caller() {
   const registry = new SessionRegistry()
   registry.attachDaemon(() => {})
-  const repos = new RepoRegistry(
-    join(tmpdir(), `podium-router-${Math.random().toString(36).slice(2)}.json`),
-  )
+  const repos = new RepoRegistry(new SessionStore(':memory:'))
   return { registry, call: appRouter.createCaller({ registry, repos }) }
 }
 
@@ -36,9 +32,7 @@ describe('appRouter', () => {
     registry.attachDaemon((m) => daemon.push(m))
     const call = appRouter.createCaller({
       registry,
-      repos: new RepoRegistry(
-        join(tmpdir(), `podium-disc-${Math.random().toString(36).slice(2)}.json`),
-      ),
+      repos: new RepoRegistry(new SessionStore(':memory:')),
     })
     const p = call.discovery.scan()
     // Yield so the tRPC handler's async body (registry.scan → pendingScans.set) runs before we feed the result.
@@ -56,10 +50,8 @@ describe('appRouter', () => {
   })
 })
 
-async function repoCaller() {
-  const dir = await mkdtemp(join(tmpdir(), 'podium-router-'))
-  const repos = new RepoRegistry(join(dir, 'repos.json'))
-  await repos.load()
+function repoCaller() {
+  const repos = new RepoRegistry(new SessionStore(':memory:'))
   const registry = new SessionRegistry()
   const daemon: import('@podium/protocol').ControlMessage[] = []
   registry.attachDaemon((m) => daemon.push(m))
@@ -68,25 +60,25 @@ async function repoCaller() {
 
 describe('repos router', () => {
   it('repos.add then repos.list reflects it', async () => {
-    const { call } = await repoCaller()
+    const { call } = repoCaller()
     await call.repos.add({ path: '/abs/app' })
     expect(await call.repos.list()).toEqual(['/abs/app'])
   })
 
   it('repos.remove drops it', async () => {
-    const { call } = await repoCaller()
+    const { call } = repoCaller()
     await call.repos.add({ path: '/abs/app' })
     await call.repos.remove({ path: '/abs/app' })
     expect(await call.repos.list()).toEqual([])
   })
 
   it('repos.add rejects a non-absolute path', async () => {
-    const { call } = await repoCaller()
+    const { call } = repoCaller()
     await expect(call.repos.add({ path: 'relative/path' })).rejects.toThrow()
   })
 
   it('repos.addMany persists each path and reports failures', async () => {
-    const { call } = await repoCaller()
+    const { call } = repoCaller()
     const res = await call.repos.addMany({ paths: ['/abs/a', '/abs/b', 'relative/bad'] })
     expect(res.repos).toEqual(['/abs/a', '/abs/b'])
     expect(res.failed.map((f) => f.path)).toEqual(['relative/bad'])
@@ -98,7 +90,7 @@ describe('repos router', () => {
     | undefined
 
   it('discovery.refreshRepos enriches registered roots in place (no home walk)', async () => {
-    const { call, repos, registry, daemon } = await repoCaller()
+    const { call, repos, registry, daemon } = repoCaller()
     await repos.add('/abs/app')
     const p = call.discovery.refreshRepos()
     await Promise.resolve()
@@ -117,7 +109,7 @@ describe('repos router', () => {
   })
 
   it('discovery.scanFolder scans the chosen folder to a bounded depth', async () => {
-    const { call, registry, daemon } = await repoCaller()
+    const { call, registry, daemon } = repoCaller()
     const p = call.discovery.scanFolder({ path: '/some/dir' })
     // scanFolder has a Zod input, so its handler runs a tick later than the
     // input-less procedures; a macrotask flushes the validation + handler first.

@@ -6,6 +6,7 @@ import { cors } from 'hono/cors'
 import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
 import { appRouter } from './router'
+import { SessionStore } from './store'
 import { attachWebSockets } from './wsServer'
 
 export interface ServerHandle {
@@ -15,9 +16,9 @@ export interface ServerHandle {
 }
 
 export async function startServer(opts: { port?: number } = {}): Promise<ServerHandle> {
-  const registry = new SessionRegistry()
-  const repos = new RepoRegistry()
-  await repos.load()
+  const store = new SessionStore()
+  const registry = new SessionRegistry(store)
+  const repos = new RepoRegistry(store)
   const app = new Hono()
   app.get('/health', (c) => c.text('ok'))
   app.use('/trpc/*', cors())
@@ -33,7 +34,10 @@ export async function startServer(opts: { port?: number } = {}): Promise<ServerH
           ws.close().then(
             () =>
               new Promise<void>((res) => {
-                ;(server as unknown as Server).close(() => res())
+                ;(server as unknown as Server).close(() => {
+                  store.close()
+                  res()
+                })
               }),
           ),
       })
