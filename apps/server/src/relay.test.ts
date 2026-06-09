@@ -1,6 +1,7 @@
 import type { ControlMessage, ServerMessage } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import { SessionRegistry } from './relay'
+import { SessionStore } from './store'
 
 function sink() {
   const sent: ServerMessage[] = []
@@ -213,5 +214,28 @@ describe('SessionRegistry', () => {
     c.sent.length = 0
     reg.onDaemonMessage({ type: 'title', sessionId: 'nope', title: 'x' })
     expect(c.sent).toEqual([])
+  })
+
+  it('write-through: a spawned session is persisted, live/exit/title update the row', () => {
+    const store = new SessionStore(':memory:')
+    const reg = new SessionRegistry(store)
+    reg.attachDaemon(() => {})
+    const { sessionId } = reg.createSession({ agentKind: 'claude-code', cwd: '/a', title: 't' })
+    expect(store.loadSessions()).toMatchObject([{ id: sessionId, status: 'starting', title: 't' }])
+    reg.onDaemonMessage(bind(sessionId))
+    expect(store.loadSessions().at(0)).toMatchObject({ status: 'live' })
+    reg.onDaemonMessage({ type: 'title', sessionId, title: '✳ working' })
+    expect(store.loadSessions().at(0)).toMatchObject({ title: '✳ working' })
+    reg.onDaemonMessage({ type: 'agentExit', sessionId, code: 0 })
+    expect(store.loadSessions().at(0)).toMatchObject({ status: 'exited', exitCode: 0 })
+    reg.killSession({ sessionId })
+    expect(store.loadSessions()).toEqual([])
+  })
+
+  it('mints opaque durable session ids (uuid), not the s0 counter', () => {
+    const reg = new SessionRegistry(new SessionStore(':memory:'))
+    reg.attachDaemon(() => {})
+    const { sessionId } = reg.createSession({ agentKind: 'claude-code', cwd: '/a' })
+    expect(sessionId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-/)
   })
 })
