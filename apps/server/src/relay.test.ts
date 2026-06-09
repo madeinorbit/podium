@@ -1,3 +1,6 @@
+import { mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import type { ControlMessage, ServerMessage } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import { SessionRegistry } from './relay'
@@ -237,5 +240,39 @@ describe('SessionRegistry', () => {
     reg.attachDaemon(() => {})
     const { sessionId } = reg.createSession({ agentKind: 'claude-code', cwd: '/a' })
     expect(sessionId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-/)
+  })
+
+  it('boot reconcile: persisted sessions reload as exited (Layer 1, no survival)', () => {
+    const file = join(mkdtempSync(join(tmpdir(), 'podium-relay-')), 'podium.db')
+    const store1 = new SessionStore(file)
+    const reg1 = new SessionRegistry(store1)
+    reg1.attachDaemon(() => {})
+    const { sessionId } = reg1.resumeSession({
+      agentKind: 'codex',
+      cwd: '/w',
+      resume: { kind: 'codex-thread', value: 't9' },
+      conversationId: 'c9',
+      title: 'old',
+    })
+    reg1.onDaemonMessage(bind(sessionId))
+    store1.close()
+
+    // Simulate a backend restart: brand-new registry over the same db.
+    const store2 = new SessionStore(file)
+    const reg2 = new SessionRegistry(store2)
+    const meta = reg2.listSessions().find((m) => m.sessionId === sessionId)
+    expect(meta).toMatchObject({
+      sessionId,
+      status: 'exited',
+      title: 'old',
+      origin: { kind: 'resume', conversationId: 'c9' },
+    })
+    // Resume metadata is retained for a future re-resume.
+    expect(store2.loadSessions().at(0)).toMatchObject({
+      resumeKind: 'codex-thread',
+      resumeValue: 't9',
+      status: 'exited',
+    })
+    store2.close()
   })
 })

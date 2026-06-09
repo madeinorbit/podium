@@ -52,7 +52,34 @@ export class SessionRegistry {
   }
 
   private loadFromStore(): void {
-    // Implemented in Task 7.
+    for (const r of this.store.loadSessions()) {
+      // Layer 1 has no process survival yet: any session that was live/starting
+      // when we went down is now dead. Reconstruct it as exited so the panel is
+      // still listed and re-resumable, and persist the correction.
+      const exitCode = r.status === 'exited' ? r.exitCode : (r.exitCode ?? -1)
+      const session = new Session({
+        sessionId: r.id,
+        agentKind: r.agentKind as AgentKind,
+        cwd: r.cwd,
+        title: r.title,
+        origin:
+          r.originKind === 'resume'
+            ? { kind: 'resume', conversationId: r.conversationId ?? '' }
+            : { kind: 'spawn' },
+        createdAt: r.createdAt,
+        geometry: { ...DEFAULT_GEOMETRY },
+        toDaemon: this.toDaemon,
+        tmuxLabel: r.tmuxLabel,
+        lastActiveAt: r.lastActiveAt,
+        status: 'exited',
+        exitCode: exitCode ?? -1,
+        ...(r.resumeKind && r.resumeValue
+          ? { resume: { kind: r.resumeKind, value: r.resumeValue } }
+          : {}),
+      })
+      this.sessions.set(r.id, session)
+      if (r.status !== 'exited') this.persist(session)
+    }
   }
 
   attachDaemon(send: Send<ControlMessage>): void {
