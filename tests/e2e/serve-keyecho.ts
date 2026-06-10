@@ -20,12 +20,17 @@ const PORT = Number(process.env.PORT ?? 8787)
 const WEB_PORT = Number(process.env.WEB_PORT ?? 4318)
 const MODE = process.env.KEYECHO_MODE ?? 'both'
 const KEYECHO_CLI = fileURLToPath(new URL('../keyecho/src/cli.tsx', import.meta.url))
+const KEYECHO_PKG = fileURLToPath(new URL('../keyecho', import.meta.url))
 
-// Spawn keyecho as the far-end agent for any requested kind.
-const launch = (_kind: AgentKind, opts: LaunchOptions): LaunchSpec => ({
+// Spawn keyecho as the far-end agent for any requested kind. Run it from the keyecho
+// package dir, NOT opts.cwd: tsx resolves tsconfig from the working directory, and only
+// keyecho's tsconfig sets jsx:react-jsx. Launched from a project dir the root tsconfig
+// (no jsx) makes tsx emit the classic runtime and keyecho dies with "React is not
+// defined". keyecho is a stateless echo jig, so its working directory is irrelevant.
+const launch = (_kind: AgentKind, _opts: LaunchOptions): LaunchSpec => ({
   cmd: process.execPath,
   args: ['--import', 'tsx', KEYECHO_CLI, '--mode', MODE],
-  cwd: opts.cwd,
+  cwd: KEYECHO_PKG,
 })
 
 function lanIp(): string {
