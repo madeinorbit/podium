@@ -283,4 +283,86 @@ describe.skipIf(!isTmuxAvailable())('daemon tmux survival', () => {
       await new Promise<void>((r) => wss.close(() => r()))
     }
   })
+
+  it('reattach re-binds to a live tmux session, and reports failure for a missing one', async () => {
+    const sessionId = `reattach-${process.pid}`
+    const label = `podium-${sessionId}`
+    const wss = new WebSocketServer({ port: 0 })
+    await new Promise<void>((r) => wss.once('listening', () => r()))
+    const port = (wss.address() as { port: number }).port
+
+    const received: DaemonMessage[] = []
+    let serverSocket!: WS
+    const connected = new Promise<void>((r) => {
+      wss.once('connection', (ws) => {
+        serverSocket = ws
+        ws.on('message', (raw) => received.push(parseDaemonMessage(raw.toString())))
+        r()
+      })
+    })
+
+    const daemon = await startDaemon({
+      serverUrl: `ws://localhost:${port}`,
+      tmux: true,
+      launch: (_kind, opts) => ({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
+    })
+    await connected
+
+    const decode = (b64: string): string => Buffer.from(b64, 'base64').toString('utf8')
+    const waitFor = async (fn: () => boolean, timeout = 5000): Promise<void> => {
+      const startedAt = Date.now()
+      while (!fn()) {
+        if (Date.now() - startedAt > timeout) throw new Error('waitFor timed out')
+        await new Promise((r) => setTimeout(r, 20))
+      }
+    }
+    const send = (msg: unknown): void => serverSocket.send(encode(msg as never))
+
+    try {
+      // Spawn a session so a real podium-<id> tmux server exists.
+      send({ type: 'spawn', sessionId, agentKind: 'claude-code', cwd: '/tmp', geometry: G })
+      await waitFor(() => received.some((m) => m.type === 'bind' && m.sessionId === sessionId))
+      expect(tmuxHasSession(label)).toBe(true)
+
+      // Simulate a backend restart re-binding: drop everything seen so far and re-attach.
+      received.length = 0
+      send({
+        type: 'reattach',
+        sessionId,
+        tmuxLabel: label,
+        agentKind: 'claude-code',
+        cwd: '/tmp',
+        geometry: G,
+      })
+      // The daemon re-binds: it replies with a fresh `bind` for this sessionId...
+      await waitFor(() => received.some((m) => m.type === 'bind' && m.sessionId === sessionId))
+      // ...and frames flow again from the re-attached tmux client.
+      await waitFor(() =>
+        received.some(
+          (m) =>
+            m.type === 'agentFrame' &&
+            m.sessionId === sessionId &&
+            decode(m.data).includes('PODIUM-FIXTURE'),
+        ),
+      )
+
+      // A reattach for a label that has no live tmux session → reattachFailed.
+      const goneId = `gone-${process.pid}`
+      send({
+        type: 'reattach',
+        sessionId: goneId,
+        tmuxLabel: `podium-${goneId}-missing`,
+        agentKind: 'claude-code',
+        cwd: '/tmp',
+        geometry: G,
+      })
+      await waitFor(() =>
+        received.some((m) => m.type === 'reattachFailed' && m.sessionId === goneId),
+      )
+    } finally {
+      await daemon.close()
+      killTmuxServer(label)
+      await new Promise<void>((r) => wss.close(() => r()))
+    }
+  })
 })

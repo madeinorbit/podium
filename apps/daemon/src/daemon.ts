@@ -3,6 +3,7 @@ import {
   type AgentConversationSummary,
   type AgentSession,
   agentLaunchCommand,
+  attachTmuxAgent,
   type GitDiscoveryDiagnostic,
   type GitRepositorySummary,
   isTmuxAvailable,
@@ -11,6 +12,7 @@ import {
   scanGitRepositories,
   spawnAgent,
   spawnTmuxAgent,
+  tmuxHasSession,
 } from '@podium/agent-bridge'
 import {
   type ControlMessage,
@@ -101,6 +103,18 @@ export function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     if (ws.readyState === WebSocket.OPEN) ws.send(encode(msg))
   }
 
+  const wireBridge = (sessionId: string, session: AgentSession): void => {
+    bridges.set(sessionId, session)
+    session.onFrame((frame) =>
+      send({ type: 'agentFrame', sessionId, seq: frame.seq, data: frame.data }),
+    )
+    session.onTitle((title) => send({ type: 'title', sessionId, title }))
+    session.onExit((code) => {
+      bridges.delete(sessionId)
+      send({ type: 'agentExit', sessionId, code })
+    })
+  }
+
   const spawn = (msg: SpawnControl): void => {
     try {
       const cmd = launch(msg.agentKind, {
@@ -124,15 +138,7 @@ export function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
             cols: msg.geometry.cols,
             rows: msg.geometry.rows,
           })
-      bridges.set(msg.sessionId, session)
-      session.onFrame((frame) =>
-        send({ type: 'agentFrame', sessionId: msg.sessionId, seq: frame.seq, data: frame.data }),
-      )
-      session.onTitle((title) => send({ type: 'title', sessionId: msg.sessionId, title }))
-      session.onExit((code) => {
-        bridges.delete(msg.sessionId)
-        send({ type: 'agentExit', sessionId: msg.sessionId, code })
-      })
+      wireBridge(msg.sessionId, session)
       send({
         type: 'bind',
         sessionId: msg.sessionId,
@@ -214,6 +220,31 @@ export function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
       case 'spawn':
         spawn(msg)
         break
+      case 'reattach': {
+        if (!tmuxMode || !tmuxHasSession(msg.tmuxLabel)) {
+          send({
+            type: 'reattachFailed',
+            sessionId: msg.sessionId,
+            reason: tmuxMode ? 'tmux session not found' : 'tmux unavailable',
+          })
+          break
+        }
+        const session = attachTmuxAgent({
+          label: msg.tmuxLabel,
+          cols: msg.geometry.cols,
+          rows: msg.geometry.rows,
+        })
+        wireBridge(msg.sessionId, session)
+        send({
+          type: 'bind',
+          sessionId: msg.sessionId,
+          cmd: `tmux -L ${msg.tmuxLabel} attach`,
+          cwd: msg.cwd,
+          agentKind: msg.agentKind,
+          geometry: msg.geometry,
+        })
+        break
+      }
       case 'kill': {
         const session = bridges.get(msg.sessionId)
         if (session) {
