@@ -60,10 +60,12 @@ export class SessionRegistry {
         )
         continue
       }
-      // Layer 1 has no process survival yet: any session that was live/starting
-      // when we went down is now dead. Reconstruct it as exited so the panel is
-      // still listed and re-resumable, and persist the correction.
-      const exitCode = r.status === 'exited' ? r.exitCode : (r.exitCode ?? -1)
+      // Layer 3: a previously live/starting session may still be running in its tmux
+      // server. Reload it as 'reconnecting' so attachDaemon can re-bind it; exited stays
+      // exited, hibernated stays hibernated.
+      const reloadStatus =
+        r.status === 'live' || r.status === 'starting' ? 'reconnecting' : r.status
+      const exitCode = r.status === 'exited' ? r.exitCode : null
       if (r.originKind === 'resume' && !r.conversationId) {
         console.warn(`[podium] persisted resume session ${r.id} has no conversationId`)
       }
@@ -81,19 +83,31 @@ export class SessionRegistry {
         toDaemon: this.toDaemon,
         tmuxLabel: r.tmuxLabel,
         lastActiveAt: r.lastActiveAt,
-        status: 'exited',
-        exitCode: exitCode ?? -1,
+        status: reloadStatus,
+        exitCode: exitCode ?? undefined,
         ...(r.resumeKind && r.resumeValue
           ? { resume: { kind: r.resumeKind, value: r.resumeValue } }
           : {}),
       })
       this.sessions.set(r.id, session)
-      if (r.status !== 'exited') this.persist(session)
+      if (r.status !== reloadStatus) this.persist(session)
     }
   }
 
   attachDaemon(send: Send<ControlMessage>): void {
     this.daemonSend = send
+    for (const s of this.sessions.values()) {
+      if (s.status === 'reconnecting') {
+        this.toDaemon({
+          type: 'reattach',
+          sessionId: s.sessionId,
+          tmuxLabel: s.tmuxLabel,
+          agentKind: s.agentKind,
+          cwd: s.cwd,
+          geometry: s.geometry,
+        })
+      }
+    }
   }
   detachDaemon(): void {
     this.daemonSend = undefined
@@ -294,6 +308,15 @@ export class SessionRegistry {
         this.sessions.get(msg.sessionId)?.markSpawnError(msg.message)
         const s = this.sessions.get(msg.sessionId)
         if (s) this.persist(s)
+        this.broadcastSessions()
+        break
+      }
+      case 'reattachFailed': {
+        const s = this.sessions.get(msg.sessionId)
+        if (s) {
+          s.onExit(-1) // the surviving tmux session is gone; the agent died with the box
+          this.persist(s)
+        }
         this.broadcastSessions()
         break
       }

@@ -242,7 +242,7 @@ describe('SessionRegistry', () => {
     expect(sessionId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-/)
   })
 
-  it('boot reconcile: persisted sessions reload as exited (Layer 1, no survival)', () => {
+  it('boot reconcile: persisted live sessions reload as reconnecting and trigger reattach', () => {
     const file = join(mkdtempSync(join(tmpdir(), 'podium-relay-')), 'podium.db')
     const store1 = new SessionStore(file)
     const reg1 = new SessionRegistry(store1)
@@ -257,23 +257,50 @@ describe('SessionRegistry', () => {
     reg1.onDaemonMessage(bind(sessionId))
     store1.close()
 
-    // Simulate a backend restart: brand-new registry over the same db.
+    // Restart: fresh registry over the same db.
     const store2 = new SessionStore(file)
     const reg2 = new SessionRegistry(store2)
-    const meta = reg2.listSessions().find((m) => m.sessionId === sessionId)
-    expect(meta).toMatchObject({
-      sessionId,
-      status: 'exited',
+    expect(reg2.listSessions().find((m) => m.sessionId === sessionId)).toMatchObject({
+      status: 'reconnecting',
       title: 'old',
       origin: { kind: 'resume', conversationId: 'c9' },
     })
-    // Resume metadata is retained for a future re-resume.
-    expect(store2.loadSessions().at(0)).toMatchObject({
-      resumeKind: 'codex-thread',
-      resumeValue: 't9',
-      status: 'exited',
-    })
+    // Attaching the daemon fires a reattach for the reconnecting session.
+    const control: import('@podium/protocol').ControlMessage[] = []
+    reg2.attachDaemon((m) => control.push(m))
+    expect(control).toContainEqual(
+      expect.objectContaining({ type: 'reattach', sessionId, tmuxLabel: `podium-${sessionId}` }),
+    )
     store2.close()
+  })
+
+  it('reattach success: bind on a reconnecting session makes it live', () => {
+    const file = join(mkdtempSync(join(tmpdir(), 'podium-relay-')), 'podium.db')
+    const store1 = new SessionStore(file)
+    const reg1 = new SessionRegistry(store1)
+    reg1.attachDaemon(() => {})
+    const { sessionId } = reg1.createSession({ agentKind: 'claude-code', cwd: '/a' })
+    reg1.onDaemonMessage(bind(sessionId))
+    store1.close()
+    const reg2 = new SessionRegistry(new SessionStore(file))
+    reg2.attachDaemon(() => {})
+    expect(reg2.listSessions().at(0)?.status).toBe('reconnecting')
+    reg2.onDaemonMessage(bind(sessionId))
+    expect(reg2.listSessions().at(0)?.status).toBe('live')
+  })
+
+  it('reattachFailed marks the session exited', () => {
+    const file = join(mkdtempSync(join(tmpdir(), 'podium-relay-')), 'podium.db')
+    const store1 = new SessionStore(file)
+    const reg1 = new SessionRegistry(store1)
+    reg1.attachDaemon(() => {})
+    const { sessionId } = reg1.createSession({ agentKind: 'claude-code', cwd: '/a' })
+    reg1.onDaemonMessage(bind(sessionId))
+    store1.close()
+    const reg2 = new SessionRegistry(new SessionStore(file))
+    reg2.attachDaemon(() => {})
+    reg2.onDaemonMessage({ type: 'reattachFailed', sessionId, reason: 'no tmux session' })
+    expect(reg2.listSessions().at(0)?.status).toBe('exited')
   })
 
   it('skips a persisted session with an invalid agentKind on load', () => {
