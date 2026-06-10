@@ -68,10 +68,21 @@ describe('web shell structure', () => {
     expect(src).toContain('workspace-menu-layer')
     expect(src).toContain('NewPanelMenu')
   })
+  it('conversation discovery is pushed instead of blocking initial store load', () => {
+    const src = read('store.tsx')
+    expect(src).toContain('hub.onConversations(setConversations)')
+    expect(src).toContain('void refreshRepos()')
+    expect(src).not.toContain('Promise.all([refreshRepos(), rescanConversations()])')
+  })
   it('new-panel menu offers claude, codex, and shell', () => {
     const src = read('NewPanelMenu.tsx')
     expect(src).toContain('New Claude')
     expect(src).toContain('New Codex')
     expect(src).toContain('New Shell')
+  })
+  it('new-panel menu refreshes resumable conversations when opened', () => {
+    const src = read('NewPanelMenu.tsx')
+    expect(src).toContain('useEffect')
+    expect(src).toContain('void rescanConversations().catch')
   })
 })

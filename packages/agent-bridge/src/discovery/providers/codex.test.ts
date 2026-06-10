@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
@@ -44,6 +44,11 @@ async function writeCodexSession(
         },
       }),
     ].join('\n'),
+  )
+  await utimes(
+    file,
+    new Date('2026-06-01T10:06:00.000Z'),
+    new Date('2026-06-01T10:06:00.000Z'),
   )
   return file
 }
@@ -132,15 +137,65 @@ describe('createCodexConversationProvider', () => {
         projectPath: '/repo/from-sqlite',
         parentConversationId: 'parent-thread',
         statusHint: 'archived',
-        messageCount: 2,
         git: { branch: 'main', sha: 'abc123', originUrl: 'git@example.com:repo.git' },
         resume: { kind: 'codex-thread', value: 'codex-session-1' },
         source: expect.objectContaining({ providerId: 'codex-jsonl', root }),
       }),
     ])
     expect(result.conversations[0]).not.toHaveProperty('messages')
-    expect(result.conversations[0]?.createdAt?.toISOString()).toBe('2026-06-01T09:00:00.000Z')
-    expect(result.conversations[0]?.updatedAt?.toISOString()).toBe('2026-06-01T10:05:00.000Z')
+    expect(result.conversations[0]?.createdAt?.toISOString()).toBe('2026-06-01T10:00:00.000Z')
+    expect(result.conversations[0]?.updatedAt?.toISOString()).toBe('2026-06-01T10:06:00.000Z')
+    expect(result.conversations[0]).not.toHaveProperty('messageCount')
+  })
+
+  test('summarizes from a bounded head read and ignores an invalid tail', async () => {
+    const root = await createRoot()
+    const file = join(root, 'sessions/2026/06/01/head-only.jsonl')
+    await mkdir(join(file, '..'), { recursive: true })
+    await writeFile(
+      file,
+      [
+        JSON.stringify({
+          timestamp: '2026-06-01T10:00:00.000Z',
+          type: 'session_meta',
+          payload: {
+            id: 'head-codex',
+            timestamp: '2026-06-01T10:00:00.000Z',
+            cwd: '/repo/head-codex',
+          },
+        }),
+        JSON.stringify({
+          timestamp: '2026-06-01T10:01:00.000Z',
+          type: 'response_item',
+          payload: {
+            type: 'message',
+            role: 'user',
+            content: [{ type: 'input_text', text: 'head only' }],
+          },
+        }),
+        `${' '.repeat(70_000)}not-json`,
+      ].join('\n'),
+    )
+    await utimes(
+      file,
+      new Date('2026-06-01T10:07:00.000Z'),
+      new Date('2026-06-01T10:07:00.000Z'),
+    )
+
+    const result = await createCodexConversationProvider().scanRoot(root)
+
+    expect(result.diagnostics).toEqual([])
+    expect(result.conversations).toEqual([
+      expect.objectContaining({
+        id: 'head-codex',
+        title: 'head-only',
+        titleSource: 'filename',
+        projectPath: '/repo/head-codex',
+      }),
+    ])
+    expect(result.conversations[0]?.createdAt?.toISOString()).toBe('2026-06-01T10:00:00.000Z')
+    expect(result.conversations[0]?.updatedAt?.toISOString()).toBe('2026-06-01T10:07:00.000Z')
+    expect(result.conversations[0]).not.toHaveProperty('messageCount')
   })
 
   test('loads full normalized Codex messages on demand', async () => {

@@ -37,6 +37,7 @@ describe('daemon multi-bridge', () => {
       serverUrl: `ws://localhost:${port}`,
       // direct node-pty path keeps these fixtures/assertions deterministic (no tmux dependency)
       tmux: false,
+      discovery: { background: false, cachePath: ':memory:' },
       // inject the deterministic fixture instead of real claude/codex
       launch: (_kind, opts) => ({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
     })
@@ -144,7 +145,7 @@ describe('daemon multi-bridge', () => {
     await writeFile(join(gitDir, 'HEAD'), 'ref: refs/heads/main\n')
     await writeFile(join(gitDir, 'refs', 'heads', 'main'), `${'1'.repeat(40)}\n`)
 
-    send({ type: 'scanReposRequest', requestId: 'rr-1', roots: [root] })
+    send({ type: 'scanReposRequest', requestId: 'rr-1', roots: [root], includeHome: false })
     await waitFor(() => received.some((m) => m.type === 'scanReposResult'))
 
     const result = received.find(
@@ -259,6 +260,7 @@ describe.skipIf(!isTmuxAvailable())('daemon tmux survival', () => {
     const daemon = await startDaemon({
       serverUrl: `ws://localhost:${port}`,
       tmux: true,
+      discovery: { background: false, cachePath: ':memory:' },
       launch: (_kind, opts) => ({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
     })
     await connected
@@ -304,6 +306,7 @@ describe.skipIf(!isTmuxAvailable())('daemon tmux survival', () => {
     const daemon = await startDaemon({
       serverUrl: `ws://localhost:${port}`,
       tmux: true,
+      discovery: { background: false, cachePath: ':memory:' },
       launch: (_kind, opts) => ({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
     })
     await connected
@@ -362,6 +365,67 @@ describe.skipIf(!isTmuxAvailable())('daemon tmux survival', () => {
     } finally {
       await daemon.close()
       killTmuxServer(label)
+      await new Promise<void>((r) => wss.close(() => r()))
+    }
+  })
+})
+
+
+describe('daemon conversation discovery', () => {
+  it('background quick scan pushes conversationsChanged', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'podium-discovery-home-'))
+    const projDir = join(home, '.claude', 'projects', 'proj')
+    await mkdir(projDir, { recursive: true })
+    await writeFile(
+      join(projDir, 'sess.jsonl'),
+      `${[
+        JSON.stringify({ type: 'summary', customTitle: 'Cached session', sessionId: 'sess-bg' }),
+        JSON.stringify({
+          sessionId: 'sess-bg',
+          cwd: '/home/proj',
+          timestamp: '2026-06-01T00:00:00.000Z',
+          message: { role: 'user', content: 'hi' },
+        }),
+      ].join('\n')}\n`,
+    )
+
+    const wss = new WebSocketServer({ port: 0 })
+    await new Promise<void>((r) => wss.once('listening', () => r()))
+    const port = (wss.address() as { port: number }).port
+    const received: DaemonMessage[] = []
+    const connected = new Promise<void>((r) => {
+      wss.once('connection', (ws) => {
+        ws.on('message', (raw) => received.push(parseDaemonMessage(raw.toString())))
+        r()
+      })
+    })
+
+    const daemon = await startDaemon({
+      serverUrl: `ws://localhost:${port}`,
+      tmux: false,
+      launch: (_kind, opts) => ({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
+      discovery: {
+        cachePath: join(home, 'discovery.db'),
+        homeDir: home,
+        scanIntervalMs: 20,
+      },
+    })
+    await connected
+
+    try {
+      const start = Date.now()
+      while (
+        !received.some(
+          (m) =>
+            m.type === 'conversationsChanged' &&
+            m.conversations.some((conversation) => conversation.id === 'sess-bg'),
+        )
+      ) {
+        if (Date.now() - start > 5000) throw new Error('conversationsChanged timed out')
+        await new Promise((r) => setTimeout(r, 20))
+      }
+    } finally {
+      await daemon.close()
       await new Promise<void>((r) => wss.close(() => r()))
     }
   })

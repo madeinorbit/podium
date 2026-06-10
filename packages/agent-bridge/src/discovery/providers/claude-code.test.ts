@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, test } from 'vitest'
@@ -38,6 +38,11 @@ async function writeClaudeSession(
         message: { role: 'assistant', content: [{ type: 'text', text: 'found conversations' }] },
       }),
     ].join('\n'),
+  )
+  await utimes(
+    file,
+    new Date('2026-06-01T11:02:00.000Z'),
+    new Date('2026-06-01T11:02:00.000Z'),
   )
   return file
 }
@@ -83,14 +88,14 @@ describe('createClaudeCodeConversationProvider', () => {
         titleSource: 'native',
         projectPath: '/repo/project',
         statusHint: 'unknown',
-        messageCount: 2,
         resume: { kind: 'claude-session', value: 'claude-session-1' },
         source: expect.objectContaining({ providerId: 'claude-code-jsonl', root }),
       }),
     )
     expect(parent).not.toHaveProperty('messages')
     expect(parent?.createdAt?.toISOString()).toBe('2026-06-01T11:00:00.000Z')
-    expect(parent?.updatedAt?.toISOString()).toBe('2026-06-01T11:01:00.000Z')
+    expect(parent?.updatedAt?.toISOString()).toBe('2026-06-01T11:02:00.000Z')
+    expect(parent).not.toHaveProperty('messageCount')
 
     expect(child).toEqual(
       expect.objectContaining({
@@ -101,7 +106,6 @@ describe('createClaudeCodeConversationProvider', () => {
         titleSource: 'native',
         projectPath: '/repo/project',
         statusHint: 'unknown',
-        messageCount: 2,
         resume: { kind: 'claude-session', value: 'agent-a' },
         source: expect.objectContaining({
           providerId: 'claude-code-jsonl',
@@ -113,6 +117,45 @@ describe('createClaudeCodeConversationProvider', () => {
       }),
     )
     expect(child).not.toHaveProperty('messages')
+  })
+
+  test('summarizes from a bounded head read and ignores an invalid tail', async () => {
+    const root = await createRoot()
+    const file = join(root, 'projects/-repo-project/head-only.jsonl')
+    await mkdir(join(file, '..'), { recursive: true })
+    await writeFile(
+      file,
+      [
+        JSON.stringify({ type: 'summary', customTitle: 'Head Title', sessionId: 'head-session' }),
+        JSON.stringify({
+          timestamp: '2026-06-01T12:00:00.000Z',
+          cwd: '/repo/head',
+          sessionId: 'head-session',
+          message: { role: 'user', content: 'head only' },
+        }),
+        `${' '.repeat(70_000)}not-json`,
+      ].join('\n'),
+    )
+    await utimes(
+      file,
+      new Date('2026-06-01T12:03:00.000Z'),
+      new Date('2026-06-01T12:03:00.000Z'),
+    )
+
+    const result = await createClaudeCodeConversationProvider().scanRoot(root)
+
+    expect(result.diagnostics).toEqual([])
+    expect(result.conversations).toEqual([
+      expect.objectContaining({
+        id: 'head-session',
+        title: 'Head Title',
+        titleSource: 'native',
+        projectPath: '/repo/head',
+      }),
+    ])
+    expect(result.conversations[0]?.createdAt?.toISOString()).toBe('2026-06-01T12:00:00.000Z')
+    expect(result.conversations[0]?.updatedAt?.toISOString()).toBe('2026-06-01T12:03:00.000Z')
+    expect(result.conversations[0]).not.toHaveProperty('messageCount')
   })
 
   test('falls back to filename titles when no custom title exists', async () => {

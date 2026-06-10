@@ -1,4 +1,4 @@
-import { readdir, readFile } from 'node:fs/promises'
+import { readdir, readFile, stat } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
 import {
   contentToText,
@@ -6,6 +6,7 @@ import {
   isRecord,
   mapConversationRole,
   parseJsonLines,
+  readJsonLinesHead,
   stringField,
 } from '../jsonl.js'
 import { canonicalPath, pathExists } from '../paths.js'
@@ -14,38 +15,56 @@ import type {
   AgentConversationDiagnostic,
   AgentConversationMessage,
   AgentConversationSummary,
+  ConversationFileStat,
   ConversationProvider,
+  ConversationProviderFile,
+  ProviderRootListing,
   ProviderScanResult,
+  ProviderSummaryContext,
+  ProviderSummaryResult,
 } from '../types.js'
 import { AgentConversationLoadError } from '../types.js'
 
 const providerId = 'claude-code-jsonl'
-
-type ClaudeConversationFile = {
-  path: string
-  parentConversationId?: string
-}
 
 export function createClaudeCodeConversationProvider(): ConversationProvider {
   return {
     id: providerId,
     agentKind: 'claude-code',
     defaultRoots: ({ homeDir }) => [join(homeDir, '.claude')],
+    listRoot,
+    summarizeFile,
     scanRoot,
     loadConversation,
   }
 }
 
 async function scanRoot(root: string): Promise<ProviderScanResult> {
-  const projectsRoot = join(root, 'projects')
-  if (!(await pathExists(projectsRoot))) return { conversations: [], diagnostics: [] }
+  const listing = await listRoot(root)
+  const conversations: AgentConversationSummary[] = []
+  const diagnostics: AgentConversationDiagnostic[] = [...listing.diagnostics]
+  const canonical = memoizeCanonicalPath()
 
-  let files: ClaudeConversationFile[]
+  await Promise.all(
+    listing.files.map(async (file) => {
+      const result = await summarizeFile(root, file, { canonicalPath: canonical })
+      diagnostics.push(...result.diagnostics)
+      if (result.summary) conversations.push(result.summary)
+    }),
+  )
+
+  return { conversations, diagnostics }
+}
+
+async function listRoot(root: string): Promise<ProviderRootListing> {
+  const projectsRoot = join(root, 'projects')
+  if (!(await pathExists(projectsRoot))) return { files: [], diagnostics: [] }
+
   try {
-    files = await listClaudeConversationFiles(projectsRoot)
+    return { files: await listClaudeConversationFiles(projectsRoot), diagnostics: [] }
   } catch (cause) {
     return {
-      conversations: [],
+      files: [],
       diagnostics: [
         {
           severity: 'error',
@@ -57,20 +76,57 @@ async function scanRoot(root: string): Promise<ProviderScanResult> {
       ],
     }
   }
+}
 
-  const conversations: AgentConversationSummary[] = []
-  const diagnostics: AgentConversationDiagnostic[] = []
-
-  for (const file of files) {
-    const parsed = await readClaudeRecords(file.path, root)
-    diagnostics.push(...parsed.diagnostics)
-    if (parsed.diagnostics.length > 0) continue
-
-    const summary = await summarizeClaudeRecords(parsed.records, root, file)
-    if (summary) conversations.push(summary)
+async function summarizeFile(
+  root: string,
+  file: ConversationProviderFile,
+  context: ProviderSummaryContext = {},
+): Promise<ProviderSummaryResult> {
+  let stats: ConversationFileStat
+  try {
+    stats = context.stats ?? (await stat(file.path))
+  } catch (cause) {
+    return {
+      diagnostics: [
+        {
+          severity: 'warning',
+          providerId,
+          root,
+          path: file.path,
+          message: 'Claude Code conversation file cannot be read',
+          cause,
+        },
+      ],
+    }
   }
 
-  return { conversations, diagnostics }
+  const parsed = await readClaudeHeadRecords(file.path, root, context)
+  if (parsed.diagnostics.length > 0) return { diagnostics: parsed.diagnostics }
+  if (parsed.records.length === 0 && stats.size === 0) return { diagnostics: [] }
+
+  let canonical: string
+  try {
+    canonical = await (context.canonicalPath ?? canonicalPath)(file.path)
+  } catch (cause) {
+    return {
+      diagnostics: [
+        {
+          severity: 'warning',
+          providerId,
+          root,
+          path: file.path,
+          message: 'Claude Code conversation path cannot be resolved',
+          cause,
+        },
+      ],
+    }
+  }
+
+  return {
+    summary: summarizeClaudeHeadRecords(parsed.records, root, file, canonical, stats),
+    diagnostics: [],
+  }
 }
 
 async function loadConversation(summary: AgentConversationSummary): Promise<AgentConversation> {
@@ -93,13 +149,12 @@ async function loadConversation(summary: AgentConversationSummary): Promise<Agen
     )
   }
 
-  return { ...summary, messages: claudeMessages(parsed.records), raw: parsed.records }
+  const messages = claudeMessages(parsed.records)
+  return { ...summary, messageCount: messages.length, messages, raw: parsed.records }
 }
 
-async function listClaudeConversationFiles(
-  projectsRoot: string,
-): Promise<ClaudeConversationFile[]> {
-  const files: ClaudeConversationFile[] = []
+async function listClaudeConversationFiles(projectsRoot: string): Promise<ConversationProviderFile[]> {
+  const files: ConversationProviderFile[] = []
   const projectDirs = await readdir(projectsRoot, { withFileTypes: true })
 
   for (const projectDir of projectDirs.sort(compareDirentNames)) {
@@ -136,6 +191,33 @@ async function listClaudeConversationFiles(
   return files
 }
 
+async function readClaudeHeadRecords(
+  file: string,
+  root: string,
+  context: ProviderSummaryContext,
+): Promise<{ records: unknown[]; diagnostics: AgentConversationDiagnostic[] }> {
+  try {
+    return await readJsonLinesHead(file, { providerId, root, path: file }, {
+      ...(context.headBytes === undefined ? {} : { maxBytes: context.headBytes }),
+      ...(context.headLines === undefined ? {} : { maxLines: context.headLines }),
+    })
+  } catch (cause) {
+    return {
+      records: [],
+      diagnostics: [
+        {
+          severity: 'warning',
+          providerId,
+          root,
+          path: file,
+          message: 'Claude Code conversation file cannot be read',
+          cause,
+        },
+      ],
+    }
+  }
+}
+
 async function readClaudeRecords(
   file: string,
   root: string,
@@ -160,25 +242,22 @@ async function readClaudeRecords(
   }
 }
 
-async function summarizeClaudeRecords(
+function summarizeClaudeHeadRecords(
   records: unknown[],
   root: string,
-  file: ClaudeConversationFile,
-): Promise<AgentConversationSummary | undefined> {
-  const messages = claudeMessages(records)
+  file: ConversationProviderFile,
+  canonical: string,
+  stats: ConversationFileStat,
+): AgentConversationSummary {
   const summaryRecord = records.find(
     (record) => isRecord(record) && stringField(record, 'customTitle'),
   )
   const sessionRecord = records.find(
     (record) => isRecord(record) && stringField(record, 'sessionId'),
   )
-  if (messages.length === 0 && !summaryRecord && !sessionRecord) return undefined
-
-  const canonical = await canonicalPath(file.path)
   const summary = isRecord(summaryRecord) ? summaryRecord : undefined
   const session = isRecord(sessionRecord) ? sessionRecord : undefined
   const id = stringField(session ?? {}, 'sessionId') ?? basename(file.path, '.jsonl')
-  const dates = records.map(recordTimestamp).filter((date): date is Date => date !== undefined)
 
   return {
     id,
@@ -188,9 +267,8 @@ async function summarizeClaudeRecords(
     projectPath: firstProjectPath(records),
     parentConversationId: file.parentConversationId,
     statusHint: 'unknown',
-    createdAt: dates[0],
-    updatedAt: dates.at(-1),
-    messageCount: messages.length,
+    createdAt: firstRecordTimestamp(records) ?? createdAtFromStats(stats),
+    updatedAt: validDate(stats.mtime, stats.mtimeMs),
     resume: { kind: 'claude-session', value: id },
     source: {
       providerId,
@@ -228,8 +306,28 @@ function firstProjectPath(records: unknown[]): string | undefined {
   return undefined
 }
 
+function firstRecordTimestamp(records: unknown[]): Date | undefined {
+  for (const record of records) {
+    const timestamp = recordTimestamp(record)
+    if (timestamp) return timestamp
+  }
+  return undefined
+}
+
 function recordTimestamp(record: unknown): Date | undefined {
   return isRecord(record) ? dateField(record, 'timestamp') : undefined
+}
+
+function createdAtFromStats(stats: ConversationFileStat): Date | undefined {
+  return (
+    validDate(stats.birthtime, stats.birthtimeMs) ??
+    validDate(stats.ctime, stats.ctimeMs) ??
+    validDate(stats.mtime, stats.mtimeMs)
+  )
+}
+
+function validDate(date: Date, ms: number): Date | undefined {
+  return Number.isFinite(ms) && ms > 0 && !Number.isNaN(date.getTime()) ? date : undefined
 }
 
 function subagentMetaPath(path: string): string {
@@ -240,4 +338,16 @@ function compareDirentNames(left: { name: string }, right: { name: string }): nu
   if (left.name < right.name) return -1
   if (left.name > right.name) return 1
   return 0
+}
+
+function memoizeCanonicalPath(): (path: string) => Promise<string> {
+  const paths = new Map<string, Promise<string>>()
+  return (path: string) => {
+    let cached = paths.get(path)
+    if (!cached) {
+      cached = canonicalPath(path)
+      paths.set(path, cached)
+    }
+    return cached
+  }
 }

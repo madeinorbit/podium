@@ -187,14 +187,73 @@ describe('SessionRegistry', () => {
     })
   })
 
-  it('attachClient sends welcome + a sessions snapshot', () => {
+  it('attachClient sends welcome plus session and conversation snapshots', () => {
     const reg = new SessionRegistry()
     reg.attachDaemon(() => {})
     reg.createSession({ agentKind: 'claude-code', cwd: '/a' })
+    reg.onDaemonMessage({
+      type: 'conversationsChanged',
+      conversations: [{ id: 'conv-1', agentKind: 'codex', providerId: 'codex-jsonl' }],
+      diagnostics: [],
+    })
     const c = sink()
     const id = reg.attachClient(c.send)
     expect(c.sent).toContainEqual({ type: 'welcome', clientId: id })
     expect(c.sent.some((m) => m.type === 'sessionsChanged')).toBe(true)
+    expect(c.sent).toContainEqual({
+      type: 'conversationsChanged',
+      conversations: [{ id: 'conv-1', agentKind: 'codex', providerId: 'codex-jsonl' }],
+      diagnostics: [],
+    })
+  })
+
+  it('broadcasts daemon conversation changes to current clients', () => {
+    const reg = new SessionRegistry()
+    reg.attachDaemon(() => {})
+    const c = sink()
+    reg.attachClient(c.send)
+    c.sent.length = 0
+
+    reg.onDaemonMessage({
+      type: 'conversationsChanged',
+      conversations: [{ id: 'conv-2', agentKind: 'claude-code', providerId: 'claude-code-jsonl' }],
+      diagnostics: [],
+    })
+
+    expect(c.sent).toEqual([
+      {
+        type: 'conversationsChanged',
+        conversations: [{ id: 'conv-2', agentKind: 'claude-code', providerId: 'claude-code-jsonl' }],
+        diagnostics: [],
+      },
+    ])
+  })
+
+  it('scanResult updates the latest conversation snapshot and broadcasts it', async () => {
+    const reg = new SessionRegistry()
+    const daemon: ControlMessage[] = []
+    reg.attachDaemon((m) => daemon.push(m))
+    const c = sink()
+    reg.attachClient(c.send)
+    c.sent.length = 0
+    const p = reg.scan()
+    const req = daemon.find((m) => m.type === 'scanRequest') as { requestId: string } | undefined
+    expect(req).toBeDefined()
+    if (!req) throw new Error('scanRequest not sent')
+
+    reg.onDaemonMessage({
+      type: 'scanResult',
+      requestId: req.requestId,
+      conversations: [{ id: 'conv-3', agentKind: 'codex', providerId: 'codex-jsonl' }],
+      diagnostics: [],
+    })
+
+    await expect(p).resolves.toMatchObject({ conversations: [{ id: 'conv-3' }] })
+    expect(c.sent).toContainEqual({
+      type: 'conversationsChanged',
+      conversations: [{ id: 'conv-3', agentKind: 'codex', providerId: 'codex-jsonl' }],
+      diagnostics: [],
+    })
   })
 
   it('scan correlates the daemon scanResult back to the caller', async () => {

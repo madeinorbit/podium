@@ -133,6 +133,14 @@ describe('ServerMessage', () => {
     createdAt: '2026-06-03T00:00:00.000Z',
     origin: { kind: 'spawn' as const },
   }
+  const conversation = {
+    id: 'conv-1',
+    agentKind: 'codex' as const,
+    title: 'Cached discovery',
+    projectPath: '/w',
+    providerId: 'codex-jsonl',
+    resume: { kind: 'codex-thread', value: 'conv-1' },
+  }
   const cases: ServerMessage[] = [
     { type: 'welcome', clientId: 'c0' },
     { type: 'attached', sessionId: 's1', controllerId: 'c0', geometry, epoch: 0 },
@@ -142,6 +150,7 @@ describe('ServerMessage', () => {
     { type: 'geometry', sessionId: 's1', cols: 100, rows: 30 },
     { type: 'agentExit', sessionId: 's1', code: 0 },
     { type: 'sessionsChanged', sessions: [sessionMeta] },
+    { type: 'conversationsChanged', conversations: [conversation], diagnostics: [] },
     { type: 'sessionTitleChanged', sessionId: 's1', title: '✳ rename functionality' },
   ]
   it.each(cases)('round-trips %j', (msg) => {
@@ -175,6 +184,14 @@ describe('ControlMessage (server -> daemon)', () => {
 
 describe('DaemonMessage (daemon -> server)', () => {
   const geometry = { cols: 80, rows: 24 }
+  const conversation = {
+    id: 'conv-1',
+    agentKind: 'codex' as const,
+    title: 'Cached discovery',
+    projectPath: '/w',
+    providerId: 'codex-jsonl',
+    resume: { kind: 'codex-thread', value: 'conv-1' },
+  }
   const cases: DaemonMessage[] = [
     { type: 'bind', sessionId: 's1', cmd: 'claude', cwd: '/w', agentKind: 'claude-code', geometry },
     { type: 'agentFrame', sessionId: 's1', seq: 0, data: 'eA==' },
@@ -182,6 +199,7 @@ describe('DaemonMessage (daemon -> server)', () => {
     { type: 'spawnError', sessionId: 's1', message: 'enoent' },
     { type: 'title', sessionId: 's1', title: '⠹ podium' },
     { type: 'scanResult', requestId: 'r1', conversations: [], diagnostics: [] },
+    { type: 'conversationsChanged', conversations: [conversation], diagnostics: [] },
     {
       type: 'scanReposResult',
       requestId: 'rr1',

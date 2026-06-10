@@ -1,5 +1,5 @@
 import type { AgentKind } from '@podium/protocol'
-import type { JSX } from 'react'
+import { useEffect, type JSX } from 'react'
 import {
   mergeResumable,
   reposToViews,
@@ -16,7 +16,7 @@ export function NewPanelMenu({
   worktree: WorktreeView
   onOpened: (sessionId: string) => void
 }): JSX.Element {
-  const { trpc, conversations, repos } = useStore()
+  const { trpc, conversations, repos, rescanConversations } = useStore()
   const exact = resumableForWorktree(conversations, worktree.path)
   // The repo's main worktree also surfaces conversations that ran under the repo but
   // matched no worktree exactly, so none are lost.
@@ -26,6 +26,10 @@ export function NewPanelMenu({
     ? resumableForRepoFallback(conversations, worktree.repoPath, repoWorktreePaths)
     : []
   const resumable = mergeResumable(exact, fallback)
+
+  useEffect(() => {
+    void rescanConversations().catch(() => {})
+  }, [rescanConversations])
 
   async function create(agentKind: AgentKind) {
     const { sessionId } = await trpc.sessions.create.mutate({ agentKind, cwd: worktree.path })

@@ -1,4 +1,4 @@
-import { readFile } from 'node:fs/promises'
+import { readFile, stat } from 'node:fs/promises'
 import { basename, join } from 'node:path'
 import {
   contentToText,
@@ -6,6 +6,7 @@ import {
   isRecord,
   mapConversationRole,
   parseJsonLines,
+  readJsonLinesHead,
   stringField,
 } from '../jsonl.js'
 import { canonicalPath, listFilesRecursive, pathExists } from '../paths.js'
@@ -14,63 +15,133 @@ import type {
   AgentConversationDiagnostic,
   AgentConversationMessage,
   AgentConversationSummary,
+  ConversationFileStat,
   ConversationProvider,
+  ConversationProviderFile,
+  ProviderRootListing,
   ProviderScanResult,
+  ProviderSummaryContext,
+  ProviderSummaryResult,
 } from '../types.js'
 import { AgentConversationLoadError } from '../types.js'
-import { type CodexThreadMetadata, readCodexStateMetadata } from './codex-state.js'
+import { type CodexStateMetadataResult, type CodexThreadMetadata, readCodexStateMetadata } from './codex-state.js'
+
+const providerId = 'codex-jsonl'
 
 export function createCodexConversationProvider(): ConversationProvider {
   return {
-    id: 'codex-jsonl',
+    id: providerId,
     agentKind: 'codex',
     defaultRoots: ({ homeDir }) => [join(homeDir, '.codex')],
+    listRoot,
+    summarizeFile,
     scanRoot,
     loadConversation,
   }
 }
 
 async function scanRoot(root: string): Promise<ProviderScanResult> {
+  const listing = await listRoot(root)
+  const conversations: AgentConversationSummary[] = []
+  const diagnostics: AgentConversationDiagnostic[] = [...listing.diagnostics]
+  const canonical = memoizeCanonicalPath()
+
+  await Promise.all(
+    listing.files.map(async (file) => {
+      const result = await summarizeFile(root, file, {
+        canonicalPath: canonical,
+        rootState: listing.state,
+      })
+      diagnostics.push(...result.diagnostics)
+      if (result.summary) conversations.push(result.summary)
+    }),
+  )
+
+  return { conversations, diagnostics }
+}
+
+async function listRoot(root: string): Promise<ProviderRootListing> {
   const sessionsRoot = join(root, 'sessions')
   const state = await readCodexStateMetadata(root)
   if (!(await pathExists(sessionsRoot))) {
-    return { conversations: [], diagnostics: state.diagnostics }
+    return { files: [], diagnostics: state.diagnostics, state }
   }
 
-  let files: string[]
   try {
-    files = await listFilesRecursive(sessionsRoot, (file) => file.endsWith('.jsonl'))
+    const files = await listFilesRecursive(sessionsRoot, (file) => file.endsWith('.jsonl'))
+    return { files: files.map((path) => ({ path })), diagnostics: state.diagnostics, state }
   } catch (cause) {
     return {
-      conversations: [],
+      files: [],
       diagnostics: [
         ...state.diagnostics,
         {
           severity: 'error',
-          providerId: 'codex-jsonl',
+          providerId,
           root,
           message: 'Codex sessions directory cannot be read',
+          cause,
+        },
+      ],
+      state,
+    }
+  }
+}
+
+async function summarizeFile(
+  root: string,
+  file: ConversationProviderFile,
+  context: ProviderSummaryContext = {},
+): Promise<ProviderSummaryResult> {
+  let stats: ConversationFileStat
+  try {
+    stats = context.stats ?? (await stat(file.path))
+  } catch (cause) {
+    return {
+      diagnostics: [
+        {
+          severity: 'warning',
+          providerId,
+          root,
+          path: file.path,
+          message: 'Codex session file cannot be read',
           cause,
         },
       ],
     }
   }
 
-  const conversations: AgentConversationSummary[] = []
-  const diagnostics: AgentConversationDiagnostic[] = [...state.diagnostics]
+  const parsed = await readCodexHeadRecords(file.path, root, context)
+  if (parsed.diagnostics.length > 0) return { diagnostics: parsed.diagnostics }
+  if (parsed.records.length === 0 && stats.size === 0) return { diagnostics: [] }
 
-  for (const file of files) {
-    const parsed = await readCodexRecords(file, root)
-    diagnostics.push(...parsed.diagnostics)
-    if (parsed.diagnostics.length > 0) continue
-
-    const canonical = await canonicalPath(file)
-    const metadata = state.byRolloutPath.get(canonical) ?? state.byRolloutPath.get(file)
-    const summary = await summarizeCodexRecords(parsed.records, root, canonical, metadata)
-    if (summary) conversations.push(summary)
+  let canonical: string
+  try {
+    canonical = await (context.canonicalPath ?? canonicalPath)(file.path)
+  } catch (cause) {
+    return {
+      diagnostics: [
+        {
+          severity: 'warning',
+          providerId,
+          root,
+          path: file.path,
+          message: 'Codex session path cannot be resolved',
+          cause,
+        },
+      ],
+    }
   }
 
-  return { conversations, diagnostics }
+  const state = isCodexStateMetadataResult(context.rootState)
+    ? context.rootState
+    : await readCodexStateMetadata(root)
+  const metadata = state.byRolloutPath.get(canonical) ?? state.byRolloutPath.get(file.path)
+
+  return {
+    summary: summarizeCodexHeadRecords(parsed.records, root, canonical, metadata, stats),
+    diagnostics: state === context.rootState ? [] : state.diagnostics,
+  }
 }
 
 async function loadConversation(summary: AgentConversationSummary): Promise<AgentConversation> {
@@ -95,12 +166,38 @@ async function loadConversation(summary: AgentConversationSummary): Promise<Agen
       )
     }
 
-    throw new AgentConversationLoadError(
-      `Could not parse Codex conversation ${summary.source.path}`,
-    )
+    throw new AgentConversationLoadError(`Could not parse Codex conversation ${summary.source.path}`)
   }
 
-  return { ...summary, messages: codexMessages(parsed.records), raw: parsed.records }
+  const messages = codexMessages(parsed.records)
+  return { ...summary, messageCount: messages.length, messages, raw: parsed.records }
+}
+
+async function readCodexHeadRecords(
+  file: string,
+  root: string,
+  context: ProviderSummaryContext,
+): Promise<{ records: unknown[]; diagnostics: AgentConversationDiagnostic[] }> {
+  try {
+    return await readJsonLinesHead(file, { providerId, root, path: file }, {
+      ...(context.headBytes === undefined ? {} : { maxBytes: context.headBytes }),
+      ...(context.headLines === undefined ? {} : { maxLines: context.headLines }),
+    })
+  } catch (cause) {
+    return {
+      records: [],
+      diagnostics: [
+        {
+          severity: 'warning',
+          providerId,
+          root,
+          path: file,
+          message: 'Codex session file cannot be read',
+          cause,
+        },
+      ],
+    }
+  }
 }
 
 async function readCodexRecords(
@@ -112,14 +209,14 @@ async function readCodexRecords(
 }> {
   try {
     const text = await readFile(file, 'utf8')
-    return parseJsonLines(text, { providerId: 'codex-jsonl', root, path: file })
+    return parseJsonLines(text, { providerId, root, path: file })
   } catch (cause) {
     return {
       records: [],
       diagnostics: [
         {
           severity: 'warning',
-          providerId: 'codex-jsonl',
+          providerId,
           root,
           path: file,
           message: 'Codex session file cannot be read',
@@ -130,19 +227,16 @@ async function readCodexRecords(
   }
 }
 
-async function summarizeCodexRecords(
+function summarizeCodexHeadRecords(
   records: unknown[],
   root: string,
   file: string,
   metadata: CodexThreadMetadata | undefined,
-): Promise<AgentConversationSummary | undefined> {
+  stats: ConversationFileStat,
+): AgentConversationSummary {
   const meta = records.map(codexPayload).find((payload) => stringField(payload, 'id'))
-  const messages = codexMessages(records)
-  if (!meta && !metadata && messages.length === 0) return undefined
-
   const id =
     metadata?.id ?? (meta ? stringField(meta, 'id') : undefined) ?? basename(file, '.jsonl')
-  const dates = records.map(recordTimestamp).filter((date): date is Date => date !== undefined)
 
   return {
     id,
@@ -152,13 +246,12 @@ async function summarizeCodexRecords(
     projectPath: metadata?.cwd ?? (meta ? stringField(meta, 'cwd') : undefined),
     parentConversationId: metadata?.parentThreadId,
     statusHint: metadata?.archived ? 'archived' : 'unknown',
-    createdAt: metadata?.createdAt ?? dates[0],
-    updatedAt: metadata?.updatedAt ?? dates.at(-1),
-    messageCount: messages.length,
+    createdAt: firstRecordTimestamp(records) ?? createdAtFromStats(stats),
+    updatedAt: validDate(stats.mtime, stats.mtimeMs),
     git: metadata?.git,
     resume: { kind: 'codex-thread', value: id },
     source: {
-      providerId: 'codex-jsonl',
+      providerId,
       root,
       path: file,
       relatedPaths:
@@ -191,6 +284,14 @@ function codexPayload(record: unknown): Record<string, unknown> {
   return isRecord(record.payload) ? record.payload : {}
 }
 
+function firstRecordTimestamp(records: unknown[]): Date | undefined {
+  for (const record of records) {
+    const timestamp = recordTimestamp(record)
+    if (timestamp) return timestamp
+  }
+  return undefined
+}
+
 function recordTimestamp(record: unknown): Date | undefined {
   if (!isRecord(record)) return undefined
   const timestamp = dateField(record, 'timestamp')
@@ -198,6 +299,39 @@ function recordTimestamp(record: unknown): Date | undefined {
   return dateField(codexPayload(record), 'timestamp')
 }
 
+function createdAtFromStats(stats: ConversationFileStat): Date | undefined {
+  return (
+    validDate(stats.birthtime, stats.birthtimeMs) ??
+    validDate(stats.ctime, stats.ctimeMs) ??
+    validDate(stats.mtime, stats.mtimeMs)
+  )
+}
+
+function validDate(date: Date, ms: number): Date | undefined {
+  return Number.isFinite(ms) && ms > 0 && !Number.isNaN(date.getTime()) ? date : undefined
+}
+
 function fallbackTitle(file: string): string {
   return basename(file, '.jsonl')
+}
+
+function isCodexStateMetadataResult(value: unknown): value is CodexStateMetadataResult {
+  return (
+    isRecord(value) &&
+    value.byThreadId instanceof Map &&
+    value.byRolloutPath instanceof Map &&
+    Array.isArray(value.diagnostics)
+  )
+}
+
+function memoizeCanonicalPath(): (path: string) => Promise<string> {
+  const paths = new Map<string, Promise<string>>()
+  return (path: string) => {
+    let cached = paths.get(path)
+    if (!cached) {
+      cached = canonicalPath(path)
+      paths.set(path, cached)
+    }
+    return cached
+  }
 }

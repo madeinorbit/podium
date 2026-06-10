@@ -117,7 +117,8 @@ export function StoreProvider({
   }, [repos, selectedWorktree])
 
   useEffect(() => {
-    const off = hub.onSessions(setSessions)
+    const offSessions = hub.onSessions(setSessions)
+    const offConversations = hub.onConversations(setConversations)
     const connectTimer = setTimeout(() => {
       try {
         hub.connect()
@@ -127,16 +128,17 @@ export function StoreProvider({
     }, 0)
     if (!started.current) {
       started.current = true
-      void Promise.all([refreshRepos(), rescanConversations()]).catch((e) => {
+      void refreshRepos().catch((e) => {
         onFatalError(formatAppError(e, 'Could not load Podium data'))
       })
     }
     return () => {
       clearTimeout(connectTimer)
-      off()
+      offSessions()
+      offConversations()
       hub.dispose()
     }
-  }, [hub, onFatalError, refreshRepos, rescanConversations])
+  }, [hub, onFatalError, refreshRepos])
 
   const value: Store = {
     hub,

@@ -41,6 +41,8 @@ export class SessionRegistry {
   private readonly clients = new Map<string, ClientConn>()
   private readonly pendingScans = new Map<string, (r: ScanResult) => void>()
   private readonly pendingRepoScans = new Map<string, (r: ScanReposResult) => void>()
+  private latestConversations: ConversationSummaryWire[] = []
+  private latestConversationDiagnostics: ConversationDiagnosticWire[] = []
   private nextClientNum = 0
   // Shared by scan() ('r' prefix) and scanRepos() ('rr' prefix). Each scan
   // variant must use a distinct string prefix so ids never collide across the
@@ -250,6 +252,11 @@ export class SessionRegistry {
     this.clients.set(id, { id, send, viewport: { ...DEFAULT_GEOMETRY }, attached: new Set() })
     send({ type: 'welcome', clientId: id })
     send({ type: 'sessionsChanged', sessions: this.listSessions() })
+    send({
+      type: 'conversationsChanged',
+      conversations: this.latestConversations,
+      diagnostics: this.latestConversationDiagnostics,
+    })
     return id
   }
 
@@ -351,11 +358,20 @@ export class SessionRegistry {
         break
       }
       case 'scanResult': {
+        this.latestConversations = msg.conversations
+        this.latestConversationDiagnostics = msg.diagnostics
+        this.broadcastConversations()
         const resolve = this.pendingScans.get(msg.requestId)
         if (resolve) {
           this.pendingScans.delete(msg.requestId)
           resolve({ conversations: msg.conversations, diagnostics: msg.diagnostics })
         }
+        break
+      }
+      case 'conversationsChanged': {
+        this.latestConversations = msg.conversations
+        this.latestConversationDiagnostics = msg.diagnostics
+        this.broadcastConversations()
         break
       }
       case 'scanReposResult': {
@@ -371,6 +387,15 @@ export class SessionRegistry {
 
   private broadcastSessions(): void {
     const msg: ServerMessage = { type: 'sessionsChanged', sessions: this.listSessions() }
+    for (const c of this.clients.values()) c.send(msg)
+  }
+
+  private broadcastConversations(): void {
+    const msg: ServerMessage = {
+      type: 'conversationsChanged',
+      conversations: this.latestConversations,
+      diagnostics: this.latestConversationDiagnostics,
+    }
     for (const c of this.clients.values()) c.send(msg)
   }
 }

@@ -1,3 +1,5 @@
+import type { Stats } from 'node:fs'
+
 export type AgentKind = 'codex' | 'claude-code'
 
 export type AgentConversationRole = 'user' | 'assistant' | 'system' | 'tool' | 'unknown'
@@ -87,10 +89,45 @@ export type ProviderScanResult = {
   diagnostics: AgentConversationDiagnostic[]
 }
 
+export type ConversationFileStat = Pick<
+  Stats,
+  'size' | 'mtime' | 'mtimeMs' | 'birthtime' | 'birthtimeMs' | 'ctime' | 'ctimeMs'
+>
+
+export type ConversationProviderFile = {
+  path: string
+  parentConversationId?: string
+}
+
+export type ProviderRootListing = {
+  files: ConversationProviderFile[]
+  diagnostics: AgentConversationDiagnostic[]
+  state?: unknown
+}
+
+export type ProviderSummaryContext = {
+  canonicalPath?: (path: string) => Promise<string>
+  stats?: ConversationFileStat
+  rootState?: unknown
+  headBytes?: number
+  headLines?: number
+}
+
+export type ProviderSummaryResult = {
+  summary?: AgentConversationSummary
+  diagnostics: AgentConversationDiagnostic[]
+}
+
 export interface ConversationProvider {
   id: string
   agentKind: AgentKind
   defaultRoots(context: ConversationProviderContext): readonly string[]
+  listRoot(root: string): Promise<ProviderRootListing>
+  summarizeFile(
+    root: string,
+    file: ConversationProviderFile,
+    context?: ProviderSummaryContext,
+  ): Promise<ProviderSummaryResult>
   scanRoot(root: string): Promise<ProviderScanResult>
   loadConversation(summary: AgentConversationSummary): Promise<AgentConversation>
 }

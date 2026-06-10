@@ -4,11 +4,13 @@ import {
   type AgentSession,
   agentLaunchCommand,
   attachTmuxAgent,
+  compareConversationSummaries,
+  ConversationDiscoveryCache,
   type GitDiscoveryDiagnostic,
   type GitRepositorySummary,
   isTmuxAvailable,
   killTmuxServer,
-  scanAgentConversations,
+  scanAgentConversationsCached,
   scanGitRepositories,
   spawnAgent,
   spawnTmuxAgent,
@@ -26,12 +28,26 @@ import {
 } from '@podium/protocol'
 import WebSocket, { type RawData } from 'ws'
 
+const DEFAULT_DISCOVERY_SCAN_INTERVAL_MS = 15_000
+
+export interface DaemonDiscoveryOptions {
+  /** Disable unsolicited cached/background conversation pushes; scanRequest still works. */
+  background?: boolean
+  /** Defaults to $PODIUM_STATE_DIR/discovery.db else ~/.podium/discovery.db. */
+  cachePath?: string
+  /** Test hook / isolated HOME for discovery. */
+  homeDir?: string
+  /** Background quick-scan interval. Defaults to 15s. */
+  scanIntervalMs?: number
+}
+
 export interface DaemonOptions {
   serverUrl: string
   /** Map an agent kind to a spawn command. Defaults to agentLaunchCommand; tests inject a fixture. */
   launch?: typeof agentLaunchCommand
   /** Force tmux on/off. Defaults to isTmuxAvailable(); tests set it for determinism. */
   tmux?: boolean
+  discovery?: DaemonDiscoveryOptions
 }
 
 export interface DaemonHandle {
@@ -39,6 +55,10 @@ export interface DaemonHandle {
 }
 
 type SpawnControl = Extract<ControlMessage, { type: 'spawn' }>
+type ConversationWireResult = {
+  conversations: ConversationSummaryWire[]
+  diagnostics: ConversationDiagnosticWire[]
+}
 
 function summaryToWire(s: AgentConversationSummary): ConversationSummaryWire {
   return {
@@ -98,9 +118,70 @@ export function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
   }
   const ws = new WebSocket(`${opts.serverUrl}/daemon`)
   const bridges = new Map<string, AgentSession>()
+  const discoveryCache = new ConversationDiscoveryCache(opts.discovery?.cachePath)
+  const discoveryBackground = opts.discovery?.background ?? true
+  const discoveryIntervalMs = opts.discovery?.scanIntervalMs ?? DEFAULT_DISCOVERY_SCAN_INTERVAL_MS
+  let discoveryTimer: ReturnType<typeof setTimeout> | undefined
+  let discoveryInFlight: Promise<ConversationWireResult> | undefined
+  let lastConversationPush = ''
 
   const send = (msg: DaemonMessage): void => {
     if (ws.readyState === WebSocket.OPEN) ws.send(encode(msg))
+  }
+
+  const cachedConversationResult = (): ConversationWireResult => ({
+    conversations: discoveryCache
+      .listSummaries()
+      .sort(compareConversationSummaries)
+      .map(summaryToWire),
+    diagnostics: [],
+  })
+
+  const publishConversations = (result: ConversationWireResult, force = false): void => {
+    const key = JSON.stringify(result)
+    if (!force && key === lastConversationPush) return
+    lastConversationPush = key
+    send({ type: 'conversationsChanged', ...result })
+  }
+
+  const runDiscoveryScan = (): Promise<ConversationWireResult> => {
+    if (discoveryInFlight) return discoveryInFlight
+    discoveryInFlight = (async () => {
+      try {
+        const result = await scanAgentConversationsCached({
+          cache: discoveryCache,
+          ...(opts.discovery?.homeDir ? { homeDir: opts.discovery.homeDir } : {}),
+        })
+        return {
+          conversations: result.conversations.map(summaryToWire),
+          diagnostics: result.diagnostics.map(diagnosticToWire),
+        }
+      } catch (err) {
+        return {
+          conversations: [],
+          diagnostics: [
+            { severity: 'error', message: err instanceof Error ? err.message : String(err) },
+          ],
+        }
+      } finally {
+        discoveryInFlight = undefined
+      }
+    })()
+    return discoveryInFlight
+  }
+
+  const refreshAndPublishConversations = async (): Promise<ConversationWireResult> => {
+    const result = await runDiscoveryScan()
+    publishConversations(result)
+    return result
+  }
+
+  const scheduleDiscoveryScan = (): void => {
+    if (!discoveryBackground) return
+    discoveryTimer = setTimeout(() => {
+      void refreshAndPublishConversations().finally(scheduleDiscoveryScan)
+    }, discoveryIntervalMs)
+    discoveryTimer.unref?.()
   }
 
   const wireBridge = (sessionId: string, session: AgentSession): void => {
@@ -157,24 +238,8 @@ export function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
   }
 
   const scan = async (requestId: string): Promise<void> => {
-    try {
-      const result = await scanAgentConversations()
-      send({
-        type: 'scanResult',
-        requestId,
-        conversations: result.conversations.map(summaryToWire),
-        diagnostics: result.diagnostics.map(diagnosticToWire),
-      })
-    } catch (err) {
-      send({
-        type: 'scanResult',
-        requestId,
-        conversations: [],
-        diagnostics: [
-          { severity: 'error', message: err instanceof Error ? err.message : String(err) },
-        ],
-      })
-    }
+    const result = await refreshAndPublishConversations()
+    send({ type: 'scanResult', requestId, ...result })
   }
 
   const scanRepos = async (
@@ -276,6 +341,8 @@ export function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
   })
 
   const disposeAll = (): void => {
+    if (discoveryTimer) clearTimeout(discoveryTimer)
+    discoveryCache.close()
     // For tmux sessions, dispose() only detaches the client, so the agent survives the
     // daemon going down — do NOT kill the servers here.
     for (const session of bridges.values()) session.dispose()
@@ -297,7 +364,14 @@ export function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
   }
 
   return new Promise<DaemonHandle>((resolve, reject) => {
-    ws.once('open', () => resolve(handle))
+    ws.once('open', () => {
+      if (discoveryBackground) {
+        publishConversations(cachedConversationResult(), true)
+        void refreshAndPublishConversations()
+        scheduleDiscoveryScan()
+      }
+      resolve(handle)
+    })
     ws.once('error', (err) => {
       disposeAll()
       reject(err)

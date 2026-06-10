@@ -83,6 +83,25 @@ describe('SocketHub', () => {
     expect(seen.at(-1)).toBe(1)
   })
 
+  it('exposes conversationsChanged via conversations() + onConversations', () => {
+    const { sock, hub } = setup()
+    const seen: number[] = []
+    hub.onConversations((conversations) => seen.push(conversations.length))
+    hub.connect()
+    sock.open()
+    const conversation = {
+      id: 'conv-1',
+      agentKind: 'codex' as const,
+      title: 'Cached discovery',
+      projectPath: '/w',
+      providerId: 'codex-jsonl',
+      resume: { kind: 'codex-thread' as const, value: 'conv-1' },
+    }
+    sock.recv({ type: 'conversationsChanged', conversations: [conversation], diagnostics: [] })
+    expect(hub.conversations()).toEqual([conversation])
+    expect(seen.at(-1)).toBe(1)
+  })
+
   it('patches a single session title on sessionTitleChanged and notifies observers', () => {
     const { sock, hub } = setup()
     const meta = {

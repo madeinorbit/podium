@@ -1,9 +1,41 @@
+import { open } from 'node:fs/promises'
 import type { AgentConversationDiagnostic, AgentConversationRole } from './types.js'
 
 type ParseJsonLinesContext = {
   providerId: string
   path: string
   root?: string
+}
+
+export const DEFAULT_JSONL_HEAD_BYTES = 64 * 1024
+export const DEFAULT_JSONL_HEAD_LINES = 50
+
+export async function readJsonLinesHead(
+  file: string,
+  context: ParseJsonLinesContext,
+  options: { maxBytes?: number; maxLines?: number } = {},
+): Promise<{ records: unknown[]; diagnostics: AgentConversationDiagnostic[] }> {
+  const maxBytes = options.maxBytes ?? DEFAULT_JSONL_HEAD_BYTES
+  const maxLines = options.maxLines ?? DEFAULT_JSONL_HEAD_LINES
+  const handle = await open(file, 'r')
+
+  try {
+    const buffer = Buffer.alloc(maxBytes)
+    const { bytesRead } = await handle.read(buffer, 0, maxBytes, 0)
+    let text = buffer.subarray(0, bytesRead).toString('utf8')
+
+    if (bytesRead === maxBytes) {
+      const lastLf = text.lastIndexOf('\n')
+      const lastCr = text.lastIndexOf('\r')
+      const lastLineBreak = Math.max(lastLf, lastCr)
+      text = lastLineBreak >= 0 ? text.slice(0, lastLineBreak + 1) : ''
+    }
+
+    const lines = text.split(/\r?\n/).slice(0, maxLines)
+    return parseJsonLines(lines.join('\n'), context)
+  } finally {
+    await handle.close()
+  }
 }
 
 export function parseJsonLines(

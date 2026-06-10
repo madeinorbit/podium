@@ -179,6 +179,11 @@ export const SessionsChangedMessage = z.object({
   type: z.literal('sessionsChanged'),
   sessions: z.array(SessionMeta),
 })
+export const ConversationsChangedMessage = z.object({
+  type: z.literal('conversationsChanged'),
+  conversations: z.array(ConversationSummaryWire),
+  diagnostics: z.array(ConversationDiagnosticWire),
+})
 // A single session's live title changed (an agent set its terminal title via OSC).
 // Sent on its own rather than rebroadcasting the whole session list, because agents
 // emit these at spinner frame-rate (~10 Hz) and the payload is tiny.
@@ -196,6 +201,7 @@ export const ServerMessage = z.discriminatedUnion('type', [
   GeometryMessage,
   AgentExitMessage,
   SessionsChangedMessage,
+  ConversationsChangedMessage,
   SessionTitleChangedMessage,
 ])
 export type ServerMessage = z.infer<typeof ServerMessage>
@@ -301,6 +307,7 @@ export const DaemonMessage = z.discriminatedUnion('type', [
   ReattachFailedMessage,
   TitleMessage,
   ScanResultMessage,
+  ConversationsChangedMessage,
   ScanReposResultMessage,
 ])
 export type DaemonMessage = z.infer<typeof DaemonMessage>

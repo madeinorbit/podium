@@ -1,4 +1,10 @@
-import { encode, parseServerMessage, type ServerMessage, type SessionMeta } from '@podium/protocol'
+import {
+  type ConversationSummaryWire,
+  encode,
+  parseServerMessage,
+  type ServerMessage,
+  type SessionMeta,
+} from '@podium/protocol'
 
 export interface WebSocketLike {
   send(data: string): void
@@ -64,9 +70,11 @@ export class SocketHub {
   private connectedFlag = false
   private clientIdValue = ''
   private sessionList: SessionMeta[] = []
+  private conversationList: ConversationSummaryWire[] = []
   private intentionalClose = false
   private readonly connections = new Map<string, SessionConnection>()
   private readonly sessionObservers = new Set<(s: SessionMeta[]) => void>()
+  private readonly conversationObservers = new Set<(c: ConversationSummaryWire[]) => void>()
 
   constructor(opts: SocketHubOptions) {
     this.opts = opts
@@ -149,6 +157,16 @@ export class SocketHub {
     return () => this.sessionObservers.delete(cb)
   }
 
+  conversations(): ConversationSummaryWire[] {
+    return this.conversationList
+  }
+
+  onConversations(cb: (c: ConversationSummaryWire[]) => void): () => void {
+    this.conversationObservers.add(cb)
+    cb(this.conversationList)
+    return () => this.conversationObservers.delete(cb)
+  }
+
   /** @internal Used by SessionConnection to send its sessionId-tagged messages. */
   _send(msg: Parameters<typeof encode>[0]): void {
     this.sendRaw(msg)
@@ -177,6 +195,11 @@ export class SocketHub {
     if (msg.type === 'sessionsChanged') {
       this.sessionList = msg.sessions
       for (const o of this.sessionObservers) o(this.sessionList)
+      return
+    }
+    if (msg.type === 'conversationsChanged') {
+      this.conversationList = msg.conversations
+      for (const o of this.conversationObservers) o(this.conversationList)
       return
     }
     if (msg.type === 'sessionTitleChanged') {
