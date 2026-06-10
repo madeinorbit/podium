@@ -27,6 +27,15 @@ export interface SessionInit {
   toDaemon: Send<ControlMessage>
 }
 
+// Replay-on-attach: keep a bounded buffer of recent agent output so a freshly attached
+// or re-mounted client reconstructs the screen instead of starting blank. Redraw (a
+// SIGWINCH nudge) covers alt-screen TUIs that fully repaint; this covers normal-buffer
+// apps (shells, Ink) whose scrollback a redraw cannot recreate. Reset on a screen clear
+// or alt-screen transition keeps the buffer small and aligned to the current screen.
+const MAX_REPLAY_BYTES = 256 * 1024
+// biome-ignore lint/suspicious/noControlCharactersInRegex: terminal escape sequences
+const SCREEN_RESET = /\x1b\[[23]J|\x1bc|\x1b\[\?1049[hl]/
+
 /** One agent's relay state: controller gating, geometry/epoch, and its attached clients. */
 export class Session {
   readonly sessionId: string
@@ -43,6 +52,9 @@ export class Session {
   controllerId: string | null = null
   private readonly toDaemon: Send<ControlMessage>
   private readonly clients = new Map<string, ClientConn>()
+  // Recent agent output (base64 frames) for replay-on-attach; bounded by MAX_REPLAY_BYTES.
+  private readonly outputLog: { seq: number; data: string }[] = []
+  private outputLogBytes = 0
 
   constructor(init: SessionInit) {
     this.sessionId = init.sessionId
@@ -69,6 +81,17 @@ export class Session {
       geometry: { ...this.geometry },
       epoch: this.epoch,
     })
+    // Replay buffered output so this client reconstructs the current screen. Sent after
+    // `attached` (whose epoch triggers a clean-slate clear) and before any live frames.
+    for (const f of this.outputLog) {
+      client.send({
+        type: 'outputFrame',
+        sessionId: this.sessionId,
+        seq: f.seq,
+        epoch: this.epoch,
+        data: f.data,
+      })
+    }
   }
 
   detachClient(clientId: string): void {
@@ -137,7 +160,23 @@ export class Session {
   }
 
   onFrame(seq: number, data: string): void {
+    this.bufferFrame(seq, data)
     this.broadcast({ type: 'outputFrame', sessionId: this.sessionId, seq, epoch: this.epoch, data })
+  }
+
+  private bufferFrame(seq: number, data: string): void {
+    // A screen clear / alt-screen switch makes prior frames irrelevant: drop them so the
+    // buffer stays aligned to the current screen (and bounded for full-screen TUIs).
+    if (SCREEN_RESET.test(Buffer.from(data, 'base64').toString('latin1'))) {
+      this.outputLog.length = 0
+      this.outputLogBytes = 0
+    }
+    this.outputLog.push({ seq, data })
+    this.outputLogBytes += data.length
+    while (this.outputLogBytes > MAX_REPLAY_BYTES && this.outputLog.length > 1) {
+      const dropped = this.outputLog.shift()
+      if (dropped) this.outputLogBytes -= dropped.data.length
+    }
   }
 
   onExit(code: number): void {

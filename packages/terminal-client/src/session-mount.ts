@@ -63,7 +63,9 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
       if (s.role !== 'controller') return
       const grid = view.fit()
       if (grid.cols !== s.cols || grid.rows !== s.rows) connection.sendResize(grid.cols, grid.rows)
-      view.clear()
+      // No view.clear() here: the server replays buffered output on attach, and clearing
+      // would wipe it (leaving normal-buffer apps blank). The resize above + redraw below
+      // refresh the screen; xterm reflows the replayed content to the new grid.
       connection.redraw()
     })
   }
