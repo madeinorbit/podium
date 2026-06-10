@@ -52,6 +52,7 @@ export class TerminalView {
   private readonly term: Terminal
   private readonly fitAddon: FitAddon
   private readonly cleanup: Array<() => void> = []
+  private disposed = false
 
   constructor(opts: TerminalViewOptions = {}) {
     this.term = new Terminal({
@@ -116,10 +117,12 @@ export class TerminalView {
   }
 
   write(text: string): void {
+    if (this.disposed) return
     this.term.write(text)
   }
 
   clear(): void {
+    if (this.disposed) return
     this.term.clear()
   }
 
@@ -186,8 +189,19 @@ export class TerminalView {
   }
 
   dispose(): void {
+    if (this.disposed) return
+    this.disposed = true
     for (const off of this.cleanup.splice(0)) off()
-    this.term.dispose()
+    // term.open() schedules a deferred Viewport.syncScrollArea via setTimeout(0).
+    // Disposing synchronously before that timer fires (rapid mount→unmount: a fast
+    // tab switch, or React StrictMode's double-invoke) makes it read `dimensions`
+    // on a torn-down renderer and throw an *uncaught* TypeError that wedges React's
+    // effect flushing — the remounted pane then renders black and live updates
+    // (e.g. the title stream) stop. Deferring our dispose by a macrotask lets
+    // xterm's earlier-scheduled timer run first (timers are FIFO), so it always
+    // sees a live terminal.
+    const term = this.term
+    setTimeout(() => term.dispose(), 0)
   }
 
   /**
