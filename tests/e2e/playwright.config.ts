@@ -24,11 +24,21 @@ export default defineConfig({
     },
     { name: 'webkit-iphone', use: { ...devices['iPhone 13'] } },
   ],
-  webServer: {
-    command:
-      'bun run --filter @podium/web build && bun run --filter @podium/web preview -- --port 4317 --strictPort',
-    url: 'http://localhost:4317',
-    reuseExistingServer: false,
-    timeout: 120_000,
-  },
+  webServer: [
+    {
+      // Relay + daemon (real shell for `shell`, keyecho jig otherwise). The specs connect
+      // via `?server=ws://localhost:8799`; the @podium/source condition runs TS source.
+      command: 'node --conditions=@podium/source --import tsx serve-harness.ts',
+      url: 'http://localhost:8799/health',
+      reuseExistingServer: false,
+      timeout: 60_000,
+    },
+    {
+      command:
+        'bun run --filter @podium/web build && bun run --filter @podium/web preview -- --port 4317 --strictPort',
+      url: 'http://localhost:4317',
+      reuseExistingServer: false,
+      timeout: 120_000,
+    },
+  ],
 })

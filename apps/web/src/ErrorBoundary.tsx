@@ -6,7 +6,6 @@ export class ErrorBoundary extends Component<
     children: ReactNode
     resetKey: string
     onRetry?: () => void
-    onChangeServer?: () => void
     onError?: (message: string) => void
   },
   { message: string | null }
@@ -29,13 +28,7 @@ export class ErrorBoundary extends Component<
 
   override render(): ReactNode {
     if (this.state.message) {
-      return (
-        <AppErrorPage
-          message={this.state.message}
-          onRetry={this.props.onRetry}
-          onChangeServer={this.props.onChangeServer}
-        />
-      )
+      return <AppErrorPage message={this.state.message} onRetry={this.props.onRetry} />
     }
     return this.props.children
   }

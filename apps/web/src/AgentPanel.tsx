@@ -4,6 +4,11 @@ import { useEffect, useRef, useState } from 'react'
 import { useStore } from './store'
 import { WorkerLabel } from './WorkerLabel'
 
+// Opt-in browser-test hook: `?e2e=1` exposes `globalThis.__podium` on the mounted
+// session (screenText/sendInput/simulateKeyboard/…) for the Playwright harness under
+// tests/e2e/browser. Off by default, so normal sessions never expose the input API.
+const E2E = typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('e2e')
+
 export function AgentPanel({ sessionId }: { sessionId: string }): JSX.Element {
   const { hub, sessions } = useStore()
   const session = sessions.find((s) => s.sessionId === sessionId)
@@ -18,6 +23,7 @@ export function AgentPanel({ sessionId }: { sessionId: string }): JSX.Element {
       hub,
       sessionId,
       ...(toolbarRef.current ? { toolbarEl: toolbarRef.current } : {}),
+      ...(E2E ? { test: true } : {}),
       onState: (s) => setRole(`${s.role} ${s.cols}x${s.rows}`),
     })
     mountedRef.current = mounted

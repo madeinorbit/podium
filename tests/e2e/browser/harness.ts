@@ -2,11 +2,11 @@ import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { type DaemonHandle, startDaemon } from '../../apps/daemon/src/daemon'
-import { type ServerHandle, startServer } from '../../apps/server/src/server'
+import { type DaemonHandle, startDaemon } from '../../../apps/daemon/src/daemon'
+import { type ServerHandle, startServer } from '../../../apps/server/src/server'
 
 const FIXTURE = fileURLToPath(
-  new URL('../../packages/agent-bridge/test/fixtures/fixture-tui.mjs', import.meta.url),
+  new URL('../../../packages/agent-bridge/test/fixtures/fixture-tui.mjs', import.meta.url),
 )
 
 export interface Relay {

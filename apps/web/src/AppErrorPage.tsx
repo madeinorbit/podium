@@ -18,12 +18,10 @@ export function AppErrorPage({
   title = 'Podium could not start',
   message,
   onRetry,
-  onChangeServer,
 }: {
   title?: string
   message: string
   onRetry?: () => void
-  onChangeServer?: () => void
 }): JSX.Element {
   return (
     <main className="app-error-page">
@@ -35,11 +33,6 @@ export function AppErrorPage({
           {onRetry && (
             <button type="button" onClick={onRetry}>
               Retry
-            </button>
-          )}
-          {onChangeServer && (
-            <button type="button" className="secondary" onClick={onChangeServer}>
-              Change server
             </button>
           )}
         </div>

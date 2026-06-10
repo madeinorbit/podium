@@ -33,6 +33,10 @@ export interface ScanReposResult {
 /** Registry of all sessions + the single daemon link + all client connections. Routes by sessionId. */
 export class SessionRegistry {
   private daemonSend: Send<ControlMessage> | undefined
+  // Control messages produced before a daemon attaches (e.g. a starter session
+  // created at boot, before the daemon ws finishes connecting) would otherwise be
+  // dropped silently. Queue them here and flush in order once a daemon attaches.
+  private readonly pendingToDaemon: ControlMessage[] = []
   private readonly sessions = new Map<string, Session>()
   private readonly clients = new Map<string, ClientConn>()
   private readonly pendingScans = new Map<string, (r: ScanResult) => void>()
@@ -96,6 +100,12 @@ export class SessionRegistry {
 
   attachDaemon(send: Send<ControlMessage>): void {
     this.daemonSend = send
+    // Flush control messages buffered while no daemon was attached (e.g. a boot
+    // session's spawn produced before the daemon ws connected).
+    if (this.pendingToDaemon.length > 0) {
+      for (const m of this.pendingToDaemon.splice(0)) send(m)
+    }
+    // Re-bind survivor sessions: ask the daemon to reattach to their live tmux session.
     for (const s of this.sessions.values()) {
       if (s.status === 'reconnecting') {
         this.toDaemon({
@@ -112,7 +122,10 @@ export class SessionRegistry {
   detachDaemon(): void {
     this.daemonSend = undefined
   }
-  private readonly toDaemon: Send<ControlMessage> = (msg) => this.daemonSend?.(msg)
+  private readonly toDaemon: Send<ControlMessage> = (msg) => {
+    if (this.daemonSend) this.daemonSend(msg)
+    else this.pendingToDaemon.push(msg)
+  }
 
   // ---- tRPC control plane ----
   listSessions(): SessionMeta[] {

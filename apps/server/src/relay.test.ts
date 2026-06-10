@@ -41,6 +41,17 @@ describe('SessionRegistry', () => {
     ])
   })
 
+  it('buffers control messages produced before a daemon attaches, then flushes them', () => {
+    const reg = new SessionRegistry()
+    // Boot race: a starter session is created before the daemon ws has connected.
+    const { sessionId } = reg.createSession({ agentKind: 'claude-code', cwd: '/proj' })
+    const daemon: ControlMessage[] = []
+    reg.attachDaemon((m) => daemon.push(m))
+    expect(daemon).toContainEqual(
+      expect.objectContaining({ type: 'spawn', sessionId, agentKind: 'claude-code', cwd: '/proj' }),
+    )
+  })
+
   it('create can spawn a shell session', () => {
     const reg = new SessionRegistry()
     const daemon: ControlMessage[] = []
@@ -91,6 +102,41 @@ describe('SessionRegistry', () => {
     const frames = c.sent.filter((m) => m.type === 'outputFrame')
     expect(frames).toHaveLength(1)
     expect(frames[0]).toMatchObject({ sessionId: s1, data: 'QQ==' })
+  })
+
+  it('replays buffered output to a client that attaches after frames were produced', () => {
+    const reg = new SessionRegistry()
+    reg.attachDaemon(() => {})
+    const s1 = reg.createSession({ agentKind: 'claude-code', cwd: '/a' }).sessionId
+    reg.onDaemonMessage(bind(s1))
+    // Frames arrive before any client attaches (e.g. a boot session, or a re-mount).
+    reg.onDaemonMessage({ type: 'agentFrame', sessionId: s1, seq: 0, data: 'QQ==' })
+    reg.onDaemonMessage({ type: 'agentFrame', sessionId: s1, seq: 1, data: 'Qg==' })
+    const c = sink()
+    const id = reg.attachClient(c.send)
+    reg.onClientMessage(id, { type: 'attach', sessionId: s1 })
+    const frames = c.sent.filter((m) => m.type === 'outputFrame')
+    expect(frames.map((f) => (f as { data: string }).data)).toEqual(['QQ==', 'Qg=='])
+  })
+
+  it('resets the replay buffer on a screen clear so replay starts from the clear', () => {
+    const reg = new SessionRegistry()
+    reg.attachDaemon(() => {})
+    const s1 = reg.createSession({ agentKind: 'claude-code', cwd: '/a' }).sessionId
+    reg.onDaemonMessage(bind(s1))
+    reg.onDaemonMessage({
+      type: 'agentFrame',
+      sessionId: s1,
+      seq: 0,
+      data: Buffer.from('stale', 'latin1').toString('base64'),
+    })
+    const clearFrame = Buffer.from('\x1b[2Jfresh', 'latin1').toString('base64')
+    reg.onDaemonMessage({ type: 'agentFrame', sessionId: s1, seq: 1, data: clearFrame })
+    const c = sink()
+    const id = reg.attachClient(c.send)
+    reg.onClientMessage(id, { type: 'attach', sessionId: s1 })
+    const frames = c.sent.filter((m) => m.type === 'outputFrame')
+    expect(frames.map((f) => (f as { data: string }).data)).toEqual([clearFrame])
   })
 
   it('routes controller input to the daemon tagged with the right sessionId', () => {
