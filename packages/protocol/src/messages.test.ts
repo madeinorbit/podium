@@ -14,6 +14,7 @@ import {
   ResumeRef,
   type ServerMessage,
   SessionMeta,
+  SessionStatus,
 } from './messages'
 
 describe('shared schemas', () => {
@@ -207,5 +208,29 @@ describe('codec', () => {
   })
   it('throws on unknown type', () => {
     expect(() => parseServerMessage(JSON.stringify({ type: 'nope' }))).toThrow()
+  })
+})
+
+describe('Layer 3 reattach messages', () => {
+  it('SessionStatus includes reconnecting + hibernated', () => {
+    expect(SessionStatus.options).toContain('reconnecting')
+    expect(SessionStatus.options).toContain('hibernated')
+  })
+
+  it('round-trips a reattach control message', () => {
+    const msg = {
+      type: 'reattach' as const,
+      sessionId: 's1',
+      tmuxLabel: 'podium-s1',
+      agentKind: 'claude-code' as const,
+      cwd: '/p',
+      geometry: { cols: 80, rows: 24 },
+    }
+    expect(parseControlMessage(encode(msg))).toEqual(msg)
+  })
+
+  it('round-trips a reattachFailed daemon message', () => {
+    const msg = { type: 'reattachFailed' as const, sessionId: 's1', reason: 'no tmux session' }
+    expect(parseDaemonMessage(encode(msg))).toEqual(msg)
   })
 })

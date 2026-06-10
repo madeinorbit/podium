@@ -18,7 +18,7 @@ export type AgentKind = z.infer<typeof AgentKind>
 export const ResumeRef = z.object({ kind: z.string(), value: z.string() })
 export type ResumeRef = z.infer<typeof ResumeRef>
 
-export const SessionStatus = z.enum(['starting', 'live', 'exited'])
+export const SessionStatus = z.enum(['starting', 'live', 'reconnecting', 'hibernated', 'exited'])
 export type SessionStatus = z.infer<typeof SessionStatus>
 
 export const SessionOrigin = z.discriminatedUnion('kind', [
@@ -210,6 +210,14 @@ export const SpawnMessage = z.object({
   resume: ResumeRef.optional(),
   geometry: Geometry,
 })
+export const ReattachMessage = z.object({
+  type: z.literal('reattach'),
+  sessionId: z.string(),
+  tmuxLabel: z.string(),
+  agentKind: AgentKind,
+  cwd: z.string(),
+  geometry: Geometry,
+})
 export const KillMessage = z.object({ type: z.literal('kill'), sessionId: z.string() })
 export const ScanRequestMessage = z.object({
   type: z.literal('scanRequest'),
@@ -230,6 +238,7 @@ export const RedrawMessage = z.object({ type: z.literal('redraw'), sessionId: z.
 
 export const ControlMessage = z.discriminatedUnion('type', [
   SpawnMessage,
+  ReattachMessage,
   KillMessage,
   ScanRequestMessage,
   ScanReposRequestMessage,
@@ -259,6 +268,11 @@ export const SpawnErrorMessage = z.object({
   sessionId: z.string(),
   message: z.string(),
 })
+export const ReattachFailedMessage = z.object({
+  type: z.literal('reattachFailed'),
+  sessionId: z.string(),
+  reason: z.string(),
+})
 // Live terminal title sniffed from the agent's PTY (OSC 0/1/2). The daemon
 // detects it in the byte stream and forwards it so the server can label the panel.
 export const TitleMessage = z.object({
@@ -284,6 +298,7 @@ export const DaemonMessage = z.discriminatedUnion('type', [
   AgentFrameMessage,
   AgentExitMessage,
   SpawnErrorMessage,
+  ReattachFailedMessage,
   TitleMessage,
   ScanResultMessage,
   ScanReposResultMessage,
