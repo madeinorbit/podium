@@ -299,6 +299,7 @@ describe('SessionRegistry', () => {
     store1.close()
     const reg2 = new SessionRegistry(new SessionStore(file))
     reg2.attachDaemon(() => {})
+    expect(reg2.listSessions().at(0)?.status).toBe('reconnecting') // handler must drive the transition
     reg2.onDaemonMessage({ type: 'reattachFailed', sessionId, reason: 'no tmux session' })
     expect(reg2.listSessions().at(0)?.status).toBe('exited')
   })
