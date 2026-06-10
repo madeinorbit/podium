@@ -54,13 +54,24 @@ export function App({ mode: initialMode, lock }: { mode: Mode; lock: boolean }) 
     setRawMode(true)
     const wantsRaw = mode === 'raw' || mode === 'both'
     let detach = () => {}
+    // Re-assert mouse tracking on every resize, the way real TUIs do on SIGWINCH.
+    // A one-shot enable at startup can be lost when a fresh Podium session attaches:
+    // the bytes reach xterm while it is still settling its grid (open → fit → resize →
+    // clear), so the mode-set does not stick. The controller's fit resize then gives us
+    // a SIGWINCH to re-enable onto a now-stable terminal. (Bracketed paste survives
+    // without this only because Ink re-emits it on every render.)
+    const enableMouse = (): boolean => process.stdout.write(MOUSE_ON)
     if (wantsRaw) {
-      process.stdout.write(MOUSE_ON)
+      enableMouse()
+      process.stdout.on('resize', enableMouse)
       detach = attachRawSource(stdin, emit)
     }
     return () => {
       detach()
-      if (wantsRaw) process.stdout.write(MOUSE_OFF)
+      if (wantsRaw) {
+        process.stdout.off('resize', enableMouse)
+        process.stdout.write(MOUSE_OFF)
+      }
     }
   }, [mode, stdin, setRawMode, emit])
 
