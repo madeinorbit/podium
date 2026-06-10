@@ -145,6 +145,23 @@ describe('Session', () => {
     expect(s.toMeta()).toMatchObject({ status: 'exited', exitCode: 0 })
   })
 
+  it('markLive promotes a reconnecting session to live', () => {
+    const s = new Session({
+      sessionId: 's1',
+      agentKind: 'claude-code',
+      cwd: '/w',
+      title: 'w',
+      origin: { kind: 'spawn' },
+      createdAt: '2026-06-03T00:00:00.000Z',
+      geometry: geo,
+      toDaemon: vi.fn(),
+      status: 'reconnecting',
+    })
+    expect(s.toMeta().status).toBe('reconnecting')
+    s.markLive('claude', geo)
+    expect(s.toMeta().status).toBe('live')
+  })
+
   it('serializes to a persistable row, defaulting tmuxLabel/lastActiveAt', () => {
     const s = makeSession()
     expect(s.toRow()).toMatchObject({

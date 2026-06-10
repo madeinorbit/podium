@@ -30,7 +30,7 @@ export interface SessionInit {
   resume?: ResumeRef
   tmuxLabel?: string
   lastActiveAt?: string
-  status?: 'starting' | 'live' | 'exited'
+  status?: 'starting' | 'live' | 'reconnecting' | 'hibernated' | 'exited'
   exitCode?: number
 }
 
@@ -46,7 +46,7 @@ export class Session {
   lastActiveAt: string
   title: string
   cmd = ''
-  status: 'starting' | 'live' | 'exited' = 'starting'
+  status: 'starting' | 'live' | 'reconnecting' | 'hibernated' | 'exited' = 'starting'
   exitCode: number | undefined
   geometry: Geometry
   epoch = 0
@@ -178,7 +178,7 @@ export class Session {
   markLive(cmd: string, geometry: Geometry): void {
     this.lastActiveAt = new Date().toISOString()
     this.cmd = cmd
-    if (this.status === 'starting') this.status = 'live'
+    if (this.status === 'starting' || this.status === 'reconnecting') this.status = 'live'
     // Adopt the daemon's geometry only if no controller has resized us yet.
     if (this.controllerId === null) this.geometry = { ...geometry }
   }

@@ -9,7 +9,7 @@ export function defaultDbPath(): string {
   return join(base, 'podium.db')
 }
 
-export type SessionStatusPersisted = 'starting' | 'live' | 'hibernated' | 'exited'
+export type SessionStatusPersisted = 'starting' | 'live' | 'reconnecting' | 'hibernated' | 'exited'
 
 /** One persisted session row. camelCase mirror of the snake_case `sessions` table. */
 export interface SessionRow {
