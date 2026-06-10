@@ -37,6 +37,17 @@ describe('SessionRegistry', () => {
     ])
   })
 
+  it('buffers control messages produced before a daemon attaches, then flushes them', () => {
+    const reg = new SessionRegistry()
+    // Boot race: a starter session is created before the daemon ws has connected.
+    const { sessionId } = reg.createSession({ agentKind: 'claude-code', cwd: '/proj' })
+    const daemon: ControlMessage[] = []
+    reg.attachDaemon((m) => daemon.push(m))
+    expect(daemon).toContainEqual(
+      expect.objectContaining({ type: 'spawn', sessionId, agentKind: 'claude-code', cwd: '/proj' }),
+    )
+  })
+
   it('create can spawn a shell session', () => {
     const reg = new SessionRegistry()
     const daemon: ControlMessage[] = []
