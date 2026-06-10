@@ -73,7 +73,11 @@ describe('spawnAgent core', () => {
     // and COLORTERM=truecolor or supports-color/chalk-based CLIs emit muted or no color.
     const s = spawnAgent({
       cmd: process.execPath,
-      args: ['-e', 'process.stdout.write(`TERM=${process.env.TERM};COLORTERM=${process.env.COLORTERM}\\n`)'],
+      args: [
+        '-e',
+        // biome-ignore lint/suspicious/noTemplateCurlyInString: literal node -e source code, not a JS template
+        'process.stdout.write(`TERM=${process.env.TERM};COLORTERM=${process.env.COLORTERM}\\n`)',
+      ],
       cols: 80,
       rows: 24,
     })
