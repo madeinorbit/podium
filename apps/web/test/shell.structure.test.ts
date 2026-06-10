@@ -6,9 +6,11 @@ const read = (rel: string) =>
   readFileSync(fileURLToPath(new URL(`../src/${rel}`, import.meta.url)), 'utf8')
 
 describe('web shell structure', () => {
-  it('AppShell gates on connection and renders sidebar + workspace', () => {
+  it('AppShell auto-resolves the relay (no manual connect screen) and renders sidebar + workspace', () => {
     const src = read('AppShell.tsx')
-    expect(src).toContain('ConnectScreen')
+    // The relay address is derived automatically via serverConfig — never typed by the user.
+    expect(src).toContain('serverConfig')
+    expect(src).not.toContain('ConnectScreen')
     expect(src).toContain('ErrorBoundary')
     expect(src).toContain('AppErrorPage')
     expect(src).toContain('<Sidebar')

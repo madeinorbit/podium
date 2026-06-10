@@ -1,13 +1,12 @@
 import type { JSX } from 'react'
-import { useCallback, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { AppErrorPage } from './AppErrorPage'
-import { ConnectScreen } from './ConnectScreen'
 import { ErrorBoundary } from './ErrorBoundary'
 import { MobileApp } from './MobileApp'
 import { OnboardingWizard } from './OnboardingWizard'
 import { Sidebar } from './Sidebar'
 import { StoreProvider, useStore } from './store'
-import { parseServer, parseServerOrigin } from './trpc'
+import { serverConfig } from './trpc'
 import { Workspace } from './Workspace'
 
 function useIsMobile(): boolean {
@@ -22,34 +21,13 @@ function useIsMobile(): boolean {
 }
 
 export function AppShell(): JSX.Element {
-  const fromUrl = parseServer(window.location.search)
-    ? new URLSearchParams(window.location.search).get('server')
-    : null
-  const [origin, setOrigin] = useState<string | null>(fromUrl)
+  // Relay endpoints are always resolved automatically — never typed by the user.
+  // serverConfig() derives same-origin ws:// + tRPC URLs from window.location (the
+  // host server proxies /client + /trpc to the backend), and honors an explicit
+  // `?server=ws://host:port` URL override for connecting to a remote relay.
+  const [config] = useState(() => serverConfig(window.location))
   const [appError, setAppError] = useState<string | null>(null)
   const isMobile = useIsMobile()
-
-  const changeServer = useCallback(() => {
-    setAppError(null)
-    setOrigin(null)
-  }, [])
-
-  const connect = useCallback((nextOrigin: string) => {
-    setAppError(null)
-    setOrigin(nextOrigin)
-  }, [])
-
-  if (!origin) return <ConnectScreen onConnect={connect} />
-
-  if (!parseServerOrigin(origin)) {
-    return (
-      <AppErrorPage
-        title="Invalid relay server"
-        message="Enter a ws:// or wss:// relay server URL."
-        onChangeServer={changeServer}
-      />
-    )
-  }
 
   if (appError) {
     return (
@@ -57,19 +35,17 @@ export function AppShell(): JSX.Element {
         title="Podium could not connect"
         message={appError}
         onRetry={() => setAppError(null)}
-        onChangeServer={changeServer}
       />
     )
   }
 
   return (
     <ErrorBoundary
-      resetKey={origin}
+      resetKey={config.wsClientUrl}
       onRetry={() => setAppError(null)}
-      onChangeServer={changeServer}
       onError={setAppError}
     >
-      <StoreProvider origin={origin} onFatalError={setAppError}>
+      <StoreProvider config={config} onFatalError={setAppError}>
         <AppBody isMobile={isMobile} />
       </StoreProvider>
     </ErrorBoundary>

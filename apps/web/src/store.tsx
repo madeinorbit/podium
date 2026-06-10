@@ -17,7 +17,7 @@ import {
 } from 'react'
 import { formatAppError } from './AppErrorPage'
 import { reposToViews } from './derive'
-import { makeTrpc, parseServerOrigin, type Trpc } from './trpc'
+import { makeTrpc, type ServerOrigin, type Trpc } from './trpc'
 
 export interface Store {
   hub: SocketHub
@@ -47,27 +47,24 @@ export interface Store {
 const Ctx = createContext<Store | null>(null)
 
 export function StoreProvider({
-  origin,
+  config,
   onFatalError,
   children,
 }: {
-  origin: string
+  config: ServerOrigin
   onFatalError: (message: string) => void
   children: ReactNode
 }): JSX.Element {
-  const cfg = useMemo(() => parseServerOrigin(origin), [origin])
-  if (!cfg) throw new Error(`bad server origin: ${origin}`)
-
   const hub = useMemo(
     () =>
       new SocketHub({
-        url: cfg.wsClientUrl,
+        url: config.wsClientUrl,
         viewport: { cols: 80, rows: 24, dpr: globalThis.devicePixelRatio ?? 1 },
         onError: (message) => onFatalError(message),
       }),
-    [cfg.wsClientUrl, onFatalError],
+    [config.wsClientUrl, onFatalError],
   )
-  const trpc = useMemo(() => makeTrpc(cfg.httpOrigin), [cfg.httpOrigin])
+  const trpc = useMemo(() => makeTrpc(config.httpOrigin), [config.httpOrigin])
 
   const [repos, setRepos] = useState<GitRepositoryWire[]>([])
   const [reposLoading, setReposLoading] = useState(false)
