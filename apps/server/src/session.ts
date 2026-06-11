@@ -28,7 +28,7 @@ export interface SessionInit {
   geometry: Geometry
   toDaemon: Send<ControlMessage>
   resume?: ResumeRef
-  tmuxLabel?: string
+  durableLabel?: string
   lastActiveAt?: string
   status?: 'starting' | 'live' | 'reconnecting' | 'hibernated' | 'exited'
   exitCode?: number
@@ -50,7 +50,7 @@ export class Session {
   readonly cwd: string
   readonly origin: SessionOrigin
   readonly createdAt: string
-  readonly tmuxLabel: string
+  readonly durableLabel: string
   readonly resume?: ResumeRef
   lastActiveAt: string
   title: string
@@ -75,7 +75,7 @@ export class Session {
     this.createdAt = init.createdAt
     this.geometry = { ...init.geometry }
     this.toDaemon = init.toDaemon
-    this.tmuxLabel = init.tmuxLabel ?? `podium-${init.sessionId}`
+    this.durableLabel = init.durableLabel ?? `podium-${init.sessionId}`
     this.resume = init.resume
     this.lastActiveAt = init.lastActiveAt ?? init.createdAt
     if (init.status) this.status = init.status
@@ -234,7 +234,7 @@ export class Session {
       resumeValue: this.resume?.value ?? null,
       status: this.status,
       exitCode: this.exitCode ?? null,
-      tmuxLabel: this.tmuxLabel,
+      durableLabel: this.durableLabel,
       createdAt: this.createdAt,
       lastActiveAt: this.lastActiveAt,
     }

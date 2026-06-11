@@ -52,7 +52,7 @@ function row(overrides: Partial<SessionRow> = {}): SessionRow {
     resumeValue: null,
     status: 'starting',
     exitCode: null,
-    tmuxLabel: 'podium-id-1',
+    durableLabel: 'podium-id-1',
     createdAt: '2026-06-09T00:00:00.000Z',
     lastActiveAt: '2026-06-09T00:00:00.000Z',
     ...overrides,
@@ -86,7 +86,7 @@ describe('SessionStore sessions', () => {
       conversationId: 'c9',
       resumeKind: 'codex-thread',
       resumeValue: 't9',
-      tmuxLabel: 'podium-id-2',
+      durableLabel: 'podium-id-2',
     })
     store.upsertSession(r)
     expect(store.loadSessions()).toEqual([r])
@@ -114,5 +114,53 @@ describe('SessionStore repos.json import', () => {
     const corrupt = await tmpDbPath()
     await writeFile(join(dirname(corrupt), 'repos.json'), 'not json')
     expect(new SessionStore(corrupt).listRepos()).toEqual([])
+  })
+})
+
+describe('SessionStore schema migration', () => {
+  it('migrates a v1 db (durable_label column) to durable_label without losing rows', async () => {
+    const file = await tmpDbPath()
+    // Hand-build a v1 database the way the pre-rename store created it.
+    const { DatabaseSync } = await import('node:sqlite')
+    const db = new DatabaseSync(file)
+    db.exec(
+      `CREATE TABLE sessions (
+         id TEXT PRIMARY KEY, agent_kind TEXT NOT NULL, cwd TEXT NOT NULL,
+         title TEXT NOT NULL, origin_kind TEXT NOT NULL, conversation_id TEXT,
+         resume_kind TEXT, resume_value TEXT, status TEXT NOT NULL, exit_code INTEGER,
+         durable_label TEXT NOT NULL, created_at TEXT NOT NULL, last_active_at TEXT NOT NULL
+       )`,
+    )
+    db.exec('CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)')
+    db.prepare('INSERT INTO meta (key, value) VALUES (?, ?)').run('schema_version', '1')
+    db.prepare(
+      `INSERT INTO sessions (id, agent_kind, cwd, title, origin_kind, status, durable_label,
+        created_at, last_active_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      'old-1',
+      'claude-code',
+      '/proj',
+      'proj',
+      'spawn',
+      'running',
+      'podium-old-1',
+      '2026-06-09T00:00:00.000Z',
+      '2026-06-09T00:00:00.000Z',
+    )
+    db.close()
+
+    const store = new SessionStore(file)
+    const rows = store.loadSessions()
+    expect(rows).toHaveLength(1)
+    expect(rows[0]?.durableLabel).toBe('podium-old-1')
+    // Round-trips through the renamed column.
+    store.upsertSession(row({ id: 'new-1', durableLabel: 'podium-new-1' }))
+    expect(
+      store
+        .loadSessions()
+        .map((r) => r.durableLabel)
+        .sort(),
+    ).toEqual(['podium-new-1', 'podium-old-1'])
+    store.close()
   })
 })

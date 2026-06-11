@@ -316,12 +316,12 @@ export function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
       case 'reattach': {
         // Backend-agnostic: try whichever durable host owns the label, so sessions
         // created under tmux before an abduco upgrade still reattach (no flag day).
-        const attach = { label: msg.tmuxLabel, cols: msg.geometry.cols, rows: msg.geometry.rows }
+        const attach = { label: msg.durableLabel, cols: msg.geometry.cols, rows: msg.geometry.rows }
         const found =
-          backend !== 'none' && abducoHasSession(msg.tmuxLabel)
-            ? { session: attachAbducoAgent(attach), cmd: `abduco -a ${msg.tmuxLabel}` }
-            : backend !== 'none' && tmuxHasSession(msg.tmuxLabel)
-              ? { session: attachTmuxAgent(attach), cmd: `tmux -L ${msg.tmuxLabel} attach` }
+          backend !== 'none' && abducoHasSession(msg.durableLabel)
+            ? { session: attachAbducoAgent(attach), cmd: `abduco -a ${msg.durableLabel}` }
+            : backend !== 'none' && tmuxHasSession(msg.durableLabel)
+              ? { session: attachTmuxAgent(attach), cmd: `tmux -L ${msg.durableLabel} attach` }
               : undefined
         if (!found) {
           send({

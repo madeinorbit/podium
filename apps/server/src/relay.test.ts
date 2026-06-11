@@ -223,7 +223,9 @@ describe('SessionRegistry', () => {
     expect(c.sent).toEqual([
       {
         type: 'conversationsChanged',
-        conversations: [{ id: 'conv-2', agentKind: 'claude-code', providerId: 'claude-code-jsonl' }],
+        conversations: [
+          { id: 'conv-2', agentKind: 'claude-code', providerId: 'claude-code-jsonl' },
+        ],
         diagnostics: [],
       },
     ])
@@ -374,7 +376,7 @@ describe('SessionRegistry', () => {
     const control: import('@podium/protocol').ControlMessage[] = []
     reg2.attachDaemon((m) => control.push(m))
     expect(control).toContainEqual(
-      expect.objectContaining({ type: 'reattach', sessionId, tmuxLabel: `podium-${sessionId}` }),
+      expect.objectContaining({ type: 'reattach', sessionId, durableLabel: `podium-${sessionId}` }),
     )
     store2.close()
   })
@@ -422,7 +424,7 @@ describe('SessionRegistry', () => {
       resumeValue: null,
       status: 'live',
       exitCode: null,
-      tmuxLabel: 'podium-good',
+      durableLabel: 'podium-good',
       createdAt: '2026-06-09T00:00:00.000Z',
       lastActiveAt: '2026-06-09T00:00:00.000Z',
     })
@@ -437,7 +439,7 @@ describe('SessionRegistry', () => {
       resumeValue: null,
       status: 'live',
       exitCode: null,
-      tmuxLabel: 'podium-bad',
+      durableLabel: 'podium-bad',
       createdAt: '2026-06-09T00:00:00.000Z',
       lastActiveAt: '2026-06-09T00:00:00.000Z',
     })

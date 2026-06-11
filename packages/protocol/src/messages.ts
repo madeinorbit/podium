@@ -219,7 +219,7 @@ export const SpawnMessage = z.object({
 export const ReattachMessage = z.object({
   type: z.literal('reattach'),
   sessionId: z.string(),
-  tmuxLabel: z.string(),
+  durableLabel: z.string(),
   agentKind: AgentKind,
   cwd: z.string(),
   geometry: Geometry,

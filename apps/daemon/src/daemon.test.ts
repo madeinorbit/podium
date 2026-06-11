@@ -314,7 +314,7 @@ describe.skipIf(!isAbducoAvailable())('daemon abduco survival', () => {
       send({
         type: 'reattach',
         sessionId,
-        tmuxLabel: label,
+        durableLabel: label,
         agentKind: 'claude-code',
         cwd: '/tmp',
         geometry: G,
@@ -336,7 +336,7 @@ describe.skipIf(!isAbducoAvailable())('daemon abduco survival', () => {
       send({
         type: 'reattach',
         sessionId: goneId,
-        tmuxLabel: `podium-${goneId}-missing`,
+        durableLabel: `podium-${goneId}-missing`,
         agentKind: 'claude-code',
         cwd: '/tmp',
         geometry: G,
@@ -450,7 +450,7 @@ describe.skipIf(!isTmuxAvailable())('daemon tmux survival', () => {
       send({
         type: 'reattach',
         sessionId,
-        tmuxLabel: label,
+        durableLabel: label,
         agentKind: 'claude-code',
         cwd: '/tmp',
         geometry: G,
@@ -472,7 +472,7 @@ describe.skipIf(!isTmuxAvailable())('daemon tmux survival', () => {
       send({
         type: 'reattach',
         sessionId: goneId,
-        tmuxLabel: `podium-${goneId}-missing`,
+        durableLabel: `podium-${goneId}-missing`,
         agentKind: 'claude-code',
         cwd: '/tmp',
         geometry: G,

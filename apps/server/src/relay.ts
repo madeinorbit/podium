@@ -87,7 +87,7 @@ export class SessionRegistry {
         createdAt: r.createdAt,
         geometry: { ...DEFAULT_GEOMETRY },
         toDaemon: this.toDaemon,
-        tmuxLabel: r.tmuxLabel,
+        durableLabel: r.durableLabel,
         lastActiveAt: r.lastActiveAt,
         status: reloadStatus,
         exitCode: exitCode ?? undefined,
@@ -113,7 +113,7 @@ export class SessionRegistry {
         this.toDaemon({
           type: 'reattach',
           sessionId: s.sessionId,
-          tmuxLabel: s.tmuxLabel,
+          durableLabel: s.durableLabel,
           agentKind: s.agentKind,
           cwd: s.cwd,
           geometry: s.geometry,
@@ -229,7 +229,7 @@ export class SessionRegistry {
       createdAt: new Date().toISOString(),
       geometry: { ...DEFAULT_GEOMETRY },
       toDaemon: this.toDaemon,
-      tmuxLabel: `podium-${sessionId}`,
+      durableLabel: `podium-${sessionId}`,
       ...(input.resume ? { resume: input.resume } : {}),
     })
     this.sessions.set(sessionId, session)

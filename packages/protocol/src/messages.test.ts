@@ -239,7 +239,7 @@ describe('Layer 3 reattach messages', () => {
     const msg = {
       type: 'reattach' as const,
       sessionId: 's1',
-      tmuxLabel: 'podium-s1',
+      durableLabel: 'podium-s1',
       agentKind: 'claude-code' as const,
       cwd: '/p',
       geometry: { cols: 80, rows: 24 },

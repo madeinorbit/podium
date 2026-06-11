@@ -23,7 +23,7 @@ export interface SessionRow {
   resumeValue: string | null
   status: SessionStatusPersisted
   exitCode: number | null
-  tmuxLabel: string
+  durableLabel: string
   createdAt: string
   lastActiveAt: string
 }
@@ -62,7 +62,7 @@ export class SessionStore {
     const rows = this.db
       .prepare(
         `SELECT id, agent_kind, cwd, title, origin_kind, conversation_id, resume_kind,
-                resume_value, status, exit_code, tmux_label, created_at, last_active_at
+                resume_value, status, exit_code, durable_label, created_at, last_active_at
          FROM sessions ORDER BY created_at ASC, rowid ASC`,
       )
       .all() as Record<string, unknown>[]
@@ -77,7 +77,7 @@ export class SessionStore {
       resumeValue: (r.resume_value as string | null) ?? null,
       status: r.status as SessionStatusPersisted,
       exitCode: (r.exit_code as number | null) ?? null,
-      tmuxLabel: r.tmux_label as string,
+      durableLabel: r.durable_label as string,
       createdAt: r.created_at as string,
       lastActiveAt: r.last_active_at as string,
     }))
@@ -88,7 +88,7 @@ export class SessionStore {
       .prepare(
         `INSERT INTO sessions
            (id, agent_kind, cwd, title, origin_kind, conversation_id, resume_kind,
-            resume_value, status, exit_code, tmux_label, created_at, last_active_at)
+            resume_value, status, exit_code, durable_label, created_at, last_active_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            title = excluded.title,
@@ -98,7 +98,7 @@ export class SessionStore {
            resume_value = excluded.resume_value,
            status = excluded.status,
            exit_code = excluded.exit_code,
-           tmux_label = excluded.tmux_label,
+           durable_label = excluded.durable_label,
            last_active_at = excluded.last_active_at`,
       )
       .run(
@@ -112,7 +112,7 @@ export class SessionStore {
         row.resumeValue,
         row.status,
         row.exitCode,
-        row.tmuxLabel,
+        row.durableLabel,
         row.createdAt,
         row.lastActiveAt,
       )
@@ -143,17 +143,26 @@ export class SessionStore {
          resume_value TEXT,
          status TEXT NOT NULL,
          exit_code INTEGER,
-         tmux_label TEXT NOT NULL,
+         durable_label TEXT NOT NULL,
          created_at TEXT NOT NULL,
          last_active_at TEXT NOT NULL
        )`,
     )
     this.db.exec('CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)')
+    // v1 -> v2: tmux_label -> durable_label (the label now names an abduco OR tmux
+    // session; see the durable-backend selection in the daemon). For a pre-rename db
+    // the CREATE above no-ops, so the old column is still there — rename it in place.
+    const cols = this.db.prepare('PRAGMA table_info(sessions)').all() as { name: string }[]
+    if (cols.some((c) => c.name === 'tmux_label')) {
+      this.db.exec('ALTER TABLE sessions RENAME COLUMN tmux_label TO durable_label')
+    }
     const v = this.db.prepare('SELECT value FROM meta WHERE key = ?').get('schema_version') as
       | { value: string }
       | undefined
-    if (!v)
-      this.db.prepare('INSERT INTO meta (key, value) VALUES (?, ?)').run('schema_version', '1')
+    if (!v || v.value === '1')
+      this.db
+        .prepare('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)')
+        .run('schema_version', '2')
     this.importReposJson()
   }
 

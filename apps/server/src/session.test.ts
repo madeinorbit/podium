@@ -162,7 +162,7 @@ describe('Session', () => {
     expect(s.toMeta().status).toBe('live')
   })
 
-  it('serializes to a persistable row, defaulting tmuxLabel/lastActiveAt', () => {
+  it('serializes to a persistable row, defaulting durableLabel/lastActiveAt', () => {
     const s = makeSession()
     expect(s.toRow()).toMatchObject({
       id: 's1',
@@ -175,7 +175,7 @@ describe('Session', () => {
       resumeValue: null,
       status: 'starting',
       exitCode: null,
-      tmuxLabel: 'podium-s1',
+      durableLabel: 'podium-s1',
       createdAt: '2026-06-03T00:00:00.000Z',
       lastActiveAt: '2026-06-03T00:00:00.000Z',
     })
