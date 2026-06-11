@@ -118,7 +118,7 @@ describe('SessionStore repos.json import', () => {
 })
 
 describe('SessionStore schema migration', () => {
-  it('migrates a v1 db (durable_label column) to durable_label without losing rows', async () => {
+  it('migrates a v1 db (tmux_label column) to durable_label without losing rows', async () => {
     const file = await tmpDbPath()
     // Hand-build a v1 database the way the pre-rename store created it.
     const { DatabaseSync } = await import('node:sqlite')
@@ -128,13 +128,13 @@ describe('SessionStore schema migration', () => {
          id TEXT PRIMARY KEY, agent_kind TEXT NOT NULL, cwd TEXT NOT NULL,
          title TEXT NOT NULL, origin_kind TEXT NOT NULL, conversation_id TEXT,
          resume_kind TEXT, resume_value TEXT, status TEXT NOT NULL, exit_code INTEGER,
-         durable_label TEXT NOT NULL, created_at TEXT NOT NULL, last_active_at TEXT NOT NULL
+         tmux_label TEXT NOT NULL, created_at TEXT NOT NULL, last_active_at TEXT NOT NULL
        )`,
     )
     db.exec('CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)')
     db.prepare('INSERT INTO meta (key, value) VALUES (?, ?)').run('schema_version', '1')
     db.prepare(
-      `INSERT INTO sessions (id, agent_kind, cwd, title, origin_kind, status, durable_label,
+      `INSERT INTO sessions (id, agent_kind, cwd, title, origin_kind, status, tmux_label,
         created_at, last_active_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(
       'old-1',
