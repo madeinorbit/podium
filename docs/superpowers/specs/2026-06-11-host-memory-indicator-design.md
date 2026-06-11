@@ -71,6 +71,29 @@ broadcasts the empty list, so a dead daemon's numbers never linger as truth.
 - No metrics yet / daemon gone → strip renders nothing (no zero-state lying).
 - Malformed wire messages are already dropped by the zod codecs.
 
+## Breakdown view (extension)
+
+Clicking the memory chip opens a per-host "who owns the used memory" view with three
+groups:
+
+- **Agents & shells** — the sessions Podium controls. Attributed by *process tree*: the
+  union of the session's attach/PTY pid subtree and the subtree of any process whose
+  cmdline carries the session's durable label (`podium-<sessionId>` — the abduco/tmux
+  master is NOT a daemon child, so pid-walking alone would miss the actual agent).
+- **Project processes** — non-agent processes whose `/proc/<pid>/cwd` points under a
+  controlled root (registered repos **plus their worktrees**, which often live outside
+  the repo path as siblings). Catches dev servers, watchers, etc. Known limits: same-user
+  processes only; a process that `chdir`s away or daemonizes escapes the heuristic.
+- **Everything else** — used − attributed.
+
+Sizes are **PSS** (`/proc/<pid>/smaps_rollup`) so shared pages are divided fairly; RSS
+from `statm` is the fallback. Agent claims win over cwd matching, so a dev server an
+agent spawned is counted once, under the agent. This is on-demand (request/response like
+the scan flows, 10 s timeout), not part of the 5 s heartbeat — a /proc walk per tick
+would be wasteful. The view refreshes every 5 s while open. Hosts without /proc answer
+`supported: false` and the view shows totals only. Roots are derived server-side
+(`hosts.memoryBreakdown` tRPC) — clients never name filesystem paths.
+
 ## Testing
 
 Protocol round-trip tests; meminfo parser unit tests; daemon test asserts periodic

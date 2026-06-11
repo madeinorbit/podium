@@ -31,6 +31,12 @@ export interface ScanReposResult {
   diagnostics: GitDiscoveryDiagnosticWire[]
 }
 
+/** The daemon's memoryBreakdownResult, minus wire plumbing (type/requestId). */
+export type MemoryBreakdown = Omit<
+  Extract<DaemonMessage, { type: 'memoryBreakdownResult' }>,
+  'type' | 'requestId'
+>
+
 /** Registry of all sessions + the single daemon link + all client connections. Routes by sessionId. */
 export class SessionRegistry {
   private daemonSend: Send<ControlMessage> | undefined
@@ -42,6 +48,7 @@ export class SessionRegistry {
   private readonly clients = new Map<string, ClientConn>()
   private readonly pendingScans = new Map<string, (r: ScanResult) => void>()
   private readonly pendingRepoScans = new Map<string, (r: ScanReposResult) => void>()
+  private readonly pendingBreakdowns = new Map<string, (r: MemoryBreakdown | undefined) => void>()
   private latestConversations: ConversationSummaryWire[] = []
   private latestConversationDiagnostics: ConversationDiagnosticWire[] = []
   // Latest health sample per daemon host, keyed by hostname — ready for several
@@ -222,6 +229,23 @@ export class SessionRegistry {
     })
   }
 
+  /** Ask the daemon who owns the used memory. Resolves undefined when no daemon answers in time. */
+  memoryBreakdown(roots: string[]): Promise<MemoryBreakdown | undefined> {
+    const requestId = `mb${this.nextRequestNum++}`
+    return new Promise<MemoryBreakdown | undefined>((resolve) => {
+      const timer = setTimeout(() => {
+        this.pendingBreakdowns.delete(requestId)
+        resolve(undefined)
+      }, SCAN_TIMEOUT_MS)
+      timer.unref?.()
+      this.pendingBreakdowns.set(requestId, (r) => {
+        clearTimeout(timer)
+        resolve(r)
+      })
+      this.toDaemon({ type: 'memoryBreakdownRequest', requestId, roots })
+    })
+  }
+
   private spawn(input: {
     agentKind: AgentKind
     cwd: string
@@ -397,6 +421,15 @@ export class SessionRegistry {
         const { type: _type, ...sample } = msg
         this.latestHostMetrics.set(msg.hostname, sample)
         this.broadcastHostMetrics()
+        break
+      }
+      case 'memoryBreakdownResult': {
+        const resolve = this.pendingBreakdowns.get(msg.requestId)
+        if (resolve) {
+          this.pendingBreakdowns.delete(msg.requestId)
+          const { type: _type, requestId: _requestId, ...breakdown } = msg
+          resolve(breakdown)
+        }
         break
       }
     }

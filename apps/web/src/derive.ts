@@ -28,6 +28,12 @@ const totalGib = (bytes: number): string => {
   return Number.isInteger(v) ? String(v) : v.toFixed(1)
 }
 
+/** Human size for breakdown rows: "12.3 GB" from 1 GiB up, whole "512 MB" below. */
+export function formatMemBytes(bytes: number): string {
+  if (bytes >= GIB) return `${(bytes / GIB).toFixed(1)} GB`
+  return `${Math.round(bytes / 1024 ** 2)} MB`
+}
+
 /**
  * Present one host's memory sample. Used = total − available (the kernel's
  * "allocatable without swapping" estimate), the convention of free/htop/Activity

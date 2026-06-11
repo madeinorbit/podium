@@ -511,3 +511,47 @@ describe('host metrics relay', () => {
     expect(metricsMsgs(a.sent).at(-1)?.hosts).toEqual([])
   })
 })
+
+describe('memory breakdown relay', () => {
+  const memory = { totalBytes: 32, availableBytes: 16, swapTotalBytes: 0, swapFreeBytes: 0 }
+
+  it('forwards the request to the daemon and resolves with its answer', async () => {
+    const reg = new SessionRegistry()
+    const daemon: ControlMessage[] = []
+    reg.attachDaemon((m) => daemon.push(m))
+    const pending = reg.memoryBreakdown(['/src/app'])
+    const req = daemon.find(
+      (m): m is Extract<ControlMessage, { type: 'memoryBreakdownRequest' }> =>
+        m.type === 'memoryBreakdownRequest',
+    )
+    expect(req?.roots).toEqual(['/src/app'])
+    reg.onDaemonMessage({
+      type: 'memoryBreakdownResult',
+      requestId: req?.requestId ?? '',
+      hostname: 'podium-host',
+      sampledAt: '2026-06-11T00:00:00.000Z',
+      supported: true,
+      memory,
+      agents: [{ sessionId: 's1', bytes: 4, processCount: 2 }],
+      projects: [],
+      otherBytes: 12,
+    })
+    const result = await pending
+    expect(result?.hostname).toBe('podium-host')
+    expect(result?.agents[0]?.sessionId).toBe('s1')
+    expect(result).not.toHaveProperty('requestId')
+  })
+
+  it('resolves undefined when no daemon answers in time', async () => {
+    vi.useFakeTimers()
+    try {
+      const reg = new SessionRegistry()
+      reg.attachDaemon(() => {})
+      const pending = reg.memoryBreakdown([])
+      vi.advanceTimersByTime(10_500)
+      await expect(pending).resolves.toBeUndefined()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})

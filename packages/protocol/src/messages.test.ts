@@ -294,3 +294,51 @@ describe('host metrics messages', () => {
     ).toThrow()
   })
 })
+
+describe('memory breakdown messages', () => {
+  it('round-trips a memoryBreakdownRequest control message', () => {
+    const msg = {
+      type: 'memoryBreakdownRequest' as const,
+      requestId: 'mb1',
+      roots: ['/src/app', '/src/lib'],
+    }
+    expect(parseControlMessage(encode(msg))).toEqual(msg)
+  })
+
+  it('round-trips a memoryBreakdownResult daemon message', () => {
+    const msg = {
+      type: 'memoryBreakdownResult' as const,
+      requestId: 'mb1',
+      hostname: 'podium-host',
+      sampledAt: '2026-06-11T00:00:00.000Z',
+      supported: true,
+      memory: { totalBytes: 32, availableBytes: 16, swapTotalBytes: 0, swapFreeBytes: 0 },
+      agents: [{ sessionId: 's1', bytes: 4, processCount: 3 }],
+      projects: [
+        {
+          root: '/src/app',
+          bytes: 2,
+          processCount: 2,
+          topProcesses: [{ name: 'node', bytes: 2 }],
+        },
+      ],
+      otherBytes: 10,
+    }
+    expect(parseDaemonMessage(encode(msg))).toEqual(msg)
+  })
+
+  it('round-trips an unsupported (non-Linux) result with empty groups', () => {
+    const msg = {
+      type: 'memoryBreakdownResult' as const,
+      requestId: 'mb2',
+      hostname: 'mac',
+      sampledAt: '2026-06-11T00:00:00.000Z',
+      supported: false,
+      memory: { totalBytes: 32, availableBytes: 16, swapTotalBytes: 0, swapFreeBytes: 0 },
+      agents: [],
+      projects: [],
+      otherBytes: 16,
+    }
+    expect(parseDaemonMessage(encode(msg))).toEqual(msg)
+  })
+})

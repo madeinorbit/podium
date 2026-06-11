@@ -652,3 +652,61 @@ describe('daemon host metrics', () => {
     }
   })
 })
+
+describe('daemon memory breakdown', () => {
+  it.runIf(process.platform === 'linux')(
+    'attributes a live session by its process tree and answers the request',
+    async () => {
+      const received: DaemonMessage[] = []
+      const wss = new WebSocketServer({ port: 0 })
+      await new Promise<void>((r) => wss.once('listening', () => r()))
+      const port = (wss.address() as { port: number }).port
+      let serverWs: WS | undefined
+      wss.on('connection', (ws) => {
+        serverWs = ws
+        ws.on('message', (raw) => received.push(parseDaemonMessage(raw.toString())))
+      })
+      const daemon = await startDaemon({
+        serverUrl: `ws://localhost:${port}`,
+        tmux: false,
+        discovery: { background: false, cachePath: ':memory:' },
+        metrics: { background: false },
+        launch: (_kind, opts) => ({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
+      })
+      try {
+        const waitFor = async (fn: () => boolean): Promise<void> => {
+          const start = Date.now()
+          while (!fn()) {
+            if (Date.now() - start > 5000) throw new Error('waitFor timed out')
+            await new Promise((r) => setTimeout(r, 20))
+          }
+        }
+        serverWs?.send(
+          encode({
+            type: 'spawn',
+            sessionId: 'sb1',
+            agentKind: 'claude-code',
+            cwd: '/tmp',
+            geometry: G,
+          }),
+        )
+        await waitFor(() => received.some((m) => m.type === 'bind' && m.sessionId === 'sb1'))
+        serverWs?.send(encode({ type: 'memoryBreakdownRequest', requestId: 'mb1', roots: [] }))
+        await waitFor(() => received.some((m) => m.type === 'memoryBreakdownResult'))
+        const result = received.find(
+          (m): m is Extract<DaemonMessage, { type: 'memoryBreakdownResult' }> =>
+            m.type === 'memoryBreakdownResult',
+        )
+        expect(result?.requestId).toBe('mb1')
+        expect(result?.supported).toBe(true)
+        const agent = result?.agents.find((a) => a.sessionId === 'sb1')
+        expect(agent?.bytes).toBeGreaterThan(0)
+        expect(agent?.processCount).toBeGreaterThan(0)
+        expect(result?.otherBytes).toBeGreaterThan(0)
+      } finally {
+        await daemon.close()
+        await new Promise<void>((r) => wss.close(() => r()))
+      }
+    },
+  )
+})

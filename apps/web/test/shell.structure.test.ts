@@ -104,3 +104,24 @@ describe('host health indicators', () => {
     expect(src).toContain('hostMemoryView')
   })
 })
+
+describe('memory breakdown view', () => {
+  it('the memory chip is a button that opens the breakdown', () => {
+    const src = read('HostIndicators.tsx')
+    expect(src).toContain('<button')
+    expect(src).toContain('<HostMemoryView')
+  })
+  it('fetches via the hosts endpoint and refreshes while open', () => {
+    const src = read('HostMemoryView.tsx')
+    expect(src).toContain('trpc.hosts.memoryBreakdown.mutate()')
+    expect(src).toContain('setInterval')
+    expect(src).toContain('clearInterval')
+  })
+  it('separates agents, project processes, and the rest', () => {
+    const src = read('HostMemoryView.tsx')
+    expect(src).toContain('AGENTS & SHELLS')
+    expect(src).toContain('PROJECT PROCESSES')
+    expect(src).toContain('otherBytes')
+    expect(src).toContain('supported') // totals-only fallback on hosts without /proc
+  })
+})

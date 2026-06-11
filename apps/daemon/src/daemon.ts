@@ -34,6 +34,7 @@ import {
 } from '@podium/protocol'
 import WebSocket, { type RawData } from 'ws'
 import { sampleHostMemory } from './host-metrics'
+import { attributeMemory, snapshotProcesses } from './memory-breakdown'
 
 const DEFAULT_DISCOVERY_SCAN_INTERVAL_MS = 15_000
 const DEFAULT_HOST_METRICS_INTERVAL_MS = 5_000
@@ -242,6 +243,37 @@ export function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     })
   }
 
+  const memoryBreakdown = (requestId: string, roots: string[]): void => {
+    const memory = sampleHostMemory()
+    const supported = process.platform === 'linux' // the walk needs /proc
+    const { agents, projects } = supported
+      ? attributeMemory(
+          snapshotProcesses(),
+          [...bridges.entries()].map(([sessionId, session]) => ({
+            sessionId,
+            label: `podium-${sessionId}`,
+            pid: session.pid,
+          })),
+          roots,
+          { selfPid: process.pid },
+        )
+      : { agents: [], projects: [] }
+    const attributed =
+      agents.reduce((sum, a) => sum + a.bytes, 0) + projects.reduce((sum, p) => sum + p.bytes, 0)
+    const usedBytes = Math.max(0, memory.totalBytes - memory.availableBytes)
+    send({
+      type: 'memoryBreakdownResult',
+      requestId,
+      hostname: hostname(),
+      sampledAt: new Date().toISOString(),
+      supported,
+      memory,
+      agents,
+      projects,
+      otherBytes: Math.max(0, usedBytes - attributed),
+    })
+  }
+
   const wireBridge = (sessionId: string, session: AgentSession): void => {
     bridges.set(sessionId, session)
     session.onFrame((frame) =>
@@ -400,6 +432,9 @@ export function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
           ...(msg.includeHome === undefined ? {} : { includeHome: msg.includeHome }),
           ...(msg.maxDepth === undefined ? {} : { maxDepth: msg.maxDepth }),
         })
+        break
+      case 'memoryBreakdownRequest':
+        memoryBreakdown(msg.requestId, msg.roots)
         break
     }
   })

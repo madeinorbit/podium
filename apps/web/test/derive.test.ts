@@ -1,6 +1,7 @@
 import type { ConversationSummaryWire, GitRepositoryWire, SessionMeta } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import {
+  formatMemBytes,
   hostMemoryView,
   mergeResumable,
   panelLabel,
@@ -164,5 +165,17 @@ describe('hostMemoryView', () => {
 
   it('clamps a pathological available > total to 0% used', () => {
     expect(hostMemoryView(host(64)).pct).toBe(0)
+  })
+})
+
+describe('formatMemBytes', () => {
+  const GIB = 1024 ** 3
+  it('uses GB with one decimal from 1 GiB up', () => {
+    expect(formatMemBytes(12.34 * GIB)).toBe('12.3 GB')
+    expect(formatMemBytes(1 * GIB)).toBe('1.0 GB')
+  })
+  it('uses whole MB below 1 GiB', () => {
+    expect(formatMemBytes(0.5 * GIB)).toBe('512 MB')
+    expect(formatMemBytes(0)).toBe('0 MB')
   })
 })

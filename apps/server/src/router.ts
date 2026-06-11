@@ -79,6 +79,28 @@ export const appRouter = t.router({
         }
       }),
   }),
+  hosts: t.router({
+    // Who owns the used memory right now. Roots are derived server-side — the
+    // registered repos plus their worktrees (worktrees often live OUTSIDE the
+    // repo path as siblings, so the repo path alone would miss their dev servers).
+    memoryBreakdown: t.procedure.mutation(async ({ ctx }) => {
+      const { repositories } = await ctx.registry.scanRepos(ctx.repos.list(), {
+        includeHome: false,
+        maxDepth: 0,
+      })
+      const roots = [
+        ...new Set(repositories.flatMap((r) => [r.path, ...r.worktrees.map((w) => w.path)])),
+      ]
+      const breakdown = await ctx.registry.memoryBreakdown(roots)
+      if (!breakdown) {
+        throw new TRPCError({
+          code: 'TIMEOUT',
+          message: 'no daemon answered the memory breakdown request',
+        })
+      }
+      return breakdown
+    }),
+  }),
   discovery: t.router({
     scan: t.procedure.mutation(({ ctx }) => ctx.registry.scan()),
     // Load path: enrich only the already-registered repos with branch/worktree metadata.

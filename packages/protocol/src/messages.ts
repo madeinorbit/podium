@@ -269,6 +269,14 @@ export const ScanReposRequestMessage = z.object({
   maxDepth: z.number().int().nonnegative().optional(),
 })
 export const RedrawMessage = z.object({ type: z.literal('redraw'), sessionId: z.string() })
+// On-demand (chip click), not periodic — a full /proc walk is too heavy for the
+// 5s hostMetrics heartbeat. `roots` are the repo/worktree paths the client controls;
+// the daemon attributes non-agent processes to them by working directory.
+export const MemoryBreakdownRequestMessage = z.object({
+  type: z.literal('memoryBreakdownRequest'),
+  requestId: z.string(),
+  roots: z.array(z.string()),
+})
 
 export const ControlMessage = z.discriminatedUnion('type', [
   SpawnMessage,
@@ -279,6 +287,7 @@ export const ControlMessage = z.discriminatedUnion('type', [
   InputMessage,
   ResizeMessage,
   RedrawMessage,
+  MemoryBreakdownRequestMessage,
 ])
 export type ControlMessage = z.infer<typeof ControlMessage>
 
@@ -326,6 +335,36 @@ export const HostMetricsMessage = z.object({
   type: z.literal('hostMetrics'),
   ...HostMetricsWire.shape,
 })
+// Who owns the used memory. Agents are attributed by process tree (the session's
+// PTY/durable-host subtree); projects by working directory under a controlled root.
+// Sizes are PSS where readable (shared pages divided fairly), RSS otherwise.
+export const AgentMemoryWire = z.object({
+  sessionId: z.string(),
+  bytes: z.number().int().nonnegative(),
+  processCount: z.number().int().nonnegative(),
+})
+export type AgentMemoryWire = z.infer<typeof AgentMemoryWire>
+export const ProjectMemoryWire = z.object({
+  root: z.string(),
+  bytes: z.number().int().nonnegative(),
+  processCount: z.number().int().nonnegative(),
+  topProcesses: z.array(z.object({ name: z.string(), bytes: z.number().int().nonnegative() })),
+})
+export type ProjectMemoryWire = z.infer<typeof ProjectMemoryWire>
+export const MemoryBreakdownResultMessage = z.object({
+  type: z.literal('memoryBreakdownResult'),
+  requestId: z.string(),
+  hostname: z.string(),
+  sampledAt: z.string(), // ISO 8601
+  // False where the breakdown can't be computed (no /proc — macOS/Windows);
+  // memory + otherBytes still carry the headline numbers.
+  supported: z.boolean(),
+  memory: HostMemoryWire,
+  agents: z.array(AgentMemoryWire),
+  projects: z.array(ProjectMemoryWire),
+  // used − agents − projects: everything on the box we don't control.
+  otherBytes: z.number().int().nonnegative(),
+})
 export const ScanReposResultMessage = z.object({
   type: z.literal('scanReposResult'),
   requestId: z.string(),
@@ -344,6 +383,7 @@ export const DaemonMessage = z.discriminatedUnion('type', [
   ConversationsChangedMessage,
   ScanReposResultMessage,
   HostMetricsMessage,
+  MemoryBreakdownResultMessage,
 ])
 export type DaemonMessage = z.infer<typeof DaemonMessage>
 
