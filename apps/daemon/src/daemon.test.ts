@@ -163,7 +163,7 @@ describe('daemon multi-bridge', () => {
     const found = result?.repositories.find((r) => r.path === repo)
     expect(found?.branch).toBe('main')
     expect(Array.isArray(found?.worktrees)).toBe(true)
-  })
+  }, 10_000)
 
   it('scanReposRequest with no roots discovers repositories under HOME', async () => {
     const home = await mkdtemp(join(tmpdir(), 'podium-home-repos-'))

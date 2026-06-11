@@ -243,6 +243,79 @@ body {
   background: var(--surface);
   color: var(--fg-bright);
 }
+
+.repo-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-right: 8px;
+}
+.repo-head .repo-name {
+  flex: 1;
+  min-width: 0;
+}
+.pinned-section,
+.picker-section {
+  padding: 4px 0;
+  border-bottom: 1px solid var(--border);
+}
+.pin-section-label {
+  padding: 8px 12px 3px;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent);
+  font-weight: 700;
+}
+.worktree-block,
+.worktree-row-wrap,
+.panel-row-wrap,
+.sheet-row-wrap {
+  min-width: 0;
+}
+.worktree-row-wrap,
+.panel-row-wrap,
+.sheet-row-wrap {
+  display: flex;
+  align-items: stretch;
+}
+.worktree-row-wrap .worktree,
+.panel-row-wrap .panel-row {
+  flex: 1;
+  min-width: 0;
+}
+.pin-button,
+.tab-pin {
+  flex: 0 0 28px;
+  width: 28px;
+  min-width: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 0;
+  color: var(--faint);
+  cursor: pointer;
+}
+.pin-button:hover,
+.tab-pin:hover {
+  color: var(--fg);
+  background: var(--panel-raised);
+}
+.pin-button.active,
+.tab-pin.active {
+  color: var(--accent);
+}
+.worktree-context {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 90px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10px;
+  color: var(--faint);
+}
 .empty,
 .menu-empty {
   padding: 12px;
@@ -523,7 +596,9 @@ body {
   background: var(--app);
 }
 .sheet-row {
-  display: block;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   width: 100%;
   text-align: left;
   background: transparent;
@@ -534,14 +609,28 @@ body {
   cursor: pointer;
   font: inherit;
 }
+.sheet-row-wrap .sheet-row {
+  flex: 1;
+  min-width: 0;
+}
 .sheet-row:hover {
   background: var(--panel-raised);
+}
+.sheet-row span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sheet-repo-head {
+  border-bottom: 1px solid var(--border);
 }
 
 .tab-wrap {
   display: inline-flex;
   align-items: center;
 }
+.tab-pin,
 .tab-kill {
   background: transparent;
   border: 0;
@@ -550,6 +639,9 @@ body {
   font-size: 11px;
   padding: 0 6px;
   line-height: 1;
+}
+.tab-pin:hover {
+  color: var(--accent);
 }
 .tab-kill:hover {
   color: var(--danger);

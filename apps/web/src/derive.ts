@@ -5,7 +5,7 @@ import type {
   HostMetricsWire,
   SessionMeta,
 } from '@podium/protocol'
-import type { RepoView, WorktreeView } from './types'
+import type { PinState, RepoView, WorktreeView } from './types'
 
 export type MemorySeverity = 'ok' | 'warn' | 'critical'
 
@@ -137,4 +137,97 @@ export function mergeResumable(
     out.push(c)
   }
   return out
+}
+
+export interface WorktreeNavView extends WorktreeView {
+  repoName: string
+  sessions: SessionMeta[]
+}
+
+export interface RepoNavView {
+  path: string
+  name: string
+  worktrees: WorktreeNavView[]
+}
+
+export interface SidebarSections {
+  pinnedPanels: SessionMeta[]
+  pinnedWorktrees: WorktreeNavView[]
+  pinnedRepos: RepoNavView[]
+  repos: RepoNavView[]
+}
+
+export const EMPTY_PINS: PinState = { panels: [], worktrees: [], repos: [] }
+
+export function sortSessionsForPins(sessions: SessionMeta[], pins: PinState): SessionMeta[] {
+  const panelOrder = orderMap(pins.panels)
+  return [...sessions].sort((left, right) =>
+    comparePinned(left.sessionId, right.sessionId, panelOrder),
+  )
+}
+
+export function sidebarSections(
+  repos: GitRepositoryWire[],
+  sessions: SessionMeta[],
+  pins: PinState,
+): SidebarSections {
+  const repoViews = reposToViews(repos)
+  const pinnedPanelIds = new Set(pins.panels)
+  const pinnedWorktreePaths = new Set(pins.worktrees)
+  const pinnedRepoPaths = new Set(pins.repos)
+
+  const allWorktrees = repoViews.flatMap((repo) =>
+    repo.worktrees.map((worktree) => ({ repo, worktree })),
+  )
+  const pinnedPanels = pins.panels
+    .map((sessionId) => sessions.find((session) => session.sessionId === sessionId))
+    .filter((session): session is SessionMeta => session !== undefined)
+
+  const navWorktree = (repo: RepoView, worktree: WorktreeView): WorktreeNavView => ({
+    ...worktree,
+    repoName: repo.name,
+    sessions: sortSessionsForPins(
+      sessionsForWorktree(sessions, worktree.path).filter(
+        (session) => !pinnedPanelIds.has(session.sessionId),
+      ),
+      pins,
+    ),
+  })
+
+  const navRepo = (repo: RepoView): RepoNavView => ({
+    path: repo.path,
+    name: repo.name,
+    worktrees: repo.worktrees
+      .filter((worktree) => !pinnedWorktreePaths.has(worktree.path))
+      .map((worktree) => navWorktree(repo, worktree)),
+  })
+
+  return {
+    pinnedPanels,
+    pinnedWorktrees: pins.worktrees
+      .map((path) => allWorktrees.find(({ worktree }) => worktree.path === path))
+      .filter((item): item is { repo: RepoView; worktree: WorktreeView } => item !== undefined)
+      .map(({ repo, worktree }) => navWorktree(repo, worktree)),
+    pinnedRepos: pins.repos
+      .map((path) => repoViews.find((repo) => repo.path === path))
+      .filter((repo): repo is RepoView => repo !== undefined)
+      .map(navRepo),
+    repos: repoViews
+      .filter((repo) => !pinnedRepoPaths.has(repo.path))
+      .map(navRepo)
+      .filter((repo) => repo.worktrees.length > 0),
+  }
+}
+
+function orderMap(ids: string[]): Map<string, number> {
+  return new Map(ids.map((id, index) => [id, index]))
+}
+
+function comparePinned(leftId: string, rightId: string, order: Map<string, number>): number {
+  const leftOrder = order.get(leftId)
+  const rightOrder = order.get(rightId)
+  if (leftOrder !== undefined && rightOrder !== undefined) return leftOrder - rightOrder
+  if (leftOrder !== undefined) return -1
+  if (rightOrder !== undefined) return 1
+  return 0
 }

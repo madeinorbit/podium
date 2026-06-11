@@ -1,8 +1,9 @@
 import type { SessionMeta } from '@podium/protocol'
+import { Pin } from 'lucide-react'
 import type { JSX } from 'react'
 import { useEffect, useState } from 'react'
 import { AgentPanel } from './AgentPanel'
-import { reposToViews, sessionsForWorktree } from './derive'
+import { reposToViews, sessionsForWorktree, sortSessionsForPins } from './derive'
 import { NewPanelMenu } from './NewPanelMenu'
 import { useStore } from './store'
 import type { WorktreeView } from './types'
@@ -10,15 +11,27 @@ import { WorkerLabel } from './WorkerLabel'
 
 export function Workspace(): JSX.Element {
   const store = useStore()
-  const { sessions, selectedWorktree, paneA, paneB, setPane, split, toggleSplit, killSession } =
-    store
+  const {
+    sessions,
+    pins,
+    setPinned,
+    selectedWorktree,
+    paneA,
+    paneB,
+    setPane,
+    split,
+    toggleSplit,
+    killSession,
+  } = store
   const [menuOpen, setMenuOpen] = useState(false)
 
   const worktree: WorktreeView | undefined = reposToViews(store.repos)
     .flatMap((r) => r.worktrees)
     .find((w) => w.path === selectedWorktree)
 
-  const tabs = worktree ? sessionsForWorktree(sessions, worktree.path) : []
+  const tabs = worktree
+    ? sortSessionsForPins(sessionsForWorktree(sessions, worktree.path), pins)
+    : []
 
   // Keep pane A pointed at a valid tab.
   useEffect(() => {
@@ -39,6 +52,17 @@ export function Workspace(): JSX.Element {
               onClick={() => setPane('A', t.sessionId)}
             >
               <span className={`dot ${t.status}`} /> <WorkerLabel session={t} />
+            </button>
+            <button
+              type="button"
+              className={pins.panels.includes(t.sessionId) ? 'tab-pin active' : 'tab-pin'}
+              aria-pressed={pins.panels.includes(t.sessionId)}
+              title={pins.panels.includes(t.sessionId) ? 'Unpin panel' : 'Pin panel'}
+              onClick={() =>
+                void setPinned('panel', t.sessionId, !pins.panels.includes(t.sessionId))
+              }
+            >
+              <Pin size={12} aria-hidden="true" />
             </button>
             <button
               type="button"

@@ -17,8 +17,9 @@ import {
   useState,
 } from 'react'
 import { formatAppError } from './AppErrorPage'
-import { reposToViews } from './derive'
+import { EMPTY_PINS, reposToViews } from './derive'
 import { makeTrpc, type ServerOrigin, type Trpc } from './trpc'
+import type { PinKind, PinState } from './types'
 
 export interface Store {
   hub: SocketHub
@@ -33,6 +34,8 @@ export interface Store {
   sessions: SessionMeta[]
   /** Latest health sample per daemon host; empty until a daemon reports (or after it drops). */
   hostMetrics: HostMetricsWire[]
+  pins: PinState
+  setPinned: (kind: PinKind, id: string, pinned: boolean) => Promise<void>
   selectedWorktree: string | null
   setSelectedWorktree: (path: string | null) => void
   paneA: string | null // sessionId in pane A
@@ -76,6 +79,7 @@ export function StoreProvider({
   const [conversations, setConversations] = useState<ConversationSummaryWire[]>([])
   const [sessions, setSessions] = useState<SessionMeta[]>([])
   const [hostMetrics, setHostMetrics] = useState<HostMetricsWire[]>([])
+  const [pins, setPins] = useState<PinState>(EMPTY_PINS)
   const [selectedWorktree, setSelectedWorktree] = useState<string | null>(null)
   const [paneA, setPaneA] = useState<string | null>(null)
   const [paneB, setPaneB] = useState<string | null>(null)
@@ -103,11 +107,24 @@ export function StoreProvider({
     },
     [trpc],
   )
+  const refreshPins = useMemo(
+    () => async () => {
+      setPins(await trpc.pins.list.query())
+    },
+    [trpc],
+  )
+  const setPinned = useMemo(
+    () => async (kind: PinKind, id: string, pinned: boolean) => {
+      setPins(await trpc.pins.set.mutate({ kind, id, pinned }))
+    },
+    [trpc],
+  )
   const killSession = useMemo(
     () => async (sessionId: string) => {
       await trpc.sessions.kill.mutate({ sessionId }).catch(() => {})
       setPaneA((p) => (p === sessionId ? null : p))
       setPaneB((p) => (p === sessionId ? null : p))
+      setPins((p) => ({ ...p, panels: p.panels.filter((id) => id !== sessionId) }))
     },
     [trpc],
   )
@@ -133,7 +150,7 @@ export function StoreProvider({
     }, 0)
     if (!started.current) {
       started.current = true
-      void refreshRepos().catch((e) => {
+      void Promise.all([refreshRepos(), refreshPins()]).catch((e) => {
         onFatalError(formatAppError(e, 'Could not load Podium data'))
       })
     }
@@ -144,7 +161,7 @@ export function StoreProvider({
       offHostMetrics()
       hub.dispose()
     }
-  }, [hub, onFatalError, refreshRepos])
+  }, [hub, onFatalError, refreshPins, refreshRepos])
 
   const value: Store = {
     hub,
@@ -156,6 +173,8 @@ export function StoreProvider({
     conversations,
     sessions,
     hostMetrics,
+    pins,
+    setPinned,
     selectedWorktree,
     setSelectedWorktree,
     paneA,

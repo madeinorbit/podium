@@ -1,5 +1,13 @@
 import type { ConversationSummaryWire, GitRepositoryWire, SessionMeta } from '@podium/protocol'
 
+export type PinKind = 'panel' | 'worktree' | 'repo'
+
+export interface PinState {
+  panels: string[]
+  worktrees: string[]
+  repos: string[]
+}
+
 /** A worktree as shown in the UI: the repo's own checkout plus each linked worktree. */
 export interface WorktreeView {
   path: string

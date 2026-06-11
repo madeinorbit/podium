@@ -1,20 +1,28 @@
-import type { JSX } from 'react'
+import { Pin } from 'lucide-react'
+import type { JSX, ReactNode } from 'react'
 import { useEffect, useState } from 'react'
 import { AgentPanel } from './AgentPanel'
-import { reposToViews, sessionsForWorktree } from './derive'
+import {
+  type RepoNavView,
+  reposToViews,
+  sessionsForWorktree,
+  sidebarSections,
+  sortSessionsForPins,
+  type WorktreeNavView,
+} from './derive'
 import { HostIndicators } from './HostIndicators'
 import { NewPanelMenu } from './NewPanelMenu'
 import { RepoScanFlow } from './RepoScanFlow'
 import { useStore } from './store'
+import type { PinKind } from './types'
 import { WorkerLabel } from './WorkerLabel'
 
 /**
- * Pin the mobile shell to the *visual* viewport. The layout viewport (what `dvh`
+ * Pin the mobile shell to the visual viewport. The layout viewport (what dvh
  * tracks) does not shrink when the soft keyboard opens on iOS, so a bottom-anchored
- * key bar would hide behind the keyboard. Tracking `visualViewport.height` into
- * `--viewport-h` shrinks the shell to the visible area, leaving the key bar flush
- * above the keyboard. No-op where `visualViewport` is unavailable (falls back to
- * the `100dvh` default in CSS).
+ * key bar would hide behind the keyboard. Tracking visualViewport.height into
+ * --viewport-h shrinks the shell to the visible area, leaving the key bar flush
+ * above the keyboard. No-op where visualViewport is unavailable.
  */
 function useVisualViewportHeight(): void {
   useEffect(() => {
@@ -36,19 +44,40 @@ function useVisualViewportHeight(): void {
 export function MobileApp(): JSX.Element {
   useVisualViewportHeight()
   const store = useStore()
-  const { sessions, selectedWorktree, setSelectedWorktree, paneA, setPane, killSession } = store
+  const {
+    sessions,
+    pins,
+    setPinned,
+    selectedWorktree,
+    setSelectedWorktree,
+    paneA,
+    setPane,
+    killSession,
+  } = store
   const { reposLoading, repoDiagnostics } = store
   const repoViews = reposToViews(store.repos)
+  const sections = sidebarSections(store.repos, sessions, pins)
   const worktree = repoViews.flatMap((r) => r.worktrees).find((w) => w.path === selectedWorktree)
-  const tabs = worktree ? sessionsForWorktree(sessions, worktree.path) : []
+  const tabs = worktree
+    ? sortSessionsForPins(sessionsForWorktree(sessions, worktree.path), pins)
+    : []
   const [pickerOpen, setPickerOpen] = useState(false)
   const [repoPickerOpen, setRepoPickerOpen] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
+  const hasRows =
+    sections.pinnedWorktrees.length > 0 ||
+    sections.pinnedRepos.length > 0 ||
+    sections.repos.length > 0
 
   useEffect(() => {
     if (paneA && tabs.some((t) => t.sessionId === paneA)) return
     setPane('A', tabs[0]?.sessionId ?? null)
   }, [tabs, paneA, setPane])
+
+  const pickWorktree = (path: string) => {
+    setSelectedWorktree(path)
+    setPickerOpen(false)
+  }
 
   return (
     <div className="mobile-shell">
@@ -57,25 +86,37 @@ export function MobileApp(): JSX.Element {
           {worktree ? (worktree.branch ?? worktree.path.split('/').pop()) : 'Select worktree'} ▾
         </button>
         <div className="mobile-tabs">
-          {tabs.map((t) => (
-            <span key={t.sessionId} className="tab-wrap">
-              <button
-                type="button"
-                className={t.sessionId === paneA ? 'tab active' : 'tab'}
-                onClick={() => setPane('A', t.sessionId)}
-              >
-                <span className={`dot ${t.status}`} /> <WorkerLabel session={t} />
-              </button>
-              <button
-                type="button"
-                className="tab-kill"
-                title="Kill session"
-                onClick={() => void killSession(t.sessionId)}
-              >
-                ✕
-              </button>
-            </span>
-          ))}
+          {tabs.map((t) => {
+            const pinned = pins.panels.includes(t.sessionId)
+            return (
+              <span key={t.sessionId} className="tab-wrap">
+                <button
+                  type="button"
+                  className={t.sessionId === paneA ? 'tab active' : 'tab'}
+                  onClick={() => setPane('A', t.sessionId)}
+                >
+                  <span className={`dot ${t.status}`} /> <WorkerLabel session={t} />
+                </button>
+                <button
+                  type="button"
+                  className={pinned ? 'tab-pin active' : 'tab-pin'}
+                  aria-pressed={pinned}
+                  title={pinned ? 'Unpin panel' : 'Pin panel'}
+                  onClick={() => void setPinned('panel', t.sessionId, !pinned)}
+                >
+                  <Pin size={12} aria-hidden="true" />
+                </button>
+                <button
+                  type="button"
+                  className="tab-kill"
+                  title="Kill session"
+                  onClick={() => void killSession(t.sessionId)}
+                >
+                  ✕
+                </button>
+              </span>
+            )
+          })}
           {worktree && (
             <button type="button" className="tab-add" onClick={() => setMenuOpen((v) => !v)}>
               +
@@ -97,7 +138,7 @@ export function MobileApp(): JSX.Element {
         {paneA ? (
           <AgentPanel sessionId={paneA} />
         ) : (
-          <div className="pane-empty">No panel — use + to start one.</div>
+          <div className="pane-empty">No panel - use + to start one.</div>
         )}
       </div>
       {pickerOpen && (
@@ -120,25 +161,42 @@ export function MobileApp(): JSX.Element {
                 : `Scan finished with ${repoDiagnostics.length} warning${repoDiagnostics.length === 1 ? '' : 's'}.`}
             </div>
           )}
-          {repoViews.map((repo) => (
-            <div key={repo.path}>
-              <div className="repo-name">{repo.name}</div>
-              {repo.worktrees.map((wt) => (
-                <button
+          {sections.pinnedWorktrees.length > 0 && (
+            <PickerSection label="PINNED WORKTREES">
+              {sections.pinnedWorktrees.map((wt) => (
+                <SheetWorktree
                   key={wt.path}
-                  type="button"
-                  className="sheet-row"
-                  onClick={() => {
-                    setSelectedWorktree(wt.path)
-                    setPickerOpen(false)
-                  }}
-                >
-                  {wt.branch ?? wt.path.split('/').pop()}
-                </button>
+                  worktree={wt}
+                  pinned={true}
+                  onPick={pickWorktree}
+                  setPinned={setPinned}
+                />
               ))}
-            </div>
+            </PickerSection>
+          )}
+          {sections.pinnedRepos.length > 0 && (
+            <PickerSection label="PINNED REPOS">
+              {sections.pinnedRepos.map((repo) => (
+                <SheetRepo
+                  key={repo.path}
+                  repo={repo}
+                  pinned={true}
+                  onPick={pickWorktree}
+                  setPinned={setPinned}
+                />
+              ))}
+            </PickerSection>
+          )}
+          {sections.repos.map((repo) => (
+            <SheetRepo
+              key={repo.path}
+              repo={repo}
+              pinned={false}
+              onPick={pickWorktree}
+              setPinned={setPinned}
+            />
           ))}
-          {repoViews.length === 0 && (
+          {!hasRows && (
             <div className="empty">
               {reposLoading ? 'Loading repositories...' : 'No repos yet. Add a folder to scan.'}
             </div>
@@ -152,5 +210,104 @@ export function MobileApp(): JSX.Element {
         />
       )}
     </div>
+  )
+}
+
+function PickerSection({ label, children }: { label: string; children: ReactNode }): JSX.Element {
+  return (
+    <div className="picker-section">
+      <div className="pin-section-label">{label}</div>
+      {children}
+    </div>
+  )
+}
+
+function SheetRepo({
+  repo,
+  pinned,
+  onPick,
+  setPinned,
+}: {
+  repo: RepoNavView
+  pinned: boolean
+  onPick: (path: string) => void
+  setPinned: (kind: PinKind, id: string, pinned: boolean) => Promise<void>
+}): JSX.Element {
+  return (
+    <div>
+      <div className="repo-head sheet-repo-head">
+        <div className="repo-name">{repo.name}</div>
+        <PinToggle
+          kind="repo"
+          id={repo.path}
+          pinned={pinned}
+          label={repo.name}
+          setPinned={setPinned}
+        />
+      </div>
+      {repo.worktrees.map((wt) => (
+        <SheetWorktree
+          key={wt.path}
+          worktree={wt}
+          pinned={false}
+          onPick={onPick}
+          setPinned={setPinned}
+        />
+      ))}
+    </div>
+  )
+}
+
+function SheetWorktree({
+  worktree,
+  pinned,
+  onPick,
+  setPinned,
+}: {
+  worktree: WorktreeNavView
+  pinned: boolean
+  onPick: (path: string) => void
+  setPinned: (kind: PinKind, id: string, pinned: boolean) => Promise<void>
+}): JSX.Element {
+  return (
+    <div className="sheet-row-wrap">
+      <button type="button" className="sheet-row" onClick={() => onPick(worktree.path)}>
+        <span>{worktree.branch ?? worktree.path.split('/').pop()}</span>
+        {pinned && <span className="worktree-context">{worktree.repoName}</span>}
+      </button>
+      <PinToggle
+        kind="worktree"
+        id={worktree.path}
+        pinned={pinned}
+        label={worktree.branch ?? worktree.path}
+        setPinned={setPinned}
+      />
+    </div>
+  )
+}
+
+function PinToggle({
+  kind,
+  id,
+  pinned,
+  label,
+  setPinned,
+}: {
+  kind: PinKind
+  id: string
+  pinned: boolean
+  label: string
+  setPinned: (kind: PinKind, id: string, pinned: boolean) => Promise<void>
+}): JSX.Element {
+  return (
+    <button
+      type="button"
+      className={pinned ? 'pin-button active' : 'pin-button'}
+      aria-pressed={pinned}
+      title={`${pinned ? 'Unpin' : 'Pin'} ${label}`}
+      onClick={() => void setPinned(kind, id, !pinned)}
+    >
+      <Pin size={13} aria-hidden="true" />
+    </button>
   )
 }

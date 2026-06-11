@@ -10,6 +10,7 @@ export interface Context {
 }
 
 const t = initTRPC.context<Context>().create()
+const PinKind = z.enum(['panel', 'worktree', 'repo'])
 
 export const appRouter = t.router({
   sessions: t.router({
@@ -31,6 +32,22 @@ export const appRouter = t.router({
     kill: t.procedure
       .input(z.object({ sessionId: z.string() }))
       .mutation(({ ctx, input }) => ctx.registry.killSession(input)),
+  }),
+  pins: t.router({
+    list: t.procedure.query(({ ctx }) => ctx.registry.listPins()),
+    set: t.procedure
+      .input(z.object({ kind: PinKind, id: z.string(), pinned: z.boolean() }))
+      .mutation(({ ctx, input }) => {
+        try {
+          ctx.registry.setPin(input.kind, input.id, input.pinned)
+        } catch (e) {
+          throw new TRPCError({
+            code: 'BAD_REQUEST',
+            message: e instanceof Error ? e.message : String(e),
+          })
+        }
+        return ctx.registry.listPins()
+      }),
   }),
   repos: t.router({
     list: t.procedure.query(({ ctx }) => ctx.repos.list()),

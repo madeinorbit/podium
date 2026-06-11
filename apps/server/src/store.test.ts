@@ -164,3 +164,41 @@ describe('SessionStore schema migration', () => {
     store.close()
   })
 })
+
+describe('SessionStore pins', () => {
+  it('starts empty, adds, dedupes, lists by kind in insertion order, and removes', () => {
+    const store = new SessionStore(':memory:')
+    expect(store.listPins()).toEqual({ panels: [], worktrees: [], repos: [] })
+
+    store.setPin('repo', '/repo/b', true)
+    store.setPin('worktree', '/repo/b-feature', true)
+    store.setPin('panel', 'session-2', true)
+    store.setPin('repo', '/repo/a', true)
+    store.setPin('repo', '/repo/b', true)
+
+    expect(store.listPins()).toEqual({
+      panels: ['session-2'],
+      worktrees: ['/repo/b-feature'],
+      repos: ['/repo/b', '/repo/a'],
+    })
+
+    store.setPin('repo', '/repo/b', false)
+    expect(store.listPins()).toEqual({
+      panels: ['session-2'],
+      worktrees: ['/repo/b-feature'],
+      repos: ['/repo/a'],
+    })
+    store.close()
+  })
+
+  it('removes a panel pin when the session is deleted', () => {
+    const store = new SessionStore(':memory:')
+    store.upsertSession(row({ id: 'session-1' }))
+    store.setPin('panel', 'session-1', true)
+
+    store.deleteSession('session-1')
+
+    expect(store.listPins()).toEqual({ panels: [], worktrees: [], repos: [] })
+    store.close()
+  })
+})

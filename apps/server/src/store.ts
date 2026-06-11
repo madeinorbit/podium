@@ -3,6 +3,16 @@ import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 
+export type PinKind = 'panel' | 'worktree' | 'repo'
+
+export interface PinState {
+  panels: string[]
+  worktrees: string[]
+  repos: string[]
+}
+
+const PIN_KINDS = new Set<PinKind>(['panel', 'worktree', 'repo'])
+
 /** Default DB file: $PODIUM_STATE_DIR/podium.db, else ~/.podium/podium.db. */
 export function defaultDbPath(): string {
   const base = process.env.PODIUM_STATE_DIR ?? join(process.env.HOME || homedir(), '.podium')
@@ -55,6 +65,34 @@ export class SessionStore {
 
   removeRepo(path: string): void {
     this.db.prepare('DELETE FROM repos WHERE path = ?').run(path)
+  }
+
+  // ---- pins ----
+  listPins(): PinState {
+    const rows = this.db.prepare('SELECT kind, id FROM pins ORDER BY rowid ASC').all() as {
+      kind: PinKind
+      id: string
+    }[]
+    const pins: PinState = { panels: [], worktrees: [], repos: [] }
+    for (const row of rows) {
+      if (row.kind === 'panel') pins.panels.push(row.id)
+      else if (row.kind === 'worktree') pins.worktrees.push(row.id)
+      else if (row.kind === 'repo') pins.repos.push(row.id)
+    }
+    return pins
+  }
+
+  setPin(kind: PinKind, id: string, pinned: boolean): void {
+    if (!PIN_KINDS.has(kind)) throw new Error(`invalid pin kind: ${kind}`)
+    const cleanId = id.trim()
+    if (!cleanId) throw new Error('pin id is empty')
+    if (pinned) {
+      this.db
+        .prepare('INSERT OR IGNORE INTO pins (kind, id, pinned_at) VALUES (?, ?, ?)')
+        .run(kind, cleanId, new Date().toISOString())
+    } else {
+      this.db.prepare('DELETE FROM pins WHERE kind = ? AND id = ?').run(kind, cleanId)
+    }
   }
 
   // ---- sessions ----
@@ -120,6 +158,7 @@ export class SessionStore {
 
   deleteSession(id: string): void {
     this.db.prepare('DELETE FROM sessions WHERE id = ?').run(id)
+    this.db.prepare('DELETE FROM pins WHERE kind = ? AND id = ?').run('panel', id)
   }
 
   close(): void {
@@ -131,6 +170,14 @@ export class SessionStore {
     this.db.exec('PRAGMA journal_mode = WAL')
     this.db.exec('PRAGMA busy_timeout = 5000')
     this.db.exec('CREATE TABLE IF NOT EXISTS repos (path TEXT PRIMARY KEY, added_at TEXT NOT NULL)')
+    this.db.exec(
+      `CREATE TABLE IF NOT EXISTS pins (
+         kind TEXT NOT NULL,
+         id TEXT NOT NULL,
+         pinned_at TEXT NOT NULL,
+         PRIMARY KEY (kind, id)
+       )`,
+    )
     this.db.exec(
       `CREATE TABLE IF NOT EXISTS sessions (
          id TEXT PRIMARY KEY,

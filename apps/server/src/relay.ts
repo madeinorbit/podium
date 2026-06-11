@@ -16,7 +16,7 @@ import {
   type SessionMeta,
 } from '@podium/protocol'
 import { type ClientConn, type Send, Session } from './session'
-import { SessionStore } from './store'
+import { type PinKind, SessionStore } from './store'
 
 const DEFAULT_GEOMETRY: Geometry = { cols: 80, rows: 24 }
 const SCAN_TIMEOUT_MS = 10_000
@@ -149,6 +149,14 @@ export class SessionRegistry {
   // ---- tRPC control plane ----
   listSessions(): SessionMeta[] {
     return [...this.sessions.values()].map((s) => s.toMeta())
+  }
+
+  listPins() {
+    return this.store.listPins()
+  }
+
+  setPin(kind: PinKind, id: string, pinned: boolean) {
+    this.store.setPin(kind, id, pinned)
   }
 
   createSession(input: { agentKind: AgentKind; cwd: string; title?: string }): {

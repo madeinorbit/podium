@@ -28,6 +28,27 @@ describe('web shell structure', () => {
     expect(src).toContain('setTimeout')
     expect(src).toContain('clearTimeout')
   })
+
+  it('store exposes shared pin state and mutations', () => {
+    const src = read('store.tsx')
+    expect(src).toContain('pins')
+    expect(src).toContain('setPinned')
+    expect(src).toContain('pins.list')
+    expect(src).toContain('pins.set')
+  })
+  it('sidebar renders pin-aware moved sections and pin controls', () => {
+    const src = read('Sidebar.tsx')
+    expect(src).toContain('sidebarSections')
+    expect(src).toContain('PinButton')
+    expect(src).toContain('PINNED PANELS')
+    expect(src).toContain('PINNED WORKTREES')
+    expect(src).toContain('PINNED REPOS')
+    expect(src).toContain('setPinned')
+  })
+  it('workspace and mobile tabs order pinned panels first', () => {
+    expect(read('Workspace.tsx')).toContain('sortSessionsForPins')
+    expect(read('MobileApp.tsx')).toContain('sortSessionsForPins')
+  })
   it('repo add flow uses the scan flow on desktop and mobile', () => {
     expect(read('Sidebar.tsx')).toContain('RepoScanFlow')
     expect(read('MobileApp.tsx')).toContain('RepoScanFlow')
@@ -36,9 +57,9 @@ describe('web shell structure', () => {
     const src = read('Sidebar.tsx')
     // Each panel row is an interactive button (not an inert div) that focuses the
     // session: select its worktree and point pane A at it.
-    expect(src).toContain("className={panelActive ? 'panel-row active' : 'panel-row'}")
-    expect(src).toContain('setSelectedWorktree(wt.path)')
-    expect(src).toContain("setPane('A', s.sessionId)")
+    expect(src).toContain("className={active ? 'panel-row active' : 'panel-row'}")
+    expect(src).toContain('setSelectedWorktree(worktreePath)')
+    expect(src).toContain("setPane('A', sessionId)")
   })
   it('repo picker browses folders, hides hidden by default, and offers a scan action', () => {
     const src = read('RepoPickerModal.tsx')
@@ -71,7 +92,7 @@ describe('web shell structure', () => {
   it('conversation discovery is pushed instead of blocking initial store load', () => {
     const src = read('store.tsx')
     expect(src).toContain('hub.onConversations(setConversations)')
-    expect(src).toContain('void refreshRepos()')
+    expect(src).toContain('Promise.all([refreshRepos(), refreshPins()])')
     expect(src).not.toContain('Promise.all([refreshRepos(), rescanConversations()])')
   })
   it('new-panel menu offers claude, codex, and shell', () => {
