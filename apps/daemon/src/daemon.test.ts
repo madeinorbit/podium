@@ -2,11 +2,18 @@ import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { isTmuxAvailable, killTmuxServer, tmuxHasSession } from '@podium/agent-bridge'
+import {
+  abducoHasSession,
+  isAbducoAvailable,
+  isTmuxAvailable,
+  killAbducoSession,
+  killTmuxServer,
+  tmuxHasSession,
+} from '@podium/agent-bridge'
 import { type DaemonMessage, encode, parseDaemonMessage } from '@podium/protocol'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { WebSocketServer, type WebSocket as WS } from 'ws'
-import { type DaemonHandle, startDaemon } from './daemon'
+import { type DaemonHandle, resolveDurableBackend, startDaemon } from './daemon'
 
 const FIXTURE = fileURLToPath(
   new URL('../../../packages/agent-bridge/test/fixtures/fixture-tui.mjs', import.meta.url),
@@ -239,6 +246,117 @@ describe('daemon multi-bridge', () => {
   })
 })
 
+describe('durable backend resolution', () => {
+  const both = { abduco: true, tmux: true }
+  const neither = { abduco: false, tmux: false }
+
+  it('prefers abduco, falls back to tmux, then none', () => {
+    expect(resolveDurableBackend({}, both)).toBe('abduco')
+    expect(resolveDurableBackend({}, { abduco: false, tmux: true })).toBe('tmux')
+    expect(resolveDurableBackend({}, neither)).toBe('none')
+  })
+
+  it('an explicit backend wins (operator intent, even over availability probes)', () => {
+    expect(resolveDurableBackend({ backend: 'tmux' }, both)).toBe('tmux')
+    expect(resolveDurableBackend({ backend: 'none' }, both)).toBe('none')
+    expect(resolveDurableBackend({ backend: 'abduco' }, neither)).toBe('abduco')
+  })
+
+  it('maps the legacy tmux boolean: true forces tmux, false forces none', () => {
+    expect(resolveDurableBackend({ tmux: true }, both)).toBe('tmux')
+    expect(resolveDurableBackend({ tmux: false }, both)).toBe('none')
+  })
+})
+
+describe.skipIf(!isAbducoAvailable())('daemon abduco survival', () => {
+  it('keeps the abduco session alive after the daemon closes, reattaches, and fails for a missing label', async () => {
+    const sessionId = `ab-survive-${process.pid}`
+    const label = `podium-${sessionId}`
+    const wss = new WebSocketServer({ port: 0 })
+    await new Promise<void>((r) => wss.once('listening', () => r()))
+    const port = (wss.address() as { port: number }).port
+
+    const received: DaemonMessage[] = []
+    let serverSocket!: WS
+    const connected = new Promise<void>((r) => {
+      wss.once('connection', (ws) => {
+        serverSocket = ws
+        ws.on('message', (raw) => received.push(parseDaemonMessage(raw.toString())))
+        r()
+      })
+    })
+
+    const daemon = await startDaemon({
+      serverUrl: `ws://localhost:${port}`,
+      backend: 'abduco',
+      discovery: { background: false, cachePath: ':memory:' },
+      launch: (_kind, opts) => ({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
+    })
+    await connected
+
+    const waitFor = async (fn: () => boolean, timeout = 5000): Promise<void> => {
+      const startedAt = Date.now()
+      while (!fn()) {
+        if (Date.now() - startedAt > timeout) throw new Error('waitFor timed out')
+        await new Promise((r) => setTimeout(r, 20))
+      }
+    }
+    const send = (msg: unknown): void => serverSocket.send(encode(msg as never))
+    let daemonClosed = false
+
+    try {
+      send({ type: 'spawn', sessionId, agentKind: 'claude-code', cwd: '/tmp', geometry: G })
+      await waitFor(() => received.some((m) => m.type === 'bind' && m.sessionId === sessionId))
+      expect(abducoHasSession(label)).toBe(true)
+
+      // Simulate a backend restart re-binding: drop everything seen so far and re-attach.
+      received.length = 0
+      send({
+        type: 'reattach',
+        sessionId,
+        tmuxLabel: label,
+        agentKind: 'claude-code',
+        cwd: '/tmp',
+        geometry: G,
+      })
+      await waitFor(() => received.some((m) => m.type === 'bind' && m.sessionId === sessionId))
+      // abduco does not replay history; the fixture repaints on the attach SIGWINCH,
+      // so frames flow again from the re-attached client.
+      await waitFor(() =>
+        received.some(
+          (m) =>
+            m.type === 'agentFrame' &&
+            m.sessionId === sessionId &&
+            decode(m.data).includes('PODIUM-FIXTURE'),
+        ),
+      )
+
+      // A reattach for a label no backend knows → reattachFailed.
+      const goneId = `ab-gone-${process.pid}`
+      send({
+        type: 'reattach',
+        sessionId: goneId,
+        tmuxLabel: `podium-${goneId}-missing`,
+        agentKind: 'claude-code',
+        cwd: '/tmp',
+        geometry: G,
+      })
+      await waitFor(() =>
+        received.some((m) => m.type === 'reattachFailed' && m.sessionId === goneId),
+      )
+
+      // Closing the daemon only kills the attach client — the session survives.
+      daemonClosed = true
+      await daemon.close()
+      expect(abducoHasSession(label)).toBe(true)
+    } finally {
+      if (!daemonClosed) await daemon.close()
+      killAbducoSession(label)
+      await new Promise<void>((r) => wss.close(() => r()))
+    }
+  }, 20000)
+})
+
 describe.skipIf(!isTmuxAvailable())('daemon tmux survival', () => {
   it('keeps the tmux session alive after the daemon closes', async () => {
     const sessionId = `survive-${process.pid}`
@@ -369,7 +487,6 @@ describe.skipIf(!isTmuxAvailable())('daemon tmux survival', () => {
     }
   })
 })
-
 
 describe('daemon conversation discovery', () => {
   it('background quick scan pushes conversationsChanged', async () => {

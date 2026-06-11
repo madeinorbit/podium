@@ -2,16 +2,21 @@ import {
   type AgentConversationDiagnostic,
   type AgentConversationSummary,
   type AgentSession,
+  abducoHasSession,
   agentLaunchCommand,
+  attachAbducoAgent,
   attachTmuxAgent,
-  compareConversationSummaries,
   ConversationDiscoveryCache,
+  compareConversationSummaries,
   type GitDiscoveryDiagnostic,
   type GitRepositorySummary,
+  isAbducoAvailable,
   isTmuxAvailable,
+  killAbducoSession,
   killTmuxServer,
   scanAgentConversationsCached,
   scanGitRepositories,
+  spawnAbducoAgent,
   spawnAgent,
   spawnTmuxAgent,
   tmuxHasSession,
@@ -41,13 +46,33 @@ export interface DaemonDiscoveryOptions {
   scanIntervalMs?: number
 }
 
+/** What holds the agent's PTY across daemon restarts. `none` = bare node-pty. */
+export type DurableBackend = 'abduco' | 'tmux' | 'none'
+
 export interface DaemonOptions {
   serverUrl: string
   /** Map an agent kind to a spawn command. Defaults to agentLaunchCommand; tests inject a fixture. */
   launch?: typeof agentLaunchCommand
-  /** Force tmux on/off. Defaults to isTmuxAvailable(); tests set it for determinism. */
+  /**
+   * Durable PTY backend. Defaults to abduco when installed (a transparent pipe —
+   * no second terminal grid fighting xterm.js), else tmux, else bare node-pty.
+   */
+  backend?: DurableBackend
+  /** Legacy force-tmux switch: true → 'tmux', false → 'none'. Prefer `backend`. */
   tmux?: boolean
   discovery?: DaemonDiscoveryOptions
+}
+
+/** Explicit choice wins (operator intent); otherwise prefer abduco → tmux → none. */
+export function resolveDurableBackend(
+  opts: Pick<DaemonOptions, 'backend' | 'tmux'>,
+  avail: { abduco: boolean; tmux: boolean },
+): DurableBackend {
+  if (opts.backend) return opts.backend
+  if (opts.tmux !== undefined) return opts.tmux ? 'tmux' : 'none'
+  if (avail.abduco) return 'abduco'
+  if (avail.tmux) return 'tmux'
+  return 'none'
 }
 
 export interface DaemonHandle {
@@ -112,9 +137,14 @@ function gitDiagnosticToWire(d: GitDiscoveryDiagnostic): GitDiscoveryDiagnosticW
 
 export function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
   const launch = opts.launch ?? agentLaunchCommand
-  const tmuxMode = opts.tmux ?? isTmuxAvailable()
-  if (opts.tmux === undefined && !tmuxMode) {
-    console.warn('[podium] tmux not found — sessions will not survive a daemon restart')
+  const backend = resolveDurableBackend(opts, {
+    abduco: isAbducoAvailable(),
+    tmux: isTmuxAvailable(),
+  })
+  if (opts.backend === undefined && opts.tmux === undefined && backend === 'none') {
+    console.warn(
+      '[podium] neither abduco nor tmux found — sessions will not survive a daemon restart',
+    )
   }
   const ws = new WebSocket(`${opts.serverUrl}/daemon`)
   const bridges = new Map<string, AgentSession>()
@@ -203,22 +233,20 @@ export function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
         ...(msg.resume ? { resume: msg.resume } : {}),
       })
       const label = `podium-${msg.sessionId}`
-      const session = tmuxMode
-        ? spawnTmuxAgent({
-            label,
-            cmd: cmd.cmd,
-            args: cmd.args,
-            cwd: cmd.cwd,
-            cols: msg.geometry.cols,
-            rows: msg.geometry.rows,
-          })
-        : spawnAgent({
-            cmd: cmd.cmd,
-            args: cmd.args,
-            cwd: cmd.cwd,
-            cols: msg.geometry.cols,
-            rows: msg.geometry.rows,
-          })
+      const spawnOpts = {
+        label,
+        cmd: cmd.cmd,
+        args: cmd.args,
+        cwd: cmd.cwd,
+        cols: msg.geometry.cols,
+        rows: msg.geometry.rows,
+      }
+      const session =
+        backend === 'abduco'
+          ? spawnAbducoAgent(spawnOpts)
+          : backend === 'tmux'
+            ? spawnTmuxAgent(spawnOpts)
+            : spawnAgent(spawnOpts)
       wireBridge(msg.sessionId, session)
       send({
         type: 'bind',
@@ -286,24 +314,28 @@ export function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
         spawn(msg)
         break
       case 'reattach': {
-        if (!tmuxMode || !tmuxHasSession(msg.tmuxLabel)) {
+        // Backend-agnostic: try whichever durable host owns the label, so sessions
+        // created under tmux before an abduco upgrade still reattach (no flag day).
+        const attach = { label: msg.tmuxLabel, cols: msg.geometry.cols, rows: msg.geometry.rows }
+        const found =
+          backend !== 'none' && abducoHasSession(msg.tmuxLabel)
+            ? { session: attachAbducoAgent(attach), cmd: `abduco -a ${msg.tmuxLabel}` }
+            : backend !== 'none' && tmuxHasSession(msg.tmuxLabel)
+              ? { session: attachTmuxAgent(attach), cmd: `tmux -L ${msg.tmuxLabel} attach` }
+              : undefined
+        if (!found) {
           send({
             type: 'reattachFailed',
             sessionId: msg.sessionId,
-            reason: tmuxMode ? 'tmux session not found' : 'tmux unavailable',
+            reason: backend === 'none' ? 'durable backend unavailable' : 'session not found',
           })
           break
         }
-        const session = attachTmuxAgent({
-          label: msg.tmuxLabel,
-          cols: msg.geometry.cols,
-          rows: msg.geometry.rows,
-        })
-        wireBridge(msg.sessionId, session)
+        wireBridge(msg.sessionId, found.session)
         send({
           type: 'bind',
           sessionId: msg.sessionId,
-          cmd: `tmux -L ${msg.tmuxLabel} attach`,
+          cmd: found.cmd,
           cwd: msg.cwd,
           agentKind: msg.agentKind,
           geometry: msg.geometry,
@@ -315,7 +347,11 @@ export function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
         if (session) {
           session.dispose()
           bridges.delete(msg.sessionId)
-          if (tmuxMode) killTmuxServer(`podium-${msg.sessionId}`)
+          if (backend !== 'none') {
+            // Both reapers are cheap no-ops when the label isn't theirs.
+            killAbducoSession(`podium-${msg.sessionId}`)
+            killTmuxServer(`podium-${msg.sessionId}`)
+          }
         }
         break
       }
@@ -343,8 +379,8 @@ export function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
   const disposeAll = (): void => {
     if (discoveryTimer) clearTimeout(discoveryTimer)
     discoveryCache.close()
-    // For tmux sessions, dispose() only detaches the client, so the agent survives the
-    // daemon going down — do NOT kill the servers here.
+    // For durable sessions (abduco/tmux), dispose() only takes down the attach client,
+    // so the agent survives the daemon going down — do NOT kill the masters here.
     for (const session of bridges.values()) session.dispose()
     bridges.clear()
   }
