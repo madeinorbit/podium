@@ -63,6 +63,35 @@ function errorMessage(error: unknown, fallback: string): string {
   return fallback
 }
 
+// Liveness + recovery tuning. The heartbeat catches connections that died without a
+// close event (laptop sleep leaves a half-open TCP; some proxies drop idle sockets
+// silently), doubles as proxy-keepalive traffic, and — at this cadence — works as a
+// latency probe: each ping's round-trip feeds the connection-health indicator, so
+// the interval is seconds, not tens of seconds. Reconnect backoff is capped low:
+// the common cause here is a backend redeploy that is back within seconds.
+const HEARTBEAT_INTERVAL_MS = 2_500
+const HEARTBEAT_TIMEOUT_MS = 10_000
+const RECONNECT_MIN_MS = 500
+const RECONNECT_MAX_MS = 10_000
+
+// Health thresholds. Degraded = the UI shows a yellow dot (typing will feel laggy);
+// down = red (input is not reaching the agent). RTT alone never maps to "down" —
+// red is reserved for pings that aren't answered at all or a dropped socket.
+const DEGRADED_RTT_MS = 400
+const PING_DEGRADED_AFTER_MS = 1_500
+const PING_DOWN_AFTER_MS = 5_000
+// Unanswered pings older than the force-close window can't accumulate meaningfully;
+// the cap just bounds the queue if pongs stop while other traffic keeps us alive.
+const PING_QUEUE_CAP = 8
+
+export type ConnectionHealthStatus = 'ok' | 'degraded' | 'down'
+
+export interface ConnectionHealth {
+  status: ConnectionHealthStatus
+  /** Latest measured ping round-trip. Null until the first pong (or while disconnected). */
+  rttMs: number | null
+}
+
 /** One ws, multiplexed across N sessions. Owns the connection + server-assigned clientId. */
 export class SocketHub {
   private readonly opts: SocketHubOptions
@@ -74,10 +103,21 @@ export class SocketHub {
   private conversationList: ConversationSummaryWire[] = []
   private hostMetricsList: HostMetricsWire[] = []
   private intentionalClose = false
+  private everConnected = false
+  private reconnectDelay = RECONNECT_MIN_MS
+  private reconnectTimer: ReturnType<typeof setTimeout> | undefined
+  private heartbeatTimer: ReturnType<typeof setInterval> | undefined
+  private heartbeatDeadline: ReturnType<typeof setTimeout> | undefined
+  /** Send time of each unanswered ping, oldest first. Pongs arrive in ping order. */
+  private pingQueue: number[] = []
+  private staleTimer: ReturnType<typeof setTimeout> | undefined
+  private lastRttMs: number | null = null
+  private health: ConnectionHealth = { status: 'ok', rttMs: null }
   private readonly connections = new Map<string, SessionConnection>()
   private readonly sessionObservers = new Set<(s: SessionMeta[]) => void>()
   private readonly conversationObservers = new Set<(c: ConversationSummaryWire[]) => void>()
   private readonly hostMetricsObservers = new Set<(h: HostMetricsWire[]) => void>()
+  private readonly healthObservers = new Set<(h: ConnectionHealth) => void>()
 
   constructor(opts: SocketHubOptions) {
     this.opts = opts
@@ -93,12 +133,19 @@ export class SocketHub {
 
   connect(): void {
     if (this.socket !== undefined) return
+    if (this.reconnectTimer !== undefined) {
+      clearTimeout(this.reconnectTimer)
+      this.reconnectTimer = undefined
+    }
 
     let socket: WebSocketLike
     try {
       socket = this.makeSocket(this.opts.url)
     } catch (err) {
-      this.opts.onError?.(errorMessage(err, 'WebSocket connection failed'), err)
+      // A constructor throw before first contact is a config problem (bad URL) —
+      // surface it; once we have connected successfully, retry like any other drop.
+      if (this.everConnected) this.scheduleReconnect()
+      else this.opts.onError?.(errorMessage(err, 'WebSocket connection failed'), err)
       return
     }
 
@@ -109,6 +156,9 @@ export class SocketHub {
     socket.onopen = () => {
       opened = true
       this.connectedFlag = true
+      this.everConnected = true
+      this.reconnectDelay = RECONNECT_MIN_MS
+      this.startHeartbeat()
       this.sendRaw({
         type: 'hello',
         clientId: this.clientIdValue,
@@ -116,20 +166,117 @@ export class SocketHub {
       })
       for (const sessionId of this.connections.keys()) this.sendRaw({ type: 'attach', sessionId })
       this.notifyConnections()
+      this.evaluateHealth()
     }
-    socket.onmessage = (ev) => this.route(String(ev.data))
+    socket.onmessage = (ev) => {
+      this.markAlive()
+      this.route(String(ev.data))
+    }
     socket.onerror = (ev) => {
       reportedError = true
-      this.opts.onError?.('WebSocket connection failed', ev)
+      // Errors after a successful first connection are transient (backend redeploy,
+      // network blip): the reconnect loop handles them. Only a failure to ever
+      // connect is fatal — that's a wrong address or a server that isn't running.
+      if (!this.everConnected) this.opts.onError?.('WebSocket connection failed', ev)
     }
     socket.onclose = () => {
-      if (!this.intentionalClose && !opened && !reportedError) {
+      if (!this.intentionalClose && !opened && !reportedError && !this.everConnected) {
         this.opts.onError?.('WebSocket connection closed before connecting')
       }
-      this.connectedFlag = false
-      this.socket = undefined
-      this.notifyConnections()
+      this.onSocketClosed()
     }
+  }
+
+  /** Common teardown for any socket end: from onclose or a heartbeat force-close. */
+  private onSocketClosed(): void {
+    this.stopHeartbeat()
+    this.connectedFlag = false
+    this.socket = undefined
+    this.notifyConnections()
+    if (!this.intentionalClose) this.evaluateHealth()
+    if (!this.intentionalClose && this.everConnected) this.scheduleReconnect()
+  }
+
+  private scheduleReconnect(): void {
+    if (this.reconnectTimer !== undefined) return
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = undefined
+      this.connect()
+    }, this.reconnectDelay)
+    this.reconnectDelay = Math.min(this.reconnectDelay * 2, RECONNECT_MAX_MS)
+  }
+
+  private startHeartbeat(): void {
+    this.stopHeartbeat()
+    // First ping right away: it seeds the latency measurement on connect and, after
+    // a reconnect, confirms the server is actually answering — an open socket alone
+    // already cleared the indicator, and this verifies that optimism within ~1.5s.
+    this.sendPing()
+    this.heartbeatTimer = setInterval(() => this.sendPing(), HEARTBEAT_INTERVAL_MS)
+  }
+
+  private sendPing(): void {
+    this.sendRaw({ type: 'ping' })
+    if (this.pingQueue.length < PING_QUEUE_CAP) this.pingQueue.push(Date.now())
+    if (this.pingQueue.length === 1) this.armStaleTimer()
+    if (this.heartbeatDeadline !== undefined) return
+    this.heartbeatDeadline = setTimeout(() => {
+      this.heartbeatDeadline = undefined
+      this.forceClose()
+    }, HEARTBEAT_TIMEOUT_MS)
+  }
+
+  /** Two-stage alarm on the oldest unanswered ping: degraded, then down. Without
+   *  this the health would only be re-checked when a message arrives — exactly what
+   *  isn't happening on a stalling connection. */
+  private armStaleTimer(): void {
+    this.clearStaleTimer()
+    this.staleTimer = setTimeout(() => {
+      this.staleTimer = setTimeout(() => {
+        this.staleTimer = undefined
+        this.evaluateHealth()
+      }, PING_DOWN_AFTER_MS - PING_DEGRADED_AFTER_MS)
+      this.evaluateHealth()
+    }, PING_DEGRADED_AFTER_MS)
+  }
+
+  private clearStaleTimer(): void {
+    if (this.staleTimer !== undefined) clearTimeout(this.staleTimer)
+    this.staleTimer = undefined
+  }
+
+  private stopHeartbeat(): void {
+    if (this.heartbeatTimer !== undefined) clearInterval(this.heartbeatTimer)
+    if (this.heartbeatDeadline !== undefined) clearTimeout(this.heartbeatDeadline)
+    this.heartbeatTimer = undefined
+    this.heartbeatDeadline = undefined
+    this.clearStaleTimer()
+    this.pingQueue = []
+    this.lastRttMs = null
+  }
+
+  /** Any inbound traffic proves the connection is alive; clear the ping deadline. */
+  private markAlive(): void {
+    if (this.heartbeatDeadline === undefined) return
+    clearTimeout(this.heartbeatDeadline)
+    this.heartbeatDeadline = undefined
+  }
+
+  /** The heartbeat went unanswered. A half-open TCP connection may not deliver a
+   *  close event for minutes, so detach the handlers and run the close path now. */
+  private forceClose(): void {
+    const socket = this.socket
+    if (socket === undefined) return
+    socket.onopen = null
+    socket.onmessage = null
+    socket.onclose = null
+    if (socket.onerror !== undefined) socket.onerror = null
+    try {
+      socket.close()
+    } catch {
+      // already dead — exactly the case we're cleaning up
+    }
+    this.onSocketClosed()
   }
 
   attach(sessionId: string, cb: SessionCallbacks = {}): SessionConnection {
@@ -180,6 +327,41 @@ export class SocketHub {
     return () => this.hostMetricsObservers.delete(cb)
   }
 
+  connectionHealth(): ConnectionHealth {
+    return this.health
+  }
+
+  onConnectionHealth(cb: (h: ConnectionHealth) => void): () => void {
+    this.healthObservers.add(cb)
+    cb(this.health)
+    return () => this.healthObservers.delete(cb)
+  }
+
+  private evaluateHealth(): void {
+    const next = this.computeHealth()
+    if (next.status === this.health.status && next.rttMs === this.health.rttMs) return
+    this.health = next
+    for (const o of this.healthObservers) o(next)
+  }
+
+  private computeHealth(): ConnectionHealth {
+    if (!this.connectedFlag) {
+      // Before the first connection the fatal-error page owns the messaging; a red
+      // dot on top of it (or during the initial load) would be noise.
+      return { status: this.everConnected ? 'down' : 'ok', rttMs: null }
+    }
+    const oldest = this.pingQueue[0]
+    if (oldest !== undefined) {
+      const waitedMs = Date.now() - oldest
+      if (waitedMs >= PING_DOWN_AFTER_MS) return { status: 'down', rttMs: this.lastRttMs }
+      if (waitedMs >= PING_DEGRADED_AFTER_MS) return { status: 'degraded', rttMs: this.lastRttMs }
+    }
+    if (this.lastRttMs !== null && this.lastRttMs >= DEGRADED_RTT_MS) {
+      return { status: 'degraded', rttMs: this.lastRttMs }
+    }
+    return { status: 'ok', rttMs: this.lastRttMs }
+  }
+
   /** @internal Used by SessionConnection to send its sessionId-tagged messages. */
   _send(msg: Parameters<typeof encode>[0]): void {
     this.sendRaw(msg)
@@ -187,6 +369,11 @@ export class SocketHub {
 
   dispose(): void {
     this.intentionalClose = true
+    if (this.reconnectTimer !== undefined) {
+      clearTimeout(this.reconnectTimer)
+      this.reconnectTimer = undefined
+    }
+    this.stopHeartbeat()
     this.socket?.close()
     this.socket = undefined
     this.connectedFlag = false
@@ -198,6 +385,17 @@ export class SocketHub {
     try {
       msg = parseServerMessage(raw)
     } catch {
+      return
+    }
+    if (msg.type === 'pong') {
+      // Liveness was already recorded in onmessage; here the pong closes out the
+      // oldest in-flight ping to yield a round-trip sample.
+      const sentAt = this.pingQueue.shift()
+      if (sentAt !== undefined) {
+        this.lastRttMs = Date.now() - sentAt
+        if (this.pingQueue.length === 0) this.clearStaleTimer()
+        this.evaluateHealth()
+      }
       return
     }
     if (msg.type === 'welcome') {

@@ -1,5 +1,5 @@
 import { encode, type ServerMessage } from '@podium/protocol'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SocketHub, type WebSocketLike } from './connection'
 
 class FakeSocket implements WebSocketLike {
@@ -296,6 +296,203 @@ describe('SessionConnection (hub-backed)', () => {
     expect(after).toBe(before) // no duplicate attach
     sock.recv({ type: 'outputFrame', sessionId: 's1', seq: 0, epoch: 0, data: btoa('hi') })
     expect(frames).toEqual(['hi'])
+  })
+})
+
+describe('SocketHub reconnect + heartbeat', () => {
+  function multiSetup() {
+    const sockets: FakeSocket[] = []
+    const errors: string[] = []
+    const hub = new SocketHub({
+      url: 'ws://x',
+      viewport: { cols: 80, rows: 24, dpr: 1 },
+      makeSocket: () => {
+        const s = new FakeSocket()
+        sockets.push(s)
+        return s
+      },
+      onError: (m) => errors.push(m),
+    })
+    return { sockets, hub, errors }
+  }
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('reconnects after an unintentional close and re-attaches sessions', () => {
+    vi.useFakeTimers()
+    const { sockets, hub } = multiSetup()
+    hub.connect()
+    sockets[0]?.open()
+    hub.attach('s1')
+    sockets[0]?.close() // backend died / proxy dropped the socket
+    expect(hub.connected).toBe(false)
+    vi.advanceTimersByTime(30_000)
+    expect(sockets.length).toBe(2)
+    sockets[1]?.open()
+    expect(hub.connected).toBe(true)
+    expect(sockets[1]?.parsed()).toContainEqual({ type: 'attach', sessionId: 's1' })
+  })
+
+  it('keeps retrying with backoff until the server is back', () => {
+    vi.useFakeTimers()
+    const { sockets, hub } = multiSetup()
+    hub.connect()
+    sockets[0]?.open()
+    sockets[0]?.close()
+    // Each failed attempt (close without open) schedules another try.
+    for (let i = 0; i < 4; i += 1) {
+      vi.advanceTimersByTime(60_000)
+      sockets.at(-1)?.close()
+    }
+    vi.advanceTimersByTime(60_000)
+    expect(sockets.length).toBeGreaterThanOrEqual(5)
+    sockets.at(-1)?.open()
+    expect(hub.connected).toBe(true)
+  })
+
+  it('does not reconnect after an intentional dispose', () => {
+    vi.useFakeTimers()
+    const { sockets, hub } = multiSetup()
+    hub.connect()
+    sockets[0]?.open()
+    hub.dispose()
+    vi.advanceTimersByTime(120_000)
+    expect(sockets.length).toBe(1)
+  })
+
+  it('detects a silent half-open connection via heartbeat and reconnects', () => {
+    vi.useFakeTimers()
+    const { sockets, hub } = multiSetup()
+    hub.connect()
+    sockets[0]?.open()
+    // The first ping goes out immediately on open (it doubles as the latency probe).
+    expect(sockets[0]?.parsed()).toContainEqual({ type: 'ping' })
+    // No pong arrives: the connection is declared dead and a reconnect scheduled.
+    vi.advanceTimersByTime(10_000)
+    expect(hub.connected).toBe(false)
+    vi.advanceTimersByTime(30_000)
+    expect(sockets.length).toBe(2)
+  })
+
+  it('pong replies keep a live connection open', () => {
+    vi.useFakeTimers()
+    const { sockets, hub } = multiSetup()
+    hub.connect()
+    sockets[0]?.open()
+    sockets[0]?.recv({ type: 'pong' }) // answer the on-open ping
+    // Advance exactly one heartbeat interval at a time and answer each ping
+    // immediately, the way a live server would.
+    for (let i = 0; i < 5; i += 1) {
+      vi.advanceTimersByTime(2_500)
+      sockets[0]?.recv({ type: 'pong' })
+    }
+    expect(hub.connected).toBe(true)
+    expect(sockets.length).toBe(1)
+  })
+
+  it('does not report a fatal error for drops after a successful open', () => {
+    vi.useFakeTimers()
+    const { sockets, hub, errors } = multiSetup()
+    hub.connect()
+    sockets[0]?.open()
+    sockets[0]?.close()
+    vi.advanceTimersByTime(60_000)
+    sockets.at(-1)?.close() // the retry failing silently is also not fatal
+    expect(errors).toEqual([])
+  })
+})
+
+describe('connection health', () => {
+  function multiSetup() {
+    const sockets: FakeSocket[] = []
+    const hub = new SocketHub({
+      url: 'ws://x',
+      viewport: { cols: 80, rows: 24, dpr: 1 },
+      makeSocket: () => {
+        const s = new FakeSocket()
+        sockets.push(s)
+        return s
+      },
+    })
+    return { sockets, hub }
+  }
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('starts ok with no measurement', () => {
+    const { hub } = multiSetup()
+    expect(hub.connectionHealth()).toEqual({ status: 'ok', rttMs: null })
+  })
+
+  it('measures rtt from the ping/pong round-trip and stays ok when fast', () => {
+    vi.useFakeTimers()
+    const { sockets, hub } = multiSetup()
+    hub.connect()
+    sockets[0]?.open() // ping sent immediately
+    vi.advanceTimersByTime(80)
+    sockets[0]?.recv({ type: 'pong' })
+    expect(hub.connectionHealth()).toEqual({ status: 'ok', rttMs: 80 })
+  })
+
+  it('degrades on a slow pong and recovers on a fast one', () => {
+    vi.useFakeTimers()
+    const { sockets, hub } = multiSetup()
+    hub.connect()
+    sockets[0]?.open()
+    vi.advanceTimersByTime(600)
+    sockets[0]?.recv({ type: 'pong' })
+    expect(hub.connectionHealth()).toEqual({ status: 'degraded', rttMs: 600 })
+    vi.advanceTimersByTime(1_900) // land exactly on the next heartbeat ping (t=2.5s)
+    sockets[0]?.recv({ type: 'pong' }) // answered instantly
+    expect(hub.connectionHealth()).toEqual({ status: 'ok', rttMs: 0 })
+  })
+
+  it('degrades while a ping goes unanswered, then reports down', () => {
+    vi.useFakeTimers()
+    const { sockets, hub } = multiSetup()
+    hub.connect()
+    sockets[0]?.open() // ping at t=0, never answered
+    vi.advanceTimersByTime(1_500)
+    expect(hub.connectionHealth().status).toBe('degraded')
+    vi.advanceTimersByTime(3_500) // t=5s since the ping
+    expect(hub.connectionHealth().status).toBe('down')
+  })
+
+  it('reports down while disconnected and recovers after a reconnect pong', () => {
+    vi.useFakeTimers()
+    const { sockets, hub } = multiSetup()
+    hub.connect()
+    sockets[0]?.open()
+    sockets[0]?.recv({ type: 'pong' })
+    expect(hub.connectionHealth().status).toBe('ok')
+    sockets[0]?.close()
+    expect(hub.connectionHealth().status).toBe('down')
+    vi.advanceTimersByTime(30_000)
+    const next = sockets.at(-1)
+    expect(next).not.toBe(sockets[0])
+    next?.open()
+    next?.recv({ type: 'pong' })
+    expect(hub.connectionHealth()).toEqual({ status: 'ok', rttMs: 0 })
+  })
+
+  it('notifies observers with a replay and only on change', () => {
+    vi.useFakeTimers()
+    const { sockets, hub } = multiSetup()
+    const seen: Array<{ status: string; rttMs: number | null }> = []
+    hub.onConnectionHealth((h) => seen.push(h))
+    hub.connect()
+    sockets[0]?.open()
+    sockets[0]?.recv({ type: 'pong' }) // rtt 0
+    vi.advanceTimersByTime(2_500)
+    sockets[0]?.recv({ type: 'pong' }) // rtt 0 again — no change, no emit
+    expect(seen).toEqual([
+      { status: 'ok', rttMs: null },
+      { status: 'ok', rttMs: 0 },
+    ])
   })
 })
 

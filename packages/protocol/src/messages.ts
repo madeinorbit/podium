@@ -129,6 +129,10 @@ export const RedrawRequestMessage = z.object({
   type: z.literal('redrawRequest'),
   sessionId: z.string(),
 })
+// Liveness probe. The browser pings periodically so a half-open connection (laptop
+// sleep, dead proxy hop) is detected client-side, and idle-timeout proxies see
+// traffic. The server answers with pong.
+export const PingMessage = z.object({ type: z.literal('ping') })
 
 export const ClientMessage = z.discriminatedUnion('type', [
   HelloMessage,
@@ -138,6 +142,7 @@ export const ClientMessage = z.discriminatedUnion('type', [
   ResizeMessage,
   RequestControlMessage,
   RedrawRequestMessage,
+  PingMessage,
 ])
 export type ClientMessage = z.infer<typeof ClientMessage>
 
@@ -219,6 +224,8 @@ export const HostMetricsChangedMessage = z.object({
   type: z.literal('hostMetricsChanged'),
   hosts: z.array(HostMetricsWire),
 })
+// Reply to a client PingMessage; its arrival is the liveness signal.
+export const PongMessage = z.object({ type: z.literal('pong') })
 
 export const ServerMessage = z.discriminatedUnion('type', [
   WelcomeMessage,
@@ -231,6 +238,7 @@ export const ServerMessage = z.discriminatedUnion('type', [
   ConversationsChangedMessage,
   SessionTitleChangedMessage,
   HostMetricsChangedMessage,
+  PongMessage,
 ])
 export type ServerMessage = z.infer<typeof ServerMessage>
 

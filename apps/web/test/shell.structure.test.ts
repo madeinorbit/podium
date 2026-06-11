@@ -118,11 +118,17 @@ describe('host health indicators', () => {
     expect(read('Sidebar.tsx')).toContain('<HostIndicators')
     expect(read('MobileApp.tsx')).toContain('<HostIndicators')
   })
-  it('renders nothing without a reporting daemon and labels hosts only when several report', () => {
+  it('renders nothing when no daemon reports and the connection is healthy', () => {
     const src = read('HostIndicators.tsx')
-    expect(src).toContain('hostMetrics.length === 0) return null')
+    expect(src).toContain("hostMetrics.length === 0 && health.status === 'ok') return null")
     expect(src).toContain('hostMetrics.length > 1')
     expect(src).toContain('hostMemoryView')
+  })
+  it('shows the connection dot only when the link is degraded or down', () => {
+    const src = read('ConnectionIndicator.tsx')
+    expect(src).toContain("if (health.status === 'ok') return null")
+    expect(src).toContain('conn-${health.status}')
+    expect(src).toContain('onConnectionHealth')
   })
 })
 

@@ -104,6 +104,7 @@ describe('ClientMessage', () => {
     { type: 'resize', sessionId: 's1', cols: 100, rows: 30 },
     { type: 'requestControl', sessionId: 's1' },
     { type: 'redrawRequest', sessionId: 's1' },
+    { type: 'ping' },
   ]
   it.each(cases)('round-trips %j', (msg) => {
     expect(parseClientMessage(encode(msg))).toEqual(msg)
@@ -152,6 +153,7 @@ describe('ServerMessage', () => {
     { type: 'sessionsChanged', sessions: [sessionMeta] },
     { type: 'conversationsChanged', conversations: [conversation], diagnostics: [] },
     { type: 'sessionTitleChanged', sessionId: 's1', title: '✳ rename functionality' },
+    { type: 'pong' },
   ]
   it.each(cases)('round-trips %j', (msg) => {
     expect(parseServerMessage(encode(msg))).toEqual(msg)

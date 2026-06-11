@@ -1,22 +1,25 @@
 import type { JSX } from 'react'
 import { useState } from 'react'
+import { ConnectionIndicator, useConnectionHealth } from './ConnectionIndicator'
 import { hostMemoryView } from './derive'
 import { HostMemoryView } from './HostMemoryView'
 import { useStore } from './store'
 
 /**
- * Host health strip — one chip per daemon machine, nothing when no daemon is
- * reporting (an absent indicator beats a stale one). Currently memory; siblings
- * (connection stability, …) will join this strip. Clicking the memory chip opens
- * the per-process breakdown view.
+ * Host health strip — the connection dot when the server link is unhealthy, plus
+ * one chip per daemon machine; nothing at all when every signal is good (an
+ * absent indicator beats a stale one). Clicking the memory chip opens the
+ * per-process breakdown view.
  */
 export function HostIndicators(): JSX.Element | null {
   const { hostMetrics } = useStore()
+  const health = useConnectionHealth()
   const [open, setOpen] = useState(false)
-  if (hostMetrics.length === 0) return null
+  if (hostMetrics.length === 0 && health.status === 'ok') return null
   const showHostname = hostMetrics.length > 1
   return (
     <div className="host-indicators">
+      <ConnectionIndicator health={health} />
       {hostMetrics.map((host) => {
         const mem = hostMemoryView(host)
         return (

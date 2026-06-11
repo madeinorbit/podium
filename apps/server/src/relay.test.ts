@@ -87,6 +87,14 @@ describe('SessionRegistry', () => {
     })
   })
 
+  it('answers a client ping with pong (browser-level keepalive)', () => {
+    const reg = new SessionRegistry()
+    const c = sink()
+    const id = reg.attachClient(c.send)
+    reg.onClientMessage(id, { type: 'ping' })
+    expect(c.sent).toContainEqual({ type: 'pong' })
+  })
+
   it('routes frames only to clients attached to that session (ISOLATION)', () => {
     const reg = new SessionRegistry()
     reg.attachDaemon(() => {})

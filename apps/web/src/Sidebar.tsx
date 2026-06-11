@@ -115,8 +115,8 @@ export function Sidebar(): JSX.Element {
 
         {!hasRows && <div className="empty">No repos yet. Use "+ Add repo" to scan a folder.</div>}
       </div>
-      {/* Host health strip, pinned under the list — the home for machine-level
-          indicators (memory now; connection stability et al. will follow). */}
+      {/* Host health strip, pinned under the list — machine-level indicators
+          (connection health, memory). */}
       <HostIndicators />
       {pickerOpen && (
         <RepoScanFlow onClose={() => setPickerOpen(false)} onDone={() => setPickerOpen(false)} />

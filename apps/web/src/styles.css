@@ -1041,6 +1041,27 @@ body {
 .host-chip.mem-critical .host-chip-label {
   color: var(--danger);
 }
+/* Connection-health dot: absent when the link is good, yellow when slow, red when
+   pings stop coming back. Pulse the red so a dead link registers peripherally. */
+.conn-dot {
+  flex: none;
+  align-self: center;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+.conn-dot.conn-degraded {
+  background: var(--warning);
+}
+.conn-dot.conn-down {
+  background: var(--danger);
+  animation: conn-pulse 1.2s ease-in-out infinite;
+}
+@keyframes conn-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
 /* mobile header: borrow the right edge, drop the bar to stay compact */
 .mobile-head .host-indicators {
   margin: 0;

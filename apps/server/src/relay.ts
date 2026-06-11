@@ -344,6 +344,9 @@ export class SessionRegistry {
       case 'redrawRequest':
         this.sessions.get(msg.sessionId)?.redraw()
         break
+      case 'ping':
+        client.send({ type: 'pong' })
+        break
     }
   }
 
