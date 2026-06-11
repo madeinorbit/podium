@@ -2,8 +2,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { performance } from 'node:perf_hooks'
 import {
-  compareConversationSummaries,
   ConversationDiscoveryCache,
+  compareConversationSummaries,
   loadAgentConversation,
   scanAgentConversations,
   scanAgentConversationsCached,

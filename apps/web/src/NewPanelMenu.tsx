@@ -1,5 +1,5 @@
 import type { AgentKind } from '@podium/protocol'
-import { useEffect, type JSX } from 'react'
+import { type JSX, useEffect } from 'react'
 import {
   mergeResumable,
   reposToViews,

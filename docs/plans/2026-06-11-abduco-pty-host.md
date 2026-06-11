@@ -26,8 +26,13 @@ else": it holds the PTY in a daemonized master and pipes bytes transparently.
   so the atexit restore chrome never fires.
 - abduco does NOT replay history on attach; it SIGWINCHes the app's process group
   so full-screen TUIs repaint. Browser-reconnect replay remains the relay's job
-  (`MAX_REPLAY_BYTES` in apps/server, which survives daemon restarts). Known edge:
-  a plain shell pane shows blank after a *daemon* restart until its next output.
+  (`MAX_REPLAY_BYTES` in apps/server, which survives daemon restarts). Node TUIs
+  (Claude Code included) repaint only on a real size CHANGE, so attach nudges a
+  shrink/restore resize (reuses wrapPty's ack-based redraw). Verified: real
+  Claude Code and bash prompts (readline redraws on WINCH) both repaint after a
+  same-geometry reattach. Residual edge: a shell whose foreground process ignores
+  SIGWINCH and prints nothing stays blank until its next output — relay replay
+  still covers the history for reconnecting browsers.
 
 ## Design
 
@@ -71,6 +76,9 @@ The `tmuxLabel` wire field stays as-is (cosmetic debt, noted).
 
 ## Deploy note
 
-abduco must be installed on every daemon machine (dev host `podium-host` included);
-it's a tiny C program (`apt install abduco` or `make` from source). The daemon
-warns and falls back to tmux/none when missing.
+podium ships abduco: `src/abduco-bin.ts` resolves $PODIUM_ABDUCO → PATH → the
+build cache ($PODIUM_STATE_DIR/bin/abduco else ~/.podium/bin/abduco) → compiles
+the vendored ISC source (vendor/abduco, ~1s, needs the same C toolchain node-pty
+already requires). A system install (`apt install abduco`) is honored first but
+no longer required. The daemon warns and falls back to tmux/bare only when no
+binary can be obtained at all (no compiler).

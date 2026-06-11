@@ -13,7 +13,6 @@ import { startDaemon } from '../../apps/daemon/src/daemon'
 import { startServer } from '../../apps/server/src/server'
 
 const SERVER_PORT = Number(process.env.PORT ?? 8788)
-// biome-ignore lint/suspicious/noControlCharactersInRegex: stripping ANSI for a readable preview
 const ANSI = /\[[0-9;?]*[ -/]*[@-~]|[()][0-9A-B]|[=>]|[ --]/g
 const strip = (s: string): string => s.replace(ANSI, '')
 const tail = (s: string, n: number): string =>
