@@ -4,6 +4,10 @@ import { newSession, openApp, podium } from './_harness'
 // keyecho echoes every byte it receives with hex + a human label, so we can assert that
 // real browser keyboard, click and wheel events survive the full browser -> server ->
 // daemon -> PTY -> agent path. (The harness launches keyecho for non-shell kinds.)
+// Desktop pointer semantics only: mouse.wheel doesn't exist on touch devices (mobile
+// WebKit rejects it outright) — mobile-scroll.browser.e2e.ts covers finger drag.
+test.skip(({ isMobile }) => isMobile, 'desktop pointer input; mobile covered by mobile-scroll')
+
 test('keyboard, click and scroll round-trip to the agent (keyecho)', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 820 })
   await openApp(page)
