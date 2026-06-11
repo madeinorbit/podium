@@ -3,6 +3,7 @@
  * redraw, frames). Speaks @podium/protocol geometry types.
  */
 
+export * from './abduco.js'
 export * from './discovery/index.js'
 export * from './launch.js'
 export * from './osc-title.js'
