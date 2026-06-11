@@ -902,3 +902,62 @@ body {
 .agent-panel-bar .worker-name {
   color: var(--fg-bright);
 }
+
+/* ---- host health strip (memory now; future machine-level indicators) ---- */
+.host-indicators {
+  /* in the sidebar: pinned under the scrolling list */
+  margin-top: auto;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--border);
+  background: var(--panel);
+}
+.host-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--dim);
+  white-space: nowrap;
+}
+.host-chip-name {
+  color: var(--faint);
+  max-width: 9ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.host-chip-bar {
+  width: 36px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--surface);
+  overflow: hidden;
+}
+.host-chip-fill {
+  display: block;
+  height: 100%;
+  background: var(--success);
+}
+.host-chip.mem-warn .host-chip-fill {
+  background: var(--warning);
+}
+.host-chip.mem-critical .host-chip-fill {
+  background: var(--danger);
+}
+.host-chip.mem-critical .host-chip-label {
+  color: var(--danger);
+}
+/* mobile header: borrow the right edge, drop the bar to stay compact */
+.mobile-head .host-indicators {
+  margin: 0;
+  border-top: 0;
+  border-left: 1px solid var(--border);
+  padding: 0 8px;
+  align-items: center;
+  flex-wrap: nowrap;
+}
+.mobile-head .host-chip-bar {
+  display: none;
+}

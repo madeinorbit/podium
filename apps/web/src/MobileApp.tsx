@@ -2,6 +2,7 @@ import type { JSX } from 'react'
 import { useEffect, useState } from 'react'
 import { AgentPanel } from './AgentPanel'
 import { reposToViews, sessionsForWorktree } from './derive'
+import { HostIndicators } from './HostIndicators'
 import { NewPanelMenu } from './NewPanelMenu'
 import { RepoScanFlow } from './RepoScanFlow'
 import { useStore } from './store'
@@ -81,6 +82,7 @@ export function MobileApp(): JSX.Element {
             </button>
           )}
         </div>
+        <HostIndicators />
       </header>
       {menuOpen && worktree && (
         <NewPanelMenu

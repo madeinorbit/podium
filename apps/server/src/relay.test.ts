@@ -452,3 +452,62 @@ describe('SessionRegistry', () => {
     warn.mockRestore()
   })
 })
+
+describe('host metrics relay', () => {
+  const sample = (hostname: string, availableBytes = 16) => ({
+    type: 'hostMetrics' as const,
+    hostname,
+    sampledAt: '2026-06-11T00:00:00.000Z',
+    memory: { totalBytes: 32, availableBytes, swapTotalBytes: 8, swapFreeBytes: 8 },
+  })
+  const metricsMsgs = (sent: ServerMessage[]) =>
+    sent.filter((m): m is Extract<ServerMessage, { type: 'hostMetricsChanged' }> => {
+      return m.type === 'hostMetricsChanged'
+    })
+
+  it('broadcasts the latest sample per host to all clients', () => {
+    const reg = new SessionRegistry()
+    const a = sink()
+    const b = sink()
+    reg.attachClient(a.send)
+    reg.attachClient(b.send)
+    reg.onDaemonMessage(sample('podium-host'))
+    reg.onDaemonMessage(sample('podium-host', 8)) // newer sample replaces, not appends
+    const last = metricsMsgs(a.sent).at(-1)
+    expect(last?.hosts).toEqual([expect.objectContaining({ hostname: 'podium-host' })])
+    expect(last?.hosts[0]?.memory.availableBytes).toBe(8)
+    expect(metricsMsgs(b.sent).at(-1)).toEqual(last)
+  })
+
+  it('keeps hosts side by side when several hostnames report', () => {
+    const reg = new SessionRegistry()
+    const a = sink()
+    reg.attachClient(a.send)
+    reg.onDaemonMessage(sample('alpha'))
+    reg.onDaemonMessage(sample('beta'))
+    const hosts = metricsMsgs(a.sent)
+      .at(-1)
+      ?.hosts.map((h) => h.hostname)
+    expect(hosts?.sort()).toEqual(['alpha', 'beta'])
+  })
+
+  it('snapshots current metrics to a late-joining client', () => {
+    const reg = new SessionRegistry()
+    reg.onDaemonMessage(sample('podium-host'))
+    const late = sink()
+    reg.attachClient(late.send)
+    expect(metricsMsgs(late.sent).at(-1)?.hosts).toEqual([
+      expect.objectContaining({ hostname: 'podium-host' }),
+    ])
+  })
+
+  it('clears and re-broadcasts when the daemon detaches (stale numbers never linger)', () => {
+    const reg = new SessionRegistry()
+    const a = sink()
+    reg.attachClient(a.send)
+    reg.attachDaemon(() => {})
+    reg.onDaemonMessage(sample('podium-host'))
+    reg.detachDaemon()
+    expect(metricsMsgs(a.sent).at(-1)?.hosts).toEqual([])
+  })
+})

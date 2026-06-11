@@ -2,6 +2,7 @@ import type {
   ConversationSummaryWire,
   GitDiscoveryDiagnosticWire,
   GitRepositoryWire,
+  HostMetricsWire,
   SessionMeta,
 } from '@podium/protocol'
 import { SocketHub } from '@podium/terminal-client'
@@ -30,6 +31,8 @@ export interface Store {
   repoDiagnostics: GitDiscoveryDiagnosticWire[]
   conversations: ConversationSummaryWire[]
   sessions: SessionMeta[]
+  /** Latest health sample per daemon host; empty until a daemon reports (or after it drops). */
+  hostMetrics: HostMetricsWire[]
   selectedWorktree: string | null
   setSelectedWorktree: (path: string | null) => void
   paneA: string | null // sessionId in pane A
@@ -72,6 +75,7 @@ export function StoreProvider({
   const [repoDiagnostics, setRepoDiagnostics] = useState<GitDiscoveryDiagnosticWire[]>([])
   const [conversations, setConversations] = useState<ConversationSummaryWire[]>([])
   const [sessions, setSessions] = useState<SessionMeta[]>([])
+  const [hostMetrics, setHostMetrics] = useState<HostMetricsWire[]>([])
   const [selectedWorktree, setSelectedWorktree] = useState<string | null>(null)
   const [paneA, setPaneA] = useState<string | null>(null)
   const [paneB, setPaneB] = useState<string | null>(null)
@@ -119,6 +123,7 @@ export function StoreProvider({
   useEffect(() => {
     const offSessions = hub.onSessions(setSessions)
     const offConversations = hub.onConversations(setConversations)
+    const offHostMetrics = hub.onHostMetrics(setHostMetrics)
     const connectTimer = setTimeout(() => {
       try {
         hub.connect()
@@ -136,6 +141,7 @@ export function StoreProvider({
       clearTimeout(connectTimer)
       offSessions()
       offConversations()
+      offHostMetrics()
       hub.dispose()
     }
   }, [hub, onFatalError, refreshRepos])
@@ -149,6 +155,7 @@ export function StoreProvider({
     repoDiagnostics,
     conversations,
     sessions,
+    hostMetrics,
     selectedWorktree,
     setSelectedWorktree,
     paneA,

@@ -592,3 +592,63 @@ describe('daemon conversation discovery', () => {
     }
   })
 })
+
+describe('daemon host metrics', () => {
+  it('pushes hostMetrics immediately on connect and again on the interval', async () => {
+    const received: DaemonMessage[] = []
+    const wss = new WebSocketServer({ port: 0 })
+    await new Promise<void>((r) => wss.once('listening', () => r()))
+    const port = (wss.address() as { port: number }).port
+    wss.on('connection', (ws) => {
+      ws.on('message', (raw) => received.push(parseDaemonMessage(raw.toString())))
+    })
+    const daemon = await startDaemon({
+      serverUrl: `ws://localhost:${port}`,
+      tmux: false,
+      discovery: { background: false, cachePath: ':memory:' },
+      metrics: { intervalMs: 25 },
+    })
+    try {
+      const metrics = () =>
+        received.filter((m): m is Extract<DaemonMessage, { type: 'hostMetrics' }> => {
+          return m.type === 'hostMetrics'
+        })
+      const start = Date.now()
+      while (metrics().length < 2) {
+        if (Date.now() - start > 5000) throw new Error('timed out waiting for hostMetrics')
+        await new Promise((r) => setTimeout(r, 10))
+      }
+      const m = metrics()[0]
+      expect(m?.hostname.length).toBeGreaterThan(0)
+      expect(m?.memory.totalBytes).toBeGreaterThan(0)
+      expect(m?.memory.availableBytes).toBeLessThanOrEqual(m?.memory.totalBytes ?? 0)
+      expect(Number.isNaN(Date.parse(m?.sampledAt ?? ''))).toBe(false)
+    } finally {
+      await daemon.close()
+      await new Promise<void>((r) => wss.close(() => r()))
+    }
+  })
+
+  it('stays silent when metrics.background is false', async () => {
+    const received: DaemonMessage[] = []
+    const wss = new WebSocketServer({ port: 0 })
+    await new Promise<void>((r) => wss.once('listening', () => r()))
+    const port = (wss.address() as { port: number }).port
+    wss.on('connection', (ws) => {
+      ws.on('message', (raw) => received.push(parseDaemonMessage(raw.toString())))
+    })
+    const daemon = await startDaemon({
+      serverUrl: `ws://localhost:${port}`,
+      tmux: false,
+      discovery: { background: false, cachePath: ':memory:' },
+      metrics: { background: false, intervalMs: 10 },
+    })
+    try {
+      await new Promise((r) => setTimeout(r, 80))
+      expect(received.filter((m) => m.type === 'hostMetrics')).toEqual([])
+    } finally {
+      await daemon.close()
+      await new Promise<void>((r) => wss.close(() => r()))
+    }
+  })
+})

@@ -1,6 +1,7 @@
 import {
   type ConversationSummaryWire,
   encode,
+  type HostMetricsWire,
   parseServerMessage,
   type ServerMessage,
   type SessionMeta,
@@ -71,10 +72,12 @@ export class SocketHub {
   private clientIdValue = ''
   private sessionList: SessionMeta[] = []
   private conversationList: ConversationSummaryWire[] = []
+  private hostMetricsList: HostMetricsWire[] = []
   private intentionalClose = false
   private readonly connections = new Map<string, SessionConnection>()
   private readonly sessionObservers = new Set<(s: SessionMeta[]) => void>()
   private readonly conversationObservers = new Set<(c: ConversationSummaryWire[]) => void>()
+  private readonly hostMetricsObservers = new Set<(h: HostMetricsWire[]) => void>()
 
   constructor(opts: SocketHubOptions) {
     this.opts = opts
@@ -167,6 +170,16 @@ export class SocketHub {
     return () => this.conversationObservers.delete(cb)
   }
 
+  hostMetrics(): HostMetricsWire[] {
+    return this.hostMetricsList
+  }
+
+  onHostMetrics(cb: (h: HostMetricsWire[]) => void): () => void {
+    this.hostMetricsObservers.add(cb)
+    cb(this.hostMetricsList)
+    return () => this.hostMetricsObservers.delete(cb)
+  }
+
   /** @internal Used by SessionConnection to send its sessionId-tagged messages. */
   _send(msg: Parameters<typeof encode>[0]): void {
     this.sendRaw(msg)
@@ -200,6 +213,11 @@ export class SocketHub {
     if (msg.type === 'conversationsChanged') {
       this.conversationList = msg.conversations
       for (const o of this.conversationObservers) o(this.conversationList)
+      return
+    }
+    if (msg.type === 'hostMetricsChanged') {
+      this.hostMetricsList = msg.hosts
+      for (const o of this.hostMetricsObservers) o(this.hostMetricsList)
       return
     }
     if (msg.type === 'sessionTitleChanged') {

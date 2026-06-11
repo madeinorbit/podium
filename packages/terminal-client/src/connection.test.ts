@@ -298,3 +298,24 @@ describe('SessionConnection (hub-backed)', () => {
     expect(frames).toEqual(['hi'])
   })
 })
+
+describe('host metrics', () => {
+  it('exposes hostMetricsChanged via hostMetrics() + onHostMetrics', () => {
+    const { hub, sock } = setup()
+    hub.connect()
+    sock.open()
+    const seen: number[] = []
+    hub.onHostMetrics((h) => seen.push(h.length))
+    const host = {
+      hostname: 'podium-host',
+      sampledAt: '2026-06-11T00:00:00.000Z',
+      memory: { totalBytes: 32, availableBytes: 16, swapTotalBytes: 0, swapFreeBytes: 0 },
+    }
+    sock.recv({ type: 'hostMetricsChanged', hosts: [host] })
+    expect(hub.hostMetrics()).toEqual([host])
+    expect(seen).toEqual([0, 1]) // immediate replay + the update
+    sock.recv({ type: 'hostMetricsChanged', hosts: [] })
+    expect(hub.hostMetrics()).toEqual([])
+    expect(seen).toEqual([0, 1, 0])
+  })
+})

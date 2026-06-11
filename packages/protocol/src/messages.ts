@@ -193,6 +193,33 @@ export const SessionTitleChangedMessage = z.object({
   title: z.string(),
 })
 
+// Memory state of a daemon host. "Available" is the kernel's estimate of memory
+// applications can still allocate without swapping (Linux MemAvailable) — used is
+// total − available, NOT total − free, so page cache doesn't read as pressure.
+// Swap travels alongside but is never folded into the headline number.
+const byteCount = z.number().int().nonnegative()
+export const HostMemoryWire = z.object({
+  totalBytes: byteCount,
+  availableBytes: byteCount,
+  swapTotalBytes: byteCount,
+  swapFreeBytes: byteCount,
+})
+export type HostMemoryWire = z.infer<typeof HostMemoryWire>
+
+export const HostMetricsWire = z.object({
+  hostname: z.string(),
+  sampledAt: z.string(), // ISO 8601
+  memory: HostMemoryWire,
+})
+export type HostMetricsWire = z.infer<typeof HostMetricsWire>
+
+// Latest sample per daemon host. An array (not a single host) so the wire shape
+// already accommodates multiple machines each running a daemon.
+export const HostMetricsChangedMessage = z.object({
+  type: z.literal('hostMetricsChanged'),
+  hosts: z.array(HostMetricsWire),
+})
+
 export const ServerMessage = z.discriminatedUnion('type', [
   WelcomeMessage,
   AttachedMessage,
@@ -203,6 +230,7 @@ export const ServerMessage = z.discriminatedUnion('type', [
   SessionsChangedMessage,
   ConversationsChangedMessage,
   SessionTitleChangedMessage,
+  HostMetricsChangedMessage,
 ])
 export type ServerMessage = z.infer<typeof ServerMessage>
 
@@ -292,6 +320,12 @@ export const ScanResultMessage = z.object({
   conversations: z.array(ConversationSummaryWire),
   diagnostics: z.array(ConversationDiagnosticWire),
 })
+// Periodic host health sample (currently every ~5 s). hostname keys the server's
+// latest-per-host map so several machines' daemons can report side by side.
+export const HostMetricsMessage = z.object({
+  type: z.literal('hostMetrics'),
+  ...HostMetricsWire.shape,
+})
 export const ScanReposResultMessage = z.object({
   type: z.literal('scanReposResult'),
   requestId: z.string(),
@@ -309,6 +343,7 @@ export const DaemonMessage = z.discriminatedUnion('type', [
   ScanResultMessage,
   ConversationsChangedMessage,
   ScanReposResultMessage,
+  HostMetricsMessage,
 ])
 export type DaemonMessage = z.infer<typeof DaemonMessage>
 

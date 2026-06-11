@@ -1,6 +1,7 @@
 import type { JSX } from 'react'
 import { useState } from 'react'
 import { reposToViews, sessionsForWorktree } from './derive'
+import { HostIndicators } from './HostIndicators'
 import { RepoScanFlow } from './RepoScanFlow'
 import { useStore } from './store'
 import { WorkerLabel } from './WorkerLabel'
@@ -76,6 +77,9 @@ export function Sidebar(): JSX.Element {
           <div className="empty">No repos yet. Use “+ Add repo” to scan a folder.</div>
         )}
       </div>
+      {/* Host health strip, pinned under the list — the home for machine-level
+          indicators (memory now; connection stability et al. will follow). */}
+      <HostIndicators />
       {pickerOpen && (
         <RepoScanFlow onClose={() => setPickerOpen(false)} onDone={() => setPickerOpen(false)} />
       )}

@@ -252,3 +252,45 @@ describe('Layer 3 reattach messages', () => {
     expect(parseDaemonMessage(encode(msg))).toEqual(msg)
   })
 })
+
+describe('host metrics messages', () => {
+  const memory = {
+    totalBytes: 34_359_738_368,
+    availableBytes: 21_474_836_480,
+    swapTotalBytes: 8_589_934_592,
+    swapFreeBytes: 8_589_934_592,
+  }
+
+  it('round-trips a hostMetrics daemon message', () => {
+    const msg = {
+      type: 'hostMetrics' as const,
+      hostname: 'podium-host',
+      sampledAt: '2026-06-11T00:00:00.000Z',
+      memory,
+    }
+    expect(parseDaemonMessage(encode(msg))).toEqual(msg)
+  })
+
+  it('round-trips a hostMetricsChanged server message (empty + populated)', () => {
+    const empty = { type: 'hostMetricsChanged' as const, hosts: [] }
+    expect(parseServerMessage(encode(empty))).toEqual(empty)
+    const msg = {
+      type: 'hostMetricsChanged' as const,
+      hosts: [{ hostname: 'podium-host', sampledAt: '2026-06-11T00:00:00.000Z', memory }],
+    }
+    expect(parseServerMessage(encode(msg))).toEqual(msg)
+  })
+
+  it('rejects negative byte counts', () => {
+    expect(() =>
+      parseDaemonMessage(
+        encode({
+          type: 'hostMetrics',
+          hostname: 'h',
+          sampledAt: '2026-06-11T00:00:00.000Z',
+          memory: { ...memory, availableBytes: -1 },
+        } as never),
+      ),
+    ).toThrow()
+  })
+})

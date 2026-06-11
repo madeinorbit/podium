@@ -10,6 +10,7 @@ import {
   type Geometry,
   type GitDiscoveryDiagnosticWire,
   type GitRepositoryWire,
+  type HostMetricsWire,
   type ResumeRef,
   type ServerMessage,
   type SessionMeta,
@@ -43,6 +44,9 @@ export class SessionRegistry {
   private readonly pendingRepoScans = new Map<string, (r: ScanReposResult) => void>()
   private latestConversations: ConversationSummaryWire[] = []
   private latestConversationDiagnostics: ConversationDiagnosticWire[] = []
+  // Latest health sample per daemon host, keyed by hostname — ready for several
+  // machines even while the registry holds a single daemon socket.
+  private readonly latestHostMetrics = new Map<string, HostMetricsWire>()
   private nextClientNum = 0
   // Shared by scan() ('r' prefix) and scanRepos() ('rr' prefix). Each scan
   // variant must use a distinct string prefix so ids never collide across the
@@ -123,6 +127,12 @@ export class SessionRegistry {
   }
   detachDaemon(): void {
     this.daemonSend = undefined
+    // The daemon's host samples are only as live as its socket — drop them so a
+    // dead machine's numbers never linger as truth.
+    if (this.latestHostMetrics.size > 0) {
+      this.latestHostMetrics.clear()
+      this.broadcastHostMetrics()
+    }
   }
   private readonly toDaemon: Send<ControlMessage> = (msg) => {
     if (this.daemonSend) this.daemonSend(msg)
@@ -257,6 +267,7 @@ export class SessionRegistry {
       conversations: this.latestConversations,
       diagnostics: this.latestConversationDiagnostics,
     })
+    if (this.latestHostMetrics.size > 0) send(this.hostMetricsMessage())
     return id
   }
 
@@ -382,6 +393,12 @@ export class SessionRegistry {
         }
         break
       }
+      case 'hostMetrics': {
+        const { type: _type, ...sample } = msg
+        this.latestHostMetrics.set(msg.hostname, sample)
+        this.broadcastHostMetrics()
+        break
+      }
     }
   }
 
@@ -396,6 +413,15 @@ export class SessionRegistry {
       conversations: this.latestConversations,
       diagnostics: this.latestConversationDiagnostics,
     }
+    for (const c of this.clients.values()) c.send(msg)
+  }
+
+  private hostMetricsMessage(): ServerMessage {
+    return { type: 'hostMetricsChanged', hosts: [...this.latestHostMetrics.values()] }
+  }
+
+  private broadcastHostMetrics(): void {
+    const msg = this.hostMetricsMessage()
     for (const c of this.clients.values()) c.send(msg)
   }
 }

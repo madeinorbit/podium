@@ -1,6 +1,7 @@
 import type { ConversationSummaryWire, GitRepositoryWire, SessionMeta } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import {
+  hostMemoryView,
   mergeResumable,
   panelLabel,
   reposToViews,
@@ -117,5 +118,51 @@ describe('panelLabel', () => {
     expect(panelLabel('claude-code')).toBe('Claude')
     expect(panelLabel('codex')).toBe('Codex')
     expect(panelLabel('shell')).toBe('Shell')
+  })
+})
+
+describe('hostMemoryView', () => {
+  const GIB = 1024 ** 3
+  const host = (availableGib: number, totalGib = 32) => ({
+    hostname: 'podium-host',
+    sampledAt: '2026-06-11T00:00:00.000Z',
+    memory: {
+      totalBytes: totalGib * GIB,
+      availableBytes: availableGib * GIB,
+      swapTotalBytes: 8 * GIB,
+      swapFreeBytes: 6 * GIB,
+    },
+  })
+
+  it('shows used = total − available (never total − free)', () => {
+    const v = hostMemoryView(host(20))
+    expect(v.label).toBe('12.0/32 GB')
+    expect(v.pct).toBe(38)
+    expect(v.severity).toBe('ok')
+    expect(v.hostname).toBe('podium-host')
+  })
+
+  it('grades severity at 75% and 90%', () => {
+    expect(hostMemoryView(host(32 * 0.26)).severity).toBe('ok')
+    expect(hostMemoryView(host(32 * 0.2)).severity).toBe('warn') // 80% used
+    expect(hostMemoryView(host(32 * 0.05)).severity).toBe('critical') // 95% used
+  })
+
+  it('mentions swap in the tooltip but never the headline', () => {
+    const v = hostMemoryView(host(20))
+    expect(v.label).not.toMatch(/swap/i)
+    expect(v.title).toContain('swap 2.0/8 GB')
+    expect(v.title).toContain('podium-host')
+  })
+
+  it('omits swap from the tooltip on swapless machines', () => {
+    const h = host(20)
+    h.memory.swapTotalBytes = 0
+    h.memory.swapFreeBytes = 0
+    expect(hostMemoryView(h).title).not.toMatch(/swap/i)
+  })
+
+  it('clamps a pathological available > total to 0% used', () => {
+    expect(hostMemoryView(host(64)).pct).toBe(0)
   })
 })

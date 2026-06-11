@@ -1,3 +1,4 @@
+import { hostname } from 'node:os'
 import {
   type AgentConversationDiagnostic,
   type AgentConversationSummary,
@@ -32,8 +33,10 @@ import {
   parseControlMessage,
 } from '@podium/protocol'
 import WebSocket, { type RawData } from 'ws'
+import { sampleHostMemory } from './host-metrics'
 
 const DEFAULT_DISCOVERY_SCAN_INTERVAL_MS = 15_000
+const DEFAULT_HOST_METRICS_INTERVAL_MS = 5_000
 
 export interface DaemonDiscoveryOptions {
   /** Disable unsolicited cached/background conversation pushes; scanRequest still works. */
@@ -61,6 +64,14 @@ export interface DaemonOptions {
   /** Legacy force-tmux switch: true → 'tmux', false → 'none'. Prefer `backend`. */
   tmux?: boolean
   discovery?: DaemonDiscoveryOptions
+  metrics?: DaemonMetricsOptions
+}
+
+export interface DaemonMetricsOptions {
+  /** Disable the periodic hostMetrics push entirely. */
+  background?: boolean
+  /** Sample/push cadence. Defaults to 5s. */
+  intervalMs?: number
 }
 
 /** Explicit choice wins (operator intent); otherwise prefer abduco → tmux → none. */
@@ -159,6 +170,9 @@ export function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
   let discoveryTimer: ReturnType<typeof setTimeout> | undefined
   let discoveryInFlight: Promise<ConversationWireResult> | undefined
   let lastConversationPush = ''
+  const metricsBackground = opts.metrics?.background ?? true
+  const metricsIntervalMs = opts.metrics?.intervalMs ?? DEFAULT_HOST_METRICS_INTERVAL_MS
+  let metricsTimer: ReturnType<typeof setInterval> | undefined
 
   const send = (msg: DaemonMessage): void => {
     if (ws.readyState === WebSocket.OPEN) ws.send(encode(msg))
@@ -217,6 +231,15 @@ export function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
       void refreshAndPublishConversations().finally(scheduleDiscoveryScan)
     }, discoveryIntervalMs)
     discoveryTimer.unref?.()
+  }
+
+  const pushHostMetrics = (): void => {
+    send({
+      type: 'hostMetrics',
+      hostname: hostname(),
+      sampledAt: new Date().toISOString(),
+      memory: sampleHostMemory(),
+    })
   }
 
   const wireBridge = (sessionId: string, session: AgentSession): void => {
@@ -383,6 +406,7 @@ export function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
 
   const disposeAll = (reapSessions = false): void => {
     if (discoveryTimer) clearTimeout(discoveryTimer)
+    if (metricsTimer) clearInterval(metricsTimer)
     discoveryCache.close()
     // For durable sessions (abduco/tmux), dispose() only takes down the attach client,
     // so the agent survives the daemon going down — do NOT kill the masters here
@@ -417,6 +441,11 @@ export function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
         publishConversations(cachedConversationResult(), true)
         void refreshAndPublishConversations()
         scheduleDiscoveryScan()
+      }
+      if (metricsBackground) {
+        pushHostMetrics() // first sample immediately — the UI shouldn't wait a full interval
+        metricsTimer = setInterval(pushHostMetrics, metricsIntervalMs)
+        metricsTimer.unref?.()
       }
       resolve(handle)
     })

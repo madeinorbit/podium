@@ -2,9 +2,55 @@ import type {
   AgentKind,
   ConversationSummaryWire,
   GitRepositoryWire,
+  HostMetricsWire,
   SessionMeta,
 } from '@podium/protocol'
 import type { RepoView, WorktreeView } from './types'
+
+export type MemorySeverity = 'ok' | 'warn' | 'critical'
+
+export interface HostMemoryView {
+  hostname: string
+  /** Headline: `used/total GB`, e.g. "12.3/32 GB". RAM only — swap never bleeds in. */
+  label: string
+  /** Used percentage, 0–100. */
+  pct: number
+  severity: MemorySeverity
+  /** Tooltip: hostname + the full numbers, including swap when the host has any. */
+  title: string
+}
+
+const GIB = 1024 ** 3
+const usedGib = (bytes: number): string => (bytes / GIB).toFixed(1)
+// Totals are installed capacity — print "32", not "32.0".
+const totalGib = (bytes: number): string => {
+  const v = bytes / GIB
+  return Number.isInteger(v) ? String(v) : v.toFixed(1)
+}
+
+/**
+ * Present one host's memory sample. Used = total − available (the kernel's
+ * "allocatable without swapping" estimate), the convention of free/htop/Activity
+ * Monitor — counting page cache as used would peg every warm box near 100%.
+ */
+export function hostMemoryView(host: HostMetricsWire): HostMemoryView {
+  const m = host.memory
+  const usedBytes = Math.max(0, m.totalBytes - m.availableBytes)
+  const pct = m.totalBytes > 0 ? Math.round((usedBytes / m.totalBytes) * 100) : 0
+  const severity: MemorySeverity = pct >= 90 ? 'critical' : pct >= 75 ? 'warn' : 'ok'
+  const label = `${usedGib(usedBytes)}/${totalGib(m.totalBytes)} GB`
+  const swap =
+    m.swapTotalBytes > 0
+      ? ` · swap ${usedGib(Math.max(0, m.swapTotalBytes - m.swapFreeBytes))}/${totalGib(m.swapTotalBytes)} GB`
+      : ''
+  return {
+    hostname: host.hostname,
+    label,
+    pct,
+    severity,
+    title: `${host.hostname} — memory ${label} used (${pct}%)${swap}`,
+  }
+}
 
 export function panelLabel(agentKind: AgentKind): string {
   switch (agentKind) {

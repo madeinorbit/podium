@@ -86,3 +86,21 @@ describe('web shell structure', () => {
     expect(src).toContain('void rescanConversations().catch')
   })
 })
+
+describe('host health indicators', () => {
+  it('store subscribes to the host metrics feed', () => {
+    const src = read('store.tsx')
+    expect(src).toContain('onHostMetrics')
+    expect(src).toContain('hostMetrics')
+  })
+  it('the strip is mounted in the desktop sidebar and the mobile header', () => {
+    expect(read('Sidebar.tsx')).toContain('<HostIndicators')
+    expect(read('MobileApp.tsx')).toContain('<HostIndicators')
+  })
+  it('renders nothing without a reporting daemon and labels hosts only when several report', () => {
+    const src = read('HostIndicators.tsx')
+    expect(src).toContain('hostMetrics.length === 0) return null')
+    expect(src).toContain('hostMetrics.length > 1')
+    expect(src).toContain('hostMemoryView')
+  })
+})
