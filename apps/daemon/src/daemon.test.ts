@@ -355,6 +355,51 @@ describe.skipIf(!isAbducoAvailable())('daemon abduco survival', () => {
       await new Promise<void>((r) => wss.close(() => r()))
     }
   }, 20000)
+
+  it('close({ reapSessions: true }) kills the durable sessions instead of detaching', async () => {
+    const sessionId = `ab-reap-${process.pid}`
+    const label = `podium-${sessionId}`
+    const wss = new WebSocketServer({ port: 0 })
+    await new Promise<void>((r) => wss.once('listening', () => r()))
+    const port = (wss.address() as { port: number }).port
+
+    const received: DaemonMessage[] = []
+    let serverSocket!: WS
+    const connected = new Promise<void>((r) => {
+      wss.once('connection', (ws) => {
+        serverSocket = ws
+        ws.on('message', (raw) => received.push(parseDaemonMessage(raw.toString())))
+        r()
+      })
+    })
+
+    const daemon = await startDaemon({
+      serverUrl: `ws://localhost:${port}`,
+      backend: 'abduco',
+      discovery: { background: false, cachePath: ':memory:' },
+      launch: (_kind, opts) => ({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
+    })
+    await connected
+
+    try {
+      serverSocket.send(
+        encode({ type: 'spawn', sessionId, agentKind: 'claude-code', cwd: '/tmp', geometry: G }),
+      )
+      const start = Date.now()
+      while (!received.some((m) => m.type === 'bind' && m.sessionId === sessionId)) {
+        if (Date.now() - start > 5000) throw new Error('bind timed out')
+        await new Promise((r) => setTimeout(r, 20))
+      }
+      expect(abducoHasSession(label)).toBe(true)
+
+      await daemon.close({ reapSessions: true })
+      await new Promise((r) => setTimeout(r, 300))
+      expect(abducoHasSession(label)).toBe(false)
+    } finally {
+      killAbducoSession(label)
+      await new Promise<void>((r) => wss.close(() => r()))
+    }
+  }, 20000)
 })
 
 describe.skipIf(!isTmuxAvailable())('daemon tmux survival', () => {

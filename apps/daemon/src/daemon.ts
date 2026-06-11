@@ -76,7 +76,12 @@ export function resolveDurableBackend(
 }
 
 export interface DaemonHandle {
-  close(): Promise<void>
+  /**
+   * Detach from all sessions and close the server connection. Durable sessions
+   * (abduco/tmux) keep running — that's the feature. Pass `reapSessions: true` to
+   * kill them instead (test harnesses / explicit full teardown only).
+   */
+  close(opts?: { reapSessions?: boolean }): Promise<void>
 }
 
 type SpawnControl = Extract<ControlMessage, { type: 'spawn' }>
@@ -376,19 +381,26 @@ export function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     }
   })
 
-  const disposeAll = (): void => {
+  const disposeAll = (reapSessions = false): void => {
     if (discoveryTimer) clearTimeout(discoveryTimer)
     discoveryCache.close()
     // For durable sessions (abduco/tmux), dispose() only takes down the attach client,
-    // so the agent survives the daemon going down — do NOT kill the masters here.
-    for (const session of bridges.values()) session.dispose()
+    // so the agent survives the daemon going down — do NOT kill the masters here
+    // unless the caller explicitly asked for a full reap (test harness teardown).
+    for (const [sessionId, session] of bridges) {
+      session.dispose()
+      if (reapSessions && backend !== 'none') {
+        killAbducoSession(`podium-${sessionId}`)
+        killTmuxServer(`podium-${sessionId}`)
+      }
+    }
     bridges.clear()
   }
 
   const handle: DaemonHandle = {
-    close() {
+    close(opts) {
       return new Promise<void>((resolve) => {
-        disposeAll()
+        disposeAll(opts?.reapSessions ?? false)
         if (ws.readyState === WebSocket.CLOSED) {
           resolve()
           return

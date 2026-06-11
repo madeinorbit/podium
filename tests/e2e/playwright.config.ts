@@ -6,6 +6,9 @@ export default defineConfig({
   fullyParallel: false,
   workers: 1,
   reporter: 'list',
+  // Playwright SIGKILLs the webServer tree; the harness can't reap its own durable
+  // sessions on the way out, so the teardown sweeps the isolated socket dirs.
+  globalTeardown: './global-teardown.ts',
   use: { baseURL: 'http://localhost:4317' },
   projects: [
     {

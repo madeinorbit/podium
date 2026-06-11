@@ -11,24 +11,26 @@
  * Port: PORT (default 8799). Health: GET /health. The playwright.config webServer starts
  * this automatically; the specs connect via `?server=ws://localhost:8799`.
  */
-import { mkdtempSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { agentLaunchCommand, type LaunchOptions, type LaunchSpec } from '@podium/agent-bridge'
 import type { AgentKind } from '@podium/protocol'
 import { startDaemon } from '../../apps/daemon/src/daemon'
 import { startServer } from '../../apps/server/src/server'
+import { applyHarnessEnv, reapHarnessSessions } from './harness-env'
 
 const PORT = Number(process.env.PORT ?? 8799)
 const KEYECHO_CLI = fileURLToPath(new URL('../keyecho/src/cli.tsx', import.meta.url))
 const KEYECHO_PKG = fileURLToPath(new URL('../keyecho', import.meta.url))
 const REPO_ROOT = fileURLToPath(new URL('../../', import.meta.url)).replace(/\/$/, '')
 
-// Isolated registry (never touches the user's ~/.podium) with this repo pre-registered.
-const stateDir = mkdtempSync(join(tmpdir(), 'podium-harness-'))
+// Reap leftovers from a previous hard-killed run, then isolate this run's state +
+// abduco/tmux sockets in a per-port dir (never touches the user's ~/.podium or
+// real sessions). globalTeardown reaps the same dir after the suite.
+reapHarnessSessions(PORT)
+const { stateDir } = applyHarnessEnv(PORT)
 writeFileSync(join(stateDir, 'repos.json'), JSON.stringify([REPO_ROOT]))
-process.env.PODIUM_STATE_DIR = stateDir
 
 // shell -> real shell (wide output for reflow tests); everything else -> keyecho jig.
 const launch = (kind: AgentKind, opts: LaunchOptions): LaunchSpec =>
@@ -47,7 +49,9 @@ console.log(
 )
 
 const shutdown = async (): Promise<void> => {
-  await daemon.close()
+  // Full reap: harness sessions are throwaway — without this every e2e run leaks
+  // durable abduco/tmux masters (durability is the feature; the harness opts out).
+  await daemon.close({ reapSessions: true })
   await server.close()
   process.exit(0)
 }
