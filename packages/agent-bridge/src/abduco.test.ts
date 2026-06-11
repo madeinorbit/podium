@@ -39,14 +39,16 @@ describe('abduco command builders', () => {
 })
 
 describe('abduco session list parser', () => {
+  // State chars per abduco 0.6 source: `+` = app terminated (dead), `*` = a client
+  // is currently attached (alive), ` ` = detached and alive.
   const LISTING = [
     'Active sessions (on host podium-host)',
-    '* Thu\t 2026-06-11 09:10:11\t1111\tpodium-dead',
-    '+ Thu\t 2026-06-11 09:20:22\t2222\tpodium-attached',
+    '+ Thu\t 2026-06-11 09:10:11\t1111\tpodium-dead',
+    '* Thu\t 2026-06-11 09:20:22\t2222\tpodium-attached',
     '  Thu\t 2026-06-11 09:30:33\t3333\tpodium-detached',
   ].join('\n')
 
-  it('parses names, pids and liveness; dead sessions are not alive', () => {
+  it('parses names, pids and liveness; attached (*) is alive, terminated (+) is not', () => {
     expect(parseAbducoList(LISTING)).toEqual([
       { name: 'podium-dead', pid: 1111, alive: false },
       { name: 'podium-attached', pid: 2222, alive: true },

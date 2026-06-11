@@ -44,8 +44,12 @@ export interface AbducoSessionEntry {
 
 /**
  * Parse `abduco` (no args) session-list output. Lines after the header are
- * `<state> <day>\t<datetime>\t<pid>\t<name>` where state `*` marks a session whose
- * process already terminated (only its exit status is held).
+ * `<state> <day>\t<datetime>\t<pid>\t<name>`. The state char maps to socket mode
+ * bits the server toggles (abduco 0.6 source, server_mark_socket_exec):
+ * `*` = S_IXUSR = a client is ATTACHED (alive!), `+` = S_IXGRP = the app
+ * TERMINATED (only its exit status is held), ` ` = detached and alive. Note this
+ * is the opposite of the folklore reading of `*`; trust the source — misreading
+ * `*` as dead would declare every session with a connected podium client dead.
  */
 export function parseAbducoList(output: string): AbducoSessionEntry[] {
   const entries: AbducoSessionEntry[] = []
@@ -55,7 +59,7 @@ export function parseAbducoList(output: string): AbducoSessionEntry[] {
     const pid = Number.parseInt(fields[2]?.trim() ?? '', 10)
     const name = fields.slice(3).join('\t').trim()
     if (!name || Number.isNaN(pid)) continue
-    entries.push({ name, pid, alive: !line.trimStart().startsWith('*') })
+    entries.push({ name, pid, alive: !line.trimStart().startsWith('+') })
   }
   return entries
 }

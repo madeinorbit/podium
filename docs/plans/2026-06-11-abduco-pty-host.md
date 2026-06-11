@@ -46,7 +46,9 @@ else": it holds the PTY in a daemonized master and pipes bytes transparently.
 - `spawnAbducoAgent` / `attachAbducoAgent` — create + attach; wrap the pty with the
   stripper, reuse `wrapPty`, override `dispose()` to SIGKILL the client first.
 - `parseAbducoList` / `abducoHasSession` / `killAbducoSession` — parse the tab-
-  separated `abduco` listing (`*` prefix = dead); kill = SIGTERM the listed pid.
+  separated `abduco` listing. Status chars (from socket mode bits in the 0.6
+  source, NOT the folklore reading): `+` = app terminated (dead), `*` = a client
+  is attached (alive), ` ` = detached alive. Kill = SIGTERM the listed pid.
 
 Daemon wiring (`apps/daemon/src/daemon.ts`): generalize `tmux?: boolean` to a
 durable-backend choice `abduco | tmux | none` (legacy `tmux: true/false` maps to
