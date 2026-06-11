@@ -3,11 +3,7 @@ import { createRequire } from 'node:module'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
-import type {
-  AgentConversationSummary,
-  AgentKind,
-  ConversationFileStat,
-} from './types.js'
+import type { AgentConversationSummary, AgentKind, ConversationFileStat } from './types.js'
 
 // Load node:sqlite at runtime instead of via a static import: both bundlers that
 // touch this package (esbuild via tsup, rollup via tsup's treeshake) predate the
@@ -178,9 +174,9 @@ export class ConversationDiscoveryCache {
          summary_json TEXT NOT NULL
        )`,
     )
-    const existing = this.db.prepare('SELECT value FROM meta WHERE key = ?').get('schema_version') as
-      | { value: string }
-      | undefined
+    const existing = this.db
+      .prepare('SELECT value FROM meta WHERE key = ?')
+      .get('schema_version') as { value: string } | undefined
     if (!existing) {
       this.db
         .prepare('INSERT INTO meta (key, value) VALUES (?, ?)')

@@ -1,8 +1,8 @@
 import { stat } from 'node:fs/promises'
+import type { ConversationDiscoveryCache } from './cache.js'
 import { canonicalPath, expandHome, isDirectory } from './paths.js'
 import { createClaudeCodeConversationProvider } from './providers/claude-code.js'
 import { createCodexConversationProvider } from './providers/codex.js'
-import type { ConversationDiscoveryCache } from './cache.js'
 import {
   type AgentConversation,
   type AgentConversationDiagnostic,

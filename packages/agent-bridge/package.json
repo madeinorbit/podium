@@ -15,7 +15,8 @@
     }
   },
   "files": [
-    "dist"
+    "dist",
+    "vendor"
   ],
   "publishConfig": {
     "access": "public"

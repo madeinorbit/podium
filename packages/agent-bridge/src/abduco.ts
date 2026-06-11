@@ -1,6 +1,8 @@
 import { execFileSync, spawnSync } from 'node:child_process'
 import { type IPty, spawn as ptySpawn } from 'node-pty'
+import { resolveAbducoBin } from './abduco-bin.js'
 import { type AgentSession, wrapPty } from './session'
+import { shellQuote } from './tmux.js'
 
 /**
  * abduco-backed durable sessions. abduco is "detach/reattach, nothing else": a
@@ -19,8 +21,8 @@ import { type AgentSession, wrapPty } from './session'
  * é/à/ö, far worse than the default), so the attach command routes through
  * `sh -c` with printf producing the byte.
  */
-export function abducoAttachArgv(label: string): string[] {
-  return ['sh', '-c', `exec abduco -q -e "$(printf '\\377')" -a "$0"`, label]
+export function abducoAttachArgv(label: string, bin = 'abduco'): string[] {
+  return ['sh', '-c', `exec ${shellQuote(bin)} -q -e "$(printf '\\377')" -a "$0"`, label]
 }
 
 /** abduco runs the command via execvp from argv — no shell, no quoting needed. */
@@ -28,12 +30,12 @@ export function abducoCreateArgv(label: string, cmd: string, args: string[] = []
   return ['-n', label, cmd, ...args]
 }
 
+/**
+ * True when an abduco binary can be obtained — $PODIUM_ABDUCO, PATH, the build
+ * cache, or by compiling the vendored source on first use (see abduco-bin.ts).
+ */
 export function isAbducoAvailable(): boolean {
-  try {
-    return spawnSync('abduco', ['-v'], { stdio: 'ignore' }).status === 0
-  } catch {
-    return false
-  }
+  return resolveAbducoBin() !== undefined
 }
 
 export interface AbducoSessionEntry {
@@ -67,7 +69,9 @@ export function parseAbducoList(output: string): AbducoSessionEntry[] {
 function listSessions(): AbducoSessionEntry[] {
   // `abduco` with no args lists sessions; it also reaps stale sockets as a side
   // effect. Exit status varies by version, so parse whatever it printed.
-  const res = spawnSync('abduco', [], { encoding: 'utf8' })
+  const bin = resolveAbducoBin()
+  if (!bin) return []
+  const res = spawnSync(bin, [], { encoding: 'utf8' })
   return parseAbducoList(res.stdout ?? '')
 }
 
@@ -165,7 +169,9 @@ export interface AbducoSpawnOptions {
  * SIGWINCHes the app group on attach).
  */
 export function spawnAbducoAgent(opts: AbducoSpawnOptions): AgentSession {
-  execFileSync('abduco', abducoCreateArgv(opts.label, opts.cmd, opts.args ?? []), {
+  const bin = resolveAbducoBin()
+  if (!bin) throw new Error('abduco unavailable: not installed and the vendored build failed')
+  execFileSync(bin, abducoCreateArgv(opts.label, opts.cmd, opts.args ?? []), {
     stdio: 'ignore',
     cwd: opts.cwd ?? process.cwd(),
     env: {
@@ -200,7 +206,7 @@ export function attachAbducoAgent(opts: {
   rows: number
   env?: Record<string, string>
 }): AgentSession {
-  const [cmd, ...args] = abducoAttachArgv(opts.label)
+  const [cmd, ...args] = abducoAttachArgv(opts.label, resolveAbducoBin() ?? 'abduco')
   const proc = ptySpawn(cmd as string, args, {
     name: 'xterm-256color',
     cols: opts.cols,

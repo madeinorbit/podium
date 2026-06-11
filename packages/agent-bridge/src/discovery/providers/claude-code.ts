@@ -153,7 +153,9 @@ async function loadConversation(summary: AgentConversationSummary): Promise<Agen
   return { ...summary, messageCount: messages.length, messages, raw: parsed.records }
 }
 
-async function listClaudeConversationFiles(projectsRoot: string): Promise<ConversationProviderFile[]> {
+async function listClaudeConversationFiles(
+  projectsRoot: string,
+): Promise<ConversationProviderFile[]> {
   const files: ConversationProviderFile[] = []
   const projectDirs = await readdir(projectsRoot, { withFileTypes: true })
 
@@ -197,10 +199,14 @@ async function readClaudeHeadRecords(
   context: ProviderSummaryContext,
 ): Promise<{ records: unknown[]; diagnostics: AgentConversationDiagnostic[] }> {
   try {
-    return await readJsonLinesHead(file, { providerId, root, path: file }, {
-      ...(context.headBytes === undefined ? {} : { maxBytes: context.headBytes }),
-      ...(context.headLines === undefined ? {} : { maxLines: context.headLines }),
-    })
+    return await readJsonLinesHead(
+      file,
+      { providerId, root, path: file },
+      {
+        ...(context.headBytes === undefined ? {} : { maxBytes: context.headBytes }),
+        ...(context.headLines === undefined ? {} : { maxLines: context.headLines }),
+      },
+    )
   } catch (cause) {
     return {
       records: [],

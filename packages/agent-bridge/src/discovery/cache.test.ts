@@ -14,11 +14,7 @@ async function writeSession(root: string, name = 'session.jsonl'): Promise<strin
   const file = join(root, name)
   await mkdir(join(file, '..'), { recursive: true })
   await writeFile(file, '{"ok":true}\n')
-  await utimes(
-    file,
-    new Date('2026-06-01T10:00:00.000Z'),
-    new Date('2026-06-01T10:00:00.000Z'),
-  )
+  await utimes(file, new Date('2026-06-01T10:00:00.000Z'), new Date('2026-06-01T10:00:00.000Z'))
   return file
 }
 
@@ -48,11 +44,7 @@ describe('ConversationDiscoveryCache', () => {
     expect(cache.getFresh(file, firstStat, 'codex')).toEqual(summary(file))
 
     await writeFile(file, '{"ok":false}\n')
-    await utimes(
-      file,
-      new Date('2026-06-01T10:02:00.000Z'),
-      new Date('2026-06-01T10:02:00.000Z'),
-    )
+    await utimes(file, new Date('2026-06-01T10:02:00.000Z'), new Date('2026-06-01T10:02:00.000Z'))
     const changedStat = await stat(file)
     expect(cache.getFresh(file, changedStat, 'codex')).toBeUndefined()
     cache.close()

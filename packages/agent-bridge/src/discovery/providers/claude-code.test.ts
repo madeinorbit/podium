@@ -39,11 +39,7 @@ async function writeClaudeSession(
       }),
     ].join('\n'),
   )
-  await utimes(
-    file,
-    new Date('2026-06-01T11:02:00.000Z'),
-    new Date('2026-06-01T11:02:00.000Z'),
-  )
+  await utimes(file, new Date('2026-06-01T11:02:00.000Z'), new Date('2026-06-01T11:02:00.000Z'))
   return file
 }
 
@@ -136,11 +132,7 @@ describe('createClaudeCodeConversationProvider', () => {
         `${' '.repeat(70_000)}not-json`,
       ].join('\n'),
     )
-    await utimes(
-      file,
-      new Date('2026-06-01T12:03:00.000Z'),
-      new Date('2026-06-01T12:03:00.000Z'),
-    )
+    await utimes(file, new Date('2026-06-01T12:03:00.000Z'), new Date('2026-06-01T12:03:00.000Z'))
 
     const result = await createClaudeCodeConversationProvider().scanRoot(root)
 

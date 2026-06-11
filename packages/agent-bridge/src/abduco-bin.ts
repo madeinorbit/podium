@@ -1,0 +1,102 @@
+import { execFileSync, spawnSync } from 'node:child_process'
+import { existsSync, mkdirSync } from 'node:fs'
+import { homedir } from 'node:os'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+/**
+ * abduco binary resolution — podium ships abduco rather than demanding a system
+ * install. Order:
+ *   1. $PODIUM_ABDUCO — explicit binary path; if it doesn't run, resolution FAILS
+ *      (no silent fallback past operator intent).
+ *   2. `abduco` on PATH (distro package).
+ *   3. A previously built binary cached at $PODIUM_STATE_DIR/bin/abduco
+ *      (else ~/.podium/bin/abduco).
+ *   4. Build the vendored ISC-licensed source (vendor/abduco, single translation
+ *      unit, ~1s) into that cache with the system C compiler. node-pty already
+ *      makes a working toolchain a hard install requirement, so cc is a fair bet.
+ */
+
+// Works from both src/ (tsx, @podium/source condition) and dist/ — vendor sits
+// next to either at the package root.
+const VENDOR_ABDUCO_C = fileURLToPath(new URL('../vendor/abduco/abduco.c', import.meta.url))
+
+export function defaultAbducoCachePath(): string {
+  const base = process.env.PODIUM_STATE_DIR ?? join(process.env.HOME || homedir(), '.podium')
+  return join(base, 'bin', 'abduco')
+}
+
+function runs(bin: string): boolean {
+  try {
+    return spawnSync(bin, ['-v'], { stdio: 'ignore' }).status === 0
+  } catch {
+    return false
+  }
+}
+
+function findCompiler(): string | undefined {
+  return ['cc', 'gcc', 'clang'].find((c) => {
+    try {
+      return spawnSync(c, ['--version'], { stdio: 'ignore' }).status === 0
+    } catch {
+      return false
+    }
+  })
+}
+
+/**
+ * Compile the vendored abduco into `out`. Mirrors the upstream Makefile's single-TU
+ * build. `-lutil` is required on glibc Linux (forkpty) but absent on macOS/musl,
+ * so a failed link is retried without it. Returns the path, or undefined when no
+ * compiler is available or the build fails.
+ */
+export function buildVendoredAbduco(out: string): string | undefined {
+  const cc = findCompiler()
+  if (!cc) return undefined
+  mkdirSync(dirname(out), { recursive: true })
+  const base = [
+    '-std=c99',
+    '-D_POSIX_C_SOURCE=200809L',
+    '-D_XOPEN_SOURCE=700',
+    '-DNDEBUG',
+    '-DVERSION="0.6-podium"',
+    VENDOR_ABDUCO_C,
+    '-o',
+    out,
+  ]
+  for (const link of [['-lutil'], []]) {
+    try {
+      execFileSync(cc, [...base, ...link], { stdio: 'ignore' })
+      if (runs(out)) return out
+    } catch {
+      // try the next link variant
+    }
+  }
+  return undefined
+}
+
+let resolved: string | undefined
+let resolvedOnce = false
+
+/**
+ * Resolve (and memoize) the abduco binary per the order above, building the
+ * vendored source on first use when nothing is installed. Returns undefined when
+ * abduco can't be obtained at all (the daemon then falls back to tmux/bare).
+ */
+export function resolveAbducoBin(opts?: { fresh?: boolean }): string | undefined {
+  if (resolvedOnce && !opts?.fresh) return resolved
+  resolvedOnce = true
+  resolved = locate()
+  return resolved
+}
+
+function locate(): string | undefined {
+  const explicit = process.env.PODIUM_ABDUCO
+  if (explicit) return runs(explicit) ? explicit : undefined
+  if (runs('abduco')) return 'abduco'
+  const cache = defaultAbducoCachePath()
+  if (existsSync(cache) && runs(cache)) return cache
+  if (!existsSync(VENDOR_ABDUCO_C)) return undefined
+  console.log(`[podium] abduco not found — building the vendored copy into ${cache}`)
+  return buildVendoredAbduco(cache)
+}

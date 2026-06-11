@@ -1,5 +1,5 @@
-export * from './git/index.js'
 export { ConversationDiscoveryCache, defaultDiscoveryDbPath } from './cache.js'
+export * from './git/index.js'
 export {
   compareConversationSummaries,
   dedupeConversations,

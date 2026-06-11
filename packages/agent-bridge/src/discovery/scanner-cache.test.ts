@@ -52,7 +52,13 @@ function providerFor(files: string[], calls: { summarize: number }): Conversatio
       _context: ProviderSummaryContext,
     ): Promise<ProviderSummaryResult> {
       calls.summarize++
-      return { summary: { ...fakeSummary(file.path, file.path.split('/').pop() ?? file.path), source: { ...fakeSummary(file.path, file.path).source, root } }, diagnostics: [] }
+      return {
+        summary: {
+          ...fakeSummary(file.path, file.path.split('/').pop() ?? file.path),
+          source: { ...fakeSummary(file.path, file.path).source, root },
+        },
+        diagnostics: [],
+      }
     },
     async scanRoot(): Promise<{ conversations: AgentConversationSummary[]; diagnostics: [] }> {
       throw new Error('scanRoot should not be used by cached scanner')

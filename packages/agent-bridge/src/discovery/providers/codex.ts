@@ -24,7 +24,11 @@ import type {
   ProviderSummaryResult,
 } from '../types.js'
 import { AgentConversationLoadError } from '../types.js'
-import { type CodexStateMetadataResult, type CodexThreadMetadata, readCodexStateMetadata } from './codex-state.js'
+import {
+  type CodexStateMetadataResult,
+  type CodexThreadMetadata,
+  readCodexStateMetadata,
+} from './codex-state.js'
 
 const providerId = 'codex-jsonl'
 
@@ -166,7 +170,9 @@ async function loadConversation(summary: AgentConversationSummary): Promise<Agen
       )
     }
 
-    throw new AgentConversationLoadError(`Could not parse Codex conversation ${summary.source.path}`)
+    throw new AgentConversationLoadError(
+      `Could not parse Codex conversation ${summary.source.path}`,
+    )
   }
 
   const messages = codexMessages(parsed.records)
@@ -179,10 +185,14 @@ async function readCodexHeadRecords(
   context: ProviderSummaryContext,
 ): Promise<{ records: unknown[]; diagnostics: AgentConversationDiagnostic[] }> {
   try {
-    return await readJsonLinesHead(file, { providerId, root, path: file }, {
-      ...(context.headBytes === undefined ? {} : { maxBytes: context.headBytes }),
-      ...(context.headLines === undefined ? {} : { maxLines: context.headLines }),
-    })
+    return await readJsonLinesHead(
+      file,
+      { providerId, root, path: file },
+      {
+        ...(context.headBytes === undefined ? {} : { maxBytes: context.headBytes }),
+        ...(context.headLines === undefined ? {} : { maxLines: context.headLines }),
+      },
+    )
   } catch (cause) {
     return {
       records: [],

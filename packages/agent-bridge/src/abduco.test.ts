@@ -31,10 +31,15 @@ describe('abduco command builders', () => {
     // The script must produce the raw byte through printf (node argv would UTF-8
     // encode \xff into 0xC3 0xBF, silently making the detach key 0xC3).
     expect(argv[2]).toContain("printf '\\377'")
-    expect(argv[2]).toContain('exec abduco')
+    expect(argv[2]).toContain("exec 'abduco'")
     expect(argv[2]).toContain('-q')
     expect(argv[2]).toContain('-a "$0"')
     expect(argv[3]).toBe('podium-1')
+  })
+
+  it('shell-quotes a resolved binary path in the attach command', () => {
+    const argv = abducoAttachArgv('podium-1', '/home/u/.podium/bin/abduco')
+    expect(argv[2]).toContain("exec '/home/u/.podium/bin/abduco'")
   })
 })
 
