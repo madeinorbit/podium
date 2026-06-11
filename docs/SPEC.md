@@ -10,13 +10,14 @@ A control plane for running many real agent sessions (Claude Code, Codex CLI, mo
 
 These are load-bearing. When a decision is ambiguous, these break the tie.
 
-1. **Native, not wrapped.** Run the real CLI (via tmux-style PTY), reusing native auth. No `claude -p`, no abstraction that hides output or blocks direct input. *(Exception: explicit opt-in wrapped modes, e.g. low-bandwidth view.)*
-2. **Fit the user's workflow.** Adapt to their existing repos, worktrees, and harnesses. Don't impose scrum/kanban or a new process.
-3. **Attention-first.** The product's core job is surfacing *where the human is needed* — ask-user tools, blocked agents, errors, limits.
-4. **Mobile is first-class.** Every capability works on mobile; seamless handoff when you move between devices.
-5. **Offline-first.** Works under spotty connections; degrades gracefully.
-6. **Flexible scale.** One binary on one machine → separate server + many dev machines + many clients, same product.
-7. **Open source.**
+1. **Native substrate, structured intelligence.** The dev works against the *real* CLI in a PTY — reusing native auth, full subscription power, zero feature lag, no abstraction that hides output or blocks input. Every smart feature is built on structured data harvested from the interactive session's own free side-channels (transcript, hooks, statusline, injected MCP — see §3.1), **not** the separately-metered `claude -p` / Agent SDK path. We observe the agent; we never re-implement it.
+2. **The unit is the workstream, not the terminal.** You steer from a board of workstreams (status, blockers, recaps, does-it-need-me) and drop into the raw PTY only when you want the wheel. The terminal is a drill-down; the workstream is home.
+3. **Fit the user's workflow.** Adapt to their existing repos, worktrees, and harnesses. Don't impose scrum/kanban or a new process.
+4. **Attention-first.** The product's core job is surfacing *where the human is needed* — ask-user tools, blocked agents, errors, limits.
+5. **Mobile is first-class.** Every capability works on mobile; seamless handoff when you move between devices.
+6. **Offline-first.** Works under spotty connections; degrades gracefully. *(Applies to reading history, browsing, cached views, and queuing input — live PTY control is inherently online.)*
+7. **Flexible scale.** One binary on one machine → separate server + many dev machines + many clients, same product.
+8. **Open source.**
 
 ## 3. Architecture
 
@@ -33,6 +34,19 @@ Clients (web: mobile + desktop; native apps later)
 - **Sync engine** powers offline-first; tolerant of bad networks.
 - **Later:** cloud sandboxes for agents.
 
+### 3.1 What we observe, and how
+
+Smart features never parse the TUI. They consume the structured side-channels the *interactive* (subscription) session already emits for free — so we get rich signal without the metered `claude -p` / SDK path, and without re-implementing the agent:
+
+| Channel | What it gives us |
+|---------|------------------|
+| **Transcript JSONL** (tail `~/.claude/projects/.../*.jsonl`) | The full structured feed: user/assistant messages, tool calls + results, system events like `away_summary`. Source for recaps, artifacts (files/commands/todos), titles, search corpus, status. |
+| **Hooks** (`Notification`, `Stop`, `PreToolUse`, `PostToolUse`, `SubagentStop`, `SessionStart`…) | Real-time event bus. `Notification` → "agent needs input" (the attention signal) with no screen-scraping. Wire to a fifo / daemon socket. |
+| **Statusline** (a command fed session JSON on stdin) | Lightweight live session-state tap. |
+| **Injected MCP server** (Podium's own) | The agent reports state, asks-user, and spawns siblings through tools we control — the same channel the superagent uses. |
+
+PTY-scraping is a **last resort**, only for what's visible nowhere else. Codex follows the same shape (persisted session logs + its own notify mechanism; confirm exact paths before relying on them).
+
 ## 4. Core concepts
 
 | Term | Meaning |
@@ -40,7 +54,7 @@ Clients (web: mobile + desktop; native apps later)
 | **Harness** | A native agent CLI (Claude Code, Codex) running in a tmux-wrapped PTY. |
 | **Session** | One running agent or shell instance. |
 | **Work pane** | A named panel holding a session (agent or shell). Named auto-by-content or by the user. |
-| **Stream** | A unit of work spanning multiple tasks/stages (spec → build → bugfix). Multiple agents can share its context. User can pin, ice, or archive a stream even if unfinished. |
+| **Workstream** | **The central unit of attention.** A thread of work spanning multiple tasks/stages (spec → build → bugfix), wrapping one or more native sessions that share context. Shows status, blockers, and last recap; you steer here and drop into a session's PTY for the wheel. Pin, ice, or archive even if unfinished. *(Shorthand: "stream.")* |
 | **Superagent** | The always-there orchestrator agent that can start/stop/monitor other agents and reason across all projects. |
 
 ## 5. Features
@@ -50,10 +64,10 @@ Clients (web: mobile + desktop; native apps later)
 - From the location of recent conversations, infer active projects/repos and the user's worktree flow; suggest the right worktree settings.
 
 ### 5.2 Command Center
-The main surface. One place to see where attention is needed. Three modes:
+The main surface, organized around a **board of workstreams** — the home view, where you see status and where attention is needed at a glance. From any workstream you drop into the modes below. Three modes:
 
-- **Dev mode** — configurable terminal grid (tmux-like; bar: Dorothy's "Terminals"). Recent sessions listed at top. One click to browser (testing) or diff/code (manual edits).
-- **Product mode** — *what* you're working on: status, what's next, plan. Each task shows running/done; click into the terminal. Superagent reads each agent's outcome and keeps a concise status per stream — reuse the agent's own recaps where possible (Claude emits `away_summary`, shown as "recap: …", in the transcript). Organized by **Stream**.
+- **Dev mode** — the substrate / "take the wheel" view: a configurable terminal grid (tmux-like; bar: Dorothy's "Terminals") onto the workstream's live native sessions. Recent sessions listed at top. One click to browser (testing) or diff/code (manual edits).
+- **Product mode** — *what* you're working on: status, what's next, plan. Each task shows running/done; click into the terminal. Superagent reads each agent's outcome (via the structured channels in §3.1) and keeps a concise status per workstream — reuse the agent's own recaps where possible (Claude emits `away_summary`, shown as "recap: …", in the transcript).
 - **Spec mode** — meta-chats about product/specs. Main view is a markdown/HTML doc you can jump into discussion on. The agent always has context for where in the doc you are; instructed to research decisions and ask you questions. The mode where the human supplies context and makes executive calls, then agents run.
 
 Cross-mode: see every active session; see where human attention is needed; group work into projects/epics/features (lightweight, names TBD — traditional scrum terms may not fit); visualize memory pressure and one-click-stop idle agents.
