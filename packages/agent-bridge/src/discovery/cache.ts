@@ -1,12 +1,23 @@
 import { mkdirSync } from 'node:fs'
+import { createRequire } from 'node:module'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
-import { DatabaseSync } from 'node:sqlite'
+import type { DatabaseSync } from 'node:sqlite'
 import type {
   AgentConversationSummary,
   AgentKind,
   ConversationFileStat,
 } from './types.js'
+
+// Load node:sqlite at runtime instead of via a static import: both bundlers that
+// touch this package (esbuild via tsup, rollup via tsup's treeshake) predate the
+// node:sqlite builtin and rewrite the import to bare 'sqlite', which only exists
+// under the node: prefix — making the emitted dist unloadable. A createRequire
+// call with a runtime string is opaque to both.
+const requireBuiltin = createRequire(import.meta.url)
+const { DatabaseSync: DatabaseSyncImpl } = requireBuiltin(
+  'node:sqlite',
+) as typeof import('node:sqlite')
 
 export const DISCOVERY_CACHE_SCHEMA_VERSION = 1
 const DB_SCHEMA_VERSION = '1'
@@ -35,7 +46,7 @@ export class ConversationDiscoveryCache {
   ) {
     this.schemaVersion = options.schemaVersion ?? DISCOVERY_CACHE_SCHEMA_VERSION
     if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true })
-    this.db = new DatabaseSync(path)
+    this.db = new DatabaseSyncImpl(path)
     this.migrate()
   }
 
