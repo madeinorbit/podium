@@ -94,6 +94,7 @@ describe('alt-screen chrome stripper', () => {
 const hasAbduco = isAbducoAvailable()
 const FIXTURE = fileURLToPath(new URL('../test/fixtures/echo-title.mjs', import.meta.url))
 const HEX_FIXTURE = fileURLToPath(new URL('../test/fixtures/stdin-hex.mjs', import.meta.url))
+const TUI_FIXTURE = fileURLToPath(new URL('../test/fixtures/fixture-tui.mjs', import.meta.url))
 const wait = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
 
 describe.skipIf(!hasAbduco)('abduco integration', () => {
@@ -147,6 +148,36 @@ describe.skipIf(!hasAbduco)('abduco integration', () => {
     killAbducoSession(label)
     await wait(300)
     expect(abducoHasSession(label)).toBe(false)
+  }, 15000)
+
+  it('reattach at UNCHANGED geometry still repaints (nudge forces a real resize)', async () => {
+    // abduco only SIGWINCHes the app on attach; node TUIs (Claude Code included)
+    // emit 'resize' — and thus repaint — only when the dimensions actually change.
+    // Reattaching at the same size would paint nothing without the shrink/restore
+    // nudge. fixture-tui repaints exclusively on resize, so it proves the nudge.
+    const label = `podium-abduco-repaint-${process.pid}`
+    killAbducoSession(label)
+    const session = spawnAbducoAgent({
+      label,
+      cmd: 'node',
+      args: [TUI_FIXTURE],
+      cols: 80,
+      rows: 24,
+    })
+    await wait(800)
+    session.dispose()
+    await wait(300)
+
+    const re = attachAbducoAgent({ label, cols: 80, rows: 24 }) // same geometry
+    let out = ''
+    re.onFrame((f) => {
+      out += Buffer.from(f.data, 'base64').toString('utf8')
+    })
+    await wait(1200)
+    expect(out).toContain('PODIUM-FIXTURE') // repainted despite unchanged size
+    expect(out).toContain('rows=24') // and settled back at the requested geometry
+    re.dispose()
+    killAbducoSession(label)
   }, 15000)
 })
 

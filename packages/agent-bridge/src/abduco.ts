@@ -187,6 +187,12 @@ export function spawnAbducoAgent(opts: AbducoSpawnOptions): AgentSession {
  * Attach a node-pty client to an existing abduco session. dispose() SIGKILLs the
  * client (the master + agent survive) — a hard kill on purpose: the client's atexit
  * handler would otherwise print cursor/alt-screen restore chrome into the stream.
+ *
+ * The attach nudges a repaint: abduco only SIGWINCHes the app's process group, and
+ * node-based TUIs (Claude Code included) repaint only when the dimensions actually
+ * CHANGE — so reattaching at the previous geometry would show a blank screen.
+ * redraw()'s shrink/restore is ack-based (restores after the app's first frame), so
+ * it lands correctly even while the abduco client is still connecting.
  */
 export function attachAbducoAgent(opts: {
   label: string
@@ -202,6 +208,7 @@ export function attachAbducoAgent(opts: {
     env: { ...process.env, COLORTERM: 'truecolor', ...opts.env } as Record<string, string>,
   })
   const session = wrapPty(stripAttachChrome(proc))
+  session.redraw()
   return {
     ...session,
     dispose() {
