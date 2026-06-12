@@ -1,5 +1,6 @@
 import type {
   AgentKind,
+  AgentRuntimeState,
   ControlMessage,
   Geometry,
   ResumeRef,
@@ -57,6 +58,7 @@ export class Session {
   cmd = ''
   status: 'starting' | 'live' | 'reconnecting' | 'hibernated' | 'exited' = 'starting'
   exitCode: number | undefined
+  agentState: AgentRuntimeState | undefined
   geometry: Geometry
   epoch = 0
   controllerId: string | null = null
@@ -209,6 +211,12 @@ export class Session {
   }
 
   /** Adopt a live terminal title the agent set (OSC). Replaces the cwd-derived default. */
+  /** Harness-observed runtime state (hooks-driven). Not persisted — it's live-only. */
+  setAgentState(state: AgentRuntimeState): void {
+    this.lastActiveAt = new Date().toISOString()
+    this.agentState = state
+  }
+
   setTitle(title: string): void {
     this.lastActiveAt = new Date().toISOString()
     this.title = title
@@ -248,6 +256,7 @@ export class Session {
       cwd: this.cwd,
       status: this.status,
       ...(this.exitCode !== undefined ? { exitCode: this.exitCode } : {}),
+      ...(this.agentState ? { agentState: this.agentState } : {}),
       controllerId: this.controllerId,
       geometry: { ...this.geometry },
       epoch: this.epoch,

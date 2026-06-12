@@ -173,6 +173,22 @@ export class SessionRegistry {
     })
   }
 
+  /**
+   * The overview "Continue" button: nudge an errored agent to retry by typing
+   * `continue⏎` into its PTY. Guarded to the errored phase so a stray click
+   * can't inject text into a healthy prompt.
+   */
+  continueSession({ sessionId }: { sessionId: string }): { ok: boolean } {
+    const session = this.sessions.get(sessionId)
+    if (!session || session.agentState?.phase !== 'errored') return { ok: false }
+    this.toDaemon({
+      type: 'input',
+      sessionId,
+      data: Buffer.from('continue\r').toString('base64'),
+    })
+    return { ok: true }
+  }
+
   killSession(input: { sessionId: string }): void {
     this.toDaemon({ type: 'kill', sessionId: input.sessionId })
     this.sessions.get(input.sessionId)?.detachAll()
@@ -372,6 +388,15 @@ export class SessionRegistry {
           s.onExit(-1) // the surviving tmux session is gone; the agent died with the box
           this.persist(s)
         }
+        this.broadcastSessions()
+        break
+      }
+      case 'agentState': {
+        const session = this.sessions.get(msg.sessionId)
+        if (!session) break
+        session.setAgentState(msg.state)
+        // Phase transitions are low-frequency (seconds apart, never per-frame),
+        // so reusing the full sessions broadcast keeps the client protocol unchanged.
         this.broadcastSessions()
         break
       }

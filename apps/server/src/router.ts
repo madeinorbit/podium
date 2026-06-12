@@ -31,6 +31,9 @@ export const appRouter = t.router({
     kill: t.procedure
       .input(z.object({ sessionId: z.string() }))
       .mutation(({ ctx, input }) => ctx.registry.killSession(input)),
+    continue: t.procedure
+      .input(z.object({ sessionId: z.string() }))
+      .mutation(({ ctx, input }) => ctx.registry.continueSession(input)),
   }),
   repos: t.router({
     list: t.procedure.query(({ ctx }) => ctx.repos.list()),
