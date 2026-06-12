@@ -108,8 +108,15 @@ export function mountKeyToolbar(el: HTMLElement, conn: SessionConnection): Mount
 
   // Keep the terminal focused on tap; otherwise the soft keyboard collapses on
   // every press. Suppressing the default pointerdown holds focus on the xterm
-  // textarea while the click still fires.
-  const holdFocus = (b: HTMLElement) => b.addEventListener('pointerdown', (e) => e.preventDefault())
+  // textarea while the click still fires. Listening on the container (not just
+  // the buttons) covers the gaps, padding, and separators too — rapid tapping
+  // often lands between keys, and a single unguarded tap there blurs the
+  // terminal and drops the keyboard.
+  const holdFocus = (e: Event) => e.preventDefault()
+  el.addEventListener('pointerdown', holdFocus)
+  // Safari synthesizes mousedown after pointerdown and moves focus on it
+  // independently; guard both.
+  el.addEventListener('mousedown', holdFocus)
 
   // The Ctrl toggle: tap to arm, then the next soft-keyboard letter is sent as
   // Ctrl+<letter> (Ctrl-A, Ctrl-W, …) — the combos the dedicated keys don't cover.
@@ -121,7 +128,6 @@ export function mountKeyToolbar(el: HTMLElement, conn: SessionConnection): Mount
   ctrlBtn.setAttribute('aria-label', ctrlBtn.title)
   ctrlBtn.setAttribute('aria-pressed', 'false')
   ctrlBtn.dataset.key = 'Ctrl'
-  holdFocus(ctrlBtn)
 
   const modifiers = createModifierState((armed) => {
     ctrlBtn.setAttribute('aria-pressed', String(armed))
@@ -148,7 +154,6 @@ export function mountKeyToolbar(el: HTMLElement, conn: SessionConnection): Mount
     b.title = key.title
     b.setAttribute('aria-label', key.title)
     b.dataset.key = key.label
-    holdFocus(b)
     b.addEventListener('click', () => conn.sendInput(modifiers.apply(key.send)))
     el.appendChild(b)
     nodes.push(b)
@@ -162,6 +167,8 @@ export function mountKeyToolbar(el: HTMLElement, conn: SessionConnection): Mount
   return {
     applyModifiers: (data) => modifiers.apply(data),
     dispose() {
+      el.removeEventListener('pointerdown', holdFocus)
+      el.removeEventListener('mousedown', holdFocus)
       for (const n of nodes) n.remove()
     },
   }

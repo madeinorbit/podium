@@ -33,13 +33,25 @@ function useVisualViewportHeight(): void {
     const vv = window.visualViewport
     if (!vv) return
     const root = document.documentElement
-    const apply = () => root.style.setProperty('--viewport-h', `${Math.round(vv.height)}px`)
+    // iOS scrolls the document when the keyboard opens or when a drag escapes a
+    // scrollable region, sliding the shell up and exposing blank page below it.
+    // The shell is sized to the visual viewport, so document scroll is never
+    // legitimate — snap it back.
+    const pin = () => {
+      if (window.scrollX !== 0 || window.scrollY !== 0) window.scrollTo(0, 0)
+    }
+    const apply = () => {
+      root.style.setProperty('--viewport-h', `${Math.round(vv.height)}px`)
+      pin()
+    }
     apply()
     vv.addEventListener('resize', apply)
     vv.addEventListener('scroll', apply)
+    window.addEventListener('scroll', pin)
     return () => {
       vv.removeEventListener('resize', apply)
       vv.removeEventListener('scroll', apply)
+      window.removeEventListener('scroll', pin)
       root.style.removeProperty('--viewport-h')
     }
   }, [])
