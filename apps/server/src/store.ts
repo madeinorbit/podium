@@ -2,6 +2,7 @@ import { mkdirSync, readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
+import { normalizeSettings, type PodiumSettings } from '@podium/core'
 
 export type PinKind = 'panel' | 'worktree' | 'repo'
 
@@ -205,6 +206,26 @@ export class SessionStore {
     this.db.prepare('DELETE FROM sessions WHERE id = ?').run(id)
     this.db.prepare('DELETE FROM pins WHERE kind = ? AND id = ?').run('panel', id)
     this.scrubTabOrders(id)
+  }
+
+  // ---- settings ----
+  /** The whole settings blob, defaults filled in. A corrupt row reads as defaults. */
+  getSettings(): PodiumSettings {
+    const row = this.db.prepare('SELECT value FROM meta WHERE key = ?').get('settings') as
+      | { value: string }
+      | undefined
+    if (!row) return normalizeSettings(undefined)
+    try {
+      return normalizeSettings(JSON.parse(row.value))
+    } catch {
+      return normalizeSettings(undefined)
+    }
+  }
+
+  setSettings(settings: PodiumSettings): void {
+    this.db
+      .prepare('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)')
+      .run('settings', JSON.stringify(settings))
   }
 
   close(): void {

@@ -335,6 +335,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
       const cmd = launch(msg.agentKind, {
         cwd: msg.cwd,
         ...(msg.resume ? { resume: msg.resume } : {}),
+        ...(msg.model ? { model: msg.model } : {}),
       })
       const label = `podium-${msg.sessionId}`
       const provider = agentStateProviderFor(msg.agentKind)
@@ -359,6 +360,8 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
         cwd: cmd.cwd,
         cols: msg.geometry.cols,
         rows: msg.geometry.rows,
+        // Subagent model rides as env — Claude Code reads it; harmless elsewhere.
+        ...(msg.subagentModel ? { env: { CLAUDE_CODE_SUBAGENT_MODEL: msg.subagentModel } } : {}),
       }
       const session =
         backend === 'abduco'

@@ -246,3 +246,34 @@ describe('SessionStore tab order', () => {
     store.close()
   })
 })
+
+describe('settings', () => {
+  it('returns defaults when nothing was ever saved', () => {
+    const store = new SessionStore(':memory:')
+    const s = store.getSettings()
+    expect(s.sessionDefaults.agent).toBe('auto')
+    expect(s.superagent.provider).toBe('openrouter')
+    expect(s.hibernation.memoryPct).toBe(80)
+    store.close()
+  })
+
+  it('round-trips a saved blob and fills missing keys forward', async () => {
+    const file = await tmpDbPath()
+    const a = new SessionStore(file)
+    const s = a.getSettings()
+    a.setSettings({
+      ...s,
+      sessionDefaults: { ...s.sessionDefaults, agent: 'codex', model: 'gpt-5-codex' },
+      hibernation: { ...s.hibernation, memoryPct: 90 },
+    })
+    a.close()
+    const b = new SessionStore(file)
+    const loaded = b.getSettings()
+    expect(loaded.sessionDefaults.agent).toBe('codex')
+    expect(loaded.sessionDefaults.model).toBe('gpt-5-codex')
+    expect(loaded.hibernation.memoryPct).toBe(90)
+    // untouched sections keep their defaults
+    expect(loaded.notifications.web).toBe(true)
+    b.close()
+  })
+})

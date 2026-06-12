@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { basename } from 'node:path'
+import type { PodiumSettings } from '@podium/core'
 import {
   AgentKind,
   type ClientMessage,
@@ -167,10 +168,28 @@ export class SessionRegistry {
     this.store.setTabOrder(worktree, sessionIds)
   }
 
-  createSession(input: { agentKind: AgentKind; cwd: string; title?: string }): {
+  getSettings(): PodiumSettings {
+    return this.store.getSettings()
+  }
+
+  setSettings(settings: PodiumSettings): PodiumSettings {
+    this.store.setSettings(settings)
+    return settings
+  }
+
+  /** Agent kind may be omitted — the settings default decides ('auto' = Claude Code). */
+  createSession(input: { agentKind?: AgentKind; cwd: string; title?: string }): {
     sessionId: string
   } {
-    return this.spawn({ ...input, origin: { kind: 'spawn' } })
+    const defaults = this.store.getSettings().sessionDefaults
+    const agentKind =
+      input.agentKind ?? (defaults.agent === 'auto' ? 'claude-code' : defaults.agent)
+    return this.spawn({
+      agentKind,
+      cwd: input.cwd,
+      ...(input.title !== undefined ? { title: input.title } : {}),
+      origin: { kind: 'spawn' },
+    })
   }
 
   resumeSession(input: {
@@ -196,7 +215,7 @@ export class SessionRegistry {
    */
   continueSession({ sessionId }: { sessionId: string }): { ok: boolean } {
     const session = this.sessions.get(sessionId)
-    if (!session || session.agentState?.phase !== 'errored') return { ok: false }
+    if (session?.agentState?.phase !== 'errored') return { ok: false }
     this.toDaemon({
       type: 'input',
       sessionId,
@@ -300,6 +319,10 @@ export class SessionRegistry {
     })
     this.sessions.set(sessionId, session)
     this.persist(session)
+    // Model defaults ride along to the daemon; 'auto' means no override at all.
+    const defaults = this.store.getSettings().sessionDefaults
+    const model = defaults.model !== 'auto' ? defaults.model : undefined
+    const subagentModel = defaults.subagentModel !== 'auto' ? defaults.subagentModel : undefined
     this.toDaemon({
       type: 'spawn',
       sessionId,
@@ -307,6 +330,10 @@ export class SessionRegistry {
       cwd: input.cwd,
       ...(input.resume ? { resume: input.resume } : {}),
       geometry: { ...DEFAULT_GEOMETRY },
+      ...(model !== undefined && input.agentKind !== 'shell' ? { model } : {}),
+      ...(subagentModel !== undefined && input.agentKind === 'claude-code'
+        ? { subagentModel }
+        : {}),
     })
     this.broadcastSessions()
     return { sessionId }

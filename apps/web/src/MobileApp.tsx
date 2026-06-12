@@ -1,4 +1,4 @@
-import { Pin } from 'lucide-react'
+import { Pin, Settings as SettingsIcon } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
 import { useEffect, useState } from 'react'
 import { AgentPanel } from './AgentPanel'
@@ -13,6 +13,7 @@ import {
 import { HostIndicators } from './HostIndicators'
 import { NewPanelMenu } from './NewPanelMenu'
 import { RepoScanFlow } from './RepoScanFlow'
+import { SettingsView } from './SettingsView'
 import { useStore } from './store'
 import type { PinKind } from './types'
 import { WorkerLabel } from './WorkerLabel'
@@ -64,6 +65,7 @@ export function MobileApp(): JSX.Element {
   const [pickerOpen, setPickerOpen] = useState(false)
   const [repoPickerOpen, setRepoPickerOpen] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
   const hasRows =
     sections.pinnedWorktrees.length > 0 ||
     sections.pinnedRepos.length > 0 ||
@@ -149,6 +151,9 @@ export function MobileApp(): JSX.Element {
               <button type="button" onClick={() => setRepoPickerOpen(true)}>
                 + Add repo
               </button>
+              <button type="button" title="Settings" onClick={() => setSettingsOpen(true)}>
+                <SettingsIcon size={14} aria-hidden="true" />
+              </button>
               <button type="button" onClick={() => setPickerOpen(false)}>
                 ✕
               </button>
@@ -209,6 +214,7 @@ export function MobileApp(): JSX.Element {
           onDone={() => setRepoPickerOpen(false)}
         />
       )}
+      {settingsOpen && <SettingsView onClose={() => setSettingsOpen(false)} />}
     </div>
   )
 }

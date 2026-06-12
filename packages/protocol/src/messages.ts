@@ -298,6 +298,9 @@ export const SpawnMessage = z.object({
   cwd: z.string(),
   resume: ResumeRef.optional(),
   geometry: Geometry,
+  // Settings-driven model defaults. Absent = the harness decides (no flag/env).
+  model: z.string().optional(),
+  subagentModel: z.string().optional(),
 })
 export const ReattachMessage = z.object({
   type: z.literal('reattach'),

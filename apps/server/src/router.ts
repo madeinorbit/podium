@@ -1,3 +1,4 @@
+import { PodiumSettings } from '@podium/core'
 import { AgentKind, ResumeRef } from '@podium/protocol'
 import { initTRPC, TRPCError } from '@trpc/server'
 import { z } from 'zod'
@@ -16,7 +17,14 @@ export const appRouter = t.router({
   sessions: t.router({
     list: t.procedure.query(({ ctx }) => ctx.registry.listSessions()),
     create: t.procedure
-      .input(z.object({ agentKind: AgentKind, cwd: z.string(), title: z.string().optional() }))
+      .input(
+        z.object({
+          // Omitted = the settings default decides which harness to start.
+          agentKind: AgentKind.optional(),
+          cwd: z.string(),
+          title: z.string().optional(),
+        }),
+      )
       .mutation(({ ctx, input }) => ctx.registry.createSession(input)),
     resume: t.procedure
       .input(
@@ -51,6 +59,14 @@ export const appRouter = t.router({
         }
         return ctx.registry.listPins()
       }),
+  }),
+  settings: t.router({
+    get: t.procedure.query(({ ctx }) => ctx.registry.getSettings()),
+    // Whole-object set: the client always round-trips the full blob, so there is
+    // no partial-merge ambiguity. PodiumSettings fills defaults for missing keys.
+    set: t.procedure
+      .input(PodiumSettings)
+      .mutation(({ ctx, input }) => ctx.registry.setSettings(input)),
   }),
   tabs: t.router({
     listOrders: t.procedure.query(({ ctx }) => ctx.registry.listTabOrders()),

@@ -1,10 +1,11 @@
 import type { SessionMeta } from '@podium/protocol'
-import { Pin } from 'lucide-react'
+import { Pin, Settings as SettingsIcon } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
 import { useState } from 'react'
 import { agentBadge, type RepoNavView, sidebarSections, type WorktreeNavView } from './derive'
 import { HostIndicators } from './HostIndicators'
 import { RepoScanFlow } from './RepoScanFlow'
+import { SettingsView } from './SettingsView'
 import { useStore } from './store'
 import type { PinKind } from './types'
 import { WorkerLabel } from './WorkerLabel'
@@ -24,6 +25,7 @@ export function Sidebar(): JSX.Element {
   } = useStore()
   const sections = sidebarSections(repos, sessions, pins)
   const [pickerOpen, setPickerOpen] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
   const hasRows =
     sections.pinnedPanels.length > 0 ||
     sections.pinnedWorktrees.length > 0 ||
@@ -39,9 +41,19 @@ export function Sidebar(): JSX.Element {
     <aside className="sidebar">
       <div className="sidebar-head">
         <span className="label">WORKTREES</span>
-        <button type="button" onClick={() => setPickerOpen(true)}>
-          + Add repo
-        </button>
+        <div className="sidebar-head-actions">
+          <button type="button" onClick={() => setPickerOpen(true)}>
+            + Add repo
+          </button>
+          <button
+            type="button"
+            className="icon-only"
+            title="Settings"
+            onClick={() => setSettingsOpen(true)}
+          >
+            <SettingsIcon size={14} aria-hidden="true" />
+          </button>
+        </div>
       </div>
       {(reposLoading || repoDiagnostics.length > 0) && (
         <div className="scan-status">
@@ -121,6 +133,7 @@ export function Sidebar(): JSX.Element {
       {pickerOpen && (
         <RepoScanFlow onClose={() => setPickerOpen(false)} onDone={() => setPickerOpen(false)} />
       )}
+      {settingsOpen && <SettingsView onClose={() => setSettingsOpen(false)} />}
     </aside>
   )
 }

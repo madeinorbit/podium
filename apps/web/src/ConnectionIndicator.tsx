@@ -69,18 +69,19 @@ export function ConnectionIndicator({ health }: { health: ConnectionHealth }): J
 
   const { headline, detail } = describeHealth(health, Date.now())
   const Icon = health.status === 'down' ? WifiOff : Wifi
+  // A button so the tooltip is reachable by keyboard focus and by tap on touch
+  // devices, where hover doesn't exist.
   return (
-    <span
+    <button
+      type="button"
       className={`conn-indicator conn-${health.status}`}
-      role="status"
       aria-label={`${headline}. ${detail}`}
-      tabIndex={0}
     >
       <Icon size={14} aria-hidden="true" />
       <span className="conn-tooltip" role="tooltip">
         <strong>{headline}</strong>
         <span>{detail}</span>
       </span>
-    </span>
+    </button>
   )
 }

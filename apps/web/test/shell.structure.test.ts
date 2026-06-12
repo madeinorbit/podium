@@ -137,17 +137,18 @@ describe('host health indicators', () => {
     expect(read('Sidebar.tsx')).toContain('<HostIndicators')
     expect(read('MobileApp.tsx')).toContain('<HostIndicators')
   })
-  it('renders nothing when no daemon reports and the connection is healthy', () => {
+  it('the strip always renders the connection indicator; memory chips per host', () => {
     const src = read('HostIndicators.tsx')
-    expect(src).toContain("hostMetrics.length === 0 && health.status === 'ok') return null")
+    expect(src).toContain('<ConnectionIndicator')
     expect(src).toContain('hostMetrics.length > 1')
     expect(src).toContain('hostMemoryView')
   })
-  it('shows the connection dot only when the link is degraded or down', () => {
+  it('the connection indicator is icon-based with an explanatory tooltip', () => {
     const src = read('ConnectionIndicator.tsx')
-    expect(src).toContain("if (health.status === 'ok') return null")
-    expect(src).toContain('conn-${health.status}')
+    expect(src).toContain('describeHealth')
     expect(src).toContain('onConnectionHealth')
+    expect(src).toContain('conn-tooltip')
+    expect(src).toContain('ms ping') // the number the tooltip explains
   })
 })
 
