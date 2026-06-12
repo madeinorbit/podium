@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -709,4 +709,104 @@ describe('daemon memory breakdown', () => {
       }
     },
   )
+})
+
+describe('agent state instrumentation', () => {
+  let wss: WebSocketServer
+  let serverSocket: WS
+  let received: DaemonMessage[]
+  let daemon: DaemonHandle
+  let settingsDir: string
+
+  beforeEach(async () => {
+    received = []
+    settingsDir = await mkdtemp(join(tmpdir(), 'podium-hooks-'))
+    wss = new WebSocketServer({ port: 0 })
+    await new Promise<void>((r) => wss.once('listening', () => r()))
+    const port = (wss.address() as { port: number }).port
+    const connected = new Promise<void>((r) => {
+      wss.once('connection', (ws) => {
+        serverSocket = ws
+        ws.on('message', (raw) => received.push(parseDaemonMessage(raw.toString())))
+        r()
+      })
+    })
+    daemon = await startDaemon({
+      serverUrl: `ws://localhost:${port}`,
+      tmux: false,
+      discovery: { background: false, cachePath: ':memory:' },
+      metrics: { background: false },
+      hooks: { port: 0, settingsDir },
+      launch: (_kind, opts) => ({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
+    })
+    await connected
+  })
+
+  afterEach(async () => {
+    await daemon.close()
+    await new Promise<void>((r) => wss.close(() => r()))
+  })
+
+  const send = (msg: unknown): void => serverSocket.send(encode(msg as never))
+  async function waitFor(fn: () => boolean, timeout = 5000): Promise<void> {
+    const start = Date.now()
+    while (!fn()) {
+      if (Date.now() - start > timeout) throw new Error('waitFor timed out')
+      await new Promise((r) => setTimeout(r, 20))
+    }
+  }
+  const states = () =>
+    received.filter((m): m is Extract<DaemonMessage, { type: 'agentState' }> => m.type === 'agentState')
+
+  it('writes the hook settings file and appends --settings for claude-code spawns', async () => {
+    send({ type: 'spawn', sessionId: 'sA', agentKind: 'claude-code', cwd: '/tmp', geometry: G })
+    await waitFor(() => received.some((m) => m.type === 'bind' && m.sessionId === 'sA'))
+    const settingsPath = join(settingsDir, 'sA.json')
+    const settings = JSON.parse(await readFile(settingsPath, 'utf8')) as {
+      hooks: Record<string, { hooks: { type: string; url: string }[] }[]>
+    }
+    const url = settings.hooks.Stop?.[0]?.hooks[0]?.url ?? ''
+    expect(url).toMatch(new RegExp(`^http://127\\.0\\.0\\.1:${daemon.hookPort}/hooks/sA$`))
+  })
+
+  it('does not instrument shell sessions', async () => {
+    send({ type: 'spawn', sessionId: 'sh1', agentKind: 'shell', cwd: '/tmp', geometry: G })
+    await waitFor(() => received.some((m) => m.type === 'bind' && m.sessionId === 'sh1'))
+    await expect(readFile(join(settingsDir, 'sh1.json'), 'utf8')).rejects.toThrow()
+  })
+
+  it('hook POSTs flow through translate+reduce and out as agentState messages', async () => {
+    send({ type: 'spawn', sessionId: 'sB', agentKind: 'claude-code', cwd: '/tmp', geometry: G })
+    await waitFor(() => received.some((m) => m.type === 'bind' && m.sessionId === 'sB'))
+    const post = (payload: unknown) =>
+      fetch(`http://127.0.0.1:${daemon.hookPort}/hooks/sB`, {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      })
+    await post({ hook_event_name: 'UserPromptSubmit', prompt: 'go' })
+    await waitFor(() => states().some((s) => s.sessionId === 'sB' && s.state.phase === 'working'))
+    await post({ hook_event_name: 'StopFailure', error_type: 'rate_limit' })
+    await waitFor(() => states().some((s) => s.state.phase === 'errored'))
+    const errored = states().find((s) => s.state.phase === 'errored')
+    expect(errored?.state.error).toEqual({ class: 'rate_limit', retryable: true })
+    // True no-ops are deduped by reducer reference identity: working → working
+    // emits nothing. (Re-entries like a repeated StopFailure DO re-broadcast,
+    // because they stamp a new `since` — that's intended.)
+    await post({ hook_event_name: 'PostToolUse', tool_name: 'Bash' }) // errored → working
+    await waitFor(() => states().at(-1)?.state.phase === 'working')
+    const count = states().length
+    await post({ hook_event_name: 'PostToolUse', tool_name: 'Bash' }) // working → working: no-op
+    await new Promise((r) => setTimeout(r, 50))
+    expect(states().length).toBe(count)
+  })
+
+  it('hook POSTs for unknown sessions are ignored', async () => {
+    const res = await fetch(`http://127.0.0.1:${daemon.hookPort}/hooks/nope`, {
+      method: 'POST',
+      body: JSON.stringify({ hook_event_name: 'Stop' }),
+    })
+    expect(res.status).toBe(200)
+    await new Promise((r) => setTimeout(r, 50))
+    expect(states().filter((s) => s.sessionId === 'nope')).toEqual([])
+  })
 })
