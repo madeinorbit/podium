@@ -41,6 +41,7 @@ package and lets each release independently.
 |-------------|-----------|
 | PTY/tmux spawn, attach, resize, kill | `@podium/agent-bridge` |
 | Harness / recent-conversation / project / worktree discovery | `@podium/agent-bridge` (used by `apps/daemon`) |
+| Agent state detection (provider interface, reducer, per-agent providers) | `@podium/agent-bridge` `src/agent-state/`; HTTP hook ingest + spawn injection in `apps/daemon` |
 | Browser↔server message types (input, output frame, resize, takeover, transcript) | `@podium/protocol` |
 | xterm.js, mobile key toolbar, touch/scroll policy, reconnect | `@podium/terminal-client` |
 | Domain entities + zod schemas | `@podium/core` |

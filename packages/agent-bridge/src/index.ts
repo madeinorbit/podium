@@ -5,6 +5,7 @@
 
 export * from './abduco.js'
 export * from './abduco-bin.js'
+export * from './agent-state/index.js'
 export * from './discovery/index.js'
 export * from './launch.js'
 export * from './osc-title.js'

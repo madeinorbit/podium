@@ -1289,3 +1289,55 @@ body {
   color: var(--faint);
   font-size: 12px;
 }
+
+/* Harness-observed agent state on a session row */
+.panel-row-wrap {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.panel-row-wrap .panel-row {
+  flex: 1;
+  min-width: 0;
+}
+.agent-badge {
+  margin-left: auto;
+  padding: 0 6px;
+  border-radius: 8px;
+  font-size: 10px;
+  line-height: 16px;
+  white-space: nowrap;
+}
+.agent-badge.working {
+  color: #9aa4b2;
+  background: rgba(154, 164, 178, 0.12);
+}
+.agent-badge.idle {
+  color: #6f7a89;
+  background: rgba(111, 122, 137, 0.1);
+}
+.agent-badge.attention {
+  color: #e8b341;
+  background: rgba(232, 179, 65, 0.14);
+}
+.agent-badge.error {
+  color: #e0604f;
+  background: rgba(224, 96, 79, 0.14);
+}
+.agent-badge.muted {
+  color: #5d6673;
+  background: transparent;
+}
+
+.continue-button {
+  border: 1px solid rgba(224, 96, 79, 0.5);
+  background: transparent;
+  color: #e0604f;
+  border-radius: 6px;
+  font-size: 11px;
+  padding: 1px 8px;
+  cursor: pointer;
+}
+.continue-button:hover {
+  background: rgba(224, 96, 79, 0.12);
+}

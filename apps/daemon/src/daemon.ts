@@ -1,20 +1,27 @@
-import { hostname } from 'node:os'
+import { mkdirSync, writeFileSync } from 'node:fs'
+import { homedir, hostname } from 'node:os'
+import { join } from 'node:path'
 import {
   type AgentConversationDiagnostic,
   type AgentConversationSummary,
+  type AgentRuntimeState,
   type AgentSession,
+  type AgentStateProvider,
   abducoHasSession,
   agentLaunchCommand,
+  agentStateProviderFor,
   attachAbducoAgent,
   attachTmuxAgent,
   ConversationDiscoveryCache,
   compareConversationSummaries,
   type GitDiscoveryDiagnostic,
   type GitRepositorySummary,
+  initialAgentState,
   isAbducoAvailable,
   isTmuxAvailable,
   killAbducoSession,
   killTmuxServer,
+  reduceAgentState,
   scanAgentConversationsCached,
   scanGitRepositories,
   spawnAbducoAgent,
@@ -33,6 +40,7 @@ import {
   parseControlMessage,
 } from '@podium/protocol'
 import WebSocket, { type RawData } from 'ws'
+import { startHookIngest } from './hook-ingest'
 import { sampleHostMemory } from './host-metrics'
 import { attributeMemory, snapshotProcesses } from './memory-breakdown'
 
@@ -66,6 +74,7 @@ export interface DaemonOptions {
   tmux?: boolean
   discovery?: DaemonDiscoveryOptions
   metrics?: DaemonMetricsOptions
+  hooks?: DaemonHooksOptions
 }
 
 export interface DaemonMetricsOptions {
@@ -73,6 +82,13 @@ export interface DaemonMetricsOptions {
   background?: boolean
   /** Sample/push cadence. Defaults to 5s. */
   intervalMs?: number
+}
+
+export interface DaemonHooksOptions {
+  /** Ingest port. Fixed by default (DEFAULT_HOOK_PORT) so durable sessions survive restarts; 0 = ephemeral (tests). */
+  port?: number
+  /** Where per-session hook settings files are written. Defaults to $PODIUM_STATE_DIR/hooks else ~/.podium/hooks. */
+  settingsDir?: string
 }
 
 /** Explicit choice wins (operator intent); otherwise prefer abduco → tmux → none. */
@@ -88,6 +104,8 @@ export function resolveDurableBackend(
 }
 
 export interface DaemonHandle {
+  /** Where the hook ingest is actually listening (fixed port unless it was taken). */
+  readonly hookPort: number
   /**
    * Detach from all sessions and close the server connection. Durable sessions
    * (abduco/tmux) keep running — that's the feature. Pass `reapSessions: true` to
@@ -152,7 +170,7 @@ function gitDiagnosticToWire(d: GitDiscoveryDiagnostic): GitDiscoveryDiagnosticW
   return { severity: d.severity, path: d.path, message: d.message }
 }
 
-export function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
+export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
   const launch = opts.launch ?? agentLaunchCommand
   const backend = resolveDurableBackend(opts, {
     abduco: isAbducoAvailable(),
@@ -163,6 +181,31 @@ export function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
       '[podium] neither abduco nor tmux found — sessions will not survive a daemon restart',
     )
   }
+  // Agent state observation: harness hooks POST here; provider translates the
+  // payload into normalized events; the reducer folds them; changes go to the
+  // server as `agentState`. Started before the WS so spawns can never race it.
+  const settingsDir =
+    opts.hooks?.settingsDir ??
+    join(process.env.PODIUM_STATE_DIR ?? join(homedir(), '.podium'), 'hooks')
+  const trackers = new Map<string, { provider: AgentStateProvider; state: AgentRuntimeState }>()
+  const ingest = await startHookIngest({
+    ...(opts.hooks?.port !== undefined ? { port: opts.hooks.port } : {}),
+    onPayload: (sessionId, payload) => {
+      const tracker = trackers.get(sessionId)
+      if (!tracker) return
+      void tracker.provider
+        .translate(payload)
+        .then((events) => {
+          for (const event of events) {
+            const next = reduceAgentState(tracker.state, event, new Date().toISOString())
+            if (next === tracker.state) continue
+            tracker.state = next
+            send({ type: 'agentState', sessionId, state: next })
+          }
+        })
+        .catch((err) => console.warn(`[podium] hook translate failed for ${sessionId}:`, err))
+    },
+  })
   const ws = new WebSocket(`${opts.serverUrl}/daemon`)
   const bridges = new Map<string, AgentSession>()
   const discoveryCache = new ConversationDiscoveryCache(opts.discovery?.cachePath)
@@ -282,6 +325,7 @@ export function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     session.onTitle((title) => send({ type: 'title', sessionId, title }))
     session.onExit((code) => {
       bridges.delete(sessionId)
+      trackers.delete(sessionId)
       send({ type: 'agentExit', sessionId, code })
     })
   }
@@ -293,10 +337,25 @@ export function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
         ...(msg.resume ? { resume: msg.resume } : {}),
       })
       const label = `podium-${msg.sessionId}`
+      const provider = agentStateProviderFor(msg.agentKind)
+      let extraArgs: string[] = []
+      if (provider) {
+        mkdirSync(settingsDir, { recursive: true })
+        const instr = provider.instrumentation({
+          endpointUrl: ingest.endpointFor(msg.sessionId),
+          settingsPath: join(settingsDir, `${msg.sessionId}.json`),
+        })
+        if (instr.file) writeFileSync(instr.file.path, instr.file.contents)
+        extraArgs = instr.args
+        trackers.set(msg.sessionId, {
+          provider,
+          state: initialAgentState(new Date().toISOString()),
+        })
+      }
       const spawnOpts = {
         label,
         cmd: cmd.cmd,
-        args: cmd.args,
+        args: [...cmd.args, ...extraArgs],
         cwd: cmd.cwd,
         cols: msg.geometry.cols,
         rows: msg.geometry.rows,
@@ -308,6 +367,33 @@ export function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
             ? spawnTmuxAgent(spawnOpts)
             : spawnAgent(spawnOpts)
       wireBridge(msg.sessionId, session)
+      // Seed the state once the CLI is actually up (first PTY frame). Claude Code
+      // emits no SessionStart hook at interactive boot, so without this the phase
+      // sits at 'unknown' until the first prompt. Resumes classify the resumed
+      // transcript for a rich verdict. Real hook events always win: every reduce
+      // below is guarded on the phase still being 'unknown'.
+      if (provider?.bootEvents) {
+        const bootEvents = provider.bootEvents.bind(provider)
+        const offFirstFrame = session.onFrame(() => {
+          offFirstFrame()
+          void bootEvents({
+            cwd: msg.cwd,
+            ...(msg.resume ? { resumeValue: msg.resume.value } : {}),
+          })
+            .then((events) => {
+              const tracker = trackers.get(msg.sessionId)
+              if (!tracker) return
+              for (const event of events) {
+                if (tracker.state.phase !== 'unknown') return
+                const next = reduceAgentState(tracker.state, event, new Date().toISOString())
+                if (next === tracker.state) continue
+                tracker.state = next
+                send({ type: 'agentState', sessionId: msg.sessionId, state: next })
+              }
+            })
+            .catch(() => {}) // boot probe is best-effort; hooks remain authoritative
+        })
+      }
       send({
         type: 'bind',
         sessionId: msg.sessionId,
@@ -392,6 +478,15 @@ export function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
           break
         }
         wireBridge(msg.sessionId, found.session)
+        // The settings file from the original spawn still points at our fixed
+        // port, so a reattached agent keeps reporting — re-arm the tracker.
+        const provider = agentStateProviderFor(msg.agentKind)
+        if (provider) {
+          trackers.set(msg.sessionId, {
+            provider,
+            state: initialAgentState(new Date().toISOString()),
+          })
+        }
         send({
           type: 'bind',
           sessionId: msg.sessionId,
@@ -404,6 +499,7 @@ export function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
       }
       case 'kill': {
         const session = bridges.get(msg.sessionId)
+        trackers.delete(msg.sessionId)
         if (session) {
           session.dispose()
           bridges.delete(msg.sessionId)
@@ -454,10 +550,13 @@ export function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
       }
     }
     bridges.clear()
+    trackers.clear()
   }
 
   const handle: DaemonHandle = {
-    close(opts) {
+    hookPort: ingest.port,
+    async close(opts) {
+      await ingest.close()
       return new Promise<void>((resolve) => {
         disposeAll(opts?.reapSessions ?? false)
         if (ws.readyState === WebSocket.CLOSED) {

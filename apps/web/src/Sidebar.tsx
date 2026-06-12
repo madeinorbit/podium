@@ -2,7 +2,7 @@ import type { SessionMeta } from '@podium/protocol'
 import { Pin } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
 import { useState } from 'react'
-import { type RepoNavView, sidebarSections, type WorktreeNavView } from './derive'
+import { agentBadge, type RepoNavView, sidebarSections, type WorktreeNavView } from './derive'
 import { HostIndicators } from './HostIndicators'
 import { RepoScanFlow } from './RepoScanFlow'
 import { useStore } from './store'
@@ -246,6 +246,8 @@ function PanelRow({
   onSelect: () => void
   onPinned: (pinned: boolean) => void
 }): JSX.Element {
+  const { continueSession } = useStore()
+  const badge = agentBadge(session)
   return (
     <div className="panel-row-wrap">
       <button
@@ -254,7 +256,18 @@ function PanelRow({
         onClick={onSelect}
       >
         <span className={`dot ${session.status}`} /> <WorkerLabel session={session} />
+        {badge && <span className={`agent-badge ${badge.tone}`}>{badge.label}</span>}
       </button>
+      {badge?.showContinue && (
+        <button
+          type="button"
+          className="continue-button"
+          title="Send 'continue' to the errored agent"
+          onClick={() => void continueSession(session.sessionId)}
+        >
+          Continue
+        </button>
+      )}
       <button
         type="button"
         className={pinned ? 'pin-button active' : 'pin-button'}

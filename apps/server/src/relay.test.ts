@@ -563,3 +563,55 @@ describe('memory breakdown relay', () => {
     }
   })
 })
+
+describe('agent state', () => {
+  const STATE = {
+    phase: 'errored' as const,
+    since: '2026-06-12T10:00:00.000Z',
+    openTaskCount: 0,
+    error: { class: 'rate_limit', retryable: true },
+  }
+
+  it('agentState from the daemon lands on SessionMeta and rebroadcasts sessions', () => {
+    const reg = new SessionRegistry()
+    reg.attachDaemon(() => {})
+    const { sessionId } = reg.createSession({ agentKind: 'claude-code', cwd: '/proj' })
+    const client = sink()
+    reg.attachClient(client.send)
+    client.sent.length = 0
+    reg.onDaemonMessage({ type: 'agentState', sessionId, state: STATE })
+    const update = client.sent.find((m) => m.type === 'sessionsChanged')
+    expect(update).toBeDefined()
+    const meta = (update as Extract<ServerMessage, { type: 'sessionsChanged' }>).sessions.find(
+      (s) => s.sessionId === sessionId,
+    )
+    expect(meta?.agentState).toEqual(STATE)
+  })
+
+  it('agentState for an unknown session is ignored', () => {
+    const reg = new SessionRegistry()
+    reg.attachDaemon(() => {})
+    expect(() =>
+      reg.onDaemonMessage({ type: 'agentState', sessionId: 'ghost', state: STATE }),
+    ).not.toThrow()
+  })
+
+  it('continueSession writes "continue\\r" to the PTY only while errored', () => {
+    const reg = new SessionRegistry()
+    const daemon: ControlMessage[] = []
+    reg.attachDaemon((m) => daemon.push(m))
+    const { sessionId } = reg.createSession({ agentKind: 'claude-code', cwd: '/proj' })
+    // not errored yet → refused
+    expect(reg.continueSession({ sessionId })).toEqual({ ok: false })
+    reg.onDaemonMessage({ type: 'agentState', sessionId, state: STATE })
+    expect(reg.continueSession({ sessionId })).toEqual({ ok: true })
+    const input = daemon.find((m) => m.type === 'input' && m.sessionId === sessionId)
+    expect(input).toBeDefined()
+    expect(
+      Buffer.from((input as Extract<ControlMessage, { type: 'input' }>).data, 'base64').toString(
+        'utf8',
+      ),
+    ).toBe('continue\r')
+    expect(reg.continueSession({ sessionId: 'ghost' })).toEqual({ ok: false })
+  })
+})

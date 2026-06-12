@@ -251,3 +251,48 @@ function comparePinned(leftId: string, rightId: string, order: Map<string, numbe
   if (rightOrder !== undefined) return 1
   return 0
 }
+
+export interface AgentBadge {
+  label: string
+  tone: 'working' | 'idle' | 'attention' | 'error' | 'muted'
+  showContinue: boolean
+}
+
+/** Map harness-observed runtime state to the little badge on a session row.
+ *  Null = nothing to show (uninstrumented agent kinds stay clean). */
+export function agentBadge(meta: SessionMeta): AgentBadge | null {
+  const s = meta.agentState
+  if (!s || s.phase === 'unknown') return null
+  switch (s.phase) {
+    case 'working':
+      return { label: 'working', tone: 'working', showContinue: false }
+    case 'compacting':
+      return { label: 'compacting', tone: 'working', showContinue: false }
+    case 'idle': {
+      switch (s.idle?.kind) {
+        case 'question':
+          return { label: 'needs answer', tone: 'attention', showContinue: false }
+        case 'approval':
+          return { label: 'plan ready', tone: 'attention', showContinue: false }
+        case 'open_todos':
+          return { label: 'todos open', tone: 'attention', showContinue: false }
+        default:
+          return { label: 'idle', tone: 'idle', showContinue: false }
+      }
+    }
+    case 'needs_user':
+      return {
+        label: s.need?.kind === 'question' ? 'needs answer' : 'needs permission',
+        tone: 'attention',
+        showContinue: false,
+      }
+    case 'errored':
+      return {
+        label: `error: ${s.error?.class ?? 'unknown'}`,
+        tone: 'error',
+        showContinue: s.error?.retryable ?? false,
+      }
+    case 'ended':
+      return { label: 'ended', tone: 'muted', showContinue: false }
+  }
+}

@@ -51,6 +51,8 @@ export interface Store {
   refreshRepos: () => Promise<void>
   rescanConversations: () => Promise<void>
   killSession: (sessionId: string) => Promise<void>
+  /** Nudge an errored agent to retry ("continue⏎" into its PTY). */
+  continueSession: (sessionId: string) => Promise<void>
 }
 
 const Ctx = createContext<Store | null>(null)
@@ -152,6 +154,12 @@ export function StoreProvider({
     },
     [trpc],
   )
+  const continueSession = useMemo(
+    () => async (sessionId: string) => {
+      await trpc.sessions.continue.mutate({ sessionId }).catch(() => {})
+    },
+    [trpc],
+  )
 
   useEffect(() => {
     const worktrees = reposToViews(repos).flatMap((repo) => repo.worktrees)
@@ -211,6 +219,7 @@ export function StoreProvider({
     refreshRepos,
     rescanConversations,
     killSession,
+    continueSession,
   }
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }
