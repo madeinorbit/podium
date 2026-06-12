@@ -1,9 +1,10 @@
 import { type MountedSession, mountSession } from '@podium/terminal-client'
-import { MessageSquareText, Moon, Terminal as TerminalIcon } from 'lucide-react'
+import { MessageSquareText, Mic, Moon, Terminal as TerminalIcon } from 'lucide-react'
 import type { JSX } from 'react'
 import { useEffect, useRef, useState } from 'react'
 import { ChatView } from './ChatView'
 import { useStore } from './store'
+import { useVoiceInput } from './voice'
 import { WorkerLabel } from './WorkerLabel'
 
 // Opt-in browser-test hook: `?e2e=1` exposes `globalThis.__podium` on the mounted
@@ -43,6 +44,9 @@ export function AgentPanel({ sessionId }: { sessionId: string }): JSX.Element {
   }
 
   const hibernated = session?.status === 'hibernated'
+  // Native-mode dictation: transcribed speech types straight into the PTY as
+  // keystrokes — no auto-submit, so the user can edit before hitting Enter.
+  const voice = useVoiceInput((text) => mountedRef.current?.connection.sendInput(`${text} `))
 
   useEffect(() => {
     if (effectiveMode !== 'native' || hibernated) return
@@ -85,6 +89,16 @@ export function AgentPanel({ sessionId }: { sessionId: string }): JSX.Element {
               <TerminalIcon size={13} aria-hidden="true" />
             </button>
           </span>
+        )}
+        {effectiveMode === 'native' && !hibernated && voice.supported && (
+          <button
+            type="button"
+            className={voice.listening ? 'panel-mic active' : 'panel-mic'}
+            title={voice.listening ? 'Stop voice input' : 'Voice input — speaks into the terminal'}
+            onClick={voice.toggle}
+          >
+            <Mic size={13} aria-hidden="true" />
+          </button>
         )}
         {effectiveMode === 'native' && (
           <button type="button" onClick={() => mountedRef.current?.connection.requestControl()}>

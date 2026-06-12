@@ -2608,3 +2608,19 @@ body {
 .settings-permission:hover {
   border-color: var(--accent);
 }
+
+.panel-mic {
+  display: inline-flex;
+  align-items: center;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  color: var(--fg);
+  border-radius: var(--r);
+  padding: 3px 8px;
+  cursor: pointer;
+}
+.panel-mic.active {
+  color: var(--danger);
+  border-color: var(--danger);
+  animation: conn-pulse 1.2s ease-in-out infinite;
+}
