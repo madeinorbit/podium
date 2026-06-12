@@ -54,9 +54,9 @@ export function describeHealth(health: ConnectionHealth, now: number): Connectio
 }
 
 /**
- * Connection-health icon with an explanatory hover tooltip. Always visible —
- * green wifi when the link is fast (the tooltip carries the live ping number),
- * yellow when typing would lag, pulsing red wifi-off when input is going nowhere.
+ * Connection-health icon with an explanatory hover tooltip. Rendered by
+ * HostIndicators only while the link is degraded or down — yellow wifi when
+ * typing would lag, pulsing red wifi-off when input is going nowhere.
  */
 export function ConnectionIndicator({ health }: { health: ConnectionHealth }): JSX.Element {
   // Re-render each second while unhealthy so "no contact for Ns" ticks.

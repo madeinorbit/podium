@@ -24,6 +24,11 @@ body,
   height: 100%;
   margin: 0;
 }
+html {
+  /* Match the app background so any overscroll/keyboard gutter the browser
+     exposes is dark, never a white flash. */
+  background: var(--app);
+}
 body {
   background: var(--app);
   color: var(--fg);
@@ -59,6 +64,19 @@ body {
   display: flex;
   flex-direction: column;
   height: var(--viewport-h, 100dvh);
+  /* No double-tap zoom anywhere in the mobile UI; children that scroll
+     (terminal, pickers, key bar) still pan normally. */
+  touch-action: manipulation;
+}
+/* The mobile shell is an app surface, not a page: the document itself must
+   never scroll or rubber-band (e.g. dragging the key bar up over the soft
+   keyboard used to reveal blank page below the shell). All scrolling happens
+   inside the shell's own scrollable regions. */
+body:has(.mobile-shell) {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  overflow: hidden;
 }
 
 /* ---- connect ---- */
@@ -573,7 +591,10 @@ body {
   overflow-x: auto;
   overflow-y: hidden;
   -webkit-overflow-scrolling: touch;
-  overscroll-behavior-x: contain;
+  overscroll-behavior: contain;
+  /* Horizontal pan only: vertical drags on the bar must not move the page,
+     and double-taps must not zoom. */
+  touch-action: pan-x;
   scrollbar-width: none;
 }
 .mobile-shell .agent-panel .toolbar::-webkit-scrollbar {
@@ -644,11 +665,74 @@ body {
 }
 .mobile-tabs {
   flex: 1;
+  min-width: 0;
   display: flex;
   align-items: center;
   gap: 6px;
-  overflow-x: auto;
   padding: 0 8px;
+}
+/* Session dropdown trigger: one button showing the active session; the full
+   list lives in the .session-menu sheet so the header never needs to scroll. */
+.session-picker {
+  flex: 1;
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  border: 0;
+  color: var(--fg-bright);
+  font: inherit;
+  font-size: 13px;
+  padding: 0;
+  cursor: pointer;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.session-picker .worker-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.session-menu {
+  background: var(--panel-raised);
+  border-bottom: 1px solid var(--border-strong);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  display: flex;
+  flex-direction: column;
+}
+.session-menu-row {
+  display: flex;
+  align-items: center;
+  border-bottom: 1px solid var(--border);
+}
+.session-menu-row:last-child {
+  border-bottom: 0;
+}
+.session-pick {
+  flex: 1;
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  color: var(--fg);
+  padding: 12px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.session-pick.active {
+  color: var(--fg-bright);
+}
+.session-menu-row .tab-pin,
+.session-menu-row .tab-kill {
+  padding: 12px 10px;
+  font-size: 13px;
 }
 .mobile-body {
   flex: 1;
@@ -1228,6 +1312,16 @@ body {
 }
 .host-chip:hover .host-chip-label {
   color: var(--fg-bright);
+}
+/* Compact (mobile) memory chip: icon only, the severity carried by color. */
+.host-chip-compact {
+  color: var(--success);
+}
+.host-chip-compact.mem-warn {
+  color: var(--warning);
+}
+.host-chip-compact.mem-critical {
+  color: var(--danger);
 }
 
 /* ---- memory breakdown view (opened from the memory chip) ---- */
@@ -2573,6 +2667,10 @@ body {
   color: #8b8bf4;
   padding: 24px;
   text-align: center;
+}
+/* Exited shares the hibernated layout; the icon goes warning-toned, not moon-purple. */
+.exited-pane {
+  color: var(--warning);
 }
 .hibernated-pane p {
   margin: 0;

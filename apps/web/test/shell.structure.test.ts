@@ -138,9 +138,9 @@ describe('host health indicators', () => {
     expect(read('Sidebar.tsx')).toContain('<HostIndicators')
     expect(read('MobileApp.tsx')).toContain('<HostIndicators')
   })
-  it('the strip always renders the connection indicator; memory chips per host', () => {
+  it('the connection indicator appears only while unhealthy; memory chips per host', () => {
     const src = read('HostIndicators.tsx')
-    expect(src).toContain('<ConnectionIndicator')
+    expect(src).toContain("health.status !== 'ok' && <ConnectionIndicator")
     expect(src).toContain('hostMetrics.length > 1')
     expect(src).toContain('hostMemoryView')
   })

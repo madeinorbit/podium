@@ -1,3 +1,4 @@
+import { MemoryStick } from 'lucide-react'
 import type { JSX } from 'react'
 import { useState } from 'react'
 import { ConnectionIndicator, useConnectionHealth } from './ConnectionIndicator'
@@ -7,34 +8,45 @@ import { useStore } from './store'
 import { UsageChip } from './UsageView'
 
 /**
- * Host health strip — the connection indicator (always visible; its hover
- * tooltip carries the live ping number), plus one memory chip per daemon
- * machine. Clicking the memory chip opens the per-process breakdown view.
+ * Host health strip. The connection indicator appears only while the link is
+ * degraded or down — an always-green icon is noise, and the problem states are
+ * what need attention. One memory chip per daemon machine; clicking it opens
+ * the per-process breakdown view.
+ *
+ * `compact` (mobile header) shrinks everything to icons: a severity-colored
+ * memory icon instead of the label+bar chip, and no usage chip — header pixels
+ * belong to session selection there. Tapping an icon still opens the detail.
  */
-export function HostIndicators(): JSX.Element {
+export function HostIndicators({ compact = false }: { compact?: boolean }): JSX.Element {
   const { hostMetrics } = useStore()
   const health = useConnectionHealth()
   const [open, setOpen] = useState(false)
-  const showHostname = hostMetrics.length > 1
+  const showHostname = !compact && hostMetrics.length > 1
   return (
     <div className="host-indicators">
-      <ConnectionIndicator health={health} />
-      <UsageChip />
+      {health.status !== 'ok' && <ConnectionIndicator health={health} />}
+      {!compact && <UsageChip />}
       {hostMetrics.map((host) => {
         const mem = hostMemoryView(host)
         return (
           <button
             type="button"
             key={host.hostname}
-            className={`host-chip mem-${mem.severity}`}
+            className={`host-chip mem-${mem.severity}${compact ? ' host-chip-compact' : ''}`}
             title={`${mem.title} — click for the breakdown`}
             onClick={() => setOpen(true)}
           >
-            {showHostname && <span className="host-chip-name">{host.hostname}</span>}
-            <span className="host-chip-label">MEM {mem.label}</span>
-            <span className="host-chip-bar" role="presentation">
-              <span className="host-chip-fill" style={{ width: `${mem.pct}%` }} />
-            </span>
+            {compact ? (
+              <MemoryStick size={14} aria-hidden="true" />
+            ) : (
+              <>
+                {showHostname && <span className="host-chip-name">{host.hostname}</span>}
+                <span className="host-chip-label">MEM {mem.label}</span>
+                <span className="host-chip-bar" role="presentation">
+                  <span className="host-chip-fill" style={{ width: `${mem.pct}%` }} />
+                </span>
+              </>
+            )}
           </button>
         )
       })}

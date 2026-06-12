@@ -1,4 +1,4 @@
-import { Home, Pin, Search, Settings as SettingsIcon, Sparkles } from 'lucide-react'
+import { ChevronDown, Home, Pin, Search, Settings as SettingsIcon, Sparkles } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
 import { useEffect, useState } from 'react'
 import { AgentPanel } from './AgentPanel'
@@ -70,8 +70,10 @@ export function MobileApp(): JSX.Element {
   const [pickerOpen, setPickerOpen] = useState(false)
   const [repoPickerOpen, setRepoPickerOpen] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
+  const [sessionMenuOpen, setSessionMenuOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
+  const currentTab = tabs.find((t) => t.sessionId === paneA)
   const hasRows =
     sections.pinnedWorktrees.length > 0 ||
     sections.pinnedRepos.length > 0 ||
@@ -85,6 +87,7 @@ export function MobileApp(): JSX.Element {
   const pickWorktree = (path: string) => {
     setSelectedWorktree(path)
     setPickerOpen(false)
+    setSessionMenuOpen(false)
     setView('workspace')
   }
 
@@ -111,14 +114,46 @@ export function MobileApp(): JSX.Element {
           {worktree ? (worktree.branch ?? worktree.path.split('/').pop()) : 'Select worktree'} ▾
         </button>
         <div className="mobile-tabs">
+          {tabs.length > 0 && (
+            <button
+              type="button"
+              className="session-picker"
+              aria-expanded={sessionMenuOpen}
+              onClick={() => setSessionMenuOpen((v) => !v)}
+            >
+              {currentTab ? (
+                <>
+                  <span className={`dot ${currentTab.status}`} />{' '}
+                  <WorkerLabel session={currentTab} />
+                </>
+              ) : (
+                'Sessions'
+              )}
+              <ChevronDown size={13} aria-hidden="true" />
+            </button>
+          )}
+          {worktree && (
+            <button type="button" className="tab-add" onClick={() => setMenuOpen((v) => !v)}>
+              +
+            </button>
+          )}
+        </div>
+        <HostIndicators compact />
+      </header>
+      {sessionMenuOpen && tabs.length > 0 && (
+        <div className="session-menu">
           {tabs.map((t) => {
             const pinned = pins.panels.includes(t.sessionId)
             return (
-              <span key={t.sessionId} className="tab-wrap">
+              <div key={t.sessionId} className="session-menu-row">
                 <button
                   type="button"
-                  className={t.sessionId === paneA ? 'tab active' : 'tab'}
-                  onClick={() => setPane('A', t.sessionId)}
+                  className={t.sessionId === paneA ? 'session-pick active' : 'session-pick'}
+                  onClick={() => {
+                    setPane('A', t.sessionId)
+                    setSessionMenuOpen(false)
+                    setView('workspace')
+                  }}
                 >
                   <span className={`dot ${t.status}`} /> <WorkerLabel session={t} />
                 </button>
@@ -139,17 +174,11 @@ export function MobileApp(): JSX.Element {
                 >
                   ✕
                 </button>
-              </span>
+              </div>
             )
           })}
-          {worktree && (
-            <button type="button" className="tab-add" onClick={() => setMenuOpen((v) => !v)}>
-              +
-            </button>
-          )}
         </div>
-        <HostIndicators />
-      </header>
+      )}
       {menuOpen && worktree && (
         <NewPanelMenu
           worktree={worktree}
