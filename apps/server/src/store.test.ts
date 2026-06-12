@@ -280,3 +280,60 @@ describe('settings', () => {
     b.close()
   })
 })
+
+describe('conversation index', () => {
+  const conv = (id: string, over: Record<string, unknown> = {}) => ({
+    id,
+    agentKind: 'claude-code',
+    providerId: 'claude-jsonl',
+    title: `conv ${id}`,
+    projectPath: '/src/app',
+    updatedAt: '2026-06-12T08:00:00.000Z',
+    ...over,
+  })
+
+  it('indexes discovered conversations and finds them by keyword', () => {
+    const store = new SessionStore(':memory:')
+    store.upsertConversations([
+      conv('a', { title: 'fix the soft keyboard profiles' }),
+      conv('b', { title: 'memory chip breakdown' }),
+    ])
+    const hits = store.searchConversations({ query: 'keyboard' })
+    expect(hits.map((h) => h.id)).toEqual(['a'])
+    store.close()
+  })
+
+  it('prefix-matches partial words', () => {
+    const store = new SessionStore(':memory:')
+    store.upsertConversations([conv('a', { title: 'podium relay endpoint' })])
+    expect(store.searchConversations({ query: 'rela' }).map((h) => h.id)).toEqual(['a'])
+    store.close()
+  })
+
+  it('filters by projectPath subtree and browses by recency on empty query', () => {
+    const store = new SessionStore(':memory:')
+    store.upsertConversations([
+      conv('old', { updatedAt: '2026-06-01T00:00:00.000Z' }),
+      conv('new', { updatedAt: '2026-06-12T00:00:00.000Z' }),
+      conv('other', { projectPath: '/src/zzz' }),
+    ])
+    const hits = store.searchConversations({ projectPath: '/src/app' })
+    expect(hits.map((h) => h.id)).toEqual(['new', 'old'])
+    store.close()
+  })
+
+  it('curation (name/summary) survives re-discovery and is searchable', () => {
+    const store = new SessionStore(':memory:')
+    store.upsertConversations([conv('a')])
+    store.setConversationMeta('a', {
+      name: 'Soft keyboard epic',
+      summary: 'shipped; awaiting review',
+    })
+    store.upsertConversations([conv('a', { title: 'renamed by discovery' })])
+    const [hit] = store.searchConversations({ query: 'epic' })
+    expect(hit?.id).toBe('a')
+    expect(hit?.name).toBe('Soft keyboard epic')
+    expect(hit?.summary).toBe('shipped; awaiting review')
+    store.close()
+  })
+})

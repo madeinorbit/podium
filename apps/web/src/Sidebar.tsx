@@ -1,10 +1,11 @@
 import type { SessionMeta } from '@podium/protocol'
-import { Home, Pin, Settings as SettingsIcon } from 'lucide-react'
+import { Home, Pin, Search, Settings as SettingsIcon } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
 import { useState } from 'react'
 import { agentBadge, type RepoNavView, sidebarSections, type WorktreeNavView } from './derive'
 import { HostIndicators } from './HostIndicators'
 import { RepoScanFlow } from './RepoScanFlow'
+import { SearchView } from './SearchView'
 import { SettingsView } from './SettingsView'
 import { useStore } from './store'
 import type { PinKind } from './types'
@@ -28,6 +29,7 @@ export function Sidebar(): JSX.Element {
   const sections = sidebarSections(repos, sessions, pins)
   const [pickerOpen, setPickerOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [searchOpen, setSearchOpen] = useState(false)
   const hasRows =
     sections.pinnedPanels.length > 0 ||
     sections.pinnedWorktrees.length > 0 ||
@@ -58,6 +60,14 @@ export function Sidebar(): JSX.Element {
         <div className="sidebar-head-actions">
           <button type="button" onClick={() => setPickerOpen(true)}>
             + Add repo
+          </button>
+          <button
+            type="button"
+            className="icon-only"
+            title="Search conversations"
+            onClick={() => setSearchOpen(true)}
+          >
+            <Search size={14} aria-hidden="true" />
           </button>
           <button
             type="button"
@@ -148,6 +158,7 @@ export function Sidebar(): JSX.Element {
         <RepoScanFlow onClose={() => setPickerOpen(false)} onDone={() => setPickerOpen(false)} />
       )}
       {settingsOpen && <SettingsView onClose={() => setSettingsOpen(false)} />}
+      {searchOpen && <SearchView onClose={() => setSearchOpen(false)} />}
     </aside>
   )
 }

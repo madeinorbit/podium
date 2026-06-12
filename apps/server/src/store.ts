@@ -44,9 +44,29 @@ export interface SessionRow {
   workState: string | null
 }
 
+/** One row of the conversation index (camelCase mirror of `conversations`). */
+export interface ConversationIndexRow {
+  id: string
+  agentKind: string
+  providerId: string
+  title?: string
+  /** Command-center-set display name (curation; survives re-discovery). */
+  name?: string
+  /** Work-LLM state summary (curation; survives re-discovery). */
+  summary?: string
+  projectPath?: string
+  resumeKind?: string
+  resumeValue?: string
+  createdAt?: string
+  updatedAt?: string
+  messageCount?: number
+}
+
 /** Durable server-side store: repos + sessions registry. Single writer (the server). */
 export class SessionStore {
   private readonly db: DatabaseSync
+  /** FTS5 is compiled into node:sqlite normally; LIKE fallback if not. */
+  private ftsAvailable = false
 
   constructor(private readonly path: string = defaultDbPath()) {
     if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true })
@@ -244,6 +264,132 @@ export class SessionStore {
       .run('settings', JSON.stringify(settings))
   }
 
+  // ---- conversation index ----
+  /**
+   * Upsert discovered conversations (daemon pushes summaries). User-set name and
+   * work-LLM summary survive re-discovery — discovery never overwrites curation.
+   */
+  upsertConversations(rows: ConversationIndexRow[]): void {
+    const stmt = this.db.prepare(
+      `INSERT INTO conversations
+         (id, agent_kind, title, project_path, provider_id, resume_kind, resume_value,
+          created_at, updated_at, message_count)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET
+         agent_kind = excluded.agent_kind,
+         title = excluded.title,
+         project_path = excluded.project_path,
+         provider_id = excluded.provider_id,
+         resume_kind = excluded.resume_kind,
+         resume_value = excluded.resume_value,
+         created_at = COALESCE(excluded.created_at, conversations.created_at),
+         updated_at = COALESCE(excluded.updated_at, conversations.updated_at),
+         message_count = COALESCE(excluded.message_count, conversations.message_count)`,
+    )
+    for (const r of rows) {
+      stmt.run(
+        r.id,
+        r.agentKind,
+        r.title ?? null,
+        r.projectPath ?? null,
+        r.providerId,
+        r.resumeKind ?? null,
+        r.resumeValue ?? null,
+        r.createdAt ?? null,
+        r.updatedAt ?? null,
+        r.messageCount ?? null,
+      )
+    }
+    this.reindexConversationsFts()
+  }
+
+  /** Persist command-center-generated curation: a good name and/or a state summary. */
+  setConversationMeta(id: string, meta: { name?: string; summary?: string }): void {
+    const exists = this.db.prepare('SELECT 1 FROM conversations WHERE id = ?').get(id)
+    if (!exists) {
+      this.db
+        .prepare(
+          `INSERT INTO conversations (id, agent_kind, provider_id) VALUES (?, 'claude-code', 'unknown')`,
+        )
+        .run(id)
+    }
+    if (meta.name !== undefined) {
+      this.db.prepare('UPDATE conversations SET name = ? WHERE id = ?').run(meta.name, id)
+    }
+    if (meta.summary !== undefined) {
+      this.db.prepare('UPDATE conversations SET summary = ? WHERE id = ?').run(meta.summary, id)
+    }
+    this.reindexConversationsFts()
+  }
+
+  /**
+   * Keyword search over title/name/summary/path. FTS5 (bm25 + recency) where the
+   * runtime has it; LIKE fallback elsewhere. `projectPath` filters to one
+   * worktree/repo subtree. Empty query = recency-ordered browse.
+   */
+  searchConversations(opts: {
+    query?: string
+    projectPath?: string
+    limit?: number
+  }): ConversationIndexRow[] {
+    const limit = Math.min(200, Math.max(1, opts.limit ?? 50))
+    const pathFilter = opts.projectPath ? ' AND (c.project_path = ? OR c.project_path LIKE ?)' : ''
+    const pathArgs = opts.projectPath ? [opts.projectPath, `${opts.projectPath}/%`] : []
+    const q = opts.query?.trim() ?? ''
+    let rows: Record<string, unknown>[]
+    if (!q) {
+      rows = this.db
+        .prepare(
+          `SELECT c.* FROM conversations c WHERE 1=1${pathFilter}
+           ORDER BY c.updated_at DESC NULLS LAST LIMIT ?`,
+        )
+        .all(...pathArgs, limit) as Record<string, unknown>[]
+    } else if (this.ftsAvailable) {
+      const ftsQuery = q
+        .split(/\s+/)
+        .filter(Boolean)
+        .map((t) => `"${t.replace(/"/g, '""')}"*`)
+        .join(' ')
+      rows = this.db
+        .prepare(
+          `SELECT c.* FROM conversations_fts f
+           JOIN conversations c ON c.rowid = f.rowid
+           WHERE conversations_fts MATCH ?${pathFilter}
+           ORDER BY bm25(conversations_fts), c.updated_at DESC NULLS LAST LIMIT ?`,
+        )
+        .all(ftsQuery, ...pathArgs, limit) as Record<string, unknown>[]
+    } else {
+      const like = `%${q}%`
+      rows = this.db
+        .prepare(
+          `SELECT c.* FROM conversations c
+           WHERE (c.title LIKE ? OR c.name LIKE ? OR c.summary LIKE ? OR c.project_path LIKE ?)${pathFilter}
+           ORDER BY c.updated_at DESC NULLS LAST LIMIT ?`,
+        )
+        .all(like, like, like, like, ...pathArgs, limit) as Record<string, unknown>[]
+    }
+    return rows.map((r) => ({
+      id: r.id as string,
+      agentKind: r.agent_kind as string,
+      providerId: r.provider_id as string,
+      title: (r.title as string | null) ?? undefined,
+      name: (r.name as string | null) ?? undefined,
+      summary: (r.summary as string | null) ?? undefined,
+      projectPath: (r.project_path as string | null) ?? undefined,
+      resumeKind: (r.resume_kind as string | null) ?? undefined,
+      resumeValue: (r.resume_value as string | null) ?? undefined,
+      createdAt: (r.created_at as string | null) ?? undefined,
+      updatedAt: (r.updated_at as string | null) ?? undefined,
+      messageCount: (r.message_count as number | null) ?? undefined,
+    }))
+  }
+
+  /** Rebuild the external-content FTS index. Cheap at this row count (thousands). */
+  private reindexConversationsFts(): void {
+    if (!this.ftsAvailable) return
+    this.db.exec("INSERT INTO conversations_fts(conversations_fts) VALUES('rebuild')")
+  }
+
   close(): void {
     this.db.close()
   }
@@ -289,6 +435,35 @@ export class SessionStore {
        )`,
     )
     this.db.exec('CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)')
+    this.db.exec(
+      `CREATE TABLE IF NOT EXISTS conversations (
+         id TEXT PRIMARY KEY,
+         agent_kind TEXT NOT NULL,
+         provider_id TEXT NOT NULL,
+         title TEXT,
+         name TEXT,
+         summary TEXT,
+         project_path TEXT,
+         resume_kind TEXT,
+         resume_value TEXT,
+         created_at TEXT,
+         updated_at TEXT,
+         message_count INTEGER
+       )`,
+    )
+    // External-content FTS over the searchable text columns. Hybrid search note:
+    // keyword now; a vector column joins when an embeddings provider is configured.
+    try {
+      this.db.exec(
+        `CREATE VIRTUAL TABLE IF NOT EXISTS conversations_fts USING fts5(
+           title, name, summary, project_path,
+           content='conversations', content_rowid='rowid'
+         )`,
+      )
+      this.ftsAvailable = true
+    } catch {
+      this.ftsAvailable = false // LIKE fallback handles search
+    }
     // v1 -> v2: tmux_label -> durable_label (the label now names an abduco OR tmux
     // session; see the durable-backend selection in the daemon). For a pre-rename db
     // the CREATE above no-ops, so the old column is still there — rename it in place.

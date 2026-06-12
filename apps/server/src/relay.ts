@@ -524,6 +524,7 @@ export class SessionRegistry {
       case 'scanResult': {
         this.latestConversations = msg.conversations
         this.latestConversationDiagnostics = msg.diagnostics
+        this.indexConversations(msg.conversations)
         this.broadcastConversations()
         const resolve = this.pendingScans.get(msg.requestId)
         if (resolve) {
@@ -535,6 +536,7 @@ export class SessionRegistry {
       case 'conversationsChanged': {
         this.latestConversations = msg.conversations
         this.latestConversationDiagnostics = msg.diagnostics
+        this.indexConversations(msg.conversations)
         this.broadcastConversations()
         break
       }
@@ -565,6 +567,31 @@ export class SessionRegistry {
         break
       }
     }
+  }
+
+  /** Every discovery push lands in the durable index — search sees machines' full history. */
+  private indexConversations(conversations: ConversationSummaryWire[]): void {
+    this.store.upsertConversations(
+      conversations.map((c) => ({
+        id: c.id,
+        agentKind: c.agentKind,
+        providerId: c.providerId,
+        ...(c.title !== undefined ? { title: c.title } : {}),
+        ...(c.projectPath !== undefined ? { projectPath: c.projectPath } : {}),
+        ...(c.resume ? { resumeKind: c.resume.kind, resumeValue: c.resume.value } : {}),
+        ...(c.createdAt !== undefined ? { createdAt: c.createdAt } : {}),
+        ...(c.updatedAt !== undefined ? { updatedAt: c.updatedAt } : {}),
+        ...(c.messageCount !== undefined ? { messageCount: c.messageCount } : {}),
+      })),
+    )
+  }
+
+  searchConversations(opts: { query?: string; projectPath?: string; limit?: number }) {
+    return this.store.searchConversations(opts)
+  }
+
+  setConversationMeta(input: { id: string; name?: string; summary?: string }): void {
+    this.store.setConversationMeta(input.id, input)
   }
 
   private broadcastSessions(): void {

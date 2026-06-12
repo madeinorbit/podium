@@ -120,10 +120,11 @@ describe('web shell structure', () => {
     expect(src).toContain('New Codex')
     expect(src).toContain('New Shell')
   })
-  it('new-panel menu refreshes resumable conversations when opened', () => {
+  it('new-panel menu is the mini search: indexed, capped, with last-active dates', () => {
     const src = read('NewPanelMenu.tsx')
-    expect(src).toContain('useEffect')
-    expect(src).toContain('void rescanConversations().catch')
+    expect(src).toContain('trpc.conversations.search')
+    expect(src).toContain('MINI_LIMIT')
+    expect(src).toContain('relativeTime')
   })
 })
 

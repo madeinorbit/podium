@@ -74,6 +74,29 @@ export const appRouter = t.router({
         return ctx.registry.listPins()
       }),
   }),
+  conversations: t.router({
+    // Keyword search over the durable index (FTS5 where available). Empty query
+    // browses by recency. projectPath narrows to a repo/worktree subtree.
+    search: t.procedure
+      .input(
+        z.object({
+          query: z.string().optional(),
+          projectPath: z.string().optional(),
+          limit: z.number().int().positive().max(200).optional(),
+        }),
+      )
+      .query(({ ctx, input }) => ctx.registry.searchConversations(input)),
+    // Curation written by the command center (user rename / work-LLM summary).
+    setMeta: t.procedure
+      .input(
+        z.object({
+          id: z.string(),
+          name: z.string().max(200).optional(),
+          summary: z.string().max(2000).optional(),
+        }),
+      )
+      .mutation(({ ctx, input }) => ctx.registry.setConversationMeta(input)),
+  }),
   settings: t.router({
     get: t.procedure.query(({ ctx }) => ctx.registry.getSettings()),
     // Whole-object set: the client always round-trips the full blob, so there is
