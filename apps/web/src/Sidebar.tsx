@@ -1,6 +1,6 @@
 import type { JSX } from 'react'
 import { useState } from 'react'
-import { reposToViews, sessionsForWorktree } from './derive'
+import { agentBadge, reposToViews, sessionsForWorktree } from './derive'
 import { HostIndicators } from './HostIndicators'
 import { RepoScanFlow } from './RepoScanFlow'
 import { useStore } from './store'
@@ -16,6 +16,7 @@ export function Sidebar(): JSX.Element {
     setSelectedWorktree,
     paneA,
     setPane,
+    continueSession,
   } = useStore()
   const repoViews = reposToViews(repos)
   const [pickerOpen, setPickerOpen] = useState(false)
@@ -54,18 +55,33 @@ export function Sidebar(): JSX.Element {
                   </button>
                   {wtSessions.map((s) => {
                     const panelActive = active && paneA === s.sessionId
+                    const badge = agentBadge(s)
                     return (
-                      <button
-                        key={s.sessionId}
-                        type="button"
-                        className={panelActive ? 'panel-row active' : 'panel-row'}
-                        onClick={() => {
-                          setSelectedWorktree(wt.path)
-                          setPane('A', s.sessionId)
-                        }}
-                      >
-                        <span className={`dot ${s.status}`} /> <WorkerLabel session={s} />
-                      </button>
+                      <div key={s.sessionId} className="panel-row-wrap">
+                        <button
+                          type="button"
+                          className={panelActive ? 'panel-row active' : 'panel-row'}
+                          onClick={() => {
+                            setSelectedWorktree(wt.path)
+                            setPane('A', s.sessionId)
+                          }}
+                        >
+                          <span className={`dot ${s.status}`} /> <WorkerLabel session={s} />
+                          {badge && (
+                            <span className={`agent-badge ${badge.tone}`}>{badge.label}</span>
+                          )}
+                        </button>
+                        {badge?.showContinue && (
+                          <button
+                            type="button"
+                            className="continue-button"
+                            title="Send 'continue' to the errored agent"
+                            onClick={() => void continueSession(s.sessionId)}
+                          >
+                            Continue
+                          </button>
+                        )}
+                      </div>
                     )
                   })}
                 </div>

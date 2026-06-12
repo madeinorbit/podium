@@ -1,6 +1,7 @@
 import type { ConversationSummaryWire, GitRepositoryWire, SessionMeta } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import {
+  agentBadge,
   formatMemBytes,
   hostMemoryView,
   mergeResumable,
@@ -177,5 +178,96 @@ describe('formatMemBytes', () => {
   it('uses whole MB below 1 GiB', () => {
     expect(formatMemBytes(0.5 * GIB)).toBe('512 MB')
     expect(formatMemBytes(0)).toBe('0 MB')
+  })
+})
+
+const stateAt = (
+  phase: NonNullable<SessionMeta['agentState']>['phase'],
+  extra: Record<string, unknown> = {},
+) =>
+  ({ phase, since: '2026-06-12T10:00:00.000Z', openTaskCount: 0, ...extra }) as NonNullable<
+    SessionMeta['agentState']
+  >
+const sessionWithState = (agentState?: SessionMeta['agentState']): SessionMeta => ({
+  ...session('/src/app'),
+  ...(agentState ? { agentState } : {}),
+})
+
+describe('agentBadge', () => {
+  it('hides for uninstrumented or unknown sessions', () => {
+    expect(agentBadge(sessionWithState())).toBeNull()
+    expect(agentBadge(sessionWithState(stateAt('unknown')))).toBeNull()
+  })
+
+  it('working / compacting are calm working tones', () => {
+    expect(agentBadge(sessionWithState(stateAt('working')))).toEqual({
+      label: 'working',
+      tone: 'working',
+      showContinue: false,
+    })
+    expect(agentBadge(sessionWithState(stateAt('compacting')))).toEqual({
+      label: 'compacting',
+      tone: 'working',
+      showContinue: false,
+    })
+  })
+
+  it('idle verdicts: done is calm, the rest want attention', () => {
+    expect(agentBadge(sessionWithState(stateAt('idle', { idle: { kind: 'done' } })))).toEqual({
+      label: 'idle',
+      tone: 'idle',
+      showContinue: false,
+    })
+    expect(
+      agentBadge(
+        sessionWithState(stateAt('idle', { idle: { kind: 'question', summary: 'A or B?' } })),
+      )?.tone,
+    ).toBe('attention')
+    expect(
+      agentBadge(sessionWithState(stateAt('idle', { idle: { kind: 'approval' } })))?.label,
+    ).toBe('plan ready')
+    expect(
+      agentBadge(sessionWithState(stateAt('idle', { idle: { kind: 'open_todos' } })))?.label,
+    ).toBe('todos open')
+  })
+
+  it('needs_user is attention with the need spelled out', () => {
+    expect(
+      agentBadge(sessionWithState(stateAt('needs_user', { need: { kind: 'permission' } }))),
+    ).toEqual({
+      label: 'needs permission',
+      tone: 'attention',
+      showContinue: false,
+    })
+    expect(
+      agentBadge(sessionWithState(stateAt('needs_user', { need: { kind: 'question' } })))?.label,
+    ).toBe('needs answer')
+  })
+
+  it('errored shows the class; Continue only when retryable', () => {
+    expect(
+      agentBadge(
+        sessionWithState(stateAt('errored', { error: { class: 'rate_limit', retryable: true } })),
+      ),
+    ).toEqual({
+      label: 'error: rate_limit',
+      tone: 'error',
+      showContinue: true,
+    })
+    expect(
+      agentBadge(
+        sessionWithState(
+          stateAt('errored', { error: { class: 'billing_error', retryable: false } }),
+        ),
+      )?.showContinue,
+    ).toBe(false)
+  })
+
+  it('ended is muted', () => {
+    expect(agentBadge(sessionWithState(stateAt('ended')))).toEqual({
+      label: 'ended',
+      tone: 'muted',
+      showContinue: false,
+    })
   })
 })
