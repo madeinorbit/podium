@@ -1,4 +1,4 @@
-import { Pin, Settings as SettingsIcon } from 'lucide-react'
+import { Home, Pin, Settings as SettingsIcon } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
 import { useEffect, useState } from 'react'
 import { AgentPanel } from './AgentPanel'
@@ -10,6 +10,7 @@ import {
   sidebarSections,
   type WorktreeNavView,
 } from './derive'
+import { HomeView } from './HomeView'
 import { HostIndicators } from './HostIndicators'
 import { NewPanelMenu } from './NewPanelMenu'
 import { RepoScanFlow } from './RepoScanFlow'
@@ -54,6 +55,8 @@ export function MobileApp(): JSX.Element {
     paneA,
     setPane,
     killSession,
+    view,
+    setView,
   } = store
   const { reposLoading, repoDiagnostics } = store
   const repoViews = reposToViews(store.repos)
@@ -79,11 +82,20 @@ export function MobileApp(): JSX.Element {
   const pickWorktree = (path: string) => {
     setSelectedWorktree(path)
     setPickerOpen(false)
+    setView('workspace')
   }
 
   return (
     <div className="mobile-shell">
       <header className="mobile-head">
+        <button
+          type="button"
+          className={view === 'home' ? 'mobile-home active' : 'mobile-home'}
+          title="Command center"
+          onClick={() => setView('home')}
+        >
+          <Home size={15} aria-hidden="true" />
+        </button>
         <button type="button" className="wt-picker" onClick={() => setPickerOpen(true)}>
           {worktree ? (worktree.branch ?? worktree.path.split('/').pop()) : 'Select worktree'} ▾
         </button>
@@ -137,7 +149,9 @@ export function MobileApp(): JSX.Element {
         />
       )}
       <div className="mobile-body">
-        {paneA ? (
+        {view === 'home' ? (
+          <HomeView />
+        ) : paneA ? (
           <AgentPanel sessionId={paneA} />
         ) : (
           <div className="pane-empty">No panel - use + to start one.</div>

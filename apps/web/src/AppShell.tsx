@@ -2,6 +2,7 @@ import type { JSX } from 'react'
 import { useEffect, useState } from 'react'
 import { AppErrorPage } from './AppErrorPage'
 import { ErrorBoundary } from './ErrorBoundary'
+import { HomeView } from './HomeView'
 import { MobileApp } from './MobileApp'
 import { OnboardingWizard } from './OnboardingWizard'
 import { Sidebar } from './Sidebar'
@@ -53,7 +54,7 @@ export function AppShell(): JSX.Element {
 }
 
 function AppBody({ isMobile }: { isMobile: boolean }): JSX.Element {
-  const { repos, reposLoaded } = useStore()
+  const { repos, reposLoaded, view } = useStore()
   const [dismissed, setDismissed] = useState(false)
 
   // First run: the registry is genuinely empty (not just still loading). Show the
@@ -67,7 +68,7 @@ function AppBody({ isMobile }: { isMobile: boolean }): JSX.Element {
   return (
     <div className="desktop-shell">
       <Sidebar />
-      <Workspace />
+      {view === 'home' ? <HomeView /> : <Workspace />}
     </div>
   )
 }

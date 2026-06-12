@@ -1,5 +1,5 @@
 import type { SessionMeta } from '@podium/protocol'
-import { Pin, Settings as SettingsIcon } from 'lucide-react'
+import { Home, Pin, Settings as SettingsIcon } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
 import { useState } from 'react'
 import { agentBadge, type RepoNavView, sidebarSections, type WorktreeNavView } from './derive'
@@ -22,6 +22,8 @@ export function Sidebar(): JSX.Element {
     setSelectedWorktree,
     paneA,
     setPane,
+    view,
+    setView,
   } = useStore()
   const sections = sidebarSections(repos, sessions, pins)
   const [pickerOpen, setPickerOpen] = useState(false)
@@ -35,10 +37,22 @@ export function Sidebar(): JSX.Element {
   const selectPanel = (worktreePath: string, sessionId: string) => {
     setSelectedWorktree(worktreePath)
     setPane('A', sessionId)
+    setView('workspace')
+  }
+  const selectWorktree = (path: string) => {
+    setSelectedWorktree(path)
+    setView('workspace')
   }
 
   return (
     <aside className="sidebar">
+      <button
+        type="button"
+        className={view === 'home' ? 'sidebar-home active' : 'sidebar-home'}
+        onClick={() => setView('home')}
+      >
+        <Home size={14} aria-hidden="true" /> Command center
+      </button>
       <div className="sidebar-head">
         <span className="label">WORKTREES</span>
         <div className="sidebar-head-actions">
@@ -88,7 +102,7 @@ export function Sidebar(): JSX.Element {
                 active={selectedWorktree === worktree.path}
                 paneA={paneA}
                 setPinned={setPinned}
-                onSelectWorktree={() => setSelectedWorktree(worktree.path)}
+                onSelectWorktree={() => selectWorktree(worktree.path)}
                 onSelectPanel={selectPanel}
               />
             ))}
@@ -105,7 +119,7 @@ export function Sidebar(): JSX.Element {
                 selectedWorktree={selectedWorktree}
                 paneA={paneA}
                 setPinned={setPinned}
-                onSelectWorktree={setSelectedWorktree}
+                onSelectWorktree={selectWorktree}
                 onSelectPanel={selectPanel}
               />
             ))}
@@ -120,7 +134,7 @@ export function Sidebar(): JSX.Element {
             selectedWorktree={selectedWorktree}
             paneA={paneA}
             setPinned={setPinned}
-            onSelectWorktree={setSelectedWorktree}
+            onSelectWorktree={selectWorktree}
             onSelectPanel={selectPanel}
           />
         ))}
