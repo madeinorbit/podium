@@ -429,9 +429,37 @@ export const HarnessExecRequestMessage = z.object({
   cwd: z.string().optional(),
 })
 
+// Token-usage harvest from harness transcripts (ccusage-style, in-house so it
+// feeds the same wire). Hourly buckets keep the payload small while supporting
+// 5h/weekly windows and per-day analytics.
+export const UsageBucketWire = z.object({
+  /** Bucket start, ISO 8601, truncated to the hour. */
+  hour: z.string(),
+  model: z.string(),
+  inputTokens: z.number().int().nonnegative(),
+  outputTokens: z.number().int().nonnegative(),
+  cacheReadTokens: z.number().int().nonnegative(),
+  cacheCreationTokens: z.number().int().nonnegative(),
+  messages: z.number().int().nonnegative(),
+})
+export type UsageBucketWire = z.infer<typeof UsageBucketWire>
+export const UsageRequestMessage = z.object({
+  type: z.literal('usageRequest'),
+  requestId: z.string(),
+  /** Only count activity at/after this epoch ms (default: 7 days back). */
+  sinceMs: z.number().optional(),
+})
+export const UsageResultMessage = z.object({
+  type: z.literal('usageResult'),
+  requestId: z.string(),
+  hostname: z.string(),
+  buckets: z.array(UsageBucketWire),
+})
+
 export const ControlMessage = z.discriminatedUnion('type', [
   RepoOpRequestMessage,
   HarnessExecRequestMessage,
+  UsageRequestMessage,
   SpawnMessage,
   ReattachMessage,
   KillMessage,
@@ -548,6 +576,7 @@ export const HarnessExecResultMessage = z.object({
 export const DaemonMessage = z.discriminatedUnion('type', [
   RepoOpResultMessage,
   HarnessExecResultMessage,
+  UsageResultMessage,
   BindMessage,
   AgentFrameMessage,
   AgentExitMessage,

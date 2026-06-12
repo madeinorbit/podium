@@ -178,6 +178,11 @@ export const appRouter = t.router({
         }
       }),
   }),
+  usage: t.router({
+    // Hour×model token buckets for the last 7 days, harvested from harness
+    // transcripts on the dev machine. Window math (5h/weekly/cost) is client-side.
+    summary: t.procedure.query(({ ctx }) => ctx.registry.usage()),
+  }),
   hosts: t.router({
     // Who owns the used memory right now. Roots are derived server-side — the
     // registered repos plus their worktrees (worktrees often live OUTSIDE the

@@ -4,6 +4,7 @@ import { ConnectionIndicator, useConnectionHealth } from './ConnectionIndicator'
 import { hostMemoryView } from './derive'
 import { HostMemoryView } from './HostMemoryView'
 import { useStore } from './store'
+import { UsageChip } from './UsageView'
 
 /**
  * Host health strip — the connection indicator (always visible; its hover
@@ -18,6 +19,7 @@ export function HostIndicators(): JSX.Element {
   return (
     <div className="host-indicators">
       <ConnectionIndicator health={health} />
+      <UsageChip />
       {hostMetrics.map((host) => {
         const mem = hostMemoryView(host)
         return (

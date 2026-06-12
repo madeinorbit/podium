@@ -16,6 +16,7 @@ import {
   type ResumeRef,
   type ServerMessage,
   type SessionMeta,
+  type UsageBucketWire,
   type WorkState,
 } from '@podium/protocol'
 import { type ClientConn, type Send, Session } from './session'
@@ -60,6 +61,10 @@ export class SessionRegistry {
   private readonly pendingBreakdowns = new Map<string, (r: MemoryBreakdown | undefined) => void>()
   private readonly pendingRepoOps = new Map<string, (r: OpResult) => void>()
   private readonly pendingHarnessExecs = new Map<string, (r: OpResult) => void>()
+  private readonly pendingUsage = new Map<
+    string,
+    (r: { hostname: string; buckets: UsageBucketWire[] }) => void
+  >()
   private latestConversations: ConversationSummaryWire[] = []
   private latestConversationDiagnostics: ConversationDiagnosticWire[] = []
   // Latest health sample per daemon host, keyed by hostname — ready for several
@@ -340,6 +345,27 @@ export class SessionRegistry {
         roots,
         ...(opts.includeHome === undefined ? {} : { includeHome: opts.includeHome }),
         ...(opts.maxDepth === undefined ? {} : { maxDepth: opts.maxDepth }),
+      })
+    })
+  }
+
+  /** Token-usage buckets from the daemon's transcript harvest (empty on timeout). */
+  usage(sinceMs?: number): Promise<{ hostname: string; buckets: UsageBucketWire[] }> {
+    const requestId = `us${this.nextRequestNum++}`
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        this.pendingUsage.delete(requestId)
+        resolve({ hostname: '', buckets: [] })
+      }, 20_000)
+      timer.unref?.()
+      this.pendingUsage.set(requestId, (r) => {
+        clearTimeout(timer)
+        resolve(r)
+      })
+      this.toDaemon({
+        type: 'usageRequest',
+        requestId,
+        ...(sinceMs !== undefined ? { sinceMs } : {}),
       })
     })
   }
@@ -630,6 +656,14 @@ export class SessionRegistry {
         if (resolve) {
           this.pendingHarnessExecs.delete(msg.requestId)
           resolve({ ok: msg.ok, output: msg.output })
+        }
+        break
+      }
+      case 'usageResult': {
+        const resolve = this.pendingUsage.get(msg.requestId)
+        if (resolve) {
+          this.pendingUsage.delete(msg.requestId)
+          resolve({ hostname: msg.hostname, buckets: msg.buckets })
         }
         break
       }

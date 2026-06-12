@@ -51,6 +51,7 @@ import WebSocket, { type RawData } from 'ws'
 import { startHookIngest } from './hook-ingest'
 import { sampleHostMemory } from './host-metrics'
 import { attributeMemory, snapshotProcesses } from './memory-breakdown'
+import { scanClaudeUsage } from './usage-scan'
 
 const DEFAULT_DISCOVERY_SCAN_INTERVAL_MS = 15_000
 const DEFAULT_HOST_METRICS_INTERVAL_MS = 5_000
@@ -591,8 +592,37 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
       case 'harnessExecRequest':
         void runHarnessExec(msg)
         break
+      case 'usageRequest':
+        void runUsageScan(msg)
+        break
     }
   })
+
+  // A usage scan reads every recently-active transcript — memo it briefly so a
+  // status chip polling every minute doesn't redo the walk per client.
+  let usageMemo:
+    | { atMs: number; sinceMs: number; buckets: import('@podium/protocol').UsageBucketWire[] }
+    | undefined
+  const runUsageScan = async (
+    msg: Extract<ControlMessage, { type: 'usageRequest' }>,
+  ): Promise<void> => {
+    const sinceMs = msg.sinceMs ?? Date.now() - 7 * 24 * 3_600_000
+    let buckets: import('@podium/protocol').UsageBucketWire[]
+    if (usageMemo && Date.now() - usageMemo.atMs < 60_000 && usageMemo.sinceMs <= sinceMs) {
+      buckets = usageMemo.buckets.filter((b) => Date.parse(b.hour) >= sinceMs - 3_600_000)
+    } else {
+      try {
+        buckets = await scanClaudeUsage({
+          sinceMs,
+          ...(opts.discovery?.homeDir ? { homeDir: opts.discovery.homeDir } : {}),
+        })
+      } catch {
+        buckets = []
+      }
+      usageMemo = { atMs: Date.now(), sinceMs, buckets }
+    }
+    send({ type: 'usageResult', requestId: msg.requestId, hostname: hostname(), buckets })
+  }
 
   /** Allowlisted git operations for the superagent — each op is a fixed argv. */
   const runRepoOp = async (
