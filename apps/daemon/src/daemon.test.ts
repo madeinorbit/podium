@@ -1,3 +1,4 @@
+import { mkdtempSync } from 'node:fs'
 import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -42,6 +43,7 @@ describe('daemon multi-bridge', () => {
     })
     daemon = await startDaemon({
       serverUrl: `ws://localhost:${port}`,
+      hooks: { port: 0, settingsDir: mkdtempSync(join(tmpdir(), 'podium-hooks-')) },
       // direct node-pty path keeps these fixtures/assertions deterministic (no tmux dependency)
       tmux: false,
       discovery: { background: false, cachePath: ':memory:' },
@@ -288,6 +290,7 @@ describe.skipIf(!isAbducoAvailable())('daemon abduco survival', () => {
 
     const daemon = await startDaemon({
       serverUrl: `ws://localhost:${port}`,
+      hooks: { port: 0, settingsDir: mkdtempSync(join(tmpdir(), 'podium-hooks-')) },
       backend: 'abduco',
       discovery: { background: false, cachePath: ':memory:' },
       launch: (_kind, opts) => ({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
@@ -375,6 +378,7 @@ describe.skipIf(!isAbducoAvailable())('daemon abduco survival', () => {
 
     const daemon = await startDaemon({
       serverUrl: `ws://localhost:${port}`,
+      hooks: { port: 0, settingsDir: mkdtempSync(join(tmpdir(), 'podium-hooks-')) },
       backend: 'abduco',
       discovery: { background: false, cachePath: ':memory:' },
       launch: (_kind, opts) => ({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
@@ -422,6 +426,7 @@ describe.skipIf(!isTmuxAvailable())('daemon tmux survival', () => {
 
     const daemon = await startDaemon({
       serverUrl: `ws://localhost:${port}`,
+      hooks: { port: 0, settingsDir: mkdtempSync(join(tmpdir(), 'podium-hooks-')) },
       tmux: true,
       discovery: { background: false, cachePath: ':memory:' },
       launch: (_kind, opts) => ({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
@@ -468,6 +473,7 @@ describe.skipIf(!isTmuxAvailable())('daemon tmux survival', () => {
 
     const daemon = await startDaemon({
       serverUrl: `ws://localhost:${port}`,
+      hooks: { port: 0, settingsDir: mkdtempSync(join(tmpdir(), 'podium-hooks-')) },
       tmux: true,
       discovery: { background: false, cachePath: ':memory:' },
       launch: (_kind, opts) => ({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
@@ -564,6 +570,7 @@ describe('daemon conversation discovery', () => {
 
     const daemon = await startDaemon({
       serverUrl: `ws://localhost:${port}`,
+      hooks: { port: 0, settingsDir: mkdtempSync(join(tmpdir(), 'podium-hooks-')) },
       tmux: false,
       launch: (_kind, opts) => ({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
       discovery: {
@@ -604,6 +611,7 @@ describe('daemon host metrics', () => {
     })
     const daemon = await startDaemon({
       serverUrl: `ws://localhost:${port}`,
+      hooks: { port: 0, settingsDir: mkdtempSync(join(tmpdir(), 'podium-hooks-')) },
       tmux: false,
       discovery: { background: false, cachePath: ':memory:' },
       metrics: { intervalMs: 25 },
@@ -639,6 +647,7 @@ describe('daemon host metrics', () => {
     })
     const daemon = await startDaemon({
       serverUrl: `ws://localhost:${port}`,
+      hooks: { port: 0, settingsDir: mkdtempSync(join(tmpdir(), 'podium-hooks-')) },
       tmux: false,
       discovery: { background: false, cachePath: ':memory:' },
       metrics: { background: false, intervalMs: 10 },
@@ -668,6 +677,7 @@ describe('daemon memory breakdown', () => {
       })
       const daemon = await startDaemon({
         serverUrl: `ws://localhost:${port}`,
+        hooks: { port: 0, settingsDir: mkdtempSync(join(tmpdir(), 'podium-hooks-')) },
         tmux: false,
         discovery: { background: false, cachePath: ':memory:' },
         metrics: { background: false },
