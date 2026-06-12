@@ -1,9 +1,20 @@
 import { fileURLToPath } from 'node:url'
 import { encode, parseServerMessage } from '@podium/protocol'
-import { describe, expect, it } from 'vitest'
+import { afterAll, describe, expect, it } from 'vitest'
 import WebSocket from 'ws'
 import { startDaemon } from '../../apps/daemon/src/daemon'
 import { startServer } from '../../apps/server/src/server'
+import { applyHarnessEnv, reapHarnessSessions } from './harness-env'
+
+// Without this isolation the test server writes session rows into the REAL
+// ~/.podium/podium.db and the daemon parks a REAL durable abduco master that
+// outlives the test run — every `vitest run` leaked a fixture agent and ghost
+// "/tmp" sessions into the developer's live podium. Must run before
+// startServer()/startDaemon() read the env.
+const ISOLATION_PORT = 9921
+reapHarnessSessions(ISOLATION_PORT)
+applyHarnessEnv(ISOLATION_PORT)
+afterAll(() => reapHarnessSessions(ISOLATION_PORT))
 
 const FIXTURE = fileURLToPath(
   new URL('../../packages/agent-bridge/test/fixtures/fixture-tui.mjs', import.meta.url),

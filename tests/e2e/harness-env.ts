@@ -38,7 +38,20 @@ export function reapHarnessSessions(port: number): void {
   // abduco: the listing both reveals master pids and reaps stale sockets. Masters
   // must be signalled BEFORE the directory is removed — an unlinked socket leaves
   // an orphan master that no listing can see again.
+  //
+  // DANGER, learned the hard way (2026-06-13): abduco 0.6 silently falls back to
+  // the REAL socket dir (~/.abduco etc.) when ABDUCO_SOCKET_DIR does not exist,
+  // and then the listing shows the developer's LIVE agent sessions in the
+  // pid-bearing format — which this loop would SIGTERM. This dir is always
+  // missing at startup (the previous reap rmSync'd it), so every e2e run killed
+  // every real podium agent on the machine. Two guards: create the dir before
+  // listing (pins abduco's primary dir), and only kill pids whose session socket
+  // actually exists inside the isolated dir.
   try {
+    mkdirSync(abducoSocketDir, { recursive: true })
+    const ourSockets = new Set(
+      readdirSync(abducoSocketDir).flatMap((f) => [f, f.split('@')[0] ?? f]),
+    )
     const out = spawnSync('abduco', [], {
       encoding: 'utf8',
       env: { ...process.env, ABDUCO_SOCKET_DIR: abducoSocketDir },
@@ -46,7 +59,13 @@ export function reapHarnessSessions(port: number): void {
     for (const line of (out ?? '').split('\n')) {
       const fields = line.split('\t')
       const pid = Number.parseInt(fields[2]?.trim() ?? '', 10)
-      if (fields.length >= 4 && !Number.isNaN(pid) && !line.trimStart().startsWith('+')) {
+      const name = fields[3]?.trim() ?? ''
+      if (
+        fields.length >= 4 &&
+        !Number.isNaN(pid) &&
+        !line.trimStart().startsWith('+') &&
+        ourSockets.has(name)
+      ) {
         try {
           process.kill(pid, 'SIGTERM')
         } catch {
