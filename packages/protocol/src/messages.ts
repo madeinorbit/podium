@@ -97,6 +97,8 @@ export const SessionMeta = z.object({
   agentState: AgentRuntimeState.optional(),
   archived: z.boolean(),
   workState: WorkState.optional(),
+  /** True when a resume ref is known — hibernate→resume is possible. */
+  resumable: z.boolean().optional(),
 })
 export type SessionMeta = z.infer<typeof SessionMeta>
 
@@ -560,6 +562,14 @@ export const ScanReposResultMessage = z.object({
   diagnostics: z.array(GitDiscoveryDiagnosticWire),
 })
 
+// The daemon learned how to resume this session later (e.g. the Claude session
+// uuid from its transcript path). Unlocks hibernate→resume for spawned sessions.
+export const SessionResumeRefMessage = z.object({
+  type: z.literal('sessionResumeRef'),
+  sessionId: z.string(),
+  resume: ResumeRef,
+})
+
 export const RepoOpResultMessage = z.object({
   type: z.literal('repoOpResult'),
   requestId: z.string(),
@@ -577,6 +587,7 @@ export const DaemonMessage = z.discriminatedUnion('type', [
   RepoOpResultMessage,
   HarnessExecResultMessage,
   UsageResultMessage,
+  SessionResumeRefMessage,
   BindMessage,
   AgentFrameMessage,
   AgentExitMessage,

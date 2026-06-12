@@ -1,6 +1,6 @@
 import { DndContext, type DragEndEvent, useDraggable, useDroppable } from '@dnd-kit/core'
 import type { SessionMeta, WorkState } from '@podium/protocol'
-import { Archive, ArchiveRestore, Columns3, Pencil, Rows3 } from 'lucide-react'
+import { Archive, ArchiveRestore, Columns3, Moon, Pencil, Rows3 } from 'lucide-react'
 import type { JSX } from 'react'
 import { useEffect, useState } from 'react'
 import { agentBadge, panelLabel } from './derive'
@@ -191,8 +191,16 @@ function DraggableCard({ session, now }: { session: SessionMeta; now: number }):
 
 /** One session on the board: who it is, where it runs, what it wants from you. */
 function SessionCard({ session, now }: { session: SessionMeta; now: number }): JSX.Element {
-  const { setSelectedWorktree, setPane, setView, renameSession, archiveSession, continueSession } =
-    useStore()
+  const {
+    setSelectedWorktree,
+    setPane,
+    setView,
+    renameSession,
+    archiveSession,
+    continueSession,
+    hibernateSession,
+    resurrectSession,
+  } = useStore()
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState('')
   const badge = agentBadge(session)
@@ -258,6 +266,20 @@ function SessionCard({ session, now }: { session: SessionMeta; now: number }): J
         {badge?.showContinue && (
           <button type="button" onClick={() => void continueSession(session.sessionId)}>
             Continue
+          </button>
+        )}
+        {session.status === 'hibernated' && (
+          <button type="button" onClick={() => void resurrectSession(session.sessionId)}>
+            Resume
+          </button>
+        )}
+        {session.status === 'live' && session.resumable && (
+          <button
+            type="button"
+            title="Hibernate — free its memory, resume later"
+            onClick={() => void hibernateSession(session.sessionId)}
+          >
+            <Moon size={12} aria-hidden="true" />
           </button>
         )}
         <button

@@ -1,5 +1,5 @@
 import { type MountedSession, mountSession } from '@podium/terminal-client'
-import { MessageSquareText, Terminal as TerminalIcon } from 'lucide-react'
+import { MessageSquareText, Moon, Terminal as TerminalIcon } from 'lucide-react'
 import type { JSX } from 'react'
 import { useEffect, useRef, useState } from 'react'
 import { ChatView } from './ChatView'
@@ -42,8 +42,10 @@ export function AgentPanel({ sessionId }: { sessionId: string }): JSX.Element {
     localStorage.setItem(MODE_KEY, m)
   }
 
+  const hibernated = session?.status === 'hibernated'
+
   useEffect(() => {
-    if (effectiveMode !== 'native') return
+    if (effectiveMode !== 'native' || hibernated) return
     if (!termRef.current) return
     const mounted = mountSession(termRef.current, {
       hub,
@@ -57,7 +59,7 @@ export function AgentPanel({ sessionId }: { sessionId: string }): JSX.Element {
       mounted.dispose()
       mountedRef.current = null
     }
-  }, [hub, sessionId, effectiveMode])
+  }, [hub, sessionId, effectiveMode, hibernated])
 
   return (
     <div className="agent-panel">
@@ -90,7 +92,9 @@ export function AgentPanel({ sessionId }: { sessionId: string }): JSX.Element {
           </button>
         )}
       </div>
-      {effectiveMode === 'chat' ? (
+      {hibernated ? (
+        <HibernatedPane sessionId={sessionId} />
+      ) : effectiveMode === 'chat' ? (
         <ChatView sessionId={sessionId} />
       ) : (
         <>
@@ -98,6 +102,31 @@ export function AgentPanel({ sessionId }: { sessionId: string }): JSX.Element {
           <div ref={toolbarRef} className="toolbar" />
         </>
       )}
+    </div>
+  )
+}
+
+/** Firefox-snoozed-tab moment: the process is parked, one click wakes it. */
+function HibernatedPane({ sessionId }: { sessionId: string }): JSX.Element {
+  const { resurrectSession } = useStore()
+  const [waking, setWaking] = useState(false)
+  return (
+    <div className="hibernated-pane">
+      <Moon size={28} aria-hidden="true" />
+      <p>
+        This session is hibernated — its process was stopped to free memory, but the conversation is
+        intact.
+      </p>
+      <button
+        type="button"
+        disabled={waking}
+        onClick={() => {
+          setWaking(true)
+          void resurrectSession(sessionId)
+        }}
+      >
+        {waking ? 'Waking…' : 'Resume session'}
+      </button>
     </div>
   )
 }

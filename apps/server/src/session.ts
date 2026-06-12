@@ -60,7 +60,9 @@ export class Session {
   readonly origin: SessionOrigin
   readonly createdAt: string
   readonly durableLabel: string
-  readonly resume?: ResumeRef
+  /** How to bring this session back after its process is gone (hibernate→resume).
+   *  Set at spawn for resumes; learned later from the daemon for fresh spawns. */
+  resume?: ResumeRef
   lastActiveAt: string
   title: string
   /** User-set name; empty = fall back to the live title. */
@@ -257,6 +259,9 @@ export class Session {
   }
 
   onExit(code: number): void {
+    // A hibernated session's process exit is the *expected* result of the
+    // hibernate kill — don't let it overwrite the hibernated state.
+    if (this.status === 'hibernated') return
     this.status = 'exited'
     this.exitCode = code
     this.broadcast({ type: 'agentExit', sessionId: this.sessionId, code })
@@ -330,6 +335,7 @@ export class Session {
       origin: this.origin,
       archived: this.archived,
       ...(this.workState ? { workState: this.workState } : {}),
+      ...(this.resume ? { resumable: true } : {}),
     }
   }
 

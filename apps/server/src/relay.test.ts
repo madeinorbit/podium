@@ -695,3 +695,101 @@ describe('sendText (chat send path)', () => {
     expect(reg.sendText({ sessionId, text: 'hello?' })).toEqual({ ok: false })
   })
 })
+
+describe('hibernation', () => {
+  function liveSession(reg: SessionRegistry, daemon: ControlMessage[]) {
+    const { sessionId } = reg.createSession({ agentKind: 'claude-code', cwd: '/w' })
+    reg.onDaemonMessage(bind(sessionId))
+    reg.onDaemonMessage({
+      type: 'sessionResumeRef',
+      sessionId,
+      resume: { kind: 'claude-session', value: 'abc-123' },
+    })
+    return sessionId
+  }
+
+  it('hibernate kills the process, keeps the row, survives the agentExit echo', () => {
+    const reg = new SessionRegistry()
+    const daemon: ControlMessage[] = []
+    reg.attachDaemon((m) => daemon.push(m))
+    const sessionId = liveSession(reg, daemon)
+
+    expect(reg.hibernateSession({ sessionId })).toEqual({ ok: true })
+    expect(daemon).toContainEqual({ type: 'kill', sessionId })
+    expect(reg.listSessions()[0]).toMatchObject({ sessionId, status: 'hibernated' })
+    // The daemon's kill produces an exit — it must not flip hibernated → exited.
+    reg.onDaemonMessage({ type: 'agentExit', sessionId, code: 0 })
+    expect(reg.listSessions()[0]?.status).toBe('hibernated')
+  })
+
+  it('refuses to hibernate a session with no resume ref (would be a kill)', () => {
+    const reg = new SessionRegistry()
+    reg.attachDaemon(() => {})
+    const { sessionId } = reg.createSession({ agentKind: 'shell', cwd: '/w' })
+    reg.onDaemonMessage(bind(sessionId))
+    expect(reg.hibernateSession({ sessionId }).ok).toBe(false)
+  })
+
+  it('resurrect respawns under the same id with the resume ref', () => {
+    const reg = new SessionRegistry()
+    const daemon: ControlMessage[] = []
+    reg.attachDaemon((m) => daemon.push(m))
+    const sessionId = liveSession(reg, daemon)
+    reg.hibernateSession({ sessionId })
+    daemon.length = 0
+
+    expect(reg.resurrectSession({ sessionId })).toEqual({ ok: true })
+    expect(daemon).toContainEqual(
+      expect.objectContaining({
+        type: 'spawn',
+        sessionId,
+        resume: { kind: 'claude-session', value: 'abc-123' },
+      }),
+    )
+    expect(reg.listSessions()[0]?.status).toBe('starting')
+  })
+
+  it('auto-hibernates the oldest idle resumable session above the memory threshold', () => {
+    const store = new SessionStore(':memory:')
+    const reg = new SessionRegistry(store)
+    const daemon: ControlMessage[] = []
+    reg.attachDaemon((m) => daemon.push(m))
+    const settings = store.getSettings()
+    store.setSettings({
+      ...settings,
+      hibernation: { enabled: true, memoryPct: 80, idleMinutes: 1 },
+    })
+    const sessionId = liveSession(reg, daemon)
+    // Mark the agent idle, with activity old enough to pass the idle cutoff.
+    reg.onDaemonMessage({
+      type: 'agentState',
+      sessionId,
+      state: {
+        phase: 'idle',
+        since: '2026-06-12T00:00:00.000Z',
+        openTaskCount: 0,
+        idle: { kind: 'done' },
+      },
+    })
+    const session = reg.listSessions()[0]
+    expect(session?.agentState?.phase).toBe('idle')
+    // agentState bumps lastActiveAt to now — rewind it via the store round-trip.
+    // (The idle cutoff compares lastActiveAt; simulate an hour of silence.)
+    // biome-ignore lint/suspicious/noExplicitAny: test reaches into the private map on purpose
+    const internal = (reg as any).sessions.get(sessionId)
+    internal.lastActiveAt = new Date(Date.now() - 3_600_000).toISOString()
+
+    reg.onDaemonMessage({
+      type: 'hostMetrics',
+      hostname: 'box',
+      sampledAt: new Date().toISOString(),
+      memory: {
+        totalBytes: 100,
+        availableBytes: 10, // 90% used
+        swapTotalBytes: 0,
+        swapFreeBytes: 0,
+      },
+    })
+    expect(reg.listSessions()[0]?.status).toBe('hibernated')
+  })
+})

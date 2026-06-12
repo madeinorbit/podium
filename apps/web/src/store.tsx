@@ -58,6 +58,8 @@ export interface Store {
   /** Nudge an errored agent to retry ("continue⏎" into its PTY). */
   continueSession: (sessionId: string) => Promise<void>
   renameSession: (sessionId: string, name: string) => Promise<void>
+  hibernateSession: (sessionId: string) => Promise<void>
+  resurrectSession: (sessionId: string) => Promise<void>
   archiveSession: (sessionId: string, archived: boolean) => Promise<void>
   setWorkState: (sessionId: string, workState: WorkState | null) => Promise<void>
 }
@@ -168,6 +170,18 @@ export function StoreProvider({
     },
     [trpc],
   )
+  const hibernateSession = useMemo(
+    () => async (sessionId: string) => {
+      await trpc.sessions.hibernate.mutate({ sessionId }).catch(() => {})
+    },
+    [trpc],
+  )
+  const resurrectSession = useMemo(
+    () => async (sessionId: string) => {
+      await trpc.sessions.resurrect.mutate({ sessionId }).catch(() => {})
+    },
+    [trpc],
+  )
   // Curation mutations are optimistic: the server broadcast reconciles, but
   // waiting on it makes renames/drags feel sticky.
   const renameSession = useMemo(
@@ -259,6 +273,8 @@ export function StoreProvider({
     rescanConversations,
     killSession,
     continueSession,
+    hibernateSession,
+    resurrectSession,
     renameSession,
     archiveSession,
     setWorkState,

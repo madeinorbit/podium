@@ -212,6 +212,19 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
         send({ type: 'transcriptAppend', sessionId, items, ...(reset ? { reset } : {}) })
       }),
     )
+    // The transcript filename IS the harness's session id — report it as the
+    // resume ref so the server can hibernate this session and resume it later.
+    const base = path.split('/').pop() ?? ''
+    if (base.endsWith('.jsonl')) {
+      const value = base.slice(0, -'.jsonl'.length)
+      if (value) {
+        send({
+          type: 'sessionResumeRef',
+          sessionId,
+          resume: { kind: 'claude-session', value },
+        })
+      }
+    }
   }
   const stopTranscriptTail = (sessionId: string): void => {
     tails.get(sessionId)?.stop()

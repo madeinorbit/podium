@@ -2549,3 +2549,48 @@ body {
   border-bottom: 1px solid var(--border);
   color: var(--fg);
 }
+
+/* ---- hibernation ---- */
+.dot.hibernated {
+  background: #8b8bf4;
+}
+.dot.reconnecting {
+  background: var(--warning);
+}
+/* Firefox-snoozed-tab look: hibernated panels read as parked, not dead. */
+.tab:has(.dot.hibernated) .worker-name,
+.panel-row:has(.dot.hibernated) .worker-name {
+  opacity: 0.55;
+  font-style: italic;
+}
+.hibernated-pane {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  color: #8b8bf4;
+  padding: 24px;
+  text-align: center;
+}
+.hibernated-pane p {
+  margin: 0;
+  max-width: 42ch;
+  color: var(--dim);
+  font-size: 13px;
+}
+.hibernated-pane button {
+  background: var(--accent);
+  border: 0;
+  color: #1a1205;
+  border-radius: var(--r);
+  font: inherit;
+  font-weight: 600;
+  padding: 8px 16px;
+  cursor: pointer;
+}
+.hibernated-pane button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}

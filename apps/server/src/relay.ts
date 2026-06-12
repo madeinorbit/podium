@@ -293,6 +293,80 @@ export class SessionRegistry {
     this.broadcastSessions()
   }
 
+  /**
+   * Park a live session: kill its process (and durable host) but keep the row,
+   * its transcript, and the resume ref. One click brings it back. Returns false
+   * when the session can't come back later (no resume ref) — we refuse rather
+   * than silently turn "hibernate" into "kill".
+   */
+  hibernateSession({ sessionId }: { sessionId: string }): { ok: boolean; reason?: string } {
+    const session = this.sessions.get(sessionId)
+    if (!session) return { ok: false, reason: 'unknown session' }
+    if (session.status !== 'live') return { ok: false, reason: 'not running' }
+    if (!session.resume) {
+      return { ok: false, reason: 'no resume ref yet — the agent has not reported one' }
+    }
+    session.status = 'hibernated'
+    this.persist(session)
+    this.toDaemon({ type: 'kill', sessionId })
+    this.broadcastSessions()
+    return { ok: true }
+  }
+
+  /** Wake a hibernated session: respawn under the same id with its resume ref. */
+  resurrectSession({ sessionId }: { sessionId: string }): { ok: boolean; reason?: string } {
+    const session = this.sessions.get(sessionId)
+    if (!session) return { ok: false, reason: 'unknown session' }
+    if (session.status !== 'hibernated') return { ok: false, reason: 'not hibernated' }
+    if (!session.resume) return { ok: false, reason: 'no resume ref' }
+    session.status = 'starting'
+    session.exitCode = undefined
+    this.persist(session)
+    this.toDaemon({
+      type: 'spawn',
+      sessionId,
+      agentKind: session.agentKind,
+      cwd: session.cwd,
+      resume: session.resume,
+      geometry: session.geometry,
+    })
+    this.broadcastSessions()
+    return { ok: true }
+  }
+
+  // At most one hibernation per cooldown window — memory readings need time to
+  // reflect the previous kill before deciding to take down another agent.
+  private lastAutoHibernateMs = 0
+  private maybeAutoHibernate(sample: HostMetricsWire): void {
+    const cfg = this.store.getSettings().hibernation
+    if (!cfg.enabled) return
+    const m = sample.memory
+    if (m.totalBytes <= 0) return
+    const usedPct = ((m.totalBytes - m.availableBytes) / m.totalBytes) * 100
+    if (usedPct < cfg.memoryPct) return
+    const now = Date.now()
+    if (now - this.lastAutoHibernateMs < 60_000) return
+    const idleCutoff = now - cfg.idleMinutes * 60_000
+    const candidates = [...this.sessions.values()]
+      .filter(
+        (s) =>
+          s.status === 'live' &&
+          s.resume !== undefined &&
+          // Only agents that are demonstrably done/idle. needs_user keeps its
+          // pending question; working agents are obviously off-limits.
+          (s.agentState?.phase === 'idle' || s.agentState?.phase === 'ended') &&
+          Date.parse(s.lastActiveAt) <= idleCutoff,
+      )
+      .sort((a, b) => a.lastActiveAt.localeCompare(b.lastActiveAt))
+    const target = candidates[0]
+    if (!target) return
+    this.lastAutoHibernateMs = now
+    console.info(
+      `[podium] memory ${usedPct.toFixed(0)}% on ${sample.hostname} ≥ ${cfg.memoryPct}% — hibernating idle session ${target.sessionId}`,
+    )
+    this.hibernateSession({ sessionId: target.sessionId })
+  }
+
   killSession(input: { sessionId: string }): void {
     this.toDaemon({ type: 'kill', sessionId: input.sessionId })
     this.sessions.get(input.sessionId)?.detachAll()
@@ -638,6 +712,16 @@ export class SessionRegistry {
         const { type: _type, ...sample } = msg
         this.latestHostMetrics.set(msg.hostname, sample)
         this.broadcastHostMetrics()
+        this.maybeAutoHibernate(sample)
+        break
+      }
+      case 'sessionResumeRef': {
+        const session = this.sessions.get(msg.sessionId)
+        if (!session) break
+        if (session.resume?.value !== msg.resume.value) {
+          session.resume = msg.resume
+          this.persist(session)
+        }
         break
       }
       case 'transcriptAppend':
