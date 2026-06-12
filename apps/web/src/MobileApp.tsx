@@ -156,6 +156,7 @@ export function MobileApp(): JSX.Element {
           onOpened={(sid) => {
             setPane('A', sid)
             setMenuOpen(false)
+            setView('workspace')
           }}
         />
       )}

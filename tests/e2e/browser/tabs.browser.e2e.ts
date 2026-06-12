@@ -1,5 +1,5 @@
 import { expect, type Page, test } from '@playwright/test'
-import { newSession, openApp } from './_harness'
+import { gotoWorkspace, newSession, openApp } from './_harness'
 
 // Drag-to-reorder is desktop-only chrome (the mobile header has its own strip
 // without dnd); pointer-based dragging also needs a real mouse.
@@ -27,17 +27,30 @@ async function dragTab(page: Page, from: string, to: string): Promise<void> {
 test('dragging a tab reorders the strip and the order survives a reload', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 820 })
   await openApp(page)
+  // Earlier specs in the same suite run may have left sessions in this worktree
+  // (the harness relay is shared) — assert on the two tabs THIS test creates.
+  const preexisting = new Set(await tabOrder(page))
   await newSession(page, 'Shell')
   await newSession(page, 'Shell')
-  await expect.poll(async () => (await tabOrder(page)).length, { timeout: 15_000 }).toBe(2)
+  await expect
+    .poll(async () => (await tabOrder(page)).filter((id) => !preexisting.has(id)).length, {
+      timeout: 15_000,
+    })
+    .toBe(2)
 
-  const [first, second] = await tabOrder(page)
+  const mine = (order: string[]): string[] => order.filter((id) => !preexisting.has(id))
+  const [first, second] = mine(await tabOrder(page))
   await dragTab(page, first, second)
-  await expect.poll(() => tabOrder(page), { timeout: 10_000 }).toEqual([second, first])
+  await expect
+    .poll(async () => mine(await tabOrder(page)), { timeout: 10_000 })
+    .toEqual([second, first])
 
   // The order is persisted server-side, so a fresh page sees it.
   await page.reload()
-  await expect.poll(() => tabOrder(page), { timeout: 20_000 }).toEqual([second, first])
+  await gotoWorkspace(page) // a fresh page lands on home; the strip lives in the workspace
+  await expect
+    .poll(async () => mine(await tabOrder(page)), { timeout: 20_000 })
+    .toEqual([second, first])
 })
 
 test('the +/split actions stay fixed outside the scrolling strip', async ({ page }) => {

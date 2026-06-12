@@ -21,6 +21,9 @@ const MODE_KEY = 'podium.panelMode'
  * overrides and sticks for the device.
  */
 function initialMode(): PanelMode {
+  // The e2e harness drives the real terminal substrate — its test API lives on
+  // the mounted xterm session, so chat-by-default would hide it.
+  if (E2E) return 'native'
   const saved = localStorage.getItem(MODE_KEY)
   if (saved === 'native' || saved === 'chat') return saved
   return window.matchMedia('(max-width: 768px)').matches ? 'chat' : 'native'
