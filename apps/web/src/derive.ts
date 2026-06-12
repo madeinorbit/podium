@@ -166,6 +166,26 @@ export function sortSessionsForPins(sessions: SessionMeta[], pins: PinState): Se
   )
 }
 
+/**
+ * Tab-strip order for one worktree. The user's manual (drag) order wins; sessions
+ * it doesn't know about — panels opened after the last drag — append at the end
+ * in the default pin-aware order.
+ */
+export function orderTabs(
+  sessions: SessionMeta[],
+  manualOrder: string[] | undefined,
+  pins: PinState,
+): SessionMeta[] {
+  const base = sortSessionsForPins(sessions, pins)
+  if (!manualOrder || manualOrder.length === 0) return base
+  const position = orderMap(manualOrder)
+  const known = base
+    .filter((s) => position.has(s.sessionId))
+    .sort((a, b) => (position.get(a.sessionId) ?? 0) - (position.get(b.sessionId) ?? 0))
+  const unknown = base.filter((s) => !position.has(s.sessionId))
+  return [...known, ...unknown]
+}
+
 export function sidebarSections(
   repos: GitRepositoryWire[],
   sessions: SessionMeta[],

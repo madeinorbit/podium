@@ -339,12 +339,39 @@ body {
 .tabbar {
   position: relative;
   display: flex;
+  align-items: stretch;
+  gap: 8px;
+  padding: 6px 8px 0;
+  background: var(--app);
+  /* The strip's baseline is painted as a background line (not border-bottom) so
+     the active tab's opaque body can cover it and fuse with the panel below. */
+  background-image: linear-gradient(var(--border), var(--border));
+  background-size: 100% 1px;
+  background-position: bottom;
+  background-repeat: no-repeat;
+}
+/* Scrollable tab strip; the +/split actions live outside it and never scroll. */
+.tabbar-tabs {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: stretch;
+  gap: 3px;
+  overflow-x: auto;
+  /* Never a vertical scroll context — a mid-drag y-jitter would scroll the row
+     out of sight (overflow-x:auto silently makes overflow-y auto too). */
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+.tabbar-tabs::-webkit-scrollbar {
+  display: none;
+}
+.tabbar-actions {
+  flex: none;
+  display: flex;
   align-items: center;
   gap: 4px;
-  border-bottom: 1px solid var(--border);
-  padding: 6px 8px;
-  background: var(--panel);
-  overflow-x: auto;
+  padding-bottom: 6px;
 }
 .tab {
   display: inline-flex;
@@ -360,6 +387,9 @@ body {
   font-size: 13px;
   white-space: nowrap;
 }
+.tab .dot {
+  flex: none;
+}
 .tab:hover {
   color: var(--fg);
   background: var(--panel-raised);
@@ -368,8 +398,56 @@ body {
   color: var(--fg-bright);
   background: var(--surface);
 }
-.tab-split {
-  margin-left: auto;
+.tab-wrap {
+  display: inline-flex;
+  align-items: center;
+}
+/* Chrome-like tab sizing: tabs share the strip evenly, shrink as more open,
+   stop at a minimum (then the strip scrolls), and never balloon when alone. */
+.tabbar .tab-wrap {
+  flex: 1 1 180px;
+  min-width: 110px;
+  max-width: 200px;
+  display: flex;
+  align-items: center;
+  padding: 0 2px;
+  border: 1px solid transparent;
+  border-bottom: 0;
+  border-radius: var(--r) var(--r) 0 0;
+  cursor: grab;
+}
+.tabbar .tab-wrap:hover {
+  background: var(--panel-raised);
+}
+/* The active tab is a solid card that covers the strip's baseline and shares
+   the panel bar's background — it visibly belongs to the work panel below. */
+.tabbar .tab-wrap.active {
+  background: var(--panel);
+  border-color: var(--border);
+}
+.tabbar .tab-wrap.dragging {
+  position: relative;
+  z-index: 2;
+  opacity: 0.9;
+  cursor: grabbing;
+  background: var(--panel-raised);
+}
+.tabbar .tab-wrap.active.dragging {
+  background: var(--panel);
+}
+/* Inside the strip the wrap carries hover/active chrome; the inner button is flat. */
+.tabbar .tab {
+  flex: 1;
+  min-width: 0;
+  border-radius: 0;
+  cursor: inherit;
+}
+.tabbar .tab:hover,
+.tabbar .tab.active {
+  background: transparent;
+}
+.tabbar .tab-wrap.active .tab {
+  color: var(--fg-bright);
 }
 .workspace-menu-layer {
   position: absolute;
@@ -626,10 +704,6 @@ body {
   border-bottom: 1px solid var(--border);
 }
 
-.tab-wrap {
-  display: inline-flex;
-  align-items: center;
-}
 .tab-pin,
 .tab-kill {
   background: transparent;
@@ -645,6 +719,20 @@ body {
 }
 .tab-kill:hover {
   color: var(--danger);
+}
+/* Chrome-style: pin/kill only appear on the hovered or active tab, so crowded
+   strips spend their pixels on labels instead of buttons. A pinned tab keeps its
+   pin visible as a state indicator. */
+.tabbar .tab-pin,
+.tabbar .tab-kill {
+  display: none;
+}
+.tabbar .tab-wrap:hover .tab-pin,
+.tabbar .tab-pin.active,
+.tabbar .tab-wrap:hover .tab-kill,
+.tabbar .tab-wrap.active .tab-kill {
+  display: inline-flex;
+  align-items: center;
 }
 
 /* ---- error fallback ---- */
@@ -993,6 +1081,22 @@ body {
 }
 .agent-panel-bar .worker-name {
   color: var(--fg-bright);
+}
+/* When a strip tab gets tight, keep the start of the name and sacrifice the kind tag. */
+.tabbar .tab .worker-label {
+  flex: 1;
+  overflow: hidden;
+}
+.tabbar .worker-name {
+  flex: 0 1 auto;
+  min-width: 3ch;
+}
+.tabbar .worker-kind {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* ---- host health strip (memory now; future machine-level indicators) ---- */

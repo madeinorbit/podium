@@ -3,11 +3,11 @@ import type { JSX, ReactNode } from 'react'
 import { useEffect, useState } from 'react'
 import { AgentPanel } from './AgentPanel'
 import {
+  orderTabs,
   type RepoNavView,
   reposToViews,
   sessionsForWorktree,
   sidebarSections,
-  sortSessionsForPins,
   type WorktreeNavView,
 } from './derive'
 import { HostIndicators } from './HostIndicators'
@@ -59,7 +59,7 @@ export function MobileApp(): JSX.Element {
   const sections = sidebarSections(store.repos, sessions, pins)
   const worktree = repoViews.flatMap((r) => r.worktrees).find((w) => w.path === selectedWorktree)
   const tabs = worktree
-    ? sortSessionsForPins(sessionsForWorktree(sessions, worktree.path), pins)
+    ? orderTabs(sessionsForWorktree(sessions, worktree.path), store.tabOrders[worktree.path], pins)
     : []
   const [pickerOpen, setPickerOpen] = useState(false)
   const [repoPickerOpen, setRepoPickerOpen] = useState(false)

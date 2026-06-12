@@ -4,6 +4,7 @@ import {
   formatMemBytes,
   hostMemoryView,
   mergeResumable,
+  orderTabs,
   panelLabel,
   reposToViews,
   resumableForRepoFallback,
@@ -222,5 +223,41 @@ describe('pin-aware navigation derivation', () => {
         (s) => s.sessionId,
       ),
     ).toEqual(['pinned', 's-/src/app'])
+  })
+})
+
+describe('orderTabs', () => {
+  const noPins = { panels: [], worktrees: [], repos: [] }
+  const named = (id: string): SessionMeta => ({ ...session('/src/app'), sessionId: id })
+
+  it('falls back to the pin-aware order when no manual order exists', () => {
+    const sessions = [named('a'), named('pinned')]
+    const pins = { panels: ['pinned'], worktrees: [], repos: [] }
+    expect(orderTabs(sessions, undefined, pins).map((s) => s.sessionId)).toEqual(['pinned', 'a'])
+    expect(orderTabs(sessions, [], pins).map((s) => s.sessionId)).toEqual(['pinned', 'a'])
+  })
+
+  it('applies the manual order, beating pin order', () => {
+    const sessions = [named('a'), named('b'), named('c')]
+    const pins = { panels: ['c'], worktrees: [], repos: [] }
+    expect(orderTabs(sessions, ['b', 'a', 'c'], pins).map((s) => s.sessionId)).toEqual([
+      'b',
+      'a',
+      'c',
+    ])
+  })
+
+  it('appends sessions unknown to the manual order at the end', () => {
+    const sessions = [named('new'), named('a'), named('b')]
+    expect(orderTabs(sessions, ['b', 'a'], noPins).map((s) => s.sessionId)).toEqual([
+      'b',
+      'a',
+      'new',
+    ])
+  })
+
+  it('ignores manual entries whose sessions are gone', () => {
+    const sessions = [named('a')]
+    expect(orderTabs(sessions, ['dead', 'a'], noPins).map((s) => s.sessionId)).toEqual(['a'])
   })
 })

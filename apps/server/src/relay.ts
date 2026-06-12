@@ -159,6 +159,14 @@ export class SessionRegistry {
     this.store.setPin(kind, id, pinned)
   }
 
+  listTabOrders() {
+    return this.store.listTabOrders()
+  }
+
+  setTabOrder(worktree: string, sessionIds: string[]) {
+    this.store.setTabOrder(worktree, sessionIds)
+  }
+
   createSession(input: { agentKind: AgentKind; cwd: string; title?: string }): {
     sessionId: string
   } {

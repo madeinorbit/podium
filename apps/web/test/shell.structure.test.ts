@@ -45,9 +45,28 @@ describe('web shell structure', () => {
     expect(src).toContain('PINNED REPOS')
     expect(src).toContain('setPinned')
   })
-  it('workspace and mobile tabs order pinned panels first', () => {
-    expect(read('Workspace.tsx')).toContain('sortSessionsForPins')
-    expect(read('MobileApp.tsx')).toContain('sortSessionsForPins')
+  it('workspace and mobile tabs use the persisted manual order (pins as fallback)', () => {
+    expect(read('Workspace.tsx')).toContain('orderTabs')
+    expect(read('MobileApp.tsx')).toContain('orderTabs')
+  })
+  it('store loads and persists the manual tab order', () => {
+    const src = read('store.tsx')
+    expect(src).toContain('tabOrders')
+    expect(src).toContain('tabs.listOrders')
+    expect(src).toContain('tabs.setOrder')
+  })
+  it('workspace tabs are sortable with fixed actions outside the scrolling strip', () => {
+    const src = read('Workspace.tsx')
+    expect(src).toContain('DndContext')
+    expect(src).toContain('SortableContext')
+    expect(src).toContain('horizontalListSortingStrategy')
+    expect(src).toContain('useSortable')
+    expect(src).toContain('arrayMove')
+    expect(src).toContain('setTabOrder')
+    expect(src).toContain('tabbar-tabs')
+    expect(src).toContain('tabbar-actions')
+    // Clicks must keep working: drags only start after the pointer moves.
+    expect(src).toContain('activationConstraint')
   })
   it('repo add flow uses the scan flow on desktop and mobile', () => {
     expect(read('Sidebar.tsx')).toContain('RepoScanFlow')
@@ -92,7 +111,7 @@ describe('web shell structure', () => {
   it('conversation discovery is pushed instead of blocking initial store load', () => {
     const src = read('store.tsx')
     expect(src).toContain('hub.onConversations(setConversations)')
-    expect(src).toContain('Promise.all([refreshRepos(), refreshPins()])')
+    expect(src).toContain('Promise.all([refreshRepos(), refreshPins(), refreshTabOrders()])')
     expect(src).not.toContain('Promise.all([refreshRepos(), rescanConversations()])')
   })
   it('new-panel menu offers claude, codex, and shell', () => {

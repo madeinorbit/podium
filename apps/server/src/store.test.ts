@@ -202,3 +202,47 @@ describe('SessionStore pins', () => {
     store.close()
   })
 })
+
+describe('SessionStore tab order', () => {
+  it('starts empty, upserts per worktree, and clears on an empty list', () => {
+    const store = new SessionStore(':memory:')
+    expect(store.listTabOrders()).toEqual({})
+
+    store.setTabOrder('/repo/a', ['s1', 's2'])
+    store.setTabOrder('/repo/b', ['s9'])
+    store.setTabOrder('/repo/a', ['s2', 's1'])
+    expect(store.listTabOrders()).toEqual({ '/repo/a': ['s2', 's1'], '/repo/b': ['s9'] })
+
+    store.setTabOrder('/repo/b', [])
+    expect(store.listTabOrders()).toEqual({ '/repo/a': ['s2', 's1'] })
+    store.close()
+  })
+
+  it('rejects an empty worktree path', () => {
+    const store = new SessionStore(':memory:')
+    expect(() => store.setTabOrder('  ', ['s1'])).toThrow('worktree path is empty')
+    store.close()
+  })
+
+  it('persists across instances on the same file', async () => {
+    const file = await tmpDbPath()
+    const a = new SessionStore(file)
+    a.setTabOrder('/repo/a', ['s2', 's1'])
+    a.close()
+    const b = new SessionStore(file)
+    expect(b.listTabOrders()).toEqual({ '/repo/a': ['s2', 's1'] })
+    b.close()
+  })
+
+  it('scrubs a session from every order when it is deleted', () => {
+    const store = new SessionStore(':memory:')
+    store.upsertSession(row({ id: 's1' }))
+    store.setTabOrder('/repo/a', ['s2', 's1'])
+    store.setTabOrder('/repo/b', ['s1'])
+
+    store.deleteSession('s1')
+
+    expect(store.listTabOrders()).toEqual({ '/repo/a': ['s2'] })
+    store.close()
+  })
+})

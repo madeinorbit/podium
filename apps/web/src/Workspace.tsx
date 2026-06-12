@@ -1,9 +1,25 @@
+import {
+  closestCenter,
+  DndContext,
+  type DragEndEvent,
+  PointerSensor,
+  useSensor,
+  useSensors,
+} from '@dnd-kit/core'
+import { restrictToHorizontalAxis, restrictToParentElement } from '@dnd-kit/modifiers'
+import {
+  arrayMove,
+  horizontalListSortingStrategy,
+  SortableContext,
+  useSortable,
+} from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 import type { SessionMeta } from '@podium/protocol'
 import { Pin } from 'lucide-react'
 import type { JSX } from 'react'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { AgentPanel } from './AgentPanel'
-import { reposToViews, sessionsForWorktree, sortSessionsForPins } from './derive'
+import { orderTabs, reposToViews, sessionsForWorktree } from './derive'
 import { NewPanelMenu } from './NewPanelMenu'
 import { useStore } from './store'
 import type { WorktreeView } from './types'
@@ -15,6 +31,8 @@ export function Workspace(): JSX.Element {
     sessions,
     pins,
     setPinned,
+    tabOrders,
+    setTabOrder,
     selectedWorktree,
     paneA,
     paneB,
@@ -24,13 +42,16 @@ export function Workspace(): JSX.Element {
     killSession,
   } = store
   const [menuOpen, setMenuOpen] = useState(false)
+  // A small drag threshold keeps plain clicks (select/pin/kill) working — the
+  // drag only starts once the pointer has actually moved.
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
 
   const worktree: WorktreeView | undefined = reposToViews(store.repos)
     .flatMap((r) => r.worktrees)
     .find((w) => w.path === selectedWorktree)
 
   const tabs = worktree
-    ? sortSessionsForPins(sessionsForWorktree(sessions, worktree.path), pins)
+    ? orderTabs(sessionsForWorktree(sessions, worktree.path), tabOrders[worktree.path], pins)
     : []
 
   // Keep pane A pointed at a valid tab.
@@ -41,45 +62,59 @@ export function Workspace(): JSX.Element {
 
   if (!worktree) return <div className="workspace empty">Select a worktree.</div>
 
+  const onDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event
+    if (!over || active.id === over.id) return
+    const ids = tabs.map((t) => t.sessionId)
+    const next = arrayMove(ids, ids.indexOf(String(active.id)), ids.indexOf(String(over.id)))
+    void setTabOrder(worktree.path, next)
+  }
+
   return (
     <section className="workspace">
       <div className="tabbar">
-        {tabs.map((t) => (
-          <span key={t.sessionId} className="tab-wrap">
-            <button
-              type="button"
-              className={t.sessionId === paneA ? 'tab active' : 'tab'}
-              onClick={() => setPane('A', t.sessionId)}
-            >
-              <span className={`dot ${t.status}`} /> <WorkerLabel session={t} />
-            </button>
-            <button
-              type="button"
-              className={pins.panels.includes(t.sessionId) ? 'tab-pin active' : 'tab-pin'}
-              aria-pressed={pins.panels.includes(t.sessionId)}
-              title={pins.panels.includes(t.sessionId) ? 'Unpin panel' : 'Pin panel'}
-              onClick={() =>
-                void setPinned('panel', t.sessionId, !pins.panels.includes(t.sessionId))
-              }
-            >
-              <Pin size={12} aria-hidden="true" />
-            </button>
-            <button
-              type="button"
-              className="tab-kill"
-              title="Kill session"
-              onClick={() => void killSession(t.sessionId)}
-            >
-              ✕
-            </button>
-          </span>
-        ))}
-        <button type="button" className="tab-add" onClick={() => setMenuOpen((v) => !v)}>
-          +
-        </button>
-        <button type="button" className="tab-split" onClick={toggleSplit}>
-          ⊟ split
-        </button>
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          // Tabs may only slide along the strip — a free y-axis would drag the
+          // tab out of the row and vertically scroll the overflow container.
+          modifiers={[restrictToHorizontalAxis, restrictToParentElement]}
+          onDragEnd={onDragEnd}
+        >
+          <SortableContext
+            items={tabs.map((t) => t.sessionId)}
+            strategy={horizontalListSortingStrategy}
+          >
+            <div className="tabbar-tabs">
+              {tabs.map((t) => (
+                <SortableTab
+                  key={t.sessionId}
+                  session={t}
+                  active={t.sessionId === paneA}
+                  pinned={pins.panels.includes(t.sessionId)}
+                  onSelect={() => setPane('A', t.sessionId)}
+                  onTogglePin={() =>
+                    void setPinned('panel', t.sessionId, !pins.panels.includes(t.sessionId))
+                  }
+                  onKill={() => void killSession(t.sessionId)}
+                />
+              ))}
+            </div>
+          </SortableContext>
+        </DndContext>
+        <div className="tabbar-actions">
+          <button
+            type="button"
+            className="tab-add"
+            title="New panel"
+            onClick={() => setMenuOpen((v) => !v)}
+          >
+            +
+          </button>
+          <button type="button" className="tab-split" onClick={toggleSplit}>
+            ⊟ split
+          </button>
+        </div>
       </div>
       {menuOpen && (
         <div className="workspace-menu-layer">
@@ -105,6 +140,63 @@ export function Workspace(): JSX.Element {
         )}
       </div>
     </section>
+  )
+}
+
+function SortableTab({
+  session,
+  active,
+  pinned,
+  onSelect,
+  onTogglePin,
+  onKill,
+}: {
+  session: SessionMeta
+  active: boolean
+  pinned: boolean
+  onSelect: () => void
+  onTogglePin: () => void
+  onKill: () => void
+}): JSX.Element {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: session.sessionId,
+  })
+  const node = useRef<HTMLDivElement | null>(null)
+  // The strip scrolls when crowded — keep the active tab visible in it.
+  useEffect(() => {
+    if (active) node.current?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+  }, [active])
+  const cls = ['tab-wrap', active ? 'active' : '', isDragging ? 'dragging' : '']
+    .filter(Boolean)
+    .join(' ')
+  return (
+    <div
+      ref={(el) => {
+        node.current = el
+        setNodeRef(el)
+      }}
+      className={cls}
+      data-session={session.sessionId}
+      style={{ transform: CSS.Transform.toString(transform), transition }}
+      {...attributes}
+      {...listeners}
+    >
+      <button type="button" className="tab" onClick={onSelect}>
+        <span className={`dot ${session.status}`} /> <WorkerLabel session={session} />
+      </button>
+      <button
+        type="button"
+        className={pinned ? 'tab-pin active' : 'tab-pin'}
+        aria-pressed={pinned}
+        title={pinned ? 'Unpin panel' : 'Pin panel'}
+        onClick={onTogglePin}
+      >
+        <Pin size={12} aria-hidden="true" />
+      </button>
+      <button type="button" className="tab-kill" title="Kill session" onClick={onKill}>
+        ✕
+      </button>
+    </div>
   )
 }
 

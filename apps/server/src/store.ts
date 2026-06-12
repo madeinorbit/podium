@@ -95,6 +95,51 @@ export class SessionStore {
     }
   }
 
+  // ---- tab order ----
+  /** Manual tab order per worktree path. Worktrees never reordered are absent. */
+  listTabOrders(): Record<string, string[]> {
+    const rows = this.db.prepare('SELECT worktree, ids FROM tab_order').all() as {
+      worktree: string
+      ids: string
+    }[]
+    const out: Record<string, string[]> = {}
+    for (const row of rows) {
+      try {
+        const parsed = JSON.parse(row.ids)
+        if (Array.isArray(parsed)) out[row.worktree] = parsed.filter((x) => typeof x === 'string')
+      } catch {
+        // corrupt row -> treat as no saved order
+      }
+    }
+    return out
+  }
+
+  setTabOrder(worktree: string, sessionIds: string[]): void {
+    const cleanWorktree = worktree.trim()
+    if (!cleanWorktree) throw new Error('worktree path is empty')
+    if (sessionIds.length === 0) {
+      this.db.prepare('DELETE FROM tab_order WHERE worktree = ?').run(cleanWorktree)
+      return
+    }
+    this.db
+      .prepare(
+        `INSERT INTO tab_order (worktree, ids, updated_at) VALUES (?, ?, ?)
+         ON CONFLICT(worktree) DO UPDATE SET ids = excluded.ids, updated_at = excluded.updated_at`,
+      )
+      .run(cleanWorktree, JSON.stringify(sessionIds), new Date().toISOString())
+  }
+
+  /** Drop a session id from every saved tab order (called when the session dies). */
+  private scrubTabOrders(sessionId: string): void {
+    for (const [worktree, ids] of Object.entries(this.listTabOrders())) {
+      if (!ids.includes(sessionId)) continue
+      this.setTabOrder(
+        worktree,
+        ids.filter((id) => id !== sessionId),
+      )
+    }
+  }
+
   // ---- sessions ----
   loadSessions(): SessionRow[] {
     const rows = this.db
@@ -159,6 +204,7 @@ export class SessionStore {
   deleteSession(id: string): void {
     this.db.prepare('DELETE FROM sessions WHERE id = ?').run(id)
     this.db.prepare('DELETE FROM pins WHERE kind = ? AND id = ?').run('panel', id)
+    this.scrubTabOrders(id)
   }
 
   close(): void {
@@ -193,6 +239,13 @@ export class SessionStore {
          durable_label TEXT NOT NULL,
          created_at TEXT NOT NULL,
          last_active_at TEXT NOT NULL
+       )`,
+    )
+    this.db.exec(
+      `CREATE TABLE IF NOT EXISTS tab_order (
+         worktree TEXT PRIMARY KEY,
+         ids TEXT NOT NULL,
+         updated_at TEXT NOT NULL
        )`,
     )
     this.db.exec('CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)')

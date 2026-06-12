@@ -49,6 +49,22 @@ export const appRouter = t.router({
         return ctx.registry.listPins()
       }),
   }),
+  tabs: t.router({
+    listOrders: t.procedure.query(({ ctx }) => ctx.registry.listTabOrders()),
+    setOrder: t.procedure
+      .input(z.object({ worktree: z.string(), sessionIds: z.array(z.string()) }))
+      .mutation(({ ctx, input }) => {
+        try {
+          ctx.registry.setTabOrder(input.worktree, input.sessionIds)
+        } catch (e) {
+          throw new TRPCError({
+            code: 'BAD_REQUEST',
+            message: e instanceof Error ? e.message : String(e),
+          })
+        }
+        return ctx.registry.listTabOrders()
+      }),
+  }),
   repos: t.router({
     list: t.procedure.query(({ ctx }) => ctx.repos.list()),
     add: t.procedure.input(z.object({ path: z.string() })).mutation(async ({ ctx, input }) => {

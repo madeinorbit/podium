@@ -36,6 +36,9 @@ export interface Store {
   hostMetrics: HostMetricsWire[]
   pins: PinState
   setPinned: (kind: PinKind, id: string, pinned: boolean) => Promise<void>
+  /** Manual tab order per worktree path (drag-to-reorder). Absent key = no manual order. */
+  tabOrders: Record<string, string[]>
+  setTabOrder: (worktree: string, sessionIds: string[]) => Promise<void>
   selectedWorktree: string | null
   setSelectedWorktree: (path: string | null) => void
   paneA: string | null // sessionId in pane A
@@ -80,6 +83,7 @@ export function StoreProvider({
   const [sessions, setSessions] = useState<SessionMeta[]>([])
   const [hostMetrics, setHostMetrics] = useState<HostMetricsWire[]>([])
   const [pins, setPins] = useState<PinState>(EMPTY_PINS)
+  const [tabOrders, setTabOrders] = useState<Record<string, string[]>>({})
   const [selectedWorktree, setSelectedWorktree] = useState<string | null>(null)
   const [paneA, setPaneA] = useState<string | null>(null)
   const [paneB, setPaneB] = useState<string | null>(null)
@@ -119,12 +123,32 @@ export function StoreProvider({
     },
     [trpc],
   )
+  const refreshTabOrders = useMemo(
+    () => async () => {
+      setTabOrders(await trpc.tabs.listOrders.query())
+    },
+    [trpc],
+  )
+  // Optimistic: dnd-kit hands back the new order on drop, and waiting on the
+  // round-trip would make the tab snap back for a frame. Server result reconciles.
+  const setTabOrder = useMemo(
+    () => async (worktree: string, sessionIds: string[]) => {
+      setTabOrders((orders) => ({ ...orders, [worktree]: sessionIds }))
+      setTabOrders(await trpc.tabs.setOrder.mutate({ worktree, sessionIds }))
+    },
+    [trpc],
+  )
   const killSession = useMemo(
     () => async (sessionId: string) => {
       await trpc.sessions.kill.mutate({ sessionId }).catch(() => {})
       setPaneA((p) => (p === sessionId ? null : p))
       setPaneB((p) => (p === sessionId ? null : p))
       setPins((p) => ({ ...p, panels: p.panels.filter((id) => id !== sessionId) }))
+      setTabOrders((orders) =>
+        Object.fromEntries(
+          Object.entries(orders).map(([wt, ids]) => [wt, ids.filter((id) => id !== sessionId)]),
+        ),
+      )
     },
     [trpc],
   )
@@ -150,7 +174,7 @@ export function StoreProvider({
     }, 0)
     if (!started.current) {
       started.current = true
-      void Promise.all([refreshRepos(), refreshPins()]).catch((e) => {
+      void Promise.all([refreshRepos(), refreshPins(), refreshTabOrders()]).catch((e) => {
         onFatalError(formatAppError(e, 'Could not load Podium data'))
       })
     }
@@ -161,7 +185,7 @@ export function StoreProvider({
       offHostMetrics()
       hub.dispose()
     }
-  }, [hub, onFatalError, refreshPins, refreshRepos])
+  }, [hub, onFatalError, refreshPins, refreshRepos, refreshTabOrders])
 
   const value: Store = {
     hub,
@@ -175,6 +199,8 @@ export function StoreProvider({
     hostMetrics,
     pins,
     setPinned,
+    tabOrders,
+    setTabOrder,
     selectedWorktree,
     setSelectedWorktree,
     paneA,
