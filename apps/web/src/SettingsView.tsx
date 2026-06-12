@@ -207,6 +207,7 @@ export function SettingsView({ onClose }: { onClose: () => void }): JSX.Element 
                     })
                   }
                 />
+                <NotificationPermissionButton />
               </Row>
               <Row label="ntfy.sh topic">
                 <input
@@ -264,6 +265,27 @@ export function SettingsView({ onClose }: { onClose: () => void }): JSX.Element 
         </div>
       </div>
     </div>
+  )
+}
+
+/** Browser notification permission needs a user gesture — this is the gesture. */
+function NotificationPermissionButton(): JSX.Element | null {
+  const [perm, setPerm] = useState(() =>
+    typeof Notification === 'undefined' ? 'unsupported' : Notification.permission,
+  )
+  if (perm === 'unsupported') return <span className="settings-note">not supported here</span>
+  if (perm === 'granted') return <span className="settings-saved">permission granted</span>
+  if (perm === 'denied') return <span className="settings-note">blocked in browser settings</span>
+  return (
+    <button
+      type="button"
+      className="settings-permission"
+      onClick={() => {
+        void Notification.requestPermission().then(setPerm)
+      }}
+    >
+      Grant permission
+    </button>
   )
 }
 

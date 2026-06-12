@@ -2594,3 +2594,17 @@ body {
   opacity: 0.6;
   cursor: default;
 }
+
+.settings-permission {
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  color: var(--fg);
+  border-radius: var(--r);
+  font: inherit;
+  font-size: 11px;
+  padding: 3px 9px;
+  cursor: pointer;
+}
+.settings-permission:hover {
+  border-color: var(--accent);
+}

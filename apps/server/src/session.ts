@@ -20,6 +20,8 @@ export interface ClientConn {
   send: Send<ServerMessage>
   viewport: Geometry
   attached: Set<string>
+  /** Page-visibility presence — drives smart notification routing. */
+  visible: boolean
 }
 
 export interface SessionInit {

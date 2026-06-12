@@ -85,6 +85,12 @@ const PING_DOWN_AFTER_MS = 5_000
 // the cap just bounds the queue if pongs stop while other traffic keeps us alive.
 const PING_QUEUE_CAP = 8
 
+export interface AttentionEvent {
+  sessionId: string
+  title: string
+  body: string
+}
+
 export type ConnectionHealthStatus = 'ok' | 'degraded' | 'down'
 
 export interface ConnectionHealth {
@@ -127,6 +133,8 @@ export class SocketHub {
   private readonly conversationObservers = new Set<(c: ConversationSummaryWire[]) => void>()
   private readonly hostMetricsObservers = new Set<(h: HostMetricsWire[]) => void>()
   private readonly healthObservers = new Set<(h: ConnectionHealth) => void>()
+  private readonly attentionObservers = new Set<(e: AttentionEvent) => void>()
+  private lastVisible = true
 
   constructor(opts: SocketHubOptions) {
     this.opts = opts
@@ -179,6 +187,8 @@ export class SocketHub {
       for (const sessionId of this.transcripts.keys()) {
         this.sendRaw({ type: 'transcriptSubscribe', sessionId })
       }
+      // Re-assert presence; the server defaults a new connection to visible.
+      if (!this.lastVisible) this.sendRaw({ type: 'presence', visible: false })
       this.notifyConnections()
       this.evaluateHealth()
     }
@@ -367,6 +377,18 @@ export class SocketHub {
     }
   }
 
+  /** Attention events (agent needs the human) — the app turns these into notifications. */
+  onAttention(cb: (e: AttentionEvent) => void): () => void {
+    this.attentionObservers.add(cb)
+    return () => this.attentionObservers.delete(cb)
+  }
+
+  /** Report page visibility; the server's smart router skips mobile push while visible. */
+  setVisible(visible: boolean): void {
+    this.lastVisible = visible
+    if (this.connectedFlag) this.sendRaw({ type: 'presence', visible })
+  }
+
   connectionHealth(): ConnectionHealth {
     return this.health
   }
@@ -460,6 +482,12 @@ export class SocketHub {
     if (msg.type === 'hostMetricsChanged') {
       this.hostMetricsList = msg.hosts
       for (const o of this.hostMetricsObservers) o(this.hostMetricsList)
+      return
+    }
+    if (msg.type === 'attentionEvent') {
+      for (const o of this.attentionObservers) {
+        o({ sessionId: msg.sessionId, title: msg.title, body: msg.body })
+      }
       return
     }
     if (msg.type === 'transcriptSnapshot' || msg.type === 'transcriptAppend') {

@@ -1,0 +1,62 @@
+import type { AgentRuntimeState } from '@podium/protocol'
+
+/**
+ * Notification triage for agent-state transitions. High-signal by design: only
+ * states where the human is genuinely the blocker fire, and only on the
+ * *transition* into them — a re-broadcast of the same blocked state stays quiet.
+ */
+export interface AttentionNotice {
+  title: string
+  body: string
+}
+
+function wantsHuman(state: AgentRuntimeState): boolean {
+  if (state.phase === 'needs_user' || state.phase === 'errored') return true
+  if (state.phase === 'idle') {
+    const kind = state.idle?.kind
+    return kind === 'question' || kind === 'approval'
+  }
+  return false
+}
+
+export function attentionNotice(
+  sessionName: string,
+  prev: AgentRuntimeState | undefined,
+  next: AgentRuntimeState,
+): AttentionNotice | null {
+  if (!wantsHuman(next)) return null
+  // Same blocked condition re-reported (e.g. another hook echo) — no re-ping.
+  if (prev && wantsHuman(prev) && prev.phase === next.phase) return null
+  if (next.phase === 'needs_user') {
+    return {
+      title: `${sessionName} needs you`,
+      body:
+        next.need?.summary ??
+        (next.need?.kind === 'question' ? 'Asked you a question.' : 'Waiting for permission.'),
+    }
+  }
+  if (next.phase === 'errored') {
+    const cls = next.error?.class ?? 'unknown'
+    return {
+      title: `${sessionName} hit an error`,
+      body: next.error?.retryable ? `${cls} — a retry may work.` : `${cls} — needs a look.`,
+    }
+  }
+  // idle question/approval
+  return {
+    title:
+      next.idle?.kind === 'approval' ? `${sessionName}: plan ready` : `${sessionName} asked you`,
+    body: next.idle?.summary ?? 'Ended its turn waiting on you.',
+  }
+}
+
+/** Fire-and-forget mobile push via ntfy.sh. Failures are logged, never thrown. */
+export function pushNtfy(topic: string, notice: AttentionNotice): void {
+  fetch(`https://ntfy.sh/${encodeURIComponent(topic)}`, {
+    method: 'POST',
+    headers: { Title: notice.title, Priority: 'high', Tags: 'robot' },
+    body: notice.body,
+  }).catch((err) => {
+    console.warn('[podium] ntfy push failed:', err instanceof Error ? err.message : err)
+  })
+}

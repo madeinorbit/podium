@@ -3,6 +3,7 @@ import { basename } from 'node:path'
 import type { PodiumSettings } from '@podium/core'
 import {
   AgentKind,
+  type AgentRuntimeState,
   type ClientMessage,
   type ControlMessage,
   type ConversationDiagnosticWire,
@@ -19,6 +20,7 @@ import {
   type UsageBucketWire,
   type WorkState,
 } from '@podium/protocol'
+import { attentionNotice, pushNtfy } from './notify'
 import { type ClientConn, type Send, Session } from './session'
 import { type PinKind, SessionStore } from './store'
 
@@ -552,7 +554,13 @@ export class SessionRegistry {
   // ---- ws data plane: clients ----
   attachClient(send: Send<ServerMessage>): string {
     const id = `c${this.nextClientNum++}`
-    this.clients.set(id, { id, send, viewport: { ...DEFAULT_GEOMETRY }, attached: new Set() })
+    this.clients.set(id, {
+      id,
+      send,
+      viewport: { ...DEFAULT_GEOMETRY },
+      attached: new Set(),
+      visible: true,
+    })
     send({ type: 'welcome', clientId: id })
     send({ type: 'sessionsChanged', sessions: this.listSessions() })
     send({
@@ -613,6 +621,9 @@ export class SessionRegistry {
       case 'transcriptUnsubscribe':
         this.sessions.get(msg.sessionId)?.unsubscribeTranscript(id)
         break
+      case 'presence':
+        client.visible = msg.visible
+        break
       case 'ping':
         client.send({ type: 'pong' })
         break
@@ -658,10 +669,12 @@ export class SessionRegistry {
       case 'agentState': {
         const session = this.sessions.get(msg.sessionId)
         if (!session) break
+        const prev = session.agentState
         session.setAgentState(msg.state)
         // Phase transitions are low-frequency (seconds apart, never per-frame),
         // so reusing the full sessions broadcast keeps the client protocol unchanged.
         this.broadcastSessions()
+        this.notifyAttention(session, prev, msg.state)
         break
       }
       case 'title': {
@@ -790,6 +803,36 @@ export class SessionRegistry {
 
   setConversationMeta(input: { id: string; name?: string; summary?: string }): void {
     this.store.setConversationMeta(input.id, input)
+  }
+
+  /**
+   * Smart-routed attention notifications. Web clients always get the event
+   * (each shows it only while hidden); the mobile push (ntfy) fires only when
+   * NO Podium window is visible anywhere — if you're looking at a desktop, the
+   * phone stays quiet.
+   */
+  private notifyAttention(
+    session: Session,
+    prev: AgentRuntimeState | undefined,
+    next: AgentRuntimeState,
+  ): void {
+    const settings = this.store.getSettings().notifications
+    const name = session.name || session.title || session.cwd.split('/').pop() || 'agent'
+    const notice = attentionNotice(name, prev, next)
+    if (!notice) return
+    if (settings.web) {
+      const event: ServerMessage = {
+        type: 'attentionEvent',
+        sessionId: session.sessionId,
+        title: notice.title,
+        body: notice.body,
+      }
+      for (const c of this.clients.values()) c.send(event)
+    }
+    if (settings.ntfyTopic) {
+      const someoneWatching = [...this.clients.values()].some((c) => c.visible)
+      if (!someoneWatching) pushNtfy(settings.ntfyTopic, notice)
+    }
   }
 
   private broadcastSessions(): void {

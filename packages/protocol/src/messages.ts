@@ -247,6 +247,9 @@ export const RedrawRequestMessage = z.object({
 // sleep, dead proxy hop) is detected client-side, and idle-timeout proxies see
 // traffic. The server answers with pong.
 export const PingMessage = z.object({ type: z.literal('ping') })
+// User presence (page visibility) — the smart-notification router skips mobile
+// push while some Podium window is visibly open.
+export const PresenceMessage = z.object({ type: z.literal('presence'), visible: z.boolean() })
 
 export const ClientMessage = z.discriminatedUnion('type', [
   HelloMessage,
@@ -257,6 +260,7 @@ export const ClientMessage = z.discriminatedUnion('type', [
   RequestControlMessage,
   RedrawRequestMessage,
   PingMessage,
+  PresenceMessage,
   TranscriptSubscribeMessage,
   TranscriptUnsubscribeMessage,
 ])
@@ -342,6 +346,14 @@ export const HostMetricsChangedMessage = z.object({
 })
 // Reply to a client PingMessage; its arrival is the liveness signal.
 export const PongMessage = z.object({ type: z.literal('pong') })
+// A session crossed into a state that wants the human (question, permission,
+// error, plan approval). Clients surface it as a web notification when hidden.
+export const AttentionEventMessage = z.object({
+  type: z.literal('attentionEvent'),
+  sessionId: z.string(),
+  title: z.string(),
+  body: z.string(),
+})
 
 export const ServerMessage = z.discriminatedUnion('type', [
   WelcomeMessage,
@@ -355,6 +367,7 @@ export const ServerMessage = z.discriminatedUnion('type', [
   SessionTitleChangedMessage,
   HostMetricsChangedMessage,
   PongMessage,
+  AttentionEventMessage,
   TranscriptAppendMessage,
   TranscriptSnapshotMessage,
 ])

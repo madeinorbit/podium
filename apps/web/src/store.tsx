@@ -224,6 +224,21 @@ export function StoreProvider({
     const offSessions = hub.onSessions(setSessions)
     const offConversations = hub.onConversations(setConversations)
     const offHostMetrics = hub.onHostMetrics(setHostMetrics)
+    // Attention → web notification, but only while this page can't be seen —
+    // a visible Podium window IS the notification.
+    const offAttention = hub.onAttention((e) => {
+      if (document.visibilityState === 'visible') return
+      if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return
+      try {
+        new Notification(e.title, { body: e.body, tag: e.sessionId })
+      } catch {
+        // some webviews throw on construction — never break the app over a toast
+      }
+    })
+    // Presence feeds the server's smart router (skip mobile push while visible).
+    const reportVisibility = () => hub.setVisible(document.visibilityState === 'visible')
+    document.addEventListener('visibilitychange', reportVisibility)
+    reportVisibility()
     const connectTimer = setTimeout(() => {
       try {
         hub.connect()
@@ -242,6 +257,8 @@ export function StoreProvider({
       offSessions()
       offConversations()
       offHostMetrics()
+      offAttention()
+      document.removeEventListener('visibilitychange', reportVisibility)
       hub.dispose()
     }
   }, [hub, onFatalError, refreshPins, refreshRepos, refreshTabOrders])
