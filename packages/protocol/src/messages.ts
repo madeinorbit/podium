@@ -21,6 +21,52 @@ export type ResumeRef = z.infer<typeof ResumeRef>
 export const SessionStatus = z.enum(['starting', 'live', 'reconnecting', 'hibernated', 'exited'])
 export type SessionStatus = z.infer<typeof SessionStatus>
 
+// ---- Agent runtime state (harness-observed, distinct from SessionStatus) ----
+// SessionStatus says whether the PTY/process is alive (starting/live/hibernated/…).
+// AgentRuntimeState says what the agent inside it is doing, derived from harness
+// side-channels (hooks). `unknown` = uninstrumented agent kind or no events yet.
+export const AgentPhase = z.enum([
+  'unknown',
+  'working',
+  'idle',
+  'needs_user',
+  'errored',
+  'compacting',
+  'ended',
+])
+export type AgentPhase = z.infer<typeof AgentPhase>
+
+// Why did the agent go idle? `open_todos` = stopped with unfinished task list;
+// `question` = last message reads like it wants an answer; `approval` = stopped
+// while in plan mode. Tier-3 (LLM classification) will refine this later.
+export const IdleVerdict = z.object({
+  kind: z.enum(['done', 'question', 'approval', 'open_todos']),
+  summary: z.string().optional(),
+})
+export type IdleVerdict = z.infer<typeof IdleVerdict>
+
+export const AgentNeed = z.object({
+  kind: z.enum(['question', 'permission']),
+  summary: z.string().optional(),
+})
+export type AgentNeed = z.infer<typeof AgentNeed>
+
+export const AgentError = z.object({
+  class: z.string(), // harness error class, e.g. rate_limit / server_error / billing_error
+  retryable: z.boolean(), // true → a blind "continue" is worth offering
+})
+export type AgentError = z.infer<typeof AgentError>
+
+export const AgentRuntimeState = z.object({
+  phase: AgentPhase,
+  since: z.string(), // ISO 8601 of the last phase change
+  openTaskCount: z.number().int().nonnegative(),
+  idle: IdleVerdict.optional(), // present when phase === 'idle'
+  need: AgentNeed.optional(), // present when phase === 'needs_user'
+  error: AgentError.optional(), // present when phase === 'errored'
+})
+export type AgentRuntimeState = z.infer<typeof AgentRuntimeState>
+
 export const SessionOrigin = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('spawn') }),
   z.object({ kind: z.literal('resume'), conversationId: z.string() }),
@@ -40,6 +86,7 @@ export const SessionMeta = z.object({
   clientCount: z.number().int().nonnegative(),
   createdAt: z.string(), // ISO 8601
   origin: SessionOrigin,
+  agentState: AgentRuntimeState.optional(),
 })
 export type SessionMeta = z.infer<typeof SessionMeta>
 
@@ -323,6 +370,13 @@ export const TitleMessage = z.object({
   sessionId: z.string(),
   title: z.string(),
 })
+// Harness-observed agent state changed (hooks-driven). Low-frequency: phase
+// transitions only, never per-frame.
+export const AgentStateMessage = z.object({
+  type: z.literal('agentState'),
+  sessionId: z.string(),
+  state: AgentRuntimeState,
+})
 export const ScanResultMessage = z.object({
   type: z.literal('scanResult'),
   requestId: z.string(),
@@ -379,6 +433,7 @@ export const DaemonMessage = z.discriminatedUnion('type', [
   SpawnErrorMessage,
   ReattachFailedMessage,
   TitleMessage,
+  AgentStateMessage,
   ScanResultMessage,
   ConversationsChangedMessage,
   ScanReposResultMessage,

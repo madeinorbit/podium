@@ -342,3 +342,45 @@ describe('memory breakdown messages', () => {
     expect(parseDaemonMessage(encode(msg))).toEqual(msg)
   })
 })
+
+describe('agent runtime state', () => {
+  const state = {
+    phase: 'errored',
+    since: '2026-06-12T10:00:00.000Z',
+    openTaskCount: 2,
+    error: { class: 'rate_limit', retryable: true },
+  }
+
+  it('round-trips an agentState daemon message', () => {
+    const msg = { type: 'agentState', sessionId: 's1', state }
+    expect(parseDaemonMessage(encode(msg as never))).toEqual(msg)
+  })
+
+  it('rejects an unknown phase', () => {
+    const bad = { type: 'agentState', sessionId: 's1', state: { ...state, phase: 'napping' } }
+    expect(() => parseDaemonMessage(JSON.stringify(bad))).toThrow()
+  })
+
+  it('SessionMeta accepts an optional agentState', () => {
+    const meta = SessionMeta.parse({
+      sessionId: 's1',
+      agentKind: 'claude-code',
+      title: 't',
+      cwd: '/tmp',
+      status: 'live',
+      controllerId: null,
+      geometry: { cols: 80, rows: 24 },
+      epoch: 0,
+      clientCount: 0,
+      createdAt: '2026-06-12T10:00:00.000Z',
+      origin: { kind: 'spawn' },
+      agentState: {
+        phase: 'idle',
+        since: '2026-06-12T10:00:00.000Z',
+        openTaskCount: 0,
+        idle: { kind: 'question', summary: 'Should I migrate?' },
+      },
+    })
+    expect(meta.agentState?.phase).toBe('idle')
+  })
+})
