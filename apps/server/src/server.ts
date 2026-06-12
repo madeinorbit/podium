@@ -7,6 +7,7 @@ import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
 import { appRouter } from './router'
 import { SessionStore } from './store'
+import { SuperagentService } from './superagent'
 import { attachWebSockets } from './wsServer'
 
 export interface ServerHandle {
@@ -19,10 +20,14 @@ export async function startServer(opts: { port?: number } = {}): Promise<ServerH
   const store = new SessionStore()
   const registry = new SessionRegistry(store)
   const repos = new RepoRegistry(store)
+  const superagent = new SuperagentService(registry, repos, store)
   const app = new Hono()
   app.get('/health', (c) => c.text('ok'))
   app.use('/trpc/*', cors())
-  app.use('/trpc/*', trpcServer({ router: appRouter, createContext: () => ({ registry, repos }) }))
+  app.use(
+    '/trpc/*',
+    trpcServer({ router: appRouter, createContext: () => ({ registry, repos, superagent }) }),
+  )
 
   return new Promise<ServerHandle>((resolve) => {
     const server = serve({ fetch: app.fetch, port: opts.port ?? 0 }, (info) => {

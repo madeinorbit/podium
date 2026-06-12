@@ -4,10 +4,12 @@ import { initTRPC, TRPCError } from '@trpc/server'
 import { z } from 'zod'
 import type { SessionRegistry } from './relay'
 import { browseDirectories, type RepoRegistry } from './repo-registry'
+import type { SuperagentService } from './superagent'
 
 export interface Context {
   registry: SessionRegistry
   repos: RepoRegistry
+  superagent: SuperagentService
 }
 
 const t = initTRPC.context<Context>().create()
@@ -73,6 +75,14 @@ export const appRouter = t.router({
         }
         return ctx.registry.listPins()
       }),
+  }),
+  superagent: t.router({
+    history: t.procedure.query(({ ctx }) => ctx.superagent.history()),
+    // Runs the full tool loop server-side; resolves with this turn's new messages.
+    send: t.procedure
+      .input(z.object({ text: z.string().min(1).max(32_768) }))
+      .mutation(({ ctx, input }) => ctx.superagent.send(input.text)),
+    clear: t.procedure.mutation(({ ctx }) => ctx.superagent.clear()),
   }),
   conversations: t.router({
     // Keyword search over the durable index (FTS5 where available). Empty query

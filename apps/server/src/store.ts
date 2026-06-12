@@ -62,6 +62,23 @@ export interface ConversationIndexRow {
   messageCount?: number
 }
 
+export interface ToolCallRow {
+  id: string
+  name: string
+  arguments: string
+}
+
+/** One message of the (single, global) superagent thread. */
+export interface SuperagentMessageRow {
+  id: number
+  role: 'user' | 'assistant' | 'tool' | 'system'
+  content: string
+  toolCalls?: ToolCallRow[]
+  toolCallId?: string
+  toolName?: string
+  createdAt: string
+}
+
 /** Durable server-side store: repos + sessions registry. Single writer (the server). */
 export class SessionStore {
   private readonly db: DatabaseSync
@@ -384,6 +401,47 @@ export class SessionStore {
     }))
   }
 
+  // ---- superagent thread ----
+  loadSuperagentMessages(limit = 200): SuperagentMessageRow[] {
+    const rows = this.db
+      .prepare(
+        `SELECT id, role, content, tool_calls, tool_call_id, tool_name, created_at
+         FROM superagent_messages ORDER BY id DESC LIMIT ?`,
+      )
+      .all(limit) as Record<string, unknown>[]
+    return rows.reverse().map((r) => ({
+      id: r.id as number,
+      role: r.role as SuperagentMessageRow['role'],
+      content: r.content as string,
+      toolCalls: r.tool_calls ? (JSON.parse(r.tool_calls as string) as ToolCallRow[]) : undefined,
+      toolCallId: (r.tool_call_id as string | null) ?? undefined,
+      toolName: (r.tool_name as string | null) ?? undefined,
+      createdAt: r.created_at as string,
+    }))
+  }
+
+  appendSuperagentMessage(m: Omit<SuperagentMessageRow, 'id' | 'createdAt'>): SuperagentMessageRow {
+    const createdAt = new Date().toISOString()
+    const result = this.db
+      .prepare(
+        `INSERT INTO superagent_messages (role, content, tool_calls, tool_call_id, tool_name, created_at)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        m.role,
+        m.content,
+        m.toolCalls ? JSON.stringify(m.toolCalls) : null,
+        m.toolCallId ?? null,
+        m.toolName ?? null,
+        createdAt,
+      )
+    return { ...m, id: Number(result.lastInsertRowid), createdAt }
+  }
+
+  clearSuperagentMessages(): void {
+    this.db.exec('DELETE FROM superagent_messages')
+  }
+
   /** Rebuild the external-content FTS index. Cheap at this row count (thousands). */
   private reindexConversationsFts(): void {
     if (!this.ftsAvailable) return
@@ -449,6 +507,17 @@ export class SessionStore {
          created_at TEXT,
          updated_at TEXT,
          message_count INTEGER
+       )`,
+    )
+    this.db.exec(
+      `CREATE TABLE IF NOT EXISTS superagent_messages (
+         id INTEGER PRIMARY KEY AUTOINCREMENT,
+         role TEXT NOT NULL,
+         content TEXT NOT NULL,
+         tool_calls TEXT,
+         tool_call_id TEXT,
+         tool_name TEXT,
+         created_at TEXT NOT NULL
        )`,
     )
     // External-content FTS over the searchable text columns. Hybrid search note:

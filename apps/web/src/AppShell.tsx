@@ -6,6 +6,7 @@ import { HomeView } from './HomeView'
 import { MobileApp } from './MobileApp'
 import { OnboardingWizard } from './OnboardingWizard'
 import { Sidebar } from './Sidebar'
+import { SuperagentView } from './SuperagentView'
 import { StoreProvider, useStore } from './store'
 import { serverConfig } from './trpc'
 import { Workspace } from './Workspace'
@@ -68,7 +69,7 @@ function AppBody({ isMobile }: { isMobile: boolean }): JSX.Element {
   return (
     <div className="desktop-shell">
       <Sidebar />
-      {view === 'home' ? <HomeView /> : <Workspace />}
+      {view === 'home' ? <HomeView /> : view === 'superagent' ? <SuperagentView /> : <Workspace />}
     </div>
   )
 }

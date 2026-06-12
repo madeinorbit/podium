@@ -1,6 +1,11 @@
+import { execFile } from 'node:child_process'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { homedir, hostname } from 'node:os'
 import { join } from 'node:path'
+import { promisify } from 'node:util'
+
+const execFileAsync = promisify(execFile)
+
 import {
   type AgentConversationDiagnostic,
   type AgentConversationSummary,
@@ -580,8 +585,96 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
       case 'memoryBreakdownRequest':
         memoryBreakdown(msg.requestId, msg.roots)
         break
+      case 'repoOpRequest':
+        void runRepoOp(msg)
+        break
+      case 'harnessExecRequest':
+        void runHarnessExec(msg)
+        break
     }
   })
+
+  /** Allowlisted git operations for the superagent — each op is a fixed argv. */
+  const runRepoOp = async (
+    msg: Extract<ControlMessage, { type: 'repoOpRequest' }>,
+  ): Promise<void> => {
+    const argvFor = (): string[] | undefined => {
+      switch (msg.op) {
+        case 'status':
+          return ['status', '--porcelain=v1', '-b']
+        case 'log':
+          return ['log', '--oneline', '-20']
+        case 'branches':
+          return ['branch', '-a', '-v']
+        case 'worktreeAdd': {
+          const path = msg.args?.path
+          const branch = msg.args?.branch
+          if (!path || !branch) return undefined
+          return ['worktree', 'add', path, '-b', branch]
+        }
+      }
+    }
+    const argv = argvFor()
+    if (!argv) {
+      send({ type: 'repoOpResult', requestId: msg.requestId, ok: false, output: 'missing args' })
+      return
+    }
+    try {
+      const { stdout, stderr } = await execFileAsync('git', ['-C', msg.cwd, ...argv], {
+        timeout: 30_000,
+        maxBuffer: 1024 * 1024,
+      })
+      send({
+        type: 'repoOpResult',
+        requestId: msg.requestId,
+        ok: true,
+        output: `${stdout}${stderr ? `\n${stderr}` : ''}`.trim(),
+      })
+    } catch (err) {
+      send({
+        type: 'repoOpResult',
+        requestId: msg.requestId,
+        ok: false,
+        output: err instanceof Error ? err.message : String(err),
+      })
+    }
+  }
+
+  /** One-shot `claude -p` / `codex exec` for the harness-backed superagent. */
+  const runHarnessExec = async (
+    msg: Extract<ControlMessage, { type: 'harnessExecRequest' }>,
+  ): Promise<void> => {
+    const cmd = msg.agent === 'claude-code' ? 'claude' : 'codex'
+    const args =
+      msg.agent === 'claude-code'
+        ? ['-p', msg.prompt, ...(msg.model ? ['--model', msg.model] : [])]
+        : [
+            'exec',
+            '--skip-git-repo-check',
+            ...(msg.model ? ['--model', msg.model] : []),
+            msg.prompt,
+          ]
+    try {
+      const { stdout } = await execFileAsync(cmd, args, {
+        timeout: 240_000,
+        maxBuffer: 4 * 1024 * 1024,
+        ...(msg.cwd ? { cwd: msg.cwd } : {}),
+      })
+      send({
+        type: 'harnessExecResult',
+        requestId: msg.requestId,
+        ok: true,
+        output: stdout.trim(),
+      })
+    } catch (err) {
+      send({
+        type: 'harnessExecResult',
+        requestId: msg.requestId,
+        ok: false,
+        output: err instanceof Error ? err.message : String(err),
+      })
+    }
+  }
 
   const disposeAll = (reapSessions = false): void => {
     if (discoveryTimer) clearTimeout(discoveryTimer)

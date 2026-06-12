@@ -1,7 +1,5 @@
 import type { TranscriptItem } from '@podium/protocol'
-import DOMPurify from 'dompurify'
 import { ChevronDown, ChevronUp, FileText, Image as ImageIcon, Mic, Send } from 'lucide-react'
-import { marked } from 'marked'
 import type { JSX } from 'react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
@@ -11,14 +9,9 @@ import {
   pairToolResults,
   searchBlocks,
 } from './chat'
+import { renderMarkdown } from './markdown'
 import { useStore } from './store'
 import { useVoiceInput } from './voice'
-
-marked.setOptions({ gfm: true, breaks: true })
-
-function renderMarkdown(text: string): string {
-  return DOMPurify.sanitize(marked.parse(text, { async: false }))
-}
 
 /**
  * Claude-app-style chat rendering of a session's structured transcript, with a

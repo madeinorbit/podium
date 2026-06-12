@@ -145,6 +145,11 @@ export class Session {
     this.transcriptSubscribers.delete(clientId)
   }
 
+  /** The buffered structured transcript (superagent tools read this). */
+  transcriptItems(): TranscriptItem[] {
+    return this.transcript
+  }
+
   /** Daemon pushed parsed transcript items; buffer (bounded) and fan out. */
   appendTranscript(items: TranscriptItem[], reset: boolean): void {
     if (reset) this.transcript = []

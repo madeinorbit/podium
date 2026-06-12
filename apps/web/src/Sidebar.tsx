@@ -1,5 +1,5 @@
 import type { SessionMeta } from '@podium/protocol'
-import { Home, Pin, Search, Settings as SettingsIcon } from 'lucide-react'
+import { Home, Pin, Search, Settings as SettingsIcon, Sparkles } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
 import { useState } from 'react'
 import { agentBadge, type RepoNavView, sidebarSections, type WorktreeNavView } from './derive'
@@ -54,6 +54,13 @@ export function Sidebar(): JSX.Element {
         onClick={() => setView('home')}
       >
         <Home size={14} aria-hidden="true" /> Command center
+      </button>
+      <button
+        type="button"
+        className={view === 'superagent' ? 'sidebar-home active' : 'sidebar-home'}
+        onClick={() => setView('superagent')}
+      >
+        <Sparkles size={14} aria-hidden="true" /> Superagent
       </button>
       <div className="sidebar-head">
         <span className="label">WORKTREES</span>

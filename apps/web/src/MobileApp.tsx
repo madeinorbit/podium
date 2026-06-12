@@ -1,4 +1,4 @@
-import { Home, Pin, Search, Settings as SettingsIcon } from 'lucide-react'
+import { Home, Pin, Search, Settings as SettingsIcon, Sparkles } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
 import { useEffect, useState } from 'react'
 import { AgentPanel } from './AgentPanel'
@@ -16,6 +16,7 @@ import { NewPanelMenu } from './NewPanelMenu'
 import { RepoScanFlow } from './RepoScanFlow'
 import { SearchView } from './SearchView'
 import { SettingsView } from './SettingsView'
+import { SuperagentView } from './SuperagentView'
 import { useStore } from './store'
 import type { PinKind } from './types'
 import { WorkerLabel } from './WorkerLabel'
@@ -98,6 +99,14 @@ export function MobileApp(): JSX.Element {
         >
           <Home size={15} aria-hidden="true" />
         </button>
+        <button
+          type="button"
+          className={view === 'superagent' ? 'mobile-home active' : 'mobile-home'}
+          title="Superagent"
+          onClick={() => setView('superagent')}
+        >
+          <Sparkles size={15} aria-hidden="true" />
+        </button>
         <button type="button" className="wt-picker" onClick={() => setPickerOpen(true)}>
           {worktree ? (worktree.branch ?? worktree.path.split('/').pop()) : 'Select worktree'} ▾
         </button>
@@ -153,6 +162,8 @@ export function MobileApp(): JSX.Element {
       <div className="mobile-body">
         {view === 'home' ? (
           <HomeView />
+        ) : view === 'superagent' ? (
+          <SuperagentView />
         ) : paneA ? (
           <AgentPanel sessionId={paneA} />
         ) : (

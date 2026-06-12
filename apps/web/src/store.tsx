@@ -40,9 +40,9 @@ export interface Store {
   /** Manual tab order per worktree path (drag-to-reorder). Absent key = no manual order. */
   tabOrders: Record<string, string[]>
   setTabOrder: (worktree: string, sessionIds: string[]) => Promise<void>
-  /** Main-area surface: the attention board (home) or the worktree workspace. */
-  view: 'home' | 'workspace'
-  setView: (view: 'home' | 'workspace') => void
+  /** Main-area surface: attention board, worktree workspace, or the superagent. */
+  view: 'home' | 'workspace' | 'superagent'
+  setView: (view: 'home' | 'workspace' | 'superagent') => void
   selectedWorktree: string | null
   setSelectedWorktree: (path: string | null) => void
   paneA: string | null // sessionId in pane A
@@ -93,7 +93,7 @@ export function StoreProvider({
   const [hostMetrics, setHostMetrics] = useState<HostMetricsWire[]>([])
   const [pins, setPins] = useState<PinState>(EMPTY_PINS)
   const [tabOrders, setTabOrders] = useState<Record<string, string[]>>({})
-  const [view, setView] = useState<'home' | 'workspace'>('home')
+  const [view, setView] = useState<'home' | 'workspace' | 'superagent'>('home')
   const [selectedWorktree, setSelectedWorktree] = useState<string | null>(null)
   const [paneA, setPaneA] = useState<string | null>(null)
   const [paneB, setPaneB] = useState<string | null>(null)

@@ -405,7 +405,33 @@ export const MemoryBreakdownRequestMessage = z.object({
   roots: z.array(z.string()),
 })
 
+// Constrained git operations the superagent may run on a dev machine. An
+// allowlisted enum (not a shell string) — the daemon maps each op to a fixed
+// git invocation.
+export const RepoOp = z.enum(['status', 'log', 'branches', 'worktreeAdd'])
+export type RepoOp = z.infer<typeof RepoOp>
+export const RepoOpRequestMessage = z.object({
+  type: z.literal('repoOpRequest'),
+  requestId: z.string(),
+  op: RepoOp,
+  cwd: z.string(),
+  // op-specific extras (worktreeAdd: { path, branch }).
+  args: z.record(z.string()).optional(),
+})
+// One-shot non-interactive harness run (`claude -p` / `codex exec`) — the
+// harness-backed superagent/work-LLM path. Chat only: no Podium tools inside.
+export const HarnessExecRequestMessage = z.object({
+  type: z.literal('harnessExecRequest'),
+  requestId: z.string(),
+  agent: z.enum(['claude-code', 'codex']),
+  model: z.string().optional(),
+  prompt: z.string(),
+  cwd: z.string().optional(),
+})
+
 export const ControlMessage = z.discriminatedUnion('type', [
+  RepoOpRequestMessage,
+  HarnessExecRequestMessage,
   SpawnMessage,
   ReattachMessage,
   KillMessage,
@@ -506,7 +532,22 @@ export const ScanReposResultMessage = z.object({
   diagnostics: z.array(GitDiscoveryDiagnosticWire),
 })
 
+export const RepoOpResultMessage = z.object({
+  type: z.literal('repoOpResult'),
+  requestId: z.string(),
+  ok: z.boolean(),
+  output: z.string(),
+})
+export const HarnessExecResultMessage = z.object({
+  type: z.literal('harnessExecResult'),
+  requestId: z.string(),
+  ok: z.boolean(),
+  output: z.string(),
+})
+
 export const DaemonMessage = z.discriminatedUnion('type', [
+  RepoOpResultMessage,
+  HarnessExecResultMessage,
   BindMessage,
   AgentFrameMessage,
   AgentExitMessage,

@@ -12,6 +12,7 @@ import {
   type GitDiscoveryDiagnosticWire,
   type GitRepositoryWire,
   type HostMetricsWire,
+  type RepoOp,
   type ResumeRef,
   type ServerMessage,
   type SessionMeta,
@@ -39,6 +40,12 @@ export type MemoryBreakdown = Omit<
   'type' | 'requestId'
 >
 
+/** Outcome of a daemon-executed operation (git op / harness one-shot). */
+export interface OpResult {
+  ok: boolean
+  output: string
+}
+
 /** Registry of all sessions + the single daemon link + all client connections. Routes by sessionId. */
 export class SessionRegistry {
   private daemonSend: Send<ControlMessage> | undefined
@@ -51,6 +58,8 @@ export class SessionRegistry {
   private readonly pendingScans = new Map<string, (r: ScanResult) => void>()
   private readonly pendingRepoScans = new Map<string, (r: ScanReposResult) => void>()
   private readonly pendingBreakdowns = new Map<string, (r: MemoryBreakdown | undefined) => void>()
+  private readonly pendingRepoOps = new Map<string, (r: OpResult) => void>()
+  private readonly pendingHarnessExecs = new Map<string, (r: OpResult) => void>()
   private latestConversations: ConversationSummaryWire[] = []
   private latestConversationDiagnostics: ConversationDiagnosticWire[] = []
   // Latest health sample per daemon host, keyed by hostname — ready for several
@@ -64,6 +73,11 @@ export class SessionRegistry {
 
   constructor(private readonly store: SessionStore = new SessionStore(':memory:')) {
     this.loadFromStore()
+  }
+
+  /** The backing store — shared with services that persist their own tables (superagent). */
+  get sessionStore(): SessionStore {
+    return this.store
   }
 
   private persist(session: Session): void {
@@ -330,6 +344,52 @@ export class SessionRegistry {
     })
   }
 
+  /** Allowlisted git op on a dev machine (superagent tools). */
+  repoOp(op: RepoOp, cwd: string, args?: Record<string, string>): Promise<OpResult> {
+    const requestId = `ro${this.nextRequestNum++}`
+    return new Promise<OpResult>((resolve) => {
+      const timer = setTimeout(() => {
+        this.pendingRepoOps.delete(requestId)
+        resolve({ ok: false, output: 'no daemon answered the git request in time' })
+      }, 35_000)
+      timer.unref?.()
+      this.pendingRepoOps.set(requestId, (r) => {
+        clearTimeout(timer)
+        resolve(r)
+      })
+      this.toDaemon({ type: 'repoOpRequest', requestId, op, cwd, ...(args ? { args } : {}) })
+    })
+  }
+
+  /** One-shot `claude -p` / `codex exec` on a dev machine (harness-backed LLM work). */
+  harnessExec(input: {
+    agent: 'claude-code' | 'codex'
+    model?: string
+    prompt: string
+    cwd?: string
+  }): Promise<OpResult> {
+    const requestId = `hx${this.nextRequestNum++}`
+    return new Promise<OpResult>((resolve) => {
+      const timer = setTimeout(() => {
+        this.pendingHarnessExecs.delete(requestId)
+        resolve({ ok: false, output: 'harness run timed out' })
+      }, 250_000)
+      timer.unref?.()
+      this.pendingHarnessExecs.set(requestId, (r) => {
+        clearTimeout(timer)
+        resolve(r)
+      })
+      this.toDaemon({
+        type: 'harnessExecRequest',
+        requestId,
+        agent: input.agent,
+        prompt: input.prompt,
+        ...(input.model && input.model !== 'auto' ? { model: input.model } : {}),
+        ...(input.cwd ? { cwd: input.cwd } : {}),
+      })
+    })
+  }
+
   /** Ask the daemon who owns the used memory. Resolves undefined when no daemon answers in time. */
   memoryBreakdown(roots: string[]): Promise<MemoryBreakdown | undefined> {
     const requestId = `mb${this.nextRequestNum++}`
@@ -557,6 +617,22 @@ export class SessionRegistry {
       case 'transcriptAppend':
         this.sessions.get(msg.sessionId)?.appendTranscript(msg.items, msg.reset ?? false)
         break
+      case 'repoOpResult': {
+        const resolve = this.pendingRepoOps.get(msg.requestId)
+        if (resolve) {
+          this.pendingRepoOps.delete(msg.requestId)
+          resolve({ ok: msg.ok, output: msg.output })
+        }
+        break
+      }
+      case 'harnessExecResult': {
+        const resolve = this.pendingHarnessExecs.get(msg.requestId)
+        if (resolve) {
+          this.pendingHarnessExecs.delete(msg.requestId)
+          resolve({ ok: msg.ok, output: msg.output })
+        }
+        break
+      }
       case 'memoryBreakdownResult': {
         const resolve = this.pendingBreakdowns.get(msg.requestId)
         if (resolve) {
@@ -588,6 +664,10 @@ export class SessionRegistry {
 
   searchConversations(opts: { query?: string; projectPath?: string; limit?: number }) {
     return this.store.searchConversations(opts)
+  }
+
+  transcriptFor(sessionId: string) {
+    return this.sessions.get(sessionId)?.transcriptItems() ?? []
   }
 
   setConversationMeta(input: { id: string; name?: string; summary?: string }): void {
