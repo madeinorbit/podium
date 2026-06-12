@@ -1,5 +1,5 @@
 import { type MountedSession, mountSession } from '@podium/terminal-client'
-import { MessageSquareText, Mic, Moon, Terminal as TerminalIcon } from 'lucide-react'
+import { MessageSquareText, Mic, Moon, RotateCcw, Terminal as TerminalIcon } from 'lucide-react'
 import type { JSX } from 'react'
 import { useEffect, useRef, useState } from 'react'
 import { ChatView } from './ChatView'
@@ -47,12 +47,13 @@ export function AgentPanel({ sessionId }: { sessionId: string }): JSX.Element {
   }
 
   const hibernated = session?.status === 'hibernated'
+  const exited = session?.status === 'exited'
   // Native-mode dictation: transcribed speech types straight into the PTY as
   // keystrokes — no auto-submit, so the user can edit before hitting Enter.
   const voice = useVoiceInput((text) => mountedRef.current?.connection.sendInput(`${text} `))
 
   useEffect(() => {
-    if (effectiveMode !== 'native' || hibernated) return
+    if (effectiveMode !== 'native' || hibernated || exited) return
     if (!termRef.current) return
     const mounted = mountSession(termRef.current, {
       hub,
@@ -66,7 +67,7 @@ export function AgentPanel({ sessionId }: { sessionId: string }): JSX.Element {
       mounted.dispose()
       mountedRef.current = null
     }
-  }, [hub, sessionId, effectiveMode, hibernated])
+  }, [hub, sessionId, effectiveMode, hibernated, exited])
 
   return (
     <div className="agent-panel">
@@ -111,6 +112,12 @@ export function AgentPanel({ sessionId }: { sessionId: string }): JSX.Element {
       </div>
       {hibernated ? (
         <HibernatedPane sessionId={sessionId} />
+      ) : exited && session ? (
+        <ExitedPane
+          sessionId={sessionId}
+          exitCode={session.exitCode}
+          resumable={session.resumable === true}
+        />
       ) : effectiveMode === 'chat' ? (
         <ChatView sessionId={sessionId} />
       ) : (
@@ -118,6 +125,59 @@ export function AgentPanel({ sessionId }: { sessionId: string }): JSX.Element {
           <div ref={termRef} className="term" />
           <div ref={toolbarRef} className="toolbar" />
         </>
+      )}
+    </div>
+  )
+}
+
+/**
+ * The process is gone but the row survived (crash, external kill, or plain
+ * exit). Dead-end panels are forbidden: say what happened and offer the way
+ * back — resume when the agent left a conversation ref, remove otherwise.
+ */
+function ExitedPane({
+  sessionId,
+  exitCode,
+  resumable,
+}: {
+  sessionId: string
+  exitCode: number | undefined
+  resumable: boolean
+}): JSX.Element {
+  const { resurrectSession, killSession } = useStore()
+  const [waking, setWaking] = useState(false)
+  // Exit code 0 can still be an external kill of the durable host (the PTY
+  // reports the attach client's exit, not the agent's) — stay neutral about why.
+  const detail =
+    exitCode === undefined || exitCode === 0
+      ? 'The agent process is no longer running.'
+      : exitCode === -1
+        ? 'The agent process failed to start.'
+        : `The agent process exited with code ${exitCode}.`
+  return (
+    <div className="hibernated-pane exited-pane">
+      <RotateCcw size={28} aria-hidden="true" />
+      <p>
+        {detail}{' '}
+        {resumable
+          ? 'The conversation is intact — resume to pick up where it left off.'
+          : 'It left no conversation to resume.'}
+      </p>
+      {resumable ? (
+        <button
+          type="button"
+          disabled={waking}
+          onClick={() => {
+            setWaking(true)
+            void resurrectSession(sessionId)
+          }}
+        >
+          {waking ? 'Resuming…' : 'Resume session'}
+        </button>
+      ) : (
+        <button type="button" onClick={() => void killSession(sessionId)}>
+          Remove session
+        </button>
       )}
     </div>
   )

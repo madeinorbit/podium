@@ -319,7 +319,12 @@ export class SessionRegistry {
   resurrectSession({ sessionId }: { sessionId: string }): { ok: boolean; reason?: string } {
     const session = this.sessions.get(sessionId)
     if (!session) return { ok: false, reason: 'unknown session' }
-    if (session.status !== 'hibernated') return { ok: false, reason: 'not hibernated' }
+    // Hibernated (parked on purpose) and exited (process died or was killed
+    // externally) are the same situation here: no process, but the row and the
+    // resume ref are intact — both come back with one spawn.
+    if (session.status !== 'hibernated' && session.status !== 'exited') {
+      return { ok: false, reason: 'process still running' }
+    }
     if (!session.resume) return { ok: false, reason: 'no resume ref' }
     session.status = 'starting'
     session.exitCode = undefined

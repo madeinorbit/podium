@@ -749,6 +749,35 @@ describe('hibernation', () => {
     expect(reg.listSessions()[0]?.status).toBe('starting')
   })
 
+  it('resurrect revives an exited (crashed) session with a resume ref', () => {
+    const reg = new SessionRegistry()
+    const daemon: ControlMessage[] = []
+    reg.attachDaemon((m) => daemon.push(m))
+    const sessionId = liveSession(reg, daemon)
+    // The process dies out from under us (crash / external kill).
+    reg.onDaemonMessage({ type: 'agentExit', sessionId, code: 0 })
+    expect(reg.listSessions()[0]?.status).toBe('exited')
+    daemon.length = 0
+
+    expect(reg.resurrectSession({ sessionId })).toEqual({ ok: true })
+    expect(daemon).toContainEqual(
+      expect.objectContaining({
+        type: 'spawn',
+        sessionId,
+        resume: { kind: 'claude-session', value: 'abc-123' },
+      }),
+    )
+    expect(reg.listSessions()[0]?.status).toBe('starting')
+  })
+
+  it('refuses to resurrect a live session', () => {
+    const reg = new SessionRegistry()
+    const daemon: ControlMessage[] = []
+    reg.attachDaemon((m) => daemon.push(m))
+    const sessionId = liveSession(reg, daemon)
+    expect(reg.resurrectSession({ sessionId }).ok).toBe(false)
+  })
+
   it('auto-hibernates the oldest idle resumable session above the memory threshold', () => {
     const store = new SessionStore(':memory:')
     const reg = new SessionRegistry(store)
