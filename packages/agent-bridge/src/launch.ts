@@ -5,6 +5,8 @@ export interface LaunchOptions {
   cwd: string
   /** Present to resume an existing on-disk conversation; absent to start fresh. */
   resume?: ResumeRef
+  /** Model override from settings; absent = the CLI's own default. */
+  model?: string
 }
 
 export interface LaunchSpec {
@@ -19,12 +21,21 @@ export interface LaunchSpec {
  * daemon stays agent-agnostic. The result feeds straight into `spawnAgent`.
  */
 export function agentLaunchCommand(kind: AgentKind, opts: LaunchOptions): LaunchSpec {
-  const { cwd, resume } = opts
+  const { cwd, resume, model } = opts
+  const modelArgs = model ? ['--model', model] : []
   switch (kind) {
     case 'claude-code':
-      return { cmd: 'claude', args: resume ? ['--resume', resume.value] : [], cwd }
+      return {
+        cmd: 'claude',
+        args: [...(resume ? ['--resume', resume.value] : []), ...modelArgs],
+        cwd,
+      }
     case 'codex':
-      return { cmd: 'codex', args: resume ? ['resume', resume.value] : [], cwd }
+      return {
+        cmd: 'codex',
+        args: [...(resume ? ['resume', resume.value] : []), ...modelArgs],
+        cwd,
+      }
     case 'shell': {
       const shell = process.env.SHELL || '/bin/bash'
       return { cmd: shell, args: [], cwd }

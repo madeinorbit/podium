@@ -3,12 +3,14 @@ import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
 import { appRouter } from './router'
 import { SessionStore } from './store'
+import { SuperagentService } from './superagent'
 
 function caller() {
   const registry = new SessionRegistry()
   registry.attachDaemon(() => {})
   const repos = new RepoRegistry(new SessionStore(':memory:'))
-  return { registry, call: appRouter.createCaller({ registry, repos }) }
+  const superagent = new SuperagentService(registry, repos, registry.sessionStore)
+  return { registry, call: appRouter.createCaller({ registry, repos, superagent }) }
 }
 
 describe('appRouter', () => {
@@ -30,9 +32,11 @@ describe('appRouter', () => {
     const daemon: import('@podium/protocol').ControlMessage[] = []
     const registry = new SessionRegistry()
     registry.attachDaemon((m) => daemon.push(m))
+    const repos = new RepoRegistry(new SessionStore(':memory:'))
     const call = appRouter.createCaller({
       registry,
-      repos: new RepoRegistry(new SessionStore(':memory:')),
+      repos,
+      superagent: new SuperagentService(registry, repos, registry.sessionStore),
     })
     const p = call.discovery.scan()
     // Yield so the tRPC handler's async body (registry.scan → pendingScans.set) runs before we feed the result.
@@ -55,7 +59,16 @@ function repoCaller() {
   const registry = new SessionRegistry()
   const daemon: import('@podium/protocol').ControlMessage[] = []
   registry.attachDaemon((m) => daemon.push(m))
-  return { registry, repos, daemon, call: appRouter.createCaller({ registry, repos }) }
+  return {
+    registry,
+    repos,
+    daemon,
+    call: appRouter.createCaller({
+      registry,
+      repos,
+      superagent: new SuperagentService(registry, repos, registry.sessionStore),
+    }),
+  }
 }
 
 describe('repos router', () => {

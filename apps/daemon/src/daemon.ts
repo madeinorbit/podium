@@ -1,6 +1,11 @@
+import { execFile } from 'node:child_process'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { homedir, hostname } from 'node:os'
 import { join } from 'node:path'
+import { promisify } from 'node:util'
+
+const execFileAsync = promisify(execFile)
+
 import {
   type AgentConversationDiagnostic,
   type AgentConversationSummary,
@@ -13,6 +18,7 @@ import {
   attachAbducoAgent,
   attachTmuxAgent,
   ConversationDiscoveryCache,
+  claudeProjectSlug,
   compareConversationSummaries,
   type GitDiscoveryDiagnostic,
   type GitRepositorySummary,
@@ -27,6 +33,8 @@ import {
   spawnAbducoAgent,
   spawnAgent,
   spawnTmuxAgent,
+  type TranscriptTailer,
+  tailTranscript,
   tmuxHasSession,
 } from '@podium/agent-bridge'
 import {
@@ -43,6 +51,7 @@ import WebSocket, { type RawData } from 'ws'
 import { startHookIngest } from './hook-ingest'
 import { sampleHostMemory } from './host-metrics'
 import { attributeMemory, snapshotProcesses } from './memory-breakdown'
+import { scanClaudeUsage } from './usage-scan'
 
 const DEFAULT_DISCOVERY_SCAN_INTERVAL_MS = 15_000
 const DEFAULT_HOST_METRICS_INTERVAL_MS = 5_000
@@ -188,11 +197,50 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     opts.hooks?.settingsDir ??
     join(process.env.PODIUM_STATE_DIR ?? join(homedir(), '.podium'), 'hooks')
   const trackers = new Map<string, { provider: AgentStateProvider; state: AgentRuntimeState }>()
+  // Live structured-transcript tails, keyed by Podium session id. Registered
+  // from hook payloads (the only place the harness tells us its transcript
+  // path) and eagerly for resumes, where the resumed file is derivable.
+  const tails = new Map<string, TranscriptTailer>()
+  const ensureTranscriptTail = (sessionId: string, path: string): void => {
+    const existing = tails.get(sessionId)
+    if (existing?.path === path) return
+    existing?.stop()
+    tails.set(
+      sessionId,
+      tailTranscript(path, (items, reset) => {
+        if (items.length === 0 && !reset) return
+        send({ type: 'transcriptAppend', sessionId, items, ...(reset ? { reset } : {}) })
+      }),
+    )
+    // The transcript filename IS the harness's session id — report it as the
+    // resume ref so the server can hibernate this session and resume it later.
+    const base = path.split('/').pop() ?? ''
+    if (base.endsWith('.jsonl')) {
+      const value = base.slice(0, -'.jsonl'.length)
+      if (value) {
+        send({
+          type: 'sessionResumeRef',
+          sessionId,
+          resume: { kind: 'claude-session', value },
+        })
+      }
+    }
+  }
+  const stopTranscriptTail = (sessionId: string): void => {
+    tails.get(sessionId)?.stop()
+    tails.delete(sessionId)
+  }
   const ingest = await startHookIngest({
     ...(opts.hooks?.port !== undefined ? { port: opts.hooks.port } : {}),
     onPayload: (sessionId, payload) => {
       const tracker = trackers.get(sessionId)
       if (!tracker) return
+      // Every Claude hook payload carries transcript_path — the authoritative
+      // pointer to the live JSONL (resumes roll into a fresh file; this follows).
+      const transcriptPath = (payload as Record<string, unknown> | null)?.transcript_path
+      if (typeof transcriptPath === 'string' && transcriptPath) {
+        ensureTranscriptTail(sessionId, transcriptPath)
+      }
       void tracker.provider
         .translate(payload)
         .then((events) => {
@@ -335,6 +383,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
       const cmd = launch(msg.agentKind, {
         cwd: msg.cwd,
         ...(msg.resume ? { resume: msg.resume } : {}),
+        ...(msg.model ? { model: msg.model } : {}),
       })
       const label = `podium-${msg.sessionId}`
       const provider = agentStateProviderFor(msg.agentKind)
@@ -359,6 +408,8 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
         cwd: cmd.cwd,
         cols: msg.geometry.cols,
         rows: msg.geometry.rows,
+        // Subagent model rides as env — Claude Code reads it; harmless elsewhere.
+        ...(msg.subagentModel ? { env: { CLAUDE_CODE_SUBAGENT_MODEL: msg.subagentModel } } : {}),
       }
       const session =
         backend === 'abduco'
@@ -367,6 +418,21 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
             ? spawnTmuxAgent(spawnOpts)
             : spawnAgent(spawnOpts)
       wireBridge(msg.sessionId, session)
+      // Resumes: the resumed transcript is derivable right away, so the chat
+      // view has history before the first hook fires. The first hook payload
+      // re-points the tail at the live file (resume rolls into a fresh one).
+      if (msg.agentKind === 'claude-code' && msg.resume) {
+        ensureTranscriptTail(
+          msg.sessionId,
+          join(
+            homedir(),
+            '.claude',
+            'projects',
+            claudeProjectSlug(msg.cwd),
+            `${msg.resume.value}.jsonl`,
+          ),
+        )
+      }
       // Seed the state once the CLI is actually up (first PTY frame). Claude Code
       // emits no SessionStart hook at interactive boot, so without this the phase
       // sits at 'unknown' until the first prompt. Resumes classify the resumed
@@ -500,6 +566,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
       case 'kill': {
         const session = bridges.get(msg.sessionId)
         trackers.delete(msg.sessionId)
+        stopTranscriptTail(msg.sessionId)
         if (session) {
           session.dispose()
           bridges.delete(msg.sessionId)
@@ -532,8 +599,125 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
       case 'memoryBreakdownRequest':
         memoryBreakdown(msg.requestId, msg.roots)
         break
+      case 'repoOpRequest':
+        void runRepoOp(msg)
+        break
+      case 'harnessExecRequest':
+        void runHarnessExec(msg)
+        break
+      case 'usageRequest':
+        void runUsageScan(msg)
+        break
     }
   })
+
+  // A usage scan reads every recently-active transcript — memo it briefly so a
+  // status chip polling every minute doesn't redo the walk per client.
+  let usageMemo:
+    | { atMs: number; sinceMs: number; buckets: import('@podium/protocol').UsageBucketWire[] }
+    | undefined
+  const runUsageScan = async (
+    msg: Extract<ControlMessage, { type: 'usageRequest' }>,
+  ): Promise<void> => {
+    const sinceMs = msg.sinceMs ?? Date.now() - 7 * 24 * 3_600_000
+    let buckets: import('@podium/protocol').UsageBucketWire[]
+    if (usageMemo && Date.now() - usageMemo.atMs < 60_000 && usageMemo.sinceMs <= sinceMs) {
+      buckets = usageMemo.buckets.filter((b) => Date.parse(b.hour) >= sinceMs - 3_600_000)
+    } else {
+      try {
+        buckets = await scanClaudeUsage({
+          sinceMs,
+          ...(opts.discovery?.homeDir ? { homeDir: opts.discovery.homeDir } : {}),
+        })
+      } catch {
+        buckets = []
+      }
+      usageMemo = { atMs: Date.now(), sinceMs, buckets }
+    }
+    send({ type: 'usageResult', requestId: msg.requestId, hostname: hostname(), buckets })
+  }
+
+  /** Allowlisted git operations for the superagent — each op is a fixed argv. */
+  const runRepoOp = async (
+    msg: Extract<ControlMessage, { type: 'repoOpRequest' }>,
+  ): Promise<void> => {
+    const argvFor = (): string[] | undefined => {
+      switch (msg.op) {
+        case 'status':
+          return ['status', '--porcelain=v1', '-b']
+        case 'log':
+          return ['log', '--oneline', '-20']
+        case 'branches':
+          return ['branch', '-a', '-v']
+        case 'worktreeAdd': {
+          const path = msg.args?.path
+          const branch = msg.args?.branch
+          if (!path || !branch) return undefined
+          return ['worktree', 'add', path, '-b', branch]
+        }
+      }
+    }
+    const argv = argvFor()
+    if (!argv) {
+      send({ type: 'repoOpResult', requestId: msg.requestId, ok: false, output: 'missing args' })
+      return
+    }
+    try {
+      const { stdout, stderr } = await execFileAsync('git', ['-C', msg.cwd, ...argv], {
+        timeout: 30_000,
+        maxBuffer: 1024 * 1024,
+      })
+      send({
+        type: 'repoOpResult',
+        requestId: msg.requestId,
+        ok: true,
+        output: `${stdout}${stderr ? `\n${stderr}` : ''}`.trim(),
+      })
+    } catch (err) {
+      send({
+        type: 'repoOpResult',
+        requestId: msg.requestId,
+        ok: false,
+        output: err instanceof Error ? err.message : String(err),
+      })
+    }
+  }
+
+  /** One-shot `claude -p` / `codex exec` for the harness-backed superagent. */
+  const runHarnessExec = async (
+    msg: Extract<ControlMessage, { type: 'harnessExecRequest' }>,
+  ): Promise<void> => {
+    const cmd = msg.agent === 'claude-code' ? 'claude' : 'codex'
+    const args =
+      msg.agent === 'claude-code'
+        ? ['-p', msg.prompt, ...(msg.model ? ['--model', msg.model] : [])]
+        : [
+            'exec',
+            '--skip-git-repo-check',
+            ...(msg.model ? ['--model', msg.model] : []),
+            msg.prompt,
+          ]
+    try {
+      const { stdout } = await execFileAsync(cmd, args, {
+        timeout: 240_000,
+        maxBuffer: 4 * 1024 * 1024,
+        ...(msg.cwd ? { cwd: msg.cwd } : {}),
+      })
+      send({
+        type: 'harnessExecResult',
+        requestId: msg.requestId,
+        ok: true,
+        output: stdout.trim(),
+      })
+    } catch (err) {
+      send({
+        type: 'harnessExecResult',
+        requestId: msg.requestId,
+        ok: false,
+        output: err instanceof Error ? err.message : String(err),
+      })
+    }
+  }
 
   const disposeAll = (reapSessions = false): void => {
     if (discoveryTimer) clearTimeout(discoveryTimer)
@@ -556,6 +740,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
   const handle: DaemonHandle = {
     hookPort: ingest.port,
     async close(opts) {
+      for (const id of [...tails.keys()]) stopTranscriptTail(id)
       await ingest.close()
       return new Promise<void>((resolve) => {
         disposeAll(opts?.reapSessions ?? false)

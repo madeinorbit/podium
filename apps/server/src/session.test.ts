@@ -18,7 +18,14 @@ function makeSession(toDaemon = vi.fn()) {
 }
 function makeClient(id: string): ClientConn & { sent: ServerMessage[] } {
   const sent: ServerMessage[] = []
-  return { id, send: (m) => sent.push(m), viewport: { ...geo }, attached: new Set(), sent }
+  return {
+    id,
+    send: (m) => sent.push(m),
+    viewport: { ...geo },
+    attached: new Set(),
+    visible: true,
+    sent,
+  }
 }
 
 describe('Session', () => {

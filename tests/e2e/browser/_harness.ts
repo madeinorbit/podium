@@ -29,6 +29,33 @@ export async function openApp(page: Page): Promise<void> {
       timeout: 20_000,
     },
   )
+  await gotoWorkspace(page)
+}
+
+/**
+ * The app lands on the command-center home view; these specs exercise the
+ * workspace. Desktop: click the first sidebar worktree (which switches views).
+ * Mobile: the header (with .tab-add) is always present, so nothing to do.
+ */
+export async function gotoWorkspace(page: Page): Promise<void> {
+  if (
+    await page
+      .locator('.tab-add')
+      .first()
+      .isVisible()
+      .catch(() => false)
+  ) {
+    return
+  }
+  // Repos load async — the sidebar worktree list may not be there yet.
+  const worktree = page.locator('.sidebar .worktree').first()
+  try {
+    await worktree.waitFor({ state: 'visible', timeout: 15_000 })
+  } catch {
+    return // mobile layout (no sidebar) — the header strip is always present
+  }
+  await worktree.click()
+  await page.waitForSelector('.tab-add', { timeout: 10_000 })
 }
 
 /** Create a session of the given kind and wait for its test API to attach. */

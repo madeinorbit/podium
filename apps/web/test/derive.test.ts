@@ -5,11 +5,14 @@ import {
   formatMemBytes,
   hostMemoryView,
   mergeResumable,
+  orderTabs,
   panelLabel,
   reposToViews,
   resumableForRepoFallback,
   resumableForWorktree,
   sessionsForWorktree,
+  sidebarSections,
+  sortSessionsForPins,
 } from '../src/derive'
 
 const repo: GitRepositoryWire = {
@@ -30,7 +33,9 @@ const session = (cwd: string): SessionMeta => ({
   epoch: 0,
   clientCount: 0,
   createdAt: '2026-06-03T00:00:00.000Z',
+  lastActiveAt: '2026-06-03T00:00:00.000Z',
   origin: { kind: 'spawn' },
+  archived: false,
 })
 
 const conv = (projectPath: string, id: string): ConversationSummaryWire => ({
@@ -178,6 +183,85 @@ describe('formatMemBytes', () => {
   it('uses whole MB below 1 GiB', () => {
     expect(formatMemBytes(0.5 * GIB)).toBe('512 MB')
     expect(formatMemBytes(0)).toBe('0 MB')
+  })
+})
+
+describe('pin-aware navigation derivation', () => {
+  it('lifts pinned panels, worktrees, and repos without duplicating them in lower groups', () => {
+    const sessions = [session('/src/app'), session('/src/app-feat')]
+    const sections = sidebarSections([repo], sessions, {
+      panels: ['s-/src/app-feat'],
+      worktrees: ['/src/app-feat'],
+      repos: ['/src/app'],
+    })
+
+    expect(sections.pinnedPanels.map((panel) => panel.sessionId)).toEqual(['s-/src/app-feat'])
+    expect(sections.pinnedWorktrees.map((worktree) => worktree.path)).toEqual(['/src/app-feat'])
+    expect(sections.pinnedWorktrees[0].sessions).toEqual([])
+    expect(sections.pinnedRepos.map((pinnedRepo) => pinnedRepo.path)).toEqual(['/src/app'])
+    expect(sections.pinnedRepos[0].worktrees.map((worktree) => worktree.path)).toEqual(['/src/app'])
+    expect(sections.pinnedRepos[0].worktrees[0].sessions.map((panel) => panel.sessionId)).toEqual([
+      's-/src/app',
+    ])
+    expect(sections.repos).toEqual([])
+  })
+
+  it('keeps an empty pinned repo visible so it can be unpinned', () => {
+    const sections = sidebarSections([repo], [], {
+      panels: [],
+      worktrees: ['/src/app', '/src/app-feat'],
+      repos: ['/src/app'],
+    })
+
+    expect(sections.pinnedRepos.map((pinnedRepo) => pinnedRepo.path)).toEqual(['/src/app'])
+    expect(sections.pinnedRepos[0].worktrees).toEqual([])
+    expect(sections.repos).toEqual([])
+  })
+
+  it('orders pinned panels first in tab strips', () => {
+    const sessions = [session('/src/app'), { ...session('/src/app'), sessionId: 'pinned' }]
+
+    expect(
+      sortSessionsForPins(sessions, { panels: ['pinned'], worktrees: [], repos: [] }).map(
+        (s) => s.sessionId,
+      ),
+    ).toEqual(['pinned', 's-/src/app'])
+  })
+})
+
+describe('orderTabs', () => {
+  const noPins = { panels: [], worktrees: [], repos: [] }
+  const named = (id: string): SessionMeta => ({ ...session('/src/app'), sessionId: id })
+
+  it('falls back to the pin-aware order when no manual order exists', () => {
+    const sessions = [named('a'), named('pinned')]
+    const pins = { panels: ['pinned'], worktrees: [], repos: [] }
+    expect(orderTabs(sessions, undefined, pins).map((s) => s.sessionId)).toEqual(['pinned', 'a'])
+    expect(orderTabs(sessions, [], pins).map((s) => s.sessionId)).toEqual(['pinned', 'a'])
+  })
+
+  it('applies the manual order, beating pin order', () => {
+    const sessions = [named('a'), named('b'), named('c')]
+    const pins = { panels: ['c'], worktrees: [], repos: [] }
+    expect(orderTabs(sessions, ['b', 'a', 'c'], pins).map((s) => s.sessionId)).toEqual([
+      'b',
+      'a',
+      'c',
+    ])
+  })
+
+  it('appends sessions unknown to the manual order at the end', () => {
+    const sessions = [named('new'), named('a'), named('b')]
+    expect(orderTabs(sessions, ['b', 'a'], noPins).map((s) => s.sessionId)).toEqual([
+      'b',
+      'a',
+      'new',
+    ])
+  })
+
+  it('ignores manual entries whose sessions are gone', () => {
+    const sessions = [named('a')]
+    expect(orderTabs(sessions, ['dead', 'a'], noPins).map((s) => s.sessionId)).toEqual(['a'])
   })
 })
 

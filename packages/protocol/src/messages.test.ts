@@ -30,7 +30,9 @@ describe('shared schemas', () => {
       epoch: 0,
       clientCount: 1,
       createdAt: '2026-06-03T00:00:00.000Z',
+      lastActiveAt: '2026-06-03T00:00:00.000Z',
       origin: { kind: 'spawn' as const },
+      archived: false,
     }
     expect(SessionMeta.parse(meta)).toEqual(meta)
   })
@@ -48,7 +50,10 @@ describe('shared schemas', () => {
       epoch: 2,
       clientCount: 0,
       createdAt: '2026-06-03T00:00:00.000Z',
+      lastActiveAt: '2026-06-03T00:00:00.000Z',
       origin: { kind: 'resume' as const, conversationId: 'conv-9' },
+      archived: true,
+      workState: 'done' as const,
     }
     expect(SessionMeta.parse(meta)).toEqual(meta)
   })
@@ -65,7 +70,10 @@ describe('shared schemas', () => {
       epoch: 0,
       clientCount: 0,
       createdAt: '2026-06-03T00:00:00.000Z',
+      lastActiveAt: '2026-06-03T00:00:00.000Z',
       origin: { kind: 'spawn' as const },
+      archived: false,
+      name: 'soft keyboard work',
     }
     expect(SessionMeta.parse(meta)).toEqual(meta)
   })
@@ -104,6 +112,7 @@ describe('ClientMessage', () => {
     { type: 'resize', sessionId: 's1', cols: 100, rows: 30 },
     { type: 'requestControl', sessionId: 's1' },
     { type: 'redrawRequest', sessionId: 's1' },
+    { type: 'ping' },
   ]
   it.each(cases)('round-trips %j', (msg) => {
     expect(parseClientMessage(encode(msg))).toEqual(msg)
@@ -131,7 +140,9 @@ describe('ServerMessage', () => {
     epoch: 0,
     clientCount: 1,
     createdAt: '2026-06-03T00:00:00.000Z',
+    lastActiveAt: '2026-06-03T00:00:00.000Z',
     origin: { kind: 'spawn' as const },
+    archived: false,
   }
   const conversation = {
     id: 'conv-1',
@@ -152,6 +163,7 @@ describe('ServerMessage', () => {
     { type: 'sessionsChanged', sessions: [sessionMeta] },
     { type: 'conversationsChanged', conversations: [conversation], diagnostics: [] },
     { type: 'sessionTitleChanged', sessionId: 's1', title: '✳ rename functionality' },
+    { type: 'pong' },
   ]
   it.each(cases)('round-trips %j', (msg) => {
     expect(parseServerMessage(encode(msg))).toEqual(msg)
@@ -373,7 +385,9 @@ describe('agent runtime state', () => {
       epoch: 0,
       clientCount: 0,
       createdAt: '2026-06-12T10:00:00.000Z',
+      lastActiveAt: '2026-06-12T10:00:00.000Z',
       origin: { kind: 'spawn' },
+      archived: false,
       agentState: {
         phase: 'idle',
         since: '2026-06-12T10:00:00.000Z',

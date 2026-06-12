@@ -28,6 +28,46 @@ describe('web shell structure', () => {
     expect(src).toContain('setTimeout')
     expect(src).toContain('clearTimeout')
   })
+
+  it('store exposes shared pin state and mutations', () => {
+    const src = read('store.tsx')
+    expect(src).toContain('pins')
+    expect(src).toContain('setPinned')
+    expect(src).toContain('pins.list')
+    expect(src).toContain('pins.set')
+  })
+  it('sidebar renders pin-aware moved sections and pin controls', () => {
+    const src = read('Sidebar.tsx')
+    expect(src).toContain('sidebarSections')
+    expect(src).toContain('PinButton')
+    expect(src).toContain('PINNED PANELS')
+    expect(src).toContain('PINNED WORKTREES')
+    expect(src).toContain('PINNED REPOS')
+    expect(src).toContain('setPinned')
+  })
+  it('workspace and mobile tabs use the persisted manual order (pins as fallback)', () => {
+    expect(read('Workspace.tsx')).toContain('orderTabs')
+    expect(read('MobileApp.tsx')).toContain('orderTabs')
+  })
+  it('store loads and persists the manual tab order', () => {
+    const src = read('store.tsx')
+    expect(src).toContain('tabOrders')
+    expect(src).toContain('tabs.listOrders')
+    expect(src).toContain('tabs.setOrder')
+  })
+  it('workspace tabs are sortable with fixed actions outside the scrolling strip', () => {
+    const src = read('Workspace.tsx')
+    expect(src).toContain('DndContext')
+    expect(src).toContain('SortableContext')
+    expect(src).toContain('horizontalListSortingStrategy')
+    expect(src).toContain('useSortable')
+    expect(src).toContain('arrayMove')
+    expect(src).toContain('setTabOrder')
+    expect(src).toContain('tabbar-tabs')
+    expect(src).toContain('tabbar-actions')
+    // Clicks must keep working: drags only start after the pointer moves.
+    expect(src).toContain('activationConstraint')
+  })
   it('repo add flow uses the scan flow on desktop and mobile', () => {
     expect(read('Sidebar.tsx')).toContain('RepoScanFlow')
     expect(read('MobileApp.tsx')).toContain('RepoScanFlow')
@@ -36,9 +76,9 @@ describe('web shell structure', () => {
     const src = read('Sidebar.tsx')
     // Each panel row is an interactive button (not an inert div) that focuses the
     // session: select its worktree and point pane A at it.
-    expect(src).toContain("className={panelActive ? 'panel-row active' : 'panel-row'}")
-    expect(src).toContain('setSelectedWorktree(wt.path)')
-    expect(src).toContain("setPane('A', s.sessionId)")
+    expect(src).toContain("className={active ? 'panel-row active' : 'panel-row'}")
+    expect(src).toContain('setSelectedWorktree(worktreePath)')
+    expect(src).toContain("setPane('A', sessionId)")
   })
   it('repo picker browses folders, hides hidden by default, and offers a scan action', () => {
     const src = read('RepoPickerModal.tsx')
@@ -71,7 +111,7 @@ describe('web shell structure', () => {
   it('conversation discovery is pushed instead of blocking initial store load', () => {
     const src = read('store.tsx')
     expect(src).toContain('hub.onConversations(setConversations)')
-    expect(src).toContain('void refreshRepos()')
+    expect(src).toContain('Promise.all([refreshRepos(), refreshPins(), refreshTabOrders()])')
     expect(src).not.toContain('Promise.all([refreshRepos(), rescanConversations()])')
   })
   it('new-panel menu offers claude, codex, and shell', () => {
@@ -80,10 +120,11 @@ describe('web shell structure', () => {
     expect(src).toContain('New Codex')
     expect(src).toContain('New Shell')
   })
-  it('new-panel menu refreshes resumable conversations when opened', () => {
+  it('new-panel menu is the mini search: indexed, capped, with last-active dates', () => {
     const src = read('NewPanelMenu.tsx')
-    expect(src).toContain('useEffect')
-    expect(src).toContain('void rescanConversations().catch')
+    expect(src).toContain('trpc.conversations.search')
+    expect(src).toContain('MINI_LIMIT')
+    expect(src).toContain('relativeTime')
   })
 })
 
@@ -97,11 +138,18 @@ describe('host health indicators', () => {
     expect(read('Sidebar.tsx')).toContain('<HostIndicators')
     expect(read('MobileApp.tsx')).toContain('<HostIndicators')
   })
-  it('renders nothing without a reporting daemon and labels hosts only when several report', () => {
+  it('the strip always renders the connection indicator; memory chips per host', () => {
     const src = read('HostIndicators.tsx')
-    expect(src).toContain('hostMetrics.length === 0) return null')
+    expect(src).toContain('<ConnectionIndicator')
     expect(src).toContain('hostMetrics.length > 1')
     expect(src).toContain('hostMemoryView')
+  })
+  it('the connection indicator is icon-based with an explanatory tooltip', () => {
+    const src = read('ConnectionIndicator.tsx')
+    expect(src).toContain('describeHealth')
+    expect(src).toContain('onConnectionHealth')
+    expect(src).toContain('conn-tooltip')
+    expect(src).toContain('ms ping') // the number the tooltip explains
   })
 })
 

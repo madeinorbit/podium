@@ -7,7 +7,10 @@ import type {
   ServerMessage,
   SessionMeta,
   SessionOrigin,
+  TranscriptItem,
+  WorkState,
 } from '@podium/protocol'
+import { WorkState as WorkStateSchema } from '@podium/protocol'
 import type { SessionRow } from './store'
 
 export type Send<T> = (msg: T) => void
@@ -17,6 +20,8 @@ export interface ClientConn {
   send: Send<ServerMessage>
   viewport: Geometry
   attached: Set<string>
+  /** Page-visibility presence — drives smart notification routing. */
+  visible: boolean
 }
 
 export interface SessionInit {
@@ -33,6 +38,9 @@ export interface SessionInit {
   lastActiveAt?: string
   status?: 'starting' | 'live' | 'reconnecting' | 'hibernated' | 'exited'
   exitCode?: number
+  name?: string
+  archived?: boolean
+  workState?: WorkState
 }
 
 // Replay-on-attach: keep a bounded buffer of recent agent output so a freshly attached
@@ -41,6 +49,8 @@ export interface SessionInit {
 // apps (shells, Ink) whose scrollback a redraw cannot recreate. Reset on a screen clear
 // or alt-screen transition keeps the buffer small and aligned to the current screen.
 const MAX_REPLAY_BYTES = 256 * 1024
+// Bounded structured-transcript buffer per session — late subscribers get this.
+const MAX_TRANSCRIPT_ITEMS = 3000
 // biome-ignore lint/suspicious/noControlCharactersInRegex: terminal escape sequences
 const SCREEN_RESET = /\x1b\[[23]J|\x1bc|\x1b\[\?1049[hl]/
 
@@ -52,9 +62,15 @@ export class Session {
   readonly origin: SessionOrigin
   readonly createdAt: string
   readonly durableLabel: string
-  readonly resume?: ResumeRef
+  /** How to bring this session back after its process is gone (hibernate→resume).
+   *  Set at spawn for resumes; learned later from the daemon for fresh spawns. */
+  resume?: ResumeRef
   lastActiveAt: string
   title: string
+  /** User-set name; empty = fall back to the live title. */
+  name = ''
+  archived = false
+  workState: WorkState | undefined
   cmd = ''
   status: 'starting' | 'live' | 'reconnecting' | 'hibernated' | 'exited' = 'starting'
   exitCode: number | undefined
@@ -67,6 +83,11 @@ export class Session {
   // Recent agent output (base64 frames) for replay-on-attach; bounded by MAX_REPLAY_BYTES.
   private readonly outputLog: { seq: number; data: string }[] = []
   private outputLogBytes = 0
+  // Structured transcript buffer (chat view) + which clients want its stream.
+  // Holds the connection (not just the id): a chat-only client subscribes
+  // without ever attaching to the PTY.
+  private transcript: TranscriptItem[] = []
+  private readonly transcriptSubscribers = new Map<string, ClientConn>()
 
   constructor(init: SessionInit) {
     this.sessionId = init.sessionId
@@ -82,6 +103,9 @@ export class Session {
     this.lastActiveAt = init.lastActiveAt ?? init.createdAt
     if (init.status) this.status = init.status
     if (init.exitCode !== undefined) this.exitCode = init.exitCode
+    if (init.name) this.name = init.name
+    if (init.archived) this.archived = init.archived
+    if (init.workState) this.workState = init.workState
   }
 
   get clientCount(): number {
@@ -111,8 +135,48 @@ export class Session {
     }
   }
 
+  /** Subscribe a client to the structured transcript: snapshot now, appends after. */
+  subscribeTranscript(client: ClientConn): void {
+    this.transcriptSubscribers.set(client.id, client)
+    client.send({
+      type: 'transcriptSnapshot',
+      sessionId: this.sessionId,
+      items: this.transcript,
+    })
+  }
+
+  unsubscribeTranscript(clientId: string): void {
+    this.transcriptSubscribers.delete(clientId)
+  }
+
+  /** The buffered structured transcript (superagent tools read this). */
+  transcriptItems(): TranscriptItem[] {
+    return this.transcript
+  }
+
+  /** Daemon pushed parsed transcript items; buffer (bounded) and fan out. */
+  appendTranscript(items: TranscriptItem[], reset: boolean): void {
+    if (reset) this.transcript = []
+    this.transcript = this.transcript.concat(items)
+    if (this.transcript.length > MAX_TRANSCRIPT_ITEMS) {
+      this.transcript = this.transcript.slice(-MAX_TRANSCRIPT_ITEMS)
+    }
+    for (const client of this.transcriptSubscribers.values()) {
+      if (reset) {
+        client.send({
+          type: 'transcriptSnapshot',
+          sessionId: this.sessionId,
+          items: this.transcript,
+        })
+      } else {
+        client.send({ type: 'transcriptAppend', sessionId: this.sessionId, items })
+      }
+    }
+  }
+
   detachClient(clientId: string): void {
     this.clients.delete(clientId)
+    this.transcriptSubscribers.delete(clientId)
     if (this.controllerId === clientId) {
       this.controllerId = this.clients.keys().next().value ?? null
       if (this.controllerId !== null) {
@@ -197,6 +261,9 @@ export class Session {
   }
 
   onExit(code: number): void {
+    // A hibernated session's process exit is the *expected* result of the
+    // hibernate kill — don't let it overwrite the hibernated state.
+    if (this.status === 'hibernated') return
     this.status = 'exited'
     this.exitCode = code
     this.broadcast({ type: 'agentExit', sessionId: this.sessionId, code })
@@ -236,6 +303,9 @@ export class Session {
       agentKind: this.agentKind,
       cwd: this.cwd,
       title: this.title,
+      name: this.name || null,
+      archived: this.archived,
+      workState: this.workState ?? null,
       originKind: this.origin.kind,
       conversationId: this.origin.kind === 'resume' ? this.origin.conversationId : null,
       resumeKind: this.resume?.kind ?? null,
@@ -253,6 +323,7 @@ export class Session {
       sessionId: this.sessionId,
       agentKind: this.agentKind,
       title: this.title,
+      ...(this.name ? { name: this.name } : {}),
       cwd: this.cwd,
       status: this.status,
       ...(this.exitCode !== undefined ? { exitCode: this.exitCode } : {}),
@@ -262,8 +333,19 @@ export class Session {
       epoch: this.epoch,
       clientCount: this.clients.size,
       createdAt: this.createdAt,
+      lastActiveAt: this.lastActiveAt,
       origin: this.origin,
+      archived: this.archived,
+      ...(this.workState ? { workState: this.workState } : {}),
+      ...(this.resume ? { resumable: true } : {}),
     }
+  }
+
+  /** Parse a persisted work_state column; unknown strings read as unsorted. */
+  static parseWorkState(raw: string | null): WorkState | undefined {
+    if (raw === null) return undefined
+    const parsed = WorkStateSchema.safeParse(raw)
+    return parsed.success ? parsed.data : undefined
   }
 
   private broadcast(msg: ServerMessage): void {

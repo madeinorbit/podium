@@ -87,6 +87,14 @@ describe('SessionRegistry', () => {
     })
   })
 
+  it('answers a client ping with pong (browser-level keepalive)', () => {
+    const reg = new SessionRegistry()
+    const c = sink()
+    const id = reg.attachClient(c.send)
+    reg.onClientMessage(id, { type: 'ping' })
+    expect(c.sent).toContainEqual({ type: 'pong' })
+  })
+
   it('routes frames only to clients attached to that session (ISOLATION)', () => {
     const reg = new SessionRegistry()
     reg.attachDaemon(() => {})
@@ -418,6 +426,9 @@ describe('SessionRegistry', () => {
       agentKind: 'claude-code',
       cwd: '/a',
       title: 'good',
+      name: null,
+      archived: false,
+      workState: null,
       originKind: 'spawn',
       conversationId: null,
       resumeKind: null,
@@ -433,6 +444,9 @@ describe('SessionRegistry', () => {
       agentKind: 'bogus-agent',
       cwd: '/b',
       title: 'bad',
+      name: null,
+      archived: false,
+      workState: null,
       originKind: 'spawn',
       conversationId: null,
       resumeKind: null,
@@ -605,5 +619,177 @@ describe('agent state', () => {
       ),
     ).toBe('continue\r')
     expect(reg.continueSession({ sessionId: 'ghost' })).toEqual({ ok: false })
+  })
+})
+
+describe('structured transcript channel', () => {
+  it('snapshot on subscribe, appends after, snapshot again on reset', () => {
+    const reg = new SessionRegistry()
+    reg.attachDaemon(() => {})
+    const { sessionId } = reg.createSession({ agentKind: 'claude-code', cwd: '/w' })
+    const client = sink()
+    const clientId = reg.attachClient(client.send)
+    reg.onClientMessage(clientId, { type: 'transcriptSubscribe', sessionId })
+    expect(client.sent).toContainEqual({ type: 'transcriptSnapshot', sessionId, items: [] })
+
+    const item = { id: 'u1', role: 'user' as const, text: 'hi' }
+    reg.onDaemonMessage({ type: 'transcriptAppend', sessionId, items: [item] })
+    expect(client.sent).toContainEqual({ type: 'transcriptAppend', sessionId, items: [item] })
+
+    const item2 = { id: 'u2', role: 'user' as const, text: 'again' }
+    reg.onDaemonMessage({ type: 'transcriptAppend', sessionId, items: [item2], reset: true })
+    expect(client.sent.at(-1)).toEqual({ type: 'transcriptSnapshot', sessionId, items: [item2] })
+  })
+
+  it('a subscriber needs no PTY attachment, and unsubscribe stops the stream', () => {
+    const reg = new SessionRegistry()
+    reg.attachDaemon(() => {})
+    const { sessionId } = reg.createSession({ agentKind: 'claude-code', cwd: '/w' })
+    const client = sink()
+    const clientId = reg.attachClient(client.send)
+    reg.onClientMessage(clientId, { type: 'transcriptSubscribe', sessionId })
+    reg.onClientMessage(clientId, { type: 'transcriptUnsubscribe', sessionId })
+    const before = client.sent.length
+    reg.onDaemonMessage({
+      type: 'transcriptAppend',
+      sessionId,
+      items: [{ id: 'x', role: 'user', text: 'unseen' }],
+    })
+    expect(client.sent.length).toBe(before)
+  })
+})
+
+describe('sendText (chat send path)', () => {
+  it('types single-line text + CR into the PTY of a live session', () => {
+    const reg = new SessionRegistry()
+    const daemon: ControlMessage[] = []
+    reg.attachDaemon((m) => daemon.push(m))
+    const { sessionId } = reg.createSession({ agentKind: 'claude-code', cwd: '/w' })
+    reg.onDaemonMessage(bind(sessionId))
+    expect(reg.sendText({ sessionId, text: 'run the tests' })).toEqual({ ok: true })
+    const input = daemon.find((m) => m.type === 'input')
+    expect(input).toBeDefined()
+    expect(Buffer.from((input as { data: string }).data, 'base64').toString()).toBe(
+      'run the tests\r',
+    )
+  })
+
+  it('wraps multi-line text in bracketed paste so it submits as one block', () => {
+    const reg = new SessionRegistry()
+    const daemon: ControlMessage[] = []
+    reg.attachDaemon((m) => daemon.push(m))
+    const { sessionId } = reg.createSession({ agentKind: 'claude-code', cwd: '/w' })
+    reg.onDaemonMessage(bind(sessionId))
+    reg.sendText({ sessionId, text: 'a\nb' })
+    const input = daemon.find((m) => m.type === 'input')
+    expect(Buffer.from((input as { data: string }).data, 'base64').toString()).toBe(
+      '\x1b[200~a\nb\x1b[201~\r',
+    )
+  })
+
+  it('refuses for exited sessions', () => {
+    const reg = new SessionRegistry()
+    reg.attachDaemon(() => {})
+    const { sessionId } = reg.createSession({ agentKind: 'claude-code', cwd: '/w' })
+    reg.onDaemonMessage({ type: 'agentExit', sessionId, code: 0 })
+    expect(reg.sendText({ sessionId, text: 'hello?' })).toEqual({ ok: false })
+  })
+})
+
+describe('hibernation', () => {
+  function liveSession(reg: SessionRegistry, daemon: ControlMessage[]) {
+    const { sessionId } = reg.createSession({ agentKind: 'claude-code', cwd: '/w' })
+    reg.onDaemonMessage(bind(sessionId))
+    reg.onDaemonMessage({
+      type: 'sessionResumeRef',
+      sessionId,
+      resume: { kind: 'claude-session', value: 'abc-123' },
+    })
+    return sessionId
+  }
+
+  it('hibernate kills the process, keeps the row, survives the agentExit echo', () => {
+    const reg = new SessionRegistry()
+    const daemon: ControlMessage[] = []
+    reg.attachDaemon((m) => daemon.push(m))
+    const sessionId = liveSession(reg, daemon)
+
+    expect(reg.hibernateSession({ sessionId })).toEqual({ ok: true })
+    expect(daemon).toContainEqual({ type: 'kill', sessionId })
+    expect(reg.listSessions()[0]).toMatchObject({ sessionId, status: 'hibernated' })
+    // The daemon's kill produces an exit — it must not flip hibernated → exited.
+    reg.onDaemonMessage({ type: 'agentExit', sessionId, code: 0 })
+    expect(reg.listSessions()[0]?.status).toBe('hibernated')
+  })
+
+  it('refuses to hibernate a session with no resume ref (would be a kill)', () => {
+    const reg = new SessionRegistry()
+    reg.attachDaemon(() => {})
+    const { sessionId } = reg.createSession({ agentKind: 'shell', cwd: '/w' })
+    reg.onDaemonMessage(bind(sessionId))
+    expect(reg.hibernateSession({ sessionId }).ok).toBe(false)
+  })
+
+  it('resurrect respawns under the same id with the resume ref', () => {
+    const reg = new SessionRegistry()
+    const daemon: ControlMessage[] = []
+    reg.attachDaemon((m) => daemon.push(m))
+    const sessionId = liveSession(reg, daemon)
+    reg.hibernateSession({ sessionId })
+    daemon.length = 0
+
+    expect(reg.resurrectSession({ sessionId })).toEqual({ ok: true })
+    expect(daemon).toContainEqual(
+      expect.objectContaining({
+        type: 'spawn',
+        sessionId,
+        resume: { kind: 'claude-session', value: 'abc-123' },
+      }),
+    )
+    expect(reg.listSessions()[0]?.status).toBe('starting')
+  })
+
+  it('auto-hibernates the oldest idle resumable session above the memory threshold', () => {
+    const store = new SessionStore(':memory:')
+    const reg = new SessionRegistry(store)
+    const daemon: ControlMessage[] = []
+    reg.attachDaemon((m) => daemon.push(m))
+    const settings = store.getSettings()
+    store.setSettings({
+      ...settings,
+      hibernation: { enabled: true, memoryPct: 80, idleMinutes: 1 },
+    })
+    const sessionId = liveSession(reg, daemon)
+    // Mark the agent idle, with activity old enough to pass the idle cutoff.
+    reg.onDaemonMessage({
+      type: 'agentState',
+      sessionId,
+      state: {
+        phase: 'idle',
+        since: '2026-06-12T00:00:00.000Z',
+        openTaskCount: 0,
+        idle: { kind: 'done' },
+      },
+    })
+    const session = reg.listSessions()[0]
+    expect(session?.agentState?.phase).toBe('idle')
+    // agentState bumps lastActiveAt to now — rewind it via the store round-trip.
+    // (The idle cutoff compares lastActiveAt; simulate an hour of silence.)
+    // biome-ignore lint/suspicious/noExplicitAny: test reaches into the private map on purpose
+    const internal = (reg as any).sessions.get(sessionId)
+    internal.lastActiveAt = new Date(Date.now() - 3_600_000).toISOString()
+
+    reg.onDaemonMessage({
+      type: 'hostMetrics',
+      hostname: 'box',
+      sampledAt: new Date().toISOString(),
+      memory: {
+        totalBytes: 100,
+        availableBytes: 10, // 90% used
+        swapTotalBytes: 0,
+        swapFreeBytes: 0,
+      },
+    })
+    expect(reg.listSessions()[0]?.status).toBe('hibernated')
   })
 })

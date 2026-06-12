@@ -73,10 +73,17 @@ export const SessionOrigin = z.discriminatedUnion('kind', [
 ])
 export type SessionOrigin = z.infer<typeof SessionOrigin>
 
+// The state of the WORK a session carries (kanban column on the home board) —
+// user-sorted, unlike AgentPhase which is harness-observed.
+export const WorkState = z.enum(['planning', 'implementing', 'testing', 'done', 'icebox'])
+export type WorkState = z.infer<typeof WorkState>
+
 export const SessionMeta = z.object({
   sessionId: z.string(),
   agentKind: AgentKind,
   title: z.string(),
+  /** User-set name. Wins over `title` (the live terminal title) wherever shown. */
+  name: z.string().optional(),
   cwd: z.string(),
   status: SessionStatus,
   exitCode: z.number().int().optional(), // present only when status === 'exited'
@@ -85,8 +92,13 @@ export const SessionMeta = z.object({
   epoch: z.number().int().nonnegative(),
   clientCount: z.number().int().nonnegative(),
   createdAt: z.string(), // ISO 8601
+  lastActiveAt: z.string(), // ISO 8601 — recency signal for the home board
   origin: SessionOrigin,
   agentState: AgentRuntimeState.optional(),
+  archived: z.boolean(),
+  workState: WorkState.optional(),
+  /** True when a resume ref is known — hibernate→resume is possible. */
+  resumable: z.boolean().optional(),
 })
 export type SessionMeta = z.infer<typeof SessionMeta>
 
@@ -149,6 +161,61 @@ export const GitDiscoveryDiagnosticWire = z.object({
 })
 export type GitDiscoveryDiagnosticWire = z.infer<typeof GitDiscoveryDiagnosticWire>
 
+// ---- Transcript (structured conversation feed) ----
+// Normalized, render-oriented view of the harness transcript JSONL. The daemon
+// tails the file (located via hook payloads), parses each record into items,
+// and streams them up; the server keeps a bounded per-session buffer for
+// late-joining clients. Tool calls and their results are separate items linked
+// by toolUseId — the renderer pairs them.
+export const TranscriptRole = z.enum(['user', 'assistant', 'tool', 'system'])
+export type TranscriptRole = z.infer<typeof TranscriptRole>
+
+export const TranscriptTag = z.object({
+  kind: z.enum(['image', 'file']),
+  label: z.string().optional(),
+})
+export type TranscriptTag = z.infer<typeof TranscriptTag>
+
+export const TranscriptItem = z.object({
+  id: z.string(),
+  role: TranscriptRole,
+  ts: z.string().optional(), // ISO 8601
+  /** Markdown body. Empty for pure tool-call items. */
+  text: z.string(),
+  toolName: z.string().optional(),
+  /** Compact one-line preview of the tool input. */
+  toolInput: z.string().optional(),
+  /** Truncated tool result text (set on role 'tool' result items). */
+  toolResult: z.string().optional(),
+  /** Pairs a tool call with its result item. */
+  toolUseId: z.string().optional(),
+  tags: z.array(TranscriptTag).optional(),
+})
+export type TranscriptItem = z.infer<typeof TranscriptItem>
+
+// daemon -> server AND server -> client (identical shape). `reset` replaces the
+// buffer (tailer switched files, e.g. resume rolled into a fresh transcript).
+export const TranscriptAppendMessage = z.object({
+  type: z.literal('transcriptAppend'),
+  sessionId: z.string(),
+  items: z.array(TranscriptItem),
+  reset: z.boolean().optional(),
+})
+// server -> client on subscribe: the whole buffered transcript so far.
+export const TranscriptSnapshotMessage = z.object({
+  type: z.literal('transcriptSnapshot'),
+  sessionId: z.string(),
+  items: z.array(TranscriptItem),
+})
+export const TranscriptSubscribeMessage = z.object({
+  type: z.literal('transcriptSubscribe'),
+  sessionId: z.string(),
+})
+export const TranscriptUnsubscribeMessage = z.object({
+  type: z.literal('transcriptUnsubscribe'),
+  sessionId: z.string(),
+})
+
 // ---- Browser client -> server ----
 export const HelloMessage = z.object({
   type: z.literal('hello'),
@@ -176,6 +243,13 @@ export const RedrawRequestMessage = z.object({
   type: z.literal('redrawRequest'),
   sessionId: z.string(),
 })
+// Liveness probe. The browser pings periodically so a half-open connection (laptop
+// sleep, dead proxy hop) is detected client-side, and idle-timeout proxies see
+// traffic. The server answers with pong.
+export const PingMessage = z.object({ type: z.literal('ping') })
+// User presence (page visibility) — the smart-notification router skips mobile
+// push while some Podium window is visibly open.
+export const PresenceMessage = z.object({ type: z.literal('presence'), visible: z.boolean() })
 
 export const ClientMessage = z.discriminatedUnion('type', [
   HelloMessage,
@@ -185,6 +259,10 @@ export const ClientMessage = z.discriminatedUnion('type', [
   ResizeMessage,
   RequestControlMessage,
   RedrawRequestMessage,
+  PingMessage,
+  PresenceMessage,
+  TranscriptSubscribeMessage,
+  TranscriptUnsubscribeMessage,
 ])
 export type ClientMessage = z.infer<typeof ClientMessage>
 
@@ -266,6 +344,16 @@ export const HostMetricsChangedMessage = z.object({
   type: z.literal('hostMetricsChanged'),
   hosts: z.array(HostMetricsWire),
 })
+// Reply to a client PingMessage; its arrival is the liveness signal.
+export const PongMessage = z.object({ type: z.literal('pong') })
+// A session crossed into a state that wants the human (question, permission,
+// error, plan approval). Clients surface it as a web notification when hidden.
+export const AttentionEventMessage = z.object({
+  type: z.literal('attentionEvent'),
+  sessionId: z.string(),
+  title: z.string(),
+  body: z.string(),
+})
 
 export const ServerMessage = z.discriminatedUnion('type', [
   WelcomeMessage,
@@ -278,6 +366,10 @@ export const ServerMessage = z.discriminatedUnion('type', [
   ConversationsChangedMessage,
   SessionTitleChangedMessage,
   HostMetricsChangedMessage,
+  PongMessage,
+  AttentionEventMessage,
+  TranscriptAppendMessage,
+  TranscriptSnapshotMessage,
 ])
 export type ServerMessage = z.infer<typeof ServerMessage>
 
@@ -290,6 +382,9 @@ export const SpawnMessage = z.object({
   cwd: z.string(),
   resume: ResumeRef.optional(),
   geometry: Geometry,
+  // Settings-driven model defaults. Absent = the harness decides (no flag/env).
+  model: z.string().optional(),
+  subagentModel: z.string().optional(),
 })
 export const ReattachMessage = z.object({
   type: z.literal('reattach'),
@@ -325,7 +420,61 @@ export const MemoryBreakdownRequestMessage = z.object({
   roots: z.array(z.string()),
 })
 
+// Constrained git operations the superagent may run on a dev machine. An
+// allowlisted enum (not a shell string) — the daemon maps each op to a fixed
+// git invocation.
+export const RepoOp = z.enum(['status', 'log', 'branches', 'worktreeAdd'])
+export type RepoOp = z.infer<typeof RepoOp>
+export const RepoOpRequestMessage = z.object({
+  type: z.literal('repoOpRequest'),
+  requestId: z.string(),
+  op: RepoOp,
+  cwd: z.string(),
+  // op-specific extras (worktreeAdd: { path, branch }).
+  args: z.record(z.string()).optional(),
+})
+// One-shot non-interactive harness run (`claude -p` / `codex exec`) — the
+// harness-backed superagent/work-LLM path. Chat only: no Podium tools inside.
+export const HarnessExecRequestMessage = z.object({
+  type: z.literal('harnessExecRequest'),
+  requestId: z.string(),
+  agent: z.enum(['claude-code', 'codex']),
+  model: z.string().optional(),
+  prompt: z.string(),
+  cwd: z.string().optional(),
+})
+
+// Token-usage harvest from harness transcripts (ccusage-style, in-house so it
+// feeds the same wire). Hourly buckets keep the payload small while supporting
+// 5h/weekly windows and per-day analytics.
+export const UsageBucketWire = z.object({
+  /** Bucket start, ISO 8601, truncated to the hour. */
+  hour: z.string(),
+  model: z.string(),
+  inputTokens: z.number().int().nonnegative(),
+  outputTokens: z.number().int().nonnegative(),
+  cacheReadTokens: z.number().int().nonnegative(),
+  cacheCreationTokens: z.number().int().nonnegative(),
+  messages: z.number().int().nonnegative(),
+})
+export type UsageBucketWire = z.infer<typeof UsageBucketWire>
+export const UsageRequestMessage = z.object({
+  type: z.literal('usageRequest'),
+  requestId: z.string(),
+  /** Only count activity at/after this epoch ms (default: 7 days back). */
+  sinceMs: z.number().optional(),
+})
+export const UsageResultMessage = z.object({
+  type: z.literal('usageResult'),
+  requestId: z.string(),
+  hostname: z.string(),
+  buckets: z.array(UsageBucketWire),
+})
+
 export const ControlMessage = z.discriminatedUnion('type', [
+  RepoOpRequestMessage,
+  HarnessExecRequestMessage,
+  UsageRequestMessage,
   SpawnMessage,
   ReattachMessage,
   KillMessage,
@@ -426,7 +575,32 @@ export const ScanReposResultMessage = z.object({
   diagnostics: z.array(GitDiscoveryDiagnosticWire),
 })
 
+// The daemon learned how to resume this session later (e.g. the Claude session
+// uuid from its transcript path). Unlocks hibernate→resume for spawned sessions.
+export const SessionResumeRefMessage = z.object({
+  type: z.literal('sessionResumeRef'),
+  sessionId: z.string(),
+  resume: ResumeRef,
+})
+
+export const RepoOpResultMessage = z.object({
+  type: z.literal('repoOpResult'),
+  requestId: z.string(),
+  ok: z.boolean(),
+  output: z.string(),
+})
+export const HarnessExecResultMessage = z.object({
+  type: z.literal('harnessExecResult'),
+  requestId: z.string(),
+  ok: z.boolean(),
+  output: z.string(),
+})
+
 export const DaemonMessage = z.discriminatedUnion('type', [
+  RepoOpResultMessage,
+  HarnessExecResultMessage,
+  UsageResultMessage,
+  SessionResumeRefMessage,
   BindMessage,
   AgentFrameMessage,
   AgentExitMessage,
@@ -439,6 +613,7 @@ export const DaemonMessage = z.discriminatedUnion('type', [
   ScanReposResultMessage,
   HostMetricsMessage,
   MemoryBreakdownResultMessage,
+  TranscriptAppendMessage,
 ])
 export type DaemonMessage = z.infer<typeof DaemonMessage>
 

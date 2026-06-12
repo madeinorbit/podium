@@ -50,6 +50,9 @@ function row(overrides: Partial<SessionRow> = {}): SessionRow {
     conversationId: null,
     resumeKind: null,
     resumeValue: null,
+    name: null,
+    archived: false,
+    workState: null,
     status: 'starting',
     exitCode: null,
     durableLabel: 'podium-id-1',
@@ -161,6 +164,176 @@ describe('SessionStore schema migration', () => {
         .map((r) => r.durableLabel)
         .sort(),
     ).toEqual(['podium-new-1', 'podium-old-1'])
+    store.close()
+  })
+})
+
+describe('SessionStore pins', () => {
+  it('starts empty, adds, dedupes, lists by kind in insertion order, and removes', () => {
+    const store = new SessionStore(':memory:')
+    expect(store.listPins()).toEqual({ panels: [], worktrees: [], repos: [] })
+
+    store.setPin('repo', '/repo/b', true)
+    store.setPin('worktree', '/repo/b-feature', true)
+    store.setPin('panel', 'session-2', true)
+    store.setPin('repo', '/repo/a', true)
+    store.setPin('repo', '/repo/b', true)
+
+    expect(store.listPins()).toEqual({
+      panels: ['session-2'],
+      worktrees: ['/repo/b-feature'],
+      repos: ['/repo/b', '/repo/a'],
+    })
+
+    store.setPin('repo', '/repo/b', false)
+    expect(store.listPins()).toEqual({
+      panels: ['session-2'],
+      worktrees: ['/repo/b-feature'],
+      repos: ['/repo/a'],
+    })
+    store.close()
+  })
+
+  it('removes a panel pin when the session is deleted', () => {
+    const store = new SessionStore(':memory:')
+    store.upsertSession(row({ id: 'session-1' }))
+    store.setPin('panel', 'session-1', true)
+
+    store.deleteSession('session-1')
+
+    expect(store.listPins()).toEqual({ panels: [], worktrees: [], repos: [] })
+    store.close()
+  })
+})
+
+describe('SessionStore tab order', () => {
+  it('starts empty, upserts per worktree, and clears on an empty list', () => {
+    const store = new SessionStore(':memory:')
+    expect(store.listTabOrders()).toEqual({})
+
+    store.setTabOrder('/repo/a', ['s1', 's2'])
+    store.setTabOrder('/repo/b', ['s9'])
+    store.setTabOrder('/repo/a', ['s2', 's1'])
+    expect(store.listTabOrders()).toEqual({ '/repo/a': ['s2', 's1'], '/repo/b': ['s9'] })
+
+    store.setTabOrder('/repo/b', [])
+    expect(store.listTabOrders()).toEqual({ '/repo/a': ['s2', 's1'] })
+    store.close()
+  })
+
+  it('rejects an empty worktree path', () => {
+    const store = new SessionStore(':memory:')
+    expect(() => store.setTabOrder('  ', ['s1'])).toThrow('worktree path is empty')
+    store.close()
+  })
+
+  it('persists across instances on the same file', async () => {
+    const file = await tmpDbPath()
+    const a = new SessionStore(file)
+    a.setTabOrder('/repo/a', ['s2', 's1'])
+    a.close()
+    const b = new SessionStore(file)
+    expect(b.listTabOrders()).toEqual({ '/repo/a': ['s2', 's1'] })
+    b.close()
+  })
+
+  it('scrubs a session from every order when it is deleted', () => {
+    const store = new SessionStore(':memory:')
+    store.upsertSession(row({ id: 's1' }))
+    store.setTabOrder('/repo/a', ['s2', 's1'])
+    store.setTabOrder('/repo/b', ['s1'])
+
+    store.deleteSession('s1')
+
+    expect(store.listTabOrders()).toEqual({ '/repo/a': ['s2'] })
+    store.close()
+  })
+})
+
+describe('settings', () => {
+  it('returns defaults when nothing was ever saved', () => {
+    const store = new SessionStore(':memory:')
+    const s = store.getSettings()
+    expect(s.sessionDefaults.agent).toBe('auto')
+    expect(s.superagent.provider).toBe('openrouter')
+    expect(s.hibernation.memoryPct).toBe(80)
+    store.close()
+  })
+
+  it('round-trips a saved blob and fills missing keys forward', async () => {
+    const file = await tmpDbPath()
+    const a = new SessionStore(file)
+    const s = a.getSettings()
+    a.setSettings({
+      ...s,
+      sessionDefaults: { ...s.sessionDefaults, agent: 'codex', model: 'gpt-5-codex' },
+      hibernation: { ...s.hibernation, memoryPct: 90 },
+    })
+    a.close()
+    const b = new SessionStore(file)
+    const loaded = b.getSettings()
+    expect(loaded.sessionDefaults.agent).toBe('codex')
+    expect(loaded.sessionDefaults.model).toBe('gpt-5-codex')
+    expect(loaded.hibernation.memoryPct).toBe(90)
+    // untouched sections keep their defaults
+    expect(loaded.notifications.web).toBe(true)
+    b.close()
+  })
+})
+
+describe('conversation index', () => {
+  const conv = (id: string, over: Record<string, unknown> = {}) => ({
+    id,
+    agentKind: 'claude-code',
+    providerId: 'claude-jsonl',
+    title: `conv ${id}`,
+    projectPath: '/src/app',
+    updatedAt: '2026-06-12T08:00:00.000Z',
+    ...over,
+  })
+
+  it('indexes discovered conversations and finds them by keyword', () => {
+    const store = new SessionStore(':memory:')
+    store.upsertConversations([
+      conv('a', { title: 'fix the soft keyboard profiles' }),
+      conv('b', { title: 'memory chip breakdown' }),
+    ])
+    const hits = store.searchConversations({ query: 'keyboard' })
+    expect(hits.map((h) => h.id)).toEqual(['a'])
+    store.close()
+  })
+
+  it('prefix-matches partial words', () => {
+    const store = new SessionStore(':memory:')
+    store.upsertConversations([conv('a', { title: 'podium relay endpoint' })])
+    expect(store.searchConversations({ query: 'rela' }).map((h) => h.id)).toEqual(['a'])
+    store.close()
+  })
+
+  it('filters by projectPath subtree and browses by recency on empty query', () => {
+    const store = new SessionStore(':memory:')
+    store.upsertConversations([
+      conv('old', { updatedAt: '2026-06-01T00:00:00.000Z' }),
+      conv('new', { updatedAt: '2026-06-12T00:00:00.000Z' }),
+      conv('other', { projectPath: '/src/zzz' }),
+    ])
+    const hits = store.searchConversations({ projectPath: '/src/app' })
+    expect(hits.map((h) => h.id)).toEqual(['new', 'old'])
+    store.close()
+  })
+
+  it('curation (name/summary) survives re-discovery and is searchable', () => {
+    const store = new SessionStore(':memory:')
+    store.upsertConversations([conv('a')])
+    store.setConversationMeta('a', {
+      name: 'Soft keyboard epic',
+      summary: 'shipped; awaiting review',
+    })
+    store.upsertConversations([conv('a', { title: 'renamed by discovery' })])
+    const [hit] = store.searchConversations({ query: 'epic' })
+    expect(hit?.id).toBe('a')
+    expect(hit?.name).toBe('Soft keyboard epic')
+    expect(hit?.summary).toBe('shipped; awaiting review')
     store.close()
   })
 })
