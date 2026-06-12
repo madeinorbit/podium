@@ -32,7 +32,10 @@ describe('reduceAgentState', () => {
       { kind: 'needs_user', need: 'question', summary: 'pick one' },
       T0,
     )
-    expect(s).toMatchObject({ phase: 'needs_user', need: { kind: 'question', summary: 'pick one' } })
+    expect(s).toMatchObject({
+      phase: 'needs_user',
+      need: { kind: 'question', summary: 'pick one' },
+    })
     s = reduceAgentState(s, { kind: 'activity' }, T1)
     expect(s.phase).toBe('working')
     expect(s.need).toBeUndefined()
@@ -71,7 +74,10 @@ describe('reduceAgentState', () => {
       { kind: 'turn_failed', errorClass: 'billing_error', retryable: false },
       T1,
     )
-    expect(s).toMatchObject({ phase: 'errored', error: { class: 'billing_error', retryable: false } })
+    expect(s).toMatchObject({
+      phase: 'errored',
+      error: { class: 'billing_error', retryable: false },
+    })
   })
 
   it('compaction start/end → compacting → working', () => {
@@ -82,7 +88,9 @@ describe('reduceAgentState', () => {
   })
 
   it('session_ended → ended', () => {
-    expect(reduceAgentState(initialAgentState(T0), { kind: 'session_ended' }, T1).phase).toBe('ended')
+    expect(reduceAgentState(initialAgentState(T0), { kind: 'session_ended' }, T1).phase).toBe(
+      'ended',
+    )
   })
 
   it('openTaskCount survives phase transitions', () => {

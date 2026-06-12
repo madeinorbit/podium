@@ -47,7 +47,13 @@ export const claudeCodeStateProvider: AgentStateProvider = {
 
 // Transient harness/API failures where a blind "continue" plausibly succeeds.
 // billing/auth/config failures would just fail again — those need a human.
-const RETRYABLE = new Set(['rate_limit', 'overloaded', 'server_error', 'max_output_tokens', 'unknown'])
+const RETRYABLE = new Set([
+  'rate_limit',
+  'overloaded',
+  'server_error',
+  'max_output_tokens',
+  'unknown',
+])
 
 function str(v: unknown): string | undefined {
   return typeof v === 'string' && v.length > 0 ? v : undefined
@@ -165,7 +171,11 @@ export function classifyIdleTranscript(
       .trim()
     if (!text) continue
     if (QUESTIONISH.test(text.slice(-400))) {
-      const lastLine = text.split('\n').filter((l) => l.trim()).at(-1) ?? text
+      const lastLine =
+        text
+          .split('\n')
+          .filter((l) => l.trim())
+          .at(-1) ?? text
       return { kind: 'question', summary: lastLine.trim().slice(0, 140) }
     }
     return { kind: 'done' }
@@ -177,7 +187,9 @@ async function classifyIdleFromStop(
   p: Record<string, unknown>,
 ): Promise<IdleClassification | undefined> {
   const planVerdict: IdleClassification | undefined =
-    p.permission_mode === 'plan' ? { kind: 'approval', summary: 'plan awaiting approval' } : undefined
+    p.permission_mode === 'plan'
+      ? { kind: 'approval', summary: 'plan awaiting approval' }
+      : undefined
   const transcriptPath = typeof p.transcript_path === 'string' ? p.transcript_path : undefined
   if (!transcriptPath) return planVerdict
   try {

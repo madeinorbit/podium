@@ -2,7 +2,12 @@ import { mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { agentStateProviderFor, claudeCodeStateProvider, classifyIdleTranscript, translateClaudeHookPayload } from './claude-code'
+import {
+  agentStateProviderFor,
+  classifyIdleTranscript,
+  claudeCodeStateProvider,
+  translateClaudeHookPayload,
+} from './claude-code'
 
 const URL = 'http://127.0.0.1:45777/hooks/s1'
 
@@ -17,7 +22,10 @@ describe('claude-code instrumentation', () => {
   })
 
   it('settings file is valid JSON wiring every lifecycle event to the http endpoint', () => {
-    const instr = claudeCodeStateProvider.instrumentation({ endpointUrl: URL, settingsPath: '/x.json' })
+    const instr = claudeCodeStateProvider.instrumentation({
+      endpointUrl: URL,
+      settingsPath: '/x.json',
+    })
     const settings = JSON.parse(instr.file?.contents ?? '') as {
       hooks: Record<string, { matcher?: string; hooks: { type: string; url: string }[] }[]>
     }
@@ -92,7 +100,9 @@ describe('translateClaudeHookPayload', () => {
       tool_name: 'AskUserQuestion',
       tool_input: { questions: [{ question: 'Which auth method?', header: 'Auth' }] },
     })
-    expect(events).toEqual([{ kind: 'needs_user', need: 'question', summary: 'Which auth method?' }])
+    expect(events).toEqual([
+      { kind: 'needs_user', need: 'question', summary: 'Which auth method?' },
+    ])
   })
 
   it('non-question PreToolUse is just activity', async () => {
@@ -106,9 +116,16 @@ describe('translateClaudeHookPayload', () => {
       { kind: 'needs_user', need: 'permission', summary: 'Bash' },
     ])
     expect(
-      await t({ hook_event_name: 'Notification', message: 'Claude needs your permission to use Bash' }),
+      await t({
+        hook_event_name: 'Notification',
+        message: 'Claude needs your permission to use Bash',
+      }),
     ).toEqual([
-      { kind: 'needs_user', need: 'permission', summary: 'Claude needs your permission to use Bash' },
+      {
+        kind: 'needs_user',
+        need: 'permission',
+        summary: 'Claude needs your permission to use Bash',
+      },
     ])
   })
 

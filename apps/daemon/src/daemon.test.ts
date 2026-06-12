@@ -756,7 +756,9 @@ describe('agent state instrumentation', () => {
     }
   }
   const states = () =>
-    received.filter((m): m is Extract<DaemonMessage, { type: 'agentState' }> => m.type === 'agentState')
+    received.filter(
+      (m): m is Extract<DaemonMessage, { type: 'agentState' }> => m.type === 'agentState',
+    )
 
   it('writes the hook settings file and appends --settings for claude-code spawns', async () => {
     send({ type: 'spawn', sessionId: 'sA', agentKind: 'claude-code', cwd: '/tmp', geometry: G })

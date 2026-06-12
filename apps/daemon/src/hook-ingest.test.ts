@@ -36,9 +36,9 @@ describe('hook ingest', () => {
     expect(
       (await fetch(`http://127.0.0.1:${ingest.port}/other`, { method: 'POST', body: '{}' })).status,
     ).toBe(404)
-    expect((await fetch(ingest.endpointFor('s1'), { method: 'POST', body: 'not json' })).status).toBe(
-      200,
-    )
+    expect(
+      (await fetch(ingest.endpointFor('s1'), { method: 'POST', body: 'not json' })).status,
+    ).toBe(200)
     await new Promise((r) => setTimeout(r, 10))
     expect(got).toEqual([])
   })

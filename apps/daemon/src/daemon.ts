@@ -40,8 +40,8 @@ import {
   parseControlMessage,
 } from '@podium/protocol'
 import WebSocket, { type RawData } from 'ws'
-import { sampleHostMemory } from './host-metrics'
 import { startHookIngest } from './hook-ingest'
+import { sampleHostMemory } from './host-metrics'
 import { attributeMemory, snapshotProcesses } from './memory-breakdown'
 
 const DEFAULT_DISCOVERY_SCAN_INTERVAL_MS = 15_000
