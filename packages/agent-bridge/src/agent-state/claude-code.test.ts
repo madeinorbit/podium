@@ -1,4 +1,4 @@
-import { mkdtemp, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -230,5 +230,44 @@ describe('Stop payload end-to-end with a real transcript file', () => {
         verdict: { kind: 'question', summary: 'Want me to proceed with the migration?' },
       },
     ])
+  })
+})
+
+describe('bootEvents', () => {
+  it('fresh spawn → session_started (idle, no verdict)', async () => {
+    const events = await claudeCodeStateProvider.bootEvents?.({ cwd: '/proj' })
+    expect(events).toEqual([{ kind: 'session_started' }])
+  })
+
+  it('resume → classifies the resumed transcript tail (question pending)', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'podium-boot-home-'))
+    const cwd = '/home/dev/my.app'
+    const projectDir = join(home, '.claude', 'projects', '-home-dev-my-app')
+    await mkdir(projectDir, { recursive: true })
+    await writeFile(
+      join(projectDir, 'conv1.jsonl'),
+      assistantLine([text('Should I also migrate the staging database?')]),
+    )
+    const events = await claudeCodeStateProvider.bootEvents?.({
+      cwd,
+      resumeValue: 'conv1',
+      homeDir: home,
+    })
+    expect(events).toEqual([
+      {
+        kind: 'turn_completed',
+        verdict: { kind: 'question', summary: 'Should I also migrate the staging database?' },
+      },
+    ])
+  })
+
+  it('resume with a missing/unclassifiable transcript falls back to session_started', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'podium-boot-home-'))
+    const events = await claudeCodeStateProvider.bootEvents?.({
+      cwd: '/proj',
+      resumeValue: 'nope',
+      homeDir: home,
+    })
+    expect(events).toEqual([{ kind: 'session_started' }])
   })
 })

@@ -87,9 +87,14 @@ const gotWorking = await waitFor(
   () => states().some((m) => m.type === 'agentState' && m.state.phase === 'working'),
   30_000,
 )
+// Count from after the working transition so the boot-time idle can't satisfy this.
+const afterWorking = states().length
 const gotStopIdle = await waitFor(
   'Stop → idle (turn finished)',
-  () => states().some((m) => m.type === 'agentState' && m.state.phase === 'idle'),
+  () =>
+    states()
+      .slice(afterWorking)
+      .some((m) => m.state.phase === 'idle'),
   120_000,
 )
 

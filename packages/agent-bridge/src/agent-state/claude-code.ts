@@ -1,4 +1,6 @@
 import { open } from 'node:fs/promises'
+import { homedir } from 'node:os'
+import { join } from 'node:path'
 import type { AgentKind } from '@podium/protocol'
 import type { AgentInstrumentation, AgentStateEvent, AgentStateProvider } from './types.js'
 
@@ -43,6 +45,36 @@ export const claudeCodeStateProvider: AgentStateProvider = {
     }
   },
   translate: translateClaudeHookPayload,
+  bootEvents: claudeBootEvents,
+}
+
+/** Claude's per-project transcript dir name: the cwd with every non-alphanumeric
+ *  character flattened to '-' (verified against real hook payloads, CLI 2.1.173). */
+export function claudeProjectSlug(cwd: string): string {
+  return cwd.replace(/[^a-zA-Z0-9]/g, '-')
+}
+
+export async function claudeBootEvents(opts: {
+  cwd: string
+  resumeValue?: string
+  homeDir?: string
+}): Promise<AgentStateEvent[]> {
+  if (opts.resumeValue) {
+    const transcript = join(
+      opts.homeDir ?? homedir(),
+      '.claude',
+      'projects',
+      claudeProjectSlug(opts.cwd),
+      `${opts.resumeValue}.jsonl`,
+    )
+    try {
+      const verdict = classifyIdleTranscript(await readTranscriptTail(transcript), 'default')
+      if (verdict) return [{ kind: 'turn_completed', verdict }]
+    } catch {
+      // transcript missing or unreadable — fall through to the bare boot event
+    }
+  }
+  return [{ kind: 'session_started' }]
 }
 
 // Transient harness/API failures where a blind "continue" plausibly succeeds.

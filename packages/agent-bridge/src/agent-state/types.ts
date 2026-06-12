@@ -37,6 +37,19 @@ export interface AgentStateProvider {
   /** Translate one harness-native payload into zero or more normalized events.
    *  Async because some translations read the transcript (idle classification). */
   translate(payload: unknown): Promise<AgentStateEvent[]>
+  /**
+   * Events to seed state at spawn, once the CLI is up. Needed because some
+   * harnesses emit nothing at interactive boot (Claude Code fires no SessionStart
+   * until the first prompt) — but a freshly booted CLI is definitionally sitting
+   * at its prompt: idle. A resume can do better and classify the resumed
+   * conversation's transcript, restoring a rich verdict before any hook fires.
+   */
+  bootEvents?(opts: {
+    cwd: string
+    resumeValue?: string
+    /** Test hook; defaults to os.homedir(). */
+    homeDir?: string
+  }): Promise<AgentStateEvent[]>
 }
 
 export type { AgentRuntimeState }

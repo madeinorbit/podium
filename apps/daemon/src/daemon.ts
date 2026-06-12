@@ -367,6 +367,33 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
             ? spawnTmuxAgent(spawnOpts)
             : spawnAgent(spawnOpts)
       wireBridge(msg.sessionId, session)
+      // Seed the state once the CLI is actually up (first PTY frame). Claude Code
+      // emits no SessionStart hook at interactive boot, so without this the phase
+      // sits at 'unknown' until the first prompt. Resumes classify the resumed
+      // transcript for a rich verdict. Real hook events always win: every reduce
+      // below is guarded on the phase still being 'unknown'.
+      if (provider?.bootEvents) {
+        const bootEvents = provider.bootEvents.bind(provider)
+        const offFirstFrame = session.onFrame(() => {
+          offFirstFrame()
+          void bootEvents({
+            cwd: msg.cwd,
+            ...(msg.resume ? { resumeValue: msg.resume.value } : {}),
+          })
+            .then((events) => {
+              const tracker = trackers.get(msg.sessionId)
+              if (!tracker) return
+              for (const event of events) {
+                if (tracker.state.phase !== 'unknown') return
+                const next = reduceAgentState(tracker.state, event, new Date().toISOString())
+                if (next === tracker.state) continue
+                tracker.state = next
+                send({ type: 'agentState', sessionId: msg.sessionId, state: next })
+              }
+            })
+            .catch(() => {}) // boot probe is best-effort; hooks remain authoritative
+        })
+      }
       send({
         type: 'bind',
         sessionId: msg.sessionId,

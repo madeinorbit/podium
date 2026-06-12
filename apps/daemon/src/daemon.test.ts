@@ -812,6 +812,31 @@ describe('agent state instrumentation', () => {
     expect(states().length).toBe(count)
   })
 
+  it('boot: a spawned claude-code session reports idle once frames flow, with no hook POST', async () => {
+    send({ type: 'spawn', sessionId: 'sBoot', agentKind: 'claude-code', cwd: '/tmp', geometry: G })
+    await waitFor(() => states().some((m) => m.sessionId === 'sBoot' && m.state.phase === 'idle'))
+    const idle = states().find((m) => m.sessionId === 'sBoot')
+    expect(idle?.state.idle).toBeUndefined() // bare boot idle — no verdict invented
+  })
+
+  it('boot events never override state already set by a real hook', async () => {
+    send({ type: 'spawn', sessionId: 'sFast', agentKind: 'claude-code', cwd: '/tmp', geometry: G })
+    await waitFor(() => received.some((m) => m.type === 'bind' && m.sessionId === 'sFast'))
+    // A real hook lands before the boot probe applies (fast typist / quick harness)
+    await fetch(`http://127.0.0.1:${daemon.hookPort}/hooks/sFast`, {
+      method: 'POST',
+      body: JSON.stringify({ hook_event_name: 'UserPromptSubmit', prompt: 'go' }),
+    })
+    await waitFor(() =>
+      states().some((m) => m.sessionId === 'sFast' && m.state.phase === 'working'),
+    )
+    await new Promise((r) => setTimeout(r, 150)) // give the boot path time to (not) fire
+    const last = states()
+      .filter((m) => m.sessionId === 'sFast')
+      .at(-1)
+    expect(last?.state.phase).toBe('working')
+  })
+
   it('hook POSTs for unknown sessions are ignored', async () => {
     const res = await fetch(`http://127.0.0.1:${daemon.hookPort}/hooks/nope`, {
       method: 'POST',
