@@ -770,6 +770,22 @@ describe('hibernation', () => {
     expect(reg.listSessions()[0]?.status).toBe('starting')
   })
 
+  it('restarts an exited shell fresh in the same cwd — no resume ref needed', () => {
+    const reg = new SessionRegistry()
+    const daemon: ControlMessage[] = []
+    reg.attachDaemon((m) => daemon.push(m))
+    const { sessionId } = reg.createSession({ agentKind: 'shell', cwd: '/w' })
+    reg.onDaemonMessage(bind(sessionId))
+    reg.onDaemonMessage({ type: 'agentExit', sessionId, code: 137 })
+    expect(reg.listSessions()[0]?.status).toBe('exited')
+    daemon.length = 0
+
+    expect(reg.resurrectSession({ sessionId })).toEqual({ ok: true })
+    const spawn = daemon.find((m) => m.type === 'spawn')
+    expect(spawn).toMatchObject({ sessionId, agentKind: 'shell', cwd: '/w' })
+    expect(spawn && 'resume' in spawn ? spawn.resume : undefined).toBeUndefined()
+  })
+
   it('refuses to resurrect a live session', () => {
     const reg = new SessionRegistry()
     const daemon: ControlMessage[] = []

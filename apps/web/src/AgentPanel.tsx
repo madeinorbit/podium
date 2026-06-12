@@ -116,6 +116,7 @@ export function AgentPanel({ sessionId }: { sessionId: string }): JSX.Element {
         <ExitedPane
           sessionId={sessionId}
           exitCode={session.exitCode}
+          isShell={session.agentKind === 'shell'}
           resumable={session.resumable === true}
         />
       ) : effectiveMode === 'chat' ? (
@@ -133,46 +134,56 @@ export function AgentPanel({ sessionId }: { sessionId: string }): JSX.Element {
 /**
  * The process is gone but the row survived (crash, external kill, or plain
  * exit). Dead-end panels are forbidden: say what happened and offer the way
- * back — resume when the agent left a conversation ref, remove otherwise.
+ * back — a shell restarts fresh in its directory (nothing to lose), an agent
+ * resumes its conversation when it left a ref, and Remove covers the rest.
  */
 function ExitedPane({
   sessionId,
   exitCode,
+  isShell,
   resumable,
 }: {
   sessionId: string
   exitCode: number | undefined
+  isShell: boolean
   resumable: boolean
 }): JSX.Element {
   const { resurrectSession, killSession } = useStore()
   const [waking, setWaking] = useState(false)
+  const what = isShell ? 'shell' : 'agent process'
   // Exit code 0 can still be an external kill of the durable host (the PTY
   // reports the attach client's exit, not the agent's) — stay neutral about why.
   const detail =
     exitCode === undefined || exitCode === 0
-      ? 'The agent process is no longer running.'
+      ? `The ${what} is no longer running.`
       : exitCode === -1
-        ? 'The agent process failed to start.'
-        : `The agent process exited with code ${exitCode}.`
+        ? `The ${what} failed to start.`
+        : `The ${what} exited with code ${exitCode}.`
+  const recoverable = isShell || resumable
+  const restart = () => {
+    setWaking(true)
+    void resurrectSession(sessionId)
+  }
   return (
     <div className="hibernated-pane exited-pane">
       <RotateCcw size={28} aria-hidden="true" />
       <p>
         {detail}{' '}
-        {resumable
-          ? 'The conversation is intact — resume to pick up where it left off.'
-          : 'It left no conversation to resume.'}
+        {isShell
+          ? 'Restart opens a fresh shell in the same directory.'
+          : resumable
+            ? 'The conversation is intact — resume to pick up where it left off.'
+            : 'It left no conversation to resume.'}
       </p>
-      {resumable ? (
-        <button
-          type="button"
-          disabled={waking}
-          onClick={() => {
-            setWaking(true)
-            void resurrectSession(sessionId)
-          }}
-        >
-          {waking ? 'Resuming…' : 'Resume session'}
+      {recoverable ? (
+        <button type="button" disabled={waking} onClick={restart}>
+          {waking
+            ? isShell
+              ? 'Restarting…'
+              : 'Resuming…'
+            : isShell
+              ? 'Restart shell'
+              : 'Resume session'}
         </button>
       ) : (
         <button type="button" onClick={() => void killSession(sessionId)}>

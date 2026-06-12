@@ -325,7 +325,12 @@ export class SessionRegistry {
     if (session.status !== 'hibernated' && session.status !== 'exited') {
       return { ok: false, reason: 'process still running' }
     }
-    if (!session.resume) return { ok: false, reason: 'no resume ref' }
+    // A shell has no conversation to lose — a fresh spawn in the same cwd IS
+    // full recovery, so it never needs a resume ref. Agents do: respawning one
+    // without its ref would silently discard the conversation.
+    if (session.agentKind !== 'shell' && !session.resume) {
+      return { ok: false, reason: 'no resume ref' }
+    }
     session.status = 'starting'
     session.exitCode = undefined
     this.persist(session)
@@ -334,7 +339,7 @@ export class SessionRegistry {
       sessionId,
       agentKind: session.agentKind,
       cwd: session.cwd,
-      resume: session.resume,
+      ...(session.resume ? { resume: session.resume } : {}),
       geometry: session.geometry,
     })
     this.broadcastSessions()
