@@ -1,3 +1,4 @@
+import { open } from 'node:fs/promises'
 import type { AgentKind } from '@podium/protocol'
 import type { AgentInstrumentation, AgentStateEvent, AgentStateProvider } from './types.js'
 
@@ -104,10 +105,87 @@ export async function translateClaudeHookPayload(payload: unknown): Promise<Agen
   }
 }
 
+const TAIL_BYTES = 128 * 1024
+// Tier-2 heuristic: does the last assistant message read like it wants an answer?
+// Intentionally cheap and English-biased — Tier 3 (LLM classification) refines later.
+const QUESTIONISH =
+  /(\?\s*$)|\b(should i|shall i|want me to|would you like|let me know|which (one|option|approach)|do you want)\b/i
+
+type IdleClassification = { kind: 'done' | 'question' | 'approval'; summary?: string }
+
+/** Last `maxBytes` of a JSONL file as parsed records (first partial line dropped). */
+async function readTranscriptTail(path: string, maxBytes = TAIL_BYTES): Promise<unknown[]> {
+  const handle = await open(path, 'r')
+  try {
+    const { size } = await handle.stat()
+    const start = Math.max(0, size - maxBytes)
+    const buffer = Buffer.alloc(Math.min(size, maxBytes))
+    await handle.read(buffer, 0, buffer.length, start)
+    let text = buffer.toString('utf8')
+    if (start > 0) {
+      const firstBreak = text.indexOf('\n')
+      text = firstBreak >= 0 ? text.slice(firstBreak + 1) : ''
+    }
+    const records: unknown[] = []
+    for (const line of text.split(/\r?\n/)) {
+      const trimmed = line.trim()
+      if (!trimmed) continue
+      try {
+        records.push(JSON.parse(trimmed) as unknown)
+      } catch {
+        // torn write mid-line — skip
+      }
+    }
+    return records
+  } finally {
+    await handle.close()
+  }
+}
+
+export function classifyIdleTranscript(
+  records: unknown[],
+  permissionMode: unknown,
+): IdleClassification | undefined {
+  // Tier 1: stopping while still in plan mode means a plan is waiting for sign-off.
+  if (permissionMode === 'plan') return { kind: 'approval', summary: 'plan awaiting approval' }
+  // Walk backward to the last assistant record that actually contains text
+  // (the final record is often tool-use-only).
+  for (let i = records.length - 1; i >= 0; i--) {
+    const r = records[i] as { type?: unknown; message?: { content?: unknown } } | null
+    if (r?.type !== 'assistant') continue
+    const content = r.message?.content
+    if (!Array.isArray(content)) continue
+    const text = content
+      .filter(
+        (b): b is { type: string; text: string } =>
+          typeof b === 'object' && b !== null && (b as { type?: unknown }).type === 'text',
+      )
+      .map((b) => b.text)
+      .join('\n')
+      .trim()
+    if (!text) continue
+    if (QUESTIONISH.test(text.slice(-400))) {
+      const lastLine = text.split('\n').filter((l) => l.trim()).at(-1) ?? text
+      return { kind: 'question', summary: lastLine.trim().slice(0, 140) }
+    }
+    return { kind: 'done' }
+  }
+  return undefined
+}
+
 async function classifyIdleFromStop(
-  _p: Record<string, unknown>,
-): Promise<{ kind: 'done' | 'question' | 'approval'; summary?: string } | undefined> {
-  return undefined // transcript-tail classification lands in the next commit
+  p: Record<string, unknown>,
+): Promise<IdleClassification | undefined> {
+  const planVerdict: IdleClassification | undefined =
+    p.permission_mode === 'plan' ? { kind: 'approval', summary: 'plan awaiting approval' } : undefined
+  const transcriptPath = typeof p.transcript_path === 'string' ? p.transcript_path : undefined
+  if (!transcriptPath) return planVerdict
+  try {
+    return classifyIdleTranscript(await readTranscriptTail(transcriptPath), p.permission_mode)
+  } catch {
+    // unreadable transcript (rotated, perms) — Stop still means idle, just unclassified
+    return planVerdict
+  }
 }
 
 /** The provider registry. Uninstrumented kinds return undefined → phase stays 'unknown'. */

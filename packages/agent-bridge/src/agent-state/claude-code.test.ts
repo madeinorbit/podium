@@ -1,5 +1,8 @@
+import { mkdtemp, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { agentStateProviderFor, claudeCodeStateProvider, translateClaudeHookPayload } from './claude-code'
+import { agentStateProviderFor, claudeCodeStateProvider, classifyIdleTranscript, translateClaudeHookPayload } from './claude-code'
 
 const URL = 'http://127.0.0.1:45777/hooks/s1'
 
@@ -132,5 +135,83 @@ describe('translateClaudeHookPayload', () => {
     expect(await translateClaudeHookPayload(null)).toEqual([])
     expect(await translateClaudeHookPayload('x')).toEqual([])
     expect(await translateClaudeHookPayload({ hook_event_name: 'SomethingNew' })).toEqual([])
+  })
+})
+
+const assistantLine = (blocks: unknown[]) =>
+  JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: blocks } })
+const text = (t: string) => ({ type: 'text', text: t })
+
+describe('classifyIdleTranscript', () => {
+  const parse = (lines: string[]) => lines.map((l) => JSON.parse(l) as unknown)
+
+  it('plan mode at stop → approval, regardless of text', () => {
+    const records = parse([assistantLine([text('All tests pass.')])])
+    expect(classifyIdleTranscript(records, 'plan')).toEqual({
+      kind: 'approval',
+      summary: 'plan awaiting approval',
+    })
+  })
+
+  it('trailing question → question with the asking line as summary', () => {
+    const records = parse([
+      assistantLine([text('Done with part one.')]),
+      assistantLine([text('I can use JWT or sessions.\nWhich approach do you prefer?')]),
+    ])
+    expect(classifyIdleTranscript(records, 'default')).toEqual({
+      kind: 'question',
+      summary: 'Which approach do you prefer?',
+    })
+  })
+
+  it('question-phrase without question mark still counts', () => {
+    const records = parse([
+      assistantLine([text('Let me know if you want me to also update the docs')]),
+    ])
+    expect(classifyIdleTranscript(records, 'default')?.kind).toBe('question')
+  })
+
+  it('declarative ending → done', () => {
+    const records = parse([assistantLine([text('Committed. All 42 tests pass.')])])
+    expect(classifyIdleTranscript(records, 'default')).toEqual({ kind: 'done' })
+  })
+
+  it('skips trailing tool-use-only assistant records to find the last text', () => {
+    const records = parse([
+      assistantLine([text('Should I delete the legacy table?')]),
+      assistantLine([{ type: 'tool_use', name: 'Bash', input: { command: 'ls' } }]),
+    ])
+    expect(classifyIdleTranscript(records, 'default')?.kind).toBe('question')
+  })
+
+  it('no assistant text at all → undefined', () => {
+    expect(classifyIdleTranscript(parse(['{"type":"summary"}']), 'default')).toBeUndefined()
+    expect(classifyIdleTranscript([], 'default')).toBeUndefined()
+  })
+})
+
+describe('Stop payload end-to-end with a real transcript file', () => {
+  it('reads the tail and classifies', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'podium-agent-state-'))
+    const transcript = join(dir, 't.jsonl')
+    await writeFile(
+      transcript,
+      [
+        '{"type":"user","message":{"role":"user","content":"hi"}}',
+        assistantLine([text('Want me to proceed with the migration?')]),
+      ].join('\n'),
+    )
+    const events = await translateClaudeHookPayload({
+      hook_event_name: 'Stop',
+      transcript_path: transcript,
+      permission_mode: 'default',
+      stop_hook_active: false,
+    })
+    expect(events).toEqual([
+      {
+        kind: 'turn_completed',
+        verdict: { kind: 'question', summary: 'Want me to proceed with the migration?' },
+      },
+    ])
   })
 })
