@@ -61,9 +61,10 @@ describe('reapHarnessSessions isolation', () => {
     cleanups.push(() => sentinel.kill('SIGKILL'))
 
     const { abducoSocketDir } = harnessEnv(PORT)
-    mkdirSync(abducoSocketDir, { recursive: true })
+    // abduco 0.6 layout: sockets nest in an `abduco/` subdir of the socket dir.
     // The session's socket file IS in the isolated dir → it's ours → reapable.
-    writeFileSync(join(abducoSocketDir, 'podium-ours@test'), '')
+    mkdirSync(join(abducoSocketDir, 'abduco'), { recursive: true })
+    writeFileSync(join(abducoSocketDir, 'abduco', 'podium-ours@test'), '')
 
     mkdirSync(stubDir, { recursive: true })
     const listing = `Active sessions (on host test)\n* Sat\t 2026-06-13 00:00:00\t${sentinel.pid}\tpodium-ours\n`

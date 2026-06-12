@@ -49,27 +49,70 @@ export function reapHarnessSessions(port: number): void {
   // actually exists inside the isolated dir.
   try {
     mkdirSync(abducoSocketDir, { recursive: true })
+    // abduco 0.6 nests sockets under `abduco/<user>/` inside $ABDUCO_SOCKET_DIR
+    // (layout varies by version) — walk the whole tree so the guard recognizes
+    // our sessions wherever the sockets actually land.
+    const socketFiles = (d: string): string[] =>
+      readdirSync(d, { withFileTypes: true }).flatMap((e) =>
+        e.isDirectory() ? socketFiles(join(d, e.name)) : [e.name],
+      )
     const ourSockets = new Set(
-      readdirSync(abducoSocketDir).flatMap((f) => [f, f.split('@')[0] ?? f]),
+      socketFiles(abducoSocketDir).flatMap((f) => [f, f.split('@')[0] ?? f]),
     )
-    const out = spawnSync('abduco', [], {
-      encoding: 'utf8',
-      env: { ...process.env, ABDUCO_SOCKET_DIR: abducoSocketDir },
-    }).stdout
-    for (const line of (out ?? '').split('\n')) {
-      const fields = line.split('\t')
-      const pid = Number.parseInt(fields[2]?.trim() ?? '', 10)
-      const name = fields[3]?.trim() ?? ''
-      if (
-        fields.length >= 4 &&
-        !Number.isNaN(pid) &&
-        !line.trimStart().startsWith('+') &&
-        ourSockets.has(name)
-      ) {
+    const listing = () =>
+      spawnSync('abduco', [], {
+        encoding: 'utf8',
+        env: { ...process.env, ABDUCO_SOCKET_DIR: abducoSocketDir },
+      }).stdout ?? ''
+    const ours = (out: string): { pid: number; name: string }[] => {
+      const found: { pid: number; name: string }[] = []
+      for (const line of out.split('\n')) {
+        const fields = line.split('\t')
+        const pid = Number.parseInt(fields[2]?.trim() ?? '', 10)
+        const name = fields[3]?.trim() ?? ''
+        if (
+          fields.length >= 4 &&
+          !Number.isNaN(pid) &&
+          !line.trimStart().startsWith('+') &&
+          ourSockets.has(name)
+        ) {
+          found.push({ pid, name })
+        }
+      }
+      return found
+    }
+    const targets = ours(listing())
+    for (const t of targets) {
+      try {
+        process.kill(t.pid, 'SIGTERM')
+      } catch {
+        // already gone
+      }
+    }
+    if (targets.length > 0) {
+      // An idle master parks in poll() and may never observe the pending
+      // SIGTERM. Listing again connects to every socket — that wake is when
+      // the quit flag gets processed. SIGKILL whatever still ignores us:
+      // killing the master drops the PTY, which takes the agent down too.
+      listing()
+      const deadline = Date.now() + 1500
+      let alive = targets
+      while (alive.length > 0 && Date.now() < deadline) {
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100)
+        alive = alive.filter((t) => {
+          try {
+            process.kill(t.pid, 0)
+            return true
+          } catch {
+            return false
+          }
+        })
+      }
+      for (const t of alive) {
         try {
-          process.kill(pid, 'SIGTERM')
+          process.kill(t.pid, 'SIGKILL')
         } catch {
-          // already gone
+          // raced to death
         }
       }
     }
