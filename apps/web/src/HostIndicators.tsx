@@ -6,16 +6,14 @@ import { HostMemoryView } from './HostMemoryView'
 import { useStore } from './store'
 
 /**
- * Host health strip — the connection dot when the server link is unhealthy, plus
- * one chip per daemon machine; nothing at all when every signal is good (an
- * absent indicator beats a stale one). Clicking the memory chip opens the
- * per-process breakdown view.
+ * Host health strip — the connection indicator (always visible; its hover
+ * tooltip carries the live ping number), plus one memory chip per daemon
+ * machine. Clicking the memory chip opens the per-process breakdown view.
  */
-export function HostIndicators(): JSX.Element | null {
+export function HostIndicators(): JSX.Element {
   const { hostMetrics } = useStore()
   const health = useConnectionHealth()
   const [open, setOpen] = useState(false)
-  if (hostMetrics.length === 0 && health.status === 'ok') return null
   const showHostname = hostMetrics.length > 1
   return (
     <div className="host-indicators">

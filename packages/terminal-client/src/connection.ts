@@ -90,6 +90,8 @@ export interface ConnectionHealth {
   status: ConnectionHealthStatus
   /** Latest measured ping round-trip. Null until the first pong (or while disconnected). */
   rttMs: number | null
+  /** Epoch ms when the current status began — lets the UI say "down for 12s". */
+  since: number
 }
 
 /** One ws, multiplexed across N sessions. Owns the connection + server-assigned clientId. */
@@ -112,7 +114,7 @@ export class SocketHub {
   private pingQueue: number[] = []
   private staleTimer: ReturnType<typeof setTimeout> | undefined
   private lastRttMs: number | null = null
-  private health: ConnectionHealth = { status: 'ok', rttMs: null }
+  private health: ConnectionHealth = { status: 'ok', rttMs: null, since: Date.now() }
   private readonly connections = new Map<string, SessionConnection>()
   private readonly sessionObservers = new Set<(s: SessionMeta[]) => void>()
   private readonly conversationObservers = new Set<(c: ConversationSummaryWire[]) => void>()
@@ -340,26 +342,30 @@ export class SocketHub {
   private evaluateHealth(): void {
     const next = this.computeHealth()
     if (next.status === this.health.status && next.rttMs === this.health.rttMs) return
-    this.health = next
-    for (const o of this.healthObservers) o(next)
+    // A status that merely re-confirms keeps its start time — `since` marks the
+    // transition, not the latest re-evaluation.
+    this.health = next.status === this.health.status ? { ...next, since: this.health.since } : next
+    for (const o of this.healthObservers) o(this.health)
   }
 
   private computeHealth(): ConnectionHealth {
+    const since = Date.now()
     if (!this.connectedFlag) {
       // Before the first connection the fatal-error page owns the messaging; a red
       // dot on top of it (or during the initial load) would be noise.
-      return { status: this.everConnected ? 'down' : 'ok', rttMs: null }
+      return { status: this.everConnected ? 'down' : 'ok', rttMs: null, since }
     }
     const oldest = this.pingQueue[0]
     if (oldest !== undefined) {
       const waitedMs = Date.now() - oldest
-      if (waitedMs >= PING_DOWN_AFTER_MS) return { status: 'down', rttMs: this.lastRttMs }
-      if (waitedMs >= PING_DEGRADED_AFTER_MS) return { status: 'degraded', rttMs: this.lastRttMs }
+      if (waitedMs >= PING_DOWN_AFTER_MS) return { status: 'down', rttMs: this.lastRttMs, since }
+      if (waitedMs >= PING_DEGRADED_AFTER_MS)
+        return { status: 'degraded', rttMs: this.lastRttMs, since }
     }
     if (this.lastRttMs !== null && this.lastRttMs >= DEGRADED_RTT_MS) {
-      return { status: 'degraded', rttMs: this.lastRttMs }
+      return { status: 'degraded', rttMs: this.lastRttMs, since }
     }
-    return { status: 'ok', rttMs: this.lastRttMs }
+    return { status: 'ok', rttMs: this.lastRttMs, since }
   }
 
   /** @internal Used by SessionConnection to send its sessionId-tagged messages. */

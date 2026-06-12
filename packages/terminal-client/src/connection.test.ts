@@ -425,7 +425,7 @@ describe('connection health', () => {
 
   it('starts ok with no measurement', () => {
     const { hub } = multiSetup()
-    expect(hub.connectionHealth()).toEqual({ status: 'ok', rttMs: null })
+    expect(hub.connectionHealth()).toMatchObject({ status: 'ok', rttMs: null })
   })
 
   it('measures rtt from the ping/pong round-trip and stays ok when fast', () => {
@@ -435,7 +435,7 @@ describe('connection health', () => {
     sockets[0]?.open() // ping sent immediately
     vi.advanceTimersByTime(80)
     sockets[0]?.recv({ type: 'pong' })
-    expect(hub.connectionHealth()).toEqual({ status: 'ok', rttMs: 80 })
+    expect(hub.connectionHealth()).toMatchObject({ status: 'ok', rttMs: 80 })
   })
 
   it('degrades on a slow pong and recovers on a fast one', () => {
@@ -445,10 +445,10 @@ describe('connection health', () => {
     sockets[0]?.open()
     vi.advanceTimersByTime(600)
     sockets[0]?.recv({ type: 'pong' })
-    expect(hub.connectionHealth()).toEqual({ status: 'degraded', rttMs: 600 })
+    expect(hub.connectionHealth()).toMatchObject({ status: 'degraded', rttMs: 600 })
     vi.advanceTimersByTime(1_900) // land exactly on the next heartbeat ping (t=2.5s)
     sockets[0]?.recv({ type: 'pong' }) // answered instantly
-    expect(hub.connectionHealth()).toEqual({ status: 'ok', rttMs: 0 })
+    expect(hub.connectionHealth()).toMatchObject({ status: 'ok', rttMs: 0 })
   })
 
   it('degrades while a ping goes unanswered, then reports down', () => {
@@ -476,7 +476,7 @@ describe('connection health', () => {
     expect(next).not.toBe(sockets[0])
     next?.open()
     next?.recv({ type: 'pong' })
-    expect(hub.connectionHealth()).toEqual({ status: 'ok', rttMs: 0 })
+    expect(hub.connectionHealth()).toMatchObject({ status: 'ok', rttMs: 0 })
   })
 
   it('notifies observers with a replay and only on change', () => {
@@ -489,10 +489,26 @@ describe('connection health', () => {
     sockets[0]?.recv({ type: 'pong' }) // rtt 0
     vi.advanceTimersByTime(2_500)
     sockets[0]?.recv({ type: 'pong' }) // rtt 0 again — no change, no emit
-    expect(seen).toEqual([
+    expect(seen.map(({ status, rttMs }) => ({ status, rttMs }))).toEqual([
       { status: 'ok', rttMs: null },
       { status: 'ok', rttMs: 0 },
     ])
+  })
+
+  it('keeps `since` pinned to the status transition, not later re-evaluations', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(1_000_000)
+    const { sockets, hub } = multiSetup()
+    hub.connect()
+    sockets[0]?.open() // ping at t=0, never answered
+    vi.advanceTimersByTime(1_500)
+    const degradedAt = hub.connectionHealth().since
+    expect(hub.connectionHealth().status).toBe('degraded')
+    vi.advanceTimersByTime(1_000) // still degraded — same transition keeps its timestamp
+    expect(hub.connectionHealth().since).toBe(degradedAt)
+    vi.advanceTimersByTime(2_500) // crosses the down threshold → new transition
+    expect(hub.connectionHealth().status).toBe('down')
+    expect(hub.connectionHealth().since).toBeGreaterThan(degradedAt)
   })
 })
 
