@@ -159,6 +159,61 @@ export const GitDiscoveryDiagnosticWire = z.object({
 })
 export type GitDiscoveryDiagnosticWire = z.infer<typeof GitDiscoveryDiagnosticWire>
 
+// ---- Transcript (structured conversation feed) ----
+// Normalized, render-oriented view of the harness transcript JSONL. The daemon
+// tails the file (located via hook payloads), parses each record into items,
+// and streams them up; the server keeps a bounded per-session buffer for
+// late-joining clients. Tool calls and their results are separate items linked
+// by toolUseId — the renderer pairs them.
+export const TranscriptRole = z.enum(['user', 'assistant', 'tool', 'system'])
+export type TranscriptRole = z.infer<typeof TranscriptRole>
+
+export const TranscriptTag = z.object({
+  kind: z.enum(['image', 'file']),
+  label: z.string().optional(),
+})
+export type TranscriptTag = z.infer<typeof TranscriptTag>
+
+export const TranscriptItem = z.object({
+  id: z.string(),
+  role: TranscriptRole,
+  ts: z.string().optional(), // ISO 8601
+  /** Markdown body. Empty for pure tool-call items. */
+  text: z.string(),
+  toolName: z.string().optional(),
+  /** Compact one-line preview of the tool input. */
+  toolInput: z.string().optional(),
+  /** Truncated tool result text (set on role 'tool' result items). */
+  toolResult: z.string().optional(),
+  /** Pairs a tool call with its result item. */
+  toolUseId: z.string().optional(),
+  tags: z.array(TranscriptTag).optional(),
+})
+export type TranscriptItem = z.infer<typeof TranscriptItem>
+
+// daemon -> server AND server -> client (identical shape). `reset` replaces the
+// buffer (tailer switched files, e.g. resume rolled into a fresh transcript).
+export const TranscriptAppendMessage = z.object({
+  type: z.literal('transcriptAppend'),
+  sessionId: z.string(),
+  items: z.array(TranscriptItem),
+  reset: z.boolean().optional(),
+})
+// server -> client on subscribe: the whole buffered transcript so far.
+export const TranscriptSnapshotMessage = z.object({
+  type: z.literal('transcriptSnapshot'),
+  sessionId: z.string(),
+  items: z.array(TranscriptItem),
+})
+export const TranscriptSubscribeMessage = z.object({
+  type: z.literal('transcriptSubscribe'),
+  sessionId: z.string(),
+})
+export const TranscriptUnsubscribeMessage = z.object({
+  type: z.literal('transcriptUnsubscribe'),
+  sessionId: z.string(),
+})
+
 // ---- Browser client -> server ----
 export const HelloMessage = z.object({
   type: z.literal('hello'),
@@ -200,6 +255,8 @@ export const ClientMessage = z.discriminatedUnion('type', [
   RequestControlMessage,
   RedrawRequestMessage,
   PingMessage,
+  TranscriptSubscribeMessage,
+  TranscriptUnsubscribeMessage,
 ])
 export type ClientMessage = z.infer<typeof ClientMessage>
 
@@ -296,6 +353,8 @@ export const ServerMessage = z.discriminatedUnion('type', [
   SessionTitleChangedMessage,
   HostMetricsChangedMessage,
   PongMessage,
+  TranscriptAppendMessage,
+  TranscriptSnapshotMessage,
 ])
 export type ServerMessage = z.infer<typeof ServerMessage>
 
@@ -460,6 +519,7 @@ export const DaemonMessage = z.discriminatedUnion('type', [
   ScanReposResultMessage,
   HostMetricsMessage,
   MemoryBreakdownResultMessage,
+  TranscriptAppendMessage,
 ])
 export type DaemonMessage = z.infer<typeof DaemonMessage>
 

@@ -43,6 +43,11 @@ export const appRouter = t.router({
     continue: t.procedure
       .input(z.object({ sessionId: z.string() }))
       .mutation(({ ctx, input }) => ctx.registry.continueSession(input)),
+    // Chat-view send path: routes around controller gating on purpose — a chat
+    // message is an explicit user act, not a competing keyboard.
+    sendText: t.procedure
+      .input(z.object({ sessionId: z.string(), text: z.string().min(1).max(32_768) }))
+      .mutation(({ ctx, input }) => ctx.registry.sendText(input)),
     rename: t.procedure
       .input(z.object({ sessionId: z.string(), name: z.string().max(120) }))
       .mutation(({ ctx, input }) => ctx.registry.renameSession(input)),

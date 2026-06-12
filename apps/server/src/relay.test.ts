@@ -621,3 +621,77 @@ describe('agent state', () => {
     expect(reg.continueSession({ sessionId: 'ghost' })).toEqual({ ok: false })
   })
 })
+
+describe('structured transcript channel', () => {
+  it('snapshot on subscribe, appends after, snapshot again on reset', () => {
+    const reg = new SessionRegistry()
+    reg.attachDaemon(() => {})
+    const { sessionId } = reg.createSession({ agentKind: 'claude-code', cwd: '/w' })
+    const client = sink()
+    const clientId = reg.attachClient(client.send)
+    reg.onClientMessage(clientId, { type: 'transcriptSubscribe', sessionId })
+    expect(client.sent).toContainEqual({ type: 'transcriptSnapshot', sessionId, items: [] })
+
+    const item = { id: 'u1', role: 'user' as const, text: 'hi' }
+    reg.onDaemonMessage({ type: 'transcriptAppend', sessionId, items: [item] })
+    expect(client.sent).toContainEqual({ type: 'transcriptAppend', sessionId, items: [item] })
+
+    const item2 = { id: 'u2', role: 'user' as const, text: 'again' }
+    reg.onDaemonMessage({ type: 'transcriptAppend', sessionId, items: [item2], reset: true })
+    expect(client.sent.at(-1)).toEqual({ type: 'transcriptSnapshot', sessionId, items: [item2] })
+  })
+
+  it('a subscriber needs no PTY attachment, and unsubscribe stops the stream', () => {
+    const reg = new SessionRegistry()
+    reg.attachDaemon(() => {})
+    const { sessionId } = reg.createSession({ agentKind: 'claude-code', cwd: '/w' })
+    const client = sink()
+    const clientId = reg.attachClient(client.send)
+    reg.onClientMessage(clientId, { type: 'transcriptSubscribe', sessionId })
+    reg.onClientMessage(clientId, { type: 'transcriptUnsubscribe', sessionId })
+    const before = client.sent.length
+    reg.onDaemonMessage({
+      type: 'transcriptAppend',
+      sessionId,
+      items: [{ id: 'x', role: 'user', text: 'unseen' }],
+    })
+    expect(client.sent.length).toBe(before)
+  })
+})
+
+describe('sendText (chat send path)', () => {
+  it('types single-line text + CR into the PTY of a live session', () => {
+    const reg = new SessionRegistry()
+    const daemon: ControlMessage[] = []
+    reg.attachDaemon((m) => daemon.push(m))
+    const { sessionId } = reg.createSession({ agentKind: 'claude-code', cwd: '/w' })
+    reg.onDaemonMessage(bind(sessionId))
+    expect(reg.sendText({ sessionId, text: 'run the tests' })).toEqual({ ok: true })
+    const input = daemon.find((m) => m.type === 'input')
+    expect(input).toBeDefined()
+    expect(Buffer.from((input as { data: string }).data, 'base64').toString()).toBe(
+      'run the tests\r',
+    )
+  })
+
+  it('wraps multi-line text in bracketed paste so it submits as one block', () => {
+    const reg = new SessionRegistry()
+    const daemon: ControlMessage[] = []
+    reg.attachDaemon((m) => daemon.push(m))
+    const { sessionId } = reg.createSession({ agentKind: 'claude-code', cwd: '/w' })
+    reg.onDaemonMessage(bind(sessionId))
+    reg.sendText({ sessionId, text: 'a\nb' })
+    const input = daemon.find((m) => m.type === 'input')
+    expect(Buffer.from((input as { data: string }).data, 'base64').toString()).toBe(
+      '\x1b[200~a\nb\x1b[201~\r',
+    )
+  })
+
+  it('refuses for exited sessions', () => {
+    const reg = new SessionRegistry()
+    reg.attachDaemon(() => {})
+    const { sessionId } = reg.createSession({ agentKind: 'claude-code', cwd: '/w' })
+    reg.onDaemonMessage({ type: 'agentExit', sessionId, code: 0 })
+    expect(reg.sendText({ sessionId, text: 'hello?' })).toEqual({ ok: false })
+  })
+})

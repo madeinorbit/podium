@@ -230,6 +230,25 @@ export class SessionRegistry {
     return { ok: true }
   }
 
+  /**
+   * Chat-view send: type a message into the agent's input as if pasted. Multi-line
+   * text goes bracketed so the harness treats it as one block instead of
+   * submitting at each newline; a trailing CR submits.
+   */
+  sendText({ sessionId, text }: { sessionId: string; text: string }): { ok: boolean } {
+    const session = this.sessions.get(sessionId)
+    if (!session || (session.status !== 'live' && session.status !== 'starting')) {
+      return { ok: false }
+    }
+    const body = text.includes('\n') ? `\x1b[200~${text}\x1b[201~` : text
+    this.toDaemon({
+      type: 'input',
+      sessionId,
+      data: Buffer.from(`${body}\r`).toString('base64'),
+    })
+    return { ok: true }
+  }
+
   /** Set (or clear with '') the user-facing session name. */
   renameSession({ sessionId, name }: { sessionId: string; name: string }): void {
     const session = this.sessions.get(sessionId)
@@ -389,6 +408,8 @@ export class SessionRegistry {
     const client = this.clients.get(id)
     if (!client) return
     for (const sessionId of client.attached) this.sessions.get(sessionId)?.detachClient(id)
+    // Transcript subscriptions are independent of PTY attachment — sweep them all.
+    for (const session of this.sessions.values()) session.unsubscribeTranscript(id)
     this.clients.delete(id)
     this.broadcastSessions()
   }
@@ -425,6 +446,12 @@ export class SessionRegistry {
         break
       case 'redrawRequest':
         this.sessions.get(msg.sessionId)?.redraw()
+        break
+      case 'transcriptSubscribe':
+        this.sessions.get(msg.sessionId)?.subscribeTranscript(client)
+        break
+      case 'transcriptUnsubscribe':
+        this.sessions.get(msg.sessionId)?.unsubscribeTranscript(id)
         break
       case 'ping':
         client.send({ type: 'pong' })
@@ -525,6 +552,9 @@ export class SessionRegistry {
         this.broadcastHostMetrics()
         break
       }
+      case 'transcriptAppend':
+        this.sessions.get(msg.sessionId)?.appendTranscript(msg.items, msg.reset ?? false)
+        break
       case 'memoryBreakdownResult': {
         const resolve = this.pendingBreakdowns.get(msg.requestId)
         if (resolve) {

@@ -13,6 +13,7 @@ import {
   attachAbducoAgent,
   attachTmuxAgent,
   ConversationDiscoveryCache,
+  claudeProjectSlug,
   compareConversationSummaries,
   type GitDiscoveryDiagnostic,
   type GitRepositorySummary,
@@ -27,6 +28,8 @@ import {
   spawnAbducoAgent,
   spawnAgent,
   spawnTmuxAgent,
+  type TranscriptTailer,
+  tailTranscript,
   tmuxHasSession,
 } from '@podium/agent-bridge'
 import {
@@ -188,11 +191,37 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     opts.hooks?.settingsDir ??
     join(process.env.PODIUM_STATE_DIR ?? join(homedir(), '.podium'), 'hooks')
   const trackers = new Map<string, { provider: AgentStateProvider; state: AgentRuntimeState }>()
+  // Live structured-transcript tails, keyed by Podium session id. Registered
+  // from hook payloads (the only place the harness tells us its transcript
+  // path) and eagerly for resumes, where the resumed file is derivable.
+  const tails = new Map<string, TranscriptTailer>()
+  const ensureTranscriptTail = (sessionId: string, path: string): void => {
+    const existing = tails.get(sessionId)
+    if (existing?.path === path) return
+    existing?.stop()
+    tails.set(
+      sessionId,
+      tailTranscript(path, (items, reset) => {
+        if (items.length === 0 && !reset) return
+        send({ type: 'transcriptAppend', sessionId, items, ...(reset ? { reset } : {}) })
+      }),
+    )
+  }
+  const stopTranscriptTail = (sessionId: string): void => {
+    tails.get(sessionId)?.stop()
+    tails.delete(sessionId)
+  }
   const ingest = await startHookIngest({
     ...(opts.hooks?.port !== undefined ? { port: opts.hooks.port } : {}),
     onPayload: (sessionId, payload) => {
       const tracker = trackers.get(sessionId)
       if (!tracker) return
+      // Every Claude hook payload carries transcript_path — the authoritative
+      // pointer to the live JSONL (resumes roll into a fresh file; this follows).
+      const transcriptPath = (payload as Record<string, unknown> | null)?.transcript_path
+      if (typeof transcriptPath === 'string' && transcriptPath) {
+        ensureTranscriptTail(sessionId, transcriptPath)
+      }
       void tracker.provider
         .translate(payload)
         .then((events) => {
@@ -370,6 +399,21 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
             ? spawnTmuxAgent(spawnOpts)
             : spawnAgent(spawnOpts)
       wireBridge(msg.sessionId, session)
+      // Resumes: the resumed transcript is derivable right away, so the chat
+      // view has history before the first hook fires. The first hook payload
+      // re-points the tail at the live file (resume rolls into a fresh one).
+      if (msg.agentKind === 'claude-code' && msg.resume) {
+        ensureTranscriptTail(
+          msg.sessionId,
+          join(
+            homedir(),
+            '.claude',
+            'projects',
+            claudeProjectSlug(msg.cwd),
+            `${msg.resume.value}.jsonl`,
+          ),
+        )
+      }
       // Seed the state once the CLI is actually up (first PTY frame). Claude Code
       // emits no SessionStart hook at interactive boot, so without this the phase
       // sits at 'unknown' until the first prompt. Resumes classify the resumed
@@ -503,6 +547,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
       case 'kill': {
         const session = bridges.get(msg.sessionId)
         trackers.delete(msg.sessionId)
+        stopTranscriptTail(msg.sessionId)
         if (session) {
           session.dispose()
           bridges.delete(msg.sessionId)
@@ -559,6 +604,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
   const handle: DaemonHandle = {
     hookPort: ingest.port,
     async close(opts) {
+      for (const id of [...tails.keys()]) stopTranscriptTail(id)
       await ingest.close()
       return new Promise<void>((resolve) => {
         disposeAll(opts?.reapSessions ?? false)

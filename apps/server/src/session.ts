@@ -7,6 +7,7 @@ import type {
   ServerMessage,
   SessionMeta,
   SessionOrigin,
+  TranscriptItem,
   WorkState,
 } from '@podium/protocol'
 import { WorkState as WorkStateSchema } from '@podium/protocol'
@@ -46,6 +47,8 @@ export interface SessionInit {
 // apps (shells, Ink) whose scrollback a redraw cannot recreate. Reset on a screen clear
 // or alt-screen transition keeps the buffer small and aligned to the current screen.
 const MAX_REPLAY_BYTES = 256 * 1024
+// Bounded structured-transcript buffer per session — late subscribers get this.
+const MAX_TRANSCRIPT_ITEMS = 3000
 // biome-ignore lint/suspicious/noControlCharactersInRegex: terminal escape sequences
 const SCREEN_RESET = /\x1b\[[23]J|\x1bc|\x1b\[\?1049[hl]/
 
@@ -76,6 +79,11 @@ export class Session {
   // Recent agent output (base64 frames) for replay-on-attach; bounded by MAX_REPLAY_BYTES.
   private readonly outputLog: { seq: number; data: string }[] = []
   private outputLogBytes = 0
+  // Structured transcript buffer (chat view) + which clients want its stream.
+  // Holds the connection (not just the id): a chat-only client subscribes
+  // without ever attaching to the PTY.
+  private transcript: TranscriptItem[] = []
+  private readonly transcriptSubscribers = new Map<string, ClientConn>()
 
   constructor(init: SessionInit) {
     this.sessionId = init.sessionId
@@ -123,8 +131,43 @@ export class Session {
     }
   }
 
+  /** Subscribe a client to the structured transcript: snapshot now, appends after. */
+  subscribeTranscript(client: ClientConn): void {
+    this.transcriptSubscribers.set(client.id, client)
+    client.send({
+      type: 'transcriptSnapshot',
+      sessionId: this.sessionId,
+      items: this.transcript,
+    })
+  }
+
+  unsubscribeTranscript(clientId: string): void {
+    this.transcriptSubscribers.delete(clientId)
+  }
+
+  /** Daemon pushed parsed transcript items; buffer (bounded) and fan out. */
+  appendTranscript(items: TranscriptItem[], reset: boolean): void {
+    if (reset) this.transcript = []
+    this.transcript = this.transcript.concat(items)
+    if (this.transcript.length > MAX_TRANSCRIPT_ITEMS) {
+      this.transcript = this.transcript.slice(-MAX_TRANSCRIPT_ITEMS)
+    }
+    for (const client of this.transcriptSubscribers.values()) {
+      if (reset) {
+        client.send({
+          type: 'transcriptSnapshot',
+          sessionId: this.sessionId,
+          items: this.transcript,
+        })
+      } else {
+        client.send({ type: 'transcriptAppend', sessionId: this.sessionId, items })
+      }
+    }
+  }
+
   detachClient(clientId: string): void {
     this.clients.delete(clientId)
+    this.transcriptSubscribers.delete(clientId)
     if (this.controllerId === clientId) {
       this.controllerId = this.clients.keys().next().value ?? null
       if (this.controllerId !== null) {

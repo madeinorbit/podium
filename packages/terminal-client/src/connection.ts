@@ -5,6 +5,7 @@ import {
   parseServerMessage,
   type ServerMessage,
   type SessionMeta,
+  type TranscriptItem,
 } from '@podium/protocol'
 
 export interface WebSocketLike {
@@ -116,6 +117,12 @@ export class SocketHub {
   private lastRttMs: number | null = null
   private health: ConnectionHealth = { status: 'ok', rttMs: null, since: Date.now() }
   private readonly connections = new Map<string, SessionConnection>()
+  // Per-session structured transcript: buffered items + observers. An entry
+  // exists while at least one observer is subscribed.
+  private readonly transcripts = new Map<
+    string,
+    { items: TranscriptItem[]; observers: Set<(items: TranscriptItem[]) => void> }
+  >()
   private readonly sessionObservers = new Set<(s: SessionMeta[]) => void>()
   private readonly conversationObservers = new Set<(c: ConversationSummaryWire[]) => void>()
   private readonly hostMetricsObservers = new Set<(h: HostMetricsWire[]) => void>()
@@ -167,6 +174,11 @@ export class SocketHub {
         viewport: { ...this.opts.viewport },
       })
       for (const sessionId of this.connections.keys()) this.sendRaw({ type: 'attach', sessionId })
+      // Transcript subscriptions survive reconnects the same way attaches do —
+      // the server re-sends a fresh snapshot which replaces local state.
+      for (const sessionId of this.transcripts.keys()) {
+        this.sendRaw({ type: 'transcriptSubscribe', sessionId })
+      }
       this.notifyConnections()
       this.evaluateHealth()
     }
@@ -329,6 +341,32 @@ export class SocketHub {
     return () => this.hostMetricsObservers.delete(cb)
   }
 
+  /**
+   * Observe a session's structured transcript. The first observer triggers a
+   * server-side subscription (snapshot + live appends); the last one leaving
+   * unsubscribes and drops the buffer. The callback always receives the FULL
+   * item list (simplest correct contract across snapshot resets).
+   */
+  subscribeTranscript(sessionId: string, cb: (items: TranscriptItem[]) => void): () => void {
+    let entry = this.transcripts.get(sessionId)
+    if (!entry) {
+      entry = { items: [], observers: new Set() }
+      this.transcripts.set(sessionId, entry)
+      if (this.connectedFlag) this.sendRaw({ type: 'transcriptSubscribe', sessionId })
+    }
+    entry.observers.add(cb)
+    cb(entry.items)
+    return () => {
+      const current = this.transcripts.get(sessionId)
+      if (!current) return
+      current.observers.delete(cb)
+      if (current.observers.size === 0) {
+        this.transcripts.delete(sessionId)
+        if (this.connectedFlag) this.sendRaw({ type: 'transcriptUnsubscribe', sessionId })
+      }
+    }
+  }
+
   connectionHealth(): ConnectionHealth {
     return this.health
   }
@@ -422,6 +460,13 @@ export class SocketHub {
     if (msg.type === 'hostMetricsChanged') {
       this.hostMetricsList = msg.hosts
       for (const o of this.hostMetricsObservers) o(this.hostMetricsList)
+      return
+    }
+    if (msg.type === 'transcriptSnapshot' || msg.type === 'transcriptAppend') {
+      const entry = this.transcripts.get(msg.sessionId)
+      if (!entry) return
+      entry.items = msg.type === 'transcriptSnapshot' ? msg.items : entry.items.concat(msg.items)
+      for (const o of entry.observers) o(entry.items)
       return
     }
     if (msg.type === 'sessionTitleChanged') {
