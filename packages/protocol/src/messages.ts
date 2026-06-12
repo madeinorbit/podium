@@ -73,10 +73,17 @@ export const SessionOrigin = z.discriminatedUnion('kind', [
 ])
 export type SessionOrigin = z.infer<typeof SessionOrigin>
 
+// The state of the WORK a session carries (kanban column on the home board) —
+// user-sorted, unlike AgentPhase which is harness-observed.
+export const WorkState = z.enum(['planning', 'implementing', 'testing', 'done', 'icebox'])
+export type WorkState = z.infer<typeof WorkState>
+
 export const SessionMeta = z.object({
   sessionId: z.string(),
   agentKind: AgentKind,
   title: z.string(),
+  /** User-set name. Wins over `title` (the live terminal title) wherever shown. */
+  name: z.string().optional(),
   cwd: z.string(),
   status: SessionStatus,
   exitCode: z.number().int().optional(), // present only when status === 'exited'
@@ -85,8 +92,11 @@ export const SessionMeta = z.object({
   epoch: z.number().int().nonnegative(),
   clientCount: z.number().int().nonnegative(),
   createdAt: z.string(), // ISO 8601
+  lastActiveAt: z.string(), // ISO 8601 — recency signal for the home board
   origin: SessionOrigin,
   agentState: AgentRuntimeState.optional(),
+  archived: z.boolean(),
+  workState: WorkState.optional(),
 })
 export type SessionMeta = z.infer<typeof SessionMeta>
 

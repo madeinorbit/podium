@@ -28,6 +28,8 @@ export interface SessionRow {
   agentKind: string
   cwd: string
   title: string
+  /** User-set display name; null = derive from title. */
+  name: string | null
   originKind: 'spawn' | 'resume'
   conversationId: string | null
   resumeKind: string | null
@@ -37,6 +39,9 @@ export interface SessionRow {
   durableLabel: string
   createdAt: string
   lastActiveAt: string
+  archived: boolean
+  /** Kanban column on the home board; null = unsorted. */
+  workState: string | null
 }
 
 /** Durable server-side store: repos + sessions registry. Single writer (the server). */
@@ -145,8 +150,9 @@ export class SessionStore {
   loadSessions(): SessionRow[] {
     const rows = this.db
       .prepare(
-        `SELECT id, agent_kind, cwd, title, origin_kind, conversation_id, resume_kind,
-                resume_value, status, exit_code, durable_label, created_at, last_active_at
+        `SELECT id, agent_kind, cwd, title, name, origin_kind, conversation_id, resume_kind,
+                resume_value, status, exit_code, durable_label, created_at, last_active_at,
+                archived, work_state
          FROM sessions ORDER BY created_at ASC, rowid ASC`,
       )
       .all() as Record<string, unknown>[]
@@ -155,6 +161,7 @@ export class SessionStore {
       agentKind: r.agent_kind as string,
       cwd: r.cwd as string,
       title: r.title as string,
+      name: (r.name as string | null) ?? null,
       originKind: r.origin_kind as 'spawn' | 'resume',
       conversationId: (r.conversation_id as string | null) ?? null,
       resumeKind: (r.resume_kind as string | null) ?? null,
@@ -164,6 +171,8 @@ export class SessionStore {
       durableLabel: r.durable_label as string,
       createdAt: r.created_at as string,
       lastActiveAt: r.last_active_at as string,
+      archived: r.archived === 1,
+      workState: (r.work_state as string | null) ?? null,
     }))
   }
 
@@ -171,11 +180,13 @@ export class SessionStore {
     this.db
       .prepare(
         `INSERT INTO sessions
-           (id, agent_kind, cwd, title, origin_kind, conversation_id, resume_kind,
-            resume_value, status, exit_code, durable_label, created_at, last_active_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           (id, agent_kind, cwd, title, name, origin_kind, conversation_id, resume_kind,
+            resume_value, status, exit_code, durable_label, created_at, last_active_at,
+            archived, work_state)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            title = excluded.title,
+           name = excluded.name,
            origin_kind = excluded.origin_kind,
            conversation_id = excluded.conversation_id,
            resume_kind = excluded.resume_kind,
@@ -183,13 +194,16 @@ export class SessionStore {
            status = excluded.status,
            exit_code = excluded.exit_code,
            durable_label = excluded.durable_label,
-           last_active_at = excluded.last_active_at`,
+           last_active_at = excluded.last_active_at,
+           archived = excluded.archived,
+           work_state = excluded.work_state`,
       )
       .run(
         row.id,
         row.agentKind,
         row.cwd,
         row.title,
+        row.name,
         row.originKind,
         row.conversationId,
         row.resumeKind,
@@ -199,6 +213,8 @@ export class SessionStore {
         row.durableLabel,
         row.createdAt,
         row.lastActiveAt,
+        row.archived ? 1 : 0,
+        row.workState,
       )
   }
 
@@ -251,6 +267,7 @@ export class SessionStore {
          agent_kind TEXT NOT NULL,
          cwd TEXT NOT NULL,
          title TEXT NOT NULL,
+         name TEXT,
          origin_kind TEXT NOT NULL,
          conversation_id TEXT,
          resume_kind TEXT,
@@ -259,7 +276,9 @@ export class SessionStore {
          exit_code INTEGER,
          durable_label TEXT NOT NULL,
          created_at TEXT NOT NULL,
-         last_active_at TEXT NOT NULL
+         last_active_at TEXT NOT NULL,
+         archived INTEGER NOT NULL DEFAULT 0,
+         work_state TEXT
        )`,
     )
     this.db.exec(
@@ -277,13 +296,20 @@ export class SessionStore {
     if (cols.some((c) => c.name === 'tmux_label')) {
       this.db.exec('ALTER TABLE sessions RENAME COLUMN tmux_label TO durable_label')
     }
+    // v2 -> v3: session curation columns (user name, archive flag, kanban state).
+    // Fresh DBs get them from the CREATE above; pre-v3 tables gain them in place.
+    const colNames = new Set(cols.map((c) => c.name))
+    if (!colNames.has('name')) this.db.exec('ALTER TABLE sessions ADD COLUMN name TEXT')
+    if (!colNames.has('archived'))
+      this.db.exec('ALTER TABLE sessions ADD COLUMN archived INTEGER NOT NULL DEFAULT 0')
+    if (!colNames.has('work_state')) this.db.exec('ALTER TABLE sessions ADD COLUMN work_state TEXT')
     const v = this.db.prepare('SELECT value FROM meta WHERE key = ?').get('schema_version') as
       | { value: string }
       | undefined
-    if (!v || v.value === '1')
+    if (!v || Number(v.value) < 3)
       this.db
         .prepare('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)')
-        .run('schema_version', '2')
+        .run('schema_version', '3')
     this.importReposJson()
   }
 

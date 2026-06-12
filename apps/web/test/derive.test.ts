@@ -33,7 +33,9 @@ const session = (cwd: string): SessionMeta => ({
   epoch: 0,
   clientCount: 0,
   createdAt: '2026-06-03T00:00:00.000Z',
+  lastActiveAt: '2026-06-03T00:00:00.000Z',
   origin: { kind: 'spawn' },
+  archived: false,
 })
 
 const conv = (projectPath: string, id: string): ConversationSummaryWire => ({

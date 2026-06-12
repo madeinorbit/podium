@@ -7,7 +7,9 @@ import type {
   ServerMessage,
   SessionMeta,
   SessionOrigin,
+  WorkState,
 } from '@podium/protocol'
+import { WorkState as WorkStateSchema } from '@podium/protocol'
 import type { SessionRow } from './store'
 
 export type Send<T> = (msg: T) => void
@@ -33,6 +35,9 @@ export interface SessionInit {
   lastActiveAt?: string
   status?: 'starting' | 'live' | 'reconnecting' | 'hibernated' | 'exited'
   exitCode?: number
+  name?: string
+  archived?: boolean
+  workState?: WorkState
 }
 
 // Replay-on-attach: keep a bounded buffer of recent agent output so a freshly attached
@@ -55,6 +60,10 @@ export class Session {
   readonly resume?: ResumeRef
   lastActiveAt: string
   title: string
+  /** User-set name; empty = fall back to the live title. */
+  name = ''
+  archived = false
+  workState: WorkState | undefined
   cmd = ''
   status: 'starting' | 'live' | 'reconnecting' | 'hibernated' | 'exited' = 'starting'
   exitCode: number | undefined
@@ -82,6 +91,9 @@ export class Session {
     this.lastActiveAt = init.lastActiveAt ?? init.createdAt
     if (init.status) this.status = init.status
     if (init.exitCode !== undefined) this.exitCode = init.exitCode
+    if (init.name) this.name = init.name
+    if (init.archived) this.archived = init.archived
+    if (init.workState) this.workState = init.workState
   }
 
   get clientCount(): number {
@@ -236,6 +248,9 @@ export class Session {
       agentKind: this.agentKind,
       cwd: this.cwd,
       title: this.title,
+      name: this.name || null,
+      archived: this.archived,
+      workState: this.workState ?? null,
       originKind: this.origin.kind,
       conversationId: this.origin.kind === 'resume' ? this.origin.conversationId : null,
       resumeKind: this.resume?.kind ?? null,
@@ -253,6 +268,7 @@ export class Session {
       sessionId: this.sessionId,
       agentKind: this.agentKind,
       title: this.title,
+      ...(this.name ? { name: this.name } : {}),
       cwd: this.cwd,
       status: this.status,
       ...(this.exitCode !== undefined ? { exitCode: this.exitCode } : {}),
@@ -262,8 +278,18 @@ export class Session {
       epoch: this.epoch,
       clientCount: this.clients.size,
       createdAt: this.createdAt,
+      lastActiveAt: this.lastActiveAt,
       origin: this.origin,
+      archived: this.archived,
+      ...(this.workState ? { workState: this.workState } : {}),
     }
+  }
+
+  /** Parse a persisted work_state column; unknown strings read as unsorted. */
+  static parseWorkState(raw: string | null): WorkState | undefined {
+    if (raw === null) return undefined
+    const parsed = WorkStateSchema.safeParse(raw)
+    return parsed.success ? parsed.data : undefined
   }
 
   private broadcast(msg: ServerMessage): void {

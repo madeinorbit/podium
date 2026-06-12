@@ -97,8 +97,9 @@ export function reposToViews(repos: GitRepositoryWire[]): RepoView[] {
     })
 }
 
+/** Sessions shown in a worktree's tab strip / sidebar — archived ones stay out. */
 export function sessionsForWorktree(sessions: SessionMeta[], worktreePath: string): SessionMeta[] {
-  return sessions.filter((s) => s.cwd === worktreePath)
+  return sessions.filter((s) => s.cwd === worktreePath && !s.archived)
 }
 
 export function resumableForWorktree(

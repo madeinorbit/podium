@@ -15,6 +15,7 @@ import {
   type ResumeRef,
   type ServerMessage,
   type SessionMeta,
+  type WorkState,
 } from '@podium/protocol'
 import { type ClientConn, type Send, Session } from './session'
 import { type PinKind, SessionStore } from './store'
@@ -103,6 +104,11 @@ export class SessionRegistry {
         lastActiveAt: r.lastActiveAt,
         status: reloadStatus,
         exitCode: exitCode ?? undefined,
+        ...(r.name ? { name: r.name } : {}),
+        archived: r.archived,
+        ...(Session.parseWorkState(r.workState)
+          ? { workState: Session.parseWorkState(r.workState) }
+          : {}),
         ...(r.resumeKind && r.resumeValue
           ? { resume: { kind: r.resumeKind, value: r.resumeValue } }
           : {}),
@@ -222,6 +228,31 @@ export class SessionRegistry {
       data: Buffer.from('continue\r').toString('base64'),
     })
     return { ok: true }
+  }
+
+  /** Set (or clear with '') the user-facing session name. */
+  renameSession({ sessionId, name }: { sessionId: string; name: string }): void {
+    const session = this.sessions.get(sessionId)
+    if (!session) return
+    session.name = name.trim()
+    this.persist(session)
+    this.broadcastSessions()
+  }
+
+  setArchived({ sessionId, archived }: { sessionId: string; archived: boolean }): void {
+    const session = this.sessions.get(sessionId)
+    if (!session) return
+    session.archived = archived
+    this.persist(session)
+    this.broadcastSessions()
+  }
+
+  setWorkState({ sessionId, workState }: { sessionId: string; workState: WorkState | null }): void {
+    const session = this.sessions.get(sessionId)
+    if (!session) return
+    session.workState = workState ?? undefined
+    this.persist(session)
+    this.broadcastSessions()
   }
 
   killSession(input: { sessionId: string }): void {

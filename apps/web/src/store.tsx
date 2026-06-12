@@ -4,6 +4,7 @@ import type {
   GitRepositoryWire,
   HostMetricsWire,
   SessionMeta,
+  WorkState,
 } from '@podium/protocol'
 import { SocketHub } from '@podium/terminal-client'
 import type { JSX } from 'react'
@@ -53,6 +54,9 @@ export interface Store {
   killSession: (sessionId: string) => Promise<void>
   /** Nudge an errored agent to retry ("continue⏎" into its PTY). */
   continueSession: (sessionId: string) => Promise<void>
+  renameSession: (sessionId: string, name: string) => Promise<void>
+  archiveSession: (sessionId: string, archived: boolean) => Promise<void>
+  setWorkState: (sessionId: string, workState: WorkState | null) => Promise<void>
 }
 
 const Ctx = createContext<Store | null>(null)
@@ -160,6 +164,35 @@ export function StoreProvider({
     },
     [trpc],
   )
+  // Curation mutations are optimistic: the server broadcast reconciles, but
+  // waiting on it makes renames/drags feel sticky.
+  const renameSession = useMemo(
+    () => async (sessionId: string, name: string) => {
+      setSessions((all) =>
+        all.map((s) => (s.sessionId === sessionId ? { ...s, name: name.trim() } : s)),
+      )
+      await trpc.sessions.rename.mutate({ sessionId, name }).catch(() => {})
+    },
+    [trpc],
+  )
+  const archiveSession = useMemo(
+    () => async (sessionId: string, archived: boolean) => {
+      setSessions((all) => all.map((s) => (s.sessionId === sessionId ? { ...s, archived } : s)))
+      await trpc.sessions.setArchived.mutate({ sessionId, archived }).catch(() => {})
+    },
+    [trpc],
+  )
+  const setWorkState = useMemo(
+    () => async (sessionId: string, workState: WorkState | null) => {
+      setSessions((all) =>
+        all.map((s) =>
+          s.sessionId === sessionId ? { ...s, workState: workState ?? undefined } : s,
+        ),
+      )
+      await trpc.sessions.setWorkState.mutate({ sessionId, workState }).catch(() => {})
+    },
+    [trpc],
+  )
 
   useEffect(() => {
     const worktrees = reposToViews(repos).flatMap((repo) => repo.worktrees)
@@ -220,6 +253,9 @@ export function StoreProvider({
     rescanConversations,
     killSession,
     continueSession,
+    renameSession,
+    archiveSession,
+    setWorkState,
   }
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }

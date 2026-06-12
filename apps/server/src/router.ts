@@ -1,5 +1,5 @@
 import { PodiumSettings } from '@podium/core'
-import { AgentKind, ResumeRef } from '@podium/protocol'
+import { AgentKind, ResumeRef, WorkState } from '@podium/protocol'
 import { initTRPC, TRPCError } from '@trpc/server'
 import { z } from 'zod'
 import type { SessionRegistry } from './relay'
@@ -43,6 +43,15 @@ export const appRouter = t.router({
     continue: t.procedure
       .input(z.object({ sessionId: z.string() }))
       .mutation(({ ctx, input }) => ctx.registry.continueSession(input)),
+    rename: t.procedure
+      .input(z.object({ sessionId: z.string(), name: z.string().max(120) }))
+      .mutation(({ ctx, input }) => ctx.registry.renameSession(input)),
+    setArchived: t.procedure
+      .input(z.object({ sessionId: z.string(), archived: z.boolean() }))
+      .mutation(({ ctx, input }) => ctx.registry.setArchived(input)),
+    setWorkState: t.procedure
+      .input(z.object({ sessionId: z.string(), workState: WorkState.nullable() }))
+      .mutation(({ ctx, input }) => ctx.registry.setWorkState(input)),
   }),
   pins: t.router({
     list: t.procedure.query(({ ctx }) => ctx.registry.listPins()),
