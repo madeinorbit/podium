@@ -1,5 +1,5 @@
 [Unit]
-Description=Podium web (Vite dev server, single origin :55555)
+Description=Podium web (Vite dev server, app origin :55556; TLS :55555 via tailscale serve)
 After=podium-backend.service network-online.target
 Wants=podium-backend.service
 
@@ -10,7 +10,8 @@ Environment=HOME=/home/user
 Environment=PATH=/home/user/.local/bin:/home/user/.bun/bin:/usr/local/bin:/usr/bin:/bin
 # Must match the backend so the Vite proxy targets the right internal port.
 Environment=PODIUM_PORT=18787
-# Vite dev server: HMR for the working tree; :55555 + strictPort come from vite.config.ts.
+# Vite dev server: HMR for the working tree; :55556 + strictPort come from vite.config.ts.
+# Public HTTPS (:55555) is served by `tailscale serve` proxying to this port — see README.
 ExecStart=/home/user/.local/bin/bun run --filter @podium/web dev
 Restart=always
 RestartSec=2

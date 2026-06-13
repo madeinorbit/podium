@@ -1,8 +1,9 @@
 /**
  * Backend for the single-origin dev host: relay server + live agent daemon in one process.
  *
- * The Vite dev server (apps/web, on :55555) is the public origin and proxies /trpc, /health,
- * /client and /daemon here. The daemon connects to the server directly on localhost (not through
+ * The Vite dev server (apps/web, on :55556) is the app origin and proxies /trpc, /health,
+ * /client and /daemon here; `tailscale serve` fronts it with TLS on :55555. The daemon connects
+ * to the server directly on localhost (not through
  * the proxy) and spawns the real `claude`/`codex` CLIs via @podium/agent-bridge.
  *
  * Run under `tsx` (a Node loader — node-pty is a native Node addon, so this must not run on Bun):

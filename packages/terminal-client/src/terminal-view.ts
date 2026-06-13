@@ -53,6 +53,7 @@ export class TerminalView {
   private readonly fitAddon: FitAddon
   private readonly cleanup: Array<() => void> = []
   private disposed = false
+  private host: HTMLElement | null = null
 
   constructor(opts: TerminalViewOptions = {}) {
     this.term = new Terminal({
@@ -92,6 +93,7 @@ export class TerminalView {
   }
 
   mount(el: HTMLElement): void {
+    this.host = el
     this.term.open(el)
     // The WebGL renderer must be attached after open(). It is GPU-backed and far
     // cheaper for the high-throughput output agents produce, but can fail (headless,
@@ -253,9 +255,103 @@ export class TerminalView {
     })
   }
 
+  /** Keyboard-shortcut paste (Cmd+V / Ctrl+Shift+V / middle-click). */
   private async paste(): Promise<void> {
-    const text = await readClipboard()
+    this.pasteText(await readClipboard())
+  }
+
+  /** Insert text at the prompt as if pasted — honors the app's bracketed-paste
+   *  mode (xterm only wraps in ESC[200~…ESC[201~ when the app enabled it), so a
+   *  multi-line paste lands as one block in a shell and one message in an agent. */
+  pasteText(text: string): void {
     if (text) this.term.paste(text)
+  }
+
+  /**
+   * Paste invoked by a tap (the mobile key-bar) rather than a keyboard shortcut.
+   * Preferred path is the async Clipboard API, which needs a secure context
+   * (https) plus a user gesture — both hold when the key-bar button is tapped
+   * over the https origin. On a non-secure origin (the plain-http fallback port)
+   * or when the read is blocked, fall back to a focused capture field: the
+   * browser still delivers the clipboard via the `paste` event's clipboardData
+   * there, which the async API cannot reach.
+   */
+  async requestPaste(): Promise<void> {
+    const text = await readClipboard()
+    if (text) {
+      this.pasteText(text)
+      return
+    }
+    this.openPasteCapture()
+  }
+
+  /** Fallback paste UI: a focused overlay textarea the user long-presses → Paste
+   *  into. Reads from the `paste` event (works without the async Clipboard API),
+   *  forwards to the terminal, and dismisses. Escape / backdrop / blur cancels. */
+  private openPasteCapture(): void {
+    const doc = this.host?.ownerDocument ?? (typeof document !== 'undefined' ? document : null)
+    if (!doc?.body) return
+
+    const backdrop = doc.createElement('div')
+    backdrop.setAttribute('role', 'dialog')
+    backdrop.setAttribute('aria-label', 'Paste into the terminal')
+    backdrop.style.cssText =
+      'position:fixed;inset:0;z-index:2147483647;display:flex;align-items:center;' +
+      'justify-content:center;padding:24px;background:rgba(0,0,0,0.55)'
+
+    const box = doc.createElement('div')
+    box.style.cssText =
+      'display:flex;flex-direction:column;gap:8px;width:100%;max-width:520px;' +
+      'padding:14px;border-radius:12px;background:#16161c;border:1px solid #3a3a46;' +
+      'box-shadow:0 12px 40px rgba(0,0,0,0.5)'
+
+    const hint = doc.createElement('div')
+    hint.textContent = 'Long-press the box, tap Paste (or type, then Enter)'
+    hint.style.cssText = 'font:13px ui-sans-serif,system-ui,sans-serif;color:#9a9aa6'
+
+    const ta = doc.createElement('textarea')
+    ta.setAttribute('aria-label', 'Paste target')
+    ta.placeholder = 'Paste here…'
+    ta.rows = 3
+    ta.style.cssText =
+      'width:100%;resize:none;padding:10px;border-radius:8px;border:1px solid #3a3a46;' +
+      'background:#0e0e12;color:#d7d7e0;font:13px ui-monospace,monospace'
+
+    let done = false
+    const close = (): void => {
+      if (done) return
+      done = true
+      backdrop.remove()
+      this.focus()
+    }
+    const commit = (text: string): void => {
+      if (text) this.pasteText(text)
+      close()
+    }
+    ta.addEventListener('paste', (e) => {
+      const text = (e as ClipboardEvent).clipboardData?.getData('text') ?? ''
+      if (text) {
+        e.preventDefault()
+        commit(text)
+      }
+    })
+    ta.addEventListener('keydown', (e) => {
+      const ke = e as KeyboardEvent
+      if (ke.key === 'Escape') close()
+      // Enter (no shift) commits typed/IME-inserted text when no clean paste event fired.
+      if (ke.key === 'Enter' && !ke.shiftKey) {
+        e.preventDefault()
+        commit(ta.value)
+      }
+    })
+    backdrop.addEventListener('mousedown', (e) => {
+      if (e.target === backdrop) close()
+    })
+
+    box.append(hint, ta)
+    backdrop.append(box)
+    doc.body.append(backdrop)
+    ta.focus()
   }
 }
 

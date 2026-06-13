@@ -75,7 +75,9 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
     })
   }
 
-  const toolbar = opts.toolbarEl ? mountKeyToolbar(opts.toolbarEl, connection) : null
+  const toolbar = opts.toolbarEl
+    ? mountKeyToolbar(opts.toolbarEl, connection, { onPaste: () => void view.requestPaste() })
+    : null
 
   // Route keyboard input through the toolbar so an armed modifier (e.g. Ctrl)
   // transforms the next character the soft keyboard sends.

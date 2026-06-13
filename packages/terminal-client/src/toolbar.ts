@@ -102,7 +102,17 @@ export interface MountedToolbar {
   dispose(): void
 }
 
-export function mountKeyToolbar(el: HTMLElement, conn: SessionConnection): MountedToolbar {
+export interface KeyToolbarOptions {
+  /** Invoked when the Paste key is tapped. The terminal view reads the clipboard
+   *  (or pops a capture field on non-secure origins) and pastes into the PTY. */
+  onPaste?: () => void
+}
+
+export function mountKeyToolbar(
+  el: HTMLElement,
+  conn: SessionConnection,
+  opts: KeyToolbarOptions = {},
+): MountedToolbar {
   const doc = el.ownerDocument
   const nodes: Element[] = []
 
@@ -117,6 +127,22 @@ export function mountKeyToolbar(el: HTMLElement, conn: SessionConnection): Mount
   // Safari synthesizes mousedown after pointerdown and moves focus on it
   // independently; guard both.
   el.addEventListener('mousedown', holdFocus)
+
+  // Paste: a mobile terminal has no native long-press paste (the grid is a canvas,
+  // not an editable field), so surface it explicitly. Leftmost — it's high-value on
+  // a phone. Tapping is the user gesture the Clipboard API needs.
+  if (opts.onPaste) {
+    const pasteBtn = doc.createElement('button')
+    pasteBtn.type = 'button'
+    pasteBtn.className = 'key'
+    pasteBtn.textContent = 'Paste'
+    pasteBtn.title = 'Paste — insert clipboard text at the prompt'
+    pasteBtn.setAttribute('aria-label', pasteBtn.title)
+    pasteBtn.dataset.key = 'Paste'
+    pasteBtn.addEventListener('click', () => opts.onPaste?.())
+    el.appendChild(pasteBtn)
+    nodes.push(pasteBtn)
+  }
 
   // The Ctrl toggle: tap to arm, then the next soft-keyboard letter is sent as
   // Ctrl+<letter> (Ctrl-A, Ctrl-W, …) — the combos the dedicated keys don't cover.
