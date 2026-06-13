@@ -1,9 +1,10 @@
 import type { AgentKind } from '@podium/protocol'
-import { type JSX, useEffect, useRef, useState } from 'react'
+import { type JSX, useMemo, useState } from 'react'
+import { reposToViews } from './derive'
 import { relativeTime } from './home'
-import type { ConversationHit } from './SearchView'
 import { useStore } from './store'
 import type { WorktreeView } from './types'
+import { type ConversationHit, useConversationSearch } from './useConversationSearch'
 
 const MINI_LIMIT = 8
 
@@ -19,32 +20,41 @@ export function NewPanelMenu({
   worktree: WorktreeView
   onOpened: (sessionId: string) => void
 }): JSX.Element {
-  const { trpc } = useStore()
+  const { trpc, repos } = useStore()
   const [filter, setFilter] = useState('')
-  const [hits, setHits] = useState<ConversationHit[]>([])
-  const seq = useRef(0)
   const now = Date.now()
   // Main worktree searches the whole repo subtree so repo-level conversations
   // that matched no specific worktree are not lost; others stay exact.
   const scope = worktree.isMain ? worktree.repoPath : worktree.path
 
-  useEffect(() => {
-    const mySeq = ++seq.current
-    const t = setTimeout(() => {
-      trpc.conversations.search
-        .query({
-          ...(filter.trim() ? { query: filter.trim() } : {}),
-          projectPath: scope,
-          limit: MINI_LIMIT,
-        })
-        .then((rows) => {
-          if (seq.current === mySeq)
-            setHits((rows as ConversationHit[]).filter((h) => h.resumeValue))
-        })
-        .catch(() => {})
-    }, 150)
-    return () => clearTimeout(t)
-  }, [trpc, filter, scope])
+  // Worktrees commonly nest under the repo (e.g. .claude/worktrees/*), so a
+  // subtree search from the main checkout would pull in every sibling worktree's
+  // conversations and crowd out the repo's own. Exclude paths that belong to
+  // another worktree of this repo.
+  const siblingWorktreePaths = useMemo(() => {
+    if (!worktree.isMain) return []
+    const repo = reposToViews(repos).find((r) => r.path === worktree.repoPath)
+    return (repo?.worktrees ?? [])
+      .filter((w) => !w.isMain && w.path !== worktree.path)
+      .map((w) => w.path)
+  }, [repos, worktree.isMain, worktree.repoPath, worktree.path])
+
+  // Over-fetch a little so the sibling filter still leaves a full list.
+  const { hits: raw } = useConversationSearch({
+    query: filter,
+    projectPath: scope,
+    limit: siblingWorktreePaths.length > 0 ? MINI_LIMIT * 3 : MINI_LIMIT,
+    debounceMs: 150,
+  })
+  const hits = raw
+    .filter((h) => h.resumeValue)
+    .filter(
+      (h) =>
+        !siblingWorktreePaths.some(
+          (p) => h.projectPath === p || h.projectPath?.startsWith(`${p}/`),
+        ),
+    )
+    .slice(0, MINI_LIMIT)
 
   async function create(agentKind: AgentKind) {
     const { sessionId } = await trpc.sessions.create.mutate({ agentKind, cwd: worktree.path })

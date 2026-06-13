@@ -75,6 +75,8 @@ export class Session {
   status: 'starting' | 'live' | 'reconnecting' | 'hibernated' | 'exited' = 'starting'
   exitCode: number | undefined
   agentState: AgentRuntimeState | undefined
+  /** True once a structured transcript has been seen — drives chat capability. */
+  transcriptAvailable = false
   geometry: Geometry
   epoch = 0
   controllerId: string | null = null
@@ -154,8 +156,13 @@ export class Session {
     return this.transcript
   }
 
-  /** Daemon pushed parsed transcript items; buffer (bounded) and fan out. */
-  appendTranscript(items: TranscriptItem[], reset: boolean): void {
+  /** Daemon pushed parsed transcript items; buffer (bounded) and fan out.
+   *  Returns true the first time a transcript is observed (the chat-capability
+   *  transition), so the registry can broadcast the updated SessionMeta. */
+  appendTranscript(items: TranscriptItem[], reset: boolean): boolean {
+    const becameAvailable =
+      !this.transcriptAvailable && (items.length > 0 || this.transcript.length > 0)
+    if (becameAvailable) this.transcriptAvailable = true
     if (reset) this.transcript = []
     this.transcript = this.transcript.concat(items)
     if (this.transcript.length > MAX_TRANSCRIPT_ITEMS) {
@@ -172,6 +179,7 @@ export class Session {
         client.send({ type: 'transcriptAppend', sessionId: this.sessionId, items })
       }
     }
+    return becameAvailable
   }
 
   detachClient(clientId: string): void {
@@ -266,6 +274,10 @@ export class Session {
     if (this.status === 'hibernated') return
     this.status = 'exited'
     this.exitCode = code
+    // The harness-observed phase described a running agent; that agent is gone.
+    // Leaving it set would make the home board / superagent / Continue button
+    // keep treating a dead session as 'working' or 'errored'.
+    this.agentState = undefined
     this.broadcast({ type: 'agentExit', sessionId: this.sessionId, code })
   }
 
@@ -273,6 +285,7 @@ export class Session {
   markSpawnError(message: string): void {
     this.status = 'exited'
     this.exitCode = -1
+    this.agentState = undefined
     console.warn(`[podium] spawn failed for ${this.sessionId}: ${message}`)
     this.broadcast({ type: 'agentExit', sessionId: this.sessionId, code: -1 })
   }
@@ -338,6 +351,7 @@ export class Session {
       archived: this.archived,
       ...(this.workState ? { workState: this.workState } : {}),
       ...(this.resume ? { resumable: true } : {}),
+      ...(this.transcriptAvailable ? { transcriptAvailable: true } : {}),
     }
   }
 

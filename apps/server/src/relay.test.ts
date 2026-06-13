@@ -578,7 +578,7 @@ describe('agent state', () => {
     error: { class: 'rate_limit', retryable: true },
   }
 
-  it('agentState from the daemon lands on SessionMeta and rebroadcasts sessions', () => {
+  it('agentState from the daemon pushes a per-session message and lands on SessionMeta', () => {
     const reg = new SessionRegistry()
     reg.attachDaemon(() => {})
     const { sessionId } = reg.createSession({ agentKind: 'claude-code', cwd: '/proj' })
@@ -586,12 +586,12 @@ describe('agent state', () => {
     reg.attachClient(client.send)
     client.sent.length = 0
     reg.onDaemonMessage({ type: 'agentState', sessionId, state: STATE })
-    const update = client.sent.find((m) => m.type === 'sessionsChanged')
-    expect(update).toBeDefined()
-    const meta = (update as Extract<ServerMessage, { type: 'sessionsChanged' }>).sessions.find(
-      (s) => s.sessionId === sessionId,
-    )
-    expect(meta?.agentState).toEqual(STATE)
+    const update = client.sent.find((m) => m.type === 'sessionAgentStateChanged')
+    expect(update).toEqual({ type: 'sessionAgentStateChanged', sessionId, state: STATE })
+    // Hook events fire often — this must NOT re-broadcast the whole session list.
+    expect(client.sent.some((m) => m.type === 'sessionsChanged')).toBe(false)
+    // Late joiners still see the state via listSessions().
+    expect(reg.listSessions().find((s) => s.sessionId === sessionId)?.agentState).toEqual(STATE)
   })
 
   it('agentState for an unknown session is ignored', () => {
@@ -649,13 +649,19 @@ describe('structured transcript channel', () => {
     const clientId = reg.attachClient(client.send)
     reg.onClientMessage(clientId, { type: 'transcriptSubscribe', sessionId })
     reg.onClientMessage(clientId, { type: 'transcriptUnsubscribe', sessionId })
-    const before = client.sent.length
+    // Count transcript-stream frames only: the first append flips the session's
+    // transcriptAvailable flag, which broadcasts a sessionsChanged to every
+    // client (subscribed or not) — that capability flip is not a stream frame.
+    const frames = () =>
+      client.sent.filter((m) => m.type === 'transcriptAppend' || m.type === 'transcriptSnapshot')
+        .length
+    const before = frames()
     reg.onDaemonMessage({
       type: 'transcriptAppend',
       sessionId,
       items: [{ id: 'x', role: 'user', text: 'unseen' }],
     })
-    expect(client.sent.length).toBe(before)
+    expect(frames()).toBe(before)
   })
 })
 

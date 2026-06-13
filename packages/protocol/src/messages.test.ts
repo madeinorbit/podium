@@ -163,6 +163,16 @@ describe('ServerMessage', () => {
     { type: 'sessionsChanged', sessions: [sessionMeta] },
     { type: 'conversationsChanged', conversations: [conversation], diagnostics: [] },
     { type: 'sessionTitleChanged', sessionId: 's1', title: '✳ rename functionality' },
+    {
+      type: 'sessionAgentStateChanged',
+      sessionId: 's1',
+      state: {
+        phase: 'errored',
+        since: '2026-06-12T10:00:00.000Z',
+        openTaskCount: 0,
+        error: { class: 'rate_limit', retryable: true },
+      },
+    },
     { type: 'pong' },
   ]
   it.each(cases)('round-trips %j', (msg) => {

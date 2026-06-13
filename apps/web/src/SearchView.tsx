@@ -1,23 +1,11 @@
 import type { JSX } from 'react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { panelLabel, reposToViews } from './derive'
 import { relativeTime } from './home'
 import { useStore } from './store'
+import { type ConversationHit, useConversationSearch } from './useConversationSearch'
 
-export interface ConversationHit {
-  id: string
-  agentKind: string
-  providerId: string
-  title?: string
-  name?: string
-  summary?: string
-  projectPath?: string
-  resumeKind?: string
-  resumeValue?: string
-  createdAt?: string
-  updatedAt?: string
-  messageCount?: number
-}
+export type { ConversationHit }
 
 /**
  * Conversation search over the durable server-side index (FTS keyword now;
@@ -28,9 +16,6 @@ export function SearchView({ onClose }: { onClose: () => void }): JSX.Element {
   const { trpc, repos, selectedWorktree, setSelectedWorktree, setPane, setView } = useStore()
   const [query, setQuery] = useState('')
   const [scope, setScope] = useState<string>(selectedWorktree ?? '')
-  const [hits, setHits] = useState<ConversationHit[]>([])
-  const [busy, setBusy] = useState(false)
-  const seq = useRef(0)
   const now = Date.now()
 
   const worktrees = useMemo(
@@ -39,26 +24,12 @@ export function SearchView({ onClose }: { onClose: () => void }): JSX.Element {
   )
 
   // Debounced live search; empty query browses by recency.
-  useEffect(() => {
-    const mySeq = ++seq.current
-    setBusy(true)
-    const t = setTimeout(() => {
-      trpc.conversations.search
-        .query({
-          ...(query.trim() ? { query: query.trim() } : {}),
-          ...(scope ? { projectPath: scope } : {}),
-          limit: 50,
-        })
-        .then((rows) => {
-          if (seq.current === mySeq) setHits(rows as ConversationHit[])
-        })
-        .catch(() => {})
-        .finally(() => {
-          if (seq.current === mySeq) setBusy(false)
-        })
-    }, 180)
-    return () => clearTimeout(t)
-  }, [trpc, query, scope])
+  const { hits, busy } = useConversationSearch({
+    query,
+    ...(scope ? { projectPath: scope } : {}),
+    limit: 50,
+    debounceMs: 180,
+  })
 
   const resume = async (hit: ConversationHit) => {
     if (!hit.resumeKind || !hit.resumeValue) return

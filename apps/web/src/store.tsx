@@ -1,5 +1,4 @@
 import type {
-  ConversationSummaryWire,
   GitDiscoveryDiagnosticWire,
   GitRepositoryWire,
   HostMetricsWire,
@@ -31,7 +30,6 @@ export interface Store {
    *  "still loading" from "registry is genuinely empty" (first-run onboarding). */
   reposLoaded: boolean
   repoDiagnostics: GitDiscoveryDiagnosticWire[]
-  conversations: ConversationSummaryWire[]
   sessions: SessionMeta[]
   /** Latest health sample per daemon host; empty until a daemon reports (or after it drops). */
   hostMetrics: HostMetricsWire[]
@@ -53,7 +51,6 @@ export interface Store {
   /** Enrich the registered repos with branch/worktree metadata (fast — no
    *  filesystem walk). Discovery scanning happens explicitly via the scan flow. */
   refreshRepos: () => Promise<void>
-  rescanConversations: () => Promise<void>
   killSession: (sessionId: string) => Promise<void>
   /** Nudge an errored agent to retry ("continue⏎" into its PTY). */
   continueSession: (sessionId: string) => Promise<void>
@@ -90,7 +87,6 @@ export function StoreProvider({
   const [reposLoading, setReposLoading] = useState(false)
   const [reposLoaded, setReposLoaded] = useState(false)
   const [repoDiagnostics, setRepoDiagnostics] = useState<GitDiscoveryDiagnosticWire[]>([])
-  const [conversations, setConversations] = useState<ConversationSummaryWire[]>([])
   const [sessions, setSessions] = useState<SessionMeta[]>([])
   const [hostMetrics, setHostMetrics] = useState<HostMetricsWire[]>([])
   const [pins, setPins] = useState<PinState>(EMPTY_PINS)
@@ -113,13 +109,6 @@ export function StoreProvider({
         setReposLoading(false)
         setReposLoaded(true)
       }
-    },
-    [trpc],
-  )
-  const rescanConversations = useMemo(
-    () => async () => {
-      const r = await trpc.discovery.scan.mutate()
-      setConversations(r.conversations)
     },
     [trpc],
   )
@@ -213,16 +202,24 @@ export function StoreProvider({
   )
 
   useEffect(() => {
-    const worktrees = reposToViews(repos).flatMap((repo) => repo.worktrees)
-    if (selectedWorktree && worktrees.some((worktree) => worktree.path === selectedWorktree)) {
+    if (!selectedWorktree) {
+      const worktrees = reposToViews(repos).flatMap((repo) => repo.worktrees)
+      setSelectedWorktree(worktrees[0]?.path ?? null)
       return
     }
+    const worktrees = reposToViews(repos).flatMap((repo) => repo.worktrees)
+    // Keep an explicit selection alive when it's a registered worktree OR when a
+    // session is actually running there — a superagent-/CLI-spawned session can
+    // sit in a path the web's repo list doesn't know yet, and reverting it to
+    // worktrees[0] made "Open" on that session show an unrelated one.
+    const known = worktrees.some((w) => w.path === selectedWorktree)
+    const hasSession = sessions.some((s) => s.cwd === selectedWorktree)
+    if (known || hasSession) return
     setSelectedWorktree(worktrees[0]?.path ?? null)
-  }, [repos, selectedWorktree])
+  }, [repos, selectedWorktree, sessions])
 
   useEffect(() => {
     const offSessions = hub.onSessions(setSessions)
-    const offConversations = hub.onConversations(setConversations)
     const offHostMetrics = hub.onHostMetrics(setHostMetrics)
     // Attention → web notification, but only while this page can't be seen —
     // a visible Podium window IS the notification.
@@ -255,7 +252,6 @@ export function StoreProvider({
     return () => {
       clearTimeout(connectTimer)
       offSessions()
-      offConversations()
       offHostMetrics()
       offAttention()
       document.removeEventListener('visibilitychange', reportVisibility)
@@ -270,7 +266,6 @@ export function StoreProvider({
     reposLoading,
     reposLoaded,
     repoDiagnostics,
-    conversations,
     sessions,
     hostMetrics,
     pins,
@@ -287,7 +282,6 @@ export function StoreProvider({
     split,
     toggleSplit: () => setSplit((s) => !s),
     refreshRepos,
-    rescanConversations,
     killSession,
     continueSession,
     hibernateSession,

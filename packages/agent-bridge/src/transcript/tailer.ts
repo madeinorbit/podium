@@ -1,10 +1,16 @@
 import { open } from 'node:fs/promises'
 import type { TranscriptItem } from '@podium/protocol'
+import { LineDecoder } from '../jsonl-stream.js'
 import { claudeRecordToItems } from './claude.js'
 
 const POLL_MS = 700
-// First read of a large transcript: parse everything but emit only the most
-// recent items — the chat view doesn't need a 50k-line history dump.
+// Initial-read cap: a long-running transcript can be hundreds of MB, but the
+// chat view only needs the recent tail. Seek to the last TAIL_BYTES on the first
+// read instead of slurping the whole file (which spiked daemon memory on every
+// live session at reattach). Deltas after the first read are tiny.
+const TAIL_BYTES = 512 * 1024
+// First read may still surface many items within the tail window; keep the most
+// recent so a freshly-mounted chat view isn't handed thousands of stale lines.
 const MAX_INITIAL_ITEMS = 1500
 
 export interface TranscriptTailer {
@@ -25,8 +31,11 @@ export function tailTranscript(
   opts: { pollMs?: number } = {},
 ): TranscriptTailer {
   let offset = 0
-  let partial = ''
+  const decoder = new LineDecoder()
   let first = true
+  // Set when the first read seeks past byte 0: the bytes before the first
+  // newline are a fragment of a prior line and must be dropped once.
+  let dropLeadingPartial = false
   let stopped = false
   let reading = false
 
@@ -38,22 +47,32 @@ export function tailTranscript(
       try {
         const { size } = await handle.stat()
         let reset = false
+        if (first) {
+          const start = Math.max(0, size - TAIL_BYTES)
+          offset = start
+          dropLeadingPartial = start > 0
+          first = false
+          reset = true
+        }
         if (size < offset) {
           // Truncated/replaced — re-read from the top and tell consumers to clear.
           offset = 0
-          partial = ''
+          decoder.reset()
+          dropLeadingPartial = false
           reset = true
         }
         if (size === offset) {
           if (reset) onItems([], true)
           return
         }
-        const buffer = Buffer.alloc(size - offset)
-        await handle.read(buffer, 0, buffer.length, offset)
+        const chunk = Buffer.alloc(size - offset)
+        await handle.read(chunk, 0, chunk.length, offset)
         offset = size
-        const text = partial + buffer.toString('utf8')
-        const lines = text.split('\n')
-        partial = lines.pop() ?? '' // trailing partial line waits for its newline
+        let lines = decoder.push(chunk)
+        if (dropLeadingPartial && lines.length > 0) {
+          lines = lines.slice(1)
+          dropLeadingPartial = false
+        }
         let items: TranscriptItem[] = []
         for (const line of lines) {
           const trimmed = line.trim()
@@ -64,11 +83,7 @@ export function tailTranscript(
             // torn write — skip the line
           }
         }
-        if (first) {
-          reset = true
-          if (items.length > MAX_INITIAL_ITEMS) items = items.slice(-MAX_INITIAL_ITEMS)
-          first = false
-        }
+        if (reset && items.length > MAX_INITIAL_ITEMS) items = items.slice(-MAX_INITIAL_ITEMS)
         if (items.length > 0 || reset) onItems(items, reset)
       } finally {
         await handle.close()

@@ -1,7 +1,7 @@
 import type { TranscriptItem } from '@podium/protocol'
 import { ChevronDown, ChevronUp, FileText, Image as ImageIcon, Mic, Send } from 'lucide-react'
 import type { JSX } from 'react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import {
   blockMatches,
   type ChatBlock,
@@ -35,11 +35,14 @@ export function ChatView({ sessionId }: { sessionId: string }): JSX.Element {
   const matches = useMemo(() => searchBlocks(blocks, query), [blocks, query])
   const activeMatch = matches.length > 0 ? matches[matchCursor % matches.length] : undefined
 
-  // Follow the live tail unless the user scrolled up to read.
+  // Follow the live tail unless the user scrolled up to read. Re-runs as blocks
+  // arrive (snapshot lands after mount, then live appends) — an empty dep array
+  // fired once before any transcript existed and never followed the stream.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: scroll when the block list grows
   useEffect(() => {
     const el = scrollerRef.current
     if (el && pinnedToBottom.current) el.scrollTop = el.scrollHeight
-  }, [])
+  }, [blocks.length])
   const onScroll = () => {
     const el = scrollerRef.current
     if (!el) return
@@ -164,7 +167,11 @@ export function ChatView({ sessionId }: { sessionId: string }): JSX.Element {
   )
 }
 
-function ChatBlockView({
+// Memoized: ChatView re-renders on every search keystroke, every 700ms
+// transcript poll, and every session-state change in the store. Block identity
+// is stable across renders that don't change `items` (pairToolResults is
+// memoized), so memo skips the expensive markdown re-render for unaffected rows.
+const ChatBlockView = memo(function ChatBlockView({
   block,
   index,
   highlighted,
@@ -176,6 +183,7 @@ function ChatBlockView({
   dimmed: boolean
 }): JSX.Element | null {
   const { item } = block
+  const html = useMemo(() => renderMarkdown(item.text), [item.text])
   const cls = [
     'chat-block',
     `chat-${item.role}`,
@@ -194,7 +202,7 @@ function ChatBlockView({
       <div
         className="chat-md"
         // biome-ignore lint/security/noDangerouslySetInnerHtml: sanitized by DOMPurify above
-        dangerouslySetInnerHTML={{ __html: renderMarkdown(item.text) }}
+        dangerouslySetInnerHTML={{ __html: html }}
       />
       {item.tags && item.tags.length > 0 && (
         <div className="chat-tags">
@@ -212,7 +220,7 @@ function ChatBlockView({
       )}
     </div>
   )
-}
+})
 
 function ToolBlock({
   block,

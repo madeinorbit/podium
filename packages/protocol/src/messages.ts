@@ -99,6 +99,10 @@ export const SessionMeta = z.object({
   workState: WorkState.optional(),
   /** True when a resume ref is known — hibernate→resume is possible. */
   resumable: z.boolean().optional(),
+  /** True once a structured transcript has been observed for this session — the
+   *  capability that powers chat view. Set by the layer that owns the tail, so a
+   *  new transcript provider lights up chat with no client-side kind checks. */
+  transcriptAvailable: z.boolean().optional(),
 })
 export type SessionMeta = z.infer<typeof SessionMeta>
 
@@ -318,6 +322,16 @@ export const SessionTitleChangedMessage = z.object({
   title: z.string(),
 })
 
+// One session's runtime phase changed. A dedicated message — not a full
+// sessionsChanged rebroadcast — because hook events fire often (a TodoWrite
+// mutation, every turn boundary, across all sessions) and re-serializing the
+// whole list per event is O(sessions × clients) several times a second.
+export const SessionAgentStateChangedMessage = z.object({
+  type: z.literal('sessionAgentStateChanged'),
+  sessionId: z.string(),
+  state: AgentRuntimeState,
+})
+
 // Memory state of a daemon host. "Available" is the kernel's estimate of memory
 // applications can still allocate without swapping (Linux MemAvailable) — used is
 // total − available, NOT total − free, so page cache doesn't read as pressure.
@@ -365,6 +379,7 @@ export const ServerMessage = z.discriminatedUnion('type', [
   SessionsChangedMessage,
   ConversationsChangedMessage,
   SessionTitleChangedMessage,
+  SessionAgentStateChangedMessage,
   HostMetricsChangedMessage,
   PongMessage,
   AttentionEventMessage,

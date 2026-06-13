@@ -16,9 +16,11 @@ describe('web shell structure', () => {
     expect(src).toContain('<Sidebar')
     expect(src).toContain('<Workspace')
   })
-  it('store exposes the three server feeds', () => {
+  it('store exposes the live server feeds', () => {
     const src = read('store.tsx')
-    for (const feed of ['repos', 'conversations', 'sessions']) expect(src).toContain(feed)
+    // Conversations are no longer a store feed — search reads the durable server
+    // index directly (trpc.conversations.search), so the push copy was removed.
+    for (const feed of ['repos', 'sessions', 'hostMetrics']) expect(src).toContain(feed)
     expect(src).toContain('onFatalError')
     expect(src).toContain('onError')
     expect(src).toContain('reposToViews')
@@ -108,11 +110,13 @@ describe('web shell structure', () => {
     expect(src).toContain('workspace-menu-layer')
     expect(src).toContain('NewPanelMenu')
   })
-  it('conversation discovery is pushed instead of blocking initial store load', () => {
+  it('initial store load does not block on a conversation scan', () => {
     const src = read('store.tsx')
-    expect(src).toContain('hub.onConversations(setConversations)')
+    // Conversations are read on demand from the durable server index, so the
+    // boot fan-out is repos + pins + tab orders — never a conversation rescan.
     expect(src).toContain('Promise.all([refreshRepos(), refreshPins(), refreshTabOrders()])')
-    expect(src).not.toContain('Promise.all([refreshRepos(), rescanConversations()])')
+    expect(src).not.toContain('rescanConversations')
+    expect(src).not.toContain('onConversations')
   })
   it('new-panel menu offers claude, codex, and shell', () => {
     const src = read('NewPanelMenu.tsx')
@@ -122,9 +126,12 @@ describe('web shell structure', () => {
   })
   it('new-panel menu is the mini search: indexed, capped, with last-active dates', () => {
     const src = read('NewPanelMenu.tsx')
-    expect(src).toContain('trpc.conversations.search')
+    // Server-indexed search via the shared hook (capped, recency-first, dated).
+    expect(src).toContain('useConversationSearch')
     expect(src).toContain('MINI_LIMIT')
     expect(src).toContain('relativeTime')
+    // The hook is the thing that hits the durable server index.
+    expect(read('useConversationSearch.ts')).toContain('trpc.conversations.search')
   })
 })
 

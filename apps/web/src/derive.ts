@@ -1,10 +1,4 @@
-import type {
-  AgentKind,
-  ConversationSummaryWire,
-  GitRepositoryWire,
-  HostMetricsWire,
-  SessionMeta,
-} from '@podium/protocol'
+import type { AgentKind, GitRepositoryWire, HostMetricsWire, SessionMeta } from '@podium/protocol'
 import type { PinState, RepoView, WorktreeView } from './types'
 
 export type MemorySeverity = 'ok' | 'warn' | 'critical'
@@ -100,44 +94,6 @@ export function reposToViews(repos: GitRepositoryWire[]): RepoView[] {
 /** Sessions shown in a worktree's tab strip / sidebar — archived ones stay out. */
 export function sessionsForWorktree(sessions: SessionMeta[], worktreePath: string): SessionMeta[] {
   return sessions.filter((s) => s.cwd === worktreePath && !s.archived)
-}
-
-export function resumableForWorktree(
-  convs: ConversationSummaryWire[],
-  worktreePath: string,
-): ConversationSummaryWire[] {
-  return convs.filter((c) => c.resume && c.projectPath === worktreePath)
-}
-
-/** Under the repo root but not matched to any of its worktrees (deduped against worktree matches). */
-export function resumableForRepoFallback(
-  convs: ConversationSummaryWire[],
-  repoPath: string,
-  worktreePaths: string[],
-): ConversationSummaryWire[] {
-  const wt = new Set(worktreePaths)
-  return convs.filter(
-    (c) =>
-      c.resume &&
-      c.projectPath !== undefined &&
-      !wt.has(c.projectPath) &&
-      (c.projectPath === repoPath || c.projectPath.startsWith(`${repoPath}/`)),
-  )
-}
-
-/** Merge worktree-exact + repo-fallback resume lists without duplicate conversation ids. */
-export function mergeResumable(
-  exact: ConversationSummaryWire[],
-  fallback: ConversationSummaryWire[],
-): ConversationSummaryWire[] {
-  const seen = new Set<string>()
-  const out: ConversationSummaryWire[] = []
-  for (const c of [...exact, ...fallback]) {
-    if (seen.has(c.id)) continue
-    seen.add(c.id)
-    out.push(c)
-  }
-  return out
 }
 
 export interface WorktreeNavView extends WorktreeView {

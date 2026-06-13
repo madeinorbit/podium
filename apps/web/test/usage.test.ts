@@ -1,6 +1,6 @@
 import type { UsageBucketWire } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
-import { bucketCostUsd, formatTokens, usageSummary } from '../src/usage'
+import { bucketCostUsd, formatTokens, localDay, usageSummary } from '../src/usage'
 
 const NOW = Date.parse('2026-06-12T12:30:00.000Z')
 const bucket = (hour: string, over: Partial<UsageBucketWire> = {}): UsageBucketWire => ({
@@ -33,8 +33,11 @@ describe('usageSummary', () => {
   it('produces 7 day slots oldest-first and per-model rows', () => {
     const s = usageSummary([bucket('2026-06-12T11:00:00.000Z')], NOW)
     expect(s.days).toHaveLength(7)
-    expect(s.days.at(-1)?.day).toBe('2026-06-12')
-    expect(s.days.at(-1)?.totalTokens).toBe(13_500)
+    // Slots and attribution are in the runner's local day, so derive the
+    // expected keys via localDay rather than hardcoding a UTC date string.
+    expect(s.days.at(-1)?.day).toBe(localDay(NOW))
+    const bucketDay = s.days.find((d) => d.day === localDay(Date.parse('2026-06-12T11:00:00.000Z')))
+    expect(bucketDay?.totalTokens).toBe(13_500)
     expect(s.models[0]?.model).toBe('claude-sonnet-4-5')
   })
 })

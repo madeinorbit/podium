@@ -65,12 +65,13 @@ export function usageSummary(buckets: UsageBucketWire[], nowMs: number): UsageSu
 
   const dayMap = new Map<string, { totalTokens: number; estCostUsd: number; messages: number }>()
   for (let i = 6; i >= 0; i--) {
-    const day = new Date(nowMs - i * 24 * 3_600_000).toISOString().slice(0, 10)
-    dayMap.set(day, { totalTokens: 0, estCostUsd: 0, messages: 0 })
+    dayMap.set(localDay(nowMs - i * 24 * 3_600_000), { totalTokens: 0, estCostUsd: 0, messages: 0 })
   }
   const modelMap = new Map<string, { totalTokens: number; estCostUsd: number; messages: number }>()
   for (const b of buckets) {
-    const day = b.hour.slice(0, 10)
+    // Attribute to the *local* calendar day. The bucket hour is UTC; slicing its
+    // ISO string put evening work in a UTC-behind zone onto the wrong bar.
+    const day = localDay(Date.parse(b.hour))
     const d = dayMap.get(day)
     if (d) {
       d.totalTokens += totalTokensOf(b)
@@ -94,6 +95,14 @@ export function usageSummary(buckets: UsageBucketWire[], nowMs: number): UsageSu
       .map(([model, v]) => ({ model, ...v }))
       .sort((a, b) => b.totalTokens - a.totalTokens),
   }
+}
+
+/** Local-time `YYYY-MM-DD` (the user's calendar day, not UTC). */
+export function localDay(ms: number): string {
+  const d = new Date(ms)
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${d.getFullYear()}-${m}-${day}`
 }
 
 /** "1.2M" / "840k" / "312" token shorthand. */

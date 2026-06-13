@@ -212,19 +212,6 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
         send({ type: 'transcriptAppend', sessionId, items, ...(reset ? { reset } : {}) })
       }),
     )
-    // The transcript filename IS the harness's session id — report it as the
-    // resume ref so the server can hibernate this session and resume it later.
-    const base = path.split('/').pop() ?? ''
-    if (base.endsWith('.jsonl')) {
-      const value = base.slice(0, -'.jsonl'.length)
-      if (value) {
-        send({
-          type: 'sessionResumeRef',
-          sessionId,
-          resume: { kind: 'claude-session', value },
-        })
-      }
-    }
   }
   const stopTranscriptTail = (sessionId: string): void => {
     tails.get(sessionId)?.stop()
@@ -237,9 +224,22 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
       if (!tracker) return
       // Every Claude hook payload carries transcript_path — the authoritative
       // pointer to the live JSONL (resumes roll into a fresh file; this follows).
-      const transcriptPath = (payload as Record<string, unknown> | null)?.transcript_path
+      const fields = payload as Record<string, unknown> | null
+      const transcriptPath = fields?.transcript_path
       if (typeof transcriptPath === 'string' && transcriptPath) {
         ensureTranscriptTail(sessionId, transcriptPath)
+      }
+      // The hook payload's session_id is the harness's own conversation id — the
+      // authoritative resume ref (don't reverse-engineer it from the filename,
+      // which couples us to Claude's on-disk layout). Lets the server hibernate
+      // a fresh spawn and resume it later.
+      const harnessSessionId = fields?.session_id
+      if (typeof harnessSessionId === 'string' && harnessSessionId) {
+        send({
+          type: 'sessionResumeRef',
+          sessionId,
+          resume: { kind: 'claude-session', value: harnessSessionId },
+        })
       }
       void tracker.provider
         .translate(payload)
@@ -374,6 +374,8 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     session.onExit((code) => {
       bridges.delete(sessionId)
       trackers.delete(sessionId)
+      // The agent's gone — stop polling its (now frozen) transcript file.
+      stopTranscriptTail(sessionId)
       send({ type: 'agentExit', sessionId, code })
     })
   }
@@ -570,11 +572,16 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
         if (session) {
           session.dispose()
           bridges.delete(msg.sessionId)
-          if (backend !== 'none') {
-            // Both reapers are cheap no-ops when the label isn't theirs.
-            killAbducoSession(`podium-${msg.sessionId}`)
-            killTmuxServer(`podium-${msg.sessionId}`)
-          }
+        }
+        // Reap the durable host unconditionally — NOT only when a bridge exists.
+        // After a daemon restart a session can be live server-side with no local
+        // bridge (attachDaemon only re-binds 'reconnecting' sessions); if kill
+        // skipped the reap there, hibernate/kill would leave the abduco/tmux
+        // master (and its agent) running. Both reapers are cheap no-ops when the
+        // label isn't theirs.
+        if (backend !== 'none') {
+          killAbducoSession(`podium-${msg.sessionId}`)
+          killTmuxServer(`podium-${msg.sessionId}`)
         }
         break
       }
@@ -611,8 +618,11 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     }
   })
 
-  // A usage scan reads every recently-active transcript — memo it briefly so a
-  // status chip polling every minute doesn't redo the walk per client.
+  // A usage scan reads every recently-active transcript — memo it so the status
+  // chip's poll doesn't redo the walk per client. The TTL must exceed the chip's
+  // poll interval (UsageView polls every 90s); at 60s the memo was always stale
+  // by the next poll, so every poll re-read every recent transcript end to end.
+  const USAGE_MEMO_TTL_MS = 120_000
   let usageMemo:
     | { atMs: number; sinceMs: number; buckets: import('@podium/protocol').UsageBucketWire[] }
     | undefined
@@ -621,7 +631,11 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
   ): Promise<void> => {
     const sinceMs = msg.sinceMs ?? Date.now() - 7 * 24 * 3_600_000
     let buckets: import('@podium/protocol').UsageBucketWire[]
-    if (usageMemo && Date.now() - usageMemo.atMs < 60_000 && usageMemo.sinceMs <= sinceMs) {
+    if (
+      usageMemo &&
+      Date.now() - usageMemo.atMs < USAGE_MEMO_TTL_MS &&
+      usageMemo.sinceMs <= sinceMs
+    ) {
       buckets = usageMemo.buckets.filter((b) => Date.parse(b.hour) >= sinceMs - 3_600_000)
     } else {
       try {

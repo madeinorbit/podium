@@ -208,6 +208,10 @@ function SessionCard({ session, now }: { session: SessionMeta; now: number }): J
   const where = session.cwd.split('/').slice(-2).join('/')
 
   const open = () => {
+    // Opening from the archived list is an active reopen — unarchive so the
+    // session rejoins the worktree's tab strip, otherwise the workspace would
+    // bounce pane A away from it (the strip filters archived sessions out).
+    if (session.archived) void archiveSession(session.sessionId, false)
     setSelectedWorktree(session.cwd)
     setPane('A', session.sessionId)
     setView('workspace')

@@ -49,7 +49,7 @@ describe('claudeRecordToItems', () => {
     })
     expect(items).toEqual([
       {
-        id: 'u2-result',
+        id: 'u2-result-toolu_1',
         role: 'tool',
         ts: undefined,
         text: '',

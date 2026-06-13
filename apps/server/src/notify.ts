@@ -52,10 +52,21 @@ export function attentionNotice(
 
 /** Fire-and-forget mobile push via ntfy.sh. Failures are logged, never thrown. */
 export function pushNtfy(topic: string, notice: AttentionNotice): void {
-  fetch(`https://ntfy.sh/${encodeURIComponent(topic)}`, {
+  // Publish as a JSON body, NOT via the X-Title header: titles carry the session
+  // name, and Claude sets non-ASCII spinner titles (e.g. '✳ …'). undici rejects
+  // any header value > U+00FF ('Cannot convert … to a ByteString'), which threw
+  // synchronously and dropped the push for exactly the events this exists for.
+  // The JSON body is UTF-8 and has no such restriction.
+  fetch('https://ntfy.sh', {
     method: 'POST',
-    headers: { Title: notice.title, Priority: 'high', Tags: 'robot' },
-    body: notice.body,
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      topic,
+      title: notice.title,
+      message: notice.body,
+      priority: 4, // "high" in ntfy's 1–5 scale
+      tags: ['robot'],
+    }),
   }).catch((err) => {
     console.warn('[podium] ntfy push failed:', err instanceof Error ? err.message : err)
   })

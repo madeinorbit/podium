@@ -21,9 +21,6 @@ const MODE_KEY = 'podium.panelMode'
  * overrides and sticks for the device.
  */
 function initialMode(): PanelMode {
-  // The e2e harness drives the real terminal substrate — its test API lives on
-  // the mounted xterm session, so chat-by-default would hide it.
-  if (E2E) return 'native'
   const saved = localStorage.getItem(MODE_KEY)
   if (saved === 'native' || saved === 'chat') return saved
   return window.matchMedia('(max-width: 768px)').matches ? 'chat' : 'native'
@@ -36,8 +33,11 @@ export function AgentPanel({ sessionId }: { sessionId: string }): JSX.Element {
   const toolbarRef = useRef<HTMLDivElement | null>(null)
   const mountedRef = useRef<MountedSession | null>(null)
   const [role, setRole] = useState('detached')
-  // Chat exists only where a structured transcript does (claude-code today).
-  const chatCapable = session?.agentKind === 'claude-code'
+  // Chat exists where a structured transcript does. Prefer the server's
+  // observed signal (lights up any future transcript provider with no edit
+  // here); fall back to the kind so claude offers chat immediately, before its
+  // first transcript frame arrives.
+  const chatCapable = session?.transcriptAvailable ?? session?.agentKind === 'claude-code'
   const [mode, setMode] = useState<PanelMode>(() => (chatCapable ? initialMode() : 'native'))
   const effectiveMode: PanelMode = chatCapable ? mode : 'native'
 

@@ -1,6 +1,7 @@
 import { open, readdir, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
+import { LineDecoder } from '@podium/agent-bridge'
 import type { UsageBucketWire } from '@podium/protocol'
 
 /**
@@ -111,20 +112,20 @@ async function readUsageRecords(path: string, sinceMs: number): Promise<UsageRec
   try {
     const { size } = await handle.stat()
     // Transcripts are append-only and can be large; stream in 1 MiB slabs.
+    // LineDecoder keeps undecoded trailing bytes as a Buffer, so a multi-byte
+    // character split across a slab boundary is reassembled, not mangled.
     const CHUNK = 1024 * 1024
+    const decoder = new LineDecoder()
     let offset = 0
-    let partial = ''
     while (offset < size) {
       const len = Math.min(CHUNK, size - offset)
       const buffer = Buffer.alloc(len)
       await handle.read(buffer, 0, len, offset)
       offset += len
-      const text = partial + buffer.toString('utf8')
-      const lines = text.split('\n')
-      partial = lines.pop() ?? ''
-      for (const line of lines) collect(line, sinceMs, out)
+      for (const line of decoder.push(buffer)) collect(line, sinceMs, out)
     }
-    collect(partial, sinceMs, out)
+    const last = decoder.flush()
+    if (last !== null) collect(last, sinceMs, out)
   } finally {
     await handle.close()
   }

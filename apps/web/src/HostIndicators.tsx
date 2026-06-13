@@ -1,7 +1,7 @@
 import { MemoryStick } from 'lucide-react'
 import type { JSX } from 'react'
 import { useState } from 'react'
-import { ConnectionIndicator, useConnectionHealth } from './ConnectionIndicator'
+import { ConnectionIndicator, describeHealth, useConnectionHealth } from './ConnectionIndicator'
 import { hostMemoryView } from './derive'
 import { HostMemoryView } from './HostMemoryView'
 import { useStore } from './store'
@@ -22,8 +22,22 @@ export function HostIndicators({ compact = false }: { compact?: boolean }): JSX.
   const health = useConnectionHealth()
   const [open, setOpen] = useState(false)
   const showHostname = !compact && hostMetrics.length > 1
+  // The visible icon only shows the detail on hover; a persistent polite live
+  // region announces degraded/down transitions to assistive tech (empty while
+  // healthy, so recovery isn't announced as noise). HostIndicators re-renders
+  // only on health change, so the message isn't re-announced every second.
+  const announce =
+    health.status === 'ok'
+      ? ''
+      : (() => {
+          const d = describeHealth(health, Date.now())
+          return `${d.headline}. ${d.detail}`
+        })()
   return (
     <div className="host-indicators">
+      <span className="sr-only" role="status" aria-live="polite">
+        {announce}
+      </span>
       {health.status !== 'ok' && <ConnectionIndicator health={health} />}
       {!compact && <UsageChip />}
       {hostMetrics.map((host) => {

@@ -58,7 +58,10 @@ function userItems(
     } else if (b.type === 'tool_result') {
       const toolUseId = typeof b.tool_use_id === 'string' ? b.tool_use_id : undefined
       items.push({
-        id: uuid ? `${uuid}-result` : freshId('tr'),
+        // Parallel tool calls put several tool_result blocks in one record; key
+        // off the tool_use_id (unique per call) so the items don't collide as
+        // React keys when their originating calls scrolled out of the buffer.
+        id: toolUseId ? `${uuid ?? 'r'}-result-${toolUseId}` : freshId('tr'),
         role: 'tool',
         ts,
         text: '',

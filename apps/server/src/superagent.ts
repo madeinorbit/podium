@@ -8,6 +8,35 @@ import type { SessionStore, SuperagentMessageRow } from './store'
 const MAX_TOOL_ROUNDS = 8
 const HISTORY_WINDOW = 40
 
+/**
+ * Make a windowed message list valid for both provider adapters. Slicing the
+ * persisted thread at a fixed row count can cut through a tool round, leaving an
+ * orphan `tool` message at the front (its `tool_calls` fell out of the window)
+ * or a trailing assistant whose tool results never arrived (a crash mid-turn).
+ * OpenAI and Anthropic both 400 on either, so:
+ *   - drop leading `tool` messages until the first message is user/assistant;
+ *   - drop a trailing tool-calling assistant whose calls aren't all answered by
+ *     following `tool` messages.
+ * Complete rounds in the middle are always well-formed (runTurn writes them
+ * atomically), so this only ever trims the two boundaries.
+ */
+export function sanitizeToolPairing(msgs: LlmMessage[]): LlmMessage[] {
+  let start = 0
+  while (start < msgs.length && msgs[start]?.role === 'tool') start++
+  let out = msgs.slice(start)
+  for (let i = out.length - 1; i >= 0; i--) {
+    const m = out[i]
+    if (m?.role === 'assistant' && m.toolCalls && m.toolCalls.length > 0) {
+      const answered = new Set(
+        out.slice(i + 1).flatMap((x) => (x.role === 'tool' ? [x.toolCallId] : [])),
+      )
+      if (m.toolCalls.some((c) => !answered.has(c.id))) out = out.slice(0, i)
+      break // the last tool-calling assistant is the only one that can dangle
+    }
+  }
+  return out
+}
+
 const SYSTEM_PROMPT = `You are Podium's superagent — the orchestrator with cross-project context.
 You manage real coding-agent sessions (Claude Code, Codex CLIs in PTYs), worktrees, and tickets
 for a developer. You can start/steer/stop agents, inspect their transcripts, run constrained git
@@ -182,7 +211,7 @@ export class SuperagentService {
           name: r.toolName ?? 'tool',
         })
     }
-    return out
+    return sanitizeToolPairing(out)
   }
 
   /** Harness mode is one-shot: fold recent history into a single prompt. */
@@ -266,8 +295,8 @@ export class SuperagentService {
           if (str(args.name)) registry.renameSession({ sessionId, name: str(args.name) ?? '' })
           const first = str(args.firstMessage)
           if (first) {
-            // Give the CLI a moment to draw its input before typing into it.
-            setTimeout(() => registry.sendText({ sessionId, text: first }), 4000)
+            // Deliver once the CLI is actually up; drops itself if the spawn fails.
+            registry.sendTextWhenReady(sessionId, first)
           }
           return JSON.stringify({ sessionId, cwd, agentKind })
         },

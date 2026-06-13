@@ -287,6 +287,7 @@ export class SessionStore {
    * work-LLM summary survive re-discovery — discovery never overwrites curation.
    */
   upsertConversations(rows: ConversationIndexRow[]): void {
+    if (rows.length === 0) return
     const stmt = this.db.prepare(
       `INSERT INTO conversations
          (id, agent_kind, title, project_path, provider_id, resume_kind, resume_value,
@@ -294,30 +295,44 @@ export class SessionStore {
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          agent_kind = excluded.agent_kind,
-         title = excluded.title,
-         project_path = excluded.project_path,
          provider_id = excluded.provider_id,
-         resume_kind = excluded.resume_kind,
-         resume_value = excluded.resume_value,
+         -- COALESCE the optional columns: a later discovery push that omits a
+         -- field (ConversationSummaryWire marks title/resume optional) must not
+         -- null out what an earlier richer push recorded, or search stops
+         -- matching and the hibernate→resume ref is lost.
+         title = COALESCE(excluded.title, conversations.title),
+         project_path = COALESCE(excluded.project_path, conversations.project_path),
+         resume_kind = COALESCE(excluded.resume_kind, conversations.resume_kind),
+         resume_value = COALESCE(excluded.resume_value, conversations.resume_value),
          created_at = COALESCE(excluded.created_at, conversations.created_at),
          updated_at = COALESCE(excluded.updated_at, conversations.updated_at),
          message_count = COALESCE(excluded.message_count, conversations.message_count)`,
     )
-    for (const r of rows) {
-      stmt.run(
-        r.id,
-        r.agentKind,
-        r.title ?? null,
-        r.projectPath ?? null,
-        r.providerId,
-        r.resumeKind ?? null,
-        r.resumeValue ?? null,
-        r.createdAt ?? null,
-        r.updatedAt ?? null,
-        r.messageCount ?? null,
-      )
+    // One transaction, not N autocommits: the daemon pushes its full conversation
+    // list (potentially thousands) every ~15s, and a commit-per-row turned that
+    // into thousands of WAL syncs on the synchronous main thread. The FTS index
+    // stays current via triggers (see migrate), so no rebuild here.
+    this.db.exec('BEGIN IMMEDIATE')
+    try {
+      for (const r of rows) {
+        stmt.run(
+          r.id,
+          r.agentKind,
+          r.title ?? null,
+          r.projectPath ?? null,
+          r.providerId,
+          r.resumeKind ?? null,
+          r.resumeValue ?? null,
+          r.createdAt ?? null,
+          r.updatedAt ?? null,
+          r.messageCount ?? null,
+        )
+      }
+      this.db.exec('COMMIT')
+    } catch (e) {
+      this.db.exec('ROLLBACK')
+      throw e
     }
-    this.reindexConversationsFts()
   }
 
   /** Persist command-center-generated curation: a good name and/or a state summary. */
@@ -336,7 +351,7 @@ export class SessionStore {
     if (meta.summary !== undefined) {
       this.db.prepare('UPDATE conversations SET summary = ? WHERE id = ?').run(meta.summary, id)
     }
-    this.reindexConversationsFts()
+    // FTS stays current via the UPDATE trigger (see migrate) — no rebuild.
   }
 
   /**
@@ -442,12 +457,6 @@ export class SessionStore {
     this.db.exec('DELETE FROM superagent_messages')
   }
 
-  /** Rebuild the external-content FTS index. Cheap at this row count (thousands). */
-  private reindexConversationsFts(): void {
-    if (!this.ftsAvailable) return
-    this.db.exec("INSERT INTO conversations_fts(conversations_fts) VALUES('rebuild')")
-  }
-
   close(): void {
     this.db.close()
   }
@@ -529,6 +538,29 @@ export class SessionStore {
            content='conversations', content_rowid='rowid'
          )`,
       )
+      // Triggers keep the external-content index in sync incrementally — every
+      // INSERT/UPDATE/DELETE touches only the affected rowid. This replaces a
+      // full 'rebuild' that previously ran on every ~15s discovery push and on
+      // every metadata edit (O(all rows) each time, on the main thread).
+      this.db.exec(
+        `CREATE TRIGGER IF NOT EXISTS conversations_ai AFTER INSERT ON conversations BEGIN
+           INSERT INTO conversations_fts(rowid, title, name, summary, project_path)
+           VALUES (new.rowid, new.title, new.name, new.summary, new.project_path);
+         END;
+         CREATE TRIGGER IF NOT EXISTS conversations_ad AFTER DELETE ON conversations BEGIN
+           INSERT INTO conversations_fts(conversations_fts, rowid, title, name, summary, project_path)
+           VALUES ('delete', old.rowid, old.title, old.name, old.summary, old.project_path);
+         END;
+         CREATE TRIGGER IF NOT EXISTS conversations_au AFTER UPDATE ON conversations BEGIN
+           INSERT INTO conversations_fts(conversations_fts, rowid, title, name, summary, project_path)
+           VALUES ('delete', old.rowid, old.title, old.name, old.summary, old.project_path);
+           INSERT INTO conversations_fts(rowid, title, name, summary, project_path)
+           VALUES (new.rowid, new.title, new.name, new.summary, new.project_path);
+         END;`,
+      )
+      // One-time heal at boot: re-tokenize so rows written before the triggers
+      // existed (or any drift) are indexed. O(rows) once per process, not per write.
+      this.db.exec("INSERT INTO conversations_fts(conversations_fts) VALUES('rebuild')")
       this.ftsAvailable = true
     } catch {
       this.ftsAvailable = false // LIKE fallback handles search

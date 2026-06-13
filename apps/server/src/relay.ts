@@ -242,7 +242,12 @@ export class SessionRegistry {
    */
   continueSession({ sessionId }: { sessionId: string }): { ok: boolean } {
     const session = this.sessions.get(sessionId)
-    if (session?.agentState?.phase !== 'errored') return { ok: false }
+    if (!session) return { ok: false }
+    // Status gate as well as phase: a session can read 'errored' while its
+    // process is already gone (hibernated/exited), where typing 'continue' would
+    // vanish into a dead PTY yet still report ok. Only a running session can retry.
+    if (session.status !== 'live' && session.status !== 'starting') return { ok: false }
+    if (session.agentState?.phase !== 'errored') return { ok: false }
     this.toDaemon({
       type: 'input',
       sessionId,
@@ -268,6 +273,30 @@ export class SessionRegistry {
       data: Buffer.from(`${body}\r`).toString('base64'),
     })
     return { ok: true }
+  }
+
+  /**
+   * Deliver text once the session is actually up. The superagent's start_agent
+   * tool needs this: createSession returns immediately, but the CLI isn't ready
+   * to receive input until it binds. Polls for 'live' and gives up if the spawn
+   * fails (status 'exited') — better than a fixed timer that fires into a dead
+   * PTY or before the prompt is drawn.
+   */
+  sendTextWhenReady(sessionId: string, text: string, timeoutMs = 25_000): void {
+    const deadline = Date.now() + timeoutMs
+    const tick = (): void => {
+      const session = this.sessions.get(sessionId)
+      if (!session || session.status === 'exited') return // gone — drop it
+      if (session.status === 'live') {
+        this.sendText({ sessionId, text })
+        return
+      }
+      if (Date.now() >= deadline) return
+      const t = setTimeout(tick, 500)
+      t.unref?.()
+    }
+    const t = setTimeout(tick, 500)
+    t.unref?.()
   }
 
   /** Set (or clear with '') the user-facing session name. */
@@ -341,6 +370,7 @@ export class SessionRegistry {
       cwd: session.cwd,
       ...(session.resume ? { resume: session.resume } : {}),
       geometry: session.geometry,
+      ...this.modelDefaults(session.agentKind),
     })
     this.broadcastSessions()
     return { ok: true }
@@ -348,6 +378,12 @@ export class SessionRegistry {
 
   // At most one hibernation per cooldown window — memory readings need time to
   // reflect the previous kill before deciding to take down another agent.
+  //
+  // Single-daemon assumption: the registry holds one daemon socket, so every
+  // session runs on the host these samples describe, and the cooldown is global
+  // because there's one memory budget. When multi-daemon lands, sessions will
+  // need a host id (none exists today) so candidate selection and the cooldown
+  // can be scoped per host — building that attribution now would be speculative.
   private lastAutoHibernateMs = 0
   private maybeAutoHibernate(sample: HostMetricsWire): void {
     const cfg = this.store.getSettings().hibernation
@@ -388,89 +424,94 @@ export class SessionRegistry {
     this.broadcastSessions()
   }
 
-  scan(): Promise<ScanResult> {
-    const requestId = `r${this.nextRequestNum++}`
-    return new Promise<ScanResult>((resolve) => {
+  /**
+   * Shared request/response plumbing for daemon round-trips: mint a prefixed
+   * requestId, register a resolver keyed by it, send the control message, and
+   * resolve a fallback on timeout. Every `*Result` daemon message looks its
+   * resolver up in the matching pending map. One place to get unref/cleanup
+   * right instead of six near-identical copies.
+   */
+  private daemonRequest<T>(
+    pending: Map<string, (r: T) => void>,
+    prefix: string,
+    timeoutMs: number,
+    onTimeout: () => T,
+    buildMsg: (requestId: string) => ControlMessage,
+  ): Promise<T> {
+    const requestId = `${prefix}${this.nextRequestNum++}`
+    return new Promise<T>((resolve) => {
       const timer = setTimeout(() => {
-        this.pendingScans.delete(requestId)
-        resolve({
-          conversations: [],
-          diagnostics: [{ severity: 'error', message: 'discovery scan timed out' }],
-        })
-      }, SCAN_TIMEOUT_MS)
+        pending.delete(requestId)
+        resolve(onTimeout())
+      }, timeoutMs)
       timer.unref?.()
-      this.pendingScans.set(requestId, (r) => {
+      pending.set(requestId, (r) => {
         clearTimeout(timer)
         resolve(r)
       })
-      this.toDaemon({ type: 'scanRequest', requestId })
+      this.toDaemon(buildMsg(requestId))
     })
+  }
+
+  scan(): Promise<ScanResult> {
+    return this.daemonRequest(
+      this.pendingScans,
+      'r',
+      SCAN_TIMEOUT_MS,
+      () => ({
+        conversations: [],
+        diagnostics: [{ severity: 'error', message: 'discovery scan timed out' }],
+      }),
+      (requestId) => ({ type: 'scanRequest', requestId }),
+    )
   }
 
   scanRepos(
     roots: string[],
     opts: { includeHome?: boolean; maxDepth?: number } = {},
   ): Promise<ScanReposResult> {
-    const requestId = `rr${this.nextRequestNum++}`
-    return new Promise<ScanReposResult>((resolve) => {
-      const timer = setTimeout(() => {
-        this.pendingRepoScans.delete(requestId)
-        resolve({
-          repositories: [],
-          diagnostics: [{ severity: 'error', path: '', message: 'repos scan timed out' }],
-        })
-      }, SCAN_TIMEOUT_MS)
-      timer.unref?.()
-      this.pendingRepoScans.set(requestId, (r) => {
-        clearTimeout(timer)
-        resolve(r)
-      })
-      this.toDaemon({
+    return this.daemonRequest(
+      this.pendingRepoScans,
+      'rr',
+      SCAN_TIMEOUT_MS,
+      () => ({
+        repositories: [],
+        diagnostics: [{ severity: 'error', path: '', message: 'repos scan timed out' }],
+      }),
+      (requestId) => ({
         type: 'scanReposRequest',
         requestId,
         roots,
         ...(opts.includeHome === undefined ? {} : { includeHome: opts.includeHome }),
         ...(opts.maxDepth === undefined ? {} : { maxDepth: opts.maxDepth }),
-      })
-    })
+      }),
+    )
   }
 
   /** Token-usage buckets from the daemon's transcript harvest (empty on timeout). */
   usage(sinceMs?: number): Promise<{ hostname: string; buckets: UsageBucketWire[] }> {
-    const requestId = `us${this.nextRequestNum++}`
-    return new Promise((resolve) => {
-      const timer = setTimeout(() => {
-        this.pendingUsage.delete(requestId)
-        resolve({ hostname: '', buckets: [] })
-      }, 20_000)
-      timer.unref?.()
-      this.pendingUsage.set(requestId, (r) => {
-        clearTimeout(timer)
-        resolve(r)
-      })
-      this.toDaemon({
+    return this.daemonRequest(
+      this.pendingUsage,
+      'us',
+      20_000,
+      () => ({ hostname: '', buckets: [] }),
+      (requestId) => ({
         type: 'usageRequest',
         requestId,
         ...(sinceMs !== undefined ? { sinceMs } : {}),
-      })
-    })
+      }),
+    )
   }
 
   /** Allowlisted git op on a dev machine (superagent tools). */
   repoOp(op: RepoOp, cwd: string, args?: Record<string, string>): Promise<OpResult> {
-    const requestId = `ro${this.nextRequestNum++}`
-    return new Promise<OpResult>((resolve) => {
-      const timer = setTimeout(() => {
-        this.pendingRepoOps.delete(requestId)
-        resolve({ ok: false, output: 'no daemon answered the git request in time' })
-      }, 35_000)
-      timer.unref?.()
-      this.pendingRepoOps.set(requestId, (r) => {
-        clearTimeout(timer)
-        resolve(r)
-      })
-      this.toDaemon({ type: 'repoOpRequest', requestId, op, cwd, ...(args ? { args } : {}) })
-    })
+    return this.daemonRequest(
+      this.pendingRepoOps,
+      'ro',
+      35_000,
+      () => ({ ok: false, output: 'no daemon answered the git request in time' }),
+      (requestId) => ({ type: 'repoOpRequest', requestId, op, cwd, ...(args ? { args } : {}) }),
+    )
   }
 
   /** One-shot `claude -p` / `codex exec` on a dev machine (harness-backed LLM work). */
@@ -480,43 +521,31 @@ export class SessionRegistry {
     prompt: string
     cwd?: string
   }): Promise<OpResult> {
-    const requestId = `hx${this.nextRequestNum++}`
-    return new Promise<OpResult>((resolve) => {
-      const timer = setTimeout(() => {
-        this.pendingHarnessExecs.delete(requestId)
-        resolve({ ok: false, output: 'harness run timed out' })
-      }, 250_000)
-      timer.unref?.()
-      this.pendingHarnessExecs.set(requestId, (r) => {
-        clearTimeout(timer)
-        resolve(r)
-      })
-      this.toDaemon({
+    return this.daemonRequest(
+      this.pendingHarnessExecs,
+      'hx',
+      250_000,
+      () => ({ ok: false, output: 'harness run timed out' }),
+      (requestId) => ({
         type: 'harnessExecRequest',
         requestId,
         agent: input.agent,
         prompt: input.prompt,
         ...(input.model && input.model !== 'auto' ? { model: input.model } : {}),
         ...(input.cwd ? { cwd: input.cwd } : {}),
-      })
-    })
+      }),
+    )
   }
 
   /** Ask the daemon who owns the used memory. Resolves undefined when no daemon answers in time. */
   memoryBreakdown(roots: string[]): Promise<MemoryBreakdown | undefined> {
-    const requestId = `mb${this.nextRequestNum++}`
-    return new Promise<MemoryBreakdown | undefined>((resolve) => {
-      const timer = setTimeout(() => {
-        this.pendingBreakdowns.delete(requestId)
-        resolve(undefined)
-      }, SCAN_TIMEOUT_MS)
-      timer.unref?.()
-      this.pendingBreakdowns.set(requestId, (r) => {
-        clearTimeout(timer)
-        resolve(r)
-      })
-      this.toDaemon({ type: 'memoryBreakdownRequest', requestId, roots })
-    })
+    return this.daemonRequest<MemoryBreakdown | undefined>(
+      this.pendingBreakdowns,
+      'mb',
+      SCAN_TIMEOUT_MS,
+      () => undefined,
+      (requestId) => ({ type: 'memoryBreakdownRequest', requestId, roots }),
+    )
   }
 
   private spawn(input: {
@@ -541,10 +570,6 @@ export class SessionRegistry {
     })
     this.sessions.set(sessionId, session)
     this.persist(session)
-    // Model defaults ride along to the daemon; 'auto' means no override at all.
-    const defaults = this.store.getSettings().sessionDefaults
-    const model = defaults.model !== 'auto' ? defaults.model : undefined
-    const subagentModel = defaults.subagentModel !== 'auto' ? defaults.subagentModel : undefined
     this.toDaemon({
       type: 'spawn',
       sessionId,
@@ -552,13 +577,25 @@ export class SessionRegistry {
       cwd: input.cwd,
       ...(input.resume ? { resume: input.resume } : {}),
       geometry: { ...DEFAULT_GEOMETRY },
-      ...(model !== undefined && input.agentKind !== 'shell' ? { model } : {}),
-      ...(subagentModel !== undefined && input.agentKind === 'claude-code'
-        ? { subagentModel }
-        : {}),
+      ...this.modelDefaults(input.agentKind),
     })
     this.broadcastSessions()
     return { sessionId }
+  }
+
+  /**
+   * Settings-driven model flags for a spawn message; 'auto' means no override.
+   * Shared by every spawn path (fresh spawn AND resurrect) so a resumed session
+   * keeps the configured model instead of silently dropping to the CLI default.
+   */
+  private modelDefaults(agentKind: AgentKind): { model?: string; subagentModel?: string } {
+    const defaults = this.store.getSettings().sessionDefaults
+    const model = defaults.model !== 'auto' ? defaults.model : undefined
+    const subagentModel = defaults.subagentModel !== 'auto' ? defaults.subagentModel : undefined
+    return {
+      ...(model !== undefined && agentKind !== 'shell' ? { model } : {}),
+      ...(subagentModel !== undefined && agentKind === 'claude-code' ? { subagentModel } : {}),
+    }
   }
 
   // ---- ws data plane: clients ----
@@ -569,7 +606,11 @@ export class SessionRegistry {
       send,
       viewport: { ...DEFAULT_GEOMETRY },
       attached: new Set(),
-      visible: true,
+      // Fail-safe toward notifying: a client counts as NOT watching until it
+      // tells us otherwise (every browser client sends `presence` right after
+      // connecting). Defaulting to visible:true let one stale/non-browser client
+      // silently suppress all mobile push forever.
+      visible: false,
     })
     send({ type: 'welcome', clientId: id })
     send({ type: 'sessionsChanged', sessions: this.listSessions() })
@@ -681,9 +722,16 @@ export class SessionRegistry {
         if (!session) break
         const prev = session.agentState
         session.setAgentState(msg.state)
-        // Phase transitions are low-frequency (seconds apart, never per-frame),
-        // so reusing the full sessions broadcast keeps the client protocol unchanged.
-        this.broadcastSessions()
+        // A dedicated per-session message — not broadcastSessions(). Hook events
+        // fire often (TodoWrite mutations, turn boundaries, across all sessions);
+        // re-serializing and fanning out the whole session list each time is
+        // O(sessions × clients). Late joiners still get state via listSessions().
+        const update: ServerMessage = {
+          type: 'sessionAgentStateChanged',
+          sessionId: msg.sessionId,
+          state: msg.state,
+        }
+        for (const c of this.clients.values()) c.send(update)
         this.notifyAttention(session, prev, msg.state)
         break
       }
@@ -747,9 +795,15 @@ export class SessionRegistry {
         }
         break
       }
-      case 'transcriptAppend':
-        this.sessions.get(msg.sessionId)?.appendTranscript(msg.items, msg.reset ?? false)
+      case 'transcriptAppend': {
+        const session = this.sessions.get(msg.sessionId)
+        if (session?.appendTranscript(msg.items, msg.reset ?? false)) {
+          // First transcript for this session → its chat capability flipped on;
+          // push the updated meta so clients can offer the chat toggle.
+          this.broadcastSessions()
+        }
         break
+      }
       case 'repoOpResult': {
         const resolve = this.pendingRepoOps.get(msg.requestId)
         if (resolve) {

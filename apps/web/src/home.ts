@@ -87,13 +87,19 @@ export function groupSessions(sessions: SessionMeta[]): HomeGroups {
   return groups
 }
 
-export const WORK_STATE_COLUMNS: { key: WorkState; label: string }[] = [
-  { key: 'planning', label: 'Planning' },
-  { key: 'implementing', label: 'Implementing' },
-  { key: 'testing', label: 'Testing' },
-  { key: 'done', label: 'Done' },
-  { key: 'icebox', label: 'Icebox' },
-]
+// Labels keyed by the protocol enum, so a `Record<WorkState, …>` makes adding a
+// WorkState member a compile error here until it gets a column — the array form
+// let the kanban silently drop a new state into "Unsorted".
+const WORK_STATE_LABELS: Record<WorkState, string> = {
+  planning: 'Planning',
+  implementing: 'Implementing',
+  testing: 'Testing',
+  done: 'Done',
+  icebox: 'Icebox',
+}
+export const WORK_STATE_COLUMNS: { key: WorkState; label: string }[] = (
+  Object.keys(WORK_STATE_LABELS) as WorkState[]
+).map((key) => ({ key, label: WORK_STATE_LABELS[key] }))
 
 /** Kanban lanes: the five named columns plus an Unsorted inbox. Recency-ordered. */
 export function kanbanColumns(

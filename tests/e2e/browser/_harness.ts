@@ -21,6 +21,11 @@ type TestWindow = Window & { __podium?: PodiumTestApi }
 
 /** Open the Live UI pointed at the harness relay, with the e2e test API enabled. */
 export async function openApp(page: Page): Promise<void> {
+  // Force the native terminal view: these specs drive the real PTY substrate
+  // (the test API lives on the mounted xterm session), so pin the panel mode
+  // through the same persistence channel a user would, rather than a production
+  // E2E branch in the app. Must run before app code, so before goto.
+  await page.addInitScript(() => localStorage.setItem('podium.panelMode', 'native'))
   await page.goto(`/?server=${RELAY}&e2e=1`)
   await page.waitForFunction(
     () => /feat\/|podium/i.test(document.body.innerText || ''),

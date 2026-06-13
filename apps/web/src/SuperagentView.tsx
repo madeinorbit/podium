@@ -3,8 +3,8 @@ import type { JSX } from 'react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { reposToViews } from './derive'
 import { renderMarkdown } from './markdown'
-import type { ConversationHit } from './SearchView'
 import { useStore } from './store'
+import { useConversationSearch } from './useConversationSearch'
 import { useVoiceInput } from './voice'
 
 interface SuperMessage {
@@ -37,7 +37,6 @@ export function SuperagentView(): JSX.Element {
   const [busy, setBusy] = useState(false)
   const [backendLabel, setBackendLabel] = useState('')
   const [atQuery, setAtQuery] = useState<string | null>(null)
-  const [atHits, setAtHits] = useState<AtOption[]>([])
   const [atIndex, setAtIndex] = useState(0)
   const scrollRef = useRef<HTMLDivElement | null>(null)
   const inputRef = useRef<HTMLTextAreaElement | null>(null)
@@ -75,33 +74,34 @@ export function SuperagentView(): JSX.Element {
     return out
   }, [repos])
 
-  useEffect(() => {
-    if (atQuery === null) return
+  // Conversations join the @-menu async via the shared (race-guarded) search;
+  // files come later. The menu is derived, not stored, so a slow stale response
+  // can't overwrite the current query's options.
+  const { hits: convHits } = useConversationSearch({
+    query: atQuery ?? '',
+    limit: 4,
+    enabled: atQuery !== null,
+    debounceMs: 150,
+  })
+  const atHits = useMemo<AtOption[]>(() => {
+    if (atQuery === null) return []
     const q = atQuery.toLowerCase()
     const local = localAtOptions
       .filter((o) => o.label.toLowerCase().includes(q) || o.detail.toLowerCase().includes(q))
       .slice(0, 6)
-    setAtHits(local)
-    setAtIndex(0)
-    // Conversations join async (server index); files come later.
-    const t = setTimeout(() => {
-      trpc.conversations.search
-        .query({ ...(q ? { query: q } : {}), limit: 4 })
-        .then((rows) => {
-          const convs = (rows as ConversationHit[]).map(
-            (hit): AtOption => ({
-              kind: 'conversation',
-              label: hit.name || hit.title || hit.id,
-              detail: hit.projectPath?.split('/').slice(-2).join('/') ?? '',
-              ref: `conversation:${hit.id}`,
-            }),
-          )
-          setAtHits((cur) => [...local, ...convs].slice(0, 10))
-        })
-        .catch(() => {})
-    }, 150)
-    return () => clearTimeout(t)
-  }, [atQuery, localAtOptions, trpc])
+    const convs = convHits.map(
+      (hit): AtOption => ({
+        kind: 'conversation',
+        label: hit.name || hit.title || hit.id,
+        detail: hit.projectPath?.split('/').slice(-2).join('/') ?? '',
+        ref: `conversation:${hit.id}`,
+      }),
+    )
+    return [...local, ...convs].slice(0, 10)
+  }, [atQuery, localAtOptions, convHits])
+  // Keep the highlighted index in range as the option list changes.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reset on query change
+  useEffect(() => setAtIndex(0), [atQuery])
 
   const syncAtState = (value: string, caret: number) => {
     // An @-mention is active when the text before the caret ends in @word.

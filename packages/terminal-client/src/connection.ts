@@ -187,8 +187,9 @@ export class SocketHub {
       for (const sessionId of this.transcripts.keys()) {
         this.sendRaw({ type: 'transcriptSubscribe', sessionId })
       }
-      // Re-assert presence; the server defaults a new connection to visible.
-      if (!this.lastVisible) this.sendRaw({ type: 'presence', visible: false })
+      // Always assert presence on (re)connect: the server defaults a new client
+      // to not-visible (fail-safe toward notifying), so a visible tab must say so.
+      this.sendRaw({ type: 'presence', visible: this.lastVisible })
       this.notifyConnections()
       this.evaluateHealth()
     }
@@ -503,6 +504,16 @@ export class SocketHub {
         if (s.sessionId !== msg.sessionId || s.title === msg.title) return s
         changed = true
         return { ...s, title: msg.title }
+      })
+      if (changed) for (const o of this.sessionObservers) o(this.sessionList)
+      return
+    }
+    if (msg.type === 'sessionAgentStateChanged') {
+      let changed = false
+      this.sessionList = this.sessionList.map((s) => {
+        if (s.sessionId !== msg.sessionId) return s
+        changed = true
+        return { ...s, agentState: msg.state }
       })
       if (changed) for (const o of this.sessionObservers) o(this.sessionList)
       return
