@@ -275,9 +275,17 @@ export class TerminalView {
    * it, the two never stack.
    */
   async requestPaste(): Promise<void> {
-    // typeof, not truthiness: the DOM lib types readText as always-present, but at
-    // runtime navigator.clipboard (and readText) are undefined on Firefox / http.
-    if (typeof navigator.clipboard?.readText === 'function') {
+    // Touch devices (iOS Safari especially) handle the async Clipboard API badly:
+    // readText() forces a permission grant, dismisses the keyboard, then shows
+    // iOS's own "Paste" button — so one tap can take three tries. Use the capture
+    // field there instead: it reads the plain `paste` event, so iOS shows its
+    // native paste callout on a real field directly, with NO clipboard-read
+    // permission. Desktop keeps the one-shot Clipboard API (and Cmd+V is handled
+    // natively by xterm anyway). typeof, not truthiness: the DOM lib types
+    // readText as always-present, but it's undefined at runtime on Firefox / http.
+    const coarsePointer =
+      typeof window !== 'undefined' && window.matchMedia?.('(pointer: coarse)').matches === true
+    if (!coarsePointer && typeof navigator.clipboard?.readText === 'function') {
       this.pasteText(await readClipboard())
       return
     }
@@ -305,12 +313,16 @@ export class TerminalView {
       'box-shadow:0 12px 40px rgba(0,0,0,0.5)'
 
     const hint = doc.createElement('div')
-    hint.textContent = 'Long-press the box, tap Paste (or type, then Enter)'
+    hint.textContent = 'Long-press the box → Paste'
     hint.style.cssText = 'font:13px ui-sans-serif,system-ui,sans-serif;color:#9a9aa6'
 
     const ta = doc.createElement('textarea')
     ta.setAttribute('aria-label', 'Paste target')
     ta.placeholder = 'Paste here…'
+    // No virtual keyboard — this field exists only to receive a paste, so the
+    // soft keyboard popping up would just be in the way. The long-press → Paste
+    // callout still works on a focused editable field.
+    ta.inputMode = 'none'
     ta.rows = 3
     ta.style.cssText =
       'width:100%;resize:none;padding:10px;border-radius:8px;border:1px solid #3a3a46;' +
