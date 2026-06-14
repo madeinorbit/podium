@@ -10,16 +10,38 @@ import type { JSX } from 'react'
 import { useEffect, useState } from 'react'
 import { useStore } from './store'
 
+type SettingsTab =
+  | 'sessions'
+  | 'superagent'
+  | 'workllm'
+  | 'keys'
+  | 'hibernation'
+  | 'notifications'
+  | 'integrations'
+
+const SETTINGS_TABS: { key: SettingsTab; label: string }[] = [
+  { key: 'sessions', label: 'New sessions' },
+  { key: 'superagent', label: 'Superagent' },
+  { key: 'workllm', label: 'Background LLM' },
+  { key: 'keys', label: 'API keys' },
+  { key: 'hibernation', label: 'Hibernation' },
+  { key: 'notifications', label: 'Notifications' },
+  { key: 'integrations', label: 'Integrations' },
+]
+
 /**
- * Settings modal. Loads the whole blob, edits a local copy, saves it whole —
- * no per-field mutations, so the form can never half-apply.
+ * Settings — a full main-content surface (not a modal), split into sections via a
+ * side nav. Loads the whole blob, edits a local copy, saves it whole — no
+ * per-field mutations, so the form can never half-apply even though only one
+ * section is on screen at a time.
  */
-export function SettingsView({ onClose }: { onClose: () => void }): JSX.Element {
-  const { trpc } = useStore()
+export function SettingsView(): JSX.Element {
+  const { trpc, setView } = useStore()
   const [settings, setSettings] = useState<PodiumSettings | null>(null)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [savedAt, setSavedAt] = useState(0)
+  const [tab, setTab] = useState<SettingsTab>('sessions')
 
   useEffect(() => {
     let cancelled = false
@@ -53,219 +75,251 @@ export function SettingsView({ onClose }: { onClose: () => void }): JSX.Element 
   const patch = (p: Partial<PodiumSettings>) => setSettings((s) => (s ? { ...s, ...p } : s))
 
   return (
-    <div className="modal-backdrop" role="presentation">
-      <div className="settings-modal" role="dialog" aria-modal="true" aria-label="Settings">
-        <div className="settings-head">
-          <h2>Settings</h2>
-          <button type="button" className="settings-close" onClick={onClose}>
-            ✕
-          </button>
+    <section className="settings-view" aria-label="Settings">
+      <div className="settings-head">
+        <h2>Settings</h2>
+        <button
+          type="button"
+          className="settings-close"
+          title="Close settings"
+          onClick={() => setView('home')}
+        >
+          ✕
+        </button>
+      </div>
+      {error && <div className="settings-error">{error}</div>}
+      {!settings ? (
+        <div className="settings-body">
+          <div className="empty">Loading settings…</div>
         </div>
-        {error && <div className="settings-error">{error}</div>}
-        {!settings ? (
+      ) : (
+        <div className="settings-layout">
+          <nav className="settings-nav" aria-label="Settings sections">
+            {SETTINGS_TABS.map((t) => (
+              <button
+                key={t.key}
+                type="button"
+                className={t.key === tab ? 'active' : ''}
+                aria-current={t.key === tab}
+                onClick={() => setTab(t.key)}
+              >
+                {t.label}
+              </button>
+            ))}
+          </nav>
           <div className="settings-body">
-            <div className="empty">Loading settings…</div>
-          </div>
-        ) : (
-          <div className="settings-body">
-            <Section
-              title="New sessions"
-              hint="Defaults applied when starting agents. “Agent decides” passes no flag — the CLI uses its own configuration."
-            >
-              <Row label="Default agent">
-                <select
-                  value={settings.sessionDefaults.agent}
-                  onChange={(e) =>
-                    patch({
-                      sessionDefaults: {
-                        ...settings.sessionDefaults,
-                        agent: e.target.value as AgentChoice,
-                      },
-                    })
-                  }
-                >
-                  <option value="auto">Agent decides (Claude Code)</option>
-                  <option value="claude-code">Claude Code</option>
-                  <option value="codex">Codex</option>
-                  <option value="grok">Grok</option>
-                </select>
-              </Row>
-              <Row label="Model for new sessions">
-                <ModelInput
-                  value={settings.sessionDefaults.model}
-                  onChange={(model) =>
-                    patch({ sessionDefaults: { ...settings.sessionDefaults, model } })
-                  }
-                />
-              </Row>
-              <Row label="Model for subagents">
-                <ModelInput
-                  value={settings.sessionDefaults.subagentModel}
-                  onChange={(subagentModel) =>
-                    patch({ sessionDefaults: { ...settings.sessionDefaults, subagentModel } })
-                  }
-                />
-              </Row>
-            </Section>
-
-            <Section
-              title="Superagent"
-              hint="The orchestrator that starts, stops, and reasons across all your agents."
-            >
-              <BackendEditor
-                backend={settings.superagent}
-                onChange={(superagent) => patch({ superagent })}
-              />
-            </Section>
-
-            <Section
-              title="Background work LLM"
-              hint="Summarizing session state, naming conversations, extracting work status. Cheap + fast is the right call here."
-            >
-              <BackendEditor
-                backend={settings.workLlm}
-                onChange={(workLlm) => patch({ workLlm })}
-              />
-            </Section>
-
-            <Section
-              title="API keys"
-              hint="Stored in Podium's own database on your server — the same trust domain as the shells your agents already run in."
-            >
-              {(['openrouter', 'anthropic', 'openai'] as const).map((k) => (
-                <Row key={k} label={providerLabel(k)}>
-                  <input
-                    type="password"
-                    autoComplete="off"
-                    placeholder="not set"
-                    value={settings.apiKeys[k]}
+            {tab === 'sessions' && (
+              <Section
+                title="New sessions"
+                hint="Defaults applied when starting agents. “Agent decides” passes no flag — the CLI uses its own configuration."
+              >
+                <Row label="Default agent">
+                  <select
+                    value={settings.sessionDefaults.agent}
                     onChange={(e) =>
-                      patch({ apiKeys: { ...settings.apiKeys, [k]: e.target.value } })
+                      patch({
+                        sessionDefaults: {
+                          ...settings.sessionDefaults,
+                          agent: e.target.value as AgentChoice,
+                        },
+                      })
+                    }
+                  >
+                    <option value="auto">Agent decides (Claude Code)</option>
+                    <option value="claude-code">Claude Code</option>
+                    <option value="codex">Codex</option>
+                    <option value="grok">Grok</option>
+                  </select>
+                </Row>
+                <Row label="Model for new sessions">
+                  <ModelInput
+                    value={settings.sessionDefaults.model}
+                    onChange={(model) =>
+                      patch({ sessionDefaults: { ...settings.sessionDefaults, model } })
                     }
                   />
                 </Row>
-              ))}
-            </Section>
+                <Row label="Model for subagents">
+                  <ModelInput
+                    value={settings.sessionDefaults.subagentModel}
+                    onChange={(subagentModel) =>
+                      patch({ sessionDefaults: { ...settings.sessionDefaults, subagentModel } })
+                    }
+                  />
+                </Row>
+              </Section>
+            )}
 
-            <Section
-              title="Auto-hibernation"
-              hint="When a machine's memory crosses the threshold, idle sessions hibernate. One click resumes them."
-            >
-              <Row label="Enabled">
-                <input
-                  type="checkbox"
-                  checked={settings.hibernation.enabled}
-                  onChange={(e) =>
-                    patch({ hibernation: { ...settings.hibernation, enabled: e.target.checked } })
-                  }
+            {tab === 'superagent' && (
+              <Section
+                title="Superagent"
+                hint="The orchestrator that starts, stops, and reasons across all your agents."
+              >
+                <BackendEditor
+                  backend={settings.superagent}
+                  onChange={(superagent) => patch({ superagent })}
                 />
-              </Row>
-              <Row label="Memory threshold (%)">
-                <input
-                  type="number"
-                  min={50}
-                  max={95}
-                  value={settings.hibernation.memoryPct}
-                  onChange={(e) =>
-                    patch({
-                      hibernation: {
-                        ...settings.hibernation,
-                        memoryPct: clampInt(e.target.value, 50, 95, 80),
-                      },
-                    })
-                  }
-                />
-              </Row>
-              <Row label="Idle after (minutes)">
-                <input
-                  type="number"
-                  min={1}
-                  max={1440}
-                  value={settings.hibernation.idleMinutes}
-                  onChange={(e) =>
-                    patch({
-                      hibernation: {
-                        ...settings.hibernation,
-                        idleMinutes: clampInt(e.target.value, 1, 1440, 30),
-                      },
-                    })
-                  }
-                />
-              </Row>
-            </Section>
+              </Section>
+            )}
 
-            <Section
-              title="Notifications"
-              hint="Web notifications fire when this page is open in the background. The ntfy topic adds real mobile push: install the free ntfy app, subscribe to your topic."
-            >
-              <Row label="Web notifications">
-                <input
-                  type="checkbox"
-                  checked={settings.notifications.web}
-                  onChange={(e) =>
-                    patch({
-                      notifications: { ...settings.notifications, web: e.target.checked },
-                    })
-                  }
+            {tab === 'workllm' && (
+              <Section
+                title="Background work LLM"
+                hint="Summarizing session state, naming conversations, extracting work status. Cheap + fast is the right call here."
+              >
+                <BackendEditor
+                  backend={settings.workLlm}
+                  onChange={(workLlm) => patch({ workLlm })}
                 />
-                <NotificationPermissionButton />
-              </Row>
-              <Row label="ntfy.sh topic">
-                <input
-                  type="text"
-                  placeholder="e.g. podium-a8f3k2 (empty = off)"
-                  value={settings.notifications.ntfyTopic}
-                  onChange={(e) =>
-                    patch({
-                      notifications: { ...settings.notifications, ntfyTopic: e.target.value },
-                    })
-                  }
-                />
-              </Row>
-            </Section>
+              </Section>
+            )}
 
-            <Section
-              title="Integrations"
-              hint="Linear lets the superagent pick up, add, and move tickets."
-            >
-              <Row label="Linear API key">
-                <input
-                  type="password"
-                  autoComplete="off"
-                  placeholder="lin_api_…"
-                  value={settings.integrations.linearApiKey}
-                  onChange={(e) =>
-                    patch({
-                      integrations: { ...settings.integrations, linearApiKey: e.target.value },
-                    })
-                  }
-                />
-              </Row>
-            </Section>
+            {tab === 'keys' && (
+              <Section
+                title="API keys"
+                hint="Stored in Podium's own database on your server — the same trust domain as the shells your agents already run in."
+              >
+                {(['openrouter', 'anthropic', 'openai'] as const).map((k) => (
+                  <Row key={k} label={providerLabel(k)}>
+                    <input
+                      type="password"
+                      autoComplete="off"
+                      placeholder="not set"
+                      value={settings.apiKeys[k]}
+                      onChange={(e) =>
+                        patch({ apiKeys: { ...settings.apiKeys, [k]: e.target.value } })
+                      }
+                    />
+                  </Row>
+                ))}
+              </Section>
+            )}
+
+            {tab === 'hibernation' && (
+              <Section
+                title="Auto-hibernation"
+                hint="When a machine's memory crosses the threshold, idle sessions hibernate. One click resumes them."
+              >
+                <Row label="Enabled">
+                  <input
+                    type="checkbox"
+                    checked={settings.hibernation.enabled}
+                    onChange={(e) =>
+                      patch({ hibernation: { ...settings.hibernation, enabled: e.target.checked } })
+                    }
+                  />
+                </Row>
+                <Row label="Memory threshold (%)">
+                  <input
+                    type="number"
+                    min={50}
+                    max={95}
+                    value={settings.hibernation.memoryPct}
+                    onChange={(e) =>
+                      patch({
+                        hibernation: {
+                          ...settings.hibernation,
+                          memoryPct: clampInt(e.target.value, 50, 95, 80),
+                        },
+                      })
+                    }
+                  />
+                </Row>
+                <Row label="Idle after (minutes)">
+                  <input
+                    type="number"
+                    min={1}
+                    max={1440}
+                    value={settings.hibernation.idleMinutes}
+                    onChange={(e) =>
+                      patch({
+                        hibernation: {
+                          ...settings.hibernation,
+                          idleMinutes: clampInt(e.target.value, 1, 1440, 30),
+                        },
+                      })
+                    }
+                  />
+                </Row>
+              </Section>
+            )}
+
+            {tab === 'notifications' && (
+              <Section
+                title="Notifications"
+                hint="Web notifications fire when this page is open in the background. The ntfy topic adds real mobile push: install the free ntfy app, subscribe to your topic."
+              >
+                <Row label="Web notifications">
+                  <input
+                    type="checkbox"
+                    checked={settings.notifications.web}
+                    onChange={(e) =>
+                      patch({
+                        notifications: { ...settings.notifications, web: e.target.checked },
+                      })
+                    }
+                  />
+                  <NotificationPermissionButton />
+                </Row>
+                <Row label="ntfy.sh topic">
+                  <input
+                    type="text"
+                    placeholder="e.g. podium-a8f3k2 (empty = off)"
+                    value={settings.notifications.ntfyTopic}
+                    onChange={(e) =>
+                      patch({
+                        notifications: { ...settings.notifications, ntfyTopic: e.target.value },
+                      })
+                    }
+                  />
+                </Row>
+              </Section>
+            )}
+
+            {tab === 'integrations' && (
+              <Section
+                title="Integrations"
+                hint="Linear lets the superagent pick up, add, and move tickets."
+              >
+                <Row label="Linear API key">
+                  <input
+                    type="password"
+                    autoComplete="off"
+                    placeholder="lin_api_…"
+                    value={settings.integrations.linearApiKey}
+                    onChange={(e) =>
+                      patch({
+                        integrations: { ...settings.integrations, linearApiKey: e.target.value },
+                      })
+                    }
+                  />
+                </Row>
+              </Section>
+            )}
           </div>
-        )}
-        <div className="settings-footer">
-          <button
-            type="button"
-            className="settings-reset"
-            onClick={() => setSettings(DEFAULT_SETTINGS)}
-          >
-            Reset to defaults
-          </button>
-          {savedAt > 0 && Date.now() - savedAt < 4000 && (
-            <span className="settings-saved">Saved.</span>
-          )}
-          <button
-            type="button"
-            className="settings-save"
-            disabled={!settings || saving}
-            onClick={() => void save()}
-          >
-            {saving ? 'Saving…' : 'Save'}
-          </button>
         </div>
+      )}
+      <div className="settings-footer">
+        <button
+          type="button"
+          className="settings-reset"
+          onClick={() => setSettings(DEFAULT_SETTINGS)}
+        >
+          Reset to defaults
+        </button>
+        {savedAt > 0 && Date.now() - savedAt < 4000 && (
+          <span className="settings-saved">Saved.</span>
+        )}
+        <button
+          type="button"
+          className="settings-save"
+          disabled={!settings || saving}
+          onClick={() => void save()}
+        >
+          {saving ? 'Saving…' : 'Save'}
+        </button>
       </div>
-    </div>
+    </section>
   )
 }
 

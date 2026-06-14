@@ -6,7 +6,6 @@ import { agentBadge, type RepoNavView, sidebarSections, type WorktreeNavView } f
 import { HostIndicators } from './HostIndicators'
 import { RepoScanFlow } from './RepoScanFlow'
 import { SearchView } from './SearchView'
-import { SettingsView } from './SettingsView'
 import { useStore } from './store'
 import type { PinKind } from './types'
 import { WorkerLabel } from './WorkerLabel'
@@ -28,7 +27,6 @@ export function Sidebar(): JSX.Element {
   } = useStore()
   const sections = sidebarSections(repos, sessions, pins)
   const [pickerOpen, setPickerOpen] = useState(false)
-  const [settingsOpen, setSettingsOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
   const hasRows =
     sections.pinnedPanels.length > 0 ||
@@ -78,9 +76,10 @@ export function Sidebar(): JSX.Element {
           </button>
           <button
             type="button"
-            className="icon-only"
+            className={view === 'settings' ? 'icon-only active' : 'icon-only'}
+            aria-pressed={view === 'settings'}
             title="Settings"
-            onClick={() => setSettingsOpen(true)}
+            onClick={() => setView('settings')}
           >
             <SettingsIcon size={14} aria-hidden="true" />
           </button>
@@ -164,7 +163,6 @@ export function Sidebar(): JSX.Element {
       {pickerOpen && (
         <RepoScanFlow onClose={() => setPickerOpen(false)} onDone={() => setPickerOpen(false)} />
       )}
-      {settingsOpen && <SettingsView onClose={() => setSettingsOpen(false)} />}
       {searchOpen && <SearchView onClose={() => setSearchOpen(false)} />}
     </aside>
   )

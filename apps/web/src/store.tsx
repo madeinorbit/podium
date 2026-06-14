@@ -38,9 +38,9 @@ export interface Store {
   /** Manual tab order per worktree path (drag-to-reorder). Absent key = no manual order. */
   tabOrders: Record<string, string[]>
   setTabOrder: (worktree: string, sessionIds: string[]) => Promise<void>
-  /** Main-area surface: attention board, worktree workspace, or the superagent. */
-  view: 'home' | 'workspace' | 'superagent'
-  setView: (view: 'home' | 'workspace' | 'superagent') => void
+  /** Main-area surface: attention board, worktree workspace, superagent, or settings. */
+  view: MainView
+  setView: (view: MainView) => void
   selectedWorktree: string | null
   setSelectedWorktree: (path: string | null) => void
   paneA: string | null // sessionId in pane A
@@ -59,7 +59,15 @@ export interface Store {
   resurrectSession: (sessionId: string) => Promise<void>
   archiveSession: (sessionId: string, archived: boolean) => Promise<void>
   setWorkState: (sessionId: string, workState: WorkState | null) => Promise<void>
+  /** Per-session chat composer draft, shared across every view of that session
+   *  (chat panes, split view) and preserved across chat/native mode switches.
+   *  The native PTY input line is opaque bytes we can't read back, so this is the
+   *  one input state we *can* synchronize. */
+  drafts: Record<string, string>
+  setSessionDraft: (sessionId: string, text: string) => void
 }
+
+export type MainView = 'home' | 'workspace' | 'superagent' | 'settings'
 
 const Ctx = createContext<Store | null>(null)
 
@@ -91,7 +99,8 @@ export function StoreProvider({
   const [hostMetrics, setHostMetrics] = useState<HostMetricsWire[]>([])
   const [pins, setPins] = useState<PinState>(EMPTY_PINS)
   const [tabOrders, setTabOrders] = useState<Record<string, string[]>>({})
-  const [view, setView] = useState<'home' | 'workspace' | 'superagent'>('home')
+  const [view, setView] = useState<MainView>('home')
+  const [drafts, setDrafts] = useState<Record<string, string>>({})
   const [selectedWorktree, setSelectedWorktree] = useState<string | null>(null)
   const [paneA, setPaneA] = useState<string | null>(null)
   const [paneB, setPaneB] = useState<string | null>(null)
@@ -184,10 +193,25 @@ export function StoreProvider({
   )
   const archiveSession = useMemo(
     () => async (sessionId: string, archived: boolean) => {
-      setSessions((all) => all.map((s) => (s.sessionId === sessionId ? { ...s, archived } : s)))
+      // Archiving "files the work away": it also lands the session in the board's
+      // Done lane. Unarchiving only restores it — it doesn't reopen the work state.
+      const workState: WorkState | undefined = archived ? 'done' : undefined
+      setSessions((all) =>
+        all.map((s) =>
+          s.sessionId === sessionId ? { ...s, archived, ...(archived ? { workState } : {}) } : s,
+        ),
+      )
       await trpc.sessions.setArchived.mutate({ sessionId, archived }).catch(() => {})
+      if (archived) {
+        await trpc.sessions.setWorkState.mutate({ sessionId, workState: 'done' }).catch(() => {})
+      }
     },
     [trpc],
+  )
+  const setSessionDraft = useMemo(
+    () => (sessionId: string, text: string) =>
+      setDrafts((d) => (d[sessionId] === text ? d : { ...d, [sessionId]: text })),
+    [],
   )
   const setWorkState = useMemo(
     () => async (sessionId: string, workState: WorkState | null) => {
@@ -289,6 +313,8 @@ export function StoreProvider({
     renameSession,
     archiveSession,
     setWorkState,
+    drafts,
+    setSessionDraft,
   }
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }

@@ -42,6 +42,11 @@ export function Workspace(): JSX.Element {
     killSession,
   } = store
   const [menuOpen, setMenuOpen] = useState(false)
+  // A session created via the "+" menu lands in `paneA` before the server's
+  // broadcast adds it to `tabs`. Without this, the keep-pane-valid effect below
+  // sees an unknown paneA and bounces it to tabs[0], navigating away from the
+  // shell we just opened. Hold the pane on it until it shows up in tabs.
+  const justOpened = useRef<string | null>(null)
   // A small drag threshold keeps plain clicks (select/pin/kill) working — the
   // drag only starts once the pointer has actually moved.
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
@@ -56,7 +61,12 @@ export function Workspace(): JSX.Element {
 
   // Keep pane A pointed at a valid tab.
   useEffect(() => {
-    if (paneA && tabs.some((t) => t.sessionId === paneA)) return
+    if (paneA && tabs.some((t) => t.sessionId === paneA)) {
+      justOpened.current = null
+      return
+    }
+    // Don't bounce away from a just-opened session that hasn't reached `tabs` yet.
+    if (paneA && justOpened.current === paneA) return
     setPane('A', tabs[0]?.sessionId ?? null)
   }, [tabs, paneA, setPane])
 
@@ -121,6 +131,7 @@ export function Workspace(): JSX.Element {
           <NewPanelMenu
             worktree={worktree}
             onOpened={(sid) => {
+              justOpened.current = sid
               setPane('A', sid)
               setMenuOpen(false)
             }}

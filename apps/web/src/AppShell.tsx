@@ -5,6 +5,7 @@ import { ErrorBoundary } from './ErrorBoundary'
 import { HomeView } from './HomeView'
 import { MobileApp } from './MobileApp'
 import { OnboardingWizard } from './OnboardingWizard'
+import { SettingsView } from './SettingsView'
 import { Sidebar } from './Sidebar'
 import { SuperagentView } from './SuperagentView'
 import { StoreProvider, useStore } from './store'
@@ -71,7 +72,15 @@ function AppBody({ isMobile }: { isMobile: boolean }): JSX.Element {
   return (
     <div className="desktop-shell">
       <Sidebar />
-      {view === 'home' ? <HomeView /> : view === 'superagent' ? <SuperagentView /> : <Workspace />}
+      {view === 'home' ? (
+        <HomeView />
+      ) : view === 'superagent' ? (
+        <SuperagentView />
+      ) : view === 'settings' ? (
+        <SettingsView />
+      ) : (
+        <Workspace />
+      )}
     </div>
   )
 }

@@ -1,6 +1,6 @@
 import { ChevronDown, Home, Pin, Search, Settings as SettingsIcon, Sparkles } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { AgentPanel } from './AgentPanel'
 import {
   orderTabs,
@@ -83,8 +83,10 @@ export function MobileApp(): JSX.Element {
   const [repoPickerOpen, setRepoPickerOpen] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
   const [sessionMenuOpen, setSessionMenuOpen] = useState(false)
-  const [settingsOpen, setSettingsOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
+  // Hold a freshly-opened session in pane A until the server broadcast adds it to
+  // `tabs` (see the keep-pane-valid effect) — otherwise it bounces to tabs[0].
+  const justOpened = useRef<string | null>(null)
   const currentTab = tabs.find((t) => t.sessionId === paneA)
   const hasRows =
     sections.pinnedWorktrees.length > 0 ||
@@ -92,7 +94,11 @@ export function MobileApp(): JSX.Element {
     sections.repos.length > 0
 
   useEffect(() => {
-    if (paneA && tabs.some((t) => t.sessionId === paneA)) return
+    if (paneA && tabs.some((t) => t.sessionId === paneA)) {
+      justOpened.current = null
+      return
+    }
+    if (paneA && justOpened.current === paneA) return
     setPane('A', tabs[0]?.sessionId ?? null)
   }, [tabs, paneA, setPane])
 
@@ -101,6 +107,13 @@ export function MobileApp(): JSX.Element {
     setPickerOpen(false)
     setSessionMenuOpen(false)
     setView('workspace')
+  }
+  // Any interaction with the work area (tapping into the agent, switching
+  // chat/native, starting to type) should dismiss the open work-panel selectors —
+  // they otherwise sit over the panel and block it.
+  const closePanelMenus = () => {
+    setSessionMenuOpen(false)
+    setMenuOpen(false)
   }
 
   return (
@@ -195,17 +208,20 @@ export function MobileApp(): JSX.Element {
         <NewPanelMenu
           worktree={worktree}
           onOpened={(sid) => {
+            justOpened.current = sid
             setPane('A', sid)
             setMenuOpen(false)
             setView('workspace')
           }}
         />
       )}
-      <div className="mobile-body">
+      <div className="mobile-body" onPointerDownCapture={closePanelMenus}>
         {view === 'home' ? (
           <HomeView />
         ) : view === 'superagent' ? (
           <SuperagentView />
+        ) : view === 'settings' ? (
+          <SettingsView />
         ) : paneA ? (
           <AgentPanel sessionId={paneA} />
         ) : (
@@ -227,7 +243,14 @@ export function MobileApp(): JSX.Element {
               >
                 <Search size={14} aria-hidden="true" />
               </button>
-              <button type="button" title="Settings" onClick={() => setSettingsOpen(true)}>
+              <button
+                type="button"
+                title="Settings"
+                onClick={() => {
+                  setPickerOpen(false)
+                  setView('settings')
+                }}
+              >
                 <SettingsIcon size={14} aria-hidden="true" />
               </button>
               <button type="button" onClick={() => setPickerOpen(false)}>
@@ -290,7 +313,6 @@ export function MobileApp(): JSX.Element {
           onDone={() => setRepoPickerOpen(false)}
         />
       )}
-      {settingsOpen && <SettingsView onClose={() => setSettingsOpen(false)} />}
       {searchOpen && <SearchView onClose={() => setSearchOpen(false)} />}
     </div>
   )

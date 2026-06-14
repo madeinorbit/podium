@@ -43,12 +43,8 @@ export const TOOLBAR_GROUPS: ToolbarKey[][] = [
     ctrl('l', 'Ctrl-L — clear the screen'),
     ctrl('z', 'Ctrl-Z — suspend to the background'),
   ],
-  [
-    special('ArrowUp', '↑', 'Up — previous command'),
-    special('ArrowDown', '↓', 'Down — next command'),
-    special('ArrowLeft', '←', 'Left'),
-    special('ArrowRight', '→', 'Right'),
-  ],
+  // Arrow keys live in the Blink-style D-pad above the bar (one tap-and-swipe
+  // control with key repeat), not as four separate keys here.
   [
     literal('~', 'Tilde — home directory'),
     literal('/', 'Slash'),

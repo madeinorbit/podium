@@ -186,6 +186,23 @@ export class TerminalView {
     this.term.focus()
   }
 
+  /** Subscribe to viewport scroll changes — fires when the user scrolls back and
+   *  when fresh output advances the tail. Returns an unsubscribe. */
+  onScroll(cb: () => void): () => void {
+    const sub = this.term.onScroll(() => cb())
+    return () => sub.dispose()
+  }
+
+  /** True when the viewport is pinned to the latest output (nothing below the fold). */
+  atBottom(): boolean {
+    const buf = this.term.buffer.active
+    return buf.viewportY >= buf.baseY
+  }
+
+  scrollToBottom(): void {
+    this.term.scrollToBottom()
+  }
+
   hasSelection(): boolean {
     return this.term.hasSelection()
   }

@@ -103,11 +103,13 @@ describe('groupSessions', () => {
 })
 
 describe('kanbanColumns', () => {
-  it('lanes by workState with an unsorted inbox first', () => {
+  it('lanes by workState with an unsorted inbox first; archived file into Done', () => {
     const lanes = kanbanColumns([
       base({ sessionId: 'a' }),
       base({ sessionId: 'b', workState: 'implementing' }),
       base({ sessionId: 'c', workState: 'icebox' }),
+      // Archived sessions land in Done (Archive = "filed away as done") rather
+      // than disappearing from the board.
       base({ sessionId: 'z', archived: true, workState: 'done' }),
     ])
     expect(lanes[0]).toMatchObject({ key: 'unsorted' })
@@ -115,8 +117,13 @@ describe('kanbanColumns', () => {
     expect(lanes.find((l) => l.key === 'implementing')?.sessions.map((s) => s.sessionId)).toEqual([
       'b',
     ])
-    expect(lanes.find((l) => l.key === 'done')?.sessions).toEqual([])
+    expect(lanes.find((l) => l.key === 'done')?.sessions.map((s) => s.sessionId)).toEqual(['z'])
     expect(lanes.find((l) => l.key === 'icebox')?.sessions.map((s) => s.sessionId)).toEqual(['c'])
+  })
+
+  it('routes an archived session into Done even with no explicit workState', () => {
+    const lanes = kanbanColumns([base({ sessionId: 'z', archived: true })])
+    expect(lanes.find((l) => l.key === 'done')?.sessions.map((s) => s.sessionId)).toEqual(['z'])
   })
 })
 

@@ -42,6 +42,9 @@ body {
 .dot {
   width: 8px;
   height: 8px;
+  /* Never let a flex parent squeeze the dot into an oval when the row is tight. */
+  flex: 0 0 auto;
+  min-width: 8px;
   border-radius: 50%;
   display: inline-block;
 }
@@ -678,6 +681,141 @@ body:has(.mobile-shell) {
   height: 20px;
   margin: 0 2px;
   background: var(--border-strong);
+}
+
+/* ---- second key row (above the key bar): submit / newline / paste / voice /
+   arrow D-pad. Mobile + native only, like the key bar. ---- */
+.agent-panel .key-actions {
+  display: none;
+}
+.mobile-shell .agent-panel .key-actions {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  background: var(--panel);
+  border-top: 1px solid var(--border);
+}
+.key-actions .key-act {
+  flex: 1 1 0;
+  min-width: 0;
+  height: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r);
+  color: var(--fg-bright);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+.key-actions .key-act:active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #1a1205;
+}
+.key-actions .key-mic {
+  flex: 0 0 auto;
+  width: 42px;
+  height: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r);
+  color: var(--fg);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.key-actions .key-mic.active {
+  color: var(--danger);
+  border-color: var(--danger);
+  animation: conn-pulse 1.2s ease-in-out infinite;
+}
+/* Blink-style arrow pad: one key, four arrows pointing outward; the aimed one lights white. */
+.arrow-pad {
+  position: relative;
+  flex: 0 0 auto;
+  width: 46px;
+  height: 38px;
+  padding: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r);
+  background: var(--surface);
+  cursor: pointer;
+  font: inherit;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.arrow-pad .ap {
+  position: absolute;
+  font-size: 9px;
+  line-height: 1;
+  color: var(--faint);
+  transition: color 0.05s ease;
+}
+.arrow-pad .ap.up {
+  top: 3px;
+  left: 50%;
+  transform: translateX(-50%);
+}
+.arrow-pad .ap.down {
+  bottom: 3px;
+  left: 50%;
+  transform: translateX(-50%);
+}
+.arrow-pad .ap.left {
+  left: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+.arrow-pad .ap.right {
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+.arrow-pad .ap.on {
+  color: #fff;
+}
+
+/* "Jump to bottom" pill — shown over the terminal / chat scroll when scrolled up. */
+.jump-bottom {
+  position: absolute;
+  bottom: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 4;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  background: var(--panel-raised);
+  color: var(--fg-bright);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+}
+.jump-bottom:hover {
+  border-color: var(--accent);
+}
+
+/* Archive button in the panel bar (icon-only). */
+.panel-archive {
+  display: inline-flex;
+  align-items: center;
 }
 
 /* ---- mobile ---- */
@@ -1336,8 +1474,8 @@ body:has(.mobile-shell) {
   margin: 0;
   border-top: 0;
   border-left: 1px solid var(--border);
-  padding: 0 8px;
-  align-items: center;
+  padding: 0 4px;
+  align-items: stretch;
   flex-wrap: nowrap;
 }
 .mobile-head .host-chip-bar {
@@ -1363,6 +1501,15 @@ body:has(.mobile-shell) {
 }
 .host-chip-compact.mem-critical {
   color: var(--danger);
+}
+/* The compact chip was only the bare icon (~14px) — far too small to reliably
+   tap. Give it a real, header-height target so the breakdown actually opens. */
+.mobile-head .host-chip-compact {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 40px;
+  padding: 0 8px;
 }
 
 /* ---- memory breakdown view (opened from the memory chip) ---- */
@@ -1660,6 +1807,53 @@ body:has(.mobile-shell) {
 .settings-reset:hover {
   color: var(--fg);
 }
+/* ---- settings as a full main-content view ---- */
+.settings-view {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.settings-view .settings-head {
+  padding: 14px 22px;
+}
+.settings-layout {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.settings-nav {
+  flex: 0 0 200px;
+  border-right: 1px solid var(--border);
+  padding: 12px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow-y: auto;
+}
+.settings-nav button {
+  text-align: left;
+  background: transparent;
+  border: 0;
+  color: var(--dim);
+  font: inherit;
+  font-size: 13px;
+  padding: 8px 10px;
+  border-radius: var(--r);
+  cursor: pointer;
+}
+.settings-nav button:hover {
+  color: var(--fg);
+  background: var(--surface);
+}
+.settings-nav button.active {
+  color: var(--fg-bright);
+  background: var(--surface);
+}
+.settings-view .settings-body {
+  padding: 4px 22px 16px;
+}
 .sidebar-head-actions {
   display: flex;
   align-items: center;
@@ -1680,6 +1874,32 @@ body:has(.mobile-shell) {
   }
   .settings-label {
     flex-basis: 140px;
+  }
+  /* Stack the section nav above the form as a horizontal scrolling strip. */
+  .settings-view .settings-head {
+    padding: 12px 14px;
+  }
+  .settings-layout {
+    flex-direction: column;
+  }
+  .settings-nav {
+    flex: 0 0 auto;
+    flex-direction: row;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+    padding: 8px;
+    gap: 4px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .settings-nav::-webkit-scrollbar {
+    display: none;
+  }
+  .settings-nav button {
+    white-space: nowrap;
+  }
+  .settings-view .settings-body {
+    padding: 8px 14px 16px;
   }
 }
 
@@ -2013,6 +2233,7 @@ body:has(.mobile-shell) {
   flex: 1;
   min-height: 0;
   display: flex;
+  position: relative;
 }
 .chat-scroll {
   flex: 1;
@@ -2222,6 +2443,82 @@ body:has(.mobile-shell) {
   padding: 10px 14px calc(10px + env(safe-area-inset-bottom, 0px));
   border-top: 1px solid var(--border);
   background: var(--panel);
+}
+
+/* ---- chat composer (Claude-iOS style: one box, actions inside) ---- */
+.chat-composer-bar {
+  padding: 10px 12px calc(10px + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid var(--border);
+  background: var(--panel);
+}
+.chat-composer {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background: var(--app);
+  border: 1px solid var(--border-strong);
+  border-radius: 16px;
+  padding: 8px 10px 6px;
+}
+.chat-composer:focus-within {
+  border-color: var(--accent);
+}
+.chat-composer textarea {
+  width: 100%;
+  resize: none;
+  background: transparent;
+  border: 0;
+  outline: none;
+  color: var(--fg-bright);
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.45;
+  /* ≈2 lines tall to start, grows up to ≈8 lines (JS sets height), then scrolls. */
+  min-height: 44px;
+  max-height: 176px;
+  overflow-y: auto;
+  padding: 2px;
+}
+.chat-composer textarea:disabled {
+  color: var(--dim);
+}
+.composer-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+}
+.composer-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 0;
+  background: transparent;
+  color: var(--dim);
+  cursor: pointer;
+}
+.composer-btn:hover:not(:disabled) {
+  color: var(--fg-bright);
+}
+.composer-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.composer-btn.mic.active {
+  color: var(--danger);
+  animation: conn-pulse 1.2s ease-in-out infinite;
+}
+.composer-btn.send {
+  background: var(--accent);
+  color: #1a1205;
+}
+.composer-btn.send:disabled {
+  background: var(--surface);
+  color: var(--faint);
+  opacity: 1;
 }
 .chat-input textarea {
   flex: 1;

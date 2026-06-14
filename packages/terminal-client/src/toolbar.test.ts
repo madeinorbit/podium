@@ -19,8 +19,9 @@ describe('mobile key toolbar', () => {
   })
 
   it('carries the agent/terminal essentials', () => {
-    // The keys a coding agent or shell needs that a soft keyboard hides.
-    for (const label of ['Esc', '⇧Tab', '^C', '↑']) {
+    // The keys a coding agent or shell needs that a soft keyboard hides. Arrows
+    // moved to the Blink-style D-pad, so they're no longer in the key list.
+    for (const label of ['Esc', '⇧Tab', '^C']) {
       expect(byLabel(label), `expected toolbar to include ${label}`).toBeDefined()
     }
   })
@@ -28,7 +29,6 @@ describe('mobile key toolbar', () => {
   it('maps named keys to the correct terminal sequences', () => {
     expect(byLabel('Esc')?.send).toBe(keySequence('Escape'))
     expect(byLabel('⇧Tab')?.send).toBe(keySequence('ShiftTab'))
-    expect(byLabel('↑')?.send).toBe(keySequence('ArrowUp'))
   })
 
   it('maps control keys to C0 control codes', () => {

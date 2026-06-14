@@ -47,6 +47,27 @@ export interface LlmClient {
 
 type FetchLike = typeof fetch
 
+/** A provider call that never settles wedges the superagent on "Thinking…" with
+ *  no way out — reasoning models are slow, but not minutes-of-silence slow. Abort
+ *  past this so the turn always resolves (with a surfaced error) instead of hanging. */
+const LLM_TIMEOUT_MS = 120_000
+
+async function fetchWithTimeout(
+  fetchImpl: FetchLike,
+  url: string,
+  init: RequestInit,
+  ms = LLM_TIMEOUT_MS,
+): Promise<Response> {
+  try {
+    return await fetchImpl(url, { ...init, signal: AbortSignal.timeout(ms) })
+  } catch (err) {
+    if (err instanceof Error && (err.name === 'TimeoutError' || err.name === 'AbortError')) {
+      throw new Error(`request timed out after ${Math.round(ms / 1000)}s — ${url}`)
+    }
+    throw err
+  }
+}
+
 /** Build a client for an api-kind backend. Throws LlmConfigError when unusable. */
 export function llmClient(
   backend: LlmBackend,
@@ -183,7 +204,7 @@ export async function codexComplete(
     stream: true,
     store: false,
   }
-  const res = await fetchImpl(CODEX_RESPONSES_URL, {
+  const res = await fetchWithTimeout(fetchImpl, CODEX_RESPONSES_URL, {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
@@ -300,7 +321,7 @@ async function openaiComplete(
         }
       : {}),
   }
-  const res = await fetchImpl(`${base}/chat/completions`, {
+  const res = await fetchWithTimeout(fetchImpl, `${base}/chat/completions`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', authorization: `Bearer ${key}` },
     body: JSON.stringify(body),
@@ -369,7 +390,7 @@ async function anthropicComplete(
       push('user', [{ type: 'tool_result', tool_use_id: m.toolCallId, content: m.content }])
     }
   }
-  const res = await fetchImpl('https://api.anthropic.com/v1/messages', {
+  const res = await fetchWithTimeout(fetchImpl, 'https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
       'content-type': 'application/json',

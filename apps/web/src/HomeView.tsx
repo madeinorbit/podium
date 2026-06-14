@@ -59,7 +59,9 @@ export function HomeView(): JSX.Element {
         </div>
       </div>
       {mode === 'list' ? <PriorityList now={now} /> : <KanbanBoard now={now} />}
-      {archived.length > 0 && (
+      {/* In board mode archived sessions live in the Done lane, so this lower
+          collapsible would just duplicate them — only show it in list mode. */}
+      {mode === 'list' && archived.length > 0 && (
         <div className="home-archived">
           <button type="button" onClick={() => setShowArchived((v) => !v)}>
             {showArchived ? '▾' : '▸'} Archived ({archived.length})

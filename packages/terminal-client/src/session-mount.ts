@@ -89,9 +89,9 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
     })
   }
 
-  const toolbar = opts.toolbarEl
-    ? mountKeyToolbar(opts.toolbarEl, connection, { onPaste: () => void view.requestPaste() })
-    : null
+  // Paste + arrows now live in the panel's React action row / D-pad above the key
+  // bar, so the bar itself no longer renders a Paste key.
+  const toolbar = opts.toolbarEl ? mountKeyToolbar(opts.toolbarEl, connection) : null
 
   // Route keyboard input through the toolbar so an armed modifier (e.g. Ctrl)
   // transforms the next character the soft keyboard sends.

@@ -101,18 +101,20 @@ export const WORK_STATE_COLUMNS: { key: WorkState; label: string }[] = (
   Object.keys(WORK_STATE_LABELS) as WorkState[]
 ).map((key) => ({ key, label: WORK_STATE_LABELS[key] }))
 
-/** Kanban lanes: the five named columns plus an Unsorted inbox. Recency-ordered. */
+/** Kanban lanes: the five named columns plus an Unsorted inbox. Recency-ordered.
+ *  Archived sessions are "filed away as done" — they always land in the Done lane
+ *  (rather than vanishing from the board) so Archive reads as a board move. */
 export function kanbanColumns(
   sessions: SessionMeta[],
 ): { key: WorkState | 'unsorted'; label: string; sessions: SessionMeta[] }[] {
-  const active = sessions.filter((s) => !s.archived)
   const lanes: { key: WorkState | 'unsorted'; label: string; sessions: SessionMeta[] }[] = [
     { key: 'unsorted', label: 'Unsorted', sessions: [] },
     ...WORK_STATE_COLUMNS.map((c) => ({ ...c, sessions: [] as SessionMeta[] })),
   ]
   const byKey = new Map(lanes.map((l) => [l.key as string, l]))
-  for (const s of active) {
-    ;(byKey.get(s.workState ?? 'unsorted') ?? byKey.get('unsorted'))?.sessions.push(s)
+  for (const s of sessions) {
+    const key = s.archived ? 'done' : (s.workState ?? 'unsorted')
+    ;(byKey.get(key) ?? byKey.get('unsorted'))?.sessions.push(s)
   }
   for (const lane of lanes) lane.sessions.sort(byRecency)
   return lanes

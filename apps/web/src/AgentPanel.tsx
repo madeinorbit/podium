@@ -1,5 +1,18 @@
-import { type MountedSession, mountSession } from '@podium/terminal-client'
-import { MessageSquareText, Mic, Moon, RotateCcw, Terminal as TerminalIcon } from 'lucide-react'
+import {
+  keySequence,
+  type MountedSession,
+  mountSession,
+  type SpecialKey,
+} from '@podium/terminal-client'
+import {
+  Archive,
+  ArrowDownToLine,
+  MessageSquareText,
+  Mic,
+  Moon,
+  RotateCcw,
+  Terminal as TerminalIcon,
+} from 'lucide-react'
 import type { JSX } from 'react'
 import { useEffect, useRef, useState } from 'react'
 import { ChatView } from './ChatView'
@@ -28,12 +41,11 @@ function initialMode(): PanelMode {
 }
 
 export function AgentPanel({ sessionId }: { sessionId: string }): JSX.Element {
-  const { hub, sessions } = useStore()
+  const { hub, sessions, archiveSession } = useStore()
   const session = sessions.find((s) => s.sessionId === sessionId)
   const termRef = useRef<HTMLDivElement | null>(null)
   const toolbarRef = useRef<HTMLDivElement | null>(null)
   const mountedRef = useRef<MountedSession | null>(null)
-  const [role, setRole] = useState('detached')
   // Chat exists where a structured transcript does. Prefer the server's
   // observed signal (lights up any future transcript provider with no edit
   // here); fall back to the kind so claude offers chat immediately, before its
@@ -54,6 +66,9 @@ export function AgentPanel({ sessionId }: { sessionId: string }): JSX.Element {
   // booting rather than a blank panel. A healthy session clears it instantly —
   // the server replays its buffer on attach.
   const [hasOutput, setHasOutput] = useState(false)
+  // Pinned to the live tail? Drives the "Jump to bottom" pill when the user has
+  // scrolled back through the scrollback.
+  const [atBottom, setAtBottom] = useState(true)
   // Native-mode dictation: transcribed speech types straight into the PTY as
   // keystrokes — no auto-submit, so the user can edit before hitting Enter.
   const voice = useVoiceInput((text) => mountedRef.current?.connection.sendInput(`${text} `))
@@ -62,26 +77,31 @@ export function AgentPanel({ sessionId }: { sessionId: string }): JSX.Element {
     if (effectiveMode !== 'native' || hibernated || exited) return
     if (!termRef.current) return
     setHasOutput(false)
+    setAtBottom(true)
     const mounted = mountSession(termRef.current, {
       hub,
       sessionId,
       ...(toolbarRef.current ? { toolbarEl: toolbarRef.current } : {}),
       ...(E2E ? { test: true } : {}),
-      onState: (s) => setRole(`${s.role} ${s.cols}x${s.rows}`),
       onFirstFrame: () => setHasOutput(true),
     })
     mountedRef.current = mounted
+    const offScroll = mounted.view.onScroll(() => setAtBottom(mounted.view.atBottom()))
     return () => {
+      offScroll()
       mounted.dispose()
       mountedRef.current = null
     }
   }, [hub, sessionId, effectiveMode, hibernated, exited])
 
+  const sendKey = (key: SpecialKey): void => {
+    mountedRef.current?.connection.sendInput(keySequence(key))
+  }
+
   return (
     <div className="agent-panel">
       <div className="agent-panel-bar">
         {session && <WorkerLabel session={session} />}
-        {effectiveMode === 'native' && <span className="state">{role}</span>}
         {chatCapable && (
           <span className="panel-mode" role="group" aria-label="Panel view">
             <button
@@ -102,14 +122,14 @@ export function AgentPanel({ sessionId }: { sessionId: string }): JSX.Element {
             </button>
           </span>
         )}
-        {effectiveMode === 'native' && !hibernated && voice.supported && (
+        {!hibernated && !exited && (
           <button
             type="button"
-            className={voice.listening ? 'panel-mic active' : 'panel-mic'}
-            title={voice.listening ? 'Stop voice input' : 'Voice input — speaks into the terminal'}
-            onClick={voice.toggle}
+            className="panel-archive"
+            title="Archive session — files it under Done"
+            onClick={() => void archiveSession(sessionId, true)}
           >
-            <Mic size={13} aria-hidden="true" />
+            <Archive size={13} aria-hidden="true" />
           </button>
         )}
         {effectiveMode === 'native' && (
@@ -139,11 +159,161 @@ export function AgentPanel({ sessionId }: { sessionId: string }): JSX.Element {
                 <span>Starting {session ? panelLabel(session.agentKind) : 'session'}…</span>
               </div>
             )}
+            {hasOutput && !atBottom && (
+              <button
+                type="button"
+                className="jump-bottom"
+                onClick={() => mountedRef.current?.view.scrollToBottom()}
+              >
+                <ArrowDownToLine size={13} aria-hidden="true" /> Jump to bottom
+              </button>
+            )}
+          </div>
+          {/* Second key row above the soft-keyboard bar: submit/newline/paste +
+              voice, plus the Blink-style arrow D-pad. preventDefault on pointerdown
+              keeps the terminal focused so a tap doesn't drop the soft keyboard. */}
+          <div className="key-actions" onPointerDown={(e) => e.preventDefault()}>
+            <button
+              type="button"
+              className="key-act"
+              title="Submit — send the prompt (Enter)"
+              onClick={() => mountedRef.current?.connection.sendInput('\r')}
+            >
+              Submit
+            </button>
+            <button
+              type="button"
+              className="key-act"
+              title="Newline — insert a line break without submitting (Option+Enter)"
+              onClick={() => mountedRef.current?.connection.sendInput('\x1b\r')}
+            >
+              Newline
+            </button>
+            <button
+              type="button"
+              className="key-act"
+              title="Paste — insert clipboard text at the prompt"
+              onClick={() => void mountedRef.current?.view.requestPaste()}
+            >
+              Paste
+            </button>
+            {voice.supported && (
+              <button
+                type="button"
+                className={voice.listening ? 'key-mic active' : 'key-mic'}
+                title={
+                  voice.listening ? 'Stop voice input' : 'Voice input — speaks into the terminal'
+                }
+                onClick={voice.toggle}
+              >
+                <Mic size={16} aria-hidden="true" />
+              </button>
+            )}
+            <ArrowPad onFire={sendKey} />
           </div>
           <div ref={toolbarRef} className="toolbar" />
         </>
       )}
     </div>
+  )
+}
+
+type Direction = 'up' | 'down' | 'left' | 'right'
+const DIR_KEY: Record<Direction, SpecialKey> = {
+  up: 'ArrowUp',
+  down: 'ArrowDown',
+  left: 'ArrowLeft',
+  right: 'ArrowRight',
+}
+
+/**
+ * Blink-style arrow pad: one key with the four arrows pointing outward. Press and
+ * swipe toward a direction — the matching arrow lights up and that arrow key
+ * repeat-fires until you let go. A small dead zone in the center means a dead-on
+ * tap does nothing; nudging toward an arrow (or tapping it directly) fires it.
+ */
+function ArrowPad({ onFire }: { onFire: (key: SpecialKey) => void }): JSX.Element {
+  const [active, setActive] = useState<Direction | null>(null)
+  const padRef = useRef<HTMLButtonElement | null>(null)
+  const activeRef = useRef<Direction | null>(null)
+  const pressed = useRef(false)
+  const timer = useRef<ReturnType<typeof setInterval> | null>(null)
+  const onFireRef = useRef(onFire)
+  onFireRef.current = onFire
+
+  const clearTimer = (): void => {
+    if (timer.current !== null) {
+      clearInterval(timer.current)
+      timer.current = null
+    }
+  }
+  const setDir = (dir: Direction | null): void => {
+    activeRef.current = dir
+    setActive(dir)
+  }
+  const fireDir = (dir: Direction): void => {
+    onFireRef.current(DIR_KEY[dir])
+    clearTimer()
+    // Brief hold-off, then steady auto-repeat — like a held keyboard key.
+    timer.current = setInterval(() => onFireRef.current(DIR_KEY[dir]), 110)
+  }
+  const directionAt = (clientX: number, clientY: number): Direction | null => {
+    const el = padRef.current
+    if (!el) return null
+    const r = el.getBoundingClientRect()
+    const dx = clientX - (r.left + r.width / 2)
+    const dy = clientY - (r.top + r.height / 2)
+    const DEAD = 5
+    if (Math.abs(dx) < DEAD && Math.abs(dy) < DEAD) return null
+    return Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'right' : 'left') : dy > 0 ? 'down' : 'up'
+  }
+  const aim = (clientX: number, clientY: number): void => {
+    const dir = directionAt(clientX, clientY)
+    if (dir === activeRef.current) return
+    if (!dir) {
+      clearTimer()
+      setDir(null)
+      return
+    }
+    setDir(dir)
+    fireDir(dir)
+  }
+  const stop = (): void => {
+    pressed.current = false
+    clearTimer()
+    setDir(null)
+  }
+  // Clear the repeat timer if the pad unmounts mid-press (refs only — no deps).
+  useEffect(
+    () => () => {
+      if (timer.current !== null) clearInterval(timer.current)
+    },
+    [],
+  )
+
+  return (
+    <button
+      type="button"
+      ref={padRef}
+      className="arrow-pad"
+      aria-label="Arrow keys — press and swipe toward a direction"
+      onPointerDown={(e) => {
+        e.preventDefault()
+        pressed.current = true
+        e.currentTarget.setPointerCapture(e.pointerId)
+        aim(e.clientX, e.clientY)
+      }}
+      onPointerMove={(e) => {
+        if (pressed.current) aim(e.clientX, e.clientY)
+      }}
+      onPointerUp={stop}
+      onPointerCancel={stop}
+    >
+      <span className={active === 'up' ? 'ap up on' : 'ap up'}>▲</span>
+      <span className={active === 'right' ? 'ap right on' : 'ap right'}>▶</span>
+      <span className={active === 'down' ? 'ap down on' : 'ap down'}>▼</span>
+      <span className={active === 'left' ? 'ap left on' : 'ap left'}>◀</span>
+    </button>
   )
 }
 

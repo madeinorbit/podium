@@ -1,5 +1,14 @@
 import type { TranscriptItem } from '@podium/protocol'
-import { ChevronDown, ChevronUp, FileText, Image as ImageIcon, Mic, Send } from 'lucide-react'
+import {
+  ArrowDownToLine,
+  ArrowUp,
+  ChevronDown,
+  ChevronUp,
+  FileText,
+  Image as ImageIcon,
+  Mic,
+  Paperclip,
+} from 'lucide-react'
 import type { JSX } from 'react'
 import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import {
@@ -19,15 +28,20 @@ import { useVoiceInput } from './voice'
  * birds-eye minimap (user prompts highlighted; click scrolls).
  */
 export function ChatView({ sessionId }: { sessionId: string }): JSX.Element {
-  const { hub, trpc, sessions } = useStore()
+  const { hub, trpc, sessions, drafts, setSessionDraft } = useStore()
   const session = sessions.find((s) => s.sessionId === sessionId)
   const [items, setItems] = useState<TranscriptItem[]>([])
-  const [draft, setDraft] = useState('')
+  // Draft lives in the store, keyed by session — shared across every view of this
+  // session and preserved when toggling chat/native or splitting panes.
+  const draft = drafts[sessionId] ?? ''
+  const setDraft = (text: string) => setSessionDraft(sessionId, text)
   const [query, setQuery] = useState('')
   const [matchCursor, setMatchCursor] = useState(0)
   const scrollerRef = useRef<HTMLDivElement | null>(null)
+  const taRef = useRef<HTMLTextAreaElement | null>(null)
   const pinnedToBottom = useRef(true)
-  const voice = useVoiceInput((text) => setDraft((d) => (d ? `${d} ${text}` : text)))
+  const [atBottom, setAtBottom] = useState(true)
+  const voice = useVoiceInput((text) => setDraft(draft ? `${draft} ${text}` : text))
 
   useEffect(() => hub.subscribeTranscript(sessionId, setItems), [hub, sessionId])
 
@@ -46,8 +60,27 @@ export function ChatView({ sessionId }: { sessionId: string }): JSX.Element {
   const onScroll = () => {
     const el = scrollerRef.current
     if (!el) return
-    pinnedToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80
+    const near = el.scrollHeight - el.scrollTop - el.clientHeight < 80
+    pinnedToBottom.current = near
+    setAtBottom(near)
   }
+  const jumpToBottom = () => {
+    const el = scrollerRef.current
+    if (!el) return
+    pinnedToBottom.current = true
+    el.scrollTop = el.scrollHeight
+    setAtBottom(true)
+  }
+
+  // Auto-grow the composer with its content, capped by the CSS max-height (~8
+  // lines), after which it scrolls. Runs on every draft change.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: re-measure when the draft changes
+  useEffect(() => {
+    const ta = taRef.current
+    if (!ta) return
+    ta.style.height = 'auto'
+    ta.style.height = `${ta.scrollHeight}px`
+  }, [draft])
 
   const scrollToBlock = (index: number) => {
     scrollerRef.current
@@ -64,6 +97,7 @@ export function ChatView({ sessionId }: { sessionId: string }): JSX.Element {
     if (!text) return
     setDraft('')
     pinnedToBottom.current = true
+    setAtBottom(true)
     await trpc.sessions.sendText.mutate({ sessionId, text }).catch(() => {})
   }
 
@@ -124,44 +158,63 @@ export function ChatView({ sessionId }: { sessionId: string }): JSX.Element {
           ))}
         </div>
         <Minimap blocks={blocks} scrollerRef={scrollerRef} onJump={scrollToBlock} />
-      </div>
-      <div className="chat-input">
-        <textarea
-          rows={Math.min(6, Math.max(1, draft.split('\n').length))}
-          placeholder={
-            sendable
-              ? 'Message the agent… (Enter to send, Shift+Enter for newline)'
-              : 'Session is not running.'
-          }
-          value={draft}
-          disabled={!sendable}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-              e.preventDefault()
-              void send()
-            }
-          }}
-        />
-        {voice.supported && (
-          <button
-            type="button"
-            className={voice.listening ? 'chat-mic active' : 'chat-mic'}
-            title={voice.listening ? 'Stop voice input' : 'Voice input'}
-            onClick={voice.toggle}
-          >
-            <Mic size={15} aria-hidden="true" />
+        {!atBottom && (
+          <button type="button" className="jump-bottom" onClick={jumpToBottom}>
+            <ArrowDownToLine size={13} aria-hidden="true" /> Jump to bottom
           </button>
         )}
-        <button
-          type="button"
-          className="chat-send"
-          disabled={!sendable || !draft.trim()}
-          title="Send"
-          onClick={() => void send()}
-        >
-          <Send size={15} aria-hidden="true" />
-        </button>
+      </div>
+      {/* Composer: one auto-growing box (≈2 lines, up to 8) with the attach /
+          voice / send actions inside it, Claude-iOS style. Enter inserts a
+          newline; the send button (or ⌘/Ctrl+Enter) submits. */}
+      <div className="chat-composer-bar">
+        <div className="chat-composer">
+          <textarea
+            ref={taRef}
+            rows={1}
+            placeholder={sendable ? 'Message the agent…' : 'Session is not running.'}
+            value={draft}
+            disabled={!sendable}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              // Desktop power-shortcut: ⌘/Ctrl+Enter submits. Plain Enter is a
+              // newline (the send button submits), matching the mobile keyboard.
+              if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                e.preventDefault()
+                void send()
+              }
+            }}
+          />
+          <div className="composer-actions">
+            <button
+              type="button"
+              className="composer-btn"
+              disabled
+              title="Attachments — coming soon"
+            >
+              <Paperclip size={16} aria-hidden="true" />
+            </button>
+            {voice.supported && (
+              <button
+                type="button"
+                className={voice.listening ? 'composer-btn mic active' : 'composer-btn mic'}
+                title={voice.listening ? 'Stop voice input' : 'Voice input'}
+                onClick={voice.toggle}
+              >
+                <Mic size={16} aria-hidden="true" />
+              </button>
+            )}
+            <button
+              type="button"
+              className="composer-btn send"
+              disabled={!sendable || !draft.trim()}
+              title="Send (⌘/Ctrl+Enter)"
+              onClick={() => void send()}
+            >
+              <ArrowUp size={16} aria-hidden="true" />
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   )

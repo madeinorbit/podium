@@ -123,6 +123,8 @@ async function refresh(fetchImpl: FetchLike, file: AuthFile): Promise<AuthFile> 
       refresh_token: refreshToken,
       scope: 'openid profile email',
     }),
+    // A hung token refresh would wedge the superagent on "Thinking…" forever.
+    signal: AbortSignal.timeout(30_000),
   })
   if (!res.ok) {
     const body = await res.text().catch(() => '')
