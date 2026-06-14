@@ -29,4 +29,12 @@ describe('installable PWA wiring', () => {
     expect(cfg).toContain("theme_color: '#0e0e12'")
     expect(cfg).toContain("background_color: '#0e0e12'")
   })
+
+  it('index.html carries the iOS standalone meta + matching theme-color', () => {
+    const html = readWeb('index.html')
+    expect(html).toContain('name="theme-color" content="#0e0e12"')
+    expect(html).toContain('name="apple-mobile-web-app-capable" content="yes"')
+    expect(html).toContain('apple-mobile-web-app-status-bar-style')
+    expect(html).toContain('name="apple-mobile-web-app-title" content="Podium"')
+  })
 })
