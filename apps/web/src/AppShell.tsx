@@ -7,6 +7,7 @@ import { MobileApp } from './MobileApp'
 import { OnboardingWizard } from './OnboardingWizard'
 import { Sidebar } from './Sidebar'
 import { SuperagentView } from './SuperagentView'
+import { UpdatePrompt } from './UpdatePrompt'
 import { StoreProvider, useStore } from './store'
 import { serverConfig } from './trpc'
 import { Workspace } from './Workspace'
@@ -31,26 +32,27 @@ export function AppShell(): JSX.Element {
   const [appError, setAppError] = useState<string | null>(null)
   const isMobile = useIsMobile()
 
-  if (appError) {
-    return (
-      <AppErrorPage
-        title="Podium could not connect"
-        message={appError}
-        onRetry={() => setAppError(null)}
-      />
-    )
-  }
-
   return (
-    <ErrorBoundary
-      resetKey={config.wsClientUrl}
-      onRetry={() => setAppError(null)}
-      onError={setAppError}
-    >
-      <StoreProvider config={config} onFatalError={setAppError}>
-        <AppBody isMobile={isMobile} />
-      </StoreProvider>
-    </ErrorBoundary>
+    <>
+      <UpdatePrompt />
+      {appError ? (
+        <AppErrorPage
+          title="Podium could not connect"
+          message={appError}
+          onRetry={() => setAppError(null)}
+        />
+      ) : (
+        <ErrorBoundary
+          resetKey={config.wsClientUrl}
+          onRetry={() => setAppError(null)}
+          onError={setAppError}
+        >
+          <StoreProvider config={config} onFatalError={setAppError}>
+            <AppBody isMobile={isMobile} />
+          </StoreProvider>
+        </ErrorBoundary>
+      )}
+    </>
   )
 }
 

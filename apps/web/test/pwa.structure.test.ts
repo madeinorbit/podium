@@ -38,3 +38,21 @@ describe('installable PWA wiring', () => {
     expect(html).toContain('name="apple-mobile-web-app-title" content="Podium"')
   })
 })
+
+describe('update prompt', () => {
+  it('UpdatePrompt uses the SW registration to detect and apply new builds', () => {
+    const src = readWeb('src/UpdatePrompt.tsx')
+    expect(src).toContain("from 'virtual:pwa-register/react'")
+    expect(src).toContain('useRegisterSW')
+    expect(src).toContain('onRegisteredSW')
+    expect(src).toContain('registration.update()')
+    expect(src).toContain('visibilitychange')
+    expect(src).toContain('updateServiceWorker(true)')
+  })
+
+  it('AppShell always mounts the update prompt', () => {
+    const src = readWeb('src/AppShell.tsx')
+    expect(src).toContain('UpdatePrompt')
+    expect(src).toContain('<UpdatePrompt')
+  })
+})
