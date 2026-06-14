@@ -218,6 +218,17 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     tails.get(sessionId)?.stop()
     tails.delete(sessionId)
   }
+  // Eagerly tail a claude-code session's resume transcript — the JSONL the harness
+  // is already writing. The chat view then has history before the first hook fires.
+  // Essential on reattach: a fresh daemon's tails map is empty and an idle survivor
+  // fires no hook to register one, so chat would stay blank while the PTY scrollback
+  // (native view) still shows the whole conversation.
+  const tailResumeTranscript = (sessionId: string, cwd: string, resumeValue: string): void => {
+    ensureTranscriptTail(
+      sessionId,
+      join(homedir(), '.claude', 'projects', claudeProjectSlug(cwd), `${resumeValue}.jsonl`),
+    )
+  }
   const ingest = await startHookIngest({
     ...(opts.hooks?.port !== undefined ? { port: opts.hooks.port } : {}),
     onPayload: (sessionId, payload) => {
@@ -463,20 +474,11 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
             ? spawnTmuxAgent(spawnOpts)
             : spawnAgent(spawnOpts)
       wireBridge(msg.sessionId, session)
-      // Resumes: the resumed transcript is derivable right away, so the chat
-      // view has history before the first hook fires. The first hook payload
-      // re-points the tail at the live file (resume rolls into a fresh one).
+      // Resumes: the resumed transcript is derivable right away, so the chat view
+      // has history before the first hook fires. The first hook payload re-points
+      // the tail at the live file (resume rolls into a fresh one).
       if (msg.agentKind === 'claude-code' && msg.resume) {
-        ensureTranscriptTail(
-          msg.sessionId,
-          join(
-            homedir(),
-            '.claude',
-            'projects',
-            claudeProjectSlug(msg.cwd),
-            `${msg.resume.value}.jsonl`,
-          ),
-        )
+        tailResumeTranscript(msg.sessionId, msg.cwd, msg.resume.value)
       }
       // Seed the state once the CLI is actually up (first PTY frame). Claude Code
       // emits no SessionStart hook at interactive boot, so without this the phase
@@ -587,6 +589,12 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
           // active. The resume ref (when the server has one) classifies the live
           // transcript so a session parked on a question still shows 'needs answer'.
           void seedBootState(msg.sessionId, provider, msg.cwd, msg.resume?.value)
+        }
+        // Re-tail the live transcript so the chat view recovers its history. A fresh
+        // daemon has no tail registered and an idle survivor fires no hook to add one,
+        // so without this chat stays empty while the native view still has scrollback.
+        if (msg.agentKind === 'claude-code' && msg.resume) {
+          tailResumeTranscript(msg.sessionId, msg.cwd, msg.resume.value)
         }
         send({
           type: 'bind',
