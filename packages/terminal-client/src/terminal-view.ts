@@ -207,12 +207,23 @@ export class TerminalView {
   }
 
   /**
-   * xterm captures the keyboard, so the browser's native copy/paste never reaches a
-   * selection inside the grid. Wire it explicitly:
-   *  - select with the mouse → copy (Linux PRIMARY-style, the behaviour a terminal
-   *    user expects), so "select then paste elsewhere" just works;
-   *  - Cmd+C / Ctrl+Shift+C copies the current selection;
-   *  - Cmd+V / Ctrl+V / Ctrl+Shift+V and middle-click paste from the clipboard.
+   * Only COPY needs explicit wiring. A selection in the xterm grid is canvas
+   * state, not a DOM selection, so the browser's Cmd+C can't see it — we read it
+   * off the terminal and write it to the clipboard ourselves.
+   *
+   * PASTE is deliberately NOT handled here. xterm's helper textarea already
+   * receives the browser `paste` event and inserts the data itself (bracketed
+   * when the app enabled mode 2004), needing no clipboard-read permission. If we
+   * also intercept Cmd+V/Ctrl+Shift+V and call `readText()`, two pastes fire: the
+   * native one, then a second permission-prompted one on top — a visible
+   * double-paste (only unmasked once the origin became https; on http `readText`
+   * silently returned '' so the bug hid). So paste keys and middle-click fall
+   * through to xterm. Mobile tap-to-paste has no native paste event and goes
+   * through requestPaste() instead.
+   *
+   *  - select with the mouse → copy (Linux PRIMARY-style), so "select then paste
+   *    elsewhere" just works;
+   *  - Cmd+C / Ctrl+Shift+C copies the current selection.
    * Plain Ctrl+C is left alone so it still sends SIGINT to the agent.
    */
   private wireClipboard(el: HTMLElement): void {
@@ -227,16 +238,6 @@ export class TerminalView {
     el.addEventListener('mouseup', onMouseUp)
     this.cleanup.push(() => el.removeEventListener('mouseup', onMouseUp))
 
-    // Middle-click paste (X11 convention).
-    const onAuxClick = (ev: MouseEvent): void => {
-      if (ev.button === 1) {
-        ev.preventDefault()
-        void this.paste()
-      }
-    }
-    el.addEventListener('auxclick', onAuxClick)
-    this.cleanup.push(() => el.removeEventListener('auxclick', onAuxClick))
-
     this.term.attachCustomKeyEventHandler((ev): boolean => {
       if (ev.type !== 'keydown') return true
       const mod = ev.metaKey || ev.ctrlKey
@@ -246,18 +247,9 @@ export class TerminalView {
         copySelection()
         return false
       }
-      // Paste: Cmd+V or Ctrl/Cmd+Shift+V (plain Ctrl+V falls through to native paste).
-      if (mod && key === 'v' && (ev.metaKey || ev.shiftKey)) {
-        void this.paste()
-        return false
-      }
+      // Paste and everything else are left to xterm / the browser (see above).
       return true
     })
-  }
-
-  /** Keyboard-shortcut paste (Cmd+V / Ctrl+Shift+V / middle-click). */
-  private async paste(): Promise<void> {
-    this.pasteText(await readClipboard())
   }
 
   /** Insert text at the prompt as if pasted — honors the app's bracketed-paste
