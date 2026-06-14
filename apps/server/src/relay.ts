@@ -156,6 +156,7 @@ export class SessionRegistry {
           agentKind: s.agentKind,
           cwd: s.cwd,
           geometry: s.geometry,
+          ...(s.resume ? { resume: s.resume } : {}),
         })
       }
     }

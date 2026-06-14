@@ -11,6 +11,7 @@ import {
   type AgentConversationSummary,
   type AgentRuntimeState,
   type AgentSession,
+  type AgentStateEvent,
   type AgentStateProvider,
   abducoHasSession,
   agentLaunchCommand,
@@ -270,6 +271,37 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     if (ws.readyState === WebSocket.OPEN) ws.send(encode(msg))
   }
 
+  // Seed agent state for a session whose CLI is already running but hasn't fired a
+  // hook yet. Claude Code emits no SessionStart at interactive boot, so both a
+  // fresh spawn and a post-restart reattach would otherwise sit at phase 'unknown'
+  // — which the home board reads as 'working', flagging an idle survivor as active.
+  // bootEvents reports idle (a resume value classifies the live transcript for a
+  // richer verdict). Guarded on phase still 'unknown' so a real hook that already
+  // landed always wins; best-effort, hooks remain authoritative.
+  const seedBootState = async (
+    sessionId: string,
+    provider: AgentStateProvider,
+    cwd: string,
+    resumeValue?: string,
+  ): Promise<void> => {
+    if (!provider.bootEvents) return
+    let events: AgentStateEvent[]
+    try {
+      events = await provider.bootEvents({ cwd, ...(resumeValue ? { resumeValue } : {}) })
+    } catch {
+      return
+    }
+    const tracker = trackers.get(sessionId)
+    if (!tracker) return
+    for (const event of events) {
+      if (tracker.state.phase !== 'unknown') return
+      const next = reduceAgentState(tracker.state, event, new Date().toISOString())
+      if (next === tracker.state) continue
+      tracker.state = next
+      send({ type: 'agentState', sessionId, state: next })
+    }
+  }
+
   const cachedConversationResult = (): ConversationWireResult => ({
     conversations: discoveryCache
       .listSummaries()
@@ -376,6 +408,17 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
       trackers.delete(sessionId)
       // The agent's gone — stop polling its (now frozen) transcript file.
       stopTranscriptTail(sessionId)
+      // The attach CLIENT exiting is NOT the AGENT exiting. disposeAll() on a
+      // daemon shutdown/redeploy SIGKILLs the client; a user detach or a client
+      // crash do the same. For a durable backend the master + agent live on in
+      // their own systemd scope (the whole point of abduco) — so reporting
+      // agentExit here would persist a live session as 'exited', and boot never
+      // reattaches an 'exited' row, orphaning a still-running agent. Only a
+      // vanished master is a real exit. (`abducoHasSession` runs `abduco`, which
+      // reaps the socket as it lists, so a just-exited master reads as gone.)
+      const label = `podium-${sessionId}`
+      if (backend === 'abduco' && abducoHasSession(label)) return
+      if (backend === 'tmux' && tmuxHasSession(label)) return
       send({ type: 'agentExit', sessionId, code })
     })
   }
@@ -441,25 +484,9 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
       // transcript for a rich verdict. Real hook events always win: every reduce
       // below is guarded on the phase still being 'unknown'.
       if (provider?.bootEvents) {
-        const bootEvents = provider.bootEvents.bind(provider)
         const offFirstFrame = session.onFrame(() => {
           offFirstFrame()
-          void bootEvents({
-            cwd: msg.cwd,
-            ...(msg.resume ? { resumeValue: msg.resume.value } : {}),
-          })
-            .then((events) => {
-              const tracker = trackers.get(msg.sessionId)
-              if (!tracker) return
-              for (const event of events) {
-                if (tracker.state.phase !== 'unknown') return
-                const next = reduceAgentState(tracker.state, event, new Date().toISOString())
-                if (next === tracker.state) continue
-                tracker.state = next
-                send({ type: 'agentState', sessionId: msg.sessionId, state: next })
-              }
-            })
-            .catch(() => {}) // boot probe is best-effort; hooks remain authoritative
+          void seedBootState(msg.sessionId, provider, msg.cwd, msg.resume?.value)
         })
       }
       send({
@@ -554,6 +581,12 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
             provider,
             state: initialAgentState(new Date().toISOString()),
           })
+          // A survivor reattached after a daemon restart is already at its prompt
+          // and fires no hook until the user acts. Seed its state now, or the home
+          // board reads phase 'unknown' as 'working' and flags the idle session as
+          // active. The resume ref (when the server has one) classifies the live
+          // transcript so a session parked on a question still shows 'needs answer'.
+          void seedBootState(msg.sessionId, provider, msg.cwd, msg.resume?.value)
         }
         send({
           type: 'bind',

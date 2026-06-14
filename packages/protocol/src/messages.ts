@@ -408,6 +408,9 @@ export const ReattachMessage = z.object({
   agentKind: AgentKind,
   cwd: z.string(),
   geometry: Geometry,
+  // Lets the daemon classify the live transcript when seeding a survivor's state
+  // on reattach, so a session parked on a question keeps its 'needs answer' signal.
+  resume: ResumeRef.optional(),
 })
 export const KillMessage = z.object({ type: z.literal('kill'), sessionId: z.string() })
 export const ScanRequestMessage = z.object({

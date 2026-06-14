@@ -1,3 +1,4 @@
+import { execSync } from 'node:child_process'
 import { mkdtempSync } from 'node:fs'
 import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -356,6 +357,193 @@ describe.skipIf(!isAbducoAvailable())('daemon abduco survival', () => {
       if (!daemonClosed) await daemon.close()
       killAbducoSession(label)
       await new Promise<void>((r) => wss.close(() => r()))
+    }
+  }, 20000)
+
+  it('does NOT report agentExit when the attach client dies but the abduco master survives', async () => {
+    // Regression: a backend restart (disposeAll), a user detach, or a client crash
+    // all kill a session's abduco ATTACH CLIENT. The master + agent live on in
+    // their own scope, so the daemon must stay silent — a stray agentExit makes
+    // the relay persist a LIVE session as 'exited' and orphan the still-running
+    // agent (boot never reattaches an 'exited' row). Only a vanished master is a
+    // real exit. We reproduce the client death directly (SIGKILL the `abduco -a`
+    // process) while the daemon's control channel stays open, so any wrongful
+    // agentExit is observable.
+    const sessionId = `ab-noexit-${process.pid}`
+    const label = `podium-${sessionId}`
+    const wss = new WebSocketServer({ port: 0 })
+    await new Promise<void>((r) => wss.once('listening', () => r()))
+    const port = (wss.address() as { port: number }).port
+
+    const received: DaemonMessage[] = []
+    let serverSocket!: WS
+    const connected = new Promise<void>((r) => {
+      wss.once('connection', (ws) => {
+        serverSocket = ws
+        ws.on('message', (raw) => received.push(parseDaemonMessage(raw.toString())))
+        r()
+      })
+    })
+
+    const daemon = await startDaemon({
+      serverUrl: `ws://localhost:${port}`,
+      hooks: { port: 0, settingsDir: mkdtempSync(join(tmpdir(), 'podium-hooks-')) },
+      backend: 'abduco',
+      discovery: { background: false, cachePath: ':memory:' },
+      launch: (_kind, opts) => ({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
+    })
+    await connected
+
+    const send = (msg: unknown): void => serverSocket.send(encode(msg as never))
+    const waitFor = async (fn: () => boolean, timeout = 5000): Promise<void> => {
+      const startedAt = Date.now()
+      while (!fn()) {
+        if (Date.now() - startedAt > timeout) throw new Error('waitFor timed out')
+        await new Promise((r) => setTimeout(r, 20))
+      }
+    }
+
+    try {
+      send({ type: 'spawn', sessionId, agentKind: 'claude-code', cwd: '/tmp', geometry: G })
+      await waitFor(() => received.some((m) => m.type === 'bind' && m.sessionId === sessionId))
+      expect(abducoHasSession(label)).toBe(true)
+      received.length = 0
+
+      // Kill ONLY the attach client, not the master (`abduco -n <label> …`). The
+      // client is `abduco …-a <label>` once exec'd, or briefly `sh -c '…-a "$0"'
+      // <label>` before that — so identify it as "matches the label but is not the
+      // master." Its onExit fires while the daemon's control channel is open.
+      const clientPids = execSync(`pgrep -af -- ${label} || true`)
+        .toString()
+        .trim()
+        .split('\n')
+        .filter(Boolean)
+        // The client cmdline contains "abduco" (the `sh -c 'exec …abduco…'` form
+        // before exec, the `abduco …-a <label>` form after). This excludes the
+        // master (`abduco -n <label>`) and the ephemeral shell running pgrep,
+        // whose argv carries the label but not "abduco".
+        .filter((line) => line.includes('abduco') && !line.includes(`-n ${label}`))
+        .map((line) => Number(line.split(/\s+/)[0]))
+        .filter((p) => Number.isInteger(p) && p !== process.pid)
+      expect(clientPids.length).toBeGreaterThan(0)
+      for (const p of clientPids) {
+        try {
+          process.kill(p, 'SIGKILL')
+        } catch {
+          // already gone — fine
+        }
+      }
+
+      // Give a generous window for a (wrongful) agentExit to arrive over the open
+      // channel, then assert the master is still alive and the daemon stayed silent.
+      await new Promise((r) => setTimeout(r, 1000))
+      expect(abducoHasSession(label)).toBe(true)
+      expect(received.some((m) => m.type === 'agentExit' && m.sessionId === sessionId)).toBe(false)
+    } finally {
+      killAbducoSession(label)
+      await daemon.close()
+      await new Promise<void>((r) => wss.close(() => r()))
+    }
+  }, 20000)
+
+  it('a fresh daemon seeds idle when it reattaches a survivor (not flagged working)', async () => {
+    // Regression: after a daemon restart the server reattaches survivor sessions
+    // into a FRESH daemon process. The reattach handler re-armed the tracker at
+    // phase 'unknown' but never seeded state. An idle agent fires no hook, so the
+    // phase stayed 'unknown', and the home board's fallback (unknown + live →
+    // working) showed an idle session as active. Reattach must seed idle the same
+    // way a fresh spawn does. Two daemons are essential: a single daemon's spawn
+    // boot-probe would leak onto the re-armed tracker and mask the bug.
+    const sessionId = `ab-restart-seed-${process.pid}`
+    const label = `podium-${sessionId}`
+    const settingsDir = mkdtempSync(join(tmpdir(), 'podium-hooks-'))
+    const waitFor = async (fn: () => boolean, timeout = 5000): Promise<void> => {
+      const startedAt = Date.now()
+      while (!fn()) {
+        if (Date.now() - startedAt > timeout) throw new Error('waitFor timed out')
+        await new Promise((r) => setTimeout(r, 20))
+      }
+    }
+
+    // Each daemon connects to its own throwaway server; the abduco master survives
+    // between them, exactly like a redeploy.
+    const startServer = async (): Promise<{
+      wss: WebSocketServer
+      received: DaemonMessage[]
+      send: (msg: unknown) => void
+      ready: Promise<void>
+    }> => {
+      const wss = new WebSocketServer({ port: 0 })
+      await new Promise<void>((r) => wss.once('listening', () => r()))
+      const received: DaemonMessage[] = []
+      let socket!: WS
+      const ready = new Promise<void>((r) => {
+        wss.once('connection', (ws) => {
+          socket = ws
+          ws.on('message', (raw) => received.push(parseDaemonMessage(raw.toString())))
+          r()
+        })
+      })
+      return { wss, received, ready, send: (msg) => socket.send(encode(msg as never)) }
+    }
+    const launch = (_kind: unknown, opts: { cwd: string }) => ({
+      cmd: process.execPath,
+      args: [FIXTURE],
+      cwd: opts.cwd,
+    })
+
+    const a = await startServer()
+    const daemonA = await startDaemon({
+      serverUrl: `ws://localhost:${(a.wss.address() as { port: number }).port}`,
+      hooks: { port: 0, settingsDir },
+      backend: 'abduco',
+      discovery: { background: false, cachePath: ':memory:' },
+      launch,
+    })
+    await a.ready
+    try {
+      a.send({ type: 'spawn', sessionId, agentKind: 'claude-code', cwd: '/tmp', geometry: G })
+      await waitFor(() => a.received.some((m) => m.type === 'bind' && m.sessionId === sessionId))
+      expect(abducoHasSession(label)).toBe(true)
+    } finally {
+      // Detach (do NOT reap) — the abduco master and its agent live on, idle.
+      await daemonA.close()
+      await new Promise<void>((r) => a.wss.close(() => r()))
+    }
+    expect(abducoHasSession(label)).toBe(true)
+
+    // Fresh daemon process: no leftover spawn handler to seed the tracker.
+    const b = await startServer()
+    const daemonB = await startDaemon({
+      serverUrl: `ws://localhost:${(b.wss.address() as { port: number }).port}`,
+      hooks: { port: 0, settingsDir },
+      backend: 'abduco',
+      discovery: { background: false, cachePath: ':memory:' },
+      launch,
+    })
+    await b.ready
+    const idleStates = () =>
+      b.received.filter(
+        (m): m is Extract<DaemonMessage, { type: 'agentState' }> =>
+          m.type === 'agentState' && m.sessionId === sessionId && m.state.phase === 'idle',
+      )
+    try {
+      b.send({
+        type: 'reattach',
+        sessionId,
+        durableLabel: label,
+        agentKind: 'claude-code',
+        cwd: '/tmp',
+        geometry: G,
+      })
+      await waitFor(() => b.received.some((m) => m.type === 'bind' && m.sessionId === sessionId))
+      // The fix: the reattaching daemon seeds a fresh idle state for the survivor.
+      await waitFor(() => idleStates().length > 0)
+      expect(idleStates().at(-1)?.state.idle).toBeUndefined() // bare idle — no verdict invented
+    } finally {
+      await daemonB.close()
+      killAbducoSession(label)
+      await new Promise<void>((r) => b.wss.close(() => r()))
     }
   }, 20000)
 
