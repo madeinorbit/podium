@@ -36,6 +36,12 @@ export function agentLaunchCommand(kind: AgentKind, opts: LaunchOptions): Launch
         args: [...(resume ? ['resume', resume.value] : []), ...modelArgs],
         cwd,
       }
+    case 'grok':
+      return {
+        cmd: 'grok',
+        args: [...(resume ? ['--resume', resume.value] : []), ...modelArgs],
+        cwd,
+      }
     case 'shell': {
       const shell = process.env.SHELL || '/bin/bash'
       return { cmd: shell, args: [], cwd }

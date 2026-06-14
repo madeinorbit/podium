@@ -33,6 +33,28 @@ describe('agentLaunchCommand', () => {
     ).toEqual({ cmd: 'codex', args: ['resume', 't9'], cwd: '/w' })
   })
 
+  it('spawns grok fresh', () => {
+    expect(agentLaunchCommand('grok', { cwd: '/w' })).toEqual({
+      cmd: 'grok',
+      args: [],
+      cwd: '/w',
+    })
+  })
+
+  it('resumes grok by session id', () => {
+    expect(
+      agentLaunchCommand('grok', { cwd: '/w', resume: { kind: 'grok-session', value: 'g9' } }),
+    ).toEqual({ cmd: 'grok', args: ['--resume', 'g9'], cwd: '/w' })
+  })
+
+  it('passes model override to grok', () => {
+    expect(agentLaunchCommand('grok', { cwd: '/w', model: 'grok-code-fast-1' })).toEqual({
+      cmd: 'grok',
+      args: ['--model', 'grok-code-fast-1'],
+      cwd: '/w',
+    })
+  })
+
   it('threads cwd through unchanged', () => {
     expect(agentLaunchCommand('claude-code', { cwd: '/a/b/c' }).cwd).toBe('/a/b/c')
   })

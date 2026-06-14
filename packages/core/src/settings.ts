@@ -10,10 +10,10 @@ import { z } from 'zod'
  * spawn layer passes no flag and the CLI uses whatever the user configured there.
  */
 
-export const HarnessAgent = z.enum(['claude-code', 'codex'])
+export const HarnessAgent = z.enum(['claude-code', 'codex', 'grok'])
 export type HarnessAgent = z.infer<typeof HarnessAgent>
 
-export const AgentChoice = z.enum(['auto', 'claude-code', 'codex'])
+export const AgentChoice = z.enum(['auto', 'claude-code', 'codex', 'grok'])
 export type AgentChoice = z.infer<typeof AgentChoice>
 
 export const SessionDefaults = z.object({
@@ -35,7 +35,7 @@ export type ApiProvider = z.infer<typeof ApiProvider>
  * halves' values while the user toggles `kind`.
  *
  * - `harness`: drive a coding-agent CLI. Claude Code's `claude -p` bills
- *   pay-per-use API rates even with a subscription — the UI must say so.
+ *   pay-per-use API rates even with a subscription; Grok runs through `grok -p`.
  * - `api`: call a provider over HTTP. OpenRouter/Anthropic/OpenAI use an API key;
  *   `codex` instead reuses the local ChatGPT login (`~/.codex/auth.json`, no key),
  *   talking to the Codex backend's Responses API — effectively free within plan
@@ -98,7 +98,7 @@ export const DEFAULT_SETTINGS: PodiumSettings = PodiumSettings.parse({})
  * The Codex "harness" backend shelled out to `codex exec` — heavyweight, prone to
  * hanging, and chat-only. Codex now runs as an API provider against the ChatGPT
  * Responses backend (full tools, no CLI, no hang), so fold any saved Codex-harness
- * config onto that path. Claude Code harness is untouched.
+ * config onto that path. Claude Code and Grok harnesses are untouched.
  */
 function migrateCodexHarness(b: LlmBackend): LlmBackend {
   if (b.kind !== 'harness' || b.harnessAgent !== 'codex') return b

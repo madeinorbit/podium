@@ -738,20 +738,22 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     }
   }
 
-  /** One-shot `claude -p` / `codex exec` for the harness-backed superagent. */
+  /** One-shot `claude -p` / `codex exec` / `grok -p` for the harness-backed superagent. */
   const runHarnessExec = async (
     msg: Extract<ControlMessage, { type: 'harnessExecRequest' }>,
   ): Promise<void> => {
-    const cmd = msg.agent === 'claude-code' ? 'claude' : 'codex'
+    const cmd = msg.agent === 'claude-code' ? 'claude' : msg.agent === 'codex' ? 'codex' : 'grok'
     const args =
       msg.agent === 'claude-code'
         ? ['-p', msg.prompt, ...(msg.model ? ['--model', msg.model] : [])]
-        : [
-            'exec',
-            '--skip-git-repo-check',
-            ...(msg.model ? ['--model', msg.model] : []),
-            msg.prompt,
-          ]
+        : msg.agent === 'codex'
+          ? [
+              'exec',
+              '--skip-git-repo-check',
+              ...(msg.model ? ['--model', msg.model] : []),
+              msg.prompt,
+            ]
+          : ['-p', msg.prompt, ...(msg.model ? ['--model', msg.model] : [])]
     try {
       const { stdout } = await execFileAsync(cmd, args, {
         timeout: 240_000,

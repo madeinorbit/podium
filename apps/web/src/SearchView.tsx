@@ -1,3 +1,4 @@
+import type { AgentKind } from '@podium/protocol'
 import type { JSX } from 'react'
 import { useMemo, useState } from 'react'
 import { panelLabel, reposToViews } from './derive'
@@ -36,7 +37,7 @@ export function SearchView({ onClose }: { onClose: () => void }): JSX.Element {
     const cwd = hit.projectPath ?? scope
     if (!cwd) return
     const { sessionId } = await trpc.sessions.resume.mutate({
-      agentKind: hit.agentKind as 'claude-code' | 'codex',
+      agentKind: hit.agentKind as AgentKind,
       cwd,
       resume: { kind: hit.resumeKind, value: hit.resumeValue },
       conversationId: hit.id,
@@ -117,7 +118,12 @@ export function SearchView({ onClose }: { onClose: () => void }): JSX.Element {
 }
 
 function kindLabel(agentKind: string): string {
-  if (agentKind === 'claude-code' || agentKind === 'codex' || agentKind === 'shell') {
+  if (
+    agentKind === 'claude-code' ||
+    agentKind === 'codex' ||
+    agentKind === 'grok' ||
+    agentKind === 'shell'
+  ) {
     return panelLabel(agentKind)
   }
   return agentKind

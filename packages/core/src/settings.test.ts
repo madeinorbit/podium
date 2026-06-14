@@ -1,5 +1,20 @@
 import { describe, expect, it } from 'vitest'
-import { normalizeSettings } from './settings'
+import { AgentChoice, HarnessAgent, normalizeSettings } from './settings'
+
+describe('settings harness choices', () => {
+  it('accepts Grok as a session default and harness backend', () => {
+    expect(AgentChoice.parse('grok')).toBe('grok')
+    expect(HarnessAgent.parse('grok')).toBe('grok')
+
+    const s = normalizeSettings({
+      sessionDefaults: { agent: 'grok' },
+      superagent: { kind: 'harness', harnessAgent: 'grok' },
+    })
+
+    expect(s.sessionDefaults.agent).toBe('grok')
+    expect(s.superagent).toMatchObject({ kind: 'harness', harnessAgent: 'grok' })
+  })
+})
 
 describe('normalizeSettings — Codex harness migration', () => {
   it('folds a saved Codex harness superagent onto the API Codex provider', () => {

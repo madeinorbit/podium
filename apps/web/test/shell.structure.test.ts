@@ -118,10 +118,11 @@ describe('web shell structure', () => {
     expect(src).not.toContain('rescanConversations')
     expect(src).not.toContain('onConversations')
   })
-  it('new-panel menu offers claude, codex, and shell', () => {
+  it('new-panel menu offers claude, codex, grok, and shell', () => {
     const src = read('NewPanelMenu.tsx')
     expect(src).toContain('New Claude')
     expect(src).toContain('New Codex')
+    expect(src).toContain('New Grok')
     expect(src).toContain('New Shell')
   })
   it('new-panel menu is the mini search: indexed, capped, with last-active dates', () => {

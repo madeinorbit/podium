@@ -87,6 +87,7 @@ export function SettingsView({ onClose }: { onClose: () => void }): JSX.Element 
                   <option value="auto">Agent decides (Claude Code)</option>
                   <option value="claude-code">Claude Code</option>
                   <option value="codex">Codex</option>
+                  <option value="grok">Grok</option>
                 </select>
               </Row>
               <Row label="Model for new sessions">
@@ -425,6 +426,7 @@ function BackendEditor({
               }
             >
               <option value="claude-code">Claude Code</option>
+              <option value="grok">Grok</option>
             </select>
           </Row>
           <Row label="Model">
@@ -435,8 +437,8 @@ function BackendEditor({
           </Row>
           <p className="settings-note settings-warn">
             Heads up: Claude Code's programmatic mode (<code>claude -p</code>) bills pay-per-use API
-            rates even when you have a subscription. Interactive sessions stay on the subscription;
-            this backend does not. For free Codex orchestration, pick API provider → Codex instead.
+            rates even when you have a subscription. Grok runs through <code>grok -p</code> with
+            your local Grok login. For free Codex orchestration, pick API provider → Codex instead.
           </p>
         </>
       )}

@@ -29,7 +29,7 @@ export function attentionGroup(s: SessionMeta): AttentionGroup {
     return kind && kind !== 'done' ? 'needsYou' : 'idle'
   }
   if (phase === 'working' || phase === 'compacting') return 'working'
-  // No instrumentation signal (shells, codex for now, unknown phase): fall back
+  // No instrumentation signal (shells, Codex/Grok for now, unknown phase): fall back
   // to the process status. A live uninstrumented agent counts as working; an
   // exited/hibernated one as idle.
   if (s.status === 'live' || s.status === 'starting' || s.status === 'reconnecting') {

@@ -3,6 +3,7 @@ import type { ConversationDiscoveryCache } from './cache.js'
 import { canonicalPath, expandHome, isDirectory } from './paths.js'
 import { createClaudeCodeConversationProvider } from './providers/claude-code.js'
 import { createCodexConversationProvider } from './providers/codex.js'
+import { createGrokConversationProvider } from './providers/grok.js'
 import {
   type AgentConversation,
   type AgentConversationDiagnostic,
@@ -18,6 +19,7 @@ import {
 const builtInProviders: readonly ConversationProvider[] = [
   createCodexConversationProvider(),
   createClaudeCodeConversationProvider(),
+  createGrokConversationProvider(),
 ]
 
 const providersById = new Map(builtInProviders.map((provider) => [provider.id, provider]))

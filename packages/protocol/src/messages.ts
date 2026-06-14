@@ -12,7 +12,7 @@ export const Viewport = z.object({
 })
 export type Viewport = z.infer<typeof Viewport>
 
-export const AgentKind = z.enum(['claude-code', 'codex', 'shell'])
+export const AgentKind = z.enum(['claude-code', 'codex', 'grok', 'shell'])
 export type AgentKind = z.infer<typeof AgentKind>
 
 export const ResumeRef = z.object({ kind: z.string(), value: z.string() })
@@ -451,12 +451,12 @@ export const RepoOpRequestMessage = z.object({
   // op-specific extras (worktreeAdd: { path, branch }).
   args: z.record(z.string()).optional(),
 })
-// One-shot non-interactive harness run (`claude -p` / `codex exec`) — the
+// One-shot non-interactive harness run (`claude -p` / `codex exec` / `grok -p`) — the
 // harness-backed superagent/work-LLM path. Chat only: no Podium tools inside.
 export const HarnessExecRequestMessage = z.object({
   type: z.literal('harnessExecRequest'),
   requestId: z.string(),
-  agent: z.enum(['claude-code', 'codex']),
+  agent: z.enum(['claude-code', 'codex', 'grok']),
   model: z.string().optional(),
   prompt: z.string(),
   cwd: z.string().optional(),

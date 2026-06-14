@@ -63,29 +63,69 @@ async function writeClaudeSession(
   return file
 }
 
+async function writeGrokSession(
+  root: string,
+  relativePath = 'sessions/%2Frepo%2Fgrok/grok-session/summary.json',
+  id = 'grok-session',
+): Promise<string> {
+  const file = join(root, relativePath)
+  await mkdir(join(file, '..'), { recursive: true })
+  await writeFile(
+    file,
+    JSON.stringify({
+      info: { id, cwd: '/repo/grok' },
+      session_summary: 'Grok work',
+      created_at: '2026-06-01T12:00:00.000Z',
+      updated_at: '2026-06-01T12:01:00.000Z',
+      num_chat_messages: 2,
+      git_root_dir: '/repo/grok',
+      head_branch: 'main',
+      head_commit: 'abc123',
+      git_remotes: ['git@example.com:repo/grok.git'],
+    }),
+  )
+  await writeFile(
+    join(file, '..', 'chat_history.jsonl'),
+    [
+      JSON.stringify({ type: 'user', content: [{ type: 'text', text: 'grok scan' }] }),
+      JSON.stringify({ type: 'assistant', content: 'grok answer' }),
+    ].join('\n'),
+  )
+  return file
+}
+
 describe('scanAgentConversations', () => {
-  test('uses known default roots under the supplied home directory and sees Codex and Claude conversations', async () => {
+  test('uses known default roots under the supplied home directory and sees built-in agent conversations', async () => {
     const homeDir = await createHome()
     await writeCodexSession(join(homeDir, '.codex'))
     await writeClaudeSession(join(homeDir, '.claude'))
+    await writeGrokSession(join(homeDir, '.grok'))
 
     const result = await scanAgentConversations({ homeDir })
 
     expect(result.diagnostics).toEqual([])
-    expect(result.conversations.map((conversation) => conversation.agentKind)).toEqual([
+    expect(result.conversations.map((conversation) => conversation.agentKind).sort()).toEqual([
       'claude-code',
       'codex',
+      'grok',
     ])
-    expect(result.conversations).toEqual([
-      expect.objectContaining({
-        id: 'claude-session',
-        source: expect.objectContaining({ providerId: 'claude-code-jsonl' }),
-      }),
-      expect.objectContaining({
-        id: 'codex-session',
-        source: expect.objectContaining({ providerId: 'codex-jsonl' }),
-      }),
-    ])
+    expect(result.conversations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'grok-session',
+          source: expect.objectContaining({ providerId: 'grok-sessions' }),
+          resume: { kind: 'grok-session', value: 'grok-session' },
+        }),
+        expect.objectContaining({
+          id: 'claude-session',
+          source: expect.objectContaining({ providerId: 'claude-code-jsonl' }),
+        }),
+        expect.objectContaining({
+          id: 'codex-session',
+          source: expect.objectContaining({ providerId: 'codex-jsonl' }),
+        }),
+      ]),
+    )
     expect(result.conversations[0]).not.toHaveProperty('messages')
   })
 
@@ -110,12 +150,13 @@ describe('scanAgentConversations', () => {
     const homeDir = await createHome()
     await writeCodexSession(join(homeDir, '.codex'))
     await writeClaudeSession(join(homeDir, '.claude'))
+    await writeGrokSession(join(homeDir, '.grok'))
 
-    const result = await scanAgentConversations({ homeDir, agents: ['codex'] })
+    const result = await scanAgentConversations({ homeDir, agents: ['grok'] })
 
     expect(result.diagnostics).toEqual([])
     expect(result.conversations).toHaveLength(1)
-    expect(result.conversations[0]).toEqual(expect.objectContaining({ agentKind: 'codex' }))
+    expect(result.conversations[0]).toEqual(expect.objectContaining({ agentKind: 'grok' }))
   })
 
   test('skips missing roots without diagnostics and dedupes symlinked roots', async () => {
@@ -155,8 +196,8 @@ describe('scanAgentConversations', () => {
 describe('loadAgentConversation', () => {
   test('loads through the provider recorded in the summary', async () => {
     const homeDir = await createHome()
-    await writeCodexSession(join(homeDir, '.codex'))
-    const result = await scanAgentConversations({ homeDir, agents: ['codex'] })
+    await writeGrokSession(join(homeDir, '.grok'))
+    const result = await scanAgentConversations({ homeDir, agents: ['grok'] })
     const summary = result.conversations[0]
     expect(summary).toBeDefined()
     if (!summary) throw new Error('Expected conversation summary')
@@ -164,7 +205,8 @@ describe('loadAgentConversation', () => {
     const conversation = await loadAgentConversation(summary)
 
     expect(conversation.messages).toEqual([
-      expect.objectContaining({ role: 'user', content: 'codex scan' }),
+      expect.objectContaining({ role: 'user', content: 'grok scan' }),
+      expect.objectContaining({ role: 'assistant', content: 'grok answer' }),
     ])
   })
 

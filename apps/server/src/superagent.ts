@@ -38,7 +38,7 @@ export function sanitizeToolPairing(msgs: LlmMessage[]): LlmMessage[] {
 }
 
 const SYSTEM_PROMPT = `You are Podium's superagent — the orchestrator with cross-project context.
-You manage real coding-agent sessions (Claude Code, Codex CLIs in PTYs), worktrees, and tickets
+You manage real coding-agent sessions (Claude Code, Codex, Grok CLIs in PTYs), worktrees, and tickets
 for a developer. You can start/steer/stop agents, inspect their transcripts, run constrained git
 operations, search past conversations, and work Linear tickets.
 
@@ -276,7 +276,7 @@ export class SuperagentService {
           parameters: {
             type: 'object',
             properties: {
-              agentKind: { type: 'string', enum: ['claude-code', 'codex', 'shell'] },
+              agentKind: { type: 'string', enum: ['claude-code', 'codex', 'grok', 'shell'] },
               cwd: { type: 'string', description: 'absolute worktree/repo path' },
               name: { type: 'string', description: 'optional display name' },
               firstMessage: {
@@ -499,8 +499,8 @@ function str(v: unknown): string | undefined {
 function num(v: unknown): number | undefined {
   return typeof v === 'number' && Number.isFinite(v) ? v : undefined
 }
-function isAgentKind(v: unknown): v is 'claude-code' | 'codex' | 'shell' {
-  return v === 'claude-code' || v === 'codex' || v === 'shell'
+function isAgentKind(v: unknown): v is 'claude-code' | 'codex' | 'grok' | 'shell' {
+  return v === 'claude-code' || v === 'codex' || v === 'grok' || v === 'shell'
 }
 
 function renderTranscriptItem(item: TranscriptItem): string {
