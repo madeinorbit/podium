@@ -297,6 +297,8 @@ function providerLabel(p: ApiProvider): string {
       return 'Anthropic'
     case 'openai':
       return 'OpenAI'
+    case 'codex':
+      return 'Codex (ChatGPT)'
   }
 }
 
@@ -374,11 +376,23 @@ function BackendEditor({
           <Row label="Provider">
             <select
               value={backend.provider}
-              onChange={(e) => onChange({ ...backend, provider: e.target.value as ApiProvider })}
+              onChange={(e) => {
+                const provider = e.target.value as ApiProvider
+                // Codex models look nothing like the OpenRouter/Anthropic ones, so
+                // prefill a sane default when switching into (or out of) it.
+                const model =
+                  provider === 'codex' && backend.provider !== 'codex'
+                    ? 'gpt-5.5'
+                    : provider !== 'codex' && backend.provider === 'codex'
+                      ? 'anthropic/claude-sonnet-4.5'
+                      : backend.model
+                onChange({ ...backend, provider, model })
+              }}
             >
               <option value="openrouter">OpenRouter (default — any model)</option>
               <option value="anthropic">Anthropic</option>
               <option value="openai">OpenAI</option>
+              <option value="codex">Codex — ChatGPT subscription (no key)</option>
             </select>
           </Row>
           <Row label="Model">
@@ -388,10 +402,18 @@ function BackendEditor({
               onChange={(e) => onChange({ ...backend, model: e.target.value })}
             />
           </Row>
-          <p className="settings-note">
-            Billed per token against your API key. Worker agents the superagent starts still run on
-            your normal subscriptions — only the orchestration itself is metered.
-          </p>
+          {backend.provider === 'codex' ? (
+            <p className="settings-note">
+              Uses your local ChatGPT login (<code>codex login</code> on the server) — no API key,
+              effectively free within your plan's limits. Gets the full orchestrator tool belt and,
+              unlike the old Codex harness, never shells out to a CLI.
+            </p>
+          ) : (
+            <p className="settings-note">
+              Billed per token against your API key. Worker agents the superagent starts still run
+              on your normal subscriptions — only the orchestration itself is metered.
+            </p>
+          )}
         </>
       ) : (
         <>
@@ -402,7 +424,6 @@ function BackendEditor({
                 onChange({ ...backend, harnessAgent: e.target.value as HarnessAgent })
               }
             >
-              <option value="codex">Codex CLI</option>
               <option value="claude-code">Claude Code</option>
             </select>
           </Row>
@@ -412,18 +433,11 @@ function BackendEditor({
               onChange={(harnessModel) => onChange({ ...backend, harnessModel })}
             />
           </Row>
-          {backend.harnessAgent === 'codex' ? (
-            <p className="settings-note">
-              Codex's terms allow programmatic use of your ChatGPT subscription — this backend is
-              effectively free if you stay within your plan's limits.
-            </p>
-          ) : (
-            <p className="settings-note settings-warn">
-              Heads up: Claude Code's programmatic mode (<code>claude -p</code>) bills pay-per-use
-              API rates even when you have a subscription. Interactive sessions stay on the
-              subscription; this backend does not.
-            </p>
-          )}
+          <p className="settings-note settings-warn">
+            Heads up: Claude Code's programmatic mode (<code>claude -p</code>) bills pay-per-use API
+            rates even when you have a subscription. Interactive sessions stay on the subscription;
+            this backend does not. For free Codex orchestration, pick API provider → Codex instead.
+          </p>
         </>
       )}
     </>

@@ -26,7 +26,7 @@ export const SessionDefaults = z.object({
 })
 export type SessionDefaults = z.infer<typeof SessionDefaults>
 
-export const ApiProvider = z.enum(['openrouter', 'anthropic', 'openai'])
+export const ApiProvider = z.enum(['openrouter', 'anthropic', 'openai', 'codex'])
 export type ApiProvider = z.infer<typeof ApiProvider>
 
 /**
@@ -34,14 +34,16 @@ export type ApiProvider = z.infer<typeof ApiProvider>
  * Flat rather than a discriminated union so the settings form can hold both
  * halves' values while the user toggles `kind`.
  *
- * - `harness`: drive a coding-agent CLI. Codex's terms allow programmatic use of
- *   the subscription (effectively free); Claude Code's `claude -p` bills
+ * - `harness`: drive a coding-agent CLI. Claude Code's `claude -p` bills
  *   pay-per-use API rates even with a subscription — the UI must say so.
- * - `api`: call a provider with an API key. OpenRouter is the default.
+ * - `api`: call a provider over HTTP. OpenRouter/Anthropic/OpenAI use an API key;
+ *   `codex` instead reuses the local ChatGPT login (`~/.codex/auth.json`, no key),
+ *   talking to the Codex backend's Responses API — effectively free within plan
+ *   limits, and unlike the old `codex exec` harness it gets the full tool belt.
  */
 export const LlmBackend = z.object({
   kind: z.enum(['harness', 'api']).default('api'),
-  harnessAgent: HarnessAgent.default('codex'),
+  harnessAgent: HarnessAgent.default('claude-code'),
   harnessModel: z.string().default('auto'),
   provider: ApiProvider.default('openrouter'),
   model: z.string().default('anthropic/claude-sonnet-4.5'),
@@ -92,7 +94,28 @@ export type PodiumSettings = z.infer<typeof PodiumSettings>
 
 export const DEFAULT_SETTINGS: PodiumSettings = PodiumSettings.parse({})
 
+/**
+ * The Codex "harness" backend shelled out to `codex exec` — heavyweight, prone to
+ * hanging, and chat-only. Codex now runs as an API provider against the ChatGPT
+ * Responses backend (full tools, no CLI, no hang), so fold any saved Codex-harness
+ * config onto that path. Claude Code harness is untouched.
+ */
+function migrateCodexHarness(b: LlmBackend): LlmBackend {
+  if (b.kind !== 'harness' || b.harnessAgent !== 'codex') return b
+  return {
+    ...b,
+    kind: 'api',
+    provider: 'codex',
+    model: b.harnessModel && b.harnessModel !== 'auto' ? b.harnessModel : 'gpt-5.5',
+  }
+}
+
 /** Parse a stored/transmitted blob, filling anything missing with defaults. */
 export function normalizeSettings(raw: unknown): PodiumSettings {
-  return PodiumSettings.parse(raw ?? {})
+  const parsed = PodiumSettings.parse(raw ?? {})
+  return {
+    ...parsed,
+    superagent: migrateCodexHarness(parsed.superagent),
+    workLlm: migrateCodexHarness(parsed.workLlm),
+  }
 }

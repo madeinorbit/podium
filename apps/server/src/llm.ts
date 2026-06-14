@@ -1,11 +1,14 @@
 import type { LlmBackend, PodiumSettings } from '@podium/core'
+import { type CodexAuth, codexLoginPresent, resolveCodexAuth } from './codex-auth'
 
 /**
  * Minimal multi-provider chat-completion client with tool calling. One internal
- * message/tool shape; two wire adapters:
+ * message/tool shape; three wire adapters:
  *   - OpenAI-compatible (OpenRouter, OpenAI) — /chat/completions
  *   - Anthropic — /v1/messages
- * No SDK dependency on purpose: two fetch shapes are smaller than a framework,
+ *   - Codex (ChatGPT subscription) — the Responses API, auth'd off the local
+ *     `codex login` instead of an API key (see ./codex-auth)
+ * No SDK dependency on purpose: a few fetch shapes are smaller than a framework,
  * and the superagent loop needs nothing fancier.
  */
 
@@ -55,6 +58,7 @@ export function llmClient(
       'harness-backed execution is chat-only and runs via the daemon — no tool client here',
     )
   }
+  if (backend.provider === 'codex') return codexClient(backend, fetchImpl)
   const key = apiKeys[backend.provider]
   if (!key) {
     throw new LlmConfigError(
@@ -71,6 +75,187 @@ export function llmClient(
     label,
     complete: (m, t) => openaiComplete(fetchImpl, base, key, backend.model, m, t),
   }
+}
+
+/** The `codex` provider needs no API key — it reuses the local ChatGPT login. */
+function codexClient(backend: LlmBackend, fetchImpl: FetchLike): LlmClient {
+  if (!codexLoginPresent()) {
+    throw new LlmConfigError("Codex isn't logged in on this server — run `codex login`.")
+  }
+  const model = backend.model && backend.model !== 'auto' ? backend.model : 'gpt-5.5'
+  return {
+    label: `codex · ${model} (ChatGPT subscription)`,
+    complete: (m, t) => codexCompleteWithAuth(fetchImpl, model, m, t),
+  }
+}
+
+// ---- Codex backend (ChatGPT subscription, Responses API) ----
+
+const CODEX_RESPONSES_URL = 'https://chatgpt.com/backend-api/codex/responses'
+
+/** Carries the HTTP status so the caller can refresh-and-retry on a 401. */
+export class CodexHttpError extends Error {
+  constructor(
+    readonly status: number,
+    message: string,
+  ) {
+    super(message)
+  }
+}
+
+/** Resolve the token, call the backend, and refresh once if the token 401s. */
+async function codexCompleteWithAuth(
+  fetchImpl: FetchLike,
+  model: string,
+  messages: LlmMessage[],
+  tools: LlmTool[],
+): Promise<LlmResponse> {
+  let auth = await resolveCodexAuth(fetchImpl)
+  try {
+    return await codexComplete(fetchImpl, auth, model, messages, tools)
+  } catch (err) {
+    if (err instanceof CodexHttpError && err.status === 401) {
+      auth = await resolveCodexAuth(fetchImpl, { force: true })
+      return await codexComplete(fetchImpl, auth, model, messages, tools)
+    }
+    throw err
+  }
+}
+
+/** Map our chat-shaped history onto the Responses API's typed `input` items. */
+function toResponsesInput(messages: LlmMessage[]): { instructions: string; input: object[] } {
+  const instructions = messages
+    .filter((m) => m.role === 'system')
+    .map((m) => m.content)
+    .join('\n\n')
+  const input: object[] = []
+  for (const m of messages) {
+    if (m.role === 'system') continue
+    if (m.role === 'user') {
+      input.push({
+        type: 'message',
+        role: 'user',
+        content: [{ type: 'input_text', text: m.content }],
+      })
+    } else if (m.role === 'assistant') {
+      if (m.content) {
+        input.push({
+          type: 'message',
+          role: 'assistant',
+          content: [{ type: 'output_text', text: m.content }],
+        })
+      }
+      for (const c of m.toolCalls ?? []) {
+        input.push({ type: 'function_call', call_id: c.id, name: c.name, arguments: c.arguments })
+      }
+    } else {
+      input.push({ type: 'function_call_output', call_id: m.toolCallId, output: m.content })
+    }
+  }
+  return { instructions, input }
+}
+
+export async function codexComplete(
+  fetchImpl: FetchLike,
+  auth: CodexAuth,
+  model: string,
+  messages: LlmMessage[],
+  tools: LlmTool[],
+): Promise<LlmResponse> {
+  const { instructions, input } = toResponsesInput(messages)
+  const body = {
+    model,
+    ...(instructions ? { instructions } : {}),
+    input,
+    ...(tools.length > 0
+      ? {
+          tools: tools.map((t) => ({
+            type: 'function',
+            name: t.name,
+            description: t.description,
+            parameters: t.parameters,
+          })),
+          tool_choice: 'auto',
+          parallel_tool_calls: true,
+        }
+      : {}),
+    reasoning: { effort: 'medium' },
+    stream: true,
+    store: false,
+  }
+  const res = await fetchImpl(CODEX_RESPONSES_URL, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      accept: 'text/event-stream',
+      authorization: `Bearer ${auth.accessToken}`,
+      'chatgpt-account-id': auth.accountId,
+      'OpenAI-Beta': 'responses=experimental',
+      originator: 'codex_cli_rs',
+      session_id: randomId(),
+    },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) {
+    throw new CodexHttpError(res.status, `codex ${res.status}: ${truncate(await res.text(), 400)}`)
+  }
+  return parseResponsesSse(await res.text())
+}
+
+/**
+ * The backend streams Server-Sent Events. We don't surface tokens incrementally
+ * (the superagent renders a whole turn), so read the full stream and pull the
+ * final, completed items: `message` items carry the text, `function_call` items
+ * carry tool calls. Reasoning and partial-delta events are ignored.
+ */
+function parseResponsesSse(raw: string): LlmResponse {
+  let text = ''
+  const toolCalls: ToolCall[] = []
+  let failure: string | undefined
+  for (const line of raw.split('\n')) {
+    const trimmed = line.trimStart()
+    if (!trimmed.startsWith('data:')) continue
+    const payload = trimmed.slice(5).trim()
+    if (!payload || payload === '[DONE]') continue
+    let evt: {
+      type?: string
+      item?: {
+        type?: string
+        content?: { type?: string; text?: string }[]
+        call_id?: string
+        name?: string
+        arguments?: string
+      }
+      response?: { status?: string; error?: { message?: string } }
+    }
+    try {
+      evt = JSON.parse(payload)
+    } catch {
+      continue
+    }
+    if (evt.type === 'response.output_item.done' && evt.item) {
+      const item = evt.item
+      if (item.type === 'message') {
+        for (const part of item.content ?? []) {
+          if (part.type === 'output_text' && part.text) text += part.text
+        }
+      } else if (item.type === 'function_call' && item.name) {
+        toolCalls.push({
+          id: item.call_id ?? randomId(),
+          name: item.name,
+          arguments: item.arguments ?? '{}',
+        })
+      }
+    } else if (evt.type === 'response.failed' || evt.type === 'error') {
+      failure = evt.response?.error?.message ?? 'codex stream failed'
+    }
+  }
+  if (failure && !text && toolCalls.length === 0) throw new Error(failure)
+  return { text, toolCalls }
+}
+
+function randomId(): string {
+  return `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`
 }
 
 // ---- OpenAI-compatible (OpenRouter, OpenAI) ----
