@@ -2779,7 +2779,9 @@ body:has(.mobile-shell) {
 .update-toast {
   position: fixed;
   left: 50%;
-  bottom: calc(env(safe-area-inset-bottom, 0px) + 16px);
+  /* Anchor just under the top bar (.mobile-head = 44px + the top safe-area
+     inset), not at the bottom where the iOS soft keyboard would cover it. */
+  top: calc(env(safe-area-inset-top, 0px) + 44px + 8px);
   transform: translateX(-50%);
   z-index: 1000;
   display: flex;
