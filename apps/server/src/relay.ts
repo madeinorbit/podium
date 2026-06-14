@@ -146,9 +146,16 @@ export class SessionRegistry {
     if (this.pendingToDaemon.length > 0) {
       for (const m of this.pendingToDaemon.splice(0)) send(m)
     }
-    // Re-bind survivor sessions: ask the daemon to reattach to their live tmux session.
+    // Re-bind survivor sessions: ask the daemon to reattach to their live durable
+    // host. 'reconnecting' = was live/starting at boot. 'exited' (not archived) is
+    // also probed because a row can be wrongly 'exited': its attach client died on
+    // a daemon restart while the master + agent survived in their scope (pre-fix
+    // orphans, or any residual race). The daemon reattaches a live master (→ a
+    // bind → markLive) or replies reattachFailed (→ it stays exited). The durable
+    // host, not the persisted row, is the source of truth for liveness.
     for (const s of this.sessions.values()) {
-      if (s.status === 'reconnecting') {
+      const probe = s.status === 'reconnecting' || (s.status === 'exited' && !s.archived)
+      if (probe) {
         this.toDaemon({
           type: 'reattach',
           sessionId: s.sessionId,
@@ -515,9 +522,9 @@ export class SessionRegistry {
     )
   }
 
-  /** One-shot `claude -p` / `codex exec` on a dev machine (harness-backed LLM work). */
+  /** One-shot `claude -p` / `codex exec` / `grok -p` on a dev machine. */
   harnessExec(input: {
-    agent: 'claude-code' | 'codex'
+    agent: 'claude-code' | 'codex' | 'grok'
     model?: string
     prompt: string
     cwd?: string
@@ -711,8 +718,12 @@ export class SessionRegistry {
       }
       case 'reattachFailed': {
         const s = this.sessions.get(msg.sessionId)
-        if (s) {
-          s.onExit(-1) // the surviving tmux session is gone; the agent died with the box
+        // Skip rows already exited: those are the boot-time probes of dead 'exited'
+        // sessions (see attachDaemon). Re-running onExit there would re-broadcast a
+        // redundant agentExit and churn the row on every restart. A 'reconnecting'
+        // survivor that fails to reattach is a real death — mark it exited.
+        if (s && s.status !== 'exited') {
+          s.onExit(-1) // the durable host is gone; the agent died with it
           this.persist(s)
         }
         this.broadcastSessions()

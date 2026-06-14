@@ -80,6 +80,7 @@ describe('shared schemas', () => {
 
   it('parses AgentKind and ResumeRef', () => {
     expect(AgentKind.parse('codex')).toBe('codex')
+    expect(AgentKind.parse('grok')).toBe('grok')
     expect(AgentKind.parse('shell')).toBe('shell')
     expect(ResumeRef.parse({ kind: 'claude-session', value: 'abc' })).toEqual({
       kind: 'claude-session',
@@ -192,6 +193,21 @@ describe('ControlMessage (server -> daemon)', () => {
       resume: { kind: 'codex-thread', value: 'id9' },
       geometry,
     },
+    {
+      type: 'spawn',
+      sessionId: 's-grok',
+      agentKind: 'grok',
+      cwd: '/w',
+      resume: { kind: 'grok-session', value: 'g9' },
+      geometry,
+    },
+    {
+      type: 'harnessExecRequest',
+      requestId: 'hx-grok',
+      agent: 'grok',
+      prompt: 'summarize this repo',
+      cwd: '/w',
+    },
     { type: 'kill', sessionId: 's1' },
     { type: 'scanRequest', requestId: 'r1' },
     { type: 'scanReposRequest', requestId: 'rr1', roots: ['/home/u/src'] },
@@ -208,14 +224,15 @@ describe('DaemonMessage (daemon -> server)', () => {
   const geometry = { cols: 80, rows: 24 }
   const conversation = {
     id: 'conv-1',
-    agentKind: 'codex' as const,
-    title: 'Cached discovery',
+    agentKind: 'grok' as const,
+    title: 'Grok discovery',
     projectPath: '/w',
-    providerId: 'codex-jsonl',
-    resume: { kind: 'codex-thread', value: 'conv-1' },
+    providerId: 'grok-sessions',
+    resume: { kind: 'grok-session', value: 'conv-1' },
   }
   const cases: DaemonMessage[] = [
     { type: 'bind', sessionId: 's1', cmd: 'claude', cwd: '/w', agentKind: 'claude-code', geometry },
+    { type: 'bind', sessionId: 's-grok', cmd: 'grok', cwd: '/w', agentKind: 'grok', geometry },
     { type: 'agentFrame', sessionId: 's1', seq: 0, data: 'eA==' },
     { type: 'agentExit', sessionId: 's1', code: 0 },
     { type: 'spawnError', sessionId: 's1', message: 'enoent' },

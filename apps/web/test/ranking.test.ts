@@ -8,7 +8,7 @@ function repo(path: string, extra: Partial<GitRepositoryWire> = {}): GitReposito
 
 describe('isHiddenRepoPath', () => {
   it('flags paths with a dot-segment', () => {
-    expect(isHiddenRepoPath('/home/u/.claude/skills/gstack')).toBe(true)
+    expect(isHiddenRepoPath('/home/u/.claude/skills/hidden-tool')).toBe(true)
     expect(isHiddenRepoPath('/home/u/.config/nvim')).toBe(true)
   })
   it('does not flag ordinary project paths', () => {
@@ -28,10 +28,10 @@ describe('rankRepoCandidates', () => {
 
   it('sorts hidden repos last and defaults them unselected', () => {
     const ranked = rankRepoCandidates([
-      repo('/home/u/.claude/skills/gstack'),
+      repo('/home/u/.claude/skills/hidden-tool'),
       repo('/home/u/src/app'),
     ])
-    expect(ranked.map((c) => c.path)).toEqual(['/home/u/src/app', '/home/u/.claude/skills/gstack'])
+    expect(ranked.map((c) => c.path)).toEqual(['/home/u/src/app', '/home/u/.claude/skills/hidden-tool'])
     expect(ranked.map((c) => c.defaultSelected)).toEqual([true, false])
     expect(ranked.map((c) => c.hidden)).toEqual([false, true])
   })

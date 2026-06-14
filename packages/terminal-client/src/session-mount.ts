@@ -9,6 +9,13 @@ export interface MountSessionOptions {
   toolbarEl?: HTMLElement
   test?: boolean
   onState?: (state: ConnectionState) => void
+  /**
+   * Fires once, on the first non-empty PTY frame. Lets the panel drop its
+   * "Starting…" overlay the moment real output lands. A healthy session always
+   * triggers this — the server replays its buffer on attach — so only a still
+   * pre-output spawn or a wedged child leaves it unfired.
+   */
+  onFirstFrame?: () => void
 }
 
 export interface MountedSession {
@@ -25,10 +32,17 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
 
   let wasController = false
   let lastEpoch = -1
+  let firstFrameSeen = false
   let onControllerEnter: (() => void) | undefined
 
   const connection = hub.attach(sessionId, {
-    onFrame: (text) => view.write(text),
+    onFrame: (text) => {
+      view.write(text)
+      if (!firstFrameSeen && text.length > 0) {
+        firstFrameSeen = true
+        opts.onFirstFrame?.()
+      }
+    },
     onState: (state) => {
       if (view.cols() !== state.cols || view.rows() !== state.rows) {
         view.resize(state.cols, state.rows)

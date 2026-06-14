@@ -3,6 +3,7 @@ import { MessageSquareText, Mic, Moon, RotateCcw, Terminal as TerminalIcon } fro
 import type { JSX } from 'react'
 import { useEffect, useRef, useState } from 'react'
 import { ChatView } from './ChatView'
+import { panelLabel } from './derive'
 import { useStore } from './store'
 import { useVoiceInput } from './voice'
 import { WorkerLabel } from './WorkerLabel'
@@ -48,6 +49,11 @@ export function AgentPanel({ sessionId }: { sessionId: string }): JSX.Element {
 
   const hibernated = session?.status === 'hibernated'
   const exited = session?.status === 'exited'
+  // Empty is never good: hold a "Starting…" overlay over the terminal until the
+  // first real PTY frame lands, so a slow-starting (or wedged) agent reads as
+  // booting rather than a blank panel. A healthy session clears it instantly —
+  // the server replays its buffer on attach.
+  const [hasOutput, setHasOutput] = useState(false)
   // Native-mode dictation: transcribed speech types straight into the PTY as
   // keystrokes — no auto-submit, so the user can edit before hitting Enter.
   const voice = useVoiceInput((text) => mountedRef.current?.connection.sendInput(`${text} `))
@@ -55,12 +61,14 @@ export function AgentPanel({ sessionId }: { sessionId: string }): JSX.Element {
   useEffect(() => {
     if (effectiveMode !== 'native' || hibernated || exited) return
     if (!termRef.current) return
+    setHasOutput(false)
     const mounted = mountSession(termRef.current, {
       hub,
       sessionId,
       ...(toolbarRef.current ? { toolbarEl: toolbarRef.current } : {}),
       ...(E2E ? { test: true } : {}),
       onState: (s) => setRole(`${s.role} ${s.cols}x${s.rows}`),
+      onFirstFrame: () => setHasOutput(true),
     })
     mountedRef.current = mounted
     return () => {
@@ -123,7 +131,15 @@ export function AgentPanel({ sessionId }: { sessionId: string }): JSX.Element {
         <ChatView sessionId={sessionId} />
       ) : (
         <>
-          <div ref={termRef} className="term" />
+          <div className="term-wrap">
+            <div ref={termRef} className="term" />
+            {!hasOutput && (
+              <div className="term-loading" role="status" aria-live="polite">
+                <span className="spinner" aria-hidden="true" />
+                <span>Starting {session ? panelLabel(session.agentKind) : 'session'}…</span>
+              </div>
+            )}
+          </div>
           <div ref={toolbarRef} className="toolbar" />
         </>
       )}

@@ -20,5 +20,4 @@ tests/e2e/playwright-report/
 # Agent harness session state + nested worktrees (not part of this repo's lint/test scope)
 .claude/
 .claire/
-.gstack/
 test-results/

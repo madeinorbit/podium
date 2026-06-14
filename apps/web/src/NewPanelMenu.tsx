@@ -80,6 +80,9 @@ export function NewPanelMenu({
       <button type="button" onClick={() => void create('codex')}>
         New Codex
       </button>
+      <button type="button" onClick={() => void create('grok')}>
+        New Grok
+      </button>
       <button type="button" onClick={() => void create('shell')}>
         New Shell
       </button>

@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
   abducoHasSession,
+  claudeProjectSlug,
   isAbducoAvailable,
   isTmuxAvailable,
   killAbducoSession,
@@ -544,6 +545,131 @@ describe.skipIf(!isAbducoAvailable())('daemon abduco survival', () => {
       await daemonB.close()
       killAbducoSession(label)
       await new Promise<void>((r) => b.wss.close(() => r()))
+    }
+  }, 20000)
+
+  it('a fresh daemon re-tails the resume transcript on reattach so chat history survives', async () => {
+    // Regression: chat (structured transcript) showed empty for a survivor session
+    // whose native PTY view was full of history. The reattach handler never
+    // registered a transcript tail, and a fresh daemon's tails map is empty; an idle
+    // agent fires no hook to lazily add one. Reattach must re-tail the live JSONL.
+    const sessionId = `ab-retail-${process.pid}`
+    const label = `podium-${sessionId}`
+    const settingsDir = mkdtempSync(join(tmpdir(), 'podium-hooks-'))
+    const resumeValue = 'conv-history-xyz'
+    const cwd = '/tmp'
+    // Seed the live transcript Claude would be writing, under a temp HOME.
+    const home = await mkdtemp(join(tmpdir(), 'podium-home-'))
+    const projDir = join(home, '.claude', 'projects', claudeProjectSlug(cwd))
+    await mkdir(projDir, { recursive: true })
+    await writeFile(
+      join(projDir, `${resumeValue}.jsonl`),
+      `${[
+        JSON.stringify({
+          type: 'user',
+          uuid: 'u1',
+          timestamp: '2026-06-14T00:00:00.000Z',
+          message: { role: 'user', content: 'fix mobile ui issues' },
+        }),
+        JSON.stringify({
+          type: 'assistant',
+          uuid: 'a1',
+          timestamp: '2026-06-14T00:00:01.000Z',
+          message: { role: 'assistant', content: [{ type: 'text', text: 'on it' }] },
+        }),
+      ].join('\n')}\n`,
+    )
+    const prevHome = process.env.HOME
+    process.env.HOME = home
+
+    const waitFor = async (fn: () => boolean, timeout = 5000): Promise<void> => {
+      const startedAt = Date.now()
+      while (!fn()) {
+        if (Date.now() - startedAt > timeout) throw new Error('waitFor timed out')
+        await new Promise((r) => setTimeout(r, 20))
+      }
+    }
+    const startServer = async (): Promise<{
+      wss: WebSocketServer
+      received: DaemonMessage[]
+      send: (msg: unknown) => void
+      ready: Promise<void>
+    }> => {
+      const wss = new WebSocketServer({ port: 0 })
+      await new Promise<void>((r) => wss.once('listening', () => r()))
+      const received: DaemonMessage[] = []
+      let socket!: WS
+      const ready = new Promise<void>((r) => {
+        wss.once('connection', (ws) => {
+          socket = ws
+          ws.on('message', (raw) => received.push(parseDaemonMessage(raw.toString())))
+          r()
+        })
+      })
+      return { wss, received, ready, send: (msg) => socket.send(encode(msg as never)) }
+    }
+    const launch = (_kind: unknown, opts: { cwd: string }) => ({
+      cmd: process.execPath,
+      args: [FIXTURE],
+      cwd: opts.cwd,
+    })
+
+    const a = await startServer()
+    const daemonA = await startDaemon({
+      serverUrl: `ws://localhost:${(a.wss.address() as { port: number }).port}`,
+      hooks: { port: 0, settingsDir },
+      backend: 'abduco',
+      discovery: { background: false, cachePath: ':memory:' },
+      launch,
+    })
+    await a.ready
+    try {
+      a.send({ type: 'spawn', sessionId, agentKind: 'claude-code', cwd, geometry: G })
+      await waitFor(() => a.received.some((m) => m.type === 'bind' && m.sessionId === sessionId))
+      expect(abducoHasSession(label)).toBe(true)
+    } finally {
+      await daemonA.close()
+      await new Promise<void>((r) => a.wss.close(() => r()))
+    }
+
+    const b = await startServer()
+    const daemonB = await startDaemon({
+      serverUrl: `ws://localhost:${(b.wss.address() as { port: number }).port}`,
+      hooks: { port: 0, settingsDir },
+      backend: 'abduco',
+      discovery: { background: false, cachePath: ':memory:' },
+      launch,
+    })
+    await b.ready
+    const appends = () =>
+      b.received.filter(
+        (m): m is Extract<DaemonMessage, { type: 'transcriptAppend' }> =>
+          m.type === 'transcriptAppend' && m.sessionId === sessionId,
+      )
+    try {
+      b.send({
+        type: 'reattach',
+        sessionId,
+        durableLabel: label,
+        agentKind: 'claude-code',
+        cwd,
+        geometry: G,
+        resume: { kind: 'claude-session', value: resumeValue },
+      })
+      await waitFor(() => b.received.some((m) => m.type === 'bind' && m.sessionId === sessionId))
+      // The fix: the reattaching daemon tails the seeded transcript and streams it.
+      await waitFor(() => appends().some((m) => m.items.length > 0))
+      const items = appends().flatMap((m) => m.items)
+      expect(items.some((i) => i.role === 'user' && i.text.includes('fix mobile ui issues'))).toBe(
+        true,
+      )
+      expect(items.some((i) => i.role === 'assistant')).toBe(true)
+    } finally {
+      await daemonB.close()
+      killAbducoSession(label)
+      await new Promise<void>((r) => b.wss.close(() => r()))
+      if (prevHome === undefined) delete process.env.HOME
+      else process.env.HOME = prevHome
     }
   }, 20000)
 

@@ -305,7 +305,15 @@ export class Session {
   markLive(cmd: string, geometry: Geometry): void {
     this.lastActiveAt = new Date().toISOString()
     this.cmd = cmd
-    if (this.status === 'starting' || this.status === 'reconnecting') this.status = 'live'
+    // 'exited' is included on purpose: a reattach only produces a bind when the
+    // daemon found the durable master alive. That means the row was wrongly
+    // marked exited — its attach client died on a daemon restart while the agent
+    // survived in its scope. The live master is authoritative, so clear the stale
+    // exit and bring the session back.
+    if (this.status === 'starting' || this.status === 'reconnecting' || this.status === 'exited') {
+      this.status = 'live'
+      this.exitCode = undefined
+    }
     // Adopt the daemon's geometry only if no controller has resized us yet.
     if (this.controllerId === null) this.geometry = { ...geometry }
   }

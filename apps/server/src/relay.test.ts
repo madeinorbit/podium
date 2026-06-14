@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import type { ControlMessage, ServerMessage } from '@podium/protocol'
 import { describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from './relay'
-import { SessionStore } from './store'
+import { type SessionRow, SessionStore } from './store'
 
 function sink() {
   const sent: ServerMessage[] = []
@@ -193,6 +193,73 @@ describe('SessionRegistry', () => {
       status: 'exited',
       exitCode: 0,
     })
+  })
+
+  // A row can be persisted 'exited' yet still be alive: its abduco attach client
+  // died on a daemon restart while the master + agent survived in their scope. On
+  // boot the durable host — not the stale row — is the source of truth, so the
+  // registry probes exited rows and reattaches the ones still running.
+  const exitedRow = (id: string, over: Partial<SessionRow> = {}): SessionRow => ({
+    id,
+    agentKind: 'claude-code',
+    cwd: '/proj',
+    title: 'agent',
+    name: null,
+    originKind: 'resume',
+    conversationId: 'conv-1',
+    resumeKind: 'claude-session',
+    resumeValue: 'resume-1',
+    status: 'exited',
+    exitCode: 0,
+    durableLabel: `podium-${id}`,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    lastActiveAt: '2026-01-01T00:00:00.000Z',
+    archived: false,
+    workState: null,
+    ...over,
+  })
+
+  it('probes an exited session on boot and reattaches it when the master is alive', () => {
+    const store = new SessionStore(':memory:')
+    const id = 'orphan-1'
+    store.upsertSession(exitedRow(id))
+    const reg = new SessionRegistry(store)
+    const daemon: ControlMessage[] = []
+    reg.attachDaemon((m) => daemon.push(m))
+    // Boot probes the exited row against the durable host.
+    expect(daemon).toContainEqual(
+      expect.objectContaining({ type: 'reattach', sessionId: id, durableLabel: `podium-${id}` }),
+    )
+    // The daemon found the master alive → bind → the session comes back live and
+    // the stale exit is cleared. Without the fix it would stay 'exited' forever.
+    reg.onDaemonMessage(bind(id))
+    const healed = reg.listSessions().find((m) => m.sessionId === id)
+    expect(healed).toMatchObject({ status: 'live' })
+    expect(healed?.exitCode).toBeUndefined()
+  })
+
+  it('leaves a dead exited session exited and untouched when its master is gone', () => {
+    const store = new SessionStore(':memory:')
+    const id = 'dead-1'
+    store.upsertSession(exitedRow(id))
+    const reg = new SessionRegistry(store)
+    reg.attachDaemon(() => {})
+    // The durable host has no such session → reattachFailed. An already-exited row
+    // must stay put: no status change, no exitCode churn (0 → -1), no re-broadcast.
+    reg.onDaemonMessage({ type: 'reattachFailed', sessionId: id, reason: 'session not found' })
+    expect(reg.listSessions().find((m) => m.sessionId === id)).toMatchObject({
+      status: 'exited',
+      exitCode: 0,
+    })
+  })
+
+  it('does not probe an archived exited session', () => {
+    const store = new SessionStore(':memory:')
+    store.upsertSession(exitedRow('arch-1', { archived: true }))
+    const reg = new SessionRegistry(store)
+    const daemon: ControlMessage[] = []
+    reg.attachDaemon((m) => daemon.push(m))
+    expect(daemon.some((m) => m.type === 'reattach' && m.sessionId === 'arch-1')).toBe(false)
   })
 
   it('attachClient sends welcome plus session and conversation snapshots', () => {

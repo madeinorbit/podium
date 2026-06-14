@@ -76,6 +76,7 @@ describe('panelLabel', () => {
   it('maps agent kinds to display names', () => {
     expect(panelLabel('claude-code')).toBe('Claude')
     expect(panelLabel('codex')).toBe('Codex')
+    expect(panelLabel('grok')).toBe('Grok')
     expect(panelLabel('shell')).toBe('Shell')
   })
 })

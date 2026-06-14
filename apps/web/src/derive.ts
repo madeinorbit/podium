@@ -58,6 +58,8 @@ export function panelLabel(agentKind: AgentKind): string {
       return 'Claude'
     case 'codex':
       return 'Codex'
+    case 'grok':
+      return 'Grok'
     case 'shell':
       return 'Shell'
     default: {
