@@ -10,6 +10,7 @@ import {
   killAbducoSession,
   parseAbducoList,
   spawnAbducoAgent,
+  systemdScopeArgv,
 } from './abduco.js'
 import { spawnAgent } from './session'
 
@@ -40,6 +41,25 @@ describe('abduco command builders', () => {
   it('shell-quotes a resolved binary path in the attach command', () => {
     const argv = abducoAttachArgv('podium-1', '/home/u/.podium/bin/abduco')
     expect(argv[2]).toContain("exec '/home/u/.podium/bin/abduco'")
+  })
+
+  it('wraps the create command in a named transient --user scope (the cgroup that survives redeploy)', () => {
+    // The master must land in a sibling cgroup, not the daemon's service cgroup,
+    // or `systemctl restart` (KillMode=control-group) takes it down on every redeploy.
+    expect(
+      systemdScopeArgv('podium-1.scope', ['abduco', ...abducoCreateArgv('podium-1', 'claude')]),
+    ).toEqual([
+      '--user',
+      '--scope',
+      '--collect',
+      '--quiet',
+      '--unit=podium-1.scope',
+      '--',
+      'abduco',
+      '-n',
+      'podium-1',
+      'claude',
+    ])
   })
 })
 

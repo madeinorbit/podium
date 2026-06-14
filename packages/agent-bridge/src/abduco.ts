@@ -31,6 +31,45 @@ export function abducoCreateArgv(label: string, cmd: string, args: string[] = []
 }
 
 /**
+ * argv for `systemd-run` that launches `command` in its OWN transient `--user`
+ * scope. THIS is what makes agents and shells survive a podium redeploy/crash.
+ *
+ * Without it the abduco master is a child of the spawning service and lives in
+ * that service's cgroup. `systemctl restart podium-backend.service` (the redeploy)
+ * uses the systemd default `KillMode=control-group`, which SIGTERMs every process
+ * in the cgroup — the master and its agent included. abduco's setsid detaches the
+ * controlling terminal but does NOT leave the cgroup, so detaching alone never
+ * saved it (the long-standing "tabs stay, sessions die" bug).
+ *
+ * A `--scope` unit is a sibling cgroup of the service, so the restart's
+ * cgroup-kill can't reach it. `--collect` GCs the (empty) scope once the master
+ * exits; `--quiet` drops the "Running as unit …" line.
+ */
+export function systemdScopeArgv(unit: string, command: string[]): string[] {
+  return ['--user', '--scope', '--collect', '--quiet', `--unit=${unit}`, '--', ...command]
+}
+
+let scopeChecked = false
+let scopeOk = false
+
+/**
+ * Whether the abduco master can be launched in its own systemd scope: a Linux
+ * systemd *user* manager (XDG_RUNTIME_DIR present) with a working `systemd-run`.
+ * `PODIUM_NO_SCOPE` forces it off (tests / non-systemd hosts). Memoized — the
+ * answer can't change within a process.
+ */
+export function canScopeMaster(): boolean {
+  if (scopeChecked) return scopeOk
+  scopeChecked = true
+  scopeOk =
+    !process.env.PODIUM_NO_SCOPE &&
+    process.platform === 'linux' &&
+    Boolean(process.env.XDG_RUNTIME_DIR) &&
+    spawnSync('systemd-run', ['--version'], { stdio: 'ignore' }).status === 0
+  return scopeOk
+}
+
+/**
  * True when an abduco binary can be obtained — $PODIUM_ABDUCO, PATH, the build
  * cache, or by compiling the vendored source on first use (see abduco-bin.ts).
  */
@@ -171,7 +210,8 @@ export interface AbducoSpawnOptions {
 export function spawnAbducoAgent(opts: AbducoSpawnOptions): AgentSession {
   const bin = resolveAbducoBin()
   if (!bin) throw new Error('abduco unavailable: not installed and the vendored build failed')
-  execFileSync(bin, abducoCreateArgv(opts.label, opts.cmd, opts.args ?? []), {
+  const createArgs = abducoCreateArgv(opts.label, opts.cmd, opts.args ?? [])
+  const execOpts = {
     stdio: 'ignore',
     cwd: opts.cwd ?? process.cwd(),
     env: {
@@ -180,7 +220,33 @@ export function spawnAbducoAgent(opts: AbducoSpawnOptions): AgentSession {
       COLORTERM: 'truecolor',
       ...opts.env,
     } as Record<string, string>,
-  })
+  } as const
+  // Create the master in its own systemd scope so it outlives a redeploy. `--scope`
+  // runs in the foreground but returns the instant the create process exits — abduco
+  // daemonizes the master and returns immediately, so timing matches the bare call.
+  // (cwd/env are inherited by the scope, verified against the live user manager.)
+  if (canScopeMaster()) {
+    try {
+      execFileSync(
+        'systemd-run',
+        systemdScopeArgv(`${opts.label}.scope`, [bin, ...createArgs]),
+        execOpts,
+      )
+      return attachAbducoAgent({
+        label: opts.label,
+        cols: opts.cols,
+        rows: opts.rows,
+        ...(opts.env ? { env: opts.env } : {}),
+      })
+    } catch (err) {
+      // A direct master would be reaped on the next redeploy, so make the
+      // degradation loud rather than silently reintroducing the original bug.
+      console.warn(
+        `[podium] systemd scope unavailable for ${opts.label}; session will NOT survive a podium restart: ${err instanceof Error ? err.message : String(err)}`,
+      )
+    }
+  }
+  execFileSync(bin, createArgs, execOpts)
   return attachAbducoAgent({
     label: opts.label,
     cols: opts.cols,
