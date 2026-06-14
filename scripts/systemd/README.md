@@ -9,7 +9,7 @@ systemctl --user daemon-reload
 systemctl --user enable --now podium-backend podium-web podium-redeploy.path
 ```
 
-Topology: `podium-web` (Vite dev server) binds **:55556** (plain http) and
+Topology: `podium-web` (built PWA via `vite preview`) binds **:55556** (plain http) and
 proxies `/trpc` + WebSockets to `podium-backend` (relay + daemon on :18787,
 running from source via `--conditions=@podium/source`). `podium-redeploy.path`
 watches `.git/logs/HEAD` and restarts **both** services when main moves.
@@ -28,10 +28,10 @@ tailscale serve status   # expect: https://<host>:55555 -> http://127.0.0.1:5555
 A separate public Funnel (e.g. another project on :443) is unaffected — this adds
 a serve entry on its own port rather than touching existing mappings.
 
-Why the web restart is part of redeploy: a long-lived Vite dev server's module
-graph goes stale across git-driven rewrites (observed twice: stale
-`@podium/protocol` schemas silently dropping new message types, and a stale
-`SocketHub` throwing `hub.onAttention is not a function` at boot). HMR is for
-editor-paced edits, not merges.
+Why the web restart is part of redeploy: the web service `vite build`s the
+content-hashed PWA bundle at start, so restarting it on a HEAD move is what
+produces a new build (and the new build hash the in-app update prompt detects).
+Note: the running app's service worker is the source of truth for installed
+clients — they pick up the new build via the "New version — Reload" prompt.
 
 The unit files hard-code `/home/user` paths — adjust when installing elsewhere.
