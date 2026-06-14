@@ -569,10 +569,45 @@ body:has(.mobile-shell) {
   font-size: 12px;
   cursor: pointer;
 }
+.agent-panel .term-wrap {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
 .agent-panel .term {
   flex: 1;
   min-height: 0;
   padding: 4px 6px;
+}
+/* "Starting…" overlay: covers the blank terminal until the first PTY frame
+   lands, then unmounts. Opaque so a slow/wedged spawn never shows a void. */
+.agent-panel .term-loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  background: var(--app);
+  color: var(--dim);
+  font-size: 13px;
+  pointer-events: none;
+}
+.agent-panel .term-loading .spinner {
+  width: 22px;
+  height: 22px;
+  border: 2px solid var(--border-strong);
+  border-top-color: var(--dim);
+  border-radius: 50%;
+  animation: term-spin 0.8s linear infinite;
+}
+@keyframes term-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 /* Key accessory bar: a flat, scrollable strip of terminal/agent keys.
    Hidden on desktop (the hardware keyboard has these) — only shown inside the
