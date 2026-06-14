@@ -261,17 +261,24 @@ export class TerminalView {
 
   /**
    * Paste invoked by a tap (the mobile key-bar) rather than a keyboard shortcut.
-   * Preferred path is the async Clipboard API, which needs a secure context
-   * (https) plus a user gesture — both hold when the key-bar button is tapped
-   * over the https origin. On a non-secure origin (the plain-http fallback port)
-   * or when the read is blocked, fall back to a focused capture field: the
-   * browser still delivers the clipboard via the `paste` event's clipboardData
-   * there, which the async API cannot reach.
+   *
+   * Where the async Clipboard API exists (secure context + Chromium/WebKit), it IS
+   * the paste path: the browser shows its one "allow paste" prompt, then the text
+   * drops straight into the terminal. We deliberately do NOT also open the capture
+   * field here — stacking a permission prompt and then a mini input was confusing
+   * (and fired even when the read just came back empty). An empty clipboard or a
+   * declined prompt simply pastes nothing; tap again.
+   *
+   * The capture field is only for browsers with no async clipboard read at all
+   * (e.g. Firefox, or a plain-http origin): it reads the `paste` event's
+   * clipboardData, which needs no permission — and since there's no prompt before
+   * it, the two never stack.
    */
   async requestPaste(): Promise<void> {
-    const text = await readClipboard()
-    if (text) {
-      this.pasteText(text)
+    // typeof, not truthiness: the DOM lib types readText as always-present, but at
+    // runtime navigator.clipboard (and readText) are undefined on Firefox / http.
+    if (typeof navigator.clipboard?.readText === 'function') {
+      this.pasteText(await readClipboard())
       return
     }
     this.openPasteCapture()
