@@ -71,6 +71,32 @@ export type MainView = 'home' | 'workspace' | 'superagent' | 'settings'
 
 const Ctx = createContext<Store | null>(null)
 
+// Persist the "where am I" state so a reload (the PWA cold-starts often on
+// mobile) lands back on the same surface. localStorage access is guarded — it
+// throws in private-mode/SSR.
+const VIEW_KEY = 'podium.view'
+const WT_KEY = 'podium.selectedWorktree'
+const PANE_A_KEY = 'podium.paneA'
+function lsGet(key: string): string | null {
+  try {
+    return localStorage.getItem(key)
+  } catch {
+    return null
+  }
+}
+function lsSet(key: string, value: string | null): void {
+  try {
+    if (value === null) localStorage.removeItem(key)
+    else localStorage.setItem(key, value)
+  } catch {
+    // storage unavailable — persistence is best-effort
+  }
+}
+function readStoredView(): MainView {
+  const v = lsGet(VIEW_KEY)
+  return v === 'home' || v === 'workspace' || v === 'superagent' || v === 'settings' ? v : 'home'
+}
+
 export function StoreProvider({
   config,
   onFatalError,
@@ -99,10 +125,10 @@ export function StoreProvider({
   const [hostMetrics, setHostMetrics] = useState<HostMetricsWire[]>([])
   const [pins, setPins] = useState<PinState>(EMPTY_PINS)
   const [tabOrders, setTabOrders] = useState<Record<string, string[]>>({})
-  const [view, setView] = useState<MainView>('home')
+  const [view, setView] = useState<MainView>(readStoredView)
   const [drafts, setDrafts] = useState<Record<string, string>>({})
-  const [selectedWorktree, setSelectedWorktree] = useState<string | null>(null)
-  const [paneA, setPaneA] = useState<string | null>(null)
+  const [selectedWorktree, setSelectedWorktree] = useState<string | null>(() => lsGet(WT_KEY))
+  const [paneA, setPaneA] = useState<string | null>(() => lsGet(PANE_A_KEY))
   const [paneB, setPaneB] = useState<string | null>(null)
   const [split, setSplit] = useState(false)
   const started = useRef(false)
@@ -226,6 +252,9 @@ export function StoreProvider({
   )
 
   useEffect(() => {
+    // Wait for the first repo load — otherwise a persisted (restored) selection
+    // would be wiped against the still-empty repo list before discovery resolves.
+    if (!reposLoaded) return
     if (!selectedWorktree) {
       const worktrees = reposToViews(repos).flatMap((repo) => repo.worktrees)
       setSelectedWorktree(worktrees[0]?.path ?? null)
@@ -240,7 +269,12 @@ export function StoreProvider({
     const hasSession = sessions.some((s) => s.cwd === selectedWorktree)
     if (known || hasSession) return
     setSelectedWorktree(worktrees[0]?.path ?? null)
-  }, [repos, selectedWorktree, sessions])
+  }, [repos, reposLoaded, selectedWorktree, sessions])
+
+  // Persist the "where am I" state for next load.
+  useEffect(() => lsSet(VIEW_KEY, view), [view])
+  useEffect(() => lsSet(WT_KEY, selectedWorktree), [selectedWorktree])
+  useEffect(() => lsSet(PANE_A_KEY, paneA), [paneA])
 
   useEffect(() => {
     const offSessions = hub.onSessions(setSessions)

@@ -1,10 +1,18 @@
 import type { AgentKind } from '@podium/protocol'
+import { Bot, Code2, type LucideIcon, SquareTerminal, Zap } from 'lucide-react'
 import { type JSX, useMemo, useState } from 'react'
 import { reposToViews } from './derive'
 import { relativeTime } from './home'
 import { useStore } from './store'
 import type { WorktreeView } from './types'
 import { type ConversationHit, useConversationSearch } from './useConversationSearch'
+
+const NEW_AGENTS: { kind: AgentKind; label: string; Icon: LucideIcon }[] = [
+  { kind: 'claude-code', label: 'New Claude', Icon: Bot },
+  { kind: 'codex', label: 'New Codex', Icon: Code2 },
+  { kind: 'grok', label: 'New Grok', Icon: Zap },
+  { kind: 'shell', label: 'New Shell', Icon: SquareTerminal },
+]
 
 const MINI_LIMIT = 8
 
@@ -74,18 +82,12 @@ export function NewPanelMenu({
 
   return (
     <div className="new-panel-menu">
-      <button type="button" onClick={() => void create('claude-code')}>
-        New Claude
-      </button>
-      <button type="button" onClick={() => void create('codex')}>
-        New Codex
-      </button>
-      <button type="button" onClick={() => void create('grok')}>
-        New Grok
-      </button>
-      <button type="button" onClick={() => void create('shell')}>
-        New Shell
-      </button>
+      {NEW_AGENTS.map(({ kind, label, Icon }) => (
+        <button key={kind} type="button" className="new-agent" onClick={() => void create(kind)}>
+          <Icon size={14} aria-hidden="true" />
+          {label}
+        </button>
+      ))}
       <div className="menu-section">Resume</div>
       <input
         type="text"

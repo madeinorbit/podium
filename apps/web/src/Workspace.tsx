@@ -42,11 +42,11 @@ export function Workspace(): JSX.Element {
     killSession,
   } = store
   const [menuOpen, setMenuOpen] = useState(false)
-  // A session created via the "+" menu lands in `paneA` before the server's
-  // broadcast adds it to `tabs`. Without this, the keep-pane-valid effect below
-  // sees an unknown paneA and bounces it to tabs[0], navigating away from the
-  // shell we just opened. Hold the pane on it until it shows up in tabs.
-  const justOpened = useRef<string | null>(null)
+  // A session created via the "+" menu (or restored from localStorage on reload)
+  // lands in `paneA` before the server's broadcast adds it to `tabs`. Without this,
+  // the keep-pane-valid effect below sees an unknown paneA and bounces it to
+  // tabs[0]. Hold the pane on it until the store actually knows the session.
+  const justOpened = useRef<string | null>(paneA)
   // A small drag threshold keeps plain clicks (select/pin/kill) working — the
   // drag only starts once the pointer has actually moved.
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
@@ -65,10 +65,13 @@ export function Workspace(): JSX.Element {
       justOpened.current = null
       return
     }
-    // Don't bounce away from a just-opened session that hasn't reached `tabs` yet.
-    if (paneA && justOpened.current === paneA) return
+    // Don't bounce away from a just-opened/restored pane that hasn't reached the
+    // store yet; fall back only once the session is known to be gone.
+    if (paneA && justOpened.current === paneA && !sessions.some((s) => s.sessionId === paneA)) {
+      return
+    }
     setPane('A', tabs[0]?.sessionId ?? null)
-  }, [tabs, paneA, setPane])
+  }, [tabs, paneA, setPane, sessions])
 
   if (!worktree) return <div className="workspace empty">Select a worktree.</div>
 
@@ -113,31 +116,34 @@ export function Workspace(): JSX.Element {
           </SortableContext>
         </DndContext>
         <div className="tabbar-actions">
-          <button
-            type="button"
-            className="tab-add"
-            title="New panel"
-            onClick={() => setMenuOpen((v) => !v)}
-          >
-            +
-          </button>
+          <div className="tab-add-wrap">
+            <button
+              type="button"
+              className="tab-add"
+              title="New panel"
+              aria-expanded={menuOpen}
+              onClick={() => setMenuOpen((v) => !v)}
+            >
+              +
+            </button>
+            {menuOpen && (
+              <div className="workspace-menu-layer">
+                <NewPanelMenu
+                  worktree={worktree}
+                  onOpened={(sid) => {
+                    justOpened.current = sid
+                    setPane('A', sid)
+                    setMenuOpen(false)
+                  }}
+                />
+              </div>
+            )}
+          </div>
           <button type="button" className="tab-split" onClick={toggleSplit}>
             ⊟ split
           </button>
         </div>
       </div>
-      {menuOpen && (
-        <div className="workspace-menu-layer">
-          <NewPanelMenu
-            worktree={worktree}
-            onOpened={(sid) => {
-              justOpened.current = sid
-              setPane('A', sid)
-              setMenuOpen(false)
-            }}
-          />
-        </div>
-      )}
       <div className={split ? 'panes split' : 'panes'}>
         <div className="pane">{paneA ? <AgentPanel sessionId={paneA} /> : <Empty />}</div>
         {split && (

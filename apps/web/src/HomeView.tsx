@@ -225,6 +225,17 @@ function SessionCard({ session, now }: { session: SessionMeta; now: number }): J
 
   return (
     <div className={`home-card status-${session.status}`}>
+      {/* Full-card tap target: one tap anywhere opens the session. The title,
+          rename input, edit, and action buttons sit above it (z-index) so they
+          keep their own behavior. */}
+      {!editing && (
+        <button
+          type="button"
+          className="home-card-hit"
+          aria-label={`Open ${sessionDisplayName(session)}`}
+          onClick={open}
+        />
+      )}
       <div className="home-card-title">
         <span className={`dot ${session.status}`} />
         {editing ? (

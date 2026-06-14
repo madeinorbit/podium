@@ -76,6 +76,10 @@ export function MobileApp(): JSX.Element {
   const repoViews = reposToViews(store.repos)
   const sections = sidebarSections(store.repos, sessions, pins)
   const worktree = repoViews.flatMap((r) => r.worktrees).find((w) => w.path === selectedWorktree)
+  const worktreeRepoName = worktree
+    ? (repoViews.find((r) => r.path === worktree.repoPath)?.name ??
+      worktree.repoPath.split('/').pop())
+    : null
   const tabs = worktree
     ? orderTabs(sessionsForWorktree(sessions, worktree.path), store.tabOrders[worktree.path], pins)
     : []
@@ -84,9 +88,9 @@ export function MobileApp(): JSX.Element {
   const [menuOpen, setMenuOpen] = useState(false)
   const [sessionMenuOpen, setSessionMenuOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
-  // Hold a freshly-opened session in pane A until the server broadcast adds it to
-  // `tabs` (see the keep-pane-valid effect) — otherwise it bounces to tabs[0].
-  const justOpened = useRef<string | null>(null)
+  // Hold a freshly-opened (or reload-restored) session in pane A until the store
+  // knows it — see the keep-pane-valid effect — otherwise it bounces to tabs[0].
+  const justOpened = useRef<string | null>(paneA)
   const currentTab = tabs.find((t) => t.sessionId === paneA)
   const hasRows =
     sections.pinnedWorktrees.length > 0 ||
@@ -98,9 +102,11 @@ export function MobileApp(): JSX.Element {
       justOpened.current = null
       return
     }
-    if (paneA && justOpened.current === paneA) return
+    if (paneA && justOpened.current === paneA && !sessions.some((s) => s.sessionId === paneA)) {
+      return
+    }
     setPane('A', tabs[0]?.sessionId ?? null)
-  }, [tabs, paneA, setPane])
+  }, [tabs, paneA, setPane, sessions])
 
   const pickWorktree = (path: string) => {
     setSelectedWorktree(path)
@@ -136,7 +142,16 @@ export function MobileApp(): JSX.Element {
           <Sparkles size={15} aria-hidden="true" />
         </button>
         <button type="button" className="wt-picker" onClick={() => setPickerOpen(true)}>
-          {worktree ? (worktree.branch ?? worktree.path.split('/').pop()) : 'Select worktree'} ▾
+          {worktree ? (
+            <span className="wt-picker-lines">
+              <span className="wt-picker-repo">{worktreeRepoName}</span>
+              <span className="wt-picker-branch">
+                {worktree.branch ?? worktree.path.split('/').pop()} ▾
+              </span>
+            </span>
+          ) : (
+            'Select worktree'
+          )}
         </button>
         <div className="mobile-tabs">
           {tabs.length > 0 && (

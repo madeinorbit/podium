@@ -470,10 +470,14 @@ body:has(.mobile-shell) {
 .tabbar .tab-wrap.active .tab {
   color: var(--fg-bright);
 }
+/* The new-panel dropdown drops directly beneath the "+" that opens it. */
+.tab-add-wrap {
+  position: relative;
+}
 .workspace-menu-layer {
   position: absolute;
-  top: 40px;
-  left: 8px;
+  top: calc(100% + 4px);
+  left: 0;
   z-index: 35;
 }
 .new-panel-menu {
@@ -488,6 +492,9 @@ body:has(.mobile-shell) {
   padding: 4px;
 }
 .new-panel-menu > button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   text-align: left;
   background: transparent;
   border: 0;
@@ -497,6 +504,9 @@ body:has(.mobile-shell) {
   cursor: pointer;
   font: inherit;
   font-size: 13px;
+}
+.new-panel-menu > button.new-agent svg {
+  color: var(--dim);
 }
 .new-panel-menu > button:hover {
   background: var(--surface);
@@ -833,13 +843,38 @@ body:has(.mobile-shell) {
   background: var(--panel);
 }
 .wt-picker {
+  display: flex;
+  align-items: center;
   border: 0;
   border-right: 1px solid var(--border);
   border-radius: 0;
   max-width: 45%;
-  white-space: nowrap;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--fg-bright);
+}
+.wt-picker-lines {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  min-width: 0;
+  line-height: 1.15;
+}
+.wt-picker-repo {
+  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10px;
+  letter-spacing: 0.02em;
+  color: var(--dim);
+}
+.wt-picker-branch {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
   color: var(--fg-bright);
 }
 .mobile-tabs {
@@ -1417,11 +1452,16 @@ body:has(.mobile-shell) {
   align-self: center;
   display: inline-flex;
   align-items: center;
-  cursor: default;
+  cursor: pointer;
   color: var(--success);
   background: none;
   border: 0;
   padding: 0;
+}
+/* Header tap target on mobile (the bare icon is too small to hit). */
+.mobile-head .conn-indicator {
+  align-self: stretch;
+  padding: 0 8px;
 }
 .conn-indicator.conn-degraded {
   color: var(--warning);
@@ -1510,6 +1550,107 @@ body:has(.mobile-shell) {
   justify-content: center;
   min-width: 40px;
   padding: 0 8px;
+}
+
+/* ---- host info panel (tabbed: connection + memory) ---- */
+.host-info-modal {
+  width: min(440px, 100%);
+  max-height: min(640px, calc(100dvh - 32px));
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.55);
+  overflow: hidden;
+}
+.host-info-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+}
+.host-info-tabs {
+  display: flex;
+  gap: 4px;
+}
+.host-info-tabs button {
+  background: transparent;
+  border: 0;
+  color: var(--dim);
+  font: inherit;
+  font-size: 13px;
+  padding: 6px 12px;
+  border-radius: var(--r);
+  cursor: pointer;
+}
+.host-info-tabs button.active {
+  background: var(--surface);
+  color: var(--fg-bright);
+}
+.host-info-close {
+  background: transparent;
+  border: 0;
+  color: var(--dim);
+  cursor: pointer;
+  font-size: 14px;
+  padding: 4px 8px;
+}
+.host-info-body {
+  overflow-y: auto;
+}
+.host-conn {
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.host-conn-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  color: var(--fg-bright);
+}
+.host-conn-status .host-conn-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--success);
+}
+.host-conn-status.conn-degraded .host-conn-dot {
+  background: var(--warning);
+}
+.host-conn-status.conn-down .host-conn-dot {
+  background: var(--danger);
+}
+.host-conn-detail {
+  margin: 0;
+  font-size: 13px;
+  color: var(--dim);
+}
+.host-conn-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.host-conn-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13px;
+  color: var(--fg);
+}
+.host-conn-row span:last-child {
+  color: var(--fg-bright);
+}
+.host-memory-hostname {
+  padding: 10px 14px 0;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--faint);
+  text-transform: uppercase;
 }
 
 /* ---- memory breakdown view (opened from the memory chip) ---- */
@@ -1973,6 +2114,7 @@ body:has(.mobile-shell) {
   gap: 10px;
 }
 .home-card {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -1981,6 +2123,29 @@ body:has(.mobile-shell) {
   border-radius: var(--r);
   padding: 10px 12px;
   min-width: 0;
+}
+/* Whole-card tap target — a single tap anywhere opens the session. Sits under
+   the real controls (which carry z-index:1) so they keep their own clicks. */
+.home-card-hit {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+.home-card-title,
+.home-card-actions {
+  position: relative;
+  z-index: 1;
+}
+.home-card-edit {
+  position: relative;
+  z-index: 1;
 }
 .tone-attention .home-card {
   border-color: color-mix(in srgb, var(--warning) 45%, var(--border));

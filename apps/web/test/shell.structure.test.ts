@@ -146,9 +146,10 @@ describe('host health indicators', () => {
     expect(read('Sidebar.tsx')).toContain('<HostIndicators')
     expect(read('MobileApp.tsx')).toContain('<HostIndicators')
   })
-  it('the connection indicator appears only while unhealthy; memory chips per host', () => {
+  it('the connection indicator shows on the hysteresis signal; memory chips per host', () => {
     const src = read('HostIndicators.tsx')
-    expect(src).toContain("health.status !== 'ok' && <ConnectionIndicator")
+    expect(src).toContain('connVisible')
+    expect(src).toContain('<ConnectionIndicator')
     expect(src).toContain('hostMetrics.length > 1')
     expect(src).toContain('hostMemoryView')
   })
@@ -162,10 +163,10 @@ describe('host health indicators', () => {
 })
 
 describe('memory breakdown view', () => {
-  it('the memory chip is a button that opens the breakdown', () => {
+  it('the memory chip is a button that opens the host info panel', () => {
     const src = read('HostIndicators.tsx')
     expect(src).toContain('<button')
-    expect(src).toContain('<HostMemoryView')
+    expect(src).toContain('<HostInfoView')
   })
   it('fetches via the hosts endpoint and refreshes while open', () => {
     const src = read('HostMemoryView.tsx')

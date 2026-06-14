@@ -1,6 +1,7 @@
 import type { AgentMemoryWire, HostMemoryWire, ProjectMemoryWire } from '@podium/protocol'
 import type { JSX } from 'react'
 import { useEffect, useState } from 'react'
+import { describeHealth, useConnectionHealth } from './ConnectionIndicator'
 import { formatMemBytes, hostMemoryView, panelLabel } from './derive'
 import { useStore } from './store'
 
@@ -17,13 +18,92 @@ interface Breakdown {
 
 const REFRESH_MS = 5_000
 
+export type HostInfoTab = 'connection' | 'memory'
+
 /**
- * "Who owns the used memory" — opened from the memory chip. Agents are the
- * sessions Podium controls (attributed by process tree); projects are other
- * processes whose working directory sits under a controlled repo/worktree
- * (dev servers, watchers); other is the rest of the machine.
+ * Host info panel: one modal with a Connection tab and a Memory tab, opened from
+ * either the connection indicator or the memory chip (mobile and desktop share
+ * it). `initialTab` selects which one is shown first based on what was tapped.
  */
-export function HostMemoryView({ onClose }: { onClose: () => void }): JSX.Element {
+export function HostInfoView({
+  onClose,
+  initialTab = 'memory',
+}: {
+  onClose: () => void
+  initialTab?: HostInfoTab
+}): JSX.Element {
+  const [tab, setTab] = useState<HostInfoTab>(initialTab)
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <div className="host-info-modal" role="dialog" aria-modal="true" aria-label="Host info">
+        <div className="host-info-head">
+          <div className="host-info-tabs">
+            <button
+              type="button"
+              aria-pressed={tab === 'connection'}
+              className={tab === 'connection' ? 'active' : ''}
+              onClick={() => setTab('connection')}
+            >
+              Connection
+            </button>
+            <button
+              type="button"
+              aria-pressed={tab === 'memory'}
+              className={tab === 'memory' ? 'active' : ''}
+              onClick={() => setTab('memory')}
+            >
+              Memory
+            </button>
+          </div>
+          <button type="button" className="host-info-close" onClick={onClose}>
+            ✕
+          </button>
+        </div>
+        <div className="host-info-body">
+          {tab === 'connection' ? <ConnectionPanel /> : <MemoryPanel />}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/** Connection tab: live status, latency, and the explanatory detail line. */
+function ConnectionPanel(): JSX.Element {
+  const { hostMetrics } = useStore()
+  const health = useConnectionHealth()
+  const [, setTick] = useState(0)
+  useEffect(() => {
+    if (health.status === 'ok') return
+    const t = setInterval(() => setTick((n) => n + 1), 1000)
+    return () => clearInterval(t)
+  }, [health.status])
+  const { headline, detail } = describeHealth(health, Date.now())
+  const ping = health.rttMs !== null ? `${Math.max(1, Math.round(health.rttMs))} ms` : '—'
+  return (
+    <div className="host-conn">
+      <div className={`host-conn-status conn-${health.status}`}>
+        <span className="host-conn-dot" />
+        <span>{headline}</span>
+      </div>
+      <p className="host-conn-detail">{detail}</p>
+      <div className="host-conn-rows">
+        <div className="host-conn-row">
+          <span>Latency</span>
+          <span>{ping}</span>
+        </div>
+        {hostMetrics.length > 0 && (
+          <div className="host-conn-row">
+            <span>{hostMetrics.length === 1 ? 'Host' : 'Hosts'}</span>
+            <span>{hostMetrics.map((h) => h.hostname).join(', ')}</span>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+/** Memory tab: the per-process breakdown (polled from the daemon). */
+function MemoryPanel(): JSX.Element {
   const { trpc, sessions } = useStore()
   const [data, setData] = useState<Breakdown | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -55,19 +135,12 @@ export function HostMemoryView({ onClose }: { onClose: () => void }): JSX.Elemen
   }
 
   return (
-    <div className="modal-backdrop" role="presentation">
-      <div className="host-memory-modal" role="dialog" aria-modal="true" aria-label="Host memory">
-        <div className="host-memory-head">
-          <span className="label">MEMORY{data ? ` — ${data.hostname.toUpperCase()}` : ''}</span>
-          <button type="button" onClick={onClose}>
-            ✕
-          </button>
-        </div>
-        {error && <div className="host-memory-note">Could not load the breakdown: {error}</div>}
-        {!error && !data && <div className="host-memory-note">Measuring…</div>}
-        {data && <BreakdownBody data={data} sessionLabel={sessionLabel} />}
-      </div>
-    </div>
+    <>
+      {data && <div className="host-memory-hostname">{data.hostname.toUpperCase()}</div>}
+      {error && <div className="host-memory-note">Could not load the breakdown: {error}</div>}
+      {!error && !data && <div className="host-memory-note">Measuring…</div>}
+      {data && <BreakdownBody data={data} sessionLabel={sessionLabel} />}
+    </>
   )
 }
 

@@ -747,17 +747,19 @@ describe('sendText (chat send path)', () => {
     )
   })
 
-  it('wraps multi-line text in bracketed paste so it submits as one block', () => {
+  it('wraps multi-line text in bracketed paste, then submits with a separate CR', () => {
     const reg = new SessionRegistry()
     const daemon: ControlMessage[] = []
     reg.attachDaemon((m) => daemon.push(m))
     const { sessionId } = reg.createSession({ agentKind: 'claude-code', cwd: '/w' })
     reg.onDaemonMessage(bind(sessionId))
     reg.sendText({ sessionId, text: 'a\nb' })
-    const input = daemon.find((m) => m.type === 'input')
-    expect(Buffer.from((input as { data: string }).data, 'base64').toString()).toBe(
-      '\x1b[200~a\nb\x1b[201~\r',
-    )
+    // The paste block and the submitting CR are separate writes — a CR fused onto
+    // the paste-end marker gets absorbed by some TUIs and never submits.
+    const inputs = daemon
+      .filter((m) => m.type === 'input')
+      .map((m) => Buffer.from((m as { data: string }).data, 'base64').toString())
+    expect(inputs).toEqual(['\x1b[200~a\nb\x1b[201~', '\r'])
   })
 
   it('refuses for exited sessions', () => {

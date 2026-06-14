@@ -1,9 +1,9 @@
 import { MemoryStick } from 'lucide-react'
 import type { JSX } from 'react'
 import { useState } from 'react'
-import { ConnectionIndicator, describeHealth, useConnectionHealth } from './ConnectionIndicator'
+import { ConnectionIndicator, describeHealth, useStableConnection } from './ConnectionIndicator'
 import { hostMemoryView } from './derive'
-import { HostMemoryView } from './HostMemoryView'
+import { type HostInfoTab, HostInfoView } from './HostMemoryView'
 import { useStore } from './store'
 import { UsageChip } from './UsageView'
 
@@ -19,8 +19,8 @@ import { UsageChip } from './UsageView'
  */
 export function HostIndicators({ compact = false }: { compact?: boolean }): JSX.Element {
   const { hostMetrics } = useStore()
-  const health = useConnectionHealth()
-  const [open, setOpen] = useState(false)
+  const { health, visible: connVisible } = useStableConnection()
+  const [infoTab, setInfoTab] = useState<HostInfoTab | null>(null)
   const showHostname = !compact && hostMetrics.length > 1
   // The visible icon only shows the detail on hover; a persistent polite live
   // region announces degraded/down transitions to assistive tech (empty while
@@ -38,7 +38,9 @@ export function HostIndicators({ compact = false }: { compact?: boolean }): JSX.
       <span className="sr-only" role="status" aria-live="polite">
         {announce}
       </span>
-      {health.status !== 'ok' && <ConnectionIndicator health={health} />}
+      {connVisible && (
+        <ConnectionIndicator health={health} onOpen={() => setInfoTab('connection')} />
+      )}
       {!compact && <UsageChip />}
       {hostMetrics.map((host) => {
         const mem = hostMemoryView(host)
@@ -48,7 +50,7 @@ export function HostIndicators({ compact = false }: { compact?: boolean }): JSX.
             key={host.hostname}
             className={`host-chip mem-${mem.severity}${compact ? ' host-chip-compact' : ''}`}
             title={`${mem.title} — click for the breakdown`}
-            onClick={() => setOpen(true)}
+            onClick={() => setInfoTab('memory')}
           >
             {compact ? (
               <MemoryStick size={14} aria-hidden="true" />
@@ -64,7 +66,7 @@ export function HostIndicators({ compact = false }: { compact?: boolean }): JSX.
           </button>
         )
       })}
-      {open && <HostMemoryView onClose={() => setOpen(false)} />}
+      {infoTab && <HostInfoView initialTab={infoTab} onClose={() => setInfoTab(null)} />}
     </div>
   )
 }

@@ -150,7 +150,7 @@ describe('createClaudeCodeConversationProvider', () => {
     expect(result.conversations[0]).not.toHaveProperty('messageCount')
   })
 
-  test('falls back to filename titles when no custom title exists', async () => {
+  test('falls back to the first user prompt when no custom title exists', async () => {
     const root = await createRoot()
     const file = join(root, 'projects/-repo-project/untitled.jsonl')
     await mkdir(join(file, '..'), { recursive: true })
@@ -161,6 +161,22 @@ describe('createClaudeCodeConversationProvider', () => {
         sessionId: 'untitled',
         message: { role: 'user', content: 'hello' },
       }),
+    )
+
+    const result = await createClaudeCodeConversationProvider().scanRoot(root)
+
+    expect(result.conversations[0]).toEqual(
+      expect.objectContaining({ id: 'untitled', title: 'hello', titleSource: 'heuristic' }),
+    )
+  })
+
+  test('falls back to the filename when there is no usable prompt either', async () => {
+    const root = await createRoot()
+    const file = join(root, 'projects/-repo-project/untitled.jsonl')
+    await mkdir(join(file, '..'), { recursive: true })
+    await writeFile(
+      file,
+      JSON.stringify({ timestamp: '2026-06-01T11:00:00.000Z', sessionId: 'untitled' }),
     )
 
     const result = await createClaudeCodeConversationProvider().scanRoot(root)

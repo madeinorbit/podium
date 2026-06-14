@@ -265,11 +265,16 @@ function summarizeClaudeHeadRecords(
   const session = isRecord(sessionRecord) ? sessionRecord : undefined
   const id = stringField(session ?? {}, 'sessionId') ?? basename(file.path, '.jsonl')
 
+  // Title preference: the conversation's native customTitle, else the start of
+  // the first human prompt (a filename like "a1b2c3d4.jsonl" is useless in the
+  // resume picker), else the bare filename as a last resort.
+  const nativeTitle = stringField(summary ?? {}, 'customTitle')
+  const promptTitle = nativeTitle ? undefined : firstUserPrompt(records)
   return {
     id,
     agentKind: 'claude-code',
-    title: stringField(summary ?? {}, 'customTitle') ?? basename(file.path, '.jsonl'),
-    titleSource: summary ? 'native' : 'filename',
+    title: nativeTitle ?? promptTitle ?? basename(file.path, '.jsonl'),
+    titleSource: nativeTitle ? 'native' : promptTitle ? 'heuristic' : 'filename',
     projectPath: firstProjectPath(records),
     parentConversationId: file.parentConversationId,
     statusHint: 'unknown',
@@ -283,6 +288,22 @@ function summarizeClaudeHeadRecords(
       relatedPaths: file.parentConversationId ? [subagentMetaPath(canonical)] : undefined,
     },
   }
+}
+
+/**
+ * The first human prompt, condensed to a one-line title (≤100 chars). Skips
+ * tool/command wrapper messages (Claude logs these as `user` records whose text
+ * is XML-ish), so the title is the words the person actually typed.
+ */
+function firstUserPrompt(records: unknown[]): string | undefined {
+  for (const record of records) {
+    if (!isRecord(record) || !isRecord(record.message)) continue
+    if (mapConversationRole(record.message.role) !== 'user') continue
+    const text = contentToText(record.message.content).replace(/\s+/g, ' ').trim()
+    if (!text || text.startsWith('<')) continue
+    return text.length > 100 ? `${text.slice(0, 100)}…` : text
+  }
+  return undefined
 }
 
 function claudeMessages(records: unknown[]): AgentConversationMessage[] {

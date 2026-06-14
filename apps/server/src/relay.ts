@@ -274,12 +274,18 @@ export class SessionRegistry {
     if (!session || (session.status !== 'live' && session.status !== 'starting')) {
       return { ok: false }
     }
-    const body = text.includes('\n') ? `\x1b[200~${text}\x1b[201~` : text
-    this.toDaemon({
-      type: 'input',
-      sessionId,
-      data: Buffer.from(`${body}\r`).toString('base64'),
-    })
+    const send = (data: string) =>
+      this.toDaemon({ type: 'input', sessionId, data: Buffer.from(data).toString('base64') })
+    if (text.includes('\n')) {
+      // Multi-line: bracketed paste so the harness takes it as one block. The
+      // submitting CR goes as its OWN write — a CR in the same chunk right after
+      // the paste-end marker gets absorbed by some TUIs (the message lands in the
+      // input as a newline but never submits), which is exactly the chat-send bug.
+      send(`\x1b[200~${text}\x1b[201~`)
+      send('\r')
+    } else {
+      send(`${text}\r`)
+    }
     return { ok: true }
   }
 

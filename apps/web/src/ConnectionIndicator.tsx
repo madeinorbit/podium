@@ -1,7 +1,7 @@
 import type { ConnectionHealth } from '@podium/terminal-client'
 import { Wifi, WifiOff } from 'lucide-react'
 import type { JSX } from 'react'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useStore } from './store'
 
 /**
@@ -14,6 +14,66 @@ export function useConnectionHealth(): ConnectionHealth {
   const [health, setHealth] = useState<ConnectionHealth>(() => hub.connectionHealth())
   useEffect(() => hub.onConnectionHealth(setHealth), [hub])
   return health
+}
+
+// Best practice for a flaky signal: hysteresis. A bad state must persist briefly
+// before we show it (so a one-heartbeat blip doesn't flash a warning), and after
+// recovery we hold a green "Connected" for a few seconds before hiding — so the
+// indicator confirms the fix instead of just vanishing, and never strobes.
+const ENTER_DELAY_MS = 1200
+const RECOVER_HOLD_MS = 5000
+
+export function useStableConnection(): { health: ConnectionHealth; visible: boolean } {
+  const raw = useConnectionHealth()
+  const [visible, setVisible] = useState(raw.status !== 'ok')
+  const enterTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const recoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const prevStatus = useRef(raw.status)
+
+  useEffect(() => {
+    const status = raw.status
+    const prev = prevStatus.current
+    prevStatus.current = status
+    const clearEnter = () => {
+      if (enterTimer.current) {
+        clearTimeout(enterTimer.current)
+        enterTimer.current = null
+      }
+    }
+    const clearRecover = () => {
+      if (recoverTimer.current) {
+        clearTimeout(recoverTimer.current)
+        recoverTimer.current = null
+      }
+    }
+    if (status !== 'ok') {
+      clearRecover()
+      if (!visible && !enterTimer.current) {
+        enterTimer.current = setTimeout(() => {
+          enterTimer.current = null
+          setVisible(true)
+        }, ENTER_DELAY_MS)
+      }
+    } else {
+      clearEnter()
+      if (visible && prev !== 'ok' && !recoverTimer.current) {
+        recoverTimer.current = setTimeout(() => {
+          recoverTimer.current = null
+          setVisible(false)
+        }, RECOVER_HOLD_MS)
+      }
+    }
+  }, [raw.status, visible])
+
+  useEffect(
+    () => () => {
+      if (enterTimer.current) clearTimeout(enterTimer.current)
+      if (recoverTimer.current) clearTimeout(recoverTimer.current)
+    },
+    [],
+  )
+
+  return { health: raw, visible }
 }
 
 /** "12s" / "3m" — durations for the tooltip, coarse on purpose. */
@@ -58,7 +118,13 @@ export function describeHealth(health: ConnectionHealth, now: number): Connectio
  * HostIndicators only while the link is degraded or down — yellow wifi when
  * typing would lag, pulsing red wifi-off when input is going nowhere.
  */
-export function ConnectionIndicator({ health }: { health: ConnectionHealth }): JSX.Element {
+export function ConnectionIndicator({
+  health,
+  onOpen,
+}: {
+  health: ConnectionHealth
+  onOpen?: () => void
+}): JSX.Element {
   // Re-render each second while unhealthy so "no contact for Ns" ticks.
   const [, setTick] = useState(0)
   useEffect(() => {
@@ -70,12 +136,13 @@ export function ConnectionIndicator({ health }: { health: ConnectionHealth }): J
   const { headline, detail } = describeHealth(health, Date.now())
   const Icon = health.status === 'down' ? WifiOff : Wifi
   // A button so the tooltip is reachable by keyboard focus and by tap on touch
-  // devices, where hover doesn't exist.
+  // devices, where hover doesn't exist. Tapping opens the host info panel.
   return (
     <button
       type="button"
       className={`conn-indicator conn-${health.status}`}
       aria-label={`${headline}. ${detail}`}
+      onClick={onOpen}
     >
       <Icon size={14} aria-hidden="true" />
       <span className="conn-tooltip" role="tooltip">
