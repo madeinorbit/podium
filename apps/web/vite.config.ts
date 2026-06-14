@@ -1,5 +1,6 @@
 import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'vite'
+import { VitePWA } from 'vite-plugin-pwa'
 
 const allowedHosts = ['podium-host.example.com']
 
@@ -22,6 +23,34 @@ const proxy = {
 }
 
 export default defineConfig({
+  plugins: [
+    VitePWA({
+      registerType: 'prompt',
+      // Generate icons + apple-touch-icon + favicon from one source SVG
+      // (see pwa-assets.config.ts); inject head links + manifest icons.
+      pwaAssets: { config: true },
+      manifest: {
+        name: 'Podium',
+        short_name: 'Podium',
+        description: 'Podium — agent workspace',
+        theme_color: '#0e0e12',
+        background_color: '#0e0e12',
+        display: 'standalone',
+        start_url: '/',
+      },
+      workbox: {
+        // Precache the built shell so an installed app cold-starts instantly.
+        globPatterns: ['**/*.{js,css,html,svg,png,ico,woff2}'],
+        // SPA fallback for navigations — but never shadow the live API/WS
+        // routes, which must always reach the backend through the proxy.
+        navigateFallback: '/index.html',
+        navigateFallbackDenylist: [/^\/trpc/, /^\/health/, /^\/client/, /^\/daemon/],
+      },
+      // Keep the service worker out of `npm run dev` (it fights HMR); it only
+      // ships in the built bundle served by `vite preview`.
+      devOptions: { enabled: false },
+    }),
+  ],
   resolve: {
     alias: {
       '@podium/protocol': fileURLToPath(
