@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Podium">
+  <rect width="512" height="512" rx="96" fill="#0e0e12"/>
+  <g fill="#f59e0b">
+    <path d="M150 150 L362 178 L362 236 L150 208 Z"/>
+    <rect x="240" y="208" width="32" height="120"/>
+    <rect x="176" y="328" width="160" height="34" rx="8"/>
+  </g>
+</svg>
