@@ -1,6 +1,6 @@
+import { useRegisterSW } from 'virtual:pwa-register/react'
 import type { JSX } from 'react'
 import { useEffect, useRef } from 'react'
-import { useRegisterSW } from 'virtual:pwa-register/react'
 
 // How often an open tab asks the service worker to look for a freshly
 // deployed build. A redeploy restarts the web service, which serves a new
@@ -37,11 +37,7 @@ export function UpdatePrompt(): JSX.Element | null {
       <button type="button" onClick={() => void updateServiceWorker(true)}>
         Reload
       </button>
-      <button
-        type="button"
-        className="update-toast-dismiss"
-        onClick={() => setNeedRefresh(false)}
-      >
+      <button type="button" className="update-toast-dismiss" onClick={() => setNeedRefresh(false)}>
         Later
       </button>
     </div>

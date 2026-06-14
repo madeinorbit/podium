@@ -7,9 +7,9 @@ import { MobileApp } from './MobileApp'
 import { OnboardingWizard } from './OnboardingWizard'
 import { Sidebar } from './Sidebar'
 import { SuperagentView } from './SuperagentView'
-import { UpdatePrompt } from './UpdatePrompt'
 import { StoreProvider, useStore } from './store'
 import { serverConfig } from './trpc'
+import { UpdatePrompt } from './UpdatePrompt'
 import { Workspace } from './Workspace'
 
 function useIsMobile(): boolean {
