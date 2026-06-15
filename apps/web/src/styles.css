@@ -14,6 +14,18 @@
   --warning: #fbbf24;
   --danger: #f87171;
   --r: 6px;
+  /* Safe-area insets — iOS notch / Dynamic Island / home indicator. Non-zero
+     ONLY in installed-PWA standalone mode (needs viewport-fit=cover, which
+     index.html sets); 0 in normal web/Safari, so every use below is a no-op
+     there and nothing changes for desktop. CONVENTION: any surface that reaches
+     a screen edge must pad itself by these. The shared top-of-screen surfaces
+     already do — .mobile-head, .sheet-head/.picker-sheet, and (on mobile) the
+     full-screen .modal-backdrop, which every modal flows through. New
+     full-screen/overlay surfaces should reuse one of those or pad by --safe-*. */
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
 }
 * {
   box-sizing: border-box;
@@ -838,8 +850,8 @@ body:has(.mobile-shell) {
      and 0 in normal web/Safari — so this works in both. Reserve it with padding
      and grow the height to keep the 44px control row intact (box-sizing:border-box
      is global, so height includes the padding). The panel bg fills the inset too. */
-  height: calc(44px + env(safe-area-inset-top, 0px));
-  padding-top: env(safe-area-inset-top, 0px);
+  height: calc(44px + var(--safe-top));
+  padding-top: var(--safe-top);
   background: var(--panel);
 }
 .wt-picker {
@@ -960,12 +972,17 @@ body:has(.mobile-shell) {
   background: var(--app);
   z-index: 30;
   overflow-y: auto;
+  /* Let the last rows scroll clear of the home indicator in an installed PWA. */
+  padding-bottom: var(--safe-bottom);
 }
 .sheet-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 10px 12px;
+  /* Pad the sticky header past the Dynamic Island in an installed PWA (same
+     pattern as .mobile-head). The --app background fills the inset area. */
+  padding: calc(10px + var(--safe-top)) calc(12px + var(--safe-right)) 10px
+    calc(12px + var(--safe-left));
   border-bottom: 1px solid var(--border);
   position: sticky;
   top: 0;
@@ -1331,7 +1348,12 @@ body:has(.mobile-shell) {
 @media (max-width: 768px) {
   .modal-backdrop {
     align-items: stretch;
-    padding: 0;
+    /* Full-screen modals on mobile (Settings, Search, repo picker, onboarding)
+       all flow through here. Inset into the safe area so the modal header clears
+       the Dynamic Island and the footer clears the home indicator;
+       align-items:stretch makes the modal fill this box, so no per-modal change
+       is needed and any future modal inherits the fix. */
+    padding: var(--safe-top) var(--safe-right) var(--safe-bottom) var(--safe-left);
   }
   .repo-picker-modal {
     width: 100%;
@@ -3243,7 +3265,7 @@ body:has(.mobile-shell) {
   left: 50%;
   /* Anchor just under the top bar (.mobile-head = 44px + the top safe-area
      inset), not at the bottom where the iOS soft keyboard would cover it. */
-  top: calc(env(safe-area-inset-top, 0px) + 44px + 8px);
+  top: calc(var(--safe-top) + 44px + 8px);
   transform: translateX(-50%);
   z-index: 1000;
   display: flex;
