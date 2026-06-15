@@ -17,7 +17,7 @@ import { CSS } from '@dnd-kit/utilities'
 import type { SessionMeta } from '@podium/protocol'
 import { Pin } from 'lucide-react'
 import type { JSX } from 'react'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { AgentPanel } from './AgentPanel'
 import { orderTabs, reposToViews, sessionsForWorktree } from './derive'
 import { NewPanelMenu } from './NewPanelMenu'
@@ -42,6 +42,42 @@ export function Workspace(): JSX.Element {
     killSession,
   } = store
   const [menuOpen, setMenuOpen] = useState(false)
+  // The "+" sits at the right of the tab bar, so a left-anchored dropdown spills
+  // off the right edge of the window. Measure once it's open (and on resize / when
+  // its async resume list changes height) and slide it horizontally so it stays
+  // fully on screen, wherever the button is.
+  const menuLayerRef = useRef<HTMLDivElement | null>(null)
+  const [menuShift, setMenuShift] = useState(0)
+  useLayoutEffect(() => {
+    if (!menuOpen) {
+      setMenuShift(0)
+      return
+    }
+    const el = menuLayerRef.current
+    if (!el) return
+    const clamp = () => {
+      const margin = 8
+      // Measure at the un-shifted baseline, then compute the slide that keeps both
+      // edges inside the viewport (right edge wins when it can't fit both).
+      const applied = el.style.left
+      el.style.left = '0px'
+      const rect = el.getBoundingClientRect()
+      el.style.left = applied
+      let shift = 0
+      const overRight = rect.right - (window.innerWidth - margin)
+      if (overRight > 0) shift = -overRight
+      if (rect.left + shift < margin) shift = margin - rect.left
+      setMenuShift(shift)
+    }
+    clamp()
+    const ro = new ResizeObserver(clamp)
+    ro.observe(el)
+    window.addEventListener('resize', clamp)
+    return () => {
+      ro.disconnect()
+      window.removeEventListener('resize', clamp)
+    }
+  }, [menuOpen])
   // A session created via the "+" menu (or restored from localStorage on reload)
   // lands in `paneA` before the server's broadcast adds it to `tabs`. Without this,
   // the keep-pane-valid effect below sees an unknown paneA and bounces it to
@@ -127,7 +163,11 @@ export function Workspace(): JSX.Element {
               +
             </button>
             {menuOpen && (
-              <div className="workspace-menu-layer">
+              <div
+                className="workspace-menu-layer"
+                ref={menuLayerRef}
+                style={{ left: `${menuShift}px` }}
+              >
                 <NewPanelMenu
                   worktree={worktree}
                   onOpened={(sid) => {

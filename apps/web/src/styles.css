@@ -499,6 +499,9 @@ body:has(.mobile-shell) {
   border-radius: var(--r);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
   min-width: 200px;
+  /* Stay narrower than the viewport so a long resume title ellipsizes instead of
+     widening the menu past the screen (the JS clamp slides it, this bounds it). */
+  max-width: min(320px, calc(100vw - 16px));
   display: flex;
   flex-direction: column;
   padding: 4px;
