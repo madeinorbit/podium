@@ -2,6 +2,7 @@ import { open } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import type { AgentKind } from '@podium/protocol'
+import { grokStateProvider } from './grok.js'
 import type { AgentInstrumentation, AgentStateEvent, AgentStateProvider } from './types.js'
 
 // Observation only: every hook replies 200 {} immediately (see the daemon's
@@ -234,5 +235,7 @@ async function classifyIdleFromStop(
 
 /** The provider registry. Uninstrumented kinds return undefined → phase stays 'unknown'. */
 export function agentStateProviderFor(kind: AgentKind): AgentStateProvider | undefined {
-  return kind === 'claude-code' ? claudeCodeStateProvider : undefined
+  if (kind === 'claude-code') return claudeCodeStateProvider
+  if (kind === 'grok') return grokStateProvider
+  return undefined
 }

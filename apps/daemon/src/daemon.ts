@@ -23,11 +23,13 @@ import {
   compareConversationSummaries,
   type GitDiscoveryDiagnostic,
   type GitRepositorySummary,
+  type GrokStateObserver,
   initialAgentState,
   isAbducoAvailable,
   isTmuxAvailable,
   killAbducoSession,
   killTmuxServer,
+  observeGrokState,
   reduceAgentState,
   scanAgentConversationsCached,
   scanGitRepositories,
@@ -202,6 +204,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
   // from hook payloads (the only place the harness tells us its transcript
   // path) and eagerly for resumes, where the resumed file is derivable.
   const tails = new Map<string, TranscriptTailer>()
+  const grokStateObservers = new Map<string, GrokStateObserver>()
   const ensureTranscriptTail = (sessionId: string, path: string): void => {
     const existing = tails.get(sessionId)
     if (existing?.path === path) return
@@ -217,6 +220,45 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
   const stopTranscriptTail = (sessionId: string): void => {
     tails.get(sessionId)?.stop()
     tails.delete(sessionId)
+  }
+  const stopGrokStateObserver = (sessionId: string): void => {
+    grokStateObservers.get(sessionId)?.stop()
+    grokStateObservers.delete(sessionId)
+  }
+  const applyAgentStateEvents = (sessionId: string, events: AgentStateEvent[]): void => {
+    const tracker = trackers.get(sessionId)
+    if (!tracker) return
+    for (const event of events) {
+      const next = reduceAgentState(tracker.state, event, new Date().toISOString())
+      if (next === tracker.state) continue
+      tracker.state = next
+      send({ type: 'agentState', sessionId, state: next })
+    }
+  }
+  const startGrokStateObserver = (
+    sessionId: string,
+    cwd: string,
+    resumeValue: string | undefined,
+    startedAtMs = Date.now(),
+  ): void => {
+    stopGrokStateObserver(sessionId)
+    grokStateObservers.set(
+      sessionId,
+      observeGrokState({
+        cwd,
+        ...(resumeValue ? { resumeValue } : {}),
+        ...(opts.discovery?.homeDir ? { homeDir: opts.discovery.homeDir } : {}),
+        startedAtMs,
+        onSession: (grokSessionId) => {
+          send({
+            type: 'sessionResumeRef',
+            sessionId,
+            resume: { kind: 'grok-session', value: grokSessionId },
+          })
+        },
+        onEvents: (events) => applyAgentStateEvents(sessionId, events),
+      }),
+    )
   }
   // Eagerly tail a claude-code session's resume transcript — the JSONL the harness
   // is already writing. The chat view then has history before the first hook fires.
@@ -255,14 +297,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
       }
       void tracker.provider
         .translate(payload)
-        .then((events) => {
-          for (const event of events) {
-            const next = reduceAgentState(tracker.state, event, new Date().toISOString())
-            if (next === tracker.state) continue
-            tracker.state = next
-            send({ type: 'agentState', sessionId, state: next })
-          }
-        })
+        .then((events) => applyAgentStateEvents(sessionId, events))
         .catch((err) => console.warn(`[podium] hook translate failed for ${sessionId}:`, err))
     },
   })
@@ -417,6 +452,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     session.onExit((code) => {
       bridges.delete(sessionId)
       trackers.delete(sessionId)
+      stopGrokStateObserver(sessionId)
       // The agent's gone — stop polling its (now frozen) transcript file.
       stopTranscriptTail(sessionId)
       // The attach CLIENT exiting is NOT the AGENT exiting. disposeAll() on a
@@ -436,6 +472,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
 
   const spawn = (msg: SpawnControl): void => {
     try {
+      const spawnStartedAt = Date.now()
       const cmd = launch(msg.agentKind, {
         cwd: msg.cwd,
         ...(msg.resume ? { resume: msg.resume } : {}),
@@ -474,6 +511,9 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
             ? spawnTmuxAgent(spawnOpts)
             : spawnAgent(spawnOpts)
       wireBridge(msg.sessionId, session)
+      if (msg.agentKind === 'grok') {
+        startGrokStateObserver(msg.sessionId, msg.cwd, msg.resume?.value, spawnStartedAt)
+      }
       // Resumes: the resumed transcript is derivable right away, so the chat view
       // has history before the first hook fires. The first hook payload re-points
       // the tail at the live file (resume rolls into a fresh one).
@@ -590,6 +630,9 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
           // transcript so a session parked on a question still shows 'needs answer'.
           void seedBootState(msg.sessionId, provider, msg.cwd, msg.resume?.value)
         }
+        if (msg.agentKind === 'grok') {
+          startGrokStateObserver(msg.sessionId, msg.cwd, msg.resume?.value)
+        }
         // Re-tail the live transcript so the chat view recovers its history. A fresh
         // daemon has no tail registered and an idle survivor fires no hook to add one,
         // so without this chat stays empty while the native view still has scrollback.
@@ -609,6 +652,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
       case 'kill': {
         const session = bridges.get(msg.sessionId)
         trackers.delete(msg.sessionId)
+        stopGrokStateObserver(msg.sessionId)
         stopTranscriptTail(msg.sessionId)
         if (session) {
           session.dispose()
@@ -791,6 +835,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
       }
     }
     bridges.clear()
+    for (const id of [...grokStateObservers.keys()]) stopGrokStateObserver(id)
     trackers.clear()
   }
 
