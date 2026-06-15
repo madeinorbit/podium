@@ -47,6 +47,8 @@ export function Workspace(): JSX.Element {
   // its async resume list changes height) and slide it horizontally so it stays
   // fully on screen, wherever the button is.
   const menuLayerRef = useRef<HTMLDivElement | null>(null)
+  // Wraps the "+" and its dropdown — used to detect clicks outside both.
+  const addWrapRef = useRef<HTMLDivElement | null>(null)
   const [menuShift, setMenuShift] = useState(0)
   useLayoutEffect(() => {
     if (!menuOpen) {
@@ -76,6 +78,23 @@ export function Workspace(): JSX.Element {
     return () => {
       ro.disconnect()
       window.removeEventListener('resize', clamp)
+    }
+  }, [menuOpen])
+  // Dismiss the dropdown on a click anywhere outside it (or Escape). The "+" lives
+  // inside addWrapRef too, so its own toggle isn't treated as an outside click.
+  useEffect(() => {
+    if (!menuOpen) return
+    const onDown = (e: PointerEvent) => {
+      if (!addWrapRef.current?.contains(e.target as Node)) setMenuOpen(false)
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setMenuOpen(false)
+    }
+    document.addEventListener('pointerdown', onDown)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('pointerdown', onDown)
+      document.removeEventListener('keydown', onKey)
     }
   }, [menuOpen])
   // A session created via the "+" menu (or restored from localStorage on reload)
@@ -152,7 +171,7 @@ export function Workspace(): JSX.Element {
           </SortableContext>
         </DndContext>
         <div className="tabbar-actions">
-          <div className="tab-add-wrap">
+          <div className="tab-add-wrap" ref={addWrapRef}>
             <button
               type="button"
               className="tab-add"
