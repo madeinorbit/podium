@@ -48,6 +48,9 @@ describe('update prompt', () => {
     expect(src).toContain('registration.update()')
     expect(src).toContain('visibilitychange')
     expect(src).toContain('updateServiceWorker(true)')
+    // Reload must be driven by controllerchange, not the library's isUpdate-gated
+    // auto-reload (which no-ops on uncontrolled normal-browser tabs).
+    expect(src).toContain('controllerchange')
   })
 
   it('AppShell always mounts the update prompt', () => {
