@@ -19,8 +19,14 @@ export interface TranscriptTailer {
   stop(): void
 }
 
+export interface TranscriptTailOptions {
+  pollMs?: number
+  /** Maps one decoded JSONL record to zero or more normalized chat items. */
+  recordToItems?: (record: unknown) => TranscriptItem[]
+}
+
 /**
- * Poll-tail a Claude transcript JSONL file, emitting parsed TranscriptItems as
+ * Poll-tail a harness transcript JSONL file, emitting parsed TranscriptItems as
  * the agent appends. Polling (not fs.watch) on purpose: editors/agents do
  * atomic-rename writes that confuse watchers, and a 700ms poll of one stat is
  * cheap. Handles truncation (size shrink → start over with reset=true).
@@ -28,8 +34,9 @@ export interface TranscriptTailer {
 export function tailTranscript(
   path: string,
   onItems: (items: TranscriptItem[], reset: boolean) => void,
-  opts: { pollMs?: number } = {},
+  opts: TranscriptTailOptions = {},
 ): TranscriptTailer {
+  const recordToItems = opts.recordToItems ?? claudeRecordToItems
   let offset = 0
   const decoder = new LineDecoder()
   let first = true
@@ -78,7 +85,7 @@ export function tailTranscript(
           const trimmed = line.trim()
           if (!trimmed) continue
           try {
-            items = items.concat(claudeRecordToItems(JSON.parse(trimmed)))
+            items = items.concat(recordToItems(JSON.parse(trimmed)))
           } catch {
             // torn write — skip the line
           }

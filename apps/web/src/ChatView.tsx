@@ -143,8 +143,8 @@ export function ChatView({ sessionId }: { sessionId: string }): JSX.Element {
         <div className="chat-scroll" ref={scrollerRef} onScroll={onScroll}>
           {blocks.length === 0 && (
             <div className="chat-empty">
-              No transcript yet. For Claude sessions the feed starts with the first prompt; shells
-              and Codex sessions have no structured transcript (yet).
+              No transcript yet. For Claude and Grok sessions the feed starts with the first prompt;
+              shells and Codex sessions have no structured transcript (yet).
             </div>
           )}
           {blocks.map((block, i) => (

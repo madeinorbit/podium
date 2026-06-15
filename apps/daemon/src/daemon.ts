@@ -24,6 +24,8 @@ import {
   type GitDiscoveryDiagnostic,
   type GitRepositorySummary,
   type GrokStateObserver,
+  grokRecordToItems,
+  grokSessionPaths,
   initialAgentState,
   isAbducoAvailable,
   isTmuxAvailable,
@@ -49,6 +51,7 @@ import {
   type GitDiscoveryDiagnosticWire,
   type GitRepositoryWire,
   parseControlMessage,
+  type TranscriptItem,
 } from '@podium/protocol'
 import WebSocket, { type RawData } from 'ws'
 import { startHookIngest } from './hook-ingest'
@@ -200,21 +203,30 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     opts.hooks?.settingsDir ??
     join(process.env.PODIUM_STATE_DIR ?? join(homedir(), '.podium'), 'hooks')
   const trackers = new Map<string, { provider: AgentStateProvider; state: AgentRuntimeState }>()
-  // Live structured-transcript tails, keyed by Podium session id. Registered
-  // from hook payloads (the only place the harness tells us its transcript
-  // path) and eagerly for resumes, where the resumed file is derivable.
+  // Live structured-transcript tails, keyed by Podium session id. Claude tails
+  // the path reported by hook payloads; Grok tails its session chat_history.jsonl
+  // once the observer learns the harness session id. Resume paths are derivable
+  // for both harnesses, so reattached chat gets history before new activity.
   const tails = new Map<string, TranscriptTailer>()
   const grokStateObservers = new Map<string, GrokStateObserver>()
-  const ensureTranscriptTail = (sessionId: string, path: string): void => {
+  const ensureTranscriptTail = (
+    sessionId: string,
+    path: string,
+    recordToItems?: (record: unknown) => TranscriptItem[],
+  ): void => {
     const existing = tails.get(sessionId)
     if (existing?.path === path) return
     existing?.stop()
     tails.set(
       sessionId,
-      tailTranscript(path, (items, reset) => {
-        if (items.length === 0 && !reset) return
-        send({ type: 'transcriptAppend', sessionId, items, ...(reset ? { reset } : {}) })
-      }),
+      tailTranscript(
+        path,
+        (items, reset) => {
+          if (items.length === 0 && !reset) return
+          send({ type: 'transcriptAppend', sessionId, items, ...(reset ? { reset } : {}) })
+        },
+        recordToItems ? { recordToItems } : {},
+      ),
     )
   }
   const stopTranscriptTail = (sessionId: string): void => {
@@ -255,6 +267,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
             sessionId,
             resume: { kind: 'grok-session', value: grokSessionId },
           })
+          tailGrokTranscript(sessionId, cwd, grokSessionId)
         },
         onEvents: (events) => applyAgentStateEvents(sessionId, events),
       }),
@@ -269,6 +282,17 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     ensureTranscriptTail(
       sessionId,
       join(homedir(), '.claude', 'projects', claudeProjectSlug(cwd), `${resumeValue}.jsonl`),
+    )
+  }
+  const tailGrokTranscript = (sessionId: string, cwd: string, grokConversationId: string): void => {
+    ensureTranscriptTail(
+      sessionId,
+      grokSessionPaths({
+        cwd,
+        sessionId: grokConversationId,
+        ...(opts.discovery?.homeDir ? { homeDir: opts.discovery.homeDir } : {}),
+      }).chatHistoryPath,
+      grokRecordToItems,
     )
   }
   const ingest = await startHookIngest({
@@ -514,9 +538,9 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
       if (msg.agentKind === 'grok') {
         startGrokStateObserver(msg.sessionId, msg.cwd, msg.resume?.value, spawnStartedAt)
       }
-      // Resumes: the resumed transcript is derivable right away, so the chat view
-      // has history before the first hook fires. The first hook payload re-points
-      // the tail at the live file (resume rolls into a fresh one).
+      // Claude resumes: the resumed transcript is derivable right away, so the chat
+      // view has history before the first hook fires. Grok does the same in
+      // startGrokStateObserver once it attaches to the harness session id.
       if (msg.agentKind === 'claude-code' && msg.resume) {
         tailResumeTranscript(msg.sessionId, msg.cwd, msg.resume.value)
       }
@@ -634,8 +658,8 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
           startGrokStateObserver(msg.sessionId, msg.cwd, msg.resume?.value)
         }
         // Re-tail the live transcript so the chat view recovers its history. A fresh
-        // daemon has no tail registered and an idle survivor fires no hook to add one,
-        // so without this chat stays empty while the native view still has scrollback.
+        // daemon has no tail registered and an idle survivor fires no hook/update to
+        // add one, so without this chat stays empty while native still has scrollback.
         if (msg.agentKind === 'claude-code' && msg.resume) {
           tailResumeTranscript(msg.sessionId, msg.cwd, msg.resume.value)
         }

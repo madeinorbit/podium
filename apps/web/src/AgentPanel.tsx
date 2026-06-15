@@ -48,9 +48,11 @@ export function AgentPanel({ sessionId }: { sessionId: string }): JSX.Element {
   const mountedRef = useRef<MountedSession | null>(null)
   // Chat exists where a structured transcript does. Prefer the server's
   // observed signal (lights up any future transcript provider with no edit
-  // here); fall back to the kind so claude offers chat immediately, before its
-  // first transcript frame arrives.
-  const chatCapable = session?.transcriptAvailable ?? session?.agentKind === 'claude-code'
+  // here); fall back to known transcript harnesses so chat is offered
+  // immediately, before the first transcript frame arrives.
+  const chatCapable =
+    session?.transcriptAvailable ??
+    (session?.agentKind === 'claude-code' || session?.agentKind === 'grok')
   const [mode, setMode] = useState<PanelMode>(() => (chatCapable ? initialMode() : 'native'))
   const effectiveMode: PanelMode = chatCapable ? mode : 'native'
 

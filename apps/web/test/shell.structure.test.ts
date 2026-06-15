@@ -125,6 +125,12 @@ describe('web shell structure', () => {
     expect(src).toContain('New Grok')
     expect(src).toContain('New Shell')
   })
+  it('agent panel offers chat mode for structured-transcript harnesses before first append', () => {
+    const src = read('AgentPanel.tsx')
+    expect(src).toContain("session?.agentKind === 'claude-code'")
+    expect(src).toContain("session?.agentKind === 'grok'")
+    expect(src).toContain('transcriptAvailable')
+  })
   it('new-panel menu is the mini search: indexed, capped, with last-active dates', () => {
     const src = read('NewPanelMenu.tsx')
     // Server-indexed search via the shared hook (capped, recency-first, dated).
