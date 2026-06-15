@@ -43,19 +43,27 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
         opts.onFirstFrame?.()
       }
     },
+    // A full replay is incoming (fresh mount, or a reconnect whose gap outran the
+    // server's buffer): wipe before the buffered frames rebuild the screen. A
+    // resuming reconnect does NOT fire this — it keeps the screen and appends only
+    // what it missed, so a network blip no longer flashes the whole terminal.
+    onReset: () => {
+      lastEpoch = connection.state().epoch
+      view.clear()
+    },
     onState: (state) => {
       if (view.cols() !== state.cols || view.rows() !== state.rows) {
         view.resize(state.cols, state.rows)
       }
-      // Drop stale pre-fit output (e.g. an 80-col shell prompt) before repaint.
-      // A disconnect invalidates our screen sync: the epoch usually survives a
-      // reconnect unchanged, so without the reset the replay-on-attach would append
-      // the whole buffer onto the stale screen instead of repainting it.
-      if (!state.connected) {
-        lastEpoch = -1
-      } else if (state.epoch !== lastEpoch) {
-        lastEpoch = state.epoch
-        view.clear()
+      // Clear only on an in-session epoch bump — a controller takeover repaints the
+      // grid for the new owner. The (re)attach clear is owned by onReset above, so a
+      // plain reconnect that resumes from our cursor leaves the screen intact.
+      if (state.connected) {
+        if (lastEpoch === -1) lastEpoch = state.epoch
+        else if (state.epoch !== lastEpoch) {
+          lastEpoch = state.epoch
+          view.clear()
+        }
       }
       el.dataset.role = state.role
       el.dataset.epoch = String(state.epoch)

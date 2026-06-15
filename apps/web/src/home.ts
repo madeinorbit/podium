@@ -29,9 +29,12 @@ export function attentionGroup(s: SessionMeta): AttentionGroup {
     return kind && kind !== 'done' ? 'needsYou' : 'idle'
   }
   if (phase === 'working' || phase === 'compacting') return 'working'
-  // No instrumentation signal (shells, Codex/Grok for now, unknown phase): fall back
-  // to the process status. A live uninstrumented agent counts as working; an
-  // exited/hibernated one as idle.
+  // Shells have no harness instrumentation: a shell sitting at its prompt is idle,
+  // not working. The server's debounced `busy` flag (a process writing to the PTY)
+  // is the real signal, so a shell only reads as working while a command runs.
+  if (s.agentKind === 'shell') return s.busy ? 'working' : 'idle'
+  // Other uninstrumented kinds (Codex/Grok pre-instrumentation, unknown phase):
+  // fall back to liveness — a live process counts as working, a parked one idle.
   if (s.status === 'live' || s.status === 'starting' || s.status === 'reconnecting') {
     return 'working'
   }

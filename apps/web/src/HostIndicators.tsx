@@ -5,17 +5,16 @@ import { ConnectionIndicator, describeHealth, useStableConnection } from './Conn
 import { hostMemoryView } from './derive'
 import { type HostInfoTab, HostInfoView } from './HostMemoryView'
 import { useStore } from './store'
-import { UsageChip } from './UsageView'
 
 /**
- * Host health strip. The connection indicator appears only while the link is
- * degraded or down — an always-green icon is noise, and the problem states are
- * what need attention. One memory chip per daemon machine; clicking it opens
- * the per-process breakdown view.
+ * Host health strip. Just two glyphs: a memory icon with a fullness bar (one per
+ * daemon machine) and — only while the link is degraded or down — the connection
+ * icon beside it. An always-green connection icon and a running GB readout are
+ * both noise; the bar conveys pressure at a glance and a click opens the numbers.
  *
- * `compact` (mobile header) shrinks everything to icons: a severity-colored
- * memory icon instead of the label+bar chip, and no usage chip — header pixels
- * belong to session selection there. Tapping an icon still opens the detail.
+ * `compact` (mobile header) drops the bar, leaving the severity-colored icon —
+ * header pixels belong to session selection there. Tapping either still opens
+ * the per-process breakdown / connection detail.
  */
 export function HostIndicators({ compact = false }: { compact?: boolean }): JSX.Element {
   const { hostMetrics } = useStore()
@@ -38,10 +37,6 @@ export function HostIndicators({ compact = false }: { compact?: boolean }): JSX.
       <span className="sr-only" role="status" aria-live="polite">
         {announce}
       </span>
-      {connVisible && (
-        <ConnectionIndicator health={health} onOpen={() => setInfoTab('connection')} />
-      )}
-      {!compact && <UsageChip />}
       {hostMetrics.map((host) => {
         const mem = hostMemoryView(host)
         return (
@@ -52,20 +47,19 @@ export function HostIndicators({ compact = false }: { compact?: boolean }): JSX.
             title={`${mem.title} — click for the breakdown`}
             onClick={() => setInfoTab('memory')}
           >
-            {compact ? (
-              <MemoryStick size={14} aria-hidden="true" />
-            ) : (
-              <>
-                {showHostname && <span className="host-chip-name">{host.hostname}</span>}
-                <span className="host-chip-label">MEM {mem.label}</span>
-                <span className="host-chip-bar" role="presentation">
-                  <span className="host-chip-fill" style={{ width: `${mem.pct}%` }} />
-                </span>
-              </>
+            {showHostname && <span className="host-chip-name">{host.hostname}</span>}
+            <MemoryStick size={14} aria-hidden="true" />
+            {!compact && (
+              <span className="host-chip-bar" role="presentation">
+                <span className="host-chip-fill" style={{ width: `${mem.pct}%` }} />
+              </span>
             )}
           </button>
         )
       })}
+      {connVisible && (
+        <ConnectionIndicator health={health} onOpen={() => setInfoTab('connection')} />
+      )}
       {infoTab && <HostInfoView initialTab={infoTab} onClose={() => setInfoTab(null)} />}
     </div>
   )

@@ -913,3 +913,47 @@ describe('hibernation', () => {
     expect(reg.listSessions()[0]?.status).toBe('hibernated')
   })
 })
+
+describe('reconnect identity (hello reclaim)', () => {
+  const VP = { cols: 80, rows: 24, dpr: 1 }
+
+  it('a reconnecting client reclaims its prior controller role and evicts the stale one', () => {
+    const reg = new SessionRegistry()
+    const daemon: ControlMessage[] = []
+    reg.attachDaemon((m) => daemon.push(m))
+    const s1 = reg.createSession({ agentKind: 'claude-code', cwd: '/a' }).sessionId
+    reg.onDaemonMessage(bind(s1))
+
+    // First socket: attaches and becomes controller; its input flows.
+    const a = sink()
+    const idA = reg.attachClient(a.send)
+    reg.onClientMessage(idA, { type: 'attach', sessionId: s1 })
+    reg.onClientMessage(idA, { type: 'input', sessionId: s1, data: 'eA==' })
+    expect(daemon).toContainEqual({ type: 'input', sessionId: s1, data: 'eA==' })
+
+    // The socket goes half-open; a new socket connects and re-presents idA in hello,
+    // then re-attaches the way the client does on reconnect.
+    const b = sink()
+    const idB = reg.attachClient(b.send)
+    reg.onClientMessage(idB, { type: 'hello', clientId: idA, viewport: VP })
+    reg.onClientMessage(idB, { type: 'attach', sessionId: s1 })
+
+    daemon.length = 0
+    // B now drives input (it inherited control)...
+    reg.onClientMessage(idB, { type: 'input', sessionId: s1, data: 'eQ==' })
+    expect(daemon).toContainEqual({ type: 'input', sessionId: s1, data: 'eQ==' })
+    // ...and the stale A is gone: its messages are dropped, not honored.
+    reg.onClientMessage(idA, { type: 'input', sessionId: s1, data: 'eg==' })
+    expect(daemon).not.toContainEqual({ type: 'input', sessionId: s1, data: 'eg==' })
+  })
+
+  it('hello with an unknown prior id is a harmless no-op', () => {
+    const reg = new SessionRegistry()
+    reg.attachDaemon(() => {})
+    const c = sink()
+    const id = reg.attachClient(c.send)
+    expect(() =>
+      reg.onClientMessage(id, { type: 'hello', clientId: 'c-stale-gone', viewport: VP }),
+    ).not.toThrow()
+  })
+})

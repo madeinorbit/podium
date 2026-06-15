@@ -516,6 +516,118 @@ describe('connection health', () => {
   })
 })
 
+describe('resume + offline input queue', () => {
+  function multiSetup() {
+    const sockets: FakeSocket[] = []
+    const hub = new SocketHub({
+      url: 'ws://x',
+      viewport: { cols: 80, rows: 24, dpr: 1 },
+      makeSocket: () => {
+        const s = new FakeSocket()
+        sockets.push(s)
+        return s
+      },
+    })
+    return { sockets, hub }
+  }
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('re-attaches with a resume cursor (lastSeq) after rendering frames', () => {
+    vi.useFakeTimers()
+    const { sockets, hub } = multiSetup()
+    hub.connect()
+    sockets[0]?.open()
+    hub.attach('s1')
+    sockets[0]?.recv({ type: 'outputFrame', sessionId: 's1', seq: 4, epoch: 0, data: b64('x') })
+    sockets[0]?.close()
+    vi.advanceTimersByTime(30_000)
+    sockets[1]?.open()
+    // The view survived the drop, so the reconnect asks to resume from seq 4.
+    expect(sockets[1]?.parsed()).toContainEqual({ type: 'attach', sessionId: 's1', sinceSeq: 4 })
+  })
+
+  it('omits the cursor when nothing has been rendered yet (full replay)', () => {
+    vi.useFakeTimers()
+    const { sockets, hub } = multiSetup()
+    hub.connect()
+    sockets[0]?.open()
+    hub.attach('s1') // no frames received
+    sockets[0]?.close()
+    vi.advanceTimersByTime(30_000)
+    sockets[1]?.open()
+    expect(sockets[1]?.parsed()).toContainEqual({ type: 'attach', sessionId: 's1' })
+    expect(sockets[1]?.parsed().some((m) => m.type === 'attach' && 'sinceSeq' in m)).toBe(false)
+  })
+
+  it('queues input typed while disconnected and flushes it in order on reconnect', () => {
+    vi.useFakeTimers()
+    const { sockets, hub } = multiSetup()
+    hub.connect()
+    sockets[0]?.open()
+    const conn = hub.attach('s1')
+    sockets[0]?.close() // the socket drops
+    conn.sendInput('a')
+    conn.sendInput('b')
+    // Nothing was written to the dead socket.
+    expect(sockets[0]?.parsed().some((m) => m.type === 'input')).toBe(false)
+    vi.advanceTimersByTime(30_000)
+    sockets[1]?.open()
+    const inputs = sockets[1]?.parsed().filter((m) => m.type === 'input')
+    expect(inputs).toEqual([
+      { type: 'input', sessionId: 's1', data: b64('a') },
+      { type: 'input', sessionId: 's1', data: b64('b') },
+    ])
+  })
+
+  it('does not replay queued input after an intentional dispose', () => {
+    vi.useFakeTimers()
+    const { sockets, hub } = multiSetup()
+    hub.connect()
+    sockets[0]?.open()
+    const conn = hub.attach('s1')
+    sockets[0]?.close()
+    conn.sendInput('x')
+    hub.dispose() // user closed the tab / tore down the hub
+    hub.connect() // a brand-new session later
+    sockets.at(-1)?.open()
+    expect(
+      sockets
+        .at(-1)
+        ?.parsed()
+        .some((m) => m.type === 'input'),
+    ).toBe(false)
+  })
+
+  it('calls onReset on a full attach but not on a resumed one', () => {
+    const { sock, hub } = setup()
+    hub.connect()
+    sock.open()
+    let resets = 0
+    hub.attach('s1', { onReset: () => (resets += 1) })
+    sock.recv({
+      type: 'attached',
+      sessionId: 's1',
+      controllerId: 'c0',
+      geometry: { cols: 80, rows: 24 },
+      epoch: 0,
+      resumed: false,
+    })
+    expect(resets).toBe(1)
+    sock.recv({
+      type: 'attached',
+      sessionId: 's1',
+      controllerId: 'c0',
+      geometry: { cols: 80, rows: 24 },
+      epoch: 0,
+      resumed: true,
+    })
+    expect(resets).toBe(1) // a resume keeps the screen — no clear
+  })
+})
+
 describe('host metrics', () => {
   it('exposes hostMetricsChanged via hostMetrics() + onHostMetrics', () => {
     const { hub, sock } = setup()

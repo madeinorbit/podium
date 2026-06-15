@@ -11,7 +11,18 @@ import { SuperagentView } from './SuperagentView'
 import { StoreProvider, useStore } from './store'
 import { serverConfig } from './trpc'
 import { UpdatePrompt } from './UpdatePrompt'
+import { UsageView } from './UsageView'
 import { Workspace } from './Workspace'
+
+/** Cold-start splash shown while the first backend state fetch is in flight. */
+function LoadingScreen(): JSX.Element {
+  return (
+    <div className="app-loading" role="status" aria-live="polite">
+      <span className="app-loading-spinner" aria-hidden="true" />
+      <span>Loading Podium…</span>
+    </div>
+  )
+}
 
 function useIsMobile(): boolean {
   const [m, setM] = useState(() => window.matchMedia('(max-width: 768px)').matches)
@@ -61,10 +72,15 @@ function AppBody({ isMobile }: { isMobile: boolean }): JSX.Element {
   const { repos, reposLoaded, view } = useStore()
   const [dismissed, setDismissed] = useState(false)
 
+  // Cold start: the first backend fetch (repos/pins/tab orders) hasn't resolved
+  // yet. Show a loading splash rather than flashing an empty shell — and never
+  // mistake "still loading" for the first-run empty state below.
+  if (!reposLoaded) return <LoadingScreen />
+
   // First run: the registry is genuinely empty (not just still loading). Show the
   // onboarding scan flow. Adding repos makes it non-empty; dismissing skips to the
   // empty workspace, where "+ Add repo" reopens the same flow.
-  if (reposLoaded && repos.length === 0 && !dismissed) {
+  if (repos.length === 0 && !dismissed) {
     return <OnboardingWizard onDismiss={() => setDismissed(true)} />
   }
 
@@ -78,6 +94,8 @@ function AppBody({ isMobile }: { isMobile: boolean }): JSX.Element {
         <SuperagentView />
       ) : view === 'settings' ? (
         <SettingsView />
+      ) : view === 'usage' ? (
+        <UsageView />
       ) : (
         <Workspace />
       )}

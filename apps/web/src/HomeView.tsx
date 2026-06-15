@@ -3,7 +3,7 @@ import type { SessionMeta, WorkState } from '@podium/protocol'
 import { Archive, ArchiveRestore, Columns3, Moon, Pencil, Rows3 } from 'lucide-react'
 import type { JSX } from 'react'
 import { useEffect, useState } from 'react'
-import { agentBadge, panelLabel } from './derive'
+import { agentBadge, panelLabel, sessionDotTone } from './derive'
 import { attentionSummary, groupSessions, kanbanColumns, relativeTime } from './home'
 import { useStore } from './store'
 import { sessionDisplayName } from './WorkerLabel'
@@ -237,7 +237,7 @@ function SessionCard({ session, now }: { session: SessionMeta; now: number }): J
         />
       )}
       <div className="home-card-title">
-        <span className={`dot ${session.status}`} />
+        <span className={`dot ${sessionDotTone(session)}`} />
         {editing ? (
           <input
             // biome-ignore lint/a11y/noAutofocus: the input appears on explicit user intent
@@ -274,7 +274,6 @@ function SessionCard({ session, now }: { session: SessionMeta; now: number }): J
         </span>
         <span className="home-card-when">{relativeTime(session.lastActiveAt, now)}</span>
       </div>
-      {badge && <span className={`agent-badge ${badge.tone}`}>{badge.label}</span>}
       {summary && <div className="home-card-summary">{summary}</div>}
       <div className="home-card-actions">
         <button type="button" onClick={open}>

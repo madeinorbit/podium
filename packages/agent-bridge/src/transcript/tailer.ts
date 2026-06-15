@@ -8,10 +8,15 @@ const POLL_MS = 700
 // chat view only needs the recent tail. Seek to the last TAIL_BYTES on the first
 // read instead of slurping the whole file (which spiked daemon memory on every
 // live session at reattach). Deltas after the first read are tiny.
-const TAIL_BYTES = 512 * 1024
+//
+// 8 MB (was 512 KB): the old window dropped the *beginning* of any conversation
+// past a few hundred turns, so the chat view opened mid-thread. 8 MB covers all
+// but the most marathon sessions whole, while still bounding the reattach read.
+const TAIL_BYTES = 8 * 1024 * 1024
 // First read may still surface many items within the tail window; keep the most
-// recent so a freshly-mounted chat view isn't handed thousands of stale lines.
-const MAX_INITIAL_ITEMS = 1500
+// recent so a freshly-mounted chat view isn't handed an unbounded backlog. Kept
+// in step with the server's per-session transcript buffer (MAX_TRANSCRIPT_ITEMS).
+const MAX_INITIAL_ITEMS = 8000
 
 export interface TranscriptTailer {
   /** The file currently tailed. */

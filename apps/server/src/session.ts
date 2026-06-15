@@ -41,6 +41,9 @@ export interface SessionInit {
   name?: string
   archived?: boolean
   workState?: WorkState
+  /** Called when a meta field changes outside the normal control flow (the
+   *  debounced shell `busy` flag) so the registry can rebroadcast the session list. */
+  onActivity?: () => void
 }
 
 // Replay-on-attach: keep a bounded buffer of recent agent output so a freshly attached
@@ -50,7 +53,13 @@ export interface SessionInit {
 // or alt-screen transition keeps the buffer small and aligned to the current screen.
 const MAX_REPLAY_BYTES = 256 * 1024
 // Bounded structured-transcript buffer per session — late subscribers get this.
-const MAX_TRANSCRIPT_ITEMS = 3000
+// Generous on purpose: a long conversation's *beginning* must not fall out of the
+// chat view. Each item is small; a few thousand is a few MB per live session.
+const MAX_TRANSCRIPT_ITEMS = 8000
+// How long after the last output frame a shell still reads as "busy". A shell at
+// its prompt produces no frames, so this decays to idle; a running command keeps
+// resetting it. Long enough to bridge the gaps between a command's output bursts.
+const SHELL_BUSY_WINDOW_MS = 4000
 // biome-ignore lint/suspicious/noControlCharactersInRegex: terminal escape sequences
 const SCREEN_RESET = /\x1b\[[23]J|\x1bc|\x1b\[\?1049[hl]/
 
@@ -80,6 +89,21 @@ export class Session {
   geometry: Geometry
   epoch = 0
   controllerId: string | null = null
+  // Wall-clock ms of the last output frame (0 = none yet). Drives the "is a
+  // process producing output" signal — the shell busy flag and the hibernation
+  // guard that keeps a session with a running background agent awake.
+  private outputAtMs = 0
+  // Debounced "writing to the PTY right now" flag, maintained for shells only —
+  // their activity signal, since they have no harness instrumentation.
+  private shellBusy = false
+  private shellBusyTimer: ReturnType<typeof setTimeout> | undefined
+  private readonly onActivity: (() => void) | undefined
+  // Server-assigned, monotonic per-session output sequence. The PTY bridge's own
+  // seq resets to 0 on every daemon reattach, so it can't be a stable client
+  // cursor; the server owns the numbering instead. It survives daemon restarts
+  // (the Session object outlives the bridge) and only resets on a server restart,
+  // where the client's stale-high cursor simply falls back to a full replay.
+  private nextSeq = 0
   private readonly toDaemon: Send<ControlMessage>
   private readonly clients = new Map<string, ClientConn>()
   // Recent agent output (base64 frames) for replay-on-attach; bounded by MAX_REPLAY_BYTES.
@@ -108,25 +132,51 @@ export class Session {
     if (init.name) this.name = init.name
     if (init.archived) this.archived = init.archived
     if (init.workState) this.workState = init.workState
+    this.onActivity = init.onActivity
   }
 
   get clientCount(): number {
     return this.clients.size
   }
 
-  attachClient(client: ClientConn): void {
+  /** Wall-clock ms of the last PTY output frame (0 = none seen yet). */
+  get lastOutputMs(): number {
+    return this.outputAtMs
+  }
+
+  attachClient(client: ClientConn, sinceSeq?: number): void {
     this.clients.set(client.id, client)
     if (this.controllerId === null) this.controllerId = client.id
+    // Resume vs full replay. On a reconnect the client passes the last seq it
+    // rendered; if that point is still inside our bounded buffer, replay only the
+    // frames it missed and flag the attach `resumed` so it appends to the screen it
+    // kept (no flicker). A fresh mount (no sinceSeq) or a gap larger than the buffer
+    // falls back to a full replay, which the client clears the screen for. The
+    // `oldest - 1` floor lets a client that was exactly caught up resume with zero
+    // frames instead of needlessly wiping.
+    const oldest = this.outputLog[0]?.seq
+    const newest = this.outputLog.at(-1)?.seq
+    let frames = this.outputLog
+    let resumed = false
+    if (
+      sinceSeq !== undefined &&
+      oldest !== undefined &&
+      newest !== undefined &&
+      sinceSeq >= oldest - 1 &&
+      sinceSeq <= newest
+    ) {
+      resumed = true
+      frames = this.outputLog.filter((f) => f.seq > sinceSeq)
+    }
     client.send({
       type: 'attached',
       sessionId: this.sessionId,
       controllerId: this.controllerId,
       geometry: { ...this.geometry },
       epoch: this.epoch,
+      resumed,
     })
-    // Replay buffered output so this client reconstructs the current screen. Sent after
-    // `attached` (whose epoch triggers a clean-slate clear) and before any live frames.
-    for (const f of this.outputLog) {
+    for (const f of frames) {
       client.send({
         type: 'outputFrame',
         sessionId: this.sessionId,
@@ -135,6 +185,16 @@ export class Session {
         data: f.data,
       })
     }
+  }
+
+  /**
+   * Hand the controller role from a stale (dropped/half-open) client to its
+   * reconnected self. Called during reconnect reclaim BEFORE the old client is
+   * evicted, so a blip doesn't demote the user to a muted spectator of their own
+   * session. No-op when the stale client wasn't the controller.
+   */
+  reassignController(fromId: string, toId: string): void {
+    if (this.controllerId === fromId) this.controllerId = toId
   }
 
   /** Subscribe a client to the structured transcript: snapshot now, appends after. */
@@ -248,9 +308,28 @@ export class Session {
     this.toDaemon({ type: 'redraw', sessionId: this.sessionId })
   }
 
-  onFrame(seq: number, data: string): void {
+  onFrame(data: string): void {
+    const seq = this.nextSeq++
     this.bufferFrame(seq, data)
     this.broadcast({ type: 'outputFrame', sessionId: this.sessionId, seq, epoch: this.epoch, data })
+    this.outputAtMs = Date.now()
+    // Shells have no harness instrumentation, so output IS the only "a process is
+    // running" signal we get. Flip busy on the first frame, then let a trailing
+    // timer decay it once the PTY goes quiet (back to the prompt = idle).
+    if (this.agentKind === 'shell') this.markShellBusy()
+  }
+
+  private markShellBusy(): void {
+    if (!this.shellBusy) {
+      this.shellBusy = true
+      this.onActivity?.()
+    }
+    if (this.shellBusyTimer) clearTimeout(this.shellBusyTimer)
+    this.shellBusyTimer = setTimeout(() => {
+      this.shellBusy = false
+      this.onActivity?.()
+    }, SHELL_BUSY_WINDOW_MS)
+    this.shellBusyTimer.unref?.()
   }
 
   private bufferFrame(seq: number, data: string): void {
@@ -269,6 +348,9 @@ export class Session {
   }
 
   onExit(code: number): void {
+    // The PTY is gone — no more output, so it can't be "busy".
+    if (this.shellBusyTimer) clearTimeout(this.shellBusyTimer)
+    this.shellBusy = false
     // A hibernated session's process exit is the *expected* result of the
     // hibernate kill — don't let it overwrite the hibernated state.
     if (this.status === 'hibernated') return
@@ -360,6 +442,7 @@ export class Session {
       ...(this.workState ? { workState: this.workState } : {}),
       ...(this.resume ? { resumable: true } : {}),
       ...(this.transcriptAvailable ? { transcriptAvailable: true } : {}),
+      ...(this.shellBusy ? { busy: true } : {}),
     }
   }
 

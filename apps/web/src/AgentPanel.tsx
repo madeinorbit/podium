@@ -40,7 +40,15 @@ function initialMode(): PanelMode {
   return window.matchMedia('(max-width: 768px)').matches ? 'chat' : 'native'
 }
 
-export function AgentPanel({ sessionId }: { sessionId: string }): JSX.Element {
+export function AgentPanel({
+  sessionId,
+  active = true,
+}: {
+  sessionId: string
+  /** False when this panel is mounted but hidden (an inactive tab kept warm so
+   *  switching back catches up instead of wiping). Gates focus, nothing else. */
+  active?: boolean
+}): JSX.Element {
   const { hub, sessions, archiveSession } = useStore()
   const session = sessions.find((s) => s.sessionId === sessionId)
   const termRef = useRef<HTMLDivElement | null>(null)
@@ -96,6 +104,14 @@ export function AgentPanel({ sessionId }: { sessionId: string }): JSX.Element {
     }
   }, [hub, sessionId, effectiveMode, hibernated, exited])
 
+  // Kept mounted while hidden (inactive tab) so its terminal state survives a tab
+  // switch — when it becomes the visible tab again, return focus to it.
+  useEffect(() => {
+    if (active && effectiveMode === 'native' && !hibernated && !exited) {
+      mountedRef.current?.view.focus()
+    }
+  }, [active, effectiveMode, hibernated, exited])
+
   const sendKey = (key: SpecialKey): void => {
     mountedRef.current?.connection.sendInput(keySequence(key))
   }
@@ -141,7 +157,17 @@ export function AgentPanel({ sessionId }: { sessionId: string }): JSX.Element {
         )}
       </div>
       {hibernated ? (
-        <HibernatedPane sessionId={sessionId} />
+        chatCapable ? (
+          // The transcript outlives the process — a hibernated agent's history is
+          // still worth reading. Show it (read-only; the composer disables itself
+          // when the session isn't live) with a banner to wake it back up.
+          <>
+            <HibernatedBanner sessionId={sessionId} />
+            <ChatView sessionId={sessionId} />
+          </>
+        ) : (
+          <HibernatedPane sessionId={sessionId} />
+        )
       ) : exited && session ? (
         <ExitedPane
           sessionId={sessionId}
@@ -173,8 +199,13 @@ export function AgentPanel({ sessionId }: { sessionId: string }): JSX.Element {
           </div>
           {/* Second key row above the soft-keyboard bar: submit/newline/paste +
               voice, plus the Blink-style arrow D-pad. preventDefault on pointerdown
-              keeps the terminal focused so a tap doesn't drop the soft keyboard. */}
-          <div className="key-actions" onPointerDown={(e) => e.preventDefault()}>
+              keeps the terminal focused so a tap doesn't drop the soft keyboard.
+              Hidden until the first PTY frame lands — the key bar over a "Starting…"
+              screen is just noise (and the D-pad floated oddly above the overlay). */}
+          <div
+            className={hasOutput ? 'key-actions' : 'key-actions kb-hidden'}
+            onPointerDown={(e) => e.preventDefault()}
+          >
             <button
               type="button"
               className="key-act"
@@ -213,7 +244,7 @@ export function AgentPanel({ sessionId }: { sessionId: string }): JSX.Element {
             )}
             <ArrowPad onFire={sendKey} />
           </div>
-          <div ref={toolbarRef} className="toolbar" />
+          <div ref={toolbarRef} className={hasOutput ? 'toolbar' : 'toolbar kb-hidden'} />
         </>
       )}
     </div>
@@ -378,6 +409,29 @@ function ExitedPane({
           Remove session
         </button>
       )}
+    </div>
+  )
+}
+
+/** Thin bar over a hibernated session's (read-only) transcript: explains the
+ *  state and offers one-click resume, without hiding the conversation. */
+function HibernatedBanner({ sessionId }: { sessionId: string }): JSX.Element {
+  const { resurrectSession } = useStore()
+  const [waking, setWaking] = useState(false)
+  return (
+    <div className="hibernated-banner">
+      <Moon size={14} aria-hidden="true" />
+      <span>Hibernated — transcript is read-only until you resume.</span>
+      <button
+        type="button"
+        disabled={waking}
+        onClick={() => {
+          setWaking(true)
+          void resurrectSession(sessionId)
+        }}
+      >
+        {waking ? 'Waking…' : 'Resume'}
+      </button>
     </div>
   )
 }

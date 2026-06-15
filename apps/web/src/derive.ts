@@ -1,4 +1,5 @@
 import type { AgentKind, GitRepositoryWire, HostMetricsWire, SessionMeta } from '@podium/protocol'
+import { attentionGroup } from './home'
 import type { PinState, RepoView, WorktreeView } from './types'
 
 export type MemorySeverity = 'ok' | 'warn' | 'critical'
@@ -126,6 +127,21 @@ export function sortSessionsForPins(sessions: SessionMeta[], pins: PinState): Se
 }
 
 /**
+ * Sidebar session order: most-recently-active first, with currently-working
+ * sessions sunk beneath everything else. You steer the parked and blocked ones;
+ * the agents happily running on their own need your eyes the least, so they sit
+ * at the bottom of the list.
+ */
+export function sortSessionsForSidebar(sessions: SessionMeta[]): SessionMeta[] {
+  return [...sessions].sort((a, b) => {
+    const aWorking = attentionGroup(a) === 'working'
+    const bWorking = attentionGroup(b) === 'working'
+    if (aWorking !== bWorking) return aWorking ? 1 : -1
+    return b.lastActiveAt.localeCompare(a.lastActiveAt)
+  })
+}
+
+/**
  * Tab-strip order for one worktree. The user's manual (drag) order wins; sessions
  * it doesn't know about — panels opened after the last drag — append at the end
  * in the default pin-aware order.
@@ -165,11 +181,10 @@ export function sidebarSections(
   const navWorktree = (repo: RepoView, worktree: WorktreeView): WorktreeNavView => ({
     ...worktree,
     repoName: repo.name,
-    sessions: sortSessionsForPins(
+    sessions: sortSessionsForSidebar(
       sessionsForWorktree(sessions, worktree.path).filter(
         (session) => !pinnedPanelIds.has(session.sessionId),
       ),
-      pins,
     ),
   })
 
@@ -254,4 +269,33 @@ export function agentBadge(meta: SessionMeta): AgentBadge | null {
     case 'ended':
       return { label: 'ended', tone: 'muted', showContinue: false }
   }
+}
+
+export type DotTone =
+  | 'working'
+  | 'idle'
+  | 'attention'
+  | 'error'
+  | 'ended'
+  | 'starting'
+  | 'reconnecting'
+  | 'hibernated'
+  | 'exited'
+
+/**
+ * The status-dot tone for a session row/tab. For a running session the colour
+ * encodes the agent's *state* — working / idle / needs-you / error — so the dot
+ * alone tells the story without a text badge. Parked/dead sessions keep their
+ * structural tone (hibernated + exited also read grayed-and-italic via CSS).
+ */
+export function sessionDotTone(s: SessionMeta): DotTone {
+  if (s.status === 'hibernated') return 'hibernated'
+  if (s.status === 'exited') return 'exited'
+  if (s.status === 'starting') return 'starting'
+  if (s.status === 'reconnecting') return 'reconnecting'
+  const badge = agentBadge(s)
+  if (badge) return badge.tone === 'muted' ? 'ended' : badge.tone
+  // Uninstrumented live session: a shell is working only while producing output.
+  if (s.agentKind === 'shell') return s.busy ? 'working' : 'idle'
+  return 'working'
 }

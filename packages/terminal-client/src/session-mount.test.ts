@@ -9,9 +9,13 @@ describe('session-mount fit-on-connect', () => {
     expect(src).toContain('connection.redraw()')
   })
 
-  it('resets the epoch tracker on disconnect so a reconnect replay repaints clean', () => {
+  it('drives the (re)attach clear from the server resume signal, not a per-disconnect epoch reset', () => {
     const src = readFileSync(new URL('./session-mount.ts', import.meta.url), 'utf8')
-    expect(src).toContain('if (!state.connected)')
-    expect(src).toContain('lastEpoch = -1')
+    // The full-replay clear is owned by the server's signal (onReset) so a resuming
+    // reconnect keeps its screen instead of flashing — the old code force-cleared on
+    // every reconnect by resetting the epoch tracker on disconnect.
+    expect(src).toContain('onReset:')
+    // The epoch-bump clear (controller takeover) now only fires while connected.
+    expect(src).toContain('if (state.connected)')
   })
 })

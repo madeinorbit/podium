@@ -14,9 +14,12 @@ export type { ConversationHit }
  * filter defaults to where the user opened the search from.
  */
 export function SearchView({ onClose }: { onClose: () => void }): JSX.Element {
-  const { trpc, repos, selectedWorktree, setSelectedWorktree, setPane, setView } = useStore()
+  const { trpc, repos, setSelectedWorktree, setPane, setView } = useStore()
   const [query, setQuery] = useState('')
-  const [scope, setScope] = useState<string>(selectedWorktree ?? '')
+  // Search the whole index by default. Pre-scoping to the current worktree silently
+  // hid every match outside it — the user searches "pwa", the PWA work lives in
+  // another worktree, and nothing shows. The scope picker still narrows on demand.
+  const [scope, setScope] = useState<string>('')
   const now = Date.now()
 
   const worktrees = useMemo(

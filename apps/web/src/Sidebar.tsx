@@ -1,8 +1,14 @@
 import type { SessionMeta } from '@podium/protocol'
-import { Home, Pin, Search, Settings as SettingsIcon, Sparkles } from 'lucide-react'
+import { BarChart3, Home, Pin, Search, Settings as SettingsIcon, Sparkles } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
 import { useState } from 'react'
-import { agentBadge, type RepoNavView, sidebarSections, type WorktreeNavView } from './derive'
+import {
+  agentBadge,
+  type RepoNavView,
+  sessionDotTone,
+  sidebarSections,
+  type WorktreeNavView,
+} from './derive'
 import { HostIndicators } from './HostIndicators'
 import { RepoScanFlow } from './RepoScanFlow'
 import { SearchView } from './SearchView'
@@ -60,6 +66,28 @@ export function Sidebar(): JSX.Element {
       >
         <Sparkles size={14} aria-hidden="true" /> Superagent
       </button>
+      {/* App-level tools row. Analytics + settings live here (a fullscreen view
+          each, not a modal); future machine-wide tools join this strip. */}
+      <div className="sidebar-tools">
+        <button
+          type="button"
+          className={view === 'usage' ? 'sidebar-tool active' : 'sidebar-tool'}
+          aria-pressed={view === 'usage'}
+          title="Usage & analytics"
+          onClick={() => setView('usage')}
+        >
+          <BarChart3 size={15} aria-hidden="true" />
+        </button>
+        <button
+          type="button"
+          className={view === 'settings' ? 'sidebar-tool active' : 'sidebar-tool'}
+          aria-pressed={view === 'settings'}
+          title="Settings"
+          onClick={() => setView('settings')}
+        >
+          <SettingsIcon size={15} aria-hidden="true" />
+        </button>
+      </div>
       <div className="sidebar-head">
         <span className="label">WORKTREES</span>
         <div className="sidebar-head-actions">
@@ -73,15 +101,6 @@ export function Sidebar(): JSX.Element {
             onClick={() => setSearchOpen(true)}
           >
             <Search size={14} aria-hidden="true" />
-          </button>
-          <button
-            type="button"
-            className={view === 'settings' ? 'icon-only active' : 'icon-only'}
-            aria-pressed={view === 'settings'}
-            title="Settings"
-            onClick={() => setView('settings')}
-          >
-            <SettingsIcon size={14} aria-hidden="true" />
           </button>
         </div>
       </div>
@@ -298,8 +317,7 @@ function PanelRow({
         className={active ? 'panel-row active' : 'panel-row'}
         onClick={onSelect}
       >
-        <span className={`dot ${session.status}`} /> <WorkerLabel session={session} />
-        {badge && <span className={`agent-badge ${badge.tone}`}>{badge.label}</span>}
+        <span className={`dot ${sessionDotTone(session)}`} /> <WorkerLabel session={session} />
       </button>
       {badge?.showContinue && (
         <button

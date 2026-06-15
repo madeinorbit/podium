@@ -60,6 +60,24 @@ body {
   border-radius: 50%;
   display: inline-block;
 }
+/* The dot encodes the agent's state by colour (see sessionDotTone): blue = working,
+   green = idle/ready, amber = needs you, red = errored. Parked/dead/booting keep
+   their own muted tones. This replaces the old text "badges" on session rows. */
+.dot.working {
+  background: #60a5fa;
+}
+.dot.idle {
+  background: var(--success);
+}
+.dot.attention {
+  background: var(--warning);
+}
+.dot.error {
+  background: var(--danger);
+}
+.dot.ended {
+  background: var(--faint);
+}
 .dot.starting {
   background: var(--warning);
 }
@@ -544,7 +562,14 @@ body:has(.mobile-shell) {
   min-width: 0;
   display: flex;
 }
-.panes.split .pane + .pane {
+/* Inactive tabs stay mounted (state preserved) but hidden. Scoped under .panes so
+   it outranks `.panes .pane { display: flex }` without !important. */
+.panes .pane-hidden {
+  display: none;
+}
+/* Split divider on the right-hand pane explicitly — DOM order no longer matches
+   visual order (hidden panes sit between the visible A/B, which use `order`). */
+.panes.split .pane-b {
   border-left: 1px solid var(--border);
 }
 .pane-empty,
@@ -637,6 +662,26 @@ body:has(.mobile-shell) {
     transform: rotate(360deg);
   }
 }
+/* Cold-start splash (AppShell LoadingScreen): full-viewport centered spinner. */
+.app-loading {
+  height: var(--viewport-h, 100dvh);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  color: var(--dim);
+  font-size: 13px;
+  background: var(--app);
+}
+.app-loading-spinner {
+  width: 26px;
+  height: 26px;
+  border: 2px solid var(--border-strong);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: term-spin 0.8s linear infinite;
+}
 /* Key accessory bar: a flat, scrollable strip of terminal/agent keys.
    Hidden on desktop (the hardware keyboard has these) — only shown inside the
    mobile shell, where it rides directly above the soft keyboard. */
@@ -647,8 +692,8 @@ body:has(.mobile-shell) {
   display: flex;
   flex-shrink: 0;
   align-items: center;
-  gap: 6px;
-  padding: 6px 8px calc(6px + env(safe-area-inset-bottom, 0px));
+  gap: 5px;
+  padding: 4px 8px calc(4px + env(safe-area-inset-bottom, 0px));
   background: var(--panel);
   border-top: 1px solid var(--border);
   overflow-x: auto;
@@ -665,9 +710,9 @@ body:has(.mobile-shell) {
 }
 .toolbar .key {
   flex: 0 0 auto;
-  min-width: 40px;
-  height: 38px;
-  padding: 0 11px;
+  min-width: 36px;
+  height: 34px;
+  padding: 0 10px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -717,15 +762,20 @@ body:has(.mobile-shell) {
   display: flex;
   flex-shrink: 0;
   align-items: center;
-  gap: 6px;
-  padding: 6px 8px;
+  gap: 5px;
+  padding: 4px 8px;
   background: var(--panel);
   border-top: 1px solid var(--border);
+}
+/* Hidden until the panel has output — no key bar over the "Starting…" overlay. */
+.mobile-shell .agent-panel .key-actions.kb-hidden,
+.mobile-shell .agent-panel .toolbar.kb-hidden {
+  display: none;
 }
 .key-actions .key-act {
   flex: 1 1 0;
   min-width: 0;
-  height: 38px;
+  height: 34px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -748,8 +798,8 @@ body:has(.mobile-shell) {
 }
 .key-actions .key-mic {
   flex: 0 0 auto;
-  width: 42px;
-  height: 38px;
+  width: 40px;
+  height: 34px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -769,8 +819,8 @@ body:has(.mobile-shell) {
 .arrow-pad {
   position: relative;
   flex: 0 0 auto;
-  width: 46px;
-  height: 38px;
+  width: 44px;
+  height: 34px;
   padding: 0;
   border: 1px solid var(--border-strong);
   border-radius: var(--r);
@@ -1468,6 +1518,13 @@ body:has(.mobile-shell) {
 .host-chip.mem-critical .host-chip-label {
   color: var(--danger);
 }
+/* No text label any more, so the icon carries the severity alongside the bar. */
+.host-chip.mem-warn svg {
+  color: var(--warning);
+}
+.host-chip.mem-critical svg {
+  color: var(--danger);
+}
 /* Connection-health icon: green wifi when fast, yellow when typing would lag,
    pulsing red wifi-off when pings stop coming back. Hover (or focus) reveals a
    tooltip explaining the state with the live number. */
@@ -1486,13 +1543,17 @@ body:has(.mobile-shell) {
 /* Header tap target on mobile (the bare icon is too small to hit). */
 .mobile-head .conn-indicator {
   align-self: stretch;
-  padding: 0 8px;
+  padding: 0 7px;
 }
 .conn-indicator.conn-degraded {
   color: var(--warning);
 }
 .conn-indicator.conn-down {
   color: var(--danger);
+}
+/* Pulse the ICON only — not the whole button, which would drag the tooltip
+   (a child) into the animation and make the explanatory text flash too. */
+.conn-indicator.conn-down svg {
   animation: conn-pulse 1.2s ease-in-out infinite;
 }
 @keyframes conn-pulse {
@@ -1523,9 +1584,15 @@ body:has(.mobile-shell) {
 .conn-tooltip span {
   color: var(--dim);
 }
-.conn-indicator:hover .conn-tooltip,
-.conn-indicator:focus .conn-tooltip {
-  display: flex;
+/* Hover- and keyboard-only. On touch the indicator is a tap target that opens the
+   host-info modal; a sticky-hover tooltip was bleeding onto it from a tap meant for
+   a control stacked above (the settings gear over the same spot), so a touch must
+   never surface it. :focus-visible (not :focus) keeps a tap from triggering it too. */
+@media (hover: hover) {
+  .conn-indicator:hover .conn-tooltip,
+  .conn-indicator:focus-visible .conn-tooltip {
+    display: flex;
+  }
 }
 /* In the mobile header the strip sits at the top — flip the tooltip below. */
 .mobile-head .conn-tooltip {
@@ -1539,7 +1606,10 @@ body:has(.mobile-shell) {
   margin: 0;
   border-top: 0;
   border-left: 1px solid var(--border);
-  padding: 0 4px;
+  padding: 0;
+  /* The icons carry their own tap padding — a strip gap on top of that left a
+     conspicuous void between the connection and memory icons. */
+  gap: 0;
   align-items: stretch;
   flex-wrap: nowrap;
 }
@@ -1573,8 +1643,8 @@ body:has(.mobile-shell) {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 40px;
-  padding: 0 8px;
+  min-width: 34px;
+  padding: 0 7px;
 }
 
 /* ---- host info panel (tabbed: connection + memory) ---- */
@@ -2024,6 +2094,35 @@ body:has(.mobile-shell) {
   display: flex;
   align-items: center;
   gap: 6px;
+}
+/* App-level tools row under "Superagent": icon buttons for analytics, settings,
+   and future machine-wide surfaces. */
+.sidebar-tools {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 12px 4px;
+}
+.sidebar-tool {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 30px;
+  background: transparent;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r);
+  color: var(--dim);
+  cursor: pointer;
+}
+.sidebar-tool:hover {
+  color: var(--fg-bright);
+  border-color: var(--accent);
+}
+.sidebar-tool.active {
+  color: var(--fg-bright);
+  border-color: var(--accent);
+  background: var(--surface);
 }
 .sidebar-head .icon-only {
   display: inline-flex;
@@ -3077,20 +3176,16 @@ body:has(.mobile-shell) {
   border-top: 1px solid var(--border);
 }
 
-/* ---- usage chip + analytics ---- */
-.usage-chip .host-chip-label {
-  color: var(--dim);
-}
-.usage-modal {
-  background: var(--panel);
-  border: 1px solid var(--border-strong);
-  border-radius: var(--r);
+/* ---- usage & analytics (full view) ---- */
+.usage-view {
+  flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
-  width: min(560px, 100%);
-  max-height: min(700px, 100dvh - 32px);
   overflow: hidden;
-  box-shadow: 0 18px 48px #0000008c;
+}
+.usage-view .settings-head {
+  padding: 14px 22px;
 }
 .usage-body {
   flex: 1;
@@ -3184,6 +3279,36 @@ body:has(.mobile-shell) {
 .panel-row:has(.dot.hibernated) .worker-name {
   opacity: 0.55;
   font-style: italic;
+}
+.hibernated-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  padding: 6px 12px;
+  font-size: 12px;
+  color: #b9b9f6;
+  background: rgba(139, 139, 244, 0.12);
+  border-bottom: 1px solid rgba(139, 139, 244, 0.3);
+}
+.hibernated-banner span {
+  flex: 1;
+  min-width: 0;
+}
+.hibernated-banner button {
+  flex: none;
+  background: transparent;
+  border: 1px solid rgba(139, 139, 244, 0.5);
+  color: #b9b9f6;
+  border-radius: var(--r);
+  padding: 3px 10px;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.hibernated-banner button:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 .hibernated-pane {
   flex: 1;

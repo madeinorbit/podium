@@ -103,6 +103,10 @@ export const SessionMeta = z.object({
    *  capability that powers chat view. Set by the layer that owns the tail, so a
    *  new transcript provider lights up chat with no client-side kind checks. */
   transcriptAvailable: z.boolean().optional(),
+  /** True while the session is actively writing to its PTY (debounced). The
+   *  activity signal for uninstrumented kinds with no agentState — a shell reads
+   *  as "working" only while a process is producing output, idle at its prompt. */
+  busy: z.boolean().optional(),
 })
 export type SessionMeta = z.infer<typeof SessionMeta>
 
@@ -226,7 +230,16 @@ export const HelloMessage = z.object({
   clientId: z.string(),
   viewport: Viewport,
 })
-export const AttachMessage = z.object({ type: z.literal('attach'), sessionId: z.string() })
+export const AttachMessage = z.object({
+  type: z.literal('attach'),
+  sessionId: z.string(),
+  // Resume cursor: the last outputFrame seq this client already rendered. Sent on a
+  // reconnect, where the terminal view survived the socket drop — the server then
+  // replays only the frames after this point and marks the attach `resumed` so the
+  // client appends instead of wiping. Omitted on a fresh mount (no screen to keep)
+  // or when the client has rendered nothing yet → full replay + clear.
+  sinceSeq: z.number().int().nonnegative().optional(),
+})
 export const DetachMessage = z.object({ type: z.literal('detach'), sessionId: z.string() })
 export const InputMessage = z.object({
   type: z.literal('input'),
@@ -278,6 +291,11 @@ export const AttachedMessage = z.object({
   controllerId: z.string().nullable(),
   geometry: Geometry,
   epoch: z.number().int().nonnegative(),
+  // True when the following frames are an incremental catch-up from the client's
+  // `sinceSeq` cursor: the client keeps its screen and appends. Absent/false = a
+  // full replay, so the client clears first. Optional for back-compat (an older
+  // server omits it; the client treats that as a full replay and clears).
+  resumed: z.boolean().optional(),
 })
 export const OutputFrameMessage = z.object({
   type: z.literal('outputFrame'),

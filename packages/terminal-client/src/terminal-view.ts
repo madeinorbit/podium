@@ -54,6 +54,9 @@ export class TerminalView {
   private readonly cleanup: Array<() => void> = []
   private disposed = false
   private host: HTMLElement | null = null
+  // The live onData sink, kept so synthetic input (e.g. the Shift+Enter newline
+  // we substitute below) flows through the exact same path as real keystrokes.
+  private dataSink: ((data: string) => void) | undefined
 
   constructor(opts: TerminalViewOptions = {}) {
     this.term = new Terminal({
@@ -178,8 +181,12 @@ export class TerminalView {
   }
 
   onData(cb: (data: string) => void): () => void {
-    const sub = this.term.onData(cb)
-    return () => sub.dispose()
+    this.dataSink = cb
+    const sub = this.term.onData((d) => this.dataSink?.(d))
+    return () => {
+      sub.dispose()
+      this.dataSink = undefined
+    }
   }
 
   focus(): void {
@@ -259,6 +266,14 @@ export class TerminalView {
       if (ev.type !== 'keydown') return true
       const mod = ev.metaKey || ev.ctrlKey
       const key = ev.key.toLowerCase()
+      // Shift+Enter must insert a newline, not submit. A browser sends a bare CR
+      // for it (identical to Enter), which Claude Code reads as "send". Substitute
+      // the Option+Enter sequence (ESC CR) — Claude Code's newline — and swallow
+      // xterm's CR. Plain Enter still submits; Cmd/Ctrl+Enter are left to the app.
+      if (ev.key === 'Enter' && ev.shiftKey && !ev.metaKey && !ev.ctrlKey && !ev.altKey) {
+        this.dataSink?.('\x1b\r')
+        return false
+      }
       // Copy: Cmd+C (mac) or Ctrl/Cmd+Shift+C, only when there is a selection.
       if (mod && key === 'c' && (ev.metaKey || ev.shiftKey) && this.term.hasSelection()) {
         copySelection()

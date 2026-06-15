@@ -38,6 +38,12 @@ export interface ConnectionState {
 export interface SessionCallbacks {
   onFrame?: (text: string) => void
   onState?: (state: ConnectionState) => void
+  /**
+   * The server is about to send a full replay (not a `resumed` catch-up): clear
+   * the screen before the buffered frames land. Not called on an incremental
+   * resume, where the view keeps its content and appends.
+   */
+  onReset?: () => void
 }
 
 export interface SocketHubOptions {
@@ -84,6 +90,10 @@ const PING_DOWN_AFTER_MS = 5_000
 // Unanswered pings older than the force-close window can't accumulate meaningfully;
 // the cap just bounds the queue if pongs stop while other traffic keeps us alive.
 const PING_QUEUE_CAP = 8
+// Keystrokes typed while the socket is down are queued and flushed (in order) on
+// reconnect, so a blip doesn't silently swallow input. Capped so a long outage
+// can't replay an unbounded burst of stale typing into the agent on return.
+const INPUT_QUEUE_CAP = 1_000
 
 export interface AttentionEvent {
   sessionId: string
@@ -119,6 +129,8 @@ export class SocketHub {
   private heartbeatDeadline: ReturnType<typeof setTimeout> | undefined
   /** Send time of each unanswered ping, oldest first. Pongs arrive in ping order. */
   private pingQueue: number[] = []
+  /** Input messages typed while offline, flushed in order on reconnect. */
+  private readonly inputQueue: Parameters<typeof encode>[0][] = []
   private staleTimer: ReturnType<typeof setTimeout> | undefined
   private lastRttMs: number | null = null
   private health: ConnectionHealth = { status: 'ok', rttMs: null, since: Date.now() }
@@ -181,7 +193,14 @@ export class SocketHub {
         clientId: this.clientIdValue,
         viewport: { ...this.opts.viewport },
       })
-      for (const sessionId of this.connections.keys()) this.sendRaw({ type: 'attach', sessionId })
+      // Re-attach with a resume cursor: the view survived the drop, so ask the
+      // server to catch us up from the last seq we rendered instead of wiping and
+      // replaying the whole buffer. A connection that has rendered nothing yet
+      // (lastSeq -1) omits the cursor → full replay.
+      for (const [sessionId, conn] of this.connections) {
+        const sinceSeq = conn.resumeCursor
+        this.sendRaw({ type: 'attach', sessionId, ...(sinceSeq >= 0 ? { sinceSeq } : {}) })
+      }
       // Transcript subscriptions survive reconnects the same way attaches do —
       // the server re-sends a fresh snapshot which replaces local state.
       for (const sessionId of this.transcripts.keys()) {
@@ -190,6 +209,10 @@ export class SocketHub {
       // Always assert presence on (re)connect: the server defaults a new client
       // to not-visible (fail-safe toward notifying), so a visible tab must say so.
       this.sendRaw({ type: 'presence', visible: this.lastVisible })
+      // Flush keystrokes typed during the outage — after the re-attaches above, so
+      // the session exists and this (reclaimed) client is the controller again
+      // before its input lands.
+      for (const msg of this.inputQueue.splice(0)) this.sendRaw(msg)
       this.notifyConnections()
       this.evaluateHealth()
     }
@@ -434,6 +457,16 @@ export class SocketHub {
     this.sendRaw(msg)
   }
 
+  /** @internal Input path: send now if connected, else queue for flush on
+   *  reconnect so a blip doesn't silently drop keystrokes. */
+  _sendInput(msg: Parameters<typeof encode>[0]): void {
+    if (this.connectedFlag && this.socket !== undefined) {
+      this.sendRaw(msg)
+      return
+    }
+    if (this.inputQueue.length < INPUT_QUEUE_CAP) this.inputQueue.push(msg)
+  }
+
   dispose(): void {
     this.intentionalClose = true
     if (this.reconnectTimer !== undefined) {
@@ -444,6 +477,7 @@ export class SocketHub {
     this.socket?.close()
     this.socket = undefined
     this.connectedFlag = false
+    this.inputQueue.length = 0
     this.notifyConnections()
   }
 
@@ -558,8 +592,13 @@ export class SessionConnection {
     this.cb = cb
   }
 
+  /** Last outputFrame seq rendered — the resume cursor the hub sends on reconnect. */
+  get resumeCursor(): number {
+    return this.lastSeq
+  }
+
   sendInput(bytes: string): void {
-    this.hub._send({ type: 'input', sessionId: this.sessionId, data: utf8ToBase64(bytes) })
+    this.hub._sendInput({ type: 'input', sessionId: this.sessionId, data: utf8ToBase64(bytes) })
   }
 
   sendResize(cols: number, rows: number): void {
@@ -599,6 +638,10 @@ export class SessionConnection {
         this.cols = msg.geometry.cols
         this.rows = msg.geometry.rows
         this.epoch = msg.epoch
+        // A full replay (not a `resumed` catch-up) is about to re-send the whole
+        // buffer: clear the screen first so it rebuilds cleanly. A resume keeps the
+        // screen and appends the missed frames.
+        if (msg.resumed !== true) this.cb.onReset?.()
         this.emit()
         break
       case 'outputFrame':

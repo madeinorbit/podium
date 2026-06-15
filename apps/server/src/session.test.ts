@@ -40,6 +40,7 @@ describe('Session', () => {
       controllerId: 'a',
       geometry: geo,
       epoch: 0,
+      resumed: false,
     })
   })
 
@@ -106,18 +107,76 @@ describe('Session', () => {
     }
   })
 
-  it('broadcasts frames to attached clients with the current epoch', () => {
+  it('broadcasts frames to attached clients with a server-assigned monotonic seq', () => {
     const s = makeSession()
     const a = makeClient('a')
     s.attachClient(a)
-    s.onFrame(7, 'ZGF0YQ==')
-    expect(a.sent).toContainEqual({
-      type: 'outputFrame',
-      sessionId: 's1',
-      seq: 7,
-      epoch: 0,
-      data: 'ZGF0YQ==',
-    })
+    s.onFrame('ZGF0YQ==')
+    s.onFrame('ZGF0Yg==')
+    const frames = a.sent.filter((m) => m.type === 'outputFrame')
+    // The Session numbers frames itself (0,1,…), ignoring the bridge's own seq, so
+    // the client's resume cursor stays stable across daemon reattaches.
+    expect(frames).toEqual([
+      { type: 'outputFrame', sessionId: 's1', seq: 0, epoch: 0, data: 'ZGF0YQ==' },
+      { type: 'outputFrame', sessionId: 's1', seq: 1, epoch: 0, data: 'ZGF0Yg==' },
+    ])
+  })
+
+  it('resumes from a cursor: replays only newer frames and marks the attach resumed', () => {
+    const s = makeSession()
+    s.onFrame('YQ==') // seq 0
+    s.onFrame('Yg==') // seq 1
+    s.onFrame('Yw==') // seq 2
+    const a = makeClient('a')
+    s.attachClient(a, 1) // client last rendered seq 1
+    const attached = a.sent.find((m) => m.type === 'attached')
+    expect(attached).toMatchObject({ type: 'attached', resumed: true })
+    const frames = a.sent.filter((m) => m.type === 'outputFrame')
+    expect(frames).toEqual([
+      { type: 'outputFrame', sessionId: 's1', seq: 2, epoch: 0, data: 'Yw==' },
+    ])
+  })
+
+  it('a caught-up client resumes with zero frames (no needless wipe)', () => {
+    const s = makeSession()
+    s.onFrame('YQ==') // seq 0
+    const a = makeClient('a')
+    s.attachClient(a, 0)
+    expect(a.sent.find((m) => m.type === 'attached')).toMatchObject({ resumed: true })
+    expect(a.sent.filter((m) => m.type === 'outputFrame')).toEqual([])
+  })
+
+  it('falls back to a full replay (resumed:false) when the cursor outran the buffer', () => {
+    const s = makeSession()
+    s.onFrame('YQ==') // seq 0
+    s.onFrame('Yg==') // seq 1
+    const a = makeClient('a')
+    // Cursor 99 is beyond anything we hold (e.g. after a server restart reset seq):
+    // replay everything and tell the client to clear.
+    s.attachClient(a, 99)
+    expect(a.sent.find((m) => m.type === 'attached')).toMatchObject({ resumed: false })
+    expect(a.sent.filter((m) => m.type === 'outputFrame')).toHaveLength(2)
+  })
+
+  it('a fresh attach (no cursor) is a full replay', () => {
+    const s = makeSession()
+    s.onFrame('YQ==')
+    const a = makeClient('a')
+    s.attachClient(a)
+    expect(a.sent.find((m) => m.type === 'attached')).toMatchObject({ resumed: false })
+    expect(a.sent.filter((m) => m.type === 'outputFrame')).toHaveLength(1)
+  })
+
+  it('reassignController moves the role from a stale client to its reconnected self', () => {
+    const s = makeSession()
+    const a = makeClient('a')
+    s.attachClient(a)
+    expect(s.controllerId).toBe('a')
+    s.reassignController('a', 'a2')
+    expect(s.controllerId).toBe('a2')
+    // No-op when the named client isn't the controller.
+    s.reassignController('ghost', 'x')
+    expect(s.controllerId).toBe('a2')
   })
 
   it('reassigns controller when the controller detaches', () => {

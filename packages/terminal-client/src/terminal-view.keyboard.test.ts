@@ -128,4 +128,18 @@ describe('TerminalView keyboard fidelity (macOS)', () => {
       pressKey(textarea, out, { key: 'Enter', code: 'Enter', keyCode: 13, altKey: true }),
     ).toBe('\x1b\r')
   })
+
+  // Shift+Enter is the everyday "newline without submitting" chord. The browser
+  // hands xterm a bare CR for it (same as Enter), so without intervention Claude
+  // Code submits. We rewrite it to the same ESC CR newline Option+Enter sends.
+  it('rewrites Shift+Enter to a newline (ESC CR), not a submit', () => {
+    expect(
+      pressKey(textarea, out, { key: 'Enter', code: 'Enter', keyCode: 13, shiftKey: true }),
+    ).toBe('\x1b\r')
+  })
+
+  // Plain Enter must still submit (bare CR) — the rewrite is Shift-only.
+  it('leaves plain Enter as a submit (CR)', () => {
+    expect(pressKey(textarea, out, { key: 'Enter', code: 'Enter', keyCode: 13 })).toBe('\r')
+  })
 })

@@ -102,9 +102,11 @@ function ConnectionPanel(): JSX.Element {
   )
 }
 
-/** Memory tab: the per-process breakdown (polled from the daemon). */
+/** Memory tab: the headline GB number shows immediately from the host metrics the
+ *  store already has; the per-process breakdown (a heavier /proc walk) fills in
+ *  underneath once the daemon answers, so the modal never opens on a blank "…". */
 function MemoryPanel(): JSX.Element {
-  const { trpc, sessions } = useStore()
+  const { trpc, sessions, hostMetrics } = useStore()
   const [data, setData] = useState<Breakdown | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -134,11 +136,25 @@ function MemoryPanel(): JSX.Element {
     return `${panelLabel(s.agentKind)} — ${s.title}`
   }
 
+  // Instant headline from the live host-metrics sample (already streamed to the
+  // store), so "12.3/32 GB used" is on screen the moment the modal opens.
+  const headline = !data && hostMetrics[0] ? hostMemoryView(hostMetrics[0]) : null
+
   return (
     <>
       {data && <div className="host-memory-hostname">{data.hostname.toUpperCase()}</div>}
+      {headline && (
+        <div className="host-memory-body">
+          <div className="host-memory-total">
+            <span>{headline.label} used</span>
+            <span className="host-memory-pct">{headline.pct}%</span>
+          </div>
+        </div>
+      )}
       {error && <div className="host-memory-note">Could not load the breakdown: {error}</div>}
-      {!error && !data && <div className="host-memory-note">Measuring…</div>}
+      {!error && !data && (
+        <div className="host-memory-note">Loading the per-process breakdown…</div>
+      )}
       {data && <BreakdownBody data={data} sessionLabel={sessionLabel} />}
     </>
   )

@@ -1,4 +1,12 @@
-import { ChevronDown, Home, Pin, Search, Settings as SettingsIcon, Sparkles } from 'lucide-react'
+import {
+  BarChart3,
+  ChevronDown,
+  Home,
+  Pin,
+  Search,
+  Settings as SettingsIcon,
+  Sparkles,
+} from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
 import { useEffect, useRef, useState } from 'react'
 import { AgentPanel } from './AgentPanel'
@@ -6,6 +14,7 @@ import {
   orderTabs,
   type RepoNavView,
   reposToViews,
+  sessionDotTone,
   sessionsForWorktree,
   sidebarSections,
   type WorktreeNavView,
@@ -19,6 +28,7 @@ import { SettingsView } from './SettingsView'
 import { SuperagentView } from './SuperagentView'
 import { useStore } from './store'
 import type { PinKind } from './types'
+import { UsageView } from './UsageView'
 import { WorkerLabel } from './WorkerLabel'
 
 /**
@@ -163,7 +173,7 @@ export function MobileApp(): JSX.Element {
             >
               {currentTab ? (
                 <>
-                  <span className={`dot ${currentTab.status}`} />{' '}
+                  <span className={`dot ${sessionDotTone(currentTab)}`} />{' '}
                   <WorkerLabel session={currentTab} />
                 </>
               ) : (
@@ -195,7 +205,7 @@ export function MobileApp(): JSX.Element {
                     setView('workspace')
                   }}
                 >
-                  <span className={`dot ${t.status}`} /> <WorkerLabel session={t} />
+                  <span className={`dot ${sessionDotTone(t)}`} /> <WorkerLabel session={t} />
                 </button>
                 <button
                   type="button"
@@ -237,6 +247,8 @@ export function MobileApp(): JSX.Element {
           <SuperagentView />
         ) : view === 'settings' ? (
           <SettingsView />
+        ) : view === 'usage' ? (
+          <UsageView />
         ) : paneA ? (
           <AgentPanel sessionId={paneA} />
         ) : (
@@ -254,9 +266,25 @@ export function MobileApp(): JSX.Element {
               <button
                 type="button"
                 title="Search conversations"
-                onClick={() => setSearchOpen(true)}
+                onClick={() => {
+                  // Close the sheet first: the search modal and this sheet are
+                  // sibling overlays, and leaving the sheet up meant the search
+                  // (depending on stacking) never reached the foreground.
+                  setPickerOpen(false)
+                  setSearchOpen(true)
+                }}
               >
                 <Search size={14} aria-hidden="true" />
+              </button>
+              <button
+                type="button"
+                title="Usage & analytics"
+                onClick={() => {
+                  setPickerOpen(false)
+                  setView('usage')
+                }}
+              >
+                <BarChart3 size={14} aria-hidden="true" />
               </button>
               <button
                 type="button"

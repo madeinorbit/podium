@@ -19,7 +19,7 @@ import { Pin } from 'lucide-react'
 import type { JSX } from 'react'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { AgentPanel } from './AgentPanel'
-import { orderTabs, reposToViews, sessionsForWorktree } from './derive'
+import { orderTabs, reposToViews, sessionDotTone, sessionsForWorktree } from './derive'
 import { NewPanelMenu } from './NewPanelMenu'
 import { useStore } from './store'
 import type { WorktreeView } from './types'
@@ -203,15 +203,36 @@ export function Workspace(): JSX.Element {
           </button>
         </div>
       </div>
+      {/* Keep every tab's panel mounted; show only the active pane(s) and hide the
+          rest (display:none). Switching tabs no longer tears down a terminal and
+          replays from scratch — the kept panel just catches up to whatever it
+          missed (cheap, and on a flaky link it resumes instead of wiping). `order`
+          places the split panes A|B regardless of their tab order in the DOM. */}
       <div className={split ? 'panes split' : 'panes'}>
-        <div className="pane">{paneA ? <AgentPanel sessionId={paneA} /> : <Empty />}</div>
-        {split && (
-          <div className="pane">
-            {paneB ? (
-              <AgentPanel sessionId={paneB} />
-            ) : (
-              <PanePicker tabs={tabs} onPick={(id) => setPane('B', id)} />
-            )}
+        {tabs.map((t) => {
+          const inA = t.sessionId === paneA
+          const inB = split && t.sessionId === paneB
+          const visible = inA || inB
+          const cls = `pane${visible ? '' : ' pane-hidden'}${inB && !inA ? ' pane-b' : ''}`
+          return (
+            <div
+              key={t.sessionId}
+              className={cls}
+              data-session={t.sessionId}
+              style={visible ? { order: inA ? 0 : 1 } : undefined}
+            >
+              <AgentPanel sessionId={t.sessionId} active={visible} />
+            </div>
+          )
+        })}
+        {!paneA && (
+          <div className="pane" style={{ order: 0 }}>
+            <Empty />
+          </div>
+        )}
+        {split && !paneB && (
+          <div className="pane pane-b" style={{ order: 1 }}>
+            <PanePicker tabs={tabs} onPick={(id) => setPane('B', id)} />
           </div>
         )}
       </div>
@@ -258,7 +279,7 @@ function SortableTab({
       {...listeners}
     >
       <button type="button" className="tab" onClick={onSelect}>
-        <span className={`dot ${session.status}`} /> <WorkerLabel session={session} />
+        <span className={`dot ${sessionDotTone(session)}`} /> <WorkerLabel session={session} />
       </button>
       <button
         type="button"

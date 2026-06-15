@@ -53,8 +53,13 @@ describe('attentionGroup', () => {
     expect(attentionGroup(base({ agentState: state('working') }))).toBe('working')
     expect(attentionGroup(base({ agentState: state('compacting') }))).toBe('working')
   })
-  it('uninstrumented sessions fall back to process status', () => {
-    expect(attentionGroup(base({ agentKind: 'shell' }))).toBe('working')
+  it('a shell is working only while producing output (busy), idle at its prompt', () => {
+    expect(attentionGroup(base({ agentKind: 'shell' }))).toBe('idle')
+    expect(attentionGroup(base({ agentKind: 'shell', busy: true }))).toBe('working')
+  })
+  it('other uninstrumented sessions fall back to process status', () => {
+    // A live, uninstrumented non-shell (e.g. Codex pre-instrumentation) reads as working.
+    expect(attentionGroup(base({ agentKind: 'codex' }))).toBe('working')
     expect(attentionGroup(base({ status: 'exited', exitCode: 0 }))).toBe('idle')
     expect(attentionGroup(base({ status: 'hibernated' }))).toBe('idle')
   })

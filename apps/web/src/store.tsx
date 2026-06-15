@@ -67,7 +67,7 @@ export interface Store {
   setSessionDraft: (sessionId: string, text: string) => void
 }
 
-export type MainView = 'home' | 'workspace' | 'superagent' | 'settings'
+export type MainView = 'home' | 'workspace' | 'superagent' | 'settings' | 'usage'
 
 const Ctx = createContext<Store | null>(null)
 
@@ -94,7 +94,13 @@ function lsSet(key: string, value: string | null): void {
 }
 function readStoredView(): MainView {
   const v = lsGet(VIEW_KEY)
-  return v === 'home' || v === 'workspace' || v === 'superagent' || v === 'settings' ? v : 'home'
+  return v === 'home' ||
+    v === 'workspace' ||
+    v === 'superagent' ||
+    v === 'settings' ||
+    v === 'usage'
+    ? v
+    : 'home'
 }
 
 export function StoreProvider({

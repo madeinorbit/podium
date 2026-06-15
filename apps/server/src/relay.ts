@@ -121,6 +121,7 @@ export class SessionRegistry {
         createdAt: r.createdAt,
         geometry: { ...DEFAULT_GEOMETRY },
         toDaemon: this.toDaemon,
+        onActivity: () => this.broadcastSessions(),
         durableLabel: r.durableLabel,
         lastActiveAt: r.lastActiveAt,
         status: reloadStatus,
@@ -409,6 +410,11 @@ export class SessionRegistry {
     const now = Date.now()
     if (now - this.lastAutoHibernateMs < 60_000) return
     const idleCutoff = now - cfg.idleMinutes * 60_000
+    // A foreground turn can end (phase → idle) while a background agent or
+    // `&`-spawned task keeps running — and a running agent paints its TUI, so
+    // recent PTY output is the giveaway. Require the PTY to have been quiet for a
+    // full minute before parking, so we never hibernate work that's still going.
+    const OUTPUT_QUIET_MS = 60_000
     const candidates = [...this.sessions.values()]
       .filter(
         (s) =>
@@ -417,7 +423,8 @@ export class SessionRegistry {
           // Only agents that are demonstrably done/idle. needs_user keeps its
           // pending question; working agents are obviously off-limits.
           (s.agentState?.phase === 'idle' || s.agentState?.phase === 'ended') &&
-          Date.parse(s.lastActiveAt) <= idleCutoff,
+          Date.parse(s.lastActiveAt) <= idleCutoff &&
+          now - s.lastOutputMs >= OUTPUT_QUIET_MS,
       )
       .sort((a, b) => a.lastActiveAt.localeCompare(b.lastActiveAt))
     const target = candidates[0]
@@ -579,6 +586,7 @@ export class SessionRegistry {
       createdAt: new Date().toISOString(),
       geometry: { ...DEFAULT_GEOMETRY },
       toDaemon: this.toDaemon,
+      onActivity: () => this.broadcastSessions(),
       durableLabel: `podium-${sessionId}`,
       ...(input.resume ? { resume: input.resume } : {}),
     })
@@ -647,18 +655,43 @@ export class SessionRegistry {
     this.broadcastSessions()
   }
 
+  /**
+   * Reconnect reclaim: a freshly connected client (`next`) presents the id of its
+   * previous socket (`priorId`). Move that stale client's controller roles onto
+   * `next`, then evict it. Roles are transferred BEFORE eviction so detachClient's
+   * "reassign to some other attached client" fallback doesn't hand control to a
+   * third party (or drop it) in the window before `next` re-sends its attaches.
+   * The client's own `attach` messages (which follow `hello`) then re-establish
+   * PTY membership and resume the output stream.
+   */
+  private reclaimClient(priorId: string, next: ClientConn): void {
+    const prior = this.clients.get(priorId)
+    if (!prior || prior.id === next.id) return
+    for (const sessionId of prior.attached) {
+      this.sessions.get(sessionId)?.reassignController(priorId, next.id)
+    }
+    this.detachClient(priorId)
+  }
+
   onClientMessage(id: string, msg: ClientMessage): void {
     const client = this.clients.get(id)
     if (!client) return
     switch (msg.type) {
       case 'hello':
         client.viewport = { cols: msg.viewport.cols, rows: msg.viewport.rows }
+        // Reconnect identity. A client re-presents the id it was given on its
+        // previous socket. Hand that now-stale client's controller roles to this
+        // one and evict it, so a dropped or half-open socket doesn't strand the
+        // user as a muted spectator of their own sessions (controller-gated input)
+        // until the old connection's TCP finally times out. Single-user trust
+        // model: a clientId is an identity hint, not a capability to guard.
+        if (msg.clientId && msg.clientId !== id) this.reclaimClient(msg.clientId, client)
         break
       case 'attach': {
         const session = this.sessions.get(msg.sessionId)
         if (!session) return
         client.attached.add(msg.sessionId)
-        session.attachClient(client)
+        session.attachClient(client, msg.sinceSeq)
         this.broadcastSessions()
         break
       }
@@ -706,7 +739,9 @@ export class SessionRegistry {
         break
       }
       case 'agentFrame':
-        this.sessions.get(msg.sessionId)?.onFrame(msg.seq, msg.data)
+        // The bridge's msg.seq is ignored — the Session assigns its own monotonic
+        // seq so the client cursor stays stable across daemon reattaches.
+        this.sessions.get(msg.sessionId)?.onFrame(msg.data)
         break
       case 'agentExit': {
         this.sessions.get(msg.sessionId)?.onExit(msg.code)
