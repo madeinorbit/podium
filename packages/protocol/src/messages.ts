@@ -447,6 +447,18 @@ export const ScanReposRequestMessage = z.object({
   maxDepth: z.number().int().nonnegative().optional(),
 })
 export const RedrawMessage = z.object({ type: z.literal('redraw'), sessionId: z.string() })
+// On-demand transcript read for a PARKED session (hibernated/exited): its process
+// is gone, so nothing is tailing the file and the server's in-memory buffer is
+// empty after a restart. The daemon reads the JSONL straight off disk (path derived
+// from the resume ref + cwd) and returns the parsed tail. Live sessions don't use
+// this — they stream via transcriptAppend.
+export const TranscriptReadRequestMessage = z.object({
+  type: z.literal('transcriptReadRequest'),
+  requestId: z.string(),
+  agentKind: AgentKind,
+  cwd: z.string(),
+  resume: ResumeRef,
+})
 // On-demand (chip click), not periodic — a full /proc walk is too heavy for the
 // 5s hostMetrics heartbeat. `roots` are the repo/worktree paths the client controls;
 // the daemon attributes non-agent processes to them by working directory.
@@ -520,6 +532,7 @@ export const ControlMessage = z.discriminatedUnion('type', [
   ResizeMessage,
   RedrawMessage,
   MemoryBreakdownRequestMessage,
+  TranscriptReadRequestMessage,
 ])
 export type ControlMessage = z.infer<typeof ControlMessage>
 
@@ -619,6 +632,11 @@ export const SessionResumeRefMessage = z.object({
   resume: ResumeRef,
 })
 
+export const TranscriptReadResultMessage = z.object({
+  type: z.literal('transcriptReadResult'),
+  requestId: z.string(),
+  items: z.array(TranscriptItem),
+})
 export const RepoOpResultMessage = z.object({
   type: z.literal('repoOpResult'),
   requestId: z.string(),
@@ -650,6 +668,7 @@ export const DaemonMessage = z.discriminatedUnion('type', [
   HostMetricsMessage,
   MemoryBreakdownResultMessage,
   TranscriptAppendMessage,
+  TranscriptReadResultMessage,
 ])
 export type DaemonMessage = z.infer<typeof DaemonMessage>
 

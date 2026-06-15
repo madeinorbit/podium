@@ -24,6 +24,47 @@ export interface TranscriptTailer {
   stop(): void
 }
 
+/**
+ * One-shot read of a transcript file's recent tail — the same window a live tail
+ * seeds with, but without polling. Recovers a parked (hibernated/exited) session's
+ * history on demand: its process is gone, so nothing is tailing the file, and the
+ * server's in-memory buffer is empty after a restart. Returns [] if the file is
+ * missing or unreadable.
+ */
+export async function readTranscriptTail(
+  path: string,
+  recordToItems: (record: unknown) => TranscriptItem[] = claudeRecordToItems,
+): Promise<TranscriptItem[]> {
+  try {
+    const handle = await open(path, 'r')
+    try {
+      const { size } = await handle.stat()
+      if (size === 0) return []
+      const start = Math.max(0, size - TAIL_BYTES)
+      const chunk = Buffer.alloc(size - start)
+      await handle.read(chunk, 0, chunk.length, start)
+      let lines = new LineDecoder().push(chunk)
+      // Seeked past byte 0 → the first line is a fragment of a prior record; drop it.
+      if (start > 0 && lines.length > 0) lines = lines.slice(1)
+      let items: TranscriptItem[] = []
+      for (const line of lines) {
+        const trimmed = line.trim()
+        if (!trimmed) continue
+        try {
+          items = items.concat(recordToItems(JSON.parse(trimmed)))
+        } catch {
+          // torn/partial line — skip
+        }
+      }
+      return items.length > MAX_INITIAL_ITEMS ? items.slice(-MAX_INITIAL_ITEMS) : items
+    } finally {
+      await handle.close()
+    }
+  } catch {
+    return []
+  }
+}
+
 export interface TranscriptTailOptions {
   pollMs?: number
   /** Maps one decoded JSONL record to zero or more normalized chat items. */

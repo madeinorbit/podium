@@ -32,6 +32,7 @@ import {
   killAbducoSession,
   killTmuxServer,
   observeGrokState,
+  readTranscriptTail,
   reduceAgentState,
   scanAgentConversationsCached,
   scanGitRepositories,
@@ -294,6 +295,28 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
       }).chatHistoryPath,
       grokRecordToItems,
     )
+  }
+  // On-demand disk read of a parked session's transcript (no live tail running).
+  // Path is derived from the resume ref the same way the live tails are.
+  const readParkedTranscript = async (
+    msg: Extract<ControlMessage, { type: 'transcriptReadRequest' }>,
+  ): Promise<void> => {
+    const isGrok = msg.agentKind === 'grok' || msg.resume.kind === 'grok-session'
+    const path = isGrok
+      ? grokSessionPaths({
+          cwd: msg.cwd,
+          sessionId: msg.resume.value,
+          ...(opts.discovery?.homeDir ? { homeDir: opts.discovery.homeDir } : {}),
+        }).chatHistoryPath
+      : join(
+          homedir(),
+          '.claude',
+          'projects',
+          claudeProjectSlug(msg.cwd),
+          `${msg.resume.value}.jsonl`,
+        )
+    const items = await readTranscriptTail(path, isGrok ? grokRecordToItems : undefined)
+    send({ type: 'transcriptReadResult', requestId: msg.requestId, items })
   }
   const ingest = await startHookIngest({
     ...(opts.hooks?.port !== undefined ? { port: opts.hooks.port } : {}),
@@ -723,6 +746,9 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
         break
       case 'usageRequest':
         void runUsageScan(msg)
+        break
+      case 'transcriptReadRequest':
+        void readParkedTranscript(msg)
         break
     }
   })

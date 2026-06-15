@@ -50,6 +50,11 @@ export const appRouter = t.router({
     sendText: t.procedure
       .input(z.object({ sessionId: z.string(), text: z.string().min(1).max(32_768) }))
       .mutation(({ ctx, input }) => ctx.registry.sendText(input)),
+    // On-demand transcript for the chat view — recovers a parked session's history
+    // (hibernated/exited) that isn't in the live stream / server buffer.
+    transcript: t.procedure
+      .input(z.object({ sessionId: z.string() }))
+      .query(({ ctx, input }) => ctx.registry.readTranscript(input)),
     hibernate: t.procedure
       .input(z.object({ sessionId: z.string() }))
       .mutation(({ ctx, input }) => ctx.registry.hibernateSession(input)),

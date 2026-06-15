@@ -17,6 +17,7 @@ import {
   type ResumeRef,
   type ServerMessage,
   type SessionMeta,
+  type TranscriptItem,
   type UsageBucketWire,
   type WorkState,
 } from '@podium/protocol'
@@ -67,6 +68,7 @@ export class SessionRegistry {
     string,
     (r: { hostname: string; buckets: UsageBucketWire[] }) => void
   >()
+  private readonly pendingTranscriptReads = new Map<string, (r: TranscriptItem[]) => void>()
   private latestConversations: ConversationSummaryWire[] = []
   private latestConversationDiagnostics: ConversationDiagnosticWire[] = []
   // Latest health sample per daemon host, keyed by hostname — ready for several
@@ -881,6 +883,14 @@ export class SessionRegistry {
         }
         break
       }
+      case 'transcriptReadResult': {
+        const resolve = this.pendingTranscriptReads.get(msg.requestId)
+        if (resolve) {
+          this.pendingTranscriptReads.delete(msg.requestId)
+          resolve(msg.items)
+        }
+        break
+      }
       case 'memoryBreakdownResult': {
         const resolve = this.pendingBreakdowns.get(msg.requestId)
         if (resolve) {
@@ -916,6 +926,33 @@ export class SessionRegistry {
 
   transcriptFor(sessionId: string) {
     return this.sessions.get(sessionId)?.transcriptItems() ?? []
+  }
+
+  /**
+   * Transcript for the chat view. A live session streams it (and has it buffered),
+   * so we return the buffer. A PARKED session (hibernated/exited) has no live tail
+   * and an empty buffer after a server restart — read it off disk via the daemon,
+   * derived from its resume ref. Resolves the (possibly empty) buffer when there's
+   * no resume ref or no daemon answers.
+   */
+  readTranscript({ sessionId }: { sessionId: string }): Promise<{ items: TranscriptItem[] }> {
+    const session = this.sessions.get(sessionId)
+    const buffered = session?.transcriptItems() ?? []
+    const resume = session?.resume
+    if (!session || !resume || buffered.length > 0) return Promise.resolve({ items: buffered })
+    return this.daemonRequest<TranscriptItem[]>(
+      this.pendingTranscriptReads,
+      'tr',
+      SCAN_TIMEOUT_MS,
+      () => [],
+      (requestId) => ({
+        type: 'transcriptReadRequest',
+        requestId,
+        agentKind: session.agentKind,
+        cwd: session.cwd,
+        resume,
+      }),
+    ).then((items) => ({ items }))
   }
 
   setConversationMeta(input: { id: string; name?: string; summary?: string }): void {

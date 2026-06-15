@@ -31,6 +31,12 @@ export function ChatView({ sessionId }: { sessionId: string }): JSX.Element {
   const { hub, trpc, sessions, drafts, setSessionDraft } = useStore()
   const session = sessions.find((s) => s.sessionId === sessionId)
   const [items, setItems] = useState<TranscriptItem[]>([])
+  // A parked session (hibernated/exited) has no live tail and an empty server
+  // buffer after a restart, so the stream stays empty. Read its history off disk
+  // on demand instead. Prefer it only when the live buffer is empty (a session
+  // parked within this server's lifetime still has its buffer).
+  const [fetched, setFetched] = useState<TranscriptItem[] | null>(null)
+  const parked = session !== undefined && session.status !== 'live' && session.status !== 'starting'
   // Draft lives in the store, keyed by session — shared across every view of this
   // session and preserved when toggling chat/native or splitting panes.
   const draft = drafts[sessionId] ?? ''
@@ -45,7 +51,25 @@ export function ChatView({ sessionId }: { sessionId: string }): JSX.Element {
 
   useEffect(() => hub.subscribeTranscript(sessionId, setItems), [hub, sessionId])
 
-  const blocks = useMemo(() => pairToolResults(items), [items])
+  useEffect(() => {
+    if (!parked) {
+      setFetched(null)
+      return
+    }
+    let cancelled = false
+    trpc.sessions.transcript
+      .query({ sessionId })
+      .then((r) => {
+        if (!cancelled) setFetched(r.items)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [parked, sessionId, trpc])
+
+  const effectiveItems = parked && fetched && fetched.length > 0 ? fetched : items
+  const blocks = useMemo(() => pairToolResults(effectiveItems), [effectiveItems])
   const matches = useMemo(() => searchBlocks(blocks, query), [blocks, query])
   const activeMatch = matches.length > 0 ? matches[matchCursor % matches.length] : undefined
 
