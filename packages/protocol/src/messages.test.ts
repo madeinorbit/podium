@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   AgentKind,
-  type ClientMessage,
+  ClientMessage,
   type ControlMessage,
   ConversationSummaryWire,
   type DaemonMessage,
@@ -12,7 +12,7 @@ import {
   parseDaemonMessage,
   parseServerMessage,
   ResumeRef,
-  type ServerMessage,
+  ServerMessage,
   SessionMeta,
   SessionStatus,
 } from './messages'
@@ -379,6 +379,19 @@ describe('memory breakdown messages', () => {
       otherBytes: 16,
     }
     expect(parseDaemonMessage(encode(msg))).toEqual(msg)
+  })
+})
+
+describe('session draft messages', () => {
+  it('parses setSessionDraft (client) and sessionDraftChanged (server)', () => {
+    expect(ClientMessage.parse({ type: 'setSessionDraft', sessionId: 's', text: 'hi' })).toMatchObject({
+      type: 'setSessionDraft',
+      text: 'hi',
+    })
+    expect(ServerMessage.parse({ type: 'sessionDraftChanged', sessionId: 's', text: 'hi' })).toMatchObject({
+      type: 'sessionDraftChanged',
+      text: 'hi',
+    })
   })
 })
 

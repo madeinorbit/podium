@@ -268,6 +268,23 @@ export const PingMessage = z.object({ type: z.literal('ping') })
 // push while some Podium window is visibly open.
 export const PresenceMessage = z.object({ type: z.literal('presence'), visible: z.boolean() })
 
+// The in-progress composer / native-prompt text for a session. Ephemeral (never
+// persisted): the controlling client publishes its scraped native prompt, and a
+// chat composer edit publishes its draft, so every view/device converges.
+export const SetSessionDraftMessage = z.object({
+  type: z.literal('setSessionDraft'),
+  sessionId: z.string(),
+  text: z.string(),
+})
+export type SetSessionDraftMessage = z.infer<typeof SetSessionDraftMessage>
+
+export const SessionDraftChangedMessage = z.object({
+  type: z.literal('sessionDraftChanged'),
+  sessionId: z.string(),
+  text: z.string(),
+})
+export type SessionDraftChangedMessage = z.infer<typeof SessionDraftChangedMessage>
+
 export const ClientMessage = z.discriminatedUnion('type', [
   HelloMessage,
   AttachMessage,
@@ -280,6 +297,7 @@ export const ClientMessage = z.discriminatedUnion('type', [
   PresenceMessage,
   TranscriptSubscribeMessage,
   TranscriptUnsubscribeMessage,
+  SetSessionDraftMessage,
 ])
 export type ClientMessage = z.infer<typeof ClientMessage>
 
@@ -398,6 +416,7 @@ export const ServerMessage = z.discriminatedUnion('type', [
   ConversationsChangedMessage,
   SessionTitleChangedMessage,
   SessionAgentStateChangedMessage,
+  SessionDraftChangedMessage,
   HostMetricsChangedMessage,
   PongMessage,
   AttentionEventMessage,
