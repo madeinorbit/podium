@@ -396,6 +396,8 @@ const ChatBlockView = memo(function ChatBlockView({
     dimmed && 'opacity-35',
   )
 
+  if (item.role === 'tool' && item.toolName === 'AskUserQuestion' && item.toolInputJson)
+    return <AskUserQuestionCard block={block} cls={blockClass} index={index} />
   if (item.role === 'tool') return <ToolBlock block={block} cls={blockClass} index={index} />
 
   // A recognized user action that isn't a chat message (e.g. interrupt) — show it
@@ -466,6 +468,95 @@ const ChatBlockView = memo(function ChatBlockView({
     </div>
   )
 })
+
+interface AskOption {
+  label: string
+  description?: string
+}
+interface AskQuestion {
+  question: string
+  header?: string
+  multiSelect?: boolean
+  options?: AskOption[]
+}
+
+/**
+ * The agent asking the human (AskUserQuestion) — render the question(s) and
+ * options as a readable card instead of a collapsed tool row, with the chosen
+ * option highlighted once answered. (Answering a *live* pending question from
+ * here is a separate feature — it needs to drive the native prompt selection.)
+ */
+function AskUserQuestionCard({
+  block,
+  cls,
+  index,
+}: {
+  block: ChatBlock
+  cls: string
+  index: number
+}): JSX.Element {
+  const { item } = block
+  let questions: AskQuestion[] = []
+  try {
+    const parsed = JSON.parse(item.toolInputJson ?? '{}')
+    if (Array.isArray(parsed?.questions)) questions = parsed.questions
+  } catch {
+    // malformed input — fall through to an empty card
+  }
+  // The answer arrives as: …"<question>"="<chosen label>"… — match per option.
+  const answer = block.result ?? item.toolResult ?? ''
+  const isChosen = (label: string) => answer.includes(`"${label}"`)
+
+  return (
+    <div
+      className={cn(cls, 'rounded-[10px] border border-amber-500/40 bg-amber-500/[0.05] px-3.5 py-2.5')}
+      data-block={index}
+    >
+      <div className="mb-1.5 text-[10px] uppercase tracking-[0.07em] text-amber-600 dark:text-amber-400/90">
+        Question for you
+      </div>
+      {questions.map((q, qi) => (
+        <div key={`${q.header ?? q.question}-${qi}`} className={qi > 0 ? 'mt-3' : ''}>
+          {q.header && (
+            <div className="text-[10px] uppercase tracking-[0.06em] text-muted-foreground/70">
+              {q.header}
+            </div>
+          )}
+          <div className="text-sm font-medium text-foreground">{q.question}</div>
+          <div className="mt-1.5 flex flex-col gap-1">
+            {(q.options ?? []).map((o, oi) => {
+              const chosen = isChosen(o.label)
+              return (
+                <div
+                  key={`${o.label}-${oi}`}
+                  className={cn(
+                    'rounded-md border px-2.5 py-1.5 text-xs',
+                    chosen
+                      ? 'border-amber-500 bg-amber-500/15 text-foreground'
+                      : 'border-border text-muted-foreground',
+                  )}
+                >
+                  <span className="font-medium text-foreground">
+                    {chosen ? '✓ ' : ''}
+                    {o.label}
+                  </span>
+                  {o.description && (
+                    <span className="mt-0.5 block text-[11px] leading-snug text-muted-foreground/80">
+                      {o.description}
+                    </span>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      ))}
+      {questions.length === 0 && (
+        <div className="text-xs text-muted-foreground">AskUserQuestion (unparseable input)</div>
+      )}
+    </div>
+  )
+}
 
 function ToolBlock({
   block,

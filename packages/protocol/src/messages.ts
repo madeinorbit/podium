@@ -193,6 +193,10 @@ export const TranscriptItem = z.object({
   toolName: z.string().optional(),
   /** Compact one-line preview of the tool input. */
   toolInput: z.string().optional(),
+  /** Full tool input as a JSON string, set only for user-facing prompt tools
+   *  (AskUserQuestion) so the chat can render an interactive question card rather
+   *  than a collapsed tool row. Omitted for ordinary tools to avoid bloat. */
+  toolInputJson: z.string().optional(),
   /** Truncated tool result text (set on role 'tool' result items). */
   toolResult: z.string().optional(),
   /** Pairs a tool call with its result item. */

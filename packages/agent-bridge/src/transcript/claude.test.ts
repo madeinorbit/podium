@@ -273,3 +273,54 @@ describe('claudeRecordToItems — final answer vs intermediate narration', () =>
     expect(claudeRecordToItems(rec)).toEqual([])
   })
 })
+
+describe('claudeRecordToItems — AskUserQuestion tool', () => {
+  it('carries the structured question input and previews the question text', () => {
+    const rec = {
+      type: 'assistant',
+      uuid: 'a-ask',
+      message: {
+        role: 'assistant',
+        stop_reason: 'tool_use',
+        content: [
+          {
+            type: 'tool_use',
+            id: 'tu1',
+            name: 'AskUserQuestion',
+            input: {
+              questions: [
+                {
+                  question: 'Pick a mode?',
+                  header: 'Mode',
+                  multiSelect: false,
+                  options: [
+                    { label: 'A', description: 'first' },
+                    { label: 'B', description: 'second' },
+                  ],
+                },
+              ],
+            },
+          },
+        ],
+      },
+    }
+    const [item] = claudeRecordToItems(rec)
+    expect(item).toMatchObject({ role: 'tool', toolName: 'AskUserQuestion', toolInput: 'Pick a mode?' })
+    expect(JSON.parse(item?.toolInputJson ?? '{}').questions[0].options).toHaveLength(2)
+  })
+
+  it('leaves ordinary tools without toolInputJson', () => {
+    const rec = {
+      type: 'assistant',
+      uuid: 'a-bash',
+      message: {
+        role: 'assistant',
+        stop_reason: 'tool_use',
+        content: [{ type: 'tool_use', id: 'tu2', name: 'Bash', input: { command: 'ls' } }],
+      },
+    }
+    const [item] = claudeRecordToItems(rec)
+    expect(item?.toolInputJson).toBeUndefined()
+    expect(item).toMatchObject({ toolName: 'Bash', toolInput: 'ls' })
+  })
+})

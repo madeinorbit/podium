@@ -143,13 +143,18 @@ function assistantItems(
       textParts.push(b.text)
     } else if (b.type === 'tool_use' && typeof b.name === 'string') {
       const toolUseId = typeof b.id === 'string' ? b.id : undefined
+      // AskUserQuestion is the agent asking the human — carry the full structured
+      // input so the chat renders an interactive question card instead of a
+      // collapsed tool row, and preview the question text rather than a JSON blob.
+      const isAsk = b.name === 'AskUserQuestion'
       items.push({
         id: toolUseId ?? freshId('t'),
         role: 'tool',
         ts,
         text: '',
         toolName: b.name,
-        toolInput: toolInputPreview(b.input),
+        toolInput: isAsk ? askQuestionPreview(b.input) : toolInputPreview(b.input),
+        ...(isAsk ? { toolInputJson: safeJsonString(b.input) } : {}),
         ...(toolUseId ? { toolUseId } : {}),
       })
     }
@@ -184,6 +189,27 @@ export function toolInputPreview(input: unknown): string {
     return truncate(JSON.stringify(i), 160)
   } catch {
     return ''
+  }
+}
+
+/** Preview for an AskUserQuestion tool: the first question's text (collapsed-row
+ *  fallback when the card can't render). */
+function askQuestionPreview(input: unknown): string {
+  if (typeof input !== 'object' || input === null) return 'AskUserQuestion'
+  const qs = (input as Record<string, unknown>).questions
+  const first = Array.isArray(qs) ? (qs[0] as Record<string, unknown> | undefined) : undefined
+  const q = first && typeof first.question === 'string' ? first.question : undefined
+  return q ? truncate(q, 160) : 'AskUserQuestion'
+}
+
+/** JSON-stringify a tool input, capped so a pathological payload can't bloat the
+ *  transcript. Returns undefined on failure (the card just falls back to the row). */
+function safeJsonString(input: unknown): string | undefined {
+  try {
+    const s = JSON.stringify(input)
+    return s.length > 8000 ? undefined : s
+  } catch {
+    return undefined
   }
 }
 
