@@ -17,6 +17,13 @@ interface SuperMessage {
   createdAt: string
 }
 
+interface SuperThread {
+  id: string
+  kind: 'global' | 'btw'
+  originSessionId?: string
+  title?: string
+}
+
 interface AtOption {
   kind: 'repo' | 'worktree' | 'conversation'
   label: string
@@ -31,8 +38,9 @@ interface AtOption {
  * (files later) — and inserts an @label(ref) token the agent understands.
  */
 export function SuperagentView(): JSX.Element {
-  const { trpc, repos } = useStore()
+  const { trpc, repos, superThreadId, setSuperThreadId, superRefreshKey } = useStore()
   const [messages, setMessages] = useState<SuperMessage[]>([])
+  const [threads, setThreads] = useState<SuperThread[]>([])
   const [draft, setDraft] = useState('')
   const [busy, setBusy] = useState(false)
   const [backendLabel, setBackendLabel] = useState('')
@@ -42,12 +50,23 @@ export function SuperagentView(): JSX.Element {
   const inputRef = useRef<HTMLTextAreaElement | null>(null)
   const voice = useVoiceInput((text) => setDraft((d) => (d ? `${d} ${text}` : text)))
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: refetch on thread switch + after seeding
   useEffect(() => {
     trpc.superagent.history
-      .query()
+      .query({ threadId: superThreadId })
       .then((h) => setMessages(h as SuperMessage[]))
       .catch(() => {})
-  }, [trpc])
+  }, [trpc, superThreadId, superRefreshKey])
+
+  // Thread list (Global + btw threads); refresh when the active thread changes or a
+  // btw thread finishes seeding, so it shows up in the switcher.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: refetch on thread switch + after seeding
+  useEffect(() => {
+    trpc.superagent.listThreads
+      .query()
+      .then((t) => setThreads(t as SuperThread[]))
+      .catch(() => {})
+  }, [trpc, superThreadId, superRefreshKey])
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: scroll follows new messages
   useEffect(() => {
@@ -135,7 +154,7 @@ export function SuperagentView(): JSX.Element {
     }
     setMessages((m) => [...m, optimistic])
     try {
-      const turn = (await trpc.superagent.send.mutate({ text })) as {
+      const turn = (await trpc.superagent.send.mutate({ threadId: superThreadId, text })) as {
         messages: SuperMessage[]
         backendLabel: string
       }
@@ -157,8 +176,10 @@ export function SuperagentView(): JSX.Element {
   }
 
   const clear = async () => {
-    await trpc.superagent.clear.mutate().catch(() => {})
+    await trpc.superagent.clear.mutate({ threadId: superThreadId }).catch(() => {})
     setMessages([])
+    // Clearing a btw thread archives it server-side; fall back to the global thread.
+    if (superThreadId !== 'global') setSuperThreadId('global')
   }
 
   return (
@@ -167,8 +188,29 @@ export function SuperagentView(): JSX.Element {
         <h1>
           <Sparkles size={16} aria-hidden="true" /> Superagent
         </h1>
+        {threads.length > 1 && (
+          <div className="superagent-threads" role="tablist" aria-label="Superagent threads">
+            {threads.map((th) => (
+              <button
+                key={th.id}
+                type="button"
+                role="tab"
+                aria-selected={th.id === superThreadId}
+                className={th.id === superThreadId ? 'super-thread active' : 'super-thread'}
+                title={th.kind === 'btw' ? 'BTW thread for a chat session' : 'Global orchestrator'}
+                onClick={() => setSuperThreadId(th.id)}
+              >
+                {th.id === 'global' ? 'Global' : (th.title ?? th.originSessionId ?? th.id)}
+              </button>
+            ))}
+          </div>
+        )}
         <span className="superagent-backend">{backendLabel}</span>
-        <button type="button" title="Clear thread" onClick={() => void clear()}>
+        <button
+          type="button"
+          title={superThreadId === 'global' ? 'Clear thread' : 'Close this BTW thread'}
+          onClick={() => void clear()}
+        >
           <Eraser size={14} aria-hidden="true" />
         </button>
       </div>
@@ -285,6 +327,21 @@ function SuperMessageView({ message }: { message: SuperMessage }): JSX.Element |
     )
   }
   if (message.role === 'system') return null
+  // The btw seed / re-open delta are persisted as user messages so the agent sees
+  // them, but they're machine-authored context — collapse them instead of showing a
+  // giant "You" bubble.
+  if (message.role === 'user' && /^\[BTW (CONTEXT|UPDATE)/.test(message.content)) {
+    const label = message.content.startsWith('[BTW UPDATE') ? 'session update' : 'session context'
+    return (
+      <div className="chat-block chat-tool">
+        <button type="button" className="chat-tool-row" onClick={() => setOpen((v) => !v)}>
+          <span className="chat-tool-chevron">{open ? '▾' : '▸'}</span>
+          <span className="chat-tool-name">{label}</span>
+        </button>
+        {open && <pre className="chat-tool-result">{message.content}</pre>}
+      </div>
+    )
+  }
   return (
     <div className={`chat-block chat-${message.role}`}>
       {message.role === 'user' && <div className="chat-role-tag">You</div>}

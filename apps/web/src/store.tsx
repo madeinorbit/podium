@@ -41,6 +41,13 @@ export interface Store {
   /** Main-area surface: attention board, worktree workspace, superagent, or settings. */
   view: MainView
   setView: (view: MainView) => void
+  /** Active superagent thread: the 'global' orchestrator or a 'btw_<sessionId>' thread. */
+  superThreadId: string
+  setSuperThreadId: (id: string) => void
+  /** Bumped when a btw thread finishes seeding, so the superagent view refetches. */
+  superRefreshKey: number
+  /** Open (or re-open) a btw superagent thread seeded from a chat session's transcript. */
+  startBtw: (sessionId: string) => Promise<void>
   selectedWorktree: string | null
   setSelectedWorktree: (path: string | null) => void
   paneA: string | null // sessionId in pane A
@@ -132,6 +139,8 @@ export function StoreProvider({
   const [pins, setPins] = useState<PinState>(EMPTY_PINS)
   const [tabOrders, setTabOrders] = useState<Record<string, string[]>>({})
   const [view, setView] = useState<MainView>(readStoredView)
+  const [superThreadId, setSuperThreadId] = useState('global')
+  const [superRefreshKey, setSuperRefreshKey] = useState(0)
   const [drafts, setDrafts] = useState<Record<string, string>>({})
   const [selectedWorktree, setSelectedWorktree] = useState<string | null>(() => lsGet(WT_KEY))
   const [paneA, setPaneA] = useState<string | null>(() => lsGet(PANE_A_KEY))
@@ -240,6 +249,18 @@ export function StoreProvider({
     },
     [trpc],
   )
+  const startBtw = useMemo(
+    () => async (sessionId: string) => {
+      // Open the superagent on the session's btw thread immediately; the server
+      // seeds it (and runs the orientation turn) in the background.
+      setSuperThreadId(`btw_${sessionId}`)
+      setView('superagent')
+      await trpc.superagent.startBtw.mutate({ sessionId }).catch(() => {})
+      // Seeding + the orientation turn are done now — nudge the view to refetch.
+      setSuperRefreshKey((k) => k + 1)
+    },
+    [trpc],
+  )
   const setSessionDraft = useMemo(
     () => (sessionId: string, text: string) =>
       setDrafts((d) => (d[sessionId] === text ? d : { ...d, [sessionId]: text })),
@@ -338,6 +359,10 @@ export function StoreProvider({
     setTabOrder,
     view,
     setView,
+    superThreadId,
+    setSuperThreadId,
+    superRefreshKey,
+    startBtw,
     selectedWorktree,
     setSelectedWorktree,
     paneA,
