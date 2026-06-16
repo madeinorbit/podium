@@ -93,10 +93,12 @@ export function AgentPanel({
     setHasOutput(false)
     setAtBottom(true)
     // Mirror the in-progress native Claude prompt into the shared chat draft.
-    // Best-effort: only the controlling client publishes (cross-client), and only
-    // while the native terminal is focused (within one client the focused editor
-    // wins — don't clobber a chat composer being typed in a split pane). Publish
-    // only on change; a null extraction (slash menu / non-Claude) never clobbers.
+    // Best-effort + clobber-safe: only the controlling client publishes
+    // (cross-client), and only while THIS terminal holds focus, so a chat composer
+    // being typed in another pane/device wins. Publish only on change; a null
+    // extraction (slash menu / non-Claude) never clobbers; and a freshly-focused
+    // EMPTY box won't publish '' as its first act (which would wipe a draft another
+    // device is typing — a real clear still propagates after we've published text).
     const isClaude = session?.agentKind === 'claude-code'
     let lastPublished: string | null = null
     let sampleTimer: ReturnType<typeof setTimeout> | null = null
@@ -107,6 +109,7 @@ export function AgentPanel({
       if (!termRef.current?.contains(document.activeElement)) return
       const draft = extractClaudePromptDraft(m.view.screenText().split('\n'))
       if (draft === null || draft === lastPublished) return
+      if (draft === '' && lastPublished === null) return
       lastPublished = draft
       setSessionDraft(sessionId, draft)
     }

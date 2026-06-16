@@ -86,6 +86,17 @@ export function ChatView({ sessionId }: { sessionId: string }): JSX.Element {
   const matches = useMemo(() => searchBlocks(blocks, query), [blocks, query])
   const activeMatch = matches.length > 0 ? matches[matchCursor % matches.length] : undefined
 
+  // A mobile AgentPanel reuses one ChatView instance across sessions (it isn't
+  // keyed by sessionId like the desktop tabs are), so reset per-session local UI
+  // state on a session switch — otherwise a stale optimistic bubble or "Sending…"
+  // row from the previous session bleeds into the newly selected one.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reset only on session switch
+  useEffect(() => {
+    setPending([])
+    setJustSent(false)
+    seenUserIds.current = new Set()
+  }, [sessionId])
+
   useEffect(() => {
     const prev = seenUserIds.current
     const next = new Set<string>()
