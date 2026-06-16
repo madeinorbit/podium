@@ -68,7 +68,7 @@ export interface ToolCallRow {
   arguments: string
 }
 
-/** One message of the (single, global) superagent thread. */
+/** One message of a superagent thread (the 'global' orchestrator, or a 'btw_<id>' thread). */
 export interface SuperagentMessageRow {
   id: number
   role: 'user' | 'assistant' | 'tool' | 'system'
@@ -77,6 +77,20 @@ export interface SuperagentMessageRow {
   toolCallId?: string
   toolName?: string
   createdAt: string
+}
+
+/** A superagent conversation: the always-there 'global' thread, or a per-session 'btw' thread. */
+export interface SuperagentThreadRow {
+  id: string
+  kind: 'global' | 'btw'
+  originSessionId?: string
+  title?: string
+  /** High-water mark into the origin session's transcript (btw threads only). */
+  watermarkItemId?: string
+  watermarkTs?: string
+  createdAt: string
+  updatedAt: string
+  archived: boolean
 }
 
 /** Durable server-side store: repos + sessions registry. Single writer (the server). */
@@ -416,14 +430,14 @@ export class SessionStore {
     }))
   }
 
-  // ---- superagent thread ----
-  loadSuperagentMessages(limit = 200): SuperagentMessageRow[] {
+  // ---- superagent threads ----
+  loadSuperagentMessages(threadId = 'global', limit = 200): SuperagentMessageRow[] {
     const rows = this.db
       .prepare(
         `SELECT id, role, content, tool_calls, tool_call_id, tool_name, created_at
-         FROM superagent_messages ORDER BY id DESC LIMIT ?`,
+         FROM superagent_messages WHERE thread_id = ? ORDER BY id DESC LIMIT ?`,
       )
-      .all(limit) as Record<string, unknown>[]
+      .all(threadId, limit) as Record<string, unknown>[]
     return rows.reverse().map((r) => ({
       id: r.id as number,
       role: r.role as SuperagentMessageRow['role'],
@@ -435,14 +449,19 @@ export class SessionStore {
     }))
   }
 
-  appendSuperagentMessage(m: Omit<SuperagentMessageRow, 'id' | 'createdAt'>): SuperagentMessageRow {
+  appendSuperagentMessage(
+    threadId: string,
+    m: Omit<SuperagentMessageRow, 'id' | 'createdAt'>,
+  ): SuperagentMessageRow {
     const createdAt = new Date().toISOString()
     const result = this.db
       .prepare(
-        `INSERT INTO superagent_messages (role, content, tool_calls, tool_call_id, tool_name, created_at)
-         VALUES (?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO superagent_messages
+           (thread_id, role, content, tool_calls, tool_call_id, tool_name, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
+        threadId,
         m.role,
         m.content,
         m.toolCalls ? JSON.stringify(m.toolCalls) : null,
@@ -450,11 +469,73 @@ export class SessionStore {
         m.toolName ?? null,
         createdAt,
       )
+    this.db
+      .prepare('UPDATE superagent_threads SET updated_at = ? WHERE id = ?')
+      .run(createdAt, threadId)
     return { ...m, id: Number(result.lastInsertRowid), createdAt }
   }
 
-  clearSuperagentMessages(): void {
-    this.db.exec('DELETE FROM superagent_messages')
+  clearSuperagentMessages(threadId = 'global'): void {
+    this.db.prepare('DELETE FROM superagent_messages WHERE thread_id = ?').run(threadId)
+  }
+
+  listSuperagentThreads(): SuperagentThreadRow[] {
+    const rows = this.db
+      .prepare(
+        `SELECT id, kind, origin_session_id, title, watermark_item_id, watermark_ts,
+                created_at, updated_at, archived
+         FROM superagent_threads WHERE archived = 0 ORDER BY updated_at DESC`,
+      )
+      .all() as Record<string, unknown>[]
+    return rows.map((r) => this.mapSuperagentThread(r))
+  }
+
+  getSuperagentThread(id: string): SuperagentThreadRow | undefined {
+    const r = this.db.prepare('SELECT * FROM superagent_threads WHERE id = ?').get(id) as
+      | Record<string, unknown>
+      | undefined
+    return r ? this.mapSuperagentThread(r) : undefined
+  }
+
+  upsertSuperagentThread(t: {
+    id: string
+    kind: 'global' | 'btw'
+    originSessionId?: string
+    title?: string
+  }): void {
+    const now = new Date().toISOString()
+    this.db
+      .prepare(
+        `INSERT INTO superagent_threads (id, kind, origin_session_id, title, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET
+           title = COALESCE(excluded.title, title), archived = 0, updated_at = ?`,
+      )
+      .run(t.id, t.kind, t.originSessionId ?? null, t.title ?? null, now, now, now)
+  }
+
+  setThreadWatermark(id: string, itemId: string, ts: string | undefined): void {
+    this.db
+      .prepare('UPDATE superagent_threads SET watermark_item_id = ?, watermark_ts = ? WHERE id = ?')
+      .run(itemId, ts ?? null, id)
+  }
+
+  archiveSuperagentThread(id: string): void {
+    this.db.prepare('UPDATE superagent_threads SET archived = 1 WHERE id = ?').run(id)
+  }
+
+  private mapSuperagentThread(r: Record<string, unknown>): SuperagentThreadRow {
+    return {
+      id: r.id as string,
+      kind: r.kind as 'global' | 'btw',
+      originSessionId: (r.origin_session_id as string | null) ?? undefined,
+      title: (r.title as string | null) ?? undefined,
+      watermarkItemId: (r.watermark_item_id as string | null) ?? undefined,
+      watermarkTs: (r.watermark_ts as string | null) ?? undefined,
+      createdAt: r.created_at as string,
+      updatedAt: r.updated_at as string,
+      archived: Boolean(r.archived),
+    }
   }
 
   close(): void {
@@ -529,6 +610,35 @@ export class SessionStore {
          created_at TEXT NOT NULL
        )`,
     )
+    this.db.exec(
+      `CREATE TABLE IF NOT EXISTS superagent_threads (
+         id TEXT PRIMARY KEY,
+         kind TEXT NOT NULL,
+         origin_session_id TEXT,
+         title TEXT,
+         watermark_item_id TEXT,
+         watermark_ts TEXT,
+         created_at TEXT NOT NULL,
+         updated_at TEXT NOT NULL,
+         archived INTEGER NOT NULL DEFAULT 0
+       )`,
+    )
+    // Scope pre-existing (single-thread) messages under 'global' via the column default.
+    const saCols = this.db.prepare('PRAGMA table_info(superagent_messages)').all() as {
+      name: string
+    }[]
+    if (!saCols.some((c) => c.name === 'thread_id')) {
+      this.db.exec(
+        "ALTER TABLE superagent_messages ADD COLUMN thread_id TEXT NOT NULL DEFAULT 'global'",
+      )
+    }
+    const saNow = new Date().toISOString()
+    this.db
+      .prepare(
+        `INSERT OR IGNORE INTO superagent_threads (id, kind, created_at, updated_at)
+         VALUES ('global', 'global', ?, ?)`,
+      )
+      .run(saNow, saNow)
     // External-content FTS over the searchable text columns. Hybrid search note:
     // keyword now; a vector column joins when an embeddings provider is configured.
     try {
