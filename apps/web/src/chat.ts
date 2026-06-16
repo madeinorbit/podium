@@ -81,12 +81,14 @@ export function minimapSegments(blocks: ChatBlock[]): MinimapSegment[] {
 
 /** An optimistic "You" bubble shown immediately on send, before the transcript
  *  tail echoes the real user turn back. `at` = creation time (ms), used to drop
- *  the "sending" affordance after a timeout. */
+ *  the "sending" affordance after a timeout.
+ *  State: 'sending' (in flight) → 'sent' (delivered; echo just hasn't tailed back
+ *  yet, so render it as a plain bubble) or 'failed' (the send itself rejected). */
 export interface PendingItem {
   id: string
   text: string
   at: number
-  state: 'sending' | 'failed'
+  state: 'sending' | 'sent' | 'failed'
 }
 
 /**

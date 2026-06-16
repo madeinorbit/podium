@@ -100,14 +100,12 @@ export function ChatView({ sessionId }: { sessionId: string }): JSX.Element {
   }, [blocks])
 
   // Drop the "sending" affordance after a grace period even if no echo arrived
-  // (slow tail / uninstrumented) — the prompt was still sent; keep the bubble.
+  // (slow tail / uninstrumented) — the prompt was still sent, so settle to 'sent'
+  // (a plain bubble), NOT 'failed'. Only an actual send rejection marks 'failed'.
   useEffect(() => {
     if (!pending.some((p) => p.state === 'sending')) return
-    const now = Date.now()
     const t = setTimeout(() => {
-      setPending((p) =>
-        p.map((x) => (x.state === 'sending' && now - x.at >= 0 ? { ...x, state: 'failed' } : x)),
-      )
+      setPending((p) => p.map((x) => (x.state === 'sending' ? { ...x, state: 'sent' } : x)))
     }, 30_000)
     return () => clearTimeout(t)
   }, [pending])
