@@ -1,4 +1,6 @@
 import { fileURLToPath } from 'node:url'
+import tailwindcss from '@tailwindcss/vite'
+import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vite'
 import { VitePWA } from 'vite-plugin-pwa'
 
@@ -24,6 +26,8 @@ const proxy = {
 
 export default defineConfig({
   plugins: [
+    react(),
+    tailwindcss(),
     VitePWA({
       registerType: 'prompt',
       // Generate icons + apple-touch-icon + favicon from one source SVG
@@ -53,6 +57,7 @@ export default defineConfig({
   ],
   resolve: {
     alias: {
+      '@': fileURLToPath(new URL('./src', import.meta.url)),
       '@podium/protocol': fileURLToPath(
         new URL('../../packages/protocol/src/index.ts', import.meta.url),
       ),
