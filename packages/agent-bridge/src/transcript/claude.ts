@@ -48,6 +48,15 @@ const freshId = (prefix: string): string => `${prefix}-${++fallbackCounter}`
 // it as an interrupt rather than a typed prompt.
 const INTERRUPT_MARKER = '[Request interrupted by user]'
 
+// Claude Code injects <system-reminder> blocks INTO user turns (timestamps,
+// context nudges) — sometimes prepended/appended to a real prompt, sometimes a
+// turn is nothing but a reminder. They aren't user-authored, so strip them: the
+// chat shows only what the user wrote, a turn that was wholly a reminder drops
+// out, and the cleaned text matches the optimistic-bubble draft for reconciliation.
+function stripSystemReminders(text: string): string {
+  return text.replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '').trim()
+}
+
 function userItems(
   uuid: string | undefined,
   ts: string | undefined,
@@ -62,15 +71,15 @@ function userItems(
   // content — tool_results — is never an injected turn, so it falls through.)
   if (typeof content === 'string') {
     if (promptSource === 'system') return []
-    const trimmed = content.trim()
-    if (!trimmed) return []
+    const text = stripSystemReminders(content)
+    if (!text) return []
     return [
       {
         id: uuid ?? freshId('u'),
         role: 'user',
         ts,
-        text: content,
-        ...(trimmed === INTERRUPT_MARKER ? { event: 'interrupt' as const } : {}),
+        text,
+        ...(text === INTERRUPT_MARKER ? { event: 'interrupt' as const } : {}),
       },
     ]
   }
@@ -104,7 +113,7 @@ function userItems(
       })
     }
   }
-  const text = textParts.join('\n').trim()
+  const text = stripSystemReminders(textParts.join('\n'))
   if (text || tags.length > 0) {
     items.unshift({
       id: uuid ?? freshId('u'),

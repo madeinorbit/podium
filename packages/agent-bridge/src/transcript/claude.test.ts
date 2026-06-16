@@ -200,6 +200,31 @@ describe('claudeRecordToItems — injected vs real user turns', () => {
     expect(items[0]).toMatchObject({ role: 'tool', toolResult: 'ok' })
   })
 
+  it('strips a prepended <system-reminder> and keeps the real prompt (e.g. "Yes")', () => {
+    const rec = {
+      type: 'user',
+      promptSource: 'queued',
+      uuid: 'q1',
+      message: {
+        role: 'user',
+        content: '<system-reminder>Message sent at Sun 2026-06-14 20:37:24 UTC.</system-reminder>\nYes',
+      },
+    }
+    const items = claudeRecordToItems(rec)
+    expect(items).toHaveLength(1)
+    expect(items[0]).toMatchObject({ role: 'user', text: 'Yes' })
+    expect(items[0]?.text).not.toContain('system-reminder')
+  })
+
+  it('drops a user turn that is wholly a <system-reminder> (no real prompt left)', () => {
+    const rec = {
+      type: 'user',
+      uuid: 'sr1',
+      message: { role: 'user', content: '<system-reminder>Background context…</system-reminder>\n' },
+    }
+    expect(claudeRecordToItems(rec)).toEqual([])
+  })
+
   it('flags a user interrupt as an event but keeps role "user" (recognized, not reclassified)', () => {
     const rec = {
       type: 'user',
