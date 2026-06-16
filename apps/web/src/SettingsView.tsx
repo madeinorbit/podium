@@ -8,9 +8,12 @@ import {
 } from '@podium/core'
 import type { JSX } from 'react'
 import { useEffect, useState } from 'react'
+import { Button } from '@/components/ui/button'
 import { useStore } from './store'
+import { type ThemeMode, type ThemePreset, useTheme } from './theme'
 
 type SettingsTab =
+  | 'appearance'
   | 'sessions'
   | 'superagent'
   | 'workllm'
@@ -20,6 +23,7 @@ type SettingsTab =
   | 'integrations'
 
 const SETTINGS_TABS: { key: SettingsTab; label: string }[] = [
+  { key: 'appearance', label: 'Appearance' },
   { key: 'sessions', label: 'New sessions' },
   { key: 'superagent', label: 'Superagent' },
   { key: 'workllm', label: 'Background LLM' },
@@ -108,6 +112,8 @@ export function SettingsView(): JSX.Element {
             ))}
           </nav>
           <div className="settings-body">
+            {tab === 'appearance' && <AppearanceSection />}
+
             {tab === 'sessions' && (
               <Section
                 title="New sessions"
@@ -372,6 +378,59 @@ function Section({
       {hint && <p className="settings-hint">{hint}</p>}
       {children}
     </section>
+  )
+}
+
+/** Theme + light/dark switcher. Theme state is UI-local (not part of the settings
+ *  blob), so it applies instantly via useTheme and persists on its own. */
+function AppearanceSection(): JSX.Element {
+  const { preset, mode, setPreset, setMode } = useTheme()
+  const presets: { value: ThemePreset; label: string }[] = [
+    { value: 'podium', label: 'Podium' },
+    { value: 'shadcn', label: 'shadcn' },
+  ]
+  const modes: { value: ThemeMode; label: string }[] = [
+    { value: 'light', label: 'Light' },
+    { value: 'dark', label: 'Dark' },
+  ]
+  return (
+    <Section
+      title="Appearance"
+      hint="Theme and light/dark mode. Applies instantly and is remembered on this device."
+    >
+      <Row label="Theme">
+        <div className="flex gap-1">
+          {presets.map((p) => (
+            <Button
+              key={p.value}
+              type="button"
+              size="sm"
+              variant={preset === p.value ? 'default' : 'outline'}
+              aria-pressed={preset === p.value}
+              onClick={() => setPreset(p.value)}
+            >
+              {p.label}
+            </Button>
+          ))}
+        </div>
+      </Row>
+      <Row label="Mode">
+        <div className="flex gap-1">
+          {modes.map((m) => (
+            <Button
+              key={m.value}
+              type="button"
+              size="sm"
+              variant={mode === m.value ? 'default' : 'outline'}
+              aria-pressed={mode === m.value}
+              onClick={() => setMode(m.value)}
+            >
+              {m.label}
+            </Button>
+          ))}
+        </div>
+      </Row>
+    </Section>
   )
 }
 
