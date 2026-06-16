@@ -20,6 +20,8 @@ import {
   type ChatBlock,
   minimapSegments,
   pairToolResults,
+  type PendingItem,
+  reconcilePending,
   searchBlocks,
 } from './chat'
 import { renderMarkdown } from './markdown'
@@ -51,6 +53,11 @@ export function ChatView({ sessionId }: { sessionId: string }): JSX.Element {
   const taRef = useRef<HTMLTextAreaElement | null>(null)
   const pinnedToBottom = useRef(true)
   const [atBottom, setAtBottom] = useState(true)
+  const [pending, setPending] = useState<PendingItem[]>([])
+  const pendingSeq = useRef(0)
+  // Block ids seen on the previous render — lets us detect *newly arrived* user
+  // blocks so a freshly-echoed prompt reconciles its optimistic bubble.
+  const seenUserIds = useRef<Set<string>>(new Set())
   const voice = useVoiceInput((text) => setDraft(draft ? `${draft} ${text}` : text))
 
   useEffect(() => hub.subscribeTranscript(sessionId, setItems), [hub, sessionId])
@@ -76,6 +83,34 @@ export function ChatView({ sessionId }: { sessionId: string }): JSX.Element {
   const blocks = useMemo(() => pairToolResults(effectiveItems), [effectiveItems])
   const matches = useMemo(() => searchBlocks(blocks, query), [blocks, query])
   const activeMatch = matches.length > 0 ? matches[matchCursor % matches.length] : undefined
+
+  useEffect(() => {
+    const prev = seenUserIds.current
+    const next = new Set<string>()
+    const newUserTexts: string[] = []
+    for (const b of blocks) {
+      if (b.item.role !== 'user') continue
+      next.add(b.item.id)
+      if (!prev.has(b.item.id)) newUserTexts.push(b.item.text)
+    }
+    seenUserIds.current = next
+    if (newUserTexts.length > 0) {
+      setPending((p) => (p.length === 0 ? p : reconcilePending(p, newUserTexts)))
+    }
+  }, [blocks])
+
+  // Drop the "sending" affordance after a grace period even if no echo arrived
+  // (slow tail / uninstrumented) — the prompt was still sent; keep the bubble.
+  useEffect(() => {
+    if (!pending.some((p) => p.state === 'sending')) return
+    const now = Date.now()
+    const t = setTimeout(() => {
+      setPending((p) =>
+        p.map((x) => (x.state === 'sending' && now - x.at >= 0 ? { ...x, state: 'failed' } : x)),
+      )
+    }, 30_000)
+    return () => clearTimeout(t)
+  }, [pending])
 
   // Follow the live tail unless the user scrolled up to read. Re-runs as blocks
   // arrive (snapshot lands after mount, then live appends) — an empty dep array
@@ -126,7 +161,13 @@ export function ChatView({ sessionId }: { sessionId: string }): JSX.Element {
     setDraft('')
     pinnedToBottom.current = true
     setAtBottom(true)
-    await trpc.sessions.sendText.mutate({ sessionId, text }).catch(() => {})
+    const id = `pending-${++pendingSeq.current}`
+    setPending((p) => [...p, { id, text, at: Date.now(), state: 'sending' }])
+    try {
+      await trpc.sessions.sendText.mutate({ sessionId, text })
+    } catch {
+      setPending((p) => p.map((x) => (x.id === id ? { ...x, state: 'failed' } : x)))
+    }
   }
 
   const sendable = session?.status === 'live' || session?.status === 'starting'
@@ -194,6 +235,24 @@ export function ChatView({ sessionId }: { sessionId: string }): JSX.Element {
               highlighted={i === activeMatch}
               dimmed={query.trim() !== '' && !blockMatches(block, query)}
             />
+          ))}
+          {pending.map((p) => (
+            <div
+              key={p.id}
+              className={cn(
+                'mx-auto w-full max-w-[760px] rounded-[10px] border border-border bg-secondary px-3.5 py-2.5',
+                p.state === 'failed' && 'border-destructive/60',
+              )}
+            >
+              <div className="mb-[3px] flex items-center gap-1.5 text-[10px] uppercase tracking-[0.07em] text-muted-foreground/70">
+                You
+                {p.state === 'sending' && <span className="normal-case tracking-normal opacity-70">· sending…</span>}
+                {p.state === 'failed' && <span className="normal-case tracking-normal text-destructive">· not delivered</span>}
+              </div>
+              <div className="whitespace-pre-wrap break-words text-sm leading-[1.45] text-foreground">
+                {p.text}
+              </div>
+            </div>
           ))}
         </div>
         <Minimap blocks={blocks} scrollerRef={scrollerRef} onJump={scrollToBlock} />
