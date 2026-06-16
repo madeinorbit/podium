@@ -11,6 +11,7 @@ import {
   Mic,
   Moon,
   RotateCcw,
+  Sparkles,
   Terminal as TerminalIcon,
 } from 'lucide-react'
 import type { JSX } from 'react'
@@ -49,7 +50,7 @@ export function AgentPanel({
    *  switching back catches up instead of wiping). Gates focus, nothing else. */
   active?: boolean
 }): JSX.Element {
-  const { hub, sessions, archiveSession } = useStore()
+  const { hub, sessions, archiveSession, startBtw } = useStore()
   const session = sessions.find((s) => s.sessionId === sessionId)
   const termRef = useRef<HTMLDivElement | null>(null)
   const toolbarRef = useRef<HTMLDivElement | null>(null)
@@ -144,6 +145,16 @@ export function AgentPanel({
               <TerminalIcon size={13} aria-hidden="true" />
             </button>
           </span>
+        )}
+        {chatCapable && (
+          <button
+            type="button"
+            className="panel-btw"
+            title="Ask the superagent about this session (BTW)"
+            onClick={() => void startBtw(sessionId)}
+          >
+            <Sparkles size={13} aria-hidden="true" />
+          </button>
         )}
         {!hibernated && !exited && (
           <button

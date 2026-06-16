@@ -898,8 +898,9 @@ body:has(.mobile-shell) {
   border-color: var(--accent);
 }
 
-/* Archive button in the panel bar (icon-only). */
-.panel-archive {
+/* Archive / BTW buttons in the panel bar (icon-only). */
+.panel-archive,
+.panel-btw {
   display: inline-flex;
   align-items: center;
 }
@@ -3075,6 +3076,27 @@ body:has(.mobile-shell) {
 }
 .superagent-head button:hover {
   color: var(--fg-bright);
+}
+.superagent-threads {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+/* More specific than `.superagent-head button` so the chips keep their own layout. */
+.superagent-head .super-thread {
+  margin-left: 0;
+  font-size: 11px;
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: none;
+  color: var(--dim);
+  cursor: pointer;
+}
+.superagent-head .super-thread:hover,
+.superagent-head .super-thread.active {
+  color: var(--fg-bright);
+  border-color: var(--dim);
 }
 .superagent-scroll {
   flex: 1;

@@ -3,7 +3,7 @@ import { createIssue, moveIssue, searchIssues } from './linear'
 import { LlmConfigError, type LlmMessage, type LlmTool, llmClient } from './llm'
 import type { SessionRegistry } from './relay'
 import type { RepoRegistry } from './repo-registry'
-import type { SessionStore, SuperagentMessageRow } from './store'
+import type { SessionStore, SuperagentMessageRow, SuperagentThreadRow } from './store'
 
 const MAX_TOOL_ROUNDS = 8
 const HISTORY_WINDOW = 40
@@ -56,14 +56,166 @@ export interface SuperagentTurn {
   backendLabel: string
 }
 
+// ---- /btw seeding ------------------------------------------------------------
+
+export interface BtwSessionInfo {
+  sessionId: string
+  name?: string
+  agentKind?: string
+  cwd?: string
+}
+
+/** One transcript item as a marked, length-bounded line (id + ts for awareness). */
+function lineForItem(it: TranscriptItem): string {
+  const stamp = `${it.ts ?? '?'} · ${it.id}`
+  if (it.role === 'tool') {
+    if (it.toolName) return `[${stamp}] ⚙ ${it.toolName} ${it.toolInput ?? ''}`.trim()
+    return `[${stamp}] result: ${(it.toolResult ?? '').slice(0, 300)}`
+  }
+  return `[${stamp}] ${it.role}: ${it.text.slice(0, 600)}`
+}
+
 /**
- * The always-there orchestrator. One global thread, persisted in SQLite. The
- * API-backed mode gets the full tool belt; the harness-backed mode (codex
- * subscription) is chat-only — the daemon runs one-shot \`codex exec\`/\`claude -p\`.
+ * Items the btw thread hasn't seen yet. Slices after the watermark item id; if
+ * that id has fallen out of the transcript (rolled to a fresh file) or there's no
+ * watermark, returns everything so the agent re-seeds rather than silently lose
+ * context.
+ */
+export function transcriptDelta(
+  items: TranscriptItem[],
+  watermark: { itemId?: string },
+): TranscriptItem[] {
+  if (!watermark.itemId) return items
+  const idx = items.findIndex((i) => i.id === watermark.itemId)
+  if (idx === -1) return items
+  return items.slice(idx + 1)
+}
+
+/**
+ * A deterministic, zero-LLM recap of a transcript — turn counts, a tool-usage
+ * histogram, and recently-touched files. Inspired by Hermes' build_recap (itself
+ * after Claude Code's /recap): cheap, instant grounding so the agent (and the
+ * orientation turn) start from facts instead of re-deriving them.
+ */
+export function buildBtwRecap(items: TranscriptItem[]): string {
+  const users = items.filter((i) => i.role === 'user' && i.text.trim()).length
+  const assistants = items.filter((i) => i.role === 'assistant' && i.text.trim()).length
+  const toolItems = items.filter((i) => i.role === 'tool' && i.toolName)
+  const hist = new Map<string, number>()
+  for (const it of toolItems) {
+    const name = it.toolName as string
+    hist.set(name, (hist.get(name) ?? 0) + 1)
+  }
+  const ranked = [...hist.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+  // Files touched (best-effort): toolInput is a one-line preview, not structured
+  // args, so pull the first path-like token from file-editing tools, newest first.
+  const fileTools = new Set([
+    'Edit',
+    'Write',
+    'Read',
+    'MultiEdit',
+    'NotebookEdit',
+    'str_replace_based_edit_tool',
+  ])
+  const seen = new Set<string>()
+  const files: string[] = []
+  for (let i = toolItems.length - 1; i >= 0; i--) {
+    const it = toolItems[i]
+    if (!it || !fileTools.has(it.toolName as string)) continue
+    const m = (it.toolInput ?? '').match(/[\w./@~-]*\.[A-Za-z]\w*/)
+    const p = m?.[0]
+    if (p && !seen.has(p)) {
+      seen.add(p)
+      files.push(p)
+    }
+  }
+  const lines = [
+    `Recap: ${users} user / ${assistants} assistant turns, ${toolItems.length} tool calls`,
+  ]
+  if (ranked.length > 0) {
+    const top = ranked
+      .slice(0, 6)
+      .map(([n, c]) => `${n}×${c}`)
+      .join(', ')
+    const extra = ranked.length - 6
+    lines.push(`Tools: ${top}${extra > 0 ? ` (+${extra} more)` : ''}`)
+  }
+  if (files.length > 0) {
+    const extra = files.length - 5
+    lines.push(`Files: ${files.slice(0, 5).join(', ')}${extra > 0 ? ` (+${extra} more)` : ''}`)
+  }
+  return lines.join('\n')
+}
+
+/**
+ * The opening context for a new btw thread: a deterministic recap, an optional
+ * summary, every user message verbatim (cheap + high-signal), and a recent
+ * full-detail tail. Each line carries the item id + timestamp so the agent knows
+ * how caught-up it is across re-opens. Budget-capped, trimming the tail
+ * (oldest-first) before the user messages.
+ */
+export function buildBtwSeed(opts: {
+  session: BtwSessionInfo
+  summary?: string
+  items: TranscriptItem[]
+  maxChars?: number
+  tailN?: number
+}): string {
+  const { session, summary, items } = opts
+  const maxChars = opts.maxChars ?? 20_000
+  const tailN = opts.tailN ?? 20
+  const last = items[items.length - 1]
+  const users = items.filter((i) => i.role === 'user' && i.text.trim())
+  const head =
+    `[BTW CONTEXT]\n` +
+    `You were opened from a Podium chat session; help continue or reason about it. ` +
+    `This is a digest — use read_session_transcript to pull the full transcript, plus ` +
+    `search_conversations, start_agent, etc.\n\n` +
+    `Session: ${session.name ?? session.sessionId} · ${session.agentKind ?? '?'} · ` +
+    `${session.cwd ?? '?'} (id: ${session.sessionId})\n` +
+    `Caught up to item ${last?.id ?? '(none)'} at ${last?.ts ?? '?'}.\n` +
+    `\n${buildBtwRecap(items)}\n` +
+    (summary ? `\nSummary: ${summary}\n` : '')
+  const userBlock =
+    `\nUser's messages (oldest→newest):\n` +
+    users.map((u) => `- [${u.ts ?? '?'}] ${u.text.slice(0, 2000)}`).join('\n')
+  // Tail trims oldest-first if the whole seed is over budget.
+  let tail = items.slice(-tailN)
+  let body = ''
+  while (tail.length > 0) {
+    body = `\n\nRecent activity (last ${tail.length} items):\n${tail.map(lineForItem).join('\n')}`
+    if (head.length + userBlock.length + body.length <= maxChars) break
+    tail = tail.slice(Math.ceil(tail.length / 4))
+  }
+  return (head + userBlock + body).slice(0, maxChars)
+}
+
+/** A re-open update: what changed in the origin session since the agent last looked. */
+export function buildBtwDelta(opts: {
+  prev: { itemId?: string; ts?: string }
+  delta: TranscriptItem[]
+  now: string
+}): string {
+  const last = opts.delta[opts.delta.length - 1]
+  return (
+    `[BTW UPDATE @ ${opts.now}]\n` +
+    `Since you last looked (item ${opts.prev.itemId ?? '?'} at ${opts.prev.ts ?? '?'}), ` +
+    `the user continued this session. ${opts.delta.length} new items:\n` +
+    opts.delta.map(lineForItem).join('\n') +
+    `\nNow caught up to item ${last?.id ?? '?'} at ${last?.ts ?? '?'}.`
+  )
+}
+
+/**
+ * The orchestrator with cross-project context. The always-there 'global' thread
+ * plus per-session 'btw' threads, persisted in SQLite. The API-backed mode gets
+ * the full tool belt; the harness-backed mode (codex subscription) is chat-only —
+ * the daemon runs one-shot \`codex exec\`/\`claude -p\`.
  */
 export class SuperagentService {
-  // Serialized: a second send while a turn runs waits — tools mutate shared state.
-  private busy: Promise<void> = Promise.resolve()
+  // Per-thread serialization: a second send on a thread waits for the first (tools
+  // mutate shared state), but the global thread and a btw thread don't block each other.
+  private readonly busy = new Map<string, Promise<void>>()
 
   constructor(
     private readonly registry: SessionRegistry,
@@ -71,41 +223,124 @@ export class SuperagentService {
     private readonly store: SessionStore,
   ) {}
 
-  history(): SuperagentMessageRow[] {
-    return this.store.loadSuperagentMessages()
-  }
-
-  clear(): void {
-    this.store.clearSuperagentMessages()
-  }
-
-  async send(text: string): Promise<SuperagentTurn> {
+  private async withLock<T>(threadId: string, fn: () => Promise<T>): Promise<T> {
+    const prev = this.busy.get(threadId) ?? Promise.resolve()
     let release: () => void = () => {}
-    const prev = this.busy
-    this.busy = new Promise((r) => {
-      release = r
-    })
+    this.busy.set(
+      threadId,
+      new Promise<void>((r) => {
+        release = r
+      }),
+    )
     await prev
     try {
-      return await this.runTurn(text)
+      return await fn()
     } finally {
       release()
     }
   }
 
-  private async runTurn(text: string): Promise<SuperagentTurn> {
+  history(threadId = 'global'): SuperagentMessageRow[] {
+    return this.store.loadSuperagentMessages(threadId)
+  }
+
+  clear(threadId = 'global'): void {
+    if (threadId === 'global') this.store.clearSuperagentMessages('global')
+    else this.store.archiveSuperagentThread(threadId)
+  }
+
+  listThreads(): SuperagentThreadRow[] {
+    return this.store.listSuperagentThreads()
+  }
+
+  async send(threadId: string, text: string): Promise<SuperagentTurn> {
+    return this.withLock(threadId, () => {
+      const newMessages: SuperagentMessageRow[] = [
+        this.store.appendSuperagentMessage(threadId, { role: 'user', content: text }),
+      ]
+      return this.generate(threadId, text, newMessages)
+    })
+  }
+
+  /**
+   * Open (or re-open) a btw thread for a chat session. New: seed it from the
+   * session's transcript (live or disk) and run one orientation turn. Re-open: if
+   * the source session advanced past the watermark, inject a marked delta so the
+   * agent knows what changed since it last looked (no turn — it lands in context
+   * for the user's next message).
+   */
+  async startBtw({
+    sessionId,
+  }: {
+    sessionId: string
+  }): Promise<{ threadId: string; isNew: boolean }> {
+    const threadId = `btw_${sessionId}`
+    const existing = this.store.getSuperagentThread(threadId)
+    const info = this.registry.listSessions().find((s) => s.sessionId === sessionId)
+    const session: BtwSessionInfo = {
+      sessionId,
+      name: info?.name ?? info?.title,
+      agentKind: info?.agentKind,
+      cwd: info?.cwd,
+    }
+    const { items } = await this.registry.readTranscript({ sessionId })
+    const last = items[items.length - 1]
+
+    if (existing?.kind !== 'btw') {
+      this.store.upsertSuperagentThread({
+        id: threadId,
+        kind: 'btw',
+        originSessionId: sessionId,
+        title: `btw · ${session.name ?? sessionId}`,
+      })
+      const seed = buildBtwSeed({ session, items })
+      await this.withLock(threadId, async () => {
+        this.store.appendSuperagentMessage(threadId, { role: 'user', content: seed })
+        this.store.setThreadWatermark(threadId, last?.id ?? '', last?.ts)
+        await this.generate(threadId, seed, [])
+      })
+      return { threadId, isNew: true }
+    }
+
+    const delta = transcriptDelta(items, { itemId: existing.watermarkItemId })
+    if (delta.length > 0) {
+      const update = buildBtwDelta({
+        prev: { itemId: existing.watermarkItemId, ts: existing.watermarkTs },
+        delta,
+        now: new Date().toISOString(),
+      })
+      await this.withLock(threadId, async () => {
+        this.store.appendSuperagentMessage(threadId, { role: 'user', content: update })
+        this.store.setThreadWatermark(
+          threadId,
+          last?.id ?? existing.watermarkItemId ?? '',
+          last?.ts,
+        )
+      })
+    }
+    return { threadId, isNew: false }
+  }
+
+  /**
+   * Run the backend over the thread's current history (the latest user message is
+   * already persisted) and record the assistant/tool turns. Returns this turn's
+   * new messages.
+   */
+  private async generate(
+    threadId: string,
+    latestText: string,
+    newMessages: SuperagentMessageRow[],
+  ): Promise<SuperagentTurn> {
     const settings = this.store.getSettings()
     const backend = settings.superagent
-    const newMessages: SuperagentMessageRow[] = []
     const record = (m: Omit<SuperagentMessageRow, 'id' | 'createdAt'>): SuperagentMessageRow => {
-      const saved = this.store.appendSuperagentMessage(m)
+      const saved = this.store.appendSuperagentMessage(threadId, m)
       newMessages.push(saved)
       return saved
     }
-    record({ role: 'user', content: text })
 
     if (backend.kind === 'harness') {
-      const prompt = this.renderHarnessPrompt(text)
+      const prompt = this.renderHarnessPrompt(threadId, latestText)
       const result = await this.registry.harnessExec({
         agent: backend.harnessAgent,
         model: backend.harnessModel,
@@ -137,7 +372,7 @@ export class SuperagentService {
     const tools = this.tools(settings.integrations.linearApiKey)
     const messages: LlmMessage[] = [
       { role: 'system', content: SYSTEM_PROMPT },
-      ...this.historyAsLlm(),
+      ...this.historyAsLlm(threadId),
     ]
 
     for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
@@ -192,8 +427,8 @@ export class SuperagentService {
     return { messages: newMessages, backendLabel: client.label }
   }
 
-  private historyAsLlm(): LlmMessage[] {
-    const rows = this.store.loadSuperagentMessages(HISTORY_WINDOW)
+  private historyAsLlm(threadId: string): LlmMessage[] {
+    const rows = this.store.loadSuperagentMessages(threadId, HISTORY_WINDOW)
     const out: LlmMessage[] = []
     for (const r of rows) {
       if (r.role === 'user') out.push({ role: 'user', content: r.content })
@@ -215,9 +450,9 @@ export class SuperagentService {
   }
 
   /** Harness mode is one-shot: fold recent history into a single prompt. */
-  private renderHarnessPrompt(latest: string): string {
+  private renderHarnessPrompt(threadId: string, latest: string): string {
     const rows = this.store
-      .loadSuperagentMessages(12)
+      .loadSuperagentMessages(threadId, 12)
       .filter((r) => r.role === 'user' || r.role === 'assistant')
     const history = rows
       .slice(0, -1)
@@ -336,8 +571,10 @@ export class SuperagentService {
       },
       {
         spec: {
-          name: 'read_transcript',
-          description: "Read the tail of a session's structured transcript (live sessions).",
+          name: 'read_session_transcript',
+          description:
+            "Read the tail of a session's structured transcript. Works for live, " +
+            'hibernated, and exited sessions (reads disk when not live).',
           parameters: {
             type: 'object',
             properties: {
@@ -349,9 +586,10 @@ export class SuperagentService {
         },
         run: async (args) => {
           const lastN = Math.min(100, Math.max(1, num(args.lastN) ?? 30))
-          const items = registry.transcriptFor(str(args.sessionId) ?? '').slice(-lastN)
-          if (items.length === 0) return '(no transcript buffered for this session)'
-          return items.map(renderTranscriptItem).join('\n')
+          const { items } = await registry.readTranscript({ sessionId: str(args.sessionId) ?? '' })
+          const tail = items.slice(-lastN)
+          if (tail.length === 0) return '(no transcript found for this session)'
+          return tail.map(renderTranscriptItem).join('\n')
         },
       },
       {

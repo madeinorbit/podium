@@ -88,12 +88,24 @@ export const appRouter = t.router({
       }),
   }),
   superagent: t.router({
-    history: t.procedure.query(({ ctx }) => ctx.superagent.history()),
+    // The global orchestrator thread plus per-session 'btw' threads.
+    listThreads: t.procedure.query(({ ctx }) => ctx.superagent.listThreads()),
+    history: t.procedure
+      .input(z.object({ threadId: z.string().default('global') }))
+      .query(({ ctx, input }) => ctx.superagent.history(input.threadId)),
     // Runs the full tool loop server-side; resolves with this turn's new messages.
     send: t.procedure
-      .input(z.object({ text: z.string().min(1).max(32_768) }))
-      .mutation(({ ctx, input }) => ctx.superagent.send(input.text)),
-    clear: t.procedure.mutation(({ ctx }) => ctx.superagent.clear()),
+      .input(
+        z.object({ threadId: z.string().default('global'), text: z.string().min(1).max(32_768) }),
+      )
+      .mutation(({ ctx, input }) => ctx.superagent.send(input.threadId, input.text)),
+    clear: t.procedure
+      .input(z.object({ threadId: z.string().default('global') }))
+      .mutation(({ ctx, input }) => ctx.superagent.clear(input.threadId)),
+    // Spin up (or re-open) a btw thread seeded from a chat session's transcript.
+    startBtw: t.procedure
+      .input(z.object({ sessionId: z.string() }))
+      .mutation(({ ctx, input }) => ctx.superagent.startBtw(input)),
   }),
   conversations: t.router({
     // Keyword search over the durable index (FTS5 where available). Empty query
