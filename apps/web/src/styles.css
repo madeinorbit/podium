@@ -1,19 +1,19 @@
 :root {
-  /* Legacy token names bridged onto the new theme system (see index.css): under the
-     default Podium-dark theme they resolve to the original palette EXACTLY, and they
-     re-theme with the rest of the app. Tokens that share a name with the new system
-     (--border, --border-strong, --faint, --success, --warning) are supplied directly
-     by the theme blocks in index.css and are intentionally not redefined here. The
-     legacy brand --accent was renamed to --primary throughout this file. */
-  --app: var(--background);
-  --panel: var(--card);
-  --panel-raised: var(--muted);
-  --surface: var(--secondary);
-  --fg: var(--foreground);
-  --fg-bright: var(--secondary-foreground);
-  --dim: var(--muted-foreground);
-  --danger: var(--destructive);
-  --r: var(--radius);
+  --app: #0e0e12;
+  --panel: #16161c;
+  --panel-raised: #1d1d25;
+  --surface: #25252f;
+  --border: #2a2a34;
+  --border-strong: #3a3a46;
+  --fg: #d7d7e0;
+  --fg-bright: #f3f3f8;
+  --dim: #9a9aa8;
+  --faint: #6a6a78;
+  --accent: #f59e0b;
+  --success: #34d399;
+  --warning: #fbbf24;
+  --danger: #f87171;
+  --r: 6px;
   /* Safe-area insets — iOS notch / Dynamic Island / home indicator. Non-zero
      ONLY in installed-PWA standalone mode (needs viewport-fit=cover, which
      index.html sets); 0 in normal web/Safari, so every use below is a no-op
@@ -142,7 +142,7 @@ body:has(.mobile-shell) {
   font: inherit;
 }
 .connect button {
-  background: var(--primary);
+  background: var(--accent);
   color: #1a1205;
   border: none;
   border-radius: var(--r);
@@ -189,7 +189,7 @@ body:has(.mobile-shell) {
 }
 .sidebar-head button:hover {
   color: var(--fg-bright);
-  border-color: var(--primary);
+  border-color: var(--accent);
 }
 .add-repo {
   display: flex;
@@ -209,7 +209,7 @@ body:has(.mobile-shell) {
   font-size: 12px;
 }
 .add-repo button {
-  background: var(--primary);
+  background: var(--accent);
   color: #1a1205;
   border: none;
   border-radius: var(--r);
@@ -315,7 +315,7 @@ body:has(.mobile-shell) {
   font-size: 10px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--primary);
+  color: var(--accent);
   font-weight: 700;
 }
 .worktree-block,
@@ -355,7 +355,7 @@ body:has(.mobile-shell) {
 }
 .pin-button.active,
 .tab-pin.active {
-  color: var(--primary);
+  color: var(--accent);
 }
 .worktree-context {
   flex: 0 1 auto;
@@ -678,7 +678,7 @@ body:has(.mobile-shell) {
   width: 26px;
   height: 26px;
   border: 2px solid var(--border-strong);
-  border-top-color: var(--primary);
+  border-top-color: var(--accent);
   border-radius: 50%;
   animation: term-spin 0.8s linear infinite;
 }
@@ -739,14 +739,14 @@ body:has(.mobile-shell) {
   transition: background 0.06s ease;
 }
 .toolbar .key:active {
-  background: var(--primary);
-  border-color: var(--primary);
+  background: var(--accent);
+  border-color: var(--accent);
   color: #1a1205;
 }
 /* Sticky modifier (Ctrl): lit while armed for the next keystroke. */
 .toolbar .key.mod.armed {
-  background: var(--primary);
-  border-color: var(--primary);
+  background: var(--accent);
+  border-color: var(--accent);
   color: #1a1205;
 }
 .toolbar .key-sep {
@@ -797,8 +797,8 @@ body:has(.mobile-shell) {
   touch-action: manipulation;
 }
 .key-actions .key-act:active {
-  background: var(--primary);
-  border-color: var(--primary);
+  background: var(--accent);
+  border-color: var(--accent);
   color: #1a1205;
 }
 .key-actions .key-mic {
@@ -895,7 +895,7 @@ body:has(.mobile-shell) {
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
 }
 .jump-bottom:hover {
-  border-color: var(--primary);
+  border-color: var(--accent);
 }
 
 /* Archive / BTW buttons in the panel bar (icon-only). */
@@ -1095,7 +1095,7 @@ body:has(.mobile-shell) {
   line-height: 1;
 }
 .tab-pin:hover {
-  color: var(--primary);
+  color: var(--accent);
 }
 .tab-kill:hover {
   color: var(--danger);
@@ -1148,7 +1148,7 @@ body:has(.mobile-shell) {
   margin-top: 16px;
 }
 .app-error-actions button {
-  background: var(--primary);
+  background: var(--accent);
   color: #1a1205;
   border: 0;
   border-radius: var(--r);
@@ -1234,12 +1234,12 @@ body:has(.mobile-shell) {
 }
 .repo-picker-toggle.active {
   color: var(--fg-bright);
-  border-color: var(--primary);
+  border-color: var(--accent);
 }
 .repo-picker-add {
   margin-left: auto;
-  background: var(--primary);
-  border-color: var(--primary);
+  background: var(--accent);
+  border-color: var(--accent);
   color: #1a1205;
   font-weight: 600;
 }
@@ -1351,7 +1351,7 @@ body:has(.mobile-shell) {
 }
 .scan-select-all:hover {
   color: var(--fg-bright);
-  border-color: var(--primary);
+  border-color: var(--accent);
 }
 .scan-row {
   display: grid;
@@ -1366,7 +1366,7 @@ body:has(.mobile-shell) {
   background: var(--panel-raised);
 }
 .scan-row input {
-  accent-color: var(--primary);
+  accent-color: var(--accent);
   width: 15px;
   height: 15px;
 }
@@ -1819,7 +1819,7 @@ body:has(.mobile-shell) {
   height: 100%;
 }
 .seg-agents {
-  background: var(--primary);
+  background: var(--accent);
 }
 .seg-projects {
   background: var(--success);
@@ -2001,7 +2001,7 @@ body:has(.mobile-shell) {
   flex: 0 0 90px;
 }
 .settings-row input[type="checkbox"] {
-  accent-color: var(--primary);
+  accent-color: var(--accent);
   width: 16px;
   height: 16px;
 }
@@ -2036,7 +2036,7 @@ body:has(.mobile-shell) {
   font-size: 12px;
 }
 .settings-save {
-  background: var(--primary);
+  background: var(--accent);
   border: 0;
   color: #1a1205;
   border-radius: var(--r);
@@ -2135,11 +2135,11 @@ body:has(.mobile-shell) {
 }
 .sidebar-tool:hover {
   color: var(--fg-bright);
-  border-color: var(--primary);
+  border-color: var(--accent);
 }
 .sidebar-tool.active {
   color: var(--fg-bright);
-  border-color: var(--primary);
+  border-color: var(--accent);
   background: var(--surface);
 }
 .sidebar-head .icon-only {
@@ -2228,7 +2228,7 @@ body:has(.mobile-shell) {
 .home-mode button.active {
   background: var(--surface);
   color: var(--fg-bright);
-  border-color: var(--primary);
+  border-color: var(--accent);
 }
 .home-groups {
   display: flex;
@@ -2314,13 +2314,13 @@ body:has(.mobile-shell) {
   white-space: nowrap;
 }
 .home-card-name:hover {
-  color: var(--primary);
+  color: var(--accent);
 }
 .home-card-title input {
   flex: 1;
   min-width: 0;
   background: var(--app);
-  border: 1px solid var(--primary);
+  border: 1px solid var(--accent);
   color: var(--fg-bright);
   border-radius: 4px;
   font: inherit;
@@ -2394,7 +2394,7 @@ body:has(.mobile-shell) {
 }
 .home-card-actions button:hover {
   color: var(--fg-bright);
-  border-color: var(--primary);
+  border-color: var(--accent);
 }
 .home-archived {
   margin-top: 22px;
@@ -2429,7 +2429,7 @@ body:has(.mobile-shell) {
   min-height: 120px;
 }
 .kanban-lane.over {
-  border-color: var(--primary);
+  border-color: var(--accent);
 }
 .kanban-lane-label {
   font-size: 11px;
@@ -2472,11 +2472,11 @@ body:has(.mobile-shell) {
 }
 .sidebar-home:hover {
   color: var(--fg-bright);
-  border-color: var(--primary);
+  border-color: var(--accent);
 }
 .sidebar-home.active {
   color: var(--fg-bright);
-  border-color: var(--primary);
+  border-color: var(--accent);
 }
 .mobile-home {
   background: none;
@@ -2489,7 +2489,7 @@ body:has(.mobile-shell) {
   cursor: pointer;
 }
 .mobile-home.active {
-  color: var(--primary);
+  color: var(--accent);
 }
 
 /* ---- chat view (Claude-app-style transcript) ---- */
@@ -2567,7 +2567,7 @@ body:has(.mobile-shell) {
   opacity: 0.35;
 }
 .chat-block.match-active {
-  outline: 1px solid var(--primary);
+  outline: 1px solid var(--accent);
   outline-offset: 4px;
   border-radius: var(--r);
 }
@@ -2627,7 +2627,7 @@ body:has(.mobile-shell) {
   padding: 0;
 }
 .chat-md a {
-  color: var(--primary);
+  color: var(--accent);
 }
 .chat-md blockquote {
   border-left: 2px solid var(--border-strong);
@@ -2726,7 +2726,7 @@ body:has(.mobile-shell) {
   background: var(--surface);
 }
 .mm-seg.mm-user {
-  background: var(--primary);
+  background: var(--accent);
 }
 .mm-seg.mm-assistant {
   background: var(--border-strong);
@@ -2768,7 +2768,7 @@ body:has(.mobile-shell) {
   padding: 8px 10px 6px;
 }
 .chat-composer:focus-within {
-  border-color: var(--primary);
+  border-color: var(--accent);
 }
 .chat-composer textarea {
   width: 100%;
@@ -2819,7 +2819,7 @@ body:has(.mobile-shell) {
   animation: conn-pulse 1.2s ease-in-out infinite;
 }
 .composer-btn.send {
-  background: var(--primary);
+  background: var(--accent);
   color: #1a1205;
 }
 .composer-btn.send:disabled {
@@ -2842,7 +2842,7 @@ body:has(.mobile-shell) {
 }
 .chat-input textarea:focus {
   outline: none;
-  border-color: var(--primary);
+  border-color: var(--accent);
 }
 .chat-send,
 .chat-mic {
@@ -2860,7 +2860,7 @@ body:has(.mobile-shell) {
 }
 .chat-send:not(:disabled):hover,
 .chat-mic:hover {
-  border-color: var(--primary);
+  border-color: var(--accent);
   color: var(--fg-bright);
 }
 .chat-send:disabled {
@@ -3004,7 +3004,7 @@ body:has(.mobile-shell) {
   cursor: pointer;
 }
 .search-hit-meta button:hover {
-  border-color: var(--primary);
+  border-color: var(--accent);
   color: var(--fg-bright);
 }
 .menu-search {
@@ -3149,7 +3149,7 @@ body:has(.mobile-shell) {
 }
 .superagent-input-wrap textarea:focus {
   outline: none;
-  border-color: var(--primary);
+  border-color: var(--accent);
 }
 .at-menu {
   position: absolute;
@@ -3190,7 +3190,7 @@ body:has(.mobile-shell) {
   font-size: 10px;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: var(--primary);
+  color: var(--accent);
   width: 86px;
 }
 .at-label {
@@ -3279,7 +3279,7 @@ body:has(.mobile-shell) {
 .usage-day-bar {
   width: 100%;
   max-width: 42px;
-  background: var(--primary);
+  background: var(--accent);
   border-radius: 3px 3px 0 0;
   opacity: 0.85;
 }
@@ -3374,7 +3374,7 @@ body:has(.mobile-shell) {
   font-size: 13px;
 }
 .hibernated-pane button {
-  background: var(--primary);
+  background: var(--accent);
   border: 0;
   color: #1a1205;
   border-radius: var(--r);
@@ -3399,7 +3399,7 @@ body:has(.mobile-shell) {
   cursor: pointer;
 }
 .settings-permission:hover {
-  border-color: var(--primary);
+  border-color: var(--accent);
 }
 
 .panel-mic {
@@ -3450,7 +3450,7 @@ body:has(.mobile-shell) {
   font-size: 14px;
 }
 .update-toast button {
-  background: var(--primary);
+  background: var(--accent);
   color: #1a1205;
   border: 0;
   border-radius: var(--r);

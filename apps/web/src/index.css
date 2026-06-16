@@ -1,12 +1,13 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
+@import "@fontsource-variable/geist";
 
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
   --font-heading: var(--font-sans);
-  --font-sans: ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-sans: 'Geist Variable', sans-serif;
 
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -23,11 +24,10 @@
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
-  --color-destructive-foreground: var(--destructive-foreground);
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
-  /* Podium semantic extras (not in the stock shadcn set). */
+  /* Podium semantic extras (agent/host state) — not in the stock shadcn set. */
   --color-success: var(--success);
   --color-warning: var(--warning);
 
@@ -54,88 +54,82 @@
   --radius-4xl: calc(var(--radius) * 2.6);
 }
 
-/* ── shadcn preset (zinc) — light (default when no data-theme + no .dark) ───────── */
+/* ── shadcn (Nova) preset — light (default: no data-theme + no .dark) ───────────── */
 :root {
   --radius: 0.625rem;
   --background: oklch(1 0 0);
-  --foreground: oklch(0.141 0.005 285.823);
+  --foreground: oklch(0.145 0 0);
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0.141 0.005 285.823);
+  --card-foreground: oklch(0.145 0 0);
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.141 0.005 285.823);
-  --primary: oklch(0.21 0.006 285.885);
+  --popover-foreground: oklch(0.145 0 0);
+  --primary: oklch(0.205 0 0);
   --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.967 0.001 286.375);
-  --secondary-foreground: oklch(0.21 0.006 285.885);
-  --muted: oklch(0.967 0.001 286.375);
-  --muted-foreground: oklch(0.552 0.016 285.938);
-  --accent: oklch(0.967 0.001 286.375);
-  --accent-foreground: oklch(0.21 0.006 285.885);
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: oklch(0.205 0 0);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --accent: oklch(0.97 0 0);
+  --accent-foreground: oklch(0.205 0 0);
   --destructive: oklch(0.577 0.245 27.325);
-  --destructive-foreground: oklch(0.985 0 0);
-  --border: oklch(0.92 0.004 286.32);
-  --border-strong: oklch(0.85 0.004 286.32);
-  --faint: oklch(0.62 0.016 285.938);
-  --input: oklch(0.92 0.004 286.32);
-  --ring: oklch(0.705 0.015 286.067);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --ring: oklch(0.708 0 0);
   --success: oklch(0.6 0.13 163);
   --warning: oklch(0.78 0.16 70);
-  --chart-1: oklch(0.871 0.006 286.286);
-  --chart-2: oklch(0.552 0.016 285.938);
-  --chart-3: oklch(0.442 0.017 285.786);
-  --chart-4: oklch(0.37 0.013 285.805);
-  --chart-5: oklch(0.274 0.006 286.033);
+  --chart-1: oklch(0.87 0 0);
+  --chart-2: oklch(0.556 0 0);
+  --chart-3: oklch(0.439 0 0);
+  --chart-4: oklch(0.371 0 0);
+  --chart-5: oklch(0.269 0 0);
   --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.141 0.005 285.823);
-  --sidebar-primary: oklch(0.21 0.006 285.885);
+  --sidebar-foreground: oklch(0.145 0 0);
+  --sidebar-primary: oklch(0.205 0 0);
   --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.967 0.001 286.375);
-  --sidebar-accent-foreground: oklch(0.21 0.006 285.885);
-  --sidebar-border: oklch(0.92 0.004 286.32);
-  --sidebar-ring: oklch(0.705 0.015 286.067);
+  --sidebar-accent: oklch(0.97 0 0);
+  --sidebar-accent-foreground: oklch(0.205 0 0);
+  --sidebar-border: oklch(0.922 0 0);
+  --sidebar-ring: oklch(0.708 0 0);
 }
 
-/* ── shadcn preset (zinc) — dark ────────────────────────────────────────────────── */
+/* ── shadcn (Nova) preset — dark ────────────────────────────────────────────────── */
 .dark {
-  --background: oklch(0.141 0.005 285.823);
+  --background: oklch(0.145 0 0);
   --foreground: oklch(0.985 0 0);
-  --card: oklch(0.21 0.006 285.885);
+  --card: oklch(0.205 0 0);
   --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.21 0.006 285.885);
+  --popover: oklch(0.205 0 0);
   --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.92 0.004 286.32);
-  --primary-foreground: oklch(0.21 0.006 285.885);
-  --secondary: oklch(0.274 0.006 286.033);
+  --primary: oklch(0.922 0 0);
+  --primary-foreground: oklch(0.205 0 0);
+  --secondary: oklch(0.269 0 0);
   --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.274 0.006 286.033);
-  --muted-foreground: oklch(0.705 0.015 286.067);
-  --accent: oklch(0.274 0.006 286.033);
+  --muted: oklch(0.269 0 0);
+  --muted-foreground: oklch(0.708 0 0);
+  --accent: oklch(0.269 0 0);
   --accent-foreground: oklch(0.985 0 0);
   --destructive: oklch(0.704 0.191 22.216);
-  --destructive-foreground: oklch(0.985 0 0);
   --border: oklch(1 0 0 / 10%);
-  --border-strong: oklch(1 0 0 / 18%);
-  --faint: oklch(0.5 0.016 285.938);
   --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.552 0.016 285.938);
+  --ring: oklch(0.556 0 0);
   --success: oklch(0.7 0.15 162);
   --warning: oklch(0.83 0.16 82);
-  --chart-1: oklch(0.871 0.006 286.286);
-  --chart-2: oklch(0.552 0.016 285.938);
-  --chart-3: oklch(0.442 0.017 285.786);
-  --chart-4: oklch(0.37 0.013 285.805);
-  --chart-5: oklch(0.274 0.006 286.033);
-  --sidebar: oklch(0.21 0.006 285.885);
+  --chart-1: oklch(0.87 0 0);
+  --chart-2: oklch(0.556 0 0);
+  --chart-3: oklch(0.439 0 0);
+  --chart-4: oklch(0.371 0 0);
+  --chart-5: oklch(0.269 0 0);
+  --sidebar: oklch(0.205 0 0);
   --sidebar-foreground: oklch(0.985 0 0);
   --sidebar-primary: oklch(0.488 0.243 264.376);
   --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.274 0.006 286.033);
+  --sidebar-accent: oklch(0.269 0 0);
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.552 0.016 285.938);
+  --sidebar-ring: oklch(0.556 0 0);
 }
 
-/* ── Podium preset — light (derived) ────────────────────────────────────────────── */
+/* ── Podium preset — light (derived from the brand palette) ─────────────────────── */
 [data-theme="podium"] {
   --radius: 0.375rem;
   --background: #f7f7f9;
@@ -153,17 +147,22 @@
   --accent: #e4e4ea;
   --accent-foreground: #1a1a22;
   --destructive: #dc2626;
-  --destructive-foreground: #ffffff;
   --border: #e2e2e8;
-  --border-strong: #d0d0d8;
-  --faint: #8a8a96;
   --input: #e2e2e8;
   --ring: #d97706;
   --success: #059669;
   --warning: #d97706;
+  --sidebar: #f0f0f3;
+  --sidebar-foreground: #1a1a22;
+  --sidebar-primary: #d97706;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #e4e4ea;
+  --sidebar-accent-foreground: #1a1a22;
+  --sidebar-border: #e2e2e8;
+  --sidebar-ring: #d97706;
 }
 
-/* ── Podium preset — dark = today's exact palette (no regression) ───────────────── */
+/* ── Podium preset — dark = the brand's signature look (amber on near-black) ─────── */
 [data-theme="podium"].dark {
   --radius: 0.375rem;
   --background: #0e0e12;
@@ -181,14 +180,19 @@
   --accent: #25252f;
   --accent-foreground: #f3f3f8;
   --destructive: #f87171;
-  --destructive-foreground: #0e0e12;
   --border: #2a2a34;
-  --border-strong: #3a3a46;
-  --faint: #6a6a78;
   --input: #2a2a34;
   --ring: #f59e0b;
   --success: #34d399;
   --warning: #fbbf24;
+  --sidebar: #16161c;
+  --sidebar-foreground: #d7d7e0;
+  --sidebar-primary: #f59e0b;
+  --sidebar-primary-foreground: #0e0e12;
+  --sidebar-accent: #25252f;
+  --sidebar-accent-foreground: #f3f3f8;
+  --sidebar-border: #2a2a34;
+  --sidebar-ring: #f59e0b;
 }
 
 @layer base {
@@ -197,5 +201,13 @@
   }
   body {
     @apply bg-background text-foreground;
+  }
+  html {
+    @apply font-sans;
+  }
+  /* Give Base UI's portalled popups a root stacking context so they layer above
+     app content without per-component z-index juggling. */
+  #root {
+    isolation: isolate;
   }
 }
