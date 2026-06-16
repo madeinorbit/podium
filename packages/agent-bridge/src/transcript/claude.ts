@@ -6,13 +6,20 @@ import type { TranscriptItem, TranscriptTag } from '@podium/protocol'
  * text + two tool calls becomes one 'assistant' item and two 'tool' items.
  *
  * Skipped on purpose: sidechain records (subagent internals), summary/progress
- * bookkeeping, and tool-result-only user records become 'tool' result items
- * rather than user messages.
+ * bookkeeping, isMeta records (injected, non-user-authored content), and
+ * tool-result-only user records become 'tool' result items rather than user
+ * messages.
  */
 export function claudeRecordToItems(record: unknown): TranscriptItem[] {
   if (typeof record !== 'object' || record === null) return []
   const r = record as Record<string, unknown>
   if (r.isSidechain === true) return []
+  // Claude Code tags synthetic/injected turns with isMeta:true — skill-body
+  // expansions ("Base directory for this skill: …"), slash-command expansions,
+  // the auto "Continue from where you left off." prompt, SessionStart context.
+  // Its own UI hides them; rendering them as user messages dumps what looks like
+  // the system prompt into the chat view (and poisons the /btw seed downstream).
+  if (r.isMeta === true) return []
   const uuid = typeof r.uuid === 'string' ? r.uuid : undefined
   const ts = typeof r.timestamp === 'string' ? r.timestamp : undefined
   const message = (r.message ?? {}) as Record<string, unknown>

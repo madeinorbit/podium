@@ -87,6 +87,31 @@ describe('claudeRecordToItems', () => {
     expect(claudeRecordToItems('garbage')).toEqual([])
   })
 
+  it('skips isMeta records (skill-body / slash-command / continuation injections)', () => {
+    // Claude Code marks injected, non-user-authored content with isMeta:true — a
+    // skill body, a slash-command expansion, an auto "Continue…" prompt — and its
+    // own UI hides them. They must not render as user messages in the chat view.
+    expect(
+      claudeRecordToItems({
+        type: 'user',
+        uuid: 'm1',
+        isMeta: true,
+        message: {
+          role: 'user',
+          content: 'Base directory for this skill: /…/brainstorming\n\n# Brainstorming…',
+        },
+      }),
+    ).toEqual([])
+    expect(
+      claudeRecordToItems({
+        type: 'user',
+        uuid: 'm2',
+        isMeta: true,
+        message: { role: 'user', content: 'Continue from where you left off.' },
+      }),
+    ).toEqual([])
+  })
+
   it('truncates huge tool results', () => {
     const items = claudeRecordToItems({
       type: 'user',
