@@ -158,4 +158,45 @@ describe('claudeRecordToItems — injected vs real user turns', () => {
     expect(items[0]).toMatchObject({ role: 'user' })
     expect(items[0]?.text).toContain('fix the chat view')
   })
+
+  it('drops harness-injected pseudo-user turns (promptSource "system", e.g. task-notification)', () => {
+    const rec = {
+      type: 'user',
+      promptSource: 'system',
+      origin: { kind: 'task-notification' },
+      uuid: 'tn1',
+      message: {
+        role: 'user',
+        content: '<task-notification>\n<task-id>abc</task-id>\nSubagent result…\n</task-notification>',
+      },
+    }
+    expect(claudeRecordToItems(rec)).toEqual([])
+  })
+
+  it('keeps a real typed prompt (promptSource "typed")', () => {
+    const rec = {
+      type: 'user',
+      promptSource: 'typed',
+      uuid: 'u9',
+      message: { role: 'user', content: 'do the thing' },
+    }
+    const items = claudeRecordToItems(rec)
+    expect(items).toHaveLength(1)
+    expect(items[0]?.role).toBe('user')
+  })
+
+  it('still renders tool_result records even though they are type:"user"', () => {
+    const rec = {
+      type: 'user',
+      promptSource: 'system',
+      uuid: 'tr1',
+      message: {
+        role: 'user',
+        content: [{ type: 'tool_result', tool_use_id: 't1', content: 'ok' }],
+      },
+    }
+    const items = claudeRecordToItems(rec)
+    expect(items).toHaveLength(1)
+    expect(items[0]).toMatchObject({ role: 'tool', toolResult: 'ok' })
+  })
 })

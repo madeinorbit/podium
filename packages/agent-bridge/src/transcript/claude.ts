@@ -23,8 +23,13 @@ export function claudeRecordToItems(record: unknown): TranscriptItem[] {
   const uuid = typeof r.uuid === 'string' ? r.uuid : undefined
   const ts = typeof r.timestamp === 'string' ? r.timestamp : undefined
   const message = (r.message ?? {}) as Record<string, unknown>
+  // How the user turn originated. Real prompts are 'typed' (also paste/voice); the
+  // harness injects task-notifications, system-reminders and slash-command output
+  // as type:'user' turns tagged promptSource:'system' — not user-authored. Absent
+  // on older transcripts (then undefined → treated as a real turn, no regression).
+  const promptSource = typeof r.promptSource === 'string' ? r.promptSource : undefined
 
-  if (r.type === 'user') return userItems(uuid, ts, message)
+  if (r.type === 'user') return userItems(uuid, ts, message, promptSource)
   if (r.type === 'assistant') return assistantItems(uuid, ts, message)
   if (r.type === 'system') {
     const text = typeof r.content === 'string' ? r.content : ''
@@ -41,10 +46,16 @@ function userItems(
   uuid: string | undefined,
   ts: string | undefined,
   message: Record<string, unknown>,
+  promptSource: string | undefined,
 ): TranscriptItem[] {
   const content = message.content
-  // Plain string content: the common typed prompt.
+  // Plain string content: the common typed prompt. But the harness also injects
+  // task-notifications / system-reminders / slash-command output as string-content
+  // type:'user' turns tagged promptSource:'system' — Claude Code's own UI hides
+  // those, so drop them rather than render a misleading "You" bubble. (Array
+  // content — tool_results — is never an injected turn, so it falls through.)
   if (typeof content === 'string') {
+    if (promptSource === 'system') return []
     return content.trim() ? [{ id: uuid ?? freshId('u'), role: 'user', ts, text: content }] : []
   }
   if (!Array.isArray(content)) return []
