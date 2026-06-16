@@ -156,6 +156,6 @@ describe('claudeRecordToItems — injected vs real user turns', () => {
     const items = claudeRecordToItems(rec)
     expect(items).toHaveLength(1)
     expect(items[0]).toMatchObject({ role: 'user' })
-    expect(items[0].text).toContain('fix the chat view')
+    expect(items[0]?.text).toContain('fix the chat view')
   })
 })
