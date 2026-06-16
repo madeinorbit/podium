@@ -5,7 +5,7 @@ import { useState } from 'react'
 import {
   agentBadge,
   type RepoNavView,
-  sessionDotTone,
+  sessionDotClass,
   sidebarSections,
   type WorktreeNavView,
 } from './derive'
@@ -317,7 +317,7 @@ function PanelRow({
         className={active ? 'panel-row active' : 'panel-row'}
         onClick={onSelect}
       >
-        <span className={`dot ${sessionDotTone(session)}`} /> <WorkerLabel session={session} />
+        <span className={sessionDotClass(session)} /> <WorkerLabel session={session} />
       </button>
       {badge?.showContinue && (
         <button

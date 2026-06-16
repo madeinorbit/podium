@@ -733,18 +733,20 @@ describe('structured transcript channel', () => {
 })
 
 describe('sendText (chat send path)', () => {
-  it('types single-line text + CR into the PTY of a live session', () => {
+  it('wraps single-line text in bracketed paste, then submits with a separate CR', () => {
     const reg = new SessionRegistry()
     const daemon: ControlMessage[] = []
     reg.attachDaemon((m) => daemon.push(m))
     const { sessionId } = reg.createSession({ agentKind: 'claude-code', cwd: '/w' })
     reg.onDaemonMessage(bind(sessionId))
     expect(reg.sendText({ sessionId, text: 'run the tests' })).toEqual({ ok: true })
-    const input = daemon.find((m) => m.type === 'input')
-    expect(input).toBeDefined()
-    expect(Buffer.from((input as { data: string }).data, 'base64').toString()).toBe(
-      'run the tests\r',
-    )
+    // Single-line goes through the same paste-then-CR path as multi-line: a CR fused
+    // onto the text in one write gets absorbed by some TUIs — the message lands in the
+    // input but never submits, which was the "types into native but doesn't submit" bug.
+    const inputs = daemon
+      .filter((m) => m.type === 'input')
+      .map((m) => Buffer.from((m as { data: string }).data, 'base64').toString())
+    expect(inputs).toEqual(['\x1b[200~run the tests\x1b[201~', '\r'])
   })
 
   it('wraps multi-line text in bracketed paste, then submits with a separate CR', () => {

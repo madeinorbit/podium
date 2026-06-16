@@ -93,6 +93,9 @@ export function AgentPanel({
       sessionId,
       ...(toolbarRef.current ? { toolbarEl: toolbarRef.current } : {}),
       ...(E2E ? { test: true } : {}),
+      // Don't grab focus on mount — that pops the soft keyboard over the
+      // "Starting…" overlay. The focus effect below takes over once output lands.
+      focusOnMount: false,
       onFirstFrame: () => setHasOutput(true),
     })
     mountedRef.current = mounted
@@ -105,12 +108,14 @@ export function AgentPanel({
   }, [hub, sessionId, effectiveMode, hibernated, exited])
 
   // Kept mounted while hidden (inactive tab) so its terminal state survives a tab
-  // switch — when it becomes the visible tab again, return focus to it.
+  // switch — when it becomes the visible tab again, return focus to it. Gated on
+  // hasOutput so focus (and the soft keyboard it raises on mobile) waits for the
+  // terminal to actually be live instead of landing over the "Starting…" overlay.
   useEffect(() => {
-    if (active && effectiveMode === 'native' && !hibernated && !exited) {
+    if (active && effectiveMode === 'native' && !hibernated && !exited && hasOutput) {
       mountedRef.current?.view.focus()
     }
-  }, [active, effectiveMode, hibernated, exited])
+  }, [active, effectiveMode, hibernated, exited, hasOutput])
 
   const sendKey = (key: SpecialKey): void => {
     mountedRef.current?.connection.sendInput(keySequence(key))

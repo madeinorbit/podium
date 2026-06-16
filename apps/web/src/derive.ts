@@ -285,17 +285,32 @@ export type DotTone =
 /**
  * The status-dot tone for a session row/tab. For a running session the colour
  * encodes the agent's *state* — working / idle / needs-you / error — so the dot
- * alone tells the story without a text badge. Parked/dead sessions keep their
- * structural tone (hibernated + exited also read grayed-and-italic via CSS).
+ * alone tells the story without a text badge.
+ *
+ * Hibernated sessions keep their LAST agent-state colour rather than going grey:
+ * a parked agent that stopped on a question still needs you, and that has to stay
+ * legible at a glance. The hibernated status is carried by the grayed/italic row
+ * instead (see `sessionDotClass` + the `.dot.parked` styling). We fall back to the
+ * structural `hibernated` tone only when no runtime state was ever captured.
  */
 export function sessionDotTone(s: SessionMeta): DotTone {
-  if (s.status === 'hibernated') return 'hibernated'
   if (s.status === 'exited') return 'exited'
   if (s.status === 'starting') return 'starting'
   if (s.status === 'reconnecting') return 'reconnecting'
   const badge = agentBadge(s)
   if (badge) return badge.tone === 'muted' ? 'ended' : badge.tone
+  if (s.status === 'hibernated') return 'hibernated'
   // Uninstrumented live session: a shell is working only while producing output.
   if (s.agentKind === 'shell') return s.busy ? 'working' : 'idle'
   return 'working'
+}
+
+/**
+ * Full className for a session's status dot: the colour tone plus a `parked`
+ * marker for hibernated sessions. The marker drives the grayed/italic row look in
+ * CSS independently of the dot colour, so the dot can keep showing the last agent
+ * state while the row still reads as parked.
+ */
+export function sessionDotClass(s: SessionMeta): string {
+  return `dot ${sessionDotTone(s)}${s.status === 'hibernated' ? ' parked' : ''}`
 }

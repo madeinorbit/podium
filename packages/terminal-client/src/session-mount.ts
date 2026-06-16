@@ -16,6 +16,12 @@ export interface MountSessionOptions {
    * pre-output spawn or a wedged child leaves it unfired.
    */
   onFirstFrame?: () => void
+  /**
+   * Focus the terminal as soon as it mounts (default true). The panel sets this
+   * false so the soft keyboard doesn't pop up over the "Starting…" overlay on a
+   * mobile spawn — it focuses itself once the first frame lands instead.
+   */
+  focusOnMount?: boolean
 }
 
 export interface MountedSession {
@@ -114,7 +120,7 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
     connection.sendResize(grid.cols, grid.rows)
   })
 
-  view.focus()
+  if (opts.focusOnMount !== false) view.focus()
 
   if (opts.test) {
     ;(globalThis as unknown as { __podium?: unknown }).__podium = {

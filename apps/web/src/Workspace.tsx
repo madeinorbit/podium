@@ -19,7 +19,7 @@ import { Pin } from 'lucide-react'
 import type { JSX } from 'react'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { AgentPanel } from './AgentPanel'
-import { orderTabs, reposToViews, sessionDotTone, sessionsForWorktree } from './derive'
+import { orderTabs, reposToViews, sessionDotClass, sessionsForWorktree } from './derive'
 import { NewPanelMenu } from './NewPanelMenu'
 import { useStore } from './store'
 import type { WorktreeView } from './types'
@@ -279,7 +279,7 @@ function SortableTab({
       {...listeners}
     >
       <button type="button" className="tab" onClick={onSelect}>
-        <span className={`dot ${sessionDotTone(session)}`} /> <WorkerLabel session={session} />
+        <span className={sessionDotClass(session)} /> <WorkerLabel session={session} />
       </button>
       <button
         type="button"

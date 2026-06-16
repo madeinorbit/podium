@@ -279,16 +279,14 @@ export class SessionRegistry {
     }
     const send = (data: string) =>
       this.toDaemon({ type: 'input', sessionId, data: Buffer.from(data).toString('base64') })
-    if (text.includes('\n')) {
-      // Multi-line: bracketed paste so the harness takes it as one block. The
-      // submitting CR goes as its OWN write — a CR in the same chunk right after
-      // the paste-end marker gets absorbed by some TUIs (the message lands in the
-      // input as a newline but never submits), which is exactly the chat-send bug.
-      send(`\x1b[200~${text}\x1b[201~`)
-      send('\r')
-    } else {
-      send(`${text}\r`)
-    }
+    // Bracketed paste so the harness takes the message as one input block, then the
+    // submitting CR as its OWN write. A CR in the same chunk as the text (or right
+    // after the paste-end marker) gets absorbed by some TUIs — the message lands in
+    // the input but never submits. That bit single-line sends too (the plain
+    // `${text}\r` path), which is the "types into native but doesn't submit" bug, so
+    // both line counts now go through the same paste-then-submit sequence.
+    send(`\x1b[200~${text}\x1b[201~`)
+    send('\r')
     return { ok: true }
   }
 

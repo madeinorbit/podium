@@ -14,7 +14,7 @@ import {
   orderTabs,
   type RepoNavView,
   reposToViews,
-  sessionDotTone,
+  sessionDotClass,
   sessionsForWorktree,
   sidebarSections,
   type WorktreeNavView,
@@ -52,6 +52,13 @@ function useVisualViewportHeight(): void {
     }
     const apply = () => {
       root.style.setProperty('--viewport-h', `${Math.round(vv.height)}px`)
+      // The soft keyboard eats the bottom of the visual viewport, and while it's up
+      // the home-indicator safe area is hidden behind it — so reserving safe-area
+      // padding on the bottom key bar then just leaves a dead gap above the keyboard.
+      // Flag keyboard-open (layout viewport minus visual viewport > a threshold the
+      // URL-bar can't reach) so the bar drops that padding (see --kb-open in CSS).
+      const kbOpen = (window.innerHeight || vv.height) - vv.height > 150
+      root.style.setProperty('--kb-open', kbOpen ? '1' : '0')
       pin()
     }
     apply()
@@ -63,6 +70,7 @@ function useVisualViewportHeight(): void {
       vv.removeEventListener('scroll', apply)
       window.removeEventListener('scroll', pin)
       root.style.removeProperty('--viewport-h')
+      root.style.removeProperty('--kb-open')
     }
   }, [])
 }
@@ -173,7 +181,7 @@ export function MobileApp(): JSX.Element {
             >
               {currentTab ? (
                 <>
-                  <span className={`dot ${sessionDotTone(currentTab)}`} />{' '}
+                  <span className={sessionDotClass(currentTab)} />{' '}
                   <WorkerLabel session={currentTab} />
                 </>
               ) : (
@@ -205,7 +213,7 @@ export function MobileApp(): JSX.Element {
                     setView('workspace')
                   }}
                 >
-                  <span className={`dot ${sessionDotTone(t)}`} /> <WorkerLabel session={t} />
+                  <span className={sessionDotClass(t)} /> <WorkerLabel session={t} />
                 </button>
                 <button
                   type="button"
