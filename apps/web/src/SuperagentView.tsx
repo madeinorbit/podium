@@ -1,6 +1,9 @@
 import { Eraser, Mic, Send, Sparkles } from 'lucide-react'
 import type { JSX } from 'react'
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { Button } from '@/components/ui/button'
+import { Textarea } from '@/components/ui/textarea'
+import { cn } from '@/lib/utils'
 import { reposToViews } from './derive'
 import { renderMarkdown } from './markdown'
 import { useStore } from './store'
@@ -183,20 +186,29 @@ export function SuperagentView(): JSX.Element {
   }
 
   return (
-    <section className="superagent">
-      <div className="superagent-head">
-        <h1>
+    <section className="flex min-h-0 min-w-0 flex-1 flex-col">
+      <div className="flex items-center gap-2.5 border-b border-border px-[18px] py-3">
+        <h1 className="m-0 inline-flex items-center gap-[7px] text-[15px] font-medium text-foreground">
           <Sparkles size={16} aria-hidden="true" /> Superagent
         </h1>
         {threads.length > 1 && (
-          <div className="superagent-threads" role="tablist" aria-label="Superagent threads">
+          <div
+            className="flex flex-wrap gap-1.5"
+            role="tablist"
+            aria-label="Superagent threads"
+          >
             {threads.map((th) => (
               <button
                 key={th.id}
                 type="button"
                 role="tab"
                 aria-selected={th.id === superThreadId}
-                className={th.id === superThreadId ? 'super-thread active' : 'super-thread'}
+                className={cn(
+                  'cursor-pointer rounded-full border px-2 py-0.5 text-[11px] transition-colors',
+                  th.id === superThreadId
+                    ? 'border-muted-foreground text-foreground'
+                    : 'border-border text-muted-foreground hover:border-muted-foreground hover:text-foreground',
+                )}
                 title={th.kind === 'btw' ? 'BTW thread for a chat session' : 'Global orchestrator'}
                 onClick={() => setSuperThreadId(th.id)}
               >
@@ -205,52 +217,77 @@ export function SuperagentView(): JSX.Element {
             ))}
           </div>
         )}
-        <span className="superagent-backend">{backendLabel}</span>
-        <button
-          type="button"
+        <span className="text-[11px] text-muted-foreground/70">{backendLabel}</span>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          className="ml-auto"
           title={superThreadId === 'global' ? 'Clear thread' : 'Close this BTW thread'}
           onClick={() => void clear()}
         >
           <Eraser size={14} aria-hidden="true" />
-        </button>
+        </Button>
       </div>
-      <div className="superagent-scroll" ref={scrollRef}>
+      <div
+        className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto px-[18px] py-3.5"
+        ref={scrollRef}
+      >
         {messages.length === 0 && (
-          <div className="chat-empty">
+          <div className="mx-auto my-6 max-w-[46ch] text-center text-[13px] text-muted-foreground/70">
             Your orchestrator. Ask it to start agents, set up worktrees, dig through past
-            conversations, or work tickets. Type <code>@</code> to reference a repo, worktree, or
-            conversation.
+            conversations, or work tickets. Type{' '}
+            <code className="rounded-sm bg-background px-[3px] font-mono text-[0.92em]">@</code> to
+            reference a repo, worktree, or conversation.
           </div>
         )}
         {messages.map((m) => (
           <SuperMessageView key={m.id} message={m} />
         ))}
-        {busy && <div className="superagent-busy">Thinking…</div>}
+        {busy && (
+          <div className="mx-auto w-full max-w-[760px] animate-pulse text-xs text-muted-foreground/70">
+            Thinking…
+          </div>
+        )}
       </div>
-      <div className="chat-input">
-        <div className="superagent-input-wrap">
+      <div className="flex items-end gap-2 border-t border-border bg-card px-3.5 pt-2.5 pb-[calc(10px+env(safe-area-inset-bottom,0px))]">
+        <div className="relative flex min-w-0 flex-1">
           {atQuery !== null && atHits.length > 0 && (
-            <div className="at-menu" role="listbox">
+            <div
+              className="absolute right-0 bottom-[calc(100%+6px)] left-0 z-30 flex max-w-[460px] flex-col overflow-hidden rounded-md border border-input bg-muted shadow-[0_-8px_24px_rgb(0_0_0_/_0.4)]"
+              role="listbox"
+            >
               {atHits.map((option, i) => (
                 <button
                   key={`${option.kind}-${option.ref}`}
                   type="button"
                   role="option"
                   aria-selected={i === atIndex}
-                  className={i === atIndex ? 'at-option active' : 'at-option'}
+                  className={cn(
+                    'flex w-full min-w-0 cursor-pointer items-baseline gap-2 px-2.5 py-[7px] text-left text-xs',
+                    i === atIndex ? 'bg-accent text-foreground' : 'text-foreground',
+                  )}
                   onMouseEnter={() => setAtIndex(i)}
                   onClick={() => insertAt(option)}
                 >
-                  <span className="at-kind">{option.kind}</span>
-                  <span className="at-label">{option.label}</span>
-                  <span className="at-detail">{option.detail}</span>
+                  <span className="w-[86px] flex-none text-[10px] uppercase tracking-[0.05em] text-primary">
+                    {option.kind}
+                  </span>
+                  <span className="max-w-[45%] flex-none overflow-hidden text-ellipsis whitespace-nowrap font-semibold">
+                    {option.label}
+                  </span>
+                  <span className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-muted-foreground/70">
+                    {option.detail}
+                  </span>
                 </button>
               ))}
-              <div className="at-note">files: coming later</div>
+              <div className="border-t border-border px-2.5 pt-1 pb-1.5 text-[10px] text-muted-foreground/70">
+                files: coming later
+              </div>
             </div>
           )}
-          <textarea
+          <Textarea
             ref={inputRef}
+            className="min-h-0 flex-1 resize-none rounded-[10px] border-input bg-background px-3 py-[9px] text-[13px] leading-[1.45] text-foreground field-sizing-fixed focus-visible:border-primary focus-visible:ring-0"
             rows={Math.min(6, Math.max(1, draft.split('\n').length))}
             placeholder="Orchestrate… (@ for context, Enter to send)"
             value={draft}
@@ -291,7 +328,10 @@ export function SuperagentView(): JSX.Element {
         {voice.supported && (
           <button
             type="button"
-            className={voice.listening ? 'chat-mic active' : 'chat-mic'}
+            className={cn(
+              'flex size-9 flex-none items-center justify-center rounded-full border border-input bg-secondary text-foreground transition-colors hover:border-primary hover:text-foreground',
+              voice.listening && 'animate-pulse border-destructive text-destructive',
+            )}
             title={voice.listening ? 'Stop voice input' : 'Voice input'}
             onClick={voice.toggle}
           >
@@ -300,7 +340,7 @@ export function SuperagentView(): JSX.Element {
         )}
         <button
           type="button"
-          className="chat-send"
+          className="flex size-9 flex-none items-center justify-center rounded-full border border-input bg-secondary text-foreground transition-colors hover:border-primary hover:text-foreground disabled:cursor-default disabled:opacity-40"
           disabled={busy || !draft.trim()}
           title="Send"
           onClick={() => void send()}
@@ -316,13 +356,27 @@ function SuperMessageView({ message }: { message: SuperMessage }): JSX.Element |
   const [open, setOpen] = useState(false)
   if (message.role === 'tool') {
     return (
-      <div className="chat-block chat-tool">
-        <button type="button" className="chat-tool-row" onClick={() => setOpen((v) => !v)}>
-          <span className="chat-tool-chevron">{open ? '▾' : '▸'}</span>
-          <span className="chat-tool-name">{message.toolName ?? 'tool'}</span>
-          <span className="chat-tool-input">result</span>
+      <div className="mx-auto w-full max-w-[760px]">
+        <button
+          type="button"
+          className="flex w-full min-w-0 cursor-pointer items-baseline gap-[7px] py-0.5 text-left text-xs text-muted-foreground"
+          onClick={() => setOpen((v) => !v)}
+        >
+          <span className="flex-none text-[10px] text-muted-foreground/70">
+            {open ? '▾' : '▸'}
+          </span>
+          <span className="flex-none text-xs font-semibold text-foreground">
+            {message.toolName ?? 'tool'}
+          </span>
+          <span className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap font-mono text-[11px] text-muted-foreground/70">
+            result
+          </span>
         </button>
-        {open && <pre className="chat-tool-result">{message.content}</pre>}
+        {open && (
+          <pre className="mt-1 mr-0 mb-1 ml-[17px] max-h-[280px] overflow-auto whitespace-pre-wrap break-words rounded-md border border-border bg-background px-2.5 py-2 text-[11px] text-muted-foreground">
+            {message.content}
+          </pre>
+        )}
       </div>
     )
   }
@@ -333,18 +387,37 @@ function SuperMessageView({ message }: { message: SuperMessage }): JSX.Element |
   if (message.role === 'user' && /^\[BTW (CONTEXT|UPDATE)/.test(message.content)) {
     const label = message.content.startsWith('[BTW UPDATE') ? 'session update' : 'session context'
     return (
-      <div className="chat-block chat-tool">
-        <button type="button" className="chat-tool-row" onClick={() => setOpen((v) => !v)}>
-          <span className="chat-tool-chevron">{open ? '▾' : '▸'}</span>
-          <span className="chat-tool-name">{label}</span>
+      <div className="mx-auto w-full max-w-[760px]">
+        <button
+          type="button"
+          className="flex w-full min-w-0 cursor-pointer items-baseline gap-[7px] py-0.5 text-left text-xs text-muted-foreground"
+          onClick={() => setOpen((v) => !v)}
+        >
+          <span className="flex-none text-[10px] text-muted-foreground/70">
+            {open ? '▾' : '▸'}
+          </span>
+          <span className="flex-none text-xs font-semibold text-foreground">{label}</span>
         </button>
-        {open && <pre className="chat-tool-result">{message.content}</pre>}
+        {open && (
+          <pre className="mt-1 mr-0 mb-1 ml-[17px] max-h-[280px] overflow-auto whitespace-pre-wrap break-words rounded-md border border-border bg-background px-2.5 py-2 text-[11px] text-muted-foreground">
+            {message.content}
+          </pre>
+        )}
       </div>
     )
   }
   return (
-    <div className={`chat-block chat-${message.role}`}>
-      {message.role === 'user' && <div className="chat-role-tag">You</div>}
+    <div
+      className={cn(
+        'mx-auto w-full max-w-[760px]',
+        message.role === 'user' && 'rounded-[10px] border border-border bg-secondary px-3.5 py-2.5',
+      )}
+    >
+      {message.role === 'user' && (
+        <div className="mb-[3px] text-[10px] uppercase tracking-[0.07em] text-muted-foreground/70">
+          You
+        </div>
+      )}
       {message.content && (
         <div
           className="chat-md"
@@ -353,9 +426,12 @@ function SuperMessageView({ message }: { message: SuperMessage }): JSX.Element |
         />
       )}
       {message.toolCalls && message.toolCalls.length > 0 && (
-        <div className="superagent-calls">
+        <div className="mt-1.5 flex flex-wrap gap-1.5">
           {message.toolCalls.map((c) => (
-            <span key={c.id} className="superagent-call">
+            <span
+              key={c.id}
+              className="rounded-sm border border-input px-[7px] py-px text-[11px] text-muted-foreground"
+            >
               ⚙ {c.name}
             </span>
           ))}

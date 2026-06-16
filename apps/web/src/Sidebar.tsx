@@ -2,10 +2,13 @@ import type { SessionMeta } from '@podium/protocol'
 import { BarChart3, Home, Pin, Search, Settings as SettingsIcon, Sparkles } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
 import { useState } from 'react'
+import { Button } from '@/components/ui/button'
+import { cn } from '@/lib/utils'
 import {
   agentBadge,
+  type DotTone,
   type RepoNavView,
-  sessionDotClass,
+  sessionDotTone,
   sidebarSections,
   type WorktreeNavView,
 } from './derive'
@@ -15,6 +18,37 @@ import { SearchView } from './SearchView'
 import { useStore } from './store'
 import type { PinKind } from './types'
 import { WorkerLabel } from './WorkerLabel'
+
+/** Tone → dot colour, replacing the old `.dot.<tone>` rules. */
+const dotToneClass: Record<DotTone, string> = {
+  working: 'bg-primary',
+  idle: 'bg-success',
+  attention: 'bg-warning',
+  starting: 'bg-warning',
+  reconnecting: 'bg-warning',
+  error: 'bg-destructive',
+  ended: 'bg-muted-foreground',
+  exited: 'bg-muted-foreground',
+  hibernated: 'bg-primary',
+}
+
+function StatusDot({ session }: { session: SessionMeta }): JSX.Element {
+  const tone = sessionDotTone(session)
+  return (
+    <span
+      className={cn(
+        // Keep the `dot` element + `parked` marker: styles.css drives the
+        // hibernated "snoozed tab" look via `.dot.parked + .worker-label
+        // .worker-name` (grayed/italic), keyed on the marker not the colour so
+        // the dot still shows the last agent state. The colour itself is the
+        // Tailwind token below.
+        'dot inline-block size-2 min-w-2 flex-none rounded-full',
+        session.status === 'hibernated' && 'parked',
+        dotToneClass[tone] ?? 'bg-muted-foreground',
+      )}
+    />
+  )
+}
 
 export function Sidebar(): JSX.Element {
   const {
@@ -51,67 +85,93 @@ export function Sidebar(): JSX.Element {
   }
 
   return (
-    <aside className="sidebar">
+    <aside className="flex w-[280px] flex-shrink-0 flex-col overflow-y-auto border-r border-border bg-card text-card-foreground">
       <button
         type="button"
-        className={view === 'home' ? 'sidebar-home active' : 'sidebar-home'}
+        className={cn(
+          'mx-3 mt-2.5 flex items-center gap-2 rounded-md border px-2.5 py-[7px] text-[13px] text-foreground',
+          view === 'home'
+            ? 'border-primary font-medium text-foreground'
+            : 'border-input bg-secondary hover:border-primary hover:text-foreground',
+        )}
         onClick={() => setView('home')}
       >
         <Home size={14} aria-hidden="true" /> Command center
       </button>
       <button
         type="button"
-        className={view === 'superagent' ? 'sidebar-home active' : 'sidebar-home'}
+        className={cn(
+          'mx-3 mt-2.5 flex items-center gap-2 rounded-md border px-2.5 py-[7px] text-[13px] text-foreground',
+          view === 'superagent'
+            ? 'border-primary font-medium text-foreground'
+            : 'border-input bg-secondary hover:border-primary hover:text-foreground',
+        )}
         onClick={() => setView('superagent')}
       >
         <Sparkles size={14} aria-hidden="true" /> Superagent
       </button>
       {/* App-level tools row. Analytics + settings live here (a fullscreen view
           each, not a modal); future machine-wide tools join this strip. */}
-      <div className="sidebar-tools">
-        <button
-          type="button"
-          className={view === 'usage' ? 'sidebar-tool active' : 'sidebar-tool'}
+      <div className="flex items-center gap-1 px-3 pt-0.5 pb-1">
+        <Button
+          variant="ghost"
+          size="icon"
+          className={cn(
+            'border border-input text-muted-foreground hover:border-primary hover:text-foreground',
+            view === 'usage' && 'border-primary bg-secondary text-foreground',
+          )}
           aria-pressed={view === 'usage'}
           title="Usage & analytics"
           onClick={() => setView('usage')}
         >
           <BarChart3 size={15} aria-hidden="true" />
-        </button>
-        <button
-          type="button"
-          className={view === 'settings' ? 'sidebar-tool active' : 'sidebar-tool'}
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon"
+          className={cn(
+            'border border-input text-muted-foreground hover:border-primary hover:text-foreground',
+            view === 'settings' && 'border-primary bg-secondary text-foreground',
+          )}
           aria-pressed={view === 'settings'}
           title="Settings"
           onClick={() => setView('settings')}
         >
           <SettingsIcon size={15} aria-hidden="true" />
-        </button>
+        </Button>
       </div>
-      <div className="sidebar-head">
-        <span className="label">WORKTREES</span>
-        <div className="sidebar-head-actions">
-          <button type="button" onClick={() => setPickerOpen(true)}>
+      <div className="flex items-center justify-between p-3">
+        <span className="text-[11px] font-semibold tracking-[0.08em] text-muted-foreground">
+          WORKTREES
+        </span>
+        <div className="flex items-center gap-1.5">
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-auto border-input px-2 py-[3px] text-xs font-normal text-muted-foreground hover:border-primary hover:text-foreground"
+            onClick={() => setPickerOpen(true)}
+          >
             + Add repo
-          </button>
-          <button
-            type="button"
-            className="icon-only"
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className="border border-input text-muted-foreground hover:border-primary hover:text-foreground"
             title="Search conversations"
             onClick={() => setSearchOpen(true)}
           >
             <Search size={14} aria-hidden="true" />
-          </button>
+          </Button>
         </div>
       </div>
       {(reposLoading || repoDiagnostics.length > 0) && (
-        <div className="scan-status">
+        <div className="px-3 pt-1.5 pb-2 text-xs text-muted-foreground">
           {reposLoading
             ? 'Loading repositories...'
             : `Scan finished with ${repoDiagnostics.length} warning${repoDiagnostics.length === 1 ? '' : 's'}.`}
         </div>
       )}
-      <div className="sidebar-list">
+      <div className="flex-1 overflow-y-auto pb-3">
         {sections.pinnedPanels.length > 0 && (
           <PinnedSection label="PINNED PANELS">
             {sections.pinnedPanels.map((session) => (
@@ -174,7 +234,11 @@ export function Sidebar(): JSX.Element {
           />
         ))}
 
-        {!hasRows && <div className="empty">No repos yet. Use "+ Add repo" to scan a folder.</div>}
+        {!hasRows && (
+          <div className="p-3 text-xs text-muted-foreground/70">
+            No repos yet. Use "+ Add repo" to scan a folder.
+          </div>
+        )}
       </div>
       {/* Host health strip, pinned under the list — machine-level indicators
           (connection health, memory). */}
@@ -189,8 +253,10 @@ export function Sidebar(): JSX.Element {
 
 function PinnedSection({ label, children }: { label: string; children: ReactNode }): JSX.Element {
   return (
-    <div className="pinned-section">
-      <div className="pin-section-label">{label}</div>
+    <div className="min-w-0 border-b border-border py-1">
+      <div className="px-3 pt-2 pb-[3px] text-[10px] font-bold tracking-[0.08em] uppercase text-primary">
+        {label}
+      </div>
       {children}
     </div>
   )
@@ -214,9 +280,11 @@ function RepoBlock({
   onSelectPanel: (worktreePath: string, sessionId: string) => void
 }): JSX.Element {
   return (
-    <div className="repo">
-      <div className="repo-head">
-        <div className="repo-name">{repo.name}</div>
+    <div className="mt-1">
+      <div className="flex items-center justify-between pr-2">
+        <div className="min-w-0 flex-1 px-3 pt-1.5 pb-0.5 text-[11px] tracking-[0.06em] uppercase text-muted-foreground/70">
+          {repo.name}
+        </div>
         <PinButton
           kind="repo"
           id={repo.path}
@@ -259,16 +327,31 @@ function WorktreeBlock({
   onSelectPanel: (worktreePath: string, sessionId: string) => void
 }): JSX.Element {
   return (
-    <div className="worktree-block">
-      <div className="worktree-row-wrap">
+    <div className="min-w-0">
+      <div className="flex min-w-0 items-stretch">
         <button
           type="button"
-          className={active ? 'worktree active' : 'worktree'}
+          className={cn(
+            'flex min-w-0 flex-1 cursor-pointer items-center gap-2 px-3 py-1.5 text-left text-sm',
+            active
+              ? 'bg-accent font-medium text-accent-foreground'
+              : 'text-foreground hover:bg-accent',
+          )}
           onClick={onSelectWorktree}
         >
-          <span className="branch">{worktree.branch ?? worktree.path.split('/').pop()}</span>
-          {pinned && <span className="worktree-context">{worktree.repoName}</span>}
-          {worktree.isMain && <span className="tag">main</span>}
+          <span className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap">
+            {worktree.branch ?? worktree.path.split('/').pop()}
+          </span>
+          {pinned && (
+            <span className="min-w-0 max-w-[90px] flex-[0_1_auto] overflow-hidden text-ellipsis whitespace-nowrap text-[10px] text-muted-foreground/70">
+              {worktree.repoName}
+            </span>
+          )}
+          {worktree.isMain && (
+            <span className="rounded border border-input px-1 text-[10px] uppercase text-muted-foreground">
+              main
+            </span>
+          )}
         </button>
         <PinButton
           kind="worktree"
@@ -311,33 +394,43 @@ function PanelRow({
   const { continueSession } = useStore()
   const badge = agentBadge(session)
   return (
-    <div className="panel-row-wrap">
+    <div className="flex min-w-0 items-center gap-1">
       <button
         type="button"
-        className={active ? 'panel-row active' : 'panel-row'}
+        className={cn(
+          'flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 py-[3px] pr-3 pl-7 text-left text-xs',
+          active
+            ? 'bg-accent font-medium text-accent-foreground'
+            : 'text-muted-foreground hover:bg-accent hover:text-foreground',
+        )}
         onClick={onSelect}
       >
-        <span className={sessionDotClass(session)} /> <WorkerLabel session={session} />
+        <StatusDot session={session} /> <WorkerLabel session={session} />
       </button>
       {badge?.showContinue && (
-        <button
-          type="button"
-          className="continue-button"
+        <Button
+          variant="destructive"
+          size="sm"
+          className="h-auto border border-destructive/50 bg-transparent px-2 py-px text-[11px] font-normal hover:bg-destructive/10"
           title="Send 'continue' to the errored agent"
           onClick={() => void continueSession(session.sessionId)}
         >
           Continue
-        </button>
+        </Button>
       )}
-      <button
-        type="button"
-        className={pinned ? 'pin-button active' : 'pin-button'}
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        className={cn(
+          'w-7 min-w-7 flex-none rounded-none',
+          pinned ? 'text-primary' : 'text-muted-foreground/70 hover:text-foreground',
+        )}
         aria-pressed={pinned}
         title={pinned ? 'Unpin panel' : 'Pin panel'}
         onClick={() => onPinned(!pinned)}
       >
         <Pin size={13} aria-hidden="true" />
-      </button>
+      </Button>
     </div>
   )
 }
@@ -357,14 +450,18 @@ function PinButton({
 }): JSX.Element {
   const title = `${pinned ? 'Unpin' : 'Pin'} ${label}`
   return (
-    <button
-      type="button"
-      className={pinned ? 'pin-button active' : 'pin-button'}
+    <Button
+      variant="ghost"
+      size="icon-sm"
+      className={cn(
+        'w-7 min-w-7 flex-none rounded-none',
+        pinned ? 'text-primary' : 'text-muted-foreground/70 hover:text-foreground',
+      )}
       aria-pressed={pinned}
       title={title}
       onClick={() => void setPinned(kind, id, !pinned)}
     >
       <Pin size={13} aria-hidden="true" />
-    </button>
+    </Button>
   )
 }

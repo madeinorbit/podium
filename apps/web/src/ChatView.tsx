@@ -11,6 +11,10 @@ import {
 } from 'lucide-react'
 import type { JSX } from 'react'
 import { memo, useEffect, useMemo, useRef, useState } from 'react'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
+import { cn } from '@/lib/utils'
 import {
   blockMatches,
   type ChatBlock,
@@ -96,7 +100,7 @@ export function ChatView({ sessionId }: { sessionId: string }): JSX.Element {
     setAtBottom(true)
   }
 
-  // Auto-grow the composer with its content, capped by the CSS max-height (~8
+  // Auto-grow the composer with its content, capped by the max-height (~8
   // lines), after which it scrolls. Runs on every draft change.
   // biome-ignore lint/correctness/useExhaustiveDependencies: re-measure when the draft changes
   useEffect(() => {
@@ -128,11 +132,12 @@ export function ChatView({ sessionId }: { sessionId: string }): JSX.Element {
   const sendable = session?.status === 'live' || session?.status === 'starting'
 
   return (
-    <div className="chat-view">
-      <div className="chat-search">
-        <input
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div className="flex items-center gap-2 border-b border-border px-2.5 py-1.5">
+        <Input
           type="text"
           placeholder="Search transcript…"
+          className="h-auto flex-1 rounded-md bg-background px-2.5 py-1 text-xs text-foreground"
           value={query}
           onChange={(e) => {
             setQuery(e.target.value)
@@ -140,33 +145,43 @@ export function ChatView({ sessionId }: { sessionId: string }): JSX.Element {
           }}
         />
         {query && (
-          <span className="chat-search-meta">
+          <span className="inline-flex items-center gap-0.5 whitespace-nowrap text-[11px] text-muted-foreground">
             {matches.length === 0
               ? '0'
               : `${(matchCursor % Math.max(1, matches.length)) + 1}/${matches.length}`}
-            <button
+            <Button
               type="button"
+              variant="ghost"
+              size="icon-xs"
               title="Previous match"
+              className="size-auto rounded-none p-0.5 text-muted-foreground hover:bg-transparent hover:text-foreground"
               onClick={() =>
                 setMatchCursor((c) => (c - 1 + matches.length) % Math.max(1, matches.length))
               }
             >
               <ChevronUp size={13} aria-hidden="true" />
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
+              variant="ghost"
+              size="icon-xs"
               title="Next match"
+              className="size-auto rounded-none p-0.5 text-muted-foreground hover:bg-transparent hover:text-foreground"
               onClick={() => setMatchCursor((c) => (c + 1) % Math.max(1, matches.length))}
             >
               <ChevronDown size={13} aria-hidden="true" />
-            </button>
+            </Button>
           </span>
         )}
       </div>
-      <div className="chat-body">
-        <div className="chat-scroll" ref={scrollerRef} onScroll={onScroll}>
+      <div className="relative flex min-h-0 flex-1">
+        <div
+          className="flex min-w-0 flex-1 flex-col gap-2.5 overflow-y-auto px-[18px] pt-3.5 pb-5"
+          ref={scrollerRef}
+          onScroll={onScroll}
+        >
           {blocks.length === 0 && (
-            <div className="chat-empty">
+            <div className="mx-auto my-6 max-w-[46ch] text-center text-[13px] text-muted-foreground/70">
               No transcript yet. For Claude and Grok sessions the feed starts with the first prompt;
               shells and Codex sessions have no structured transcript (yet).
             </div>
@@ -183,7 +198,11 @@ export function ChatView({ sessionId }: { sessionId: string }): JSX.Element {
         </div>
         <Minimap blocks={blocks} scrollerRef={scrollerRef} onJump={scrollToBlock} />
         {!atBottom && (
-          <button type="button" className="jump-bottom" onClick={jumpToBottom}>
+          <button
+            type="button"
+            className="absolute bottom-3 left-1/2 z-[4] inline-flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-input bg-muted px-3 py-[5px] text-xs text-foreground shadow-[0_4px_14px_rgba(0,0,0,0.4)] hover:border-primary"
+            onClick={jumpToBottom}
+          >
             <ArrowDownToLine size={13} aria-hidden="true" /> Jump to bottom
           </button>
         )}
@@ -191,12 +210,13 @@ export function ChatView({ sessionId }: { sessionId: string }): JSX.Element {
       {/* Composer: one auto-growing box (≈2 lines, up to 8) with the attach /
           voice / send actions inside it, Claude-iOS style. Enter inserts a
           newline; the send button (or ⌘/Ctrl+Enter) submits. */}
-      <div className="chat-composer-bar">
-        <div className="chat-composer">
-          <textarea
+      <div className="border-t border-border bg-card px-3 pt-2.5 pb-[calc(10px+env(safe-area-inset-bottom,0px))]">
+        <div className="flex flex-col gap-0.5 rounded-2xl border border-input bg-background px-2.5 pt-2 pb-1.5 focus-within:border-primary">
+          <Textarea
             ref={taRef}
             rows={1}
             placeholder={sendable ? 'Message the agent…' : 'Session is not running.'}
+            className="max-h-44 min-h-11 w-full resize-none overflow-y-auto rounded-none border-0 bg-transparent p-0.5 text-sm leading-[1.45] text-foreground transition-none outline-none focus-visible:border-0 focus-visible:ring-0 disabled:bg-transparent disabled:text-muted-foreground disabled:opacity-100 dark:bg-transparent dark:disabled:bg-transparent"
             value={draft}
             disabled={!sendable}
             onChange={(e) => setDraft(e.target.value)}
@@ -209,34 +229,42 @@ export function ChatView({ sessionId }: { sessionId: string }): JSX.Element {
               }
             }}
           />
-          <div className="composer-actions">
-            <button
+          <div className="flex items-center justify-end gap-1">
+            <Button
               type="button"
-              className="composer-btn"
+              variant="ghost"
+              size="icon"
+              className="rounded-full text-muted-foreground hover:bg-transparent [&_svg:not([class*='size-'])]:size-4"
               disabled
               title="Attachments — coming soon"
             >
               <Paperclip size={16} aria-hidden="true" />
-            </button>
+            </Button>
             {voice.supported && (
-              <button
+              <Button
                 type="button"
-                className={voice.listening ? 'composer-btn mic active' : 'composer-btn mic'}
+                variant="ghost"
+                size="icon"
+                className={cn(
+                  "rounded-full text-muted-foreground hover:bg-transparent hover:text-foreground [&_svg:not([class*='size-'])]:size-4",
+                  voice.listening && 'animate-pulse text-destructive hover:text-destructive',
+                )}
                 title={voice.listening ? 'Stop voice input' : 'Voice input'}
                 onClick={voice.toggle}
               >
                 <Mic size={16} aria-hidden="true" />
-              </button>
+              </Button>
             )}
-            <button
+            <Button
               type="button"
-              className="composer-btn send"
+              size="icon"
+              className="rounded-full bg-primary text-primary-foreground hover:bg-primary/80 disabled:bg-secondary disabled:text-muted-foreground/70 disabled:opacity-100 [&_svg:not([class*='size-'])]:size-4"
               disabled={!sendable || !draft.trim()}
               title="Send (⌘/Ctrl+Enter)"
               onClick={() => void send()}
             >
               <ArrowUp size={16} aria-hidden="true" />
-            </button>
+            </Button>
           </div>
         </div>
       </div>
@@ -261,30 +289,43 @@ const ChatBlockView = memo(function ChatBlockView({
 }): JSX.Element | null {
   const { item } = block
   const html = useMemo(() => renderMarkdown(item.text), [item.text])
-  const cls = [
-    'chat-block',
-    `chat-${item.role}`,
-    highlighted ? 'match-active' : '',
-    dimmed ? 'dimmed' : '',
-  ]
-    .filter(Boolean)
-    .join(' ')
+  const blockClass = cn(
+    'mx-auto w-full max-w-[760px]',
+    highlighted && 'rounded-md outline outline-1 outline-primary outline-offset-4',
+    dimmed && 'opacity-35',
+  )
 
-  if (item.role === 'tool') return <ToolBlock block={block} cls={cls} index={index} />
+  if (item.role === 'tool') return <ToolBlock block={block} cls={blockClass} index={index} />
+
+  const roleClass = cn(
+    item.role === 'user' && 'rounded-[10px] border border-border bg-secondary px-3.5 py-2.5',
+    item.role === 'system' && 'text-xs text-muted-foreground',
+  )
 
   return (
-    <div className={cls} data-block={index}>
-      {item.role === 'user' && <div className="chat-role-tag">You</div>}
-      {item.role === 'system' && <div className="chat-role-tag">System</div>}
+    <div className={cn(blockClass, roleClass)} data-block={index}>
+      {item.role === 'user' && (
+        <div className="mb-[3px] text-[10px] uppercase tracking-[0.07em] text-muted-foreground/70">
+          You
+        </div>
+      )}
+      {item.role === 'system' && (
+        <div className="mb-[3px] text-[10px] uppercase tracking-[0.07em] text-muted-foreground/70">
+          System
+        </div>
+      )}
       <div
         className="chat-md"
         // biome-ignore lint/security/noDangerouslySetInnerHtml: sanitized by DOMPurify above
         dangerouslySetInnerHTML={{ __html: html }}
       />
       {item.tags && item.tags.length > 0 && (
-        <div className="chat-tags">
+        <div className="mt-1.5 flex gap-1.5">
           {item.tags.map((tag, i) => (
-            <span key={`${tag.kind}-${i}`} className="chat-tag">
+            <span
+              key={`${tag.kind}-${i}`}
+              className="inline-flex items-center gap-1 rounded border border-input px-[7px] py-0.5 text-[11px] text-muted-foreground"
+            >
               {tag.kind === 'image' ? (
                 <ImageIcon size={12} aria-hidden="true" />
               ) : (
@@ -315,12 +356,24 @@ function ToolBlock({
   const label = item.toolName ?? 'result'
   return (
     <div className={cls} data-block={index}>
-      <button type="button" className="chat-tool-row" onClick={() => setOpen((v) => !v)}>
-        <span className="chat-tool-chevron">{open ? '▾' : '▸'}</span>
-        <span className="chat-tool-name">{label}</span>
-        {item.toolInput && <span className="chat-tool-input">{item.toolInput}</span>}
+      <button
+        type="button"
+        className="flex w-full min-w-0 items-baseline gap-[7px] py-0.5 text-left text-xs text-muted-foreground"
+        onClick={() => setOpen((v) => !v)}
+      >
+        <span className="flex-none text-[10px] text-muted-foreground/70">{open ? '▾' : '▸'}</span>
+        <span className="flex-none text-xs font-semibold text-foreground">{label}</span>
+        {item.toolInput && (
+          <span className="min-w-0 truncate font-mono text-[11px] text-muted-foreground/70">
+            {item.toolInput}
+          </span>
+        )}
       </button>
-      {open && <pre className="chat-tool-result">{result ?? '(no result captured)'}</pre>}
+      {open && (
+        <pre className="my-1 ml-[17px] max-h-[280px] overflow-auto whitespace-pre-wrap break-words rounded-md border border-border bg-background px-2.5 py-2 text-[11px] text-muted-foreground">
+          {result ?? '(no result captured)'}
+        </pre>
+      )}
     </div>
   )
 }
@@ -362,19 +415,26 @@ function Minimap({
   if (segments.length < 2) return null
   const totalWeight = segments.reduce((sum, s) => sum + s.weight, 0)
   return (
-    <div className="chat-minimap" role="presentation">
+    <div
+      className="relative my-1 mr-[3px] flex flex-[0_0_14px] flex-col gap-px overflow-hidden rounded-[3px]"
+      role="presentation"
+    >
       {segments.map((seg) => (
         <button
           key={seg.index}
           type="button"
-          className={`mm-seg mm-${seg.role}`}
+          className={cn(
+            'min-h-0.5 w-full cursor-pointer border-0 bg-secondary p-0',
+            seg.role === 'user' && 'bg-primary',
+            seg.role === 'assistant' && 'bg-input',
+          )}
           style={{ height: `${(seg.weight / totalWeight) * 100}%` }}
           title={blocks[seg.index]?.item.text.slice(0, 80) || blocks[seg.index]?.item.toolName}
           onClick={() => onJump(seg.index)}
         />
       ))}
       <div
-        className="mm-viewport"
+        className="pointer-events-none absolute inset-x-0 rounded-[2px] border border-foreground/25 bg-foreground/10"
         style={{
           top: `${viewport.top * 100}%`,
           height: `${Math.max(0.04, viewport.height) * 100}%`,

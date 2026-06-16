@@ -1,6 +1,22 @@
 import type { AgentKind } from '@podium/protocol'
 import type { JSX } from 'react'
 import { useMemo, useState } from 'react'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import { useIsMobile } from '@/hooks/use-is-mobile'
+import { Button } from '@/components/ui/button'
 import { panelLabel, reposToViews } from './derive'
 import { relativeTime } from './home'
 import { useStore } from './store'
@@ -15,6 +31,7 @@ export type { ConversationHit }
  */
 export function SearchView({ onClose }: { onClose: () => void }): JSX.Element {
   const { trpc, repos, setSelectedWorktree, setPane, setView } = useStore()
+  const isMobile = useIsMobile()
   const [query, setQuery] = useState('')
   // Search the whole index by default. Pre-scoping to the current worktree silently
   // hid every match outside it — the user searches "pwa", the PWA work lives in
@@ -53,15 +70,20 @@ export function SearchView({ onClose }: { onClose: () => void }): JSX.Element {
   }
 
   return (
-    <div className="modal-backdrop" role="presentation">
-      <div
-        className="search-modal"
-        role="dialog"
-        aria-modal="true"
+    <Dialog
+      open
+      modal={isMobile ? 'trap-focus' : true}
+      onOpenChange={(o) => {
+        if (!o) onClose()
+      }}
+    >
+      <DialogContent
         aria-label="Search conversations"
+        className="flex max-h-[min(680px,calc(100dvh-2rem))] w-[min(640px,100%)] max-w-none flex-col gap-0 overflow-hidden p-0 sm:max-w-none"
       >
-        <div className="search-head">
-          <input
+        <DialogHeader className="flex flex-row items-center gap-2 border-b border-border p-3">
+          <DialogTitle className="sr-only">Search conversations</DialogTitle>
+          <Input
             // biome-ignore lint/a11y/noAutofocus: a search modal exists to be typed into
             autoFocus
             type="text"
@@ -71,52 +93,74 @@ export function SearchView({ onClose }: { onClose: () => void }): JSX.Element {
             onKeyDown={(e) => {
               if (e.key === 'Escape') onClose()
             }}
+            className="flex-1"
           />
-          <select value={scope} onChange={(e) => setScope(e.target.value)}>
-            <option value="">Everywhere</option>
-            {worktrees.map((w) => (
-              <option key={w.path} value={w.path}>
-                {w.repoName} / {w.branch ?? w.path.split('/').pop()}
-              </option>
-            ))}
-          </select>
-          <button type="button" className="search-close" onClick={onClose}>
-            ✕
-          </button>
-        </div>
-        <div className="search-results">
-          {busy && hits.length === 0 && <div className="empty">Searching…</div>}
+          <Select value={scope} onValueChange={(v) => setScope(v ?? '')}>
+            <SelectTrigger className="w-[180px] shrink min-w-0 text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="">Everywhere</SelectItem>
+              {worktrees.map((w) => (
+                <SelectItem key={w.path} value={w.path}>
+                  {w.repoName} / {w.branch ?? w.path.split('/').pop()}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </DialogHeader>
+        <div className="flex flex-1 flex-col gap-2 overflow-y-auto px-3 pt-1.5 pb-3">
+          {busy && hits.length === 0 && (
+            <div className="p-3 text-xs text-muted-foreground/70">Searching…</div>
+          )}
           {!busy && hits.length === 0 && (
-            <div className="empty">
+            <div className="p-3 text-xs text-muted-foreground/70">
               {query ? 'No conversations match.' : 'No conversations indexed yet.'}
             </div>
           )}
           {hits.map((hit) => (
-            <div key={hit.id} className="search-hit">
-              <div className="search-hit-main">
-                <span className="search-hit-title">{hit.name || hit.title || hit.id}</span>
-                <span className="search-hit-kind">{kindLabel(hit.agentKind)}</span>
+            <div
+              key={hit.id}
+              className="flex flex-col gap-1 rounded-md border border-border px-[11px] py-2"
+            >
+              <div className="flex min-w-0 items-baseline gap-2">
+                <span className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-[13px] font-semibold text-foreground">
+                  {hit.name || hit.title || hit.id}
+                </span>
+                <span className="flex-none text-muted-foreground/70 [font-variant:all-small-caps]">
+                  {kindLabel(hit.agentKind)}
+                </span>
                 {hit.updatedAt && (
-                  <span className="search-hit-when">{relativeTime(hit.updatedAt, now)}</span>
+                  <span className="ml-auto flex-none text-[11px] text-muted-foreground/70">
+                    {relativeTime(hit.updatedAt, now)}
+                  </span>
                 )}
               </div>
-              {hit.summary && <div className="search-hit-summary">{hit.summary}</div>}
-              <div className="search-hit-meta">
-                <span className="search-hit-path" title={hit.projectPath}>
+              {hit.summary && (
+                <div className="text-xs text-muted-foreground">{hit.summary}</div>
+              )}
+              <div className="flex items-center gap-2.5 text-[11px] text-muted-foreground/70">
+                <span title={hit.projectPath}>
                   {hit.projectPath?.split('/').slice(-2).join('/')}
                 </span>
                 {typeof hit.messageCount === 'number' && <span>{hit.messageCount} messages</span>}
                 {hit.resumeValue && (
-                  <button type="button" onClick={() => void resume(hit)}>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="xs"
+                    className="ml-auto"
+                    onClick={() => void resume(hit)}
+                  >
                     ↻ Resume
-                  </button>
+                  </Button>
                 )}
               </div>
             </div>
           ))}
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   )
 }
 

@@ -1,6 +1,10 @@
 import type { AgentMemoryWire, HostMemoryWire, ProjectMemoryWire } from '@podium/protocol'
 import type { JSX } from 'react'
 import { useEffect, useState } from 'react'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { useIsMobile } from '@/hooks/use-is-mobile'
+import { cn } from '@/lib/utils'
 import { describeHealth, useConnectionHealth } from './ConnectionIndicator'
 import { formatMemBytes, hostMemoryView, panelLabel } from './derive'
 import { useStore } from './store'
@@ -33,37 +37,42 @@ export function HostInfoView({
   initialTab?: HostInfoTab
 }): JSX.Element {
   const [tab, setTab] = useState<HostInfoTab>(initialTab)
+  const isMobile = useIsMobile()
   return (
-    <div className="modal-backdrop" role="presentation">
-      <div className="host-info-modal" role="dialog" aria-modal="true" aria-label="Host info">
-        <div className="host-info-head">
-          <div className="host-info-tabs">
-            <button
-              type="button"
-              aria-pressed={tab === 'connection'}
-              className={tab === 'connection' ? 'active' : ''}
-              onClick={() => setTab('connection')}
-            >
-              Connection
-            </button>
-            <button
-              type="button"
-              aria-pressed={tab === 'memory'}
-              className={tab === 'memory' ? 'active' : ''}
-              onClick={() => setTab('memory')}
-            >
-              Memory
-            </button>
+    <Dialog
+      open
+      modal={isMobile ? 'trap-focus' : true}
+      onOpenChange={(o) => {
+        if (!o) onClose()
+      }}
+    >
+      <DialogContent
+        aria-label="Host info"
+        className="flex max-h-[min(640px,calc(100dvh-2rem))] w-[min(440px,100%)] max-w-[min(440px,100%)] flex-col gap-0 overflow-hidden p-0"
+      >
+        <DialogHeader>
+          <DialogTitle className="sr-only">Host info</DialogTitle>
+        </DialogHeader>
+        <Tabs
+          value={tab}
+          onValueChange={(v) => setTab(v as HostInfoTab)}
+          className="min-h-0 flex-1 gap-0"
+        >
+          <div className="flex items-center justify-between border-b border-border px-2.5 py-2">
+            <TabsList className="bg-transparent">
+              <TabsTrigger value="connection">Connection</TabsTrigger>
+              <TabsTrigger value="memory">Memory</TabsTrigger>
+            </TabsList>
           </div>
-          <button type="button" className="host-info-close" onClick={onClose}>
-            ✕
-          </button>
-        </div>
-        <div className="host-info-body">
-          {tab === 'connection' ? <ConnectionPanel /> : <MemoryPanel />}
-        </div>
-      </div>
-    </div>
+          <TabsContent value="connection" className="overflow-y-auto">
+            <ConnectionPanel />
+          </TabsContent>
+          <TabsContent value="memory" className="overflow-y-auto">
+            <MemoryPanel />
+          </TabsContent>
+        </Tabs>
+      </DialogContent>
+    </Dialog>
   )
 }
 
@@ -80,21 +89,30 @@ function ConnectionPanel(): JSX.Element {
   const { headline, detail } = describeHealth(health, Date.now())
   const ping = health.rttMs !== null ? `${Math.max(1, Math.round(health.rttMs))} ms` : '—'
   return (
-    <div className="host-conn">
-      <div className={`host-conn-status conn-${health.status}`}>
-        <span className="host-conn-dot" />
+    <div className="flex flex-col gap-2.5 p-3.5">
+      <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+        <span
+          className={cn(
+            'size-[9px] rounded-full',
+            health.status === 'degraded'
+              ? 'bg-warning'
+              : health.status === 'down'
+                ? 'bg-destructive'
+                : 'bg-success',
+          )}
+        />
         <span>{headline}</span>
       </div>
-      <p className="host-conn-detail">{detail}</p>
-      <div className="host-conn-rows">
-        <div className="host-conn-row">
+      <p className="m-0 text-[13px] text-muted-foreground">{detail}</p>
+      <div className="flex flex-col gap-1.5">
+        <div className="flex justify-between gap-3 text-[13px] text-foreground">
           <span>Latency</span>
-          <span>{ping}</span>
+          <span className="font-medium">{ping}</span>
         </div>
         {hostMetrics.length > 0 && (
-          <div className="host-conn-row">
+          <div className="flex justify-between gap-3 text-[13px] text-foreground">
             <span>{hostMetrics.length === 1 ? 'Host' : 'Hosts'}</span>
-            <span>{hostMetrics.map((h) => h.hostname).join(', ')}</span>
+            <span className="font-medium">{hostMetrics.map((h) => h.hostname).join(', ')}</span>
           </div>
         )}
       </div>
@@ -142,18 +160,24 @@ function MemoryPanel(): JSX.Element {
 
   return (
     <>
-      {data && <div className="host-memory-hostname">{data.hostname.toUpperCase()}</div>}
+      {data && (
+        <div className="px-3.5 pt-2.5 text-[11px] uppercase tracking-[0.04em] text-muted-foreground/70">
+          {data.hostname.toUpperCase()}
+        </div>
+      )}
       {headline && (
-        <div className="host-memory-body">
-          <div className="host-memory-total">
+        <div className="flex flex-col gap-3 p-3.5">
+          <div className="flex justify-between text-[13px] font-medium text-foreground">
             <span>{headline.label} used</span>
-            <span className="host-memory-pct">{headline.pct}%</span>
+            <span className="text-muted-foreground">{headline.pct}%</span>
           </div>
         </div>
       )}
-      {error && <div className="host-memory-note">Could not load the breakdown: {error}</div>}
+      {error && (
+        <div className="text-xs text-muted-foreground/70">Could not load the breakdown: {error}</div>
+      )}
       {!error && !data && (
-        <div className="host-memory-note">Loading the per-process breakdown…</div>
+        <div className="text-xs text-muted-foreground/70">Loading the per-process breakdown…</div>
       )}
       {data && <BreakdownBody data={data} sessionLabel={sessionLabel} />}
     </>
@@ -177,18 +201,18 @@ function BreakdownBody({
   const projectBytes = data.projects.reduce((sum, p) => sum + p.bytes, 0)
   const seg = (bytes: number): string => `${total > 0 ? (bytes / total) * 100 : 0}%`
   return (
-    <div className="host-memory-body">
-      <div className="host-memory-total">
+    <div className="flex flex-col gap-3 p-3.5">
+      <div className="flex justify-between text-[13px] font-medium text-foreground">
         <span>{mem.label} used</span>
-        <span className="host-memory-pct">{mem.pct}%</span>
+        <span className="text-muted-foreground">{mem.pct}%</span>
       </div>
-      <div className="host-memory-stack" role="presentation">
-        <span className="seg seg-agents" style={{ width: seg(agentBytes) }} />
-        <span className="seg seg-projects" style={{ width: seg(projectBytes) }} />
-        <span className="seg seg-other" style={{ width: seg(data.otherBytes) }} />
+      <div className="flex h-1.5 overflow-hidden rounded-[3px] bg-secondary" role="presentation">
+        <span className="h-full bg-primary" style={{ width: seg(agentBytes) }} />
+        <span className="h-full bg-success" style={{ width: seg(projectBytes) }} />
+        <span className="h-full bg-border" style={{ width: seg(data.otherBytes) }} />
       </div>
       {!data.supported && (
-        <div className="host-memory-note">
+        <div className="text-xs text-muted-foreground/70">
           This host can't attribute memory per process (no /proc) — totals only.
         </div>
       )}
@@ -217,7 +241,7 @@ function BreakdownBody({
           />
         ))}
       </Section>
-      <div className="host-memory-rows">
+      <div className="flex flex-col gap-1">
         <Row name="Everything else on this machine" bytes={data.otherBytes} muted />
       </div>
     </div>
@@ -237,9 +261,15 @@ function Section({
 }): JSX.Element | null {
   if (!show) return null
   return (
-    <div className="host-memory-rows">
-      <div className="label">{label}</div>
-      {children.length > 0 ? children : <div className="host-memory-note">{empty}</div>}
+    <div className="flex flex-col gap-1">
+      <div className="text-[11px] font-semibold tracking-[0.08em] text-muted-foreground">
+        {label}
+      </div>
+      {children.length > 0 ? (
+        children
+      ) : (
+        <div className="text-xs text-muted-foreground/70">{empty}</div>
+      )}
     </div>
   )
 }
@@ -258,10 +288,22 @@ function Row({
   muted?: boolean
 }): JSX.Element {
   return (
-    <div className={muted ? 'host-memory-row muted' : 'host-memory-row'} title={title}>
-      <span className="row-name">{name}</span>
-      {detail && <span className="row-detail">{detail}</span>}
-      <span className="row-bytes">{formatMemBytes(bytes)}</span>
+    <div
+      className={cn(
+        'flex items-baseline gap-2 text-xs',
+        muted ? 'text-muted-foreground' : 'text-foreground',
+      )}
+      title={title}
+    >
+      <span className="overflow-hidden text-ellipsis whitespace-nowrap">{name}</span>
+      {detail && (
+        <span className="flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-[11px] text-muted-foreground/70">
+          {detail}
+        </span>
+      )}
+      <span className="ml-auto whitespace-nowrap text-muted-foreground tabular-nums">
+        {formatMemBytes(bytes)}
+      </span>
     </div>
   )
 }

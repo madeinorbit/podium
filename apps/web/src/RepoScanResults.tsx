@@ -1,6 +1,15 @@
-import { ChevronLeft, GitBranch, Globe } from 'lucide-react'
+import { GitBranch, Globe } from 'lucide-react'
 import type { JSX } from 'react'
 import { useMemo, useState } from 'react'
+import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import { useIsMobile } from '@/hooks/use-is-mobile'
 import type { RepoCandidate } from './ranking'
 
 export function RepoScanResults({
@@ -18,6 +27,7 @@ export function RepoScanResults({
   onAdd: (paths: string[]) => void
   onBack: () => void
 }): JSX.Element {
+  const isMobile = useIsMobile()
   const [selected, setSelected] = useState<Set<string>>(
     () => new Set(candidates.filter((c) => c.defaultSelected).map((c) => c.path)),
   )
@@ -48,31 +58,38 @@ export function RepoScanResults({
   const selectedCount = selected.size
 
   return (
-    <div className="modal-backdrop" role="presentation">
-      <div className="repo-picker-modal" role="dialog" aria-modal="true" aria-label="Found repos">
-        <div className="repo-picker-head">
+    <Dialog
+      open
+      modal={isMobile ? 'trap-focus' : true}
+      onOpenChange={(o) => {
+        if (!o) onBack()
+      }}
+    >
+      <DialogContent
+        aria-label="Found repos"
+        className="flex max-h-[min(720px,calc(100dvh-32px))] w-full max-w-[640px] flex-col gap-0 overflow-hidden p-0"
+      >
+        <DialogHeader className="flex-row items-start justify-between gap-3 border-b border-border px-3.5 pt-3.5 pb-2.5">
           <div>
-            <div className="label">FIND REPOSITORIES</div>
-            <div className="repo-picker-path">{scannedPath}</div>
-            <div className="scan-summary">
+            <DialogTitle className="text-[11px] font-semibold tracking-[0.08em] text-muted-foreground">
+              FIND REPOSITORIES
+            </DialogTitle>
+            <div className="mt-1 break-words text-[13px] text-foreground">{scannedPath}</div>
+            <div className="mt-1 text-xs text-muted-foreground">
               {candidates.length} found · {selectedCount} selected
             </div>
           </div>
-          <button
-            type="button"
-            className="icon-button"
-            onClick={onBack}
-            aria-label="Back to browser"
-          >
-            <ChevronLeft size={16} />
-          </button>
-        </div>
+        </DialogHeader>
 
-        {error && <div className="repo-picker-error">{error}</div>}
+        {error && (
+          <div className="border-b border-border px-3.5 py-2 text-xs text-destructive">{error}</div>
+        )}
 
-        <div className="repo-picker-list scan-results">
+        <div className="min-h-[180px] flex-1 overflow-y-auto p-1.5">
           {candidates.length === 0 && (
-            <div className="empty">No git repositories found in this folder.</div>
+            <div className="p-3 text-xs text-muted-foreground/70">
+              No git repositories found in this folder.
+            </div>
           )}
           {visible.length > 0 && (
             <Section
@@ -94,26 +111,29 @@ export function RepoScanResults({
           )}
         </div>
 
-        <div className="scan-footer">
-          <button
+        <div className="flex items-center justify-end gap-2 border-t border-border px-3.5 py-2.5">
+          <Button
             type="button"
-            className="repo-picker-secondary"
+            variant="secondary"
+            size="sm"
             onClick={onBack}
             disabled={adding}
+            className="max-md:w-full"
           >
             Back
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
-            className="repo-picker-add"
+            size="sm"
             disabled={adding || selectedCount === 0}
             onClick={() => onAdd([...selected])}
+            className="max-md:w-full"
           >
             {adding ? 'Adding...' : `Add ${selectedCount} repo${selectedCount === 1 ? '' : 's'}`}
-          </button>
+          </Button>
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   )
 }
 
@@ -132,30 +152,55 @@ function Section({
 }): JSX.Element {
   const allOn = group.every((c) => selected.has(c.path))
   return (
-    <div className="scan-section">
-      <div className="scan-section-head">
-        <span className="label">{title}</span>
-        <button type="button" className="scan-select-all" onClick={() => onAll(!allOn)}>
+    <div className="mb-2">
+      <div className="sticky top-0 flex items-center justify-between bg-popover px-2 pt-2 pb-1">
+        <span className="text-[11px] font-semibold tracking-[0.08em] text-muted-foreground">
+          {title}
+        </span>
+        <Button
+          type="button"
+          variant="outline"
+          size="xs"
+          onClick={() => onAll(!allOn)}
+        >
           {allOn ? 'none' : 'all'}
-        </button>
+        </Button>
       </div>
       {group.map((c) => (
-        <label key={c.path} className="scan-row">
-          <input type="checkbox" checked={selected.has(c.path)} onChange={() => onToggle(c.path)} />
-          <span className="scan-row-name">{c.name}</span>
-          <span className="scan-row-path">{c.path}</span>
-          <span className="scan-row-meta">
+        <label
+          key={c.path}
+          className="grid cursor-pointer grid-cols-[auto_auto_1fr_auto] items-center gap-2 rounded-md px-2 py-1.5 hover:bg-muted max-md:grid-cols-[auto_1fr_auto]"
+        >
+          <Checkbox
+            checked={selected.has(c.path)}
+            onCheckedChange={() => onToggle(c.path)}
+          />
+          <span className="text-[13px] text-foreground">{c.name}</span>
+          <span className="min-w-0 truncate text-[11px] text-muted-foreground/70 max-md:col-[2/4] max-md:row-2">
+            {c.path}
+          </span>
+          <span className="inline-flex items-center gap-1.5">
             {c.branch && (
-              <span className="scan-badge" title="branch">
+              <span
+                className="inline-flex items-center gap-0.5 whitespace-nowrap rounded border border-border px-1.5 text-[10px] text-muted-foreground"
+                title="branch"
+              >
                 <GitBranch size={11} /> {c.branch}
               </span>
             )}
             {c.hasOrigin && (
-              <span className="scan-badge" title="has remote">
+              <span
+                className="inline-flex items-center gap-0.5 whitespace-nowrap rounded border border-border px-1.5 text-[10px] text-muted-foreground"
+                title="has remote"
+              >
                 <Globe size={11} /> origin
               </span>
             )}
-            {c.worktreeCount > 0 && <span className="scan-badge">+{c.worktreeCount} wt</span>}
+            {c.worktreeCount > 0 && (
+              <span className="inline-flex items-center gap-0.5 whitespace-nowrap rounded border border-border px-1.5 text-[10px] text-muted-foreground">
+                +{c.worktreeCount} wt
+              </span>
+            )}
           </span>
         </label>
       ))}

@@ -1,5 +1,6 @@
 import type { SessionMeta } from '@podium/protocol'
 import type { JSX } from 'react'
+import { Badge } from '@/components/ui/badge'
 import { panelLabel } from './derive'
 
 /**
@@ -26,9 +27,14 @@ export function sessionDisplayName(session: SessionMeta): string {
  */
 export function WorkerLabel({ session }: { session: SessionMeta }): JSX.Element {
   return (
-    <span className="worker-label">
-      <span className="worker-name">{sessionDisplayName(session)}</span>
-      <span className="worker-kind">{panelLabel(session.agentKind)}</span>
+    <span className="worker-label inline-flex min-w-0 items-baseline gap-1.5">
+      <span className="worker-name overflow-hidden text-ellipsis whitespace-nowrap">{sessionDisplayName(session)}</span>
+      <Badge
+        variant="secondary"
+        className="worker-kind h-auto flex-none rounded-md px-1.5 py-0 text-[0.82em] font-normal tracking-[0.04em] [font-variant:all-small-caps]"
+      >
+        {panelLabel(session.agentKind)}
+      </Badge>
     </span>
   )
 }

@@ -1,10 +1,25 @@
 import { MemoryStick } from 'lucide-react'
 import type { JSX } from 'react'
 import { useState } from 'react'
+import { cn } from '@/lib/utils'
 import { ConnectionIndicator, describeHealth, useStableConnection } from './ConnectionIndicator'
 import { hostMemoryView } from './derive'
 import { type HostInfoTab, HostInfoView } from './HostMemoryView'
 import { useStore } from './store'
+
+// Memory pressure → colors, reproducing the legacy `.mem-*` contract: the bar
+// fill is always tinted by severity; the icon stays neutral while `ok` and only
+// recolors on warn/critical; the compact (icon-only) chip carries severity on
+// the whole glyph (green when fine → warning → destructive).
+const SEVERITY = {
+  ok: { fill: 'bg-success', icon: '', compact: 'text-success' },
+  warn: { fill: 'bg-warning', icon: 'text-warning', compact: 'text-warning' },
+  critical: {
+    fill: 'bg-destructive',
+    icon: 'text-destructive',
+    compact: 'text-destructive',
+  },
+} as const
 
 /**
  * Host health strip. Just two glyphs: a memory icon with a fullness bar (one per
@@ -33,25 +48,46 @@ export function HostIndicators({ compact = false }: { compact?: boolean }): JSX.
           return `${d.headline}. ${d.detail}`
         })()
   return (
-    <div className="host-indicators">
+    <div
+      className={cn(
+        'flex items-center',
+        compact
+          ? 'gap-0 flex-nowrap'
+          : 'mt-auto flex-wrap gap-1.5 border-t border-border bg-card px-3 py-2',
+      )}
+    >
       <span className="sr-only" role="status" aria-live="polite">
         {announce}
       </span>
       {hostMetrics.map((host) => {
         const mem = hostMemoryView(host)
+        const tone = SEVERITY[mem.severity]
         return (
           <button
             type="button"
             key={host.hostname}
-            className={`host-chip mem-${mem.severity}${compact ? ' host-chip-compact' : ''}`}
+            className={cn(
+              'group inline-flex cursor-pointer items-center gap-1.5 whitespace-nowrap border-0 bg-transparent p-0 text-[11px] text-muted-foreground',
+              compact && cn('min-w-[30px] justify-center px-1', tone.compact),
+            )}
             title={`${mem.title} — click for the breakdown`}
             onClick={() => setInfoTab('memory')}
           >
-            {showHostname && <span className="host-chip-name">{host.hostname}</span>}
-            <MemoryStick size={14} aria-hidden="true" />
+            {showHostname && (
+              <span className="max-w-[9ch] overflow-hidden text-ellipsis text-muted-foreground/70">
+                {host.hostname}
+              </span>
+            )}
+            <MemoryStick size={14} aria-hidden="true" className={cn(!compact && tone.icon)} />
             {!compact && (
-              <span className="host-chip-bar" role="presentation">
-                <span className="host-chip-fill" style={{ width: `${mem.pct}%` }} />
+              <span
+                className="h-1 w-9 overflow-hidden rounded-sm bg-secondary"
+                role="presentation"
+              >
+                <span
+                  className={cn('block h-full', tone.fill)}
+                  style={{ width: `${mem.pct}%` }}
+                />
               </span>
             )}
           </button>

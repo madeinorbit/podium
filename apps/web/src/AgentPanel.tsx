@@ -16,6 +16,8 @@ import {
 } from 'lucide-react'
 import type { JSX } from 'react'
 import { useEffect, useRef, useState } from 'react'
+import { Button } from '@/components/ui/button'
+import { cn } from '@/lib/utils'
 import { ChatView } from './ChatView'
 import { panelLabel } from './derive'
 import { useStore } from './store'
@@ -123,53 +125,65 @@ export function AgentPanel({
   }
 
   return (
-    <div className="agent-panel">
-      <div className="agent-panel-bar">
+    <div className="flex min-w-0 flex-1 flex-col">
+      <div className="flex items-center gap-2.5 border-b border-border bg-card px-2.5 py-[5px]">
         {session && <WorkerLabel session={session} />}
         {chatCapable && (
-          <span className="panel-mode" role="group" aria-label="Panel view">
-            <button
+          <span className="inline-flex gap-1" role="group" aria-label="Panel view">
+            <Button
               type="button"
-              className={effectiveMode === 'chat' ? 'active' : ''}
+              variant={effectiveMode === 'chat' ? 'default' : 'outline'}
+              size="sm"
               title="Chat view"
               onClick={() => pickMode('chat')}
             >
               <MessageSquareText size={13} aria-hidden="true" />
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
-              className={effectiveMode === 'native' ? 'active' : ''}
+              variant={effectiveMode === 'native' ? 'default' : 'outline'}
+              size="sm"
               title="Native terminal"
               onClick={() => pickMode('native')}
             >
               <TerminalIcon size={13} aria-hidden="true" />
-            </button>
+            </Button>
           </span>
         )}
         {chatCapable && (
-          <button
+          <Button
             type="button"
-            className="panel-btw"
+            variant="ghost"
+            size="icon"
+            className="ml-auto"
             title="Ask the superagent about this session (BTW)"
             onClick={() => void startBtw(sessionId)}
           >
             <Sparkles size={13} aria-hidden="true" />
-          </button>
+          </Button>
         )}
         {!hibernated && !exited && (
-          <button
+          <Button
             type="button"
-            className="panel-archive"
+            variant="ghost"
+            size="icon"
+            className={cn(!chatCapable && 'ml-auto')}
             title="Archive session — files it under Done"
             onClick={() => void archiveSession(sessionId, true)}
           >
             <Archive size={13} aria-hidden="true" />
-          </button>
+          </Button>
         )}
         {effectiveMode === 'native' && (
-          <button type="button" onClick={() => mountedRef.current?.connection.requestControl()}>
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            className={cn(!chatCapable && 'ml-auto')}
+            onClick={() => mountedRef.current?.connection.requestControl()}
+          >
             Take control
-          </button>
+          </Button>
         )}
       </div>
       {hibernated ? (
@@ -195,22 +209,31 @@ export function AgentPanel({
         <ChatView sessionId={sessionId} />
       ) : (
         <>
-          <div className="term-wrap">
-            <div ref={termRef} className="term" />
+          <div className="relative flex min-h-0 flex-1 flex-col">
+            <div ref={termRef} className="term min-h-0 flex-1 px-1.5 py-1" />
             {!hasOutput && (
-              <div className="term-loading" role="status" aria-live="polite">
-                <span className="spinner" aria-hidden="true" />
+              <div
+                className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-3 bg-background text-[13px] text-muted-foreground"
+                role="status"
+                aria-live="polite"
+              >
+                <span
+                  className="size-[22px] animate-spin rounded-full border-2 border-border border-t-muted-foreground"
+                  aria-hidden="true"
+                />
                 <span>Starting {session ? panelLabel(session.agentKind) : 'session'}…</span>
               </div>
             )}
             {hasOutput && !atBottom && (
-              <button
+              <Button
                 type="button"
-                className="jump-bottom"
+                variant="secondary"
+                size="sm"
+                className="absolute bottom-3 left-1/2 z-[4] -translate-x-1/2 rounded-full bg-muted text-foreground shadow-[0_4px_14px_rgba(0,0,0,0.4)] hover:border-primary"
                 onClick={() => mountedRef.current?.view.scrollToBottom()}
               >
                 <ArrowDownToLine size={13} aria-hidden="true" /> Jump to bottom
-              </button>
+              </Button>
             )}
           </div>
           {/* Second key row above the soft-keyboard bar: submit/newline/paste +
@@ -400,9 +423,9 @@ function ExitedPane({
     void resurrectSession(sessionId)
   }
   return (
-    <div className="hibernated-pane exited-pane">
+    <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center text-warning">
       <RotateCcw size={28} aria-hidden="true" />
-      <p>
+      <p className="m-0 max-w-[42ch] text-[13px] text-muted-foreground">
         {detail}{' '}
         {isShell
           ? 'Restart opens a fresh shell in the same directory.'
@@ -411,7 +434,7 @@ function ExitedPane({
             : 'It left no conversation to resume.'}
       </p>
       {recoverable ? (
-        <button type="button" disabled={waking} onClick={restart}>
+        <Button type="button" disabled={waking} onClick={restart}>
           {waking
             ? isShell
               ? 'Restarting…'
@@ -419,11 +442,11 @@ function ExitedPane({
             : isShell
               ? 'Restart shell'
               : 'Resume session'}
-        </button>
+        </Button>
       ) : (
-        <button type="button" onClick={() => void killSession(sessionId)}>
+        <Button type="button" variant="secondary" onClick={() => void killSession(sessionId)}>
           Remove session
-        </button>
+        </Button>
       )}
     </div>
   )
@@ -435,11 +458,16 @@ function HibernatedBanner({ sessionId }: { sessionId: string }): JSX.Element {
   const { resurrectSession } = useStore()
   const [waking, setWaking] = useState(false)
   return (
-    <div className="hibernated-banner">
+    <div className="flex shrink-0 items-center gap-2 border-b border-primary/30 bg-primary/10 px-3 py-1.5 text-xs text-primary">
       <Moon size={14} aria-hidden="true" />
-      <span>Hibernated — transcript is read-only until you resume.</span>
-      <button
+      <span className="min-w-0 flex-1">
+        Hibernated — transcript is read-only until you resume.
+      </span>
+      <Button
         type="button"
+        variant="outline"
+        size="sm"
+        className="shrink-0 border-primary/50 text-primary hover:bg-primary/10 hover:text-primary"
         disabled={waking}
         onClick={() => {
           setWaking(true)
@@ -447,7 +475,7 @@ function HibernatedBanner({ sessionId }: { sessionId: string }): JSX.Element {
         }}
       >
         {waking ? 'Waking…' : 'Resume'}
-      </button>
+      </Button>
     </div>
   )
 }
@@ -457,13 +485,13 @@ function HibernatedPane({ sessionId }: { sessionId: string }): JSX.Element {
   const { resurrectSession } = useStore()
   const [waking, setWaking] = useState(false)
   return (
-    <div className="hibernated-pane">
+    <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center text-primary">
       <Moon size={28} aria-hidden="true" />
-      <p>
+      <p className="m-0 max-w-[42ch] text-[13px] text-muted-foreground">
         This session is hibernated — its process was stopped to free memory, but the conversation is
         intact.
       </p>
-      <button
+      <Button
         type="button"
         disabled={waking}
         onClick={() => {
@@ -472,7 +500,7 @@ function HibernatedPane({ sessionId }: { sessionId: string }): JSX.Element {
         }}
       >
         {waking ? 'Waking…' : 'Resume session'}
-      </button>
+      </Button>
     </div>
   )
 }

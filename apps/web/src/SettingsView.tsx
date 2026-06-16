@@ -9,6 +9,16 @@ import {
 import type { JSX } from 'react'
 import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import { Switch } from '@/components/ui/switch'
+import { cn } from '@/lib/utils'
 import { useStore } from './store'
 import { type ThemeMode, type ThemePreset, useTheme } from './theme'
 
@@ -79,31 +89,45 @@ export function SettingsView(): JSX.Element {
   const patch = (p: Partial<PodiumSettings>) => setSettings((s) => (s ? { ...s, ...p } : s))
 
   return (
-    <section className="settings-view" aria-label="Settings">
-      <div className="settings-head">
-        <h2>Settings</h2>
-        <button
+    <section
+      className="flex min-w-0 flex-1 flex-col overflow-hidden"
+      aria-label="Settings"
+    >
+      <div className="flex items-center justify-between border-border border-b px-4 py-3 md:px-[22px] md:py-3.5">
+        <h2 className="font-medium text-base text-foreground">Settings</h2>
+        <Button
           type="button"
-          className="settings-close"
+          variant="ghost"
+          size="icon-sm"
           title="Close settings"
           onClick={() => setView('home')}
         >
           ✕
-        </button>
+        </Button>
       </div>
-      {error && <div className="settings-error">{error}</div>}
+      {error && (
+        <div className="border-border border-b px-4 py-2 text-destructive text-xs">
+          {error}
+        </div>
+      )}
       {!settings ? (
-        <div className="settings-body">
-          <div className="empty">Loading settings…</div>
+        <div className="flex-1 overflow-y-auto px-4 py-1 pb-3 md:px-[22px] md:pb-4">
+          <div className="p-3 text-muted-foreground/70 text-xs">Loading settings…</div>
         </div>
       ) : (
-        <div className="settings-layout">
-          <nav className="settings-nav" aria-label="Settings sections">
+        <div className="flex min-h-0 flex-1 flex-col md:flex-row">
+          <nav
+            className="flex flex-row gap-1 overflow-x-auto border-border border-b p-2 md:w-[200px] md:flex-none md:flex-col md:gap-0.5 md:overflow-y-auto md:border-r md:border-b-0 md:p-3 md:px-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+            aria-label="Settings sections"
+          >
             {SETTINGS_TABS.map((t) => (
               <button
                 key={t.key}
                 type="button"
-                className={t.key === tab ? 'active' : ''}
+                className={cn(
+                  'cursor-pointer whitespace-nowrap rounded-md px-2.5 py-2 text-left text-muted-foreground text-[13px] transition-colors hover:bg-accent hover:text-foreground',
+                  t.key === tab && 'bg-accent text-foreground',
+                )}
                 aria-current={t.key === tab}
                 onClick={() => setTab(t.key)}
               >
@@ -111,7 +135,7 @@ export function SettingsView(): JSX.Element {
               </button>
             ))}
           </nav>
-          <div className="settings-body">
+          <div className="flex-1 overflow-y-auto px-4 py-1 pb-4 md:px-[22px]">
             {tab === 'appearance' && <AppearanceSection />}
 
             {tab === 'sessions' && (
@@ -120,22 +144,27 @@ export function SettingsView(): JSX.Element {
                 hint="Defaults applied when starting agents. “Agent decides” passes no flag — the CLI uses its own configuration."
               >
                 <Row label="Default agent">
-                  <select
+                  <Select
                     value={settings.sessionDefaults.agent}
-                    onChange={(e) =>
+                    onValueChange={(value) =>
                       patch({
                         sessionDefaults: {
                           ...settings.sessionDefaults,
-                          agent: e.target.value as AgentChoice,
+                          agent: value as AgentChoice,
                         },
                       })
                     }
                   >
-                    <option value="auto">Agent decides (Claude Code)</option>
-                    <option value="claude-code">Claude Code</option>
-                    <option value="codex">Codex</option>
-                    <option value="grok">Grok</option>
-                  </select>
+                    <SelectTrigger className="w-full flex-1">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="auto">Agent decides (Claude Code)</SelectItem>
+                      <SelectItem value="claude-code">Claude Code</SelectItem>
+                      <SelectItem value="codex">Codex</SelectItem>
+                      <SelectItem value="grok">Grok</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </Row>
                 <Row label="Model for new sessions">
                   <ModelInput
@@ -187,7 +216,7 @@ export function SettingsView(): JSX.Element {
               >
                 {(['openrouter', 'anthropic', 'openai'] as const).map((k) => (
                   <Row key={k} label={providerLabel(k)}>
-                    <input
+                    <Input
                       type="password"
                       autoComplete="off"
                       placeholder="not set"
@@ -207,16 +236,16 @@ export function SettingsView(): JSX.Element {
                 hint="When a machine's memory crosses the threshold, idle sessions hibernate. One click resumes them."
               >
                 <Row label="Enabled">
-                  <input
-                    type="checkbox"
+                  <Switch
                     checked={settings.hibernation.enabled}
-                    onChange={(e) =>
-                      patch({ hibernation: { ...settings.hibernation, enabled: e.target.checked } })
+                    onCheckedChange={(checked) =>
+                      patch({ hibernation: { ...settings.hibernation, enabled: checked } })
                     }
                   />
                 </Row>
                 <Row label="Memory threshold (%)">
-                  <input
+                  <Input
+                    className="w-[90px] flex-none"
                     type="number"
                     min={50}
                     max={95}
@@ -232,7 +261,8 @@ export function SettingsView(): JSX.Element {
                   />
                 </Row>
                 <Row label="Idle after (minutes)">
-                  <input
+                  <Input
+                    className="w-[90px] flex-none"
                     type="number"
                     min={1}
                     max={1440}
@@ -256,19 +286,18 @@ export function SettingsView(): JSX.Element {
                 hint="Web notifications fire when this page is open in the background. The ntfy topic adds real mobile push: install the free ntfy app, subscribe to your topic."
               >
                 <Row label="Web notifications">
-                  <input
-                    type="checkbox"
+                  <Switch
                     checked={settings.notifications.web}
-                    onChange={(e) =>
+                    onCheckedChange={(checked) =>
                       patch({
-                        notifications: { ...settings.notifications, web: e.target.checked },
+                        notifications: { ...settings.notifications, web: checked },
                       })
                     }
                   />
                   <NotificationPermissionButton />
                 </Row>
                 <Row label="ntfy.sh topic">
-                  <input
+                  <Input
                     type="text"
                     placeholder="e.g. podium-a8f3k2 (empty = off)"
                     value={settings.notifications.ntfyTopic}
@@ -288,7 +317,7 @@ export function SettingsView(): JSX.Element {
                 hint="Linear lets the superagent pick up, add, and move tickets."
               >
                 <Row label="Linear API key">
-                  <input
+                  <Input
                     type="password"
                     autoComplete="off"
                     placeholder="lin_api_…"
@@ -305,25 +334,27 @@ export function SettingsView(): JSX.Element {
           </div>
         </div>
       )}
-      <div className="settings-footer">
-        <button
+      <div className="flex items-center justify-end gap-2.5 border-border border-t px-4 py-2.5">
+        <Button
           type="button"
-          className="settings-reset"
+          variant="ghost"
+          size="sm"
+          className="mr-auto text-muted-foreground/70 hover:text-foreground"
           onClick={() => setSettings(DEFAULT_SETTINGS)}
         >
           Reset to defaults
-        </button>
+        </Button>
         {savedAt > 0 && Date.now() - savedAt < 4000 && (
-          <span className="settings-saved">Saved.</span>
+          <span className="text-success text-xs">Saved.</span>
         )}
-        <button
+        <Button
           type="button"
-          className="settings-save"
+          size="sm"
           disabled={!settings || saving}
           onClick={() => void save()}
         >
           {saving ? 'Saving…' : 'Save'}
-        </button>
+        </Button>
       </div>
     </section>
   )
@@ -334,19 +365,23 @@ function NotificationPermissionButton(): JSX.Element | null {
   const [perm, setPerm] = useState(() =>
     typeof Notification === 'undefined' ? 'unsupported' : Notification.permission,
   )
-  if (perm === 'unsupported') return <span className="settings-note">not supported here</span>
-  if (perm === 'granted') return <span className="settings-saved">permission granted</span>
-  if (perm === 'denied') return <span className="settings-note">blocked in browser settings</span>
+  if (perm === 'unsupported')
+    return <span className="text-muted-foreground text-xs">not supported here</span>
+  if (perm === 'granted')
+    return <span className="text-success text-xs">permission granted</span>
+  if (perm === 'denied')
+    return <span className="text-muted-foreground text-xs">blocked in browser settings</span>
   return (
-    <button
+    <Button
       type="button"
-      className="settings-permission"
+      variant="outline"
+      size="sm"
       onClick={() => {
         void Notification.requestPermission().then(setPerm)
       }}
     >
       Grant permission
-    </button>
+    </Button>
   )
 }
 
@@ -373,9 +408,9 @@ function Section({
   children: React.ReactNode
 }): JSX.Element {
   return (
-    <section className="settings-section">
-      <h3>{title}</h3>
-      {hint && <p className="settings-hint">{hint}</p>}
+    <section className="border-border border-b py-3 last:border-b-0">
+      <h3 className="mb-0.5 font-medium text-[13px] text-foreground">{title}</h3>
+      {hint && <p className="mb-2 max-w-[60ch] text-[12px] text-muted-foreground">{hint}</p>}
       {children}
     </section>
   )
@@ -438,8 +473,8 @@ function Row({ label, children }: { label: string; children: React.ReactNode }):
   // Every Row holds exactly one control, but the type system can't prove that to
   // the a11y lint — a div keeps it honest; the visible text still sits beside it.
   return (
-    <div className="settings-row">
-      <span className="settings-label">{label}</span>
+    <div className="flex items-center gap-2.5 py-1 text-[13px]">
+      <span className="flex-none basis-[140px] text-foreground md:basis-[180px]">{label}</span>
       {children}
     </div>
   )
@@ -453,7 +488,7 @@ function ModelInput({
   onChange: (v: string) => void
 }): JSX.Element {
   return (
-    <input
+    <Input
       type="text"
       // 'auto' is the stored sentinel; the empty input *means* auto.
       value={value === 'auto' ? '' : value}
@@ -477,21 +512,26 @@ function BackendEditor({
   return (
     <>
       <Row label="Run on">
-        <select
+        <Select
           value={backend.kind}
-          onChange={(e) => onChange({ ...backend, kind: e.target.value as LlmBackend['kind'] })}
+          onValueChange={(value) => onChange({ ...backend, kind: value as LlmBackend['kind'] })}
         >
-          <option value="api">API provider (key required)</option>
-          <option value="harness">Coding-agent harness</option>
-        </select>
+          <SelectTrigger className="w-full flex-1">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="api">API provider (key required)</SelectItem>
+            <SelectItem value="harness">Coding-agent harness</SelectItem>
+          </SelectContent>
+        </Select>
       </Row>
       {backend.kind === 'api' ? (
         <>
           <Row label="Provider">
-            <select
+            <Select
               value={backend.provider}
-              onChange={(e) => {
-                const provider = e.target.value as ApiProvider
+              onValueChange={(value) => {
+                const provider = value as ApiProvider
                 // Codex models look nothing like the OpenRouter/Anthropic ones, so
                 // prefill a sane default when switching into (or out of) it.
                 const model =
@@ -503,27 +543,32 @@ function BackendEditor({
                 onChange({ ...backend, provider, model })
               }}
             >
-              <option value="openrouter">OpenRouter (default — any model)</option>
-              <option value="anthropic">Anthropic</option>
-              <option value="openai">OpenAI</option>
-              <option value="codex">Codex — ChatGPT subscription (no key)</option>
-            </select>
+              <SelectTrigger className="w-full flex-1">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="openrouter">OpenRouter (default — any model)</SelectItem>
+                <SelectItem value="anthropic">Anthropic</SelectItem>
+                <SelectItem value="openai">OpenAI</SelectItem>
+                <SelectItem value="codex">Codex — ChatGPT subscription (no key)</SelectItem>
+              </SelectContent>
+            </Select>
           </Row>
           <Row label="Model">
-            <input
+            <Input
               type="text"
               value={backend.model}
               onChange={(e) => onChange({ ...backend, model: e.target.value })}
             />
           </Row>
           {backend.provider === 'codex' ? (
-            <p className="settings-note">
-              Uses your local ChatGPT login (<code>codex login</code> on the server) — no API key,
-              effectively free within your plan's limits. Gets the full orchestrator tool belt and,
-              unlike the old Codex harness, never shells out to a CLI.
+            <p className="mt-1.5 mb-0.5 max-w-[60ch] text-[12px] text-muted-foreground">
+              Uses your local ChatGPT login (<code className="text-[11px]">codex login</code> on the
+              server) — no API key, effectively free within your plan's limits. Gets the full
+              orchestrator tool belt and, unlike the old Codex harness, never shells out to a CLI.
             </p>
           ) : (
-            <p className="settings-note">
+            <p className="mt-1.5 mb-0.5 max-w-[60ch] text-[12px] text-muted-foreground">
               Billed per token against your API key. Worker agents the superagent starts still run
               on your normal subscriptions — only the orchestration itself is metered.
             </p>
@@ -532,15 +577,20 @@ function BackendEditor({
       ) : (
         <>
           <Row label="Harness">
-            <select
+            <Select
               value={backend.harnessAgent}
-              onChange={(e) =>
-                onChange({ ...backend, harnessAgent: e.target.value as HarnessAgent })
+              onValueChange={(value) =>
+                onChange({ ...backend, harnessAgent: value as HarnessAgent })
               }
             >
-              <option value="claude-code">Claude Code</option>
-              <option value="grok">Grok</option>
-            </select>
+              <SelectTrigger className="w-full flex-1">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="claude-code">Claude Code</SelectItem>
+                <SelectItem value="grok">Grok</SelectItem>
+              </SelectContent>
+            </Select>
           </Row>
           <Row label="Model">
             <ModelInput
@@ -548,10 +598,11 @@ function BackendEditor({
               onChange={(harnessModel) => onChange({ ...backend, harnessModel })}
             />
           </Row>
-          <p className="settings-note settings-warn">
-            Heads up: Claude Code's programmatic mode (<code>claude -p</code>) bills pay-per-use API
-            rates even when you have a subscription. Grok runs through <code>grok -p</code> with
-            your local Grok login. For free Codex orchestration, pick API provider → Codex instead.
+          <p className="mt-1.5 mb-0.5 max-w-[60ch] text-[12px] text-warning">
+            Heads up: Claude Code's programmatic mode (<code className="text-[11px]">claude -p</code>)
+            bills pay-per-use API rates even when you have a subscription. Grok runs through{' '}
+            <code className="text-[11px]">grok -p</code> with your local Grok login. For free Codex
+            orchestration, pick API provider → Codex instead.
           </p>
         </>
       )}

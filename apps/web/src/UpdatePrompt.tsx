@@ -1,6 +1,11 @@
 import { useRegisterSW } from 'virtual:pwa-register/react'
 import type { JSX } from 'react'
 import { useEffect, useRef } from 'react'
+import { toast } from 'sonner'
+
+// Stable id so the prompt shows as a single toast (no stacking across
+// re-renders) and can be dismissed when the user picks "Later".
+const UPDATE_TOAST_ID = 'pwa-update-available'
 
 // How often an open tab asks the service worker to look for a freshly
 // deployed build. A redeploy restarts the web service, which serves a new
@@ -45,16 +50,21 @@ export function UpdatePrompt(): JSX.Element | null {
     window.setTimeout(() => window.location.reload(), 2000)
   }
 
-  if (!needRefresh) return null
-  return (
-    <div className="update-toast" role="status">
-      <span>New version available</span>
-      <button type="button" onClick={reload}>
-        Reload
-      </button>
-      <button type="button" className="update-toast-dismiss" onClick={() => setNeedRefresh(false)}>
-        Later
-      </button>
-    </div>
-  )
+  // Surface the prompt through sonner (the shared <Toaster/> mounted in
+  // AppShell) instead of a hand-rolled fixed-position toast. Sticky (no
+  // auto-dismiss); "Reload" drives the SW takeover, "Later" hides it.
+  useEffect(() => {
+    if (!needRefresh) return
+    toast('New version available', {
+      id: UPDATE_TOAST_ID,
+      duration: Number.POSITIVE_INFINITY,
+      action: { label: 'Reload', onClick: reload },
+      cancel: { label: 'Later', onClick: () => setNeedRefresh(false) },
+    })
+    return () => {
+      toast.dismiss(UPDATE_TOAST_ID)
+    }
+  }, [needRefresh, setNeedRefresh])
+
+  return null
 }

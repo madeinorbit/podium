@@ -1,6 +1,14 @@
 import type { AgentKind } from '@podium/protocol'
-import { Bot, Code2, type LucideIcon, SquareTerminal, Zap } from 'lucide-react'
+import { Bot, Code2, type LucideIcon, Plus, SquareTerminal, Zap } from 'lucide-react'
 import { type JSX, useMemo, useState } from 'react'
+import { Button } from '@/components/ui/button'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import { Input } from '@/components/ui/input'
 import { reposToViews } from './derive'
 import { relativeTime } from './home'
 import { useStore } from './store'
@@ -81,30 +89,53 @@ export function NewPanelMenu({
   }
 
   return (
-    <div className="new-panel-menu">
-      {NEW_AGENTS.map(({ kind, label, Icon }) => (
-        <button key={kind} type="button" className="new-agent" onClick={() => void create(kind)}>
-          <Icon size={14} aria-hidden="true" />
-          {label}
-        </button>
-      ))}
-      <div className="menu-section">Resume</div>
-      <input
-        type="text"
-        className="menu-search"
-        placeholder="Search history…"
-        value={filter}
-        onChange={(e) => setFilter(e.target.value)}
+    // modal={false}: the resume <input> lives in the content, so we must not
+    // scroll-lock — that would fight the mobile keyboard pinning.
+    <DropdownMenu modal={false}>
+      <DropdownMenuTrigger
+        render={
+          <Button variant="ghost" size="icon" aria-label="New panel">
+            <Plus size={16} />
+          </Button>
+        }
       />
-      {hits.length === 0 && <div className="menu-empty">No matching history</div>}
-      {hits.map((hit) => (
-        <button key={hit.id} type="button" className="menu-resume" onClick={() => void resume(hit)}>
-          <span className="menu-resume-title">↻ {hit.name || hit.title || hit.id}</span>
-          {hit.updatedAt && (
-            <span className="menu-resume-when">{relativeTime(hit.updatedAt, now)}</span>
-          )}
-        </button>
-      ))}
-    </div>
+      <DropdownMenuContent align="end" className="flex w-56 flex-col">
+        {NEW_AGENTS.map(({ kind, label, Icon }) => (
+          <DropdownMenuItem key={kind} onClick={() => void create(kind)}>
+            <Icon size={14} aria-hidden="true" className="text-muted-foreground" />
+            {label}
+          </DropdownMenuItem>
+        ))}
+        <div className="px-2.5 pt-2 pb-0.5 text-[11px] font-medium uppercase tracking-[0.06em] text-muted-foreground/70">
+          Resume
+        </div>
+        <Input
+          type="text"
+          className="mx-1.5 mb-1 mt-0.5 h-auto w-auto py-1 text-xs"
+          placeholder="Search history…"
+          value={filter}
+          onChange={(e) => setFilter(e.target.value)}
+        />
+        {hits.length === 0 && (
+          <div className="px-3 py-3 text-xs text-muted-foreground/70">No matching history</div>
+        )}
+        {hits.map((hit) => (
+          <DropdownMenuItem
+            key={hit.id}
+            onClick={() => void resume(hit)}
+            className="flex items-baseline gap-2"
+          >
+            <span className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap">
+              ↻ {hit.name || hit.title || hit.id}
+            </span>
+            {hit.updatedAt && (
+              <span className="ml-auto flex-none text-[11px] text-muted-foreground/70">
+                {relativeTime(hit.updatedAt, now)}
+              </span>
+            )}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
   )
 }

@@ -1,3 +1,5 @@
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { cn } from '@/lib/utils'
 import type { ConnectionHealth } from '@podium/terminal-client'
 import { Wifi, WifiOff } from 'lucide-react'
 import type { JSX } from 'react'
@@ -138,17 +140,33 @@ export function ConnectionIndicator({
   // A button so the tooltip is reachable by keyboard focus and by tap on touch
   // devices, where hover doesn't exist. Tapping opens the host info panel.
   return (
-    <button
-      type="button"
-      className={`conn-indicator conn-${health.status}`}
-      aria-label={`${headline}. ${detail}`}
-      onClick={onOpen}
-    >
-      <Icon size={14} aria-hidden="true" />
-      <span className="conn-tooltip" role="tooltip">
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <button
+            type="button"
+            className={cn(
+              'relative inline-flex flex-none cursor-pointer items-center self-center border-0 bg-transparent p-0',
+              health.status === 'ok' && 'text-success',
+              health.status === 'degraded' && 'text-warning',
+              health.status === 'down' && 'text-destructive',
+            )}
+            aria-label={`${headline}. ${detail}`}
+            onClick={onOpen}
+          >
+            {/* Pulse the ICON only — not the whole control. */}
+            <Icon
+              size={14}
+              aria-hidden="true"
+              className={cn(health.status === 'down' && 'animate-pulse')}
+            />
+          </button>
+        }
+      />
+      <TooltipContent className="max-w-60 flex-col items-start gap-0.5">
         <strong>{headline}</strong>
-        <span>{detail}</span>
-      </span>
-    </button>
+        <span className="text-background/70">{detail}</span>
+      </TooltipContent>
+    </Tooltip>
   )
 }

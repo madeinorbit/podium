@@ -6,10 +6,15 @@ import {
   Search,
   Settings as SettingsIcon,
   Sparkles,
+  X,
 } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
 import { useEffect, useRef, useState } from 'react'
 import { AgentPanel } from './AgentPanel'
+import { Button } from '@/components/ui/button'
+import { Dialog, DialogContent } from '@/components/ui/dialog'
+import { useIsMobile } from '@/hooks/use-is-mobile'
+import { cn } from '@/lib/utils'
 import {
   orderTabs,
   type RepoNavView,
@@ -77,6 +82,7 @@ function useVisualViewportHeight(): void {
 
 export function MobileApp(): JSX.Element {
   useVisualViewportHeight()
+  const isMobile = useIsMobile()
   const store = useStore()
   const {
     sessions,
@@ -141,11 +147,17 @@ export function MobileApp(): JSX.Element {
   }
 
   return (
-    <div className="mobile-shell">
-      <header className="mobile-head">
+    <div className="flex touch-manipulation h-[var(--viewport-h,100dvh)] flex-col">
+      <header
+        className="flex items-stretch border-b border-border bg-card pt-[var(--safe-top)]"
+        style={{ height: 'calc(44px + var(--safe-top))' }}
+      >
         <button
           type="button"
-          className={view === 'home' ? 'mobile-home active' : 'mobile-home'}
+          className={cn(
+            'inline-flex items-center border-r border-border px-3 text-muted-foreground',
+            view === 'home' && 'text-primary',
+          )}
           title="Command center"
           onClick={() => setView('home')}
         >
@@ -153,17 +165,26 @@ export function MobileApp(): JSX.Element {
         </button>
         <button
           type="button"
-          className={view === 'superagent' ? 'mobile-home active' : 'mobile-home'}
+          className={cn(
+            'inline-flex items-center border-r border-border px-3 text-muted-foreground',
+            view === 'superagent' && 'text-primary',
+          )}
           title="Superagent"
           onClick={() => setView('superagent')}
         >
           <Sparkles size={15} aria-hidden="true" />
         </button>
-        <button type="button" className="wt-picker" onClick={() => setPickerOpen(true)}>
+        <button
+          type="button"
+          className="flex min-w-0 max-w-[45%] items-center overflow-hidden border-r border-border px-2 text-left text-xs text-foreground"
+          onClick={() => setPickerOpen(true)}
+        >
           {worktree ? (
-            <span className="wt-picker-lines">
-              <span className="wt-picker-repo">{worktreeRepoName}</span>
-              <span className="wt-picker-branch">
+            <span className="flex min-w-0 flex-col items-start leading-[1.15]">
+              <span className="max-w-full truncate text-[10px] tracking-[0.02em] text-muted-foreground">
+                {worktreeRepoName}
+              </span>
+              <span className="max-w-full truncate text-[13px] font-medium text-foreground">
                 {worktree.branch ?? worktree.path.split('/').pop()} ▾
               </span>
             </span>
@@ -171,11 +192,11 @@ export function MobileApp(): JSX.Element {
             'Select worktree'
           )}
         </button>
-        <div className="mobile-tabs">
+        <div className="flex min-w-0 flex-1 items-center gap-1.5 px-2">
           {tabs.length > 0 && (
             <button
               type="button"
-              className="session-picker"
+              className="inline-flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 overflow-hidden whitespace-nowrap text-[13px] font-medium text-foreground"
               aria-expanded={sessionMenuOpen}
               onClick={() => setSessionMenuOpen((v) => !v)}
             >
@@ -191,22 +212,33 @@ export function MobileApp(): JSX.Element {
             </button>
           )}
           {worktree && (
-            <button type="button" className="tab-add" onClick={() => setMenuOpen((v) => !v)}>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label="New panel"
+              onClick={() => setMenuOpen((v) => !v)}
+            >
               +
-            </button>
+            </Button>
           )}
         </div>
         <HostIndicators compact />
       </header>
       {sessionMenuOpen && tabs.length > 0 && (
-        <div className="session-menu">
+        <div className="flex flex-col border-b border-border bg-muted shadow-[0_8px_24px_rgba(0,0,0,0.5)]">
           {tabs.map((t) => {
             const pinned = pins.panels.includes(t.sessionId)
             return (
-              <div key={t.sessionId} className="session-menu-row">
+              <div
+                key={t.sessionId}
+                className="flex items-center border-b border-border last:border-b-0"
+              >
                 <button
                   type="button"
-                  className={t.sessionId === paneA ? 'session-pick active' : 'session-pick'}
+                  className={cn(
+                    'inline-flex min-w-0 flex-1 cursor-pointer items-center gap-2 overflow-hidden whitespace-nowrap p-3 text-left text-[13px]',
+                    t.sessionId === paneA ? 'text-foreground' : 'text-muted-foreground',
+                  )}
                   onClick={() => {
                     setPane('A', t.sessionId)
                     setSessionMenuOpen(false)
@@ -217,7 +249,10 @@ export function MobileApp(): JSX.Element {
                 </button>
                 <button
                   type="button"
-                  className={pinned ? 'tab-pin active' : 'tab-pin'}
+                  className={cn(
+                    'cursor-pointer px-2.5 py-3 text-[13px]',
+                    pinned ? 'text-primary' : 'text-muted-foreground/70 hover:text-primary',
+                  )}
                   aria-pressed={pinned}
                   title={pinned ? 'Unpin panel' : 'Pin panel'}
                   onClick={() => void setPinned('panel', t.sessionId, !pinned)}
@@ -226,7 +261,7 @@ export function MobileApp(): JSX.Element {
                 </button>
                 <button
                   type="button"
-                  className="tab-kill"
+                  className="cursor-pointer px-2.5 py-3 text-[13px] text-muted-foreground/70 hover:text-destructive"
                   title="Kill session"
                   onClick={() => void killSession(t.sessionId)}
                 >
@@ -248,7 +283,7 @@ export function MobileApp(): JSX.Element {
           }}
         />
       )}
-      <div className="mobile-body" onPointerDownCapture={closePanelMenus}>
+      <div className="relative flex min-h-0 flex-1" onPointerDownCapture={closePanelMenus}>
         {view === 'home' ? (
           <HomeView />
         ) : view === 'superagent' ? (
@@ -260,20 +295,41 @@ export function MobileApp(): JSX.Element {
         ) : paneA ? (
           <AgentPanel sessionId={paneA} />
         ) : (
-          <div className="pane-empty">No panel - use + to start one.</div>
+          <div className="m-auto text-[13px] text-muted-foreground/70">
+            No panel - use + to start one.
+          </div>
         )}
       </div>
-      {pickerOpen && (
-        <div className="picker-sheet">
-          <div className="sheet-head">
-            <span className="label">WORKTREES</span>
-            <div className="sheet-actions">
-              <button type="button" onClick={() => setRepoPickerOpen(true)}>
+      <Dialog
+        open={pickerOpen}
+        modal={isMobile ? 'trap-focus' : true}
+        onOpenChange={(o) => {
+          if (!o) setPickerOpen(false)
+        }}
+      >
+        <DialogContent
+          showCloseButton={false}
+          className="fixed inset-x-0 bottom-0 top-auto left-0 grid max-h-[85%] w-full max-w-full translate-x-0 translate-y-0 gap-0 overflow-y-auto rounded-t-xl rounded-b-none bg-background p-0 pb-[max(var(--safe-bottom),env(safe-area-inset-bottom))] ring-0"
+        >
+          <div
+            className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-background"
+            style={{
+              padding:
+                'calc(10px + var(--safe-top)) calc(12px + var(--safe-right)) 10px calc(12px + var(--safe-left))',
+            }}
+          >
+            <span className="text-[11px] font-semibold tracking-[0.08em] text-muted-foreground">
+              WORKTREES
+            </span>
+            <div className="flex items-center gap-2">
+              <Button variant="secondary" size="sm" onClick={() => setRepoPickerOpen(true)}>
                 + Add repo
-              </button>
-              <button
-                type="button"
+              </Button>
+              <Button
+                variant="secondary"
+                size="icon-sm"
                 title="Search conversations"
+                aria-label="Search conversations"
                 onClick={() => {
                   // Close the sheet first: the search modal and this sheet are
                   // sibling overlays, and leaving the sheet up meant the search
@@ -283,34 +339,43 @@ export function MobileApp(): JSX.Element {
                 }}
               >
                 <Search size={14} aria-hidden="true" />
-              </button>
-              <button
-                type="button"
+              </Button>
+              <Button
+                variant="secondary"
+                size="icon-sm"
                 title="Usage & analytics"
+                aria-label="Usage & analytics"
                 onClick={() => {
                   setPickerOpen(false)
                   setView('usage')
                 }}
               >
                 <BarChart3 size={14} aria-hidden="true" />
-              </button>
-              <button
-                type="button"
+              </Button>
+              <Button
+                variant="secondary"
+                size="icon-sm"
                 title="Settings"
+                aria-label="Settings"
                 onClick={() => {
                   setPickerOpen(false)
                   setView('settings')
                 }}
               >
                 <SettingsIcon size={14} aria-hidden="true" />
-              </button>
-              <button type="button" onClick={() => setPickerOpen(false)}>
-                ✕
-              </button>
+              </Button>
+              <Button
+                variant="secondary"
+                size="icon-sm"
+                aria-label="Close"
+                onClick={() => setPickerOpen(false)}
+              >
+                <X size={14} aria-hidden="true" />
+              </Button>
             </div>
           </div>
           {(reposLoading || repoDiagnostics.length > 0) && (
-            <div className="scan-status">
+            <div className="px-3 pt-1.5 pb-2 text-xs text-muted-foreground">
               {reposLoading
                 ? 'Loading repositories...'
                 : `Scan finished with ${repoDiagnostics.length} warning${repoDiagnostics.length === 1 ? '' : 's'}.`}
@@ -352,12 +417,12 @@ export function MobileApp(): JSX.Element {
             />
           ))}
           {!hasRows && (
-            <div className="empty">
+            <div className="p-3 text-xs text-muted-foreground/70">
               {reposLoading ? 'Loading repositories...' : 'No repos yet. Add a folder to scan.'}
             </div>
           )}
-        </div>
-      )}
+        </DialogContent>
+      </Dialog>
       {repoPickerOpen && (
         <RepoScanFlow
           onClose={() => setRepoPickerOpen(false)}
@@ -371,8 +436,10 @@ export function MobileApp(): JSX.Element {
 
 function PickerSection({ label, children }: { label: string; children: ReactNode }): JSX.Element {
   return (
-    <div className="picker-section">
-      <div className="pin-section-label">{label}</div>
+    <div className="border-b border-border py-1">
+      <div className="px-3 pt-2 pb-[3px] text-[10px] font-bold uppercase tracking-[0.08em] text-primary">
+        {label}
+      </div>
       {children}
     </div>
   )
@@ -391,8 +458,10 @@ function SheetRepo({
 }): JSX.Element {
   return (
     <div>
-      <div className="repo-head sheet-repo-head">
-        <div className="repo-name">{repo.name}</div>
+      <div className="flex items-center justify-between border-b border-border pr-2">
+        <div className="min-w-0 flex-1 px-3 pt-1.5 pb-0.5 text-[11px] uppercase tracking-[0.06em] text-muted-foreground/70">
+          {repo.name}
+        </div>
         <PinToggle
           kind="repo"
           id={repo.path}
@@ -426,10 +495,20 @@ function SheetWorktree({
   setPinned: (kind: PinKind, id: string, pinned: boolean) => Promise<void>
 }): JSX.Element {
   return (
-    <div className="sheet-row-wrap">
-      <button type="button" className="sheet-row" onClick={() => onPick(worktree.path)}>
-        <span>{worktree.branch ?? worktree.path.split('/').pop()}</span>
-        {pinned && <span className="worktree-context">{worktree.repoName}</span>}
+    <div className="flex min-w-0 items-stretch">
+      <button
+        type="button"
+        className="flex min-w-0 flex-1 cursor-pointer items-center justify-between border-b border-border p-3 text-left text-foreground hover:bg-muted"
+        onClick={() => onPick(worktree.path)}
+      >
+        <span className="min-w-0 truncate">
+          {worktree.branch ?? worktree.path.split('/').pop()}
+        </span>
+        {pinned && (
+          <span className="min-w-0 max-w-[90px] flex-[0_1_auto] truncate text-[10px] text-muted-foreground/70">
+            {worktree.repoName}
+          </span>
+        )}
       </button>
       <PinToggle
         kind="worktree"
@@ -458,7 +537,10 @@ function PinToggle({
   return (
     <button
       type="button"
-      className={pinned ? 'pin-button active' : 'pin-button'}
+      className={cn(
+        'inline-flex w-7 min-w-7 flex-[0_0_28px] cursor-pointer items-center justify-center',
+        pinned ? 'text-primary' : 'text-muted-foreground/70 hover:bg-muted hover:text-foreground',
+      )}
       aria-pressed={pinned}
       title={`${pinned ? 'Unpin' : 'Pin'} ${label}`}
       onClick={() => void setPinned(kind, id, !pinned)}

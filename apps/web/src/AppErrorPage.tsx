@@ -1,4 +1,5 @@
 import type { JSX } from 'react'
+import { Button } from '@/components/ui/button'
 
 export function formatAppError(error: unknown, fallback = 'Something went wrong'): string {
   const message = rawErrorMessage(error)
@@ -24,16 +25,16 @@ export function AppErrorPage({
   onRetry?: () => void
 }): JSX.Element {
   return (
-    <main className="app-error-page">
-      <section className="app-error-panel">
-        <div className="label">ERROR</div>
-        <h1>{title}</h1>
-        <p>{message}</p>
-        <div className="app-error-actions">
+    <main className="flex min-h-full items-center justify-center bg-background p-5">
+      <section className="w-[min(520px,100%)] rounded-md border border-border bg-card p-5">
+        <div className="text-[11px] font-semibold tracking-[0.08em] text-muted-foreground">ERROR</div>
+        <h1 className="my-2 text-[22px] font-medium text-foreground">{title}</h1>
+        <p className="m-0 text-muted-foreground [overflow-wrap:anywhere]">{message}</p>
+        <div className="mt-4 flex flex-wrap gap-2">
           {onRetry && (
-            <button type="button" onClick={onRetry}>
+            <Button type="button" onClick={onRetry}>
               Retry
-            </button>
+            </Button>
           )}
         </div>
       </section>
