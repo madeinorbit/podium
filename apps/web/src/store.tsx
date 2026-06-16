@@ -262,9 +262,11 @@ export function StoreProvider({
     [trpc],
   )
   const setSessionDraft = useMemo(
-    () => (sessionId: string, text: string) =>
-      setDrafts((d) => (d[sessionId] === text ? d : { ...d, [sessionId]: text })),
-    [],
+    () => (sessionId: string, text: string) => {
+      setDrafts((d) => (d[sessionId] === text ? d : { ...d, [sessionId]: text }))
+      hub.sendSessionDraft(sessionId, text)
+    },
+    [hub],
   )
   const setWorkState = useMemo(
     () => async (sessionId: string, workState: WorkState | null) => {
@@ -306,6 +308,9 @@ export function StoreProvider({
   useEffect(() => {
     const offSessions = hub.onSessions(setSessions)
     const offHostMetrics = hub.onHostMetrics(setHostMetrics)
+    const offDraft = hub.onSessionDraft((sessionId, text) =>
+      setDrafts((d) => (d[sessionId] === text ? d : { ...d, [sessionId]: text })),
+    )
     // Attention → web notification, but only while this page can't be seen —
     // a visible Podium window IS the notification.
     const offAttention = hub.onAttention((e) => {
@@ -338,6 +343,7 @@ export function StoreProvider({
       clearTimeout(connectTimer)
       offSessions()
       offHostMetrics()
+      offDraft()
       offAttention()
       document.removeEventListener('visibilitychange', reportVisibility)
       hub.dispose()
