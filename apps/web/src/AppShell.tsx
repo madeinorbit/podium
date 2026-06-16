@@ -1,5 +1,8 @@
 import type { JSX } from 'react'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
+import { Toaster } from '@/components/ui/sonner'
+import { TooltipProvider } from '@/components/ui/tooltip'
+import { useIsMobile } from '@/hooks/use-is-mobile'
 import { AppErrorPage } from './AppErrorPage'
 import { ErrorBoundary } from './ErrorBoundary'
 import { HomeView } from './HomeView'
@@ -24,17 +27,6 @@ function LoadingScreen(): JSX.Element {
   )
 }
 
-function useIsMobile(): boolean {
-  const [m, setM] = useState(() => window.matchMedia('(max-width: 768px)').matches)
-  useEffect(() => {
-    const mq = window.matchMedia('(max-width: 768px)')
-    const on = () => setM(mq.matches)
-    mq.addEventListener('change', on)
-    return () => mq.removeEventListener('change', on)
-  }, [])
-  return m
-}
-
 export function AppShell(): JSX.Element {
   // Relay endpoints are always resolved automatically — never typed by the user.
   // serverConfig() derives same-origin ws:// + tRPC URLs from window.location (the
@@ -45,7 +37,7 @@ export function AppShell(): JSX.Element {
   const isMobile = useIsMobile()
 
   return (
-    <>
+    <TooltipProvider>
       <UpdatePrompt />
       {appError ? (
         <AppErrorPage
@@ -64,7 +56,8 @@ export function AppShell(): JSX.Element {
           </StoreProvider>
         </ErrorBoundary>
       )}
-    </>
+      <Toaster position="top-center" />
+    </TooltipProvider>
   )
 }
 
