@@ -131,6 +131,7 @@ export interface DaemonHandle {
 }
 
 type SpawnControl = Extract<ControlMessage, { type: 'spawn' }>
+type ReattachControl = Extract<ControlMessage, { type: 'reattach' }>
 type ConversationWireResult = {
   conversations: ConversationSummaryWire[]
   diagnostics: ConversationDiagnosticWire[]
@@ -395,6 +396,49 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     }
   }
 
+  // (Re)build the per-session observers a fresh daemon must stand up right after
+  // wiring the PTY bridge: the agent-state tracker, the harness state observer
+  // (Grok has no hook channel), the resume transcript tail (Claude chat history
+  // before the first hook), and a seeded phase. Spawn AND reattach both call this
+  // so the two paths can't silently diverge — that drift left idle survivors shown
+  // 'working' with an empty chat after a redeploy. `seedOnFrame` waits for the
+  // first PTY frame (a fresh spawn's CLI isn't up yet); reattach seeds now (the
+  // survivor is already at its prompt). `grokStartedAt` scopes Grok's session
+  // search (a fresh spawn's start time; omitted on reattach → now).
+  const initSessionObservers = (
+    msg: SpawnControl | ReattachControl,
+    session: AgentSession,
+    provider: AgentStateProvider | undefined,
+    init: { seedOnFrame: boolean; grokStartedAt?: number },
+  ): void => {
+    if (provider) {
+      trackers.set(msg.sessionId, {
+        provider,
+        state: initialAgentState(new Date().toISOString()),
+      })
+    }
+    if (msg.agentKind === 'grok') {
+      startGrokStateObserver(msg.sessionId, msg.cwd, msg.resume?.value, init.grokStartedAt)
+    } else if (msg.agentKind === 'claude-code' && msg.resume) {
+      tailResumeTranscript(msg.sessionId, msg.cwd, msg.resume.value)
+    }
+    if (provider?.bootEvents) {
+      // const capture so the narrowing survives into the onFrame closure.
+      const bootProvider = provider
+      const seed = (): void => {
+        void seedBootState(msg.sessionId, bootProvider, msg.cwd, msg.resume?.value)
+      }
+      if (init.seedOnFrame) {
+        const offFirstFrame = session.onFrame(() => {
+          offFirstFrame()
+          seed()
+        })
+      } else {
+        seed()
+      }
+    }
+  }
+
   const cachedConversationResult = (): ConversationWireResult => ({
     conversations: discoveryCache
       .listSummaries()
@@ -536,10 +580,6 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
         })
         if (instr.file) writeFileSync(instr.file.path, instr.file.contents)
         extraArgs = instr.args
-        trackers.set(msg.sessionId, {
-          provider,
-          state: initialAgentState(new Date().toISOString()),
-        })
       }
       const spawnOpts = {
         label,
@@ -558,26 +598,13 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
             ? spawnTmuxAgent(spawnOpts)
             : spawnAgent(spawnOpts)
       wireBridge(msg.sessionId, session)
-      if (msg.agentKind === 'grok') {
-        startGrokStateObserver(msg.sessionId, msg.cwd, msg.resume?.value, spawnStartedAt)
-      }
-      // Claude resumes: the resumed transcript is derivable right away, so the chat
-      // view has history before the first hook fires. Grok does the same in
-      // startGrokStateObserver once it attaches to the harness session id.
-      if (msg.agentKind === 'claude-code' && msg.resume) {
-        tailResumeTranscript(msg.sessionId, msg.cwd, msg.resume.value)
-      }
-      // Seed the state once the CLI is actually up (first PTY frame). Claude Code
-      // emits no SessionStart hook at interactive boot, so without this the phase
-      // sits at 'unknown' until the first prompt. Resumes classify the resumed
-      // transcript for a rich verdict. Real hook events always win: every reduce
-      // below is guarded on the phase still being 'unknown'.
-      if (provider?.bootEvents) {
-        const offFirstFrame = session.onFrame(() => {
-          offFirstFrame()
-          void seedBootState(msg.sessionId, provider, msg.cwd, msg.resume?.value)
-        })
-      }
+      // Stand up the agent-state tracker, harness observer, resume transcript tail
+      // and seeded phase. A fresh spawn's CLI isn't up yet, so seed on the first
+      // frame. Same call on reattach keeps the two paths from drifting.
+      initSessionObservers(msg, session, provider, {
+        seedOnFrame: true,
+        grokStartedAt: spawnStartedAt,
+      })
       send({
         type: 'bind',
         sessionId: msg.sessionId,
@@ -662,30 +689,16 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
           break
         }
         wireBridge(msg.sessionId, found.session)
-        // The settings file from the original spawn still points at our fixed
-        // port, so a reattached agent keeps reporting — re-arm the tracker.
-        const provider = agentStateProviderFor(msg.agentKind)
-        if (provider) {
-          trackers.set(msg.sessionId, {
-            provider,
-            state: initialAgentState(new Date().toISOString()),
-          })
-          // A survivor reattached after a daemon restart is already at its prompt
-          // and fires no hook until the user acts. Seed its state now, or the home
-          // board reads phase 'unknown' as 'working' and flags the idle session as
-          // active. The resume ref (when the server has one) classifies the live
-          // transcript so a session parked on a question still shows 'needs answer'.
-          void seedBootState(msg.sessionId, provider, msg.cwd, msg.resume?.value)
-        }
-        if (msg.agentKind === 'grok') {
-          startGrokStateObserver(msg.sessionId, msg.cwd, msg.resume?.value)
-        }
-        // Re-tail the live transcript so the chat view recovers its history. A fresh
-        // daemon has no tail registered and an idle survivor fires no hook/update to
-        // add one, so without this chat stays empty while native still has scrollback.
-        if (msg.agentKind === 'claude-code' && msg.resume) {
-          tailResumeTranscript(msg.sessionId, msg.cwd, msg.resume.value)
-        }
+        // The settings file from the original spawn still points at our fixed port,
+        // so a reattached agent keeps reporting. A fresh daemon (post-redeploy) lost
+        // all in-memory per-session state — rebuild it via the same path spawn uses.
+        // A survivor is already at its prompt and fires no hook until the user acts,
+        // so seed immediately (an idle session would otherwise read 'unknown' →
+        // 'working') and re-tail its transcript (else chat stays empty while the
+        // native view still has scrollback).
+        initSessionObservers(msg, found.session, agentStateProviderFor(msg.agentKind), {
+          seedOnFrame: false,
+        })
         send({
           type: 'bind',
           sessionId: msg.sessionId,
