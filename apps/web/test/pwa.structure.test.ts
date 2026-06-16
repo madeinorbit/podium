@@ -1,3 +1,7 @@
+// @vitest-environment node
+// Reads source files off disk via import.meta.url — needs the real file URL,
+// which happy-dom (this package's default test env) mangles. The repo-root
+// config runs these in node; this matches it for the worktree-local config.
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
