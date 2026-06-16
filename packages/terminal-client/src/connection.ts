@@ -146,6 +146,7 @@ export class SocketHub {
   private readonly hostMetricsObservers = new Set<(h: HostMetricsWire[]) => void>()
   private readonly healthObservers = new Set<(h: ConnectionHealth) => void>()
   private readonly attentionObservers = new Set<(e: AttentionEvent) => void>()
+  private draftObservers = new Set<(sessionId: string, text: string) => void>()
   private lastVisible = true
 
   constructor(opts: SocketHubOptions) {
@@ -407,6 +408,17 @@ export class SocketHub {
     return () => this.attentionObservers.delete(cb)
   }
 
+  /** Subscribe to draft changes broadcast by other clients/devices. Returns an unsubscribe. */
+  onSessionDraft(cb: (sessionId: string, text: string) => void): () => void {
+    this.draftObservers.add(cb)
+    return () => this.draftObservers.delete(cb)
+  }
+
+  /** Publish this client's in-progress draft for a session to the server. */
+  sendSessionDraft(sessionId: string, text: string): void {
+    if (this.connectedFlag) this.sendRaw({ type: 'setSessionDraft', sessionId, text })
+  }
+
   /** Report page visibility; the server's smart router skips mobile push while visible. */
   setVisible(visible: boolean): void {
     this.lastVisible = visible
@@ -540,6 +552,10 @@ export class SocketHub {
         return { ...s, title: msg.title }
       })
       if (changed) for (const o of this.sessionObservers) o(this.sessionList)
+      return
+    }
+    if (msg.type === 'sessionDraftChanged') {
+      for (const o of this.draftObservers) o(msg.sessionId, msg.text)
       return
     }
     if (msg.type === 'sessionAgentStateChanged') {

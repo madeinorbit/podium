@@ -17,7 +17,7 @@ export function extractClaudePromptDraft(lines: string[]): string | null {
   let bottom = -1
   let top = -1
   for (let i = lines.length - 1; i >= 0; i--) {
-    const t = lines[i].trim()
+    const t = (lines[i] ?? '').trim()
     if (bottom === -1) {
       if (t.startsWith('╰')) bottom = i
       continue
@@ -33,7 +33,7 @@ export function extractClaudePromptDraft(lines: string[]): string | null {
 
   const parts: string[] = []
   for (let k = top + 1; k < bottom; k++) {
-    const s = lines[k]
+    const s = lines[k] ?? ''
     const li = s.indexOf('│')
     const ri = s.lastIndexOf('│')
     if (li === -1 || ri === li) return null

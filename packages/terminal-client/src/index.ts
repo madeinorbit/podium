@@ -4,6 +4,7 @@
 export * from './connection'
 export * from './dom-viewport'
 export * from './keys'
+export * from './prompt-extract'
 export * from './session-mount'
 export * from './terminal-view'
 export * from './toolbar'
