@@ -209,16 +209,20 @@ export function AgentPanel({
         <ChatView sessionId={sessionId} />
       ) : (
         <>
-          <div className="relative flex min-h-0 flex-1 flex-col">
+          {/* The xterm surface is hard-pinned to its own dark background (#0e0e12,
+              matching the terminal theme in terminal-client) regardless of the app
+              theme — otherwise a light theme shows a white container edge around the
+              still-dark terminal. Revisit when the terminal itself becomes theme-aware. */}
+          <div className="relative flex min-h-0 flex-1 flex-col bg-[#0e0e12]">
             <div ref={termRef} className="term min-h-0 flex-1 px-1.5 py-1" />
             {!hasOutput && (
               <div
-                className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-3 bg-background text-[13px] text-muted-foreground"
+                className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-3 bg-[#0e0e12] text-[13px] text-zinc-400"
                 role="status"
                 aria-live="polite"
               >
                 <span
-                  className="size-[22px] animate-spin rounded-full border-2 border-border border-t-muted-foreground"
+                  className="size-[22px] animate-spin rounded-full border-2 border-zinc-700 border-t-zinc-300"
                   aria-hidden="true"
                 />
                 <span>Starting {session ? panelLabel(session.agentKind) : 'session'}…</span>
