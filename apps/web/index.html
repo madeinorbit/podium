@@ -1,6 +1,31 @@
 <!doctype html>
 <html lang="en">
   <head>
+    <script>
+      // Apply the stored theme before React mounts so the first paint matches
+      // (no flash). Keys/values mirror src/theme.tsx exactly.
+      (function () {
+        try {
+          var BG = {
+            'podium-dark': '#0e0e12',
+            'podium-light': '#f7f7f9',
+            'shadcn-dark': '#09090b',
+            'shadcn-light': '#ffffff',
+          }
+          var p = localStorage.getItem('podium.theme.preset')
+          var m = localStorage.getItem('podium.theme.mode')
+          var preset = p === 'shadcn' || p === 'podium' ? p : 'podium'
+          var mode = m === 'light' || m === 'dark' ? m : 'dark'
+          var el = document.documentElement
+          if (preset === 'podium') el.setAttribute('data-theme', 'podium')
+          else el.removeAttribute('data-theme')
+          el.classList.toggle('dark', mode === 'dark')
+          var meta = document.querySelector('meta[name="theme-color"]')
+          var bg = BG[preset + '-' + mode]
+          if (meta && bg) meta.setAttribute('content', bg)
+        } catch (e) {}
+      })()
+    </script>
     <meta charset="UTF-8" />
     <meta
       name="viewport"
