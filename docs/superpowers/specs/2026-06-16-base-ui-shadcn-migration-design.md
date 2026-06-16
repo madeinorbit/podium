@@ -144,16 +144,17 @@ to `<html>` immediately on load. Mounted above `AppShell` in `main.tsx`.
 
 | Custom today (file) | shadcn/Base UI replacement |
 |---|---|
-| `.modal-backdrop` modals — `RepoPickerModal`, `RepoScanResults`, `SettingsView` (modal mode), `HostMemoryView`, `SearchView` | **Dialog** (`Root`→`Portal`→`Backdrop`→`Viewport`→`Popup`) |
-| `.new-panel-menu` clamped dropdown (`NewPanelMenu`) | **DropdownMenu** (`Positioner` handles collision) |
-| `.conn-tooltip` CSS-hover (`ConnectionIndicator`) | **Tooltip** |
-| `.tabbar` (`Workspace`), settings nav, host-info tabs, `HomeView` list/board | **Tabs** (drag-reorder tabs keep dnd-kit) |
-| `.home-mode` / `.panel-mode` toggles | **ToggleGroup** |
+| `.modal-backdrop` modals — `RepoPickerModal`, `RepoScanResults`, `HostMemoryView`, `SearchView` (NOT SettingsView — it is a full view, not a modal) | **Dialog** (generated `DialogContent` = `Portal`→`Overlay`→`Popup`; no `Viewport`) |
+| `.new-panel-menu` clamped dropdown (`NewPanelMenu`, desktop) | **DropdownMenu** (`Positioner` handles collision); mobile stays inline-restyled |
+| `.conn-tooltip` CSS-hover (`ConnectionIndicator`) | **Tooltip** (+ one app-root `TooltipProvider`) |
+| `.tabbar` (`Workspace`) | keep dnd-kit custom tabs, Tailwind restyle only (Base UI Tabs roving-tabindex fights dnd-kit) |
+| settings nav, host-info tabs, `HomeView` list/board | **Tabs** |
+| `.home-mode` / `.panel-mode` binary toggles | shadcn **Button** segmented group (avoid unverified Base UI ToggleGroup single-select API) |
 | text inputs / selects / checkboxes / textareas | **Input / Select / Checkbox / Textarea** |
-| `.agent-badge`, `.worker-label` kind tag, `.host-chip` | **Badge** |
-| `.update-toast` (`UpdatePrompt`) | **Sonner** (toast) |
+| `.worker-label` kind tag, `.host-chip` (`HostIndicators`) | **Badge** (extend cva for state tones). `.agent-badge` is dead CSS → just delete |
+| `.update-toast` (`UpdatePrompt`) | **Sonner** (edit generated `sonner.tsx` off `next-themes` → `@/theme`) |
 | icon / secondary / primary buttons across the app | **Button** variants (cva) |
-| mobile sheets `.picker-sheet`, `.session-menu` | **Dialog** styled as bottom/full sheet (see §8) |
+| mobile sheet `.picker-sheet` | **Dialog** styled as bottom sheet (`.session-menu` stays inline — no input, not an overlay) |
 
 ## 8. Stays custom (restyled with Tailwind, logic untouched)
 
@@ -164,15 +165,25 @@ visualViewport keyboard pinning** (`MobileApp`, `toolbar`).
 
 ## 9. Mobile risk mitigations (this is a heavy-mobile PWA)
 
-- **Scroll-lock vs keyboard pinning**: Base UI `Dialog modal` locks page scroll, which
-  can fight the visualViewport pinning logic. Use **`modal="trap-focus"`** (focus trap,
-  no scroll/pointer lock) for mobile sheets; the existing keyboard handling stays
-  authoritative. Desktop dialogs keep full `modal`.
-- **Mobile sheets**: no Base UI drawer exists; rebuild `.picker-sheet` / `.session-menu`
-  as Base UI **Dialog styled as a bottom/full sheet**. Base UI backdrops are
-  `position: absolute` and cover the visual viewport, which suits iOS.
-- **Safe-area**: Base UI does not add `env(safe-area-inset-*)`; keep that padding on
-  Popups manually (reuse the existing `--safe-*` vars).
+- **Scroll-lock vs keyboard pinning**: the shell already locks scroll via
+  `body:has(.mobile-shell){position:fixed}` + the `useVisualViewportHeight` pinning. Base
+  UI `Dialog modal` (default) installs its OWN scroll lock, which fights that. So on
+  mobile, **every** Dialog uses `modal="trap-focus"` (set on the root `<Dialog>`, not
+  `DialogContent`): focus trap, NO scroll/pointer lock. Desktop keeps default `modal`. The
+  rule is blanket (driven by an `isMobile` signal), so input-bearing modals (Search,
+  RepoPicker) can't regress the keyboard — not just the sheets.
+- **Base UI Menu** (`DropdownMenu`) only takes `modal={boolean}` (no `trap-focus`); on
+  mobile pass `modal={false}`, or keep the menu inline-custom (NewPanelMenu's mobile path).
+- **Mobile sheet**: `.picker-sheet` → a bottom-sheet-styled Dialog. The shadcn-generated
+  `DialogOverlay` is `position: fixed` (NOT absolute) — do not rely on an absolute
+  backdrop. `.session-menu` is inline flow content (no input, dismissed by a shared
+  pointer-capture handler) — keep it inline, restyle only.
+- **Safe-area**: Base UI portals popups to `document.body`, outside `.mobile-shell`, so
+  they do NOT inherit `--safe-*`. The sheet `DialogContent` must apply
+  `padding-bottom: max(var(--safe-bottom), env(safe-area-inset-bottom))` manually.
+- **PWA theme-color**: `<meta name="theme-color">` is hardcoded dark (`#0e0e12`); the two
+  new light themes need `applyTheme` (and the anti-flash script) to also update it to the
+  active `--background`, else the status bar stays dark over a light UI.
 - **Overscroll**: pair sheets with `overscroll-behavior: contain`.
 - **Tailwind v4 dev quirk**: a known `@custom-variant dark` dev-mode CSS-ordering bug
   exists (build output is unaffected) — verify via production build, not just dev server.
