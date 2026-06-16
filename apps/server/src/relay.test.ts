@@ -958,4 +958,36 @@ describe('reconnect identity (hello reclaim)', () => {
       reg.onClientMessage(id, { type: 'hello', clientId: 'c-stale-gone', viewport: VP }),
     ).not.toThrow()
   })
+
+  describe('session draft sync', () => {
+    it('broadcasts setSessionDraft to other clients, not the sender', () => {
+      const reg = new SessionRegistry()
+      const a: ServerMessage[] = []
+      const b: ServerMessage[] = []
+      const idA = reg.attachClient((m) => a.push(m))
+      reg.attachClient((m) => b.push(m))
+      reg.onClientMessage(idA, { type: 'setSessionDraft', sessionId: 'sess', text: 'half typed' })
+      expect(a.filter((m) => m.type === 'sessionDraftChanged')).toEqual([])
+      expect(b).toContainEqual({ type: 'sessionDraftChanged', sessionId: 'sess', text: 'half typed' })
+    })
+
+    it('replays stored drafts to a freshly connected client', () => {
+      const reg = new SessionRegistry()
+      const idA = reg.attachClient(() => {})
+      reg.onClientMessage(idA, { type: 'setSessionDraft', sessionId: 'sess', text: 'wip' })
+      const c: ServerMessage[] = []
+      reg.attachClient((m) => c.push(m))
+      expect(c).toContainEqual({ type: 'sessionDraftChanged', sessionId: 'sess', text: 'wip' })
+    })
+
+    it('clears a draft when text is empty', () => {
+      const reg = new SessionRegistry()
+      const idA = reg.attachClient(() => {})
+      reg.onClientMessage(idA, { type: 'setSessionDraft', sessionId: 'sess', text: 'wip' })
+      reg.onClientMessage(idA, { type: 'setSessionDraft', sessionId: 'sess', text: '' })
+      const c: ServerMessage[] = []
+      reg.attachClient((m) => c.push(m))
+      expect(c.filter((m) => m.type === 'sessionDraftChanged')).toEqual([])
+    })
+  })
 })

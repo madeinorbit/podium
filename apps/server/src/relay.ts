@@ -69,6 +69,8 @@ export class SessionRegistry {
     (r: { hostname: string; buckets: UsageBucketWire[] }) => void
   >()
   private readonly pendingTranscriptReads = new Map<string, (r: TranscriptItem[]) => void>()
+  /** Ephemeral in-progress composer/prompt text per session. Never persisted. */
+  private draftBySession = new Map<string, string>()
   private latestConversations: ConversationSummaryWire[] = []
   private latestConversationDiagnostics: ConversationDiagnosticWire[] = []
   // Latest health sample per daemon host, keyed by hostname — ready for several
@@ -290,6 +292,15 @@ export class SessionRegistry {
     return { ok: true }
   }
 
+  setSessionDraft(input: { sessionId: string; text: string }, fromClientId?: string): void {
+    if (input.text) this.draftBySession.set(input.sessionId, input.text)
+    else this.draftBySession.delete(input.sessionId)
+    for (const c of this.clients.values()) {
+      if (c.id === fromClientId) continue
+      c.send({ type: 'sessionDraftChanged', sessionId: input.sessionId, text: input.text })
+    }
+  }
+
   /**
    * Deliver text once the session is actually up. The superagent's start_agent
    * tool needs this: createSession returns immediately, but the CLI isn't ready
@@ -440,6 +451,7 @@ export class SessionRegistry {
     this.toDaemon({ type: 'kill', sessionId: input.sessionId })
     this.sessions.get(input.sessionId)?.detachAll()
     this.sessions.delete(input.sessionId)
+    this.draftBySession.delete(input.sessionId)
     this.store.deleteSession(input.sessionId)
     for (const c of this.clients.values()) c.attached.delete(input.sessionId)
     this.broadcastSessions()
@@ -636,6 +648,9 @@ export class SessionRegistry {
     })
     send({ type: 'welcome', clientId: id })
     send({ type: 'sessionsChanged', sessions: this.listSessions() })
+    for (const [sessionId, text] of this.draftBySession) {
+      send({ type: 'sessionDraftChanged', sessionId, text })
+    }
     send({
       type: 'conversationsChanged',
       conversations: this.latestConversations,
@@ -721,6 +736,9 @@ export class SessionRegistry {
         break
       case 'presence':
         client.visible = msg.visible
+        break
+      case 'setSessionDraft':
+        this.setSessionDraft(msg, id)
         break
       case 'ping':
         client.send({ type: 'pong' })
