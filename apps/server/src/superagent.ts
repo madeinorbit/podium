@@ -126,7 +126,7 @@ export function buildBtwSeed(opts: {
   let tail = items.slice(-tailN)
   let body = ''
   while (tail.length > 0) {
-    body = `\n\nRecent activity (last ${tail.length} items):\n` + tail.map(lineForItem).join('\n')
+    body = `\n\nRecent activity (last ${tail.length} items):\n${tail.map(lineForItem).join('\n')}`
     if (head.length + userBlock.length + body.length <= maxChars) break
     tail = tail.slice(Math.ceil(tail.length / 4))
   }
@@ -212,7 +212,11 @@ export class SuperagentService {
    * agent knows what changed since it last looked (no turn — it lands in context
    * for the user's next message).
    */
-  async startBtw({ sessionId }: { sessionId: string }): Promise<{ threadId: string; isNew: boolean }> {
+  async startBtw({
+    sessionId,
+  }: {
+    sessionId: string
+  }): Promise<{ threadId: string; isNew: boolean }> {
     const threadId = `btw_${sessionId}`
     const existing = this.store.getSuperagentThread(threadId)
     const info = this.registry.listSessions().find((s) => s.sessionId === sessionId)
@@ -225,7 +229,7 @@ export class SuperagentService {
     const { items } = await this.registry.readTranscript({ sessionId })
     const last = items[items.length - 1]
 
-    if (!existing || existing.kind !== 'btw') {
+    if (existing?.kind !== 'btw') {
       this.store.upsertSuperagentThread({
         id: threadId,
         kind: 'btw',
@@ -250,7 +254,11 @@ export class SuperagentService {
       })
       await this.withLock(threadId, async () => {
         this.store.appendSuperagentMessage(threadId, { role: 'user', content: update })
-        this.store.setThreadWatermark(threadId, last?.id ?? existing.watermarkItemId ?? '', last?.ts)
+        this.store.setThreadWatermark(
+          threadId,
+          last?.id ?? existing.watermarkItemId ?? '',
+          last?.ts,
+        )
       })
     }
     return { threadId, isNew: false }

@@ -2,7 +2,12 @@ import type { TranscriptItem } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import { buildBtwDelta, buildBtwSeed, transcriptDelta } from './superagent'
 
-const item = (o: Partial<TranscriptItem>): TranscriptItem => ({ id: 'i', role: 'user', text: '', ...o })
+const item = (o: Partial<TranscriptItem>): TranscriptItem => ({
+  id: 'i',
+  role: 'user',
+  text: '',
+  ...o,
+})
 
 describe('transcriptDelta', () => {
   const items = [item({ id: 'a' }), item({ id: 'b' }), item({ id: 'c' })]
