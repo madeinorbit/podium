@@ -147,7 +147,7 @@ export function MobileApp(): JSX.Element {
   }
 
   return (
-    <div className="flex touch-manipulation h-[var(--viewport-h,100dvh)] flex-col">
+    <div className="mobile-shell flex touch-manipulation h-[var(--viewport-h,100dvh)] flex-col">
       <header
         className="flex items-stretch border-b border-border bg-card pt-[var(--safe-top)]"
         style={{ height: 'calc(44px + var(--safe-top))' }}

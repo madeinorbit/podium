@@ -1,4 +1,5 @@
 import type { AgentKind, GitRepositoryWire, HostMetricsWire, SessionMeta } from '@podium/protocol'
+import { cn } from '@/lib/utils'
 import { attentionGroup } from './home'
 import type { PinState, RepoView, WorktreeView } from './types'
 
@@ -311,6 +312,24 @@ export function sessionDotTone(s: SessionMeta): DotTone {
  * CSS independently of the dot colour, so the dot can keep showing the last agent
  * state while the row still reads as parked.
  */
+// Tone → dot background token (replaces the legacy `.dot.<tone>` colour rules). The
+// `dot` + `parked` markers stay so styles.css can drive the hibernated worker-name look.
+const DOT_TONE_CLASS: Record<string, string> = {
+  working: 'bg-primary',
+  idle: 'bg-success',
+  attention: 'bg-warning',
+  starting: 'bg-warning',
+  reconnecting: 'bg-warning',
+  error: 'bg-destructive',
+  ended: 'bg-muted-foreground',
+  exited: 'bg-muted-foreground',
+  hibernated: 'bg-primary',
+}
 export function sessionDotClass(s: SessionMeta): string {
-  return `dot ${sessionDotTone(s)}${s.status === 'hibernated' ? ' parked' : ''}`
+  const tone = sessionDotTone(s)
+  return cn(
+    'dot inline-block size-2 min-w-2 flex-none rounded-full',
+    DOT_TONE_CLASS[tone] ?? 'bg-muted-foreground',
+    s.status === 'hibernated' && 'parked',
+  )
 }
