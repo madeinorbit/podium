@@ -553,15 +553,17 @@ function Minimap({
           className={cn(
             'min-h-0.5 w-full cursor-pointer border-0 p-0',
             // Exactly one bg (mutually exclusive — Tailwind doesn't honour class
-            // order for conflicting utilities). Final answer pops; intermediate
-            // agent prose stays visible so buried answers are locatable; tools muted.
-            seg.answer
-              ? 'bg-emerald-500'
-              : seg.role === 'user'
-                ? 'bg-primary'
+            // order for conflicting utilities). Theme-independent hues so the
+            // light-theme primary (near-black) doesn't collide with agent prose.
+            // Priority of attention: user prompts (most important) > final answer >
+            // intermediate agent prose (faint) > tool/system (faintest texture).
+            seg.role === 'user'
+              ? 'bg-blue-500'
+              : seg.answer
+                ? 'bg-emerald-500'
                 : seg.role === 'assistant'
-                  ? 'bg-foreground/40'
-                  : 'bg-secondary',
+                  ? 'bg-foreground/15'
+                  : 'bg-foreground/[0.06]',
           )}
           style={{ height: `${(seg.weight / totalWeight) * 100}%` }}
           title={blocks[seg.index]?.item.text.slice(0, 80) || blocks[seg.index]?.item.toolName}

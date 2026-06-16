@@ -74,11 +74,16 @@ export interface MinimapSegment {
 export function minimapSegments(blocks: ChatBlock[]): MinimapSegment[] {
   return blocks.map((b, index) => {
     const len = b.item.text.length + (b.item.toolInput?.length ?? 0) + (b.result?.length ?? 0) / 4
+    const base = 1 + Math.log2(1 + len / 80)
+    // User prompts are short (a sentence) → thin slivers that are easy to miss.
+    // Floor their weight so they always draw as a locatable tick; they're the most
+    // important thing to find in the birds-eye view.
+    const weight = b.item.role === 'user' ? Math.max(base, 3) : base
     return {
       index,
       role: b.item.role,
       answer: b.item.answer === true,
-      weight: 1 + Math.log2(1 + len / 80),
+      weight,
     }
   })
 }
