@@ -60,12 +60,11 @@ git add apps/web/package.json ../../bun.lock && git commit -m "build(web): add t
 
 **Files:** Modify `apps/web/tsconfig.json`, `apps/web/vite.config.ts`
 
-- [ ] **Step 1: tsconfig — add the alias** (replace the whole file):
+- [ ] **Step 1: tsconfig — add the alias** (replace the whole file). NOTE: do NOT add `baseUrl` — TypeScript 6.0 (this repo) deprecates it (`TS5101`); `paths` resolve relative to the tsconfig dir without it:
 ```json
 {
   "extends": "../../tooling/tsconfig/react.json",
   "compilerOptions": {
-    "baseUrl": ".",
     "paths": { "@/*": ["./src/*"] }
   },
   "include": ["src", "vite.config.ts"]
