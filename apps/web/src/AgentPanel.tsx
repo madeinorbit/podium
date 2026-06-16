@@ -1,4 +1,5 @@
 import {
+  extractClaudePromptDraft,
   keySequence,
   type MountedSession,
   mountSession,
@@ -52,7 +53,7 @@ export function AgentPanel({
    *  switching back catches up instead of wiping). Gates focus, nothing else. */
   active?: boolean
 }): JSX.Element {
-  const { hub, sessions, archiveSession, startBtw } = useStore()
+  const { hub, sessions, archiveSession, startBtw, setSessionDraft } = useStore()
   const session = sessions.find((s) => s.sessionId === sessionId)
   const termRef = useRef<HTMLDivElement | null>(null)
   const toolbarRef = useRef<HTMLDivElement | null>(null)
@@ -91,6 +92,31 @@ export function AgentPanel({
     if (!termRef.current) return
     setHasOutput(false)
     setAtBottom(true)
+    // Mirror the in-progress native Claude prompt into the shared chat draft.
+    // Best-effort: only the controlling client publishes (cross-client), and only
+    // while the native terminal is focused (within one client the focused editor
+    // wins — don't clobber a chat composer being typed in a split pane). Publish
+    // only on change; a null extraction (slash menu / non-Claude) never clobbers.
+    const isClaude = session?.agentKind === 'claude-code'
+    let lastPublished: string | null = null
+    let sampleTimer: ReturnType<typeof setTimeout> | null = null
+    const sample = () => {
+      const m = mountedRef.current
+      if (!m || !isClaude) return
+      if (m.connection.state().role !== 'controller') return
+      if (!termRef.current?.contains(document.activeElement)) return
+      const draft = extractClaudePromptDraft(m.view.screenText().split('\n'))
+      if (draft === null || draft === lastPublished) return
+      lastPublished = draft
+      setSessionDraft(sessionId, draft)
+    }
+    const scheduleSample = () => {
+      if (sampleTimer) return
+      sampleTimer = setTimeout(() => {
+        sampleTimer = null
+        sample()
+      }, 150)
+    }
     const mounted = mountSession(termRef.current, {
       hub,
       sessionId,
@@ -100,15 +126,17 @@ export function AgentPanel({
       // "Starting…" overlay. The focus effect below takes over once output lands.
       focusOnMount: false,
       onFirstFrame: () => setHasOutput(true),
+      onFrame: scheduleSample,
     })
     mountedRef.current = mounted
     const offScroll = mounted.view.onScroll(() => setAtBottom(mounted.view.atBottom()))
     return () => {
+      if (sampleTimer) clearTimeout(sampleTimer)
       offScroll()
       mounted.dispose()
       mountedRef.current = null
     }
-  }, [hub, sessionId, effectiveMode, hibernated, exited])
+  }, [hub, sessionId, effectiveMode, hibernated, exited, session?.agentKind, setSessionDraft])
 
   // Kept mounted while hidden (inactive tab) so its terminal state survives a tab
   // switch — when it becomes the visible tab again, return focus to it. Gated on
