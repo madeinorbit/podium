@@ -198,6 +198,13 @@ export const TranscriptItem = z.object({
   /** Pairs a tool call with its result item. */
   toolUseId: z.string().optional(),
   tags: z.array(TranscriptTag).optional(),
+  /** A recognized non-conversational user *action* surfaced inline rather than as
+   *  a chat bubble — the role stays its true value ('user'); this only changes how
+   *  it's shown. 'interrupt' = the user stopped the agent mid-run
+   *  ("[Request interrupted by user]"). Shared signal: a transcript-reading agent
+   *  state detector can treat an interrupt as a user action without mistaking it
+   *  for a typed prompt. */
+  event: z.enum(['interrupt']).optional(),
 })
 export type TranscriptItem = z.infer<typeof TranscriptItem>
 

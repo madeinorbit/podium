@@ -199,4 +199,15 @@ describe('claudeRecordToItems — injected vs real user turns', () => {
     expect(items).toHaveLength(1)
     expect(items[0]).toMatchObject({ role: 'tool', toolResult: 'ok' })
   })
+
+  it('flags a user interrupt as an event but keeps role "user" (recognized, not reclassified)', () => {
+    const rec = {
+      type: 'user',
+      uuid: 'int1',
+      message: { role: 'user', content: [{ type: 'text', text: '[Request interrupted by user]' }] },
+    }
+    const items = claudeRecordToItems(rec)
+    expect(items).toHaveLength(1)
+    expect(items[0]).toMatchObject({ role: 'user', event: 'interrupt' })
+  })
 })

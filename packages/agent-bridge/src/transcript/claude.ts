@@ -42,6 +42,12 @@ export function claudeRecordToItems(record: unknown): TranscriptItem[] {
 let fallbackCounter = 0
 const freshId = (prefix: string): string => `${prefix}-${++fallbackCounter}`
 
+// The user stopping the agent mid-run is written as a normal user turn whose only
+// text is this marker. It IS a user action (role stays 'user'), but it isn't a
+// chat message — flag it so the UI shows it inline and a state detector can read
+// it as an interrupt rather than a typed prompt.
+const INTERRUPT_MARKER = '[Request interrupted by user]'
+
 function userItems(
   uuid: string | undefined,
   ts: string | undefined,
@@ -56,7 +62,17 @@ function userItems(
   // content — tool_results — is never an injected turn, so it falls through.)
   if (typeof content === 'string') {
     if (promptSource === 'system') return []
-    return content.trim() ? [{ id: uuid ?? freshId('u'), role: 'user', ts, text: content }] : []
+    const trimmed = content.trim()
+    if (!trimmed) return []
+    return [
+      {
+        id: uuid ?? freshId('u'),
+        role: 'user',
+        ts,
+        text: content,
+        ...(trimmed === INTERRUPT_MARKER ? { event: 'interrupt' as const } : {}),
+      },
+    ]
   }
   if (!Array.isArray(content)) return []
 
@@ -96,6 +112,7 @@ function userItems(
       ts,
       text,
       ...(tags.length > 0 ? { tags } : {}),
+      ...(text === INTERRUPT_MARKER ? { event: 'interrupt' as const } : {}),
     })
   }
   return items

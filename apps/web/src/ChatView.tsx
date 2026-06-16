@@ -398,6 +398,24 @@ const ChatBlockView = memo(function ChatBlockView({
 
   if (item.role === 'tool') return <ToolBlock block={block} cls={blockClass} index={index} />
 
+  // A recognized user action that isn't a chat message (e.g. interrupt) — show it
+  // as a thin inline divider, not a "You" bubble.
+  if (item.event === 'interrupt') {
+    return (
+      <div
+        data-block={index}
+        className={cn(
+          blockClass,
+          'flex items-center gap-2 text-[10px] uppercase tracking-[0.07em] text-muted-foreground/55',
+        )}
+      >
+        <span className="h-px flex-1 bg-border" />
+        Interrupted
+        <span className="h-px flex-1 bg-border" />
+      </div>
+    )
+  }
+
   const roleClass = cn(
     item.role === 'user' && 'rounded-[10px] border border-border bg-secondary px-3.5 py-2.5',
     item.role === 'system' && 'text-xs text-muted-foreground',
