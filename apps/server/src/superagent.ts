@@ -92,11 +92,67 @@ export function transcriptDelta(
 }
 
 /**
- * The opening context for a new btw thread: a short brief, an optional summary,
- * every user message verbatim (cheap + high-signal), and a recent full-detail
- * tail. Each line carries the item id + timestamp so the agent knows how caught-up
- * it is across re-opens. Budget-capped, trimming the tail (oldest-first) before
- * the user messages.
+ * A deterministic, zero-LLM recap of a transcript — turn counts, a tool-usage
+ * histogram, and recently-touched files. Inspired by Hermes' build_recap (itself
+ * after Claude Code's /recap): cheap, instant grounding so the agent (and the
+ * orientation turn) start from facts instead of re-deriving them.
+ */
+export function buildBtwRecap(items: TranscriptItem[]): string {
+  const users = items.filter((i) => i.role === 'user' && i.text.trim()).length
+  const assistants = items.filter((i) => i.role === 'assistant' && i.text.trim()).length
+  const toolItems = items.filter((i) => i.role === 'tool' && i.toolName)
+  const hist = new Map<string, number>()
+  for (const it of toolItems) {
+    const name = it.toolName as string
+    hist.set(name, (hist.get(name) ?? 0) + 1)
+  }
+  const ranked = [...hist.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+  // Files touched (best-effort): toolInput is a one-line preview, not structured
+  // args, so pull the first path-like token from file-editing tools, newest first.
+  const fileTools = new Set([
+    'Edit',
+    'Write',
+    'Read',
+    'MultiEdit',
+    'NotebookEdit',
+    'str_replace_based_edit_tool',
+  ])
+  const seen = new Set<string>()
+  const files: string[] = []
+  for (let i = toolItems.length - 1; i >= 0; i--) {
+    const it = toolItems[i]
+    if (!it || !fileTools.has(it.toolName as string)) continue
+    const m = (it.toolInput ?? '').match(/[\w./@~-]*\.[A-Za-z]\w*/)
+    const p = m?.[0]
+    if (p && !seen.has(p)) {
+      seen.add(p)
+      files.push(p)
+    }
+  }
+  const lines = [
+    `Recap: ${users} user / ${assistants} assistant turns, ${toolItems.length} tool calls`,
+  ]
+  if (ranked.length > 0) {
+    const top = ranked
+      .slice(0, 6)
+      .map(([n, c]) => `${n}×${c}`)
+      .join(', ')
+    const extra = ranked.length - 6
+    lines.push(`Tools: ${top}${extra > 0 ? ` (+${extra} more)` : ''}`)
+  }
+  if (files.length > 0) {
+    const extra = files.length - 5
+    lines.push(`Files: ${files.slice(0, 5).join(', ')}${extra > 0 ? ` (+${extra} more)` : ''}`)
+  }
+  return lines.join('\n')
+}
+
+/**
+ * The opening context for a new btw thread: a deterministic recap, an optional
+ * summary, every user message verbatim (cheap + high-signal), and a recent
+ * full-detail tail. Each line carries the item id + timestamp so the agent knows
+ * how caught-up it is across re-opens. Budget-capped, trimming the tail
+ * (oldest-first) before the user messages.
  */
 export function buildBtwSeed(opts: {
   session: BtwSessionInfo
@@ -118,6 +174,7 @@ export function buildBtwSeed(opts: {
     `Session: ${session.name ?? session.sessionId} · ${session.agentKind ?? '?'} · ` +
     `${session.cwd ?? '?'} (id: ${session.sessionId})\n` +
     `Caught up to item ${last?.id ?? '(none)'} at ${last?.ts ?? '?'}.\n` +
+    `\n${buildBtwRecap(items)}\n` +
     (summary ? `\nSummary: ${summary}\n` : '')
   const userBlock =
     `\nUser's messages (oldest→newest):\n` +
