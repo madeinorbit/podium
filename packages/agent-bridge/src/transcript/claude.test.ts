@@ -132,3 +132,30 @@ describe('toolInputPreview', () => {
     expect(toolInputPreview({ x: 1 })).toBe('{"x":1}')
   })
 })
+
+describe('claudeRecordToItems — injected vs real user turns', () => {
+  it('drops isMeta synthetic turns (skill/command expansions, SessionStart context)', () => {
+    const rec = {
+      type: 'user',
+      isMeta: true,
+      uuid: 'm1',
+      message: { role: 'user', content: 'Base directory for this skill: …\n<full skill body>' },
+    }
+    expect(claudeRecordToItems(rec)).toEqual([])
+  })
+
+  it('keeps a genuine user prompt that has an appended <system-reminder> as role "user"', () => {
+    const rec = {
+      type: 'user',
+      uuid: 'u1',
+      message: {
+        role: 'user',
+        content: 'fix the chat view\n<system-reminder>As you answer…</system-reminder>',
+      },
+    }
+    const items = claudeRecordToItems(rec)
+    expect(items).toHaveLength(1)
+    expect(items[0]).toMatchObject({ role: 'user' })
+    expect(items[0].text).toContain('fix the chat view')
+  })
+})
