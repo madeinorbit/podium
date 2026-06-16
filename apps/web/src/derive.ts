@@ -272,6 +272,29 @@ export function agentBadge(meta: SessionMeta): AgentBadge | null {
   }
 }
 
+export interface ChatActivity {
+  label: string
+  tone: AgentBadge['tone']
+}
+
+/**
+ * The activity row shown pinned to the bottom of the chat view, or null for
+ * nothing. Reuses `agentBadge` for instrumented agents; falls back to the PTY
+ * `busy` signal for uninstrumented kinds; and shows an optimistic "Sending…"
+ * immediately after a submit (`justSent`) before the first `working` event lands.
+ */
+export function chatActivity(meta: SessionMeta | undefined, justSent: boolean): ChatActivity | null {
+  if (!meta) return null
+  const badge = agentBadge(meta)
+  if (badge?.tone === 'working') {
+    return { label: badge.label === 'compacting' ? 'Compacting…' : 'Working…', tone: 'working' }
+  }
+  if (badge?.tone === 'attention') return { label: badge.label, tone: 'attention' }
+  if (!meta.agentState && meta.busy) return { label: 'Working…', tone: 'working' }
+  if (justSent) return { label: 'Sending…', tone: 'working' }
+  return null
+}
+
 export type DotTone =
   | 'working'
   | 'idle'

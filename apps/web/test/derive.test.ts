@@ -2,6 +2,7 @@ import type { GitRepositoryWire, SessionMeta } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import {
   agentBadge,
+  chatActivity,
   formatMemBytes,
   hostMemoryView,
   orderTabs,
@@ -306,5 +307,42 @@ describe('agentBadge', () => {
       tone: 'muted',
       showContinue: false,
     })
+  })
+})
+
+const base = (over: Partial<SessionMeta>): SessionMeta =>
+  ({
+    sessionId: 's', agentKind: 'claude-code', title: 't', cwd: '/', status: 'live',
+    controllerId: null, geometry: { cols: 80, rows: 24 }, epoch: 0, clientCount: 1,
+    createdAt: '', lastActiveAt: '', origin: { kind: 'spawn' }, archived: false,
+    ...over,
+  }) as SessionMeta
+
+describe('chatActivity', () => {
+  it('shows Working… while the agent phase is working', () => {
+    expect(chatActivity(base({ agentState: { phase: 'working', since: '', openTaskCount: 0 } }), false))
+      .toEqual({ label: 'Working…', tone: 'working' })
+  })
+  it('shows Compacting… while compacting', () => {
+    expect(chatActivity(base({ agentState: { phase: 'compacting', since: '', openTaskCount: 0 } }), false))
+      .toEqual({ label: 'Compacting…', tone: 'working' })
+  })
+  it('surfaces attention states (needs answer)', () => {
+    expect(chatActivity(
+      base({ agentState: { phase: 'needs_user', since: '', openTaskCount: 0, need: { kind: 'question' } } }),
+      false,
+    )).toEqual({ label: 'needs answer', tone: 'attention' })
+  })
+  it('falls back to PTY busy for uninstrumented kinds', () => {
+    expect(chatActivity(base({ agentKind: 'shell', busy: true }), false))
+      .toEqual({ label: 'Working…', tone: 'working' })
+  })
+  it('shows Sending… optimistically right after submit, before any signal', () => {
+    expect(chatActivity(base({ agentState: { phase: 'idle', since: '', openTaskCount: 0 } }), true))
+      .toEqual({ label: 'Sending…', tone: 'working' })
+  })
+  it('shows nothing when idle and not just-sent', () => {
+    expect(chatActivity(base({ agentState: { phase: 'idle', since: '', openTaskCount: 0 } }), false)).toBeNull()
+    expect(chatActivity(undefined, false)).toBeNull()
   })
 })
