@@ -216,7 +216,7 @@ export function ChatView({ sessionId }: { sessionId: string }): JSX.Element {
             ref={taRef}
             rows={1}
             placeholder={sendable ? 'Message the agent…' : 'Session is not running.'}
-            className="max-h-44 min-h-11 w-full resize-none overflow-y-auto rounded-none border-0 bg-transparent p-0.5 text-sm leading-[1.45] text-foreground transition-none outline-none focus-visible:border-0 focus-visible:ring-0 disabled:bg-transparent disabled:text-muted-foreground disabled:opacity-100 dark:bg-transparent dark:disabled:bg-transparent"
+            className="max-h-44 min-h-11 w-full resize-none overflow-y-auto rounded-none border-0 bg-transparent p-0.5 text-sm leading-[1.45] text-foreground transition-none outline-none [field-sizing:fixed] focus-visible:border-0 focus-visible:ring-0 disabled:bg-transparent disabled:text-muted-foreground disabled:opacity-100 dark:bg-transparent dark:disabled:bg-transparent"
             value={draft}
             disabled={!sendable}
             onChange={(e) => setDraft(e.target.value)}
