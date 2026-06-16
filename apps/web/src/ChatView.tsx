@@ -24,6 +24,7 @@ import {
   reconcilePending,
   searchBlocks,
 } from './chat'
+import { chatActivity } from './derive'
 import { renderMarkdown } from './markdown'
 import { useStore } from './store'
 import { useVoiceInput } from './voice'
@@ -58,6 +59,7 @@ export function ChatView({ sessionId }: { sessionId: string }): JSX.Element {
   // Block ids seen on the previous render — lets us detect *newly arrived* user
   // blocks so a freshly-echoed prompt reconciles its optimistic bubble.
   const seenUserIds = useRef<Set<string>>(new Set())
+  const [justSent, setJustSent] = useState(false)
   const voice = useVoiceInput((text) => setDraft(draft ? `${draft} ${text}` : text))
 
   useEffect(() => hub.subscribeTranscript(sessionId, setItems), [hub, sessionId])
@@ -110,6 +112,18 @@ export function ChatView({ sessionId }: { sessionId: string }): JSX.Element {
     return () => clearTimeout(t)
   }, [pending])
 
+  // Clear the optimistic flag once the agent actually reports working (the badge
+  // keeps the row visible) or after a short ceiling so it never sticks.
+  useEffect(() => {
+    if (!justSent) return
+    if (session?.agentState?.phase === 'working' || session?.agentState?.phase === 'compacting') {
+      setJustSent(false)
+      return
+    }
+    const t = setTimeout(() => setJustSent(false), 8_000)
+    return () => clearTimeout(t)
+  }, [justSent, session?.agentState?.phase])
+
   // Follow the live tail unless the user scrolled up to read. Re-runs as blocks
   // arrive (snapshot lands after mount, then live appends) — an empty dep array
   // fired once before any transcript existed and never followed the stream.
@@ -161,6 +175,7 @@ export function ChatView({ sessionId }: { sessionId: string }): JSX.Element {
     setAtBottom(true)
     const id = `pending-${++pendingSeq.current}`
     setPending((p) => [...p, { id, text, at: Date.now(), state: 'sending' }])
+    setJustSent(true)
     try {
       await trpc.sessions.sendText.mutate({ sessionId, text })
     } catch {
@@ -169,6 +184,7 @@ export function ChatView({ sessionId }: { sessionId: string }): JSX.Element {
   }
 
   const sendable = session?.status === 'live' || session?.status === 'starting'
+  const activity = chatActivity(session, justSent)
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -252,6 +268,23 @@ export function ChatView({ sessionId }: { sessionId: string }): JSX.Element {
               </div>
             </div>
           ))}
+          {activity && (
+            <div
+              role="status"
+              aria-live="polite"
+              className={cn(
+                'mx-auto flex w-full max-w-[760px] items-center gap-2 text-xs',
+                activity.tone === 'attention' ? 'text-amber-500' : 'text-muted-foreground',
+              )}
+            >
+              <span className="inline-flex gap-0.5">
+                <span className="size-1.5 animate-bounce rounded-full bg-current [animation-delay:-0.2s]" />
+                <span className="size-1.5 animate-bounce rounded-full bg-current [animation-delay:-0.1s]" />
+                <span className="size-1.5 animate-bounce rounded-full bg-current" />
+              </span>
+              {activity.label}
+            </div>
+          )}
         </div>
         <Minimap blocks={blocks} scrollerRef={scrollerRef} onJump={scrollToBlock} />
         {!atBottom && (
