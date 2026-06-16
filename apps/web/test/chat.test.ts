@@ -1,6 +1,6 @@
 import type { TranscriptItem } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
-import { blockMatches, minimapSegments, pairToolResults, searchBlocks } from '../src/chat'
+import { blockMatches, minimapSegments, pairToolResults, type PendingItem, reconcilePending, searchBlocks } from '../src/chat'
 
 const item = (over: Partial<TranscriptItem>): TranscriptItem => ({
   id: Math.random().toString(36).slice(2),
@@ -64,5 +64,25 @@ describe('minimapSegments', () => {
     const segs = minimapSegments(blocks)
     expect(segs[0]?.role).toBe('user')
     expect((segs[1]?.weight ?? 0) > (segs[0]?.weight ?? 0)).toBe(true)
+  })
+})
+
+const pend = (text: string, id = text): PendingItem => ({ id, text, at: 0, state: 'sending' })
+
+describe('reconcilePending', () => {
+  it('drops a pending entry once a matching new user text appears', () => {
+    const out = reconcilePending([pend('run the tests')], ['run the tests'])
+    expect(out).toEqual([])
+  })
+  it('keeps pending entries with no matching new user text', () => {
+    const out = reconcilePending([pend('hello')], ['something else'])
+    expect(out).toEqual([pend('hello')])
+  })
+  it('consumes one real occurrence per pending (FIFO) for duplicate texts', () => {
+    const out = reconcilePending([pend('ok', 'a'), pend('ok', 'b')], ['ok'])
+    expect(out).toEqual([pend('ok', 'b')])
+  })
+  it('matches on trimmed text', () => {
+    expect(reconcilePending([pend('hi')], ['  hi  '])).toEqual([])
   })
 })

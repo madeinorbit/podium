@@ -78,3 +78,30 @@ export function minimapSegments(blocks: ChatBlock[]): MinimapSegment[] {
     }
   })
 }
+
+/** An optimistic "You" bubble shown immediately on send, before the transcript
+ *  tail echoes the real user turn back. `at` = creation time (ms), used to drop
+ *  the "sending" affordance after a timeout. */
+export interface PendingItem {
+  id: string
+  text: string
+  at: number
+  state: 'sending' | 'failed'
+}
+
+/**
+ * Remove pending bubbles that the real transcript has now caught up with.
+ * `newUserTexts` are the trimmed texts of user blocks that appeared *this* render
+ * (caller diffs by block id). Each new occurrence consumes the oldest pending
+ * entry with equal trimmed text (FIFO), so duplicate prompts reconcile one-by-one.
+ */
+export function reconcilePending(pending: PendingItem[], newUserTexts: string[]): PendingItem[] {
+  if (pending.length === 0) return pending
+  const remaining = [...newUserTexts.map((t) => t.trim())]
+  return pending.filter((p) => {
+    const i = remaining.indexOf(p.text.trim())
+    if (i === -1) return true
+    remaining.splice(i, 1)
+    return false
+  })
+}
