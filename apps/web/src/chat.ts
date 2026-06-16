@@ -63,6 +63,9 @@ export function searchBlocks(blocks: ChatBlock[], query: string): number[] {
 export interface MinimapSegment {
   index: number
   role: TranscriptItem['role']
+  /** True for the turn-final assistant answer — drawn in its own accent so it
+   *  pops in the birds-eye view (the original ask). */
+  answer: boolean
   /** Relative height weight — longer content draws taller. */
   weight: number
 }
@@ -74,6 +77,7 @@ export function minimapSegments(blocks: ChatBlock[]): MinimapSegment[] {
     return {
       index,
       role: b.item.role,
+      answer: b.item.answer === true,
       weight: 1 + Math.log2(1 + len / 80),
     }
   })

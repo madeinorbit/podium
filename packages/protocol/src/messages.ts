@@ -205,6 +205,12 @@ export const TranscriptItem = z.object({
    *  state detector can treat an interrupt as a user action without mistaking it
    *  for a typed prompt. */
   event: z.enum(['interrupt']).optional(),
+  /** Set on the assistant text that ENDED the turn (transcript stop_reason
+   *  'end_turn'/'stop_sequence') — i.e. the final, user-facing answer, as opposed
+   *  to the intermediate narration the agent emits between tool calls. The UI
+   *  elevates it (distinct bubble + minimap accent). Note: a *buried* answer in an
+   *  intermediate block carries no transcript marker, so it can't be flagged here. */
+  answer: z.boolean().optional(),
 })
 export type TranscriptItem = z.infer<typeof TranscriptItem>
 

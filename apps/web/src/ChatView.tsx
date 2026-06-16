@@ -419,6 +419,11 @@ const ChatBlockView = memo(function ChatBlockView({
   const roleClass = cn(
     item.role === 'user' && 'rounded-[10px] border border-border bg-secondary px-3.5 py-2.5',
     item.role === 'system' && 'text-xs text-muted-foreground',
+    // The turn's final answer (stop_reason end_turn) — give it a distinct agent
+    // bubble so it stands out from the intermediate narration above it.
+    item.role === 'assistant' &&
+      item.answer &&
+      'rounded-[10px] border border-primary/25 bg-primary/[0.05] px-3.5 py-2.5',
   )
 
   return (
@@ -432,6 +437,9 @@ const ChatBlockView = memo(function ChatBlockView({
         <div className="mb-[3px] text-[10px] uppercase tracking-[0.07em] text-muted-foreground/70">
           System
         </div>
+      )}
+      {item.role === 'assistant' && item.answer && (
+        <div className="mb-[3px] text-[10px] uppercase tracking-[0.07em] text-primary/70">Answer</div>
       )}
       <div
         className="chat-md"
@@ -543,9 +551,17 @@ function Minimap({
           key={seg.index}
           type="button"
           className={cn(
-            'min-h-0.5 w-full cursor-pointer border-0 bg-secondary p-0',
-            seg.role === 'user' && 'bg-primary',
-            seg.role === 'assistant' && 'bg-input',
+            'min-h-0.5 w-full cursor-pointer border-0 p-0',
+            // Exactly one bg (mutually exclusive — Tailwind doesn't honour class
+            // order for conflicting utilities). Final answer pops; intermediate
+            // agent prose stays visible so buried answers are locatable; tools muted.
+            seg.answer
+              ? 'bg-emerald-500'
+              : seg.role === 'user'
+                ? 'bg-primary'
+                : seg.role === 'assistant'
+                  ? 'bg-foreground/40'
+                  : 'bg-secondary',
           )}
           style={{ height: `${(seg.weight / totalWeight) * 100}%` }}
           title={blocks[seg.index]?.item.text.slice(0, 80) || blocks[seg.index]?.item.toolName}

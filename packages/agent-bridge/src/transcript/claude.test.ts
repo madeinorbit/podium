@@ -236,3 +236,40 @@ describe('claudeRecordToItems — injected vs real user turns', () => {
     expect(items[0]).toMatchObject({ role: 'user', event: 'interrupt' })
   })
 })
+
+describe('claudeRecordToItems — final answer vs intermediate narration', () => {
+  const asst = (stop_reason: string, text: string) => ({
+    type: 'assistant',
+    uuid: `a-${stop_reason}`,
+    message: { role: 'assistant', stop_reason, content: [{ type: 'text', text }] },
+  })
+
+  it('marks turn-ending assistant text (stop_reason end_turn) as answer:true', () => {
+    const [item] = claudeRecordToItems(asst('end_turn', 'Here is the final answer.'))
+    expect(item).toMatchObject({ role: 'assistant', answer: true })
+  })
+
+  it('treats stop_sequence the same as end_turn', () => {
+    const [item] = claudeRecordToItems(asst('stop_sequence', 'Done.'))
+    expect(item?.answer).toBe(true)
+  })
+
+  it('does NOT mark intermediate narration (stop_reason tool_use) as answer', () => {
+    const [item] = claudeRecordToItems(asst('tool_use', 'Let me check that now…'))
+    expect(item).toMatchObject({ role: 'assistant' })
+    expect(item?.answer).toBeUndefined()
+  })
+
+  it('ignores thinking blocks (no text item from a thinking-only record)', () => {
+    const rec = {
+      type: 'assistant',
+      uuid: 'a-think',
+      message: {
+        role: 'assistant',
+        stop_reason: 'tool_use',
+        content: [{ type: 'thinking', thinking: 'hmm', signature: 'x' }],
+      },
+    }
+    expect(claudeRecordToItems(rec)).toEqual([])
+  })
+})

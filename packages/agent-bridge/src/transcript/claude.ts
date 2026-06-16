@@ -156,7 +156,19 @@ function assistantItems(
   }
   const text = textParts.join('\n').trim()
   if (text) {
-    items.unshift({ id: uuid ?? freshId('a'), role: 'assistant', ts, text })
+    // stop_reason 'end_turn'/'stop_sequence' marks the message that ended the turn
+    // — its text is the final, user-facing answer (vs. the intermediate narration
+    // in 'tool_use' records). Claude Code splits blocks across records but repeats
+    // the parent message's stop_reason on each, so this is reliable per text block.
+    const sr = message.stop_reason
+    const isAnswer = sr === 'end_turn' || sr === 'stop_sequence'
+    items.unshift({
+      id: uuid ?? freshId('a'),
+      role: 'assistant',
+      ts,
+      text,
+      ...(isAnswer ? { answer: true as const } : {}),
+    })
   }
   return items
 }

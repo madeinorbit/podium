@@ -84,6 +84,32 @@ ever want a collapsed "thoughts" affordance, read `b.thinking` from `type:"think
 - **Older transcripts:** `stop_reason` has been present in everything sampled; if absent, treat a
   trailing assistant `text` record (no tool_use after it before the next user turn) as the answer.
 
+### Buried intermediate answers have NO marker (investigated 2026-06-16)
+
+Agents often answer a question **before** the turn ends — e.g. for the prompt
+*"so the fixes have landed on main?"* the answer *"Yes — main is fast-forwarded to
+adbd05f…"* was the **first** intermediate (`tool_use`) text block, with the
+`end_turn` summary much later. These get missed because they're buried among
+narration. We checked whether anything distinguishes a *substantive* intermediate
+answer from thin narration:
+
+- **No.** `text` content blocks are exactly `{type:"text", text}` — no flag. The
+  record-level keys of an "answer" block and a "narration" block are identical
+  (both `stop_reason:"tool_use"`).
+- The only signals are **length** (weak — across 8 files, 208 intermediate text
+  blocks fall in the ambiguous 80–250 char band, overlapping both classes) and
+  **position** (the first text block after a user prompt is *often* the direct
+  answer — but not reliably).
+
+So **only the final answer is reliably markable** (`stop_reason`). For buried
+answers the pragmatic mitigation shipped here is: the minimap draws **every**
+agent-prose block in its own visible tone (distinct from tool steps), so buried
+answers are at least *locatable* (hover shows a preview, click jumps). A
+**lead-response heuristic** (elevate the first text block after each user prompt)
+is a reasonable opt-in if false positives ("Let me check X…") are acceptable —
+it'd be computed at the block level in `chat.ts` (which has turn context), not in
+the per-record parser.
+
 ### Live vs. on-disk
 
 `stop_reason` is the **on-disk** (transcript) signal. The **live** equivalent is the agent-state
@@ -153,7 +179,12 @@ state classification using the *same* taxonomy.
 
 ## 5. Implementation notes (for the chat-bubble / minimap feature)
 
-The data needed already exists; the parser just isn't surfacing it. Suggested shape:
+**Status:** the final-answer path (1–3 below) shipped 2026-06-16 — parser sets
+`TranscriptItem.answer`, the chat renders an "Answer" bubble, and the minimap
+accents it (emerald) with intermediate agent prose in its own tone. Thinking (4)
+and the lead-response heuristic remain open.
+
+The data needed already exists; the parser just isn't surfacing it. Shape:
 
 1. **Parser** (`claude.ts` `assistantItems`): thread `message.stop_reason` in and tag the produced
    assistant item, e.g. add an optional `TranscriptItem` field
