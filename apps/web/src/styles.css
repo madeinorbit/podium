@@ -320,6 +320,26 @@ body:has(.mobile-shell) {
   background: none;
   padding: 0;
 }
+/* Unified-diff colouring (renderDiff in markdown.ts) — line-level add/del/hunk,
+   so a patch reads natively outside the terminal. */
+.chat-md pre.chat-diff code {
+  display: block;
+  line-height: 1.45;
+}
+.chat-md .diff-add {
+  display: block;
+  color: #22c55e;
+  background: rgb(34 197 94 / 0.08);
+}
+.chat-md .diff-del {
+  display: block;
+  color: #ef4444;
+  background: rgb(239 68 68 / 0.08);
+}
+.chat-md .diff-hunk {
+  display: block;
+  color: #06b6d4;
+}
 .chat-md a {
   color: var(--primary);
 }
