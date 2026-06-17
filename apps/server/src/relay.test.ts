@@ -275,6 +275,21 @@ describe('SessionRegistry', () => {
     expect(order).toEqual(['newest', 'mid', 'oldest'])
   })
 
+  it('daemon disconnect drops live sessions to reconnecting so the next daemon re-binds them', () => {
+    const reg = new SessionRegistry()
+    reg.attachDaemon(() => {})
+    const { sessionId } = reg.createSession({ agentKind: 'claude-code', cwd: '/proj' })
+    reg.onDaemonMessage(bind(sessionId)) // → live
+    expect(reg.listSessions().at(0)?.status).toBe('live')
+    // Daemon-only restart: its WS closes while the server keeps running.
+    reg.detachDaemon()
+    expect(reg.listSessions().at(0)?.status).toBe('reconnecting')
+    // A fresh daemon attaches with no bridges → it must be asked to reattach.
+    const daemon2: ControlMessage[] = []
+    reg.attachDaemon((m) => daemon2.push(m))
+    expect(daemon2.some((m) => m.type === 'reattach' && m.sessionId === sessionId)).toBe(true)
+  })
+
   it('attachClient sends welcome plus session and conversation snapshots', () => {
     const reg = new SessionRegistry()
     reg.attachDaemon(() => {})

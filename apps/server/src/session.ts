@@ -446,6 +446,20 @@ export class Session {
     if (this.controllerId === null) this.geometry = { ...geometry }
   }
 
+  /**
+   * The daemon holding this session's PTY bridge went away (daemon restart/crash —
+   * the durable master survives in its own scope). Drop a live/starting session to
+   * 'reconnecting' so the next daemon to attach re-binds it (markLive brings it back
+   * on the resulting bind). Returns true if the status changed.
+   */
+  markReconnecting(): boolean {
+    if (this.status === 'live' || this.status === 'starting') {
+      this.status = 'reconnecting'
+      return true
+    }
+    return false
+  }
+
   toRow(): SessionRow {
     return {
       id: this.sessionId,

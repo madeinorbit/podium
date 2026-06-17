@@ -179,6 +179,18 @@ export class SessionRegistry {
   }
   detachDaemon(): void {
     this.daemonSend = undefined
+    // The daemon that held these sessions' PTY bridges is gone (daemon restart/crash;
+    // durable masters survive in their own scopes). Drop live/starting sessions to
+    // 'reconnecting' so the next daemon to attach re-binds them — attachDaemon only
+    // probes 'reconnecting'/'exited'. Without this a daemon-only restart leaves
+    // sessions 'live' but unattached: the server never re-asks and they orphan until
+    // a server restart. (In the old single-process world the daemon never restarted
+    // alone, so this gap couldn't surface.)
+    let changed = false
+    for (const s of this.sessions.values()) {
+      if (s.markReconnecting()) changed = true
+    }
+    if (changed) this.broadcastSessions()
     // The daemon's host samples are only as live as its socket — drop them so a
     // dead machine's numbers never linger as truth.
     if (this.latestHostMetrics.size > 0) {
