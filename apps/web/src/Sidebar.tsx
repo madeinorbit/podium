@@ -17,7 +17,7 @@ import { RepoScanFlow } from './RepoScanFlow'
 import { SearchView } from './SearchView'
 import { useStore } from './store'
 import type { PinKind } from './types'
-import { WorkerLabel } from './WorkerLabel'
+import { SessionNameEditor, sessionDisplayName, WorkerLabel } from './WorkerLabel'
 
 function StatusDot({ session }: { session: SessionMeta }): JSX.Element {
   // Shared single source of truth — colour semantics match tabs/home/chat, and
@@ -366,25 +366,42 @@ function PanelRow({
   onSelect: () => void
   onPinned: (pinned: boolean) => void
 }): JSX.Element {
-  const { continueSession, killSession } = useStore()
+  const { continueSession, killSession, renameSession } = useStore()
   const badge = agentBadge(session)
+  const [editing, setEditing] = useState(false)
   return (
     <div className="group flex min-w-0 items-center gap-1">
-      <button
-        type="button"
-        className={cn(
-          'flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 py-[3px] pr-3 pl-7 text-left text-xs',
-          active
-            ? 'bg-accent font-medium text-accent-foreground'
-            : 'text-muted-foreground hover:bg-accent hover:text-foreground',
-        )}
-        onClick={onSelect}
-      >
-        <StatusDot session={session} /> <WorkerLabel session={session} />
-        {/* Pinned panels span repos/worktrees, so show which one — compact two
-            lines (repo bold, branch below) where the kind label used to sit. */}
-        {pinned && <RepoBranchTag cwd={session.cwd} />}
-      </button>
+      {editing ? (
+        <div className="flex min-w-0 flex-1 items-center gap-1.5 py-[3px] pr-3 pl-7">
+          <StatusDot session={session} />
+          <SessionNameEditor
+            value={sessionDisplayName(session)}
+            onCommit={(name) => {
+              void renameSession(session.sessionId, name)
+              setEditing(false)
+            }}
+            onCancel={() => setEditing(false)}
+          />
+        </div>
+      ) : (
+        <button
+          type="button"
+          className={cn(
+            'flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 py-[3px] pr-3 pl-7 text-left text-xs',
+            active
+              ? 'bg-accent font-medium text-accent-foreground'
+              : 'text-muted-foreground hover:bg-accent hover:text-foreground',
+          )}
+          onClick={onSelect}
+          // Double-click the row to rename — matches the tab strip.
+          onDoubleClick={() => setEditing(true)}
+        >
+          <StatusDot session={session} /> <WorkerLabel session={session} />
+          {/* Pinned panels span repos/worktrees, so show which one — compact two
+              lines (repo bold, branch below) where the kind label used to sit. */}
+          {pinned && <RepoBranchTag cwd={session.cwd} />}
+        </button>
+      )}
       {badge?.showContinue && (
         <Button
           variant="destructive"

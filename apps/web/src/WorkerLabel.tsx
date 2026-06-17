@@ -19,6 +19,44 @@ export function sessionDisplayName(session: SessionMeta): string {
   return session.name?.trim() || normalizeTitle(session.title) || 'untitled'
 }
 
+/**
+ * Inline rename field for a session name — drop it in place of the label while
+ * editing (double-click a tab/sidebar row). Enter or blur commits, Escape
+ * cancels; clicks are kept local so they don't reach the row's select handler.
+ */
+export function SessionNameEditor({
+  value,
+  onCommit,
+  onCancel,
+  className,
+}: {
+  value: string
+  onCommit: (name: string) => void
+  onCancel: () => void
+  className?: string
+}): JSX.Element {
+  return (
+    <input
+      type="text"
+      // biome-ignore lint/a11y/noAutofocus: the field exists only while actively renaming
+      autoFocus
+      defaultValue={value}
+      className={
+        className ??
+        'min-w-0 flex-1 rounded-sm border border-primary/60 bg-background px-1 py-0 text-xs text-foreground outline-none'
+      }
+      onClick={(e) => e.stopPropagation()}
+      onPointerDown={(e) => e.stopPropagation()}
+      onKeyDown={(e) => {
+        e.stopPropagation()
+        if (e.key === 'Enter') onCommit(e.currentTarget.value)
+        else if (e.key === 'Escape') onCancel()
+      }}
+      onBlur={(e) => onCommit(e.currentTarget.value)}
+    />
+  )
+}
+
 /** Worker-kind → glyph. A small icon reads faster than a CLAUDE/SHELL word and
  *  leaves more room for the name; the kind's name rides on the hover title. */
 const KIND_ICON: Record<AgentKind, LucideIcon> = {

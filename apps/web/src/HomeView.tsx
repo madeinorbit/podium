@@ -310,6 +310,7 @@ function SessionCard({
             type="button"
             className="min-w-0 cursor-pointer truncate border-0 bg-transparent p-0 text-left text-[13px] font-semibold text-foreground hover:text-primary"
             onClick={open}
+            title={sessionDisplayName(session)}
           >
             {sessionDisplayName(session)}
           </button>

@@ -17,7 +17,7 @@ import { CSS } from '@dnd-kit/utilities'
 import type { SessionMeta } from '@podium/protocol'
 import { Pin, X } from 'lucide-react'
 import type { JSX } from 'react'
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { AgentPanel } from './AgentPanel'
@@ -25,7 +25,7 @@ import { orderTabs, reposToViews, sessionDotClass, sessionsForWorktree } from '.
 import { NewPanelMenu } from './NewPanelMenu'
 import { useStore } from './store'
 import type { WorktreeView } from './types'
-import { WorkerLabel } from './WorkerLabel'
+import { SessionNameEditor, sessionDisplayName, WorkerLabel } from './WorkerLabel'
 
 export function Workspace(): JSX.Element {
   const store = useStore()
@@ -208,6 +208,8 @@ function SortableTab({
   onTogglePin: () => void
   onKill: () => void
 }): JSX.Element {
+  const { renameSession } = useStore()
+  const [editing, setEditing] = useState(false)
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: session.sessionId,
   })
@@ -237,16 +239,32 @@ function SortableTab({
       {...attributes}
       {...listeners}
     >
-      <button
-        type="button"
-        className={cn(
-          'inline-flex min-w-0 flex-1 cursor-[inherit] items-center gap-1.5 rounded-none px-2.5 py-1 text-[13px] whitespace-nowrap',
-          active ? 'font-medium text-foreground' : 'text-muted-foreground',
-        )}
-        onClick={onSelect}
-      >
-        <span className={sessionDotClass(session)} /> <WorkerLabel session={session} />
-      </button>
+      {editing ? (
+        <span className="inline-flex min-w-0 flex-1 items-center gap-1.5 px-2.5 py-1">
+          <span className={sessionDotClass(session)} />
+          <SessionNameEditor
+            value={sessionDisplayName(session)}
+            onCommit={(name) => {
+              void renameSession(session.sessionId, name)
+              setEditing(false)
+            }}
+            onCancel={() => setEditing(false)}
+          />
+        </span>
+      ) : (
+        <button
+          type="button"
+          className={cn(
+            'inline-flex min-w-0 flex-1 cursor-[inherit] items-center gap-1.5 rounded-none px-2.5 py-1 text-[13px] whitespace-nowrap',
+            active ? 'font-medium text-foreground' : 'text-muted-foreground',
+          )}
+          onClick={onSelect}
+          // Double-click a tab to rename it.
+          onDoubleClick={() => setEditing(true)}
+        >
+          <span className={sessionDotClass(session)} /> <WorkerLabel session={session} />
+        </button>
+      )}
       {/* Chrome-style: pin/kill only appear on the hovered or active tab; a pinned
           tab keeps its pin visible as a state indicator. */}
       <button
