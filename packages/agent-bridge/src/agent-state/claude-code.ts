@@ -2,6 +2,7 @@ import { open } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import type { AgentKind } from '@podium/protocol'
+import { codexStateProvider } from './codex.js'
 import { grokStateProvider } from './grok.js'
 import type { AgentInstrumentation, AgentStateEvent, AgentStateProvider } from './types.js'
 
@@ -241,5 +242,6 @@ async function classifyIdleFromStop(
 export function agentStateProviderFor(kind: AgentKind): AgentStateProvider | undefined {
   if (kind === 'claude-code') return claudeCodeStateProvider
   if (kind === 'grok') return grokStateProvider
+  if (kind === 'codex') return codexStateProvider
   return undefined
 }

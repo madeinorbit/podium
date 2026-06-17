@@ -8,6 +8,7 @@ import {
   claudeCodeStateProvider,
   translateClaudeHookPayload,
 } from './claude-code'
+import { codexStateProvider } from './codex'
 import { grokStateProvider } from './grok'
 
 const URL = 'http://127.0.0.1:45777/hooks/s1'
@@ -60,9 +61,9 @@ describe('claude-code instrumentation', () => {
 })
 
 describe('agentStateProviderFor', () => {
-  it('claude-code and grok get providers; codex and shell do not (yet)', () => {
+  it('claude-code, grok and codex get providers; shell does not', () => {
     expect(agentStateProviderFor('claude-code')).toBe(claudeCodeStateProvider)
-    expect(agentStateProviderFor('codex')).toBeUndefined()
+    expect(agentStateProviderFor('codex')).toBe(codexStateProvider)
     expect(agentStateProviderFor('grok')).toBe(grokStateProvider)
     expect(agentStateProviderFor('shell')).toBeUndefined()
   })
