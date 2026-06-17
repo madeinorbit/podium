@@ -71,3 +71,64 @@ export function pushNtfy(topic: string, notice: AttentionNotice): void {
     console.warn('[podium] ntfy push failed:', err instanceof Error ? err.message : err)
   })
 }
+
+export interface TelegramConfig {
+  botToken: string
+  chatId: string
+}
+
+type PushTelegramFetch = (
+  input: string,
+  init: RequestInit,
+) => Promise<Pick<Response, 'ok' | 'status' | 'json'>>
+
+interface PushTelegramOptions {
+  fetch?: PushTelegramFetch
+}
+
+type TelegramResponseBody = {
+  ok?: boolean
+  description?: string
+}
+
+async function telegramDescription(res: Pick<Response, 'json'>): Promise<string | undefined> {
+  try {
+    const body = (await res.json()) as TelegramResponseBody
+    return typeof body.description === 'string' ? body.description : undefined
+  } catch {
+    return undefined
+  }
+}
+
+/** Fire-and-forget Telegram push. Failures are logged, never thrown. */
+export function pushTelegram(
+  config: TelegramConfig,
+  notice: AttentionNotice,
+  opts: PushTelegramOptions = {},
+): void {
+  const botToken = config.botToken.trim()
+  const chatId = config.chatId.trim()
+  if (!botToken || !chatId) return
+
+  const send = opts.fetch ?? fetch
+  const url = `https://api.telegram.org/bot${botToken}/sendMessage`
+  send(url, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      chat_id: chatId,
+      text: `${notice.title}\n\n${notice.body}`,
+    }),
+  })
+    .then(async (res) => {
+      if (res.ok) return
+      const description = await telegramDescription(res)
+      console.warn(
+        '[podium] Telegram push failed:',
+        description ? `${res.status} ${description}` : `HTTP ${res.status}`,
+      )
+    })
+    .catch((err) => {
+      console.warn('[podium] Telegram push failed:', err instanceof Error ? err.message : err)
+    })
+}
