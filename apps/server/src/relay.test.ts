@@ -736,6 +736,84 @@ describe('agent state', () => {
     ).toBe('continue\r')
     expect(reg.continueSession({ sessionId: 'ghost' })).toEqual({ ok: false })
   })
+
+  it('sends every configured external push target only when no client is visible', () => {
+    const store = new SessionStore(':memory:')
+    const settings = store.getSettings()
+    store.setSettings({
+      ...settings,
+      notifications: {
+        ...settings.notifications,
+        web: true,
+        ntfyTopic: 'podium-topic',
+        telegramBotToken: '123456:secret',
+        telegramChatId: '-100123',
+      },
+    })
+    const ntfy = vi.fn()
+    const telegram = vi.fn()
+
+    try {
+      const reg = new SessionRegistry(store, { ntfy, telegram })
+      reg.attachDaemon(() => {})
+      const { sessionId } = reg.createSession({
+        agentKind: 'claude-code',
+        cwd: '/proj',
+        title: 'keyboard',
+      })
+      const hidden = sink()
+      const hiddenId = reg.attachClient(hidden.send)
+      reg.onClientMessage(hiddenId, { type: 'presence', visible: false })
+      hidden.sent.length = 0
+
+      reg.onDaemonMessage({
+        type: 'agentState',
+        sessionId,
+        state: {
+          phase: 'needs_user',
+          since: '2026-06-12T10:00:00.000Z',
+          openTaskCount: 0,
+          need: { kind: 'question', summary: 'SQLite or Postgres?' },
+        },
+      })
+
+      expect(hidden.sent).toContainEqual({
+        type: 'attentionEvent',
+        sessionId,
+        title: 'keyboard needs you',
+        body: 'SQLite or Postgres?',
+      })
+      expect(ntfy).toHaveBeenCalledWith('podium-topic', {
+        title: 'keyboard needs you',
+        body: 'SQLite or Postgres?',
+      })
+      expect(telegram).toHaveBeenCalledWith(
+        { botToken: '123456:secret', chatId: '-100123' },
+        { title: 'keyboard needs you', body: 'SQLite or Postgres?' },
+      )
+
+      ntfy.mockClear()
+      telegram.mockClear()
+      const visible = sink()
+      const visibleId = reg.attachClient(visible.send)
+      reg.onClientMessage(visibleId, { type: 'presence', visible: true })
+      reg.onDaemonMessage({
+        type: 'agentState',
+        sessionId,
+        state: {
+          phase: 'errored',
+          since: '2026-06-12T10:01:00.000Z',
+          openTaskCount: 0,
+          error: { class: 'rate_limit', retryable: true },
+        },
+      })
+
+      expect(ntfy).not.toHaveBeenCalled()
+      expect(telegram).not.toHaveBeenCalled()
+    } finally {
+      store.close()
+    }
+  })
 })
 
 describe('structured transcript channel', () => {

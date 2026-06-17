@@ -24,7 +24,13 @@ import {
   type WorkState,
 } from '@podium/protocol'
 import { knownPathsFor } from './file-relay-policy'
-import { attentionNotice, pushNtfy } from './notify'
+import {
+  attentionNotice,
+  type AttentionNotice,
+  pushNtfy,
+  pushTelegram,
+  type TelegramConfig,
+} from './notify'
 import { isTransientTitle, makeTitleDebouncer } from './title-filter'
 import { type ClientConn, type Send, Session } from './session'
 import { type PinKind, SessionStore } from './store'
@@ -53,6 +59,16 @@ export type MemoryBreakdown = Omit<
 export interface OpResult {
   ok: boolean
   output: string
+}
+
+interface NotificationPushers {
+  ntfy(topic: string, notice: AttentionNotice): void
+  telegram(config: TelegramConfig, notice: AttentionNotice): void
+}
+
+const DEFAULT_NOTIFICATION_PUSHERS: NotificationPushers = {
+  ntfy: pushNtfy,
+  telegram: pushTelegram,
 }
 
 /** Registry of all sessions + the single daemon link + all client connections. Routes by sessionId. */
@@ -122,7 +138,10 @@ export class SessionRegistry {
   // separate pending maps.
   private nextRequestNum = 0
 
-  constructor(private readonly store: SessionStore = new SessionStore(':memory:')) {
+  constructor(
+    private readonly store: SessionStore = new SessionStore(':memory:'),
+    private readonly notificationPushers: NotificationPushers = DEFAULT_NOTIFICATION_PUSHERS,
+  ) {
     this.loadFromStore()
   }
 
@@ -1458,9 +1477,17 @@ export class SessionRegistry {
       }
       for (const c of this.clients.values()) c.send(event)
     }
-    if (settings.ntfyTopic) {
+    const telegram = {
+      botToken: settings.telegramBotToken,
+      chatId: settings.telegramChatId,
+    }
+    const telegramEnabled = telegram.botToken.trim() !== '' && telegram.chatId.trim() !== ''
+    if (settings.ntfyTopic || telegramEnabled) {
       const someoneWatching = [...this.clients.values()].some((c) => c.visible)
-      if (!someoneWatching) pushNtfy(settings.ntfyTopic, notice)
+      if (!someoneWatching) {
+        if (settings.ntfyTopic) this.notificationPushers.ntfy(settings.ntfyTopic, notice)
+        if (telegramEnabled) this.notificationPushers.telegram(telegram, notice)
+      }
     }
   }
 
