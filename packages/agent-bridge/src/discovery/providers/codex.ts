@@ -248,11 +248,15 @@ function summarizeCodexHeadRecords(
   const id =
     metadata?.id ?? (meta ? stringField(meta, 'id') : undefined) ?? basename(file, '.jsonl')
 
+  // With no native thread title, fall back to the first human prompt (like the
+  // Claude provider) so an untitled session reads as what it's about, not a uuid.
+  const promptTitle = metadata?.title ? undefined : firstCodexPrompt(records)
+
   return {
     id,
     agentKind: 'codex',
-    title: metadata?.title ?? fallbackTitle(file),
-    titleSource: metadata?.title ? 'native' : 'filename',
+    title: metadata?.title ?? promptTitle ?? fallbackTitle(file),
+    titleSource: metadata?.title ? 'native' : promptTitle ? 'heuristic' : 'filename',
     projectPath: metadata?.cwd ?? (meta ? stringField(meta, 'cwd') : undefined),
     parentConversationId: metadata?.parentThreadId,
     statusHint: metadata?.archived ? 'archived' : 'unknown',
@@ -292,6 +296,26 @@ function codexMessages(records: unknown[]): AgentConversationMessage[] {
 function codexPayload(record: unknown): Record<string, unknown> {
   if (!isRecord(record)) return {}
   return isRecord(record.payload) ? record.payload : {}
+}
+
+/**
+ * The first human-typed prompt, condensed to a one-line title (≤100 chars). Reads
+ * only `event_msg.user_message` events — the clean text the person actually typed —
+ * so the injected AGENTS.md / permissions preamble (which arrives as a
+ * `response_item` user record) never becomes the title.
+ */
+function firstCodexPrompt(records: unknown[]): string | undefined {
+  for (const record of records) {
+    if (!isRecord(record) || stringField(record, 'type') !== 'event_msg') continue
+    const payload = codexPayload(record)
+    if (stringField(payload, 'type') !== 'user_message') continue
+    const text = (stringField(payload, 'message') ?? contentToText(payload.text_elements))
+      .replace(/\s+/g, ' ')
+      .trim()
+    if (!text || text.startsWith('<')) continue
+    return text.length > 100 ? `${text.slice(0, 100)}…` : text
+  }
+  return undefined
 }
 
 function firstRecordTimestamp(records: unknown[]): Date | undefined {

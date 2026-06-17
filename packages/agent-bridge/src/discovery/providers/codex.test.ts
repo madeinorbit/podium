@@ -190,6 +190,48 @@ describe('createCodexConversationProvider', () => {
     expect(result.conversations[0]).not.toHaveProperty('messageCount')
   })
 
+  test('titles an untitled session from the first typed prompt (event_msg.user_message)', async () => {
+    const root = await createRoot()
+    const file = join(root, 'sessions/2026/06/02/untitled.jsonl')
+    await mkdir(join(file, '..'), { recursive: true })
+    await writeFile(
+      file,
+      [
+        JSON.stringify({
+          timestamp: '2026-06-02T10:00:00.000Z',
+          type: 'session_meta',
+          payload: { id: 'untitled-codex', timestamp: '2026-06-02T10:00:00.000Z', cwd: '/repo/untitled' },
+        }),
+        // Injected AGENTS.md preamble (a response_item user record) must NOT win the title.
+        JSON.stringify({
+          timestamp: '2026-06-02T10:00:01.000Z',
+          type: 'response_item',
+          payload: {
+            type: 'message',
+            role: 'user',
+            content: [{ type: 'input_text', text: '# AGENTS.md instructions …' }],
+          },
+        }),
+        JSON.stringify({
+          timestamp: '2026-06-02T10:00:02.000Z',
+          type: 'event_msg',
+          payload: { type: 'user_message', message: 'add a dark mode toggle' },
+        }),
+      ].join('\n'),
+    )
+
+    const result = await createCodexConversationProvider().scanRoot(root)
+
+    expect(result.diagnostics).toEqual([])
+    expect(result.conversations).toEqual([
+      expect.objectContaining({
+        id: 'untitled-codex',
+        title: 'add a dark mode toggle',
+        titleSource: 'heuristic',
+      }),
+    ])
+  })
+
   test('loads full normalized Codex messages on demand', async () => {
     const root = await createRoot()
     await writeCodexSession(root, 'sessions/2026/06/01/session.jsonl')
