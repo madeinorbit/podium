@@ -161,11 +161,30 @@ export class TerminalView {
     return this.term.rows
   }
 
-  screenText(): string {
+  /**
+   * The visible screen as text. With `dropDim`, cells rendered dim (SGR 2 —
+   * placeholder/hint text, e.g. Codex's greyed-out composer suggestions) are
+   * blanked, so a caller scraping the prompt can't mistake a suggestion for
+   * typed input. Default keeps the fast translateToString path.
+   */
+  screenText(opts?: { dropDim?: boolean }): string {
     const buf = this.term.buffer.active
     let text = ''
     for (let i = 0; i < buf.length; i += 1) {
-      text += `${buf.getLine(i)?.translateToString(true) ?? ''}\n`
+      const line = buf.getLine(i)
+      if (!opts?.dropDim || !line) {
+        text += `${line?.translateToString(true) ?? ''}\n`
+        continue
+      }
+      let row = ''
+      for (let x = 0; x < line.length; x += 1) {
+        const cell = line.getCell(x)
+        if (!cell) continue
+        if (cell.getWidth() === 0) continue // spacer half of a wide glyph
+        const chars = cell.getChars() || ' '
+        row += cell.isDim() ? ' '.repeat(chars.length) : chars
+      }
+      text += `${row.replace(/\s+$/, '')}\n`
     }
     return text
   }

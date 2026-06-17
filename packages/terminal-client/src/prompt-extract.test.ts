@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { extractClaudePromptDraft } from './prompt-extract'
+import { extractClaudePromptDraft, extractCodexPromptDraft } from './prompt-extract'
 
 const box = (...inner: string[]): string[] => [
   'some transcript output above',
@@ -29,5 +29,27 @@ describe('extractClaudePromptDraft', () => {
     // The welcome/splash panel is a rounded box too, but its rows have no '>'
     // prompt marker — capturing it dumped the logo/art into the draft.
     expect(extractClaudePromptDraft(box('🦀 Welcome to Claude Code', '  /help for help'))).toBeNull()
+  })
+})
+
+// Codex's composer is a single line prefixed with `› ` (U+203A), not a box. The
+// empty composer shows a DIM placeholder suggestion; the caller passes lines from
+// screenText({dropDim:true}), which blanks dim cells — so an empty composer
+// collapses to just the marker, and only genuinely typed text survives.
+const MARKER = '›'
+describe('extractCodexPromptDraft', () => {
+  it('extracts the typed prompt after the marker', () => {
+    expect(
+      extractCodexPromptDraft(['transcript above', `${MARKER} render the home board`, '  gpt-5.5 · /repo']),
+    ).toBe('render the home board')
+  })
+  it('returns empty string for an empty composer (dim placeholder blanked → marker only)', () => {
+    expect(extractCodexPromptDraft(['transcript above', MARKER, '  gpt-5.5 · /repo'])).toBe('')
+  })
+  it('handles a leading-indented marker', () => {
+    expect(extractCodexPromptDraft([`  ${MARKER} hi there`])).toBe('hi there')
+  })
+  it('returns null when no composer line is present (no clobber)', () => {
+    expect(extractCodexPromptDraft(['just output', 'no marker here'])).toBeNull()
   })
 })

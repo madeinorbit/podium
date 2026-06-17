@@ -1,5 +1,6 @@
 import {
   extractClaudePromptDraft,
+  extractCodexPromptDraft,
   keySequence,
   type MountedSession,
   mountSession,
@@ -101,22 +102,29 @@ export function AgentPanel({
     if (!termRef.current) return
     setHasOutput(false)
     setAtBottom(true)
-    // Mirror the in-progress native Claude prompt into the shared chat draft.
-    // Best-effort + clobber-safe: only the controlling client publishes
+    // Mirror the in-progress native prompt into the shared chat draft (Claude and
+    // Codex). Best-effort + clobber-safe: only the controlling client publishes
     // (cross-client), and only while THIS terminal holds focus, so a chat composer
     // being typed in another pane/device wins. Publish only on change; a null
-    // extraction (slash menu / non-Claude) never clobbers; and a freshly-focused
-    // EMPTY box won't publish '' as its first act (which would wipe a draft another
-    // device is typing — a real clear still propagates after we've published text).
-    const isClaude = session?.agentKind === 'claude-code'
+    // extraction (slash menu / no composer / other agent) never clobbers; and a
+    // freshly-focused EMPTY composer won't publish '' as its first act (which would
+    // wipe a draft another device is typing — a real clear still propagates after).
+    const agentKind = session?.agentKind
     let lastPublished: string | null = null
     let sampleTimer: ReturnType<typeof setTimeout> | null = null
     const sample = () => {
       const m = mountedRef.current
-      if (!m || !isClaude) return
+      if (!m) return
       if (m.connection.state().role !== 'controller') return
       if (!termRef.current?.contains(document.activeElement)) return
-      const draft = extractClaudePromptDraft(m.view.screenText().split('\n'))
+      // Codex's empty composer shows a DIM placeholder suggestion — blank dim cells
+      // (screenText dropDim) so it isn't mistaken for typed text; Claude's box needs
+      // no such filter.
+      let draft: string | null = null
+      if (agentKind === 'claude-code') draft = extractClaudePromptDraft(m.view.screenText().split('\n'))
+      else if (agentKind === 'codex')
+        draft = extractCodexPromptDraft(m.view.screenText({ dropDim: true }).split('\n'))
+      else return
       if (draft === null || draft === lastPublished) return
       if (draft === '' && lastPublished === null) return
       lastPublished = draft

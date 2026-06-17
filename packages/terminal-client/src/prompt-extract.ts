@@ -55,3 +55,27 @@ export function extractClaudePromptDraft(lines: string[]): string | null {
   if (PLACEHOLDER_PREFIXES.some((p) => trimmed.startsWith(p))) return ''
   return text
 }
+
+// Codex's composer prompt marker (U+203A, ›). Unlike Claude, Codex draws no box —
+// the in-progress prompt is a single line `› <text>` near the bottom. An empty
+// composer shows a DIM placeholder suggestion (rotating, e.g. "Explain this
+// codebase"), which is indistinguishable from typed text in plain output — so the
+// caller must source lines from `screenText({ dropDim: true })`, blanking dim
+// cells. That collapses an empty composer to just the marker; only typed text
+// survives.
+const CODEX_MARKER = '›'
+
+/**
+ * Codex's in-progress prompt from the (dim-stripped) rendered screen. Returns the
+ * typed text, '' for an empty composer, or null when no composer line is present
+ * (the caller must NOT overwrite the shared draft on null).
+ */
+export function extractCodexPromptDraft(lines: string[]): string | null {
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const t = (lines[i] ?? '').trimStart()
+    if (!t.startsWith(CODEX_MARKER)) continue
+    const after = t.slice(CODEX_MARKER.length).replace(/^ /, '')
+    return after.trim() === '' ? '' : after.replace(/\s+$/, '')
+  }
+  return null
+}
