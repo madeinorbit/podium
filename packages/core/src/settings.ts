@@ -98,6 +98,10 @@ export const PodiumSettings = z.object({
       web: z.boolean().default(true),
       /** ntfy.sh topic for mobile push (empty = off). */
       ntfyTopic: z.string().default(''),
+      /** Telegram bot token for global server push (empty = off). */
+      telegramBotToken: z.string().default(''),
+      /** Telegram chat id or @channelusername for global server push (empty = off). */
+      telegramChatId: z.string().default(''),
     })
     .default({}),
   sidebar: Sidebar.default({}),

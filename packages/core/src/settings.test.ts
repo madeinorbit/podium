@@ -93,3 +93,32 @@ describe('normalizeSettings — Codex harness migration', () => {
     expect(s.superagent).toMatchObject({ kind: 'api', provider: 'anthropic', model: 'claude-x' })
   })
 })
+
+describe('normalizeSettings — notification targets', () => {
+  it('fills Telegram notification defaults for old saved settings', () => {
+    const s = normalizeSettings({
+      notifications: { web: false, ntfyTopic: 'podium-topic' },
+    })
+
+    expect(s.notifications).toMatchObject({
+      web: false,
+      ntfyTopic: 'podium-topic',
+      telegramBotToken: '',
+      telegramChatId: '',
+    })
+  })
+
+  it('keeps explicit Telegram notification settings', () => {
+    const s = normalizeSettings({
+      notifications: {
+        web: true,
+        ntfyTopic: '',
+        telegramBotToken: '123456:secret',
+        telegramChatId: '-1001234567890',
+      },
+    })
+
+    expect(s.notifications.telegramBotToken).toBe('123456:secret')
+    expect(s.notifications.telegramChatId).toBe('-1001234567890')
+  })
+})
