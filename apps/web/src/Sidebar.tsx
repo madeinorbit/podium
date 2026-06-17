@@ -6,9 +6,8 @@ import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import {
   agentBadge,
-  type DotTone,
   type RepoNavView,
-  sessionDotTone,
+  sessionDotClass,
   sidebarSections,
   type WorktreeNavView,
 } from './derive'
@@ -19,35 +18,10 @@ import { useStore } from './store'
 import type { PinKind } from './types'
 import { WorkerLabel } from './WorkerLabel'
 
-/** Tone → dot colour, replacing the old `.dot.<tone>` rules. */
-const dotToneClass: Record<DotTone, string> = {
-  working: 'bg-primary',
-  idle: 'bg-success',
-  attention: 'bg-warning',
-  starting: 'bg-warning',
-  reconnecting: 'bg-warning',
-  error: 'bg-destructive',
-  ended: 'bg-muted-foreground',
-  exited: 'bg-muted-foreground',
-  hibernated: 'bg-primary',
-}
-
 function StatusDot({ session }: { session: SessionMeta }): JSX.Element {
-  const tone = sessionDotTone(session)
-  return (
-    <span
-      className={cn(
-        // Keep the `dot` element + `parked` marker: styles.css drives the
-        // hibernated "snoozed tab" look via `.dot.parked + .worker-label
-        // .worker-name` (grayed/italic), keyed on the marker not the colour so
-        // the dot still shows the last agent state. The colour itself is the
-        // Tailwind token below.
-        'dot inline-block size-2 min-w-2 flex-none rounded-full',
-        session.status === 'hibernated' && 'parked',
-        dotToneClass[tone] ?? 'bg-muted-foreground',
-      )}
-    />
-  )
+  // Shared single source of truth — colour semantics match tabs/home/chat, and
+  // the `dot`/`parked` markers drive the hibernated grayed-italic row in CSS.
+  return <span className={sessionDotClass(session)} />
 }
 
 export function Sidebar(): JSX.Element {

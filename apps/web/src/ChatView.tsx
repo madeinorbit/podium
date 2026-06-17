@@ -337,7 +337,13 @@ export function ChatView({ sessionId }: { sessionId: string }): JSX.Element {
               aria-live="polite"
               className={cn(
                 'mx-auto flex w-full max-w-[760px] items-center gap-2 text-xs',
-                activity.tone === 'attention' ? 'text-amber-500' : 'text-muted-foreground',
+                // Match the shared status palette: working → green, needs-you →
+                // yellow, everything else muted.
+                activity.tone === 'attention'
+                  ? 'text-amber-500'
+                  : activity.tone === 'working'
+                    ? 'text-emerald-500'
+                    : 'text-muted-foreground',
               )}
             >
               <span className="inline-flex gap-0.5">

@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useIsMobile } from '@/hooks/use-is-mobile'
 import { cn } from '@/lib/utils'
-import { agentBadge, panelLabel, sessionDotTone } from './derive'
+import { agentBadge, panelLabel, sessionDotClass } from './derive'
 import { attentionSummary, groupSessions, kanbanColumns, relativeTime } from './home'
 import { useStore } from './store'
 import { sessionDisplayName } from './WorkerLabel'
@@ -15,28 +15,9 @@ import { sessionDisplayName } from './WorkerLabel'
 type HomeMode = 'list' | 'board'
 const MODE_KEY = 'podium.homeMode'
 
-/** The status-dot tone → background-token map (replaces the legacy `.dot.<tone>` rules). */
-const DOT_TONE_CLASS: Record<ReturnType<typeof sessionDotTone>, string> = {
-  working: 'bg-[#60a5fa]',
-  idle: 'bg-success',
-  attention: 'bg-warning',
-  starting: 'bg-warning',
-  error: 'bg-destructive',
-  ended: 'bg-muted-foreground/70',
-  exited: 'bg-muted-foreground/70',
-  reconnecting: 'bg-warning',
-  hibernated: 'bg-muted-foreground/70',
-}
-
 function SessionDot({ session }: { session: SessionMeta }): JSX.Element {
-  return (
-    <span
-      className={cn(
-        'inline-block size-2 min-w-2 shrink-0 rounded-full',
-        DOT_TONE_CLASS[sessionDotTone(session)],
-      )}
-    />
-  )
+  // Shared tone logic — same green/yellow/red/blue semantics as every other surface.
+  return <span className={sessionDotClass(session)} />
 }
 
 /**

@@ -295,64 +295,70 @@ export function chatActivity(meta: SessionMeta | undefined, justSent: boolean): 
   return null
 }
 
-export type DotTone =
-  | 'working'
-  | 'idle'
-  | 'attention'
-  | 'error'
-  | 'ended'
-  | 'starting'
-  | 'reconnecting'
-  | 'hibernated'
-  | 'exited'
+// Four semantic status colours, identical across every surface (sidebar, tabs,
+// home board, chat) so a colour means the same thing everywhere:
+//   working   → green   (agent running / shell command running)
+//   attention → yellow  (needs you: question / approval / permission)
+//   error     → red
+//   ready     → blue    (idle-and-waiting, a fresh agent, or a shell at its prompt)
+//   neutral   → grey    (hibernated/exited carry no live colour; the parked
+//                        grayed-italic row carries hibernation instead)
+export type DotTone = 'working' | 'attention' | 'error' | 'ready' | 'neutral'
 
 /**
- * The status-dot tone for a session row/tab. For a running session the colour
- * encodes the agent's *state* — working / idle / needs-you / error — so the dot
- * alone tells the story without a text badge.
+ * The status-dot tone for a session row/tab/card — the single source of truth
+ * for agent colour, shared by every mode so the semantics never drift.
  *
- * Hibernated sessions keep their LAST agent-state colour rather than going grey:
- * a parked agent that stopped on a question still needs you, and that has to stay
- * legible at a glance. The hibernated status is carried by the grayed/italic row
- * instead (see `sessionDotClass` + the `.dot.parked` styling). We fall back to the
- * structural `hibernated` tone only when no runtime state was ever captured.
+ * Hibernated sessions get NO status colour (grey): per the colour rules, a parked
+ * agent's state is carried by the grayed/italic row (`.dot.parked`), not the dot.
  */
 export function sessionDotTone(s: SessionMeta): DotTone {
-  if (s.status === 'exited') return 'exited'
-  if (s.status === 'starting') return 'starting'
-  if (s.status === 'reconnecting') return 'reconnecting'
+  // Parked/terminal: no live status colour. Hibernation's state rides on the
+  // grayed/italic row instead of the dot.
+  if (s.status === 'hibernated' || s.status === 'exited') return 'neutral'
+  // Booting / brief reconnect: not working yet → blue.
+  if (s.status === 'starting' || s.status === 'reconnecting') return 'ready'
   const badge = agentBadge(s)
-  if (badge) return badge.tone === 'muted' ? 'ended' : badge.tone
-  if (s.status === 'hibernated') return 'hibernated'
-  // Uninstrumented live session: a shell is working only while producing output.
-  if (s.agentKind === 'shell') return s.busy ? 'working' : 'idle'
-  return 'working'
+  if (badge) {
+    switch (badge.tone) {
+      case 'working':
+        return 'working'
+      case 'attention':
+        return 'attention'
+      case 'error':
+        return 'error'
+      case 'idle': // finished a turn, nothing pending → ready for your next message
+        return 'ready'
+      case 'muted': // ended
+        return 'neutral'
+    }
+  }
+  // Uninstrumented live session: a shell is "working" (green) only while a command
+  // runs; otherwise it — and a fresh agent that hasn't started a turn — is blue.
+  if (s.agentKind === 'shell') return s.busy ? 'working' : 'ready'
+  return 'ready'
+}
+
+// Tone → theme-independent hue. NOT the `bg-primary`/`bg-success` design tokens:
+// `bg-primary` is near-black in the light theme, so an explicit blue keeps the
+// status colours identical across themes and modes (matching the minimap palette).
+const DOT_TONE_CLASS: Record<DotTone, string> = {
+  working: 'bg-emerald-500',
+  attention: 'bg-amber-500',
+  error: 'bg-red-500',
+  ready: 'bg-blue-500',
+  neutral: 'bg-muted-foreground',
 }
 
 /**
- * Full className for a session's status dot: the colour tone plus a `parked`
- * marker for hibernated sessions. The marker drives the grayed/italic row look in
- * CSS independently of the dot colour, so the dot can keep showing the last agent
- * state while the row still reads as parked.
+ * Full className for a session's status dot: the tone hue plus a `parked` marker
+ * for hibernated sessions. The marker drives the grayed/italic row look in CSS
+ * (`.dot.parked + .worker-label`), independent of the (neutral) dot colour.
  */
-// Tone → dot background token (replaces the legacy `.dot.<tone>` colour rules). The
-// `dot` + `parked` markers stay so styles.css can drive the hibernated worker-name look.
-const DOT_TONE_CLASS: Record<string, string> = {
-  working: 'bg-primary',
-  idle: 'bg-success',
-  attention: 'bg-warning',
-  starting: 'bg-warning',
-  reconnecting: 'bg-warning',
-  error: 'bg-destructive',
-  ended: 'bg-muted-foreground',
-  exited: 'bg-muted-foreground',
-  hibernated: 'bg-primary',
-}
 export function sessionDotClass(s: SessionMeta): string {
-  const tone = sessionDotTone(s)
   return cn(
     'dot inline-block size-2 min-w-2 flex-none rounded-full',
-    DOT_TONE_CLASS[tone] ?? 'bg-muted-foreground',
+    DOT_TONE_CLASS[sessionDotTone(s)],
     s.status === 'hibernated' && 'parked',
   )
 }
