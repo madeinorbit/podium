@@ -131,8 +131,10 @@ describe('web shell structure', () => {
   })
   it('agent panel offers chat mode for structured-transcript harnesses before first append', () => {
     const src = read('AgentPanel.tsx')
-    expect(src).toContain("session?.agentKind === 'claude-code'")
-    expect(src).toContain("session?.agentKind === 'grok'")
+    // The harness fallback lives in defaultChatCapable (which harnesses, incl.
+    // codex, is asserted in derive.test.ts); the server's transcriptAvailable
+    // still wins when present.
+    expect(src).toContain('defaultChatCapable')
     expect(src).toContain('transcriptAvailable')
   })
   it('new-panel menu is the mini search: indexed, capped, with last-active dates', () => {
