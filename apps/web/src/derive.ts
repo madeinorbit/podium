@@ -71,6 +71,16 @@ export function panelLabel(agentKind: AgentKind): string {
   }
 }
 
+/**
+ * Harnesses that produce a structured transcript — so the chat view, the
+ * chat↔live switcher, and the BTW button are offered immediately on spawn,
+ * before the first transcript frame arrives. The server's observed
+ * `transcriptAvailable` flag still wins when present; this is the fallback.
+ */
+export function defaultChatCapable(agentKind: AgentKind): boolean {
+  return agentKind === 'claude-code' || agentKind === 'grok' || agentKind === 'codex'
+}
+
 export function reposToViews(repos: GitRepositoryWire[]): RepoView[] {
   // Scanning a path that contains worktrees returns both the parent repo (with its
   // worktrees[]) and each worktree as its own top-level entry. Drop the standalone

@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
   agentBadge,
   chatActivity,
+  defaultChatCapable,
   formatMemBytes,
   hostMemoryView,
   orderTabs,
@@ -12,6 +13,15 @@ import {
   sidebarSections,
   sortSessionsForPins,
 } from '../src/derive'
+
+describe('defaultChatCapable', () => {
+  it('offers chat for structured-transcript harnesses incl. codex, not shell', () => {
+    expect(defaultChatCapable('claude-code')).toBe(true)
+    expect(defaultChatCapable('grok')).toBe(true)
+    expect(defaultChatCapable('codex')).toBe(true)
+    expect(defaultChatCapable('shell')).toBe(false)
+  })
+})
 
 const repo: GitRepositoryWire = {
   path: '/src/app',

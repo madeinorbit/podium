@@ -24,7 +24,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { ChatView } from './ChatView'
-import { panelLabel } from './derive'
+import { defaultChatCapable, panelLabel } from './derive'
 import { useStore } from './store'
 import { useVoiceInput } from './voice'
 import { WorkerLabel } from './WorkerLabel'
@@ -67,8 +67,7 @@ export function AgentPanel({
   // here); fall back to known transcript harnesses so chat is offered
   // immediately, before the first transcript frame arrives.
   const chatCapable =
-    session?.transcriptAvailable ??
-    (session?.agentKind === 'claude-code' || session?.agentKind === 'grok')
+    session?.transcriptAvailable ?? (session ? defaultChatCapable(session.agentKind) : false)
   const [mode, setMode] = useState<PanelMode>(() => (chatCapable ? initialMode() : 'native'))
   const effectiveMode: PanelMode = chatCapable ? mode : 'native'
 

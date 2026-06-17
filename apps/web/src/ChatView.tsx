@@ -300,8 +300,8 @@ export function ChatView({ sessionId }: { sessionId: string }): JSX.Element {
           )}
           {blocks.length === 0 && !loadingTranscript && (
             <div className="mx-auto my-6 max-w-[46ch] text-center text-[13px] text-muted-foreground/70">
-              No transcript yet. For Claude and Grok sessions the feed starts with the first prompt;
-              shells and Codex sessions have no structured transcript (yet).
+              No transcript yet. For Claude, Codex, and Grok sessions the feed starts with the first
+              prompt; shells have no structured transcript.
             </div>
           )}
           {blocks.map((block, i) => (
