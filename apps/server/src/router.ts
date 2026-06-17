@@ -50,6 +50,11 @@ export const appRouter = t.router({
     sendText: t.procedure
       .input(z.object({ sessionId: z.string(), text: z.string().min(1).max(32_768) }))
       .mutation(({ ctx, input }) => ctx.registry.sendText(input)),
+    // Chat compose for a parked session: wake it if needed, then deliver the
+    // message once the resumed CLI is ready (auto-resume on submit).
+    resumeAndSend: t.procedure
+      .input(z.object({ sessionId: z.string(), text: z.string().min(1).max(32_768) }))
+      .mutation(({ ctx, input }) => ctx.registry.resumeAndSend(input)),
     // On-demand transcript for the chat view — recovers a parked session's history
     // (hibernated/exited) that isn't in the live stream / server buffer.
     transcript: t.procedure

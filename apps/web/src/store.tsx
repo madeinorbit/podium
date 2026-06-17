@@ -64,6 +64,10 @@ export interface Store {
   renameSession: (sessionId: string, name: string) => Promise<void>
   hibernateSession: (sessionId: string) => Promise<void>
   resurrectSession: (sessionId: string) => Promise<void>
+  /** Send a chat message to a parked (hibernated/exited) session, waking it
+   *  first and delivering the text once it's ready. Falls back to a plain send
+   *  when the session is already live. */
+  resumeAndSend: (sessionId: string, text: string) => Promise<void>
   archiveSession: (sessionId: string, archived: boolean) => Promise<void>
   setWorkState: (sessionId: string, workState: WorkState | null) => Promise<void>
   /** Per-session chat composer draft, shared across every view of that session
@@ -218,6 +222,12 @@ export function StoreProvider({
   const resurrectSession = useMemo(
     () => async (sessionId: string) => {
       await trpc.sessions.resurrect.mutate({ sessionId }).catch(() => {})
+    },
+    [trpc],
+  )
+  const resumeAndSend = useMemo(
+    () => async (sessionId: string, text: string) => {
+      await trpc.sessions.resumeAndSend.mutate({ sessionId, text }).catch(() => {})
     },
     [trpc],
   )
@@ -381,6 +391,7 @@ export function StoreProvider({
     continueSession,
     hibernateSession,
     resurrectSession,
+    resumeAndSend,
     renameSession,
     archiveSession,
     setWorkState,

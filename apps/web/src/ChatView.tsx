@@ -35,7 +35,7 @@ import { useVoiceInput } from './voice'
  * birds-eye minimap (user prompts highlighted; click scrolls).
  */
 export function ChatView({ sessionId }: { sessionId: string }): JSX.Element {
-  const { hub, trpc, sessions, drafts, setSessionDraft } = useStore()
+  const { hub, trpc, sessions, drafts, setSessionDraft, resumeAndSend } = useStore()
   const session = sessions.find((s) => s.sessionId === sessionId)
   const [items, setItems] = useState<TranscriptItem[]>([])
   // A parked session (hibernated/exited) has no live tail and an empty server
@@ -44,6 +44,14 @@ export function ChatView({ sessionId }: { sessionId: string }): JSX.Element {
   // parked within this server's lifetime still has its buffer).
   const [fetched, setFetched] = useState<TranscriptItem[] | null>(null)
   const parked = session !== undefined && session.status !== 'live' && session.status !== 'starting'
+  // The on-disk history for a parked session is in flight until `fetched` resolves;
+  // show a loader instead of the "no transcript" empty state during that window.
+  const loadingTranscript = parked && fetched === null
+  // A parked-but-recoverable session can still take a composed message — submitting
+  // wakes it and the text is delivered once it's ready (auto-resume on submit).
+  const canResume =
+    session?.status === 'hibernated' ||
+    (session?.status === 'exited' && session?.resumable === true)
   // Draft lives in the store, keyed by session — shared across every view of this
   // session and preserved when toggling chat/native or splitting panes.
   const draft = drafts[sessionId] ?? ''
@@ -53,6 +61,9 @@ export function ChatView({ sessionId }: { sessionId: string }): JSX.Element {
   const scrollerRef = useRef<HTMLDivElement | null>(null)
   const taRef = useRef<HTMLTextAreaElement | null>(null)
   const pinnedToBottom = useRef(true)
+  // One-shot: snap to the newest message the first time a transcript populates
+  // (initial load / session switch), not just on incremental growth.
+  const didInitialScroll = useRef(false)
   const [atBottom, setAtBottom] = useState(true)
   const [pending, setPending] = useState<PendingItem[]>([])
   const pendingSeq = useRef(0)
@@ -95,6 +106,8 @@ export function ChatView({ sessionId }: { sessionId: string }): JSX.Element {
     setPending([])
     setJustSent(false)
     seenUserIds.current = new Set()
+    pinnedToBottom.current = true
+    didInitialScroll.current = false
   }, [sessionId])
 
   useEffect(() => {
@@ -143,6 +156,23 @@ export function ChatView({ sessionId }: { sessionId: string }): JSX.Element {
     const el = scrollerRef.current
     if (el && pinnedToBottom.current) el.scrollTop = el.scrollHeight
   }, [blocks.length])
+  // Initial-load snap: the growth effect above can fire before markdown/code
+  // blocks have laid out (it measures a shorter scrollHeight and lands above the
+  // tail). On the first populated render, defer two frames so layout settles,
+  // then pin to the bottom. One-shot per session — incremental growth is handled
+  // above and must still honour a user who scrolled up.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: one-shot keyed off the block count
+  useEffect(() => {
+    if (didInitialScroll.current || blocks.length === 0) return
+    didInitialScroll.current = true
+    const el = scrollerRef.current
+    if (!el) return
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        if (pinnedToBottom.current) el.scrollTop = el.scrollHeight
+      })
+    })
+  }, [blocks.length])
   const onScroll = () => {
     const el = scrollerRef.current
     if (!el) return
@@ -188,13 +218,22 @@ export function ChatView({ sessionId }: { sessionId: string }): JSX.Element {
     setPending((p) => [...p, { id, text, at: Date.now(), state: 'sending' }])
     setJustSent(true)
     try {
-      await trpc.sessions.sendText.mutate({ sessionId, text })
+      // Live → send straight through. Parked but recoverable → wake it and let
+      // the server deliver the text once the resumed CLI is ready.
+      if (session?.status === 'live' || session?.status === 'starting') {
+        await trpc.sessions.sendText.mutate({ sessionId, text })
+      } else {
+        await resumeAndSend(sessionId, text)
+      }
     } catch {
       setPending((p) => p.map((x) => (x.id === id ? { ...x, state: 'failed' } : x)))
     }
   }
 
   const sendable = session?.status === 'live' || session?.status === 'starting'
+  // The composer accepts input when the agent is live OR when it can be woken by
+  // sending (auto-resume). Only a truly dead/unrecoverable session locks it out.
+  const composerEnabled = sendable || canResume
   const activity = chatActivity(session, justSent)
 
   return (
@@ -246,7 +285,20 @@ export function ChatView({ sessionId }: { sessionId: string }): JSX.Element {
           ref={scrollerRef}
           onScroll={onScroll}
         >
-          {blocks.length === 0 && (
+          {blocks.length === 0 && loadingTranscript && (
+            <div
+              className="mx-auto my-8 flex items-center gap-2 text-[13px] text-muted-foreground"
+              role="status"
+              aria-live="polite"
+            >
+              <span
+                className="size-4 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-muted-foreground"
+                aria-hidden="true"
+              />
+              Loading transcript…
+            </div>
+          )}
+          {blocks.length === 0 && !loadingTranscript && (
             <div className="mx-auto my-6 max-w-[46ch] text-center text-[13px] text-muted-foreground/70">
               No transcript yet. For Claude and Grok sessions the feed starts with the first prompt;
               shells and Codex sessions have no structured transcript (yet).
@@ -316,10 +368,16 @@ export function ChatView({ sessionId }: { sessionId: string }): JSX.Element {
           <Textarea
             ref={taRef}
             rows={1}
-            placeholder={sendable ? 'Message the agent…' : 'Session is not running.'}
+            placeholder={
+              sendable
+                ? 'Message the agent…'
+                : canResume
+                  ? 'Message — resumes the agent…'
+                  : 'Session is not running.'
+            }
             className="max-h-44 min-h-11 w-full resize-none overflow-y-auto rounded-none border-0 bg-transparent p-0.5 text-sm leading-[1.45] text-foreground transition-none outline-none [field-sizing:fixed] focus-visible:border-0 focus-visible:ring-0 disabled:bg-transparent disabled:text-muted-foreground disabled:opacity-100 dark:bg-transparent dark:disabled:bg-transparent"
             value={draft}
-            disabled={!sendable}
+            disabled={!composerEnabled}
             onChange={(e) => setDraft(e.target.value)}
             onKeyDown={(e) => {
               // Desktop power-shortcut: ⌘/Ctrl+Enter submits. Plain Enter is a
@@ -360,7 +418,7 @@ export function ChatView({ sessionId }: { sessionId: string }): JSX.Element {
               type="button"
               size="icon"
               className="rounded-full bg-primary text-primary-foreground hover:bg-primary/80 disabled:bg-secondary disabled:text-muted-foreground/70 disabled:opacity-100 [&_svg:not([class*='size-'])]:size-4"
-              disabled={!sendable || !draft.trim()}
+              disabled={!composerEnabled || !draft.trim()}
               title="Send (⌘/Ctrl+Enter)"
               onClick={() => void send()}
             >

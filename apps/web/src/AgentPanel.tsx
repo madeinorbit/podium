@@ -159,7 +159,10 @@ export function AgentPanel({
     <div className="flex min-w-0 flex-1 flex-col">
       <div className="flex items-center gap-2.5 border-b border-border bg-card px-2.5 py-[5px]">
         {session && <WorkerLabel session={session} />}
-        {chatCapable && (
+        {/* The chat/native toggle only makes sense with a live PTY behind it — a
+            hibernated/exited session has no terminal to switch to, so hide it
+            rather than render a control that visibly does nothing. */}
+        {chatCapable && !hibernated && !exited && (
           <span className="inline-flex gap-1" role="group" aria-label="Panel view">
             <Button
               type="button"
@@ -193,7 +196,10 @@ export function AgentPanel({
             <Sparkles size={13} aria-hidden="true" />
           </Button>
         )}
-        {!hibernated && !exited && (
+        {/* Archive stays available while hibernated — you can read the transcript
+            in chat and decide to file it away without waking the agent first.
+            Exited sessions get Resume/Remove in ExitedPane instead. */}
+        {!exited && (
           <Button
             type="button"
             variant="ghost"
@@ -205,7 +211,7 @@ export function AgentPanel({
             <Archive size={13} aria-hidden="true" />
           </Button>
         )}
-        {effectiveMode === 'native' && (
+        {effectiveMode === 'native' && !hibernated && !exited && (
           <Button
             type="button"
             variant="secondary"

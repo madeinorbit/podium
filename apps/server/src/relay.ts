@@ -370,6 +370,31 @@ export class SessionRegistry {
     return { ok: true }
   }
 
+  /**
+   * Chat-compose path for a parked session: if it's live, just send; if it's
+   * hibernated/exited (process gone, conversation intact), wake it first and
+   * deliver the text once the resumed CLI is ready to receive it. Lets the chat
+   * composer accept a message on a sleeping agent instead of refusing input —
+   * the message itself becomes the reason to wake.
+   */
+  resumeAndSend({ sessionId, text }: { sessionId: string; text: string }): {
+    ok: boolean
+    reason?: string
+  } {
+    const session = this.sessions.get(sessionId)
+    if (!session) return { ok: false, reason: 'unknown session' }
+    if (session.status === 'live' || session.status === 'starting') {
+      return this.sendText({ sessionId, text })
+    }
+    if (session.status === 'hibernated' || session.status === 'exited') {
+      const woke = this.resurrectSession({ sessionId })
+      if (!woke.ok) return woke
+      this.sendTextWhenReady(sessionId, text)
+      return { ok: true }
+    }
+    return { ok: false, reason: 'session cannot accept input' }
+  }
+
   /** Wake a hibernated session: respawn under the same id with its resume ref. */
   resurrectSession({ sessionId }: { sessionId: string }): { ok: boolean; reason?: string } {
     const session = this.sessions.get(sessionId)
