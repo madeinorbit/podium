@@ -38,8 +38,15 @@ export function extractClaudePromptDraft(lines: string[]): string | null {
     const ri = s.lastIndexOf('│')
     if (li === -1 || ri === li) return null
     let content = s.slice(li + 1, ri)
-    if (k === top + 1) content = content.replace(/^\s*>\s?/, '')
-    else content = content.trimStart()
+    if (k === top + 1) {
+      // The composer's first row always begins with the '>' prompt marker. A
+      // rounded box WITHOUT it is a different panel — most notably the startup
+      // splash/welcome box (logo, the 🦀 art, tips), which is the only box on
+      // screen for a beat before the input renders. Capturing it dumped that art
+      // into the chat draft; bail instead so the draft is never clobbered.
+      if (!/^\s*>/.test(content)) return null
+      content = content.replace(/^\s*>\s?/, '')
+    } else content = content.trimStart()
     parts.push(content.replace(/\s+$/, ''))
   }
   const text = parts.join('\n').replace(/\s+$/, '')

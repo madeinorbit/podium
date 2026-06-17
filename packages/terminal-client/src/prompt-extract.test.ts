@@ -25,4 +25,9 @@ describe('extractClaudePromptDraft', () => {
   it('returns null when there is no prompt box (no clobber)', () => {
     expect(extractClaudePromptDraft(['just output', 'no box here'])).toBeNull()
   })
+  it('ignores a rounded box that is not the composer (startup splash, no caret)', () => {
+    // The welcome/splash panel is a rounded box too, but its rows have no '>'
+    // prompt marker — capturing it dumped the logo/art into the draft.
+    expect(extractClaudePromptDraft(box('🦀 Welcome to Claude Code', '  /help for help'))).toBeNull()
+  })
 })
