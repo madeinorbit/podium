@@ -271,25 +271,10 @@ body:has(.mobile-shell) {
   color: #fff;
 }
 
-/* ---- worker label: live name + muted kind tag ---- */
-.worker-label {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 6px;
-  min-width: 0;
-}
-.worker-name {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.worker-kind {
-  flex: none;
-  font-variant: all-small-caps;
-  letter-spacing: 0.04em;
-  font-size: 0.82em;
-  color: var(--muted-foreground);
-}
+/* ---- worker label ---- */
+/* Layout lives in Tailwind on the WorkerLabel element now (kind icon + name);
+   the `.worker-label` / `.worker-name` class names are kept only as hooks for the
+   `.dot.parked + .worker-label .worker-name` rule below (hibernated row look). */
 
 @keyframes conn-pulse {
   50% {

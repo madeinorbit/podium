@@ -1,5 +1,5 @@
 import type { SessionMeta } from '@podium/protocol'
-import { BarChart3, Home, Pin, Search, Settings as SettingsIcon, Sparkles } from 'lucide-react'
+import { BarChart3, Home, Pin, Search, Settings as SettingsIcon, Sparkles, X } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
 import { useState } from 'react'
 import { Button } from '@/components/ui/button'
@@ -7,6 +7,7 @@ import { cn } from '@/lib/utils'
 import {
   agentBadge,
   type RepoNavView,
+  repoBranchForCwd,
   sessionDotClass,
   sidebarSections,
   type WorktreeNavView,
@@ -365,10 +366,10 @@ function PanelRow({
   onSelect: () => void
   onPinned: (pinned: boolean) => void
 }): JSX.Element {
-  const { continueSession } = useStore()
+  const { continueSession, killSession } = useStore()
   const badge = agentBadge(session)
   return (
-    <div className="flex min-w-0 items-center gap-1">
+    <div className="group flex min-w-0 items-center gap-1">
       <button
         type="button"
         className={cn(
@@ -380,6 +381,9 @@ function PanelRow({
         onClick={onSelect}
       >
         <StatusDot session={session} /> <WorkerLabel session={session} />
+        {/* Pinned panels span repos/worktrees, so show which one — compact two
+            lines (repo bold, branch below) where the kind label used to sit. */}
+        {pinned && <RepoBranchTag cwd={session.cwd} />}
       </button>
       {badge?.showContinue && (
         <Button
@@ -405,7 +409,40 @@ function PanelRow({
       >
         <Pin size={13} aria-hidden="true" />
       </Button>
+      {/* Close (kill) — revealed on row hover, matching the tab strip's X. */}
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        className="hidden w-7 min-w-7 flex-none rounded-none text-muted-foreground/70 hover:text-destructive group-hover:inline-flex"
+        title="Close session"
+        onClick={() => void killSession(session.sessionId)}
+      >
+        <X size={13} aria-hidden="true" />
+      </Button>
     </div>
+  )
+}
+
+/** Compact repo/branch stamp for a pinned panel: repo bold on top, branch muted
+ *  below. Full "repo · branch" on the hover title. */
+function RepoBranchTag({ cwd }: { cwd: string }): JSX.Element | null {
+  const { repos } = useStore()
+  const rb = repoBranchForCwd(repos, cwd)
+  if (!rb) return null
+  return (
+    <span
+      className="ml-auto flex flex-none flex-col items-end pl-2 leading-tight"
+      title={rb.branch ? `${rb.repo} · ${rb.branch}` : rb.repo}
+    >
+      <span className="max-w-[12ch] overflow-hidden text-ellipsis whitespace-nowrap text-[10px] font-bold text-foreground/80">
+        {rb.repo}
+      </span>
+      {rb.branch && (
+        <span className="max-w-[12ch] overflow-hidden text-ellipsis whitespace-nowrap text-[9px] text-muted-foreground/70">
+          {rb.branch}
+        </span>
+      )}
+    </span>
   )
 }
 

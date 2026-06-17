@@ -100,6 +100,24 @@ export function sessionsForWorktree(sessions: SessionMeta[], worktreePath: strin
   return sessions.filter((s) => s.cwd === worktreePath && !s.archived)
 }
 
+/** Resolve a session's cwd to its repo name + branch, for the pinned-panel
+ *  badge — pinned panels span repos/worktrees, so "which repo/branch" is what
+ *  tells them apart. Null when the cwd isn't a known worktree (e.g. a session
+ *  spawned in a path discovery hasn't indexed). */
+export function repoBranchForCwd(
+  repos: GitRepositoryWire[],
+  cwd: string,
+): { repo: string; branch?: string } | null {
+  for (const repo of reposToViews(repos)) {
+    for (const worktree of repo.worktrees) {
+      if (worktree.path === cwd) {
+        return { repo: repo.name, ...(worktree.branch !== undefined ? { branch: worktree.branch } : {}) }
+      }
+    }
+  }
+  return null
+}
+
 export interface WorktreeNavView extends WorktreeView {
   repoName: string
   sessions: SessionMeta[]
