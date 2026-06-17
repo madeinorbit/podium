@@ -1,14 +1,16 @@
-import { Eraser, Mic, Send, Sparkles } from 'lucide-react'
+import type { AgentKind, TranscriptItem } from '@podium/protocol'
+import { ArrowUpRight, Eraser, Mic, Send, Sparkles } from 'lucide-react'
 import type { JSX } from 'react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { cn } from '@/lib/utils'
-import { reposToViews } from './derive'
+import { agentBadge, panelLabel, reposToViews, sessionDotClass } from './derive'
 import { renderMarkdown } from './markdown'
 import { useStore } from './store'
 import { useConversationSearch } from './useConversationSearch'
 import { useVoiceInput } from './voice'
+import { KindIcon, sessionDisplayName } from './WorkerLabel'
 
 interface SuperMessage {
   id: number
@@ -352,8 +354,127 @@ export function SuperagentView(): JSX.Element {
   )
 }
 
+/** A worker session the superagent spawned (`start_agent` result): a live,
+ *  clickable card — one click opens it in the workspace, and "Follow" expands a
+ *  live transcript tail so you can watch progress without leaving the chat. */
+function SpawnedAgentCard({
+  sessionId,
+  cwd,
+  agentKind,
+}: {
+  sessionId: string
+  cwd: string
+  agentKind: AgentKind
+}): JSX.Element {
+  const { sessions, setPane, setSelectedWorktree, setView, hub } = useStore()
+  const [following, setFollowing] = useState(false)
+  const session = sessions.find((s) => s.sessionId === sessionId)
+  const status = session
+    ? (agentBadge(session)?.label ?? session.status)
+    : 'starting…'
+  const open = () => {
+    setSelectedWorktree(cwd)
+    setPane('A', sessionId)
+    setView('workspace')
+  }
+  return (
+    <div className="mx-auto w-full max-w-[760px] overflow-hidden rounded-[10px] border border-border bg-background">
+      <div className="flex items-center gap-2 px-3 py-2">
+        {session ? (
+          <span className={sessionDotClass(session)} />
+        ) : (
+          <span className="inline-block size-2 min-w-2 flex-none animate-pulse rounded-full bg-blue-500" />
+        )}
+        <KindIcon kind={agentKind} />
+        <button
+          type="button"
+          onClick={open}
+          className="min-w-0 flex-1 truncate text-left text-[13px] font-medium text-foreground hover:text-primary"
+          title={session ? sessionDisplayName(session) : sessionId}
+        >
+          {session ? sessionDisplayName(session) : `${panelLabel(agentKind)} agent`}
+        </button>
+        <span className="flex-none text-[11px] text-muted-foreground/70">{status}</span>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="flex-none"
+          onClick={() => setFollowing((v) => !v)}
+        >
+          {following ? 'Hide' : 'Follow'}
+        </Button>
+        <Button type="button" variant="outline" size="sm" className="flex-none" onClick={open}>
+          Open <ArrowUpRight size={12} aria-hidden="true" />
+        </Button>
+      </div>
+      {following && <SpawnedFollow sessionId={sessionId} hub={hub} />}
+    </div>
+  )
+}
+
+/** Inline live transcript tail for a spawned worker — the last few items, kept
+ *  scrolled to the newest, so you can follow what it's doing within the chat. */
+function SpawnedFollow({
+  sessionId,
+  hub,
+}: {
+  sessionId: string
+  hub: ReturnType<typeof useStore>['hub']
+}): JSX.Element {
+  const [items, setItems] = useState<TranscriptItem[]>([])
+  const endRef = useRef<HTMLDivElement | null>(null)
+  useEffect(() => hub.subscribeTranscript(sessionId, setItems), [hub, sessionId])
+  // biome-ignore lint/correctness/useExhaustiveDependencies: follow the tail
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ block: 'nearest' })
+  }, [items.length])
+  const tail = items.slice(-8)
+  return (
+    <div className="max-h-[220px] overflow-auto border-t border-border bg-card/40 px-3 py-2 text-[11px] leading-relaxed">
+      {tail.length === 0 ? (
+        <span className="text-muted-foreground/70">No transcript yet…</span>
+      ) : (
+        tail.map((it) => (
+          <div key={it.id} className="min-w-0 truncate">
+            <span className="text-muted-foreground/60">
+              {it.role === 'tool' ? '⚙' : it.role === 'user' ? '›' : '·'}{' '}
+            </span>
+            <span className={it.role === 'user' ? 'text-foreground' : 'text-muted-foreground'}>
+              {it.text?.slice(0, 160) || it.toolName || ''}
+            </span>
+          </div>
+        ))
+      )}
+      <div ref={endRef} />
+    </div>
+  )
+}
+
 function SuperMessageView({ message }: { message: SuperMessage }): JSX.Element | null {
   const [open, setOpen] = useState(false)
+  // A spawned worker session — render it as a live, openable card instead of a
+  // raw JSON tool result.
+  if (message.role === 'tool' && message.toolName === 'start_agent') {
+    try {
+      const parsed = JSON.parse(message.content) as {
+        sessionId?: string
+        cwd?: string
+        agentKind?: string
+      }
+      if (parsed.sessionId) {
+        return (
+          <SpawnedAgentCard
+            sessionId={parsed.sessionId}
+            cwd={parsed.cwd ?? ''}
+            agentKind={(parsed.agentKind as AgentKind) ?? 'claude-code'}
+          />
+        )
+      }
+    } catch {
+      // malformed result — fall through to the generic tool row
+    }
+  }
   if (message.role === 'tool') {
     return (
       <div className="mx-auto w-full max-w-[760px]">
