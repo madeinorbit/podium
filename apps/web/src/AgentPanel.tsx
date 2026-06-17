@@ -53,7 +53,7 @@ export function AgentPanel({
    *  switching back catches up instead of wiping). Gates focus, nothing else. */
   active?: boolean
 }): JSX.Element {
-  const { hub, sessions, archiveSession, startBtw, setSessionDraft } = useStore()
+  const { hub, sessions, archiveSession, startBtw, setSessionDraft, hibernateSession } = useStore()
   const session = sessions.find((s) => s.sessionId === sessionId)
   const termRef = useRef<HTMLDivElement | null>(null)
   const toolbarRef = useRef<HTMLDivElement | null>(null)
@@ -75,6 +75,12 @@ export function AgentPanel({
 
   const hibernated = session?.status === 'hibernated'
   const exited = session?.status === 'exited'
+  // Manual hibernation is offered for a live, resumable agent (a resume ref means
+  // it can come back), but disabled while it's actively working — parking a
+  // working agent would kill its in-flight turn (the server refuses it too).
+  const phase = session?.agentState?.phase
+  const agentWorking = phase === 'working' || phase === 'compacting'
+  const canHibernate = !hibernated && !exited && session?.resumable === true
   // Empty is never good: hold a "Starting…" overlay over the terminal until the
   // first real PTY frame lands, so a slow-starting (or wedged) agent reads as
   // booting rather than a blank panel. A healthy session clears it instantly —
@@ -194,6 +200,22 @@ export function AgentPanel({
             onClick={() => void startBtw(sessionId)}
           >
             <Sparkles size={13} aria-hidden="true" />
+          </Button>
+        )}
+        {canHibernate && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            disabled={agentWorking}
+            title={
+              agentWorking
+                ? 'Agent is working — hibernate once it reaches idle'
+                : 'Hibernate — stop the process to free memory, keep the conversation'
+            }
+            onClick={() => void hibernateSession(sessionId)}
+          >
+            <Moon size={13} aria-hidden="true" />
           </Button>
         )}
         {/* Archive stays available while hibernated — you can read the transcript

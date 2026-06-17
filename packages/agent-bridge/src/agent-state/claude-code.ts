@@ -18,8 +18,12 @@ export function claudeHookSettings(endpointUrl: string): string {
       hooks: {
         SessionStart: [h],
         UserPromptSubmit: [h],
-        // Only the explicit ask-user tool; all other tool use arrives via PostToolUse.
-        PreToolUse: [{ matcher: 'AskUserQuestion', ...h }],
+        // Fire on *every* tool start, not just AskUserQuestion: a tool starting
+        // (especially a long Bash command) is the agent affirmatively working, so
+        // "waiting on shell output" reads as working from the moment the tool
+        // begins rather than only when it completes. translate() still routes
+        // AskUserQuestion → needs_user and every other tool → activity (working).
+        PreToolUse: [h],
         PostToolUse: [h],
         PermissionRequest: [h],
         // idle_prompt etc. are redundant with Stop; permission prompts are the signal.

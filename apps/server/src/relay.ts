@@ -363,6 +363,14 @@ export class SessionRegistry {
     if (!session.resume) {
       return { ok: false, reason: 'no resume ref yet — the agent has not reported one' }
     }
+    // Never park an agent mid-work: hibernation kills the process, and a
+    // working/compacting agent would lose its in-flight turn. Auto-hibernation
+    // already filters to idle/ended; enforcing it here makes the primitive (and
+    // the manual hibernate button) safe regardless of caller.
+    const phase = session.agentState?.phase
+    if (phase === 'working' || phase === 'compacting') {
+      return { ok: false, reason: 'agent is working — let it reach idle first' }
+    }
     session.status = 'hibernated'
     this.persist(session)
     this.toDaemon({ type: 'kill', sessionId })

@@ -51,8 +51,10 @@ describe('claude-code instrumentation', () => {
         expect(g.hooks).toEqual([{ type: 'http', url: URL }])
       }
     }
-    // PreToolUse only watches the question tool; Notification only permission prompts.
-    expect(settings.hooks.PreToolUse?.[0]?.matcher).toBe('AskUserQuestion')
+    // PreToolUse watches every tool (no matcher) so a tool starting reads as
+    // working immediately; translate() routes AskUserQuestion → needs_user and
+    // the rest → activity. Notification stays scoped to permission prompts.
+    expect(settings.hooks.PreToolUse?.[0]?.matcher).toBeUndefined()
     expect(settings.hooks.Notification?.[0]?.matcher).toBe('permission_prompt')
   })
 })

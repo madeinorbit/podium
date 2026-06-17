@@ -56,10 +56,20 @@ const MAX_REPLAY_BYTES = 256 * 1024
 // Generous on purpose: a long conversation's *beginning* must not fall out of the
 // chat view. Each item is small; a few thousand is a few MB per live session.
 const MAX_TRANSCRIPT_ITEMS = 8000
-// How long after the last output frame a shell still reads as "busy". A shell at
-// its prompt produces no frames, so this decays to idle; a running command keeps
-// resetting it. Long enough to bridge the gaps between a command's output bursts.
+// How long after the last output frame a running shell command still reads as
+// "busy". A command keeps resetting it; once output goes quiet for this long the
+// shell is back at its prompt (idle). Long enough to bridge the gaps between a
+// command's output bursts.
 const SHELL_BUSY_WINDOW_MS = 4000
+
+/** Did a controller keystroke chunk (base64) submit a line — i.e. press Enter?
+ *  CR/LF is the one signal that a shell *command was actually run*, as opposed to
+ *  the prompt being drawn or keystrokes echoing. Gating busy on this is why a
+ *  freshly-opened or sit-at-the-prompt shell reads idle instead of active. */
+function submitsCommandLine(base64: string): boolean {
+  const bytes = Buffer.from(base64, 'base64')
+  return bytes.includes(0x0d) || bytes.includes(0x0a)
+}
 // biome-ignore lint/suspicious/noControlCharactersInRegex: terminal escape sequences
 const SCREEN_RESET = /\x1b\[[23]J|\x1bc|\x1b\[\?1049[hl]/
 
@@ -97,6 +107,11 @@ export class Session {
   // their activity signal, since they have no harness instrumentation.
   private shellBusy = false
   private shellBusyTimer: ReturnType<typeof setTimeout> | undefined
+  // A shell command is "running" from when the controller submits a line (Enter)
+  // until its output goes quiet — NOT while the shell merely draws its prompt or
+  // echoes typed characters. Output frames only count toward `busy` while this is
+  // set, so opening a shell (which draws a prompt) no longer reads as active.
+  private shellCommandRunning = false
   private readonly onActivity: (() => void) | undefined
   // Server-assigned, monotonic per-session output sequence. The PTY bridge's own
   // seq resets to 0 on every daemon reattach, so it can't be a stable client
@@ -265,6 +280,14 @@ export class Session {
 
   handleInput(clientId: string, data: string): void {
     if (clientId === this.controllerId) {
+      // Submitting a line at a shell prompt is what starts a command running —
+      // mark busy now (before any output) and let onFrame keep it lit while the
+      // command produces output. Prompt-draw and bare keystrokes never reach here
+      // as a CR/LF, so they no longer flip the shell to active.
+      if (this.agentKind === 'shell' && submitsCommandLine(data)) {
+        this.shellCommandRunning = true
+        this.markShellBusy()
+      }
       this.toDaemon({ type: 'input', sessionId: this.sessionId, data })
     }
   }
@@ -313,10 +336,12 @@ export class Session {
     this.bufferFrame(seq, data)
     this.broadcast({ type: 'outputFrame', sessionId: this.sessionId, seq, epoch: this.epoch, data })
     this.outputAtMs = Date.now()
-    // Shells have no harness instrumentation, so output IS the only "a process is
-    // running" signal we get. Flip busy on the first frame, then let a trailing
-    // timer decay it once the PTY goes quiet (back to the prompt = idle).
-    if (this.agentKind === 'shell') this.markShellBusy()
+    // Shells have no harness instrumentation, so output is our only progress
+    // signal — but only *after* a command was submitted. Output that arrives
+    // while no command is running (the prompt redrawing, keystroke echo) must not
+    // light the shell up; that's the "active on open" bug. A running command's
+    // output keeps resetting the decay window below.
+    if (this.agentKind === 'shell' && this.shellCommandRunning) this.markShellBusy()
   }
 
   private markShellBusy(): void {
@@ -326,7 +351,11 @@ export class Session {
     }
     if (this.shellBusyTimer) clearTimeout(this.shellBusyTimer)
     this.shellBusyTimer = setTimeout(() => {
+      // Output went quiet — the command finished and the shell is back at its
+      // prompt. Clear both flags so the next prompt-draw/echo stays idle until
+      // another line is submitted.
       this.shellBusy = false
+      this.shellCommandRunning = false
       this.onActivity?.()
     }, SHELL_BUSY_WINDOW_MS)
     this.shellBusyTimer.unref?.()
@@ -351,6 +380,7 @@ export class Session {
     // The PTY is gone — no more output, so it can't be "busy".
     if (this.shellBusyTimer) clearTimeout(this.shellBusyTimer)
     this.shellBusy = false
+    this.shellCommandRunning = false
     // A hibernated session's process exit is the *expected* result of the
     // hibernate kill — don't let it overwrite the hibernated state.
     if (this.status === 'hibernated') return

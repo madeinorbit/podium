@@ -67,6 +67,33 @@ describe('Session', () => {
     expect(toDaemon).toHaveBeenCalledWith({ type: 'input', sessionId: 's1', data: 'eA==' })
   })
 
+  it('shell is busy only while a submitted command runs, not on prompt-draw/echo', () => {
+    const s = new Session({
+      sessionId: 'sh',
+      agentKind: 'shell',
+      cwd: '/w',
+      title: 'w',
+      origin: { kind: 'spawn' },
+      createdAt: '2026-06-03T00:00:00.000Z',
+      geometry: geo,
+      toDaemon: vi.fn(),
+    })
+    const a = makeClient('a')
+    s.attachClient(a) // becomes controller
+    // The shell drawing its prompt (output with no command submitted) is idle.
+    s.onFrame('cHJvbXB0') // "prompt"
+    expect(s.toMeta().busy).toBeUndefined()
+    // A keystroke that isn't Enter (and its echo) also stays idle.
+    s.handleInput('a', Buffer.from('l').toString('base64'))
+    s.onFrame('bA==') // echoed "l"
+    expect(s.toMeta().busy).toBeUndefined()
+    // Submitting a line (Enter) starts a command → busy, even before output.
+    s.handleInput('a', Buffer.from('s\r').toString('base64'))
+    expect(s.toMeta().busy).toBe(true)
+    s.onFrame('b3V0cHV0') // command output keeps it busy
+    expect(s.toMeta().busy).toBe(true)
+  })
+
   it('controller resize updates geometry + resizes agent; spectator resize is stored only', () => {
     const toDaemon = vi.fn()
     const s = makeSession(toDaemon)
