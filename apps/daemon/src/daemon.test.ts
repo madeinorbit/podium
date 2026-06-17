@@ -16,7 +16,7 @@ import {
 import { type DaemonMessage, encode, parseDaemonMessage } from '@podium/protocol'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { WebSocketServer, type WebSocket as WS } from 'ws'
-import { type DaemonHandle, resolveDurableBackend, startDaemon } from './daemon'
+import { createLimiter, type DaemonHandle, resolveDurableBackend, startDaemon } from './daemon'
 
 const FIXTURE = fileURLToPath(
   new URL('../../../packages/agent-bridge/test/fixtures/fixture-tui.mjs', import.meta.url),
@@ -1159,5 +1159,33 @@ describe('agent state instrumentation', () => {
     expect(res.status).toBe(200)
     await new Promise((r) => setTimeout(r, 50))
     expect(states().filter((s) => s.sessionId === 'nope')).toEqual([])
+  })
+})
+
+describe('createLimiter (reattach spawn gate)', () => {
+  it('never runs more than `max` tasks at once and still completes them all', async () => {
+    const limit = createLimiter(3)
+    let active = 0
+    let peak = 0
+    const done: number[] = []
+    const task = (i: number) =>
+      limit(async () => {
+        active++
+        peak = Math.max(peak, active)
+        await new Promise((r) => setTimeout(r, 5))
+        active--
+        done.push(i)
+      })
+    await Promise.all(Array.from({ length: 12 }, (_, i) => task(i)))
+    expect(peak).toBeLessThanOrEqual(3)
+    expect(done.length).toBe(12)
+    expect(active).toBe(0)
+  })
+
+  it('propagates a thunk rejection without wedging the queue', async () => {
+    const limit = createLimiter(2)
+    await expect(limit(() => Promise.reject(new Error('boom')))).rejects.toThrow('boom')
+    // A failure must release its slot so later work still runs.
+    await expect(limit(() => Promise.resolve('ok'))).resolves.toBe('ok')
   })
 })

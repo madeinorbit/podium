@@ -158,19 +158,23 @@ export class SessionRegistry {
     // orphans, or any residual race). The daemon reattaches a live master (→ a
     // bind → markLive) or replies reattachFailed (→ it stays exited). The durable
     // host, not the persisted row, is the source of truth for liveness.
-    for (const s of this.sessions.values()) {
-      const probe = s.status === 'reconnecting' || (s.status === 'exited' && !s.archived)
-      if (probe) {
-        this.toDaemon({
-          type: 'reattach',
-          sessionId: s.sessionId,
-          durableLabel: s.durableLabel,
-          agentKind: s.agentKind,
-          cwd: s.cwd,
-          geometry: s.geometry,
-          ...(s.resume ? { resume: s.resume } : {}),
-        })
-      }
+    // Most-recently-used first: the daemon gates its spawn fan-out, so the order we
+    // send in decides who reattaches soonest. Prioritise the sessions the user most
+    // likely has open. lastActiveAt is an ISO string, so a reverse lexical sort is
+    // newest-first.
+    const probes = [...this.sessions.values()]
+      .filter((s) => s.status === 'reconnecting' || (s.status === 'exited' && !s.archived))
+      .sort((a, b) => (b.lastActiveAt ?? '').localeCompare(a.lastActiveAt ?? ''))
+    for (const s of probes) {
+      this.toDaemon({
+        type: 'reattach',
+        sessionId: s.sessionId,
+        durableLabel: s.durableLabel,
+        agentKind: s.agentKind,
+        cwd: s.cwd,
+        geometry: s.geometry,
+        ...(s.resume ? { resume: s.resume } : {}),
+      })
     }
   }
   detachDaemon(): void {

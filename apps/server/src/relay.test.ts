@@ -262,6 +262,19 @@ describe('SessionRegistry', () => {
     expect(daemon.some((m) => m.type === 'reattach' && m.sessionId === 'arch-1')).toBe(false)
   })
 
+  it('reattaches most-recently-used sessions first', () => {
+    const store = new SessionStore(':memory:')
+    // Insert out of recency order to prove the order is by lastActiveAt, not insertion.
+    store.upsertSession(exitedRow('mid', { lastActiveAt: '2026-03-02T00:00:00.000Z' }))
+    store.upsertSession(exitedRow('newest', { lastActiveAt: '2026-03-09T00:00:00.000Z' }))
+    store.upsertSession(exitedRow('oldest', { lastActiveAt: '2026-01-01T00:00:00.000Z' }))
+    const reg = new SessionRegistry(store)
+    const daemon: ControlMessage[] = []
+    reg.attachDaemon((m) => daemon.push(m))
+    const order = daemon.filter((m) => m.type === 'reattach').map((m) => m.sessionId)
+    expect(order).toEqual(['newest', 'mid', 'oldest'])
+  })
+
   it('attachClient sends welcome plus session and conversation snapshots', () => {
     const reg = new SessionRegistry()
     reg.attachDaemon(() => {})

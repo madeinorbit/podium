@@ -1,4 +1,5 @@
-import { execFileSync, spawnSync } from 'node:child_process'
+import { execFile, execFileSync, spawnSync } from 'node:child_process'
+import { promisify } from 'node:util'
 import { type IPty, spawn as ptySpawn } from 'node-pty'
 import { resolveAbducoBin } from './abduco-bin.js'
 import { type AgentSession, wrapPty } from './session'
@@ -117,6 +118,38 @@ function listSessions(): AbducoSessionEntry[] {
 export function abducoHasSession(label: string): boolean {
   try {
     return listSessions().some((s) => s.name === label && s.alive)
+  } catch {
+    return false
+  }
+}
+
+const execFileAsync = promisify(execFile)
+
+/**
+ * Async twin of {@link listSessions}. The sync version does a blocking `spawnSync`
+ * on the main thread; on the daemon's reattach path that runs once per session and,
+ * for ~30 durable sessions, back-to-back `fork+exec` calls starve the event loop so
+ * the server can't accept connections. This variant lets the caller `await` it,
+ * keeping the loop responsive.
+ */
+async function listSessionsAsync(): Promise<AbducoSessionEntry[]> {
+  const bin = resolveAbducoBin()
+  if (!bin) return []
+  try {
+    const { stdout } = await execFileAsync(bin, [], { encoding: 'utf8' })
+    return parseAbducoList(stdout ?? '')
+  } catch (err) {
+    // `abduco` exits non-zero on some versions even when it printed a valid list;
+    // recover whatever it wrote to stdout before giving up.
+    const stdout = (err as { stdout?: string })?.stdout
+    return stdout ? parseAbducoList(stdout) : []
+  }
+}
+
+/** Non-blocking {@link abducoHasSession}. Prefer this on hot paths (reattach). */
+export async function abducoHasSessionAsync(label: string): Promise<boolean> {
+  try {
+    return (await listSessionsAsync()).some((s) => s.name === label && s.alive)
   } catch {
     return false
   }

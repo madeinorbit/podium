@@ -13,7 +13,7 @@ import {
   type AgentSession,
   type AgentStateEvent,
   type AgentStateProvider,
-  abducoHasSession,
+  abducoHasSessionAsync,
   agentLaunchCommand,
   agentStateProviderFor,
   attachAbducoAgent,
@@ -44,7 +44,7 @@ import {
   spawnTmuxAgent,
   type TranscriptTailer,
   tailTranscript,
-  tmuxHasSession,
+  tmuxHasSessionAsync,
 } from '@podium/agent-bridge'
 import {
   type ControlMessage,
@@ -120,6 +120,39 @@ export function resolveDurableBackend(
   if (avail.abduco) return 'abduco'
   if (avail.tmux) return 'tmux'
   return 'none'
+}
+
+/** Daemon→server reconnect backoff bounds (ms). */
+const RECONNECT_MIN_MS = 500
+const RECONNECT_MAX_MS = 5_000
+/**
+ * How many durable reattaches may spawn an `abduco`/`tmux` attach client at once.
+ * Reattaches arrive as a burst when the daemon (re)connects; gating the spawns
+ * keeps a 30-session boot from forking 30 children in one tick. Sessions still all
+ * reattach — just over a few ticks instead of starving anything.
+ */
+const REATTACH_CONCURRENCY = 6
+
+/**
+ * Minimal async concurrency limiter: returns a runner that keeps at most `max`
+ * thunks in flight and queues the rest. Used to bound reattach spawn fan-out.
+ */
+export function createLimiter(max: number): <T>(fn: () => Promise<T>) => Promise<T> {
+  let active = 0
+  const queue: Array<() => void> = []
+  const release = (): void => {
+    active--
+    queue.shift()?.()
+  }
+  return <T>(fn: () => Promise<T>): Promise<T> =>
+    new Promise<T>((resolve, reject) => {
+      const run = (): void => {
+        active++
+        fn().then(resolve, reject).finally(release)
+      }
+      if (active < max) run()
+      else queue.push(run)
+    })
 }
 
 export interface DaemonHandle {
@@ -333,7 +366,11 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
           // Recording a resume ref marks the session resumable (→ hibernate
           // button); the first transcript frame marks it chat-capable (→ chat
           // switcher + BTW button).
-          send({ type: 'sessionResumeRef', sessionId, resume: { kind: 'codex-thread', value: rolloutId } })
+          send({
+            type: 'sessionResumeRef',
+            sessionId,
+            resume: { kind: 'codex-thread', value: rolloutId },
+          })
           tailCodexTranscript(sessionId, rolloutPath)
         },
         onEvents: (events) => applyAgentStateEvents(sessionId, events),
@@ -404,8 +441,16 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
         .catch((err) => console.warn(`[podium] hook translate failed for ${sessionId}:`, err))
     },
   })
-  const ws = new WebSocket(`${opts.serverUrl}/daemon`)
+  // Reconnecting client: the daemon may start before the server (separate
+  // processes / `After=` ordering) and must survive a server restart without
+  // dropping its abduco attaches. `currentWs` is the live socket; `send()` always
+  // targets it, so frames keep flowing to the new connection after a reconnect.
+  let currentWs: WebSocket | undefined
+  let reconnectTimer: ReturnType<typeof setTimeout> | undefined
+  let reconnectBackoffMs = RECONNECT_MIN_MS
+  let closing = false
   const bridges = new Map<string, AgentSession>()
+  const reattachGate = createLimiter(REATTACH_CONCURRENCY)
   const discoveryCache = new ConversationDiscoveryCache(opts.discovery?.cachePath)
   const discoveryBackground = opts.discovery?.background ?? true
   const discoveryIntervalMs = opts.discovery?.scanIntervalMs ?? DEFAULT_DISCOVERY_SCAN_INTERVAL_MS
@@ -417,7 +462,8 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
   let metricsTimer: ReturnType<typeof setInterval> | undefined
 
   const send = (msg: DaemonMessage): void => {
-    if (ws.readyState === WebSocket.OPEN) ws.send(encode(msg))
+    const w = currentWs
+    if (w && w.readyState === WebSocket.OPEN) w.send(encode(msg))
   }
 
   // Seed agent state for a session whose CLI is already running but hasn't fired a
@@ -613,9 +659,11 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
       // vanished master is a real exit. (`abducoHasSession` runs `abduco`, which
       // reaps the socket as it lists, so a just-exited master reads as gone.)
       const label = `podium-${sessionId}`
-      if (backend === 'abduco' && abducoHasSession(label)) return
-      if (backend === 'tmux' && tmuxHasSession(label)) return
-      send({ type: 'agentExit', sessionId, code })
+      void (async () => {
+        if (backend === 'abduco' && (await abducoHasSessionAsync(label))) return
+        if (backend === 'tmux' && (await tmuxHasSessionAsync(label))) return
+        send({ type: 'agentExit', sessionId, code })
+      })()
     })
   }
 
@@ -717,7 +765,69 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     send({ type: 'scanReposResult', requestId, repositories, diagnostics })
   }
 
-  ws.on('message', (raw: RawData) => {
+  // Reattach is the hot path on (re)connect: a burst of ~30 arrives at once. Each is
+  // independent, so handle them off the synchronous message switch — async existence
+  // checks (never a blocking fork+exec on the loop), idempotent (a reconnect re-sends
+  // reattach for sessions we already hold — re-confirm the bind instead of spawning a
+  // duplicate client), and gated so the spawn fan-out can't fork everything in one tick.
+  const handleReattach = async (msg: ReattachControl): Promise<void> => {
+    const existing = bridges.get(msg.sessionId)
+    if (existing) {
+      const cmd =
+        backend === 'tmux' ? `tmux -L ${msg.durableLabel} attach` : `abduco -a ${msg.durableLabel}`
+      send({
+        type: 'bind',
+        sessionId: msg.sessionId,
+        cmd,
+        cwd: msg.cwd,
+        agentKind: msg.agentKind,
+        geometry: msg.geometry,
+      })
+      existing.redraw()
+      return
+    }
+    await reattachGate(async () => {
+      if (bridges.has(msg.sessionId)) return // raced with another reattach for this id
+      const attach = { label: msg.durableLabel, cols: msg.geometry.cols, rows: msg.geometry.rows }
+      let found: { session: AgentSession; cmd: string } | undefined
+      // Backend-agnostic: try whichever durable host owns the label, so sessions
+      // created under tmux before an abduco upgrade still reattach (no flag day).
+      if (backend !== 'none' && (await abducoHasSessionAsync(msg.durableLabel))) {
+        found = { session: attachAbducoAgent(attach), cmd: `abduco -a ${msg.durableLabel}` }
+      } else if (backend !== 'none' && (await tmuxHasSessionAsync(msg.durableLabel))) {
+        found = { session: attachTmuxAgent(attach), cmd: `tmux -L ${msg.durableLabel} attach` }
+      }
+      if (!found) {
+        send({
+          type: 'reattachFailed',
+          sessionId: msg.sessionId,
+          reason: backend === 'none' ? 'durable backend unavailable' : 'session not found',
+        })
+        return
+      }
+      wireBridge(msg.sessionId, found.session)
+      // The settings file from the original spawn still points at our fixed port,
+      // so a reattached agent keeps reporting. A fresh daemon (post-redeploy) lost
+      // all in-memory per-session state — rebuild it via the same path spawn uses.
+      // A survivor is already at its prompt and fires no hook until the user acts,
+      // so seed immediately (an idle session would otherwise read 'unknown' →
+      // 'working') and re-tail its transcript (else chat stays empty while the
+      // native view still has scrollback).
+      initSessionObservers(msg, found.session, agentStateProviderFor(msg.agentKind), {
+        seedOnFrame: false,
+      })
+      send({
+        type: 'bind',
+        sessionId: msg.sessionId,
+        cmd: found.cmd,
+        cwd: msg.cwd,
+        agentKind: msg.agentKind,
+        geometry: msg.geometry,
+      })
+    })
+  }
+
+  const handleControlMessage = (raw: RawData): void => {
     let msg: ControlMessage
     try {
       msg = parseControlMessage(raw.toString())
@@ -728,45 +838,9 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
       case 'spawn':
         spawn(msg)
         break
-      case 'reattach': {
-        // Backend-agnostic: try whichever durable host owns the label, so sessions
-        // created under tmux before an abduco upgrade still reattach (no flag day).
-        const attach = { label: msg.durableLabel, cols: msg.geometry.cols, rows: msg.geometry.rows }
-        const found =
-          backend !== 'none' && abducoHasSession(msg.durableLabel)
-            ? { session: attachAbducoAgent(attach), cmd: `abduco -a ${msg.durableLabel}` }
-            : backend !== 'none' && tmuxHasSession(msg.durableLabel)
-              ? { session: attachTmuxAgent(attach), cmd: `tmux -L ${msg.durableLabel} attach` }
-              : undefined
-        if (!found) {
-          send({
-            type: 'reattachFailed',
-            sessionId: msg.sessionId,
-            reason: backend === 'none' ? 'durable backend unavailable' : 'session not found',
-          })
-          break
-        }
-        wireBridge(msg.sessionId, found.session)
-        // The settings file from the original spawn still points at our fixed port,
-        // so a reattached agent keeps reporting. A fresh daemon (post-redeploy) lost
-        // all in-memory per-session state — rebuild it via the same path spawn uses.
-        // A survivor is already at its prompt and fires no hook until the user acts,
-        // so seed immediately (an idle session would otherwise read 'unknown' →
-        // 'working') and re-tail its transcript (else chat stays empty while the
-        // native view still has scrollback).
-        initSessionObservers(msg, found.session, agentStateProviderFor(msg.agentKind), {
-          seedOnFrame: false,
-        })
-        send({
-          type: 'bind',
-          sessionId: msg.sessionId,
-          cmd: found.cmd,
-          cwd: msg.cwd,
-          agentKind: msg.agentKind,
-          geometry: msg.geometry,
-        })
+      case 'reattach':
+        void handleReattach(msg)
         break
-      }
       case 'kill': {
         const session = bridges.get(msg.sessionId)
         trackers.delete(msg.sessionId)
@@ -823,7 +897,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
         void readParkedTranscript(msg)
         break
     }
-  })
+  }
 
   // A usage scan reads every recently-active transcript — memo it so the status
   // chip's poll doesn't redo the walk per client. The TTL must exceed the chip's
@@ -965,37 +1039,86 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
   const handle: DaemonHandle = {
     hookPort: ingest.port,
     async close(opts) {
+      closing = true // stop the reconnect loop from resurrecting the socket
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer)
+        reconnectTimer = undefined
+      }
       for (const id of [...tails.keys()]) stopTranscriptTail(id)
       await ingest.close()
       return new Promise<void>((resolve) => {
         disposeAll(opts?.reapSessions ?? false)
-        if (ws.readyState === WebSocket.CLOSED) {
+        const w = currentWs
+        if (!w || w.readyState === WebSocket.CLOSED) {
           resolve()
           return
         }
-        ws.once('close', () => resolve())
-        ws.close()
+        w.once('close', () => resolve())
+        w.close()
       })
     },
   }
 
-  return new Promise<DaemonHandle>((resolve, reject) => {
-    ws.once('open', () => {
-      if (discoveryBackground) {
-        publishConversations(cachedConversationResult(), true)
-        void refreshAndPublishConversations()
-        scheduleDiscoveryScan()
+  return new Promise<DaemonHandle>((resolve) => {
+    let resolved = false
+    let kickedOff = false
+    const resolveStart = (): void => {
+      if (!resolved) {
+        resolved = true
+        resolve(handle)
       }
-      if (metricsBackground) {
-        pushHostMetrics() // first sample immediately — the UI shouldn't wait a full interval
-        metricsTimer = setInterval(pushHostMetrics, metricsIntervalMs)
-        metricsTimer.unref?.()
+    }
+    const onOpen = (): void => {
+      reconnectBackoffMs = RECONNECT_MIN_MS // healthy connect resets the backoff
+      // Kick off background discovery/metrics exactly once — a reconnect must not
+      // double-start the metrics interval. The server re-sends reattach for live
+      // sessions on every (re)connect; handleReattach is idempotent.
+      if (!kickedOff) {
+        kickedOff = true
+        if (discoveryBackground) {
+          publishConversations(cachedConversationResult(), true)
+          void refreshAndPublishConversations()
+          scheduleDiscoveryScan()
+        }
+        if (metricsBackground) {
+          pushHostMetrics() // first sample immediately — the UI shouldn't wait a full interval
+          metricsTimer = setInterval(pushHostMetrics, metricsIntervalMs)
+          metricsTimer.unref?.()
+        }
       }
-      resolve(handle)
-    })
-    ws.once('error', (err) => {
-      disposeAll()
-      reject(err)
-    })
+      resolveStart()
+    }
+    const scheduleReconnect = (): void => {
+      if (closing || reconnectTimer) return
+      reconnectTimer = setTimeout(() => {
+        reconnectTimer = undefined
+        connect()
+      }, reconnectBackoffMs)
+      reconnectTimer.unref?.()
+      reconnectBackoffMs = Math.min(reconnectBackoffMs * 2, RECONNECT_MAX_MS)
+    }
+    function connect(): void {
+      if (closing) return
+      const w = new WebSocket(`${opts.serverUrl}/daemon`)
+      currentWs = w
+      w.on('open', onOpen)
+      w.on('message', handleControlMessage)
+      // A dropped/refused connection (server restart, or not up yet) must NOT tear
+      // down running agents — keep the abduco attaches + transcript tails alive and
+      // just reconnect. Only an explicit handle.close() disposes. ('error' is
+      // followed by 'close', which drives the backoff reconnect.)
+      w.on('close', () => {
+        if (currentWs === w) currentWs = undefined
+        scheduleReconnect()
+      })
+      w.on('error', () => {
+        // Swallow: 'close' handles reconnect, and an unhandled 'error' would crash.
+      })
+    }
+    // Don't hang the entrypoint if the server isn't up yet — resolve after a grace
+    // window; the daemon keeps retrying in the background and kicks off on real open.
+    const startGrace = setTimeout(resolveStart, 10_000)
+    startGrace.unref?.()
+    connect()
   })
 }

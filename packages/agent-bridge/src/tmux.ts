@@ -1,4 +1,5 @@
-import { execFileSync, spawnSync } from 'node:child_process'
+import { execFile, execFileSync, spawnSync } from 'node:child_process'
+import { promisify } from 'node:util'
 import { spawn as ptySpawn } from 'node-pty'
 import { type AgentSession, wrapPty } from './session.js'
 
@@ -60,6 +61,18 @@ export function tmuxHasSession(label: string): boolean {
   return (
     spawnSync('tmux', ['-L', label, 'has-session', '-t', SESSION], { stdio: 'ignore' }).status === 0
   )
+}
+
+const execFileAsync = promisify(execFile)
+
+/** Non-blocking {@link tmuxHasSession} — `await`-able so it never blocks the event loop. */
+export async function tmuxHasSessionAsync(label: string): Promise<boolean> {
+  try {
+    await execFileAsync('tmux', ['-L', label, 'has-session', '-t', SESSION])
+    return true
+  } catch {
+    return false
+  }
 }
 
 export function killTmuxServer(label: string): void {
