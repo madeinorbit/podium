@@ -121,7 +121,10 @@ export function repoBranchForCwd(
   for (const repo of reposToViews(repos)) {
     for (const worktree of repo.worktrees) {
       if (worktree.path === cwd) {
-        return { repo: repo.name, ...(worktree.branch !== undefined ? { branch: worktree.branch } : {}) }
+        return {
+          repo: repo.name,
+          ...(worktree.branch !== undefined ? { branch: worktree.branch } : {}),
+        }
       }
     }
   }
@@ -311,7 +314,10 @@ export interface ChatActivity {
  * `busy` signal for uninstrumented kinds; and shows an optimistic "Sending…"
  * immediately after a submit (`justSent`) before the first `working` event lands.
  */
-export function chatActivity(meta: SessionMeta | undefined, justSent: boolean): ChatActivity | null {
+export function chatActivity(
+  meta: SessionMeta | undefined,
+  justSent: boolean,
+): ChatActivity | null {
   if (!meta) return null
   const badge = agentBadge(meta)
   if (badge?.tone === 'working') {

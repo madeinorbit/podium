@@ -121,7 +121,8 @@ export function AgentPanel({
       // (screenText dropDim) so it isn't mistaken for typed text; Claude's box needs
       // no such filter.
       let draft: string | null = null
-      if (agentKind === 'claude-code') draft = extractClaudePromptDraft(m.view.screenText().split('\n'))
+      if (agentKind === 'claude-code')
+        draft = extractClaudePromptDraft(m.view.screenText().split('\n'))
       else if (agentKind === 'codex')
         draft = extractCodexPromptDraft(m.view.screenText({ dropDim: true }).split('\n'))
       else return
@@ -544,9 +545,7 @@ function HibernatedBanner({ sessionId }: { sessionId: string }): JSX.Element {
   return (
     <div className="flex shrink-0 items-center gap-2 border-b border-primary/30 bg-primary/10 px-3 py-1.5 text-xs text-primary">
       <Moon size={14} aria-hidden="true" />
-      <span className="min-w-0 flex-1">
-        Hibernated — transcript is read-only until you resume.
-      </span>
+      <span className="min-w-0 flex-1">Hibernated — transcript is read-only until you resume.</span>
       <Button
         type="button"
         variant="outline"

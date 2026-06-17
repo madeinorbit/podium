@@ -21,7 +21,14 @@ export function codexRecordToItems(record: unknown): TranscriptItem[] {
     if (ptype !== 'user_message') return []
     const text = userMessageText(payload)
     return text
-      ? [{ id: stableId('codex-user', `${ts ?? ''}:${text}`), role: 'user', ...(ts ? { ts } : {}), text }]
+      ? [
+          {
+            id: stableId('codex-user', `${ts ?? ''}:${text}`),
+            role: 'user',
+            ...(ts ? { ts } : {}),
+            text,
+          },
+        ]
       : []
   }
 

@@ -14,7 +14,9 @@ describe('extractClaudePromptDraft', () => {
     expect(extractClaudePromptDraft(box('> fix the chat view'))).toBe('fix the chat view')
   })
   it('joins wrapped continuation lines', () => {
-    expect(extractClaudePromptDraft(box('> first line', '  second line'))).toBe('first line\nsecond line')
+    expect(extractClaudePromptDraft(box('> first line', '  second line'))).toBe(
+      'first line\nsecond line',
+    )
   })
   it('returns empty string for an empty prompt box', () => {
     expect(extractClaudePromptDraft(box('>'))).toBe('')
@@ -28,7 +30,9 @@ describe('extractClaudePromptDraft', () => {
   it('ignores a rounded box that is not the composer (startup splash, no caret)', () => {
     // The welcome/splash panel is a rounded box too, but its rows have no '>'
     // prompt marker — capturing it dumped the logo/art into the draft.
-    expect(extractClaudePromptDraft(box('🦀 Welcome to Claude Code', '  /help for help'))).toBeNull()
+    expect(
+      extractClaudePromptDraft(box('🦀 Welcome to Claude Code', '  /help for help')),
+    ).toBeNull()
   })
 })
 
@@ -40,7 +44,11 @@ const MARKER = '›'
 describe('extractCodexPromptDraft', () => {
   it('extracts the typed prompt after the marker', () => {
     expect(
-      extractCodexPromptDraft(['transcript above', `${MARKER} render the home board`, '  gpt-5.5 · /repo']),
+      extractCodexPromptDraft([
+        'transcript above',
+        `${MARKER} render the home board`,
+        '  gpt-5.5 · /repo',
+      ]),
     ).toBe('render the home board')
   })
   it('returns empty string for an empty composer (dim placeholder blanked → marker only)', () => {

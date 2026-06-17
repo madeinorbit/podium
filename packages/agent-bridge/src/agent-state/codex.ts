@@ -2,8 +2,8 @@ import type { Dirent } from 'node:fs'
 import { open, readdir, readFile, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import { LineDecoder } from '../jsonl-stream.js'
 import { readCodexStateMetadata } from '../discovery/providers/codex-state.js'
+import { LineDecoder } from '../jsonl-stream.js'
 import type { AgentStateEvent, AgentStateProvider } from './types.js'
 
 const POLL_MS = 700
@@ -28,9 +28,10 @@ function strField(v: unknown, k: string): string | undefined {
  * no reliable approval/plan-ready signal (approvals happen in the TUI before any
  * record is written), so we never fabricate one.
  */
-export function classifyCodexVerdict(
-  lastAgentMessage: string | undefined,
-): { kind: 'done' | 'question'; summary?: string } {
+export function classifyCodexVerdict(lastAgentMessage: string | undefined): {
+  kind: 'done' | 'question'
+  summary?: string
+} {
   const summary = lastAgentMessage?.trim()
   const kind = summary?.endsWith('?') ? 'question' : 'done'
   return summary ? { kind, summary } : { kind }
@@ -51,7 +52,10 @@ export async function translateCodexEvent(record: unknown): Promise<AgentStateEv
       return [{ kind: 'activity' }]
     case 'task_complete':
       return [
-        { kind: 'turn_completed', verdict: classifyCodexVerdict(strField(payload, 'last_agent_message')) },
+        {
+          kind: 'turn_completed',
+          verdict: classifyCodexVerdict(strField(payload, 'last_agent_message')),
+        },
       ]
     case 'turn_aborted':
       return [{ kind: 'turn_completed' }]
@@ -72,7 +76,8 @@ async function codexBootEvents(opts: {
       const rollout = meta.byThreadId.get(opts.resumeValue)?.rolloutPath
       if (rollout) {
         const last = lastTaskComplete(await readFile(rollout, 'utf8'))
-        if (last !== undefined) return [{ kind: 'turn_completed', verdict: classifyCodexVerdict(last) }]
+        if (last !== undefined)
+          return [{ kind: 'turn_completed', verdict: classifyCodexVerdict(last) }]
       }
     } catch {
       // missing/unreadable → fall through to a bare boot event
@@ -90,7 +95,8 @@ function lastTaskComplete(jsonl: string): string | undefined {
       const rec = JSON.parse(line)
       if (strField(rec, 'type') !== 'event_msg') continue
       const p = isRecord(rec) && isRecord(rec.payload) ? rec.payload : undefined
-      if (p && strField(p, 'type') === 'task_complete') return strField(p, 'last_agent_message') ?? ''
+      if (p && strField(p, 'type') === 'task_complete')
+        return strField(p, 'last_agent_message') ?? ''
     } catch {
       // skip torn line
     }
@@ -247,7 +253,11 @@ export async function findLiveCodexRollout(
       const head = await readFirstLine(c.path)
       const meta = head ? JSON.parse(head) : undefined
       const payload = isRecord(meta) && isRecord(meta.payload) ? meta.payload : undefined
-      if (payload && strField(meta, 'type') === 'session_meta' && strField(payload, 'cwd') === cwd) {
+      if (
+        payload &&
+        strField(meta, 'type') === 'session_meta' &&
+        strField(payload, 'cwd') === cwd
+      ) {
         return { path: c.path, id: strField(payload, 'id') }
       }
     } catch {

@@ -63,17 +63,25 @@ describe('codexRecordToItems', () => {
 
   it('maps function_call_output to a tool-result item paired by call_id', () => {
     const items = codexRecordToItems(
-      env('response_item', { type: 'function_call_output', call_id: 'call_1', output: 'total 0\n' }),
+      env('response_item', {
+        type: 'function_call_output',
+        call_id: 'call_1',
+        output: 'total 0\n',
+      }),
     )
     expect(items[0]).toMatchObject({ role: 'tool', toolUseId: 'call_1', toolResult: 'total 0' })
   })
 
   it('skips reasoning, session_meta, turn_context, and other event_msg', () => {
     expect(
-      codexRecordToItems(env('response_item', { type: 'reasoning', encrypted_content: 'x', summary: [] })),
+      codexRecordToItems(
+        env('response_item', { type: 'reasoning', encrypted_content: 'x', summary: [] }),
+      ),
     ).toEqual([])
     expect(codexRecordToItems(env('session_meta', { id: 'u', cwd: '/x' }))).toEqual([])
     expect(codexRecordToItems(env('turn_context', {}))).toEqual([])
-    expect(codexRecordToItems(env('event_msg', { type: 'task_started', turn_id: 't1' }))).toEqual([])
+    expect(codexRecordToItems(env('event_msg', { type: 'task_started', turn_id: 't1' }))).toEqual(
+      [],
+    )
   })
 })

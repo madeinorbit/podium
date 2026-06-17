@@ -29,9 +29,9 @@ describe('translateCodexEvent', () => {
   })
 
   it('maps task_complete to turn_completed with a classified verdict', async () => {
-    expect(await translateCodexEvent(env('task_complete', { last_agent_message: 'All done.' }))).toEqual([
-      { kind: 'turn_completed', verdict: { kind: 'done', summary: 'All done.' } },
-    ])
+    expect(
+      await translateCodexEvent(env('task_complete', { last_agent_message: 'All done.' })),
+    ).toEqual([{ kind: 'turn_completed', verdict: { kind: 'done', summary: 'All done.' } }])
     expect(
       await translateCodexEvent(env('task_complete', { last_agent_message: 'Which file?' })),
     ).toEqual([{ kind: 'turn_completed', verdict: { kind: 'question', summary: 'Which file?' } }])
@@ -42,7 +42,9 @@ describe('translateCodexEvent', () => {
   })
 
   it('ignores non-event_msg and unknown events', async () => {
-    expect(await translateCodexEvent({ type: 'response_item', payload: { type: 'message' } })).toEqual([])
+    expect(
+      await translateCodexEvent({ type: 'response_item', payload: { type: 'message' } }),
+    ).toEqual([])
     expect(await translateCodexEvent(env('mystery_event'))).toEqual([])
   })
 })
@@ -98,7 +100,10 @@ describe('findCodexRolloutPath', () => {
     const dir = join(home, '.codex', 'sessions', '2026', '06', '16')
     await mkdir(dir, { recursive: true })
     const file = join(dir, 'rollout-2026-06-16T16-11-26-thread-xyz.jsonl')
-    await writeFile(file, `${JSON.stringify({ type: 'session_meta', payload: { id: 'thread-xyz' } })}\n`)
+    await writeFile(
+      file,
+      `${JSON.stringify({ type: 'session_meta', payload: { id: 'thread-xyz' } })}\n`,
+    )
 
     expect(await findCodexRolloutPath({ resumeValue: 'thread-xyz', homeDir: home })).toBe(file)
     expect(await findCodexRolloutPath({ resumeValue: 'no-such-id', homeDir: home })).toBeUndefined()
