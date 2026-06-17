@@ -41,6 +41,10 @@ export interface Store {
   /** Main-area surface: attention board, worktree workspace, superagent, or settings. */
   view: MainView
   setView: (view: MainView) => void
+  /** Deep-link target for the Settings view — a tab key (e.g. from global search).
+   *  Consumed and cleared by SettingsView on mount. */
+  settingsTab: string | null
+  setSettingsTab: (tab: string | null) => void
   /** Active superagent thread: the 'global' orchestrator or a 'btw_<sessionId>' thread. */
   superThreadId: string
   setSuperThreadId: (id: string) => void
@@ -143,6 +147,7 @@ export function StoreProvider({
   const [pins, setPins] = useState<PinState>(EMPTY_PINS)
   const [tabOrders, setTabOrders] = useState<Record<string, string[]>>({})
   const [view, setView] = useState<MainView>(readStoredView)
+  const [settingsTab, setSettingsTab] = useState<string | null>(null)
   const [superThreadId, setSuperThreadId] = useState('global')
   const [superOpen, setSuperOpen] = useState(false)
   const [superRefreshKey, setSuperRefreshKey] = useState(0)
@@ -376,6 +381,8 @@ export function StoreProvider({
     setTabOrder,
     view,
     setView,
+    settingsTab,
+    setSettingsTab,
     superThreadId,
     setSuperThreadId,
     superOpen,

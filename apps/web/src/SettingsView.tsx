@@ -22,7 +22,7 @@ import { cn } from '@/lib/utils'
 import { useStore } from './store'
 import { type ThemeMode, type ThemePreset, useTheme } from './theme'
 
-type SettingsTab =
+export type SettingsTab =
   | 'appearance'
   | 'sessions'
   | 'superagent'
@@ -32,7 +32,7 @@ type SettingsTab =
   | 'notifications'
   | 'integrations'
 
-const SETTINGS_TABS: { key: SettingsTab; label: string }[] = [
+export const SETTINGS_TABS: { key: SettingsTab; label: string }[] = [
   { key: 'appearance', label: 'Appearance' },
   { key: 'sessions', label: 'New sessions' },
   { key: 'superagent', label: 'Superagent' },
@@ -50,12 +50,20 @@ const SETTINGS_TABS: { key: SettingsTab; label: string }[] = [
  * section is on screen at a time.
  */
 export function SettingsView(): JSX.Element {
-  const { trpc, setView } = useStore()
+  const { trpc, setView, settingsTab, setSettingsTab } = useStore()
   const [settings, setSettings] = useState<PodiumSettings | null>(null)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [savedAt, setSavedAt] = useState(0)
-  const [tab, setTab] = useState<SettingsTab>('sessions')
+  // Honor a deep-link target (e.g. from global search) for the initial tab, then
+  // clear it so a later plain "open settings" lands on the default.
+  const [tab, setTab] = useState<SettingsTab>(() => {
+    const t = settingsTab
+    return t && SETTINGS_TABS.some((s) => s.key === t) ? (t as SettingsTab) : 'sessions'
+  })
+  useEffect(() => {
+    if (settingsTab) setSettingsTab(null)
+  }, [settingsTab, setSettingsTab])
 
   useEffect(() => {
     let cancelled = false
