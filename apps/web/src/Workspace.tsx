@@ -62,6 +62,14 @@ export function Workspace(): JSX.Element {
 
   // Keep pane A pointed at a valid tab.
   useEffect(() => {
+    // Pane A just switched to a session the store hasn't broadcast yet — the "+"
+    // menu, a reload restore, OR resume-from-search (which can fire while this
+    // Workspace is already mounted, leaving the initial `justOpened` ref stale).
+    // Remember it so the fall-back below holds the pane on it instead of bouncing
+    // to the worktree's first tab (often an unrelated shell).
+    if (paneA && paneA !== justOpened.current && !sessions.some((s) => s.sessionId === paneA)) {
+      justOpened.current = paneA
+    }
     if (paneA && tabs.some((t) => t.sessionId === paneA)) {
       justOpened.current = null
       return

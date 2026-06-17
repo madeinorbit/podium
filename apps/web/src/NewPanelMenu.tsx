@@ -115,6 +115,10 @@ export function NewPanelMenu({
           placeholder="Search history…"
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
+          // Base UI's Menu treats keystrokes as typeahead/arrow navigation and
+          // steals them from this input (the post-Base-UI "search is broken"
+          // regression). Keep keystrokes local to the field.
+          onKeyDown={(e) => e.stopPropagation()}
         />
         {hits.length === 0 && (
           <div className="px-3 py-3 text-xs text-muted-foreground/70">No matching history</div>
