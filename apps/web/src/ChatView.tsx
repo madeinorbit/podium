@@ -355,7 +355,7 @@ export function ChatView({ sessionId }: { sessionId: string }): JSX.Element {
             </div>
           )}
         </div>
-        <Minimap blocks={blocks} scrollerRef={scrollerRef} onJump={scrollToBlock} />
+        <Minimap blocks={blocks} scrollerRef={scrollerRef} />
         {!atBottom && (
           <button
             type="button"
@@ -662,20 +662,21 @@ function ToolBlock({
 
 /**
  * Birds-eye strip: one slab per block, log-weighted by length; user prompts
- * pop in accent so "where did I steer" reads at a glance. A viewport box
- * mirrors the scroll position; clicking anywhere jumps there.
+ * pop in accent so "where did I steer" reads at a glance. A viewport box mirrors
+ * the scroll position — click anywhere on the strip to jump to that position, or
+ * drag (the box, or anywhere) to scrub the transcript.
  */
 function Minimap({
   blocks,
   scrollerRef,
-  onJump,
 }: {
   blocks: ChatBlock[]
   scrollerRef: React.RefObject<HTMLDivElement | null>
-  onJump: (index: number) => void
 }): JSX.Element | null {
   const segments = useMemo(() => minimapSegments(blocks), [blocks])
   const [viewport, setViewport] = useState({ top: 0, height: 1 })
+  const trackRef = useRef<HTMLDivElement | null>(null)
+  const dragging = useRef(false)
 
   useEffect(() => {
     const el = scrollerRef.current
@@ -694,24 +695,51 @@ function Minimap({
     }
   }, [scrollerRef])
 
+  // Map a pointer Y on the strip to a scroll position, centring the viewport on
+  // the pointer — so a click jumps there and a drag scrubs continuously.
+  const scrubTo = (clientY: number) => {
+    const el = scrollerRef.current
+    const track = trackRef.current
+    if (!el || !track) return
+    const r = track.getBoundingClientRect()
+    const f = Math.max(0, Math.min(1, (clientY - r.top) / (r.height || 1)))
+    const max = Math.max(0, el.scrollHeight - el.clientHeight)
+    el.scrollTop = Math.max(0, Math.min(max, f * el.scrollHeight - el.clientHeight / 2))
+  }
+
   if (segments.length < 2) return null
   const totalWeight = segments.reduce((sum, s) => sum + s.weight, 0)
   return (
+    // The whole strip is the scrub surface; segments are non-interactive colour
+    // guides (pointer-events-none) so clicks/drags reach the track.
     <div
-      className="relative my-1 mr-[3px] flex flex-[0_0_14px] flex-col gap-px overflow-hidden rounded-[3px]"
+      ref={trackRef}
+      className="relative my-1 mr-[3px] flex flex-[0_0_14px] cursor-pointer touch-none flex-col gap-px overflow-hidden rounded-[3px]"
       role="presentation"
+      onPointerDown={(e) => {
+        e.preventDefault()
+        dragging.current = true
+        e.currentTarget.setPointerCapture(e.pointerId)
+        scrubTo(e.clientY)
+      }}
+      onPointerMove={(e) => {
+        if (dragging.current) scrubTo(e.clientY)
+      }}
+      onPointerUp={() => {
+        dragging.current = false
+      }}
+      onPointerCancel={() => {
+        dragging.current = false
+      }}
     >
       {segments.map((seg) => (
-        <button
+        <div
           key={seg.index}
-          type="button"
           className={cn(
-            'min-h-0.5 w-full cursor-pointer border-0 p-0',
+            'pointer-events-none min-h-0.5 w-full',
             // Exactly one bg (mutually exclusive — Tailwind doesn't honour class
-            // order for conflicting utilities). Theme-independent hues so the
-            // light-theme primary (near-black) doesn't collide with agent prose.
-            // Priority of attention: user prompts (most important) > final answer >
-            // intermediate agent prose (faint) > tool/system (faintest texture).
+            // order for conflicting utilities). Priority of attention: user
+            // prompts > final answer > intermediate agent prose > tool/system.
             seg.role === 'user'
               ? 'bg-blue-500'
               : seg.answer
@@ -721,12 +749,10 @@ function Minimap({
                   : 'bg-foreground/[0.06]',
           )}
           style={{ height: `${(seg.weight / totalWeight) * 100}%` }}
-          title={blocks[seg.index]?.item.text.slice(0, 80) || blocks[seg.index]?.item.toolName}
-          onClick={() => onJump(seg.index)}
         />
       ))}
       <div
-        className="pointer-events-none absolute inset-x-0 rounded-[2px] border border-foreground/25 bg-foreground/10"
+        className="pointer-events-none absolute inset-x-0 rounded-[2px] border border-foreground/35 bg-foreground/15"
         style={{
           top: `${viewport.top * 100}%`,
           height: `${Math.max(0.04, viewport.height) * 100}%`,
