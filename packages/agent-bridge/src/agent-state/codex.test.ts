@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest'
 import {
   classifyCodexVerdict,
   codexStateProvider,
+  findCodexRolloutPath,
   findLiveCodexRollout,
   translateCodexEvent,
 } from './codex.js'
@@ -88,5 +89,18 @@ describe('findLiveCodexRollout', () => {
     )
 
     expect(await findLiveCodexRollout(sessions, '/repo/x', 0)).toBeUndefined()
+  })
+})
+
+describe('findCodexRolloutPath', () => {
+  it('falls back to a filename match on the resume value when the state DB is absent', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'podium-codex-home-'))
+    const dir = join(home, '.codex', 'sessions', '2026', '06', '16')
+    await mkdir(dir, { recursive: true })
+    const file = join(dir, 'rollout-2026-06-16T16-11-26-thread-xyz.jsonl')
+    await writeFile(file, `${JSON.stringify({ type: 'session_meta', payload: { id: 'thread-xyz' } })}\n`)
+
+    expect(await findCodexRolloutPath({ resumeValue: 'thread-xyz', homeDir: home })).toBe(file)
+    expect(await findCodexRolloutPath({ resumeValue: 'no-such-id', homeDir: home })).toBeUndefined()
   })
 })

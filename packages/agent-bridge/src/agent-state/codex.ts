@@ -1,10 +1,16 @@
-import { readdir, readFile, stat } from 'node:fs/promises'
+import type { Dirent } from 'node:fs'
+import { open, readdir, readFile, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
+import { LineDecoder } from '../jsonl-stream.js'
 import { readCodexStateMetadata } from '../discovery/providers/codex-state.js'
 import type { AgentStateEvent, AgentStateProvider } from './types.js'
 
 const POLL_MS = 700
+// Bound the polled tail read: a long session's rollout can be many MB, but the
+// state observer only needs the recent tail (the latest event wins). Matches the
+// transcript tailer's seek-to-tail so a redeploy/reattach doesn't slurp the file.
+const TAIL_BYTES = 128 * 1024
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v)
@@ -122,11 +128,19 @@ export function observeCodexState(opts: {
   const startedAtMs = opts.startedAtMs ?? 0
   let stopped = false
   let rolloutPath: string | undefined
-  let offset = 0
   let announced = false
+  // Incremental, bounded tail (mirrors the transcript tailer): read only the
+  // bytes appended since the last poll, buffering partial lines across reads so a
+  // record split across a chunk boundary isn't dropped.
+  let offset = 0
+  let first = true
+  let dropLeadingPartial = false
+  const decoder = new LineDecoder()
+  let reading = false
 
   const tick = async (): Promise<void> => {
-    if (stopped) return
+    if (stopped || reading) return
+    reading = true
     try {
       if (!rolloutPath) {
         const found = await findLiveCodexRollout(root, opts.cwd, startedAtMs)
@@ -137,26 +151,50 @@ export function observeCodexState(opts: {
           opts.onSession?.(found.id, found.path)
         }
       }
-      const { size } = await stat(rolloutPath)
-      if (size <= offset) {
-        if (size < offset) offset = 0
-        return
-      }
-      const text = (await readFile(rolloutPath, 'utf8')).slice(offset)
-      offset = size
-      const events: AgentStateEvent[] = []
-      for (const line of text.split(/\r?\n/)) {
-        const trimmed = line.trim()
-        if (!trimmed) continue
-        try {
-          events.push(...(await translateCodexEvent(JSON.parse(trimmed))))
-        } catch {
-          // torn line — skip
+      const handle = await open(rolloutPath, 'r')
+      try {
+        const { size } = await handle.stat()
+        if (first) {
+          // Seed from the recent tail only — state cares about the latest event,
+          // and bootEvents already classified the resumed turn.
+          const start = Math.max(0, size - TAIL_BYTES)
+          offset = start
+          dropLeadingPartial = start > 0
+          first = false
         }
+        if (size < offset) {
+          // Truncated/rotated — start over.
+          offset = 0
+          decoder.reset()
+          dropLeadingPartial = false
+        }
+        if (size === offset) return
+        const chunk = Buffer.alloc(size - offset)
+        await handle.read(chunk, 0, chunk.length, offset)
+        offset = size
+        let lines = decoder.push(chunk)
+        if (dropLeadingPartial && lines.length > 0) {
+          lines = lines.slice(1)
+          dropLeadingPartial = false
+        }
+        const events: AgentStateEvent[] = []
+        for (const line of lines) {
+          const trimmed = line.trim()
+          if (!trimmed) continue
+          try {
+            events.push(...(await translateCodexEvent(JSON.parse(trimmed))))
+          } catch {
+            // torn line — skip
+          }
+        }
+        if (events.length > 0) opts.onEvents(events)
+      } finally {
+        await handle.close()
       }
-      if (events.length > 0) opts.onEvents(events)
     } catch {
       // file not present yet / transient read error — keep polling
+    } finally {
+      reading = false
     }
   }
 
@@ -183,7 +221,7 @@ export async function findLiveCodexRollout(
 ): Promise<{ path: string; id: string | undefined } | undefined> {
   const candidates: { path: string; mtimeMs: number }[] = []
   const walk = async (dir: string): Promise<void> => {
-    let entries: Awaited<ReturnType<typeof readdir>>
+    let entries: Dirent<string>[]
     try {
       entries = await readdir(dir, { withFileTypes: true })
     } catch {
@@ -206,7 +244,7 @@ export async function findLiveCodexRollout(
   candidates.sort((a, b) => b.mtimeMs - a.mtimeMs)
   for (const c of candidates) {
     try {
-      const head = (await readFile(c.path, 'utf8')).split(/\r?\n/, 1)[0]
+      const head = await readFirstLine(c.path)
       const meta = head ? JSON.parse(head) : undefined
       const payload = isRecord(meta) && isRecord(meta.payload) ? meta.payload : undefined
       if (payload && strField(meta, 'type') === 'session_meta' && strField(payload, 'cwd') === cwd) {
@@ -217,4 +255,56 @@ export async function findLiveCodexRollout(
     }
   }
   return undefined
+}
+
+/**
+ * Resolve the rollout file for a PARKED (hibernated/exited) session from its
+ * `codex-thread` resume value. The Codex state DB is authoritative; if it's
+ * absent/unreadable, fall back to the rollout filename, which embeds the id.
+ */
+export async function findCodexRolloutPath(opts: {
+  resumeValue: string
+  homeDir?: string
+}): Promise<string | undefined> {
+  const root = join(opts.homeDir ?? homedir(), '.codex')
+  try {
+    const meta = await readCodexStateMetadata(root)
+    const fromDb = meta.byThreadId.get(opts.resumeValue)?.rolloutPath
+    if (fromDb) return fromDb
+  } catch {
+    // fall through to the filename match
+  }
+  let match: string | undefined
+  const walk = async (dir: string): Promise<void> => {
+    if (match) return
+    let entries: Dirent<string>[]
+    try {
+      entries = await readdir(dir, { withFileTypes: true })
+    } catch {
+      return
+    }
+    for (const e of entries) {
+      if (match) return
+      const full = join(dir, e.name)
+      if (e.isDirectory()) await walk(full)
+      else if (e.name.endsWith('.jsonl') && e.name.includes(opts.resumeValue)) match = full
+    }
+  }
+  await walk(join(root, 'sessions'))
+  return match
+}
+
+/** Read just the first line (the session_meta header) without slurping the whole
+ *  rollout — the header carries `base_instructions`, so bound it generously. */
+async function readFirstLine(path: string): Promise<string | undefined> {
+  const handle = await open(path, 'r')
+  try {
+    const buf = Buffer.alloc(64 * 1024)
+    const { bytesRead } = await handle.read(buf, 0, buf.length, 0)
+    const text = buf.toString('utf8', 0, bytesRead)
+    const nl = text.indexOf('\n')
+    return nl >= 0 ? text.slice(0, nl) : text
+  } finally {
+    await handle.close()
+  }
 }
