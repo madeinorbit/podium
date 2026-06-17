@@ -315,7 +315,7 @@ export function SettingsView(): JSX.Element {
             {tab === 'notifications' && (
               <Section
                 title="Notifications"
-                hint="Web notifications fire when this page is open in the background. The ntfy topic adds real mobile push: install the free ntfy app, subscribe to your topic."
+                hint="Web notifications fire when this page is open in the background. External push targets use the same smart routing: they stay quiet while a Podium window is visible."
               >
                 <Row label="Web notifications">
                   <Switch
@@ -336,6 +336,36 @@ export function SettingsView(): JSX.Element {
                     onChange={(e) =>
                       patch({
                         notifications: { ...settings.notifications, ntfyTopic: e.target.value },
+                      })
+                    }
+                  />
+                </Row>
+                <Row label="Telegram bot token">
+                  <Input
+                    type="password"
+                    placeholder="empty = off"
+                    value={settings.notifications.telegramBotToken}
+                    onChange={(e) =>
+                      patch({
+                        notifications: {
+                          ...settings.notifications,
+                          telegramBotToken: e.target.value,
+                        },
+                      })
+                    }
+                  />
+                </Row>
+                <Row label="Telegram chat ID">
+                  <Input
+                    type="text"
+                    placeholder="e.g. -1001234567890 or @channel"
+                    value={settings.notifications.telegramChatId}
+                    onChange={(e) =>
+                      patch({
+                        notifications: {
+                          ...settings.notifications,
+                          telegramChatId: e.target.value,
+                        },
                       })
                     }
                   />
