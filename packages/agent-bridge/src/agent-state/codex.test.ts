@@ -92,6 +92,20 @@ describe('findLiveCodexRollout', () => {
 
     expect(await findLiveCodexRollout(sessions, '/repo/x', 0)).toBeUndefined()
   })
+
+  it('applies the freshness floor for a fresh spawn but ignores it on reattach (floor 0)', async () => {
+    const sessions = await mkdtemp(join(tmpdir(), 'podium-codex-obs-'))
+    const dir = join(sessions, '2026', '06', '16')
+    await mkdir(dir, { recursive: true })
+    await writeFile(
+      join(dir, 'rollout-idle.jsonl'),
+      `${JSON.stringify({ type: 'session_meta', payload: { id: 'idle', cwd: '/repo/x' } })}\n`,
+    )
+    // A fresh spawn far in the future won't latch onto the older (idle) rollout…
+    expect(await findLiveCodexRollout(sessions, '/repo/x', Date.now() + 60_000)).toBeUndefined()
+    // …but reattach (floor 0) finds the live session's existing rollout regardless of age.
+    expect((await findLiveCodexRollout(sessions, '/repo/x', 0))?.id).toBe('idle')
+  })
 })
 
 describe('findCodexRolloutPath', () => {

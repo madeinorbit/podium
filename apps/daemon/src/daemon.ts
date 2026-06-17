@@ -316,14 +316,19 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     // path the observer found feeds the chat tail.
     ensureTranscriptTail(sessionId, rolloutPath, codexRecordToItems)
   }
-  const startCodexStateObserver = (sessionId: string, cwd: string, startedAtMs = Date.now()): void => {
+  // startedAtMs scopes the rollout search: a fresh spawn passes its start time so
+  // discovery can't latch onto a stale sibling rollout in the same cwd. Reattach
+  // passes undefined → the observer searches without a freshness floor and finds
+  // the live session's existing (idle, older-mtime) rollout. Mirrors how the Grok
+  // observer scopes its search on spawn but not on reattach.
+  const startCodexStateObserver = (sessionId: string, cwd: string, startedAtMs?: number): void => {
     stopCodexStateObserver(sessionId)
     codexStateObservers.set(
       sessionId,
       observeCodexState({
         cwd,
         ...(opts.discovery?.homeDir ? { homeDir: opts.discovery.homeDir } : {}),
-        startedAtMs,
+        ...(startedAtMs !== undefined ? { startedAtMs } : {}),
         onSession: (rolloutId, rolloutPath) => {
           // Recording a resume ref marks the session resumable (→ hibernate
           // button); the first transcript frame marks it chat-capable (→ chat
