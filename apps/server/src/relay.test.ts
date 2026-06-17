@@ -282,6 +282,27 @@ describe('SessionRegistry', () => {
     })
   })
 
+  it('broadcasts updated metas when a session gains a resume ref (resumable → hibernate)', () => {
+    const reg = new SessionRegistry()
+    reg.attachDaemon(() => {})
+    const { sessionId } = reg.createSession({ agentKind: 'codex', cwd: '/proj' })
+    const c = sink()
+    reg.attachClient(c.send)
+    c.sent.length = 0
+
+    reg.onDaemonMessage({
+      type: 'sessionResumeRef',
+      sessionId,
+      resume: { kind: 'codex-thread', value: 'thread-1' },
+    })
+
+    const pushed = c.sent.filter(
+      (m): m is Extract<ServerMessage, { type: 'sessionsChanged' }> => m.type === 'sessionsChanged',
+    )
+    expect(pushed.length).toBeGreaterThan(0)
+    expect(pushed.at(-1)?.sessions.find((s) => s.sessionId === sessionId)?.resumable).toBe(true)
+  })
+
   it('broadcasts daemon conversation changes to current clients', () => {
     const reg = new SessionRegistry()
     reg.attachDaemon(() => {})

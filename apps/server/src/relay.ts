@@ -904,6 +904,10 @@ export class SessionRegistry {
         if (session.resume?.value !== msg.resume.value) {
           session.resume = msg.resume
           this.persist(session)
+          // A resume ref makes the session resumable (→ hibernate button). Push the
+          // updated meta so already-connected clients see it live, rather than only
+          // when a coincident transcriptAppend happens to broadcast or on reconnect.
+          this.broadcastSessions()
         }
         break
       }
