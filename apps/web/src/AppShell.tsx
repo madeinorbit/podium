@@ -62,7 +62,7 @@ export function AppShell(): JSX.Element {
 }
 
 function AppBody({ isMobile }: { isMobile: boolean }): JSX.Element {
-  const { repos, reposLoaded, view } = useStore()
+  const { repos, reposLoaded, view, superOpen, setSuperOpen } = useStore()
   const [dismissed, setDismissed] = useState(false)
 
   // Cold start: the first backend fetch (repos/pins/tab orders) hasn't resolved
@@ -83,14 +83,19 @@ function AppBody({ isMobile }: { isMobile: boolean }): JSX.Element {
       <Sidebar />
       {view === 'home' ? (
         <HomeView />
-      ) : view === 'superagent' ? (
-        <SuperagentView />
       ) : view === 'settings' ? (
         <SettingsView />
       ) : view === 'usage' ? (
         <UsageView />
       ) : (
         <Workspace />
+      )}
+      {/* The superagent / BTW thread is a collapsible right dock, so you can watch
+          an agent and orchestrate it side by side instead of a full-screen swap. */}
+      {superOpen && (
+        <aside className="flex w-[400px] max-w-[40vw] min-w-[320px] flex-none flex-col border-l border-border bg-card">
+          <SuperagentView onClose={() => setSuperOpen(false)} />
+        </aside>
       )}
     </div>
   )

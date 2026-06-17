@@ -95,6 +95,8 @@ export function MobileApp(): JSX.Element {
     killSession,
     view,
     setView,
+    superOpen,
+    setSuperOpen,
   } = store
   const { reposLoading, repoDiagnostics } = store
   const repoViews = reposToViews(store.repos)
@@ -165,10 +167,11 @@ export function MobileApp(): JSX.Element {
           type="button"
           className={cn(
             'inline-flex items-center border-r border-border px-3 text-muted-foreground',
-            view === 'superagent' && 'text-primary',
+            superOpen && 'text-primary',
           )}
           title="Superagent"
-          onClick={() => setView('superagent')}
+          aria-pressed={superOpen}
+          onClick={() => setSuperOpen(!superOpen)}
         >
           <Sparkles size={15} aria-hidden="true" />
         </button>
@@ -276,8 +279,6 @@ export function MobileApp(): JSX.Element {
       <div className="relative flex min-h-0 flex-1" onPointerDownCapture={closePanelMenus}>
         {view === 'home' ? (
           <HomeView />
-        ) : view === 'superagent' ? (
-          <SuperagentView />
         ) : view === 'settings' ? (
           <SettingsView />
         ) : view === 'usage' ? (
@@ -287,6 +288,14 @@ export function MobileApp(): JSX.Element {
         ) : (
           <div className="m-auto text-[13px] text-muted-foreground/70">
             No panel - use + to start one.
+          </div>
+        )}
+        {/* The superagent overlays the content; collapsing it (its header button,
+            or the Sparkles toggle above) minimizes — the Sparkles button pulls it
+            back up. */}
+        {superOpen && (
+          <div className="absolute inset-0 z-20 flex flex-col bg-background">
+            <SuperagentView onClose={() => setSuperOpen(false)} />
           </div>
         )}
       </div>

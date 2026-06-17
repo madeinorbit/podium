@@ -1,5 +1,5 @@
 import type { AgentKind, TranscriptItem } from '@podium/protocol'
-import { ArrowUpRight, Eraser, Mic, Send, Sparkles } from 'lucide-react'
+import { ArrowUpRight, Eraser, Mic, PanelRightClose, Send, Sparkles } from 'lucide-react'
 import type { JSX } from 'react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
@@ -42,7 +42,7 @@ interface AtOption {
  * `@` in the input opens the context menu — repos, worktrees, conversations
  * (files later) — and inserts an @label(ref) token the agent understands.
  */
-export function SuperagentView(): JSX.Element {
+export function SuperagentView({ onClose }: { onClose?: () => void } = {}): JSX.Element {
   const { trpc, repos, superThreadId, setSuperThreadId, superRefreshKey } = useStore()
   const [messages, setMessages] = useState<SuperMessage[]>([])
   const [threads, setThreads] = useState<SuperThread[]>([])
@@ -229,6 +229,16 @@ export function SuperagentView(): JSX.Element {
         >
           <Eraser size={14} aria-hidden="true" />
         </Button>
+        {onClose && (
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            title="Collapse the superagent panel"
+            onClick={onClose}
+          >
+            <PanelRightClose size={15} aria-hidden="true" />
+          </Button>
+        )}
       </div>
       <div
         className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto px-[18px] py-3.5"

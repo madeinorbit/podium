@@ -44,6 +44,10 @@ export interface Store {
   /** Active superagent thread: the 'global' orchestrator or a 'btw_<sessionId>' thread. */
   superThreadId: string
   setSuperThreadId: (id: string) => void
+  /** Whether the superagent panel is open — a collapsible right dock on desktop,
+   *  a minimizable overlay on mobile (no longer a full-screen view). */
+  superOpen: boolean
+  setSuperOpen: (open: boolean) => void
   /** Bumped when a btw thread finishes seeding, so the superagent view refetches. */
   superRefreshKey: number
   /** Open (or re-open) a btw superagent thread seeded from a chat session's transcript. */
@@ -78,7 +82,7 @@ export interface Store {
   setSessionDraft: (sessionId: string, text: string) => void
 }
 
-export type MainView = 'home' | 'workspace' | 'superagent' | 'settings' | 'usage'
+export type MainView = 'home' | 'workspace' | 'settings' | 'usage'
 
 const Ctx = createContext<Store | null>(null)
 
@@ -105,13 +109,9 @@ function lsSet(key: string, value: string | null): void {
 }
 function readStoredView(): MainView {
   const v = lsGet(VIEW_KEY)
-  return v === 'home' ||
-    v === 'workspace' ||
-    v === 'superagent' ||
-    v === 'settings' ||
-    v === 'usage'
-    ? v
-    : 'home'
+  // 'superagent' is no longer a full view (it's a dock now) — a returning user who
+  // left on it lands on home instead of a dead surface.
+  return v === 'home' || v === 'workspace' || v === 'settings' || v === 'usage' ? v : 'home'
 }
 
 export function StoreProvider({
@@ -144,6 +144,7 @@ export function StoreProvider({
   const [tabOrders, setTabOrders] = useState<Record<string, string[]>>({})
   const [view, setView] = useState<MainView>(readStoredView)
   const [superThreadId, setSuperThreadId] = useState('global')
+  const [superOpen, setSuperOpen] = useState(false)
   const [superRefreshKey, setSuperRefreshKey] = useState(0)
   const [drafts, setDrafts] = useState<Record<string, string>>({})
   const [selectedWorktree, setSelectedWorktree] = useState<string | null>(() => lsGet(WT_KEY))
@@ -261,10 +262,10 @@ export function StoreProvider({
   )
   const startBtw = useMemo(
     () => async (sessionId: string) => {
-      // Open the superagent on the session's btw thread immediately; the server
-      // seeds it (and runs the orientation turn) in the background.
+      // Open the superagent dock on the session's btw thread immediately; the
+      // server seeds it (and runs the orientation turn) in the background.
       setSuperThreadId(`btw_${sessionId}`)
-      setView('superagent')
+      setSuperOpen(true)
       await trpc.superagent.startBtw.mutate({ sessionId }).catch(() => {})
       // Seeding + the orientation turn are done now — nudge the view to refetch.
       setSuperRefreshKey((k) => k + 1)
@@ -377,6 +378,8 @@ export function StoreProvider({
     setView,
     superThreadId,
     setSuperThreadId,
+    superOpen,
+    setSuperOpen,
     superRefreshKey,
     startBtw,
     selectedWorktree,

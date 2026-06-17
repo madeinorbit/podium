@@ -40,6 +40,8 @@ export function Sidebar(): JSX.Element {
     setPane,
     view,
     setView,
+    superOpen,
+    setSuperOpen,
   } = useStore()
   const sections = sidebarSections(repos, sessions, pins)
   const [pickerOpen, setPickerOpen] = useState(false)
@@ -78,11 +80,12 @@ export function Sidebar(): JSX.Element {
         type="button"
         className={cn(
           'mx-3 mt-2.5 flex items-center gap-2 rounded-md border px-2.5 py-[7px] text-[13px] text-foreground',
-          view === 'superagent'
+          superOpen
             ? 'border-primary font-medium text-foreground'
             : 'border-input bg-secondary hover:border-primary hover:text-foreground',
         )}
-        onClick={() => setView('superagent')}
+        aria-pressed={superOpen}
+        onClick={() => setSuperOpen(!superOpen)}
       >
         <Sparkles size={14} aria-hidden="true" /> Superagent
       </button>
