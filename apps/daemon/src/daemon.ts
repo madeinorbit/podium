@@ -20,7 +20,9 @@ import {
   attachTmuxAgent,
   ConversationDiscoveryCache,
   claudeProjectSlug,
+  codexRecordToItems,
   compareConversationSummaries,
+  findCodexRolloutPath,
   type GitDiscoveryDiagnostic,
   type GitRepositorySummary,
   type GrokStateObserver,
@@ -31,6 +33,7 @@ import {
   isTmuxAvailable,
   killAbducoSession,
   killTmuxServer,
+  observeCodexState,
   observeGrokState,
   readTranscriptTail,
   reduceAgentState,
@@ -211,6 +214,9 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
   // for both harnesses, so reattached chat gets history before new activity.
   const tails = new Map<string, TranscriptTailer>()
   const grokStateObservers = new Map<string, GrokStateObserver>()
+  // Codex is observed the same way as Grok (no hooks): one poller per session
+  // that discovers the rollout file, tails it for state, and feeds the chat tail.
+  const codexStateObservers = new Map<string, { stop(): void }>()
   const ensureTranscriptTail = (
     sessionId: string,
     path: string,
@@ -242,6 +248,10 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
   const stopGrokStateObserver = (sessionId: string): void => {
     grokStateObservers.get(sessionId)?.stop()
     grokStateObservers.delete(sessionId)
+  }
+  const stopCodexStateObserver = (sessionId: string): void => {
+    codexStateObservers.get(sessionId)?.stop()
+    codexStateObservers.delete(sessionId)
   }
   const applyAgentStateEvents = (sessionId: string, events: AgentStateEvent[]): void => {
     const tracker = trackers.get(sessionId)
@@ -301,26 +311,62 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
       grokRecordToItems,
     )
   }
+  const tailCodexTranscript = (sessionId: string, rolloutPath: string): void => {
+    // Codex's rollout file carries both the conversation and state — the same
+    // path the observer found feeds the chat tail.
+    ensureTranscriptTail(sessionId, rolloutPath, codexRecordToItems)
+  }
+  const startCodexStateObserver = (sessionId: string, cwd: string, startedAtMs = Date.now()): void => {
+    stopCodexStateObserver(sessionId)
+    codexStateObservers.set(
+      sessionId,
+      observeCodexState({
+        cwd,
+        ...(opts.discovery?.homeDir ? { homeDir: opts.discovery.homeDir } : {}),
+        startedAtMs,
+        onSession: (rolloutId, rolloutPath) => {
+          // Recording a resume ref marks the session resumable (→ hibernate
+          // button); the first transcript frame marks it chat-capable (→ chat
+          // switcher + BTW button).
+          send({ type: 'sessionResumeRef', sessionId, resume: { kind: 'codex-thread', value: rolloutId } })
+          tailCodexTranscript(sessionId, rolloutPath)
+        },
+        onEvents: (events) => applyAgentStateEvents(sessionId, events),
+      }),
+    )
+  }
   // On-demand disk read of a parked session's transcript (no live tail running).
   // Path is derived from the resume ref the same way the live tails are.
   const readParkedTranscript = async (
     msg: Extract<ControlMessage, { type: 'transcriptReadRequest' }>,
   ): Promise<void> => {
     const isGrok = msg.agentKind === 'grok' || msg.resume.kind === 'grok-session'
-    const path = isGrok
-      ? grokSessionPaths({
-          cwd: msg.cwd,
-          sessionId: msg.resume.value,
-          ...(opts.discovery?.homeDir ? { homeDir: opts.discovery.homeDir } : {}),
-        }).chatHistoryPath
-      : join(
-          homedir(),
-          '.claude',
-          'projects',
-          claudeProjectSlug(msg.cwd),
-          `${msg.resume.value}.jsonl`,
-        )
-    const items = await readTranscriptTail(path, isGrok ? grokRecordToItems : undefined)
+    const isCodex = msg.agentKind === 'codex' || msg.resume.kind === 'codex-thread'
+    let items: TranscriptItem[] = []
+    if (isCodex) {
+      // Codex stores no derivable per-cwd path; resolve the rollout from the
+      // resume value (state DB, then filename fallback).
+      const path = await findCodexRolloutPath({
+        resumeValue: msg.resume.value,
+        ...(opts.discovery?.homeDir ? { homeDir: opts.discovery.homeDir } : {}),
+      })
+      items = path ? await readTranscriptTail(path, codexRecordToItems) : []
+    } else {
+      const path = isGrok
+        ? grokSessionPaths({
+            cwd: msg.cwd,
+            sessionId: msg.resume.value,
+            ...(opts.discovery?.homeDir ? { homeDir: opts.discovery.homeDir } : {}),
+          }).chatHistoryPath
+        : join(
+            homedir(),
+            '.claude',
+            'projects',
+            claudeProjectSlug(msg.cwd),
+            `${msg.resume.value}.jsonl`,
+          )
+      items = await readTranscriptTail(path, isGrok ? grokRecordToItems : undefined)
+    }
     send({ type: 'transcriptReadResult', requestId: msg.requestId, items })
   }
   const ingest = await startHookIngest({
@@ -423,6 +469,8 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     }
     if (msg.agentKind === 'grok') {
       startGrokStateObserver(msg.sessionId, msg.cwd, msg.resume?.value, init.grokStartedAt)
+    } else if (msg.agentKind === 'codex') {
+      startCodexStateObserver(msg.sessionId, msg.cwd, init.grokStartedAt)
     } else if (msg.agentKind === 'claude-code' && msg.resume) {
       tailResumeTranscript(msg.sessionId, msg.cwd, msg.resume.value)
     }
@@ -548,6 +596,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
       bridges.delete(sessionId)
       trackers.delete(sessionId)
       stopGrokStateObserver(sessionId)
+      stopCodexStateObserver(sessionId)
       // The agent's gone — stop polling its (now frozen) transcript file.
       stopTranscriptTail(sessionId)
       // The attach CLIENT exiting is NOT the AGENT exiting. disposeAll() on a
@@ -717,6 +766,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
         const session = bridges.get(msg.sessionId)
         trackers.delete(msg.sessionId)
         stopGrokStateObserver(msg.sessionId)
+        stopCodexStateObserver(msg.sessionId)
         stopTranscriptTail(msg.sessionId)
         if (session) {
           session.dispose()
@@ -903,6 +953,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     }
     bridges.clear()
     for (const id of [...grokStateObservers.keys()]) stopGrokStateObserver(id)
+    for (const id of [...codexStateObservers.keys()]) stopCodexStateObserver(id)
     trackers.clear()
   }
 
