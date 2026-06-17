@@ -109,7 +109,6 @@ export function MobileApp(): JSX.Element {
     : []
   const [pickerOpen, setPickerOpen] = useState(false)
   const [repoPickerOpen, setRepoPickerOpen] = useState(false)
-  const [menuOpen, setMenuOpen] = useState(false)
   const [sessionMenuOpen, setSessionMenuOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
   // Hold a freshly-opened (or reload-restored) session in pane A until the store
@@ -143,7 +142,6 @@ export function MobileApp(): JSX.Element {
   // they otherwise sit over the panel and block it.
   const closePanelMenus = () => {
     setSessionMenuOpen(false)
-    setMenuOpen(false)
   }
 
   return (
@@ -211,15 +209,18 @@ export function MobileApp(): JSX.Element {
               <ChevronDown size={13} aria-hidden="true" />
             </button>
           )}
+          {/* The menu's own trigger IS the "+" — render it directly. (Previously a
+              separate "+" toggled a state that rendered the menu's trigger as a
+              second "+", so it took two taps to open.) */}
           {worktree && (
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              aria-label="New panel"
-              onClick={() => setMenuOpen((v) => !v)}
-            >
-              +
-            </Button>
+            <NewPanelMenu
+              worktree={worktree}
+              onOpened={(sid) => {
+                justOpened.current = sid
+                setPane('A', sid)
+                setView('workspace')
+              }}
+            />
           )}
         </div>
         <HostIndicators compact />
@@ -272,17 +273,6 @@ export function MobileApp(): JSX.Element {
           })}
         </div>
       )}
-      {menuOpen && worktree && (
-        <NewPanelMenu
-          worktree={worktree}
-          onOpened={(sid) => {
-            justOpened.current = sid
-            setPane('A', sid)
-            setMenuOpen(false)
-            setView('workspace')
-          }}
-        />
-      )}
       <div className="relative flex min-h-0 flex-1" onPointerDownCapture={closePanelMenus}>
         {view === 'home' ? (
           <HomeView />
@@ -309,6 +299,10 @@ export function MobileApp(): JSX.Element {
       >
         <DialogContent
           showCloseButton={false}
+          // Solid scrim (not the default near-transparent blur) so the area above
+          // the sheet reads as an intentional dimmed backdrop instead of a
+          // see-through blurred strip revealing the layers underneath.
+          overlayClassName="bg-black/60"
           className="fixed inset-x-0 bottom-0 top-auto left-0 grid max-h-[85%] w-full max-w-full translate-x-0 translate-y-0 gap-0 overflow-y-auto rounded-t-xl rounded-b-none bg-background p-0 pb-[max(var(--safe-bottom),env(safe-area-inset-bottom))] ring-0"
         >
           <div

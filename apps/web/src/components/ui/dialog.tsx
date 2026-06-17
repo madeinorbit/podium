@@ -41,13 +41,17 @@ function DialogContent({
   className,
   children,
   showCloseButton = true,
+  overlayClassName,
   ...props
 }: DialogPrimitive.Popup.Props & {
   showCloseButton?: boolean
+  /** Override the backdrop — e.g. a solid scrim for a bottom-sheet, where the
+   *  default near-transparent blur reads as a glitchy "see-through" strip. */
+  overlayClassName?: string
 }) {
   return (
     <DialogPortal>
-      <DialogOverlay />
+      <DialogOverlay className={overlayClassName} />
       <DialogPrimitive.Popup
         data-slot="dialog-content"
         className={cn(

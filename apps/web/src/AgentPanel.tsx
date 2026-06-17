@@ -8,6 +8,10 @@ import {
 import {
   Archive,
   ArrowDownToLine,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  ChevronUp,
   MessageSquareText,
   Mic,
   Moon,
@@ -444,10 +448,20 @@ function ArrowPad({ onFire }: { onFire: (key: SpecialKey) => void }): JSX.Elemen
       onPointerUp={stop}
       onPointerCancel={stop}
     >
-      <span className={active === 'up' ? 'ap up on' : 'ap up'}>▲</span>
-      <span className={active === 'right' ? 'ap right on' : 'ap right'}>▶</span>
-      <span className={active === 'down' ? 'ap down on' : 'ap down'}>▼</span>
-      <span className={active === 'left' ? 'ap left on' : 'ap left'}>◀</span>
+      {/* Flat Lucide chevrons (not emoji ▲▶▼◀, which render coloured/inconsistent
+          across platforms) — they inherit the .ap colour and light white when aimed. */}
+      <span className={active === 'up' ? 'ap up on' : 'ap up'}>
+        <ChevronUp size={13} aria-hidden="true" />
+      </span>
+      <span className={active === 'right' ? 'ap right on' : 'ap right'}>
+        <ChevronRight size={13} aria-hidden="true" />
+      </span>
+      <span className={active === 'down' ? 'ap down on' : 'ap down'}>
+        <ChevronDown size={13} aria-hidden="true" />
+      </span>
+      <span className={active === 'left' ? 'ap left on' : 'ap left'}>
+        <ChevronLeft size={13} aria-hidden="true" />
+      </span>
     </button>
   )
 }
