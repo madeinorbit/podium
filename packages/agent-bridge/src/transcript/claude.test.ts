@@ -1,5 +1,18 @@
 import { describe, expect, it } from 'vitest'
-import { claudeRecordToItems, toolInputPreview } from './claude.js'
+import { claudeRecordColor, claudeRecordToItems, toolInputPreview } from './claude.js'
+
+describe('claudeRecordColor', () => {
+  it('reads agentColor from an agent-color record', () => {
+    expect(claudeRecordColor({ type: 'agent-color', agentColor: 'green', sessionId: 's' })).toBe(
+      'green',
+    )
+  })
+  it('returns undefined for non-color records', () => {
+    expect(claudeRecordColor({ type: 'assistant', message: {} })).toBeUndefined()
+    expect(claudeRecordColor({ type: 'agent-color' })).toBeUndefined()
+    expect(claudeRecordColor(null)).toBeUndefined()
+  })
+})
 
 describe('claudeRecordToItems', () => {
   it('maps a plain string user prompt', () => {

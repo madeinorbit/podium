@@ -839,6 +839,14 @@ export class SessionRegistry {
         this.notifyAttention(session, prev, msg.state)
         break
       }
+      case 'agentColor': {
+        const session = this.sessions.get(msg.sessionId)
+        if (!session) break
+        // Identity colour changes rarely (only on /color), so a full session
+        // rebroadcast is fine — no need for a dedicated per-session message.
+        if (session.setAgentColor(msg.color)) this.broadcastSessions()
+        break
+      }
       case 'title': {
         const session = this.sessions.get(msg.sessionId)
         if (!session) break

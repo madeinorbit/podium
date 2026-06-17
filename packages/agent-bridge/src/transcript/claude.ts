@@ -10,6 +10,19 @@ import type { TranscriptItem, TranscriptTag } from '@podium/protocol'
  * tool-result-only user records become 'tool' result items rather than user
  * messages.
  */
+/**
+ * The agent's `/color` accent if this record is an `agent-color` line, else
+ * undefined. Claude appends `{"type":"agent-color","agentColor":"green",…}` on
+ * every metadata flush (last one wins), so the tail's last non-undefined result
+ * is the current colour. Returns the raw named colour (incl. 'default').
+ */
+export function claudeRecordColor(record: unknown): string | undefined {
+  if (typeof record !== 'object' || record === null) return undefined
+  const r = record as Record<string, unknown>
+  if (r.type !== 'agent-color') return undefined
+  return typeof r.agentColor === 'string' ? r.agentColor : undefined
+}
+
 export function claudeRecordToItems(record: unknown): TranscriptItem[] {
   if (typeof record !== 'object' || record === null) return []
   const r = record as Record<string, unknown>

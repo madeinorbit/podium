@@ -21,7 +21,13 @@ import { useEffect, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { AgentPanel } from './AgentPanel'
-import { orderTabs, reposToViews, sessionDotClass, sessionsForWorktree } from './derive'
+import {
+  agentColorHex,
+  orderTabs,
+  reposToViews,
+  sessionDotClass,
+  sessionsForWorktree,
+} from './derive'
 import { NewPanelMenu } from './NewPanelMenu'
 import { useStore } from './store'
 import type { WorktreeView } from './types'
@@ -228,8 +234,8 @@ function SortableTab({
       // stop at a minimum (then the strip scrolls), and never balloon when alone.
       // `group` drives the hover-reveal of the pin/kill controls below.
       className={cn(
-        'group flex max-w-[200px] min-w-[110px] flex-[1_1_180px] items-center rounded-t-md border border-b-0 border-transparent px-0.5',
-        isDragging ? 'relative z-[2] cursor-grabbing opacity-90' : 'cursor-grab',
+        'group relative flex max-w-[200px] min-w-[110px] flex-[1_1_180px] items-center rounded-t-md border border-b-0 border-transparent px-0.5',
+        isDragging ? 'z-[2] cursor-grabbing opacity-90' : 'cursor-grab',
         // The active tab is a solid card that covers the strip's baseline and
         // shares the panel's background — it visibly belongs to the panel below.
         active ? 'border-border bg-card' : isDragging ? 'bg-muted' : 'hover:bg-muted',
@@ -239,6 +245,14 @@ function SortableTab({
       {...attributes}
       {...listeners}
     >
+      {/* The agent's /color identity accent — a line along the tab's top edge. */}
+      {agentColorHex(session.agentColor) && (
+        <span
+          className="pointer-events-none absolute inset-x-1 top-0 h-[2px] rounded-full"
+          style={{ background: agentColorHex(session.agentColor) }}
+          aria-hidden="true"
+        />
+      )}
       {editing ? (
         <span className="inline-flex min-w-0 flex-1 items-center gap-1.5 px-2.5 py-1">
           <span className={sessionDotClass(session)} />

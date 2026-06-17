@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import {
   agentBadge,
+  agentColorHex,
   type RepoNavView,
   repoBranchForCwd,
   sessionDotClass,
@@ -397,6 +398,15 @@ function PanelRow({
           onDoubleClick={() => setEditing(true)}
         >
           <StatusDot session={session} /> <WorkerLabel session={session} />
+          {/* The agent's /color identity accent — a short vertical line right of
+              the name (distinct from the status dot, which is its state). */}
+          {agentColorHex(session.agentColor) && (
+            <span
+              className="ml-0.5 h-3 w-[2px] flex-none rounded-full"
+              style={{ background: agentColorHex(session.agentColor) }}
+              aria-hidden="true"
+            />
+          )}
           {/* Pinned panels span repos/worktrees, so show which one — compact two
               lines (repo bold, branch below) where the kind label used to sit. */}
           {pinned && <RepoBranchTag cwd={session.cwd} />}

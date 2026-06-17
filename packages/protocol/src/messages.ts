@@ -107,6 +107,11 @@ export const SessionMeta = z.object({
    *  activity signal for uninstrumented kinds with no agentState — a shell reads
    *  as "working" only while a process is producing output, idle at its prompt. */
   busy: z.boolean().optional(),
+  /** The agent's self-chosen identity colour (Claude's `/color`): a named colour
+   *  — red|blue|green|yellow|purple|orange|pink|cyan — used to tell agents apart,
+   *  shown as the tab/sidebar accent line. Absent / 'default' = no colour. This is
+   *  identity, distinct from the runtime *status* dot. */
+  agentColor: z.string().optional(),
 })
 export type SessionMeta = z.infer<typeof SessionMeta>
 
@@ -611,6 +616,12 @@ export const AgentStateMessage = z.object({
   sessionId: z.string(),
   state: AgentRuntimeState,
 })
+// Daemon → server: the agent's `/color` accent, parsed from the transcript tail.
+export const AgentColorMessage = z.object({
+  type: z.literal('agentColor'),
+  sessionId: z.string(),
+  color: z.string(),
+})
 export const ScanResultMessage = z.object({
   type: z.literal('scanResult'),
   requestId: z.string(),
@@ -698,6 +709,7 @@ export const DaemonMessage = z.discriminatedUnion('type', [
   ReattachFailedMessage,
   TitleMessage,
   AgentStateMessage,
+  AgentColorMessage,
   ScanResultMessage,
   ConversationsChangedMessage,
   ScanReposResultMessage,

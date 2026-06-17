@@ -227,7 +227,11 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
           if (items.length === 0 && !reset) return
           send({ type: 'transcriptAppend', sessionId, items, ...(reset ? { reset } : {}) })
         },
-        recordToItems ? { recordToItems } : {},
+        {
+          ...(recordToItems ? { recordToItems } : {}),
+          // The agent's `/color` accent rides the same transcript tail.
+          onColor: (color) => send({ type: 'agentColor', sessionId, color }),
+        },
       ),
     )
   }

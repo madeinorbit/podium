@@ -1,7 +1,7 @@
 import { open } from 'node:fs/promises'
 import type { TranscriptItem } from '@podium/protocol'
 import { LineDecoder } from '../jsonl-stream.js'
-import { claudeRecordToItems } from './claude.js'
+import { claudeRecordColor, claudeRecordToItems } from './claude.js'
 
 const POLL_MS = 700
 // Initial-read cap: a long-running transcript can be hundreds of MB, but the
@@ -69,6 +69,10 @@ export interface TranscriptTailOptions {
   pollMs?: number
   /** Maps one decoded JSONL record to zero or more normalized chat items. */
   recordToItems?: (record: unknown) => TranscriptItem[]
+  /** Extract an agent identity colour (`/color`) from a record, if any. Called
+   *  alongside recordToItems; `onColor` fires when the value changes. */
+  recordColor?: (record: unknown) => string | undefined
+  onColor?: (color: string) => void
 }
 
 /**
@@ -83,6 +87,8 @@ export function tailTranscript(
   opts: TranscriptTailOptions = {},
 ): TranscriptTailer {
   const recordToItems = opts.recordToItems ?? claudeRecordToItems
+  const recordColor = opts.recordColor ?? claudeRecordColor
+  let lastColor: string | undefined
   let offset = 0
   const decoder = new LineDecoder()
   let first = true
@@ -130,10 +136,18 @@ export function tailTranscript(
         for (const line of lines) {
           const trimmed = line.trim()
           if (!trimmed) continue
+          let record: unknown
           try {
-            items = items.concat(recordToItems(JSON.parse(trimmed)))
+            record = JSON.parse(trimmed)
           } catch {
-            // torn write — skip the line
+            continue // torn write — skip the line
+          }
+          items = items.concat(recordToItems(record))
+          // Identity colour rides the same tail — emit on change (last wins).
+          const color = recordColor(record)
+          if (color !== undefined && color !== lastColor) {
+            lastColor = color
+            opts.onColor?.(color)
           }
         }
         if (reset && items.length > MAX_INITIAL_ITEMS) items = items.slice(-MAX_INITIAL_ITEMS)

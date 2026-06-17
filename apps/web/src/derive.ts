@@ -380,3 +380,21 @@ export function sessionDotClass(s: SessionMeta): string {
     s.status === 'hibernated' && 'parked',
   )
 }
+
+// The agent's `/color` identity accent (Claude's named colours) → a vivid,
+// theme-independent hex, shown as the tab/sidebar accent line. This is *identity*
+// (which agent), distinct from the status dot (what it's doing). Unknown/absent
+// → undefined (no accent).
+const AGENT_COLOR_HEX: Record<string, string> = {
+  red: '#ef4444',
+  blue: '#3b82f6',
+  green: '#22c55e',
+  yellow: '#eab308',
+  purple: '#a855f7',
+  orange: '#f97316',
+  pink: '#ec4899',
+  cyan: '#06b6d4',
+}
+export function agentColorHex(name: string | undefined): string | undefined {
+  return name ? AGENT_COLOR_HEX[name.toLowerCase()] : undefined
+}

@@ -94,6 +94,9 @@ export class Session {
   status: 'starting' | 'live' | 'reconnecting' | 'hibernated' | 'exited' = 'starting'
   exitCode: number | undefined
   agentState: AgentRuntimeState | undefined
+  /** The agent's `/color` identity accent (a named colour), learned from the
+   *  transcript tail. Undefined = no colour (incl. Claude's 'default'/reset). */
+  agentColor: string | undefined
   /** True once a structured transcript has been seen — drives chat capability. */
   transcriptAvailable = false
   geometry: Geometry
@@ -409,6 +412,19 @@ export class Session {
     this.agentState = state
   }
 
+  /** Adopt a `/color` value from the transcript. Treats Claude's "no colour"
+   *  spellings as cleared. Returns true when it actually changed (so the caller
+   *  can skip a redundant broadcast). */
+  setAgentColor(color: string): boolean {
+    const lower = color.trim().toLowerCase()
+    const next = Session.NO_COLOR.has(lower) ? undefined : lower
+    if (next === this.agentColor) return false
+    this.agentColor = next
+    return true
+  }
+
+  private static readonly NO_COLOR = new Set(['default', 'none', 'reset', 'gray', 'grey'])
+
   setTitle(title: string): void {
     this.lastActiveAt = new Date().toISOString()
     this.title = title
@@ -473,6 +489,7 @@ export class Session {
       ...(this.resume ? { resumable: true } : {}),
       ...(this.transcriptAvailable ? { transcriptAvailable: true } : {}),
       ...(this.shellBusy ? { busy: true } : {}),
+      ...(this.agentColor ? { agentColor: this.agentColor } : {}),
     }
   }
 
