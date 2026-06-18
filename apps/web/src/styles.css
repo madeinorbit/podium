@@ -217,6 +217,12 @@ body:has(.mobile-shell) {
   border-color: var(--destructive);
   animation: conn-pulse 1.2s ease-in-out infinite;
 }
+/* Inset the arrow pad from the screen edge when voice input isn't available. */
+.key-actions .key-actions-spacer {
+  flex: 0 0 auto;
+  width: 36px;
+  height: 30px;
+}
 /* Blink-style arrow pad: one key, four arrows pointing outward; the aimed one lights white. */
 .arrow-pad {
   position: relative;

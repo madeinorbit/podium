@@ -311,9 +311,10 @@ export function AgentPanel({
               </Button>
             )}
           </div>
-          {/* Second key row above the soft-keyboard bar: submit/newline/paste +
-              voice, plus the Blink-style arrow D-pad. preventDefault on pointerdown
-              keeps the terminal focused so a tap doesn't drop the soft keyboard.
+          {/* Second key row above the soft-keyboard bar: submit/newline/paste, then the
+              Blink-style arrow D-pad, then voice. The D-pad sits left of the mic so
+              the right-pointing arrow isn't flush with the screen edge (hard to swipe
+              into). preventDefault on pointerdown keeps the terminal focused.
               Hidden until the first PTY frame lands — the key bar over a "Starting…"
               screen is just noise (and the D-pad floated oddly above the overlay). */}
           <div
@@ -344,7 +345,8 @@ export function AgentPanel({
             >
               Paste
             </button>
-            {voice.supported && (
+            <ArrowPad onFire={sendKey} />
+            {voice.supported ? (
               <button
                 type="button"
                 className={voice.listening ? 'key-mic active' : 'key-mic'}
@@ -355,8 +357,10 @@ export function AgentPanel({
               >
                 <Mic size={16} aria-hidden="true" />
               </button>
+            ) : (
+              // Keep the D-pad inset from the right edge when voice isn't available.
+              <span className="key-actions-spacer" aria-hidden="true" />
             )}
-            <ArrowPad onFire={sendKey} />
           </div>
           <div ref={toolbarRef} className={hasOutput ? 'toolbar' : 'toolbar kb-hidden'} />
         </>
@@ -373,11 +377,23 @@ const DIR_KEY: Record<Direction, SpecialKey> = {
   right: 'ArrowRight',
 }
 
+// Barely past the dead zone → slow repeat; a full swipe toward an arrow → faster.
+const ARROW_DEAD_PX = 5
+const ARROW_SLOW_REPEAT_MS = 340
+const ARROW_FAST_REPEAT_MS = 85
+
+function arrowRepeatMs(extent: number): number {
+  const t = Math.max(0, Math.min(1, extent))
+  return Math.round(ARROW_SLOW_REPEAT_MS + (ARROW_FAST_REPEAT_MS - ARROW_SLOW_REPEAT_MS) * t)
+}
+
 /**
  * Blink-style arrow pad: one key with the four arrows pointing outward. Press and
  * swipe toward a direction — the matching arrow lights up and that arrow key
  * repeat-fires until you let go. A small dead zone in the center means a dead-on
  * tap does nothing; nudging toward an arrow (or tapping it directly) fires it.
+ * Repeat rate scales with swipe distance: a light nudge is slow, a committed swipe
+ * is faster.
  */
 function ArrowPad({ onFire }: { onFire: (key: SpecialKey) => void }): JSX.Element {
   const [active, setActive] = useState<Direction | null>(null)
@@ -385,6 +401,7 @@ function ArrowPad({ onFire }: { onFire: (key: SpecialKey) => void }): JSX.Elemen
   const activeRef = useRef<Direction | null>(null)
   const pressed = useRef(false)
   const timer = useRef<ReturnType<typeof setInterval> | null>(null)
+  const repeatMsRef = useRef(ARROW_SLOW_REPEAT_MS)
   const onFireRef = useRef(onFire)
   onFireRef.current = onFire
 
@@ -398,32 +415,52 @@ function ArrowPad({ onFire }: { onFire: (key: SpecialKey) => void }): JSX.Elemen
     activeRef.current = dir
     setActive(dir)
   }
-  const fireDir = (dir: Direction): void => {
-    onFireRef.current(DIR_KEY[dir])
+  const scheduleRepeat = (dir: Direction, extent: number, fireNow: boolean): void => {
+    const ms = arrowRepeatMs(extent)
+    repeatMsRef.current = ms
     clearTimer()
-    // Brief hold-off, then steady auto-repeat — like a held keyboard key.
-    timer.current = setInterval(() => onFireRef.current(DIR_KEY[dir]), 110)
+    if (fireNow) onFireRef.current(DIR_KEY[dir])
+    timer.current = setInterval(() => onFireRef.current(DIR_KEY[dir]), ms)
   }
-  const directionAt = (clientX: number, clientY: number): Direction | null => {
+  const directionAt = (
+    clientX: number,
+    clientY: number,
+  ): { dir: Direction; extent: number } | null => {
     const el = padRef.current
     if (!el) return null
     const r = el.getBoundingClientRect()
     const dx = clientX - (r.left + r.width / 2)
     const dy = clientY - (r.top + r.height / 2)
-    const DEAD = 5
-    if (Math.abs(dx) < DEAD && Math.abs(dy) < DEAD) return null
-    return Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'right' : 'left') : dy > 0 ? 'down' : 'up'
+    if (Math.abs(dx) < ARROW_DEAD_PX && Math.abs(dy) < ARROW_DEAD_PX) return null
+    const horizontal = Math.abs(dx) > Math.abs(dy)
+    const dir: Direction = horizontal
+      ? dx > 0
+        ? 'right'
+        : 'left'
+      : dy > 0
+        ? 'down'
+        : 'up'
+    const primary = horizontal ? Math.abs(dx) : Math.abs(dy)
+    const maxPrimary = horizontal ? r.width / 2 : r.height / 2
+    const travel = Math.max(0, maxPrimary - ARROW_DEAD_PX)
+    const extent = travel > 0 ? Math.min(1, (primary - ARROW_DEAD_PX) / travel) : 1
+    return { dir, extent }
   }
   const aim = (clientX: number, clientY: number): void => {
-    const dir = directionAt(clientX, clientY)
-    if (dir === activeRef.current) return
-    if (!dir) {
+    const hit = directionAt(clientX, clientY)
+    if (!hit) {
       clearTimer()
       setDir(null)
       return
     }
-    setDir(dir)
-    fireDir(dir)
+    const { dir, extent } = hit
+    if (dir !== activeRef.current) {
+      setDir(dir)
+      scheduleRepeat(dir, extent, true)
+      return
+    }
+    const ms = arrowRepeatMs(extent)
+    if (Math.abs(ms - repeatMsRef.current) >= 12) scheduleRepeat(dir, extent, false)
   }
   const stop = (): void => {
     pressed.current = false
