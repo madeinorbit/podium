@@ -395,7 +395,7 @@ function SpawnedAgentCard({
         ) : (
           <span className="inline-block size-2 min-w-2 flex-none animate-pulse rounded-full bg-blue-500" />
         )}
-        <KindIcon kind={agentKind} />
+        <KindIcon kind={agentKind} dimmed={session?.status === 'hibernated' || session?.status === 'exited'} />
         <button
           type="button"
           onClick={open}

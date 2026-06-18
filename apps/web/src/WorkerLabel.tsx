@@ -1,7 +1,9 @@
 import type { AgentKind, SessionMeta } from '@podium/protocol'
-import { Bot, Code2, type LucideIcon, Sparkles, SquareChevronRight, Zap } from 'lucide-react'
+import { SquareChevronRight } from 'lucide-react'
+import type React from 'react'
 import type { JSX } from 'react'
 import { panelLabel } from './derive'
+import { ClaudeCodeIcon, GrokIcon, OpenAIcon, OpenCodeIcon } from './icons/AgentIcons'
 
 /**
  * Strip a leading status/spinner glyph from a live terminal title. Claude Code
@@ -59,20 +61,22 @@ export function SessionNameEditor({
 
 /** Worker-kind → glyph. A small icon reads faster than a CLAUDE/SHELL word and
  *  leaves more room for the name; the kind's name rides on the hover title. */
-const KIND_ICON: Record<AgentKind, LucideIcon> = {
-  'claude-code': Bot,
-  codex: Code2,
-  grok: Zap,
-  opencode: Sparkles,
+type IconComponent = React.ComponentType<Record<string, unknown>>
+
+const KIND_ICON: Record<AgentKind, IconComponent> = {
+  'claude-code': ClaudeCodeIcon,
+  codex: OpenAIcon,
+  grok: GrokIcon,
+  opencode: OpenCodeIcon,
   shell: SquareChevronRight,
 }
 
 /** The agent-kind icon — shown right after the status dot, with the kind's name
  *  ("Claude", "Shell", …) on the hover title in place of the old text badge. */
-export function KindIcon({ kind }: { kind: AgentKind }): JSX.Element {
+export function KindIcon({ kind, dimmed = false }: { kind: AgentKind; dimmed?: boolean }): JSX.Element {
   const Icon = KIND_ICON[kind]
   return (
-    <span className="flex-none text-muted-foreground/70" title={panelLabel(kind)}>
+    <span className={dimmed ? 'flex-none text-muted-foreground/70' : 'flex-none text-foreground'} title={panelLabel(kind)}>
       <Icon size={13} aria-label={panelLabel(kind)} />
     </span>
   )
@@ -89,7 +93,7 @@ export function WorkerLabel({ session }: { session: SessionMeta }): JSX.Element 
   const name = sessionDisplayName(session)
   return (
     <span className="worker-label inline-flex min-w-0 items-center gap-1.5">
-      <KindIcon kind={session.agentKind} />
+      <KindIcon kind={session.agentKind} dimmed={session.status === 'hibernated' || session.status === 'exited'} />
       <span className="worker-name overflow-hidden text-ellipsis whitespace-nowrap" title={name}>
         {name}
       </span>
