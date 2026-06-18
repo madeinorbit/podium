@@ -1,7 +1,9 @@
 import type { AgentKind, SessionMeta } from '@podium/protocol'
-import { Bot, Code2, type LucideIcon, Sparkles, SquareChevronRight, Zap } from 'lucide-react'
+import { SquareChevronRight } from 'lucide-react'
+import type React from 'react'
 import type { JSX } from 'react'
 import { panelLabel } from './derive'
+import { ClaudeCodeIcon, CodexIcon, GrokIcon, OpenCodeIcon } from './icons/AgentIcons'
 
 /**
  * Strip a leading status/spinner glyph from a live terminal title. Claude Code
@@ -59,11 +61,13 @@ export function SessionNameEditor({
 
 /** Worker-kind → glyph. A small icon reads faster than a CLAUDE/SHELL word and
  *  leaves more room for the name; the kind's name rides on the hover title. */
-const KIND_ICON: Record<AgentKind, LucideIcon> = {
-  'claude-code': Bot,
-  codex: Code2,
-  grok: Zap,
-  opencode: Sparkles,
+type IconComponent = React.ComponentType<Record<string, unknown>>
+
+const KIND_ICON: Record<AgentKind, IconComponent> = {
+  'claude-code': ClaudeCodeIcon,
+  codex: CodexIcon,
+  grok: GrokIcon,
+  opencode: OpenCodeIcon,
   shell: SquareChevronRight,
 }
 

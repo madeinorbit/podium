@@ -1,5 +1,6 @@
 import type { AgentKind } from '@podium/protocol'
-import { Bot, Code2, type LucideIcon, Plus, Sparkles, SquareTerminal, Zap } from 'lucide-react'
+import { Plus, SquareTerminal } from 'lucide-react'
+import type React from 'react'
 import { type JSX, useMemo, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import {
@@ -11,15 +12,18 @@ import {
 import { Input } from '@/components/ui/input'
 import { reposToViews } from './derive'
 import { relativeTime } from './home'
+import { ClaudeCodeIcon, CodexIcon, GrokIcon, OpenCodeIcon } from './icons/AgentIcons'
 import { useStore } from './store'
 import type { WorktreeView } from './types'
 import { type ConversationHit, useConversationSearch } from './useConversationSearch'
 
-const NEW_AGENTS: { kind: AgentKind; label: string; Icon: LucideIcon }[] = [
-  { kind: 'claude-code', label: 'New Claude', Icon: Bot },
-  { kind: 'codex', label: 'New Codex', Icon: Code2 },
-  { kind: 'grok', label: 'New Grok', Icon: Zap },
-  { kind: 'opencode', label: 'New OpenCode', Icon: Sparkles },
+type IconComponent = React.ComponentType<Record<string, unknown>>
+
+const NEW_AGENTS: { kind: AgentKind; label: string; Icon: IconComponent }[] = [
+  { kind: 'claude-code', label: 'New Claude', Icon: ClaudeCodeIcon },
+  { kind: 'codex', label: 'New Codex', Icon: CodexIcon },
+  { kind: 'grok', label: 'New Grok', Icon: GrokIcon },
+  { kind: 'opencode', label: 'New OpenCode', Icon: OpenCodeIcon },
   { kind: 'shell', label: 'New Shell', Icon: SquareTerminal },
 ]
 
