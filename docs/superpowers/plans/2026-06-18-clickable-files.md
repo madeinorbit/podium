@@ -949,19 +949,18 @@ git commit -m "web: read-only CodeMirror FileEditorPanel as a Workspace overlay"
 
 **Files:**
 - Modify: `packages/agent-bridge/src/transcript/claude.ts` (`claudeRecordToItems` ~26-53; tool_use parse ~157-172; add an attachment branch)
-- Test: `packages/agent-bridge/src/transcript/claude.test.ts` (extend; create if absent)
+- Modify: `packages/agent-bridge/src/transcript/claude.test.ts` (EXISTS — append a new describe block; `claudeRecordToItems` is already imported from `'./claude.js'`)
 
 **Interfaces:**
-- Produces: `claudeRecordToItems` sets `toolPaths` on items derived from tool_use `file_path`/`path`/`notebook_path` and from top-level `attachment` records (`file` / `edited_text_file` / `compact_file_reference`).
+- Produces: `claudeRecordToItems` (returns `TranscriptItem[]`) sets `toolPaths` on items derived from tool_use `file_path`/`path`/`notebook_path` and from top-level `attachment` records (`file` / `edited_text_file` / `compact_file_reference`).
+
+**Note:** `claude.test.ts` already exists with `claudeRecordColor`/`claudeRecordToItems`/`toolInputPreview` describe blocks and the import `import { claudeRecordColor, claudeRecordToItems, toolInputPreview } from './claude.js'`. Do NOT re-add imports or recreate the file — append only.
 
 - [ ] **Step 1: Write the failing tests**
 
-Add to `packages/agent-bridge/src/transcript/claude.test.ts` (create with the standard `import { describe, expect, it } from 'vitest'` + import of `claudeRecordToItems` if the file does not exist):
+Append this describe block to the existing `packages/agent-bridge/src/transcript/claude.test.ts` (imports are already present):
 
 ```ts
-import { describe, expect, it } from 'vitest'
-import { claudeRecordToItems } from './claude'
-
 describe('claudeRecordToItems toolPaths', () => {
   it('extracts file_path from a tool_use block', () => {
     const items = claudeRecordToItems({
@@ -1118,19 +1117,16 @@ git commit -m "web: clickable file chips for tool/attachment paths in chat"
 **Files:**
 - Modify: `apps/web/src/markdown.ts` (`renderMarkdown` ~51)
 - Modify: `apps/web/src/ChatView.tsx` (click delegation on the rendered-HTML container ~510-514)
-- Test: `apps/web/src/markdown.test.ts` (create)
+- Modify: `apps/web/src/markdown.test.ts` (EXISTS — has a `renderMarkdown` describe block with 5 tests; add `linkifyCodePaths` to the import on line 2 and append a new describe block. Do NOT recreate the file.)
 
 **Interfaces:**
-- Produces: `linkifyCodePaths(html: string): string` — wraps path-like tokens inside `<code>…</code>` in `<a class="file-link" data-path="…">`. `renderMarkdown` calls it between `marked.parse` and `DOMPurify.sanitize`.
+- Produces: `linkifyCodePaths(html: string): string` — wraps path-like tokens inside `<code>…</code>` in `<a class="file-link" data-path="…">`. `renderMarkdown` calls it between `marked.parse` and `DOMPurify.sanitize`. The regex (`/<code>([^<]+)<\/code>/g`) only matches attribute-less `<code>` whose content has no child tags, so it leaves the existing diff/escape tests untouched.
 
 - [ ] **Step 1: Write the failing test**
 
-Create `apps/web/src/markdown.test.ts`:
+In the existing `apps/web/src/markdown.test.ts`, change line 2 to `import { linkifyCodePaths, renderMarkdown } from './markdown'` and append this describe block:
 
 ```ts
-import { describe, expect, it } from 'vitest'
-import { linkifyCodePaths } from './markdown'
-
 describe('linkifyCodePaths', () => {
   it('links a path-like token inside a code span', () => {
     const out = linkifyCodePaths('see <code>apps/web/src/derive.ts</code> now')
