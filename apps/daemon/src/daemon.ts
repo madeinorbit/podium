@@ -41,6 +41,7 @@ import {
   opencodeRowsToItems,
   openOpencodeDb,
   readTranscriptTail,
+  resolveOpencodeBin,
   reduceAgentState,
   scanAgentConversationsCached,
   scanGitRepositories,
@@ -1036,7 +1037,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
         : msg.agent === 'codex'
           ? 'codex'
           : msg.agent === 'opencode'
-            ? 'opencode'
+            ? resolveOpencodeBin()
             : 'grok'
     const args =
       msg.agent === 'claude-code'

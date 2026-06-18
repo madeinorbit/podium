@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { agentLaunchCommand } from './launch'
+import { resolveOpencodeBin } from './opencode/cli.js'
 
 describe('agentLaunchCommand', () => {
   it('spawns claude fresh', () => {
@@ -55,9 +56,9 @@ describe('agentLaunchCommand', () => {
     })
   })
 
-  it('spawns opencode fresh', () => {
+  it('spawns opencode fresh with a resolved binary path', () => {
     expect(agentLaunchCommand('opencode', { cwd: '/w' })).toEqual({
-      cmd: 'opencode',
+      cmd: resolveOpencodeBin(),
       args: [],
       cwd: '/w',
     })
@@ -69,13 +70,15 @@ describe('agentLaunchCommand', () => {
         cwd: '/w',
         resume: { kind: 'opencode-session', value: 'ses_abc' },
       }),
-    ).toEqual({ cmd: 'opencode', args: ['--session', 'ses_abc'], cwd: '/w' })
+    ).toEqual({ cmd: resolveOpencodeBin(), args: ['--session', 'ses_abc'], cwd: '/w' })
   })
 
   it('passes model override to opencode', () => {
-    expect(
-      agentLaunchCommand('opencode', { cwd: '/w', model: 'openai/gpt-5.5' }),
-    ).toEqual({ cmd: 'opencode', args: ['-m', 'openai/gpt-5.5'], cwd: '/w' })
+    expect(agentLaunchCommand('opencode', { cwd: '/w', model: 'openai/gpt-5.5' })).toEqual({
+      cmd: resolveOpencodeBin(),
+      args: ['-m', 'openai/gpt-5.5'],
+      cwd: '/w',
+    })
   })
 
   it('threads cwd through unchanged', () => {

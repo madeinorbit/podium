@@ -7,7 +7,7 @@ Wants=network-online.target
 Type=simple
 WorkingDirectory=/home/user/src/other/podium
 Environment=HOME=/home/user
-Environment=PATH=/home/user/.local/bin:/home/user/.bun/bin:/usr/local/bin:/usr/bin:/bin
+Environment=PATH=/home/user/.local/bin:/home/user/.opencode/bin:/home/user/.bun/bin:/usr/local/bin:/usr/bin:/bin
 Environment=PODIUM_PORT=18787
 # Run @podium/* from TypeScript SOURCE (--conditions=@podium/source), exactly like
 # Vite does (apps/web/vite.config.ts) — no build step, no dist, no stale-dist trap.

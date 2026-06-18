@@ -1,4 +1,5 @@
 import type { AgentKind, ResumeRef } from '@podium/protocol'
+import { resolveOpencodeBin } from './opencode/cli.js'
 
 export interface LaunchOptions {
   /** Working directory the agent runs in (a project or worktree path). */
@@ -45,7 +46,7 @@ export function agentLaunchCommand(kind: AgentKind, opts: LaunchOptions): Launch
     case 'opencode': {
       const modelFlag = model ? ['-m', model] : []
       return {
-        cmd: 'opencode',
+        cmd: resolveOpencodeBin(),
         args: [...(resume ? ['--session', resume.value] : []), ...modelFlag],
         cwd,
       }

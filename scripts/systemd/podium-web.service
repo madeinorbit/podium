@@ -7,7 +7,7 @@ Wants=podium-backend.service
 Type=simple
 WorkingDirectory=/home/user/src/other/podium
 Environment=HOME=/home/user
-Environment=PATH=/home/user/.local/bin:/home/user/.bun/bin:/usr/local/bin:/usr/bin:/bin
+Environment=PATH=/home/user/.local/bin:/home/user/.opencode/bin:/home/user/.bun/bin:/usr/local/bin:/usr/bin:/bin
 # Must match the backend so the Vite proxy targets the right internal port.
 Environment=PODIUM_PORT=18787
 # Built PWA: `vite build` emits the content-hashed shell + service worker to
