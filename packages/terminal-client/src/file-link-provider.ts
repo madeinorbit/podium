@@ -51,7 +51,7 @@ export function findStyledPathMatches(
         token = trimmed.map((c) => c.char).join('')
       }
       const abs = accept(token, cfg)
-      if (abs) matches.push({ path: token, cells: trimmed })
+      if (abs) matches.push({ path: abs, cells: trimmed })
     }
     run = []
   }
@@ -90,7 +90,7 @@ export function makeFileLinkProvider(
               end: { x: last.x + 1, y: last.y + 1 },
             },
             activate: (_event: MouseEvent, _text: string) => {
-              cfg.onOpen(resolveAgainstCwd(cfg.cwd, m.path))
+              cfg.onOpen(m.path)
             },
           }
         })

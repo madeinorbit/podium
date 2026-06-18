@@ -12,17 +12,24 @@ describe('findStyledPathMatches', () => {
   it('matches a styled path-like run', () => {
     const m = findStyledPathMatches(cells('edit apps/web/src/derive.ts', true), cfg)
     expect(m).toHaveLength(1)
-    expect(m[0]!.path).toBe('apps/web/src/derive.ts')
+    expect(m[0]!.path).toBe('/repo/apps/web/src/derive.ts')
   })
 
   it('ignores an unstyled run even if path-like', () => {
     expect(findStyledPathMatches(cells('apps/web/src/derive.ts', false), cfg)).toHaveLength(0)
   })
 
+  it('resolves a truncated styled token to the full known path (suffix match)', () => {
+    const line = [...cells('see ', false), ...cells('derive.ts', true), ...cells(' here', false)]
+    const m = findStyledPathMatches(line, cfg)
+    expect(m).toHaveLength(1)
+    expect(m[0]!.path).toBe('/repo/apps/web/src/derive.ts')
+  })
+
   it('keeps the real coords of the matched cells for wrapped runs', () => {
     const run = [...cells('/repo/a', true, 0), ...cells('bc.ts', true, 1)]
     const m = findStyledPathMatches(run, cfg)
     expect(m[0]!.cells[0]).toMatchObject({ y: 0 })
-    expect(m[0]!.cells.at(-1)).toMatchObject({ y: 1 })
+    expect(m[0]!.cells.at(-1)!).toMatchObject({ y: 1 })
   })
 })
