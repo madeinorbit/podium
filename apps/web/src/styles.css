@@ -165,10 +165,13 @@ body:has(.mobile-shell) {
   flex-shrink: 0;
   align-items: center;
   gap: 4px;
-  /* Extra right inset so the D-pad's right arrow isn't flush with the screen edge. */
-  padding: 3px 12px 3px 8px;
+  padding: 3px 8px;
   background: var(--card);
   border-top: 1px solid var(--border);
+}
+/* No mic on the right — pad the bar as if the 36px mic slot were still there. */
+.mobile-shell .key-actions:not(:has(.key-mic)) {
+  padding-right: calc(8px + 36px + 4px);
 }
 /* Hidden until the panel has output — no key bar over the "Starting…" overlay. */
 .mobile-shell .key-actions.kb-hidden,

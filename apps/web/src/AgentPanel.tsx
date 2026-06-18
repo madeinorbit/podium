@@ -307,8 +307,9 @@ export function AgentPanel({
               </Button>
             )}
           </div>
-          {/* Second key row above the soft-keyboard bar: submit/newline/paste +
-              voice, plus the Blink-style arrow D-pad. preventDefault on pointerdown
+          {/* Second key row above the soft-keyboard bar: submit/newline/paste, then the
+              Blink-style arrow D-pad, then voice. D-pad left of the mic so the right
+              arrow isn't flush with the screen edge. preventDefault on pointerdown
               keeps the terminal focused so a tap doesn't drop the soft keyboard.
               Hidden until the first PTY frame lands — the key bar over a "Starting…"
               screen is just noise (and the D-pad floated oddly above the overlay). */}
@@ -340,6 +341,7 @@ export function AgentPanel({
             >
               Paste
             </button>
+            <ArrowPad onFire={sendKey} />
             {voice.supported && (
               <button
                 type="button"
@@ -352,7 +354,6 @@ export function AgentPanel({
                 <Mic size={16} aria-hidden="true" />
               </button>
             )}
-            <ArrowPad onFire={sendKey} />
           </div>
           <div ref={toolbarRef} className={hasOutput ? 'toolbar' : 'toolbar kb-hidden'} />
         </>
