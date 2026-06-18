@@ -37,12 +37,16 @@ export async function readFileSandboxed(opts: {
     return { ok: false, path, error: 'not found' }
   }
   if (!isInside(real, realCwd) && !knownPath) return { ok: false, path, error: 'outside workspace' }
-  const st = await stat(real)
-  if (!st.isFile()) return { ok: false, path, error: 'not a file' }
-  if (st.size > MAX_FILE_BYTES) return { ok: false, path, tooLarge: true }
-  const buf = await readFile(real)
-  if (isBinary(buf)) return { ok: false, path, binary: true }
-  return { ok: true, path, content: buf.toString('utf8'), baseHash: sig(st) }
+  try {
+    const st = await stat(real)
+    if (!st.isFile()) return { ok: false, path, error: 'not a file' }
+    if (st.size > MAX_FILE_BYTES) return { ok: false, path, tooLarge: true }
+    const buf = await readFile(real)
+    if (isBinary(buf)) return { ok: false, path, binary: true }
+    return { ok: true, path, content: buf.toString('utf8'), baseHash: sig(st) }
+  } catch {
+    return { ok: false, path, error: 'read error' }
+  }
 }
 
 export async function writeFileSandboxed(opts: {
@@ -68,7 +72,11 @@ export async function writeFileSandboxed(opts: {
       .catch(() => null)
     if (current && current !== baseHash) return { ok: false, conflict: true }
   }
-  await writeFile(real, content, 'utf8')
-  const st = await stat(real)
-  return { ok: true, baseHash: sig(st) }
+  try {
+    await writeFile(real, content, 'utf8')
+    const st = await stat(real)
+    return { ok: true, baseHash: sig(st) }
+  } catch {
+    return { ok: false, error: 'write error' }
+  }
 }

@@ -362,4 +362,25 @@ describe('claudeRecordToItems toolPaths', () => {
     })
     expect(items.some((i) => i.toolPaths?.includes('/repo/b.ts'))).toBe(true)
   })
+
+  // Duplicate-key guard: two attachment records for the SAME file (e.g. first an
+  // @-mention 'file', then a 'compact_file_reference') must produce DIFFERENT ids
+  // so React does not warn about duplicate keys in the chat view.
+  it('produces distinct ids for two attachment records with the same filename', () => {
+    const filename = '/repo/spec.md'
+    const [item1] = claudeRecordToItems({
+      type: 'attachment',
+      attachment: { type: 'file', filename },
+    })
+    const [item2] = claudeRecordToItems({
+      type: 'attachment',
+      attachment: { type: 'compact_file_reference', filename },
+    })
+    expect(item1).toBeDefined()
+    expect(item2).toBeDefined()
+    expect(item1!.id).not.toBe(item2!.id)
+    // Both must still carry the filename in toolPaths
+    expect(item1!.toolPaths).toContain(filename)
+    expect(item2!.toolPaths).toContain(filename)
+  })
 })

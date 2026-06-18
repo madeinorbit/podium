@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, symlink, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -53,6 +53,28 @@ describe('readFileSandboxed', () => {
     const r = await readFileSandboxed({ cwd, path: join(cwd, 'link'), knownPath: false })
     expect(r.ok).toBe(false)
   })
+
+  // TOCTOU guard: if the path resolves to a directory (stat succeeds but isFile()
+  // is false), the post-realpath branch must return ok:false without throwing.
+  it('resolves ok:false (no throw) when the target is a directory inside cwd', async () => {
+    const cwd = await repo()
+    const dir = join(cwd, 'subdir')
+    await mkdir(dir)
+    // Exercises the post-realpath st.isFile() === false branch
+    await expect(readFileSandboxed({ cwd, path: dir, knownPath: false })).resolves.toMatchObject({
+      ok: false,
+    })
+  })
+
+  // TOCTOU guard: a broken symlink inside cwd makes realpath throw → caught by the
+  // existing outer try/catch, returning ok:false without an unhandled rejection.
+  it('resolves ok:false (no throw) for a broken symlink inside cwd', async () => {
+    const cwd = await repo()
+    await symlink(join(cwd, 'nonexistent'), join(cwd, 'broken'))
+    await expect(
+      readFileSandboxed({ cwd, path: join(cwd, 'broken'), knownPath: false }),
+    ).resolves.toMatchObject({ ok: false })
+  })
 })
 
 describe('writeFileSandboxed', () => {
@@ -73,5 +95,17 @@ describe('writeFileSandboxed', () => {
     const outside = await repo()
     const r = await writeFileSandboxed({ cwd, path: join(outside, 'x'), content: 'y' })
     expect(r.ok).toBe(false)
+  })
+
+  // TOCTOU guard: if writeFile throws (e.g. path resolves to a directory), the
+  // function must RESOLVE to an error object rather than rejecting.
+  it('resolves ok:false (no throw) when the target path is a directory', async () => {
+    const cwd = await repo()
+    const dir = join(cwd, 'adir')
+    await mkdir(dir)
+    // writeFile to a directory throws EISDIR — the post-sandbox try/catch must catch it.
+    await expect(
+      writeFileSandboxed({ cwd, path: dir, content: 'oops' }),
+    ).resolves.toMatchObject({ ok: false })
   })
 })

@@ -58,7 +58,7 @@ export function claudeRecordToItems(record: unknown): TranscriptItem[] {
     ) {
       return [
         {
-          id: `att-${att.filename}`,
+          id: freshId(`att-${att.filename}`),
           role: 'user',
           ts,
           text: '',
