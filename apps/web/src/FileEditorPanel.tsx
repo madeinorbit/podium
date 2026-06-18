@@ -16,6 +16,7 @@ export function FileEditorPanel(): JSX.Element | null {
   const [baseHash, setBaseHash] = useState<string | undefined>(undefined)
   const [dirty, setDirty] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [reloadNonce, setReloadNonce] = useState(0)
   // All files are opened editable; out-of-repo writes are rejected by the
   // daemon with an error which we surface via toast.
   const editable = true
@@ -47,6 +48,10 @@ export function FileEditorPanel(): JSX.Element | null {
               toast.error(r2.error ?? 'Save failed')
             }
           },
+        },
+        cancel: {
+          label: 'Reload',
+          onClick: () => setReloadNonce((n) => n + 1),
         },
       })
     } else {
@@ -112,7 +117,7 @@ export function FileEditorPanel(): JSX.Element | null {
       viewRef.current?.destroy()
       viewRef.current = null
     }
-  }, [editorFile, readFile, editable])
+  }, [editorFile, readFile, editable, reloadNonce])
 
   const handleClose = useCallback(() => {
     if (dirty && !window.confirm('You have unsaved changes. Close anyway?')) return
