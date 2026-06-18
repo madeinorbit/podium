@@ -69,6 +69,7 @@ import {
   type TranscriptItem,
 } from '@podium/protocol'
 import WebSocket, { type RawData } from 'ws'
+import { readFileSandboxed, writeFileSandboxed } from './file-access'
 import { startHookIngest } from './hook-ingest'
 import { sampleHostMemory } from './host-metrics'
 import { attributeMemory, snapshotProcesses } from './memory-breakdown'
@@ -1004,6 +1005,19 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
         break
       case 'transcriptReadRequest':
         void readParkedTranscript(msg)
+        break
+      case 'fileReadRequest':
+        void readFileSandboxed({ cwd: msg.cwd, path: msg.path, knownPath: msg.knownPath }).then((r) =>
+          send({ type: 'fileReadResult', requestId: msg.requestId, ...r }),
+        )
+        break
+      case 'fileWriteRequest':
+        void writeFileSandboxed({
+          cwd: msg.cwd,
+          path: msg.path,
+          content: msg.content,
+          ...(msg.baseHash ? { baseHash: msg.baseHash } : {}),
+        }).then((r) => send({ type: 'fileWriteResult', requestId: msg.requestId, ...r }))
         break
     }
   }
