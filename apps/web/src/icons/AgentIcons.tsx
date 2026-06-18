@@ -69,19 +69,20 @@ export function GrokIcon({ size = 24, className, variant, ...props }: IconProps)
   )
 }
 
-export function CursorIcon({ size = 24, className, variant = 'mono', ...props }: IconProps): JSX.Element {
+export function CursorIcon({ size = 24, className, variant, ...props }: IconProps): JSX.Element {
   return (
     <svg
       xmlns="http://www.w3.org/2000/svg"
       viewBox="0 0 24 24"
-      fill={colorFill(variant, '#7C7C7C')}
+      fill={colorFill(variant)}
+      fillRule="evenodd"
       width={size}
       height={size}
       className={className}
       {...props}
     >
       <title>Cursor</title>
-      <path d="M12 2L3 7v10l9 5 9-5V7l-9-5zm0 2.18L18.82 8 12 11.82 5.18 8 12 4.18zM5 9.28v7.44L11 20.1V12.6L5 9.28zm14 0L13 12.6v7.5l6-3.38V9.28z" />
+      <path d="M11.503.131 1.891 5.678a.84.84 0 0 0-.42.726v11.188c0 .3.162.575.42.724l9.609 5.55a1 1 0 0 0 .998 0l9.61-5.55a.84.84 0 0 0 .42-.724V6.404a.84.84 0 0 0-.42-.726L12.497.131a1.01 1.01 0 0 0-.996 0M2.657 6.338h18.55c.263 0 .43.287.297.515L12.23 22.918c-.062.107-.229.064-.229-.06V12.335a.59.59 0 0 0-.295-.51l-9.11-5.257c-.109-.063-.064-.23.061-.23" />
     </svg>
   )
 }
