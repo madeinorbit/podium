@@ -3,6 +3,11 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import type { AgentKind } from '@podium/protocol'
 import { codexStateProvider } from './codex.js'
+import {
+  classifyClaudeTranscriptDeterministically,
+  type ClaudeTranscriptFeatures,
+} from './claude-code-classifier.js'
+import type { DeterministicAgentState } from './deterministic.js'
 import { grokStateProvider } from './grok.js'
 import { opencodeStateProvider } from './opencode.js'
 import type { AgentInstrumentation, AgentStateEvent, AgentStateProvider } from './types.js'
@@ -151,12 +156,11 @@ export async function translateClaudeHookPayload(payload: unknown): Promise<Agen
 }
 
 const TAIL_BYTES = 128 * 1024
-// Tier-2 heuristic: does the last assistant message read like it wants an answer?
-// Intentionally cheap and English-biased — Tier 3 (LLM classification) refines later.
-const QUESTIONISH =
-  /(\?\s*$)|\b(should i|shall i|want me to|would you like|let me know|which (one|option|approach)|do you want)\b/i
 
-type IdleClassification = { kind: 'done' | 'question' | 'approval'; summary?: string }
+type IdleClassification = {
+  kind: 'done' | 'question' | 'approval' | 'interrupted'
+  summary?: string
+}
 
 /** Last `maxBytes` of a JSONL file as parsed records (first partial line dropped). */
 async function readTranscriptTail(path: string, maxBytes = TAIL_BYTES): Promise<unknown[]> {
@@ -187,40 +191,44 @@ async function readTranscriptTail(path: string, maxBytes = TAIL_BYTES): Promise<
   }
 }
 
+function idleClassificationFromState(
+  state: DeterministicAgentState,
+): IdleClassification | undefined {
+  if (state.status === 'needs_semantic_classification') return undefined
+  switch (state.label) {
+    case 'idle.finished':
+      return { kind: 'done', ...(state.summary ? { summary: state.summary } : {}) }
+    case 'idle.interrupted':
+      return { kind: 'interrupted', ...(state.summary ? { summary: state.summary } : {}) }
+    case 'idle.needs_input.approval':
+      return { kind: 'approval', ...(state.summary ? { summary: state.summary } : {}) }
+    case 'idle.needs_input.ask_user_tool':
+    case 'idle.needs_input.text_question':
+      return { kind: 'question', ...(state.summary ? { summary: state.summary } : {}) }
+    case 'idle.needs_input.open_todo_list':
+      return { kind: 'done', summary: state.summary ?? 'open todo list' }
+    default:
+      return undefined
+  }
+}
+
 export function classifyIdleTranscript(
   records: unknown[],
   permissionMode: unknown,
 ): IdleClassification | undefined {
-  // Tier 1: stopping while still in plan mode means a plan is waiting for sign-off.
-  if (permissionMode === 'plan') return { kind: 'approval', summary: 'plan awaiting approval' }
-  // Walk backward to the last assistant record that actually contains text
-  // (the final record is often tool-use-only).
-  for (let i = records.length - 1; i >= 0; i--) {
-    const r = records[i] as { type?: unknown; message?: { content?: unknown } } | null
-    if (r?.type !== 'assistant') continue
-    const content = r.message?.content
-    if (!Array.isArray(content)) continue
-    const text = content
-      .filter(
-        (b): b is { type: string; text: string } =>
-          typeof b === 'object' && b !== null && (b as { type?: unknown }).type === 'text',
-      )
-      .map((b) => b.text)
-      .join('\n')
-      .trim()
-    if (!text) continue
-    if (QUESTIONISH.test(text.slice(-400))) {
-      const lastLine =
-        text
-          .split('\n')
-          .filter((l) => l.trim())
-          .at(-1) ?? text
-      return { kind: 'question', summary: lastLine.trim().slice(0, 140) }
-    }
-    return { kind: 'done' }
-  }
-  return undefined
+  return idleClassificationFromState(
+    classifyClaudeTranscriptDeterministically(records, permissionMode),
+  )
 }
+
+export function classifyClaudeTranscriptState(
+  records: unknown[],
+  permissionMode: unknown,
+): DeterministicAgentState {
+  return classifyClaudeTranscriptDeterministically(records, permissionMode)
+}
+
+export type { ClaudeTranscriptFeatures }
 
 async function classifyIdleFromStop(
   p: Record<string, unknown>,

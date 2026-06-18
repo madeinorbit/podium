@@ -38,9 +38,10 @@ export type AgentPhase = z.infer<typeof AgentPhase>
 
 // Why did the agent go idle? `open_todos` = stopped with unfinished task list;
 // `question` = last message reads like it wants an answer; `approval` = stopped
-// while in plan mode. Tier-3 (LLM classification) will refine this later.
+// while in plan mode; `interrupted` = user explicitly aborted the running turn.
+// Tier-3 (LLM classification) will refine this later.
 export const IdleVerdict = z.object({
-  kind: z.enum(['done', 'question', 'approval', 'open_todos']),
+  kind: z.enum(['done', 'question', 'approval', 'open_todos', 'interrupted']),
   summary: z.string().optional(),
 })
 export type IdleVerdict = z.infer<typeof IdleVerdict>

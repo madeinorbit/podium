@@ -289,6 +289,8 @@ export function agentBadge(meta: SessionMeta): AgentBadge | null {
           return { label: 'plan ready', tone: 'attention', showContinue: false }
         case 'open_todos':
           return { label: 'todos open', tone: 'attention', showContinue: false }
+        case 'interrupted':
+          return { label: 'interrupted', tone: 'idle', showContinue: false }
         default:
           return { label: 'idle', tone: 'idle', showContinue: false }
       }

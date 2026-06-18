@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
   agentStateProviderFor,
+  classifyClaudeTranscriptState,
   classifyIdleTranscript,
   claudeCodeStateProvider,
   translateClaudeHookPayload,
@@ -163,6 +164,8 @@ describe('translateClaudeHookPayload', () => {
 
 const assistantLine = (blocks: unknown[]) =>
   JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: blocks } })
+const userLine = (content: unknown) =>
+  JSON.stringify({ type: 'user', message: { role: 'user', content } })
 const text = (t: string) => ({ type: 'text', text: t })
 
 describe('classifyIdleTranscript', () => {
@@ -173,6 +176,18 @@ describe('classifyIdleTranscript', () => {
     expect(classifyIdleTranscript(records, 'plan')).toEqual({
       kind: 'approval',
       summary: 'plan awaiting approval',
+    })
+  })
+
+  it('terminal Claude interrupt marker → interrupted', () => {
+    const records = parse([
+      assistantLine([text('Should I continue?')]),
+      userLine('[Request interrupted by user]'),
+      '{"type":"summary"}',
+    ])
+    expect(classifyIdleTranscript(records, 'plan')).toEqual({
+      kind: 'interrupted',
+      summary: 'request interrupted by user',
     })
   })
 
@@ -187,11 +202,30 @@ describe('classifyIdleTranscript', () => {
     })
   })
 
-  it('question-phrase without question mark still counts', () => {
+  it('optional follow-up language does not require input by itself', () => {
     const records = parse([
       assistantLine([text('Let me know if you want me to also update the docs')]),
     ])
-    expect(classifyIdleTranscript(records, 'default')?.kind).toBe('question')
+    expect(classifyIdleTranscript(records, 'default')?.kind).toBe('done')
+  })
+
+  it('completed work plus optional follow-up is finished', () => {
+    const records = parse([assistantLine([text('Done. Tests pass. Want me to push?')])])
+    expect(classifyClaudeTranscriptState(records, 'default')).toMatchObject({
+      status: 'resolved',
+      label: 'idle.finished',
+    })
+  })
+
+  it('ambiguous terminal question is marked for semantic classification internally', () => {
+    const records = parse([
+      userLine('Plan the migration'),
+      assistantLine([text('There are two viable paths. Should we use A or B?')]),
+    ])
+    expect(classifyClaudeTranscriptState(records, 'default')).toMatchObject({
+      status: 'needs_semantic_classification',
+      candidateLabels: expect.arrayContaining(['idle.needs_input.text_question', 'idle.finished']),
+    })
   })
 
   it('declarative ending → done', () => {
@@ -199,12 +233,16 @@ describe('classifyIdleTranscript', () => {
     expect(classifyIdleTranscript(records, 'default')).toEqual({ kind: 'done' })
   })
 
-  it('skips trailing tool-use-only assistant records to find the last text', () => {
+  it('unresolved trailing tool-use-only assistant records are working internally', () => {
     const records = parse([
       assistantLine([text('Should I delete the legacy table?')]),
       assistantLine([{ type: 'tool_use', name: 'Bash', input: { command: 'ls' } }]),
     ])
-    expect(classifyIdleTranscript(records, 'default')?.kind).toBe('question')
+    expect(classifyIdleTranscript(records, 'default')).toBeUndefined()
+    expect(classifyClaudeTranscriptState(records, 'default')).toMatchObject({
+      status: 'resolved',
+      label: 'working.waiting_on_shell',
+    })
   })
 
   it('no assistant text at all → undefined', () => {
@@ -234,6 +272,49 @@ describe('Stop payload end-to-end with a real transcript file', () => {
       {
         kind: 'turn_completed',
         verdict: { kind: 'question', summary: 'Want me to proceed with the migration?' },
+      },
+    ])
+  })
+
+  it('does not run semantic classification for ambiguous stopped turns yet', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'podium-agent-state-'))
+    const transcript = join(dir, 't.jsonl')
+    await writeFile(
+      transcript,
+      [
+        '{"type":"user","message":{"role":"user","content":"Plan the migration"}}',
+        assistantLine([text('There are two viable paths. Should we use A or B?')]),
+      ].join('\n'),
+    )
+    const events = await translateClaudeHookPayload({
+      hook_event_name: 'Stop',
+      transcript_path: transcript,
+      permission_mode: 'default',
+      stop_hook_active: false,
+    })
+    expect(events).toEqual([{ kind: 'turn_completed' }])
+  })
+
+  it('classifies a terminal interrupt marker', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'podium-agent-state-'))
+    const transcript = join(dir, 't.jsonl')
+    await writeFile(
+      transcript,
+      [
+        assistantLine([text('I can continue with the migration.')]),
+        userLine([{ type: 'text', text: '[Request interrupted by user]' }]),
+      ].join('\n'),
+    )
+    const events = await translateClaudeHookPayload({
+      hook_event_name: 'Stop',
+      transcript_path: transcript,
+      permission_mode: 'default',
+      stop_hook_active: false,
+    })
+    expect(events).toEqual([
+      {
+        kind: 'turn_completed',
+        verdict: { kind: 'interrupted', summary: 'request interrupted by user' },
       },
     ])
   })

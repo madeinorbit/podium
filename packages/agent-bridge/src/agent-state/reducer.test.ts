@@ -62,6 +62,29 @@ describe('reduceAgentState', () => {
     expect(idle.idle).toEqual({ kind: 'question', summary: 'A or B?' })
   })
 
+  it('interrupted outranks open todos and clears active blockers', () => {
+    let s = reduceAgentState(
+      initialAgentState(T0),
+      { kind: 'needs_user', need: 'question', summary: 'A or B?' },
+      T0,
+    )
+    s = reduceAgentState(s, { kind: 'task_delta', delta: 1 }, T0)
+    const idle = reduceAgentState(
+      s,
+      {
+        kind: 'turn_completed',
+        verdict: { kind: 'interrupted', summary: 'request interrupted by user' },
+      },
+      T1,
+    )
+    expect(idle).toMatchObject({
+      phase: 'idle',
+      openTaskCount: 1,
+      idle: { kind: 'interrupted', summary: 'request interrupted by user' },
+    })
+    expect(idle.need).toBeUndefined()
+  })
+
   it('task_delta floors at zero and never changes phase', () => {
     const s = reduceAgentState(initialAgentState(T0), { kind: 'prompt_submitted' }, T0)
     const next = reduceAgentState(s, { kind: 'task_delta', delta: -1 }, T1)

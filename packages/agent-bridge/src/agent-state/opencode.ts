@@ -1,21 +1,33 @@
 import type { TranscriptItem } from '@podium/protocol'
-import {
-  findLatestOpencodeSession,
-  getOpencodeSession,
-  loadOpencodeMessageParts,
-  loadOpencodeTranscriptTail,
-  type OpencodeSessionRow,
-  openOpencodeDb,
-} from '../opencode/db.js'
-import {
-  classifyOpencodeIdleText,
-  opencodePartToItems,
-  opencodeRowsToItems,
-} from '../transcript/opencode.js'
 import type { AgentStateEvent, AgentStateProvider } from './types.js'
+
+type OpencodeDbModule = typeof import('../opencode/db.js')
+type OpencodeTranscriptModule = typeof import('../transcript/opencode.js')
+type OpencodeRuntime = OpencodeDbModule & OpencodeTranscriptModule
+type OpencodeSessionRow = import('../opencode/db.js').OpencodeSessionRow
+type OpencodeDb = ReturnType<OpencodeDbModule['openOpencodeDb']>
 
 const POLL_MS = 700
 const FRESH_SESSION_MARGIN_MS = 5_000
+
+let runtimePromise: Promise<OpencodeRuntime> | undefined
+
+async function loadOpencodeRuntime(): Promise<OpencodeRuntime> {
+  runtimePromise ??= Promise.all([
+    import('../opencode/db.js'),
+    import('../transcript/opencode.js'),
+  ]).then(([db, transcript]) => ({ ...db, ...transcript }) as OpencodeRuntime)
+  return runtimePromise
+}
+
+async function maybeLoadOpencodeRuntime(): Promise<OpencodeRuntime | undefined> {
+  try {
+    return await loadOpencodeRuntime()
+  } catch {
+    runtimePromise = undefined
+    return undefined
+  }
+}
 
 export interface OpencodeStateObserver {
   readonly sessionId: string | undefined
@@ -58,12 +70,18 @@ export function observeOpencodeState(opts: {
     void emitTranscript(true)
   }
 
-  const discover = (): void => {
+  const discover = async (): Promise<void> => {
     if (stopped || attached) return
-    const db = openOpencodeDb(opts.homeDir)
+    const rt = await maybeLoadOpencodeRuntime()
+    if (!rt || stopped || attached) return
+    const db = rt.openOpencodeDb(opts.homeDir)
     if (!db) return
     try {
-      const session = findLatestOpencodeSession(db, opts.cwd, startedAtMs - FRESH_SESSION_MARGIN_MS)
+      const session = rt.findLatestOpencodeSession(
+        db,
+        opts.cwd,
+        startedAtMs - FRESH_SESSION_MARGIN_MS,
+      )
       if (session && !stopped) attach(session)
     } finally {
       db.close()
@@ -72,15 +90,17 @@ export function observeOpencodeState(opts: {
 
   const emitTranscript = async (reset = false): Promise<void> => {
     if (!attached || !opts.onTranscriptItems) return
-    const db = openOpencodeDb(opts.homeDir)
+    const rt = await maybeLoadOpencodeRuntime()
+    if (!rt || !attached) return
+    const db = rt.openOpencodeDb(opts.homeDir)
     if (!db) return
     try {
       const rows = firstTranscript
-        ? loadOpencodeTranscriptTail(db, attached.id)
-        : loadOpencodeMessageParts(db, attached.id, lastPartTime)
+        ? rt.loadOpencodeTranscriptTail(db, attached.id)
+        : rt.loadOpencodeMessageParts(db, attached.id, lastPartTime)
       if (rows.length === 0) return
       lastPartTime = Math.max(lastPartTime, ...rows.map((r) => r.timeUpdated))
-      const items = opencodeRowsToItems(rows)
+      const items = rt.opencodeRowsToItems(rows)
       if (items.length > 0) {
         opts.onTranscriptItems(items, reset || firstTranscript)
         firstTranscript = false
@@ -90,16 +110,14 @@ export function observeOpencodeState(opts: {
     }
   }
 
-  const tick = (): void => {
-    if (stopped) return
-    if (!attached) {
-      discover()
-      return
-    }
-    const db = openOpencodeDb(opts.homeDir)
+  const tick = async (): Promise<void> => {
+    if (stopped || !attached) return
+    const rt = await maybeLoadOpencodeRuntime()
+    if (!rt || stopped || !attached) return
+    const db = rt.openOpencodeDb(opts.homeDir)
     if (!db) return
     try {
-      const session = getOpencodeSession(db, attached.id)
+      const session = rt.getOpencodeSession(db, attached.id)
       if (!session) return
       const events: AgentStateEvent[] = []
       if (session.timeCompacting && session.timeCompacting !== lastCompacting) {
@@ -109,7 +127,7 @@ export function observeOpencodeState(opts: {
       }
       lastCompacting = session.timeCompacting
 
-      const rows = loadOpencodeMessageParts(db, attached.id, lastPartTime)
+      const rows = rt.loadOpencodeMessageParts(db, attached.id, lastPartTime)
       if (rows.length > 0) {
         lastPartTime = Math.max(lastPartTime, ...rows.map((r) => r.timeUpdated))
         for (const row of rows) {
@@ -120,15 +138,15 @@ export function observeOpencodeState(opts: {
           if (role === 'user' && partType === 'text') events.push({ kind: 'prompt_submitted' })
           else if (partType === 'text' || partType === 'tool') events.push({ kind: 'activity' })
           else if (partType === 'step-finish') {
-            const text = lastAssistantText(db, attached.id)
+            const text = lastAssistantText(rt, db, attached.id)
             events.push({
               kind: 'turn_completed',
-              verdict: classifyOpencodeIdleText(text),
+              verdict: rt.classifyOpencodeIdleText(text),
             })
           }
         }
         if (opts.onTranscriptItems) {
-          const items = rows.flatMap((row) => opencodePartToItems(row))
+          const items = rows.flatMap((row) => rt.opencodePartToItems(row))
           if (items.length > 0) opts.onTranscriptItems(items, false)
         }
       }
@@ -139,24 +157,27 @@ export function observeOpencodeState(opts: {
   }
 
   if (opts.resumeValue) {
-    const db = openOpencodeDb(opts.homeDir)
-    if (db) {
+    void (async () => {
+      const rt = await maybeLoadOpencodeRuntime()
+      if (!rt || stopped) return
+      const db = rt.openOpencodeDb(opts.homeDir)
+      if (!db) return
       try {
-        const session = getOpencodeSession(db, opts.resumeValue)
-        if (session) attach(session)
+        const session = rt.getOpencodeSession(db, opts.resumeValue ?? '')
+        if (session && !stopped) attach(session)
       } finally {
         db.close()
       }
-    }
+    })()
   }
 
-  const discoverTimer = opts.resumeValue ? undefined : setInterval(discover, pollMs)
+  const discoverTimer = opts.resumeValue ? undefined : setInterval(() => void discover(), pollMs)
   discoverTimer?.unref?.()
-  if (!opts.resumeValue) discover()
+  if (!opts.resumeValue) void discover()
 
   const pollTimer = setInterval(() => {
     void emitTranscript(false)
-    tick()
+    void tick()
   }, pollMs)
   pollTimer.unref?.()
 
@@ -177,13 +198,15 @@ async function opencodeBootEvents(opts: {
   resumeValue?: string
   homeDir?: string
 }): Promise<AgentStateEvent[]> {
-  const db = openOpencodeDb(opts.homeDir)
+  const rt = await maybeLoadOpencodeRuntime()
+  if (!rt) return [{ kind: 'session_started' }]
+  const db = rt.openOpencodeDb(opts.homeDir)
   if (!db) return [{ kind: 'session_started' }]
   try {
     const sessionId = opts.resumeValue
     if (!sessionId) return [{ kind: 'session_started' }]
-    const text = lastAssistantText(db, sessionId)
-    if (text) return [{ kind: 'turn_completed', verdict: classifyOpencodeIdleText(text) }]
+    const text = lastAssistantText(rt, db, sessionId)
+    if (text) return [{ kind: 'turn_completed', verdict: rt.classifyOpencodeIdleText(text) }]
     return [{ kind: 'session_started' }]
   } finally {
     db.close()
@@ -191,11 +214,12 @@ async function opencodeBootEvents(opts: {
 }
 
 function lastAssistantText(
-  db: ReturnType<typeof openOpencodeDb>,
+  rt: OpencodeRuntime,
+  db: OpencodeDb,
   sessionId: string,
 ): string | undefined {
   if (!db) return undefined
-  const rows = loadOpencodeTranscriptTail(db, sessionId, 200)
+  const rows = rt.loadOpencodeTranscriptTail(db, sessionId, 200)
   for (let i = rows.length - 1; i >= 0; i--) {
     const row = rows[i]
     if (!row) continue

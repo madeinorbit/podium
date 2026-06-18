@@ -1,10 +1,26 @@
-import { mkdtemp, mkdir } from 'node:fs/promises'
+import { mkdir, mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { DatabaseSync } from 'node:sqlite'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { agentStateProviderFor } from './claude-code.js'
 import { opencodeStateProvider } from './opencode.js'
+
+type TestDatabase = {
+  exec(sql: string): void
+  prepare(sql: string): { run(...args: unknown[]): unknown }
+  close(): void
+}
+type DatabaseSyncConstructor = new (path: string) => TestDatabase
+
+let DatabaseSync: DatabaseSyncConstructor | undefined
+
+beforeAll(async () => {
+  try {
+    DatabaseSync = (await import('node:sqlite')).DatabaseSync as DatabaseSyncConstructor
+  } catch {
+    DatabaseSync = undefined
+  }
+})
 
 async function seedSessionDb(
   root: string,
@@ -12,6 +28,7 @@ async function seedSessionDb(
   cwd: string,
   assistantText: string,
 ): Promise<void> {
+  if (!DatabaseSync) throw new Error('node:sqlite unavailable')
   const dbPath = join(root, 'opencode.db')
   const db = new DatabaseSync(dbPath)
   db.exec(`CREATE TABLE session (
@@ -71,14 +88,7 @@ async function seedSessionDb(
   db.prepare(
     `INSERT INTO part (id, message_id, session_id, time_created, time_updated, data)
      VALUES (?, ?, ?, ?, ?, ?)`,
-  ).run(
-    'prt-a',
-    'msg-a',
-    sessionId,
-    1,
-    2,
-    JSON.stringify({ type: 'text', text: assistantText }),
-  )
+  ).run('prt-a', 'msg-a', sessionId, 1, 2, JSON.stringify({ type: 'text', text: assistantText }))
   db.close()
 }
 
@@ -93,7 +103,18 @@ describe('opencode state provider', () => {
     expect(agentStateProviderFor('opencode')).toBe(opencodeStateProvider)
   })
 
-  it('bootEvents classifies a resumed session from sqlite transcript tail', async () => {
+  it('bootEvents classifies a resumed session from sqlite transcript tail when sqlite is available', async () => {
+    if (!DatabaseSync) {
+      await expect(
+        opencodeStateProvider.bootEvents?.({
+          cwd: '/repo/opencode',
+          resumeValue: 'ses_boot',
+          homeDir: '/tmp/does-not-matter',
+        }),
+      ).resolves.toEqual([{ kind: 'session_started' }])
+      return
+    }
+
     home = await mkdtemp(join(tmpdir(), 'podium-opencode-boot-'))
     const root = join(home, '.local', 'share', 'opencode')
     await mkdir(root, { recursive: true })

@@ -58,7 +58,12 @@ export async function translateCodexEvent(record: unknown): Promise<AgentStateEv
         },
       ]
     case 'turn_aborted':
-      return [{ kind: 'turn_completed' }]
+      return [
+        {
+          kind: 'turn_completed',
+          verdict: { kind: 'interrupted', summary: 'turn aborted' },
+        },
+      ]
     default:
       return []
   }

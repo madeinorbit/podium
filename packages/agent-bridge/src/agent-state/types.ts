@@ -16,7 +16,7 @@ export type AgentStateEvent =
    *  'open_todos' — that upgrade is reducer-owned (it tracks the task counter). */
   | {
       kind: 'turn_completed'
-      verdict?: { kind: 'done' | 'question' | 'approval'; summary?: string }
+      verdict?: { kind: 'done' | 'question' | 'approval' | 'interrupted'; summary?: string }
     }
   | { kind: 'turn_failed'; errorClass: string; retryable: boolean }
   | { kind: 'compaction'; phase: 'start' | 'end' }

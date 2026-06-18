@@ -40,6 +40,9 @@ describe('attentionNotice', () => {
     expect(
       attentionNotice('s', state('working'), state('idle', { idle: { kind: 'done' } })),
     ).toBeNull()
+    expect(
+      attentionNotice('s', state('working'), state('idle', { idle: { kind: 'interrupted' } })),
+    ).toBeNull()
     expect(attentionNotice('s', state('working'), state('working'))).toBeNull()
   })
 })

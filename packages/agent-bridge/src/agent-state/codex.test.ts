@@ -37,8 +37,10 @@ describe('translateCodexEvent', () => {
     ).toEqual([{ kind: 'turn_completed', verdict: { kind: 'question', summary: 'Which file?' } }])
   })
 
-  it('maps turn_aborted to a bare turn_completed', async () => {
-    expect(await translateCodexEvent(env('turn_aborted'))).toEqual([{ kind: 'turn_completed' }])
+  it('maps turn_aborted to an interrupted turn_completed verdict', async () => {
+    expect(await translateCodexEvent(env('turn_aborted'))).toEqual([
+      { kind: 'turn_completed', verdict: { kind: 'interrupted', summary: 'turn aborted' } },
+    ])
   })
 
   it('ignores non-event_msg and unknown events', async () => {
