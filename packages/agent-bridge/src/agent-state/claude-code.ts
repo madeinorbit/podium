@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import type { AgentKind } from '@podium/protocol'
 import { codexStateProvider } from './codex.js'
 import { grokStateProvider } from './grok.js'
+import { opencodeStateProvider } from './opencode.js'
 import type { AgentInstrumentation, AgentStateEvent, AgentStateProvider } from './types.js'
 
 // Observation only: every hook replies 200 {} immediately (see the daemon's
@@ -243,5 +244,6 @@ export function agentStateProviderFor(kind: AgentKind): AgentStateProvider | und
   if (kind === 'claude-code') return claudeCodeStateProvider
   if (kind === 'grok') return grokStateProvider
   if (kind === 'codex') return codexStateProvider
+  if (kind === 'opencode') return opencodeStateProvider
   return undefined
 }

@@ -10,10 +10,10 @@ import { z } from 'zod'
  * spawn layer passes no flag and the CLI uses whatever the user configured there.
  */
 
-export const HarnessAgent = z.enum(['claude-code', 'codex', 'grok'])
+export const HarnessAgent = z.enum(['claude-code', 'codex', 'grok', 'opencode'])
 export type HarnessAgent = z.infer<typeof HarnessAgent>
 
-export const AgentChoice = z.enum(['auto', 'claude-code', 'codex', 'grok'])
+export const AgentChoice = z.enum(['auto', 'claude-code', 'codex', 'grok', 'opencode'])
 export type AgentChoice = z.infer<typeof AgentChoice>
 
 export const SessionDefaults = z.object({

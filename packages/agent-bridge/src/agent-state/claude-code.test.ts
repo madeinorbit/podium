@@ -61,10 +61,11 @@ describe('claude-code instrumentation', () => {
 })
 
 describe('agentStateProviderFor', () => {
-  it('claude-code, grok and codex get providers; shell does not', () => {
+  it('claude-code, grok, codex and opencode get providers; shell does not', () => {
     expect(agentStateProviderFor('claude-code')).toBe(claudeCodeStateProvider)
     expect(agentStateProviderFor('codex')).toBe(codexStateProvider)
     expect(agentStateProviderFor('grok')).toBe(grokStateProvider)
+    expect(agentStateProviderFor('opencode')).toBeDefined()
     expect(agentStateProviderFor('shell')).toBeUndefined()
   })
 })

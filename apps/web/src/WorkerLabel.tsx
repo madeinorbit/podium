@@ -1,5 +1,5 @@
 import type { AgentKind, SessionMeta } from '@podium/protocol'
-import { Bot, Code2, type LucideIcon, SquareChevronRight, Zap } from 'lucide-react'
+import { Bot, Code2, type LucideIcon, Sparkles, SquareChevronRight, Zap } from 'lucide-react'
 import type { JSX } from 'react'
 import { panelLabel } from './derive'
 
@@ -63,6 +63,7 @@ const KIND_ICON: Record<AgentKind, LucideIcon> = {
   'claude-code': Bot,
   codex: Code2,
   grok: Zap,
+  opencode: Sparkles,
   shell: SquareChevronRight,
 }
 

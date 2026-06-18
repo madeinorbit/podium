@@ -33,8 +33,13 @@ import {
   isTmuxAvailable,
   killAbducoSession,
   killTmuxServer,
+  loadOpencodeTranscriptTail,
+  type OpencodeStateObserver,
   observeCodexState,
   observeGrokState,
+  observeOpencodeState,
+  opencodeRowsToItems,
+  openOpencodeDb,
   readTranscriptTail,
   reduceAgentState,
   scanAgentConversationsCached,
@@ -250,6 +255,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
   // Codex is observed the same way as Grok (no hooks): one poller per session
   // that discovers the rollout file, tails it for state, and feeds the chat tail.
   const codexStateObservers = new Map<string, { stop(): void }>()
+  const opencodeStateObservers = new Map<string, OpencodeStateObserver>()
   const ensureTranscriptTail = (
     sessionId: string,
     path: string,
@@ -285,6 +291,10 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
   const stopCodexStateObserver = (sessionId: string): void => {
     codexStateObservers.get(sessionId)?.stop()
     codexStateObservers.delete(sessionId)
+  }
+  const stopOpencodeStateObserver = (sessionId: string): void => {
+    opencodeStateObservers.get(sessionId)?.stop()
+    opencodeStateObservers.delete(sessionId)
   }
   const applyAgentStateEvents = (sessionId: string, events: AgentStateEvent[]): void => {
     const tracker = trackers.get(sessionId)
@@ -354,6 +364,35 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
   // passes undefined → the observer searches without a freshness floor and finds
   // the live session's existing (idle, older-mtime) rollout. Mirrors how the Grok
   // observer scopes its search on spawn but not on reattach.
+  const startOpencodeStateObserver = (
+    sessionId: string,
+    cwd: string,
+    resumeValue: string | undefined,
+    startedAtMs = Date.now(),
+  ): void => {
+    stopOpencodeStateObserver(sessionId)
+    opencodeStateObservers.set(
+      sessionId,
+      observeOpencodeState({
+        cwd,
+        ...(resumeValue ? { resumeValue } : {}),
+        ...(opts.discovery?.homeDir ? { homeDir: opts.discovery.homeDir } : {}),
+        startedAtMs,
+        onSession: (opencodeSessionId) => {
+          send({
+            type: 'sessionResumeRef',
+            sessionId,
+            resume: { kind: 'opencode-session', value: opencodeSessionId },
+          })
+        },
+        onEvents: (events) => applyAgentStateEvents(sessionId, events),
+        onTranscriptItems: (items, reset) => {
+          if (items.length === 0 && !reset) return
+          send({ type: 'transcriptAppend', sessionId, items, ...(reset ? { reset } : {}) })
+        },
+      }),
+    )
+  }
   const startCodexStateObserver = (sessionId: string, cwd: string, startedAtMs?: number): void => {
     stopCodexStateObserver(sessionId)
     codexStateObservers.set(
@@ -384,8 +423,13 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
   ): Promise<void> => {
     const isGrok = msg.agentKind === 'grok' || msg.resume.kind === 'grok-session'
     const isCodex = msg.agentKind === 'codex' || msg.resume.kind === 'codex-thread'
+    const isOpencode = msg.agentKind === 'opencode' || msg.resume.kind === 'opencode-session'
     let items: TranscriptItem[] = []
-    if (isCodex) {
+    if (isOpencode) {
+      const db = openOpencodeDb(opts.discovery?.homeDir)
+      items = db ? opencodeRowsToItems(loadOpencodeTranscriptTail(db, msg.resume.value)) : []
+      db?.close()
+    } else if (isCodex) {
       // Codex stores no derivable per-cwd path; resolve the rollout from the
       // resume value (state DB, then filename fallback).
       const path = await findCodexRolloutPath({
@@ -522,6 +566,8 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
       startGrokStateObserver(msg.sessionId, msg.cwd, msg.resume?.value, init.grokStartedAt)
     } else if (msg.agentKind === 'codex') {
       startCodexStateObserver(msg.sessionId, msg.cwd, init.grokStartedAt)
+    } else if (msg.agentKind === 'opencode') {
+      startOpencodeStateObserver(msg.sessionId, msg.cwd, msg.resume?.value, init.grokStartedAt)
     } else if (msg.agentKind === 'claude-code' && msg.resume) {
       tailResumeTranscript(msg.sessionId, msg.cwd, msg.resume.value)
     }
@@ -648,6 +694,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
       trackers.delete(sessionId)
       stopGrokStateObserver(sessionId)
       stopCodexStateObserver(sessionId)
+      stopOpencodeStateObserver(sessionId)
       // The agent's gone — stop polling its (now frozen) transcript file.
       stopTranscriptTail(sessionId)
       // The attach CLIENT exiting is NOT the AGENT exiting. disposeAll() on a
@@ -846,6 +893,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
         trackers.delete(msg.sessionId)
         stopGrokStateObserver(msg.sessionId)
         stopCodexStateObserver(msg.sessionId)
+        stopOpencodeStateObserver(msg.sessionId)
         stopTranscriptTail(msg.sessionId)
         if (session) {
           session.dispose()
@@ -982,7 +1030,14 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
   const runHarnessExec = async (
     msg: Extract<ControlMessage, { type: 'harnessExecRequest' }>,
   ): Promise<void> => {
-    const cmd = msg.agent === 'claude-code' ? 'claude' : msg.agent === 'codex' ? 'codex' : 'grok'
+    const cmd =
+      msg.agent === 'claude-code'
+        ? 'claude'
+        : msg.agent === 'codex'
+          ? 'codex'
+          : msg.agent === 'opencode'
+            ? 'opencode'
+            : 'grok'
     const args =
       msg.agent === 'claude-code'
         ? ['-p', msg.prompt, ...(msg.model ? ['--model', msg.model] : [])]
@@ -993,7 +1048,9 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
               ...(msg.model ? ['--model', msg.model] : []),
               msg.prompt,
             ]
-          : ['-p', msg.prompt, ...(msg.model ? ['--model', msg.model] : [])]
+          : msg.agent === 'opencode'
+            ? ['run', ...(msg.model ? ['-m', msg.model] : []), msg.prompt]
+            : ['-p', msg.prompt, ...(msg.model ? ['--model', msg.model] : [])]
     try {
       const { stdout } = await execFileAsync(cmd, args, {
         timeout: 240_000,
@@ -1033,6 +1090,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     bridges.clear()
     for (const id of [...grokStateObservers.keys()]) stopGrokStateObserver(id)
     for (const id of [...codexStateObservers.keys()]) stopCodexStateObserver(id)
+    for (const id of [...opencodeStateObservers.keys()]) stopOpencodeStateObserver(id)
     trackers.clear()
   }
 

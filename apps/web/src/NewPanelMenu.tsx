@@ -1,5 +1,5 @@
 import type { AgentKind } from '@podium/protocol'
-import { Bot, Code2, type LucideIcon, Plus, SquareTerminal, Zap } from 'lucide-react'
+import { Bot, Code2, type LucideIcon, Plus, Sparkles, SquareTerminal, Zap } from 'lucide-react'
 import { type JSX, useMemo, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import {
@@ -19,6 +19,7 @@ const NEW_AGENTS: { kind: AgentKind; label: string; Icon: LucideIcon }[] = [
   { kind: 'claude-code', label: 'New Claude', Icon: Bot },
   { kind: 'codex', label: 'New Codex', Icon: Code2 },
   { kind: 'grok', label: 'New Grok', Icon: Zap },
+  { kind: 'opencode', label: 'New OpenCode', Icon: Sparkles },
   { kind: 'shell', label: 'New Shell', Icon: SquareTerminal },
 ]
 

@@ -81,6 +81,7 @@ describe('shared schemas', () => {
   it('parses AgentKind and ResumeRef', () => {
     expect(AgentKind.parse('codex')).toBe('codex')
     expect(AgentKind.parse('grok')).toBe('grok')
+    expect(AgentKind.parse('opencode')).toBe('opencode')
     expect(AgentKind.parse('shell')).toBe('shell')
     expect(ResumeRef.parse({ kind: 'claude-session', value: 'abc' })).toEqual({
       kind: 'claude-session',

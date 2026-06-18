@@ -259,6 +259,7 @@ function kindLabel(agentKind: string): string {
     agentKind === 'claude-code' ||
     agentKind === 'codex' ||
     agentKind === 'grok' ||
+    agentKind === 'opencode' ||
     agentKind === 'shell'
   ) {
     return panelLabel(agentKind)

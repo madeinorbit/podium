@@ -62,6 +62,8 @@ export function panelLabel(agentKind: AgentKind): string {
       return 'Codex'
     case 'grok':
       return 'Grok'
+    case 'opencode':
+      return 'OpenCode'
     case 'shell':
       return 'Shell'
     default: {
@@ -78,7 +80,12 @@ export function panelLabel(agentKind: AgentKind): string {
  * `transcriptAvailable` flag still wins when present; this is the fallback.
  */
 export function defaultChatCapable(agentKind: AgentKind): boolean {
-  return agentKind === 'claude-code' || agentKind === 'grok' || agentKind === 'codex'
+  return (
+    agentKind === 'claude-code' ||
+    agentKind === 'grok' ||
+    agentKind === 'codex' ||
+    agentKind === 'opencode'
+  )
 }
 
 export function reposToViews(repos: GitRepositoryWire[]): RepoView[] {

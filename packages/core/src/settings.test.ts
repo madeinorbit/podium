@@ -2,9 +2,11 @@ import { describe, expect, it } from 'vitest'
 import { AgentChoice, HarnessAgent, normalizeSettings } from './settings'
 
 describe('settings harness choices', () => {
-  it('accepts Grok as a session default and harness backend', () => {
+  it('accepts Grok and OpenCode as session defaults and harness backends', () => {
     expect(AgentChoice.parse('grok')).toBe('grok')
+    expect(AgentChoice.parse('opencode')).toBe('opencode')
     expect(HarnessAgent.parse('grok')).toBe('grok')
+    expect(HarnessAgent.parse('opencode')).toBe('opencode')
 
     const s = normalizeSettings({
       sessionDefaults: { agent: 'grok' },

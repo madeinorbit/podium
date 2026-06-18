@@ -4,6 +4,7 @@ import { canonicalPath, expandHome, isDirectory } from './paths.js'
 import { createClaudeCodeConversationProvider } from './providers/claude-code.js'
 import { createCodexConversationProvider } from './providers/codex.js'
 import { createGrokConversationProvider } from './providers/grok.js'
+import { createOpencodeConversationProvider } from './providers/opencode.js'
 import {
   type AgentConversation,
   type AgentConversationDiagnostic,
@@ -20,6 +21,7 @@ const builtInProviders: readonly ConversationProvider[] = [
   createCodexConversationProvider(),
   createClaudeCodeConversationProvider(),
   createGrokConversationProvider(),
+  createOpencodeConversationProvider(),
 ]
 
 const providersById = new Map(builtInProviders.map((provider) => [provider.id, provider]))

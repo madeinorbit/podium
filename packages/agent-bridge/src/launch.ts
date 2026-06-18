@@ -42,6 +42,14 @@ export function agentLaunchCommand(kind: AgentKind, opts: LaunchOptions): Launch
         args: [...(resume ? ['--resume', resume.value] : []), ...modelArgs],
         cwd,
       }
+    case 'opencode': {
+      const modelFlag = model ? ['-m', model] : []
+      return {
+        cmd: 'opencode',
+        args: [...(resume ? ['--session', resume.value] : []), ...modelFlag],
+        cwd,
+      }
+    }
     case 'shell': {
       const shell = process.env.SHELL || '/bin/bash'
       return { cmd: shell, args: [], cwd }

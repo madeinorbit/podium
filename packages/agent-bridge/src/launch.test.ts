@@ -55,6 +55,29 @@ describe('agentLaunchCommand', () => {
     })
   })
 
+  it('spawns opencode fresh', () => {
+    expect(agentLaunchCommand('opencode', { cwd: '/w' })).toEqual({
+      cmd: 'opencode',
+      args: [],
+      cwd: '/w',
+    })
+  })
+
+  it('resumes opencode by session id', () => {
+    expect(
+      agentLaunchCommand('opencode', {
+        cwd: '/w',
+        resume: { kind: 'opencode-session', value: 'ses_abc' },
+      }),
+    ).toEqual({ cmd: 'opencode', args: ['--session', 'ses_abc'], cwd: '/w' })
+  })
+
+  it('passes model override to opencode', () => {
+    expect(
+      agentLaunchCommand('opencode', { cwd: '/w', model: 'openai/gpt-5.5' }),
+    ).toEqual({ cmd: 'opencode', args: ['-m', 'openai/gpt-5.5'], cwd: '/w' })
+  })
+
   it('threads cwd through unchanged', () => {
     expect(agentLaunchCommand('claude-code', { cwd: '/a/b/c' }).cwd).toBe('/a/b/c')
   })
