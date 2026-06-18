@@ -295,6 +295,10 @@ body:has(.mobile-shell) {
 .chat-md a {
   color: var(--primary);
 }
+.file-link {
+  text-decoration: underline;
+  cursor: pointer;
+}
 .chat-md blockquote {
   border-left: 2px solid var(--border);
   margin: 6px 0;

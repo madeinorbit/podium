@@ -530,6 +530,13 @@ const ChatBlockView = memo(function ChatBlockView({
       )}
       <div
         className="chat-md"
+        onClick={(e) => {
+          const a = (e.target as HTMLElement).closest('a.file-link') as HTMLElement | null
+          if (!a) return
+          e.preventDefault()
+          const p = a.getAttribute('data-path')
+          if (p) openFile(sessionId, resolveAgainstCwd(cwd, p))
+        }}
         // biome-ignore lint/security/noDangerouslySetInnerHtml: sanitized by DOMPurify above
         dangerouslySetInnerHTML={{ __html: html }}
       />
