@@ -17,10 +17,14 @@ import { CSS } from '@dnd-kit/utilities'
 import type { SessionMeta } from '@podium/protocol'
 import { Pin, X } from 'lucide-react'
 import type { JSX } from 'react'
-import { useEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { AgentPanel } from './AgentPanel'
+
+const FileEditorPanel = lazy(() =>
+  import('./FileEditorPanel').then((m) => ({ default: m.FileEditorPanel })),
+)
 import {
   agentColorHex,
   orderTabs,
@@ -48,6 +52,7 @@ export function Workspace(): JSX.Element {
     split,
     toggleSplit,
     killSession,
+    editorFile,
   } = store
   // A session created via the "+" menu (or restored from localStorage on reload)
   // lands in `paneA` before the server's broadcast adds it to `tabs`. Without this,
@@ -195,6 +200,11 @@ export function Workspace(): JSX.Element {
           </div>
         )}
       </div>
+      {editorFile && (
+        <Suspense fallback={null}>
+          <FileEditorPanel />
+        </Suspense>
+      )}
     </section>
   )
 }
