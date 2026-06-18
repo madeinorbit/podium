@@ -910,20 +910,34 @@ export function FileEditorPanel(): JSX.Element | null {
 }
 ```
 
-- [ ] **Step 7: Mount the overlay in Workspace**
+- [ ] **Step 7: Mount the overlay in Workspace — LAZY, so CodeMirror stays out of the first-paint bundle**
 
-In `apps/web/src/Workspace.tsx`, import the panel and render it after the deck `</div>` (~line 197), inside the relatively-positioned container so `absolute inset-0` overlays the deck:
+In `apps/web/src/Workspace.tsx`, lazy-load the panel and mount it only when a file is open. This is what keeps CodeMirror in a separate chunk (the Global Constraint). Import `lazy`, `Suspense` from `react` and `useStore` (if not already imported), and define the lazy component at module scope (the panel keeps its named export, so map it to `default`):
 
 ```tsx
-import { FileEditorPanel } from './FileEditorPanel'
+import { lazy, Suspense } from 'react'
+
+const FileEditorPanel = lazy(() =>
+  import('./FileEditorPanel').then((m) => ({ default: m.FileEditorPanel })),
+)
+```
+
+Render it after the deck `</div>` (~line 197), gated on `editorFile` from the store so the chunk only loads when a file is actually opened:
+
+```tsx
+  const { editorFile } = useStore()
 ```
 
 ```tsx
         </div>
-        <FileEditorPanel />
+        {editorFile && (
+          <Suspense fallback={null}>
+            <FileEditorPanel />
+          </Suspense>
+        )}
 ```
 
-Ensure the immediate parent wrapping the deck is `relative` (add `relative` to its className if missing).
+Ensure the immediate parent wrapping the deck is `relative` (add `relative` to its className if missing) so the panel's `absolute inset-0` overlays the deck. Because the mount is gated on `editorFile`, the panel always sees a non-null `editorFile`; its internal `if (!editorFile) return null` guard stays as a safety net.
 
 - [ ] **Step 8: Build the web app to verify it compiles + bundles**
 
