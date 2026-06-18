@@ -49,6 +49,26 @@ export function claudeRecordToItems(record: unknown): TranscriptItem[] {
     if (!text.trim()) return []
     return [{ id: uuid ?? `sys-${ts ?? Math.random()}`, role: 'system', ts, text }]
   }
+  if (r.type === 'attachment') {
+    const att = (r as { attachment?: { type?: string; filename?: string } }).attachment
+    const sub = att?.type
+    if (
+      (sub === 'file' || sub === 'edited_text_file' || sub === 'compact_file_reference') &&
+      att?.filename
+    ) {
+      return [
+        {
+          id: `att-${att.filename}`,
+          role: 'user',
+          ts,
+          text: '',
+          toolPaths: [att.filename],
+          tags: [{ kind: 'file', label: att.filename.split('/').pop() ?? att.filename }],
+        },
+      ]
+    }
+    return []
+  }
   return []
 }
 
@@ -160,6 +180,7 @@ function assistantItems(
       // input so the chat renders an interactive question card instead of a
       // collapsed tool row, and preview the question text rather than a JSON blob.
       const isAsk = b.name === 'AskUserQuestion'
+      const paths = toolPathsFromInput(b.input)
       items.push({
         id: toolUseId ?? freshId('t'),
         role: 'tool',
@@ -169,6 +190,7 @@ function assistantItems(
         toolInput: isAsk ? askQuestionPreview(b.input) : toolInputPreview(b.input),
         ...(isAsk ? { toolInputJson: safeJsonString(b.input) } : {}),
         ...(toolUseId ? { toolUseId } : {}),
+        ...(paths.length ? { toolPaths: paths } : {}),
       })
     }
   }
@@ -189,6 +211,16 @@ function assistantItems(
     })
   }
   return items
+}
+
+const FILE_PATH_KEYS = ['file_path', 'path', 'notebook_path'] as const
+
+function toolPathsFromInput(input: unknown): string[] {
+  if (!input || typeof input !== 'object') return []
+  const rec = input as Record<string, unknown>
+  const out: string[] = []
+  for (const k of FILE_PATH_KEYS) if (typeof rec[k] === 'string') out.push(rec[k] as string)
+  return out
 }
 
 /** One-line, human-scannable summary of a tool input, biased to the fields that matter. */
