@@ -2,6 +2,7 @@ import { FitAddon } from '@xterm/addon-fit'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import { WebglAddon } from '@xterm/addon-webgl'
 import { type ITheme, Terminal } from '@xterm/xterm'
+import { type FileLinkConfig, makeFileLinkProvider } from './file-link-provider'
 // xterm renders its rows, cursor, selection overlay and the hidden char-measure /
 // helper-textarea elements relative to styles in this sheet. Without it the measure
 // element renders visibly (a stray row of `$`/`-`), the selection overlay detaches
@@ -57,6 +58,7 @@ export class TerminalView {
   // The live onData sink, kept so synthetic input (e.g. the Shift+Enter newline
   // we substitute below) flows through the exact same path as real keystrokes.
   private dataSink: ((data: string) => void) | undefined
+  private fileLinkConfig: FileLinkConfig | null = null
 
   constructor(opts: TerminalViewOptions = {}) {
     this.term = new Terminal({
@@ -93,6 +95,21 @@ export class TerminalView {
         window.open(uri, '_blank', 'noopener,noreferrer')
       }),
     )
+    // File-path link provider: styled, path-like runs that resolve to a known
+    // transcript path or a cwd-relative path become clickable. Caller configures
+    // this by calling setFileLinks(); until then the provider is a no-op.
+    this.term.registerLinkProvider(
+      makeFileLinkProvider(
+        () => this.term.buffer.active as unknown as import('./buffer-line').BufferLike,
+        () => this.fileLinkConfig,
+      ),
+    )
+  }
+
+  /** Configure (or clear) clickable file-path links. Highlighted, path-like runs
+   *  that resolve to a known path or a path under cwd become clickable. */
+  setFileLinks(cfg: FileLinkConfig | null): void {
+    this.fileLinkConfig = cfg
   }
 
   mount(el: HTMLElement): void {
