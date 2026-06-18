@@ -165,7 +165,8 @@ body:has(.mobile-shell) {
   flex-shrink: 0;
   align-items: center;
   gap: 4px;
-  padding: 3px 8px;
+  /* Extra right inset so the D-pad's right arrow isn't flush with the screen edge. */
+  padding: 3px 12px 3px 8px;
   background: var(--card);
   border-top: 1px solid var(--border);
 }
@@ -217,12 +218,6 @@ body:has(.mobile-shell) {
   border-color: var(--destructive);
   animation: conn-pulse 1.2s ease-in-out infinite;
 }
-/* Inset the arrow pad from the screen edge when voice input isn't available. */
-.key-actions .key-actions-spacer {
-  flex: 0 0 auto;
-  width: 36px;
-  height: 30px;
-}
 /* Blink-style arrow pad: one key, four arrows pointing outward; the aimed one lights white. */
 .arrow-pad {
   position: relative;
@@ -248,30 +243,54 @@ body:has(.mobile-shell) {
   position: absolute;
   /* The button owns the press/swipe gesture — glyphs must never swallow it. */
   pointer-events: none;
-  font-size: 9px;
-  line-height: 1;
   color: var(--muted-foreground);
   transition: color 0.05s ease;
 }
+.arrow-pad .ap::before {
+  content: '';
+  display: block;
+  width: 0;
+  height: 0;
+}
 .arrow-pad .ap.up {
-  top: 3px;
+  top: 4px;
   left: 50%;
   transform: translateX(-50%);
+}
+.arrow-pad .ap.up::before {
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-bottom: 5px solid currentColor;
 }
 .arrow-pad .ap.down {
-  bottom: 3px;
+  bottom: 4px;
   left: 50%;
   transform: translateX(-50%);
 }
+.arrow-pad .ap.down::before {
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 5px solid currentColor;
+}
 .arrow-pad .ap.left {
-  left: 4px;
+  left: 5px;
   top: 50%;
   transform: translateY(-50%);
 }
+.arrow-pad .ap.left::before {
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  border-right: 5px solid currentColor;
+}
 .arrow-pad .ap.right {
-  right: 4px;
+  right: 5px;
   top: 50%;
   transform: translateY(-50%);
+}
+.arrow-pad .ap.right::before {
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  border-left: 5px solid currentColor;
 }
 .arrow-pad .ap.on {
   color: #fff;

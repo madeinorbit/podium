@@ -9,10 +9,6 @@ import {
 import {
   Archive,
   ArrowDownToLine,
-  ChevronDown,
-  ChevronLeft,
-  ChevronRight,
-  ChevronUp,
   MessageSquareText,
   Mic,
   Moon,
@@ -311,10 +307,9 @@ export function AgentPanel({
               </Button>
             )}
           </div>
-          {/* Second key row above the soft-keyboard bar: submit/newline/paste, then the
-              Blink-style arrow D-pad, then voice. The D-pad sits left of the mic so
-              the right-pointing arrow isn't flush with the screen edge (hard to swipe
-              into). preventDefault on pointerdown keeps the terminal focused.
+          {/* Second key row above the soft-keyboard bar: submit/newline/paste +
+              voice, plus the Blink-style arrow D-pad. preventDefault on pointerdown
+              keeps the terminal focused so a tap doesn't drop the soft keyboard.
               Hidden until the first PTY frame lands — the key bar over a "Starting…"
               screen is just noise (and the D-pad floated oddly above the overlay). */}
           <div
@@ -345,8 +340,7 @@ export function AgentPanel({
             >
               Paste
             </button>
-            <ArrowPad onFire={sendKey} />
-            {voice.supported ? (
+            {voice.supported && (
               <button
                 type="button"
                 className={voice.listening ? 'key-mic active' : 'key-mic'}
@@ -357,10 +351,8 @@ export function AgentPanel({
               >
                 <Mic size={16} aria-hidden="true" />
               </button>
-            ) : (
-              // Keep the D-pad inset from the right edge when voice isn't available.
-              <span className="key-actions-spacer" aria-hidden="true" />
             )}
+            <ArrowPad onFire={sendKey} />
           </div>
           <div ref={toolbarRef} className={hasOutput ? 'toolbar' : 'toolbar kb-hidden'} />
         </>
@@ -493,20 +485,13 @@ function ArrowPad({ onFire }: { onFire: (key: SpecialKey) => void }): JSX.Elemen
       onPointerUp={stop}
       onPointerCancel={stop}
     >
-      {/* Flat Lucide chevrons (not emoji ▲▶▼◀, which render coloured/inconsistent
-          across platforms) — they inherit the .ap colour and light white when aimed. */}
-      <span className={active === 'up' ? 'ap up on' : 'ap up'}>
-        <ChevronUp size={13} aria-hidden="true" />
-      </span>
-      <span className={active === 'right' ? 'ap right on' : 'ap right'}>
-        <ChevronRight size={13} aria-hidden="true" />
-      </span>
-      <span className={active === 'down' ? 'ap down on' : 'ap down'}>
-        <ChevronDown size={13} aria-hidden="true" />
-      </span>
-      <span className={active === 'left' ? 'ap left on' : 'ap left'}>
-        <ChevronLeft size={13} aria-hidden="true" />
-      </span>
+      {/* CSS triangles — the classic Blink outward-pointing pad, monochrome on every
+          platform (emoji ▲▶▼◀ tint and scale inconsistently; Lucide chevrons read
+          too chunky in a 40×30 key). */}
+      <span className={active === 'up' ? 'ap up on' : 'ap up'} aria-hidden="true" />
+      <span className={active === 'right' ? 'ap right on' : 'ap right'} aria-hidden="true" />
+      <span className={active === 'down' ? 'ap down on' : 'ap down'} aria-hidden="true" />
+      <span className={active === 'left' ? 'ap left on' : 'ap left'} aria-hidden="true" />
     </button>
   )
 }
