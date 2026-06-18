@@ -22,6 +22,9 @@ import {
   claudeProjectSlug,
   codexRecordToItems,
   compareConversationSummaries,
+  cursorRecordToItems,
+  cursorSessionPaths,
+  type CursorStateObserver,
   findCodexRolloutPath,
   type GitDiscoveryDiagnostic,
   type GitRepositorySummary,
@@ -36,11 +39,13 @@ import {
   loadOpencodeTranscriptTail,
   type OpencodeStateObserver,
   observeCodexState,
+  observeCursorState,
   observeGrokState,
   observeOpencodeState,
   opencodeRowsToItems,
   openOpencodeDb,
   readTranscriptTail,
+  resolveCursorBin,
   resolveOpencodeBin,
   reduceAgentState,
   scanAgentConversationsCached,
@@ -257,6 +262,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
   // that discovers the rollout file, tails it for state, and feeds the chat tail.
   const codexStateObservers = new Map<string, { stop(): void }>()
   const opencodeStateObservers = new Map<string, OpencodeStateObserver>()
+  const cursorStateObservers = new Map<string, CursorStateObserver>()
   const ensureTranscriptTail = (
     sessionId: string,
     path: string,
@@ -296,6 +302,10 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
   const stopOpencodeStateObserver = (sessionId: string): void => {
     opencodeStateObservers.get(sessionId)?.stop()
     opencodeStateObservers.delete(sessionId)
+  }
+  const stopCursorStateObserver = (sessionId: string): void => {
+    cursorStateObservers.get(sessionId)?.stop()
+    cursorStateObservers.delete(sessionId)
   }
   const applyAgentStateEvents = (sessionId: string, events: AgentStateEvent[]): void => {
     const tracker = trackers.get(sessionId)
@@ -365,6 +375,43 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
   // passes undefined → the observer searches without a freshness floor and finds
   // the live session's existing (idle, older-mtime) rollout. Mirrors how the Grok
   // observer scopes its search on spawn but not on reattach.
+  const tailCursorTranscript = (sessionId: string, cwd: string, chatId: string): void => {
+    ensureTranscriptTail(
+      sessionId,
+      cursorSessionPaths({
+        cwd,
+        chatId,
+        ...(opts.discovery?.homeDir ? { homeDir: opts.discovery.homeDir } : {}),
+      }).transcriptPath,
+      cursorRecordToItems,
+    )
+  }
+  const startCursorStateObserver = (
+    sessionId: string,
+    cwd: string,
+    resumeValue: string | undefined,
+    startedAtMs = Date.now(),
+  ): void => {
+    stopCursorStateObserver(sessionId)
+    cursorStateObservers.set(
+      sessionId,
+      observeCursorState({
+        cwd,
+        ...(resumeValue ? { resumeValue } : {}),
+        ...(opts.discovery?.homeDir ? { homeDir: opts.discovery.homeDir } : {}),
+        startedAtMs,
+        onSession: (chatId) => {
+          send({
+            type: 'sessionResumeRef',
+            sessionId,
+            resume: { kind: 'cursor-chat', value: chatId },
+          })
+          tailCursorTranscript(sessionId, cwd, chatId)
+        },
+        onEvents: (events) => applyAgentStateEvents(sessionId, events),
+      }),
+    )
+  }
   const startOpencodeStateObserver = (
     sessionId: string,
     cwd: string,
@@ -425,6 +472,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     const isGrok = msg.agentKind === 'grok' || msg.resume.kind === 'grok-session'
     const isCodex = msg.agentKind === 'codex' || msg.resume.kind === 'codex-thread'
     const isOpencode = msg.agentKind === 'opencode' || msg.resume.kind === 'opencode-session'
+    const isCursor = msg.agentKind === 'cursor' || msg.resume.kind === 'cursor-chat'
     let items: TranscriptItem[] = []
     if (isOpencode) {
       const db = openOpencodeDb(opts.discovery?.homeDir)
@@ -438,6 +486,13 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
         ...(opts.discovery?.homeDir ? { homeDir: opts.discovery.homeDir } : {}),
       })
       items = path ? await readTranscriptTail(path, codexRecordToItems) : []
+    } else if (isCursor) {
+      const path = cursorSessionPaths({
+        cwd: msg.cwd,
+        chatId: msg.resume.value,
+        ...(opts.discovery?.homeDir ? { homeDir: opts.discovery.homeDir } : {}),
+      }).transcriptPath
+      items = await readTranscriptTail(path, cursorRecordToItems)
     } else {
       const path = isGrok
         ? grokSessionPaths({
@@ -569,6 +624,9 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
       startCodexStateObserver(msg.sessionId, msg.cwd, init.grokStartedAt)
     } else if (msg.agentKind === 'opencode') {
       startOpencodeStateObserver(msg.sessionId, msg.cwd, msg.resume?.value, init.grokStartedAt)
+    } else if (msg.agentKind === 'cursor') {
+      startCursorStateObserver(msg.sessionId, msg.cwd, msg.resume?.value, init.grokStartedAt)
+      if (msg.resume) tailCursorTranscript(msg.sessionId, msg.cwd, msg.resume.value)
     } else if (msg.agentKind === 'claude-code' && msg.resume) {
       tailResumeTranscript(msg.sessionId, msg.cwd, msg.resume.value)
     }
@@ -696,6 +754,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
       stopGrokStateObserver(sessionId)
       stopCodexStateObserver(sessionId)
       stopOpencodeStateObserver(sessionId)
+      stopCursorStateObserver(sessionId)
       // The agent's gone — stop polling its (now frozen) transcript file.
       stopTranscriptTail(sessionId)
       // The attach CLIENT exiting is NOT the AGENT exiting. disposeAll() on a
@@ -895,6 +954,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
         stopGrokStateObserver(msg.sessionId)
         stopCodexStateObserver(msg.sessionId)
         stopOpencodeStateObserver(msg.sessionId)
+        stopCursorStateObserver(msg.sessionId)
         stopTranscriptTail(msg.sessionId)
         if (session) {
           session.dispose()
@@ -1038,7 +1098,9 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
           ? 'codex'
           : msg.agent === 'opencode'
             ? resolveOpencodeBin()
-            : 'grok'
+            : msg.agent === 'cursor'
+              ? resolveCursorBin()
+              : 'grok'
     const args =
       msg.agent === 'claude-code'
         ? ['-p', msg.prompt, ...(msg.model ? ['--model', msg.model] : [])]
@@ -1051,7 +1113,9 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
             ]
           : msg.agent === 'opencode'
             ? ['run', ...(msg.model ? ['-m', msg.model] : []), msg.prompt]
-            : ['-p', msg.prompt, ...(msg.model ? ['--model', msg.model] : [])]
+            : msg.agent === 'cursor'
+              ? ['-p', msg.prompt, ...(msg.model ? ['--model', msg.model] : [])]
+              : ['-p', msg.prompt, ...(msg.model ? ['--model', msg.model] : [])]
     try {
       const { stdout } = await execFileAsync(cmd, args, {
         timeout: 240_000,
@@ -1092,6 +1156,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     for (const id of [...grokStateObservers.keys()]) stopGrokStateObserver(id)
     for (const id of [...codexStateObservers.keys()]) stopCodexStateObserver(id)
     for (const id of [...opencodeStateObservers.keys()]) stopOpencodeStateObserver(id)
+    for (const id of [...cursorStateObservers.keys()]) stopCursorStateObserver(id)
     trackers.clear()
   }
 

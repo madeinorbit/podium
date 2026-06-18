@@ -517,7 +517,7 @@ export class SuperagentService {
           parameters: {
             type: 'object',
             properties: {
-              agentKind: { type: 'string', enum: ['claude-code', 'codex', 'grok', 'opencode', 'shell'] },
+              agentKind: { type: 'string', enum: ['claude-code', 'codex', 'grok', 'opencode', 'cursor', 'shell'] },
               cwd: { type: 'string', description: 'absolute worktree/repo path' },
               name: { type: 'string', description: 'optional display name' },
               firstMessage: {
@@ -743,12 +743,13 @@ function str(v: unknown): string | undefined {
 function num(v: unknown): number | undefined {
   return typeof v === 'number' && Number.isFinite(v) ? v : undefined
 }
-function isAgentKind(v: unknown): v is 'claude-code' | 'codex' | 'grok' | 'opencode' | 'shell' {
+function isAgentKind(v: unknown): v is 'claude-code' | 'codex' | 'grok' | 'opencode' | 'cursor' | 'shell' {
   return (
     v === 'claude-code' ||
     v === 'codex' ||
     v === 'grok' ||
     v === 'opencode' ||
+    v === 'cursor' ||
     v === 'shell'
   )
 }

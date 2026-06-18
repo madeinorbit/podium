@@ -1,4 +1,5 @@
 import type { AgentKind, ResumeRef } from '@podium/protocol'
+import { resolveCursorBin } from './cursor/cli.js'
 import { resolveOpencodeBin } from './opencode/cli.js'
 
 export interface LaunchOptions {
@@ -48,6 +49,14 @@ export function agentLaunchCommand(kind: AgentKind, opts: LaunchOptions): Launch
       return {
         cmd: resolveOpencodeBin(),
         args: [...(resume ? ['--session', resume.value] : []), ...modelFlag],
+        cwd,
+      }
+    }
+    case 'cursor': {
+      const modelArgs = model ? ['--model', model] : []
+      return {
+        cmd: resolveCursorBin(),
+        args: [...(resume ? ['--resume', resume.value] : []), ...modelArgs],
         cwd,
       }
     }

@@ -20,6 +20,7 @@ describe('defaultChatCapable', () => {
     expect(defaultChatCapable('grok')).toBe(true)
     expect(defaultChatCapable('codex')).toBe(true)
     expect(defaultChatCapable('opencode')).toBe(true)
+    expect(defaultChatCapable('cursor')).toBe(true)
     expect(defaultChatCapable('shell')).toBe(false)
   })
 })

@@ -3,7 +3,7 @@ import { SquareChevronRight } from 'lucide-react'
 import type React from 'react'
 import type { JSX } from 'react'
 import { panelLabel } from './derive'
-import { ClaudeCodeIcon, GrokIcon, OpenAIcon, OpenCodeIcon } from './icons/AgentIcons'
+import { ClaudeCodeIcon, CursorIcon, GrokIcon, OpenAIcon, OpenCodeIcon } from './icons/AgentIcons'
 
 /**
  * Strip a leading status/spinner glyph from a live terminal title. Claude Code
@@ -68,6 +68,7 @@ const KIND_ICON: Record<AgentKind, IconComponent> = {
   codex: OpenAIcon,
   grok: GrokIcon,
   opencode: OpenCodeIcon,
+  cursor: CursorIcon,
   shell: SquareChevronRight,
 }
 

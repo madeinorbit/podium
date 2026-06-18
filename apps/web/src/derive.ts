@@ -64,6 +64,8 @@ export function panelLabel(agentKind: AgentKind): string {
       return 'Grok'
     case 'opencode':
       return 'OpenCode'
+    case 'cursor':
+      return 'Cursor'
     case 'shell':
       return 'Shell'
     default: {
@@ -84,7 +86,8 @@ export function defaultChatCapable(agentKind: AgentKind): boolean {
     agentKind === 'claude-code' ||
     agentKind === 'grok' ||
     agentKind === 'codex' ||
-    agentKind === 'opencode'
+    agentKind === 'opencode' ||
+    agentKind === 'cursor'
   )
 }
 

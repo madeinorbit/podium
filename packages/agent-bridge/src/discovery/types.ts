@@ -1,6 +1,6 @@
 import type { Stats } from 'node:fs'
 
-export type AgentKind = 'codex' | 'claude-code' | 'grok' | 'opencode'
+export type AgentKind = 'codex' | 'claude-code' | 'grok' | 'opencode' | 'cursor'
 
 export type AgentConversationRole = 'user' | 'assistant' | 'system' | 'tool' | 'unknown'
 

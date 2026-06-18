@@ -12,7 +12,7 @@ export const Viewport = z.object({
 })
 export type Viewport = z.infer<typeof Viewport>
 
-export const AgentKind = z.enum(['claude-code', 'codex', 'grok', 'opencode', 'shell'])
+export const AgentKind = z.enum(['claude-code', 'codex', 'grok', 'opencode', 'cursor', 'shell'])
 export type AgentKind = z.infer<typeof AgentKind>
 
 export const ResumeRef = z.object({ kind: z.string(), value: z.string() })
@@ -528,7 +528,7 @@ export const RepoOpRequestMessage = z.object({
 export const HarnessExecRequestMessage = z.object({
   type: z.literal('harnessExecRequest'),
   requestId: z.string(),
-  agent: z.enum(['claude-code', 'codex', 'grok', 'opencode']),
+  agent: z.enum(['claude-code', 'codex', 'grok', 'opencode', 'cursor']),
   model: z.string().optional(),
   prompt: z.string(),
   cwd: z.string().optional(),

@@ -172,6 +172,7 @@ export function SettingsView(): JSX.Element {
                       <SelectItem value="codex">Codex</SelectItem>
                       <SelectItem value="grok">Grok</SelectItem>
                       <SelectItem value="opencode">OpenCode</SelectItem>
+                      <SelectItem value="cursor">Cursor</SelectItem>
                     </SelectContent>
                   </Select>
                 </Row>
@@ -599,6 +600,7 @@ function BackendEditor({
                 <SelectItem value="claude-code">Claude Code</SelectItem>
                 <SelectItem value="grok">Grok</SelectItem>
                 <SelectItem value="opencode">OpenCode</SelectItem>
+                <SelectItem value="cursor">Cursor</SelectItem>
               </SelectContent>
             </Select>
           </Row>

@@ -12,7 +12,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { reposToViews } from './derive'
 import { relativeTime } from './home'
-import { ClaudeCodeIcon, GrokIcon, OpenAIcon, OpenCodeIcon } from './icons/AgentIcons'
+import { ClaudeCodeIcon, CursorIcon, GrokIcon, OpenAIcon, OpenCodeIcon } from './icons/AgentIcons'
 import { useStore } from './store'
 import type { WorktreeView } from './types'
 import { type ConversationHit, useConversationSearch } from './useConversationSearch'
@@ -24,6 +24,7 @@ const NEW_AGENTS: { kind: AgentKind; label: string; Icon: IconComponent }[] = [
   { kind: 'codex', label: 'New Codex', Icon: OpenAIcon },
   { kind: 'grok', label: 'New Grok', Icon: GrokIcon },
   { kind: 'opencode', label: 'New OpenCode', Icon: OpenCodeIcon },
+  { kind: 'cursor', label: 'New Cursor', Icon: CursorIcon },
   { kind: 'shell', label: 'New Shell', Icon: SquareTerminal },
 ]
 

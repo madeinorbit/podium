@@ -7,6 +7,7 @@ import {
   classifyClaudeTranscriptDeterministically,
   type ClaudeTranscriptFeatures,
 } from './claude-code-classifier.js'
+import { cursorStateProvider } from './cursor.js'
 import type { DeterministicAgentState } from './deterministic.js'
 import { grokStateProvider } from './grok.js'
 import { opencodeStateProvider } from './opencode.js'
@@ -253,5 +254,6 @@ export function agentStateProviderFor(kind: AgentKind): AgentStateProvider | und
   if (kind === 'grok') return grokStateProvider
   if (kind === 'codex') return codexStateProvider
   if (kind === 'opencode') return opencodeStateProvider
+  if (kind === 'cursor') return cursorStateProvider
   return undefined
 }

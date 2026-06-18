@@ -67,6 +67,7 @@ describe('agentStateProviderFor', () => {
     expect(agentStateProviderFor('codex')).toBe(codexStateProvider)
     expect(agentStateProviderFor('grok')).toBe(grokStateProvider)
     expect(agentStateProviderFor('opencode')).toBeDefined()
+    expect(agentStateProviderFor('cursor')).toBeDefined()
     expect(agentStateProviderFor('shell')).toBeUndefined()
   })
 })

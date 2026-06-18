@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { agentLaunchCommand } from './launch'
+import { resolveCursorBin } from './cursor/cli.js'
 import { resolveOpencodeBin } from './opencode/cli.js'
 
 describe('agentLaunchCommand', () => {
@@ -77,6 +78,31 @@ describe('agentLaunchCommand', () => {
     expect(agentLaunchCommand('opencode', { cwd: '/w', model: 'openai/gpt-5.5' })).toEqual({
       cmd: resolveOpencodeBin(),
       args: ['-m', 'openai/gpt-5.5'],
+      cwd: '/w',
+    })
+  })
+
+  it('spawns cursor fresh with a resolved binary path', () => {
+    expect(agentLaunchCommand('cursor', { cwd: '/w' })).toEqual({
+      cmd: resolveCursorBin(),
+      args: [],
+      cwd: '/w',
+    })
+  })
+
+  it('resumes cursor by chat id', () => {
+    expect(
+      agentLaunchCommand('cursor', {
+        cwd: '/w',
+        resume: { kind: 'cursor-chat', value: 'chat-9' },
+      }),
+    ).toEqual({ cmd: resolveCursorBin(), args: ['--resume', 'chat-9'], cwd: '/w' })
+  })
+
+  it('passes model override to cursor', () => {
+    expect(agentLaunchCommand('cursor', { cwd: '/w', model: 'composer-2.5' })).toEqual({
+      cmd: resolveCursorBin(),
+      args: ['--model', 'composer-2.5'],
       cwd: '/w',
     })
   })
