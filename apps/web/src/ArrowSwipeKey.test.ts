@@ -77,12 +77,12 @@ describe('speed model', () => {
     const slow = repeatCps('right', 40, 44, true, true, 300)
     const fast = repeatCps('right', 40, 44, true, true, 1200)
     expect(fast).toBeGreaterThan(slow)
-    expect(fast).toBeCloseTo(14, 0)
+    expect(fast).toBeCloseTo(15, 0)
   })
 
   it('uses conservative terminal vertical caps', () => {
     const up = repeatCps('up', 60, 60, false, false, 0)
-    expect(up).toBeLessThanOrEqual(7.1)
+    expect(up).toBeLessThanOrEqual(8.1)
   })
 })
 
@@ -115,7 +115,7 @@ describe('ArrowSwipeEngine', () => {
       onEmit: (d) => emitted.push(d),
       onVisualChange: () => {},
     })
-    engine.touchDown(200, 400, 0, { x: 200, y: 400 })
+    engine.touchDown(200, 400, 0, { x: 200, top: 370, width: 40 })
     let t = 10
     for (const [dx, dy] of moves) {
       engine.touchMove(200 + dx, 400 - dy, t)
@@ -145,7 +145,7 @@ describe('ArrowSwipeEngine', () => {
       onEmit: (d) => emitted.push(d),
       onVisualChange: () => {},
     })
-    engine.touchDown(200, 400, 0, { x: 200, y: 400 })
+    engine.touchDown(200, 400, 0, { x: 200, top: 370, width: 40 })
     engine.touchMove(220, 400, 16)
     engine.touchEnd(32)
     engine.dispose()
@@ -158,7 +158,7 @@ describe('ArrowSwipeEngine', () => {
       onEmit: (d) => emitted.push(d),
       onVisualChange: () => {},
     })
-    engine.touchDown(200, 400, 0, { x: 200, y: 400 })
+    engine.touchDown(200, 400, 0, { x: 200, top: 370, width: 40 })
     engine.touchMove(240, 400, 16)
     engine.advanceTime(500)
     engine.touchEnd(520)

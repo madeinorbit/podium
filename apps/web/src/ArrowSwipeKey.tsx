@@ -40,7 +40,8 @@ export interface VisualState {
   edgeHold: boolean
   pulseToken: number
   overlayX: number
-  overlayY: number
+  keyTop: number
+  keyWidth: number
 }
 
 const CFG = {
@@ -62,17 +63,16 @@ const CFG = {
   firstRepeatDelayNearMs: 380,
   firstRepeatDelayFarMs: 200,
   horizontalMinCps: 2.5,
-  horizontalMaxCps: 11,
+  horizontalMaxCps: 13,
   verticalMinCps: 2.5,
-  verticalMaxCps: 7,
+  verticalMaxCps: 8,
   constrainedDistanceMaxCps: 8,
   edgeHoldDelayMs: 300,
   edgeRampDurationMs: 700,
   edgeHoldNormalCps: 8,
-  edgeHoldFastCps: 14,
+  edgeHoldFastCps: 15,
   speedUpSmoothingMs: 50,
   slowDownSmoothingMs: 10,
-  minHitPx: 44,
 } as const
 
 const clamp = (v: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, v))
@@ -245,7 +245,8 @@ export class ArrowSwipeEngine {
   private speedP: number = 0
   private pulseToken = 0
   private overlayX = 0
-  private overlayY = 0
+  private keyTop = 0
+  private keyWidth = 40
   private rafId = 0
   private viewportW = 0
   private viewportH = 0
@@ -256,7 +257,12 @@ export class ArrowSwipeEngine {
     return this.activeDirection
   }
 
-  touchDown(clientX: number, clientY: number, now: number, overlayAnchor: { x: number; y: number }): void {
+  touchDown(
+    clientX: number,
+    clientY: number,
+    now: number,
+    overlayAnchor: { x: number; top: number; width: number },
+  ): void {
     this.fingerDown = true
     this.originX = clientX
     this.originY = clientY
@@ -272,7 +278,8 @@ export class ArrowSwipeEngine {
     this.lastTickAt = now
     this.smoothedCps = CFG.horizontalMinCps
     this.overlayX = overlayAnchor.x
-    this.overlayY = overlayAnchor.y
+    this.keyTop = overlayAnchor.top
+    this.keyWidth = overlayAnchor.width
     this.viewportW = typeof window !== 'undefined' ? window.innerWidth : 400
     this.viewportH = typeof window !== 'undefined' ? window.innerHeight : 800
     this.maxes = computeUsableMaxes(this.originX, this.originY, this.viewportW, this.viewportH)
@@ -537,9 +544,26 @@ export class ArrowSwipeEngine {
       edgeHold: this.edgeHold,
       pulseToken: this.pulseToken,
       overlayX: this.overlayX,
-      overlayY: this.overlayY,
+      keyTop: this.keyTop,
+      keyWidth: this.keyWidth,
     })
   }
+}
+
+function glyphMotion(
+  active: ArrowDirection | null,
+  dir: ArrowDirection,
+  speedP: number,
+  edgeHold: boolean,
+): CSSProperties | undefined {
+  if (active !== dir) return undefined
+  const stem = 3 + Math.round(speedP * 16)
+  const edgeBoost = edgeHold && dir === 'right' ? 4 : 0
+  const zoom = 1 + speedP * 0.22
+  return {
+    '--ask-stem': `${stem + edgeBoost}px`,
+    '--ask-zoom': String(zoom),
+  } as CSSProperties
 }
 
 function DpadGlyphs({
@@ -547,39 +571,33 @@ function DpadGlyphs({
   speedP,
   edgeHold,
   pulseToken,
-  size = 'key',
+  variant = 'key',
 }: {
   active: ArrowDirection | null
   speedP: number
   edgeHold: boolean
   pulseToken: number
-  size?: 'key' | 'overlay'
+  variant?: 'key' | 'float'
 }): JSX.Element {
-  const stem = size === 'overlay' ? 4 + Math.round(speedP * 14) : 0
-  const edgeBoost = edgeHold && active === 'right' ? 4 : 0
   const cls = (dir: ArrowDirection): string => {
     const on = active === dir
-    const pulse = on ? ` ask-pulse-${pulseToken % 3}` : ''
-    return on ? `ask-g ${dir} on${pulse}` : active ? `ask-g ${dir} dim` : `ask-g ${dir}`
-  }
-  const stemStyle = (dir: ArrowDirection): CSSProperties | undefined => {
-    if (active !== dir || size === 'key') return undefined
-    const len = stem + (dir === 'right' && edgeHold ? edgeBoost : 0)
-    return { '--ask-stem': `${len}px` } as CSSProperties
+    const pulse = on && variant === 'float' ? ` ask-pulse-${pulseToken % 2}` : ''
+    if (on) return `ask-g ${dir} on${pulse}`
+    return active ? `ask-g ${dir} dim` : `ask-g ${dir}`
   }
 
   return (
     <>
-      <span className={cls('up')} style={stemStyle('up')} aria-hidden="true">
+      <span className={cls('up')} style={glyphMotion(active, 'up', speedP, edgeHold)} aria-hidden="true">
         <i />
       </span>
-      <span className={cls('right')} style={stemStyle('right')} aria-hidden="true">
+      <span className={cls('right')} style={glyphMotion(active, 'right', speedP, edgeHold)} aria-hidden="true">
         <i />
       </span>
-      <span className={cls('down')} style={stemStyle('down')} aria-hidden="true">
+      <span className={cls('down')} style={glyphMotion(active, 'down', speedP, edgeHold)} aria-hidden="true">
         <i />
       </span>
-      <span className={cls('left')} style={stemStyle('left')} aria-hidden="true">
+      <span className={cls('left')} style={glyphMotion(active, 'left', speedP, edgeHold)} aria-hidden="true">
         <i />
       </span>
       <span className="ask-center" aria-hidden="true" />
@@ -591,14 +609,10 @@ const ARROW_SWIPE_STYLES = `
 .ask-key {
   position: relative;
   isolation: isolate;
-  overflow: visible;
   flex: 0 0 auto;
   width: 40px;
   height: 30px;
-  min-width: ${CFG.minHitPx}px;
-  min-height: ${CFG.minHitPx}px;
   padding: 0;
-  margin: -7px 0;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--secondary);
@@ -611,6 +625,16 @@ const ARROW_SWIPE_STYLES = `
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  overflow: hidden;
+}
+.ask-key::before {
+  content: '';
+  position: absolute;
+  inset: -7px -2px;
+}
+.ask-key.holding {
+  background: color-mix(in srgb, var(--secondary) 70%, var(--card));
+  border-color: color-mix(in srgb, var(--border) 65%, var(--primary));
 }
 .ask-key .ask-g {
   position: absolute;
@@ -661,76 +685,131 @@ const ARROW_SWIPE_STYLES = `
   opacity: 0.55;
   pointer-events: none;
 }
-.ask-overlay {
+.ask-float {
   position: fixed;
   z-index: 60;
-  width: 60px;
-  height: 60px;
-  margin-left: -30px;
-  margin-top: -68px;
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--card) 88%, transparent);
-  border: 1px solid var(--border);
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.28);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
   pointer-events: none;
   opacity: 0;
-  transform: scale(0.92);
-  transition: opacity 0.1s ease, transform 0.1s ease;
+  transform: translateX(-50%) translateY(6px) scale(0.94);
+  transition: opacity 0.1s ease, transform 0.12s ease;
 }
-.ask-overlay.visible {
+.ask-float.visible {
   opacity: 1;
-  transform: scale(1);
+  transform: translateX(-50%) translateY(0) scale(1);
 }
-.ask-overlay .ask-g {
+.ask-float-bubble {
+  position: relative;
+  width: 68px;
+  height: 68px;
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--card) 92%, transparent);
+  border: 1px solid var(--border);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.3);
+}
+.ask-float-neck {
+  width: var(--ask-neck-w, 28px);
+  height: 26px;
+  margin-top: -1px;
+  overflow: visible;
+}
+.ask-float-neck svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.ask-float-neck path {
+  fill: color-mix(in srgb, var(--card) 92%, transparent);
+  stroke: var(--border);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+.ask-float .ask-g {
   position: absolute;
   pointer-events: none;
   color: var(--muted-foreground);
-  transition: color 0.05s ease, opacity 0.05s ease;
+  transition: color 0.05s ease, opacity 0.05s ease, transform 0.08s ease;
 }
-.ask-overlay .ask-g.dim { opacity: 0.22; }
-.ask-overlay .ask-g.on { color: #fff; }
-.ask-overlay .ask-g.up { top: 8px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; }
-.ask-overlay .ask-g.down { bottom: 8px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column-reverse; align-items: center; }
-.ask-overlay .ask-g.left { left: 8px; top: 50%; transform: translateY(-50%); display: flex; flex-direction: row-reverse; align-items: center; }
-.ask-overlay .ask-g.right { right: 8px; top: 50%; transform: translateY(-50%); display: flex; flex-direction: row; align-items: center; }
-.ask-overlay .ask-g i {
+.ask-float .ask-g.dim { opacity: 0.22; }
+.ask-float .ask-g.on { color: #fff; }
+.ask-float .ask-g i {
   display: block;
   flex: 0 0 auto;
   width: 0;
   height: 0;
 }
-.ask-overlay .ask-g.up i {
-  border-left: 5px solid transparent;
-  border-right: 5px solid transparent;
-  border-bottom: 6px solid currentColor;
-}
-.ask-overlay .ask-g.down i {
-  border-left: 5px solid transparent;
-  border-right: 5px solid transparent;
-  border-top: 6px solid currentColor;
-}
-.ask-overlay .ask-g.left i {
-  border-top: 5px solid transparent;
-  border-bottom: 5px solid transparent;
-  border-right: 6px solid currentColor;
-}
-.ask-overlay .ask-g.right i {
-  border-top: 5px solid transparent;
-  border-bottom: 5px solid transparent;
-  border-left: 6px solid currentColor;
-}
-.ask-overlay .ask-g::after {
+.ask-float .ask-g::after {
   content: '';
   display: block;
+  flex: 0 0 auto;
   background: currentColor;
   opacity: 0.65;
   border-radius: 1px;
 }
-.ask-overlay .ask-g.up::after,
-.ask-overlay .ask-g.down::after { width: 2px; height: var(--ask-stem, 0px); }
-.ask-overlay .ask-g.left::after,
-.ask-overlay .ask-g.right::after { height: 2px; width: var(--ask-stem, 0px); }
-.ask-overlay .ask-center {
+/* Head sits on the outer edge; stem grows inward toward center (same for all dirs). */
+.ask-float .ask-g.up {
+  top: 9px;
+  left: 50%;
+  transform: translateX(-50%) scale(var(--ask-zoom, 1));
+  transform-origin: center top;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.ask-float .ask-g.up::after { width: 2px; height: var(--ask-stem, 0px); }
+.ask-float .ask-g.up i {
+  border-left: 5px solid transparent;
+  border-right: 5px solid transparent;
+  border-bottom: 6px solid currentColor;
+}
+.ask-float .ask-g.down {
+  bottom: 9px;
+  left: 50%;
+  transform: translateX(-50%) scale(var(--ask-zoom, 1));
+  transform-origin: center bottom;
+  display: flex;
+  flex-direction: column-reverse;
+  align-items: center;
+}
+.ask-float .ask-g.down::after { width: 2px; height: var(--ask-stem, 0px); }
+.ask-float .ask-g.down i {
+  border-left: 5px solid transparent;
+  border-right: 5px solid transparent;
+  border-top: 6px solid currentColor;
+}
+.ask-float .ask-g.left {
+  left: 9px;
+  top: 50%;
+  transform: translateY(-50%) scale(var(--ask-zoom, 1));
+  transform-origin: left center;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+}
+.ask-float .ask-g.left::after { height: 2px; width: var(--ask-stem, 0px); }
+.ask-float .ask-g.left i {
+  border-top: 5px solid transparent;
+  border-bottom: 5px solid transparent;
+  border-right: 6px solid currentColor;
+}
+.ask-float .ask-g.right {
+  right: 9px;
+  top: 50%;
+  transform: translateY(-50%) scale(var(--ask-zoom, 1));
+  transform-origin: right center;
+  display: flex;
+  flex-direction: row-reverse;
+  align-items: center;
+}
+.ask-float .ask-g.right::after { height: 2px; width: var(--ask-stem, 0px); }
+.ask-float .ask-g.right i {
+  border-top: 5px solid transparent;
+  border-bottom: 5px solid transparent;
+  border-left: 6px solid currentColor;
+}
+.ask-float .ask-center {
   position: absolute;
   left: 50%;
   top: 50%;
@@ -741,12 +820,16 @@ const ARROW_SWIPE_STYLES = `
   background: var(--muted-foreground);
   opacity: 0.5;
 }
-@keyframes ask-pulse-a { 50% { transform: translateX(-50%) scale(1.08); } }
-@keyframes ask-pulse-b { 50% { transform: translateY(-50%) scale(1.08); } }
-.ask-overlay .ask-g.up.on.ask-pulse-0 { animation: ask-pulse-a 0.12s ease; }
-.ask-overlay .ask-g.down.on.ask-pulse-0 { animation: ask-pulse-a 0.12s ease; }
-.ask-overlay .ask-g.left.on.ask-pulse-1 { animation: ask-pulse-b 0.12s ease; }
-.ask-overlay .ask-g.right.on.ask-pulse-1 { animation: ask-pulse-b 0.12s ease; }
+@keyframes ask-pulse-v {
+  50% { filter: brightness(1.2); }
+}
+@keyframes ask-pulse-h {
+  50% { filter: brightness(1.2); }
+}
+.ask-float .ask-g.up.on.ask-pulse-0,
+.ask-float .ask-g.down.on.ask-pulse-0 { animation: ask-pulse-v 0.12s ease; }
+.ask-float .ask-g.left.on.ask-pulse-1,
+.ask-float .ask-g.right.on.ask-pulse-1 { animation: ask-pulse-h 0.12s ease; }
 `
 
 export interface ArrowSwipeKeyProps {
@@ -766,7 +849,8 @@ export function ArrowSwipeKey({ onFire }: ArrowSwipeKeyProps): JSX.Element {
     edgeHold: false,
     pulseToken: 0,
     overlayX: 0,
-    overlayY: 0,
+    keyTop: 0,
+    keyWidth: 40,
   })
 
   const engineRef = useRef<ArrowSwipeEngine | null>(null)
@@ -781,11 +865,11 @@ export function ArrowSwipeKey({ onFire }: ArrowSwipeKeyProps): JSX.Element {
     return () => engine.dispose()
   }, [])
 
-  const overlayAnchor = (): { x: number; y: number } => {
+  const overlayAnchor = (): { x: number; top: number; width: number } => {
     const el = keyRef.current
-    if (!el) return { x: 0, y: 0 }
+    if (!el) return { x: 0, top: 0, width: 40 }
     const r = el.getBoundingClientRect()
-    return { x: r.left + r.width / 2, y: r.top + r.height / 2 }
+    return { x: r.left + r.width / 2, top: r.top, width: r.width }
   }
 
   const stop = (): void => {
@@ -799,7 +883,7 @@ export function ArrowSwipeKey({ onFire }: ArrowSwipeKeyProps): JSX.Element {
       <button
         type="button"
         ref={keyRef}
-        className="ask-key"
+        className={visual.overlayVisible ? 'ask-key holding' : 'ask-key'}
         aria-label="Arrow keys — touch and swipe toward a direction"
         onPointerDown={(e) => {
           e.preventDefault()
@@ -814,28 +898,41 @@ export function ArrowSwipeKey({ onFire }: ArrowSwipeKeyProps): JSX.Element {
         onPointerUp={stop}
         onPointerCancel={stop}
       >
-        <DpadGlyphs
-          active={visual.overlayVisible ? visual.activeDirection : null}
-          speedP={visual.speedP}
-          edgeHold={visual.edgeHold}
-          pulseToken={visual.pulseToken}
-          size="key"
-        />
+        {!visual.overlayVisible && (
+          <DpadGlyphs
+            active={null}
+            speedP={0}
+            edgeHold={false}
+            pulseToken={0}
+            variant="key"
+          />
+        )}
       </button>
       {typeof document !== 'undefined' &&
         createPortal(
           <div
-            className={visual.overlayVisible ? 'ask-overlay visible' : 'ask-overlay'}
-            style={{ left: visual.overlayX, top: visual.overlayY }}
+            className={visual.overlayVisible ? 'ask-float visible' : 'ask-float'}
+            style={{
+              left: visual.overlayX,
+              bottom: `calc(100vh - ${visual.keyTop}px)`,
+              ['--ask-neck-w' as string]: `${Math.max(22, Math.min(36, visual.keyWidth + 4))}px`,
+            }}
             aria-hidden="true"
           >
-            <DpadGlyphs
-              active={visual.activeDirection}
-              speedP={visual.speedP}
-              edgeHold={visual.edgeHold}
-              pulseToken={visual.pulseToken}
-              size="overlay"
-            />
+            <div className="ask-float-bubble">
+              <DpadGlyphs
+                active={visual.activeDirection}
+                speedP={visual.speedP}
+                edgeHold={visual.edgeHold}
+                pulseToken={visual.pulseToken}
+                variant="float"
+              />
+            </div>
+            <div className="ask-float-neck">
+              <svg viewBox="0 0 40 26" preserveAspectRatio="none" aria-hidden="true">
+                <path d="M3 0 H37 Q40 1 35 10 Q24 26 20 26 Q16 26 5 10 Q0 1 3 0 Z" />
+              </svg>
+            </div>
           </div>,
           document.body,
         )}
