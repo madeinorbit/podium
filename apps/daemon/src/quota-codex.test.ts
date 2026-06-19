@@ -25,7 +25,7 @@ describe('parseCodexRateLimits', () => {
       ['5h', 30, 300],
       ['weekly', 12, 10080],
     ])
-    expect(w[0].resetsAt).toBe(new Date(1_750_356_000 * 1000).toISOString())
+    expect(w[0]!.resetsAt).toBe(new Date(1_750_356_000 * 1000).toISOString())
   })
 })
 

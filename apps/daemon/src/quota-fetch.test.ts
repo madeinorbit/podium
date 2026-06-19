@@ -19,7 +19,7 @@ describe('makeQuotaFetcher', () => {
       ['claude-code', 'ok'],
       ['codex', 'error'],
     ])
-    expect(r[1].error).toContain('boom')
+    expect(r[1]!.error).toContain('boom')
   })
 
   it('serves a cached value within TTL and refetches after it / on refresh', async () => {
@@ -42,7 +42,7 @@ describe('makeQuotaFetcher', () => {
     const spy = vi.fn(async () => { throw new Error('blip') })
     const f = makeQuotaFetcher({ ttlMs: 100, now: () => t, fetchers: [{ agent: 'claude-code', fetch: spy }] })
     const r1 = await f.getAgentQuota()
-    expect(r1[0].status).toBe('error')
+    expect(r1[0]!.status).toBe('error')
     t = 1050 // still within TTL
     await f.getAgentQuota()
     expect(spy).toHaveBeenCalledTimes(2) // re-invoked because the error was not cached
