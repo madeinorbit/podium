@@ -32,9 +32,30 @@ type CacheRow = {
   summary_json: string
 }
 
+/**
+ * Outcome of a {@link ConversationDiscoveryCache.deleteMissing} call.
+ *
+ * - `skipped` is true when the steady-state short-circuit engaged: the seen-set
+ *   and scope were identical to the previous call and no rows were written since,
+ *   so no SQL was issued and no rows were touched.
+ * - `deleted` is the number of cache rows pruned (always 0 when `skipped`).
+ */
+export type DeleteMissingResult = {
+  skipped: boolean
+  deleted: number
+}
+
 export class ConversationDiscoveryCache {
   private readonly db: DatabaseSync
   private readonly schemaVersion: number
+  /** Bumped by every write so a no-op `deleteMissing` tick can short-circuit. */
+  private writeEpoch = 0
+  /** State of the most recent `deleteMissing` call, for the short-circuit. */
+  private lastPrune?: {
+    writeEpoch: number
+    scopeKey: string
+    seen: ReadonlySet<string>
+  }
 
   constructor(
     private readonly path: string = defaultDiscoveryDbPath(),
@@ -79,6 +100,7 @@ export class ConversationDiscoveryCache {
       this.schemaVersion,
       encodeSummary(summary),
     )
+    this.writeEpoch++
   }
 
   upsertMany(
@@ -108,6 +130,7 @@ export class ConversationDiscoveryCache {
       this.db.exec('ROLLBACK')
       throw error
     }
+    this.writeEpoch++
   }
 
   listSummaries(agentKinds?: readonly AgentKind[]): AgentConversationSummary[] {
@@ -129,16 +152,83 @@ export class ConversationDiscoveryCache {
     return summaries
   }
 
-  deleteMissing(existingPaths: ReadonlySet<string>, agentKinds?: readonly AgentKind[]): void {
-    const rows = this.db.prepare('SELECT path, agent_kind FROM conversation_cache').all() as {
-      path: string
-      agent_kind: AgentKind
-    }[]
-    const allowed = agentKinds ? new Set(agentKinds) : undefined
-    const deleteRow = this.db.prepare('DELETE FROM conversation_cache WHERE path = ?')
-    for (const row of rows) {
-      if (allowed && !allowed.has(row.agent_kind)) continue
-      if (!existingPaths.has(row.path)) deleteRow.run(row.path)
+  /**
+   * Prune cache rows whose `path` is absent from `existingPaths`, scoped (when
+   * `agentKinds` is given) to those kinds — rows of other kinds are never touched.
+   *
+   * The discovery scan calls this on every tick (~every 15s), and in steady state
+   * nothing has changed. To keep that no-op tick cheap we short-circuit when the
+   * seen-set and scope are identical to the previous call AND no rows were written
+   * since (tracked via {@link writeEpoch}); in that case zero SQL is issued.
+   *
+   * When work is needed the prune runs as a single set-difference DELETE against a
+   * temp table of the seen paths, rather than loading the whole table into JS.
+   */
+  deleteMissing(
+    existingPaths: ReadonlySet<string>,
+    agentKinds?: readonly AgentKind[],
+  ): DeleteMissingResult {
+    const scopeKey = agentKinds ? [...agentKinds].sort().join('\0') : '*'
+
+    if (
+      this.lastPrune &&
+      this.lastPrune.writeEpoch === this.writeEpoch &&
+      this.lastPrune.scopeKey === scopeKey &&
+      sameSet(this.lastPrune.seen, existingPaths)
+    ) {
+      return { skipped: true, deleted: 0 }
+    }
+
+    const allowed = agentKinds ? [...new Set(agentKinds)] : undefined
+    const deleted = this.runPrune(existingPaths, allowed)
+
+    // Record the converged state so the next identical tick can short-circuit.
+    // Snapshot the seen-set since the caller may mutate/reuse theirs.
+    this.lastPrune = {
+      writeEpoch: this.writeEpoch,
+      scopeKey,
+      seen: new Set(existingPaths),
+    }
+
+    return { skipped: false, deleted }
+  }
+
+  private runPrune(
+    existingPaths: ReadonlySet<string>,
+    allowed: readonly AgentKind[] | undefined,
+  ): number {
+    // An empty scope means "no kinds eligible" — nothing can be pruned.
+    if (allowed && allowed.length === 0) return 0
+
+    this.db.exec('CREATE TEMP TABLE IF NOT EXISTS discovery_seen_paths (path TEXT PRIMARY KEY)')
+    this.db.exec('DELETE FROM discovery_seen_paths')
+
+    try {
+      if (existingPaths.size > 0) {
+        const insert = this.db.prepare(
+          'INSERT OR IGNORE INTO discovery_seen_paths (path) VALUES (?)',
+        )
+        this.db.exec('BEGIN IMMEDIATE')
+        try {
+          for (const path of existingPaths) insert.run(path)
+          this.db.exec('COMMIT')
+        } catch (error) {
+          this.db.exec('ROLLBACK')
+          throw error
+        }
+      }
+
+      let sql =
+        'DELETE FROM conversation_cache WHERE path NOT IN (SELECT path FROM discovery_seen_paths)'
+      const params: AgentKind[] = []
+      if (allowed) {
+        sql += ` AND agent_kind IN (${allowed.map(() => '?').join(', ')})`
+        params.push(...allowed)
+      }
+      const result = this.db.prepare(sql).run(...params)
+      return Number(result.changes)
+    } finally {
+      this.db.exec('DELETE FROM discovery_seen_paths')
     }
   }
 
@@ -183,6 +273,14 @@ export class ConversationDiscoveryCache {
         .run('schema_version', DB_SCHEMA_VERSION)
     }
   }
+}
+
+function sameSet(a: ReadonlySet<string>, b: ReadonlySet<string>): boolean {
+  if (a.size !== b.size) return false
+  for (const value of a) {
+    if (!b.has(value)) return false
+  }
+  return true
 }
 
 type SummaryJson = Omit<AgentConversationSummary, 'createdAt' | 'updatedAt'> & {
