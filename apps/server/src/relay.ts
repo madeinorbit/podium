@@ -1,9 +1,14 @@
 import { randomUUID } from 'node:crypto'
 import { basename } from 'node:path'
 import type { PodiumSettings } from '@podium/core'
-import type { FileAssetResultMessage, FileReadResultMessage, FileWriteResultMessage } from '@podium/protocol'
+import type {
+  FileAssetResultMessage,
+  FileReadResultMessage,
+  FileWriteResultMessage,
+} from '@podium/protocol'
 import {
   AgentKind,
+  type AgentQuotaWire,
   type AgentRuntimeState,
   type ClientMessage,
   type ControlMessage,
@@ -20,7 +25,6 @@ import {
   type SessionMeta,
   type TranscriptItem,
   type UsageBucketWire,
-  type AgentQuotaWire,
   type WorkState,
 } from '@podium/protocol'
 import { knownPathsFor } from './file-relay-policy'
@@ -31,9 +35,9 @@ import {
   pushTelegram,
   type TelegramConfig,
 } from './notify'
-import { isTransientTitle, makeTitleDebouncer } from './title-filter'
 import { type ClientConn, type Send, Session } from './session'
 import { type PinKind, SessionStore } from './store'
+import { isTransientTitle, makeTitleDebouncer } from './title-filter'
 
 const DEFAULT_GEOMETRY: Geometry = { cols: 80, rows: 24 }
 const SCAN_TIMEOUT_MS = 10_000
@@ -119,16 +123,20 @@ export class SessionRegistry {
    */
   private draftBySession = new Map<string, string>()
   /** Per-session title debouncers — drop transient spinner titles, coalesce bursts. */
-  private readonly titleDebouncers = new Map<
-    string,
-    ReturnType<typeof makeTitleDebouncer>
-  >()
+  private readonly titleDebouncers = new Map<string, ReturnType<typeof makeTitleDebouncer>>()
   // Pending debounced draft persists, keyed by sessionId — one timer per session
   // coalesces a burst of keystrokes into a single SQLite write.
   private readonly draftWriteTimers = new Map<string, ReturnType<typeof setTimeout>>()
   private static readonly DRAFT_WRITE_DEBOUNCE_MS = 750
   private latestConversations: ConversationSummaryWire[] = []
   private latestConversationDiagnostics: ConversationDiagnosticWire[] = []
+  // Last session-list payload broadcast to clients. broadcastSessions() fires on many
+  // events (activity bumps, attach/detach, resume refs) that often don't change any
+  // visible field; skipping a byte-identical re-broadcast avoids re-serializing the
+  // whole list and fanning it out to every client for nothing (audit P1-8). Existing
+  // clients already hold this state; a NEW client gets the current list via
+  // attachClient, so the dedup can never leave a client stale.
+  private lastSessionsBroadcast = ''
   // Latest health sample per daemon host, keyed by hostname — ready for several
   // machines even while the registry holds a single daemon socket.
   private readonly latestHostMetrics = new Map<string, HostMetricsWire>()
@@ -922,6 +930,7 @@ export class SessionRegistry {
       send,
       viewport: { ...DEFAULT_GEOMETRY },
       attached: new Set(),
+      transcriptSubs: new Set(),
       // Fail-safe toward notifying: a client counts as NOT watching until it
       // tells us otherwise (every browser client sends `presence` right after
       // connecting). Defaulting to visible:true let one stale/non-browser client
@@ -946,8 +955,11 @@ export class SessionRegistry {
     const client = this.clients.get(id)
     if (!client) return
     for (const sessionId of client.attached) this.sessions.get(sessionId)?.detachClient(id)
-    // Transcript subscriptions are independent of PTY attachment — sweep them all.
-    for (const session of this.sessions.values()) session.unsubscribeTranscript(id)
+    // Transcript subscriptions are independent of PTY attachment — sweep just the ones
+    // THIS client made (audit P2-18), not every session on the host (the old full scan
+    // was O(sessions) on every disconnect, and O(clients×sessions) in a reconnect storm).
+    for (const sessionId of client.transcriptSubs)
+      this.sessions.get(sessionId)?.unsubscribeTranscript(id)
     this.clients.delete(id)
     this.broadcastSessions()
   }
@@ -1011,9 +1023,11 @@ export class SessionRegistry {
         this.sessions.get(msg.sessionId)?.redraw()
         break
       case 'transcriptSubscribe':
+        client.transcriptSubs.add(msg.sessionId)
         this.sessions.get(msg.sessionId)?.subscribeTranscript(client)
         break
       case 'transcriptUnsubscribe':
+        client.transcriptSubs.delete(msg.sessionId)
         this.sessions.get(msg.sessionId)?.unsubscribeTranscript(id)
         break
       case 'presence':
@@ -1045,6 +1059,13 @@ export class SessionRegistry {
         break
       case 'agentExit': {
         this.sessions.get(msg.sessionId)?.onExit(msg.code)
+        // Free the lingering per-session title debouncer when the process ends (audit
+        // P1-12) — previously only killSession did, so every exited-but-not-killed
+        // session leaked its debouncer closure. The row stays (resurrectable); a new
+        // debouncer is created lazily if it ever emits a title again. Drafts are kept
+        // (resurrect/chat needs them).
+        this.titleDebouncers.get(msg.sessionId)?.dispose()
+        this.titleDebouncers.delete(msg.sessionId)
         const s = this.sessions.get(msg.sessionId)
         if (s) this.persist(s)
         this.broadcastSessions()
@@ -1492,7 +1513,14 @@ export class SessionRegistry {
   }
 
   private broadcastSessions(): void {
-    const msg: ServerMessage = { type: 'sessionsChanged', sessions: this.listSessions() }
+    const sessions = this.listSessions()
+    // Skip a byte-identical re-broadcast (audit P1-8) — every existing client already
+    // holds this exact list, and a new client gets it via attachClient, so re-sending
+    // it changes nothing and just burns CPU + bandwidth across all clients.
+    const key = JSON.stringify(sessions)
+    if (key === this.lastSessionsBroadcast) return
+    this.lastSessionsBroadcast = key
+    const msg: ServerMessage = { type: 'sessionsChanged', sessions }
     for (const c of this.clients.values()) c.send(msg)
   }
 

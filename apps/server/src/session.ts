@@ -20,6 +20,10 @@ export interface ClientConn {
   send: Send<ServerMessage>
   viewport: Geometry
   attached: Set<string>
+  /** Session ids this client subscribed to the structured transcript of. Lets
+   *  detachClient sweep just this client's subscriptions instead of scanning every
+   *  session on the host (audit P2-18). */
+  transcriptSubs: Set<string>
   /** Page-visibility presence — drives smart notification routing. */
   visible: boolean
 }

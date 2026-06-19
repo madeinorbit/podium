@@ -690,6 +690,15 @@ export class SessionStore {
          message_count INTEGER
        )`,
     )
+    // Indices for the two hot conversation queries (audit P1-6): the empty-query
+    // browse orders by updated_at, and the project filter / LIKE-fallback search
+    // filter by project_path — both were full table scans + filesorts before.
+    this.db.exec(
+      'CREATE INDEX IF NOT EXISTS idx_conversations_updated_at ON conversations(updated_at)',
+    )
+    this.db.exec(
+      'CREATE INDEX IF NOT EXISTS idx_conversations_project_path ON conversations(project_path)',
+    )
     this.db.exec(
       `CREATE TABLE IF NOT EXISTS superagent_messages (
          id INTEGER PRIMARY KEY AUTOINCREMENT,
