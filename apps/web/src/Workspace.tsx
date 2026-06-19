@@ -15,7 +15,7 @@ import {
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import type { SessionMeta } from '@podium/protocol'
-import { Pin, X } from 'lucide-react'
+import { FileText, Pin, X } from 'lucide-react'
 import type { JSX } from 'react'
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
@@ -33,7 +33,7 @@ import {
   sessionsForWorktree,
 } from './derive'
 import { NewPanelMenu } from './NewPanelMenu'
-import { useStore } from './store'
+import { type FileTab, useStore } from './store'
 import type { WorktreeView } from './types'
 import { SessionNameEditor, sessionDisplayName, WorkerLabel } from './WorkerLabel'
 
@@ -52,7 +52,8 @@ export function Workspace(): JSX.Element {
     split,
     toggleSplit,
     killSession,
-    editorFile,
+    fileTabs,
+    closeFileTab,
   } = store
   // A session created via the "+" menu (or restored from localStorage on reload)
   // lands in `paneA` before the server's broadcast adds it to `tabs`. Without this,
@@ -70,6 +71,9 @@ export function Workspace(): JSX.Element {
   const tabs = worktree
     ? orderTabs(sessionsForWorktree(sessions, worktree.path), tabOrders[worktree.path], pins)
     : []
+  // Inline file-editor tabs belonging to this worktree (one per open file), shown in
+  // the strip after the session tabs. paneA/paneB hold a file tab's `id` when active.
+  const myFileTabs = worktree ? fileTabs.filter((f) => f.worktreePath === worktree.path) : []
 
   // Keep pane A pointed at a valid tab.
   useEffect(() => {
@@ -81,7 +85,10 @@ export function Workspace(): JSX.Element {
     if (paneA && paneA !== justOpened.current && !sessions.some((s) => s.sessionId === paneA)) {
       justOpened.current = paneA
     }
-    if (paneA && tabs.some((t) => t.sessionId === paneA)) {
+    if (
+      paneA &&
+      (tabs.some((t) => t.sessionId === paneA) || myFileTabs.some((f) => f.id === paneA))
+    ) {
       justOpened.current = null
       return
     }
@@ -91,7 +98,7 @@ export function Workspace(): JSX.Element {
       return
     }
     setPane('A', tabs[0]?.sessionId ?? null)
-  }, [tabs, paneA, setPane, sessions])
+  }, [tabs, paneA, setPane, sessions, fileTabs])
 
   if (!worktree)
     return (
@@ -140,6 +147,19 @@ export function Workspace(): JSX.Element {
             </div>
           </SortableContext>
         </DndContext>
+        {myFileTabs.length > 0 && (
+          <div className="flex flex-none items-stretch gap-[3px]">
+            {myFileTabs.map((f) => (
+              <FileTabButton
+                key={f.id}
+                tab={f}
+                active={f.id === paneA}
+                onSelect={() => setPane('A', f.id)}
+                onClose={() => closeFileTab(f.id)}
+              />
+            ))}
+          </div>
+        )}
         <div className="flex flex-none items-center gap-1 pb-1.5">
           {/* NewPanelMenu owns its own "+" trigger button and a portalled,
               auto-positioned dropdown (Base UI Positioner handles collision/
@@ -189,6 +209,30 @@ export function Workspace(): JSX.Element {
             </div>
           )
         })}
+        {myFileTabs.map((f) => {
+          const inA = f.id === paneA
+          const inB = split && f.id === paneB
+          const visible = inA || inB
+          return (
+            <div
+              key={f.id}
+              className={cn(
+                'min-w-0 flex-1',
+                visible ? 'flex' : 'hidden',
+                split && inB && !inA && 'border-l border-border',
+              )}
+              style={visible ? { order: inA ? 0 : 1 } : undefined}
+            >
+              <Suspense fallback={null}>
+                <FileEditorPanel
+                  sessionId={f.sessionId}
+                  path={f.path}
+                  onClose={() => closeFileTab(f.id)}
+                />
+              </Suspense>
+            </div>
+          )
+        })}
         {!paneA && (
           <div className="flex min-w-0 flex-1" style={{ order: 0 }}>
             <Empty />
@@ -200,11 +244,6 @@ export function Workspace(): JSX.Element {
           </div>
         )}
       </div>
-      {editorFile && (
-        <Suspense fallback={null}>
-          <FileEditorPanel />
-        </Suspense>
-      )}
     </section>
   )
 }
@@ -311,6 +350,52 @@ function SortableTab({
         )}
         title="Kill session"
         onClick={onKill}
+      >
+        <X size={12} aria-hidden="true" />
+      </button>
+    </div>
+  )
+}
+
+function FileTabButton({
+  tab,
+  active,
+  onSelect,
+  onClose,
+}: {
+  tab: FileTab
+  active: boolean
+  onSelect: () => void
+  onClose: () => void
+}): JSX.Element {
+  const name = tab.path.split('/').pop() || tab.path
+  return (
+    <div
+      className={cn(
+        'group relative flex max-w-[200px] min-w-[110px] items-center rounded-t-md border border-b-0 border-transparent px-0.5',
+        active ? 'border-border bg-card' : 'hover:bg-muted',
+      )}
+      title={tab.path}
+    >
+      <button
+        type="button"
+        className={cn(
+          'inline-flex min-w-0 flex-1 items-center gap-1.5 rounded-none px-2.5 py-1 text-[13px] whitespace-nowrap',
+          active ? 'font-medium text-foreground' : 'text-muted-foreground',
+        )}
+        onClick={onSelect}
+      >
+        <FileText size={12} aria-hidden="true" className="flex-none text-muted-foreground/70" />
+        <span className="truncate">{name}</span>
+      </button>
+      <button
+        type="button"
+        className={cn(
+          'h-7 w-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground/70 hover:bg-muted hover:text-destructive',
+          active ? 'inline-flex' : 'hidden group-hover:inline-flex',
+        )}
+        title="Close file"
+        onClick={onClose}
       >
         <X size={12} aria-hidden="true" />
       </button>
