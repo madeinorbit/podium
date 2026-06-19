@@ -697,6 +697,21 @@ describe('partitionWorkItems with snooze', () => {
     const { attention } = partitionWorkItems([lapsed], new Set(), NOW)
     expect(attention).toHaveLength(1)
   })
+  it('orders the attention bucket most-recently-active first', () => {
+    const older = {
+      ...withState(session('/w'), 'needs_user'),
+      sessionId: 'older',
+      lastActiveAt: '2026-06-19T10:00:00.000Z',
+    }
+    const newer = {
+      ...withState(session('/w'), 'needs_user'),
+      sessionId: 'newer',
+      lastActiveAt: '2026-06-19T12:00:00.000Z',
+    }
+    // Fed oldest-first; the bucket must come back newest-first (matches the home board).
+    const { attention } = partitionWorkItems([older, newer], new Set(), NOW)
+    expect(attention.map((s) => s.sessionId)).toEqual(['newer', 'older'])
+  })
 })
 
 describe('sortSessionsForSidebar with snooze', () => {
