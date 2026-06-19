@@ -406,7 +406,12 @@ export function AgentPanel({
             only take it when the controls before them are absent. */}
         {resumeCmd && <ResumeCommandMenu command={resumeCmd} className="ml-auto" />}
         {showSnooze && session && (
-          <SnoozeControl session={session} iconSize={15} className={cn(!resumeCmd && 'ml-auto')} />
+          <SnoozeControl
+            session={session}
+            iconSize={15}
+            dimmed={false}
+            className={cn(!resumeCmd && 'ml-auto')}
+          />
         )}
         {chatCapable && (
           <Button
