@@ -21,6 +21,7 @@ import {
   type UsageBucketWire,
   type WorkState,
 } from '@podium/protocol'
+import { makeTitleDebouncer } from '@podium/agent-bridge/title-filter'
 import { attentionNotice, pushNtfy } from './notify'
 import { type ClientConn, type Send, Session } from './session'
 import { type PinKind, SessionStore } from './store'
@@ -72,6 +73,11 @@ export class SessionRegistry {
   private readonly pendingUploads = new Map<string, (r: { path: string; error?: string }) => void>()
   /** Ephemeral in-progress composer/prompt text per session. Never persisted. */
   private draftBySession = new Map<string, string>()
+  /** Per-session title debouncers — drop transient spinner titles, coalesce bursts. */
+  private readonly titleDebouncers = new Map<
+    string,
+    ReturnType<typeof makeTitleDebouncer>
+  >()
   private latestConversations: ConversationSummaryWire[] = []
   private latestConversationDiagnostics: ConversationDiagnosticWire[] = []
   // Latest health sample per daemon host, keyed by hostname — ready for several
@@ -502,6 +508,8 @@ export class SessionRegistry {
     this.sessions.get(input.sessionId)?.detachAll()
     this.sessions.delete(input.sessionId)
     this.draftBySession.delete(input.sessionId)
+    this.titleDebouncers.get(input.sessionId)?.dispose()
+    this.titleDebouncers.delete(input.sessionId)
     this.store.deleteSession(input.sessionId)
     for (const c of this.clients.values()) c.attached.delete(input.sessionId)
     this.broadcastSessions()
@@ -895,18 +903,32 @@ export class SessionRegistry {
       case 'title': {
         const session = this.sessions.get(msg.sessionId)
         if (!session) break
-        session.setTitle(msg.title)
-        this.persist(session)
-        // A dedicated per-session message — not broadcastSessions(). Agents emit
-        // titles at spinner frame-rate; rebroadcasting the whole list each time
-        // would be wasteful, and late-joining clients still get the title via
-        // listSessions() on attach.
-        const update: ServerMessage = {
-          type: 'sessionTitleChanged',
-          sessionId: msg.sessionId,
-          title: msg.title,
+        // Lazily create a debouncer per session. The debouncer drops transient
+        // spinner/braille titles and coalesces bursts, emitting only the last
+        // stable title after a quiet window — this is the existing broadcast path.
+        if (!this.titleDebouncers.has(msg.sessionId)) {
+          const sid = msg.sessionId
+          this.titleDebouncers.set(
+            sid,
+            makeTitleDebouncer((stableTitle) => {
+              const s = this.sessions.get(sid)
+              if (!s) return
+              s.setTitle(stableTitle)
+              this.persist(s)
+              // A dedicated per-session message — not broadcastSessions(). Agents emit
+              // titles at spinner frame-rate; rebroadcasting the whole list each time
+              // would be wasteful, and late-joining clients still get the title via
+              // listSessions() on attach.
+              const update: ServerMessage = {
+                type: 'sessionTitleChanged',
+                sessionId: sid,
+                title: stableTitle,
+              }
+              for (const c of this.clients.values()) c.send(update)
+            }),
+          )
         }
-        for (const c of this.clients.values()) c.send(update)
+        this.titleDebouncers.get(msg.sessionId)!.push(msg.title)
         break
       }
       case 'scanResult': {
