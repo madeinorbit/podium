@@ -22,6 +22,12 @@ describe('GET /files/asset', () => {
     const res = await app.request('/files/asset?sessionId=s&path=/etc/passwd')
     expect(res.status).toBe(404)
   })
+  it('413s when the asset is too large', async () => {
+    const app = new Hono()
+    registerAssetRoute(app, stub({ ok: false, tooLarge: true }))
+    const res = await app.request('/files/asset?sessionId=s&path=/w/big.png')
+    expect(res.status).toBe(413)
+  })
   it('400s on missing params', async () => {
     const app = new Hono()
     registerAssetRoute(app, stub({ ok: true }))
