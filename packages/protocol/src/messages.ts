@@ -546,6 +546,16 @@ export const FileReadRequestMessage = z.object({
 })
 export type FileReadRequestMessage = z.infer<typeof FileReadRequestMessage>
 
+export const FileAssetRequestMessage = z.object({
+  type: z.literal('fileAssetRequest'),
+  requestId: z.string(),
+  cwd: z.string(),
+  path: z.string(),
+  /** Server-asserted transcript-known path; allows reading outside cwd. Read-only. */
+  knownPath: z.boolean(),
+})
+export type FileAssetRequestMessage = z.infer<typeof FileAssetRequestMessage>
+
 export const FileWriteRequestMessage = z.object({
   type: z.literal('fileWriteRequest'),
   requestId: z.string(),
@@ -655,6 +665,7 @@ export const ControlMessage = z.discriminatedUnion('type', [
   TranscriptReadRequestMessage,
   TranscriptPageRequestMessage,
   FileReadRequestMessage,
+  FileAssetRequestMessage,
   FileWriteRequestMessage,
 ])
 export type ControlMessage = z.infer<typeof ControlMessage>
@@ -790,6 +801,19 @@ export const FileReadResultMessage = z.object({
 })
 export type FileReadResultMessage = z.infer<typeof FileReadResultMessage>
 
+export const FileAssetResultMessage = z.object({
+  type: z.literal('fileAssetResult'),
+  requestId: z.string(),
+  ok: z.boolean(),
+  path: z.string(),
+  /** Base64-encoded file bytes (images etc.). */
+  dataBase64: z.string().optional(),
+  contentType: z.string().optional(),
+  tooLarge: z.boolean().optional(),
+  error: z.string().optional(),
+})
+export type FileAssetResultMessage = z.infer<typeof FileAssetResultMessage>
+
 export const FileWriteResultMessage = z.object({
   type: z.literal('fileWriteResult'),
   requestId: z.string(),
@@ -836,6 +860,7 @@ export const DaemonMessage = z.discriminatedUnion('type', [
   TranscriptReadResultMessage,
   TranscriptPageResultMessage,
   FileReadResultMessage,
+  FileAssetResultMessage,
   FileWriteResultMessage,
 ])
 export type DaemonMessage = z.infer<typeof DaemonMessage>
