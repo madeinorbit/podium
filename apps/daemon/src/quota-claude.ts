@@ -10,9 +10,9 @@ export interface ClaudeUsageResponse {
   seven_day?: { utilization?: number; resets_at?: string }
 }
 
-// utilization is a 0..1 fraction (see verification note in the plan). Surface 0..100.
+// utilization is already a 0..100 percent (verified live 2026-06-19). Round to one decimal.
 const toPct = (u: number | undefined): number =>
-  typeof u === 'number' && Number.isFinite(u) ? Math.round(u * 1000) / 10 : 0
+  typeof u === 'number' && Number.isFinite(u) ? Math.round(u * 10) / 10 : 0
 
 export function parseClaudeUsage(body: ClaudeUsageResponse): QuotaWindowWire[] {
   const windows: QuotaWindowWire[] = []

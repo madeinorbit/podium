@@ -11,14 +11,14 @@ function homeWithCreds(creds: unknown): string {
   return home
 }
 const okBody = {
-  five_hour: { utilization: 0.425, resets_at: '2026-06-19T20:00:00.000Z' },
-  seven_day: { utilization: 0.07, resets_at: '2026-06-24T00:00:00.000Z' },
+  five_hour: { utilization: 42.5, resets_at: '2026-06-19T20:00:00.000Z' },
+  seven_day: { utilization: 7, resets_at: '2026-06-24T00:00:00.000Z' },
 }
 const now = Date.parse('2026-06-19T18:00:00.000Z')
 const future = now + 3_600_000
 
 describe('parseClaudeUsage', () => {
-  it('maps fraction utilization to 0..100 percent + window minutes', () => {
+  it('maps percent utilization to 0..100 percent + window minutes', () => {
     expect(parseClaudeUsage(okBody)).toEqual([
       { key: '5h', label: '5-hour', usedPercent: 42.5, resetsAt: '2026-06-19T20:00:00.000Z', windowMinutes: 300 },
       { key: 'weekly', label: 'Weekly', usedPercent: 7, resetsAt: '2026-06-24T00:00:00.000Z', windowMinutes: 10080 },

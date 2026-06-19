@@ -6,7 +6,7 @@ import { decodeJwtEmail, fetchCodexQuota, parseCodexRateLimits } from './quota-c
 
 const now = Date.parse('2026-06-19T18:00:00.000Z')
 const rl = {
-  primary: { usedPercent: 30, resetsAt: 1_750_356_000, resetDescription: 'in 2h' },
+  primary: { usedPercent: 30, resetsAt: 1_750_356_000 },
   secondary: { usedPercent: 12, resetsAt: 1_750_700_000 },
 }
 function homeWithAuth(auth: unknown): string {

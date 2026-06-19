@@ -7,7 +7,6 @@ import type { AgentQuotaWire, QuotaWindowWire } from '@podium/protocol'
 export interface CodexRateLimitWindow {
   usedPercent?: number
   resetsAt?: number // unix seconds
-  resetDescription?: string
 }
 export interface CodexRateLimits {
   primary?: CodexRateLimitWindow
@@ -43,7 +42,8 @@ export function decodeJwtEmail(idToken: string | undefined): string | undefined 
 }
 
 // Real reader: drive `codex app-server` over newline-delimited JSON-RPC. SHAPE
-// UNVERIFIED — confirm against the installed codex (see plan verification note).
+// VERIFIED live 2026-06-19: response is result.rateLimits.{primary,secondary}, each
+// { usedPercent (0..100 number), windowDurationMins, resetsAt (unix SECONDS) }.
 export const readCodexRateLimitsViaAppServer: CodexRateLimitReader = ({ homeDir } = {}) =>
   new Promise<CodexRateLimits>((resolve, reject) => {
     const env = { ...process.env, ...(homeDir ? { CODEX_HOME: join(homeDir, '.codex') } : {}) }
@@ -64,7 +64,7 @@ export const readCodexRateLimitsViaAppServer: CodexRateLimitReader = ({ homeDir 
     timer.unref?.()
     const send = (obj: unknown) => child.stdin.write(`${JSON.stringify(obj)}\n`)
     child.once('spawn', () => {
-      send({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} })
+      send({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { clientInfo: { name: 'podium', version: '0.0.0' } } })
     })
     child.stdout.on('data', (chunk: Buffer) => {
       buf += chunk.toString('utf8')
