@@ -1,6 +1,13 @@
+import { createRequire } from 'node:module'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import { DatabaseSync } from 'node:sqlite'
+import type { DatabaseSync as DatabaseSyncType } from 'node:sqlite'
+
+// Load node:sqlite at runtime instead of via a static import: bundlers (tsup/esbuild)
+// rewrite the `node:` prefix to bare `sqlite`, which isn't a valid npm package name.
+// Using createRequire with a runtime string is opaque to both bundlers.
+const requireBuiltin = createRequire(import.meta.url)
+const { DatabaseSync } = requireBuiltin('node:sqlite') as { DatabaseSync: typeof DatabaseSyncType }
 
 export type OpencodeSessionRow = {
   id: string
@@ -30,7 +37,7 @@ export function opencodeDbPath(homeDir?: string): string {
   return join(opencodeDataRoot(homeDir), 'opencode.db')
 }
 
-export function openOpencodeDb(homeDir?: string): DatabaseSync | undefined {
+export function openOpencodeDb(homeDir?: string): DatabaseSyncType | undefined {
   try {
     return new DatabaseSync(opencodeDbPath(homeDir), { readOnly: true })
   } catch {
@@ -38,7 +45,7 @@ export function openOpencodeDb(homeDir?: string): DatabaseSync | undefined {
   }
 }
 
-export function listOpencodeSessions(db: DatabaseSync): OpencodeSessionRow[] {
+export function listOpencodeSessions(db: DatabaseSyncType): OpencodeSessionRow[] {
   return db
     .prepare(
       `SELECT s.id, s.directory, s.title, s.time_created AS timeCreated,
@@ -52,7 +59,7 @@ export function listOpencodeSessions(db: DatabaseSync): OpencodeSessionRow[] {
 }
 
 export function getOpencodeSession(
-  db: DatabaseSync,
+  db: DatabaseSyncType,
   sessionId: string,
 ): OpencodeSessionRow | undefined {
   return db
@@ -68,7 +75,7 @@ export function getOpencodeSession(
 }
 
 export function findLatestOpencodeSession(
-  db: DatabaseSync,
+  db: DatabaseSyncType,
   cwd: string,
   sinceMs?: number,
 ): OpencodeSessionRow | undefined {
@@ -88,7 +95,7 @@ export function findLatestOpencodeSession(
 }
 
 export function loadOpencodeMessageParts(
-  db: DatabaseSync,
+  db: DatabaseSyncType,
   sessionId: string,
   sinceTimeUpdated = 0,
 ): OpencodeMessagePartRow[] {
@@ -107,7 +114,7 @@ export function loadOpencodeMessageParts(
 }
 
 export function loadOpencodeTranscriptTail(
-  db: DatabaseSync,
+  db: DatabaseSyncType,
   sessionId: string,
   maxParts = 8000,
 ): OpencodeMessagePartRow[] {

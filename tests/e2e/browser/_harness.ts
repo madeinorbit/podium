@@ -27,46 +27,75 @@ export async function openApp(page: Page): Promise<void> {
   // E2E branch in the app. Must run before app code, so before goto.
   await page.addInitScript(() => localStorage.setItem('podium.panelMode', 'native'))
   await page.goto(`/?server=${RELAY}&e2e=1`)
+  // Wait for the app to finish its cold-start load. The loading screen shows
+  // "Loading Podium…" — wait until that is GONE (i.e. the .app-loading element
+  // has been removed from the DOM), which means the app shell has rendered.
+  // Fallback: if the loading element never appeared, just check it's gone anyway.
   await page.waitForFunction(
-    () => /feat\/|podium/i.test(document.body.innerText || ''),
+    () => !document.querySelector('.app-loading'),
     undefined,
-    {
-      timeout: 20_000,
-    },
+    { timeout: 20_000 },
   )
   await gotoWorkspace(page)
 }
 
 /**
  * The app lands on the command-center home view; these specs exercise the
- * workspace. Desktop: click the first sidebar worktree (which switches views).
- * Mobile: the header (with .tab-add) is always present, so nothing to do.
+ * workspace. Desktop: click the first sidebar worktree (which switches views),
+ * then wait for the "New panel" button to confirm the workspace is active.
+ * Mobile: the workspace strip is always present, so nothing to do.
  */
 export async function gotoWorkspace(page: Page): Promise<void> {
-  if (
-    await page
-      .locator('.tab-add')
-      .first()
-      .isVisible()
-      .catch(() => false)
-  ) {
+  // If the "New panel" button is already visible we're already in the workspace.
+  const newPanelBtn = page.locator('[aria-label="New panel"]')
+  if (await newPanelBtn.isVisible().catch(() => false)) {
     return
   }
-  // Repos load async — the sidebar worktree list may not be there yet.
-  const worktree = page.locator('.sidebar .worktree').first()
+
+  // Desktop layout renders an <aside> sidebar. Mobile renders MobileApp without
+  // the aside. Wait up to 10s for the sidebar to appear; if it doesn't, we're on
+  // mobile (or the workspace is already rendered another way) — bail.
+  const sidebar = page.locator('aside').first()
   try {
-    await worktree.waitFor({ state: 'visible', timeout: 15_000 })
+    await sidebar.waitFor({ state: 'visible', timeout: 10_000 })
   } catch {
-    return // mobile layout (no sidebar) — the header strip is always present
+    // Mobile layout — the workspace strip is always present on mobile; bail.
+    return
   }
-  await worktree.click()
-  await page.waitForSelector('.tab-add', { timeout: 10_000 })
+
+  // Repos load async — wait for at least one worktree nav button to appear.
+  // The sidebar's scrollable repo list (.overflow-y-auto) contains several kinds
+  // of buttons: repo PinButtons (have `title="Pin <repo>"`), worktree nav buttons
+  // (no title, no aria-label, have branch name as text), worktree PinButtons
+  // (have `title="Pin <branch>"`), and panel row buttons. We want the first
+  // worktree navigation button — identified by having no `title` and no `aria-label`
+  // and having non-empty text content (branch name).
+  // Strategy: wait for any button with non-empty text and no title in the list,
+  // which is the worktree nav button.
+  const worktreeNavBtn = sidebar.locator('.overflow-y-auto button:not([title]):not([aria-label])').first()
+
+  try {
+    await worktreeNavBtn.waitFor({ state: 'visible', timeout: 15_000 })
+  } catch {
+    // No repos loaded yet — bail
+    return
+  }
+
+  await worktreeNavBtn.click()
+  // Confirm the workspace loaded by waiting for the "New panel" button.
+  await newPanelBtn.waitFor({ state: 'visible', timeout: 15_000 })
 }
 
 /** Create a session of the given kind and wait for its test API to attach. */
 export async function newSession(page: Page, kind: 'Claude' | 'Codex' | 'Shell'): Promise<void> {
-  await page.click('.tab-add')
-  await page.click(`.new-panel-menu >> text=New ${kind}`)
+  // Clear any existing __podium from a prior active session so we can distinguish
+  // when the NEW session's AgentPanel sets it (avoids resolving immediately on a
+  // stale reference when tests share the same relay/sessions).
+  await page.evaluate(() => {
+    delete (window as unknown as TestWindow).__podium
+  })
+  await page.locator('[aria-label="New panel"]').click({ timeout: 15_000 })
+  await page.getByRole('menuitem', { name: `New ${kind}` }).click({ timeout: 10_000 })
   await page.waitForFunction(() => !!(window as unknown as TestWindow).__podium, undefined, {
     timeout: 20_000,
   })
