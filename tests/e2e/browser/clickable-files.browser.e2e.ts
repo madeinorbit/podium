@@ -150,3 +150,64 @@ test('native terminal: clicking a styled file path opens it in the editor; edit+
 
   await rm(probeAbs, { force: true })
 })
+
+test('native terminal: a wrapped URL opens the FULL url in a NEW tab (not same window)', async ({
+  page,
+  context,
+}) => {
+  // Narrow viewport so a long URL wraps across rows. Reproduces the reported shape:
+  // prose + URL ("See the docs at https://…") wrapping, where the URL begins after a
+  // space on the logical-line start row — the row the unpatched addon truncated.
+  await page.setViewportSize({ width: 900, height: 760 })
+  await openWorkspaceWithShell(page)
+  await expect.poll(async () => (await podium.screen(page)).length, { timeout: 20_000 }).toBeGreaterThan(0)
+
+  // ~230 chars, no spaces, and example.com serves 200 for any path with NO redirect,
+  // so the opened tab's URL equals exactly what was clicked (clean truncation check).
+  const url = `https://example.com/docs/${'segment-'.repeat(26)}end`
+  const prose = 'See the docs at '
+  await sh(page, `printf '%s%s\\n' '${prose}' '${url}'`)
+  await expect
+    .poll(async () => (await podium.screen(page)).includes('example.com/docs/segment-'), { timeout: 15_000 })
+    .toBe(true)
+
+  const st = await gridSize(page)
+  // Click into the URL on its TOP row (the prose row) and capture the popup it opens.
+  const popup = await (async () => {
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      const lines = (await podium.screen(page)).split('\n')
+      const total = lines.length - 1
+      const rowIdx = lines.findIndex((l) => l.startsWith(`${prose}https://example.com`))
+      const screenRow = rowIdx - (total - st.rows)
+      if (rowIdx >= 0 && screenRow >= 0 && screenRow < st.rows) {
+        const box = await page.evaluate(() => {
+          const els = [...document.querySelectorAll('.xterm-screen')] as HTMLElement[]
+          const el =
+            els.find((e) => e.offsetParent !== null && e.getBoundingClientRect().width > 0) ?? els[0]
+          const r = el.getBoundingClientRect()
+          return { x: r.x, y: r.y, w: r.width, h: r.height }
+        })
+        const col = prose.length + 8 // a few chars into the URL, on its top row
+        const x = Math.round(box.x + (col + 0.5) * (box.w / st.cols))
+        const y = Math.round(box.y + (screenRow + 0.5) * (box.h / st.rows))
+        const popupP = context.waitForEvent('page', { timeout: 2500 }).catch(() => null)
+        await page.mouse.move(x, y)
+        await page.waitForTimeout(250)
+        await page.mouse.click(x, y)
+        const pop = await popupP
+        if (pop) return pop
+      } else {
+        await page.waitForTimeout(300)
+      }
+    }
+    return null
+  })()
+
+  expect(popup, 'clicking the wrapped URL opened a new tab').toBeTruthy()
+  await popup!.waitForLoadState('domcontentloaded').catch(() => {})
+  // The WHOLE url, not a wrap-truncated fragment like https://example.com/docs/segment-…(first row only).
+  expect(popup!.url(), 'the full wrapped URL opened').toBe(url)
+  // Podium itself was NOT navigated away — it opened in a separate tab (the PWA-safety fix).
+  expect(page.url(), 'Podium stayed put (new tab, not same-window replace)').toContain('localhost:4317')
+  await popup!.close().catch(() => {})
+})

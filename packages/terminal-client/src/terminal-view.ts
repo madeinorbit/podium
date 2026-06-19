@@ -49,6 +49,22 @@ const DEFAULT_THEME: ITheme = {
   brightWhite: '#f3f3f8',
 }
 
+/** Open an external URL in a new tab / the system browser. A synthetic anchor
+ *  click (inside the originating user gesture) is used instead of window.open
+ *  because window.open replaces the current window in a standalone PWA (notably
+ *  iOS), which would navigate Podium itself away. */
+function openExternalUrl(uri: string): void {
+  if (typeof document === 'undefined') return
+  const a = document.createElement('a')
+  a.href = uri
+  a.target = '_blank'
+  a.rel = 'noopener noreferrer'
+  a.style.display = 'none'
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+}
+
 export class TerminalView {
   private readonly term: Terminal
   private readonly fitAddon: FitAddon
@@ -89,12 +105,12 @@ export class TerminalView {
     })
     this.fitAddon = new FitAddon()
     this.term.loadAddon(this.fitAddon)
-    // Make URLs in output clickable; open in a new tab with no referrer/opener.
-    this.term.loadAddon(
-      new WebLinksAddon((_event, uri) => {
-        window.open(uri, '_blank', 'noopener,noreferrer')
-      }),
-    )
+    // Make URLs in output clickable. Open via a synthetic anchor click rather than
+    // window.open: in a standalone PWA (iOS especially) window.open navigates the
+    // app's OWN window — replacing Podium — whereas an <a target="_blank"> hands the
+    // URL off to a new browser tab / the system browser. Runs inside the click
+    // gesture, so it isn't popup-blocked.
+    this.term.loadAddon(new WebLinksAddon((_event, uri) => openExternalUrl(uri)))
     // File-path link provider: styled, path-like runs that resolve to a known
     // transcript path or a cwd-relative path become clickable. Caller configures
     // this by calling setFileLinks(); until then the provider is a no-op.
