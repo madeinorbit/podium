@@ -21,7 +21,7 @@ import {
   type UsageBucketWire,
   type WorkState,
 } from '@podium/protocol'
-import { makeTitleDebouncer } from './title-filter'
+import { isTransientTitle, makeTitleDebouncer } from './title-filter'
 import { attentionNotice, pushNtfy } from './notify'
 import { type ClientConn, type Send, Session } from './session'
 import { type PinKind, SessionStore } from './store'
@@ -903,18 +903,24 @@ export class SessionRegistry {
       case 'title': {
         const session = this.sessions.get(msg.sessionId)
         if (!session) break
-        // Lazily create a debouncer per session. The debouncer drops transient
-        // spinner/braille titles and coalesces bursts, emitting only the last
-        // stable title after a quiet window — this is the existing broadcast path.
+        // Apply the title to the in-memory session + persist immediately so that
+        // write-through tests and late-joining clients always see the current title,
+        // even during a rapid burst of transient spinner frames.
+        if (!isTransientTitle(msg.title)) {
+          session.setTitle(msg.title)
+          this.persist(session)
+        }
+        // The client broadcast is debounced: spinner/braille frames arrive at
+        // frame-rate; coalescing them prevents UI flapping and excessive network
+        // traffic. The debouncer only broadcasts stable (non-transient) titles.
+        // Leading-edge: the debouncer emits on first non-transient title so a single
+        // title push still broadcasts synchronously (test-friendly), then coalesces
+        // subsequent rapid changes on the trailing edge.
         if (!this.titleDebouncers.has(msg.sessionId)) {
           const sid = msg.sessionId
           this.titleDebouncers.set(
             sid,
             makeTitleDebouncer((stableTitle) => {
-              const s = this.sessions.get(sid)
-              if (!s) return
-              s.setTitle(stableTitle)
-              this.persist(s)
               // A dedicated per-session message — not broadcastSessions(). Agents emit
               // titles at spinner frame-rate; rebroadcasting the whole list each time
               // would be wasteful, and late-joining clients still get the title via

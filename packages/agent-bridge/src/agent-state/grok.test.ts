@@ -88,7 +88,6 @@ describe('observeGrokState', () => {
       homeDir: home,
       cwd,
       pollMs: 10,
-      startedAtMs: Date.now(),
       onEvents: (next) => events.push(...next),
     })
     try {
@@ -133,7 +132,6 @@ describe('observeGrokState', () => {
       homeDir: home,
       cwd,
       pollMs: 10,
-      startedAtMs: Date.now(),
       onSession: (sessionId) => seenSessions.push(sessionId),
       onEvents: (next) => events.push(...next),
     })

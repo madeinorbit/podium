@@ -148,7 +148,10 @@ export function observeGrokState(opts: {
   const pollMs = opts.pollMs ?? POLL_MS
   // watermarkMs is the spawn time: only sessions created at or after this point
   // are eligible to bind, preventing a new chat from inheriting an old transcript.
-  const watermarkMs = opts.startedAtMs ?? Date.now()
+  // Default 0 = no watermark filtering (plain discovery; find the latest session).
+  // A fresh spawn passes its start time so only sessions created after the spawn
+  // are eligible, preventing an old active session from being inherited.
+  const watermarkMs = opts.startedAtMs ?? 0
   let stopped = false
   let attached: GrokSessionPaths | undefined
   let boundId: string | undefined
