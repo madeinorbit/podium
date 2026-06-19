@@ -118,6 +118,11 @@ export const SessionMeta = z.object({
    *  shown as the tab/sidebar accent line. Absent / 'default' = no colour. This is
    *  identity, distinct from the runtime *status* dot. */
   agentColor: z.string().optional(),
+  /** Snooze state — orthogonal to agentState. `undefined`/absent = not snoozed;
+   *  `null` = snoozed until the next message; an ISO string = snoozed until that
+   *  time (or the next message, whichever first). Drives the sidebar's attention
+   *  triage only; never changes the agent's phase. */
+  snoozedUntil: z.string().nullable().optional(),
 })
 export type SessionMeta = z.infer<typeof SessionMeta>
 
