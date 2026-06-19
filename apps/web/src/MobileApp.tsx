@@ -112,6 +112,10 @@ export function MobileApp(): JSX.Element {
   const [pickerOpen, setPickerOpen] = useState(false)
   const [repoPickerOpen, setRepoPickerOpen] = useState(false)
   const [sessionMenuOpen, setSessionMenuOpen] = useState(false)
+  // The new-agent ("+") menu and the session/tab-select menu are mutually
+  // exclusive — opening one closes the other (#97). Lift the "+" menu's open
+  // state here so the two can coordinate (NewPanelMenu is controlled below).
+  const [newAgentOpen, setNewAgentOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
   // Hold a freshly-opened (or reload-restored) session in pane A until the store
   // knows it — see the keep-pane-valid effect — otherwise it bounces to tabs[0].
@@ -144,6 +148,7 @@ export function MobileApp(): JSX.Element {
   // they otherwise sit over the panel and block it.
   const closePanelMenus = () => {
     setSessionMenuOpen(false)
+    setNewAgentOpen(false)
   }
 
   return (
@@ -199,7 +204,13 @@ export function MobileApp(): JSX.Element {
               type="button"
               className="inline-flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 overflow-hidden whitespace-nowrap text-[13px] font-medium text-foreground"
               aria-expanded={sessionMenuOpen}
-              onClick={() => setSessionMenuOpen((v) => !v)}
+              onClick={() =>
+                setSessionMenuOpen((v) => {
+                  // Opening the session menu closes the "+" menu, and vice versa.
+                  if (!v) setNewAgentOpen(false)
+                  return !v
+                })
+              }
             >
               {currentTab ? (
                 <>
@@ -218,6 +229,12 @@ export function MobileApp(): JSX.Element {
           {worktree && (
             <NewPanelMenu
               worktree={worktree}
+              open={newAgentOpen}
+              onOpenChange={(o) => {
+                setNewAgentOpen(o)
+                // Opening the "+" menu closes the session menu (#97).
+                if (o) setSessionMenuOpen(false)
+              }}
               onOpened={(sid) => {
                 justOpened.current = sid
                 setPane('A', sid)

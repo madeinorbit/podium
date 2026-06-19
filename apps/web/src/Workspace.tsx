@@ -15,7 +15,7 @@ import {
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import type { SessionMeta } from '@podium/protocol'
-import { FileText, Pin, X } from 'lucide-react'
+import { Columns2, FileText, Pin, X } from 'lucide-react'
 import type { JSX } from 'react'
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
@@ -178,7 +178,7 @@ export function Workspace(): JSX.Element {
             aria-label="Split"
             onClick={toggleSplit}
           >
-            ⊟
+            <Columns2 size={16} aria-hidden="true" />
           </Button>
         </div>
       </div>

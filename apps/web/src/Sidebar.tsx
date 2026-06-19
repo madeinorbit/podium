@@ -1,5 +1,14 @@
 import type { SessionMeta } from '@podium/protocol'
-import { BarChart3, Home, Pin, Search, Settings as SettingsIcon, Sparkles, X } from 'lucide-react'
+import {
+  BarChart3,
+  Home,
+  Pin,
+  Search,
+  Settings as SettingsIcon,
+  Sparkles,
+  SquarePlus,
+  X,
+} from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
 import { useState } from 'react'
 import { Button } from '@/components/ui/button'
@@ -14,10 +23,11 @@ import {
   type WorktreeNavView,
 } from './derive'
 import { HostIndicators } from './HostIndicators'
+import { NewPanelMenu } from './NewPanelMenu'
 import { RepoScanFlow } from './RepoScanFlow'
 import { SearchView } from './SearchView'
 import { useStore } from './store'
-import type { PinKind } from './types'
+import type { PinKind, WorktreeView } from './types'
 import { SessionNameEditor, sessionDisplayName, WorkerLabel } from './WorkerLabel'
 
 function StatusDot({ session }: { session: SessionMeta }): JSX.Element {
@@ -241,6 +251,18 @@ function PinnedSection({ label, children }: { label: string; children: ReactNode
   )
 }
 
+/** The repo's primary checkout, as a NewPanelMenu target. Prefer the repo's main
+ *  worktree (its path === repo.path); reconstruct one if it's been filtered out
+ *  of the nav list (e.g. pinned away as its own worktree row). */
+function repoPrimaryWorktree(repo: RepoNavView): WorktreeView {
+  const main = repo.worktrees.find((w) => w.isMain) ?? repo.worktrees[0]
+  if (main) {
+    const { repoName: _repoName, sessions: _sessions, ...view } = main
+    return view
+  }
+  return { path: repo.path, repoPath: repo.path, isMain: true }
+}
+
 function RepoBlock({
   repo,
   pinned,
@@ -259,11 +281,28 @@ function RepoBlock({
   onSelectPanel: (worktreePath: string, sessionId: string) => void
 }): JSX.Element {
   return (
-    <div className="mt-1">
+    <div className="group/repo mt-1">
       <div className="flex items-center justify-between pr-2">
         <div className="min-w-0 flex-1 px-3 pt-1.5 pb-0.5 text-[11px] tracking-[0.06em] uppercase text-muted-foreground/70">
           {repo.name}
         </div>
+        {/* Start a new agent in this repo's primary worktree. Revealed on row
+            hover (matching the session rows' reveal-on-hover controls). */}
+        <NewPanelMenu
+          worktree={repoPrimaryWorktree(repo)}
+          trigger={
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              className="w-7 min-w-7 flex-none rounded-none text-muted-foreground/70 opacity-0 group-hover/repo:opacity-100 hover:text-foreground aria-expanded:opacity-100"
+              title={`New agent in ${repo.name}`}
+              aria-label={`New agent in ${repo.name}`}
+            >
+              <SquarePlus size={13} aria-hidden="true" />
+            </Button>
+          }
+          onOpened={(sid) => onSelectPanel(repoPrimaryWorktree(repo).path, sid)}
+        />
         <PinButton
           kind="repo"
           id={repo.path}

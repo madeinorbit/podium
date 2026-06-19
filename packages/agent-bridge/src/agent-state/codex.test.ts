@@ -1,6 +1,7 @@
 import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { DatabaseSync } from 'node:sqlite'
 import { describe, expect, it } from 'vitest'
 import {
   classifyCodexVerdict,
@@ -203,6 +204,104 @@ describe('observeCodexState titles', () => {
     expect(await title).toBe('add pagination')
   })
 })
+
+describe('observeCodexState native title (live /rename)', () => {
+  const jsonl = (lines: unknown[]): string => `${lines.map((l) => JSON.stringify(l)).join('\n')}\n`
+
+  // Write/overwrite the codex state DB's single `threads` row for `id`, setting its
+  // `title` column — what a `/rename` inside Codex updates. Minimal schema: only the
+  // columns the observer reads (id/rollout_path/title) need to be present.
+  function setNativeTitle(home: string, id: string, rolloutRel: string, title: string): void {
+    const db = new DatabaseSync(join(home, '.codex', 'state_5.sqlite'))
+    db.exec(
+      'CREATE TABLE IF NOT EXISTS threads (id TEXT PRIMARY KEY, rollout_path TEXT, title TEXT)',
+    )
+    db.prepare(
+      'INSERT INTO threads (id, rollout_path, title) VALUES (?, ?, ?) ' +
+        'ON CONFLICT(id) DO UPDATE SET title = excluded.title',
+    ).run(id, rolloutRel, title)
+    db.close()
+  }
+
+  it('re-emits the native title when it changes mid-session (a /rename)', async () => {
+    const id = 'uuidR'
+    const cwd = '/repo/rename'
+    const home = await mkdtemp(join(tmpdir(), 'podium-codex-rename-'))
+    const dir = join(home, '.codex', 'sessions', '2026', '06', '16')
+    await mkdir(dir, { recursive: true })
+    const file = join(dir, `rollout-2026-06-16T16-11-26-${id}.jsonl`)
+    await writeFile(
+      file,
+      jsonl([
+        { type: 'session_meta', payload: { id, cwd } },
+        { type: 'event_msg', payload: { type: 'user_message', message: 'initial prompt' } },
+      ]),
+    )
+
+    const titles: string[] = []
+    const obs = observeCodexState({
+      cwd,
+      homeDir: home,
+      startedAtMs: 0,
+      pollMs: 10,
+      onTitle: (title) => titles.push(title),
+      onEvents: () => {},
+    })
+    try {
+      // First the prompt-derived title lands (no native title yet).
+      await waitFor(() => titles.includes('initial prompt'))
+      // User runs /rename → Codex writes the new title to the state DB.
+      setNativeTitle(home, id, 'sessions/2026/06/16/dummy.jsonl', 'Renamed By User')
+      await waitFor(() => titles.includes('Renamed By User'))
+      // A re-poll with the same DB value must not re-emit it.
+      await new Promise((r) => setTimeout(r, 60))
+      expect(titles.filter((t) => t === 'Renamed By User')).toHaveLength(1)
+      // The first-prompt fallback fired exactly once and the rename followed it.
+      expect(titles).toEqual(['initial prompt', 'Renamed By User'])
+    } finally {
+      obs.stop()
+    }
+  })
+
+  it('emits a native title that is set before any prompt (resumed-session path)', async () => {
+    const id = 'uuidN'
+    const cwd = '/repo/native'
+    const home = await mkdtemp(join(tmpdir(), 'podium-codex-native-'))
+    const dir = join(home, '.codex', 'sessions', '2026', '06', '16')
+    await mkdir(dir, { recursive: true })
+    const file = join(dir, `rollout-2026-06-16T16-11-26-${id}.jsonl`)
+    // No user_message in our tail window (resumed session) — only the native title applies.
+    await writeFile(file, jsonl([{ type: 'session_meta', payload: { id, cwd } }]))
+    setNativeTitle(home, id, 'sessions/2026/06/16/dummy.jsonl', 'Native Title')
+
+    const titles: string[] = []
+    const obs = observeCodexState({
+      cwd,
+      homeDir: home,
+      startedAtMs: 0,
+      pollMs: 10,
+      onTitle: (title) => titles.push(title),
+      onEvents: () => {},
+    })
+    try {
+      await waitFor(() => titles.includes('Native Title'))
+      await new Promise((r) => setTimeout(r, 60))
+      expect(titles).toEqual(['Native Title'])
+    } finally {
+      obs.stop()
+    }
+  })
+})
+
+// Poll a predicate until true or a deadline, so a test reads the observer's emits
+// without coupling to its exact poll cadence.
+async function waitFor(pred: () => boolean, timeoutMs = 3000): Promise<void> {
+  const deadline = Date.now() + timeoutMs
+  while (!pred()) {
+    if (Date.now() > deadline) throw new Error('waitFor: predicate not satisfied in time')
+    await new Promise((r) => setTimeout(r, 10))
+  }
+}
 
 describe('findCodexRolloutPath', () => {
   it('falls back to a filename match on the resume value when the state DB is absent', async () => {

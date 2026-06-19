@@ -26,6 +26,7 @@ import {
 } from './chat'
 import { chatActivity } from './derive'
 import { resolveAgainstCwd } from './file-path'
+import { useIsMobile } from './hooks/use-is-mobile'
 import { renderMarkdown } from './markdown'
 import { useStore } from './store'
 import { useVoiceInput } from './voice'
@@ -46,9 +47,13 @@ export function ChatView({ sessionId }: { sessionId: string }): JSX.Element {
   // parked within this server's lifetime still has its buffer).
   const [fetched, setFetched] = useState<TranscriptItem[] | null>(null)
   const parked = session !== undefined && session.status !== 'live' && session.status !== 'starting'
-  // The on-disk history for a parked session is in flight until `fetched` resolves;
-  // show a loader instead of the "no transcript" empty state during that window.
-  const loadingTranscript = parked && fetched === null
+  // A live/starting session streams its transcript over the WS subscription: the
+  // initial `cb(entry.items)` fires synchronously (usually empty) and the server's
+  // buffered snapshot lands a beat later. Until that snapshot arrives we can't tell
+  // "still loading" from "genuinely empty", so show a loader for a short grace
+  // window after the subscription starts; once it expires (or any item arrives) we
+  // trust the empty feed and fall back to the "No transcript yet" copy.
+  const [liveGraceElapsed, setLiveGraceElapsed] = useState(false)
   // A parked-but-recoverable session can still take a composed message — submitting
   // wakes it and the text is delivered once it's ready (auto-resume on submit).
   const canResume =
@@ -73,9 +78,20 @@ export function ChatView({ sessionId }: { sessionId: string }): JSX.Element {
   // blocks so a freshly-echoed prompt reconciles its optimistic bubble.
   const seenUserIds = useRef<Set<string>>(new Set())
   const [justSent, setJustSent] = useState(false)
+  const isMobile = useIsMobile()
   const voice = useVoiceInput((text) => setDraft(draft ? `${draft} ${text}` : text))
 
   useEffect(() => hub.subscribeTranscript(sessionId, setItems), [hub, sessionId])
+
+  // Live-transcript grace window (see `liveGraceElapsed` above): reset on every
+  // session switch, then expire after a beat so a genuinely empty live session
+  // settles to the "No transcript yet" copy instead of spinning forever.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: re-arm the timer per session
+  useEffect(() => {
+    setLiveGraceElapsed(false)
+    const t = setTimeout(() => setLiveGraceElapsed(true), 1500)
+    return () => clearTimeout(t)
+  }, [sessionId])
 
   useEffect(() => {
     if (!parked) {
@@ -96,6 +112,14 @@ export function ChatView({ sessionId }: { sessionId: string }): JSX.Element {
 
   const effectiveItems = parked && fetched && fetched.length > 0 ? fetched : items
   const blocks = useMemo(() => pairToolResults(effectiveItems), [effectiveItems])
+  // Show the loader (not the empty-state copy) while a transcript is still in
+  // flight. Two cases: a parked session's on-disk history hasn't resolved
+  // (`fetched === null`), or a live/starting session hasn't streamed anything yet
+  // and we're still inside the initial grace window (the buffered snapshot may
+  // still land). Once the live grace expires with zero items, we trust it's empty.
+  const loadingTranscript =
+    blocks.length === 0 &&
+    (parked ? fetched === null : (session !== undefined && !liveGraceElapsed))
   const matches = useMemo(() => searchBlocks(blocks, query), [blocks, query])
   const activeMatch = matches.length > 0 ? matches[matchCursor % matches.length] : undefined
 
@@ -238,6 +262,17 @@ export function ChatView({ sessionId }: { sessionId: string }): JSX.Element {
   const composerEnabled = sendable || canResume
   const activity = chatActivity(session, justSent)
 
+  // Autofocus the composer when the chat view becomes active for a session that
+  // can take input, so the user can type straight away. Re-runs on session switch
+  // (the mobile AgentPanel reuses one instance). Gated on an enabled composer and
+  // a settled transcript so we don't grab focus mid-load. Desktop only: forcing
+  // focus on mobile would pop the soft keyboard over the conversation unbidden.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: focus on session switch / enable
+  useEffect(() => {
+    if (isMobile || !composerEnabled || loadingTranscript) return
+    taRef.current?.focus()
+  }, [sessionId, composerEnabled, loadingTranscript, isMobile])
+
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex items-center gap-2 border-b border-border px-2.5 py-1.5">
@@ -322,7 +357,7 @@ export function ChatView({ sessionId }: { sessionId: string }): JSX.Element {
             <div
               key={p.id}
               className={cn(
-                'mx-auto w-full max-w-[760px] rounded-[10px] border border-border bg-secondary px-3.5 py-2.5',
+                'mx-auto w-full max-w-[960px] rounded-[10px] border border-border bg-secondary px-3.5 py-2.5',
                 p.state === 'failed' && 'border-destructive/60',
               )}
             >
@@ -341,7 +376,7 @@ export function ChatView({ sessionId }: { sessionId: string }): JSX.Element {
               role="status"
               aria-live="polite"
               className={cn(
-                'mx-auto flex w-full max-w-[760px] items-center gap-2 text-xs',
+                'mx-auto flex w-full max-w-[960px] items-center gap-2 text-xs',
                 // Match the shared status palette: working → green, needs-you →
                 // yellow, everything else muted.
                 activity.tone === 'attention'
@@ -466,7 +501,7 @@ const ChatBlockView = memo(function ChatBlockView({
   const { item } = block
   const html = useMemo(() => renderMarkdown(item.text), [item.text])
   const blockClass = cn(
-    'mx-auto w-full max-w-[760px]',
+    'mx-auto w-full max-w-[960px]',
     highlighted && 'rounded-md outline outline-1 outline-primary outline-offset-4',
     dimmed && 'opacity-35',
   )
