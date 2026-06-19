@@ -1,10 +1,11 @@
 import { MemoryStick } from 'lucide-react'
 import type { JSX } from 'react'
 import { useState } from 'react'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import { ConnectionIndicator, describeHealth, useStableConnection } from './ConnectionIndicator'
 import { hostMemoryView } from './derive'
-import { type HostInfoTab, HostInfoView } from './HostMemoryView'
+import { type HostInfoTab, HostInfoView, useHibernationSetting } from './HostMemoryView'
 import { useStore } from './store'
 
 // Memory pressure → colors, reproducing the legacy `.mem-*` contract: the bar
@@ -34,6 +35,7 @@ const SEVERITY = {
 export function HostIndicators({ compact = false }: { compact?: boolean }): JSX.Element {
   const { hostMetrics } = useStore()
   const { health, visible: connVisible } = useStableConnection()
+  const hibernation = useHibernationSetting()
   const [infoTab, setInfoTab] = useState<HostInfoTab | null>(null)
   const showHostname = !compact && hostMetrics.length > 1
   // The visible icon only shows the detail on hover; a persistent polite live
@@ -62,35 +64,61 @@ export function HostIndicators({ compact = false }: { compact?: boolean }): JSX.
       {hostMetrics.map((host) => {
         const mem = hostMemoryView(host)
         const tone = SEVERITY[mem.severity]
+        // "X/Y GB (Z%)" — mem.label is already "X/Y GB".
+        const summary = `${mem.label} (${mem.pct}%)`
+        // Note auto-hibernation only when it's switched on: emphasise that it's
+        // actively reclaiming once memory crosses the configured threshold,
+        // otherwise just say it's standing by.
+        const hibNote = hibernation?.enabled
+          ? mem.pct >= hibernation.memoryPct
+            ? 'Hibernating stale agents to free memory'
+            : 'Auto-hibernation on — idle agents park if memory runs high'
+          : null
         return (
-          <button
-            type="button"
-            key={host.hostname}
-            className={cn(
-              'group inline-flex cursor-pointer items-center gap-1.5 whitespace-nowrap border-0 bg-transparent p-0 text-[11px] text-muted-foreground',
-              compact && cn('min-w-[30px] justify-center px-1', tone.compact),
-            )}
-            title={`${mem.title} — click for the breakdown`}
-            onClick={() => setInfoTab('memory')}
-          >
-            {showHostname && (
-              <span className="max-w-[9ch] overflow-hidden text-ellipsis text-muted-foreground/70">
-                {host.hostname}
-              </span>
-            )}
-            <MemoryStick size={14} aria-hidden="true" className={cn(!compact && tone.icon)} />
-            {!compact && (
-              <span
-                className="h-1 w-9 overflow-hidden rounded-sm bg-secondary"
-                role="presentation"
-              >
-                <span
-                  className={cn('block h-full', tone.fill)}
-                  style={{ width: `${mem.pct}%` }}
-                />
-              </span>
-            )}
-          </button>
+          <Tooltip key={host.hostname}>
+            <TooltipTrigger
+              render={
+                <button
+                  type="button"
+                  className={cn(
+                    'group inline-flex cursor-pointer items-center gap-1.5 whitespace-nowrap border-0 bg-transparent p-0 text-[11px] text-muted-foreground',
+                    compact && cn('min-w-[30px] justify-center px-1', tone.compact),
+                  )}
+                  aria-label={`${mem.title} — click for the breakdown`}
+                  onClick={() => setInfoTab('memory')}
+                >
+                  {showHostname && (
+                    <span className="max-w-[9ch] overflow-hidden text-ellipsis text-muted-foreground/70">
+                      {host.hostname}
+                    </span>
+                  )}
+                  <MemoryStick
+                    size={14}
+                    aria-hidden="true"
+                    className={cn(!compact && tone.icon)}
+                  />
+                  {!compact && (
+                    <span
+                      className="h-1 w-9 overflow-hidden rounded-sm bg-secondary"
+                      role="presentation"
+                    >
+                      <span
+                        className={cn('block h-full', tone.fill)}
+                        style={{ width: `${mem.pct}%` }}
+                      />
+                    </span>
+                  )}
+                </button>
+              }
+            />
+            <TooltipContent className="max-w-60 flex-col items-start gap-0.5">
+              <strong>
+                {hostMetrics.length > 1 ? `${host.hostname} — ${summary}` : summary}
+              </strong>
+              {hibNote && <span className="text-background/70">{hibNote}</span>}
+              <span className="text-background/70">Click for the breakdown</span>
+            </TooltipContent>
+          </Tooltip>
         )
       })}
       {connVisible && (

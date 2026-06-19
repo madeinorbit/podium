@@ -9,6 +9,7 @@ import {
 import {
   Archive,
   ArrowDownToLine,
+  Copy,
   MessageSquareText,
   Mic,
   Moon,
@@ -18,11 +19,20 @@ import {
 } from 'lucide-react'
 import type { JSX } from 'react'
 import { useEffect, useRef, useState } from 'react'
+import { toast } from 'sonner'
 import { ArrowSwipeKey } from '@/ArrowSwipeKey'
 import { Button } from '@/components/ui/button'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import { useSessionGuard } from '@/hooks/use-session-guard'
 import { cn } from '@/lib/utils'
 import { ChatView } from './ChatView'
-import { defaultChatCapable, panelLabel } from './derive'
+import { defaultChatCapable, panelLabel, resumeCommand } from './derive'
 import { useStore } from './store'
 import { useVoiceInput } from './voice'
 import { WorkerLabel } from './WorkerLabel'
@@ -34,15 +44,22 @@ const E2E = typeof window !== 'undefined' && new URLSearchParams(window.location
 
 type PanelMode = 'native' | 'chat'
 
-/** localStorage key prefix for per-session panel mode overrides. */
-const SESSION_MODE_KEY_PREFIX = 'podium.panelMode.'
+/**
+ * localStorage key for the per-device default mode pick (#35). The last mode a
+ * user picked anywhere becomes the device default for sessions that have no
+ * remembered per-session mode yet; per-session overrides live in the store
+ * (`panelMode`, persisted under `podium.panelMode`).
+ */
+const MODE_KEY = 'podium.panelModeDefault'
 
 /**
- * Determine the initial panel mode for a session.
+ * Determine the default panel mode for a session that has no persisted
+ * per-session override in the store yet.
  *
  * Priority:
- * 1. Per-session saved override (from the user manually toggling chat/native)
- *    — wins if set and the session is chat-capable.
+ * 1. The per-device default pick (the last mode the user picked anywhere,
+ *    saved under MODE_KEY) — chat reads best on a phone, the real PTY is the
+ *    desktop default.
  * 2. The `startScreen` setting:
  *    - 'native'  → native terminal (always)
  *    - 'chat'    → chat view (if capable; else native)
@@ -58,10 +75,14 @@ export function initialPanelMode({
   startScreen: 'native' | 'chat' | 'auto'
   chatCapable: boolean
   isMobile: boolean
-  saved?: 'native' | 'chat'
+  /** The persisted per-session mode (from the store, #35) when known — wins over
+   *  the per-device default and the startScreen setting. */
+  saved?: PanelMode | null
 }): PanelMode {
   if (!chatCapable) return 'native'
   if (saved === 'native' || saved === 'chat') return saved
+  const devdefault = typeof localStorage !== 'undefined' ? localStorage.getItem(MODE_KEY) : null
+  if (devdefault === 'native' || devdefault === 'chat') return devdefault
   if (startScreen === 'auto') return isMobile ? 'chat' : 'native'
   if (startScreen === 'chat') return 'chat'
   return 'native'
@@ -76,7 +97,19 @@ export function AgentPanel({
    *  switching back catches up instead of wiping). Gates focus, nothing else. */
   active?: boolean
 }): JSX.Element {
-  const { hub, sessions, trpc, archiveSession, startBtw, setSessionDraft, hibernateSession, openFile } = useStore()
+  const {
+    hub,
+    sessions,
+    trpc,
+    drafts,
+    startBtw,
+    setSessionDraft,
+    hibernateSession,
+    openFile,
+    panelMode,
+    setPanelMode,
+  } = useStore()
+  const { guardedArchive } = useSessionGuard()
   const session = sessions.find((s) => s.sessionId === sessionId)
   const termRef = useRef<HTMLDivElement | null>(null)
   const toolbarRef = useRef<HTMLDivElement | null>(null)
@@ -87,8 +120,8 @@ export function AgentPanel({
   // immediately, before the first transcript frame arrives.
   const chatCapable =
     session?.transcriptAvailable ?? (session ? defaultChatCapable(session.agentKind) : false)
-
-  // Fetch the startScreen setting once; default to 'native' while loading.
+  // Fetch the startScreen setting once; default to 'native' while loading. This
+  // drives the configurable default mode for sessions the user has never toggled.
   const [startScreen, setStartScreen] = useState<'native' | 'chat' | 'auto'>('native')
   useEffect(() => {
     trpc.settings.get.query().then((s) => {
@@ -96,34 +129,33 @@ export function AgentPanel({
     }).catch(() => { /* keep default */ })
   }, [trpc])
 
-  // Per-session key: a manual Native/Chat toggle sticks for this session only.
-  const sessionModeKey = `${SESSION_MODE_KEY_PREFIX}${sessionId}`
-  const [mode, setMode] = useState<PanelMode>(() => {
-    if (!chatCapable) return 'native'
-    const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(sessionModeKey) : null
-    const saved = raw === 'native' || raw === 'chat' ? raw : undefined
-    const isMobile = typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches
-    return initialPanelMode({ startScreen: 'native', chatCapable, isMobile, saved })
+  // Per-session mode is restored from the store (persisted to localStorage) so a
+  // reload returns this session to the view it was last left in (#35). A session
+  // the user never toggled falls back to the configurable default: the per-device
+  // pick (MODE_KEY) → the `startScreen` setting → chat-on-mobile/native-on-desktop.
+  const isMobile = typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches
+  const mode: PanelMode = initialPanelMode({
+    startScreen,
+    chatCapable,
+    isMobile,
+    saved: panelMode[sessionId],
   })
-
-  // Re-evaluate initial mode once startScreen setting loads (only if user hasn't
-  // already set a per-session override).
-  useEffect(() => {
-    const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(sessionModeKey) : null
-    if (raw === 'native' || raw === 'chat') return // user has explicitly overridden
-    const isMobile = typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches
-    setMode(initialPanelMode({ startScreen, chatCapable, isMobile }))
-  }, [startScreen, chatCapable, sessionModeKey])
-
+  // The hibernated/exited-forces-chat rule still wins over any persisted 'native'.
   const effectiveMode: PanelMode = chatCapable ? mode : 'native'
 
   const pickMode = (m: PanelMode) => {
-    setMode(m)
-    if (typeof localStorage !== 'undefined') localStorage.setItem(sessionModeKey, m)
+    // Persist the per-session override in the store (#35)…
+    setPanelMode(sessionId, m)
+    // …and remember the latest pick as the per-device default for not-yet-seen sessions.
+    if (typeof localStorage !== 'undefined') localStorage.setItem(MODE_KEY, m)
   }
 
   const hibernated = session?.status === 'hibernated'
   const exited = session?.status === 'exited'
+  // The native CLI resume command for this session (#119), or null when no
+  // resume ref is known. Also the first right-aligned header control, so the
+  // `ml-auto` fallbacks below defer to it when present.
+  const resumeCmd = session ? resumeCommand(session) : null
   // Manual hibernation is offered for a live, resumable agent (a resume ref means
   // it can come back), but disabled while it's actively working — parking a
   // working agent would kill its in-flight turn (the server refuses it too).
@@ -142,6 +174,12 @@ export function AgentPanel({
   // keystrokes — no auto-submit, so the user can edit before hitting Enter.
   const voice = useVoiceInput((text) => mountedRef.current?.connection.sendInput(`${text} `))
   const knownPathsRef = useRef<Set<string>>(new Set())
+  // Latest shared chat draft for this session, mirrored into a ref so the native
+  // mount effect can read it at flush time (chat→native sync, #17/#62) WITHOUT
+  // depending on `drafts` — a dep there would tear down and remount the whole
+  // terminal on every keystroke.
+  const draftRef = useRef('')
+  draftRef.current = drafts[sessionId] ?? ''
 
   // Subscribe to the transcript to build the set of known absolute paths for
   // the file-link provider. Updates mountedRef.current?.view.setFileLinks so
@@ -174,6 +212,17 @@ export function AgentPanel({
     const agentKind = session?.agentKind
     let lastPublished: string | null = null
     let sampleTimer: ReturnType<typeof setTimeout> | null = null
+    // Read the native composer's current text via the same scrape both directions
+    // share. Returns the typed text, '' for an empty composer, or null when no
+    // clean composer box is on screen yet (splash/overlay/menu) — callers must
+    // not act on null. Claude draws a box; Codex a single dim-stripped `›` line.
+    const scrapeComposer = (m: MountedSession): string | null => {
+      if (agentKind === 'claude-code')
+        return extractClaudePromptDraft(m.view.screenText().split('\n'))
+      if (agentKind === 'codex')
+        return extractCodexPromptDraft(m.view.screenText({ dropDim: true }).split('\n'))
+      return null
+    }
     const sample = () => {
       const m = mountedRef.current
       if (!m) return
@@ -182,21 +231,72 @@ export function AgentPanel({
       // Codex's empty composer shows a DIM placeholder suggestion — blank dim cells
       // (screenText dropDim) so it isn't mistaken for typed text; Claude's box needs
       // no such filter.
-      let draft: string | null = null
-      if (agentKind === 'claude-code')
-        draft = extractClaudePromptDraft(m.view.screenText().split('\n'))
-      else if (agentKind === 'codex')
-        draft = extractCodexPromptDraft(m.view.screenText({ dropDim: true }).split('\n'))
-      else return
+      const draft = scrapeComposer(m)
       if (draft === null || draft === lastPublished) return
       if (draft === '' && lastPublished === null) return
       lastPublished = draft
       setSessionDraft(sessionId, draft)
     }
+    // chat→native (#17/#62): one-shot flush of the shared chat draft into the
+    // native composer on entering native mode, so text typed in chat lands in the
+    // real PTY prompt. The terminal is UNMOUNTED during chat mode (chat renders
+    // ChatView, not the xterm), so realtime key-by-key injection while chat-typing
+    // is impossible — the realistic, safe sync point is this mode switch.
+    //
+    // SAFETY (never clobber text the user typed directly in the native composer):
+    //   - only the controller injects, and only while the terminal holds focus
+    //     (mirrors the sampler's directional guard #53 so the two never fight);
+    //   - we scrape the live composer first and ONLY inject when it is empty (or
+    //     already equals what we're about to type — an idempotent retry). A null
+    //     scrape (splash/overlay not yet a clean box) or unrelated typed text →
+    //     SKIP, and we retry on later frames until the box settles or we bail;
+    //   - empty shared draft → nothing to do.
+    // ANTI-FEEDBACK ("sent keys + reconcile"): we send Ctrl-U (clear-line, a no-op
+    // on an already-empty composer) then the draft, remember it as `lastPublished`,
+    // and let the existing 150ms sampler reconcile — it now sees the scrape return
+    // exactly what we injected (=== lastPublished) and stays quiet, so our own
+    // injection is never re-published as a "new" draft.
+    let flushTried = false
+    // Returns true when it actually injected on this tick — the caller then SKIPS
+    // the sampler for this tick, because the injected bytes haven't echoed back to
+    // the screen yet (the scrape would still read the pre-injection empty composer
+    // and, with lastPublished now set to the draft, publish '' — wiping it). The
+    // next frame's scrape sees the echo, matches lastPublished, and stays quiet.
+    const flushDraftToNative = (): boolean => {
+      if (flushTried) return false
+      const m = mountedRef.current
+      if (!m) return false
+      if (m.connection.state().role !== 'controller') return false
+      if (!termRef.current?.contains(document.activeElement)) return false
+      const want = draftRef.current
+      // Nothing to push — let the native→chat sampler own this session's draft.
+      if (want === '') {
+        flushTried = true
+        return false
+      }
+      const current = scrapeComposer(m)
+      // No clean composer box yet (splash/overlay): wait for a later frame.
+      if (current === null) return false
+      // The composer already holds text the user typed directly in native — never
+      // overwrite it. Stand down for this mode-entry (idempotent if it happens to
+      // already equal what we'd type).
+      if (current !== '' && current !== want) {
+        flushTried = true
+        return false
+      }
+      flushTried = true
+      // Clear the line (safe no-op when empty) then type the draft. Seed the
+      // sampler so the reconcile scrape of our own injection isn't re-published.
+      lastPublished = want
+      m.connection.sendInput('\x15') // Ctrl-U
+      m.connection.sendInput(want)
+      return true
+    }
     const scheduleSample = () => {
       if (sampleTimer) return
       sampleTimer = setTimeout(() => {
         sampleTimer = null
+        if (flushDraftToNative()) return
         sample()
       }, 150)
     }
@@ -221,8 +321,22 @@ export function AgentPanel({
       onOpen: (abs) => openFile(sessionId, abs),
     })
     const offScroll = mounted.view.onScroll(() => setAtBottom(mounted.view.atBottom()))
+    // The flush above piggy-backs on onFrame, but an already-idle composer may emit
+    // no frames after focus lands (and focus itself arrives a beat after the first
+    // frame, via the effect below). Poll a bounded number of times so the one-shot
+    // chat→native flush still fires on a quiet session; it self-stops once the flush
+    // resolves (injected, or skipped because empty/occupied/wrong-agent).
+    let flushAttempts = 0
+    const flushPoll = setInterval(() => {
+      if (flushTried || flushAttempts++ >= 40) {
+        clearInterval(flushPoll)
+        return
+      }
+      if (flushDraftToNative()) clearInterval(flushPoll)
+    }, 150)
     return () => {
       if (sampleTimer) clearTimeout(sampleTimer)
+      clearInterval(flushPoll)
       offScroll()
       mounted.dispose()
       mountedRef.current = null
@@ -272,12 +386,18 @@ export function AgentPanel({
             </Button>
           </span>
         )}
+        {/* Native resume command (#119): the literal `claude --resume <id>` etc.
+            so you can pick the conversation back up in your own terminal. Shown
+            whenever the harness has handed us a resume ref. As the first
+            right-aligned control it carries `ml-auto`; the BTW button only takes
+            it when this menu is absent. */}
+        {resumeCmd && <ResumeCommandMenu command={resumeCmd} className="ml-auto" />}
         {chatCapable && (
           <Button
             type="button"
             variant="ghost"
             size="icon"
-            className="ml-auto"
+            className={cn(!resumeCmd && 'ml-auto')}
             title="Ask the superagent about this session (BTW)"
             onClick={() => void startBtw(sessionId)}
           >
@@ -308,9 +428,9 @@ export function AgentPanel({
             type="button"
             variant="ghost"
             size="icon"
-            className={cn(!chatCapable && 'ml-auto')}
+            className={cn(!chatCapable && !resumeCmd && 'ml-auto')}
             title="Archive session — files it under Done"
-            onClick={() => void archiveSession(sessionId, true)}
+            onClick={() => void guardedArchive(sessionId, true)}
           >
             <Archive size={13} aria-hidden="true" />
           </Button>
@@ -320,7 +440,7 @@ export function AgentPanel({
             type="button"
             variant="secondary"
             size="sm"
-            className={cn(!chatCapable && 'ml-auto')}
+            className={cn(!chatCapable && !resumeCmd && 'ml-auto')}
             onClick={() => mountedRef.current?.connection.requestControl()}
           >
             Take control
@@ -433,6 +553,53 @@ export function AgentPanel({
         </>
       )}
     </div>
+  )
+}
+
+/**
+ * Header affordance for #119: a small overflow menu that shows the session's
+ * native CLI resume command (e.g. `claude --resume <id>`) and copies it to the
+ * clipboard. The id is what lets you reopen the exact conversation in your own
+ * terminal, outside Podium.
+ */
+function ResumeCommandMenu({
+  command,
+  className,
+}: {
+  command: string
+  className?: string
+}): JSX.Element {
+  const copy = () => {
+    void navigator.clipboard
+      ?.writeText(command)
+      .then(() => toast('Resume command copied'))
+      .catch(() => toast.error('Could not copy to clipboard'))
+  }
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className={className}
+            title="Resume command — copy the CLI command to reopen this conversation"
+          >
+            <TerminalIcon size={13} aria-hidden="true" />
+          </Button>
+        }
+      />
+      <DropdownMenuContent align="end" className="w-auto min-w-[260px] max-w-[90vw]">
+        <DropdownMenuLabel>Resume in your terminal</DropdownMenuLabel>
+        <code className="mx-1.5 block overflow-x-auto rounded bg-muted px-2 py-1.5 font-mono text-[11px] whitespace-pre text-foreground">
+          {command}
+        </code>
+        <DropdownMenuItem onClick={copy}>
+          <Copy size={13} aria-hidden="true" /> Copy command
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   )
 }
 

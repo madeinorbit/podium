@@ -134,10 +134,12 @@ export function observeCodexState(opts: {
   startedAtMs?: number
   pollMs?: number
   onSession?: (sessionId: string, rolloutPath: string) => void
-  // Fires at most once with a human-readable title. Codex's own OSC terminal title
-  // is just the cwd basename (+ spinner glyph), so the daemon suppresses it for Codex
-  // and relies on this: the native thread title (a rename done inside Codex) wins,
-  // else the first typed prompt — the same heuristic the history list uses.
+  // Fires with a human-readable title whenever it changes (deduped on the last
+  // value, never re-emitting an unchanged one). Codex's own OSC terminal title is
+  // just the cwd basename (+ spinner glyph), so the daemon suppresses it for Codex
+  // and relies on this: the native thread title (a `/rename` done inside Codex,
+  // re-read from the state DB each poll so a live rename propagates) wins, else the
+  // first typed prompt — the same heuristic the history list uses.
   onTitle?: (title: string) => void
   onEvents: (events: AgentStateEvent[]) => void
 }): { stop(): void } {
@@ -147,7 +149,18 @@ export function observeCodexState(opts: {
   let stopped = false
   let rolloutPath: string | undefined
   let announced = false
-  let titleSent = false
+  // The thread id of the live rollout, learned at discovery. Kept so every later
+  // tick can re-read the native (state-DB) title and pick up an in-session `/rename`.
+  let threadId: string | undefined
+  // Last title actually pushed to `onTitle`. A "last value" (not a one-shot boolean)
+  // so a title that changes during the session — a `/rename` Codex writes to the
+  // state DB — is re-emitted, while an unchanged value is suppressed (no spam, and
+  // the daemon forwards every emit verbatim). Also lets a native title that arrives
+  // after the first-prompt fallback override it.
+  let lastEmittedTitle: string | undefined
+  // Once the first typed prompt has supplied a fallback title we stop deriving one
+  // from the prompt stream — only a native (state-DB) title may change it after that.
+  let firstPromptTitled = false
   // True only when this tick read the rollout from byte 0 (a fresh session). The
   // "first user_message" is the real title only when we've seen the file's start;
   // a resumed session seeds from the tail, so its native title is used instead.
@@ -161,17 +174,23 @@ export function observeCodexState(opts: {
   const decoder = new LineDecoder()
   let reading = false
 
+  // Emit only on an actual change to a non-empty title — dedups identical values
+  // (the daemon forwards every `onTitle` call straight to a `title` frame) while
+  // still letting a later title (a native `/rename`) supersede an earlier one.
   const sendTitle = (title: string | undefined): void => {
-    if (titleSent || !title) return
-    titleSent = true
+    if (!title || title === lastEmittedTitle) return
+    lastEmittedTitle = title
     opts.onTitle?.(title)
   }
 
-  // Resumed/existing session: the first prompt sits above our tail window, so take
-  // the title Codex itself maintains in the state DB. Missing DB → the live tail
-  // still titles fresh sessions from their first prompt.
-  const emitNativeTitle = async (threadId: string): Promise<void> => {
-    if (titleSent) return
+  // The title Codex maintains in its state DB — set when a user runs `/rename`, and
+  // the title a resumed session needs (its first prompt sits above our tail window).
+  // Re-read on every tick (not once at discovery) so an in-session `/rename` is
+  // picked up; `sendTitle` suppresses re-emits while the value is unchanged. A
+  // present native title wins over the first-prompt fallback. Missing DB → the live
+  // tail still titles fresh sessions from their first prompt.
+  const pollNativeTitle = async (): Promise<void> => {
+    if (!threadId) return
     try {
       const meta = await readCodexStateMetadata(codexHome)
       sendTitle(cleanCodexTitle(meta.byThreadId.get(threadId)?.title))
@@ -190,10 +209,14 @@ export function observeCodexState(opts: {
         rolloutPath = found.path
         if (!announced && found.id) {
           announced = true
+          threadId = found.id
           opts.onSession?.(found.id, found.path)
-          void emitNativeTitle(found.id)
         }
       }
+      // Re-read the native (state-DB) title every tick so an in-session `/rename`
+      // propagates; the first read also seeds a resumed session's title. No-op
+      // until the thread is known; sendTitle suppresses unchanged values.
+      await pollNativeTitle()
       const handle = await open(rolloutPath, 'r')
       try {
         const { size } = await handle.stat()
@@ -232,8 +255,18 @@ export function observeCodexState(opts: {
             continue // torn line — skip
           }
           events.push(...(await translateCodexEvent(record)))
-          // A fresh session's first typed prompt becomes its title.
-          if (readFromStart && !titleSent) sendTitle(codexPromptTitle(record))
+          // A fresh session's first typed prompt becomes its title — a one-time
+          // fallback (only until the prompt fires). A native title still wins: the
+          // state-DB poll above runs each tick and overrides this via sendTitle's
+          // change check, so a later `/rename` replaces the first-prompt title.
+          if (readFromStart && !firstPromptTitled) {
+            const promptTitle = codexPromptTitle(record)
+            if (promptTitle) {
+              firstPromptTitled = true
+              // Don't clobber a native title already emitted this session.
+              if (lastEmittedTitle === undefined) sendTitle(promptTitle)
+            }
+          }
         }
         if (events.length > 0) opts.onEvents(events)
       } finally {

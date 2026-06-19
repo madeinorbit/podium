@@ -1,7 +1,7 @@
 import type { AgentKind } from '@podium/protocol'
-import { Plus, SquareTerminal } from 'lucide-react'
+import { SquarePlus, SquareTerminal } from 'lucide-react'
 import type React from 'react'
-import { type JSX, useMemo, useState } from 'react'
+import { type JSX, useEffect, useMemo, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -38,12 +38,39 @@ const MINI_LIMIT = 8
 export function NewPanelMenu({
   worktree,
   onOpened,
+  open: controlledOpen,
+  onOpenChange,
+  trigger,
 }: {
   worktree: WorktreeView
   onOpened: (sessionId: string) => void
+  /** Controlled open state. Omit to leave the menu self-managed (uncontrolled). */
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
+  /** Override the default "+" trigger button (e.g. a compact per-repo "+"). */
+  trigger?: React.ReactElement
 }): JSX.Element {
   const { trpc, repos } = useStore()
   const [filter, setFilter] = useState('')
+  // Uncontrolled fallback so the desktop/mobile "+" still works without a parent
+  // driving its open state; the controlled props win when supplied.
+  const [internalOpen, setInternalOpen] = useState(false)
+  const isControlled = controlledOpen !== undefined
+  const open = isControlled ? controlledOpen : internalOpen
+  const setOpen = (next: boolean) => {
+    if (!isControlled) setInternalOpen(next)
+    onOpenChange?.(next)
+  }
+  // Focus the "Search history…" field the moment the menu opens so the user can
+  // filter resumable conversations immediately (the input stops key propagation
+  // so Base UI's typeahead won't steal the keystrokes).
+  const searchRef = useRef<HTMLInputElement | null>(null)
+  useEffect(() => {
+    if (!open) return
+    // Wait for the portalled content to mount before focusing.
+    const id = requestAnimationFrame(() => searchRef.current?.focus())
+    return () => cancelAnimationFrame(id)
+  }, [open])
   const now = Date.now()
   // Main worktree searches the whole repo subtree so repo-level conversations
   // that matched no specific worktree are not lost; others stay exact.
@@ -97,12 +124,14 @@ export function NewPanelMenu({
   return (
     // modal={false}: the resume <input> lives in the content, so we must not
     // scroll-lock — that would fight the mobile keyboard pinning.
-    <DropdownMenu modal={false}>
+    <DropdownMenu modal={false} open={open} onOpenChange={setOpen}>
       <DropdownMenuTrigger
         render={
-          <Button variant="ghost" size="icon" aria-label="New panel">
-            <Plus size={16} />
-          </Button>
+          trigger ?? (
+            <Button variant="ghost" size="icon" aria-label="New panel">
+              <SquarePlus size={16} />
+            </Button>
+          )
         }
       />
       <DropdownMenuContent align="end" className="flex w-56 flex-col">
@@ -116,6 +145,7 @@ export function NewPanelMenu({
           Resume
         </div>
         <Input
+          ref={searchRef}
           type="text"
           className="mx-1.5 mb-1 mt-0.5 h-auto w-auto py-1 text-xs"
           placeholder="Search history…"

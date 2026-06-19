@@ -15,9 +15,10 @@ import {
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import type { SessionMeta } from '@podium/protocol'
-import { FileText, Pin, X } from 'lucide-react'
+import { Columns2, FileText, Pin, X } from 'lucide-react'
 import { type JSX, lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
+import { useSessionGuard } from '@/hooks/use-session-guard'
 import { cn } from '@/lib/utils'
 import { AgentPanel } from './AgentPanel'
 import {
@@ -60,14 +61,20 @@ export function Workspace(): JSX.Element {
     setPane,
     split,
     toggleSplit,
-    killSession,
     fileTabs,
     closeFileTab,
   } = store
+  // Closing a session tab routes through the active-session guard (#115) so a
+  // working agent prompts for confirmation; file tabs close immediately.
+  const { guardedKill } = useSessionGuard()
   // A session created via the "+" menu (or restored from localStorage on reload)
   // lands in `paneA` before the server's broadcast adds it to the tab list. Without
   // this, the keep-pane-valid effect sees an unknown paneA and bounces it to tab 0.
   const justOpened = useRef<string | null>(paneA)
+  // Same hold for a restored/just-opened pane B (the split's second pane): don't
+  // clear it before the store knows the session, or a reload with split=true would
+  // wipe pane B back to the picker before sessions arrive.
+  const justOpenedB = useRef<string | null>(paneB)
   // A small drag threshold keeps plain clicks (select/pin/close) working — the
   // drag only starts once the pointer has actually moved.
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
@@ -112,6 +119,25 @@ export function Workspace(): JSX.Element {
     setPane('A', allTabs[0]?.id ?? null)
   }, [allTabs, paneA, setPane, sessions])
 
+  // Keep pane B (the split's second pane) pointed at something valid. Unlike pane
+  // A there's no fall-back target — a B that goes stale just clears to the picker —
+  // but it gets the same just-opened/restored hold so a reload doesn't wipe it
+  // before the session it names has reached the store.
+  useEffect(() => {
+    if (!paneB) return
+    if (paneB !== justOpenedB.current && !sessions.some((s) => s.sessionId === paneB)) {
+      justOpenedB.current = paneB
+    }
+    if (allTabs.some((t) => t.id === paneB)) {
+      justOpenedB.current = null
+      return
+    }
+    // Still holding a restored/just-opened pane the store hasn't broadcast yet.
+    if (justOpenedB.current === paneB && !sessions.some((s) => s.sessionId === paneB)) return
+    // Genuinely gone (or moved out of this worktree) — drop it back to the picker.
+    setPane('B', null)
+  }, [allTabs, paneB, setPane, sessions])
+
   if (!worktree)
     return (
       <div className="flex flex-1 items-center justify-center text-xs text-muted-foreground/70">
@@ -152,7 +178,7 @@ export function Workspace(): JSX.Element {
                       ? () => void setPinned('panel', t.id, !pins.panels.includes(t.id))
                       : undefined
                   }
-                  onClose={() => (t.kind === 'session' ? void killSession(t.id) : closeFileTab(t.id))}
+                  onClose={() => (t.kind === 'session' ? void guardedKill(t.id) : closeFileTab(t.id))}
                 />
               ))}
             </div>
@@ -170,7 +196,7 @@ export function Workspace(): JSX.Element {
             }}
           />
           <Button variant="ghost" size="icon" title="Split" aria-label="Split" onClick={toggleSplit}>
-            ⊟
+            <Columns2 size={16} aria-hidden="true" />
           </Button>
         </div>
       </div>

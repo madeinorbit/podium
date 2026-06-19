@@ -97,6 +97,38 @@ describe('SessionStore sessions', () => {
   })
 })
 
+describe('SessionStore drafts', () => {
+  it('round-trips, overwrites, and clears a draft on empty text', async () => {
+    const file = await tmpDbPath()
+    const a = new SessionStore(file)
+    a.setDraft('sess', 'half typed')
+    a.setDraft('sess', 'half typed and more') // overwrite, not append
+    a.close()
+
+    const b = new SessionStore(file) // survives a "restart"
+    expect(b.loadDrafts()).toEqual({ sess: 'half typed and more' })
+    b.setDraft('sess', '') // composer cleared on send
+    expect(b.loadDrafts()).toEqual({})
+    b.close()
+  })
+
+  it('drops a session draft when the session is deleted', () => {
+    const store = new SessionStore(':memory:')
+    store.upsertSession(row())
+    store.setDraft('id-1', 'work in progress')
+    store.deleteSession('id-1')
+    expect(store.loadDrafts()).toEqual({})
+    store.close()
+  })
+
+  it('ignores a blank session id', () => {
+    const store = new SessionStore(':memory:')
+    store.setDraft('  ', 'orphan')
+    expect(store.loadDrafts()).toEqual({})
+    store.close()
+  })
+})
+
 describe('SessionStore repos.json import', () => {
   it('imports a sibling repos.json into an empty db, once', async () => {
     const file = await tmpDbPath()

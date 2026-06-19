@@ -10,11 +10,12 @@ import {
 } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
 import { useEffect, useRef, useState } from 'react'
-import { AgentPanel } from './AgentPanel'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { useIsMobile } from '@/hooks/use-is-mobile'
+import { useSessionGuard } from '@/hooks/use-session-guard'
 import { cn } from '@/lib/utils'
+import { AgentPanel } from './AgentPanel'
 import {
   orderTabs,
   type RepoNavView,
@@ -92,12 +93,12 @@ export function MobileApp(): JSX.Element {
     setSelectedWorktree,
     paneA,
     setPane,
-    killSession,
     view,
     setView,
     superOpen,
     setSuperOpen,
   } = store
+  const { guardedKill } = useSessionGuard()
   const { reposLoading, repoDiagnostics } = store
   const repoViews = reposToViews(store.repos)
   const sections = sidebarSections(store.repos, sessions, pins)
@@ -112,6 +113,10 @@ export function MobileApp(): JSX.Element {
   const [pickerOpen, setPickerOpen] = useState(false)
   const [repoPickerOpen, setRepoPickerOpen] = useState(false)
   const [sessionMenuOpen, setSessionMenuOpen] = useState(false)
+  // The new-agent ("+") menu and the session/tab-select menu are mutually
+  // exclusive — opening one closes the other (#97). Lift the "+" menu's open
+  // state here so the two can coordinate (NewPanelMenu is controlled below).
+  const [newAgentOpen, setNewAgentOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
   // Hold a freshly-opened (or reload-restored) session in pane A until the store
   // knows it — see the keep-pane-valid effect — otherwise it bounces to tabs[0].
@@ -144,6 +149,7 @@ export function MobileApp(): JSX.Element {
   // they otherwise sit over the panel and block it.
   const closePanelMenus = () => {
     setSessionMenuOpen(false)
+    setNewAgentOpen(false)
   }
 
   return (
@@ -199,7 +205,13 @@ export function MobileApp(): JSX.Element {
               type="button"
               className="inline-flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 overflow-hidden whitespace-nowrap text-[13px] font-medium text-foreground"
               aria-expanded={sessionMenuOpen}
-              onClick={() => setSessionMenuOpen((v) => !v)}
+              onClick={() =>
+                setSessionMenuOpen((v) => {
+                  // Opening the session menu closes the "+" menu, and vice versa.
+                  if (!v) setNewAgentOpen(false)
+                  return !v
+                })
+              }
             >
               {currentTab ? (
                 <>
@@ -218,6 +230,12 @@ export function MobileApp(): JSX.Element {
           {worktree && (
             <NewPanelMenu
               worktree={worktree}
+              open={newAgentOpen}
+              onOpenChange={(o) => {
+                setNewAgentOpen(o)
+                // Opening the "+" menu closes the session menu (#97).
+                if (o) setSessionMenuOpen(false)
+              }}
               onOpened={(sid) => {
                 justOpened.current = sid
                 setPane('A', sid)
@@ -267,7 +285,7 @@ export function MobileApp(): JSX.Element {
                   type="button"
                   className="cursor-pointer px-2.5 py-3 text-[13px] text-muted-foreground/70 hover:text-destructive"
                   title="Kill session"
-                  onClick={() => void killSession(t.sessionId)}
+                  onClick={() => void guardedKill(t.sessionId)}
                 >
                   ✕
                 </button>

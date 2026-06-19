@@ -1038,5 +1038,50 @@ describe('reconnect identity (hello reclaim)', () => {
       reg.attachClient((m) => c.push(m))
       expect(c.filter((m) => m.type === 'sessionDraftChanged')).toEqual([])
     })
+
+    it('persists a draft (debounced) across a server restart and replays it', () => {
+      vi.useFakeTimers()
+      try {
+        const dir = mkdtempSync(join(tmpdir(), 'podium-draft-'))
+        const dbPath = join(dir, 'podium.db')
+        const store = new SessionStore(dbPath)
+        const reg = new SessionRegistry(store)
+        const idA = reg.attachClient(() => {})
+        reg.onClientMessage(idA, { type: 'setSessionDraft', sessionId: 'sess', text: 'real work' })
+        // Not written yet — keystrokes coalesce; the row appears once the debounce fires.
+        expect(store.loadDrafts().sess).toBeUndefined()
+        vi.advanceTimersByTime(1000)
+        expect(store.loadDrafts().sess).toBe('real work')
+        store.close()
+
+        // "Restart": a fresh registry on the same DB replays the persisted draft
+        // to the first client to connect (issue #34: survives a full reload).
+        const store2 = new SessionStore(dbPath)
+        const reg2 = new SessionRegistry(store2)
+        const c: ServerMessage[] = []
+        reg2.attachClient((m) => c.push(m))
+        expect(c).toContainEqual({ type: 'sessionDraftChanged', sessionId: 'sess', text: 'real work' })
+        store2.close()
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+
+    it('clears the persisted draft immediately when the composer empties (send)', () => {
+      vi.useFakeTimers()
+      try {
+        const store = new SessionStore(':memory:')
+        const reg = new SessionRegistry(store)
+        const idA = reg.attachClient(() => {})
+        reg.onClientMessage(idA, { type: 'setSessionDraft', sessionId: 'sess', text: 'about to send' })
+        reg.onClientMessage(idA, { type: 'setSessionDraft', sessionId: 'sess', text: '' })
+        // No debounce wait: an empty draft flushes at once so a restart right after
+        // a send never restores stale text.
+        expect(store.loadDrafts().sess).toBeUndefined()
+        store.close()
+      } finally {
+        vi.useRealTimers()
+      }
+    })
   })
 })
