@@ -27,11 +27,13 @@ function rewriteImageSrc(html: string, resolveAsset?: (src: string) => string | 
 }
 
 /**
- * Markdown → sanitized HTML, each top-level block wrapped in
- * `<div class="md-block" data-source-line="N">`. The line map drives split-view
- * scroll sync and the future line-annotation feature.
+ * Assemble (but do NOT sanitize) markdown into HTML where each top-level block is
+ * wrapped in `<div class="md-block" data-source-line="N">` (N = 1-based source line).
+ * Pure and deterministic — this is the unit that carries the source-line map and is
+ * tested directly. Sanitization is a separate, browser-dependent step (see
+ * renderMarkdownBlocks).
  */
-export function renderMarkdownBlocks(text: string, opts: RenderBlocksOptions = {}): string {
+export function assembleMarkdownBlocks(text: string, opts: RenderBlocksOptions = {}): string {
   const tokens = marked.lexer(text)
   let offset = 0
   let out = ''
@@ -45,20 +47,14 @@ export function renderMarkdownBlocks(text: string, opts: RenderBlocksOptions = {
     if (!inner.trim()) continue // skip whitespace-only 'space' tokens
     out += `<div class="md-block" data-source-line="${line}">${inner}</div>`
   }
-  const withImages = rewriteImageSrc(linkifyCodePaths(out), opts.resolveAsset)
-  // DOMPurify keeps data-* attributes and class by default (matches markdown.ts).
-  // We must allow DIV tags; DOMPurify's default config needs explicit ALLOWED_TAGS.
-  // Wrap in a container to prevent DOMPurify from unwrapping outer divs.
-  const wrapped = `<div class="md-blocks-container">${withImages}</div>`
-  const config = {
-    ALLOWED_TAGS: ['div', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'ul', 'ol', 'li', 'blockquote', 'code', 'pre', 'em', 'strong', 'a', 'img', 'table', 'thead', 'tbody', 'tr', 'th', 'td', 'br', 'hr', 'span', 'input'],
-    ALLOWED_ATTR: ['class', 'data-source-line', 'href', 'src', 'alt', 'title', 'type', 'checked', 'disabled']
-  }
-  const sanitized = DOMPurify.sanitize(wrapped, config)
-  // Unwrap the container
-  const containerStart = '<div class="md-blocks-container">'
-  const containerEnd = '</div>'
-  return sanitized.startsWith(containerStart) && sanitized.endsWith(containerEnd)
-    ? sanitized.slice(containerStart.length, -containerEnd.length)
-    : sanitized
+  return rewriteImageSrc(linkifyCodePaths(out), opts.resolveAsset)
+}
+
+/**
+ * Markdown → sanitized HTML for rendering in the browser. Uses DOMPurify's default
+ * policy — exactly like markdown.ts's renderMarkdown — so it keeps <div>, class, and
+ * the data-source-line anchors in a real browser, with no lossy allowlist.
+ */
+export function renderMarkdownBlocks(text: string, opts: RenderBlocksOptions = {}): string {
+  return DOMPurify.sanitize(assembleMarkdownBlocks(text, opts))
 }
