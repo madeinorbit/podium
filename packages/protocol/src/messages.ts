@@ -300,9 +300,11 @@ export const PingMessage = z.object({ type: z.literal('ping') })
 // push while some Podium window is visibly open.
 export const PresenceMessage = z.object({ type: z.literal('presence'), visible: z.boolean() })
 
-// The in-progress composer / native-prompt text for a session. Ephemeral (never
-// persisted): the controlling client publishes its scraped native prompt, and a
-// chat composer edit publishes its draft, so every view/device converges.
+// The in-progress composer / native-prompt text for a session. The controlling
+// client publishes its scraped native prompt, and a chat composer edit publishes
+// its draft, so every view/device converges. Server-persisted (debounced) so the
+// draft survives a full reload / server restart and replays on (re)connect
+// (issue #34) — real user work is never lost.
 export const SetSessionDraftMessage = z.object({
   type: z.literal('setSessionDraft'),
   sessionId: z.string(),

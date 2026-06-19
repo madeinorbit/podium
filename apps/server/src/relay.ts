@@ -80,8 +80,17 @@ export class SessionRegistry {
     string,
     (r: Omit<FileWriteResultMessage, 'type' | 'requestId'>) => void
   >()
-  /** Ephemeral in-progress composer/prompt text per session. Never persisted. */
+  /**
+   * In-progress composer/prompt text per session. The live value lives here (read
+   * by attachClient to replay on connect); it is also debounced to the store so it
+   * survives a server restart and a full web reload with no other client holding it
+   * (issue #34). Hydrated from the store at boot in loadFromStore().
+   */
   private draftBySession = new Map<string, string>()
+  // Pending debounced draft persists, keyed by sessionId — one timer per session
+  // coalesces a burst of keystrokes into a single SQLite write.
+  private readonly draftWriteTimers = new Map<string, ReturnType<typeof setTimeout>>()
+  private static readonly DRAFT_WRITE_DEBOUNCE_MS = 750
   private latestConversations: ConversationSummaryWire[] = []
   private latestConversationDiagnostics: ConversationDiagnosticWire[] = []
   // Latest health sample per daemon host, keyed by hostname — ready for several
@@ -107,6 +116,11 @@ export class SessionRegistry {
   }
 
   private loadFromStore(): void {
+    // Restore persisted composer drafts so attachClient can replay them to the
+    // first client to connect after a server restart (issue #34).
+    for (const [sessionId, text] of Object.entries(this.store.loadDrafts())) {
+      this.draftBySession.set(sessionId, text)
+    }
     for (const r of this.store.loadSessions()) {
       const kind = AgentKind.safeParse(r.agentKind)
       if (!kind.success) {
@@ -322,9 +336,47 @@ export class SessionRegistry {
   setSessionDraft(input: { sessionId: string; text: string }, fromClientId?: string): void {
     if (input.text) this.draftBySession.set(input.sessionId, input.text)
     else this.draftBySession.delete(input.sessionId)
+    // Keep the existing live cross-client sync: push to every OTHER client (the
+    // directional guard skips the originator so its own keystrokes don't echo back).
     for (const c of this.clients.values()) {
       if (c.id === fromClientId) continue
       c.send({ type: 'sessionDraftChanged', sessionId: input.sessionId, text: input.text })
+    }
+    this.persistDraft(input.sessionId, input.text)
+  }
+
+  /**
+   * Debounced draft persistence. Keystrokes coalesce per session into one SQLite
+   * write after a short idle gap, so typing never hammers the synchronous DB.
+   * An empty draft (the composer cleared on send) is flushed immediately and any
+   * pending timer cancelled, so a stale draft can't outlive the message that was
+   * sent — even if the server restarts in the debounce window.
+   */
+  private persistDraft(sessionId: string, text: string): void {
+    const existing = this.draftWriteTimers.get(sessionId)
+    if (existing) {
+      clearTimeout(existing)
+      this.draftWriteTimers.delete(sessionId)
+    }
+    if (!text) {
+      this.writeDraft(sessionId, '')
+      return
+    }
+    const timer = setTimeout(() => {
+      this.draftWriteTimers.delete(sessionId)
+      // Write the latest value rather than the captured one: a write that lands
+      // after further edits (or a kill) should reflect the current in-memory state.
+      this.writeDraft(sessionId, this.draftBySession.get(sessionId) ?? '')
+    }, SessionRegistry.DRAFT_WRITE_DEBOUNCE_MS)
+    timer.unref?.()
+    this.draftWriteTimers.set(sessionId, timer)
+  }
+
+  private writeDraft(sessionId: string, text: string): void {
+    try {
+      this.store.setDraft(sessionId, text)
+    } catch (e) {
+      console.warn(`[podium] failed to persist draft for ${sessionId}:`, e)
     }
   }
 
@@ -512,6 +564,13 @@ export class SessionRegistry {
     this.sessions.get(input.sessionId)?.detachAll()
     this.sessions.delete(input.sessionId)
     this.draftBySession.delete(input.sessionId)
+    // Cancel any pending debounced draft write before deleteSession removes the
+    // row, so a late timer can't resurrect a draft for a now-dead session.
+    const draftTimer = this.draftWriteTimers.get(input.sessionId)
+    if (draftTimer) {
+      clearTimeout(draftTimer)
+      this.draftWriteTimers.delete(input.sessionId)
+    }
     this.store.deleteSession(input.sessionId)
     for (const c of this.clients.values()) c.attached.delete(input.sessionId)
     this.broadcastSessions()
