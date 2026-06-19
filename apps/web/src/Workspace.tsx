@@ -33,8 +33,8 @@ import { type FileTab, useStore } from './store'
 import type { WorktreeView } from './types'
 import { SessionNameEditor, sessionDisplayName, WorkerLabel } from './WorkerLabel'
 
-const FileEditorPanel = lazy(() =>
-  import('./FileEditorPanel').then((m) => ({ default: m.FileEditorPanel })),
+const MarkdownFilePanel = lazy(() =>
+  import('./MarkdownFilePanel').then((m) => ({ default: m.MarkdownFilePanel })),
 )
 
 // A tab in the strip is either an agent/shell session or an open file editor. Both are
@@ -222,7 +222,7 @@ export function Workspace(): JSX.Element {
                 <AgentPanel sessionId={t.id} active={visible} />
               ) : (
                 <Suspense fallback={null}>
-                  <FileEditorPanel
+                  <MarkdownFilePanel
                     sessionId={t.file.sessionId}
                     path={t.file.path}
                     onClose={() => closeFileTab(t.id)}
