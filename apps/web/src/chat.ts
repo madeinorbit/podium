@@ -1,4 +1,4 @@
-import type { TranscriptItem } from '@podium/protocol'
+import type { TranscriptItem, TranscriptTag } from '@podium/protocol'
 
 /**
  * Pure helpers for the chat view: tool-call/result pairing, transcript search,
@@ -136,6 +136,7 @@ export interface PendingItem {
   text: string
   at: number
   state: 'sending' | 'sent' | 'failed'
+  tags?: TranscriptTag[]
 }
 
 /**

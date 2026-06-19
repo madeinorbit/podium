@@ -36,6 +36,29 @@ import { useVoiceInput } from './voice'
  * native write-through input, quick transcript search, and a Sublime-style
  * birds-eye minimap (user prompts highlighted; click scrolls).
  */
+
+/** Returns true when a DataTransferItemList contains at least one image item. */
+export function hasImageItems(items: DataTransferItemList): boolean {
+  for (let i = 0; i < items.length; i++) {
+    if (items[i]?.type.startsWith('image/')) return true
+  }
+  return false
+}
+
+/** Build the path-prefixed prompt: image paths prepended newline-separated, then the user text. */
+export function buildImagePrompt(paths: string[], text: string): string {
+  if (paths.length === 0) return text
+  return `${paths.join('\n')}\n${text}`
+}
+
+type Attachment = {
+  id: string
+  name: string
+  previewUrl: string
+  path?: string
+  state: 'uploading' | 'ready' | 'failed'
+}
+
 /**
  * Returns true when incoming transcript items represent a reset that should
  * force the scroll position back to the bottom (new session load, reconnect
@@ -96,6 +119,9 @@ export function ChatView({
   const seenUserIds = useRef<Set<string>>(new Set())
   const [justSent, setJustSent] = useState(false)
   const voice = useVoiceInput((text) => setDraft(draft ? `${draft} ${text}` : text))
+  const [attachments, setAttachments] = useState<Attachment[]>([])
+  const [dragOver, setDragOver] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement | null>(null)
 
   useEffect(
     () =>
@@ -246,6 +272,48 @@ export function ChatView({
     setAtBottom(true)
   }
 
+  const processFiles = async (files: File[]) => {
+    const imageFiles = files.filter((f) => f.type.startsWith('image/'))
+    if (imageFiles.length === 0) return
+    const newAttachments: Attachment[] = imageFiles.map((f) => ({
+      id: `att-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      name: f.name,
+      previewUrl: URL.createObjectURL(f),
+      state: 'uploading' as const,
+    }))
+    setAttachments((prev) => [...prev, ...newAttachments])
+    await Promise.all(
+      imageFiles.map(async (file, i) => {
+        // newAttachments is built from imageFiles with the same length, so index is always valid
+        const att = newAttachments[i] as Attachment
+        try {
+          const dataBase64 = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader()
+            reader.onload = () => {
+              const result = reader.result as string
+              resolve(result.split(',')[1] ?? result)
+            }
+            reader.onerror = () => reject(new Error('FileReader error'))
+            reader.readAsDataURL(file)
+          })
+          const res = await trpc.sessions.uploadImage.mutate({
+            sessionId,
+            filename: file.name,
+            mimeType: file.type,
+            dataBase64,
+          })
+          setAttachments((prev) =>
+            prev.map((a) => (a.id === att.id ? { ...a, path: res.path, state: 'ready' } : a)),
+          )
+        } catch {
+          setAttachments((prev) =>
+            prev.map((a) => (a.id === att.id ? { ...a, state: 'failed' } : a)),
+          )
+        }
+      }),
+    )
+  }
+
   // Auto-grow the composer with its content, capped by the max-height (~8
   // lines), after which it scrolls. Runs on every draft change.
   // biome-ignore lint/correctness/useExhaustiveDependencies: re-measure when the draft changes
@@ -268,20 +336,26 @@ export function ChatView({
 
   const send = async () => {
     const text = draft.trim()
-    if (!text) return
+    const readyAttachments = attachments.filter((a) => a.state === 'ready' && a.path)
+    if (!text && readyAttachments.length === 0) return
+    if (attachments.some((a) => a.state === 'uploading')) return
+    const readyPaths = readyAttachments.map((a) => a.path as string)
+    const fullText = buildImagePrompt(readyPaths, text)
     setDraft('')
+    setAttachments([])
     pinnedToBottom.current = true
     setAtBottom(true)
     const id = `pending-${++pendingSeq.current}`
-    setPending((p) => [...p, { id, text, at: Date.now(), state: 'sending' }])
+    const tags = readyAttachments.map((a) => ({ kind: 'image' as const, label: a.name }))
+    setPending((p) => [...p, { id, text: fullText, at: Date.now(), state: 'sending', tags: tags.length > 0 ? tags : undefined }])
     setJustSent(true)
     try {
       // Live → send straight through. Parked but recoverable → wake it and let
       // the server deliver the text once the resumed CLI is ready.
       if (session?.status === 'live' || session?.status === 'starting') {
-        await trpc.sessions.sendText.mutate({ sessionId, text })
+        await trpc.sessions.sendText.mutate({ sessionId, text: fullText })
       } else {
-        await resumeAndSend(sessionId, text)
+        await resumeAndSend(sessionId, fullText)
       }
     } catch {
       setPending((p) => p.map((x) => (x.id === id ? { ...x, state: 'failed' } : x)))
@@ -392,6 +466,19 @@ export function ChatView({
                   )}
                 </div>
                 <div className="chat-md whitespace-pre-wrap">{p.text}</div>
+                {p.tags && p.tags.length > 0 && (
+                  <div className="mt-1.5 flex gap-1.5">
+                    {p.tags.map((tag, i) => (
+                      <span
+                        key={`${tag.kind}-${i}`}
+                        className="inline-flex items-center gap-1 rounded border border-input px-[7px] py-0.5 text-[11px] text-muted-foreground"
+                      >
+                        <ImageIcon size={12} aria-hidden="true" />
+                        {tag.label ?? tag.kind}
+                      </span>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
           ))}
@@ -431,8 +518,38 @@ export function ChatView({
       {/* Composer: one auto-growing box (≈2 lines, up to 8) with the attach /
           voice / send actions inside it, Claude-iOS style. Enter inserts a
           newline; the send button (or ⌘/Ctrl+Enter) submits. */}
-      <div className="border-t border-border bg-card px-3 pt-2.5 pb-[calc(10px+env(safe-area-inset-bottom,0px))]">
-        <div className="flex flex-col gap-0.5 rounded-2xl border border-input bg-background px-2.5 pt-2 pb-1.5 focus-within:border-primary">
+      <div
+        className="border-t border-border bg-card px-3 pt-2.5 pb-[calc(10px+env(safe-area-inset-bottom,0px))]"
+        onDragOver={(e) => {
+          e.preventDefault()
+          if (e.dataTransfer.items && hasImageItems(e.dataTransfer.items)) setDragOver(true)
+        }}
+        onDragLeave={(e) => {
+          if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragOver(false)
+        }}
+        onDrop={(e) => {
+          e.preventDefault()
+          setDragOver(false)
+          void processFiles(Array.from(e.dataTransfer.files))
+        }}
+      >
+        <div className="relative flex flex-col gap-0.5 rounded-2xl border border-input bg-background px-2.5 pt-2 pb-1.5 focus-within:border-primary">
+          {dragOver && (
+            <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-2xl border-2 border-dashed border-primary bg-primary/5">
+              <span className="text-sm font-medium text-primary">Drop image to attach</span>
+            </div>
+          )}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            multiple
+            className="hidden"
+            onChange={(e) => {
+              if (e.target.files) void processFiles(Array.from(e.target.files))
+              e.target.value = ''
+            }}
+          />
           <Textarea
             ref={taRef}
             rows={1}
@@ -455,15 +572,64 @@ export function ChatView({
                 void send()
               }
             }}
+            onPaste={(e) => {
+              const { items } = e.clipboardData
+              if (hasImageItems(items)) {
+                e.preventDefault()
+                const files: File[] = []
+                for (let i = 0; i < items.length; i++) {
+                  const item = items[i]
+                  if (item?.type.startsWith('image/')) {
+                    const f = item.getAsFile()
+                    if (f) files.push(f)
+                  }
+                }
+                void processFiles(files)
+              }
+            }}
           />
+          {attachments.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 px-0.5 pt-1">
+              {attachments.map((att) => (
+                <div
+                  key={att.id}
+                  className={cn(
+                    'relative flex items-center gap-1 rounded-lg border border-input bg-muted/50 px-2 py-1 text-[11px]',
+                    att.state === 'failed' && 'border-destructive/50 text-destructive',
+                  )}
+                >
+                  {att.previewUrl && att.state !== 'failed' && (
+                    <img
+                      src={att.previewUrl}
+                      alt={att.name}
+                      className="size-5 rounded object-cover"
+                    />
+                  )}
+                  <span className="max-w-[80px] truncate text-muted-foreground">{att.name}</span>
+                  {att.state === 'uploading' && (
+                    <span className="size-2.5 animate-spin rounded-full border border-muted-foreground/30 border-t-muted-foreground" />
+                  )}
+                  {att.state === 'failed' && <span className="text-destructive">!</span>}
+                  <button
+                    type="button"
+                    className="ml-0.5 text-muted-foreground/70 hover:text-foreground"
+                    onClick={() => setAttachments((prev) => prev.filter((a) => a.id !== att.id))}
+                    aria-label={`Remove ${att.name}`}
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
           <div className="flex items-center justify-end gap-1">
             <Button
               type="button"
               variant="ghost"
               size="icon"
-              className="rounded-full text-muted-foreground hover:bg-transparent [&_svg:not([class*='size-'])]:size-4"
-              disabled
-              title="Attachments — coming soon"
+              className="rounded-full text-muted-foreground hover:bg-transparent hover:text-foreground [&_svg:not([class*='size-'])]:size-4"
+              title="Attach image"
+              onClick={() => fileInputRef.current?.click()}
             >
               <Paperclip size={16} aria-hidden="true" />
             </Button>
@@ -486,7 +652,7 @@ export function ChatView({
               type="button"
               size="icon"
               className="rounded-full bg-primary text-primary-foreground hover:bg-primary/80 disabled:bg-secondary disabled:text-muted-foreground/70 disabled:opacity-100 [&_svg:not([class*='size-'])]:size-4"
-              disabled={!composerEnabled || !draft.trim()}
+              disabled={!composerEnabled || (!draft.trim() && attachments.length === 0) || attachments.some((a) => a.state === 'uploading')}
               title="Send (⌘/Ctrl+Enter)"
               onClick={() => void send()}
             >
