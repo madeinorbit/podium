@@ -44,28 +44,10 @@ import type { PinKind, WorktreeView } from './types'
 import { useNow } from './useNow'
 import { SessionNameEditor, sessionDisplayName, WorkerLabel } from './WorkerLabel'
 
-const WORKING_EXPANDED_KEY = 'podium:sidebar:working-expanded'
-
 const REPO_SORT_LABELS: Record<'alphabetical' | 'lastUsed' | 'custom', string> = {
   lastUsed: 'Last used',
   alphabetical: 'A–Z',
   custom: 'Custom',
-}
-
-function getWorkingExpanded(): boolean {
-  try {
-    return localStorage.getItem(WORKING_EXPANDED_KEY) === 'true'
-  } catch {
-    return false
-  }
-}
-
-function setWorkingExpanded(value: boolean): void {
-  try {
-    localStorage.setItem(WORKING_EXPANDED_KEY, value ? 'true' : 'false')
-  } catch {
-    // ignore
-  }
 }
 
 function StatusDot({ session }: { session: SessionMeta }): JSX.Element {
@@ -96,7 +78,6 @@ export function Sidebar(): JSX.Element {
   const now = useNow(60_000)
   const [pickerOpen, setPickerOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
-  const [workingExpanded, setWorkingExpandedState] = useState<boolean>(getWorkingExpanded)
 
   // Inline filter over the repos/worktrees tree (name/branch/path). Distinct from
   // the global SearchView (the magnifier in the tools row), which searches
@@ -184,11 +165,6 @@ export function Sidebar(): JSX.Element {
     sections.pinnedRepos.length > 0 ||
     sections.repos.length > 0
 
-  const toggleWorkingExpanded = () => {
-    const next = !workingExpanded
-    setWorkingExpandedState(next)
-    setWorkingExpanded(next)
-  }
 
   const selectPanel = (worktreePath: string, sessionId: string) => {
     setSelectedWorktree(worktreePath)
@@ -316,8 +292,8 @@ export function Sidebar(): JSX.Element {
           workItems.working.length > 0 ||
           workItems.pinnedPanels.length > 0) && (
           <div className="min-w-0 border-b border-border">
-            {/* NEEDS YOUR ATTENTION — always expanded; long-idle items collapse
-                into a Stale subsection once the list gets crowded. */}
+            {/* NEEDS YOUR ATTENTION — collapsible (default expanded). Long-idle
+                items still collapse into a Stale subsection once it gets crowded. */}
             {workItems.attention.length > 0 &&
               (() => {
                 const { visible, stale } = partitionStaleSessions(workItems.attention, now)
@@ -326,59 +302,52 @@ export function Sidebar(): JSX.Element {
                     key={session.sessionId}
                     session={session}
                     pinned={false}
+                    attention
                     active={selectedWorktree === session.cwd && paneA === session.sessionId}
                     onSelect={() => selectPanel(session.cwd, session.sessionId)}
                     onPinned={(p) => void setPinned('panel', session.sessionId, p)}
                   />
                 )
                 return (
-                  <PinnedSection label="NEEDS YOUR ATTENTION">
+                  <CollapsibleSection
+                    label="NEEDS YOUR ATTENTION"
+                    storageKey="podium:sidebar:collapsed:attention"
+                    count={workItems.attention.length}
+                  >
                     {visible.map(renderRow)}
                     <StaleSection sessions={stale} render={renderRow} />
-                  </PinnedSection>
+                  </CollapsibleSection>
                 )
               })()}
 
             {/* WORKING — collapsible, default collapsed, shows count in header */}
             {workItems.working.length > 0 && (
-              <div>
-                <button
-                  type="button"
-                  className="flex w-full items-center gap-1 px-3 pt-2 pb-[3px] text-left text-[10px] font-bold tracking-[0.08em] uppercase text-primary hover:text-primary/80"
-                  onClick={toggleWorkingExpanded}
-                  aria-expanded={workingExpanded}
-                >
-                  {workingExpanded ? (
-                    <ChevronDown size={11} aria-hidden="true" className="flex-none" />
-                  ) : (
-                    <ChevronRight size={11} aria-hidden="true" className="flex-none" />
-                  )}
-                  <span>
-                    WORKING
-                    {!workingExpanded && (
-                      <span className="ml-1 font-normal text-muted-foreground">
-                        · {workItems.working.length}
-                      </span>
-                    )}
-                  </span>
-                </button>
-                {workingExpanded &&
-                  workItems.working.map((session) => (
-                    <PanelRow
-                      key={session.sessionId}
-                      session={session}
-                      pinned={false}
-                      active={selectedWorktree === session.cwd && paneA === session.sessionId}
-                      onSelect={() => selectPanel(session.cwd, session.sessionId)}
-                      onPinned={(p) => void setPinned('panel', session.sessionId, p)}
-                    />
-                  ))}
-              </div>
+              <CollapsibleSection
+                label="WORKING"
+                storageKey="podium:sidebar:collapsed:working"
+                defaultCollapsed
+                count={workItems.working.length}
+              >
+                {workItems.working.map((session) => (
+                  <PanelRow
+                    key={session.sessionId}
+                    session={session}
+                    pinned={false}
+                    active={selectedWorktree === session.cwd && paneA === session.sessionId}
+                    onSelect={() => selectPanel(session.cwd, session.sessionId)}
+                    onPinned={(p) => void setPinned('panel', session.sessionId, p)}
+                  />
+                ))}
+              </CollapsibleSection>
             )}
 
-            {/* PINNED PANELS */}
+            {/* PINNED PANELS — collapsible, default expanded */}
             {workItems.pinnedPanels.length > 0 && (
-              <PinnedSection label="PINNED PANELS">
+              <CollapsibleSection
+                label="PINNED PANELS"
+                storageKey="podium:sidebar:collapsed:pinned-panels"
+                count={workItems.pinnedPanels.length}
+              >
                 {workItems.pinnedPanels.map((session) => (
                   <PanelRow
                     key={session.sessionId}
@@ -389,7 +358,7 @@ export function Sidebar(): JSX.Element {
                     onPinned={(p) => void setPinned('panel', session.sessionId, p)}
                   />
                 ))}
-              </PinnedSection>
+              </CollapsibleSection>
             )}
           </div>
         )}
@@ -430,7 +399,11 @@ export function Sidebar(): JSX.Element {
         </div>
 
         {sections.pinnedWorktrees.length > 0 && (
-          <PinnedSection label="PINNED WORKTREES">
+          <CollapsibleSection
+            label="PINNED WORKTREES"
+            storageKey="podium:sidebar:collapsed:pinned-worktrees"
+            count={sections.pinnedWorktrees.length}
+          >
             {sections.pinnedWorktrees.map((worktree) => (
               <WorktreeBlock
                 key={worktree.path}
@@ -444,11 +417,15 @@ export function Sidebar(): JSX.Element {
                 onSelectPanel={selectPanel}
               />
             ))}
-          </PinnedSection>
+          </CollapsibleSection>
         )}
 
         {sections.pinnedRepos.length > 0 && (
-          <PinnedSection label="PINNED REPOS">
+          <CollapsibleSection
+            label="PINNED REPOS"
+            storageKey="podium:sidebar:collapsed:pinned-repos"
+            count={sections.pinnedRepos.length}
+          >
             {sections.pinnedRepos.map((repo) => (
               <RepoBlock
                 key={repo.path}
@@ -462,7 +439,7 @@ export function Sidebar(): JSX.Element {
                 onSelectPanel={selectPanel}
               />
             ))}
-          </PinnedSection>
+          </CollapsibleSection>
         )}
 
         {sortedRepos.map((repo) => (
@@ -522,13 +499,75 @@ export function Sidebar(): JSX.Element {
   )
 }
 
-function PinnedSection({ label, children }: { label: string; children: ReactNode }): JSX.Element {
+/** Per-section collapse state, persisted to localStorage. Absent key = the
+ *  section's own default (attention/pinned open, working closed). */
+function useCollapsed(key: string, defaultCollapsed: boolean): [boolean, () => void] {
+  const [collapsed, setCollapsed] = useState<boolean>(() => {
+    try {
+      const v = localStorage.getItem(key)
+      return v === null ? defaultCollapsed : v === 'true'
+    } catch {
+      return defaultCollapsed
+    }
+  })
+  const toggle = () => {
+    setCollapsed((c) => {
+      const next = !c
+      try {
+        localStorage.setItem(key, next ? 'true' : 'false')
+      } catch {
+        // ignore
+      }
+      return next
+    })
+  }
+  return [collapsed, toggle]
+}
+
+/** A collapsible sidebar section: a chevroned uppercase header over its rows.
+ *  Collapsed state persists per `storageKey`; `right` renders inline controls
+ *  (e.g. the repo-sort select) that stay clickable without toggling. */
+function CollapsibleSection({
+  label,
+  storageKey,
+  defaultCollapsed = false,
+  count,
+  right,
+  children,
+}: {
+  label: string
+  storageKey: string
+  defaultCollapsed?: boolean
+  count?: number
+  right?: ReactNode
+  children: ReactNode
+}): JSX.Element {
+  const [collapsed, toggle] = useCollapsed(storageKey, defaultCollapsed)
   return (
     <div className="min-w-0 py-1">
-      <div className="px-3 pt-2 pb-[3px] text-[10px] font-bold tracking-[0.08em] uppercase text-primary">
-        {label}
+      <div className="flex items-center justify-between px-3 pt-2 pb-[3px]">
+        <button
+          type="button"
+          className="flex min-w-0 flex-1 items-center gap-1 text-left text-[10px] font-bold tracking-[0.08em] uppercase text-primary hover:text-primary/80"
+          onClick={toggle}
+          aria-expanded={!collapsed}
+          aria-label={`${collapsed ? 'Expand' : 'Collapse'} ${label}`}
+        >
+          {collapsed ? (
+            <ChevronRight size={11} aria-hidden="true" className="flex-none" />
+          ) : (
+            <ChevronDown size={11} aria-hidden="true" className="flex-none" />
+          )}
+          <span className="truncate">
+            {label}
+            {collapsed && count !== undefined && count > 0 && (
+              <span className="ml-1 font-normal text-muted-foreground">· {count}</span>
+            )}
+          </span>
+        </button>
+        {right}
       </div>
-      {children}
+      {!collapsed && children}
     </div>
   )
 }
@@ -566,13 +605,26 @@ function RepoBlock({
   onSelectPanel: (worktreePath: string, sessionId: string) => void
   dragHandle?: ReactNode
 }): JSX.Element {
+  const [collapsed, toggle] = useCollapsed(`podium:sidebar:collapsed:repo:${repo.path}`, false)
   return (
     <div className="group/repo mt-1">
       <div className="flex items-center justify-between pr-2">
         {dragHandle}
-        <div className="min-w-0 flex-1 px-3 pt-1.5 pb-0.5 text-[11px] tracking-[0.06em] uppercase text-muted-foreground/70">
-          {repo.name}
-        </div>
+        {/* Repo name doubles as the collapse toggle for its worktrees. */}
+        <button
+          type="button"
+          className="flex min-w-0 flex-1 items-center gap-1 px-3 pt-1.5 pb-0.5 text-left text-[11px] tracking-[0.06em] uppercase text-muted-foreground/70 hover:text-foreground"
+          onClick={toggle}
+          aria-expanded={!collapsed}
+          aria-label={`${collapsed ? 'Expand' : 'Collapse'} ${repo.name} worktrees`}
+        >
+          {collapsed ? (
+            <ChevronRight size={10} aria-hidden="true" className="flex-none" />
+          ) : (
+            <ChevronDown size={10} aria-hidden="true" className="flex-none" />
+          )}
+          <span className="truncate">{repo.name}</span>
+        </button>
         {/* Start a new agent in this repo's primary worktree. Revealed on row
             hover (matching the session rows' reveal-on-hover controls). */}
         <NewPanelMenu
@@ -599,19 +651,20 @@ function RepoBlock({
           revealClass="group-hover/repo:inline-flex"
         />
       </div>
-      {repo.worktrees.map((worktree) => (
-        <WorktreeBlock
-          key={worktree.path}
-          worktree={worktree}
-          pinned={false}
-          active={selectedWorktree === worktree.path}
-          paneA={paneA}
-          now={now}
-          setPinned={setPinned}
-          onSelectWorktree={() => onSelectWorktree(worktree.path)}
-          onSelectPanel={onSelectPanel}
-        />
-      ))}
+      {!collapsed &&
+        repo.worktrees.map((worktree) => (
+          <WorktreeBlock
+            key={worktree.path}
+            worktree={worktree}
+            pinned={false}
+            active={selectedWorktree === worktree.path}
+            paneA={paneA}
+            now={now}
+            setPinned={setPinned}
+            onSelectWorktree={() => onSelectWorktree(worktree.path)}
+            onSelectPanel={onSelectPanel}
+          />
+        ))}
     </div>
   )
 }
@@ -728,12 +781,16 @@ function PanelRow({
   active,
   onSelect,
   onPinned,
+  attention = false,
 }: {
   session: SessionMeta
   pinned: boolean
   active: boolean
   onSelect: () => void
   onPinned: (pinned: boolean) => void
+  /** True only for the NEEDS YOUR ATTENTION rows: shows the snooze control
+   *  (rightmost, always visible) and reveals pin/close on hover. */
+  attention?: boolean
 }): JSX.Element {
   const { continueSession, renameSession } = useStore()
   const { guardedKill } = useSessionGuard()
@@ -792,7 +849,8 @@ function PanelRow({
           Continue
         </Button>
       )}
-      <SnoozeControl session={session} />
+      {/* Pin: lit when pinned, otherwise hidden until row hover (so on attention
+          rows it never competes with the always-on, rightmost snooze control). */}
       <Button
         variant="ghost"
         size="icon-sm"
@@ -819,6 +877,9 @@ function PanelRow({
       >
         <X size={13} aria-hidden="true" />
       </Button>
+      {/* Snooze lives ONLY on NEEDS YOUR ATTENTION rows. Rightmost + always
+          visible, so it never shifts when pin/close reveal on hover. */}
+      {attention && <SnoozeControl session={session} />}
     </div>
   )
 }
