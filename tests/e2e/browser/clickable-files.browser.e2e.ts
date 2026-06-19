@@ -174,7 +174,7 @@ async function openStyledFile(page: Page, rel: string, st: { cols: number; rows:
       await page.mouse.click(x, y)
       const base = rel.replace('./', '')
       try {
-        await page.getByRole('button', { name: base }).waitFor({ state: 'visible', timeout: 1500 })
+        await page.getByRole('button', { name: base }).first().waitFor({ state: 'visible', timeout: 1500 })
         return
       } catch {
         /* render/hit-test miss — recompute and retry */
@@ -205,12 +205,14 @@ test('native terminal: each opened file is its own closeable tab in the strip', 
   // Open the file → it becomes a closeable TAB in the strip (not an overlay), and the
   // editor shows its content.
   await openStyledFile(page, './e2e_tab_one.txt', st)
-  const tab = page.getByRole('button', { name: 'e2e_tab_one.txt' })
-  await expect(tab, 'opened file appears as a tab in the strip').toBeVisible()
+  await expect(
+    page.getByRole('button', { name: 'e2e_tab_one.txt' }).first(),
+    'opened file appears as a tab in the strip',
+  ).toBeVisible()
   await expect(page.locator('.cm-content')).toContainText('TAB_ONE', { timeout: 10_000 })
 
   // Close the tab via its × → it disappears from the strip.
-  await tab.locator('..').getByRole('button', { name: 'Close file' }).click()
+  await page.getByRole('button', { name: 'Close file' }).click()
   await expect(page.getByRole('button', { name: 'e2e_tab_one.txt' })).toHaveCount(0)
 
   await rm(`${cwd}/e2e_tab_one.txt`, { force: true }).catch(() => {})
