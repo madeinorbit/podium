@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   AgentKind,
+  AgentQuotaResultMessage,
   ClientMessage,
   type ControlMessage,
   ConversationSummaryWire,
@@ -475,5 +476,28 @@ describe('agent runtime state', () => {
       },
     })
     expect(meta.agentState?.phase).toBe('idle')
+  })
+})
+
+describe('agent quota messages', () => {
+  it('round-trips an agentQuotaResult over encode/decode', () => {
+    const msg = {
+      type: 'agentQuotaResult' as const,
+      requestId: 'aq1',
+      hostname: 'box',
+      agents: [
+        {
+          agent: 'claude-code' as const,
+          status: 'ok' as const,
+          windows: [
+            { key: '5h' as const, label: '5-hour', usedPercent: 42.5, resetsAt: '2026-06-19T20:00:00.000Z', windowMinutes: 300 },
+            { key: 'weekly' as const, label: 'Weekly', usedPercent: 7, resetsAt: '2026-06-24T00:00:00.000Z', windowMinutes: 10080 },
+          ],
+          fetchedAt: '2026-06-19T18:00:00.000Z',
+        },
+      ],
+    }
+    expect(parseDaemonMessage(encode(msg))).toEqual(msg)
+    expect(AgentQuotaResultMessage.parse(msg)).toEqual(msg)
   })
 })

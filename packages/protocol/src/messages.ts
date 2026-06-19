@@ -648,10 +648,46 @@ export const UsageResultMessage = z.object({
   buckets: z.array(UsageBucketWire),
 })
 
+// ── Agent plan-quota (rate-limit windows). Distinct from UsageBucketWire, which
+// is transcript-harvested token-cost analytics. Quota is the share of each rolling
+// plan window consumed + when it resets, read live from each agent's own usage
+// endpoint on the daemon host. Claude: 5h + weekly. Codex: 5h + weekly.
+export const QuotaWindowWire = z.object({
+  key: z.enum(['5h', 'weekly']),
+  label: z.string(),
+  usedPercent: z.number(), // 0..100
+  resetsAt: z.string(), // ISO 8601 ('' when unknown)
+  windowMinutes: z.number().int().positive(),
+})
+export type QuotaWindowWire = z.infer<typeof QuotaWindowWire>
+
+export const AgentQuotaWire = z.object({
+  agent: AgentKind,
+  status: z.enum(['ok', 'unauthenticated', 'expired', 'error']),
+  account: z.object({ email: z.string().optional(), plan: z.string().optional() }).optional(),
+  windows: z.array(QuotaWindowWire),
+  error: z.string().optional(),
+  fetchedAt: z.string(), // ISO 8601
+})
+export type AgentQuotaWire = z.infer<typeof AgentQuotaWire>
+
+export const AgentQuotaRequestMessage = z.object({
+  type: z.literal('agentQuotaRequest'),
+  requestId: z.string(),
+  refresh: z.boolean().optional(),
+})
+export const AgentQuotaResultMessage = z.object({
+  type: z.literal('agentQuotaResult'),
+  requestId: z.string(),
+  hostname: z.string(),
+  agents: z.array(AgentQuotaWire),
+})
+
 export const ControlMessage = z.discriminatedUnion('type', [
   RepoOpRequestMessage,
   HarnessExecRequestMessage,
   UsageRequestMessage,
+  AgentQuotaRequestMessage,
   ImageUploadRequestMessage,
   SpawnMessage,
   ReattachMessage,
@@ -841,6 +877,7 @@ export const DaemonMessage = z.discriminatedUnion('type', [
   RepoOpResultMessage,
   HarnessExecResultMessage,
   UsageResultMessage,
+  AgentQuotaResultMessage,
   ImageUploadResultMessage,
   SessionResumeRefMessage,
   BindMessage,
