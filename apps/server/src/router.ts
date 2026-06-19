@@ -265,6 +265,12 @@ export const appRouter = t.router({
     // transcripts on the dev machine. Window math (5h/weekly/cost) is client-side.
     summary: t.procedure.query(({ ctx }) => ctx.registry.usage()),
   }),
+  quota: t.router({
+    // Per-agent plan-quota (5h/weekly % used + reset times), read live on the
+    // daemon host from each agent's own usage endpoint. Distinct from `usage`,
+    // which is transcript-harvested token-cost analytics.
+    summary: t.procedure.query(({ ctx }) => ctx.registry.agentQuota()),
+  }),
   hosts: t.router({
     // Who owns the used memory right now. Roots are derived server-side — the
     // registered repos plus their worktrees (worktrees often live OUTSIDE the

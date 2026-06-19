@@ -20,6 +20,7 @@ import {
   type SessionMeta,
   type TranscriptItem,
   type UsageBucketWire,
+  type AgentQuotaWire,
   type WorkState,
 } from '@podium/protocol'
 import { knownPathsFor } from './file-relay-policy'
@@ -71,6 +72,10 @@ export class SessionRegistry {
   private readonly pendingUsage = new Map<
     string,
     (r: { hostname: string; buckets: UsageBucketWire[] }) => void
+  >()
+  private readonly pendingAgentQuota = new Map<
+    string,
+    (r: { hostname: string; agents: AgentQuotaWire[] }) => void
   >()
   private readonly pendingTranscriptReads = new Map<string, (r: TranscriptItem[]) => void>()
   private readonly pendingUploads = new Map<string, (r: { path: string; error?: string }) => void>()
@@ -717,6 +722,22 @@ export class SessionRegistry {
     )
   }
 
+  /** Per-agent plan-quota (5h/weekly windows), read live read-only on the daemon
+   *  host. Empty agents on timeout. Distinct from `usage` (token-cost analytics). */
+  agentQuota(refresh?: boolean): Promise<{ hostname: string; agents: AgentQuotaWire[] }> {
+    return this.daemonRequest(
+      this.pendingAgentQuota,
+      'aq',
+      20_000,
+      () => ({ hostname: '', agents: [] }),
+      (requestId) => ({
+        type: 'agentQuotaRequest',
+        requestId,
+        ...(refresh !== undefined ? { refresh } : {}),
+      }),
+    )
+  }
+
   /** Allowlisted git op on a dev machine (superagent tools). */
   repoOp(op: RepoOp, cwd: string, args?: Record<string, string>): Promise<OpResult> {
     return this.daemonRequest(
@@ -1137,6 +1158,14 @@ export class SessionRegistry {
         if (resolve) {
           this.pendingUsage.delete(msg.requestId)
           resolve({ hostname: msg.hostname, buckets: msg.buckets })
+        }
+        break
+      }
+      case 'agentQuotaResult': {
+        const resolve = this.pendingAgentQuota.get(msg.requestId)
+        if (resolve) {
+          this.pendingAgentQuota.delete(msg.requestId)
+          resolve({ hostname: msg.hostname, agents: msg.agents })
         }
         break
       }
