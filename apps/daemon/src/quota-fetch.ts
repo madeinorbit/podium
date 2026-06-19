@@ -28,7 +28,7 @@ export function makeQuotaFetcher(
     } catch (e) {
       wire = { agent: f.agent, status: 'error', windows: [], error: e instanceof Error ? e.message : String(e), fetchedAt: new Date(t).toISOString() }
     }
-    cache.set(f.agent, { atMs: t, wire })
+    if (wire.status !== 'error') cache.set(f.agent, { atMs: t, wire })
     return wire
   }
 
