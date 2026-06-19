@@ -90,7 +90,8 @@ function logicalStart(buf: BufferLike, row: number): number {
 function stitchUnit(buf: BufferLike, startY: number): Cell[] {
   const cells: Cell[] = [...trimmedRow(buf, startY)]
   let y = startY
-  while (buf.getLine(y + 1)) {
+  // Cap the stitch (provideLinks runs per render on hover; a URL is never this long).
+  while (buf.getLine(y + 1) && cells.length < 2048) {
     if (isWrapped(buf, y + 1)) {
       cells.push(...trimmedRow(buf, y + 1))
       y += 1

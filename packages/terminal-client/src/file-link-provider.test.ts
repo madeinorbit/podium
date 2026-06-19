@@ -19,6 +19,17 @@ describe('findStyledPathMatches', () => {
     expect(findStyledPathMatches(cells('apps/web/src/derive.ts', false), cfg)).toHaveLength(0)
   })
 
+  it('does NOT link a branch ref like feat/studio (cwd-relative, no file extension)', () => {
+    expect(findStyledPathMatches(cells('feat/studio', true), cfg)).toHaveLength(0)
+    expect(findStyledPathMatches(cells('release/v2', true), cfg)).toHaveLength(0)
+  })
+
+  it('still links a cwd-relative path that HAS a file extension', () => {
+    const m = findStyledPathMatches(cells('src/new/thing.ts', true), cfg)
+    expect(m).toHaveLength(1)
+    expect(m[0]!.path).toBe('/repo/src/new/thing.ts')
+  })
+
   it('resolves a truncated styled token to the full known path (suffix match)', () => {
     const line = [...cells('see ', false), ...cells('derive.ts', true), ...cells(' here', false)]
     const m = findStyledPathMatches(line, cfg)

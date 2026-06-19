@@ -40,7 +40,10 @@ export function stitchLogicalLine(buf: BufferLike, anyRow: number): Cell[] {
     start -= 1
   }
   const out: Cell[] = []
-  for (let y = start; ; y += 1) {
+  // Cap the stitch: paths are short, and provideLinks runs per render on hover, so a
+  // pathologically long wrapped logical line must not build tens of thousands of cells.
+  const MAX_CELLS = 2048
+  for (let y = start; out.length < MAX_CELLS; y += 1) {
     const line = buf.getLine(y)
     if (!line) break
     if (y !== start && !line.isWrapped) break

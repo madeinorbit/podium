@@ -11,6 +11,12 @@ export interface FileLinkConfig {
 const PATH_CHARS = /[\w./@~-]/
 const PATHISH =
   /\/[\w./@~-]+|[\w.-]+\.(ts|tsx|js|jsx|mjs|cjs|json|md|py|css|scss|html|htm|rs|go|sh|yml|yaml|toml)/
+// A trailing file extension. The cwd-relative fallback requires this so that branch
+// refs like "feat/studio" (which resolve under cwd but are not files) aren't linked.
+const HAS_EXT = /\.[A-Za-z0-9]{1,8}$/
+// Real paths are short; cap the token so a pathological styled run can't trigger
+// expensive regex backtracking in provideLinks (which xterm calls per render on hover).
+const MAX_TOKEN = 1024
 
 function resolveAgainstCwd(cwd: string, path: string): string {
   const abs = path.startsWith('/') ? path : `${cwd.replace(/\/+$/, '')}/${path}`
@@ -27,11 +33,13 @@ function resolveAgainstCwd(cwd: string, path: string): string {
  *  path, or a known path ends with the candidate (suffix match for truncated
  *  TUI paths), or it resolves under cwd and looks path-like. */
 function accept(token: string, cfg: FileLinkConfig): string | null {
-  if (!PATHISH.test(token)) return null
+  if (token.length > MAX_TOKEN || !PATHISH.test(token)) return null
   const abs = resolveAgainstCwd(cfg.cwd, token)
   if (cfg.knownPaths.has(abs)) return abs
   for (const k of cfg.knownPaths) if (k.endsWith(`/${token}`) || k === token) return k
-  if (abs.startsWith(`${cfg.cwd.replace(/\/+$/, '')}/`)) return abs
+  // cwd-relative fallback: only paths with a real file extension. Without this a styled
+  // branch ref like "feat/studio" resolves under cwd and gets wrongly linked as a file.
+  if (HAS_EXT.test(token) && abs.startsWith(`${cfg.cwd.replace(/\/+$/, '')}/`)) return abs
   return null
 }
 
