@@ -100,6 +100,11 @@ export const SessionMeta = z.object({
   workState: WorkState.optional(),
   /** True when a resume ref is known — hibernate→resume is possible. */
   resumable: z.boolean().optional(),
+  /** The native CLI resume ref (kind + value) when known — the conversation id
+   *  the harness reattaches to. Lets the client surface the literal
+   *  `claude --resume <id>` / `codex resume <id>` command without a round-trip.
+   *  Present only when `resumable`; omitted for shells / not-yet-known sessions. */
+  resume: ResumeRef.optional(),
   /** True once a structured transcript has been observed for this session — the
    *  capability that powers chat view. Set by the layer that owns the tail, so a
    *  new transcript provider lights up chat with no client-side kind checks. */
@@ -300,9 +305,11 @@ export const PingMessage = z.object({ type: z.literal('ping') })
 // push while some Podium window is visibly open.
 export const PresenceMessage = z.object({ type: z.literal('presence'), visible: z.boolean() })
 
-// The in-progress composer / native-prompt text for a session. Ephemeral (never
-// persisted): the controlling client publishes its scraped native prompt, and a
-// chat composer edit publishes its draft, so every view/device converges.
+// The in-progress composer / native-prompt text for a session. The controlling
+// client publishes its scraped native prompt, and a chat composer edit publishes
+// its draft, so every view/device converges. Server-persisted (debounced) so the
+// draft survives a full reload / server restart and replays on (re)connect
+// (issue #34) — real user work is never lost.
 export const SetSessionDraftMessage = z.object({
   type: z.literal('setSessionDraft'),
   sessionId: z.string(),
@@ -511,6 +518,23 @@ export const TranscriptReadRequestMessage = z.object({
   resume: ResumeRef,
 })
 
+// Scroll-to-top paging: fetch the page of OLDER transcript items that come BEFORE
+// the client's current window, so arbitrarily long sessions load incrementally
+// rather than the tail alone. `fromEnd` is how many items the client already holds
+// counted from the END of the full transcript (0 = the latest item); the daemon
+// returns the `limit` items immediately before that window. A positional cursor
+// (not an item id) on purpose: some item ids are synthesized per-parse and aren't
+// stable across reads, but item count/content are deterministic for the same bytes.
+export const TranscriptPageRequestMessage = z.object({
+  type: z.literal('transcriptPageRequest'),
+  requestId: z.string(),
+  agentKind: AgentKind,
+  cwd: z.string(),
+  resume: ResumeRef,
+  fromEnd: z.number().int().nonnegative(),
+  limit: z.number().int().positive().max(2000),
+})
+
 export const FileReadRequestMessage = z.object({
   type: z.literal('fileReadRequest'),
   requestId: z.string(),
@@ -629,6 +653,7 @@ export const ControlMessage = z.discriminatedUnion('type', [
   RedrawMessage,
   MemoryBreakdownRequestMessage,
   TranscriptReadRequestMessage,
+  TranscriptPageRequestMessage,
   FileReadRequestMessage,
   FileWriteRequestMessage,
 ])
@@ -742,6 +767,15 @@ export const TranscriptReadResultMessage = z.object({
   items: z.array(TranscriptItem),
 })
 
+// Reply to a TranscriptPageRequest: the older page, plus whether earlier items
+// still remain on disk (so the client can stop paging at the head of the file).
+export const TranscriptPageResultMessage = z.object({
+  type: z.literal('transcriptPageResult'),
+  requestId: z.string(),
+  items: z.array(TranscriptItem),
+  hasMore: z.boolean(),
+})
+
 export const FileReadResultMessage = z.object({
   type: z.literal('fileReadResult'),
   requestId: z.string(),
@@ -800,6 +834,7 @@ export const DaemonMessage = z.discriminatedUnion('type', [
   MemoryBreakdownResultMessage,
   TranscriptAppendMessage,
   TranscriptReadResultMessage,
+  TranscriptPageResultMessage,
   FileReadResultMessage,
   FileWriteResultMessage,
 ])

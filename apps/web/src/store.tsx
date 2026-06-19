@@ -62,6 +62,11 @@ export interface Store {
   paneA: string | null // sessionId in pane A
   paneB: string | null // sessionId in pane B (null = no split)
   setPane: (pane: 'A' | 'B', sessionId: string | null) => void
+  /** Per-session chat-vs-native panel mode, persisted across reloads so a session
+   *  returns to the view the user last left it in. A missing entry falls back to the
+   *  per-device default; the hibernated/exited-forces-chat rule still wins over it. */
+  panelMode: Record<string, 'chat' | 'native'>
+  setPanelMode: (sessionId: string, mode: 'chat' | 'native') => void
   fileTabs: FileTab[]
   openFile: (sessionId: string, path: string) => void
   closeFileTab: (id: string) => void
@@ -124,6 +129,10 @@ export interface FileTab {
 }
 
 const PANE_A_KEY = 'podium.paneA'
+const PANE_B_KEY = 'podium.paneB'
+const SPLIT_KEY = 'podium.split'
+const SUPER_OPEN_KEY = 'podium.superOpen'
+const PANEL_MODE_KEY = 'podium.panelMode'
 function lsGet(key: string): string | null {
   try {
     return localStorage.getItem(key)
@@ -144,6 +153,22 @@ function readStoredView(): MainView {
   // 'superagent' is no longer a full view (it's a dock now) — a returning user who
   // left on it lands on home instead of a dead surface.
   return v === 'home' || v === 'workspace' || v === 'settings' || v === 'usage' ? v : 'home'
+}
+/** The persisted per-session panel-mode map. A corrupt/missing blob reads as empty. */
+function readStoredPanelModes(): Record<string, 'chat' | 'native'> {
+  const raw = lsGet(PANEL_MODE_KEY)
+  if (!raw) return {}
+  try {
+    const parsed = JSON.parse(raw) as unknown
+    if (!parsed || typeof parsed !== 'object') return {}
+    const out: Record<string, 'chat' | 'native'> = {}
+    for (const [id, m] of Object.entries(parsed as Record<string, unknown>)) {
+      if (m === 'chat' || m === 'native') out[id] = m
+    }
+    return out
+  } catch {
+    return {}
+  }
 }
 
 export function StoreProvider({
@@ -177,7 +202,7 @@ export function StoreProvider({
   const [view, setView] = useState<MainView>(readStoredView)
   const [settingsTab, setSettingsTab] = useState<string | null>(null)
   const [superThreadId, setSuperThreadId] = useState('global')
-  const [superOpen, setSuperOpen] = useState(false)
+  const [superOpen, setSuperOpen] = useState(() => lsGet(SUPER_OPEN_KEY) === '1')
   const [superRefreshKey, setSuperRefreshKey] = useState(0)
   const [drafts, setDrafts] = useState<Record<string, string>>({})
   const [sidebarSettings, setSidebarSettingsState] = useState<SidebarSettings>({
@@ -186,8 +211,9 @@ export function StoreProvider({
   })
   const [selectedWorktree, setSelectedWorktree] = useState<string | null>(() => lsGet(WT_KEY))
   const [paneA, setPaneA] = useState<string | null>(() => lsGet(PANE_A_KEY))
-  const [paneB, setPaneB] = useState<string | null>(null)
-  const [split, setSplit] = useState(false)
+  const [paneB, setPaneB] = useState<string | null>(() => lsGet(PANE_B_KEY))
+  const [split, setSplit] = useState(() => lsGet(SPLIT_KEY) === '1')
+  const [panelMode, setPanelMode] = useState<Record<string, 'chat' | 'native'>>(readStoredPanelModes)
   const [fileTabs, setFileTabs] = useState<FileTab[]>([])
   const started = useRef(false)
 
@@ -320,6 +346,15 @@ export function StoreProvider({
           s.sessionId === sessionId ? { ...s, archived, ...(archived ? { workState } : {}) } : s,
         ),
       )
+      // Filing the work away also drops it from pinned panels — a pinned tab for an
+      // archived session is dead weight, exactly as closing/killing it removes the
+      // pin (mirrors killSession's local pin filter). Unlike kill, archiving doesn't
+      // delete the row server-side, so the panel pin would otherwise survive in the
+      // DB and resurrect on reload — clear it on the server too to make it stick.
+      if (archived) {
+        setPins((p) => ({ ...p, panels: p.panels.filter((id) => id !== sessionId) }))
+        await trpc.pins.set.mutate({ kind: 'panel', id: sessionId, pinned: false }).catch(() => {})
+      }
       await trpc.sessions.setArchived.mutate({ sessionId, archived }).catch(() => {})
       if (archived) {
         await trpc.sessions.setWorkState.mutate({ sessionId, workState: 'done' }).catch(() => {})
@@ -364,6 +399,12 @@ export function StoreProvider({
     },
     [trpc],
   )
+  const setPanelModeCb = useMemo(
+    () => (sessionId: string, mode: 'chat' | 'native') => {
+      setPanelMode((m) => (m[sessionId] === mode ? m : { ...m, [sessionId]: mode }))
+    },
+    [],
+  )
   const setWorkState = useMemo(
     () => async (sessionId: string, workState: WorkState | null) => {
       setSessions((all) =>
@@ -400,6 +441,10 @@ export function StoreProvider({
   useEffect(() => lsSet(VIEW_KEY, view), [view])
   useEffect(() => lsSet(WT_KEY, selectedWorktree), [selectedWorktree])
   useEffect(() => lsSet(PANE_A_KEY, paneA), [paneA])
+  useEffect(() => lsSet(PANE_B_KEY, paneB), [paneB])
+  useEffect(() => lsSet(SPLIT_KEY, split ? '1' : '0'), [split])
+  useEffect(() => lsSet(SUPER_OPEN_KEY, superOpen ? '1' : '0'), [superOpen])
+  useEffect(() => lsSet(PANEL_MODE_KEY, JSON.stringify(panelMode)), [panelMode])
 
   useEffect(() => {
     const offSessions = hub.onSessions(setSessions)
@@ -477,6 +522,8 @@ export function StoreProvider({
     paneA,
     paneB,
     setPane: (pane, id) => (pane === 'A' ? setPaneA(id) : setPaneB(id)),
+    panelMode,
+    setPanelMode: setPanelModeCb,
     split,
     toggleSplit: () => setSplit((s) => !s),
     refreshRepos,

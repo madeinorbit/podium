@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { basename } from 'node:path'
 import type { PodiumSettings } from '@podium/core'
+import type { FileReadResultMessage, FileWriteResultMessage } from '@podium/protocol'
 import {
   AgentKind,
   type AgentRuntimeState,
@@ -21,10 +22,9 @@ import {
   type UsageBucketWire,
   type WorkState,
 } from '@podium/protocol'
-import type { FileReadResultMessage, FileWriteResultMessage } from '@podium/protocol'
-import { isTransientTitle, makeTitleDebouncer } from './title-filter'
-import { attentionNotice, pushNtfy } from './notify'
 import { knownPathsFor } from './file-relay-policy'
+import { attentionNotice, pushNtfy } from './notify'
+import { isTransientTitle, makeTitleDebouncer } from './title-filter'
 import { type ClientConn, type Send, Session } from './session'
 import { type PinKind, SessionStore } from './store'
 
@@ -74,6 +74,10 @@ export class SessionRegistry {
   >()
   private readonly pendingTranscriptReads = new Map<string, (r: TranscriptItem[]) => void>()
   private readonly pendingUploads = new Map<string, (r: { path: string; error?: string }) => void>()
+  private readonly pendingTranscriptPages = new Map<
+    string,
+    (r: { items: TranscriptItem[]; hasMore: boolean }) => void
+  >()
   private readonly pendingFileReads = new Map<
     string,
     (r: Omit<FileReadResultMessage, 'type' | 'requestId'>) => void
@@ -82,13 +86,22 @@ export class SessionRegistry {
     string,
     (r: Omit<FileWriteResultMessage, 'type' | 'requestId'>) => void
   >()
-  /** Ephemeral in-progress composer/prompt text per session. Never persisted. */
+  /**
+   * In-progress composer/prompt text per session. The live value lives here (read
+   * by attachClient to replay on connect); it is also debounced to the store so it
+   * survives a server restart and a full web reload with no other client holding it
+   * (issue #34). Hydrated from the store at boot in loadFromStore().
+   */
   private draftBySession = new Map<string, string>()
   /** Per-session title debouncers — drop transient spinner titles, coalesce bursts. */
   private readonly titleDebouncers = new Map<
     string,
     ReturnType<typeof makeTitleDebouncer>
   >()
+  // Pending debounced draft persists, keyed by sessionId — one timer per session
+  // coalesces a burst of keystrokes into a single SQLite write.
+  private readonly draftWriteTimers = new Map<string, ReturnType<typeof setTimeout>>()
+  private static readonly DRAFT_WRITE_DEBOUNCE_MS = 750
   private latestConversations: ConversationSummaryWire[] = []
   private latestConversationDiagnostics: ConversationDiagnosticWire[] = []
   // Latest health sample per daemon host, keyed by hostname — ready for several
@@ -114,6 +127,11 @@ export class SessionRegistry {
   }
 
   private loadFromStore(): void {
+    // Restore persisted composer drafts so attachClient can replay them to the
+    // first client to connect after a server restart (issue #34).
+    for (const [sessionId, text] of Object.entries(this.store.loadDrafts())) {
+      this.draftBySession.set(sessionId, text)
+    }
     for (const r of this.store.loadSessions()) {
       const kind = AgentKind.safeParse(r.agentKind)
       if (!kind.success) {
@@ -326,12 +344,95 @@ export class SessionRegistry {
     return { ok: true }
   }
 
+  /**
+   * Chat-view answer to a live AskUserQuestion prompt. The chat card sends the
+   * 1-based option index (per question) and we type the matching digit(s) into
+   * the agent's PTY to drive its native multiple-choice selector — the native
+   * terminal is unmounted in chat mode, so this is the only path to the prompt.
+   *
+   * Claude Code's AskUserQuestion menu commits a single-select choice the instant
+   * the option's number key is pressed (no Enter), and accepts comma-separated
+   * numbers + Enter for multi-select. We send raw digits here (NOT bracketed
+   * paste like `sendText`, which would land them as message text rather than
+   * menu keystrokes). See the chat card for the option→digit mapping.
+   *
+   * `choices` is one entry per question being answered, each carrying the
+   * question's 1-based option indices (one for single-select, ≥1 for multi).
+   * NEEDS IN-BROWSER VERIFICATION against a real Claude prompt — the exact
+   * key sequence the TUI expects is documented-but-unconfirmed here.
+   */
+  answerAskUserQuestion({
+    sessionId,
+    choices,
+  }: {
+    sessionId: string
+    choices: { optionIndices: number[] }[]
+  }): { ok: boolean } {
+    const session = this.sessions.get(sessionId)
+    if (!session || (session.status !== 'live' && session.status !== 'starting')) {
+      return { ok: false }
+    }
+    const send = (data: string) =>
+      this.toDaemon({ type: 'input', sessionId, data: Buffer.from(data).toString('base64') })
+    for (const choice of choices) {
+      const digits = choice.optionIndices.filter((n) => Number.isInteger(n) && n >= 1 && n <= 9)
+      if (digits.length === 0) continue
+      if (digits.length === 1) {
+        // Single-select: the number key alone commits the choice and advances to
+        // the next question (no Enter). A multi-question payload chains naturally.
+        send(String(digits[0]))
+      } else {
+        // Multi-select: comma-separated indices, then Enter to confirm the set.
+        send(`${digits.join(',')}\r`)
+      }
+    }
+    return { ok: true }
+  }
+
   setSessionDraft(input: { sessionId: string; text: string }, fromClientId?: string): void {
     if (input.text) this.draftBySession.set(input.sessionId, input.text)
     else this.draftBySession.delete(input.sessionId)
+    // Keep the existing live cross-client sync: push to every OTHER client (the
+    // directional guard skips the originator so its own keystrokes don't echo back).
     for (const c of this.clients.values()) {
       if (c.id === fromClientId) continue
       c.send({ type: 'sessionDraftChanged', sessionId: input.sessionId, text: input.text })
+    }
+    this.persistDraft(input.sessionId, input.text)
+  }
+
+  /**
+   * Debounced draft persistence. Keystrokes coalesce per session into one SQLite
+   * write after a short idle gap, so typing never hammers the synchronous DB.
+   * An empty draft (the composer cleared on send) is flushed immediately and any
+   * pending timer cancelled, so a stale draft can't outlive the message that was
+   * sent — even if the server restarts in the debounce window.
+   */
+  private persistDraft(sessionId: string, text: string): void {
+    const existing = this.draftWriteTimers.get(sessionId)
+    if (existing) {
+      clearTimeout(existing)
+      this.draftWriteTimers.delete(sessionId)
+    }
+    if (!text) {
+      this.writeDraft(sessionId, '')
+      return
+    }
+    const timer = setTimeout(() => {
+      this.draftWriteTimers.delete(sessionId)
+      // Write the latest value rather than the captured one: a write that lands
+      // after further edits (or a kill) should reflect the current in-memory state.
+      this.writeDraft(sessionId, this.draftBySession.get(sessionId) ?? '')
+    }, SessionRegistry.DRAFT_WRITE_DEBOUNCE_MS)
+    timer.unref?.()
+    this.draftWriteTimers.set(sessionId, timer)
+  }
+
+  private writeDraft(sessionId: string, text: string): void {
+    try {
+      this.store.setDraft(sessionId, text)
+    } catch (e) {
+      console.warn(`[podium] failed to persist draft for ${sessionId}:`, e)
     }
   }
 
@@ -521,6 +622,13 @@ export class SessionRegistry {
     this.draftBySession.delete(input.sessionId)
     this.titleDebouncers.get(input.sessionId)?.dispose()
     this.titleDebouncers.delete(input.sessionId)
+    // Cancel any pending debounced draft write before deleteSession removes the
+    // row, so a late timer can't resurrect a draft for a now-dead session.
+    const draftTimer = this.draftWriteTimers.get(input.sessionId)
+    if (draftTimer) {
+      clearTimeout(draftTimer)
+      this.draftWriteTimers.delete(input.sessionId)
+    }
     this.store.deleteSession(input.sessionId)
     for (const c of this.clients.values()) c.attached.delete(input.sessionId)
     this.broadcastSessions()
@@ -1044,6 +1152,14 @@ export class SessionRegistry {
         }
         break
       }
+      case 'transcriptPageResult': {
+        const resolve = this.pendingTranscriptPages.get(msg.requestId)
+        if (resolve) {
+          this.pendingTranscriptPages.delete(msg.requestId)
+          resolve({ items: msg.items, hasMore: msg.hasMore })
+        }
+        break
+      }
       case 'memoryBreakdownResult': {
         const resolve = this.pendingBreakdowns.get(msg.requestId)
         if (resolve) {
@@ -1124,6 +1240,45 @@ export class SessionRegistry {
         resume,
       }),
     ).then((items) => ({ items }))
+  }
+
+  /**
+   * Scroll-to-top paging for the chat view: the page of OLDER transcript items
+   * that come BEFORE the client's current window. `fromEnd` is how many items the
+   * client already holds, counted from the END of the full on-disk transcript
+   * (0 = the latest item); the daemon returns the `limit` items just before that.
+   * It's a pure disk read off the same JSONL the tail uses, so it works for live
+   * AND parked sessions alike — independent of the server's bounded live buffer.
+   * Resolves an empty, hasMore:false page when there is no resume ref (can't
+   * derive a file) or no daemon answers.
+   */
+  transcriptPage({
+    sessionId,
+    fromEnd,
+    limit,
+  }: {
+    sessionId: string
+    fromEnd: number
+    limit: number
+  }): Promise<{ items: TranscriptItem[]; hasMore: boolean }> {
+    const session = this.sessions.get(sessionId)
+    const resume = session?.resume
+    if (!session || !resume) return Promise.resolve({ items: [], hasMore: false })
+    return this.daemonRequest<{ items: TranscriptItem[]; hasMore: boolean }>(
+      this.pendingTranscriptPages,
+      'tp',
+      SCAN_TIMEOUT_MS,
+      () => ({ items: [], hasMore: false }),
+      (requestId) => ({
+        type: 'transcriptPageRequest',
+        requestId,
+        agentKind: session.agentKind,
+        cwd: session.cwd,
+        resume,
+        fromEnd,
+        limit,
+      }),
+    )
   }
 
   readFile({

@@ -52,10 +52,14 @@ export interface SessionInit {
 // apps (shells, Ink) whose scrollback a redraw cannot recreate. Reset on a screen clear
 // or alt-screen transition keeps the buffer small and aligned to the current screen.
 const MAX_REPLAY_BYTES = 256 * 1024
-// Bounded structured-transcript buffer per session — late subscribers get this.
-// Generous on purpose: a long conversation's *beginning* must not fall out of the
-// chat view. Each item is small; a few thousand is a few MB per live session.
-const MAX_TRANSCRIPT_ITEMS = 8000
+// Bounded structured-transcript buffer per session — the live window late
+// subscribers get as a snapshot. Generous on purpose so the common case loads
+// whole, but still bounded (each item is small; ~12k is a few MB per live
+// session). Items older than this window are no longer lost: the chat view pages
+// them back in on demand straight off disk (sessions.transcriptPage), so this is
+// the live-stream window cap, not a hard transcript ceiling. Kept in step with the
+// tailer's MAX_INITIAL_ITEMS so a reattach snapshot and the live buffer match.
+const MAX_TRANSCRIPT_ITEMS = 12_000
 // How long after the last output frame a running shell command still reads as
 // "busy". A command keeps resetting it; once output goes quiet for this long the
 // shell is back at its prompt (idle). Long enough to bridge the gaps between a
@@ -500,7 +504,7 @@ export class Session {
       origin: this.origin,
       archived: this.archived,
       ...(this.workState ? { workState: this.workState } : {}),
-      ...(this.resume ? { resumable: true } : {}),
+      ...(this.resume ? { resumable: true, resume: this.resume } : {}),
       ...(this.transcriptAvailable ? { transcriptAvailable: true } : {}),
       ...(this.shellBusy ? { busy: true } : {}),
       ...(this.agentColor ? { agentColor: this.agentColor } : {}),

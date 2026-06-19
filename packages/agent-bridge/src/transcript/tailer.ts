@@ -9,14 +9,18 @@ const POLL_MS = 700
 // read instead of slurping the whole file (which spiked daemon memory on every
 // live session at reattach). Deltas after the first read are tiny.
 //
-// 8 MB (was 512 KB): the old window dropped the *beginning* of any conversation
-// past a few hundred turns, so the chat view opened mid-thread. 8 MB covers all
-// but the most marathon sessions whole, while still bounding the reattach read.
-const TAIL_BYTES = 8 * 1024 * 1024
+// 16 MB (was 8 MB, originally 512 KB): the old window dropped the *beginning* of
+// any conversation past a few hundred turns, so the chat view opened mid-thread.
+// Older items beyond this tail are now reachable on demand via readTranscriptPage
+// (scroll-to-top paging), so this is just the live seed window — kept generous so
+// the common case loads whole, but still bounded to cap the reattach read.
+const TAIL_BYTES = 16 * 1024 * 1024
 // First read may still surface many items within the tail window; keep the most
 // recent so a freshly-mounted chat view isn't handed an unbounded backlog. Kept
 // in step with the server's per-session transcript buffer (MAX_TRANSCRIPT_ITEMS).
-const MAX_INITIAL_ITEMS = 8000
+// Older items are paged in on demand (readTranscriptPage), so this is a window cap,
+// not a hard transcript limit.
+const MAX_INITIAL_ITEMS = 12_000
 
 export interface TranscriptTailer {
   /** The file currently tailed. */
@@ -62,6 +66,77 @@ export async function readTranscriptTail(
     }
   } catch {
     return []
+  }
+}
+
+/** A page of OLDER transcript items, plus whether earlier items still remain. */
+export interface TranscriptPage {
+  items: TranscriptItem[]
+  /** True when items earlier than this page still exist on disk. */
+  hasMore: boolean
+}
+
+/**
+ * Read the page of transcript items that comes BEFORE the client's current
+ * window — the scroll-to-top "load earlier messages" path for arbitrarily long
+ * sessions.
+ *
+ * Cursor: `fromEnd` is the number of items the caller already holds, counted from
+ * the END of the full transcript (so fromEnd=0 is the very latest item). We return
+ * the `limit` items that sit immediately before that window:
+ *   total = full item count; end = total - fromEnd; start = max(0, end - limit)
+ *   page = items[start, end)
+ * `hasMore` is `start > 0`. The caller's next request passes
+ * `fromEnd + page.length` to walk further back.
+ *
+ * A purely positional cursor (not an item id) is deliberate: several item ids are
+ * synthesized per-parse (freshId — tool results without a uuid, attachments) and
+ * are NOT stable across separate read calls, so an id cursor couldn't be found
+ * reliably. Item *count* and *content* ARE deterministic for the same file bytes,
+ * so a from-end index is the stable cursor.
+ *
+ * PERF: v1 re-parses the WHOLE file on every page request (O(file size) per page).
+ * For the targeted use — a human scrolling up a few pages in one very long
+ * session — that's acceptable: it's on-demand, not per-frame, and a page request
+ * only fires when the user reaches the top. A future optimization is to seek
+ * backwards by byte windows / cache an id→offset index, but that's not needed to
+ * make arbitrary-length sessions work. Returns an empty, hasMore:false page if the
+ * file is missing/unreadable.
+ */
+export async function readTranscriptPage(
+  path: string,
+  fromEnd: number,
+  limit: number,
+  recordToItems: (record: unknown) => TranscriptItem[] = claudeRecordToItems,
+): Promise<TranscriptPage> {
+  if (limit <= 0) return { items: [], hasMore: fromEnd > 0 }
+  try {
+    const handle = await open(path, 'r')
+    try {
+      const { size } = await handle.stat()
+      if (size === 0) return { items: [], hasMore: false }
+      const chunk = Buffer.alloc(size)
+      await handle.read(chunk, 0, size, 0)
+      const lines = new LineDecoder().push(chunk)
+      const all: TranscriptItem[] = []
+      for (const line of lines) {
+        const trimmed = line.trim()
+        if (!trimmed) continue
+        try {
+          for (const item of recordToItems(JSON.parse(trimmed))) all.push(item)
+        } catch {
+          // torn/partial line — skip
+        }
+      }
+      const total = all.length
+      const end = Math.max(0, Math.min(total, total - fromEnd))
+      const start = Math.max(0, end - limit)
+      return { items: all.slice(start, end), hasMore: start > 0 }
+    } finally {
+      await handle.close()
+    }
+  } catch {
+    return { items: [], hasMore: false }
   }
 }
 

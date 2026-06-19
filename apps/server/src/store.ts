@@ -272,7 +272,41 @@ export class SessionStore {
   deleteSession(id: string): void {
     this.db.prepare('DELETE FROM sessions WHERE id = ?').run(id)
     this.db.prepare('DELETE FROM pins WHERE kind = ? AND id = ?').run('panel', id)
+    this.db.prepare('DELETE FROM session_drafts WHERE session_id = ?').run(id)
     this.scrubTabOrders(id)
+  }
+
+  // ---- composer drafts ----
+  // The per-session in-progress chat-composer / native-prompt text (issue #34:
+  // "input into a text field... should be stored while typing so it's never
+  // lost"). Kept in its OWN table, not a column on `sessions`: a draft changes on
+  // every keystroke, while a SessionRow is rewritten on every meta change — sharing
+  // a row would make either write clobber the other. The registry debounces the
+  // writes here (see relay.ts) so SQLite isn't hit per keystroke.
+  loadDrafts(): Record<string, string> {
+    const rows = this.db.prepare('SELECT session_id, text FROM session_drafts').all() as {
+      session_id: string
+      text: string
+    }[]
+    const out: Record<string, string> = {}
+    for (const r of rows) out[r.session_id] = r.text
+    return out
+  }
+
+  /** Set (non-empty) or clear (empty/whitespace-only persists as a deleted row) a session's draft. */
+  setDraft(sessionId: string, text: string): void {
+    const id = sessionId.trim()
+    if (!id) return
+    if (text) {
+      this.db
+        .prepare(
+          `INSERT INTO session_drafts (session_id, text, updated_at) VALUES (?, ?, ?)
+           ON CONFLICT(session_id) DO UPDATE SET text = excluded.text, updated_at = excluded.updated_at`,
+        )
+        .run(id, text, new Date().toISOString())
+    } else {
+      this.db.prepare('DELETE FROM session_drafts WHERE session_id = ?').run(id)
+    }
   }
 
   // ---- settings ----
@@ -582,6 +616,13 @@ export class SessionStore {
          updated_at TEXT NOT NULL
        )`,
     )
+    this.db.exec(
+      `CREATE TABLE IF NOT EXISTS session_drafts (
+         session_id TEXT PRIMARY KEY,
+         text TEXT NOT NULL,
+         updated_at TEXT NOT NULL
+       )`,
+    )
     this.db.exec('CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)')
     this.db.exec(
       `CREATE TABLE IF NOT EXISTS conversations (
@@ -689,13 +730,16 @@ export class SessionStore {
     if (!colNames.has('archived'))
       this.db.exec('ALTER TABLE sessions ADD COLUMN archived INTEGER NOT NULL DEFAULT 0')
     if (!colNames.has('work_state')) this.db.exec('ALTER TABLE sessions ADD COLUMN work_state TEXT')
+    // v3 -> v4: per-session composer drafts (issue #34). A brand-new standalone
+    // table created by the CREATE IF NOT EXISTS above — pre-v4 DBs gain it with no
+    // ALTER, so the bump is just the recorded version marker.
     const v = this.db.prepare('SELECT value FROM meta WHERE key = ?').get('schema_version') as
       | { value: string }
       | undefined
-    if (!v || Number(v.value) < 3)
+    if (!v || Number(v.value) < 4)
       this.db
         .prepare('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)')
-        .run('schema_version', '3')
+        .run('schema_version', '4')
     this.importReposJson()
   }
 

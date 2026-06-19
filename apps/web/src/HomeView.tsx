@@ -6,6 +6,7 @@ import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useIsMobile } from '@/hooks/use-is-mobile'
+import { useSessionGuard } from '@/hooks/use-session-guard'
 import { cn } from '@/lib/utils'
 import { agentBadge, panelLabel, sessionDotClass } from './derive'
 import { attentionSummary, groupSessions, kanbanColumns, relativeTime } from './home'
@@ -144,8 +145,7 @@ function HomeGroup({
           tone === 'attention' ? 'text-warning' : 'text-muted-foreground',
         )}
       >
-        {label}{' '}
-        <span className="ml-1 font-normal text-muted-foreground/70">{sessions.length}</span>
+        {label} <span className="ml-1 font-normal text-muted-foreground/70">{sessions.length}</span>
       </div>
       <div className="grid grid-cols-[repeat(auto-fill,minmax(250px,1fr))] gap-2.5">
         {sessions.map((s) => (
@@ -250,6 +250,7 @@ function SessionCard({
     hibernateSession,
     resurrectSession,
   } = useStore()
+  const { guardedArchive } = useSessionGuard()
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState('')
   const badge = agentBadge(session)
@@ -383,7 +384,7 @@ function SessionCard({
           variant="outline"
           size="icon-sm"
           title={session.archived ? 'Unarchive' : 'Archive'}
-          onClick={() => void archiveSession(session.sessionId, !session.archived)}
+          onClick={() => void guardedArchive(session.sessionId, !session.archived)}
         >
           {session.archived ? (
             <ArchiveRestore size={12} aria-hidden="true" />

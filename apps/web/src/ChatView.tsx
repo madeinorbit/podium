@@ -10,7 +10,7 @@ import {
   Paperclip,
 } from 'lucide-react'
 import type { JSX } from 'react'
-import { memo, useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
@@ -22,8 +22,8 @@ import {
   type ChatRow,
   measureBlockOffsets,
   type MinimapTick,
-  pairToolResults,
   type PendingItem,
+  pairToolResults,
   reconcilePending,
   rowTickMeta,
   searchBlocks,
@@ -32,14 +32,32 @@ import {
 } from './chat'
 import { chatActivity } from './derive'
 import { resolveAgainstCwd } from './file-path'
+import { useIsMobile } from './hooks/use-is-mobile'
 import { renderMarkdown } from './markdown'
 import { useStore } from './store'
 import { useVoiceInput } from './voice'
+
+// Windowing: a marathon session can hold tens of thousands of items, and
+// rendering every one mounts a matching count of (markdown-parsed) DOM
+// subtrees — slow to lay out and heavy to keep. Cap the rendered tail and grow it
+// in PAGE steps as the user scrolls up; the node count stays bounded no matter how
+// long the transcript is. RENDER_WINDOW is the initial/grow-step ROW count (the
+// render unit is a ChatRow — consecutive tool calls fold into one batch row).
+const RENDER_WINDOW = 300
+// On-demand older-page size fetched off disk when the user scrolls past the items
+// already held locally (sessions.transcriptPage). Matches the server input default.
+const OLDER_PAGE_LIMIT = 400
 
 /**
  * Claude-app-style chat rendering of a session's structured transcript, with a
  * native write-through input, quick transcript search, and a Sublime-style
  * birds-eye minimap (user prompts highlighted; click scrolls).
+ *
+ * Arbitrary-length sessions: only a bounded tail of blocks is rendered at once;
+ * scrolling toward the top first reveals more locally-held blocks, then autoloads
+ * older pages straight off disk (sessions.transcriptPage) and prepends them while
+ * preserving the scroll position. Live tailing (append + auto-scroll-to-bottom)
+ * is unchanged.
  */
 
 /** Returns true when a DataTransferItemList contains at least one image item. */
@@ -97,9 +115,24 @@ export function ChatView({
   // parked within this server's lifetime still has its buffer).
   const [fetched, setFetched] = useState<TranscriptItem[] | null>(null)
   const parked = session !== undefined && session.status !== 'live' && session.status !== 'starting'
-  // The on-disk history for a parked session is in flight until `fetched` resolves;
-  // show a loader instead of the "no transcript" empty state during that window.
-  const loadingTranscript = parked && fetched === null
+  // Older items paged in from disk on scroll-to-top (sessions.transcriptPage),
+  // newest-last. Always a contiguous chunk that sits immediately BEFORE the
+  // live/fetched tail, so [...older, ...tail] is a clean prefix→suffix of the full
+  // on-disk transcript.
+  const [older, setOlder] = useState<TranscriptItem[]>([])
+  // True while we still believe earlier items exist on disk beyond what's loaded.
+  const [hasMoreOlder, setHasMoreOlder] = useState(true)
+  const [loadingOlder, setLoadingOlder] = useState(false)
+  // How many trailing blocks to render (bounded DOM). Grows in RENDER_WINDOW steps
+  // as the user scrolls up; reset per session.
+  const [renderCount, setRenderCount] = useState(RENDER_WINDOW)
+  // A live/starting session streams its transcript over the WS subscription: the
+  // initial `cb(entry.items)` fires synchronously (usually empty) and the server's
+  // buffered snapshot lands a beat later. Until that snapshot arrives we can't tell
+  // "still loading" from "genuinely empty", so show a loader for a short grace
+  // window after the subscription starts; once it expires (or any item arrives) we
+  // trust the empty feed and fall back to the "No transcript yet" copy.
+  const [liveGraceElapsed, setLiveGraceElapsed] = useState(false)
   // A parked-but-recoverable session can still take a composed message — submitting
   // wakes it and the text is delivered once it's ready (auto-resume on submit).
   const canResume =
@@ -117,6 +150,13 @@ export function ChatView({
   // One-shot: snap to the newest message the first time a transcript populates
   // (initial load / session switch), not just on incremental growth.
   const didInitialScroll = useRef(false)
+  // Scroll-anchor for prepends: the scroller's measured height + scrollTop captured
+  // just before older blocks are inserted at the top, so a layout effect can keep
+  // the previously-visible content from jumping by re-pinning scrollTop after the
+  // inserted height lands. Null when no prepend is in flight.
+  const prependAnchor = useRef<{ scrollHeight: number; scrollTop: number } | null>(null)
+  // Guards re-entrant older-page loads (a single scroll fires onScroll repeatedly).
+  const loadingOlderRef = useRef(false)
   const [atBottom, setAtBottom] = useState(true)
   const [pending, setPending] = useState<PendingItem[]>([])
   const pendingSeq = useRef(0)
@@ -124,6 +164,7 @@ export function ChatView({
   // blocks so a freshly-echoed prompt reconciles its optimistic bubble.
   const seenUserIds = useRef<Set<string>>(new Set())
   const [justSent, setJustSent] = useState(false)
+  const isMobile = useIsMobile()
   const voice = useVoiceInput((text) => setDraft(draft ? `${draft} ${text}` : text))
   const [attachments, setAttachments] = useState<Attachment[]>([])
   const [dragOver, setDragOver] = useState(false)
@@ -143,6 +184,16 @@ export function ChatView({
     [hub, sessionId],
   )
 
+  // Live-transcript grace window (see `liveGraceElapsed` above): reset on every
+  // session switch, then expire after a beat so a genuinely empty live session
+  // settles to the "No transcript yet" copy instead of spinning forever.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: re-arm the timer per session
+  useEffect(() => {
+    setLiveGraceElapsed(false)
+    const t = setTimeout(() => setLiveGraceElapsed(true), 1500)
+    return () => clearTimeout(t)
+  }, [sessionId])
+
   useEffect(() => {
     if (!parked) {
       setFetched(null)
@@ -160,11 +211,53 @@ export function ChatView({
     }
   }, [parked, sessionId, trpc])
 
-  const effectiveItems = parked && fetched && fetched.length > 0 ? fetched : items
+  // The live/fetched tail the server hands us (the bounded window). Older items
+  // beyond it are paged in via `older` and prepended below.
+  const tail = parked && fetched && fetched.length > 0 ? fetched : items
+  const effectiveItems = useMemo(
+    () => (older.length > 0 ? [...older, ...tail] : tail),
+    [older, tail],
+  )
   const blocks = useMemo(() => pairToolResults(effectiveItems), [effectiveItems])
   // Render unit: consecutive tool calls fold into one collapsed batch row; the
   // minimap, scroll-to-match, and [data-block] indices are all keyed by ROW.
   const rows = useMemo(() => buildChatRows(blocks), [blocks])
+  // Render only the trailing window of ROWS so the DOM node count stays bounded
+  // for arbitrarily long transcripts. `renderStart` is the first windowed-in row;
+  // the row index passed to each view stays absolute into `rows` (renderStart + ri)
+  // so the minimap, scroll-to-match (activeRow), and [data-block] line up.
+  const renderStart = Math.max(0, rows.length - renderCount)
+  const visibleRows = renderStart > 0 ? rows.slice(renderStart) : rows
+  // More rows exist above the current window: either already loaded locally
+  // (just reveal them) or still on disk (autoload + prepend). Drives the top
+  // sentinel + the scroll trigger.
+  const moreAbove = renderStart > 0 || hasMoreOlder
+  // The single AskUserQuestion the user can answer right now: the LAST one in the
+  // transcript that hasn't been answered yet (no paired tool result), and only
+  // when the session is live so a digit can actually reach the native menu.
+  // Every other AskUserQuestion card stays read-only with its chosen-option
+  // highlight. AskUserQuestion is never folded into a tools batch (isBatchableTool
+  // excludes it), so it is always its own block-row; index into `blocks` and match
+  // it against each SingleRow's blockIndex when rendering.
+  const livePendingAskIndex = useMemo(() => {
+    const live = session?.status === 'live' || session?.status === 'starting'
+    if (!live) return -1
+    let last = -1
+    blocks.forEach((b, i) => {
+      const isAsk =
+        b.item.role === 'tool' && b.item.toolName === 'AskUserQuestion' && b.item.toolInputJson
+      const answered = (b.result ?? b.item.toolResult) !== undefined
+      if (isAsk && !answered) last = i
+    })
+    return last
+  }, [blocks, session?.status])
+  // Show the loader (not the empty-state copy) while a transcript is still in
+  // flight. Two cases: a parked session's on-disk history hasn't resolved
+  // (`fetched === null`), or a live/starting session hasn't streamed anything yet
+  // and we're still inside the initial grace window (the buffered snapshot may
+  // still land). Once the live grace expires with zero items, we trust it's empty.
+  const loadingTranscript =
+    blocks.length === 0 && (parked ? fetched === null : session !== undefined && !liveGraceElapsed)
   const matches = useMemo(() => searchBlocks(blocks, query), [blocks, query])
   const activeMatch = matches.length > 0 ? matches[matchCursor % matches.length] : undefined
   // Search runs per block (so a hit inside a collapsed batch is still found); map
@@ -190,6 +283,11 @@ export function ChatView({
     seenUserIds.current = new Set()
     pinnedToBottom.current = true
     didInitialScroll.current = false
+    // Fresh paging state for the newly selected session.
+    setOlder([])
+    setHasMoreOlder(true)
+    setLoadingOlder(false)
+    setRenderCount(RENDER_WINDOW)
   }, [sessionId])
 
   useEffect(() => {
@@ -238,6 +336,24 @@ export function ChatView({
     const el = scrollerRef.current
     if (el && pinnedToBottom.current) el.scrollTop = el.scrollHeight
   }, [blocks.length])
+  // Scroll-anchor for prepends: after older blocks are inserted at the top (window
+  // widened or a disk page prepended), the content the user was reading shifts down
+  // by the inserted height. Re-pin scrollTop by that delta BEFORE paint so the view
+  // doesn't jump. Keyed on the values that change the top of the list; a no-op
+  // unless a prepend captured an anchor. Runs before the bottom-snap effect below,
+  // and that effect is gated on pinnedToBottom (false while scrolled up), so the two
+  // never fight.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: re-anchor when the top of the list changes
+  useLayoutEffect(() => {
+    const anchor = prependAnchor.current
+    if (!anchor) return
+    prependAnchor.current = null
+    const el = scrollerRef.current
+    if (!el) return
+    const delta = el.scrollHeight - anchor.scrollHeight
+    if (delta !== 0) el.scrollTop = anchor.scrollTop + delta
+  }, [blocks.length, renderStart])
+
   // Initial-load snap: the growth effect above can fire before markdown/code
   // blocks have laid out (it measures a shorter scrollHeight and lands above the
   // tail). On the first populated render, defer two frames so layout settles,
@@ -257,6 +373,8 @@ export function ChatView({
   }, [blocks.length])
   // ResizeObserver: while pinned, re-snap to bottom whenever the stream grows
   // taller (async markdown / code-block layout that settles after the DOM paint).
+  // Gated on pinnedToBottom so it never yanks the view while the user has scrolled
+  // up to read or page older content.
   useEffect(() => {
     const el = scrollerRef.current
     if (!el) return
@@ -269,7 +387,8 @@ export function ChatView({
 
   // Snap to bottom on pane switch-in: the keep-mounted panel deck hides inactive
   // panels with `display:none`, so scroll events stop firing. When this pane
-  // becomes active again, honour the pin by jumping straight to the bottom.
+  // becomes active again, honour the pin by jumping straight to the bottom (and
+  // only then — a user who scrolled up keeps their position).
   // biome-ignore lint/correctness/useExhaustiveDependencies: fire only on active transition
   useEffect(() => {
     if (!active) return
@@ -277,12 +396,59 @@ export function ChatView({
     if (el && pinnedToBottom.current) el.scrollTop = el.scrollHeight
   }, [active])
 
+  // Reveal more above the current window: first grow the render window over rows
+  // we already hold locally; once those run out, fetch the next older page off disk
+  // and prepend it. Captures the scroll geometry first so the anchoring layout
+  // effect can keep the view from jumping when the inserted height lands.
+  const loadOlder = () => {
+    if (loadingOlderRef.current) return
+    const el = scrollerRef.current
+    // More rows already loaded but windowed out → just widen the window.
+    if (renderStart > 0) {
+      if (el) prependAnchor.current = { scrollHeight: el.scrollHeight, scrollTop: el.scrollTop }
+      setRenderCount((c) => c + RENDER_WINDOW)
+      return
+    }
+    // Nothing left to reveal locally and nothing more on disk → done.
+    if (!hasMoreOlder) return
+    loadingOlderRef.current = true
+    setLoadingOlder(true)
+    if (el) prependAnchor.current = { scrollHeight: el.scrollHeight, scrollTop: el.scrollTop }
+    // `fromEnd` = items we already hold (a contiguous suffix of the full
+    // transcript); ask for the page immediately before them.
+    const fromEnd = effectiveItems.length
+    trpc.sessions.transcriptPage
+      .query({ sessionId, fromEnd, limit: OLDER_PAGE_LIMIT })
+      .then((r) => {
+        if (r.items.length > 0) {
+          setOlder((prev) => [...r.items, ...prev])
+          // Keep the freshly-prepended page rendered (don't let the window slice
+          // it straight back off). `renderCount` is a ROW count and the page is in
+          // raw items; items fold into ≤ items rows, so adding the item count is a
+          // safe over-estimate (renderStart clamps at 0 / the row total).
+          setRenderCount((c) => c + r.items.length)
+        }
+        setHasMoreOlder(r.hasMore)
+      })
+      .catch(() => {
+        // Leave hasMoreOlder as-is so a transient failure can be retried by
+        // scrolling again; just clear the anchor so we don't mis-restore.
+        prependAnchor.current = null
+      })
+      .finally(() => {
+        loadingOlderRef.current = false
+        setLoadingOlder(false)
+      })
+  }
+
   const onScroll = () => {
     const el = scrollerRef.current
     if (!el) return
     const near = el.scrollHeight - el.scrollTop - el.clientHeight < 80
     pinnedToBottom.current = near
     setAtBottom(near)
+    // Near the TOP and more exists above → reveal/fetch older content.
+    if (el.scrollTop < 200 && moreAbove) loadOlder()
   }
   const jumpToBottom = () => {
     const el = scrollerRef.current
@@ -349,9 +515,23 @@ export function ChatView({
       ?.querySelector(`[data-block="${index}"]`)
       ?.scrollIntoView({ block: 'center' })
   }
+  // Jump to the active search match. A match can sit ABOVE the rendered window
+  // (search runs over all loaded blocks, the DOM holds only the trailing window),
+  // so first widen the window to include it, then scroll a frame later once its
+  // node has mounted. (Matches still only span LOADED blocks — see the Minimap note
+  // on paged-in-on-demand history.)
   // biome-ignore lint/correctness/useExhaustiveDependencies: scrolling is the effect of cursor moves
   useEffect(() => {
-    if (activeRow !== undefined) scrollToBlock(activeRow)
+    if (activeRow === undefined) return
+    if (activeRow < renderStart) {
+      // The matched row sits above the rendered window. Reveal enough trailing
+      // rows to cover it, then scroll a frame later once its node has mounted (no
+      // scroll-anchor — this is an explicit jump, not a position-preserving prepend).
+      setRenderCount(rows.length - activeRow + RENDER_WINDOW)
+      requestAnimationFrame(() => scrollToBlock(activeRow))
+    } else {
+      scrollToBlock(activeRow)
+    }
   }, [activeRow])
 
   const send = async () => {
@@ -382,11 +562,36 @@ export function ChatView({
     }
   }
 
+  // Answer a live AskUserQuestion from its chat card: send the chosen 1-based
+  // option index per question to the server, which types the matching digit(s)
+  // into the agent's native menu. Returns the promise so the card can show a
+  // pending/failed state; the transcript reconciles when the agent's result tails
+  // back (the answered card then renders read-only with its highlight). Memoized
+  // so its identity stays stable — ChatBlockView is memo'd and a fresh callback
+  // each render would defeat that for every block.
+  const answerAsk = useMemo(
+    () => async (choices: { optionIndices: number[] }[]) => {
+      await trpc.sessions.answerAskUserQuestion.mutate({ sessionId, choices })
+    },
+    [trpc, sessionId],
+  )
+
   const sendable = session?.status === 'live' || session?.status === 'starting'
   // The composer accepts input when the agent is live OR when it can be woken by
   // sending (auto-resume). Only a truly dead/unrecoverable session locks it out.
   const composerEnabled = sendable || canResume
   const activity = chatActivity(session, justSent)
+
+  // Autofocus the composer when the chat view becomes active for a session that
+  // can take input, so the user can type straight away. Re-runs on session switch
+  // (the mobile AgentPanel reuses one instance). Gated on an enabled composer and
+  // a settled transcript so we don't grab focus mid-load. Desktop only: forcing
+  // focus on mobile would pop the soft keyboard over the conversation unbidden.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: focus on session switch / enable
+  useEffect(() => {
+    if (isMobile || !composerEnabled || loadingTranscript) return
+    taRef.current?.focus()
+  }, [sessionId, composerEnabled, loadingTranscript, isMobile])
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -456,15 +661,43 @@ export function ChatView({
               prompt; shells have no structured transcript.
             </div>
           )}
-          {rows.map((row, ri) =>
-            row.kind === 'tools' ? (
+          {/* Top sentinel: only the bounded tail of ROWS is mounted; more exist
+              above (windowed-out locally or still on disk). Scrolling here autoloads
+              them (onScroll → loadOlder); this is also a manual fallback if the
+              scroll trigger is missed. */}
+          {blocks.length > 0 && moreAbove && (
+            <button
+              type="button"
+              onClick={loadOlder}
+              disabled={loadingOlder}
+              className="mx-auto my-1 inline-flex items-center gap-2 text-[12px] text-muted-foreground/70 hover:text-foreground disabled:cursor-default"
+              aria-live="polite"
+            >
+              {loadingOlder ? (
+                <>
+                  <span
+                    className="size-3.5 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-muted-foreground"
+                    aria-hidden="true"
+                  />
+                  Loading earlier messages…
+                </>
+              ) : (
+                'Load earlier messages'
+              )}
+            </button>
+          )}
+          {visibleRows.map((row, ri) => {
+            // Absolute row index into `rows` so the minimap/search (activeRow) and
+            // [data-block] line up with the full loaded list, not just the window.
+            const idx = renderStart + ri
+            return row.kind === 'tools' ? (
               <ToolBatchView
                 // A tools row always folds ≥1 block, so [0] and blocks[bi] exist.
-                key={row.blocks[0]!.item.id}
+                key={`${idx}-${row.blocks[0]!.item.id}`}
                 row={row}
-                index={ri}
-                highlighted={ri === activeRow}
-                forceOpen={ri === activeRow}
+                index={idx}
+                highlighted={idx === activeRow}
+                forceOpen={idx === activeRow}
                 dimmed={query.trim() !== '' && !row.blockIndices.some((bi) => blockMatches(blocks[bi]!, query))}
                 sessionId={sessionId}
                 cwd={cwd}
@@ -472,22 +705,27 @@ export function ChatView({
               />
             ) : (
               <ChatBlockView
-                key={row.block.item.id}
+                key={`${idx}-${row.block.item.id}`}
                 block={row.block}
-                index={ri}
-                highlighted={ri === activeRow}
+                index={idx}
+                highlighted={idx === activeRow}
                 dimmed={query.trim() !== '' && !blockMatches(row.block, query)}
                 sessionId={sessionId}
                 cwd={cwd}
                 openFile={openFile}
+                // AskUserQuestion is its own block-row; light up the one that is the
+                // latest unanswered question on a live session (livePendingAskIndex
+                // indexes into `blocks`, matched here against the row's blockIndex).
+                askLivePending={row.blockIndex === livePendingAskIndex}
+                onAnswerAsk={answerAsk}
               />
-            ),
-          )}
+            )
+          })}
           {pending.map((p) => (
             <div
               key={p.id}
               className={cn(
-                'transcript-row mx-auto w-full max-w-[900px]',
+                'transcript-row mx-auto w-full max-w-[960px]',
                 p.state === 'failed' && 'opacity-60',
               )}
             >
@@ -525,7 +763,9 @@ export function ChatView({
               role="status"
               aria-live="polite"
               className={cn(
-                'mx-auto flex w-full max-w-[900px] items-center gap-2 py-3 pl-[calc(3px+12px)] text-xs',
+                // Match the shared status palette: working → green, needs-you →
+                // yellow, everything else muted.
+                'mx-auto flex w-full max-w-[960px] items-center gap-2 py-3 pl-[calc(3px+12px)] text-xs',
                 activity.tone === 'attention'
                   ? 'text-amber-500'
                   : activity.tone === 'working'
@@ -542,7 +782,11 @@ export function ChatView({
             </div>
           )}
         </div>
-        <Minimap rows={rows} scrollerRef={scrollerRef} />
+        {/* Minimap maps the RENDERED window (visibleRows), so its segments line
+            up with the scrollable content. For a very long transcript that means
+            it reflects the loaded/visible tail, not the entire on-disk history;
+            scrolling up to page in older items extends what it covers. */}
+        <Minimap rows={visibleRows} scrollerRef={scrollerRef} />
         {!atBottom && (
           <button
             type="button"
@@ -715,6 +959,8 @@ const ChatBlockView = memo(function ChatBlockView({
   sessionId,
   cwd,
   openFile,
+  askLivePending,
+  onAnswerAsk,
 }: {
   block: ChatBlock
   index: number
@@ -723,17 +969,28 @@ const ChatBlockView = memo(function ChatBlockView({
   sessionId: string
   cwd: string
   openFile: (sessionId: string, path: string) => void
+  /** True only for the latest unanswered AskUserQuestion on a live session. */
+  askLivePending: boolean
+  onAnswerAsk: (choices: { optionIndices: number[] }[]) => Promise<void>
 }): JSX.Element | null {
   const { item } = block
   const html = useMemo(() => renderMarkdown(item.text), [item.text])
   const rowClass = cn(
-    'transcript-row mx-auto w-full max-w-[900px]',
+    'transcript-row mx-auto w-full max-w-[960px]',
     highlighted && 'rounded-md outline outline-1 outline-primary outline-offset-4',
     dimmed && 'opacity-35',
   )
 
   if (item.role === 'tool' && item.toolName === 'AskUserQuestion' && item.toolInputJson)
-    return <AskUserQuestionCard block={block} cls={rowClass} index={index} />
+    return (
+      <AskUserQuestionCard
+        block={block}
+        cls={rowClass}
+        index={index}
+        livePending={askLivePending}
+        onAnswer={onAnswerAsk}
+      />
+    )
   // Ordinary tool calls render inside a collapsed ToolBatchView, so they don't
   // reach here. The only stray case is an AskUserQuestion without structured input
   // (no card) — show it as a lone quiet tool row so it isn't dropped.
@@ -868,18 +1125,36 @@ interface AskQuestion {
 
 /**
  * The agent asking the human (AskUserQuestion) — render the question(s) and
- * options as a readable card instead of a collapsed tool row, with the chosen
- * option highlighted once answered. (Answering a *live* pending question from
- * here is a separate feature — it needs to drive the native prompt selection.)
+ * options as a readable card instead of a collapsed tool row.
+ *
+ * Two modes:
+ *  - `livePending`: the latest unanswered question on a live session. Options are
+ *    clickable; a click submits the chosen 1-based option index(es) through the
+ *    server, which types the matching digit(s) into the agent's native selector
+ *    menu (the native terminal is unmounted in chat mode, so this is the only
+ *    route to the prompt). After submit the card shows an optimistic selection +
+ *    "Answer sent" and disables further clicks; the agent's tailed-back result
+ *    then reconciles it to the read-only highlight.
+ *  - otherwise (historical / already-answered / parked): read-only, with the
+ *    chosen option highlighted from the tool result text.
+ *
+ * NEEDS IN-BROWSER VERIFICATION against a real Claude prompt: the exact key the
+ * AskUserQuestion TUI accepts is documented (single-select commits on the option
+ * number key; multi-select takes comma-separated numbers + Enter) but not yet
+ * confirmed live here.
  */
 function AskUserQuestionCard({
   block,
   cls,
   index,
+  livePending,
+  onAnswer,
 }: {
   block: ChatBlock
   cls: string
   index: number
+  livePending: boolean
+  onAnswer: (choices: { optionIndices: number[] }[]) => Promise<void>
 }): JSX.Element {
   const { item } = block
   let questions: AskQuestion[] = []
@@ -893,6 +1168,56 @@ function AskUserQuestionCard({
   const answer = block.result ?? item.toolResult ?? ''
   const isChosen = (label: string) => answer.includes(`"${label}"`)
 
+  // Local answer state for a live question. `picks[qi]` is the set of selected
+  // 0-based option indices for question qi. Multi-select toggles; single-select
+  // submits on the first click. Once submitted we lock the card and wait for the
+  // transcript to reconcile (which turns it back into a read-only highlight).
+  const [picks, setPicks] = useState<Record<number, Set<number>>>({})
+  const [submitState, setSubmitState] = useState<'idle' | 'sending' | 'failed'>('idle')
+  const locked = submitState === 'sending' || !livePending
+
+  const submit = async (next: Record<number, Set<number>>) => {
+    // One choice entry per question, in order, with 1-based option indices.
+    const choices = questions.map((_, qi) => ({
+      optionIndices: [...(next[qi] ?? new Set<number>())].sort((a, b) => a - b).map((oi) => oi + 1),
+    }))
+    if (choices.some((c) => c.optionIndices.length === 0)) return // not every question answered yet
+    setSubmitState('sending')
+    try {
+      await onAnswer(choices)
+    } catch {
+      setSubmitState('failed')
+    }
+  }
+
+  const onOptionClick = (q: AskQuestion, qi: number, oi: number) => {
+    if (locked) return
+    setPicks((prev) => {
+      const cur = new Set(prev[qi])
+      if (q.multiSelect) {
+        // Toggle within the question; the user confirms the set with the button.
+        if (cur.has(oi)) cur.delete(oi)
+        else cur.add(oi)
+      } else {
+        cur.clear()
+        cur.add(oi)
+      }
+      const next = { ...prev, [qi]: cur }
+      // Single-select with a single question → submit immediately (matches the
+      // native menu, which commits the instant the option number is pressed).
+      const allSingle = questions.every((qq) => !qq.multiSelect)
+      const allAnswered = questions.every((_, i) => (next[i]?.size ?? 0) > 0)
+      if (allSingle && allAnswered) void submit(next)
+      return next
+    })
+  }
+
+  // A live multi-select (or multi-question) card needs an explicit confirm: the
+  // user toggles options, then submits the whole set in one go.
+  const needsConfirmButton =
+    livePending && submitState !== 'sending' && questions.some((q) => q.multiSelect)
+  const allAnswered = questions.length > 0 && questions.every((_, qi) => (picks[qi]?.size ?? 0) > 0)
+
   return (
     <div className={cn(cls)} data-block={index}>
       {/* Amber rail to match the "attention" tone of AskUserQuestion */}
@@ -900,6 +1225,12 @@ function AskUserQuestionCard({
       <div className="transcript-body">
         <div className="transcript-header">
           <span className="transcript-role transcript-role--answer">Question for you</span>
+          {livePending && submitState === 'sending' && (
+            <span className="transcript-meta">answer sent…</span>
+          )}
+          {livePending && submitState === 'failed' && (
+            <span className="transcript-meta text-destructive">not delivered</span>
+          )}
         </div>
         <div className="mt-1.5 flex flex-col gap-3">
           {questions.map((q, qi) => (
@@ -912,19 +1243,14 @@ function AskUserQuestionCard({
               <div className="text-sm font-medium text-foreground">{q.question}</div>
               <div className="mt-2 flex flex-col gap-1">
                 {(q.options ?? []).map((o, oi) => {
-                  const chosen = isChosen(o.label)
-                  return (
-                    <div
-                      key={`${o.label}-${oi}`}
-                      className={cn(
-                        'rounded-md border px-2.5 py-1.5 text-xs',
-                        chosen
-                          ? 'border-primary/50 bg-primary/[0.08] text-foreground'
-                          : 'border-border text-muted-foreground',
-                      )}
-                    >
+                  // Pending: highlight the user's local pick. Read-only: highlight
+                  // the option the agent's result says was chosen.
+                  const picked = (picks[qi]?.has(oi) ?? false) && livePending
+                  const chosen = livePending ? picked : isChosen(o.label)
+                  const body = (
+                    <>
                       <span className="font-medium text-foreground">
-                        {chosen ? '✓ ' : ''}
+                        {chosen ? '✓ ' : livePending ? `${oi + 1}. ` : ''}
                         {o.label}
                       </span>
                       {o.description && (
@@ -932,12 +1258,51 @@ function AskUserQuestionCard({
                           {o.description}
                         </span>
                       )}
+                    </>
+                  )
+                  const baseCls = cn(
+                    'rounded-md border px-2.5 py-1.5 text-left text-xs',
+                    chosen
+                      ? 'border-primary/50 bg-primary/[0.08] text-foreground'
+                      : 'border-border text-muted-foreground',
+                  )
+                  // Only the live pending card gets clickable controls; everything
+                  // else stays a plain read-only row.
+                  return livePending ? (
+                    <button
+                      key={`${o.label}-${oi}`}
+                      type="button"
+                      disabled={locked}
+                      onClick={() => onOptionClick(q, qi, oi)}
+                      className={cn(
+                        baseCls,
+                        'transition-colors',
+                        locked
+                          ? 'cursor-default'
+                          : 'cursor-pointer hover:border-primary/60 hover:bg-primary/[0.12]',
+                      )}
+                    >
+                      {body}
+                    </button>
+                  ) : (
+                    <div key={`${o.label}-${oi}`} className={baseCls}>
+                      {body}
                     </div>
                   )
                 })}
               </div>
             </div>
           ))}
+          {needsConfirmButton && (
+            <button
+              type="button"
+              disabled={!allAnswered}
+              onClick={() => void submit(picks)}
+              className="mt-1 self-start rounded-md border border-primary/50 bg-primary/[0.12] px-3 py-1.5 text-xs font-medium text-foreground hover:bg-primary/20 disabled:cursor-default disabled:opacity-50"
+            >
+              Submit answer
+            </button>
+          )}
           {questions.length === 0 && (
             <div className="text-xs text-muted-foreground">AskUserQuestion (unparseable input)</div>
           )}
@@ -1088,8 +1453,18 @@ function Minimap({
     const measure = () => {
       const total = el.scrollHeight || 1
       setViewport({ top: el.scrollTop / total, height: el.clientHeight / total })
+      // The rendered [data-block] indices are ABSOLUTE into the full row list
+      // (renderStart + ri) so scroll-to-match can target a row by its absolute
+      // index. The minimap, though, only sees the windowed `rows` (0-based), so
+      // rebase the measured offsets to the smallest rendered index before zipping
+      // them with `rows.map(rowTickMeta)` — otherwise nothing lines up once the
+      // window is scrolled past the start of the transcript (renderStart > 0).
       const offsets = measureBlockOffsets(el)
-      setTicks(ticksFromOffsets(rows.map(rowTickMeta), offsets))
+      const base = offsets.reduce((m, o) => Math.min(m, o.index), Infinity)
+      const rebased = Number.isFinite(base)
+        ? offsets.map((o) => ({ ...o, index: o.index - base }))
+        : offsets
+      setTicks(ticksFromOffsets(rows.map(rowTickMeta), rebased))
     }
 
     const schedMeasure = () => {

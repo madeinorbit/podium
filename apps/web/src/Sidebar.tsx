@@ -10,11 +10,13 @@ import {
   Search,
   Settings as SettingsIcon,
   Sparkles,
+  SquarePlus,
   X,
 } from 'lucide-react'
 import type { DragEvent, JSX, ReactNode } from 'react'
 import { useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import {
   Select,
   SelectContent,
@@ -22,10 +24,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { useSessionGuard } from '@/hooks/use-session-guard'
 import { cn } from '@/lib/utils'
 import {
   agentBadge,
   agentColorHex,
+  filterSidebarSections,
   partitionWorkItems,
   type RepoNavView,
   repoBranchForCwd,
@@ -35,10 +39,11 @@ import {
   type WorktreeNavView,
 } from './derive'
 import { HostIndicators } from './HostIndicators'
+import { NewPanelMenu } from './NewPanelMenu'
 import { RepoScanFlow } from './RepoScanFlow'
 import { SearchView } from './SearchView'
 import { useStore } from './store'
-import type { PinKind } from './types'
+import type { PinKind, WorktreeView } from './types'
 import { SessionNameEditor, sessionDisplayName, WorkerLabel } from './WorkerLabel'
 
 const WORKING_EXPANDED_KEY = 'podium:sidebar:working-expanded'
@@ -84,10 +89,15 @@ export function Sidebar(): JSX.Element {
     sidebarSettings,
     setSidebarSettings,
   } = useStore()
-  const sections = sidebarSections(repos, sessions, pins)
   const [pickerOpen, setPickerOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
   const [workingExpanded, setWorkingExpandedState] = useState<boolean>(getWorkingExpanded)
+
+  // Inline filter over the repos/worktrees tree (name/branch/path). Distinct from
+  // the global SearchView (the magnifier in the tools row), which searches
+  // conversation transcripts — this only narrows the visible repo/worktree list.
+  const [treeFilter, setTreeFilter] = useState('')
+  const sections = filterSidebarSections(sidebarSections(repos, sessions, pins), treeFilter)
 
   // Drag-to-reorder state.
   const dragRepoPath = useRef<string | null>(null)
@@ -252,6 +262,34 @@ export function Sidebar(): JSX.Element {
         >
           <Plus size={15} aria-hidden="true" />
         </Button>
+      </div>
+      {/* Inline filter over the visible repo/worktree tree (name/branch/path). */}
+      <div className="relative px-3 pb-2">
+        <Search
+          size={13}
+          aria-hidden="true"
+          className="pointer-events-none absolute top-1/2 left-5 -translate-y-1/2 text-muted-foreground/70"
+        />
+        <Input
+          type="search"
+          value={treeFilter}
+          onChange={(e) => setTreeFilter(e.target.value)}
+          placeholder="Filter worktrees…"
+          aria-label="Filter worktrees by name, branch, or path"
+          className="h-7 pl-7 text-xs"
+        />
+        {treeFilter && (
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className="absolute top-1/2 right-4 size-5 -translate-y-1/2 text-muted-foreground/70 hover:text-foreground"
+            title="Clear filter"
+            aria-label="Clear filter"
+            onClick={() => setTreeFilter('')}
+          >
+            <X size={13} aria-hidden="true" />
+          </Button>
+        )}
       </div>
       {(reposLoading || repoDiagnostics.length > 0) && (
         <div className="px-3 pt-1.5 pb-2 text-xs text-muted-foreground">
@@ -432,11 +470,16 @@ export function Sidebar(): JSX.Element {
           </div>
         ))}
 
-        {!hasRows && (
-          <div className="p-3 text-xs text-muted-foreground/70">
-            No repos yet. Use the + button above to scan a folder.
-          </div>
-        )}
+        {!hasRows &&
+          (treeFilter.trim() ? (
+            <div className="p-3 text-xs text-muted-foreground/70">
+              No worktrees match "{treeFilter.trim()}".
+            </div>
+          ) : (
+            <div className="p-3 text-xs text-muted-foreground/70">
+              No repos yet. Use the + button above to scan a folder.
+            </div>
+          ))}
       </div>
       {/* Host health strip, pinned under the list — machine-level indicators
           (connection health, memory). */}
@@ -460,6 +503,18 @@ function PinnedSection({ label, children }: { label: string; children: ReactNode
   )
 }
 
+/** The repo's primary checkout, as a NewPanelMenu target. Prefer the repo's main
+ *  worktree (its path === repo.path); reconstruct one if it's been filtered out
+ *  of the nav list (e.g. pinned away as its own worktree row). */
+function repoPrimaryWorktree(repo: RepoNavView): WorktreeView {
+  const main = repo.worktrees.find((w) => w.isMain) ?? repo.worktrees[0]
+  if (main) {
+    const { repoName: _repoName, sessions: _sessions, ...view } = main
+    return view
+  }
+  return { path: repo.path, repoPath: repo.path, isMain: true }
+}
+
 function RepoBlock({
   repo,
   pinned,
@@ -480,12 +535,29 @@ function RepoBlock({
   dragHandle?: ReactNode
 }): JSX.Element {
   return (
-    <div className="mt-1">
+    <div className="group/repo mt-1">
       <div className="flex items-center justify-between pr-2">
         {dragHandle}
         <div className="min-w-0 flex-1 px-3 pt-1.5 pb-0.5 text-[11px] tracking-[0.06em] uppercase text-muted-foreground/70">
           {repo.name}
         </div>
+        {/* Start a new agent in this repo's primary worktree. Revealed on row
+            hover (matching the session rows' reveal-on-hover controls). */}
+        <NewPanelMenu
+          worktree={repoPrimaryWorktree(repo)}
+          trigger={
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              className="w-7 min-w-7 flex-none rounded-none text-muted-foreground/70 opacity-0 group-hover/repo:opacity-100 hover:text-foreground aria-expanded:opacity-100"
+              title={`New agent in ${repo.name}`}
+              aria-label={`New agent in ${repo.name}`}
+            >
+              <SquarePlus size={13} aria-hidden="true" />
+            </Button>
+          }
+          onOpened={(sid) => onSelectPanel(repoPrimaryWorktree(repo).path, sid)}
+        />
         <PinButton
           kind="repo"
           id={repo.path}
@@ -592,7 +664,8 @@ function PanelRow({
   onSelect: () => void
   onPinned: (pinned: boolean) => void
 }): JSX.Element {
-  const { continueSession, killSession, renameSession } = useStore()
+  const { continueSession, renameSession } = useStore()
+  const { guardedKill } = useSessionGuard()
   const badge = agentBadge(session)
   const [editing, setEditing] = useState(false)
   return (
@@ -667,7 +740,7 @@ function PanelRow({
         size="icon-sm"
         className="hidden w-7 min-w-7 flex-none rounded-none text-muted-foreground/70 hover:text-destructive group-hover:inline-flex"
         title="Close session"
-        onClick={() => void killSession(session.sessionId)}
+        onClick={() => void guardedKill(session.sessionId)}
       >
         <X size={13} aria-hidden="true" />
       </Button>

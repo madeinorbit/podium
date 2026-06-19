@@ -1,3 +1,4 @@
+import type { PodiumSettings } from '@podium/core'
 import type { AgentMemoryWire, HostMemoryWire, ProjectMemoryWire } from '@podium/protocol'
 import type { JSX } from 'react'
 import { useEffect, useState } from 'react'
@@ -8,6 +9,30 @@ import { cn } from '@/lib/utils'
 import { describeHealth, useConnectionHealth } from './ConnectionIndicator'
 import { formatMemBytes, hostMemoryView, panelLabel } from './derive'
 import { useStore } from './store'
+
+/** The host-memory hibernation knob, lazily fetched from the server. Shared by
+ *  the memory chip's tooltip and the memory modal so both reflect the live
+ *  setting without either reaching into the (settings-less) store. Returns null
+ *  until the first fetch resolves. */
+export function useHibernationSetting(): PodiumSettings['hibernation'] | null {
+  const { trpc } = useStore()
+  const [hibernation, setHibernation] = useState<PodiumSettings['hibernation'] | null>(null)
+  useEffect(() => {
+    let alive = true
+    trpc.settings.get
+      .query()
+      .then((s) => {
+        if (alive) setHibernation(s.hibernation)
+      })
+      .catch(() => {
+        // Best-effort: a failed settings fetch just omits the hibernation note.
+      })
+    return () => {
+      alive = false
+    }
+  }, [trpc])
+  return hibernation
+}
 
 /** Shape of trpc hosts.memoryBreakdown — the daemon's answer minus wire plumbing. */
 interface Breakdown {
@@ -68,7 +93,7 @@ export function HostInfoView({
             <ConnectionPanel />
           </TabsContent>
           <TabsContent value="memory" className="overflow-y-auto">
-            <MemoryPanel />
+            <MemoryPanel onClose={onClose} />
           </TabsContent>
         </Tabs>
       </DialogContent>
@@ -123,8 +148,9 @@ function ConnectionPanel(): JSX.Element {
 /** Memory tab: the headline GB number shows immediately from the host metrics the
  *  store already has; the per-process breakdown (a heavier /proc walk) fills in
  *  underneath once the daemon answers, so the modal never opens on a blank "…". */
-function MemoryPanel(): JSX.Element {
-  const { trpc, sessions, hostMetrics } = useStore()
+function MemoryPanel({ onClose }: { onClose: () => void }): JSX.Element {
+  const { trpc, sessions, hostMetrics, setView, setSettingsTab } = useStore()
+  const hibernation = useHibernationSetting()
   const [data, setData] = useState<Breakdown | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -158,6 +184,19 @@ function MemoryPanel(): JSX.Element {
   // store), so "12.3/32 GB used" is on screen the moment the modal opens.
   const headline = !data && hostMetrics[0] ? hostMemoryView(hostMetrics[0]) : null
 
+  // Current memory pressure for the hibernation explainer — prefer the
+  // breakdown's own sample, fall back to the streamed headline metric.
+  const memPct = data
+    ? hostMemoryView({ hostname: data.hostname, sampledAt: data.sampledAt, memory: data.memory })
+        .pct
+    : (headline?.pct ?? null)
+
+  const openHibernationSettings = (): void => {
+    setSettingsTab('hibernation')
+    setView('settings')
+    onClose()
+  }
+
   return (
     <>
       {data && (
@@ -180,7 +219,65 @@ function MemoryPanel(): JSX.Element {
         <div className="text-xs text-muted-foreground/70">Loading the per-process breakdown…</div>
       )}
       {data && <BreakdownBody data={data} sessionLabel={sessionLabel} />}
+      <HibernationNote
+        hibernation={hibernation}
+        memPct={memPct}
+        idleSessionCount={sessions.filter((s) => s.status === 'hibernated').length}
+        onOpenSettings={openHibernationSettings}
+      />
     </>
+  )
+}
+
+/** Explains the host's auto-hibernation policy in the memory modal: what it does
+ *  and whether it's on, off, or actively reclaiming right now, with a shortcut
+ *  to the setting. Hidden until the setting has loaded. */
+function HibernationNote({
+  hibernation,
+  memPct,
+  idleSessionCount,
+  onOpenSettings,
+}: {
+  hibernation: PodiumSettings['hibernation'] | null
+  memPct: number | null
+  idleSessionCount: number
+  onOpenSettings: () => void
+}): JSX.Element | null {
+  if (!hibernation) return null
+  const active = memPct !== null && memPct >= hibernation.memoryPct
+  return (
+    <div className="flex flex-col gap-1.5 border-t border-border px-3.5 py-3 text-xs text-muted-foreground">
+      {hibernation.enabled ? (
+        <p className="m-0">
+          {active ? (
+            <>
+              Memory is past the {hibernation.memoryPct}% threshold, so agents idle for{' '}
+              {hibernation.idleMinutes} min are being hibernated to free memory
+              {idleSessionCount > 0
+                ? ` (${idleSessionCount} hibernated). `
+                : '. '}
+              One click resumes them.
+            </>
+          ) : (
+            <>
+              Auto-hibernation is on: once memory crosses {hibernation.memoryPct}%, agents idle for{' '}
+              {hibernation.idleMinutes} min hibernate to free memory. One click resumes them.
+            </>
+          )}
+        </p>
+      ) : (
+        <p className="m-0">
+          Auto-hibernation is off — idle agents keep their memory until you hibernate them by hand.
+        </p>
+      )}
+      <button
+        type="button"
+        className="cursor-pointer self-start border-0 bg-transparent p-0 text-left text-primary underline underline-offset-2 hover:no-underline"
+        onClick={onOpenSettings}
+      >
+        Hibernation settings
+      </button>
+    </div>
   )
 }
 
@@ -210,6 +307,11 @@ function BreakdownBody({
         <span className="h-full bg-primary" style={{ width: seg(agentBytes) }} />
         <span className="h-full bg-success" style={{ width: seg(projectBytes) }} />
         <span className="h-full bg-border" style={{ width: seg(data.otherBytes) }} />
+      </div>
+      <div className="-mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-muted-foreground">
+        <LegendSwatch className="bg-primary" label="Agents" />
+        <LegendSwatch className="bg-success" label="Projects" />
+        <LegendSwatch className="bg-border" label="Other" />
       </div>
       {!data.supported && (
         <div className="text-xs text-muted-foreground/70">
@@ -305,5 +407,16 @@ function Row({
         {formatMemBytes(bytes)}
       </span>
     </div>
+  )
+}
+
+/** A colour swatch + label for the segmented-bar legend; the swatch class must
+ *  match the corresponding bar segment so the colour mapping is unambiguous. */
+function LegendSwatch({ className, label }: { className: string; label: string }): JSX.Element {
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <span className={cn('size-2 flex-none rounded-[2px]', className)} aria-hidden="true" />
+      {label}
+    </span>
   )
 }
