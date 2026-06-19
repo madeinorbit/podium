@@ -50,6 +50,12 @@ export const LlmBackend = z.object({
 })
 export type LlmBackend = z.infer<typeof LlmBackend>
 
+export const Sidebar = z.object({
+  repoSort: z.enum(['alphabetical', 'lastUsed', 'custom']).default('lastUsed'),
+  repoOrder: z.array(z.string()).default([]),
+})
+export type Sidebar = z.infer<typeof Sidebar>
+
 export const PodiumSettings = z.object({
   sessionDefaults: SessionDefaults.default({}),
   superagent: LlmBackend.default({}),
@@ -89,6 +95,7 @@ export const PodiumSettings = z.object({
       ntfyTopic: z.string().default(''),
     })
     .default({}),
+  sidebar: Sidebar.default({}),
 })
 export type PodiumSettings = z.infer<typeof PodiumSettings>
 
