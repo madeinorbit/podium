@@ -43,6 +43,44 @@ describe('installable PWA wiring', () => {
   })
 })
 
+describe('PWA shell height + safe-area inset', () => {
+  it('desktop-shell uses dvh (not the 100% chain) to fill the viewport in standalone', () => {
+    const css = readWeb('src/styles.css')
+    // The desktop shell must use dvh so it fills the dynamic viewport in
+    // standalone PWA mode. A plain 100% height chains off html/body/#root and
+    // can leave dead space below the composer on iOS home-indicator screens.
+    expect(css).toMatch(/\.desktop-shell\s*\{[^}]*height:\s*100dvh/)
+    // Must NOT fall back to the 100% chain for desktop-shell height.
+    expect(css).not.toMatch(/\.desktop-shell\s*\{[^}]*height:\s*100%/)
+  })
+
+  it('safe-area-inset-bottom is NOT applied to the shell root (composer owns it once)', () => {
+    const css = readWeb('src/styles.css')
+    // The global safe-area padding belongs in the bottommost UI component
+    // (ChatView composer / SuperagentView composer / mobile toolbar), not on the
+    // shell wrapper. If the shell added it too the inset would be double-counted.
+    // Guard: no padding-bottom referencing safe-area-inset-bottom on .desktop-shell
+    // or .mobile-shell directly (the toolbar rule inside .mobile-shell is fine).
+    const desktopBlock = css.match(/\.desktop-shell\s*\{[^}]*\}/)?.[0] ?? ''
+    expect(desktopBlock).not.toContain('safe-area-inset-bottom')
+  })
+
+  it('mobile-shell uses dvh (via --viewport-h fallback) not a fixed 100vh', () => {
+    const css = readWeb('src/styles.css')
+    // mobile-shell must NOT use the old fixed 100vh (layout viewport), which
+    // doesn't shrink when the soft keyboard opens.
+    const mobileBlock = css.match(/\.mobile-shell\s*\{[^}]*\}/)?.[0] ?? ''
+    expect(mobileBlock).not.toContain('100vh')
+    expect(mobileBlock).toMatch(/100dvh/)
+  })
+
+  it('ChatView composer applies safe-area-inset-bottom exactly once', () => {
+    const src = readWeb('src/ChatView.tsx')
+    const matches = [...src.matchAll(/safe-area-inset-bottom/g)]
+    expect(matches.length).toBe(1)
+  })
+})
+
 describe('update prompt', () => {
   it('UpdatePrompt uses the SW registration to detect and apply new builds', () => {
     const src = readWeb('src/UpdatePrompt.tsx')

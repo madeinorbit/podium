@@ -33,7 +33,11 @@ body {
 /* ---- shells ---- */
 .desktop-shell {
   display: flex;
-  height: 100%;
+  /* Use dvh so the desktop shell fills the dynamic viewport height in standalone
+     PWA mode. 100% of the html/body/#root chain can leave dead space at the
+     bottom in installed-PWA standalone on iOS/Android because the layout viewport
+     doesn't shrink to exclude the home-indicator area the way dvh does. */
+  height: 100dvh;
 }
 .mobile-shell {
   display: flex;
