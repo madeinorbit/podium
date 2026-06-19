@@ -49,6 +49,7 @@ export function codexRecordToItems(record: unknown): TranscriptItem[] {
       const role = stringField(payload, 'role')
       // developer = permissions/AGENTS preamble; user = event_msg duplicate or env preamble.
       // Both are always covered by a canonical event_msg or are internal-only, so skip.
+      // Note: skipping user-role response_item relies on event_msg covering the user turn.
       if (role !== 'assistant') return []
       const text = contentToText(payload.content).trim()
       return text
@@ -74,6 +75,9 @@ export function codexRecordToItems(record: unknown): TranscriptItem[] {
       // Encrypted or plain reasoning blobs — internal to the model, not chat content.
       return []
     default:
+      // Known unparsed gap: `compacted` (replacement_history) records appear in
+      // long sessions where Codex compacts its context. They carry no displayable
+      // content, so falling through to an empty result is correct.
       return []
   }
 }

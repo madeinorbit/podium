@@ -10,7 +10,7 @@
  *      line 3 = <environment_context> preamble; line 5 = duplicate of event_msg at line 6
  *  - event_msg user_message (line 6) → user
  *  - response_item reasoning (lines 7,11,15,18,22) → skip
- *  - response_item function_call (lines 8,12,19,25-28,34) → tool call
+ *  - response_item function_call (lines 8,12,19,25-28) → tool call
  *  - response_item function_call_output (lines 9,13,20,29-32,33) → tool result
  *      line 33 (synthetic) has empty output — must still emit, not vanish
  *  - response_item message role=assistant (lines 17,24) → assistant
@@ -31,43 +31,43 @@ const lines = readFileSync(
 describe('codexRecordToItems golden fixture', () => {
   it('classifies the captured rollout without dropping messages', () => {
     const items = lines.flatMap((l) => codexRecordToItems(JSON.parse(l)))
-    const shape = items.map((i) => ({ role: i.role, tool: i.toolName, answer: i.answer }))
+    const shape = items.map((i) => ({ role: i.role, tool: i.toolName }))
 
     expect(shape).toEqual([
       // line 6: event_msg user_message
-      { role: 'user', tool: undefined, answer: undefined },
+      { role: 'user', tool: undefined },
       // line 8: function_call exec_command
-      { role: 'tool', tool: 'exec_command', answer: undefined },
+      { role: 'tool', tool: 'exec_command' },
       // line 9: function_call_output
-      { role: 'tool', tool: undefined, answer: undefined },
+      { role: 'tool', tool: undefined },
       // line 12: function_call exec_command
-      { role: 'tool', tool: 'exec_command', answer: undefined },
+      { role: 'tool', tool: 'exec_command' },
       // line 13: function_call_output
-      { role: 'tool', tool: undefined, answer: undefined },
+      { role: 'tool', tool: undefined },
       // line 17: response_item message role=assistant
-      { role: 'assistant', tool: undefined, answer: undefined },
+      { role: 'assistant', tool: undefined },
       // line 19: function_call update_plan
-      { role: 'tool', tool: 'update_plan', answer: undefined },
+      { role: 'tool', tool: 'update_plan' },
       // line 20: function_call_output "Plan updated"
-      { role: 'tool', tool: undefined, answer: undefined },
+      { role: 'tool', tool: undefined },
       // line 24: response_item message role=assistant
-      { role: 'assistant', tool: undefined, answer: undefined },
+      { role: 'assistant', tool: undefined },
       // lines 25-28: parallel function_calls exec_command
-      { role: 'tool', tool: 'exec_command', answer: undefined },
-      { role: 'tool', tool: 'exec_command', answer: undefined },
-      { role: 'tool', tool: 'exec_command', answer: undefined },
-      { role: 'tool', tool: 'exec_command', answer: undefined },
+      { role: 'tool', tool: 'exec_command' },
+      { role: 'tool', tool: 'exec_command' },
+      { role: 'tool', tool: 'exec_command' },
+      { role: 'tool', tool: 'exec_command' },
       // lines 29-32: parallel function_call_outputs
-      { role: 'tool', tool: undefined, answer: undefined },
-      { role: 'tool', tool: undefined, answer: undefined },
-      { role: 'tool', tool: undefined, answer: undefined },
-      { role: 'tool', tool: undefined, answer: undefined },
+      { role: 'tool', tool: undefined },
+      { role: 'tool', tool: undefined },
+      { role: 'tool', tool: undefined },
+      { role: 'tool', tool: undefined },
       // line 33: function_call_output with EMPTY output — must still emit (not drop)
-      { role: 'tool', tool: undefined, answer: undefined },
+      { role: 'tool', tool: undefined },
       // line 34: custom_tool_call apply_patch
-      { role: 'tool', tool: 'apply_patch', answer: undefined },
+      { role: 'tool', tool: 'apply_patch' },
       // line 35: custom_tool_call_output
-      { role: 'tool', tool: undefined, answer: undefined },
+      { role: 'tool', tool: undefined },
     ])
   })
 

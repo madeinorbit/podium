@@ -89,6 +89,12 @@ export const appRouter = t.router({
       )
       .mutation(async ({ ctx, input }) => {
         const result = await ctx.registry.uploadImage(input)
+        if (result.error) {
+          throw new TRPCError({
+            code: 'INTERNAL_SERVER_ERROR',
+            message: result.error,
+          })
+        }
         if (!result.path) {
           throw new TRPCError({
             code: 'TIMEOUT',

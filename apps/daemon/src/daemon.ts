@@ -2,8 +2,7 @@ import { execFile } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { homedir, hostname } from 'node:os'
-import { dirname } from 'node:path'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { promisify } from 'node:util'
 
 const execFileAsync = promisify(execFile)
@@ -940,6 +939,8 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
   const handleImageUpload = (
     msg: Extract<ControlMessage, { type: 'imageUploadRequest' }>,
   ): void => {
+    // Session ownership is intentionally NOT validated here: a client may upload
+    // an image before the agent PTY is live (e.g. pre-spawn or during reconnect).
     try {
       const id = randomUUID()
       const filePath = uploadFilePath(homedir(), msg.sessionId, id, msg.mimeType)
@@ -947,10 +948,15 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
       writeFileSync(filePath, Buffer.from(msg.dataBase64, 'base64'))
       send({ type: 'imageUploadResult', requestId: msg.requestId, path: filePath })
     } catch (err) {
-      // Return an empty path so the relay timeout branch throws rather than
-      // silently handing the client a bad path.
+      // Return an empty path + error so the router can throw INTERNAL_SERVER_ERROR
+      // (a synchronous write failure, not a timeout).
       console.warn('[podium] image upload failed:', err)
-      send({ type: 'imageUploadResult', requestId: msg.requestId, path: '' })
+      send({
+        type: 'imageUploadResult',
+        requestId: msg.requestId,
+        path: '',
+        error: String(err),
+      })
     }
   }
 

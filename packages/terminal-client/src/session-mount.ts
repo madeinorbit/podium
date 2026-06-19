@@ -130,19 +130,16 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
 
   // On becoming controller, fit the terminal to THIS client's viewport and tell the agent.
   // The initial layout resize fires before we are made controller, so without this the
-  // session would stay at the daemon's initial grid.
+  // session would stay at the daemon's initial grid. Uses fitAndSend() so the bounded-rAF
+  // retry loop kicks in when the container isn't measurable yet (same path as viewport changes).
   onControllerEnter = () => {
     requestAnimationFrame(() => {
       const s = connection.state()
       if (s.role !== 'controller') return
-      const grid = view.fit()
-      if (grid && (grid.cols !== s.cols || grid.rows !== s.rows)) {
-        connection.sendResize(grid.cols, grid.rows)
-      }
       // No view.clear() here: the server replays buffered output on attach, and clearing
-      // would wipe it (leaving normal-buffer apps blank). The resize above + redraw below
+      // would wipe it (leaving normal-buffer apps blank). fitAndSend() resizes + redraw
       // refresh the screen; xterm reflows the replayed content to the new grid.
-      connection.redraw()
+      fitAndSend()
     })
   }
 

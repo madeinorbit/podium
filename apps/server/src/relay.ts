@@ -69,7 +69,7 @@ export class SessionRegistry {
     (r: { hostname: string; buckets: UsageBucketWire[] }) => void
   >()
   private readonly pendingTranscriptReads = new Map<string, (r: TranscriptItem[]) => void>()
-  private readonly pendingUploads = new Map<string, (r: { path: string }) => void>()
+  private readonly pendingUploads = new Map<string, (r: { path: string; error?: string }) => void>()
   /** Ephemeral in-progress composer/prompt text per session. Never persisted. */
   private draftBySession = new Map<string, string>()
   private latestConversations: ConversationSummaryWire[] = []
@@ -631,7 +631,7 @@ export class SessionRegistry {
     filename: string
     mimeType: string
     dataBase64: string
-  }): Promise<{ path: string }> {
+  }): Promise<{ path: string; error?: string }> {
     return this.daemonRequest(
       this.pendingUploads,
       'iu',
@@ -1001,7 +1001,7 @@ export class SessionRegistry {
         const resolve = this.pendingUploads.get(msg.requestId)
         if (resolve) {
           this.pendingUploads.delete(msg.requestId)
-          resolve({ path: msg.path })
+          resolve({ path: msg.path, ...(msg.error !== undefined ? { error: msg.error } : {}) })
         }
         break
       }

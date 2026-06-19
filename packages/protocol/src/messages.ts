@@ -520,14 +520,16 @@ export const ImageUploadRequestMessage = z.object({
   /** Original filename — informational only; the daemon derives the path from mime + id. */
   filename: z.string(),
   mimeType: z.string(),
-  /** Base64-encoded file contents. */
-  dataBase64: z.string(),
+  /** Base64-encoded file contents. Capped at 10 MiB base64 (~7.5 MiB decoded). */
+  dataBase64: z.string().max(10 * 1024 * 1024),
 })
 export const ImageUploadResultMessage = z.object({
   type: z.literal('imageUploadResult'),
   requestId: z.string(),
-  /** Absolute path on the daemon host where the file was written. */
+  /** Absolute path on the daemon host where the file was written. Empty on failure. */
   path: z.string(),
+  /** Set when the daemon failed to write the file; absent on success. */
+  error: z.string().optional(),
 })
 
 // Constrained git operations the superagent may run on a dev machine. An
