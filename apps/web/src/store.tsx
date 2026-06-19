@@ -107,6 +107,8 @@ export interface Store {
   sidebarSettings: SidebarSettings
   /** Persist a new sidebar sort/order — optimistic update + server round-trip. */
   setSidebarSettings: (next: Partial<SidebarSettings>) => Promise<void>
+  /** Server HTTP origin — used to build asset URLs (e.g. markdown images). */
+  httpOrigin: string
 }
 
 export type MainView = 'home' | 'workspace' | 'settings' | 'usage'
@@ -539,6 +541,7 @@ export function StoreProvider({
     setSessionDraft,
     sidebarSettings,
     setSidebarSettings,
+    httpOrigin: config.httpOrigin,
     fileTabs,
     openFile,
     closeFileTab,

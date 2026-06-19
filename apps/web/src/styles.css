@@ -488,3 +488,32 @@ body:has(.mobile-shell) {
   opacity: 0.55;
   font-style: italic;
 }
+
+/* Rendered markdown preview (.md panels). Scoped so it never touches chat/markdown
+   surfaces. Uses theme tokens from the shadcn/Tailwind v4 setup. */
+.markdown-preview { line-height: 1.6; }
+.markdown-preview h1 { font-size: 1.6em; font-weight: 650; margin: 0.6em 0 0.4em; }
+.markdown-preview h2 { font-size: 1.35em; font-weight: 650; margin: 0.6em 0 0.4em; }
+.markdown-preview h3 { font-size: 1.15em; font-weight: 600; margin: 0.6em 0 0.3em; }
+.markdown-preview p { margin: 0.5em 0; }
+.markdown-preview ul, .markdown-preview ol { margin: 0.5em 0; padding-left: 1.5em; }
+.markdown-preview li { margin: 0.15em 0; }
+.markdown-preview a { color: var(--primary); text-decoration: underline; }
+.markdown-preview code { font-family: var(--font-mono, monospace); font-size: 0.92em; }
+.markdown-preview :not(pre) > code {
+  background: var(--muted); padding: 0.1em 0.3em; border-radius: 4px;
+}
+.markdown-preview pre {
+  background: var(--muted); padding: 0.75em 1em; border-radius: 6px; overflow: auto;
+}
+.markdown-preview blockquote {
+  border-left: 3px solid var(--border); padding-left: 1em; color: var(--muted-foreground);
+  margin: 0.5em 0;
+}
+.markdown-preview table { border-collapse: collapse; margin: 0.5em 0; }
+.markdown-preview th, .markdown-preview td {
+  border: 1px solid var(--border); padding: 0.3em 0.6em;
+}
+.markdown-preview img { max-width: 100%; height: auto; }
+.markdown-preview .md-block { scroll-margin-top: 0; }
+.markdown-preview input[type='checkbox'] { margin-right: 0.4em; }
