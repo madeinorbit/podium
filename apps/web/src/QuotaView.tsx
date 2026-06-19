@@ -23,7 +23,9 @@ export function QuotaView(): JSX.Element {
         .then((r) => {
           if (!cancelled) setAgents(r.agents)
         })
-        .catch(() => {})
+        .catch(() => {
+          if (!cancelled) setAgents((prev) => prev ?? [])
+        })
     }
     load()
     const t = setInterval(load, 60_000)

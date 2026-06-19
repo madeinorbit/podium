@@ -42,7 +42,4 @@ test('agent quota: sidebar button opens QuotaView which renders a terminal state
     { timeout: 30_000 },
   )
   await expect(body).not.toContainText('Loading quota…')
-
-  // Surface what actually rendered into the run log (real data on this host).
-  console.log(`[quota e2e] QuotaView rendered:\n${await body.innerText()}`)
 })
