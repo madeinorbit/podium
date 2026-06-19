@@ -132,6 +132,7 @@ export class SessionRegistry {
     for (const [sessionId, text] of Object.entries(this.store.loadDrafts())) {
       this.draftBySession.set(sessionId, text)
     }
+    const snoozes = this.store.listSnoozes()
     for (const r of this.store.loadSessions()) {
       const kind = AgentKind.safeParse(r.agentKind)
       if (!kind.success) {
@@ -176,6 +177,7 @@ export class SessionRegistry {
           : {}),
       })
       this.sessions.set(r.id, session)
+      if (r.id in snoozes) session.snoozedUntil = snoozes[r.id]
       if (r.status !== reloadStatus) this.persist(session)
     }
   }
@@ -250,6 +252,34 @@ export class SessionRegistry {
 
   setPin(kind: PinKind, id: string, pinned: boolean) {
     this.store.setPin(kind, id, pinned)
+  }
+
+  listSnoozes() {
+    return this.store.listSnoozes()
+  }
+
+  setSnooze({ sessionId, until }: { sessionId: string; until: string | null }): void {
+    this.store.setSnooze(sessionId, until)
+    const session = this.sessions.get(sessionId)
+    if (session) session.snoozedUntil = until
+    this.broadcastSessions()
+  }
+
+  clearSnooze(sessionId: string): void {
+    this.store.clearSnooze(sessionId)
+    const session = this.sessions.get(sessionId)
+    if (session) session.clearSnooze()
+    this.broadcastSessions()
+  }
+
+  /** Phases that put a session in the sidebar's attention bucket — mirrors the
+   *  web's attentionGroup 'needsYou' branch. Used to clear a snooze when the
+   *  agent moves on. */
+  private static isAttentionPhase(s: AgentRuntimeState | undefined): boolean {
+    const phase = s?.phase
+    if (phase === 'needs_user' || phase === 'errored') return true
+    if (phase === 'idle') return !!s?.idle && s.idle.kind !== 'done'
+    return false
   }
 
   listTabOrders() {
@@ -331,6 +361,9 @@ export class SessionRegistry {
     if (!session || (session.status !== 'live' && session.status !== 'starting')) {
       return { ok: false }
     }
+    // A submitted message re-engages the session — drop any snooze so it returns
+    // to the normal attention flow (covers chat send + resumeAndSend paths).
+    if (session.snoozedUntil !== undefined) this.clearSnooze(sessionId)
     const send = (data: string) =>
       this.toDaemon({ type: 'input', sessionId, data: Buffer.from(data).toString('base64') })
     // Bracketed paste so the harness takes the message as one input block, then the
@@ -1009,6 +1042,13 @@ export class SessionRegistry {
         }
         for (const c of this.clients.values()) c.send(update)
         this.notifyAttention(session, prev, msg.state)
+        if (
+          session.snoozedUntil !== undefined &&
+          SessionRegistry.isAttentionPhase(prev) &&
+          !SessionRegistry.isAttentionPhase(msg.state)
+        ) {
+          this.clearSnooze(msg.sessionId)
+        }
         break
       }
       case 'agentColor': {

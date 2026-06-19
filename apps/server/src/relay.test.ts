@@ -1085,3 +1085,80 @@ describe('reconnect identity (hello reclaim)', () => {
     })
   })
 })
+
+describe('SessionRegistry snooze', () => {
+  const agentState = (sessionId: string, phase: string, extra: Record<string, unknown> = {}) =>
+    ({
+      type: 'agentState',
+      sessionId,
+      state: { phase, since: '2026-06-19T00:00:00.000Z', openTaskCount: 0, ...extra },
+    }) as const
+
+  it('set/list/clear round-trips and shows on the session meta', () => {
+    const reg = new SessionRegistry()
+    reg.attachDaemon(() => {})
+    const { sessionId } = reg.createSession({ agentKind: 'claude-code', cwd: '/p' })
+    reg.onDaemonMessage(bind(sessionId))
+
+    reg.setSnooze({ sessionId, until: null })
+    expect(reg.listSnoozes()).toEqual({ [sessionId]: null })
+    expect(reg.listSessions()[0]?.snoozedUntil).toBeNull()
+
+    reg.clearSnooze(sessionId)
+    expect(reg.listSnoozes()).toEqual({})
+    expect('snoozedUntil' in (reg.listSessions()[0] ?? {})).toBe(false)
+  })
+
+  it('a submitted prompt (sendText) clears the snooze', () => {
+    const reg = new SessionRegistry()
+    reg.attachDaemon(() => {})
+    const { sessionId } = reg.createSession({ agentKind: 'claude-code', cwd: '/p' })
+    reg.onDaemonMessage(bind(sessionId))
+    reg.setSnooze({ sessionId, until: null })
+
+    reg.sendText({ sessionId, text: 'hi' })
+    expect(reg.listSnoozes()).toEqual({})
+  })
+
+  it('leaving the attention phase clears it; staying in attention keeps it', () => {
+    const reg = new SessionRegistry()
+    reg.attachDaemon(() => {})
+    const { sessionId } = reg.createSession({ agentKind: 'claude-code', cwd: '/p' })
+    reg.onDaemonMessage(bind(sessionId))
+    reg.onDaemonMessage(agentState(sessionId, 'needs_user', { need: { kind: 'question' } }))
+    reg.setSnooze({ sessionId, until: null })
+
+    // needs_user -> idle/question is still attention: snooze survives.
+    reg.onDaemonMessage(agentState(sessionId, 'idle', { idle: { kind: 'question' } }))
+    expect(reg.listSnoozes()).toEqual({ [sessionId]: null })
+
+    // -> working leaves attention: snooze clears.
+    reg.onDaemonMessage(agentState(sessionId, 'working'))
+    expect(reg.listSnoozes()).toEqual({})
+  })
+
+  it('seeds snoozedUntil from the store at load', () => {
+    const store = new SessionStore(':memory:')
+    store.upsertSession({
+      id: 's1',
+      agentKind: 'claude-code',
+      cwd: '/p',
+      title: 't',
+      name: null,
+      originKind: 'spawn',
+      conversationId: null,
+      resumeKind: null,
+      resumeValue: null,
+      status: 'hibernated',
+      exitCode: null,
+      durableLabel: 'd',
+      createdAt: '2026-06-19T00:00:00.000Z',
+      lastActiveAt: '2026-06-19T00:00:00.000Z',
+      archived: false,
+      workState: null,
+    })
+    store.setSnooze('s1', null)
+    const reg = new SessionRegistry(store)
+    expect(reg.listSessions()[0]?.snoozedUntil).toBeNull()
+  })
+})
