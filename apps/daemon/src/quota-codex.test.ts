@@ -2,66 +2,115 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { decodeJwtEmail, fetchCodexQuota, parseCodexRateLimits } from './quota-codex'
+import { fetchCodexQuota, parseWhamUsage } from './quota-codex'
 
 const now = Date.parse('2026-06-19T18:00:00.000Z')
-const rl = {
-  primary: { usedPercent: 30, resetsAt: 1_750_356_000 },
-  secondary: { usedPercent: 12, resetsAt: 1_750_700_000 },
+
+const okBody = {
+  email: 'me@example.com',
+  plan_type: 'prolite',
+  rate_limit: {
+    primary_window: { used_percent: 4, limit_window_seconds: 18000, reset_at: 1781887992 },
+    secondary_window: { used_percent: 15, limit_window_seconds: 604800, reset_at: 1782357709 },
+  },
 }
+
 function homeWithAuth(auth: unknown): string {
   const home = mkdtempSync(join(tmpdir(), 'podium-xq-'))
   mkdirSync(join(home, '.codex'), { recursive: true })
   writeFileSync(join(home, '.codex', 'auth.json'), JSON.stringify(auth))
   return home
 }
-const jwt = (claims: object): string =>
-  `h.${Buffer.from(JSON.stringify(claims)).toString('base64url')}.s`
 
-describe('parseCodexRateLimits', () => {
-  it('maps primary→5h, secondary→weekly with unix→ISO reset', () => {
-    const w = parseCodexRateLimits(rl)
+describe('parseWhamUsage', () => {
+  it('maps primary_window→5h, secondary_window→weekly with unix→ISO reset', () => {
+    const w = parseWhamUsage(okBody)
     expect(w.map((x) => [x.key, x.usedPercent, x.windowMinutes])).toEqual([
-      ['5h', 30, 300],
-      ['weekly', 12, 10080],
+      ['5h', 4, 300],
+      ['weekly', 15, 10080],
     ])
-    expect(w[0]?.resetsAt).toBe(new Date(1_750_356_000 * 1000).toISOString())
+    expect(w[0]?.resetsAt).toBe(new Date(1781887992 * 1000).toISOString())
+    expect(w[1]?.resetsAt).toBe(new Date(1782357709 * 1000).toISOString())
   })
-})
 
-describe('decodeJwtEmail', () => {
-  it('extracts the email claim, undefined on garbage', () => {
-    expect(decodeJwtEmail(jwt({ email: 'a@b.com' }))).toBe('a@b.com')
-    expect(decodeJwtEmail('not-a-jwt')).toBeUndefined()
-    expect(decodeJwtEmail(undefined)).toBeUndefined()
+  it('omits secondary_window when absent', () => {
+    const body = {
+      rate_limit: {
+        primary_window: { used_percent: 10, reset_at: 1781887992 },
+      },
+    }
+    const w = parseWhamUsage(body)
+    expect(w.map((x) => x.key)).toEqual(['5h'])
+  })
+
+  it('returns empty array when rate_limit is absent', () => {
+    expect(parseWhamUsage({})).toEqual([])
   })
 })
 
 describe('fetchCodexQuota', () => {
-  it('is unauthenticated without auth.json', async () => {
+  it('is unauthenticated without auth.json (fetchImpl not called)', async () => {
     const home = mkdtempSync(join(tmpdir(), 'podium-xq-'))
-    const r = await fetchCodexQuota({ homeDir: home, now, readImpl: async () => rl })
-    expect(r).toMatchObject({ agent: 'codex', status: 'unauthenticated' })
-  })
-
-  it('returns ok windows + account email from the JWT', async () => {
-    const home = homeWithAuth({ tokens: { id_token: jwt({ email: 'me@example.com' }) } })
-    const r = await fetchCodexQuota({ homeDir: home, now, readImpl: async () => rl })
-    expect(r.status).toBe('ok')
-    expect(r.windows.map((w) => w.key)).toEqual(['5h', 'weekly'])
-    expect(r.account?.email).toBe('me@example.com')
-  })
-
-  it('maps a reader throw to error', async () => {
-    const home = homeWithAuth({ tokens: {} })
+    let called = false
     const r = await fetchCodexQuota({
       homeDir: home,
       now,
-      readImpl: async () => {
-        throw new Error('app-server timed out')
-      },
+      fetchImpl: (async () => {
+        called = true
+        return new Response('', { status: 200 })
+      }) as typeof fetch,
+    })
+    expect(called).toBe(false)
+    expect(r).toMatchObject({ agent: 'codex', status: 'unauthenticated', windows: [] })
+  })
+
+  it('returns ok windows + account on 200', async () => {
+    const home = homeWithAuth({ tokens: { access_token: 'tok', account_id: 'acct123' } })
+    const r = await fetchCodexQuota({
+      homeDir: home,
+      now,
+      fetchImpl: (async () =>
+        new Response(JSON.stringify(okBody), { status: 200 })) as typeof fetch,
+    })
+    expect(r.status).toBe('ok')
+    expect(r.windows.map((w) => w.key)).toEqual(['5h', 'weekly'])
+    expect(r.windows[0]?.usedPercent).toBe(4)
+    expect(r.windows[1]?.usedPercent).toBe(15)
+    expect(r.account?.email).toBe('me@example.com')
+    expect(r.account?.plan).toBe('prolite')
+  })
+
+  it('maps 401 to expired', async () => {
+    const home = homeWithAuth({ tokens: { access_token: 'tok' } })
+    const r = await fetchCodexQuota({
+      homeDir: home,
+      now,
+      fetchImpl: (async () => new Response('', { status: 401 })) as typeof fetch,
+    })
+    expect(r.status).toBe('expired')
+  })
+
+  it('maps non-401 error status to error', async () => {
+    const home = homeWithAuth({ tokens: { access_token: 'tok' } })
+    const r = await fetchCodexQuota({
+      homeDir: home,
+      now,
+      fetchImpl: (async () => new Response('', { status: 500 })) as typeof fetch,
     })
     expect(r.status).toBe('error')
-    expect(r.error).toContain('app-server')
+    expect(r.error).toContain('500')
+  })
+
+  it('maps a thrown fetchImpl to error', async () => {
+    const home = homeWithAuth({ tokens: { access_token: 'tok' } })
+    const r = await fetchCodexQuota({
+      homeDir: home,
+      now,
+      fetchImpl: (async () => {
+        throw new Error('network failure')
+      }) as typeof fetch,
+    })
+    expect(r.status).toBe('error')
+    expect(r.error).toContain('network failure')
   })
 })

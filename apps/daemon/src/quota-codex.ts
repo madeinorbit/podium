@@ -1,153 +1,94 @@
-import { spawn } from 'node:child_process'
 import { readFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import type { AgentQuotaWire, QuotaWindowWire } from '@podium/protocol'
 
-export interface CodexRateLimitWindow {
-  usedPercent?: number
-  resetsAt?: number // unix seconds
-  windowDurationMins?: number // present in the live response; we hardcode windowMinutes instead
+const USAGE_URL = 'https://chatgpt.com/backend-api/wham/usage'
+
+export interface WhamUsageResponse {
+  email?: string
+  plan_type?: string
+  rate_limit?: {
+    primary_window?: { used_percent?: number; limit_window_seconds?: number; reset_at?: number }
+    secondary_window?: { used_percent?: number; limit_window_seconds?: number; reset_at?: number }
+  }
 }
-export interface CodexRateLimits {
-  primary?: CodexRateLimitWindow
-  secondary?: CodexRateLimitWindow
-}
-export type CodexRateLimitReader = (deps: { homeDir?: string }) => Promise<CodexRateLimits>
 
 const isoFromUnix = (s: number | undefined): string =>
   typeof s === 'number' && Number.isFinite(s) ? new Date(s * 1000).toISOString() : ''
+
 const pct = (p: number | undefined): number => (typeof p === 'number' && Number.isFinite(p) ? p : 0)
 
-export function parseCodexRateLimits(rl: CodexRateLimits): QuotaWindowWire[] {
+export function parseWhamUsage(body: WhamUsageResponse): QuotaWindowWire[] {
   const windows: QuotaWindowWire[] = []
-  if (rl.primary) {
+  const rl = body.rate_limit
+  if (!rl) return windows
+  if (rl.primary_window) {
     windows.push({
       key: '5h',
       label: '5-hour',
-      usedPercent: pct(rl.primary.usedPercent),
-      resetsAt: isoFromUnix(rl.primary.resetsAt),
+      usedPercent: pct(rl.primary_window.used_percent),
+      resetsAt: isoFromUnix(rl.primary_window.reset_at),
       windowMinutes: 300,
     })
   }
-  if (rl.secondary) {
+  if (rl.secondary_window) {
     windows.push({
       key: 'weekly',
       label: 'Weekly',
-      usedPercent: pct(rl.secondary.usedPercent),
-      resetsAt: isoFromUnix(rl.secondary.resetsAt),
+      usedPercent: pct(rl.secondary_window.used_percent),
+      resetsAt: isoFromUnix(rl.secondary_window.reset_at),
       windowMinutes: 10_080,
     })
   }
   return windows
 }
 
-export function decodeJwtEmail(idToken: string | undefined): string | undefined {
-  if (!idToken) return undefined
-  const parts = idToken.split('.')
-  if (parts.length < 2) return undefined
-  try {
-    const payloadSegment = parts[1]
-    if (!payloadSegment) return undefined
-    const payload = JSON.parse(Buffer.from(payloadSegment, 'base64url').toString('utf8')) as {
-      email?: string
-    }
-    return typeof payload.email === 'string' ? payload.email : undefined
-  } catch {
-    return undefined
-  }
-}
-
-// Real reader: drive `codex app-server` over newline-delimited JSON-RPC. SHAPE
-// VERIFIED live 2026-06-19: response is result.rateLimits.{primary,secondary}, each
-// { usedPercent (0..100 number), windowDurationMins, resetsAt (unix SECONDS) }.
-export const readCodexRateLimitsViaAppServer: CodexRateLimitReader = ({ homeDir } = {}) =>
-  new Promise<CodexRateLimits>((resolve, reject) => {
-    const env = { ...process.env, ...(homeDir ? { CODEX_HOME: join(homeDir, '.codex') } : {}) }
-    const child = spawn('codex', ['-s', 'read-only', '-a', 'untrusted', 'app-server'], {
-      stdio: ['pipe', 'pipe', 'ignore'],
-      env,
-    })
-    let buf = ''
-    let settled = false
-    const finish = (err: Error | null, val?: CodexRateLimits) => {
-      if (settled) return
-      settled = true
-      clearTimeout(timer)
-      try {
-        child.kill('SIGKILL')
-      } catch {}
-      if (err) reject(err)
-      else resolve(val ?? {})
-    }
-    // MUST stay below the relay's 20s `agentQuota` timeout (apps/server/src/relay.ts) so a slow Codex
-    // returns an error wire in-window instead of blanking the whole response.
-    const timer = setTimeout(() => finish(new Error('codex app-server timed out')), 15_000)
-    timer.unref?.()
-    const send = (obj: unknown) => child.stdin.write(`${JSON.stringify(obj)}\n`)
-    child.once('spawn', () => {
-      try {
-        send({
-          jsonrpc: '2.0',
-          id: 1,
-          method: 'initialize',
-          params: { clientInfo: { name: 'podium', version: '0.0.0' } },
-        })
-      } catch (e) {
-        finish(e instanceof Error ? e : new Error(String(e)))
-      }
-    })
-    child.stdout.on('data', (chunk: Buffer) => {
-      buf += chunk.toString('utf8')
-      let nl = buf.indexOf('\n')
-      while (nl >= 0) {
-        const line = buf.slice(0, nl).trim()
-        buf = buf.slice(nl + 1)
-        nl = buf.indexOf('\n')
-        if (!line) continue
-        let msg: { id?: number; result?: { rateLimits?: CodexRateLimits } }
-        try {
-          msg = JSON.parse(line)
-        } catch {
-          continue
-        }
-        if (msg.id === 1) {
-          send({ jsonrpc: '2.0', method: 'initialized', params: {} })
-          send({ jsonrpc: '2.0', id: 2, method: 'account/rateLimits/read', params: {} })
-        } else if (msg.id === 2) {
-          finish(null, msg.result?.rateLimits ?? {})
-        }
-      }
-    })
-    child.on('error', (e) => finish(e))
-    child.on('exit', () => finish(new Error('codex app-server exited early')))
-  })
-
 export async function fetchCodexQuota(
-  deps: { homeDir?: string; now?: number; readImpl?: CodexRateLimitReader } = {},
+  deps: { homeDir?: string; now?: number; fetchImpl?: typeof fetch } = {},
 ): Promise<AgentQuotaWire> {
   const now = deps.now ?? Date.now()
+  const fetchImpl = deps.fetchImpl ?? fetch
   const base = {
     agent: 'codex' as const,
     windows: [] as QuotaWindowWire[],
     fetchedAt: new Date(now).toISOString(),
   }
   const authPath = join(deps.homeDir ?? homedir(), '.codex', 'auth.json')
-  let email: string | undefined
+  let accessToken: string | undefined
+  let accountId: string | undefined
   try {
-    const auth = JSON.parse(await readFile(authPath, 'utf8')) as { tokens?: { id_token?: string } }
-    email = decodeJwtEmail(auth.tokens?.id_token)
+    const raw = JSON.parse(await readFile(authPath, 'utf8')) as {
+      tokens?: { access_token?: string; account_id?: string }
+    }
+    accessToken = raw.tokens?.access_token
+    accountId = raw.tokens?.account_id
   } catch {
     return { ...base, status: 'unauthenticated' }
   }
-  const read = deps.readImpl ?? readCodexRateLimitsViaAppServer
+  if (!accessToken) return { ...base, status: 'unauthenticated' }
   try {
-    const rl = await read({ ...(deps.homeDir ? { homeDir: deps.homeDir } : {}) })
+    const res = await fetchImpl(USAGE_URL, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        ...(accountId ? { 'ChatGPT-Account-Id': accountId } : {}),
+      },
+    })
+    if (res.status === 401) return { ...base, status: 'expired' }
+    if (!res.ok) return { ...base, status: 'error', error: `usage endpoint ${res.status}` }
+    const body = (await res.json()) as WhamUsageResponse
+    const account =
+      body.email || body.plan_type
+        ? {
+            ...(body.email ? { email: body.email } : {}),
+            ...(body.plan_type ? { plan: body.plan_type } : {}),
+          }
+        : undefined
     return {
       ...base,
       status: 'ok',
-      windows: parseCodexRateLimits(rl),
-      ...(email ? { account: { email } } : {}),
+      windows: parseWhamUsage(body),
+      ...(account ? { account } : {}),
     }
   } catch (e) {
     return { ...base, status: 'error', error: e instanceof Error ? e.message : String(e) }
