@@ -80,6 +80,7 @@ import { attributeMemory, snapshotProcesses } from './memory-breakdown'
 import { uploadFilePath } from './upload'
 import { uploadsToGc } from './uploads-gc'
 import { scanClaudeUsage } from './usage-scan'
+import { makeQuotaFetcher } from './quota-fetch'
 
 const DEFAULT_DISCOVERY_SCAN_INTERVAL_MS = 15_000
 const DEFAULT_HOST_METRICS_INTERVAL_MS = 5_000
@@ -1144,6 +1145,9 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
       case 'usageRequest':
         void runUsageScan(msg)
         break
+      case 'agentQuotaRequest':
+        void runAgentQuotaScan(msg)
+        break
       case 'transcriptReadRequest':
         void readParkedTranscript(msg)
         break
@@ -1173,6 +1177,12 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
         break
     }
   }
+
+  // Per-agent plan-quota reader (live, read-only, TTL-cached). Same homeDir override
+  // the discovery scans use, so tests can point it at a fixture home.
+  const quotaFetcher = makeQuotaFetcher({
+    ...(opts.discovery?.homeDir ? { homeDir: opts.discovery.homeDir } : {}),
+  })
 
   // A usage scan reads every recently-active transcript — memo it so the status
   // chip's poll doesn't redo the walk per client. The TTL must exceed the chip's
@@ -1205,6 +1215,13 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
       usageMemo = { atMs: Date.now(), sinceMs, buckets }
     }
     send({ type: 'usageResult', requestId: msg.requestId, hostname: hostname(), buckets })
+  }
+
+  const runAgentQuotaScan = async (
+    msg: Extract<ControlMessage, { type: 'agentQuotaRequest' }>,
+  ): Promise<void> => {
+    const agents = await quotaFetcher.getAgentQuota(msg.refresh ?? false)
+    send({ type: 'agentQuotaResult', requestId: msg.requestId, hostname: hostname(), agents })
   }
 
   /** Allowlisted git operations for the superagent — each op is a fixed argv. */

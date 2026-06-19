@@ -35,7 +35,7 @@ export function decodeJwtEmail(idToken: string | undefined): string | undefined 
   const parts = idToken.split('.')
   if (parts.length < 2) return undefined
   try {
-    const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8')) as { email?: string }
+    const payload = JSON.parse(Buffer.from(parts[1]!, 'base64url').toString('utf8')) as { email?: string }
     return typeof payload.email === 'string' ? payload.email : undefined
   } catch {
     return undefined
@@ -63,7 +63,9 @@ export const readCodexRateLimitsViaAppServer: CodexRateLimitReader = ({ homeDir 
     const timer = setTimeout(() => finish(new Error('codex app-server timed out')), 25_000)
     timer.unref?.()
     const send = (obj: unknown) => child.stdin.write(`${JSON.stringify(obj)}\n`)
-    send({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} })
+    child.once('spawn', () => {
+      send({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} })
+    })
     child.stdout.on('data', (chunk: Buffer) => {
       buf += chunk.toString('utf8')
       let nl = buf.indexOf('\n')
