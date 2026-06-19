@@ -156,4 +156,14 @@ describe('repos router', () => {
     const res = await call.superagent.startBtw({ sessionId: 's9' })
     expect(res).toEqual({ threadId: 'btw_s9', isNew: false })
   })
+
+  it('snoozes.set / list / clear round-trip', async () => {
+    const { call } = caller()
+    const { sessionId } = await call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
+
+    expect(await call.snoozes.list()).toEqual({})
+    expect(await call.snoozes.set({ sessionId, until: null })).toEqual({ [sessionId]: null })
+    expect(await call.snoozes.list()).toEqual({ [sessionId]: null })
+    expect(await call.snoozes.clear({ sessionId })).toEqual({})
+  })
 })
