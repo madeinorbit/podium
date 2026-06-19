@@ -9,6 +9,7 @@ import {
 import {
   Archive,
   ArrowDownToLine,
+  Copy,
   MessageSquareText,
   Mic,
   Moon,
@@ -18,11 +19,20 @@ import {
 } from 'lucide-react'
 import type { JSX } from 'react'
 import { useEffect, useRef, useState } from 'react'
+import { toast } from 'sonner'
 import { ArrowSwipeKey } from '@/ArrowSwipeKey'
 import { Button } from '@/components/ui/button'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import { useSessionGuard } from '@/hooks/use-session-guard'
 import { cn } from '@/lib/utils'
 import { ChatView } from './ChatView'
-import { defaultChatCapable, panelLabel } from './derive'
+import { defaultChatCapable, panelLabel, resumeCommand } from './derive'
 import { useStore } from './store'
 import { useVoiceInput } from './voice'
 import { WorkerLabel } from './WorkerLabel'
@@ -60,7 +70,6 @@ export function AgentPanel({
   const {
     hub,
     sessions,
-    archiveSession,
     startBtw,
     setSessionDraft,
     hibernateSession,
@@ -68,6 +77,7 @@ export function AgentPanel({
     panelMode,
     setPanelMode,
   } = useStore()
+  const { guardedArchive } = useSessionGuard()
   const session = sessions.find((s) => s.sessionId === sessionId)
   const termRef = useRef<HTMLDivElement | null>(null)
   const toolbarRef = useRef<HTMLDivElement | null>(null)
@@ -93,6 +103,10 @@ export function AgentPanel({
 
   const hibernated = session?.status === 'hibernated'
   const exited = session?.status === 'exited'
+  // The native CLI resume command for this session (#119), or null when no
+  // resume ref is known. Also the first right-aligned header control, so the
+  // `ml-auto` fallbacks below defer to it when present.
+  const resumeCmd = session ? resumeCommand(session) : null
   // Manual hibernation is offered for a live, resumable agent (a resume ref means
   // it can come back), but disabled while it's actively working — parking a
   // working agent would kill its in-flight turn (the server refuses it too).
@@ -241,12 +255,18 @@ export function AgentPanel({
             </Button>
           </span>
         )}
+        {/* Native resume command (#119): the literal `claude --resume <id>` etc.
+            so you can pick the conversation back up in your own terminal. Shown
+            whenever the harness has handed us a resume ref. As the first
+            right-aligned control it carries `ml-auto`; the BTW button only takes
+            it when this menu is absent. */}
+        {resumeCmd && <ResumeCommandMenu command={resumeCmd} className="ml-auto" />}
         {chatCapable && (
           <Button
             type="button"
             variant="ghost"
             size="icon"
-            className="ml-auto"
+            className={cn(!resumeCmd && 'ml-auto')}
             title="Ask the superagent about this session (BTW)"
             onClick={() => void startBtw(sessionId)}
           >
@@ -277,9 +297,9 @@ export function AgentPanel({
             type="button"
             variant="ghost"
             size="icon"
-            className={cn(!chatCapable && 'ml-auto')}
+            className={cn(!chatCapable && !resumeCmd && 'ml-auto')}
             title="Archive session — files it under Done"
-            onClick={() => void archiveSession(sessionId, true)}
+            onClick={() => void guardedArchive(sessionId, true)}
           >
             <Archive size={13} aria-hidden="true" />
           </Button>
@@ -289,7 +309,7 @@ export function AgentPanel({
             type="button"
             variant="secondary"
             size="sm"
-            className={cn(!chatCapable && 'ml-auto')}
+            className={cn(!chatCapable && !resumeCmd && 'ml-auto')}
             onClick={() => mountedRef.current?.connection.requestControl()}
           >
             Take control
@@ -402,6 +422,53 @@ export function AgentPanel({
         </>
       )}
     </div>
+  )
+}
+
+/**
+ * Header affordance for #119: a small overflow menu that shows the session's
+ * native CLI resume command (e.g. `claude --resume <id>`) and copies it to the
+ * clipboard. The id is what lets you reopen the exact conversation in your own
+ * terminal, outside Podium.
+ */
+function ResumeCommandMenu({
+  command,
+  className,
+}: {
+  command: string
+  className?: string
+}): JSX.Element {
+  const copy = () => {
+    void navigator.clipboard
+      ?.writeText(command)
+      .then(() => toast('Resume command copied'))
+      .catch(() => toast.error('Could not copy to clipboard'))
+  }
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className={className}
+            title="Resume command — copy the CLI command to reopen this conversation"
+          >
+            <TerminalIcon size={13} aria-hidden="true" />
+          </Button>
+        }
+      />
+      <DropdownMenuContent align="end" className="w-auto min-w-[260px] max-w-[90vw]">
+        <DropdownMenuLabel>Resume in your terminal</DropdownMenuLabel>
+        <code className="mx-1.5 block overflow-x-auto rounded bg-muted px-2 py-1.5 font-mono text-[11px] whitespace-pre text-foreground">
+          {command}
+        </code>
+        <DropdownMenuItem onClick={copy}>
+          <Copy size={13} aria-hidden="true" /> Copy command
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   )
 }
 

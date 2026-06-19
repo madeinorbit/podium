@@ -500,7 +500,7 @@ export class Session {
       origin: this.origin,
       archived: this.archived,
       ...(this.workState ? { workState: this.workState } : {}),
-      ...(this.resume ? { resumable: true } : {}),
+      ...(this.resume ? { resumable: true, resume: this.resume } : {}),
       ...(this.transcriptAvailable ? { transcriptAvailable: true } : {}),
       ...(this.shellBusy ? { busy: true } : {}),
       ...(this.agentColor ? { agentColor: this.agentColor } : {}),

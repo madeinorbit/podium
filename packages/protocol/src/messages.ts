@@ -100,6 +100,11 @@ export const SessionMeta = z.object({
   workState: WorkState.optional(),
   /** True when a resume ref is known — hibernate→resume is possible. */
   resumable: z.boolean().optional(),
+  /** The native CLI resume ref (kind + value) when known — the conversation id
+   *  the harness reattaches to. Lets the client surface the literal
+   *  `claude --resume <id>` / `codex resume <id>` command without a round-trip.
+   *  Present only when `resumable`; omitted for shells / not-yet-known sessions. */
+  resume: ResumeRef.optional(),
   /** True once a structured transcript has been observed for this session — the
    *  capability that powers chat view. Set by the layer that owns the tail, so a
    *  new transcript provider lights up chat with no client-side kind checks. */

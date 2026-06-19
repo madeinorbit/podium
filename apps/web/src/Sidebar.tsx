@@ -13,6 +13,7 @@ import type { JSX, ReactNode } from 'react'
 import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { useSessionGuard } from '@/hooks/use-session-guard'
 import { cn } from '@/lib/utils'
 import {
   agentBadge,
@@ -447,7 +448,8 @@ function PanelRow({
   onSelect: () => void
   onPinned: (pinned: boolean) => void
 }): JSX.Element {
-  const { continueSession, killSession, renameSession } = useStore()
+  const { continueSession, renameSession } = useStore()
+  const { guardedKill } = useSessionGuard()
   const badge = agentBadge(session)
   const [editing, setEditing] = useState(false)
   return (
@@ -522,7 +524,7 @@ function PanelRow({
         size="icon-sm"
         className="hidden w-7 min-w-7 flex-none rounded-none text-muted-foreground/70 hover:text-destructive group-hover:inline-flex"
         title="Close session"
-        onClick={() => void killSession(session.sessionId)}
+        onClick={() => void guardedKill(session.sessionId)}
       >
         <X size={13} aria-hidden="true" />
       </Button>

@@ -473,3 +473,54 @@ const AGENT_COLOR_HEX: Record<string, string> = {
 export function agentColorHex(name: string | undefined): string | undefined {
   return name ? AGENT_COLOR_HEX[name.toLowerCase()] : undefined
 }
+
+/**
+ * Is the session actively doing work right now? The single predicate behind the
+ * close/archive guard (#115) — kept in lock-step with the green status dot
+ * (`sessionDotTone === 'working'`), so "still working" in a confirm prompt means
+ * exactly what the green dot does: an instrumented agent in its `working` /
+ * `compacting` phase, or an uninstrumented shell with a command running (`busy`).
+ */
+export function isSessionWorking(s: SessionMeta): boolean {
+  return sessionDotTone(s) === 'working'
+}
+
+/**
+ * The native CLI command that resumes this session's conversation, for #119
+ * (show + copy). Mirrors the canonical builder in
+ * `@podium/agent-bridge`'s `agentLaunchCommand` (the single place the daemon
+ * actually spawns resumes) — the web app doesn't depend on agent-bridge, so the
+ * per-CLI resume flag is replicated here. Keyed off the harness-supplied
+ * `ResumeRef.kind` (set by each discovery provider) rather than `agentKind`, so
+ * the command always matches the ref the daemon would replay. Null when no
+ * resume ref is known (shells, not-yet-resumable sessions).
+ */
+export function resumeCommand(s: SessionMeta): string | null {
+  const ref = s.resume
+  if (!ref) return null
+  const id = shellQuote(ref.value)
+  switch (ref.kind) {
+    case 'claude-session':
+      return `claude --resume ${id}`
+    case 'codex-thread':
+      return `codex resume ${id}`
+    case 'grok-session':
+      return `grok --resume ${id}`
+    case 'opencode-session':
+      return `opencode --session ${id}`
+    case 'cursor-chat':
+      // Cursor's CLI binary is `agent` (Cursor Agent) — see resolveCursorBin.
+      return `agent --resume ${id}`
+    default:
+      // Unknown ref kind — fall back to the agent kind's flag so a future
+      // provider still produces a usable command rather than nothing.
+      return `${s.agentKind} --resume ${id}`
+  }
+}
+
+/** Single-quote a resume id for shell safety only when it isn't a bare token
+ *  (uuids / thread ids are bare; quote anything with a shell metacharacter). */
+function shellQuote(value: string): string {
+  if (/^[A-Za-z0-9._/-]+$/.test(value)) return value
+  return `'${value.replace(/'/g, `'\\''`)}'`
+}

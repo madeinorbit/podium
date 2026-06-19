@@ -2,6 +2,7 @@ import type { JSX } from 'react'
 import { useState } from 'react'
 import { Toaster } from '@/components/ui/sonner'
 import { TooltipProvider } from '@/components/ui/tooltip'
+import { ConfirmProvider } from '@/hooks/use-confirm'
 import { useIsMobile } from '@/hooks/use-is-mobile'
 import { AppErrorPage } from './AppErrorPage'
 import { ErrorBoundary } from './ErrorBoundary'
@@ -52,7 +53,9 @@ export function AppShell(): JSX.Element {
           onError={setAppError}
         >
           <StoreProvider config={config} onFatalError={setAppError}>
-            <AppBody isMobile={isMobile} />
+            <ConfirmProvider>
+              <AppBody isMobile={isMobile} />
+            </ConfirmProvider>
           </StoreProvider>
         </ErrorBoundary>
       )}

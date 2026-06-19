@@ -19,12 +19,14 @@ import { Columns2, FileText, Pin, X } from 'lucide-react'
 import type { JSX } from 'react'
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
+import { useSessionGuard } from '@/hooks/use-session-guard'
 import { cn } from '@/lib/utils'
 import { AgentPanel } from './AgentPanel'
 
 const FileEditorPanel = lazy(() =>
   import('./FileEditorPanel').then((m) => ({ default: m.FileEditorPanel })),
 )
+
 import {
   agentColorHex,
   orderTabs,
@@ -51,10 +53,10 @@ export function Workspace(): JSX.Element {
     setPane,
     split,
     toggleSplit,
-    killSession,
     fileTabs,
     closeFileTab,
   } = store
+  const { guardedKill } = useSessionGuard()
   // A session created via the "+" menu (or restored from localStorage on reload)
   // lands in `paneA` before the server's broadcast adds it to `tabs`. Without this,
   // the keep-pane-valid effect below sees an unknown paneA and bounces it to
@@ -164,7 +166,7 @@ export function Workspace(): JSX.Element {
                   onTogglePin={() =>
                     void setPinned('panel', t.sessionId, !pins.panels.includes(t.sessionId))
                   }
-                  onKill={() => void killSession(t.sessionId)}
+                  onKill={() => void guardedKill(t.sessionId)}
                 />
               ))}
             </div>

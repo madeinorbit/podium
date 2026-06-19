@@ -10,11 +10,12 @@ import {
 } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
 import { useEffect, useRef, useState } from 'react'
-import { AgentPanel } from './AgentPanel'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { useIsMobile } from '@/hooks/use-is-mobile'
+import { useSessionGuard } from '@/hooks/use-session-guard'
 import { cn } from '@/lib/utils'
+import { AgentPanel } from './AgentPanel'
 import {
   orderTabs,
   type RepoNavView,
@@ -92,12 +93,12 @@ export function MobileApp(): JSX.Element {
     setSelectedWorktree,
     paneA,
     setPane,
-    killSession,
     view,
     setView,
     superOpen,
     setSuperOpen,
   } = store
+  const { guardedKill } = useSessionGuard()
   const { reposLoading, repoDiagnostics } = store
   const repoViews = reposToViews(store.repos)
   const sections = sidebarSections(store.repos, sessions, pins)
@@ -284,7 +285,7 @@ export function MobileApp(): JSX.Element {
                   type="button"
                   className="cursor-pointer px-2.5 py-3 text-[13px] text-muted-foreground/70 hover:text-destructive"
                   title="Kill session"
-                  onClick={() => void killSession(t.sessionId)}
+                  onClick={() => void guardedKill(t.sessionId)}
                 >
                   ✕
                 </button>
