@@ -69,6 +69,7 @@ export class SessionRegistry {
     (r: { hostname: string; buckets: UsageBucketWire[] }) => void
   >()
   private readonly pendingTranscriptReads = new Map<string, (r: TranscriptItem[]) => void>()
+  private readonly pendingUploads = new Map<string, (r: { path: string }) => void>()
   /** Ephemeral in-progress composer/prompt text per session. Never persisted. */
   private draftBySession = new Map<string, string>()
   private latestConversations: ConversationSummaryWire[] = []
@@ -619,6 +620,34 @@ export class SessionRegistry {
     )
   }
 
+  /**
+   * Route an image upload to the owning daemon. The daemon writes the decoded
+   * base64 bytes to ~/.podium/uploads/<sessionId>/<id>.<ext> and returns the
+   * absolute path. Resolves with that path so the caller can insert it into a
+   * prompt — Claude Code reads images by path.
+   */
+  uploadImage(input: {
+    sessionId: string
+    filename: string
+    mimeType: string
+    dataBase64: string
+  }): Promise<{ path: string }> {
+    return this.daemonRequest(
+      this.pendingUploads,
+      'iu',
+      30_000,
+      () => ({ path: '' }),
+      (requestId) => ({
+        type: 'imageUploadRequest',
+        requestId,
+        sessionId: input.sessionId,
+        filename: input.filename,
+        mimeType: input.mimeType,
+        dataBase64: input.dataBase64,
+      }),
+    )
+  }
+
   /** Ask the daemon who owns the used memory. Resolves undefined when no daemon answers in time. */
   memoryBreakdown(roots: string[]): Promise<MemoryBreakdown | undefined> {
     return this.daemonRequest<MemoryBreakdown | undefined>(
@@ -965,6 +994,14 @@ export class SessionRegistry {
         if (resolve) {
           this.pendingTranscriptReads.delete(msg.requestId)
           resolve(msg.items)
+        }
+        break
+      }
+      case 'imageUploadResult': {
+        const resolve = this.pendingUploads.get(msg.requestId)
+        if (resolve) {
+          this.pendingUploads.delete(msg.requestId)
+          resolve({ path: msg.path })
         }
         break
       }

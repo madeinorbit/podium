@@ -510,6 +510,26 @@ export const MemoryBreakdownRequestMessage = z.object({
   roots: z.array(z.string()),
 })
 
+// Image upload: the web client sends the base64-encoded image; the daemon
+// writes it to ~/.podium/uploads/<sessionId>/<id>.<ext> and returns the
+// absolute path so it can be pasted into an agent prompt.
+export const ImageUploadRequestMessage = z.object({
+  type: z.literal('imageUploadRequest'),
+  requestId: z.string(),
+  sessionId: z.string(),
+  /** Original filename — informational only; the daemon derives the path from mime + id. */
+  filename: z.string(),
+  mimeType: z.string(),
+  /** Base64-encoded file contents. */
+  dataBase64: z.string(),
+})
+export const ImageUploadResultMessage = z.object({
+  type: z.literal('imageUploadResult'),
+  requestId: z.string(),
+  /** Absolute path on the daemon host where the file was written. */
+  path: z.string(),
+})
+
 // Constrained git operations the superagent may run on a dev machine. An
 // allowlisted enum (not a shell string) — the daemon maps each op to a fixed
 // git invocation.
@@ -565,6 +585,7 @@ export const ControlMessage = z.discriminatedUnion('type', [
   RepoOpRequestMessage,
   HarnessExecRequestMessage,
   UsageRequestMessage,
+  ImageUploadRequestMessage,
   SpawnMessage,
   ReattachMessage,
   KillMessage,
@@ -702,6 +723,7 @@ export const DaemonMessage = z.discriminatedUnion('type', [
   RepoOpResultMessage,
   HarnessExecResultMessage,
   UsageResultMessage,
+  ImageUploadResultMessage,
   SessionResumeRefMessage,
   BindMessage,
   AgentFrameMessage,

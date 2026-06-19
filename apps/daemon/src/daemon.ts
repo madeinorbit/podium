@@ -1,6 +1,8 @@
 import { execFile } from 'node:child_process'
+import { randomUUID } from 'node:crypto'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { homedir, hostname } from 'node:os'
+import { dirname } from 'node:path'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 
@@ -72,6 +74,7 @@ import WebSocket, { type RawData } from 'ws'
 import { startHookIngest } from './hook-ingest'
 import { sampleHostMemory } from './host-metrics'
 import { attributeMemory, snapshotProcesses } from './memory-breakdown'
+import { uploadFilePath } from './upload'
 import { scanClaudeUsage } from './usage-scan'
 
 const DEFAULT_DISCOVERY_SCAN_INTERVAL_MS = 15_000
@@ -934,6 +937,23 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     })
   }
 
+  const handleImageUpload = (
+    msg: Extract<ControlMessage, { type: 'imageUploadRequest' }>,
+  ): void => {
+    try {
+      const id = randomUUID()
+      const filePath = uploadFilePath(homedir(), msg.sessionId, id, msg.mimeType)
+      mkdirSync(dirname(filePath), { recursive: true })
+      writeFileSync(filePath, Buffer.from(msg.dataBase64, 'base64'))
+      send({ type: 'imageUploadResult', requestId: msg.requestId, path: filePath })
+    } catch (err) {
+      // Return an empty path so the relay timeout branch throws rather than
+      // silently handing the client a bad path.
+      console.warn('[podium] image upload failed:', err)
+      send({ type: 'imageUploadResult', requestId: msg.requestId, path: '' })
+    }
+  }
+
   const handleControlMessage = (raw: RawData): void => {
     let msg: ControlMessage
     try {
@@ -1004,6 +1024,9 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
         break
       case 'transcriptReadRequest':
         void readParkedTranscript(msg)
+        break
+      case 'imageUploadRequest':
+        handleImageUpload(msg)
         break
     }
   }

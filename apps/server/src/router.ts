@@ -75,6 +75,28 @@ export const appRouter = t.router({
     setWorkState: t.procedure
       .input(z.object({ sessionId: z.string(), workState: WorkState.nullable() }))
       .mutation(({ ctx, input }) => ctx.registry.setWorkState(input)),
+    // Image upload: the client sends a base64-encoded image; the daemon writes
+    // it to ~/.podium/uploads/<sessionId>/<uuid>.<ext> and returns the absolute
+    // path so it can be inserted into a prompt. Claude Code reads images by path.
+    uploadImage: t.procedure
+      .input(
+        z.object({
+          sessionId: z.string(),
+          filename: z.string().max(255),
+          mimeType: z.string().max(100),
+          dataBase64: z.string().max(10 * 1024 * 1024), // ~7.5 MB decoded
+        }),
+      )
+      .mutation(async ({ ctx, input }) => {
+        const result = await ctx.registry.uploadImage(input)
+        if (!result.path) {
+          throw new TRPCError({
+            code: 'TIMEOUT',
+            message: 'no daemon answered the image upload request',
+          })
+        }
+        return result
+      }),
   }),
   pins: t.router({
     list: t.procedure.query(({ ctx }) => ctx.registry.listPins()),

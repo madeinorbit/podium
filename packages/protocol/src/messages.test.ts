@@ -397,6 +397,43 @@ describe('session draft messages', () => {
   })
 })
 
+describe('image upload messages', () => {
+  it('round-trips an imageUploadRequest control message', () => {
+    const msg = {
+      type: 'imageUploadRequest' as const,
+      requestId: 'iu1',
+      sessionId: 's1',
+      filename: 'screenshot.png',
+      mimeType: 'image/png',
+      dataBase64: 'aGVsbG8=',
+    }
+    expect(parseControlMessage(encode(msg))).toEqual(msg)
+  })
+
+  it('round-trips an imageUploadResult daemon message', () => {
+    const msg = {
+      type: 'imageUploadResult' as const,
+      requestId: 'iu1',
+      path: '/home/u/.podium/uploads/s1/abc.png',
+    }
+    expect(parseDaemonMessage(encode(msg))).toEqual(msg)
+  })
+
+  it('rejects imageUploadRequest missing mimeType', () => {
+    expect(() =>
+      parseControlMessage(
+        JSON.stringify({
+          type: 'imageUploadRequest',
+          requestId: 'r1',
+          sessionId: 's1',
+          filename: 'f.png',
+          dataBase64: 'x',
+        }),
+      ),
+    ).toThrow()
+  })
+})
+
 describe('agent runtime state', () => {
   const state = {
     phase: 'errored',
