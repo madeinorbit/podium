@@ -73,6 +73,19 @@ export const appRouter = t.router({
     transcript: t.procedure
       .input(z.object({ sessionId: z.string() }))
       .query(({ ctx, input }) => ctx.registry.readTranscript(input)),
+    // Scroll-to-top paging: the page of OLDER items before the client's window.
+    // `fromEnd` = how many items the client already holds counted from the END of
+    // the full on-disk transcript (0 = latest). Returns up to `limit` items just
+    // before that, plus `hasMore` so the client stops at the head of the file.
+    transcriptPage: t.procedure
+      .input(
+        z.object({
+          sessionId: z.string(),
+          fromEnd: z.number().int().nonnegative(),
+          limit: z.number().int().positive().max(2000).default(400),
+        }),
+      )
+      .query(({ ctx, input }) => ctx.registry.transcriptPage(input)),
     hibernate: t.procedure
       .input(z.object({ sessionId: z.string() }))
       .mutation(({ ctx, input }) => ctx.registry.hibernateSession(input)),

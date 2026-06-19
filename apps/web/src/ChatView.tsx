@@ -10,7 +10,7 @@ import {
   Paperclip,
 } from 'lucide-react'
 import type { JSX } from 'react'
-import { memo, useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
@@ -31,10 +31,26 @@ import { renderMarkdown } from './markdown'
 import { useStore } from './store'
 import { useVoiceInput } from './voice'
 
+// Windowing: a marathon session can hold tens of thousands of items, and
+// rendering every one mounts a matching count of (markdown-parsed) DOM
+// subtrees — slow to lay out and heavy to keep. Cap the rendered tail and grow it
+// in PAGE steps as the user scrolls up; the node count stays bounded no matter how
+// long the transcript is. RENDER_WINDOW is the initial/grow-step block count.
+const RENDER_WINDOW = 300
+// On-demand older-page size fetched off disk when the user scrolls past the items
+// already held locally (sessions.transcriptPage). Matches the server input default.
+const OLDER_PAGE_LIMIT = 400
+
 /**
  * Claude-app-style chat rendering of a session's structured transcript, with a
  * native write-through input, quick transcript search, and a Sublime-style
  * birds-eye minimap (user prompts highlighted; click scrolls).
+ *
+ * Arbitrary-length sessions: only a bounded tail of blocks is rendered at once;
+ * scrolling toward the top first reveals more locally-held blocks, then autoloads
+ * older pages straight off disk (sessions.transcriptPage) and prepends them while
+ * preserving the scroll position. Live tailing (append + auto-scroll-to-bottom)
+ * is unchanged.
  */
 export function ChatView({ sessionId }: { sessionId: string }): JSX.Element {
   const { hub, trpc, sessions, drafts, setSessionDraft, resumeAndSend, openFile } = useStore()
@@ -47,6 +63,17 @@ export function ChatView({ sessionId }: { sessionId: string }): JSX.Element {
   // parked within this server's lifetime still has its buffer).
   const [fetched, setFetched] = useState<TranscriptItem[] | null>(null)
   const parked = session !== undefined && session.status !== 'live' && session.status !== 'starting'
+  // Older items paged in from disk on scroll-to-top (sessions.transcriptPage),
+  // newest-last. Always a contiguous chunk that sits immediately BEFORE the
+  // live/fetched tail, so [...older, ...tail] is a clean prefix→suffix of the full
+  // on-disk transcript.
+  const [older, setOlder] = useState<TranscriptItem[]>([])
+  // True while we still believe earlier items exist on disk beyond what's loaded.
+  const [hasMoreOlder, setHasMoreOlder] = useState(true)
+  const [loadingOlder, setLoadingOlder] = useState(false)
+  // How many trailing blocks to render (bounded DOM). Grows in RENDER_WINDOW steps
+  // as the user scrolls up; reset per session.
+  const [renderCount, setRenderCount] = useState(RENDER_WINDOW)
   // A live/starting session streams its transcript over the WS subscription: the
   // initial `cb(entry.items)` fires synchronously (usually empty) and the server's
   // buffered snapshot lands a beat later. Until that snapshot arrives we can't tell
@@ -71,6 +98,13 @@ export function ChatView({ sessionId }: { sessionId: string }): JSX.Element {
   // One-shot: snap to the newest message the first time a transcript populates
   // (initial load / session switch), not just on incremental growth.
   const didInitialScroll = useRef(false)
+  // Scroll-anchor for prepends: the scroller's measured height + scrollTop captured
+  // just before older blocks are inserted at the top, so a layout effect can keep
+  // the previously-visible content from jumping by re-pinning scrollTop after the
+  // inserted height lands. Null when no prepend is in flight.
+  const prependAnchor = useRef<{ scrollHeight: number; scrollTop: number } | null>(null)
+  // Guards re-entrant older-page loads (a single scroll fires onScroll repeatedly).
+  const loadingOlderRef = useRef(false)
   const [atBottom, setAtBottom] = useState(true)
   const [pending, setPending] = useState<PendingItem[]>([])
   const pendingSeq = useRef(0)
@@ -110,8 +144,23 @@ export function ChatView({ sessionId }: { sessionId: string }): JSX.Element {
     }
   }, [parked, sessionId, trpc])
 
-  const effectiveItems = parked && fetched && fetched.length > 0 ? fetched : items
+  // The live/fetched tail the server hands us (the bounded window). Older items
+  // beyond it are paged in via `older` and prepended below.
+  const tail = parked && fetched && fetched.length > 0 ? fetched : items
+  const effectiveItems = useMemo(
+    () => (older.length > 0 ? [...older, ...tail] : tail),
+    [older, tail],
+  )
   const blocks = useMemo(() => pairToolResults(effectiveItems), [effectiveItems])
+  // Render only the trailing window of blocks so the DOM node count stays bounded
+  // for arbitrarily long transcripts. Indices passed to ChatBlockView/data-block
+  // stay absolute into `blocks` so the minimap and search keep lining up.
+  const renderStart = Math.max(0, blocks.length - renderCount)
+  const visibleBlocks = renderStart > 0 ? blocks.slice(renderStart) : blocks
+  // More blocks exist above the current window: either already loaded locally
+  // (just reveal them) or still on disk (autoload + prepend). Drives the top
+  // sentinel + the scroll trigger.
+  const moreAbove = renderStart > 0 || hasMoreOlder
   // The single AskUserQuestion the user can answer right now: the LAST one in the
   // transcript that hasn't been answered yet (no paired tool result), and only
   // when the session is live so a digit can actually reach the native menu.
@@ -150,6 +199,11 @@ export function ChatView({ sessionId }: { sessionId: string }): JSX.Element {
     seenUserIds.current = new Set()
     pinnedToBottom.current = true
     didInitialScroll.current = false
+    // Fresh paging state for the newly selected session.
+    setOlder([])
+    setHasMoreOlder(true)
+    setLoadingOlder(false)
+    setRenderCount(RENDER_WINDOW)
   }, [sessionId])
 
   useEffect(() => {
@@ -198,6 +252,24 @@ export function ChatView({ sessionId }: { sessionId: string }): JSX.Element {
     const el = scrollerRef.current
     if (el && pinnedToBottom.current) el.scrollTop = el.scrollHeight
   }, [blocks.length])
+  // Scroll-anchor for prepends: after older blocks are inserted at the top (window
+  // widened or a disk page prepended), the content the user was reading shifts down
+  // by the inserted height. Re-pin scrollTop by that delta BEFORE paint so the view
+  // doesn't jump. Keyed on the values that change the top of the list; a no-op
+  // unless a prepend captured an anchor. Runs before the bottom-snap effect below,
+  // and that effect is gated on pinnedToBottom (false while scrolled up), so the two
+  // never fight.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: re-anchor when the top of the list changes
+  useLayoutEffect(() => {
+    const anchor = prependAnchor.current
+    if (!anchor) return
+    prependAnchor.current = null
+    const el = scrollerRef.current
+    if (!el) return
+    const delta = el.scrollHeight - anchor.scrollHeight
+    if (delta !== 0) el.scrollTop = anchor.scrollTop + delta
+  }, [blocks.length, renderStart])
+
   // Initial-load snap: the growth effect above can fire before markdown/code
   // blocks have laid out (it measures a shorter scrollHeight and lands above the
   // tail). On the first populated render, defer two frames so layout settles,
@@ -215,12 +287,57 @@ export function ChatView({ sessionId }: { sessionId: string }): JSX.Element {
       })
     })
   }, [blocks.length])
+  // Reveal more above the current window: first grow the render window over blocks
+  // we already hold locally; once those run out, fetch the next older page off disk
+  // and prepend it. Captures the scroll geometry first so the anchoring layout
+  // effect can keep the view from jumping when the inserted height lands.
+  const loadOlder = () => {
+    if (loadingOlderRef.current) return
+    const el = scrollerRef.current
+    // More blocks already loaded but windowed out → just widen the window.
+    if (renderStart > 0) {
+      if (el) prependAnchor.current = { scrollHeight: el.scrollHeight, scrollTop: el.scrollTop }
+      setRenderCount((c) => c + RENDER_WINDOW)
+      return
+    }
+    // Nothing left to reveal locally and nothing more on disk → done.
+    if (!hasMoreOlder) return
+    loadingOlderRef.current = true
+    setLoadingOlder(true)
+    if (el) prependAnchor.current = { scrollHeight: el.scrollHeight, scrollTop: el.scrollTop }
+    // `fromEnd` = items we already hold (a contiguous suffix of the full
+    // transcript); ask for the page immediately before them.
+    const fromEnd = effectiveItems.length
+    trpc.sessions.transcriptPage
+      .query({ sessionId, fromEnd, limit: OLDER_PAGE_LIMIT })
+      .then((r) => {
+        if (r.items.length > 0) {
+          setOlder((prev) => [...r.items, ...prev])
+          // Keep the freshly-prepended items rendered (don't let the window slice
+          // them straight back off).
+          setRenderCount((c) => c + r.items.length)
+        }
+        setHasMoreOlder(r.hasMore)
+      })
+      .catch(() => {
+        // Leave hasMoreOlder as-is so a transient failure can be retried by
+        // scrolling again; just clear the anchor so we don't mis-restore.
+        prependAnchor.current = null
+      })
+      .finally(() => {
+        loadingOlderRef.current = false
+        setLoadingOlder(false)
+      })
+  }
+
   const onScroll = () => {
     const el = scrollerRef.current
     if (!el) return
     const near = el.scrollHeight - el.scrollTop - el.clientHeight < 80
     pinnedToBottom.current = near
     setAtBottom(near)
+    // Near the TOP and more exists above → reveal/fetch older content.
+    if (el.scrollTop < 200 && moreAbove) loadOlder()
   }
   const jumpToBottom = () => {
     const el = scrollerRef.current
@@ -245,9 +362,22 @@ export function ChatView({ sessionId }: { sessionId: string }): JSX.Element {
       ?.querySelector(`[data-block="${index}"]`)
       ?.scrollIntoView({ block: 'center' })
   }
+  // Jump to the active search match. A match can sit ABOVE the rendered window
+  // (search runs over all loaded blocks, the DOM holds only the trailing window),
+  // so first widen the window to include it, then scroll a frame later once its
+  // node has mounted. (Matches still only span LOADED blocks — see the Minimap note
+  // on paged-in-on-demand history.)
   // biome-ignore lint/correctness/useExhaustiveDependencies: scrolling is the effect of cursor moves
   useEffect(() => {
-    if (activeMatch !== undefined) scrollToBlock(activeMatch)
+    if (activeMatch === undefined) return
+    if (activeMatch < renderStart) {
+      // Reveal enough trailing blocks to cover the match (no scroll-anchor — this
+      // is an explicit jump, not a position-preserving prepend).
+      setRenderCount(blocks.length - activeMatch + RENDER_WINDOW)
+      requestAnimationFrame(() => scrollToBlock(activeMatch))
+    } else {
+      scrollToBlock(activeMatch)
+    }
   }, [activeMatch])
 
   const send = async () => {
@@ -371,20 +501,50 @@ export function ChatView({ sessionId }: { sessionId: string }): JSX.Element {
               prompt; shells have no structured transcript.
             </div>
           )}
-          {blocks.map((block, i) => (
-            <ChatBlockView
-              key={block.item.id}
-              block={block}
-              index={i}
-              highlighted={i === activeMatch}
-              dimmed={query.trim() !== '' && !blockMatches(block, query)}
-              sessionId={sessionId}
-              cwd={cwd}
-              openFile={openFile}
-              askLivePending={i === livePendingAskIndex}
-              onAnswerAsk={answerAsk}
-            />
-          ))}
+          {/* Top sentinel: only the bounded tail of blocks is mounted; more exist
+              above (windowed-out locally or still on disk). Scrolling here autoloads
+              them (onScroll → loadOlder); this is also a manual fallback if the
+              scroll trigger is missed. */}
+          {blocks.length > 0 && moreAbove && (
+            <button
+              type="button"
+              onClick={loadOlder}
+              disabled={loadingOlder}
+              className="mx-auto my-1 inline-flex items-center gap-2 text-[12px] text-muted-foreground/70 hover:text-foreground disabled:cursor-default"
+              aria-live="polite"
+            >
+              {loadingOlder ? (
+                <>
+                  <span
+                    className="size-3.5 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-muted-foreground"
+                    aria-hidden="true"
+                  />
+                  Loading earlier messages…
+                </>
+              ) : (
+                'Load earlier messages'
+              )}
+            </button>
+          )}
+          {visibleBlocks.map((block, i) => {
+            // Absolute index into `blocks` so minimap/search/data-block line up
+            // with the full loaded list, not just the rendered window.
+            const idx = renderStart + i
+            return (
+              <ChatBlockView
+                key={`${idx}-${block.item.id}`}
+                block={block}
+                index={idx}
+                highlighted={idx === activeMatch}
+                dimmed={query.trim() !== '' && !blockMatches(block, query)}
+                sessionId={sessionId}
+                cwd={cwd}
+                openFile={openFile}
+                askLivePending={idx === livePendingAskIndex}
+                onAnswerAsk={answerAsk}
+              />
+            )
+          })}
           {pending.map((p) => (
             <div
               key={p.id}
@@ -433,7 +593,11 @@ export function ChatView({ sessionId }: { sessionId: string }): JSX.Element {
             </div>
           )}
         </div>
-        <Minimap blocks={blocks} scrollerRef={scrollerRef} />
+        {/* Minimap maps the RENDERED window (visibleBlocks), so its segments line
+            up with the scrollable content. For a very long transcript that means
+            it reflects the loaded/visible tail, not the entire on-disk history;
+            scrolling up to page in older items extends what it covers. */}
+        <Minimap blocks={visibleBlocks} scrollerRef={scrollerRef} />
         {!atBottom && (
           <button
             type="button"

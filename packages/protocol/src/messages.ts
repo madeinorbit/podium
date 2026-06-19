@@ -513,6 +513,23 @@ export const TranscriptReadRequestMessage = z.object({
   resume: ResumeRef,
 })
 
+// Scroll-to-top paging: fetch the page of OLDER transcript items that come BEFORE
+// the client's current window, so arbitrarily long sessions load incrementally
+// rather than the tail alone. `fromEnd` is how many items the client already holds
+// counted from the END of the full transcript (0 = the latest item); the daemon
+// returns the `limit` items immediately before that window. A positional cursor
+// (not an item id) on purpose: some item ids are synthesized per-parse and aren't
+// stable across reads, but item count/content are deterministic for the same bytes.
+export const TranscriptPageRequestMessage = z.object({
+  type: z.literal('transcriptPageRequest'),
+  requestId: z.string(),
+  agentKind: AgentKind,
+  cwd: z.string(),
+  resume: ResumeRef,
+  fromEnd: z.number().int().nonnegative(),
+  limit: z.number().int().positive().max(2000),
+})
+
 export const FileReadRequestMessage = z.object({
   type: z.literal('fileReadRequest'),
   requestId: z.string(),
@@ -608,6 +625,7 @@ export const ControlMessage = z.discriminatedUnion('type', [
   RedrawMessage,
   MemoryBreakdownRequestMessage,
   TranscriptReadRequestMessage,
+  TranscriptPageRequestMessage,
   FileReadRequestMessage,
   FileWriteRequestMessage,
 ])
@@ -721,6 +739,15 @@ export const TranscriptReadResultMessage = z.object({
   items: z.array(TranscriptItem),
 })
 
+// Reply to a TranscriptPageRequest: the older page, plus whether earlier items
+// still remain on disk (so the client can stop paging at the head of the file).
+export const TranscriptPageResultMessage = z.object({
+  type: z.literal('transcriptPageResult'),
+  requestId: z.string(),
+  items: z.array(TranscriptItem),
+  hasMore: z.boolean(),
+})
+
 export const FileReadResultMessage = z.object({
   type: z.literal('fileReadResult'),
   requestId: z.string(),
@@ -778,6 +805,7 @@ export const DaemonMessage = z.discriminatedUnion('type', [
   MemoryBreakdownResultMessage,
   TranscriptAppendMessage,
   TranscriptReadResultMessage,
+  TranscriptPageResultMessage,
   FileReadResultMessage,
   FileWriteResultMessage,
 ])

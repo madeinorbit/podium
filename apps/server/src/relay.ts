@@ -72,6 +72,10 @@ export class SessionRegistry {
     (r: { hostname: string; buckets: UsageBucketWire[] }) => void
   >()
   private readonly pendingTranscriptReads = new Map<string, (r: TranscriptItem[]) => void>()
+  private readonly pendingTranscriptPages = new Map<
+    string,
+    (r: { items: TranscriptItem[]; hasMore: boolean }) => void
+  >()
   private readonly pendingFileReads = new Map<
     string,
     (r: Omit<FileReadResultMessage, 'type' | 'requestId'>) => void
@@ -1083,6 +1087,14 @@ export class SessionRegistry {
         }
         break
       }
+      case 'transcriptPageResult': {
+        const resolve = this.pendingTranscriptPages.get(msg.requestId)
+        if (resolve) {
+          this.pendingTranscriptPages.delete(msg.requestId)
+          resolve({ items: msg.items, hasMore: msg.hasMore })
+        }
+        break
+      }
       case 'memoryBreakdownResult': {
         const resolve = this.pendingBreakdowns.get(msg.requestId)
         if (resolve) {
@@ -1163,6 +1175,45 @@ export class SessionRegistry {
         resume,
       }),
     ).then((items) => ({ items }))
+  }
+
+  /**
+   * Scroll-to-top paging for the chat view: the page of OLDER transcript items
+   * that come BEFORE the client's current window. `fromEnd` is how many items the
+   * client already holds, counted from the END of the full on-disk transcript
+   * (0 = the latest item); the daemon returns the `limit` items just before that.
+   * It's a pure disk read off the same JSONL the tail uses, so it works for live
+   * AND parked sessions alike — independent of the server's bounded live buffer.
+   * Resolves an empty, hasMore:false page when there is no resume ref (can't
+   * derive a file) or no daemon answers.
+   */
+  transcriptPage({
+    sessionId,
+    fromEnd,
+    limit,
+  }: {
+    sessionId: string
+    fromEnd: number
+    limit: number
+  }): Promise<{ items: TranscriptItem[]; hasMore: boolean }> {
+    const session = this.sessions.get(sessionId)
+    const resume = session?.resume
+    if (!session || !resume) return Promise.resolve({ items: [], hasMore: false })
+    return this.daemonRequest<{ items: TranscriptItem[]; hasMore: boolean }>(
+      this.pendingTranscriptPages,
+      'tp',
+      SCAN_TIMEOUT_MS,
+      () => ({ items: [], hasMore: false }),
+      (requestId) => ({
+        type: 'transcriptPageRequest',
+        requestId,
+        agentKind: session.agentKind,
+        cwd: session.cwd,
+        resume,
+        fromEnd,
+        limit,
+      }),
+    )
   }
 
   readFile({

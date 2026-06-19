@@ -20,6 +20,7 @@ import {
   attachTmuxAgent,
   ConversationDiscoveryCache,
   claudeProjectSlug,
+  claudeRecordToItems,
   codexRecordToItems,
   compareConversationSummaries,
   cursorRecordToItems,
@@ -44,6 +45,7 @@ import {
   observeOpencodeState,
   opencodeRowsToItems,
   openOpencodeDb,
+  readTranscriptPage,
   readTranscriptTail,
   resolveCursorBin,
   resolveOpencodeBin,
@@ -469,52 +471,92 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
       }),
     )
   }
-  // On-demand disk read of a parked session's transcript (no live tail running).
-  // Path is derived from the resume ref the same way the live tails are.
-  const readParkedTranscript = async (
-    msg: Extract<ControlMessage, { type: 'transcriptReadRequest' }>,
-  ): Promise<void> => {
+  // Resolve a session's on-disk transcript file + record→items mapper from its
+  // resume ref, the same way the live tails are. Opencode has no JSONL file (it's
+  // a SQLite store) so it returns null — callers read it via the DB path instead.
+  const resolveTranscriptSource = async (msg: {
+    agentKind: AgentKind
+    cwd: string
+    resume: { kind: string; value: string }
+  }): Promise<{ path: string; recordToItems: (record: unknown) => TranscriptItem[] } | null> => {
     const isGrok = msg.agentKind === 'grok' || msg.resume.kind === 'grok-session'
     const isCodex = msg.agentKind === 'codex' || msg.resume.kind === 'codex-thread'
-    const isOpencode = msg.agentKind === 'opencode' || msg.resume.kind === 'opencode-session'
     const isCursor = msg.agentKind === 'cursor' || msg.resume.kind === 'cursor-chat'
-    let items: TranscriptItem[] = []
-    if (isOpencode) {
-      const db = openOpencodeDb(opts.discovery?.homeDir)
-      items = db ? opencodeRowsToItems(loadOpencodeTranscriptTail(db, msg.resume.value)) : []
-      db?.close()
-    } else if (isCodex) {
+    if (isCodex) {
       // Codex stores no derivable per-cwd path; resolve the rollout from the
       // resume value (state DB, then filename fallback).
       const path = await findCodexRolloutPath({
         resumeValue: msg.resume.value,
         ...(opts.discovery?.homeDir ? { homeDir: opts.discovery.homeDir } : {}),
       })
-      items = path ? await readTranscriptTail(path, codexRecordToItems) : []
-    } else if (isCursor) {
+      return path ? { path, recordToItems: codexRecordToItems } : null
+    }
+    if (isCursor) {
       const path = cursorSessionPaths({
         cwd: msg.cwd,
         chatId: msg.resume.value,
         ...(opts.discovery?.homeDir ? { homeDir: opts.discovery.homeDir } : {}),
       }).transcriptPath
-      items = await readTranscriptTail(path, cursorRecordToItems)
+      return { path, recordToItems: cursorRecordToItems }
+    }
+    if (isGrok) {
+      const path = grokSessionPaths({
+        cwd: msg.cwd,
+        sessionId: msg.resume.value,
+        ...(opts.discovery?.homeDir ? { homeDir: opts.discovery.homeDir } : {}),
+      }).chatHistoryPath
+      return { path, recordToItems: grokRecordToItems }
+    }
+    const path = join(
+      homedir(),
+      '.claude',
+      'projects',
+      claudeProjectSlug(msg.cwd),
+      `${msg.resume.value}.jsonl`,
+    )
+    return { path, recordToItems: claudeRecordToItems }
+  }
+
+  // On-demand disk read of a parked session's transcript (no live tail running).
+  const readParkedTranscript = async (
+    msg: Extract<ControlMessage, { type: 'transcriptReadRequest' }>,
+  ): Promise<void> => {
+    const isOpencode = msg.agentKind === 'opencode' || msg.resume.kind === 'opencode-session'
+    let items: TranscriptItem[] = []
+    if (isOpencode) {
+      const db = openOpencodeDb(opts.discovery?.homeDir)
+      items = db ? opencodeRowsToItems(loadOpencodeTranscriptTail(db, msg.resume.value)) : []
+      db?.close()
     } else {
-      const path = isGrok
-        ? grokSessionPaths({
-            cwd: msg.cwd,
-            sessionId: msg.resume.value,
-            ...(opts.discovery?.homeDir ? { homeDir: opts.discovery.homeDir } : {}),
-          }).chatHistoryPath
-        : join(
-            homedir(),
-            '.claude',
-            'projects',
-            claudeProjectSlug(msg.cwd),
-            `${msg.resume.value}.jsonl`,
-          )
-      items = await readTranscriptTail(path, isGrok ? grokRecordToItems : undefined)
+      const source = await resolveTranscriptSource(msg)
+      items = source ? await readTranscriptTail(source.path, source.recordToItems) : []
     }
     send({ type: 'transcriptReadResult', requestId: msg.requestId, items })
+  }
+
+  // Scroll-to-top paging: read the page of OLDER items before the client's window
+  // (see TranscriptPageRequestMessage for the fromEnd cursor). Works for both live
+  // and parked sessions — it's a pure disk read off the same JSONL the tail uses,
+  // independent of whatever in-memory window the server is streaming. Opencode is
+  // unsupported (DB-backed, no JSONL to page) → empty page, hasMore:false.
+  const readTranscriptPageRequest = async (
+    msg: Extract<ControlMessage, { type: 'transcriptPageRequest' }>,
+  ): Promise<void> => {
+    const isOpencode = msg.agentKind === 'opencode' || msg.resume.kind === 'opencode-session'
+    if (isOpencode) {
+      send({ type: 'transcriptPageResult', requestId: msg.requestId, items: [], hasMore: false })
+      return
+    }
+    const source = await resolveTranscriptSource(msg)
+    const page = source
+      ? await readTranscriptPage(source.path, msg.fromEnd, msg.limit, source.recordToItems)
+      : { items: [], hasMore: false }
+    send({
+      type: 'transcriptPageResult',
+      requestId: msg.requestId,
+      items: page.items,
+      hasMore: page.hasMore,
+    })
   }
   const ingest = await startHookIngest({
     ...(opts.hooks?.port !== undefined ? { port: opts.hooks.port } : {}),
@@ -1015,9 +1057,12 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
       case 'transcriptReadRequest':
         void readParkedTranscript(msg)
         break
+      case 'transcriptPageRequest':
+        void readTranscriptPageRequest(msg)
+        break
       case 'fileReadRequest':
-        void readFileSandboxed({ cwd: msg.cwd, path: msg.path, knownPath: msg.knownPath }).then((r) =>
-          send({ type: 'fileReadResult', requestId: msg.requestId, ...r }),
+        void readFileSandboxed({ cwd: msg.cwd, path: msg.path, knownPath: msg.knownPath }).then(
+          (r) => send({ type: 'fileReadResult', requestId: msg.requestId, ...r }),
         )
         break
       case 'fileWriteRequest':
