@@ -88,15 +88,17 @@ export interface MinimapTick {
  */
 export function measureBlockOffsets(scroller: HTMLElement): BlockOffset[] {
   const total = scroller.scrollHeight || 1
+  const scrollerTop = scroller.getBoundingClientRect().top
   const offsets: BlockOffset[] = []
   const children = scroller.querySelectorAll<HTMLElement>('[data-block]')
   children.forEach((el) => {
     const indexAttr = el.getAttribute('data-block')
     if (indexAttr === null) return
     const index = Number(indexAttr)
+    const top = (el.getBoundingClientRect().top - scrollerTop + scroller.scrollTop) / total
     offsets.push({
       index,
-      top: el.offsetTop / total,
+      top,
       height: el.offsetHeight / total,
     })
   })

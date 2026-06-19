@@ -93,12 +93,23 @@ export function Sidebar(): JSX.Element {
   const dragRepoPath = useRef<string | null>(null)
   const [dragOverPath, setDragOverPath] = useState<string | null>(null)
 
-  // Build a lastUsedAt map from sessions (most-recent lastActiveAt per repo path).
+  // Build a lastUsedAt map keyed by REPO path, aggregating across all worktrees.
+  // A session's cwd may be a linked worktree (not the repo root), so we first
+  // build a worktree-path→repo-path index from the view model, then aggregate.
+  const worktreeToRepo = new Map<string, string>()
+  for (const repo of sections.repos) {
+    for (const wt of repo.worktrees) worktreeToRepo.set(wt.path, repo.path)
+  }
+  for (const repo of sections.pinnedRepos) {
+    for (const wt of repo.worktrees) worktreeToRepo.set(wt.path, repo.path)
+  }
+  for (const wt of sections.pinnedWorktrees) worktreeToRepo.set(wt.path, wt.repoPath)
   const lastUsedAtMap = new Map<string, number>()
   for (const s of sessions) {
+    const repoPath = worktreeToRepo.get(s.cwd) ?? s.cwd
     const ts = new Date(s.lastActiveAt).getTime()
-    const cur = lastUsedAtMap.get(s.cwd) ?? 0
-    if (ts > cur) lastUsedAtMap.set(s.cwd, ts)
+    const cur = lastUsedAtMap.get(repoPath) ?? 0
+    if (ts > cur) lastUsedAtMap.set(repoPath, ts)
   }
 
   // Apply the sort to the non-pinned repos list.
@@ -131,7 +142,8 @@ export function Sidebar(): JSX.Element {
     if (srcIdx === -1 || tgtIdx === -1) return
     const next = [...paths]
     next.splice(srcIdx, 1)
-    next.splice(tgtIdx, 0, srcPath)
+    const adj = srcIdx < tgtIdx ? tgtIdx - 1 : tgtIdx
+    next.splice(adj, 0, srcPath)
     void setSidebarSettings({ repoSort: 'custom', repoOrder: next })
   }
   const handleRepoDragEnd = () => {
