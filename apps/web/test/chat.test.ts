@@ -1,6 +1,7 @@
 import type { TranscriptItem } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import { blockMatches, minimapSegments, pairToolResults, type PendingItem, reconcilePending, searchBlocks } from '../src/chat'
+import { shouldPinOnReset } from '../src/ChatView'
 
 const item = (over: Partial<TranscriptItem>): TranscriptItem => ({
   id: Math.random().toString(36).slice(2),
@@ -68,6 +69,17 @@ describe('minimapSegments', () => {
 })
 
 const pend = (text: string, id = text): PendingItem => ({ id, text, at: 0, state: 'sending' })
+
+describe('shouldPinOnReset', () => {
+  it('always re-pins on a reset regardless of current pin state', () => {
+    expect(shouldPinOnReset(true, false)).toBe(true)
+    expect(shouldPinOnReset(true, true)).toBe(true)
+  })
+  it('preserves the current pin state on an incremental append', () => {
+    expect(shouldPinOnReset(false, true)).toBe(true)
+    expect(shouldPinOnReset(false, false)).toBe(false)
+  })
+})
 
 describe('reconcilePending', () => {
   it('drops a pending entry once a matching new user text appears', () => {

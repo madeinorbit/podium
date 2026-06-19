@@ -139,7 +139,7 @@ export class SocketHub {
   // exists while at least one observer is subscribed.
   private readonly transcripts = new Map<
     string,
-    { items: TranscriptItem[]; observers: Set<(items: TranscriptItem[]) => void> }
+    { items: TranscriptItem[]; observers: Set<(items: TranscriptItem[], meta: { reset: boolean }) => void> }
   >()
   private readonly sessionObservers = new Set<(s: SessionMeta[]) => void>()
   private readonly conversationObservers = new Set<(c: ConversationSummaryWire[]) => void>()
@@ -381,8 +381,16 @@ export class SocketHub {
    * server-side subscription (snapshot + live appends); the last one leaving
    * unsubscribes and drops the buffer. The callback always receives the FULL
    * item list (simplest correct contract across snapshot resets).
+   *
+   * The second `meta` argument signals whether this batch is a full reset
+   * (`reset: true`, from a `transcriptSnapshot`) vs. an incremental append.
+   * Callers that don't care can ignore it — the signature is backward-compatible
+   * because the parameter is optional to read, just always present.
    */
-  subscribeTranscript(sessionId: string, cb: (items: TranscriptItem[]) => void): () => void {
+  subscribeTranscript(
+    sessionId: string,
+    cb: (items: TranscriptItem[], meta: { reset: boolean }) => void,
+  ): () => void {
     let entry = this.transcripts.get(sessionId)
     if (!entry) {
       entry = { items: [], observers: new Set() }
@@ -390,7 +398,7 @@ export class SocketHub {
       if (this.connectedFlag) this.sendRaw({ type: 'transcriptSubscribe', sessionId })
     }
     entry.observers.add(cb)
-    cb(entry.items)
+    cb(entry.items, { reset: true })
     return () => {
       const current = this.transcripts.get(sessionId)
       if (!current) return
@@ -540,8 +548,9 @@ export class SocketHub {
     if (msg.type === 'transcriptSnapshot' || msg.type === 'transcriptAppend') {
       const entry = this.transcripts.get(msg.sessionId)
       if (!entry) return
-      entry.items = msg.type === 'transcriptSnapshot' ? msg.items : entry.items.concat(msg.items)
-      for (const o of entry.observers) o(entry.items)
+      const reset = msg.type === 'transcriptSnapshot'
+      entry.items = reset ? msg.items : entry.items.concat(msg.items)
+      for (const o of entry.observers) o(entry.items, { reset })
       return
     }
     if (msg.type === 'sessionTitleChanged') {

@@ -34,7 +34,29 @@ import { useVoiceInput } from './voice'
  * native write-through input, quick transcript search, and a Sublime-style
  * birds-eye minimap (user prompts highlighted; click scrolls).
  */
-export function ChatView({ sessionId }: { sessionId: string }): JSX.Element {
+/**
+ * Returns true when incoming transcript items represent a reset that should
+ * force the scroll position back to the bottom (new session load, reconnect
+ * snapshot, or Codex session-switch that sends a fresh snapshot).
+ *
+ * Extracted as a pure function so it can be unit-tested without a DOM.
+ */
+export function shouldPinOnReset(isReset: boolean, pinnedToBottom: boolean): boolean {
+  // A reset always re-pins: the user's scroll offset into the old data is
+  // meaningless once the list has been replaced with a fresh snapshot.
+  // Incremental appends respect the current pin state (user may have scrolled up).
+  return isReset || pinnedToBottom
+}
+
+export function ChatView({
+  sessionId,
+  active = true,
+}: {
+  sessionId: string
+  /** False when this panel is mounted but hidden (keep-mounted deck). On
+   *  becoming active (true) the view snaps to the bottom if still pinned. */
+  active?: boolean
+}): JSX.Element {
   const { hub, trpc, sessions, drafts, setSessionDraft, resumeAndSend } = useStore()
   const session = sessions.find((s) => s.sessionId === sessionId)
   const [items, setItems] = useState<TranscriptItem[]>([])
@@ -73,7 +95,19 @@ export function ChatView({ sessionId }: { sessionId: string }): JSX.Element {
   const [justSent, setJustSent] = useState(false)
   const voice = useVoiceInput((text) => setDraft(draft ? `${draft} ${text}` : text))
 
-  useEffect(() => hub.subscribeTranscript(sessionId, setItems), [hub, sessionId])
+  useEffect(
+    () =>
+      hub.subscribeTranscript(sessionId, (newItems, meta) => {
+        if (meta.reset) {
+          // A snapshot reset replaces the whole list — re-pin and re-arm the
+          // one-shot initial-scroll so the new content lands at the bottom.
+          pinnedToBottom.current = true
+          didInitialScroll.current = false
+        }
+        setItems(newItems)
+      }),
+    [hub, sessionId],
+  )
 
   useEffect(() => {
     if (!parked) {
@@ -173,6 +207,28 @@ export function ChatView({ sessionId }: { sessionId: string }): JSX.Element {
       })
     })
   }, [blocks.length])
+  // ResizeObserver: while pinned, re-snap to bottom whenever the stream grows
+  // taller (async markdown / code-block layout that settles after the DOM paint).
+  useEffect(() => {
+    const el = scrollerRef.current
+    if (!el) return
+    const ro = new ResizeObserver(() => {
+      if (pinnedToBottom.current) el.scrollTop = el.scrollHeight
+    })
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+
+  // Snap to bottom on pane switch-in: the keep-mounted panel deck hides inactive
+  // panels with `display:none`, so scroll events stop firing. When this pane
+  // becomes active again, honour the pin by jumping straight to the bottom.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: fire only on active transition
+  useEffect(() => {
+    if (!active) return
+    const el = scrollerRef.current
+    if (el && pinnedToBottom.current) el.scrollTop = el.scrollHeight
+  }, [active])
+
   const onScroll = () => {
     const el = scrollerRef.current
     if (!el) return

@@ -309,7 +309,7 @@ export function AgentPanel({
           // when the session isn't live) with a banner to wake it back up.
           <>
             <HibernatedBanner sessionId={sessionId} />
-            <ChatView sessionId={sessionId} />
+            <ChatView sessionId={sessionId} active={active} />
           </>
         ) : (
           <HibernatedPane sessionId={sessionId} />
@@ -322,7 +322,7 @@ export function AgentPanel({
           resumable={session.resumable === true}
         />
       ) : effectiveMode === 'chat' ? (
-        <ChatView sessionId={sessionId} />
+        <ChatView sessionId={sessionId} active={active} />
       ) : (
         <>
           {/* The xterm surface is hard-pinned to its own dark background (#0e0e12,

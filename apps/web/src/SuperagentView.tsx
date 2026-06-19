@@ -434,7 +434,7 @@ function SpawnedFollow({
 }): JSX.Element {
   const [items, setItems] = useState<TranscriptItem[]>([])
   const endRef = useRef<HTMLDivElement | null>(null)
-  useEffect(() => hub.subscribeTranscript(sessionId, setItems), [hub, sessionId])
+  useEffect(() => hub.subscribeTranscript(sessionId, (newItems) => setItems(newItems)), [hub, sessionId])
   // biome-ignore lint/correctness/useExhaustiveDependencies: follow the tail
   useEffect(() => {
     endRef.current?.scrollIntoView({ block: 'nearest' })
