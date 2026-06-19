@@ -26,10 +26,26 @@ export interface AgentSession {
   /** base64 of input bytes to inject into the PTY */
   write(dataBase64: string): void
   resize(cols: number, rows: number): void
-  /** Force a real repaint even when geometry is unchanged. */
-  redraw(): void
+  /**
+   * Force a real repaint even when geometry is unchanged. `hard` additionally
+   * injects Ctrl-L for programs that ignore the SIGWINCH nudge while idle (shells
+   * at their prompt); leave it off for TUIs, which repaint on resize and would
+   * mishandle a stray ^L in their input.
+   */
+  redraw(opts?: { hard?: boolean }): void
   geometry(): Geometry
   dispose(): void
+}
+
+/**
+ * Wrap a session so a bare `redraw()` defaults to a HARD (Ctrl-L) repaint. Used for
+ * reattached shells: they sit idle at their prompt and emit nothing on SIGWINCH, so
+ * the soft nudge alone leaves a blank screen after reattach. A no-op when `hard` is
+ * false, so TUIs keep the soft path. An explicit `redraw({ hard })` still wins.
+ */
+export function withHardRepaint(session: AgentSession, hard: boolean): AgentSession {
+  if (!hard) return session
+  return { ...session, redraw: (opts) => session.redraw({ hard: opts?.hard ?? true }) }
 }
 
 export function spawnAgent(opts: SpawnOptions): AgentSession {
@@ -105,10 +121,14 @@ export function wrapPty(proc: IPty): AgentSession {
       rows = r
       proc.resize(c, r)
     },
-    redraw() {
+    redraw(opts) {
       if (disposed) return
+      // Idle shells ignore the SIGWINCH nudge below; Ctrl-L makes readline/zle
+      // redraw the prompt regardless. Sent before the resize so the shrink's ack
+      // frame (the restore trigger) is the repaint we just forced.
+      if (opts?.hard) proc.write('\x0c')
       if (rows <= 1) {
-        proc.write('\x0c') // Ctrl-L fallback when a one-row nudge is impossible
+        if (!opts?.hard) proc.write('\x0c') // Ctrl-L fallback when a one-row nudge is impossible
         return
       }
       cancelNudge?.() // drop any in-flight nudge

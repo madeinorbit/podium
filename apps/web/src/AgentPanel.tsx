@@ -162,11 +162,12 @@ export function AgentPanel({
   const phase = session?.agentState?.phase
   const agentWorking = phase === 'working' || phase === 'compacting'
   const canHibernate = !hibernated && !exited && session?.resumable === true
-  // Empty is never good: hold a "Starting…" overlay over the terminal until the
-  // first real PTY frame lands, so a slow-starting (or wedged) agent reads as
-  // booting rather than a blank panel. A healthy session clears it instantly —
-  // the server replays its buffer on attach.
-  const [hasOutput, setHasOutput] = useState(false)
+  // Hold a "Starting…" overlay over the terminal until the session is READY — the
+  // server confirms the attach (PTY bound), the first frame lands, or a timeout
+  // backstop fires (see mountSession's onReady). Gating on attach rather than on
+  // output is what lets a session idling at a prompt with an empty replay buffer
+  // (e.g. after a server restart) reveal as usable instead of hanging "Starting…".
+  const [ready, setReady] = useState(false)
   // Pinned to the live tail? Drives the "Jump to bottom" pill when the user has
   // scrolled back through the scrollback.
   const [atBottom, setAtBottom] = useState(true)
@@ -200,7 +201,7 @@ export function AgentPanel({
   useEffect(() => {
     if (effectiveMode !== 'native' || hibernated || exited) return
     if (!termRef.current) return
-    setHasOutput(false)
+    setReady(false)
     setAtBottom(true)
     // Mirror the in-progress native prompt into the shared chat draft (Claude and
     // Codex). Best-effort + clobber-safe: only the controlling client publishes
@@ -306,9 +307,10 @@ export function AgentPanel({
       ...(toolbarRef.current ? { toolbarEl: toolbarRef.current } : {}),
       ...(E2E ? { test: true } : {}),
       // Don't grab focus on mount — that pops the soft keyboard over the
-      // "Starting…" overlay. The focus effect below takes over once output lands.
+      // "Starting…" overlay. The focus effect below takes over once the session
+      // is ready (attached).
       focusOnMount: false,
-      onFirstFrame: () => setHasOutput(true),
+      onReady: () => setReady(true),
       onFrame: scheduleSample,
     })
     mountedRef.current = mounted
@@ -345,13 +347,13 @@ export function AgentPanel({
 
   // Kept mounted while hidden (inactive tab) so its terminal state survives a tab
   // switch — when it becomes the visible tab again, return focus to it. Gated on
-  // hasOutput so focus (and the soft keyboard it raises on mobile) waits for the
-  // terminal to actually be live instead of landing over the "Starting…" overlay.
+  // `ready` so focus (and the soft keyboard it raises on mobile) waits for the
+  // session to attach instead of landing over the "Starting…" overlay.
   useEffect(() => {
-    if (active && effectiveMode === 'native' && !hibernated && !exited && hasOutput) {
+    if (active && effectiveMode === 'native' && !hibernated && !exited && ready) {
       mountedRef.current?.view.focus()
     }
-  }, [active, effectiveMode, hibernated, exited, hasOutput])
+  }, [active, effectiveMode, hibernated, exited, ready])
 
   const sendKey = (key: SpecialKey): void => {
     mountedRef.current?.connection.sendInput(keySequence(key))
@@ -476,7 +478,7 @@ export function AgentPanel({
               still-dark terminal. Revisit when the terminal itself becomes theme-aware. */}
           <div className="relative flex min-h-0 flex-1 flex-col bg-[#0e0e12]">
             <div ref={termRef} className="term min-h-0 flex-1 px-1.5 py-1" />
-            {!hasOutput && (
+            {!ready && (
               <div
                 className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-3 bg-[#0e0e12] text-[13px] text-zinc-400"
                 role="status"
@@ -489,7 +491,7 @@ export function AgentPanel({
                 <span>Starting {session ? panelLabel(session.agentKind) : 'session'}…</span>
               </div>
             )}
-            {hasOutput && !atBottom && (
+            {ready && !atBottom && (
               <Button
                 type="button"
                 variant="secondary"
@@ -505,10 +507,10 @@ export function AgentPanel({
               Blink-style arrow D-pad, then voice. D-pad left of the mic so the right
               arrow isn't flush with the screen edge. preventDefault on pointerdown
               keeps the terminal focused so a tap doesn't drop the soft keyboard.
-              Hidden until the first PTY frame lands — the key bar over a "Starting…"
+              Hidden until the session is ready — the key bar over a "Starting…"
               screen is just noise (and the D-pad floated oddly above the overlay). */}
           <div
-            className={hasOutput ? 'key-actions' : 'key-actions kb-hidden'}
+            className={ready ? 'key-actions' : 'key-actions kb-hidden'}
             onPointerDown={(e) => e.preventDefault()}
           >
             <button
@@ -549,7 +551,7 @@ export function AgentPanel({
               </button>
             )}
           </div>
-          <div ref={toolbarRef} className={hasOutput ? 'toolbar' : 'toolbar kb-hidden'} />
+          <div ref={toolbarRef} className={ready ? 'toolbar' : 'toolbar kb-hidden'} />
         </>
       )}
     </div>

@@ -10,12 +10,28 @@ export interface MountSessionOptions {
   test?: boolean
   onState?: (state: ConnectionState) => void
   /**
-   * Fires once, on the first non-empty PTY frame. Lets the panel drop its
-   * "Starting…" overlay the moment real output lands. A healthy session always
-   * triggers this — the server replays its buffer on attach — so only a still
-   * pre-output spawn or a wedged child leaves it unfired.
+   * Fires once, on the first non-empty PTY frame. NOTE: this fires only when output
+   * actually lands — it is NOT a reliable readiness signal, because a session that
+   * reattaches with an empty replay buffer (e.g. after a server restart) and an idle
+   * child blocked on input produces no frame. Use {@link onReady} to gate the
+   * "Starting…" overlay; keep this for output-specific work.
    */
   onFirstFrame?: () => void
+  /**
+   * Fires ONCE the session is ready to use: the moment the server confirms the
+   * attach (the PTY is bound), or the first real frame lands, or the
+   * {@link readyTimeoutMs} backstop elapses — whichever is first. Unlike
+   * onFirstFrame this does NOT wait for output, so a session idling at a prompt
+   * (empty replay buffer) is recognised as ready instead of hanging the panel's
+   * "Starting…" overlay forever. Prefer this over onFirstFrame for gating it.
+   */
+  onReady?: () => void
+  /**
+   * Backstop for {@link onReady}: if neither an attach nor a frame arrives within
+   * this many ms, fire onReady anyway so a stalled handshake can never trap the UI
+   * in a permanent "Starting…" overlay. Defaults to {@link READY_TIMEOUT_MS}.
+   */
+  readyTimeoutMs?: number
   /**
    * Fires on every PTY frame written to the view. The panel uses this to sample
    * the rendered prompt region (debounced) and mirror the native input into the
@@ -35,6 +51,10 @@ export interface MountedSession {
   view: TerminalView
   dispose(): void
 }
+
+/** Default {@link MountSessionOptions.readyTimeoutMs}: reveal the terminal even if the
+ *  attach handshake stalls, so the "Starting…" overlay can never hang permanently. */
+export const READY_TIMEOUT_MS = 2000
 
 export function mountSession(el: HTMLElement, opts: MountSessionOptions): MountedSession {
   const { hub, sessionId } = opts
@@ -79,12 +99,27 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
   let firstFrameSeen = false
   let onControllerEnter: (() => void) | undefined
 
+  // Ready = "usable, drop the Starting… overlay". Fires on the FIRST of: the server
+  // confirming the attach (onAttached), the first real frame, or the timeout backstop
+  // — so an idle child with an empty replay buffer is never mistaken for still booting.
+  let ready = false
+  let readyTimer: ReturnType<typeof setTimeout> | undefined
+  const markReady = (): void => {
+    if (ready) return
+    ready = true
+    if (readyTimer !== undefined) clearTimeout(readyTimer)
+    opts.onReady?.()
+  }
+  readyTimer = setTimeout(markReady, opts.readyTimeoutMs ?? READY_TIMEOUT_MS)
+
   const connection = hub.attach(sessionId, {
+    onAttached: markReady,
     onFrame: (text) => {
       view.write(text)
       if (!firstFrameSeen && text.length > 0) {
         firstFrameSeen = true
         opts.onFirstFrame?.()
+        markReady()
       }
       opts.onFrame?.()
     },
@@ -202,6 +237,7 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
     connection,
     view,
     dispose() {
+      if (readyTimer !== undefined) clearTimeout(readyTimer)
       offInput()
       offViewport()
       toolbar?.dispose()

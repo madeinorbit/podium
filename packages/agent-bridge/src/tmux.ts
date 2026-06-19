@@ -1,7 +1,7 @@
 import { execFile, execFileSync, spawnSync } from 'node:child_process'
 import { promisify } from 'node:util'
 import { spawn as ptySpawn } from 'node-pty'
-import { type AgentSession, wrapPty } from './session.js'
+import { type AgentSession, withHardRepaint, wrapPty } from './session.js'
 
 const SESSION = 'main'
 
@@ -113,6 +113,8 @@ export function attachTmuxAgent(opts: {
   cols: number
   rows: number
   env?: Record<string, string>
+  /** Reattaching a shell: nudge with Ctrl-L too, since it won't repaint on SIGWINCH while idle. */
+  hardRepaint?: boolean
 }): AgentSession {
   const proc = ptySpawn('tmux', ['-L', opts.label, 'attach', '-t', SESSION], {
     name: 'xterm-256color',
@@ -120,5 +122,5 @@ export function attachTmuxAgent(opts: {
     rows: opts.rows,
     env: { ...process.env, COLORTERM: 'truecolor', ...opts.env } as Record<string, string>,
   })
-  return wrapPty(proc)
+  return withHardRepaint(wrapPty(proc), opts.hardRepaint ?? false)
 }

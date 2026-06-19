@@ -44,6 +44,14 @@ export interface SessionCallbacks {
    * resume, where the view keeps its content and appends.
    */
   onReset?: () => void
+  /**
+   * The server confirmed the attach (the PTY is bound and ready for input). Fires
+   * on every `attached` message — independent of whether any output follows, so a
+   * session sitting idle at a prompt is still recognised as ready. Use this rather
+   * than the first output frame to clear a "Starting…" state, or an idle/blocked
+   * child with an empty replay buffer would hang it forever.
+   */
+  onAttached?: () => void
 }
 
 export interface SocketHubOptions {
@@ -668,6 +676,7 @@ export class SessionConnection {
         // screen and appends the missed frames.
         if (msg.resumed !== true) this.cb.onReset?.()
         this.emit()
+        this.cb.onAttached?.()
         break
       case 'outputFrame':
         this.lastSeq = msg.seq

@@ -1,6 +1,8 @@
 import { fileURLToPath } from 'node:url'
+import type { IPty } from 'node-pty'
 import { describe, expect, it } from 'vitest'
 import { spawnAgent } from '../src/index'
+import { wrapPty } from '../src/session'
 import { collect, waitFor } from './helpers'
 
 const FIXTURE = fileURLToPath(new URL('./fixtures/fixture-tui.mjs', import.meta.url))
@@ -121,5 +123,69 @@ describe('spawnAgent core', () => {
     } finally {
       s.dispose()
     }
+  })
+})
+
+/**
+ * A reattached shell sits idle at its prompt: it emits nothing on SIGWINCH, so the
+ * soft shrink/restore nudge leaves a blank screen (and the restore, acked on the
+ * next frame, never fires). A hard repaint also injects Ctrl-L, which readline/zle
+ * redraw the prompt on even when idle. TUIs repaint on SIGWINCH and would mishandle
+ * a stray ^L in their input, so they stay soft. Driven from a fake PTY so the exact
+ * bytes/resizes are observable without a real child.
+ */
+function fakeIPty(): {
+  pty: IPty
+  writes: string[]
+  resizes: Array<[number, number]>
+  emit: (s: string) => void
+} {
+  const dataCbs: Array<(s: string) => void> = []
+  const writes: string[] = []
+  const resizes: Array<[number, number]> = []
+  const pty = {
+    pid: 4242,
+    cols: 80,
+    rows: 24,
+    onData: (cb: (s: string) => void) => {
+      dataCbs.push(cb)
+      return { dispose() {} }
+    },
+    onExit: () => ({ dispose() {} }),
+    write: (d: string) => {
+      writes.push(d)
+    },
+    resize: (c: number, r: number) => {
+      resizes.push([c, r])
+    },
+    kill: () => {},
+  }
+  return {
+    pty: pty as unknown as IPty,
+    writes,
+    resizes,
+    emit: (s) => {
+      for (const cb of dataCbs) cb(s)
+    },
+  }
+}
+
+describe('wrapPty redraw repaint mode', () => {
+  it('hard repaint injects Ctrl-L on top of the SIGWINCH nudge', () => {
+    const { pty, writes, resizes } = fakeIPty()
+    const s = wrapPty(pty)
+    s.redraw({ hard: true })
+    expect(writes).toContain('\x0c') // Ctrl-L forces an idle shell to repaint
+    expect(resizes[0]).toEqual([80, 23]) // still performs the shrink nudge
+  })
+
+  it('soft repaint (default) does NOT inject Ctrl-L and restores on the next frame', () => {
+    const { pty, writes, resizes, emit } = fakeIPty()
+    const s = wrapPty(pty)
+    s.redraw()
+    expect(writes).not.toContain('\x0c')
+    expect(resizes[0]).toEqual([80, 23]) // shrink…
+    emit('repaint') // child acks the shrink with a frame
+    expect(resizes[1]).toEqual([80, 24]) // …then the rows restore to full height
   })
 })

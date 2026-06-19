@@ -1013,7 +1013,15 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     }
     await reattachGate(async () => {
       if (bridges.has(msg.sessionId)) return // raced with another reattach for this id
-      const attach = { label: msg.durableLabel, cols: msg.geometry.cols, rows: msg.geometry.rows }
+      // A reattached shell sits idle at its prompt and ignores the SIGWINCH repaint
+      // nudge, so without a Ctrl-L it shows blank until the user types. TUIs repaint
+      // on resize, so only shells take the hard path.
+      const attach = {
+        label: msg.durableLabel,
+        cols: msg.geometry.cols,
+        rows: msg.geometry.rows,
+        hardRepaint: msg.agentKind === 'shell',
+      }
       let found: { session: AgentSession; cmd: string } | undefined
       // Backend-agnostic: try whichever durable host owns the label, so sessions
       // created under tmux before an abduco upgrade still reattach (no flag day).

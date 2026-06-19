@@ -258,6 +258,24 @@ describe('SessionConnection (hub-backed)', () => {
     expect(sent).toContainEqual({ type: 'redrawRequest', sessionId: 's1' })
   })
 
+  it('fires onAttached once when the server confirms the attach (no output required)', () => {
+    const { sock, hub } = setup()
+    hub.connect()
+    sock.open()
+    sock.recv({ type: 'welcome', clientId: 'c0' })
+    const onAttached = vi.fn()
+    hub.attach('s1', { onAttached })
+    expect(onAttached).not.toHaveBeenCalled()
+    sock.recv({
+      type: 'attached',
+      sessionId: 's1',
+      controllerId: 'c0',
+      geometry: { cols: 80, rows: 24 },
+      epoch: 0,
+    })
+    expect(onAttached).toHaveBeenCalledTimes(1)
+  })
+
   it('updates lastSeq/epoch and emits the decoded frame', () => {
     const { sock, hub } = setup()
     hub.connect()

@@ -2,7 +2,7 @@ import { execFile, execFileSync, spawnSync } from 'node:child_process'
 import { promisify } from 'node:util'
 import { type IPty, spawn as ptySpawn } from 'node-pty'
 import { resolveAbducoBin } from './abduco-bin.js'
-import { type AgentSession, wrapPty } from './session'
+import { type AgentSession, withHardRepaint, wrapPty } from './session'
 import { shellQuote } from './tmux.js'
 
 /**
@@ -304,6 +304,8 @@ export function attachAbducoAgent(opts: {
   cols: number
   rows: number
   env?: Record<string, string>
+  /** Reattaching a shell: nudge with Ctrl-L too, since it won't repaint on SIGWINCH while idle. */
+  hardRepaint?: boolean
 }): AgentSession {
   const [cmd, ...args] = abducoAttachArgv(opts.label, resolveAbducoBin() ?? 'abduco')
   const proc = ptySpawn(cmd as string, args, {
@@ -312,7 +314,7 @@ export function attachAbducoAgent(opts: {
     rows: opts.rows,
     env: { ...process.env, COLORTERM: 'truecolor', ...opts.env } as Record<string, string>,
   })
-  const session = wrapPty(stripAttachChrome(proc))
+  const session = withHardRepaint(wrapPty(stripAttachChrome(proc)), opts.hardRepaint ?? false)
   session.redraw()
   return {
     ...session,
