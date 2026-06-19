@@ -3,11 +3,11 @@ import { open, readdir, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { LineDecoder } from '../jsonl-stream.js'
+import { chooseGrokSessionDir } from './grok-binding.js'
 import type { AgentStateEvent, AgentStateProvider } from './types.js'
 
 const POLL_MS = 700
 const TAIL_BYTES = 128 * 1024
-const FRESH_SESSION_MARGIN_MS = 5_000
 
 export interface GrokSessionPaths {
   sessionId: string
@@ -101,7 +101,8 @@ export function classifyGrokIdleTranscript(
 export async function findLatestGrokSessionPaths(opts: {
   cwd: string
   homeDir?: string
-  sinceMs?: number
+  watermarkMs: number
+  boundId?: string
 }): Promise<GrokSessionPaths | undefined> {
   const workspaceDir = join(grokRoot(opts.homeDir), 'sessions', encodeURIComponent(opts.cwd))
   let entries: Dirent<string>[]
@@ -111,23 +112,28 @@ export async function findLatestGrokSessionPaths(opts: {
     return undefined
   }
 
-  const candidates: { paths: GrokSessionPaths; mtimeMs: number }[] = []
+  const dirInfos: { paths: GrokSessionPaths; createdMs: number; mtimeMs: number }[] = []
   for (const entry of entries) {
     if (!entry.isDirectory()) continue
     const paths = grokSessionPaths({ cwd: opts.cwd, sessionId: entry.name, homeDir: opts.homeDir })
     try {
-      const info = await stat(paths.summaryPath)
-      if (opts.sinceMs !== undefined && info.mtimeMs < opts.sinceMs - FRESH_SESSION_MARGIN_MS) {
-        continue
-      }
-      candidates.push({ paths, mtimeMs: info.mtimeMs })
+      const summaryInfo = await stat(paths.summaryPath)
+      const dirInfo = await stat(paths.sessionDir)
+      // Use birthtimeMs when available (Linux may have it); fall back to ctimeMs.
+      const createdMs = dirInfo.birthtimeMs > 0 ? dirInfo.birthtimeMs : dirInfo.ctimeMs
+      dirInfos.push({ paths, createdMs, mtimeMs: summaryInfo.mtimeMs })
     } catch {
       // Directory exists before summary.json is committed. Try again on the next poll.
     }
   }
 
-  candidates.sort((left, right) => right.mtimeMs - left.mtimeMs)
-  return candidates[0]?.paths
+  const chosen = chooseGrokSessionDir({
+    dirs: dirInfos.map((d) => ({ id: d.paths.sessionId, createdMs: d.createdMs, mtimeMs: d.mtimeMs })),
+    watermarkMs: opts.watermarkMs,
+    boundId: opts.boundId,
+  })
+  if (!chosen) return undefined
+  return dirInfos.find((d) => d.paths.sessionId === chosen)?.paths
 }
 
 export function observeGrokState(opts: {
@@ -140,15 +146,19 @@ export function observeGrokState(opts: {
   onEvents: (events: AgentStateEvent[]) => void
 }): GrokStateObserver {
   const pollMs = opts.pollMs ?? POLL_MS
-  const startedAtMs = opts.startedAtMs ?? Date.now()
+  // watermarkMs is the spawn time: only sessions created at or after this point
+  // are eligible to bind, preventing a new chat from inheriting an old transcript.
+  const watermarkMs = opts.startedAtMs ?? Date.now()
   let stopped = false
   let attached: GrokSessionPaths | undefined
+  let boundId: string | undefined
   let updateTail: GrokStateObserver | undefined
 
   const attach = (paths: GrokSessionPaths): void => {
     if (attached?.sessionId === paths.sessionId) return
     updateTail?.stop()
     attached = paths
+    boundId = paths.sessionId
     opts.onSession?.(paths.sessionId)
     updateTail = tailGrokUpdates(paths, opts.onEvents, { pollMs })
   }
@@ -158,7 +168,8 @@ export function observeGrokState(opts: {
     const paths = await findLatestGrokSessionPaths({
       cwd: opts.cwd,
       ...(opts.homeDir ? { homeDir: opts.homeDir } : {}),
-      sinceMs: startedAtMs,
+      watermarkMs,
+      boundId,
     })
     if (paths && !stopped) attach(paths)
   }
