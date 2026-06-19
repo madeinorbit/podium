@@ -350,7 +350,10 @@ export function Sidebar(): JSX.Element {
               })
             }
           >
-            <SelectTrigger className="h-5 w-auto gap-1 border-0 px-1 text-[10px] text-muted-foreground/70 shadow-none hover:text-foreground focus:ring-0">
+            <SelectTrigger
+              aria-label="Sort repositories"
+              className="h-5 w-auto gap-1 border-0 px-1 text-[10px] text-muted-foreground/70 shadow-none hover:text-foreground focus:ring-0"
+            >
               <SelectValue />
             </SelectTrigger>
             <SelectContent align="end">
