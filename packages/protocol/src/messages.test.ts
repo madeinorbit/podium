@@ -477,6 +477,29 @@ describe('agent runtime state', () => {
     })
     expect(meta.agentState?.phase).toBe('idle')
   })
+
+  it('SessionMeta carries an optional, nullable snoozedUntil', () => {
+    const base = {
+      sessionId: 's1',
+      agentKind: 'claude-code',
+      title: 't',
+      cwd: '/w',
+      status: 'live',
+      controllerId: null,
+      geometry: { cols: 80, rows: 24 },
+      epoch: 0,
+      clientCount: 0,
+      createdAt: '2026-06-19T00:00:00.000Z',
+      lastActiveAt: '2026-06-19T00:00:00.000Z',
+      origin: { kind: 'spawn' },
+      archived: false,
+    } as const
+    expect(SessionMeta.parse(base).snoozedUntil).toBeUndefined()
+    expect(SessionMeta.parse({ ...base, snoozedUntil: null }).snoozedUntil).toBeNull()
+    expect(SessionMeta.parse({ ...base, snoozedUntil: '2026-06-19T06:00:00.000Z' }).snoozedUntil).toBe(
+      '2026-06-19T06:00:00.000Z',
+    )
+  })
 })
 
 describe('agent quota messages', () => {
