@@ -73,7 +73,7 @@ import {
   type TranscriptItem,
 } from '@podium/protocol'
 import WebSocket, { type RawData } from 'ws'
-import { readFileSandboxed, writeFileSandboxed } from './file-access'
+import { readAssetSandboxed, readFileSandboxed, writeFileSandboxed } from './file-access'
 import { startHookIngest } from './hook-ingest'
 import { sampleHostMemory } from './host-metrics'
 import { attributeMemory, snapshotProcesses } from './memory-breakdown'
@@ -1156,6 +1156,11 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
       case 'fileReadRequest':
         void readFileSandboxed({ cwd: msg.cwd, path: msg.path, knownPath: msg.knownPath }).then(
           (r) => send({ type: 'fileReadResult', requestId: msg.requestId, ...r }),
+        )
+        break
+      case 'fileAssetRequest':
+        void readAssetSandboxed({ cwd: msg.cwd, path: msg.path, knownPath: msg.knownPath }).then((r) =>
+          send({ type: 'fileAssetResult', requestId: msg.requestId, ...r }),
         )
         break
       case 'fileWriteRequest':

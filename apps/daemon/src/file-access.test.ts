@@ -1,8 +1,8 @@
-import { mkdtemp, mkdir, readFile, symlink, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, symlink, writeFile, writeFile as writeFileFs } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { isInside, readFileSandboxed, writeFileSandboxed } from './file-access'
+import { isInside, readAssetSandboxed, readFileSandboxed, writeFileSandboxed } from './file-access'
 
 async function repo(): Promise<string> {
   return mkdtemp(join(tmpdir(), 'podium-fa-'))
@@ -107,5 +107,23 @@ describe('writeFileSandboxed', () => {
     await expect(
       writeFileSandboxed({ cwd, path: dir, content: 'oops' }),
     ).resolves.toMatchObject({ ok: false })
+  })
+})
+
+describe('readAssetSandboxed', () => {
+  it('returns base64 bytes + content-type for an in-sandbox image', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'asset-'))
+    const png = Buffer.from('89504e470d0a1a0a', 'hex') // PNG magic bytes
+    await writeFileFs(join(dir, 'a.png'), png)
+    const r = await readAssetSandboxed({ cwd: dir, path: join(dir, 'a.png'), knownPath: false })
+    expect(r.ok).toBe(true)
+    expect(r.contentType).toBe('image/png')
+    expect(Buffer.from(r.dataBase64 ?? '', 'base64').equals(png)).toBe(true)
+  })
+  it('rejects a path outside the sandbox', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'asset-'))
+    const r = await readAssetSandboxed({ cwd: dir, path: '/etc/hosts', knownPath: false })
+    expect(r.ok).toBe(false)
+    expect(r.error).toBe('outside workspace')
   })
 })
