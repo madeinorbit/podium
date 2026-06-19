@@ -22,6 +22,13 @@ const TAIL_BYTES = 16 * 1024 * 1024
 // not a hard transcript limit.
 const MAX_INITIAL_ITEMS = 12_000
 
+// First backward window readTranscriptPage reads from the END of the file when
+// paging older items. A page is a small slice near the tail, so a 256 KB window
+// usually covers `fromEnd + limit + 1` records in one read; if it doesn't (very
+// long records, or paging far back), the window doubles until it does or it
+// reaches byte 0. Keeps a scroll-to-top page O(page size), not O(file size).
+const INITIAL_PAGE_WINDOW_BYTES = 256 * 1024
+
 export interface TranscriptTailer {
   /** The file currently tailed. */
   readonly path: string
@@ -95,13 +102,15 @@ export interface TranscriptPage {
  * reliably. Item *count* and *content* ARE deterministic for the same file bytes,
  * so a from-end index is the stable cursor.
  *
- * PERF: v1 re-parses the WHOLE file on every page request (O(file size) per page).
- * For the targeted use — a human scrolling up a few pages in one very long
- * session — that's acceptable: it's on-demand, not per-frame, and a page request
- * only fires when the user reaches the top. A future optimization is to seek
- * backwards by byte windows / cache an id→offset index, but that's not needed to
- * make arbitrary-length sessions work. Returns an empty, hasMore:false page if the
- * file is missing/unreadable.
+ * PERF: this reads BACKWARD in byte windows from the end of the file instead of
+ * slurping + parsing the whole thing on every page request. A page sits near the
+ * tail (the caller already holds `fromEnd` items and asks for `limit` more before
+ * them), so we only need roughly the last `fromEnd + limit + 1` items' worth of
+ * bytes — that "+1" lets us decide `hasMore`. We keep doubling the window
+ * backward until we've parsed enough whole records (or reached byte 0). Result is
+ * byte-for-byte identical to the old whole-file read for every cursor, including
+ * ordering and `hasMore`. Returns an empty, hasMore:false page if the file is
+ * missing/unreadable.
  */
 export async function readTranscriptPage(
   path: string,
@@ -115,23 +124,54 @@ export async function readTranscriptPage(
     try {
       const { size } = await handle.stat()
       if (size === 0) return { items: [], hasMore: false }
-      const chunk = Buffer.alloc(size)
-      await handle.read(chunk, 0, size, 0)
-      const lines = new LineDecoder().push(chunk)
-      const all: TranscriptItem[] = []
-      for (const line of lines) {
-        const trimmed = line.trim()
-        if (!trimmed) continue
-        try {
-          for (const item of recordToItems(JSON.parse(trimmed))) all.push(item)
-        } catch {
-          // torn/partial line — skip
+
+      // We need the page items plus one extra to know if anything precedes the
+      // page: end = total - fromEnd, start = end - limit, page = [start, end).
+      // Collecting the last (fromEnd + limit + 1) items from the tail is enough
+      // to compute both the slice and `hasMore` without reading the whole file.
+      const needed = fromEnd + limit + 1
+
+      // Grow the read window backward (doubling) until we've parsed `needed`
+      // whole items or reached the head of the file.
+      let windowBytes = Math.min(size, INITIAL_PAGE_WINDOW_BYTES)
+      let items: TranscriptItem[] = []
+      let atHead = false
+      for (;;) {
+        const start = Math.max(0, size - windowBytes)
+        atHead = start === 0
+        const chunk = Buffer.alloc(size - start)
+        await handle.read(chunk, 0, chunk.length, start)
+        let lines = new LineDecoder().push(chunk)
+        // Seeked past byte 0 → the first line is the tail of a prior record;
+        // drop it (a later, larger window will read that record whole if needed).
+        if (!atHead && lines.length > 0) lines = lines.slice(1)
+        items = []
+        for (const line of lines) {
+          const trimmed = line.trim()
+          if (!trimmed) continue
+          try {
+            for (const item of recordToItems(JSON.parse(trimmed))) items.push(item)
+          } catch {
+            // torn/partial line — skip
+          }
         }
+        if (atHead || items.length >= needed) break
+        windowBytes = Math.min(size, windowBytes * 2)
       }
-      const total = all.length
-      const end = Math.max(0, Math.min(total, total - fromEnd))
+
+      // `items` is the suffix of the full item stream (or the whole stream when
+      // atHead). Slice using from-end positions so the result matches the
+      // whole-file read regardless of how many older items we skipped reading.
+      const count = items.length
+      const end = Math.max(0, count - fromEnd)
       const start = Math.max(0, end - limit)
-      return { items: all.slice(start, end), hasMore: start > 0 }
+      const page = items.slice(start, end)
+      // `hasMore` is whether any item precedes the page. atHead: `count` is the
+      // true total, so `start > 0` is exact. Otherwise we only stop early once
+      // `count >= fromEnd + limit + 1`, which forces `start >= 1` — so `start > 0`
+      // is true exactly when earlier items exist (in-window AND on disk). Both
+      // branches reduce to the same test.
+      return { items: page, hasMore: start > 0 }
     } finally {
       await handle.close()
     }

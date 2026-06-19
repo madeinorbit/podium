@@ -8,7 +8,10 @@ const DEFAULT_FETCHERS: { agent: AgentKind; fetch: QuotaFetcher }[] = [
   { agent: 'claude-code', fetch: fetchClaudeQuota },
   { agent: 'codex', fetch: fetchCodexQuota },
 ]
-const DEFAULT_TTL_MS = 60_000
+// The status chip polls every 60s; a 60s TTL is always exactly stale by the next
+// poll, so the memo never serves and we re-fetch every poll. Keep the TTL above the
+// poll interval (same fix the usage memo uses in daemon.ts) so a poll lands inside it.
+const DEFAULT_TTL_MS = 120_000
 
 export function makeQuotaFetcher(
   opts: {

@@ -102,7 +102,46 @@ type ReadRepositorySummaryOptions = {
   diagnostics: GitDiscoveryDiagnostic[]
 }
 
-async function readRepositorySummary({
+// In-process memo of per-repository summaries, keyed by git dir. A scan re-reads a
+// repo's HEAD/refs/config from disk on every pass; when none of the freshness-signal
+// files have changed (compared by mtime) we serve the memoized summary + diagnostics
+// instead of re-reading and re-parsing. Any uncertainty (a stat error, a path that
+// stopped existing) is treated as a miss so behavior is never worse than today.
+type SummarySignal = { path: string; mtimeMs: number }
+type SummaryCacheEntry = {
+  summary: GitRepositorySummary
+  diagnostics: GitDiscoveryDiagnostic[]
+  signals: SummarySignal[]
+}
+const summaryCache = new Map<string, SummaryCacheEntry>()
+
+async function readRepositorySummary(
+  options: ReadRepositorySummaryOptions,
+): Promise<GitRepositorySummary> {
+  const cached = summaryCache.get(options.gitDir)
+  if (cached && (await signalsUnchanged(cached.signals))) {
+    replayDiagnostics(options.diagnostics, cached.diagnostics)
+    return cached.summary
+  }
+
+  // Read into a private diagnostics buffer so a hit can replay the exact same
+  // diagnostics a fresh read would have produced. Replay dedups against the caller's
+  // array the same way pushWarningDiagnostic does during a direct read (callers such
+  // as the bare-repo path may already hold a warning for the same config file).
+  const readDiagnostics: GitDiscoveryDiagnostic[] = []
+  const summary = await computeRepositorySummary({ ...options, diagnostics: readDiagnostics })
+  replayDiagnostics(options.diagnostics, readDiagnostics)
+
+  const signals = await collectSummarySignals(summary.gitDir, summary.commonGitDir, summary.branch)
+  if (signals !== undefined) {
+    summaryCache.set(options.gitDir, { summary, diagnostics: readDiagnostics, signals })
+  } else {
+    summaryCache.delete(options.gitDir)
+  }
+  return summary
+}
+
+async function computeRepositorySummary({
   path,
   kind,
   gitDir,
@@ -122,6 +161,60 @@ async function readRepositorySummary({
     ...(mainWorktreePath === undefined ? {} : { mainWorktreePath }),
     ...head,
     ...(originUrl === undefined ? {} : { originUrl }),
+  }
+}
+
+// The files whose mtimes signal a repository summary may have changed: HEAD (which
+// branch/sha is checked out), packed-refs, the loose branch ref, and config (origin).
+// Returns undefined if any signal can't be stat'd, so the caller skips caching.
+async function collectSummarySignals(
+  gitDir: string,
+  commonGitDir: string,
+  branch: string | undefined,
+): Promise<SummarySignal[] | undefined> {
+  const paths = [
+    join(gitDir, 'HEAD'),
+    join(commonGitDir, 'packed-refs'),
+    join(commonGitDir, 'config'),
+    ...(branch === undefined ? [] : [join(commonGitDir, 'refs', 'heads', branch)]),
+  ]
+
+  const signals: SummarySignal[] = []
+  for (const path of paths) {
+    const mtimeMs = await mtimeOptional(path)
+    // A missing file (e.g. no packed-refs) is a stable signal: record it as absent.
+    signals.push({ path, mtimeMs: mtimeMs ?? -1 })
+  }
+  return signals
+}
+
+async function signalsUnchanged(signals: SummarySignal[]): Promise<boolean> {
+  for (const signal of signals) {
+    const mtimeMs = await mtimeOptional(signal.path)
+    if ((mtimeMs ?? -1) !== signal.mtimeMs) return false
+  }
+  return true
+}
+
+async function mtimeOptional(path: string): Promise<number | undefined> {
+  const stats = await statOptional(path)
+  return stats === undefined ? undefined : Number(stats.mtimeMs)
+}
+
+// Replay diagnostics captured during a read onto the caller's array. Warnings dedup
+// against the caller's existing diagnostics exactly as pushWarningDiagnostic does when
+// they are produced inline; errors are appended directly. This keeps the caller's
+// diagnostics identical whether the summary came from disk or from the memo.
+function replayDiagnostics(
+  target: GitDiscoveryDiagnostic[],
+  source: GitDiscoveryDiagnostic[],
+): void {
+  for (const diagnostic of source) {
+    if (diagnostic.severity === 'warning') {
+      pushWarningDiagnostic(target, diagnostic)
+    } else {
+      target.push(diagnostic)
+    }
   }
 }
 

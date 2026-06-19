@@ -1,4 +1,4 @@
-import { chmod, mkdir, mkdtemp, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, test } from 'vitest'
@@ -6,6 +6,7 @@ import { inspectGitRepositoryPath, readRegisteredWorktrees } from './metadata.js
 
 const mainSha = '1111111111111111111111111111111111111111'
 const featureSha = '2222222222222222222222222222222222222222'
+const altSha = '3333333333333333333333333333333333333333'
 
 async function createTempRoot(): Promise<string> {
   return await mkdtemp(join(tmpdir(), 'podium-git-discovery-'))
@@ -571,5 +572,67 @@ describe('inspectGitRepositoryPath', () => {
     } finally {
       await chmod(unreadableParent, 0o700)
     }
+  })
+})
+
+describe('inspectGitRepositoryPath summary cache', () => {
+  // Pin a file's mtime to a known instant so the cache's freshness signal is
+  // deterministic regardless of the underlying filesystem's mtime granularity.
+  async function setMtime(path: string, epochSeconds: number): Promise<void> {
+    await utimes(path, epochSeconds, epochSeconds)
+  }
+
+  test('returns the memoized summary without re-reading when ref mtimes are unchanged', async () => {
+    const root = await createTempRoot()
+    const repo = await writeNormalRepo(root)
+    const refPath = join(repo, '.git', 'refs', 'heads', 'main')
+    await setMtime(refPath, 1_000_000)
+
+    const first = await inspectGitRepositoryPath(repo)
+    expect(first.repository).toEqual(expect.objectContaining({ headSha: mainSha }))
+
+    // Change the ref's CONTENT but keep its mtime fixed — a cache hit must serve
+    // the memoized summary (old sha) without re-reading the new bytes from disk.
+    await writeFile(refPath, `${altSha}\n`)
+    await setMtime(refPath, 1_000_000)
+
+    const second = await inspectGitRepositoryPath(repo)
+    expect(second.repository).toEqual(expect.objectContaining({ headSha: mainSha }))
+  })
+
+  test('re-reads the summary when a ref file mtime advances', async () => {
+    const root = await createTempRoot()
+    const repo = await writeNormalRepo(root)
+    const refPath = join(repo, '.git', 'refs', 'heads', 'main')
+    await setMtime(refPath, 1_000_000)
+
+    const first = await inspectGitRepositoryPath(repo)
+    expect(first.repository).toEqual(expect.objectContaining({ headSha: mainSha }))
+
+    // Change content AND advance the mtime — the freshness signal moved, so the
+    // cache entry is stale and the summary must reflect the new sha.
+    await writeFile(refPath, `${altSha}\n`)
+    await setMtime(refPath, 2_000_000)
+
+    const second = await inspectGitRepositoryPath(repo)
+    expect(second.repository).toEqual(expect.objectContaining({ headSha: altSha }))
+  })
+
+  test('re-reads the summary when HEAD mtime advances', async () => {
+    const root = await createTempRoot()
+    const repo = await writeNormalRepo(root)
+    const headPath = join(repo, '.git', 'HEAD')
+    await setMtime(headPath, 1_000_000)
+
+    const first = await inspectGitRepositoryPath(repo)
+    expect(first.repository).toEqual(expect.objectContaining({ branch: 'main', headSha: mainSha }))
+
+    // Detach HEAD to a raw sha and advance its mtime — must drop the branch.
+    await writeFile(headPath, `${altSha}\n`)
+    await setMtime(headPath, 2_000_000)
+
+    const second = await inspectGitRepositoryPath(repo)
+    expect(second.repository).not.toHaveProperty('branch')
+    expect(second.repository).toEqual(expect.objectContaining({ headSha: altSha }))
   })
 })
