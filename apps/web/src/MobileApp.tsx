@@ -28,6 +28,7 @@ import {
 import { HomeView } from './HomeView'
 import { HostIndicators } from './HostIndicators'
 import { NewPanelMenu } from './NewPanelMenu'
+import { QuotaView } from './QuotaView'
 import { RepoScanFlow } from './RepoScanFlow'
 import { SearchView } from './SearchView'
 import { SettingsView } from './SettingsView'
@@ -301,6 +302,8 @@ export function MobileApp(): JSX.Element {
           <SettingsView />
         ) : view === 'usage' ? (
           <UsageView />
+        ) : view === 'quota' ? (
+          <QuotaView />
         ) : paneA ? (
           <AgentPanel sessionId={paneA} />
         ) : (
