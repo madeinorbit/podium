@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { homedir, hostname } from 'node:os'
 import { dirname, join } from 'node:path'
 import { promisify } from 'node:util'
@@ -74,6 +74,7 @@ import { startHookIngest } from './hook-ingest'
 import { sampleHostMemory } from './host-metrics'
 import { attributeMemory, snapshotProcesses } from './memory-breakdown'
 import { uploadFilePath } from './upload'
+import { uploadsToGc } from './uploads-gc'
 import { scanClaudeUsage } from './usage-scan'
 
 const DEFAULT_DISCOVERY_SCAN_INTERVAL_MS = 15_000
@@ -562,6 +563,56 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
   const metricsBackground = opts.metrics?.background ?? true
   const metricsIntervalMs = opts.metrics?.intervalMs ?? DEFAULT_HOST_METRICS_INTERVAL_MS
   let metricsTimer: ReturnType<typeof setInterval> | undefined
+  let uploadsGcTimer: ReturnType<typeof setInterval> | undefined
+
+  const UPLOADS_TTL_MS = 24 * 3600_000 // 24 hours
+  const UPLOADS_GC_INTERVAL_MS = 3600_000 // 1 hour
+
+  /** Collect all files under ~/.podium/uploads and delete those older than the TTL. */
+  const sweepUploads = (): void => {
+    const uploadsDir = join(homedir(), '.podium', 'uploads')
+    try {
+      const sessionDirs = readdirSync(uploadsDir)
+      const files: { path: string; mtimeMs: number }[] = []
+      for (const sessionDir of sessionDirs) {
+        const sessionPath = join(uploadsDir, sessionDir)
+        try {
+          const entries = readdirSync(sessionPath)
+          for (const entry of entries) {
+            const filePath = join(sessionPath, entry)
+            try {
+              const st = statSync(filePath)
+              if (st.isFile()) files.push({ path: filePath, mtimeMs: st.mtimeMs })
+            } catch {
+              // file may have already been removed
+            }
+          }
+        } catch {
+          // session dir may have disappeared
+        }
+      }
+      const toDelete = uploadsToGc(files, Date.now(), UPLOADS_TTL_MS)
+      for (const p of toDelete) {
+        try {
+          rmSync(p)
+        } catch {
+          // best effort
+        }
+      }
+    } catch {
+      // uploads dir may not exist yet
+    }
+  }
+
+  /** Remove a session's upload directory when the session is closed/killed. */
+  const removeSessionUploads = (sessionId: string): void => {
+    const sessionUploadsDir = join(homedir(), '.podium', 'uploads', sessionId)
+    try {
+      rmSync(sessionUploadsDir, { recursive: true, force: true })
+    } catch {
+      // best effort
+    }
+  }
 
   const send = (msg: DaemonMessage): void => {
     const w = currentWs
@@ -996,6 +1047,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
           killAbducoSession(`podium-${msg.sessionId}`)
           killTmuxServer(`podium-${msg.sessionId}`)
         }
+        removeSessionUploads(msg.sessionId)
         break
       }
       case 'input':
@@ -1170,6 +1222,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
   const disposeAll = (reapSessions = false): void => {
     if (discoveryTimer) clearTimeout(discoveryTimer)
     if (metricsTimer) clearInterval(metricsTimer)
+    if (uploadsGcTimer) clearInterval(uploadsGcTimer)
     discoveryCache.close()
     // For durable sessions (abduco/tmux), dispose() only takes down the attach client,
     // so the agent survives the daemon going down — do NOT kill the masters here
@@ -1238,6 +1291,9 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
           metricsTimer = setInterval(pushHostMetrics, metricsIntervalMs)
           metricsTimer.unref?.()
         }
+        // Periodic GC for stale uploads (TTL 24h, runs hourly).
+        uploadsGcTimer = setInterval(sweepUploads, UPLOADS_GC_INTERVAL_MS)
+        uploadsGcTimer.unref?.()
       }
       resolveStart()
     }
