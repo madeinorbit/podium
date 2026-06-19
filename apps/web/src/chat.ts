@@ -60,32 +60,70 @@ export function searchBlocks(blocks: ChatBlock[], query: string): number[] {
   return hits
 }
 
-export interface MinimapSegment {
+/** DOM-measured position of one [data-block] child as ratios of scrollHeight. */
+export interface BlockOffset {
   index: number
-  role: TranscriptItem['role']
-  /** True for the turn-final assistant answer — drawn in its own accent so it
-   *  pops in the birds-eye view (the original ask). */
-  answer: boolean
-  /** Relative height weight — longer content draws taller. */
-  weight: number
+  /** offsetTop / scrollHeight */
+  top: number
+  /** offsetHeight / scrollHeight */
+  height: number
 }
 
-/** Minimap geometry: one segment per block, log-weighted by content length. */
-export function minimapSegments(blocks: ChatBlock[]): MinimapSegment[] {
-  return blocks.map((b, index) => {
-    const len = b.item.text.length + (b.item.toolInput?.length ?? 0) + (b.result?.length ?? 0) / 4
-    const base = 1 + Math.log2(1 + len / 80)
-    // User prompts are short (a sentence) → thin slivers that are easy to miss.
-    // Floor their weight so they always draw as a locatable tick; they're the most
-    // important thing to find in the birds-eye view.
-    const weight = b.item.role === 'user' ? Math.max(base, 3) : base
-    return {
+/** One tick rendered in the minimap, positioned in the same linear scroll space
+ *  as the viewport box and scrubTo. */
+export interface MinimapTick {
+  index: number
+  role: TranscriptItem['role']
+  answer: boolean
+  /** Ratio of scroller.scrollHeight — pass directly to `top: X%`. */
+  top: number
+  /** Ratio of scroller.scrollHeight — pass directly to `height: X%`. */
+  height: number
+}
+
+/**
+ * Read the real DOM positions of every [data-block] child of `scroller` and
+ * return them as ratios of scrollHeight so they live in the same coordinate
+ * space as scrollTop/scrollHeight.
+ */
+export function measureBlockOffsets(scroller: HTMLElement): BlockOffset[] {
+  const total = scroller.scrollHeight || 1
+  const offsets: BlockOffset[] = []
+  const children = scroller.querySelectorAll<HTMLElement>('[data-block]')
+  children.forEach((el) => {
+    const indexAttr = el.getAttribute('data-block')
+    if (indexAttr === null) return
+    const index = Number(indexAttr)
+    offsets.push({
       index,
+      top: el.offsetTop / total,
+      height: el.offsetHeight / total,
+    })
+  })
+  return offsets
+}
+
+/**
+ * Zip block metadata (role, answer) with DOM-measured offsets to produce ticks
+ * for the minimap. Both arrays are indexed by block position; entries with no
+ * matching offset are skipped.
+ */
+export function ticksFromOffsets(blocks: ChatBlock[], offsets: BlockOffset[]): MinimapTick[] {
+  const offsetByIndex = new Map<number, BlockOffset>()
+  for (const o of offsets) offsetByIndex.set(o.index, o)
+  const ticks: MinimapTick[] = []
+  blocks.forEach((b, i) => {
+    const o = offsetByIndex.get(i)
+    if (!o) return
+    ticks.push({
+      index: i,
       role: b.item.role,
       answer: b.item.answer === true,
-      weight,
-    }
+      top: o.top,
+      height: o.height,
+    })
   })
+  return ticks
 }
 
 /** An optimistic "You" bubble shown immediately on send, before the transcript

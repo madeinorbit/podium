@@ -18,7 +18,9 @@ import { cn } from '@/lib/utils'
 import {
   blockMatches,
   type ChatBlock,
-  minimapSegments,
+  measureBlockOffsets,
+  type MinimapTick,
+  ticksFromOffsets,
   pairToolResults,
   type PendingItem,
   reconcilePending,
@@ -717,10 +719,10 @@ function ToolBlock({
 }
 
 /**
- * Birds-eye strip: one slab per block, log-weighted by length; user prompts
- * pop in accent so "where did I steer" reads at a glance. A viewport box mirrors
- * the scroll position — click anywhere on the strip to jump to that position, or
- * drag (the box, or anywhere) to scrub the transcript.
+ * Birds-eye strip: one tick per block, absolutely positioned by real DOM offsets
+ * so ticks, the viewport box, and click-to-scroll all share one linear scroll
+ * coordinate space (ratios of scrollHeight). User prompts pop in accent so
+ * "where did I steer" reads at a glance. Click or drag to scrub.
  */
 function Minimap({
   blocks,
@@ -729,27 +731,40 @@ function Minimap({
   blocks: ChatBlock[]
   scrollerRef: React.RefObject<HTMLDivElement | null>
 }): JSX.Element | null {
-  const segments = useMemo(() => minimapSegments(blocks), [blocks])
+  const [ticks, setTicks] = useState<MinimapTick[]>([])
   const [viewport, setViewport] = useState({ top: 0, height: 1 })
   const trackRef = useRef<HTMLDivElement | null>(null)
   const dragging = useRef(false)
 
+  // Re-measure DOM offsets after scroll, resize, or block list change.
+  // We use rAF so the browser has laid out before we read offsetTop/offsetHeight.
   useEffect(() => {
     const el = scrollerRef.current
     if (!el) return
-    const update = () => {
+    let rafId: number | undefined
+
+    const measure = () => {
       const total = el.scrollHeight || 1
       setViewport({ top: el.scrollTop / total, height: el.clientHeight / total })
+      const offsets = measureBlockOffsets(el)
+      setTicks(ticksFromOffsets(blocks, offsets))
     }
-    update()
-    el.addEventListener('scroll', update, { passive: true })
-    const ro = new ResizeObserver(update)
+
+    const schedMeasure = () => {
+      if (rafId !== undefined) cancelAnimationFrame(rafId)
+      rafId = requestAnimationFrame(measure)
+    }
+
+    schedMeasure()
+    el.addEventListener('scroll', schedMeasure, { passive: true })
+    const ro = new ResizeObserver(schedMeasure)
     ro.observe(el)
     return () => {
-      el.removeEventListener('scroll', update)
+      if (rafId !== undefined) cancelAnimationFrame(rafId)
+      el.removeEventListener('scroll', schedMeasure)
       ro.disconnect()
     }
-  }, [scrollerRef])
+  }, [scrollerRef, blocks])
 
   // Map a pointer Y on the strip to a scroll position, centring the viewport on
   // the pointer — so a click jumps there and a drag scrubs continuously.
@@ -763,14 +778,13 @@ function Minimap({
     el.scrollTop = Math.max(0, Math.min(max, f * el.scrollHeight - el.clientHeight / 2))
   }
 
-  if (segments.length < 2) return null
-  const totalWeight = segments.reduce((sum, s) => sum + s.weight, 0)
+  if (blocks.length < 2) return null
   return (
-    // The whole strip is the scrub surface; segments are non-interactive colour
+    // The whole strip is the scrub surface; ticks are non-interactive colour
     // guides (pointer-events-none) so clicks/drags reach the track.
     <div
       ref={trackRef}
-      className="relative my-1 mr-[3px] flex flex-[0_0_14px] cursor-pointer touch-none flex-col gap-px overflow-hidden rounded-[3px]"
+      className="relative my-1 mr-[3px] flex-[0_0_14px] cursor-pointer touch-none overflow-hidden rounded-[3px] bg-foreground/[0.04]"
       role="presentation"
       onPointerDown={(e) => {
         e.preventDefault()
@@ -788,23 +802,24 @@ function Minimap({
         dragging.current = false
       }}
     >
-      {segments.map((seg) => (
+      {ticks.map((tick) => (
         <div
-          key={seg.index}
+          key={tick.index}
           className={cn(
-            'pointer-events-none min-h-0.5 w-full',
-            // Exactly one bg (mutually exclusive — Tailwind doesn't honour class
-            // order for conflicting utilities). Priority of attention: user
-            // prompts > final answer > intermediate agent prose > tool/system.
-            seg.role === 'user'
+            'pointer-events-none absolute inset-x-0 min-h-[2px]',
+            // Priority of attention: user prompts > final answer > agent prose > tool/system.
+            tick.role === 'user'
               ? 'bg-blue-500'
-              : seg.answer
+              : tick.answer
                 ? 'bg-emerald-500'
-                : seg.role === 'assistant'
-                  ? 'bg-foreground/15'
-                  : 'bg-foreground/[0.06]',
+                : tick.role === 'assistant'
+                  ? 'bg-foreground/20'
+                  : 'bg-foreground/[0.08]',
           )}
-          style={{ height: `${(seg.weight / totalWeight) * 100}%` }}
+          style={{
+            top: `${tick.top * 100}%`,
+            height: `${Math.max(0.004, tick.height) * 100}%`,
+          }}
         />
       ))}
       <div

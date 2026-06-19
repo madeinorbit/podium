@@ -1,6 +1,6 @@
 import type { TranscriptItem } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
-import { blockMatches, minimapSegments, pairToolResults, type PendingItem, reconcilePending, searchBlocks } from '../src/chat'
+import { blockMatches, pairToolResults, ticksFromOffsets, type PendingItem, reconcilePending, searchBlocks } from '../src/chat'
 import { shouldPinOnReset } from '../src/ChatView'
 
 const item = (over: Partial<TranscriptItem>): TranscriptItem => ({
@@ -56,15 +56,30 @@ describe('search', () => {
   })
 })
 
-describe('minimapSegments', () => {
-  it('weights longer content heavier and keeps roles', () => {
-    const blocks = pairToolResults([
-      item({ id: 'u', role: 'user', text: 'short' }),
-      item({ id: 'a', role: 'assistant', text: 'x'.repeat(4000) }),
-    ])
-    const segs = minimapSegments(blocks)
-    expect(segs[0]?.role).toBe('user')
-    expect((segs[1]?.weight ?? 0) > (segs[0]?.weight ?? 0)).toBe(true)
+describe('ticksFromOffsets', () => {
+  it('maps block offsets to linear tick ratios matching scroll space', () => {
+    const blocks = [
+      { item: { role: 'user', answer: false } },
+      { item: { role: 'assistant', answer: true } },
+    ] as any
+    const offsets = [
+      { index: 0, top: 0, height: 0.1 },
+      { index: 1, top: 0.1, height: 0.9 },
+    ]
+    const ticks = ticksFromOffsets(blocks, offsets)
+    expect(ticks[0]).toMatchObject({ role: 'user', top: 0, height: 0.1 })
+    expect(ticks[1]).toMatchObject({ role: 'assistant', answer: true, top: 0.1 })
+  })
+
+  it('skips blocks with no matching offset', () => {
+    const blocks = [
+      { item: { role: 'user', answer: false } },
+      { item: { role: 'assistant', answer: false } },
+    ] as any
+    const offsets = [{ index: 1, top: 0.5, height: 0.5 }]
+    const ticks = ticksFromOffsets(blocks, offsets)
+    expect(ticks).toHaveLength(1)
+    expect(ticks[0]).toMatchObject({ index: 1, role: 'assistant', top: 0.5 })
   })
 })
 
