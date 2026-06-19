@@ -6,15 +6,12 @@ function fakeSocket(readyState = 1) {
   return { readyState, ping: vi.fn(), terminate: vi.fn() }
 }
 
-function fakeSendSocket(over: { readyState?: number; bufferedAmount?: number } = {}): SendSocket & {
-  send: ReturnType<typeof vi.fn>
-  terminate: ReturnType<typeof vi.fn>
-} {
+function fakeSendSocket(over: { readyState?: number; bufferedAmount?: number } = {}) {
   return {
     readyState: over.readyState ?? 1,
     bufferedAmount: over.bufferedAmount ?? 0,
-    send: vi.fn(),
-    terminate: vi.fn(),
+    send: vi.fn<(data: string) => void>(),
+    terminate: vi.fn<() => void>(),
   }
 }
 
