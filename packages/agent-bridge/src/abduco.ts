@@ -165,6 +165,23 @@ export function killAbducoSession(label: string): void {
   }
 }
 
+/**
+ * Non-blocking {@link killAbducoSession}. The sync version does a blocking
+ * `spawnSync(abduco)` (which forks+execs and reaps sockets while listing) on the
+ * daemon loop; the `kill` control-message handler is a per-session action that arrives
+ * in bursts (superagent killing several agents, auto-hibernation), so serializing
+ * those fork+execs starves every other session. Prefer this on that hot path — the
+ * sync version stays fine for one-shot shutdown teardown (disposeAll).
+ */
+export async function killAbducoSessionAsync(label: string): Promise<void> {
+  try {
+    const entry = (await listSessionsAsync()).find((s) => s.name === label && s.alive)
+    if (entry) process.kill(entry.pid, 'SIGTERM')
+  } catch {
+    // already gone
+  }
+}
+
 const ATTACH_CHROME = '\x1b[?1049h\x1b[H'
 
 /**

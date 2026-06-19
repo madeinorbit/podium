@@ -83,6 +83,15 @@ export function killTmuxServer(label: string): void {
   }
 }
 
+/** Non-blocking {@link killTmuxServer} — prefer on the daemon's per-session `kill` path. */
+export async function killTmuxServerAsync(label: string): Promise<void> {
+  try {
+    await execFileAsync('tmux', ['-L', label, 'kill-server'])
+  } catch {
+    // already gone
+  }
+}
+
 export interface TmuxSpawnOptions {
   label: string
   cmd: string

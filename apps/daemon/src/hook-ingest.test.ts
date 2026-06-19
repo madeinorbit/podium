@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { type HookIngest, startHookIngest } from './hook-ingest'
+import { HOOK_BODY_MAX_BYTES, type HookIngest, startHookIngest } from './hook-ingest'
 
 describe('hook ingest', () => {
   let ingest: HookIngest
@@ -41,6 +41,32 @@ describe('hook ingest', () => {
     ).toBe(200)
     await new Promise((r) => setTimeout(r, 10))
     expect(got).toEqual([])
+  })
+
+  it('rejects an over-cap body with 413 and never invokes onPayload', async () => {
+    const got: unknown[] = []
+    ingest = await startHookIngest({ port: 0, onPayload: (_sid, p) => got.push(p) })
+    // One byte over the cap. Valid JSON shape so the only thing that can reject
+    // it is the size guard, not a parse failure.
+    const filler = 'x'.repeat(HOOK_BODY_MAX_BYTES + 1 - '{"a":""}'.length)
+    const body = `{"a":"${filler}"}`
+    expect(Buffer.byteLength(body)).toBe(HOOK_BODY_MAX_BYTES + 1)
+    const res = await fetch(ingest.endpointFor('s1'), { method: 'POST', body })
+    expect(res.status).toBe(413)
+    await new Promise((r) => setTimeout(r, 10))
+    expect(got).toEqual([])
+  })
+
+  it('accepts a body exactly at the cap', async () => {
+    const got: unknown[] = []
+    ingest = await startHookIngest({ port: 0, onPayload: (_sid, p) => got.push(p) })
+    const filler = 'x'.repeat(HOOK_BODY_MAX_BYTES - '{"a":""}'.length)
+    const body = `{"a":"${filler}"}`
+    expect(Buffer.byteLength(body)).toBe(HOOK_BODY_MAX_BYTES)
+    const res = await fetch(ingest.endpointFor('s1'), { method: 'POST', body })
+    expect(res.status).toBe(200)
+    await new Promise((r) => setTimeout(r, 10))
+    expect(got).toEqual([{ a: filler }])
   })
 
   it('falls back to an ephemeral port when the preferred port is taken', async () => {

@@ -16,7 +16,13 @@ import {
 import { type DaemonMessage, encode, parseDaemonMessage } from '@podium/protocol'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { WebSocketServer, type WebSocket as WS } from 'ws'
-import { createLimiter, type DaemonHandle, resolveDurableBackend, startDaemon } from './daemon'
+import {
+  controlFrameByteLength,
+  createLimiter,
+  type DaemonHandle,
+  resolveDurableBackend,
+  startDaemon,
+} from './daemon'
 
 const FIXTURE = fileURLToPath(
   new URL('../../../packages/agent-bridge/test/fixtures/fixture-tui.mjs', import.meta.url),
@@ -1236,5 +1242,19 @@ describe('createLimiter (reattach spawn gate)', () => {
     await expect(limit(() => Promise.reject(new Error('boom')))).rejects.toThrow('boom')
     // A failure must release its slot so later work still runs.
     await expect(limit(() => Promise.resolve('ok'))).resolves.toBe('ok')
+  })
+})
+
+describe('controlFrameByteLength', () => {
+  it('measures a Buffer frame', () => {
+    expect(controlFrameByteLength(Buffer.from('hello'))).toBe(5)
+  })
+
+  it('sums a fragmented (Buffer[]) frame', () => {
+    expect(controlFrameByteLength([Buffer.from('ab'), Buffer.from('cde')])).toBe(5)
+  })
+
+  it('measures an ArrayBuffer frame', () => {
+    expect(controlFrameByteLength(new ArrayBuffer(7))).toBe(7)
   })
 })

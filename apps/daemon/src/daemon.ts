@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdir, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { homedir, hostname } from 'node:os'
 import { dirname, join } from 'node:path'
 import { promisify } from 'node:util'
@@ -20,13 +21,13 @@ import {
   attachAbducoAgent,
   attachTmuxAgent,
   ConversationDiscoveryCache,
+  type CursorStateObserver,
   claudeProjectSlug,
   claudeRecordToItems,
   codexRecordToItems,
   compareConversationSummaries,
   cursorRecordToItems,
   cursorSessionPaths,
-  type CursorStateObserver,
   findCodexRolloutPath,
   type GitDiscoveryDiagnostic,
   type GitRepositorySummary,
@@ -37,7 +38,9 @@ import {
   isAbducoAvailable,
   isTmuxAvailable,
   killAbducoSession,
+  killAbducoSessionAsync,
   killTmuxServer,
+  killTmuxServerAsync,
   loadOpencodeTranscriptTail,
   type OpencodeStateObserver,
   observeCodexState,
@@ -48,9 +51,9 @@ import {
   openOpencodeDb,
   readTranscriptPage,
   readTranscriptTail,
+  reduceAgentState,
   resolveCursorBin,
   resolveOpencodeBin,
-  reduceAgentState,
   scanAgentConversationsCached,
   scanGitRepositories,
   spawnAbducoAgent,
@@ -77,13 +80,27 @@ import { readAssetSandboxed, readFileSandboxed, writeFileSandboxed } from './fil
 import { startHookIngest } from './hook-ingest'
 import { sampleHostMemory } from './host-metrics'
 import { attributeMemory, snapshotProcesses } from './memory-breakdown'
+import { makeQuotaFetcher } from './quota-fetch'
 import { uploadFilePath } from './upload'
 import { uploadsToGc } from './uploads-gc'
 import { scanClaudeUsage } from './usage-scan'
-import { makeQuotaFetcher } from './quota-fetch'
 
 const DEFAULT_DISCOVERY_SCAN_INTERVAL_MS = 15_000
 const DEFAULT_HOST_METRICS_INTERVAL_MS = 5_000
+
+// A control frame this large is never legitimate — the biggest real payload (an image
+// upload) is bounded well under this — but a multi-hundred-MB frame's synchronous
+// toString()+JSON.parse would stall the daemon loop and back up the socket (audit P0-4).
+// 64 MB leaves generous headroom over real uploads/pastes/file writes.
+const MAX_CONTROL_FRAME_BYTES = 64 * 1024 * 1024
+
+/** Byte length of an inbound ws frame without materializing it to a string. Exported
+ *  for unit testing the oversized-frame guard. */
+export function controlFrameByteLength(raw: RawData): number {
+  if (Buffer.isBuffer(raw)) return raw.length
+  if (Array.isArray(raw)) return raw.reduce((n, b) => n + b.length, 0)
+  return (raw as ArrayBuffer).byteLength
+}
 
 export interface DaemonDiscoveryOptions {
   /** Disable unsolicited cached/background conversation pushes; scanRequest still works. */
@@ -620,20 +637,23 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
   const UPLOADS_TTL_MS = 24 * 3600_000 // 24 hours
   const UPLOADS_GC_INTERVAL_MS = 3600_000 // 1 hour
 
-  /** Collect all files under ~/.podium/uploads and delete those older than the TTL. */
-  const sweepUploads = (): void => {
+  /** Collect all files under ~/.podium/uploads and delete those older than the TTL.
+   *  Async fs throughout: the sweep walks every upload across all sessions on an
+   *  hourly timer, and a sync readdir/stat storm on the daemon loop would stall every
+   *  session's I/O for the duration (audit P2-17). */
+  const sweepUploads = async (): Promise<void> => {
     const uploadsDir = join(homedir(), '.podium', 'uploads')
     try {
-      const sessionDirs = readdirSync(uploadsDir)
+      const sessionDirs = await readdir(uploadsDir)
       const files: { path: string; mtimeMs: number }[] = []
       for (const sessionDir of sessionDirs) {
         const sessionPath = join(uploadsDir, sessionDir)
         try {
-          const entries = readdirSync(sessionPath)
+          const entries = await readdir(sessionPath)
           for (const entry of entries) {
             const filePath = join(sessionPath, entry)
             try {
-              const st = statSync(filePath)
+              const st = await stat(filePath)
               if (st.isFile()) files.push({ path: filePath, mtimeMs: st.mtimeMs })
             } catch {
               // file may have already been removed
@@ -646,7 +666,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
       const toDelete = uploadsToGc(files, Date.now(), UPLOADS_TTL_MS)
       for (const p of toDelete) {
         try {
-          rmSync(p)
+          await rm(p)
         } catch {
           // best effort
         }
@@ -1060,20 +1080,22 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     })
   }
 
-  const handleImageUpload = (
+  const handleImageUpload = async (
     msg: Extract<ControlMessage, { type: 'imageUploadRequest' }>,
-  ): void => {
+  ): Promise<void> => {
     // Session ownership is intentionally NOT validated here: a client may upload
     // an image before the agent PTY is live (e.g. pre-spawn or during reconnect).
+    // Async fs: decoding+writing a multi-MB base64 image synchronously blocked the
+    // whole daemon loop for the duration of the write (audit P0-4).
     try {
       const id = randomUUID()
       const filePath = uploadFilePath(homedir(), msg.sessionId, id, msg.mimeType)
-      mkdirSync(dirname(filePath), { recursive: true })
-      writeFileSync(filePath, Buffer.from(msg.dataBase64, 'base64'))
+      await mkdir(dirname(filePath), { recursive: true })
+      await writeFile(filePath, Buffer.from(msg.dataBase64, 'base64'))
       send({ type: 'imageUploadResult', requestId: msg.requestId, path: filePath })
     } catch (err) {
       // Return an empty path + error so the router can throw INTERNAL_SERVER_ERROR
-      // (a synchronous write failure, not a timeout).
+      // (a write failure, not a timeout).
       console.warn('[podium] image upload failed:', err)
       send({
         type: 'imageUploadResult',
@@ -1085,6 +1107,14 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
   }
 
   const handleControlMessage = (raw: RawData): void => {
+    // Drop absurdly large frames before materializing/parsing them (audit P0-4): a
+    // multi-hundred-MB frame's synchronous toString()+JSON.parse would stall the loop
+    // and back up the socket Recv-Q — the wedge shape. The cap is generous so it never
+    // touches legitimate big payloads (image uploads, large pastes, file writes).
+    if (controlFrameByteLength(raw) > MAX_CONTROL_FRAME_BYTES) {
+      console.warn('[podium:daemon] dropping oversized control frame')
+      return
+    }
     let msg: ControlMessage
     try {
       msg = parseControlMessage(raw.toString())
@@ -1115,10 +1145,12 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
         // bridge (attachDaemon only re-binds 'reconnecting' sessions); if kill
         // skipped the reap there, hibernate/kill would leave the abduco/tmux
         // master (and its agent) running. Both reapers are cheap no-ops when the
-        // label isn't theirs.
+        // label isn't theirs. Async twins (audit P0-4): the sync reapers fork+exec
+        // `abduco`/`tmux` on the loop, and kills arrive in bursts (superagent,
+        // auto-hibernation) — serializing those would stall every other session.
         if (backend !== 'none') {
-          killAbducoSession(`podium-${msg.sessionId}`)
-          killTmuxServer(`podium-${msg.sessionId}`)
+          void killAbducoSessionAsync(`podium-${msg.sessionId}`)
+          void killTmuxServerAsync(`podium-${msg.sessionId}`)
         }
         removeSessionUploads(msg.sessionId)
         break
@@ -1160,20 +1192,39 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
         void readParkedTranscript(msg)
         break
       case 'imageUploadRequest':
-        handleImageUpload(msg)
+        void handleImageUpload(msg)
         break
       case 'transcriptPageRequest':
         void readTranscriptPageRequest(msg)
         break
       case 'fileReadRequest':
-        void readFileSandboxed({ cwd: msg.cwd, path: msg.path, knownPath: msg.knownPath }).then(
-          (r) => send({ type: 'fileReadResult', requestId: msg.requestId, ...r }),
-        )
+        // .catch (audit P0-1): a sandboxed-read reject (ENOENT race, EACCES, decode
+        // failure) would otherwise be an unhandled rejection AND leave the server's
+        // pending resolver hanging until its 10s timeout. Reply with an error result.
+        void readFileSandboxed({ cwd: msg.cwd, path: msg.path, knownPath: msg.knownPath })
+          .then((r) => send({ type: 'fileReadResult', requestId: msg.requestId, ...r }))
+          .catch((err) =>
+            send({
+              type: 'fileReadResult',
+              requestId: msg.requestId,
+              ok: false,
+              path: msg.path,
+              error: String(err),
+            }),
+          )
         break
       case 'fileAssetRequest':
-        void readAssetSandboxed({ cwd: msg.cwd, path: msg.path, knownPath: msg.knownPath }).then((r) =>
-          send({ type: 'fileAssetResult', requestId: msg.requestId, ...r }),
-        )
+        void readAssetSandboxed({ cwd: msg.cwd, path: msg.path, knownPath: msg.knownPath })
+          .then((r) => send({ type: 'fileAssetResult', requestId: msg.requestId, ...r }))
+          .catch((err) =>
+            send({
+              type: 'fileAssetResult',
+              requestId: msg.requestId,
+              ok: false,
+              path: msg.path,
+              error: String(err),
+            }),
+          )
         break
       case 'fileWriteRequest':
         void writeFileSandboxed({
@@ -1181,7 +1232,16 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
           path: msg.path,
           content: msg.content,
           ...(msg.baseHash ? { baseHash: msg.baseHash } : {}),
-        }).then((r) => send({ type: 'fileWriteResult', requestId: msg.requestId, ...r }))
+        })
+          .then((r) => send({ type: 'fileWriteResult', requestId: msg.requestId, ...r }))
+          .catch((err) =>
+            send({
+              type: 'fileWriteResult',
+              requestId: msg.requestId,
+              ok: false,
+              error: String(err),
+            }),
+          )
         break
     }
   }

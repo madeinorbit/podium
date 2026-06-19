@@ -22,6 +22,14 @@ export interface HookIngest {
  */
 export const DEFAULT_HOOK_PORT = 45777
 
+/**
+ * Hard cap on a hook request body. The hook port is baked into every spawned
+ * agent's settings file, so a misbehaving/compromised agent could POST an
+ * arbitrarily large body and OOM/block the daemon. Real hook payloads are small
+ * JSON, so 2 MB is generous; anything over is rejected with 413 before parsing.
+ */
+export const HOOK_BODY_MAX_BYTES = 2 * 1024 * 1024
+
 export function startHookIngest(opts: {
   onPayload: (sessionId: string, payload: unknown) => void
   /** Preferred port; pass 0 for ephemeral (tests). Defaults to DEFAULT_HOOK_PORT. */
@@ -36,8 +44,26 @@ export function startHookIngest(opts: {
     }
     const sessionId = match[1] as string
     const chunks: Buffer[] = []
-    req.on('data', (c: Buffer) => chunks.push(c))
+    let total = 0
+    let aborted = false
+    req.on('data', (c: Buffer) => {
+      if (aborted) return
+      total += c.length
+      if (total > HOOK_BODY_MAX_BYTES) {
+        // Over the cap: reject without parsing and stop buffering. Drop what we
+        // have so a late chunk can't re-trigger onPayload, and tear down the
+        // request so a hostile sender can't keep streaming into the daemon.
+        aborted = true
+        chunks.length = 0
+        res.writeHead(413)
+        res.end()
+        req.destroy()
+        return
+      }
+      chunks.push(c)
+    })
     req.on('end', () => {
+      if (aborted) return
       res.writeHead(200, { 'content-type': 'application/json' })
       res.end('{}')
       try {
