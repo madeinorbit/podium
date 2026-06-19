@@ -32,8 +32,11 @@ import {
 import { useSessionGuard } from '@/hooks/use-session-guard'
 import { cn } from '@/lib/utils'
 import { ChatView } from './ChatView'
-import { defaultChatCapable, panelLabel, resumeCommand } from './derive'
+import { defaultChatCapable, isSnoozed, panelLabel, resumeCommand } from './derive'
+import { attentionGroup } from './home'
+import { SnoozeControl } from './SnoozeControl'
 import { useStore } from './store'
+import { useNow } from './useNow'
 import { useVoiceInput } from './voice'
 import { WorkerLabel } from './WorkerLabel'
 
@@ -161,6 +164,14 @@ export function AgentPanel({
   // working agent would kill its in-flight turn (the server refuses it too).
   const phase = session?.agentState?.phase
   const agentWorking = phase === 'working' || phase === 'compacting'
+  const snoozeNow = useNow(60_000)
+  // Offer snooze in the full view when the session is in (or already snoozed out
+  // of) the attention surface — not for actively-working or parked sessions.
+  const showSnooze =
+    !!session &&
+    !hibernated &&
+    !exited &&
+    (attentionGroup(session) !== 'working' || isSnoozed(session, snoozeNow))
   const canHibernate = !hibernated && !exited && session?.resumable === true
   // Hold a "Starting…" overlay over the terminal until the session is READY — the
   // server confirms the attach (PTY bound), the first frame lands, or a timeout
@@ -391,15 +402,18 @@ export function AgentPanel({
         {/* Native resume command (#119): the literal `claude --resume <id>` etc.
             so you can pick the conversation back up in your own terminal. Shown
             whenever the harness has handed us a resume ref. As the first
-            right-aligned control it carries `ml-auto`; the BTW button only takes
-            it when this menu is absent. */}
+            right-aligned control it carries `ml-auto`; the snooze/BTW controls
+            only take it when the controls before them are absent. */}
         {resumeCmd && <ResumeCommandMenu command={resumeCmd} className="ml-auto" />}
+        {showSnooze && session && (
+          <SnoozeControl session={session} iconSize={15} className={cn(!resumeCmd && 'ml-auto')} />
+        )}
         {chatCapable && (
           <Button
             type="button"
             variant="ghost"
             size="icon"
-            className={cn(!resumeCmd && 'ml-auto')}
+            className={cn(!resumeCmd && !showSnooze && 'ml-auto')}
             title="Ask the superagent about this session (BTW)"
             onClick={() => void startBtw(sessionId)}
           >
