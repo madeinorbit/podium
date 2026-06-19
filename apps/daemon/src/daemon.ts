@@ -58,6 +58,7 @@ import {
   tmuxHasSessionAsync,
 } from '@podium/agent-bridge'
 import {
+  type AgentKind,
   type ControlMessage,
   type ConversationDiagnosticWire,
   type ConversationSummaryWire,
@@ -461,6 +462,9 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
           })
           tailCodexTranscript(sessionId, rolloutPath)
         },
+        // Codex's OSC terminal title is just the cwd basename (suppressed in
+        // wireBridge); the observer derives a real title from the thread instead.
+        onTitle: (title) => send({ type: 'title', sessionId, title }),
         onEvents: (events) => applyAgentStateEvents(sessionId, events),
       }),
     )
@@ -743,12 +747,17 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     })
   }
 
-  const wireBridge = (sessionId: string, session: AgentSession): void => {
+  const wireBridge = (sessionId: string, session: AgentSession, agentKind: AgentKind): void => {
     bridges.set(sessionId, session)
     session.onFrame((frame) =>
       send({ type: 'agentFrame', sessionId, seq: frame.seq, data: frame.data }),
     )
-    session.onTitle((title) => send({ type: 'title', sessionId, title }))
+    // Codex sets its OSC title to the cwd basename (+ a spinner glyph that churns at
+    // frame-rate), which would clobber the real title the codex observer derives.
+    // Every other harness sets a meaningful OSC title, so forward it for them.
+    if (agentKind !== 'codex') {
+      session.onTitle((title) => send({ type: 'title', sessionId, title }))
+    }
     session.onExit((code) => {
       bridges.delete(sessionId)
       trackers.delete(sessionId)
@@ -811,7 +820,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
           : backend === 'tmux'
             ? spawnTmuxAgent(spawnOpts)
             : spawnAgent(spawnOpts)
-      wireBridge(msg.sessionId, session)
+      wireBridge(msg.sessionId, session, msg.agentKind)
       // Stand up the agent-state tracker, harness observer, resume transcript tail
       // and seeded phase. A fresh spawn's CLI isn't up yet, so seed on the first
       // frame. Same call on reattach keeps the two paths from drifting.
@@ -913,7 +922,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
         })
         return
       }
-      wireBridge(msg.sessionId, found.session)
+      wireBridge(msg.sessionId, found.session, msg.agentKind)
       // The settings file from the original spawn still points at our fixed port,
       // so a reattached agent keeps reporting. A fresh daemon (post-redeploy) lost
       // all in-memory per-session state — rebuild it via the same path spawn uses.

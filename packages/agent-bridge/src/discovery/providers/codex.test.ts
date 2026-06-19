@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { describe, expect, test } from 'vitest'
 import { AgentConversationLoadError } from '../types.js'
-import { createCodexConversationProvider } from './codex.js'
+import { codexPromptTitle, createCodexConversationProvider } from './codex.js'
 
 async function createRoot(): Promise<string> {
   return await mkdtemp(join(tmpdir(), 'podium-codex-'))
@@ -291,5 +291,40 @@ describe('createCodexConversationProvider', () => {
         message: expect.stringContaining('Could not parse JSONL line 2'),
       }),
     ])
+  })
+})
+
+describe('codexPromptTitle', () => {
+  test('turns a user_message into a collapsed, capped one-line title', () => {
+    expect(
+      codexPromptTitle({
+        type: 'event_msg',
+        payload: { type: 'user_message', message: '  add a dark   mode\ntoggle ' },
+      }),
+    ).toBe('add a dark mode toggle')
+  })
+
+  test('caps very long prompts to 100 chars with an ellipsis', () => {
+    const title = codexPromptTitle({
+      type: 'event_msg',
+      payload: { type: 'user_message', message: 'x'.repeat(150) },
+    })
+    expect(title).toBe(`${'x'.repeat(100)}…`)
+  })
+
+  test('ignores injected preamble (text starting with <) and non-prompt records', () => {
+    expect(
+      codexPromptTitle({
+        type: 'event_msg',
+        payload: { type: 'user_message', message: '<user_instructions>…</user_instructions>' },
+      }),
+    ).toBeUndefined()
+    expect(
+      codexPromptTitle({ type: 'event_msg', payload: { type: 'agent_message', message: 'hi' } }),
+    ).toBeUndefined()
+    expect(
+      codexPromptTitle({ type: 'response_item', payload: { type: 'message', role: 'user' } }),
+    ).toBeUndefined()
+    expect(codexPromptTitle('nonsense')).toBeUndefined()
   })
 })

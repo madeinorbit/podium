@@ -7,6 +7,7 @@ import {
   codexStateProvider,
   findCodexRolloutPath,
   findLiveCodexRollout,
+  observeCodexState,
   translateCodexEvent,
 } from './codex.js'
 
@@ -107,6 +108,99 @@ describe('findLiveCodexRollout', () => {
     expect(await findLiveCodexRollout(sessions, '/repo/x', Date.now() + 60_000)).toBeUndefined()
     // …but reattach (floor 0) finds the live session's existing rollout regardless of age.
     expect((await findLiveCodexRollout(sessions, '/repo/x', 0))?.id).toBe('idle')
+  })
+})
+
+describe('observeCodexState titles', () => {
+  const jsonl = (lines: unknown[]): string => `${lines.map((l) => JSON.stringify(l)).join('\n')}\n`
+
+  // Build `<home>/.codex/sessions/.../rollout-*.jsonl`; return its home + file path.
+  async function writeRollout(
+    lines: unknown[],
+    id = 'uuidT',
+  ): Promise<{ home: string; file: string }> {
+    const home = await mkdtemp(join(tmpdir(), 'podium-codex-title-'))
+    const dir = join(home, '.codex', 'sessions', '2026', '06', '16')
+    await mkdir(dir, { recursive: true })
+    const file = join(dir, `rollout-2026-06-16T16-11-26-${id}.jsonl`)
+    await writeFile(file, jsonl(lines))
+    return { home, file }
+  }
+
+  const titleFrom = (home: string, cwd: string): Promise<string> =>
+    new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        obs.stop()
+        reject(new Error('onTitle was not called'))
+      }, 3000)
+      const obs = observeCodexState({
+        cwd,
+        homeDir: home,
+        startedAtMs: 0,
+        pollMs: 10,
+        onTitle: (title) => {
+          clearTimeout(timer)
+          obs.stop()
+          resolve(title)
+        },
+        onEvents: () => {},
+      })
+    })
+
+  it('emits the first typed prompt as the title for a fresh session', async () => {
+    const { home } = await writeRollout([
+      { type: 'session_meta', payload: { id: 'uuidT', cwd: '/repo/title' } },
+      { type: 'event_msg', payload: { type: 'user_message', message: 'add a dark mode toggle' } },
+    ])
+    expect(await titleFrom(home, '/repo/title')).toBe('add a dark mode toggle')
+  })
+
+  it('titles a session whose prompt arrives after the observer attaches (real spawn timing)', async () => {
+    // Spawn order: Podium attaches the observer when only session_meta exists, then
+    // the user types — the first prompt must still become the title as it lands.
+    const { home, file } = await writeRollout([
+      { type: 'session_meta', payload: { id: 'uuidT', cwd: '/repo/deferred' } },
+    ])
+    const title = titleFrom(home, '/repo/deferred')
+    await writeFile(
+      file,
+      jsonl([
+        { type: 'session_meta', payload: { id: 'uuidT', cwd: '/repo/deferred' } },
+        { type: 'event_msg', payload: { type: 'user_message', message: 'wire up CSV export' } },
+      ]),
+    )
+    expect(await title).toBe('wire up CSV export')
+  })
+
+  it('does not title from an injected preamble before a real prompt arrives', async () => {
+    // The AGENTS.md/permissions preamble lands as a `<…>` user_message first; it must
+    // not win, and the next genuine prompt should.
+    const { home, file } = await writeRollout([
+      { type: 'session_meta', payload: { id: 'uuidT', cwd: '/repo/preamble' } },
+      {
+        type: 'event_msg',
+        payload: {
+          type: 'user_message',
+          message: '<user_instructions>be good</user_instructions>',
+        },
+      },
+    ])
+    const title = titleFrom(home, '/repo/preamble')
+    await writeFile(
+      file,
+      jsonl([
+        { type: 'session_meta', payload: { id: 'uuidT', cwd: '/repo/preamble' } },
+        {
+          type: 'event_msg',
+          payload: {
+            type: 'user_message',
+            message: '<user_instructions>be good</user_instructions>',
+          },
+        },
+        { type: 'event_msg', payload: { type: 'user_message', message: 'add pagination' } },
+      ]),
+    )
+    expect(await title).toBe('add pagination')
   })
 })
 
