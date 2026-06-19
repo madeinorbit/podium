@@ -480,6 +480,11 @@ describe('agent runtime state', () => {
 })
 
 describe('agent quota messages', () => {
+  it('round-trips an agentQuotaRequest through the control union', () => {
+    const msg = { type: 'agentQuotaRequest' as const, requestId: 'aq1' }
+    expect(parseControlMessage(encode(msg))).toEqual(msg)
+  })
+
   it('round-trips an agentQuotaResult over encode/decode', () => {
     const msg = {
       type: 'agentQuotaResult' as const,
