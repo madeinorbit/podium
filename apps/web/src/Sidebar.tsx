@@ -37,8 +37,10 @@ import {
 import { HostIndicators } from './HostIndicators'
 import { RepoScanFlow } from './RepoScanFlow'
 import { SearchView } from './SearchView'
+import { SnoozeControl } from './SnoozeControl'
 import { useStore } from './store'
 import type { PinKind } from './types'
+import { useNow } from './useNow'
 import { SessionNameEditor, sessionDisplayName, WorkerLabel } from './WorkerLabel'
 
 const WORKING_EXPANDED_KEY = 'podium:sidebar:working-expanded'
@@ -84,7 +86,8 @@ export function Sidebar(): JSX.Element {
     sidebarSettings,
     setSidebarSettings,
   } = useStore()
-  const sections = sidebarSections(repos, sessions, pins)
+  const now = useNow(60_000)
+  const sections = sidebarSections(repos, sessions, pins, now)
   const [pickerOpen, setPickerOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
   const [workingExpanded, setWorkingExpandedState] = useState<boolean>(getWorkingExpanded)
@@ -152,7 +155,7 @@ export function Sidebar(): JSX.Element {
   }
 
   const pinnedSessionIds = new Set(pins.panels)
-  const workItems = partitionWorkItems(sessions, pinnedSessionIds)
+  const workItems = partitionWorkItems(sessions, pinnedSessionIds, now)
 
   const hasRows =
     workItems.attention.length > 0 ||
@@ -648,6 +651,7 @@ function PanelRow({
           Continue
         </Button>
       )}
+      <SnoozeControl session={session} />
       <Button
         variant="ghost"
         size="icon-sm"
