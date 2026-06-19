@@ -22,8 +22,11 @@ import { ArrowSwipeKey } from '@/ArrowSwipeKey'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { ChatView } from './ChatView'
-import { defaultChatCapable, panelLabel } from './derive'
+import { defaultChatCapable, isSnoozed, panelLabel } from './derive'
+import { attentionGroup } from './home'
+import { SnoozeControl } from './SnoozeControl'
 import { useStore } from './store'
+import { useNow } from './useNow'
 import { useVoiceInput } from './voice'
 import { WorkerLabel } from './WorkerLabel'
 
@@ -129,6 +132,14 @@ export function AgentPanel({
   // working agent would kill its in-flight turn (the server refuses it too).
   const phase = session?.agentState?.phase
   const agentWorking = phase === 'working' || phase === 'compacting'
+  const snoozeNow = useNow(60_000)
+  // Offer snooze in the full view when the session is in (or already snoozed out
+  // of) the attention surface — not for actively-working or parked sessions.
+  const showSnooze =
+    !!session &&
+    !hibernated &&
+    !exited &&
+    (attentionGroup(session) !== 'working' || isSnoozed(session, snoozeNow))
   const canHibernate = !hibernated && !exited && session?.resumable === true
   // Empty is never good: hold a "Starting…" overlay over the terminal until the
   // first real PTY frame lands, so a slow-starting (or wedged) agent reads as
@@ -272,6 +283,7 @@ export function AgentPanel({
             </Button>
           </span>
         )}
+        {showSnooze && session && <SnoozeControl session={session} iconSize={15} className="ml-auto" />}
         {chatCapable && (
           <Button
             type="button"
