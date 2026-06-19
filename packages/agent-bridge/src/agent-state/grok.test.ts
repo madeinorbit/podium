@@ -123,6 +123,34 @@ describe('observeGrokState', () => {
     }
   })
 
+  it('reattach without resumeValue or startedAtMs binds a pre-existing session (watermark=0)', async () => {
+    // Regression: on reattach, the daemon passes no startedAtMs to startGrokStateObserver.
+    // If startedAtMs defaulted to Date.now(), watermarkMs = now and createdMs < now for
+    // any pre-existing session → chooseGrokSessionDir returns undefined → never rebinds.
+    // Fix: no startedAtMs → observeGrokState uses watermarkMs=0 (no floor, picks latest-by-mtime).
+    const home = await mkdtemp(join(tmpdir(), 'podium-grok-reattach-'))
+    const cwd = '/repo/grok'
+    const seenSessions: string[] = []
+    // No startedAtMs passed — simulates the reattach path where no spawn timestamp is available.
+    const observer = observeGrokState({
+      homeDir: home,
+      cwd,
+      pollMs: 10,
+      onSession: (sessionId) => seenSessions.push(sessionId),
+      onEvents: () => {},
+    })
+    try {
+      const paths = grokSessionPaths({ homeDir: home, cwd, sessionId: 'g-preexisting' })
+      await mkdir(paths.sessionDir, { recursive: true })
+      await writeFile(paths.summaryPath, JSON.stringify({ info: { id: 'g-preexisting', cwd } }))
+      await writeFile(paths.updatesPath, '')
+      // Even though the session dir was created before the observer started, it must bind.
+      await waitFor(() => seenSessions.includes('g-preexisting'))
+    } finally {
+      observer.stop()
+    }
+  })
+
   it('finds a fresh Grok session, reports the resume id, and emits update events', async () => {
     const home = await mkdtemp(join(tmpdir(), 'podium-grok-observe-'))
     const cwd = '/repo/grok'

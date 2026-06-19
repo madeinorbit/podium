@@ -324,7 +324,11 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     sessionId: string,
     cwd: string,
     resumeValue: string | undefined,
-    startedAtMs = Date.now(),
+    // On a fresh spawn, pass the actual spawn timestamp so discovery skips older
+    // sibling sessions in the same cwd. On reattach, pass undefined → observeGrokState
+    // defaults watermarkMs to 0 (no floor), so the latest-by-activity session
+    // is found even if it predates this daemon process start.
+    startedAtMs?: number,
   ): void => {
     stopGrokStateObserver(sessionId)
     grokStateObservers.set(
@@ -333,7 +337,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
         cwd,
         ...(resumeValue ? { resumeValue } : {}),
         ...(opts.discovery?.homeDir ? { homeDir: opts.discovery.homeDir } : {}),
-        startedAtMs,
+        ...(startedAtMs !== undefined ? { startedAtMs } : {}),
         onSession: (grokSessionId) => {
           send({
             type: 'sessionResumeRef',
@@ -658,7 +662,8 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
   // 'working' with an empty chat after a redeploy. `seedOnFrame` waits for the
   // first PTY frame (a fresh spawn's CLI isn't up yet); reattach seeds now (the
   // survivor is already at its prompt). `grokStartedAt` scopes Grok's session
-  // search (a fresh spawn's start time; omitted on reattach → now).
+  // search (a fresh spawn's start time; omitted on reattach → watermarkMs:0,
+  // so discovery binds the latest-by-activity session regardless of its age).
   const initSessionObservers = (
     msg: SpawnControl | ReattachControl,
     session: AgentSession,
@@ -822,6 +827,13 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
       void (async () => {
         if (backend === 'abduco' && (await abducoHasSessionAsync(label))) return
         if (backend === 'tmux' && (await tmuxHasSessionAsync(label))) return
+        // The agent has truly exited (master is gone). Uploads are one-shot prompt
+        // inputs that were already consumed before the agent finished processing
+        // them, so it's safe to remove the per-session upload dir on any real exit
+        // (natural finish, hibernate, or kill). kill also calls removeSessionUploads
+        // directly, so the two are harmlessly idempotent (rmSync force:true is a no-op
+        // on a missing dir). The hourly TTL sweep remains a backstop for edge cases.
+        removeSessionUploads(sessionId)
         send({ type: 'agentExit', sessionId, code })
       })()
     })

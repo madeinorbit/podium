@@ -1,5 +1,5 @@
 import { execSync } from 'node:child_process'
-import { mkdtempSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -247,6 +247,55 @@ describe('daemon multi-bridge', () => {
     )
     expect(result?.repositories.map((r) => r.path)).toContain(repo)
     expect(result?.diagnostics.length ?? 0).toBeGreaterThan(0)
+  })
+
+  it('kill removes the per-session upload dir immediately', async () => {
+    // Regression guard: kill already called removeSessionUploads. Ensure the dir
+    // is gone after kill even when uploads were written to a custom HOME.
+    const home = mkdtempSync(join(tmpdir(), 'podium-uploads-kill-'))
+    const sessionId = 'upload-kill-s1'
+    const uploadDir = join(home, '.podium', 'uploads', sessionId)
+    mkdirSync(uploadDir, { recursive: true })
+    writeFileSync(join(uploadDir, 'test.png'), 'data')
+
+    const prevHome = process.env.HOME
+    process.env.HOME = home
+    try {
+      send({ type: 'spawn', sessionId, agentKind: 'claude-code', cwd: '/tmp', geometry: G })
+      await waitFor(() => received.some((m) => m.type === 'bind' && m.sessionId === sessionId))
+      expect(existsSync(uploadDir)).toBe(true)
+      send({ type: 'kill', sessionId })
+      await waitFor(() => !existsSync(uploadDir))
+    } finally {
+      process.env.HOME = prevHome
+    }
+  })
+
+  it('natural agent exit (backend=none) removes the per-session upload dir', async () => {
+    // Regression: removeSessionUploads was only called on `kill`, not on the natural
+    // exit path inside wireBridge.onExit. A session that exits on its own left
+    // ~/.podium/uploads/<sessionId>/ until the 24h hourly sweep.
+    const home = mkdtempSync(join(tmpdir(), 'podium-uploads-exit-'))
+    const sessionId = 'upload-exit-s1'
+    const uploadDir = join(home, '.podium', 'uploads', sessionId)
+    mkdirSync(uploadDir, { recursive: true })
+    writeFileSync(join(uploadDir, 'test.png'), 'data')
+
+    const prevHome = process.env.HOME
+    process.env.HOME = home
+    try {
+      send({ type: 'spawn', sessionId, agentKind: 'claude-code', cwd: '/tmp', geometry: G })
+      await waitFor(() => fixtureFrame(sessionId) !== undefined)
+      expect(existsSync(uploadDir)).toBe(true)
+      // Send Ctrl-C to the fixture — it calls process.exit(0) on receiving \x03.
+      send({ type: 'input', sessionId, data: btoa('\x03') })
+      // With backend=none the master IS the process; when it exits the onExit fires
+      // and (with the fix) removeSessionUploads is called before agentExit.
+      await waitFor(() => received.some((m) => m.type === 'agentExit' && m.sessionId === sessionId))
+      expect(existsSync(uploadDir)).toBe(false)
+    } finally {
+      process.env.HOME = prevHome
+    }
   })
 })
 
