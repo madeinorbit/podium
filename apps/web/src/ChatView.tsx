@@ -339,7 +339,7 @@ export function ChatView({
       </div>
       <div className="relative flex min-h-0 flex-1">
         <div
-          className="flex min-w-0 flex-1 flex-col gap-2.5 overflow-y-auto px-[18px] pt-3.5 pb-5"
+          className="flex min-w-0 flex-1 flex-col gap-0 overflow-y-auto px-5 pt-5 pb-6"
           ref={scrollerRef}
           onScroll={onScroll}
         >
@@ -357,7 +357,7 @@ export function ChatView({
             </div>
           )}
           {blocks.length === 0 && !loadingTranscript && (
-            <div className="mx-auto my-6 max-w-[46ch] text-center text-[13px] text-muted-foreground/70">
+            <div className="mx-auto my-6 max-w-[52ch] text-center text-[13px] text-muted-foreground/70">
               No transcript yet. For Claude, Codex, and Grok sessions the feed starts with the first
               prompt; shells have no structured transcript.
             </div>
@@ -375,17 +375,23 @@ export function ChatView({
             <div
               key={p.id}
               className={cn(
-                'mx-auto w-full max-w-[760px] rounded-[10px] border border-border bg-secondary px-3.5 py-2.5',
-                p.state === 'failed' && 'border-destructive/60',
+                'transcript-row mx-auto w-full max-w-[900px]',
+                p.state === 'failed' && 'opacity-60',
               )}
             >
-              <div className="mb-[3px] flex items-center gap-1.5 text-[10px] uppercase tracking-[0.07em] text-muted-foreground/70">
-                You
-                {p.state === 'sending' && <span className="normal-case tracking-normal opacity-70">· sending…</span>}
-                {p.state === 'failed' && <span className="normal-case tracking-normal text-destructive">· not delivered</span>}
-              </div>
-              <div className="whitespace-pre-wrap break-words text-sm leading-[1.45] text-foreground">
-                {p.text}
+              {/* User rail */}
+              <div className="transcript-rail transcript-rail--user" aria-hidden="true" />
+              <div className="transcript-body">
+                <div className="transcript-header">
+                  <span className="transcript-role">You</span>
+                  {p.state === 'sending' && (
+                    <span className="transcript-meta">sending…</span>
+                  )}
+                  {p.state === 'failed' && (
+                    <span className="transcript-meta text-destructive">not delivered</span>
+                  )}
+                </div>
+                <div className="chat-md whitespace-pre-wrap">{p.text}</div>
               </div>
             </div>
           ))}
@@ -394,9 +400,7 @@ export function ChatView({
               role="status"
               aria-live="polite"
               className={cn(
-                'mx-auto flex w-full max-w-[760px] items-center gap-2 text-xs',
-                // Match the shared status palette: working → green, needs-you →
-                // yellow, everything else muted.
+                'mx-auto flex w-full max-w-[900px] items-center gap-2 py-3 pl-[calc(3px+12px)] text-xs',
                 activity.tone === 'attention'
                   ? 'text-amber-500'
                   : activity.tone === 'working'
@@ -512,15 +516,15 @@ const ChatBlockView = memo(function ChatBlockView({
 }): JSX.Element | null {
   const { item } = block
   const html = useMemo(() => renderMarkdown(item.text), [item.text])
-  const blockClass = cn(
-    'mx-auto w-full max-w-[760px]',
+  const rowClass = cn(
+    'transcript-row mx-auto w-full max-w-[900px]',
     highlighted && 'rounded-md outline outline-1 outline-primary outline-offset-4',
     dimmed && 'opacity-35',
   )
 
   if (item.role === 'tool' && item.toolName === 'AskUserQuestion' && item.toolInputJson)
-    return <AskUserQuestionCard block={block} cls={blockClass} index={index} />
-  if (item.role === 'tool') return <ToolBlock block={block} cls={blockClass} index={index} />
+    return <AskUserQuestionCard block={block} cls={rowClass} index={index} />
+  if (item.role === 'tool') return <ToolBlock block={block} cls={rowClass} index={index} />
 
   // A recognized user action that isn't a chat message (e.g. interrupt) — show it
   // as a thin inline divider, not a "You" bubble.
@@ -529,8 +533,8 @@ const ChatBlockView = memo(function ChatBlockView({
       <div
         data-block={index}
         className={cn(
-          blockClass,
-          'flex items-center gap-2 text-[10px] uppercase tracking-[0.07em] text-muted-foreground/55',
+          rowClass,
+          'my-2 flex items-center gap-2 text-[10px] uppercase tracking-[0.07em] text-muted-foreground/55',
         )}
       >
         <span className="h-px flex-1 bg-border" />
@@ -540,53 +544,65 @@ const ChatBlockView = memo(function ChatBlockView({
     )
   }
 
-  const roleClass = cn(
-    item.role === 'user' && 'rounded-[10px] border border-border bg-secondary px-3.5 py-2.5',
-    item.role === 'system' && 'text-xs text-muted-foreground',
-    // The turn's final answer (stop_reason end_turn) — give it a distinct agent
-    // bubble so it stands out from the intermediate narration above it.
-    item.role === 'assistant' &&
-      item.answer &&
-      'rounded-[10px] border border-primary/25 bg-primary/[0.05] px-3.5 py-2.5',
-  )
+  // Rail: user → blue accent, final answer → primary/amber, everything else → none
+  const hasUserRail = item.role === 'user'
+  const hasAnswerRail = item.role === 'assistant' && !!item.answer
+  const hasRail = hasUserRail || hasAnswerRail
 
   return (
-    <div className={cn(blockClass, roleClass)} data-block={index}>
-      {item.role === 'user' && (
-        <div className="mb-[3px] text-[10px] uppercase tracking-[0.07em] text-muted-foreground/70">
-          You
-        </div>
+    <div className={rowClass} data-block={index}>
+      {hasRail ? (
+        <div
+          className={cn(
+            'transcript-rail',
+            hasUserRail && 'transcript-rail--user',
+            hasAnswerRail && 'transcript-rail--answer',
+          )}
+          aria-hidden="true"
+        />
+      ) : (
+        // No rail: spacer so body lines up with railed rows
+        <div className="transcript-rail transcript-rail--none" aria-hidden="true" />
       )}
-      {item.role === 'system' && (
-        <div className="mb-[3px] text-[10px] uppercase tracking-[0.07em] text-muted-foreground/70">
-          System
-        </div>
-      )}
-      {item.role === 'assistant' && item.answer && (
-        <div className="mb-[3px] text-[10px] uppercase tracking-[0.07em] text-primary/70">Answer</div>
-      )}
-      <div
-        className="chat-md"
-        // biome-ignore lint/security/noDangerouslySetInnerHtml: sanitized by DOMPurify above
-        dangerouslySetInnerHTML={{ __html: html }}
-      />
-      {item.tags && item.tags.length > 0 && (
-        <div className="mt-1.5 flex gap-1.5">
-          {item.tags.map((tag, i) => (
-            <span
-              key={`${tag.kind}-${i}`}
-              className="inline-flex items-center gap-1 rounded border border-input px-[7px] py-0.5 text-[11px] text-muted-foreground"
-            >
-              {tag.kind === 'image' ? (
-                <ImageIcon size={12} aria-hidden="true" />
-              ) : (
-                <FileText size={12} aria-hidden="true" />
-              )}
-              {tag.label ?? tag.kind}
-            </span>
-          ))}
-        </div>
-      )}
+      <div className="transcript-body">
+        {item.role === 'user' && (
+          <div className="transcript-header">
+            <span className="transcript-role">You</span>
+          </div>
+        )}
+        {item.role === 'system' && (
+          <div className="transcript-header">
+            <span className="transcript-role transcript-role--system">System</span>
+          </div>
+        )}
+        {item.role === 'assistant' && item.answer && (
+          <div className="transcript-header">
+            <span className="transcript-role transcript-role--answer">Answer</span>
+          </div>
+        )}
+        <div
+          className="chat-md"
+          // biome-ignore lint/security/noDangerouslySetInnerHtml: sanitized by DOMPurify above
+          dangerouslySetInnerHTML={{ __html: html }}
+        />
+        {item.tags && item.tags.length > 0 && (
+          <div className="mt-1.5 flex gap-1.5">
+            {item.tags.map((tag, i) => (
+              <span
+                key={`${tag.kind}-${i}`}
+                className="inline-flex items-center gap-1 rounded border border-input px-[7px] py-0.5 text-[11px] text-muted-foreground"
+              >
+                {tag.kind === 'image' ? (
+                  <ImageIcon size={12} aria-hidden="true" />
+                ) : (
+                  <FileText size={12} aria-hidden="true" />
+                )}
+                {tag.label ?? tag.kind}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   )
 })
@@ -630,52 +646,55 @@ function AskUserQuestionCard({
   const isChosen = (label: string) => answer.includes(`"${label}"`)
 
   return (
-    <div
-      className={cn(cls, 'rounded-[10px] border border-amber-500/40 bg-amber-500/[0.05] px-3.5 py-2.5')}
-      data-block={index}
-    >
-      <div className="mb-1.5 text-[10px] uppercase tracking-[0.07em] text-amber-600 dark:text-amber-400/90">
-        Question for you
-      </div>
-      {questions.map((q, qi) => (
-        <div key={`${q.header ?? q.question}-${qi}`} className={qi > 0 ? 'mt-3' : ''}>
-          {q.header && (
-            <div className="text-[10px] uppercase tracking-[0.06em] text-muted-foreground/70">
-              {q.header}
-            </div>
-          )}
-          <div className="text-sm font-medium text-foreground">{q.question}</div>
-          <div className="mt-1.5 flex flex-col gap-1">
-            {(q.options ?? []).map((o, oi) => {
-              const chosen = isChosen(o.label)
-              return (
-                <div
-                  key={`${o.label}-${oi}`}
-                  className={cn(
-                    'rounded-md border px-2.5 py-1.5 text-xs',
-                    chosen
-                      ? 'border-amber-500 bg-amber-500/15 text-foreground'
-                      : 'border-border text-muted-foreground',
-                  )}
-                >
-                  <span className="font-medium text-foreground">
-                    {chosen ? '✓ ' : ''}
-                    {o.label}
-                  </span>
-                  {o.description && (
-                    <span className="mt-0.5 block text-[11px] leading-snug text-muted-foreground/80">
-                      {o.description}
-                    </span>
-                  )}
-                </div>
-              )
-            })}
-          </div>
+    <div className={cn(cls)} data-block={index}>
+      {/* Amber rail to match the "attention" tone of AskUserQuestion */}
+      <div className="transcript-rail transcript-rail--answer" aria-hidden="true" />
+      <div className="transcript-body">
+        <div className="transcript-header">
+          <span className="transcript-role transcript-role--answer">Question for you</span>
         </div>
-      ))}
-      {questions.length === 0 && (
-        <div className="text-xs text-muted-foreground">AskUserQuestion (unparseable input)</div>
-      )}
+        <div className="mt-1.5 flex flex-col gap-3">
+          {questions.map((q, qi) => (
+            <div key={`${q.header ?? q.question}-${qi}`}>
+              {q.header && (
+                <div className="mb-0.5 text-[10px] uppercase tracking-[0.06em] text-muted-foreground/70">
+                  {q.header}
+                </div>
+              )}
+              <div className="text-sm font-medium text-foreground">{q.question}</div>
+              <div className="mt-2 flex flex-col gap-1">
+                {(q.options ?? []).map((o, oi) => {
+                  const chosen = isChosen(o.label)
+                  return (
+                    <div
+                      key={`${o.label}-${oi}`}
+                      className={cn(
+                        'rounded-md border px-2.5 py-1.5 text-xs',
+                        chosen
+                          ? 'border-primary/50 bg-primary/[0.08] text-foreground'
+                          : 'border-border text-muted-foreground',
+                      )}
+                    >
+                      <span className="font-medium text-foreground">
+                        {chosen ? '✓ ' : ''}
+                        {o.label}
+                      </span>
+                      {o.description && (
+                        <span className="mt-0.5 block text-[11px] leading-snug text-muted-foreground/80">
+                          {o.description}
+                        </span>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          ))}
+          {questions.length === 0 && (
+            <div className="text-xs text-muted-foreground">AskUserQuestion (unparseable input)</div>
+          )}
+        </div>
+      </div>
     </div>
   )
 }
@@ -696,24 +715,28 @@ function ToolBlock({
   const label = item.toolName ?? 'result'
   return (
     <div className={cls} data-block={index}>
-      <button
-        type="button"
-        className="flex w-full min-w-0 items-baseline gap-[7px] py-0.5 text-left text-xs text-muted-foreground"
-        onClick={() => setOpen((v) => !v)}
-      >
-        <span className="flex-none text-[10px] text-muted-foreground/70">{open ? '▾' : '▸'}</span>
-        <span className="flex-none text-xs font-semibold text-foreground">{label}</span>
-        {item.toolInput && (
-          <span className="min-w-0 truncate font-mono text-[11px] text-muted-foreground/70">
-            {item.toolInput}
-          </span>
+      {/* No rail for tool rows — they stay quiet */}
+      <div className="transcript-rail transcript-rail--none" aria-hidden="true" />
+      <div className="transcript-body py-0.5">
+        <button
+          type="button"
+          className="flex w-full min-w-0 items-baseline gap-[7px] py-0.5 text-left text-xs text-muted-foreground"
+          onClick={() => setOpen((v) => !v)}
+        >
+          <span className="flex-none font-mono text-[10px] text-muted-foreground/50">{open ? '▾' : '▸'}</span>
+          <span className="flex-none font-mono text-[11px] font-semibold text-muted-foreground/80">{label}</span>
+          {item.toolInput && (
+            <span className="min-w-0 truncate font-mono text-[11px] text-muted-foreground/50">
+              {item.toolInput}
+            </span>
+          )}
+        </button>
+        {open && (
+          <pre className="my-1 max-h-[280px] overflow-auto whitespace-pre-wrap break-words rounded-md border border-border bg-muted/40 px-2.5 py-2 font-mono text-[11px] text-muted-foreground">
+            {result ?? '(no result captured)'}
+          </pre>
         )}
-      </button>
-      {open && (
-        <pre className="my-1 ml-[17px] max-h-[280px] overflow-auto whitespace-pre-wrap break-words rounded-md border border-border bg-background px-2.5 py-2 text-[11px] text-muted-foreground">
-          {result ?? '(no result captured)'}
-        </pre>
-      )}
+      </div>
     </div>
   )
 }
