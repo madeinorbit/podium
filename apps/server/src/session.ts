@@ -97,6 +97,10 @@ export class Session {
   /** The agent's `/color` identity accent (a named colour), learned from the
    *  transcript tail. Undefined = no colour (incl. Claude's 'default'/reset). */
   agentColor: string | undefined
+  /** Snooze deadline — orthogonal to agentState. undefined = not snoozed; null =
+   *  until next message; ISO string = timed. Lives in its own `snoozes` table, so
+   *  it is NOT part of toRow(); the registry seeds it at load and on mutation. */
+  snoozedUntil: string | null | undefined = undefined
   /** True once a structured transcript has been seen — drives chat capability. */
   transcriptAvailable = false
   geometry: Geometry
@@ -423,6 +427,14 @@ export class Session {
     return true
   }
 
+  /** Un-snooze. Returns true if it actually changed (lets the caller skip a
+   *  redundant broadcast). */
+  clearSnooze(): boolean {
+    if (this.snoozedUntil === undefined) return false
+    this.snoozedUntil = undefined
+    return true
+  }
+
   private static readonly NO_COLOR = new Set(['default', 'none', 'reset', 'gray', 'grey'])
 
   setTitle(title: string): void {
@@ -504,6 +516,7 @@ export class Session {
       ...(this.transcriptAvailable ? { transcriptAvailable: true } : {}),
       ...(this.shellBusy ? { busy: true } : {}),
       ...(this.agentColor ? { agentColor: this.agentColor } : {}),
+      ...(this.snoozedUntil !== undefined ? { snoozedUntil: this.snoozedUntil } : {}),
     }
   }
 
