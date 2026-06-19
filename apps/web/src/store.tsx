@@ -92,6 +92,11 @@ export interface Store {
   resumeAndSend: (sessionId: string, text: string) => Promise<void>
   archiveSession: (sessionId: string, archived: boolean) => Promise<void>
   setWorkState: (sessionId: string, workState: WorkState | null) => Promise<void>
+  /** Snooze a session out of the attention surface. `until` = null → until next
+   *  message; ISO string → timed. Orthogonal to agent state. */
+  setSnooze: (sessionId: string, until: string | null) => Promise<void>
+  /** Un-snooze a session (return it to the normal attention flow). */
+  clearSnooze: (sessionId: string) => Promise<void>
   /** Per-session chat composer draft, shared across every view of that session
    *  (chat panes, split view) and preserved across chat/native mode switches.
    *  The native PTY input line is opaque bytes we can't read back, so this is the
@@ -375,6 +380,24 @@ export function StoreProvider({
     },
     [trpc],
   )
+  const setSnooze = useMemo(
+    () => async (sessionId: string, until: string | null) => {
+      setSessions((all) =>
+        all.map((s) => (s.sessionId === sessionId ? { ...s, snoozedUntil: until } : s)),
+      )
+      await trpc.snoozes.set.mutate({ sessionId, until }).catch(() => {})
+    },
+    [trpc],
+  )
+  const clearSnooze = useMemo(
+    () => async (sessionId: string) => {
+      setSessions((all) =>
+        all.map((s) => (s.sessionId === sessionId ? { ...s, snoozedUntil: undefined } : s)),
+      )
+      await trpc.snoozes.clear.mutate({ sessionId }).catch(() => {})
+    },
+    [trpc],
+  )
 
   useEffect(() => {
     // Wait for the first repo load — otherwise a persisted (restored) selection
@@ -488,6 +511,8 @@ export function StoreProvider({
     renameSession,
     archiveSession,
     setWorkState,
+    setSnooze,
+    clearSnooze,
     drafts,
     setSessionDraft,
     sidebarSettings,
