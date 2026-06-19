@@ -141,16 +141,39 @@ export class TerminalView {
     }
   }
 
-  fit(): { cols: number; rows: number } {
-    // Before the container has layout (or a cell can be measured) FitAddon throws on
-    // an undefined render dimension. Treat that as "keep current grid" rather than
-    // letting it crash the whole mount.
+  /**
+   * Attempt to fit the terminal to the container. Returns the new grid on
+   * success, or `undefined` when the container isn't measurable yet (hidden,
+   * zero-size, or the FitAddon cell measure failed). The caller should retry
+   * across rAFs rather than silently keeping a stale grid.
+   */
+  fit(): { cols: number; rows: number } | undefined {
+    // proposeDimensions() returns undefined when the container clientWidth/Height
+    // are zero or the cell-size helper element hasn't been measured yet.
+    let dims: { cols: number; rows: number } | undefined
+    try {
+      dims = this.fitAddon.proposeDimensions()
+    } catch {
+      // FitAddon threw — container not ready
+      return undefined
+    }
+    if (!dims || dims.cols < 2 || dims.rows < 2) return undefined
     try {
       this.fitAddon.fit()
     } catch {
-      // dimensions not ready yet; caller keeps the current grid
+      return undefined
     }
     return { cols: this.term.cols, rows: this.term.rows }
+  }
+
+  /**
+   * True when the container element has non-zero layout dimensions — the
+   * precondition for a successful `fit()`. Can be used as an early-out
+   * before attempting a fit (and as an isolated unit-testable guard).
+   */
+  isFittable(): boolean {
+    if (!this.host) return false
+    return this.host.clientWidth > 0 && this.host.clientHeight > 0
   }
 
   cols(): number {

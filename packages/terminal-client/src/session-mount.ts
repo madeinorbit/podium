@@ -42,6 +42,38 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
   view.mount(el)
   const fitted = view.fit()
 
+  // fitAndSend: attempt fit(); if the container isn't measurable yet, retry
+  // across rAFs (cap MAX_FIT_RETRIES frames). Guarded by a running flag so
+  // overlapping viewport-change events don't spawn multiple loops.
+  const MAX_FIT_RETRIES = 10
+  let fitRetryRunning = false
+  function fitAndSend(): void {
+    const grid = view.fit()
+    if (grid) {
+      connection.sendResize(grid.cols, grid.rows)
+      return
+    }
+    if (fitRetryRunning) return
+    fitRetryRunning = true
+    let attempts = 0
+    function retry(): void {
+      attempts += 1
+      const g = view.fit()
+      if (g) {
+        fitRetryRunning = false
+        connection.sendResize(g.cols, g.rows)
+        connection.redraw()
+        return
+      }
+      if (attempts < MAX_FIT_RETRIES) {
+        requestAnimationFrame(retry)
+      } else {
+        fitRetryRunning = false
+      }
+    }
+    requestAnimationFrame(retry)
+  }
+
   let wasController = false
   let lastEpoch = -1
   let firstFrameSeen = false
@@ -92,7 +124,9 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
     },
   })
   // The terminal was created at `fitted`; make sure the agent matches our viewport.
-  connection.sendResize(fitted.cols, fitted.rows)
+  // If the container isn't measurable yet at mount time, the viewport-change retry
+  // loop will pick it up once layout settles.
+  if (fitted) connection.sendResize(fitted.cols, fitted.rows)
 
   // On becoming controller, fit the terminal to THIS client's viewport and tell the agent.
   // The initial layout resize fires before we are made controller, so without this the
@@ -102,7 +136,9 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
       const s = connection.state()
       if (s.role !== 'controller') return
       const grid = view.fit()
-      if (grid.cols !== s.cols || grid.rows !== s.rows) connection.sendResize(grid.cols, grid.rows)
+      if (grid && (grid.cols !== s.cols || grid.rows !== s.rows)) {
+        connection.sendResize(grid.cols, grid.rows)
+      }
       // No view.clear() here: the server replays buffered output on attach, and clearing
       // would wipe it (leaving normal-buffer apps blank). The resize above + redraw below
       // refresh the screen; xterm reflows the replayed content to the new grid.
@@ -123,8 +159,7 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
   const viewport = new DomViewportSource(el)
   const offViewport = viewport.onChange(() => {
     if (connection.state().role !== 'controller') return
-    const grid = view.fit()
-    connection.sendResize(grid.cols, grid.rows)
+    fitAndSend()
   })
 
   if (opts.focusOnMount !== false) view.focus()
@@ -161,7 +196,7 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
           void el.offsetHeight
         }
         const grid = view.fit()
-        connection.sendResize(grid.cols, grid.rows)
+        if (grid) connection.sendResize(grid.cols, grid.rows)
       },
     }
   }
