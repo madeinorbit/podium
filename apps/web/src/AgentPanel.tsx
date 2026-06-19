@@ -33,17 +33,38 @@ import { WorkerLabel } from './WorkerLabel'
 const E2E = typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('e2e')
 
 type PanelMode = 'native' | 'chat'
-const MODE_KEY = 'podium.panelMode'
+
+/** localStorage key prefix for per-session panel mode overrides. */
+const SESSION_MODE_KEY_PREFIX = 'podium.panelMode.'
 
 /**
- * Per-device default: chat reads best on a phone (native terminals reflow
- * painfully there); the real PTY is the desktop default. A user toggle
- * overrides and sticks for the device.
+ * Determine the initial panel mode for a session.
+ *
+ * Priority:
+ * 1. Per-session saved override (from the user manually toggling chat/native)
+ *    — wins if set and the session is chat-capable.
+ * 2. The `startScreen` setting:
+ *    - 'native'  → native terminal (always)
+ *    - 'chat'    → chat view (if capable; else native)
+ *    - 'auto'    → chat on mobile, native on desktop
+ * 3. Non-chat-capable sessions always show the native terminal.
  */
-function initialMode(): PanelMode {
-  const saved = localStorage.getItem(MODE_KEY)
+export function initialPanelMode({
+  startScreen,
+  chatCapable,
+  isMobile,
+  saved,
+}: {
+  startScreen: 'native' | 'chat' | 'auto'
+  chatCapable: boolean
+  isMobile: boolean
+  saved?: 'native' | 'chat'
+}): PanelMode {
+  if (!chatCapable) return 'native'
   if (saved === 'native' || saved === 'chat') return saved
-  return window.matchMedia('(max-width: 768px)').matches ? 'chat' : 'native'
+  if (startScreen === 'auto') return isMobile ? 'chat' : 'native'
+  if (startScreen === 'chat') return 'chat'
+  return 'native'
 }
 
 export function AgentPanel({
@@ -55,7 +76,7 @@ export function AgentPanel({
    *  switching back catches up instead of wiping). Gates focus, nothing else. */
   active?: boolean
 }): JSX.Element {
-  const { hub, sessions, archiveSession, startBtw, setSessionDraft, hibernateSession } = useStore()
+  const { hub, sessions, trpc, archiveSession, startBtw, setSessionDraft, hibernateSession } = useStore()
   const session = sessions.find((s) => s.sessionId === sessionId)
   const termRef = useRef<HTMLDivElement | null>(null)
   const toolbarRef = useRef<HTMLDivElement | null>(null)
@@ -66,12 +87,39 @@ export function AgentPanel({
   // immediately, before the first transcript frame arrives.
   const chatCapable =
     session?.transcriptAvailable ?? (session ? defaultChatCapable(session.agentKind) : false)
-  const [mode, setMode] = useState<PanelMode>(() => (chatCapable ? initialMode() : 'native'))
+
+  // Fetch the startScreen setting once; default to 'native' while loading.
+  const [startScreen, setStartScreen] = useState<'native' | 'chat' | 'auto'>('native')
+  useEffect(() => {
+    trpc.settings.get.query().then((s) => {
+      setStartScreen(s.sessionDefaults.startScreen)
+    }).catch(() => { /* keep default */ })
+  }, [trpc])
+
+  // Per-session key: a manual Native/Chat toggle sticks for this session only.
+  const sessionModeKey = `${SESSION_MODE_KEY_PREFIX}${sessionId}`
+  const [mode, setMode] = useState<PanelMode>(() => {
+    if (!chatCapable) return 'native'
+    const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(sessionModeKey) : null
+    const saved = raw === 'native' || raw === 'chat' ? raw : undefined
+    const isMobile = typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches
+    return initialPanelMode({ startScreen: 'native', chatCapable, isMobile, saved })
+  })
+
+  // Re-evaluate initial mode once startScreen setting loads (only if user hasn't
+  // already set a per-session override).
+  useEffect(() => {
+    const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(sessionModeKey) : null
+    if (raw === 'native' || raw === 'chat') return // user has explicitly overridden
+    const isMobile = typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches
+    setMode(initialPanelMode({ startScreen, chatCapable, isMobile }))
+  }, [startScreen, chatCapable, sessionModeKey])
+
   const effectiveMode: PanelMode = chatCapable ? mode : 'native'
 
   const pickMode = (m: PanelMode) => {
     setMode(m)
-    localStorage.setItem(MODE_KEY, m)
+    if (typeof localStorage !== 'undefined') localStorage.setItem(sessionModeKey, m)
   }
 
   const hibernated = session?.status === 'hibernated'

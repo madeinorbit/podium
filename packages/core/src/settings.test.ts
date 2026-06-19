@@ -18,6 +18,23 @@ describe('settings harness choices', () => {
   })
 })
 
+describe('normalizeSettings — sessionDefaults.startScreen', () => {
+  it('defaults startScreen to native', () => {
+    expect(normalizeSettings({}).sessionDefaults.startScreen).toBe('native')
+  })
+
+  it('accepts all three enum values', () => {
+    expect(normalizeSettings({ sessionDefaults: { startScreen: 'chat' } }).sessionDefaults.startScreen).toBe('chat')
+    expect(normalizeSettings({ sessionDefaults: { startScreen: 'auto' } }).sessionDefaults.startScreen).toBe('auto')
+    expect(normalizeSettings({ sessionDefaults: { startScreen: 'native' } }).sessionDefaults.startScreen).toBe('native')
+  })
+
+  it('fills in startScreen default for old blobs without it', () => {
+    const s = normalizeSettings({ sessionDefaults: { agent: 'grok' } })
+    expect(s.sessionDefaults.startScreen).toBe('native')
+  })
+})
+
 describe('normalizeSettings — sidebar defaults', () => {
   it('defaults sidebar sort to lastUsed with empty custom order', () => {
     const s = normalizeSettings({})

@@ -23,6 +23,11 @@ export const SessionDefaults = z.object({
   model: z.string().default('auto'),
   /** Model for subagents spawned inside a session ('auto' = no override). */
   subagentModel: z.string().default('auto'),
+  /** Which panel screen a new session opens on.
+   *  - 'native': always start on the terminal (default)
+   *  - 'chat': always start on the chat view (when capable)
+   *  - 'auto': device heuristic (chat on mobile, native on desktop) */
+  startScreen: z.enum(['native', 'chat', 'auto']).default('native'),
 })
 export type SessionDefaults = z.infer<typeof SessionDefaults>
 

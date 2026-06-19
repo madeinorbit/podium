@@ -192,6 +192,28 @@ export function SettingsView(): JSX.Element {
                     }
                   />
                 </Row>
+                <Row label="New session opens on">
+                  <Select
+                    value={settings.sessionDefaults.startScreen}
+                    onValueChange={(value) =>
+                      patch({
+                        sessionDefaults: {
+                          ...settings.sessionDefaults,
+                          startScreen: value as 'native' | 'chat' | 'auto',
+                        },
+                      })
+                    }
+                  >
+                    <SelectTrigger className="w-full flex-1">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="native">Native terminal</SelectItem>
+                      <SelectItem value="chat">Chat view</SelectItem>
+                      <SelectItem value="auto">Auto (chat on mobile, terminal on desktop)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </Row>
               </Section>
             )}
 
