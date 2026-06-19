@@ -8,6 +8,7 @@ import {
   hostMemoryView,
   orderTabs,
   panelLabel,
+  partitionWorkItems,
   reposToViews,
   sessionsForWorktree,
   sidebarSections,
@@ -327,6 +328,78 @@ describe('agentBadge', () => {
       tone: 'muted',
       showContinue: false,
     })
+  })
+})
+
+describe('partitionWorkItems', () => {
+  // Real phase values: 'idle' | 'working' | 'compacting' | 'needs_user' | 'errored' | 'ended' | 'unknown'
+  // Real status values: 'live' | 'starting' | 'reconnecting' | 'hibernated' | 'exited'
+  const s = (
+    id: string,
+    phase: NonNullable<SessionMeta['agentState']>['phase'] | null,
+    status: SessionMeta['status'] = 'live',
+  ): SessionMeta => ({
+    sessionId: id,
+    agentKind: 'claude-code',
+    title: id,
+    cwd: '/src',
+    status,
+    controllerId: null,
+    geometry: { cols: 80, rows: 24 },
+    epoch: 0,
+    clientCount: 1,
+    createdAt: '2026-06-01T00:00:00.000Z',
+    lastActiveAt: '2026-06-01T00:00:00.000Z',
+    origin: { kind: 'spawn' },
+    archived: false,
+    ...(phase != null ? { agentState: { phase, since: '', openTaskCount: 0 } } : {}),
+  })
+
+  it('partitions unpinned sessions and keeps pinned in pinnedPanels', () => {
+    // 'idle' → attention, 'working' → working, 'needs_user' → attention
+    const sessions = [s('a', 'idle'), s('b', 'working'), s('c', 'needs_user'), s('p', 'working')]
+    const { attention, working, pinnedPanels } = partitionWorkItems(sessions, new Set(['p']))
+    expect(attention.map((x) => x.sessionId)).toEqual(['a', 'c'])
+    expect(working.map((x) => x.sessionId)).toEqual(['b'])
+    expect(pinnedPanels.map((x) => x.sessionId)).toEqual(['p'])
+  })
+
+  it('excludes archived sessions from all buckets', () => {
+    const archived: SessionMeta = { ...s('z', 'idle'), archived: true }
+    const { attention, working, pinnedPanels } = partitionWorkItems([archived], new Set())
+    expect(attention).toHaveLength(0)
+    expect(working).toHaveLength(0)
+    expect(pinnedPanels).toHaveLength(0)
+  })
+
+  it('pinned sessions never appear in attention or working even if needs_user', () => {
+    const { attention, working, pinnedPanels } = partitionWorkItems(
+      [s('p', 'needs_user')],
+      new Set(['p']),
+    )
+    expect(attention).toHaveLength(0)
+    expect(working).toHaveLength(0)
+    expect(pinnedPanels.map((x) => x.sessionId)).toEqual(['p'])
+  })
+
+  it('compacting phase goes to working', () => {
+    const { working } = partitionWorkItems([s('c', 'compacting')], new Set())
+    expect(working.map((x) => x.sessionId)).toEqual(['c'])
+  })
+
+  it('errored phase goes to attention', () => {
+    const { attention } = partitionWorkItems([s('e', 'errored')], new Set())
+    expect(attention.map((x) => x.sessionId)).toEqual(['e'])
+  })
+
+  it('exited status (uninstrumented) goes to attention (idle group)', () => {
+    const { attention } = partitionWorkItems([s('x', null, 'exited')], new Set())
+    expect(attention.map((x) => x.sessionId)).toEqual(['x'])
+  })
+
+  it('returns empty buckets for an empty input', () => {
+    const result = partitionWorkItems([], new Set())
+    expect(result).toEqual({ attention: [], working: [], pinnedPanels: [] })
   })
 })
 

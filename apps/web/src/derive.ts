@@ -255,6 +255,52 @@ export function sidebarSections(
   }
 }
 
+export interface WorkItemPartition {
+  /** Sessions needing the user's attention: blocked, finished-idle, errored, or exited. */
+  attention: SessionMeta[]
+  /** Sessions actively running without needing the user. */
+  working: SessionMeta[]
+  /** Pinned sessions — excluded from attention/working regardless of state. */
+  pinnedPanels: SessionMeta[]
+}
+
+/**
+ * Partition sessions into the three WORK ITEMS buckets used by the home board
+ * and sidebar work-items view.
+ *
+ * Pinned sessions always land in `pinnedPanels` only.
+ * Unpinned, non-archived sessions:
+ *   - `attention` (precedence) — any attentionGroup result other than 'working'
+ *     (i.e. needsYou, idle, exited/hibernated/ended).
+ *   - `working` — phase 'working' | 'compacting', or an active shell/uninstrumented live process.
+ * Archived sessions are excluded entirely.
+ */
+export function partitionWorkItems(
+  sessions: SessionMeta[],
+  pinnedSessionIds: Set<string>,
+): WorkItemPartition {
+  const attention: SessionMeta[] = []
+  const working: SessionMeta[] = []
+  const pinnedPanels: SessionMeta[] = []
+
+  for (const s of sessions) {
+    if (s.archived) continue
+    if (pinnedSessionIds.has(s.sessionId)) {
+      pinnedPanels.push(s)
+      continue
+    }
+    const group = attentionGroup(s)
+    if (group === 'working') {
+      working.push(s)
+    } else {
+      // 'needsYou' or 'idle' — both map to attention
+      attention.push(s)
+    }
+  }
+
+  return { attention, working, pinnedPanels }
+}
+
 function orderMap(ids: string[]): Map<string, number> {
   return new Map(ids.map((id, index) => [id, index]))
 }
