@@ -3,6 +3,7 @@ import { serve } from '@hono/node-server'
 import { trpcServer } from '@hono/trpc-server'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
+import { registerAssetRoute } from './file-asset-route'
 import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
 import { appRouter } from './router'
@@ -23,6 +24,7 @@ export async function startServer(opts: { port?: number } = {}): Promise<ServerH
   const superagent = new SuperagentService(registry, repos, store)
   const app = new Hono()
   app.get('/health', (c) => c.text('ok'))
+  registerAssetRoute(app, registry)
   app.use('/trpc/*', cors())
   app.use(
     '/trpc/*',
