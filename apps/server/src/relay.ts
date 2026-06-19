@@ -21,7 +21,7 @@ import {
   type UsageBucketWire,
   type WorkState,
 } from '@podium/protocol'
-import { makeTitleDebouncer } from '@podium/agent-bridge/title-filter'
+import { makeTitleDebouncer } from './title-filter'
 import { attentionNotice, pushNtfy } from './notify'
 import { type ClientConn, type Send, Session } from './session'
 import { type PinKind, SessionStore } from './store'

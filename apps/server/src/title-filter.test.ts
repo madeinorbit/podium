@@ -17,7 +17,9 @@ describe('makeTitleDebouncer', () => {
     vi.useFakeTimers()
     const seen: string[] = []
     const d = makeTitleDebouncer((t) => seen.push(t), 500)
-    d.push('⠋ working'); d.push('⠙ working'); d.push('Refactor parser')
+    d.push('⠋ working')
+    d.push('⠙ working')
+    d.push('Refactor parser')
     vi.advanceTimersByTime(500)
     expect(seen).toEqual(['Refactor parser'])
     vi.useRealTimers()

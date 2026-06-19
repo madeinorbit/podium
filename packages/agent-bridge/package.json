@@ -13,11 +13,6 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
-    "./title-filter": {
-      "@podium/source": "./src/title-filter.ts",
-      "types": "./dist/title-filter.d.ts",
-      "import": "./dist/title-filter.js"
-    }
   },
   "files": [
     "dist",

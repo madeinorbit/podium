@@ -1,6 +1,5 @@
 // biome-ignore lint/suspicious/noControlCharactersInRegex: matching control chars is the point
 const CONTROL = /[\x00-\x1f\x7f]/
-const SPINNER = /[⠀-⣿⠠⠋⠹]|[|/\\\-]\s*$/ // braille + ascii spinner tails
 
 export function isTransientTitle(title: string): boolean {
   const t = title.trim()

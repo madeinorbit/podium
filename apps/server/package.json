@@ -7,7 +7,6 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@podium/agent-bridge": "workspace:*",
     "@podium/core": "workspace:*",
     "@podium/protocol": "workspace:*",
     "@hono/node-server": "^1.13.7",
