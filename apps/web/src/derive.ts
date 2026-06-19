@@ -331,6 +331,12 @@ export function partitionWorkItems(
     }
   }
 
+  // Most-recently-active first, matching the home board and the rest of the
+  // sidebar — so the freshest thing needing you sits at the top, not the bottom.
+  const byRecency = (a: SessionMeta, b: SessionMeta) => b.lastActiveAt.localeCompare(a.lastActiveAt)
+  attention.sort(byRecency)
+  working.sort(byRecency)
+
   return { attention, working, pinnedPanels }
 }
 

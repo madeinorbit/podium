@@ -205,6 +205,23 @@
   html {
     @apply font-sans;
   }
+  /* Tailwind v4's Preflight drops the native pointer cursor on buttons. Restore it
+     app-wide for anything that reads as clickable, so we never have to repeat
+     `cursor-pointer` on individual controls. Disabled controls keep the default. */
+  button:not(:disabled),
+  [role='button']:not([aria-disabled='true']),
+  [role='menuitem'],
+  [role='menuitemradio'],
+  [role='menuitemcheckbox'],
+  [role='option'],
+  [role='tab'],
+  [role='switch'],
+  summary,
+  label[for],
+  select:not(:disabled),
+  a[href] {
+    cursor: pointer;
+  }
   /* Give Base UI's portalled popups a root stacking context so they layer above
      app content without per-component z-index juggling. */
   #root {
