@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { basename } from 'node:path'
 import type { PodiumSettings } from '@podium/core'
-import type { FileReadResultMessage, FileWriteResultMessage } from '@podium/protocol'
+import type { FileAssetResultMessage, FileReadResultMessage, FileWriteResultMessage } from '@podium/protocol'
 import {
   AgentKind,
   type AgentRuntimeState,
@@ -81,6 +81,10 @@ export class SessionRegistry {
   private readonly pendingFileReads = new Map<
     string,
     (r: Omit<FileReadResultMessage, 'type' | 'requestId'>) => void
+  >()
+  private readonly pendingFileAssets = new Map<
+    string,
+    (r: Omit<FileAssetResultMessage, 'type' | 'requestId'>) => void
   >()
   private readonly pendingFileWrites = new Map<
     string,
@@ -1187,6 +1191,15 @@ export class SessionRegistry {
         }
         break
       }
+      case 'fileAssetResult': {
+        const resolve = this.pendingFileAssets.get(msg.requestId)
+        if (resolve) {
+          this.pendingFileAssets.delete(msg.requestId)
+          const { type: _t, requestId: _r, ...payload } = msg
+          resolve(payload)
+        }
+        break
+      }
     }
   }
 
@@ -1297,6 +1310,25 @@ export class SessionRegistry {
       FILE_RPC_TIMEOUT_MS,
       () => ({ ok: false, path, error: 'timeout' }),
       (requestId) => ({ type: 'fileReadRequest', requestId, cwd: session.cwd, path, knownPath }),
+    )
+  }
+
+  readAsset({
+    sessionId,
+    path,
+  }: {
+    sessionId: string
+    path: string
+  }): Promise<Omit<FileAssetResultMessage, 'type' | 'requestId'>> {
+    const session = this.sessions.get(sessionId)
+    if (!session) return Promise.resolve({ ok: false, path, error: 'no session' })
+    const knownPath = knownPathsFor(session.transcriptItems()).has(path)
+    return this.daemonRequest(
+      this.pendingFileAssets,
+      'fa',
+      FILE_RPC_TIMEOUT_MS,
+      () => ({ ok: false, path, error: 'timeout' }),
+      (requestId) => ({ type: 'fileAssetRequest', requestId, cwd: session.cwd, path, knownPath }),
     )
   }
 
