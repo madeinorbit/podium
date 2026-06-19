@@ -56,7 +56,16 @@ export function AppShell(): JSX.Element {
           </StoreProvider>
         </ErrorBoundary>
       )}
-      <Toaster position="top-center" />
+      <Toaster
+        position="top-center"
+        // Clear the iOS Dynamic Island / notch in installed-PWA standalone
+        // mode, where env(safe-area-inset-top) is non-zero; otherwise the
+        // update prompt lands under the island and can't be tapped. Falls
+        // back to sonner's defaults (24px desktop / 16px mobile) in browser
+        // tabs, where the inset resolves to 0.
+        offset={{ top: 'calc(env(safe-area-inset-top, 0px) + 24px)' }}
+        mobileOffset={{ top: 'calc(env(safe-area-inset-top, 0px) + 16px)' }}
+      />
     </TooltipProvider>
   )
 }
