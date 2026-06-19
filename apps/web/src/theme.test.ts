@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { applyTheme, readStoredTheme, THEME_MODE_KEY, THEME_PRESET_KEY } from './theme'
+import { applyTheme, readStoredTheme, resolveDark, THEME_MODE_KEY, THEME_PRESET_KEY } from './theme'
 
 afterEach(() => localStorage.clear())
 
@@ -15,6 +15,17 @@ describe('readStoredTheme', () => {
   it('falls back on garbage', () => {
     localStorage.setItem(THEME_PRESET_KEY, 'bogus')
     expect(readStoredTheme().preset).toBe('podium')
+  })
+})
+
+describe('resolveDark', () => {
+  it('follows the system preference in system mode', () => {
+    expect(resolveDark('system', true)).toBe(true)
+    expect(resolveDark('system', false)).toBe(false)
+  })
+  it('honors explicit light/dark regardless of system', () => {
+    expect(resolveDark('dark', false)).toBe(true)
+    expect(resolveDark('light', true)).toBe(false)
   })
 })
 

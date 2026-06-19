@@ -15,13 +15,15 @@
           var p = localStorage.getItem('podium.theme.preset')
           var m = localStorage.getItem('podium.theme.mode')
           var preset = p === 'shadcn' || p === 'podium' ? p : 'podium'
-          var mode = m === 'light' || m === 'dark' ? m : 'dark'
+          var mode = m === 'light' || m === 'dark' || m === 'system' ? m : 'dark'
+          var prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches
+          var isDark = mode === 'system' ? prefersDark : mode === 'dark'
           var el = document.documentElement
           if (preset === 'podium') el.setAttribute('data-theme', 'podium')
           else el.removeAttribute('data-theme')
-          el.classList.toggle('dark', mode === 'dark')
+          el.classList.toggle('dark', isDark)
           var meta = document.querySelector('meta[name="theme-color"]')
-          var bg = BG[preset + '-' + mode]
+          var bg = BG[preset + '-' + (isDark ? 'dark' : 'light')]
           if (meta && bg) meta.setAttribute('content', bg)
         } catch (e) {}
       })()

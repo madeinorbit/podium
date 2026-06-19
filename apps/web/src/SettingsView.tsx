@@ -459,6 +459,7 @@ function AppearanceSection(): JSX.Element {
   const modes: { value: ThemeMode; label: string }[] = [
     { value: 'light', label: 'Light' },
     { value: 'dark', label: 'Dark' },
+    { value: 'system', label: 'System' },
   ]
   return (
     <Section
