@@ -1,8 +1,8 @@
 import { FitAddon } from '@xterm/addon-fit'
-import { WebLinksAddon } from '@xterm/addon-web-links'
 import { WebglAddon } from '@xterm/addon-webgl'
 import { type ITheme, Terminal } from '@xterm/xterm'
 import { type FileLinkConfig, makeFileLinkProvider } from './file-link-provider'
+import { makeUrlLinkProvider } from './url-link-provider'
 // xterm renders its rows, cursor, selection overlay and the hidden char-measure /
 // helper-textarea elements relative to styles in this sheet. Without it the measure
 // element renders visibly (a stray row of `$`/`-`), the selection overlay detaches
@@ -105,12 +105,19 @@ export class TerminalView {
     })
     this.fitAddon = new FitAddon()
     this.term.loadAddon(this.fitAddon)
-    // Make URLs in output clickable. Open via a synthetic anchor click rather than
-    // window.open: in a standalone PWA (iOS especially) window.open navigates the
-    // app's OWN window — replacing Podium — whereas an <a target="_blank"> hands the
-    // URL off to a new browser tab / the system browser. Runs inside the click
-    // gesture, so it isn't popup-blocked.
-    this.term.loadAddon(new WebLinksAddon((_event, uri) => openExternalUrl(uri)))
+    // Clickable URLs across single-line, SOFT (reflow) and HARD (agent hang-indent)
+    // wraps — replaces WebLinksAddon, which only stitched soft wraps so a Claude-wrapped
+    // URL was clickable on its first row only. Opens via a synthetic anchor click rather
+    // than window.open: in a standalone PWA (iOS especially) window.open navigates the
+    // app's OWN window — replacing Podium — whereas <a target="_blank"> hands off to a
+    // new browser tab. Runs inside the click gesture, so it isn't popup-blocked.
+    this.term.registerLinkProvider(
+      makeUrlLinkProvider(
+        () => this.term.buffer.active as unknown as import('./buffer-line').BufferLike,
+        () => this.term.cols,
+        () => ({ onOpen: openExternalUrl }),
+      ),
+    )
     // File-path link provider: styled, path-like runs that resolve to a known
     // transcript path or a cwd-relative path become clickable. Caller configures
     // this by calling setFileLinks(); until then the provider is a no-op.
