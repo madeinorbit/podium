@@ -206,6 +206,45 @@ describe('SessionStore pins', () => {
   })
 })
 
+describe('SessionStore snoozes', () => {
+  it('starts empty, sets until-next-message (null) and timed, overwrites, and clears', () => {
+    const store = new SessionStore(':memory:')
+    expect(store.listSnoozes()).toEqual({})
+
+    store.setSnooze('s1', null)
+    store.setSnooze('s2', '2999-01-01T05:00:00.000Z')
+    expect(store.listSnoozes(0)).toEqual({ s1: null, s2: '2999-01-01T05:00:00.000Z' })
+
+    // overwrite s1 with a timed value
+    store.setSnooze('s1', '2999-01-01T05:00:00.000Z')
+    expect(store.listSnoozes(0).s1).toBe('2999-01-01T05:00:00.000Z')
+
+    store.clearSnooze('s1')
+    expect(store.listSnoozes(0)).toEqual({ s2: '2999-01-01T05:00:00.000Z' })
+    store.close()
+  })
+
+  it('lazily drops a timed snooze whose deadline has passed; keeps null forever', () => {
+    const store = new SessionStore(':memory:')
+    store.setSnooze('past', '2000-01-01T00:00:00.000Z')
+    store.setSnooze('forever', null)
+    const now = Date.parse('2026-06-19T00:00:00.000Z')
+    expect(store.listSnoozes(now)).toEqual({ forever: null })
+    // the expired row was deleted, not just filtered
+    expect(store.listSnoozes(0)).toEqual({ forever: null })
+    store.close()
+  })
+
+  it('removes a snooze when the session is deleted', () => {
+    const store = new SessionStore(':memory:')
+    store.upsertSession(row({ id: 's1' }))
+    store.setSnooze('s1', null)
+    store.deleteSession('s1')
+    expect(store.listSnoozes(0)).toEqual({})
+    store.close()
+  })
+})
+
 describe('SessionStore tab order', () => {
   it('starts empty, upserts per worktree, and clears on an empty list', () => {
     const store = new SessionStore(':memory:')

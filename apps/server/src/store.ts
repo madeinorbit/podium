@@ -12,6 +12,9 @@ export interface PinState {
   repos: string[]
 }
 
+/** sessionId → snooze deadline. `null` = until next message; ISO = timed. */
+export type SnoozeMap = Record<string, string | null>
+
 const PIN_KINDS = new Set<PinKind>(['panel', 'worktree', 'repo'])
 
 /** Default DB file: $PODIUM_STATE_DIR/podium.db, else ~/.podium/podium.db. */
@@ -152,6 +155,45 @@ export class SessionStore {
     }
   }
 
+  // ---- snoozes ----
+  /** Active snoozes. Lazily deletes any timed snooze whose deadline has passed
+   *  (the client clock also ignores lapsed ones at render time; this is just
+   *  housekeeping). `null` snoozes (until-next-message) never lapse by time. */
+  listSnoozes(now: number = Date.now()): SnoozeMap {
+    const rows = this.db.prepare('SELECT session_id, snoozed_until FROM snoozes').all() as {
+      session_id: string
+      snoozed_until: string | null
+    }[]
+    const out: SnoozeMap = {}
+    const expired: string[] = []
+    for (const r of rows) {
+      if (r.snoozed_until !== null && Date.parse(r.snoozed_until) <= now) {
+        expired.push(r.session_id)
+        continue
+      }
+      out[r.session_id] = r.snoozed_until
+    }
+    for (const id of expired) this.db.prepare('DELETE FROM snoozes WHERE session_id = ?').run(id)
+    return out
+  }
+
+  /** Snooze a session. `until` = null → until next message; ISO string → timed. */
+  setSnooze(sessionId: string, until: string | null): void {
+    const id = sessionId.trim()
+    if (!id) throw new Error('snooze session id is empty')
+    this.db
+      .prepare(
+        `INSERT INTO snoozes (session_id, snoozed_until, created_at) VALUES (?, ?, ?)
+         ON CONFLICT(session_id) DO UPDATE SET snoozed_until = excluded.snoozed_until`,
+      )
+      .run(id, until, new Date().toISOString())
+  }
+
+  /** Un-snooze a session (no-op if not snoozed). */
+  clearSnooze(sessionId: string): void {
+    this.db.prepare('DELETE FROM snoozes WHERE session_id = ?').run(sessionId.trim())
+  }
+
   // ---- tab order ----
   /** Manual tab order per worktree path. Worktrees never reordered are absent. */
   listTabOrders(): Record<string, string[]> {
@@ -272,6 +314,7 @@ export class SessionStore {
   deleteSession(id: string): void {
     this.db.prepare('DELETE FROM sessions WHERE id = ?').run(id)
     this.db.prepare('DELETE FROM pins WHERE kind = ? AND id = ?').run('panel', id)
+    this.db.prepare('DELETE FROM snoozes WHERE session_id = ?').run(id)
     this.scrubTabOrders(id)
   }
 
@@ -553,6 +596,13 @@ export class SessionStore {
          id TEXT NOT NULL,
          pinned_at TEXT NOT NULL,
          PRIMARY KEY (kind, id)
+       )`,
+    )
+    this.db.exec(
+      `CREATE TABLE IF NOT EXISTS snoozes (
+         session_id TEXT PRIMARY KEY,
+         snoozed_until TEXT,
+         created_at TEXT NOT NULL
        )`,
     )
     this.db.exec(
