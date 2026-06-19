@@ -18,6 +18,23 @@ describe('settings harness choices', () => {
   })
 })
 
+describe('normalizeSettings — sidebar defaults', () => {
+  it('defaults sidebar sort to lastUsed with empty custom order', () => {
+    const s = normalizeSettings({})
+    expect(s.sidebar.repoSort).toBe('lastUsed')
+    expect(s.sidebar.repoOrder).toEqual([])
+  })
+
+  it('fills in sidebar defaults for old blobs without sidebar key', () => {
+    const s = normalizeSettings({
+      sessionDefaults: { agent: 'auto' },
+      superagent: { kind: 'api', provider: 'anthropic' },
+    })
+    expect(s.sidebar.repoSort).toBe('lastUsed')
+    expect(s.sidebar.repoOrder).toEqual([])
+  })
+})
+
 describe('normalizeSettings — Codex harness migration', () => {
   it('folds a saved Codex harness superagent onto the API Codex provider', () => {
     const s = normalizeSettings({
