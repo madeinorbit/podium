@@ -1,5 +1,16 @@
 import type { SessionMeta } from '@podium/protocol'
-import { BarChart3, Home, Pin, Search, Settings as SettingsIcon, Sparkles, X } from 'lucide-react'
+import {
+  BarChart3,
+  ChevronDown,
+  ChevronRight,
+  Home,
+  Pin,
+  Plus,
+  Search,
+  Settings as SettingsIcon,
+  Sparkles,
+  X,
+} from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
 import { useState } from 'react'
 import { Button } from '@/components/ui/button'
@@ -7,6 +18,7 @@ import { cn } from '@/lib/utils'
 import {
   agentBadge,
   agentColorHex,
+  partitionWorkItems,
   type RepoNavView,
   repoBranchForCwd,
   sessionDotClass,
@@ -19,6 +31,24 @@ import { SearchView } from './SearchView'
 import { useStore } from './store'
 import type { PinKind } from './types'
 import { SessionNameEditor, sessionDisplayName, WorkerLabel } from './WorkerLabel'
+
+const WORKING_EXPANDED_KEY = 'podium:sidebar:working-expanded'
+
+function getWorkingExpanded(): boolean {
+  try {
+    return localStorage.getItem(WORKING_EXPANDED_KEY) === 'true'
+  } catch {
+    return false
+  }
+}
+
+function setWorkingExpanded(value: boolean): void {
+  try {
+    localStorage.setItem(WORKING_EXPANDED_KEY, value ? 'true' : 'false')
+  } catch {
+    // ignore
+  }
+}
 
 function StatusDot({ session }: { session: SessionMeta }): JSX.Element {
   // Shared single source of truth — colour semantics match tabs/home/chat, and
@@ -46,11 +76,24 @@ export function Sidebar(): JSX.Element {
   const sections = sidebarSections(repos, sessions, pins)
   const [pickerOpen, setPickerOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
+  const [workingExpanded, setWorkingExpandedState] = useState<boolean>(getWorkingExpanded)
+
+  const pinnedSessionIds = new Set(pins.panels)
+  const workItems = partitionWorkItems(sessions, pinnedSessionIds)
+
   const hasRows =
-    sections.pinnedPanels.length > 0 ||
+    workItems.attention.length > 0 ||
+    workItems.working.length > 0 ||
+    workItems.pinnedPanels.length > 0 ||
     sections.pinnedWorktrees.length > 0 ||
     sections.pinnedRepos.length > 0 ||
     sections.repos.length > 0
+
+  const toggleWorkingExpanded = () => {
+    const next = !workingExpanded
+    setWorkingExpandedState(next)
+    setWorkingExpanded(next)
+  }
 
   const selectPanel = (worktreePath: string, sessionId: string) => {
     setSelectedWorktree(worktreePath)
@@ -89,8 +132,8 @@ export function Sidebar(): JSX.Element {
       >
         <Sparkles size={14} aria-hidden="true" /> Superagent
       </button>
-      {/* App-level tools row. Analytics + settings live here (a fullscreen view
-          each, not a modal); future machine-wide tools join this strip. */}
+      {/* App-level tools row. Analytics + settings + search + add-repo live
+          here — global actions that are not tied to a specific section. */}
       <div className="flex items-center gap-1 px-3 pt-0.5 pb-1">
         <Button
           variant="ghost"
@@ -118,30 +161,24 @@ export function Sidebar(): JSX.Element {
         >
           <SettingsIcon size={15} aria-hidden="true" />
         </Button>
-      </div>
-      <div className="flex items-center justify-between p-3">
-        <span className="text-[11px] font-semibold tracking-[0.08em] text-muted-foreground">
-          WORKTREES
-        </span>
-        <div className="flex items-center gap-1.5">
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-auto border-input px-2 py-[3px] text-xs font-normal text-muted-foreground hover:border-primary hover:text-foreground"
-            onClick={() => setPickerOpen(true)}
-          >
-            + Add repo
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            className="border border-input text-muted-foreground hover:border-primary hover:text-foreground"
-            title="Search conversations"
-            onClick={() => setSearchOpen(true)}
-          >
-            <Search size={14} aria-hidden="true" />
-          </Button>
-        </div>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="border border-input text-muted-foreground hover:border-primary hover:text-foreground"
+          title="Search conversations"
+          onClick={() => setSearchOpen(true)}
+        >
+          <Search size={15} aria-hidden="true" />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="border border-input text-muted-foreground hover:border-primary hover:text-foreground"
+          title="Add repo"
+          onClick={() => setPickerOpen(true)}
+        >
+          <Plus size={15} aria-hidden="true" />
+        </Button>
       </div>
       {(reposLoading || repoDiagnostics.length > 0) && (
         <div className="px-3 pt-1.5 pb-2 text-xs text-muted-foreground">
@@ -151,20 +188,88 @@ export function Sidebar(): JSX.Element {
         </div>
       )}
       <div className="flex-1 overflow-y-auto pb-3">
-        {sections.pinnedPanels.length > 0 && (
-          <PinnedSection label="PINNED PANELS">
-            {sections.pinnedPanels.map((session) => (
-              <PanelRow
-                key={session.sessionId}
-                session={session}
-                pinned={true}
-                active={selectedWorktree === session.cwd && paneA === session.sessionId}
-                onSelect={() => selectPanel(session.cwd, session.sessionId)}
-                onPinned={(pinned) => void setPinned('panel', session.sessionId, pinned)}
-              />
-            ))}
-          </PinnedSection>
+        {/* ── WORK ITEMS umbrella ── */}
+        {(workItems.attention.length > 0 ||
+          workItems.working.length > 0 ||
+          workItems.pinnedPanels.length > 0) && (
+          <div className="min-w-0 border-b border-border">
+            {/* NEEDS YOUR ATTENTION — always expanded */}
+            {workItems.attention.length > 0 && (
+              <PinnedSection label="NEEDS YOUR ATTENTION">
+                {workItems.attention.map((session) => (
+                  <PanelRow
+                    key={session.sessionId}
+                    session={session}
+                    pinned={false}
+                    active={selectedWorktree === session.cwd && paneA === session.sessionId}
+                    onSelect={() => selectPanel(session.cwd, session.sessionId)}
+                    onPinned={(p) => void setPinned('panel', session.sessionId, p)}
+                  />
+                ))}
+              </PinnedSection>
+            )}
+
+            {/* WORKING — collapsible, default collapsed, shows count in header */}
+            {workItems.working.length > 0 && (
+              <div>
+                <button
+                  type="button"
+                  className="flex w-full items-center gap-1 px-3 pt-2 pb-[3px] text-left text-[10px] font-bold tracking-[0.08em] uppercase text-primary hover:text-primary/80"
+                  onClick={toggleWorkingExpanded}
+                  aria-expanded={workingExpanded}
+                >
+                  {workingExpanded ? (
+                    <ChevronDown size={11} aria-hidden="true" className="flex-none" />
+                  ) : (
+                    <ChevronRight size={11} aria-hidden="true" className="flex-none" />
+                  )}
+                  <span>
+                    WORKING
+                    {!workingExpanded && (
+                      <span className="ml-1 font-normal text-muted-foreground">
+                        · {workItems.working.length}
+                      </span>
+                    )}
+                  </span>
+                </button>
+                {workingExpanded &&
+                  workItems.working.map((session) => (
+                    <PanelRow
+                      key={session.sessionId}
+                      session={session}
+                      pinned={false}
+                      active={selectedWorktree === session.cwd && paneA === session.sessionId}
+                      onSelect={() => selectPanel(session.cwd, session.sessionId)}
+                      onPinned={(p) => void setPinned('panel', session.sessionId, p)}
+                    />
+                  ))}
+              </div>
+            )}
+
+            {/* PINNED PANELS */}
+            {workItems.pinnedPanels.length > 0 && (
+              <PinnedSection label="PINNED PANELS">
+                {workItems.pinnedPanels.map((session) => (
+                  <PanelRow
+                    key={session.sessionId}
+                    session={session}
+                    pinned={true}
+                    active={selectedWorktree === session.cwd && paneA === session.sessionId}
+                    onSelect={() => selectPanel(session.cwd, session.sessionId)}
+                    onPinned={(p) => void setPinned('panel', session.sessionId, p)}
+                  />
+                ))}
+              </PinnedSection>
+            )}
+          </div>
         )}
+
+        {/* ── WORKTREES ── */}
+        <div className="flex items-center justify-between px-3 pt-3 pb-1">
+          <span className="text-[11px] font-semibold tracking-[0.08em] text-muted-foreground">
+            WORKTREES
+          </span>
+        </div>
 
         {sections.pinnedWorktrees.length > 0 && (
           <PinnedSection label="PINNED WORKTREES">
@@ -215,7 +320,7 @@ export function Sidebar(): JSX.Element {
 
         {!hasRows && (
           <div className="p-3 text-xs text-muted-foreground/70">
-            No repos yet. Use "+ Add repo" to scan a folder.
+            No repos yet. Use the + button above to scan a folder.
           </div>
         )}
       </div>
@@ -232,7 +337,7 @@ export function Sidebar(): JSX.Element {
 
 function PinnedSection({ label, children }: { label: string; children: ReactNode }): JSX.Element {
   return (
-    <div className="min-w-0 border-b border-border py-1">
+    <div className="min-w-0 py-1">
       <div className="px-3 pt-2 pb-[3px] text-[10px] font-bold tracking-[0.08em] uppercase text-primary">
         {label}
       </div>
@@ -349,7 +454,7 @@ function WorktreeBlock({
             pinned={false}
             active={panelActive}
             onSelect={() => onSelectPanel(worktree.path, session.sessionId)}
-            onPinned={(pinned) => void setPinned('panel', session.sessionId, pinned)}
+            onPinned={(p) => void setPinned('panel', session.sessionId, p)}
           />
         )
       })}
