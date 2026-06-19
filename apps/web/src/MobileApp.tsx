@@ -1,6 +1,7 @@
 import {
   BarChart3,
   ChevronDown,
+  Gauge,
   Home,
   Pin,
   Search,
@@ -375,6 +376,18 @@ export function MobileApp(): JSX.Element {
                 }}
               >
                 <BarChart3 size={14} aria-hidden="true" />
+              </Button>
+              <Button
+                variant="secondary"
+                size="icon-sm"
+                title="Agent quota"
+                aria-label="Agent quota"
+                onClick={() => {
+                  setPickerOpen(false)
+                  setView('quota')
+                }}
+              >
+                <Gauge size={14} aria-hidden="true" />
               </Button>
               <Button
                 variant="secondary"
