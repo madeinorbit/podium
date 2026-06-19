@@ -70,6 +70,7 @@ export function AgentPanel({
   const {
     hub,
     sessions,
+    drafts,
     startBtw,
     setSessionDraft,
     hibernateSession,
@@ -125,6 +126,12 @@ export function AgentPanel({
   // keystrokes — no auto-submit, so the user can edit before hitting Enter.
   const voice = useVoiceInput((text) => mountedRef.current?.connection.sendInput(`${text} `))
   const knownPathsRef = useRef<Set<string>>(new Set())
+  // Latest shared chat draft for this session, mirrored into a ref so the native
+  // mount effect can read it at flush time (chat→native sync, #17/#62) WITHOUT
+  // depending on `drafts` — a dep there would tear down and remount the whole
+  // terminal on every keystroke.
+  const draftRef = useRef('')
+  draftRef.current = drafts[sessionId] ?? ''
 
   // Subscribe to the transcript to build the set of known absolute paths for
   // the file-link provider. Updates mountedRef.current?.view.setFileLinks so
@@ -157,6 +164,17 @@ export function AgentPanel({
     const agentKind = session?.agentKind
     let lastPublished: string | null = null
     let sampleTimer: ReturnType<typeof setTimeout> | null = null
+    // Read the native composer's current text via the same scrape both directions
+    // share. Returns the typed text, '' for an empty composer, or null when no
+    // clean composer box is on screen yet (splash/overlay/menu) — callers must
+    // not act on null. Claude draws a box; Codex a single dim-stripped `›` line.
+    const scrapeComposer = (m: MountedSession): string | null => {
+      if (agentKind === 'claude-code')
+        return extractClaudePromptDraft(m.view.screenText().split('\n'))
+      if (agentKind === 'codex')
+        return extractCodexPromptDraft(m.view.screenText({ dropDim: true }).split('\n'))
+      return null
+    }
     const sample = () => {
       const m = mountedRef.current
       if (!m) return
@@ -165,21 +183,72 @@ export function AgentPanel({
       // Codex's empty composer shows a DIM placeholder suggestion — blank dim cells
       // (screenText dropDim) so it isn't mistaken for typed text; Claude's box needs
       // no such filter.
-      let draft: string | null = null
-      if (agentKind === 'claude-code')
-        draft = extractClaudePromptDraft(m.view.screenText().split('\n'))
-      else if (agentKind === 'codex')
-        draft = extractCodexPromptDraft(m.view.screenText({ dropDim: true }).split('\n'))
-      else return
+      const draft = scrapeComposer(m)
       if (draft === null || draft === lastPublished) return
       if (draft === '' && lastPublished === null) return
       lastPublished = draft
       setSessionDraft(sessionId, draft)
     }
+    // chat→native (#17/#62): one-shot flush of the shared chat draft into the
+    // native composer on entering native mode, so text typed in chat lands in the
+    // real PTY prompt. The terminal is UNMOUNTED during chat mode (chat renders
+    // ChatView, not the xterm), so realtime key-by-key injection while chat-typing
+    // is impossible — the realistic, safe sync point is this mode switch.
+    //
+    // SAFETY (never clobber text the user typed directly in the native composer):
+    //   - only the controller injects, and only while the terminal holds focus
+    //     (mirrors the sampler's directional guard #53 so the two never fight);
+    //   - we scrape the live composer first and ONLY inject when it is empty (or
+    //     already equals what we're about to type — an idempotent retry). A null
+    //     scrape (splash/overlay not yet a clean box) or unrelated typed text →
+    //     SKIP, and we retry on later frames until the box settles or we bail;
+    //   - empty shared draft → nothing to do.
+    // ANTI-FEEDBACK ("sent keys + reconcile"): we send Ctrl-U (clear-line, a no-op
+    // on an already-empty composer) then the draft, remember it as `lastPublished`,
+    // and let the existing 150ms sampler reconcile — it now sees the scrape return
+    // exactly what we injected (=== lastPublished) and stays quiet, so our own
+    // injection is never re-published as a "new" draft.
+    let flushTried = false
+    // Returns true when it actually injected on this tick — the caller then SKIPS
+    // the sampler for this tick, because the injected bytes haven't echoed back to
+    // the screen yet (the scrape would still read the pre-injection empty composer
+    // and, with lastPublished now set to the draft, publish '' — wiping it). The
+    // next frame's scrape sees the echo, matches lastPublished, and stays quiet.
+    const flushDraftToNative = (): boolean => {
+      if (flushTried) return false
+      const m = mountedRef.current
+      if (!m) return false
+      if (m.connection.state().role !== 'controller') return false
+      if (!termRef.current?.contains(document.activeElement)) return false
+      const want = draftRef.current
+      // Nothing to push — let the native→chat sampler own this session's draft.
+      if (want === '') {
+        flushTried = true
+        return false
+      }
+      const current = scrapeComposer(m)
+      // No clean composer box yet (splash/overlay): wait for a later frame.
+      if (current === null) return false
+      // The composer already holds text the user typed directly in native — never
+      // overwrite it. Stand down for this mode-entry (idempotent if it happens to
+      // already equal what we'd type).
+      if (current !== '' && current !== want) {
+        flushTried = true
+        return false
+      }
+      flushTried = true
+      // Clear the line (safe no-op when empty) then type the draft. Seed the
+      // sampler so the reconcile scrape of our own injection isn't re-published.
+      lastPublished = want
+      m.connection.sendInput('\x15') // Ctrl-U
+      m.connection.sendInput(want)
+      return true
+    }
     const scheduleSample = () => {
       if (sampleTimer) return
       sampleTimer = setTimeout(() => {
         sampleTimer = null
+        if (flushDraftToNative()) return
         sample()
       }, 150)
     }
@@ -204,8 +273,22 @@ export function AgentPanel({
       onOpen: (abs) => openFile(sessionId, abs),
     })
     const offScroll = mounted.view.onScroll(() => setAtBottom(mounted.view.atBottom()))
+    // The flush above piggy-backs on onFrame, but an already-idle composer may emit
+    // no frames after focus lands (and focus itself arrives a beat after the first
+    // frame, via the effect below). Poll a bounded number of times so the one-shot
+    // chat→native flush still fires on a quiet session; it self-stops once the flush
+    // resolves (injected, or skipped because empty/occupied/wrong-agent).
+    let flushAttempts = 0
+    const flushPoll = setInterval(() => {
+      if (flushTried || flushAttempts++ >= 40) {
+        clearInterval(flushPoll)
+        return
+      }
+      if (flushDraftToNative()) clearInterval(flushPoll)
+    }, 150)
     return () => {
       if (sampleTimer) clearTimeout(sampleTimer)
+      clearInterval(flushPoll)
       offScroll()
       mounted.dispose()
       mountedRef.current = null
