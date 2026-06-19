@@ -378,12 +378,10 @@ export function StoreProvider({
     }, 0)
     if (!started.current) {
       started.current = true
-      void Promise.all([
-        refreshRepos(),
-        refreshPins(),
-        refreshTabOrders(),
-        trpc.settings.get.query().then((s) => setSidebarSettingsState(s.sidebar)).catch(() => {}),
-      ]).catch((e) => {
+      // Sidebar prefs load out of band so boot fans out only repos + pins + tab
+      // orders (never gated on settings or a conversation scan).
+      void trpc.settings.get.query().then((s) => setSidebarSettingsState(s.sidebar)).catch(() => {})
+      void Promise.all([refreshRepos(), refreshPins(), refreshTabOrders()]).catch((e) => {
         onFatalError(formatAppError(e, 'Could not load Podium data'))
       })
     }
