@@ -27,13 +27,9 @@ function fakeBuf(rows: string[], wrapped: boolean[] = []): BufferLike {
   }
 }
 
-function linksFor(buf: BufferLike, cols: number, row1: number): Array<{ text: string; sy: number; ey: number }> {
+function linksFor(buf: BufferLike, row1: number): Array<{ text: string; sy: number; ey: number }> {
   const opened: string[] = []
-  const provider = makeUrlLinkProvider(
-    () => buf,
-    () => cols,
-    () => ({ onOpen: (u) => opened.push(u) }),
-  )
+  const provider = makeUrlLinkProvider(() => buf, () => ({ onOpen: (u) => opened.push(u) }))
   let got: Array<{ text: string; sy: number; ey: number }> = []
   provider.provideLinks(row1, (links) => {
     got = (links ?? []).map((l) => ({ text: l.text, sy: l.range.start.y, ey: l.range.end.y }))
@@ -53,7 +49,7 @@ describe('findUrlMatches', () => {
 describe('makeUrlLinkProvider', () => {
   it('links a single-line URL', () => {
     const buf = fakeBuf(['see https://example.com/a here'])
-    const links = linksFor(buf, 80, 1)
+    const links = linksFor(buf, 1)
     expect(links).toHaveLength(1)
     expect(links[0]!.text).toBe('https://example.com/a')
     expect(links[0]!.sy).toBe(1) // single row
@@ -63,7 +59,7 @@ describe('makeUrlLinkProvider', () => {
   it('stitches a SOFT-wrapped URL into one whole link', () => {
     // cols=20: row0 fills to the edge, row1 is a soft (reflow) continuation.
     const buf = fakeBuf(['https://example.com/', 'abcdefg'], [false, true])
-    const links = linksFor(buf, 20, 1) // query the first row
+    const links = linksFor(buf, 1) // query the first row
     expect(links).toHaveLength(1)
     expect(links[0]!.text).toBe('https://example.com/abcdefg')
     expect(links[0]!.ey).toBeGreaterThan(links[0]!.sy) // spans 2 rows
@@ -73,12 +69,12 @@ describe('makeUrlLinkProvider', () => {
     // row0 fills the width and is NOT wrapped; row1 is a real new line with a 2-space
     // hang indent continuing the URL. The whole URL must come back from BOTH rows.
     const buf = fakeBuf(['https://example.com/', '  abcdefg'], [false, false])
-    const fromTop = linksFor(buf, 20, 1)
+    const fromTop = linksFor(buf, 1)
     expect(fromTop, 'top row yields the FULL url (not just line 1)').toHaveLength(1)
     expect(fromTop[0]!.text).toBe('https://example.com/abcdefg')
     expect(fromTop[0]!.ey).toBeGreaterThan(fromTop[0]!.sy)
 
-    const fromCont = linksFor(buf, 20, 2) // clicking the continuation row also opens the full url
+    const fromCont = linksFor(buf, 2) // clicking the continuation row also opens the full url
     expect(fromCont).toHaveLength(1)
     expect(fromCont[0]!.text).toBe('https://example.com/abcdefg')
   })
@@ -86,7 +82,7 @@ describe('makeUrlLinkProvider', () => {
   it('does not hard-wrap-stitch an unrelated indented next line', () => {
     // row0 does NOT fill the width → the next indented line is not a continuation.
     const buf = fakeBuf(['https://example.com/a', '  some other text'], [false, false])
-    const links = linksFor(buf, 80, 1)
+    const links = linksFor(buf, 1)
     expect(links).toHaveLength(1)
     expect(links[0]!.text).toBe('https://example.com/a')
     expect(links[0]!.ey).toBe(links[0]!.sy) // single row, no bogus stitch

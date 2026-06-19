@@ -42,35 +42,41 @@ function trimmedRow(buf: BufferLike, y: number): Cell[] {
   return cells.slice(0, end)
 }
 
-/** A row is "full" (a wrap candidate) when its last non-blank cell reaches the last
- *  column — i.e. content ran to the edge and continued on the next row. */
-function isFull(buf: BufferLike, y: number, cols: number): boolean {
+/** True when the row's last non-blank char is a URL-body char — content ran to the
+ *  row's right edge with URL text (a hard-wrap candidate). We can't key off the
+ *  terminal width: agent TUIs wrap at their own narrower content width. */
+function endsWithUrlChar(buf: BufferLike, y: number): boolean {
   const t = trimmedRow(buf, y)
-  return t.length > 0 && t[t.length - 1]!.x >= cols - 1
+  const last = t[t.length - 1]
+  return !!last && URL_BODY.test(last.char)
 }
 
-/** The post-indent continuation cells of a HARD-wrapped row: a non-wrapped row that
- *  starts with 1-3 spaces then URL characters. Returns null if it isn't one. */
+/** The post-indent continuation cells of a HARD-wrapped URL row: a non-wrapped row
+ *  that starts with 1-3 spaces then a CONTIGUOUS (space-free) run of URL characters.
+ *  The space-free requirement is what stops "https://x/a" + "  and more prose" from
+ *  merging — a wrapped URL continues as one token; prose has spaces. Null otherwise. */
 function hardWrapContinuation(buf: BufferLike, y: number): Cell[] | null {
   if (isWrapped(buf, y)) return null // soft wrap is handled separately
   const cells = trimmedRow(buf, y)
   let i = 0
   while (i < cells.length && cells[i]!.char === ' ' && i < 3) i += 1
   if (i === 0 || i >= cells.length) return null // no indent, or blank/over-indented
-  if (!URL_BODY.test(cells[i]!.char)) return null // first non-space must be URL-ish
-  return cells.slice(i)
+  const run = cells.slice(i)
+  if (run.some((c) => c.char === ' ')) return null // a space → prose, not a URL tail
+  if (!URL_BODY.test(run[0]!.char)) return null
+  return run
 }
 
 /** Walk UP to the first row of the logical unit containing `row`. */
-function logicalStart(buf: BufferLike, row: number, cols: number): number {
+function logicalStart(buf: BufferLike, row: number): number {
   let y = row
   while (y > 0) {
     if (isWrapped(buf, y)) {
       y -= 1
       continue
     }
-    // hard-wrap: this row is an indented continuation of a full row above
-    if (hardWrapContinuation(buf, y) && isFull(buf, y - 1, cols)) {
+    // hard-wrap: this row is an indented continuation of a URL-ending row above
+    if (hardWrapContinuation(buf, y) && endsWithUrlChar(buf, y - 1)) {
       y -= 1
       continue
     }
@@ -81,7 +87,7 @@ function logicalStart(buf: BufferLike, row: number, cols: number): number {
 
 /** Build the stitched cell sequence for the logical unit starting at `startY`,
  *  joining soft-wrapped rows whole and hard-wrapped rows with their indent stripped. */
-function stitchUnit(buf: BufferLike, startY: number, cols: number): Cell[] {
+function stitchUnit(buf: BufferLike, startY: number): Cell[] {
   const cells: Cell[] = [...trimmedRow(buf, startY)]
   let y = startY
   while (buf.getLine(y + 1)) {
@@ -90,7 +96,7 @@ function stitchUnit(buf: BufferLike, startY: number, cols: number): Cell[] {
       y += 1
       continue
     }
-    if (isFull(buf, y, cols)) {
+    if (endsWithUrlChar(buf, y)) {
       const cont = hardWrapContinuation(buf, y + 1)
       if (cont) {
         cells.push(...cont)
@@ -121,7 +127,6 @@ export function findUrlMatches(cells: Cell[]): Array<{ url: string; cells: Cell[
 /** xterm ILinkProvider that links whole URLs across soft and hard wraps. */
 export function makeUrlLinkProvider(
   getBuffer: () => BufferLike,
-  getCols: () => number,
   getConfig: () => UrlLinkConfig | null,
 ): ILinkProvider {
   return {
@@ -129,10 +134,9 @@ export function makeUrlLinkProvider(
       const cfg = getConfig()
       if (!cfg) return callback(undefined)
       const buf = getBuffer()
-      const cols = getCols()
       const row = bufferLineNumber - 1 // xterm rows are 1-based here
-      const start = logicalStart(buf, row, cols)
-      const links: ILink[] = findUrlMatches(stitchUnit(buf, start, cols))
+      const start = logicalStart(buf, row)
+      const links: ILink[] = findUrlMatches(stitchUnit(buf, start))
         .filter((m) => m.cells.some((c) => c.y === row)) // only links touching the queried row
         .map((m) => {
           const first = m.cells[0]!

@@ -216,6 +216,56 @@ test('native terminal: each opened file is its own closeable tab in the strip', 
   await rm(`${cwd}/e2e_tab_one.txt`, { force: true }).catch(() => {})
 })
 
+test('native terminal: a HARD-wrapped URL (agent hang-indent) opens whole in a new tab', async ({
+  page,
+  context,
+}) => {
+  // Reproduce Claude's exact shape deterministically: a URL printed as a head line that
+  // ends in a URL char, then a REAL new line with a 2-space hang indent continuing it
+  // (not a terminal soft-wrap). The link must come back WHOLE, not the line-1 fragment.
+  await page.setViewportSize({ width: 1280, height: 820 })
+  await openWorkspaceWithShell(page)
+  await expect.poll(async () => (await podium.screen(page)).length, { timeout: 20_000 }).toBeGreaterThan(0)
+  const head = `https://example.com/docs/${'seg-'.repeat(15)}x`
+  const tail = `${'tl-'.repeat(8)}end`
+  const full = head + tail
+  await sh(page, `printf '%s\\n  %s\\n' '${head}' '${tail}'`)
+  await expect.poll(async () => (await podium.screen(page)).includes(tail), { timeout: 15_000 }).toBe(true)
+
+  const st = await gridSize(page)
+  const popup = await (async () => {
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      const lines = (await podium.screen(page)).split('\n')
+      const total = lines.length - 1
+      const rowIdx = lines.findIndex((l) => l.startsWith('https://example.com/docs/seg')) // head line
+      const screenRow = rowIdx - (total - st.rows)
+      if (rowIdx >= 0 && screenRow >= 0 && screenRow < st.rows) {
+        const box = await page.evaluate(() => {
+          const els = [...document.querySelectorAll('.xterm-screen')] as HTMLElement[]
+          const el = els.find((e) => e.offsetParent !== null && e.getBoundingClientRect().width > 0) ?? els[0]
+          const r = el.getBoundingClientRect()
+          return { x: r.x, y: r.y, w: r.width, h: r.height }
+        })
+        const x = Math.round(box.x + 10.5 * (box.w / st.cols)) // a few chars into the URL head
+        const y = Math.round(box.y + (screenRow + 0.5) * (box.h / st.rows))
+        const popupP = context.waitForEvent('page', { timeout: 2500 }).catch(() => null)
+        await page.mouse.move(x, y)
+        await page.waitForTimeout(250)
+        await page.mouse.click(x, y)
+        const pop = await popupP
+        if (pop) return pop
+      } else {
+        await page.waitForTimeout(300)
+      }
+    }
+    return null
+  })()
+  expect(popup, 'clicking the head row opened a tab for the whole hard-wrapped URL').toBeTruthy()
+  await popup!.waitForLoadState('domcontentloaded').catch(() => {})
+  expect(popup!.url(), 'the WHOLE hard-wrapped URL opened, not the line-1 fragment').toBe(full)
+  await popup!.close().catch(() => {})
+})
+
 test('native terminal: a wrapped URL opens the FULL url in a NEW tab (not same window)', async ({
   page,
   context,

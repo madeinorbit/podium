@@ -114,7 +114,6 @@ export class TerminalView {
     this.term.registerLinkProvider(
       makeUrlLinkProvider(
         () => this.term.buffer.active as unknown as import('./buffer-line').BufferLike,
-        () => this.term.cols,
         () => ({ onOpen: openExternalUrl }),
       ),
     )
