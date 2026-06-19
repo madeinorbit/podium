@@ -2,6 +2,7 @@ import type { Dirent } from 'node:fs'
 import { open, readdir, readFile, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
+import { cleanCodexTitle, codexPromptTitle } from '../discovery/providers/codex.js'
 import { readCodexStateMetadata } from '../discovery/providers/codex-state.js'
 import { LineDecoder } from '../jsonl-stream.js'
 import type { AgentStateEvent, AgentStateProvider } from './types.js'
@@ -133,13 +134,24 @@ export function observeCodexState(opts: {
   startedAtMs?: number
   pollMs?: number
   onSession?: (sessionId: string, rolloutPath: string) => void
+  // Fires at most once with a human-readable title. Codex's own OSC terminal title
+  // is just the cwd basename (+ spinner glyph), so the daemon suppresses it for Codex
+  // and relies on this: the native thread title (a rename done inside Codex) wins,
+  // else the first typed prompt — the same heuristic the history list uses.
+  onTitle?: (title: string) => void
   onEvents: (events: AgentStateEvent[]) => void
 }): { stop(): void } {
-  const root = join(opts.homeDir ?? homedir(), '.codex', 'sessions')
+  const codexHome = join(opts.homeDir ?? homedir(), '.codex')
+  const root = join(codexHome, 'sessions')
   const startedAtMs = opts.startedAtMs ?? 0
   let stopped = false
   let rolloutPath: string | undefined
   let announced = false
+  let titleSent = false
+  // True only when this tick read the rollout from byte 0 (a fresh session). The
+  // "first user_message" is the real title only when we've seen the file's start;
+  // a resumed session seeds from the tail, so its native title is used instead.
+  let readFromStart = false
   // Incremental, bounded tail (mirrors the transcript tailer): read only the
   // bytes appended since the last poll, buffering partial lines across reads so a
   // record split across a chunk boundary isn't dropped.
@@ -148,6 +160,25 @@ export function observeCodexState(opts: {
   let dropLeadingPartial = false
   const decoder = new LineDecoder()
   let reading = false
+
+  const sendTitle = (title: string | undefined): void => {
+    if (titleSent || !title) return
+    titleSent = true
+    opts.onTitle?.(title)
+  }
+
+  // Resumed/existing session: the first prompt sits above our tail window, so take
+  // the title Codex itself maintains in the state DB. Missing DB → the live tail
+  // still titles fresh sessions from their first prompt.
+  const emitNativeTitle = async (threadId: string): Promise<void> => {
+    if (titleSent) return
+    try {
+      const meta = await readCodexStateMetadata(codexHome)
+      sendTitle(cleanCodexTitle(meta.byThreadId.get(threadId)?.title))
+    } catch {
+      // no/unreadable state DB — fall back to the first-prompt tail
+    }
+  }
 
   const tick = async (): Promise<void> => {
     if (stopped || reading) return
@@ -160,6 +191,7 @@ export function observeCodexState(opts: {
         if (!announced && found.id) {
           announced = true
           opts.onSession?.(found.id, found.path)
+          void emitNativeTitle(found.id)
         }
       }
       const handle = await open(rolloutPath, 'r')
@@ -171,6 +203,7 @@ export function observeCodexState(opts: {
           const start = Math.max(0, size - TAIL_BYTES)
           offset = start
           dropLeadingPartial = start > 0
+          readFromStart = start === 0
           first = false
         }
         if (size < offset) {
@@ -192,11 +225,15 @@ export function observeCodexState(opts: {
         for (const line of lines) {
           const trimmed = line.trim()
           if (!trimmed) continue
+          let record: unknown
           try {
-            events.push(...(await translateCodexEvent(JSON.parse(trimmed))))
+            record = JSON.parse(trimmed)
           } catch {
-            // torn line — skip
+            continue // torn line — skip
           }
+          events.push(...(await translateCodexEvent(record)))
+          // A fresh session's first typed prompt becomes its title.
+          if (readFromStart && !titleSent) sendTitle(codexPromptTitle(record))
         }
         if (events.length > 0) opts.onEvents(events)
       } finally {

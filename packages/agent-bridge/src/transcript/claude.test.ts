@@ -337,3 +337,50 @@ describe('claudeRecordToItems — AskUserQuestion tool', () => {
     expect(item).toMatchObject({ toolName: 'Bash', toolInput: 'ls' })
   })
 })
+
+describe('claudeRecordToItems toolPaths', () => {
+  it('extracts file_path from a tool_use block', () => {
+    const items = claudeRecordToItems({
+      type: 'assistant',
+      message: { role: 'assistant', content: [{ type: 'tool_use', id: 't1', name: 'Read', input: { file_path: '/repo/a.ts' } }] },
+    })
+    expect(items.some((i) => i.toolPaths?.includes('/repo/a.ts'))).toBe(true)
+  })
+
+  it('extracts an @-mention file attachment path', () => {
+    const items = claudeRecordToItems({
+      type: 'attachment',
+      attachment: { type: 'file', filename: '/repo/spec.md', displayPath: 'spec.md' },
+    })
+    expect(items.some((i) => i.toolPaths?.includes('/repo/spec.md'))).toBe(true)
+  })
+
+  it('extracts an edited_text_file attachment path', () => {
+    const items = claudeRecordToItems({
+      type: 'attachment',
+      attachment: { type: 'edited_text_file', filename: '/repo/b.ts', snippet: '...' },
+    })
+    expect(items.some((i) => i.toolPaths?.includes('/repo/b.ts'))).toBe(true)
+  })
+
+  // Duplicate-key guard: two attachment records for the SAME file (e.g. first an
+  // @-mention 'file', then a 'compact_file_reference') must produce DIFFERENT ids
+  // so React does not warn about duplicate keys in the chat view.
+  it('produces distinct ids for two attachment records with the same filename', () => {
+    const filename = '/repo/spec.md'
+    const [item1] = claudeRecordToItems({
+      type: 'attachment',
+      attachment: { type: 'file', filename },
+    })
+    const [item2] = claudeRecordToItems({
+      type: 'attachment',
+      attachment: { type: 'compact_file_reference', filename },
+    })
+    expect(item1).toBeDefined()
+    expect(item2).toBeDefined()
+    expect(item1!.id).not.toBe(item2!.id)
+    // Both must still carry the filename in toolPaths
+    expect(item1!.toolPaths).toContain(filename)
+    expect(item2!.toolPaths).toContain(filename)
+  })
+})

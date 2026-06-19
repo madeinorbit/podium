@@ -299,21 +299,34 @@ function codexPayload(record: unknown): Record<string, unknown> {
 }
 
 /**
- * The first human-typed prompt, condensed to a one-line title (≤100 chars). Reads
- * only `event_msg.user_message` events — the clean text the person actually typed —
- * so the injected AGENTS.md / permissions preamble (which arrives as a
- * `response_item` user record) never becomes the title.
+ * Condense raw title text to a clean one-line title (≤100 chars), or undefined when
+ * it's empty or an injected `<…>` preamble rather than something a person typed.
  */
+export function cleanCodexTitle(raw: string | undefined): string | undefined {
+  const text = (raw ?? '').replace(/\s+/g, ' ').trim()
+  if (!text || text.startsWith('<')) return undefined
+  return text.length > 100 ? `${text.slice(0, 100)}…` : text
+}
+
+/**
+ * One rollout record → a one-line title from a human-typed prompt, or undefined.
+ * Reads only `event_msg.user_message` events — the clean text the person actually
+ * typed — so the injected AGENTS.md / permissions preamble (which arrives as a
+ * `response_item` user record) never becomes the title. Shared by the history
+ * summary (first match wins) and the live state observer (first prompt seen).
+ */
+export function codexPromptTitle(record: unknown): string | undefined {
+  if (!isRecord(record) || stringField(record, 'type') !== 'event_msg') return undefined
+  const payload = codexPayload(record)
+  if (stringField(payload, 'type') !== 'user_message') return undefined
+  return cleanCodexTitle(stringField(payload, 'message') ?? contentToText(payload.text_elements))
+}
+
+/** The first human-typed prompt across `records`, condensed to a one-line title. */
 function firstCodexPrompt(records: unknown[]): string | undefined {
   for (const record of records) {
-    if (!isRecord(record) || stringField(record, 'type') !== 'event_msg') continue
-    const payload = codexPayload(record)
-    if (stringField(payload, 'type') !== 'user_message') continue
-    const text = (stringField(payload, 'message') ?? contentToText(payload.text_elements))
-      .replace(/\s+/g, ' ')
-      .trim()
-    if (!text || text.startsWith('<')) continue
-    return text.length > 100 ? `${text.slice(0, 100)}…` : text
+    const title = codexPromptTitle(record)
+    if (title) return title
   }
   return undefined
 }

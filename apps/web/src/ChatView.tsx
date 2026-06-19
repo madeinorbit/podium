@@ -27,6 +27,7 @@ import {
   searchBlocks,
 } from './chat'
 import { chatActivity } from './derive'
+import { resolveAgainstCwd } from './file-path'
 import { renderMarkdown } from './markdown'
 import { useStore } from './store'
 import { useVoiceInput } from './voice'
@@ -82,8 +83,9 @@ export function ChatView({
    *  becoming active (true) the view snaps to the bottom if still pinned. */
   active?: boolean
 }): JSX.Element {
-  const { hub, trpc, sessions, drafts, setSessionDraft, resumeAndSend } = useStore()
+  const { hub, trpc, sessions, drafts, setSessionDraft, resumeAndSend, openFile } = useStore()
   const session = sessions.find((s) => s.sessionId === sessionId)
+  const cwd = session?.cwd ?? '/'
   const [items, setItems] = useState<TranscriptItem[]>([])
   // A parked session (hibernated/exited) has no live tail and an empty server
   // buffer after a restart, so the stream stays empty. Read its history off disk
@@ -443,6 +445,9 @@ export function ChatView({
               index={i}
               highlighted={i === activeMatch}
               dimmed={query.trim() !== '' && !blockMatches(block, query)}
+              sessionId={sessionId}
+              cwd={cwd}
+              openFile={openFile}
             />
           ))}
           {pending.map((p) => (
@@ -674,11 +679,17 @@ const ChatBlockView = memo(function ChatBlockView({
   index,
   highlighted,
   dimmed,
+  sessionId,
+  cwd,
+  openFile,
 }: {
   block: ChatBlock
   index: number
   highlighted: boolean
   dimmed: boolean
+  sessionId: string
+  cwd: string
+  openFile: (sessionId: string, path: string) => void
 }): JSX.Element | null {
   const { item } = block
   const html = useMemo(() => renderMarkdown(item.text), [item.text])
@@ -690,7 +701,17 @@ const ChatBlockView = memo(function ChatBlockView({
 
   if (item.role === 'tool' && item.toolName === 'AskUserQuestion' && item.toolInputJson)
     return <AskUserQuestionCard block={block} cls={rowClass} index={index} />
-  if (item.role === 'tool') return <ToolBlock block={block} cls={rowClass} index={index} />
+  if (item.role === 'tool')
+    return (
+      <ToolBlock
+        block={block}
+        cls={rowClass}
+        index={index}
+        sessionId={sessionId}
+        cwd={cwd}
+        openFile={openFile}
+      />
+    )
 
   // A recognized user action that isn't a chat message (e.g. interrupt) — show it
   // as a thin inline divider, not a "You" bubble.
@@ -748,24 +769,51 @@ const ChatBlockView = memo(function ChatBlockView({
         )}
         <div
           className="chat-md"
+          onClick={(e) => {
+            const a = (e.target as HTMLElement).closest('a.file-link') as HTMLElement | null
+            if (!a) return
+            e.preventDefault()
+            const p = a.getAttribute('data-path')
+            if (p) openFile(sessionId, resolveAgainstCwd(cwd, p))
+          }}
           // biome-ignore lint/security/noDangerouslySetInnerHtml: sanitized by DOMPurify above
           dangerouslySetInnerHTML={{ __html: html }}
         />
         {item.tags && item.tags.length > 0 && (
           <div className="mt-1.5 flex gap-1.5">
-            {item.tags.map((tag, i) => (
-              <span
-                key={`${tag.kind}-${i}`}
-                className="inline-flex items-center gap-1 rounded border border-input px-[7px] py-0.5 text-[11px] text-muted-foreground"
-              >
-                {tag.kind === 'image' ? (
-                  <ImageIcon size={12} aria-hidden="true" />
-                ) : (
+            {item.tags.map((tag, i) => {
+              const filePath =
+                tag.kind === 'file' && item.toolPaths?.[0]
+                  ? resolveAgainstCwd(cwd, item.toolPaths[0])
+                  : null
+              return filePath ? (
+                <button
+                  key={`${tag.kind}-${i}`}
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    openFile(sessionId, filePath)
+                  }}
+                  className="inline-flex cursor-pointer items-center gap-1 rounded border border-input px-[7px] py-0.5 text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground"
+                  title={`Open ${filePath}`}
+                >
                   <FileText size={12} aria-hidden="true" />
-                )}
-                {tag.label ?? tag.kind}
-              </span>
-            ))}
+                  {tag.label ?? tag.kind}
+                </button>
+              ) : (
+                <span
+                  key={`${tag.kind}-${i}`}
+                  className="inline-flex items-center gap-1 rounded border border-input px-[7px] py-0.5 text-[11px] text-muted-foreground"
+                >
+                  {tag.kind === 'image' ? (
+                    <ImageIcon size={12} aria-hidden="true" />
+                  ) : (
+                    <FileText size={12} aria-hidden="true" />
+                  )}
+                  {tag.label ?? tag.kind}
+                </span>
+              )
+            })}
           </div>
         )}
       </div>
@@ -869,10 +917,16 @@ function ToolBlock({
   block,
   cls,
   index,
+  sessionId,
+  cwd,
+  openFile,
 }: {
   block: ChatBlock
   cls: string
   index: number
+  sessionId: string
+  cwd: string
+  openFile: (sessionId: string, path: string) => void
 }): JSX.Element {
   const [open, setOpen] = useState(false)
   const { item } = block
@@ -897,6 +951,20 @@ function ToolBlock({
             </span>
           )}
         </button>
+        {item.toolPaths?.map((p) => (
+          <button
+            key={p}
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation()
+              openFile(sessionId, resolveAgainstCwd(cwd, p))
+            }}
+            className="ml-[17px] inline-flex max-w-full items-center gap-1 truncate rounded border border-input px-[7px] py-0.5 font-mono text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground"
+            title={`Open ${p}`}
+          >
+            {p.split('/').pop()}
+          </button>
+        ))}
         {open && (
           <pre className="my-1 max-h-[280px] overflow-auto whitespace-pre-wrap break-words rounded-md border border-border bg-muted/40 px-2.5 py-2 font-mono text-[11px] text-muted-foreground">
             {result ?? '(no result captured)'}

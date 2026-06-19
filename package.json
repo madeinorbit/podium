@@ -37,5 +37,8 @@
     "tsx": "^4.22.4",
     "typescript": "^6.0.3",
     "vitest": "^4.1.8"
+  },
+  "patchedDependencies": {
+    "@xterm/addon-web-links@0.11.0": "patches/@xterm%2Faddon-web-links@0.11.0.patch"
   }
 }

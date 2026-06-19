@@ -46,7 +46,21 @@ marked.use({
   },
 })
 
+// A token looks like a file path if it has a directory separator or a known
+// code-file extension. Conservative on purpose — the backtick is the intent
+// signal; this only filters out non-file code spans (commands, identifiers).
+const PATHISH =
+  /^[\w./@~-]+\/[\w./@~-]+$|^[\w.-]+\.(ts|tsx|js|jsx|mjs|cjs|json|md|py|css|scss|html|htm|rs|go|sh|yml|yaml|toml)$/
+
+export function linkifyCodePaths(html: string): string {
+  return html.replace(/<code>([^<]+)<\/code>/g, (full, inner: string) => {
+    const token = inner.trim()
+    if (!PATHISH.test(token)) return full
+    return `<code><a class="file-link" data-path="${token}">${inner}</a></code>`
+  })
+}
+
 /** Markdown → sanitized HTML. The single render path for all chat surfaces. */
 export function renderMarkdown(text: string): string {
-  return DOMPurify.sanitize(marked.parse(text, { async: false }))
+  return DOMPurify.sanitize(linkifyCodePaths(marked.parse(text, { async: false })))
 }

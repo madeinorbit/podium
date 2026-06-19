@@ -208,6 +208,10 @@ export const TranscriptItem = z.object({
   /** Pairs a tool call with its result item. */
   toolUseId: z.string().optional(),
   tags: z.array(TranscriptTag).optional(),
+  /** Absolute file paths this item structurally references (tool file_path
+   *  inputs and @-mention / edit / compact attachment filenames). Drives
+   *  clickable file chips and the native-terminal link allow-set. */
+  toolPaths: z.array(z.string()).optional(),
   /** A recognized non-conversational user *action* surfaced inline rather than as
    *  a chat bubble — the role stays its true value ('user'); this only changes how
    *  it's shown. 'interrupt' = the user stopped the agent mid-run
@@ -501,6 +505,28 @@ export const TranscriptReadRequestMessage = z.object({
   cwd: z.string(),
   resume: ResumeRef,
 })
+
+export const FileReadRequestMessage = z.object({
+  type: z.literal('fileReadRequest'),
+  requestId: z.string(),
+  cwd: z.string(),
+  path: z.string(),
+  /** Server-asserted: this path is in the session transcript-known set, so the
+   *  daemon may read it even if it resolves outside the cwd. Read-only. */
+  knownPath: z.boolean(),
+})
+export type FileReadRequestMessage = z.infer<typeof FileReadRequestMessage>
+
+export const FileWriteRequestMessage = z.object({
+  type: z.literal('fileWriteRequest'),
+  requestId: z.string(),
+  cwd: z.string(),
+  path: z.string(),
+  content: z.string(),
+  baseHash: z.string().optional(),
+})
+export type FileWriteRequestMessage = z.infer<typeof FileWriteRequestMessage>
+
 // On-demand (chip click), not periodic — a full /proc walk is too heavy for the
 // 5s hostMetrics heartbeat. `roots` are the repo/worktree paths the client controls;
 // the daemon attributes non-agent processes to them by working directory.
@@ -598,6 +624,8 @@ export const ControlMessage = z.discriminatedUnion('type', [
   RedrawMessage,
   MemoryBreakdownRequestMessage,
   TranscriptReadRequestMessage,
+  FileReadRequestMessage,
+  FileWriteRequestMessage,
 ])
 export type ControlMessage = z.infer<typeof ControlMessage>
 
@@ -708,6 +736,31 @@ export const TranscriptReadResultMessage = z.object({
   requestId: z.string(),
   items: z.array(TranscriptItem),
 })
+
+export const FileReadResultMessage = z.object({
+  type: z.literal('fileReadResult'),
+  requestId: z.string(),
+  ok: z.boolean(),
+  path: z.string(),
+  content: z.string().optional(),
+  /** `${mtimeMs}:${size}` snapshot, echoed back on write to detect conflicts. */
+  baseHash: z.string().optional(),
+  tooLarge: z.boolean().optional(),
+  binary: z.boolean().optional(),
+  error: z.string().optional(),
+})
+export type FileReadResultMessage = z.infer<typeof FileReadResultMessage>
+
+export const FileWriteResultMessage = z.object({
+  type: z.literal('fileWriteResult'),
+  requestId: z.string(),
+  ok: z.boolean(),
+  baseHash: z.string().optional(),
+  conflict: z.boolean().optional(),
+  error: z.string().optional(),
+})
+export type FileWriteResultMessage = z.infer<typeof FileWriteResultMessage>
+
 export const RepoOpResultMessage = z.object({
   type: z.literal('repoOpResult'),
   requestId: z.string(),
@@ -742,6 +795,8 @@ export const DaemonMessage = z.discriminatedUnion('type', [
   MemoryBreakdownResultMessage,
   TranscriptAppendMessage,
   TranscriptReadResultMessage,
+  FileReadResultMessage,
+  FileWriteResultMessage,
 ])
 export type DaemonMessage = z.infer<typeof DaemonMessage>
 

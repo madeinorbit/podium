@@ -62,6 +62,19 @@ export interface Store {
   paneA: string | null // sessionId in pane A
   paneB: string | null // sessionId in pane B (null = no split)
   setPane: (pane: 'A' | 'B', sessionId: string | null) => void
+  editorFile: { sessionId: string; path: string } | null
+  openFile: (sessionId: string, path: string) => void
+  closeFile: () => void
+  readFile: (
+    sessionId: string,
+    path: string,
+  ) => Promise<Awaited<ReturnType<Trpc['files']['read']['query']>>>
+  writeFile: (args: {
+    sessionId: string
+    path: string
+    content: string
+    baseHash?: string
+  }) => Promise<Awaited<ReturnType<Trpc['files']['write']['mutate']>>>
   split: boolean
   toggleSplit: () => void
   /** Enrich the registered repos with branch/worktree metadata (fast — no
@@ -165,6 +178,7 @@ export function StoreProvider({
   const [paneA, setPaneA] = useState<string | null>(() => lsGet(PANE_A_KEY))
   const [paneB, setPaneB] = useState<string | null>(null)
   const [split, setSplit] = useState(false)
+  const [editorFile, setEditorFile] = useState<{ sessionId: string; path: string } | null>(null)
   const started = useRef(false)
 
   const refreshRepos = useMemo(
@@ -191,6 +205,20 @@ export function StoreProvider({
     () => async (kind: PinKind, id: string, pinned: boolean) => {
       setPins(await trpc.pins.set.mutate({ kind, id, pinned }))
     },
+    [trpc],
+  )
+  const openFile = useMemo(
+    () => (sessionId: string, path: string) => setEditorFile({ sessionId, path }),
+    [],
+  )
+  const closeFile = useMemo(() => () => setEditorFile(null), [])
+  const readFile = useMemo(
+    () => (sessionId: string, path: string) => trpc.files.read.query({ sessionId, path }),
+    [trpc],
+  )
+  const writeFile = useMemo(
+    () => (args: { sessionId: string; path: string; content: string; baseHash?: string }) =>
+      trpc.files.write.mutate(args),
     [trpc],
   )
   const refreshTabOrders = useMemo(
@@ -439,6 +467,11 @@ export function StoreProvider({
     setSessionDraft,
     sidebarSettings,
     setSidebarSettings,
+    editorFile,
+    openFile,
+    closeFile,
+    readFile,
+    writeFile,
   }
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }

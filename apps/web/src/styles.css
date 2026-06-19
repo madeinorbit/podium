@@ -408,6 +408,10 @@ body:has(.mobile-shell) {
   text-decoration: underline;
   text-underline-offset: 2px;
 }
+.file-link {
+  text-decoration: underline;
+  cursor: pointer;
+}
 .chat-md blockquote {
   border-left: 2px solid var(--border);
   margin: 8px 0;

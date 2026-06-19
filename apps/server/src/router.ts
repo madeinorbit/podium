@@ -280,6 +280,21 @@ export const appRouter = t.router({
         }),
       ),
   }),
+  files: t.router({
+    read: t.procedure
+      .input(z.object({ sessionId: z.string(), path: z.string() }))
+      .query(({ ctx, input }) => ctx.registry.readFile(input)),
+    write: t.procedure
+      .input(
+        z.object({
+          sessionId: z.string(),
+          path: z.string(),
+          content: z.string(),
+          baseHash: z.string().optional(),
+        }),
+      )
+      .mutation(({ ctx, input }) => ctx.registry.writeFile(input)),
+  }),
 })
 
 export type AppRouter = typeof appRouter

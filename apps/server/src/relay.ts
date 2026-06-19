@@ -21,13 +21,16 @@ import {
   type UsageBucketWire,
   type WorkState,
 } from '@podium/protocol'
+import type { FileReadResultMessage, FileWriteResultMessage } from '@podium/protocol'
 import { isTransientTitle, makeTitleDebouncer } from './title-filter'
 import { attentionNotice, pushNtfy } from './notify'
+import { knownPathsFor } from './file-relay-policy'
 import { type ClientConn, type Send, Session } from './session'
 import { type PinKind, SessionStore } from './store'
 
 const DEFAULT_GEOMETRY: Geometry = { cols: 80, rows: 24 }
 const SCAN_TIMEOUT_MS = 10_000
+const FILE_RPC_TIMEOUT_MS = 10_000
 
 export interface ScanResult {
   conversations: ConversationSummaryWire[]
@@ -71,6 +74,14 @@ export class SessionRegistry {
   >()
   private readonly pendingTranscriptReads = new Map<string, (r: TranscriptItem[]) => void>()
   private readonly pendingUploads = new Map<string, (r: { path: string; error?: string }) => void>()
+  private readonly pendingFileReads = new Map<
+    string,
+    (r: Omit<FileReadResultMessage, 'type' | 'requestId'>) => void
+  >()
+  private readonly pendingFileWrites = new Map<
+    string,
+    (r: Omit<FileWriteResultMessage, 'type' | 'requestId'>) => void
+  >()
   /** Ephemeral in-progress composer/prompt text per session. Never persisted. */
   private draftBySession = new Map<string, string>()
   /** Per-session title debouncers — drop transient spinner titles, coalesce bursts. */
@@ -1042,6 +1053,24 @@ export class SessionRegistry {
         }
         break
       }
+      case 'fileReadResult': {
+        const resolve = this.pendingFileReads.get(msg.requestId)
+        if (resolve) {
+          this.pendingFileReads.delete(msg.requestId)
+          const { type: _t, requestId: _r, ...payload } = msg
+          resolve(payload)
+        }
+        break
+      }
+      case 'fileWriteResult': {
+        const resolve = this.pendingFileWrites.get(msg.requestId)
+        if (resolve) {
+          this.pendingFileWrites.delete(msg.requestId)
+          const { type: _t, requestId: _r, ...payload } = msg
+          resolve(payload)
+        }
+        break
+      }
     }
   }
 
@@ -1095,6 +1124,54 @@ export class SessionRegistry {
         resume,
       }),
     ).then((items) => ({ items }))
+  }
+
+  readFile({
+    sessionId,
+    path,
+  }: {
+    sessionId: string
+    path: string
+  }): Promise<Omit<FileReadResultMessage, 'type' | 'requestId'>> {
+    const session = this.sessions.get(sessionId)
+    if (!session) return Promise.resolve({ ok: false, path, error: 'no session' })
+    const knownPath = knownPathsFor(session.transcriptItems()).has(path)
+    return this.daemonRequest(
+      this.pendingFileReads,
+      'fr',
+      FILE_RPC_TIMEOUT_MS,
+      () => ({ ok: false, path, error: 'timeout' }),
+      (requestId) => ({ type: 'fileReadRequest', requestId, cwd: session.cwd, path, knownPath }),
+    )
+  }
+
+  writeFile({
+    sessionId,
+    path,
+    content,
+    baseHash,
+  }: {
+    sessionId: string
+    path: string
+    content: string
+    baseHash?: string
+  }): Promise<Omit<FileWriteResultMessage, 'type' | 'requestId'>> {
+    const session = this.sessions.get(sessionId)
+    if (!session) return Promise.resolve({ ok: false, error: 'no session' })
+    return this.daemonRequest(
+      this.pendingFileWrites,
+      'fw',
+      FILE_RPC_TIMEOUT_MS,
+      () => ({ ok: false, error: 'timeout' }),
+      (requestId) => ({
+        type: 'fileWriteRequest',
+        requestId,
+        cwd: session.cwd,
+        path,
+        content,
+        ...(baseHash ? { baseHash } : {}),
+      }),
+    )
   }
 
   setConversationMeta(input: { id: string; name?: string; summary?: string }): void {

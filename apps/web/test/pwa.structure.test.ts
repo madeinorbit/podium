@@ -100,4 +100,12 @@ describe('update prompt', () => {
     expect(src).toContain('UpdatePrompt')
     expect(src).toContain('<UpdatePrompt')
   })
+
+  it('the top-center Toaster offsets toasts below the iOS safe area so the prompt is tappable in standalone PWA mode', () => {
+    const src = readWeb('src/AppShell.tsx')
+    // Both desktop and mobile (<=600px) offsets must add the top inset; the
+    // mobileOffset is the one that matters on the iPhone Dynamic Island.
+    expect(src).toContain("offset={{ top: 'calc(env(safe-area-inset-top, 0px) + 24px)' }}")
+    expect(src).toContain("mobileOffset={{ top: 'calc(env(safe-area-inset-top, 0px) + 16px)' }}")
+  })
 })

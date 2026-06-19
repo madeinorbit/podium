@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { renderMarkdown } from './markdown'
+import { linkifyCodePaths, renderMarkdown } from './markdown'
 
 describe('renderMarkdown', () => {
   it('colourizes add/del/hunk lines in a diff code block', () => {
@@ -33,5 +33,23 @@ describe('renderMarkdown', () => {
     const html = renderMarkdown('**hi** [x](https://e.com)')
     expect(html).toContain('<strong>hi</strong>')
     expect(html).toContain('href="https://e.com"')
+  })
+})
+
+describe('linkifyCodePaths', () => {
+  it('links a path-like token inside a code span', () => {
+    const out = linkifyCodePaths('see <code>apps/web/src/derive.ts</code> now')
+    expect(out).toContain('class="file-link"')
+    expect(out).toContain('data-path="apps/web/src/derive.ts"')
+  })
+
+  it('leaves non-path code spans alone', () => {
+    const out = linkifyCodePaths('<code>bun test</code>')
+    expect(out).not.toContain('file-link')
+  })
+
+  it('does not touch text outside code spans', () => {
+    const out = linkifyCodePaths('apps/web/src/derive.ts')
+    expect(out).not.toContain('file-link')
   })
 })

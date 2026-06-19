@@ -76,7 +76,7 @@ export function AgentPanel({
    *  switching back catches up instead of wiping). Gates focus, nothing else. */
   active?: boolean
 }): JSX.Element {
-  const { hub, sessions, trpc, archiveSession, startBtw, setSessionDraft, hibernateSession } = useStore()
+  const { hub, sessions, trpc, archiveSession, startBtw, setSessionDraft, hibernateSession, openFile } = useStore()
   const session = sessions.find((s) => s.sessionId === sessionId)
   const termRef = useRef<HTMLDivElement | null>(null)
   const toolbarRef = useRef<HTMLDivElement | null>(null)
@@ -141,6 +141,23 @@ export function AgentPanel({
   // Native-mode dictation: transcribed speech types straight into the PTY as
   // keystrokes — no auto-submit, so the user can edit before hitting Enter.
   const voice = useVoiceInput((text) => mountedRef.current?.connection.sendInput(`${text} `))
+  const knownPathsRef = useRef<Set<string>>(new Set())
+
+  // Subscribe to the transcript to build the set of known absolute paths for
+  // the file-link provider. Updates mountedRef.current?.view.setFileLinks so
+  // links stay fresh as new tool calls land.
+  useEffect(() => {
+    return hub.subscribeTranscript(sessionId, (items) => {
+      const set = new Set<string>()
+      for (const it of items) for (const p of it.toolPaths ?? []) set.add(p)
+      knownPathsRef.current = set
+      mountedRef.current?.view.setFileLinks({
+        cwd: session?.cwd ?? '/',
+        knownPaths: set,
+        onOpen: (abs) => openFile(sessionId, abs),
+      })
+    })
+  }, [hub, sessionId, session?.cwd, openFile])
 
   useEffect(() => {
     if (effectiveMode !== 'native' || hibernated || exited) return
@@ -195,6 +212,14 @@ export function AgentPanel({
       onFrame: scheduleSample,
     })
     mountedRef.current = mounted
+    // Seed the file-link provider immediately after mount with whatever paths
+    // are already known (from the transcript subscription above). Without this
+    // the provider is a no-op until the next transcript callback fires.
+    mounted.view.setFileLinks({
+      cwd: session?.cwd ?? '/',
+      knownPaths: knownPathsRef.current,
+      onOpen: (abs) => openFile(sessionId, abs),
+    })
     const offScroll = mounted.view.onScroll(() => setAtBottom(mounted.view.atBottom()))
     return () => {
       if (sampleTimer) clearTimeout(sampleTimer)
