@@ -125,20 +125,33 @@ This is the one piece of genuinely new logic, and it serves two features.
 
 ## Backend: local asset serving
 
-Relative images in a rendered preview need their bytes served.
+Relative images in a rendered preview need their bytes served. **Correction to the
+initial assumption:** the server has *no direct filesystem access* — `files.read` is
+forwarded to the **daemon** over the relay RPC protocol (`apps/daemon/src/file-access.ts`
+`readFileSandboxed`), and that path is **text-only** (it returns `binary: true` with no
+bytes for images, 2 MB cap). So image serving is a daemon→server binary-read pipeline,
+not a one-line server route. It mirrors the existing `fileRead` path:
 
-- Add a small **authenticated HTTP route**, e.g. `GET /files/asset?sessionId=&path=`,
-  mounted alongside the existing tRPC HTTP server (exact mount point to be pinned in the
-  plan). It streams the file bytes with a content-type derived from the extension.
-  An HTTP route (not a tRPC base64 query) is chosen so native `<img src>` and browser
-  caching work.
-- **Security:** resolve `path` against the session cwd and validate it is within the
-  session sandbox using the **same check `files.read` already uses** in
-  `SessionRegistry`; reject path traversal and out-of-sandbox paths. Reuse the existing
-  request auth that protects the tRPC endpoints.
-- `MarkdownPreview` rewrites relative image URLs (resolved against the file's directory,
-  reusing `file-path.ts` `resolveAgainstCwd`) to point at this route; DOMPurify config
-  must permit the resulting URLs.
+- **Daemon** (`apps/daemon/src/file-access.ts`): add `readAssetSandboxed({ cwd, path,
+  knownPath })` beside `readFileSandboxed` — same `isInside` + `realpath` sandbox check,
+  but returns raw bytes (base64) and a content-type from the extension, allows binary
+  (images), with a sensible size cap. Reject out-of-sandbox / traversal exactly as today.
+- **Protocol** (`@podium/protocol`): add `fileAssetRequest` / `fileAssetResult` message
+  types, registered in the same daemon↔server message union/registry as
+  `fileReadRequest` / `fileReadResult`.
+- **Server relay** (`apps/server/src/relay.ts`): add `readAsset({ sessionId, path })`
+  mirroring `readFile` — a `pendingFileAssets` map + `daemonRequest` round-trip.
+- **Server HTTP** (`apps/server/src/server.ts`, Hono): add `GET /files/asset?sessionId=&
+  path=` that looks up the session (`registry.sessions.get` — the only auth that exists;
+  CORS-only, no token layer), calls `registry.readAsset`, decodes the bytes, and returns
+  them with the content-type. 404 on missing session/file.
+- **Web:** `MarkdownPreview` rewrites relative image URLs (resolved against the file's
+  directory via `file-path.ts` `resolveAgainstCwd`) to point at `GET /files/asset`;
+  DOMPurify config permits the resulting same-origin URLs.
+
+This pipeline is sequenced *after* the frontend preview/modes/sync-scroll core so the
+first increment is committable and runtime-verifiable on its own (relative images render
+as a placeholder until the pipeline lands).
 
 ## Data flow
 
@@ -173,9 +186,15 @@ Relative images in a rendered preview need their bytes served.
 
 ## Testing
 
-- **Unit:** source-line ↔ block mapping over representative markdown (headings, lists,
-  tables, code fences, blank lines); asset-URL rewriting; `useFileDocument` dirty /
-  save / conflict state transitions.
+- **Test-markdown fixtures:** commit sample `.md` files that exercise every feature
+  (headings, lists, nested lists, task lists, tables, inline formatting, links, fenced
+  code in several languages, a diff block, blockquotes, and a relative image). These are
+  the inputs for both runtime verification and the mapping unit tests, and let a human
+  open them in-app to eyeball every feature.
+- **Unit (vitest + happy-dom, mirroring `markdown.test.ts`):** source-line ↔ block
+  mapping over representative markdown (headings, lists, tables, code fences, blank
+  lines); asset-URL rewriting; `useFileDocument` dirty / save / conflict state
+  transitions.
 - **Runtime (Playwright harness — per project lesson that interactive UI needs
   in-browser verification, not just unit+build+review):**
   - open a `.md` → preview renders (not raw source);
@@ -193,6 +212,9 @@ Relative images in a rendered preview need their bytes served.
   asset-URL rewriting (or a sibling module if it keeps `markdown.ts` focused).
 - `apps/web/src/store.tsx` — per-tab view-mode state (if not kept component-local).
 - `apps/web/src/editor-lang.ts`, `editor-save.ts`, `file-path.ts` — reused.
-- `apps/server/src/router.ts` + `SessionRegistry` — new asset HTTP route reusing the
-  `files.read` sandbox validation.
+- Image pipeline (sequenced last):
+  - `apps/daemon/src/file-access.ts` — add `readAssetSandboxed`.
+  - `@podium/protocol` — add `fileAssetRequest` / `fileAssetResult`.
+  - `apps/server/src/relay.ts` — add `readAsset` + `pendingFileAssets`.
+  - `apps/server/src/server.ts` — add `GET /files/asset` (Hono).
 ```
