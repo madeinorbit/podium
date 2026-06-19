@@ -1,12 +1,14 @@
 [Unit]
-Description=Podium redeploy — restart backend + web to run the latest main (triggered by git HEAD change)
-# Triggered by podium-redeploy.path on .git/logs/HEAD changes. The backend runs from
-# source, so a restart picks up newly-merged code. The web Vite dev server must
+Description=Podium redeploy — restart server + daemon + web to run the latest main (triggered by git HEAD change)
+# Triggered by podium-redeploy.path on .git/logs/HEAD changes. The server + daemon run
+# from source, so a restart picks up newly-merged code. The web Vite dev server must
 # restart too: its long-lived module graph has gone stale across merges twice
 # (stale @podium/protocol 2026-06-11; stale SocketHub/"hub.onAttention is not a
 # function" 2026-06-12) — HMR does not reliably survive large git-driven rewrites.
-After=podium-backend.service
+After=podium-server.service podium-daemon.service
 
 [Service]
 Type=oneshot
-ExecStart=/usr/bin/systemctl --user restart podium-backend.service podium-web.service
+# server first (the daemon reconnects to it with backoff); durable abduco/tmux masters
+# survive the daemon restart in their own scopes, so live agents are not dropped.
+ExecStart=/usr/bin/systemctl --user restart podium-server.service podium-daemon.service podium-web.service

@@ -9,17 +9,45 @@
  *   node_modules/.bin/tsx --conditions=@podium/source scripts/daemon.ts
  */
 import { startDaemon } from '../apps/daemon/src/daemon'
+import { installProcessSafetyNet } from './process-safety'
+import { startWatchdog } from './sd-notify'
+
+// Crash net BEFORE anything else: a single bad frame / un-caught rejection from one
+// agent must not terminate the daemon and drop reporting for every session (audit P0-1).
+installProcessSafetyNet('daemon')
 
 const port = Number(process.env.PODIUM_PORT ?? 18787)
+
+// Boot watchdog (audit P0-3): under host memory pressure startup can wedge mid-init —
+// the process stays alive but never finishes booting, and Restart=always (exit-only)
+// can't recover it. The original single-process host.ts had this guard; the split
+// daemon.ts is where the real boot-wedge risk lives, so it needs it too. startDaemon
+// resolves on first connect OR after its own ~10s grace, so 45s is generous headroom.
+const BOOT_TIMEOUT_MS = Number(process.env.PODIUM_BOOT_TIMEOUT_MS ?? 45_000)
+const bootWatchdog = setTimeout(() => {
+  console.error(
+    `[podium:daemon] boot did not complete within ${BOOT_TIMEOUT_MS}ms (host memory pressure?) — exiting for systemd to retry`,
+  )
+  process.exit(1)
+}, BOOT_TIMEOUT_MS)
+
 // Resolves on the first successful connect (or after a short grace if the server
 // isn't up yet); the daemon keeps retrying in the background regardless.
 const daemon = await startDaemon({ serverUrl: `ws://localhost:${port}` })
+clearTimeout(bootWatchdog)
 console.log(`podium daemon up: connected to ws://localhost:${port}/daemon`)
+
+// Systemd watchdog pet (audit P0-3): with Type=notify + WatchdogSec on the unit, a
+// wedged event loop stops petting and systemd restarts us — the only thing that
+// catches a wedged-but-alive daemon (the documented big-paste msg-loop wedge).
+// No-op when not running under a notify unit (dev/tests).
+const stopWatchdog = startWatchdog()
 
 let shuttingDown = false
 const shutdown = async (): Promise<void> => {
   if (shuttingDown) return
   shuttingDown = true
+  stopWatchdog?.()
   // Detaches attach clients only — durable masters survive in their systemd scopes.
   await daemon.close()
   process.exit(0)

@@ -6,13 +6,33 @@ Install with:
 ```sh
 cp scripts/systemd/podium-*.{service,path} ~/.config/systemd/user/
 systemctl --user daemon-reload
-systemctl --user enable --now podium-backend podium-web podium-redeploy.path
+systemctl --user enable --now podium-server podium-daemon podium-web podium-redeploy.path
+# verify the watchdog took: both should read "active (running)" with a Watchdog line
+systemctl --user status podium-server podium-daemon | grep -iE 'active|watchdog'
 ```
 
 Topology: `podium-web` (built PWA via `vite preview`) binds **:55556** (plain http) and
-proxies `/trpc` + WebSockets to `podium-backend` (relay + daemon on :18787,
-running from source via `--conditions=@podium/source`). `podium-redeploy.path`
-watches `.git/logs/HEAD` and restarts **both** services when main moves.
+proxies `/trpc` + WebSockets to the **split backend** on :18787: `podium-server`
+(coordinating relay + HTTP/tRPC + WebSockets) and `podium-daemon` (all per-agent PTY /
+transcript / discovery / metrics work), which connects to the server over
+`ws://localhost:18787/daemon` and reconnects with backoff. Splitting them is what stops
+a misbehaving agent or a reattach storm from starving the relay loop. Both run from
+source via `--conditions=@podium/source`. `podium-redeploy.path` watches `.git/logs/HEAD`
+and restarts **all three** services when main moves.
+
+Both backend units are `Type=notify` with `WatchdogSec=30`: they pet the systemd
+watchdog from their event loop (`scripts/sd-notify.ts`), so a **wedged-but-alive**
+process (the documented big-paste msg-loop wedge — `Restart=always` only fires on
+EXIT) stops petting and systemd restarts it. The daemon especially needs this: it
+exposes no HTTP `/health` surface, so the watchdog is the only thing that catches it.
+If `systemctl --user status` ever shows a notify unit stuck `activating`, the
+`systemd-notify READY=1` isn't landing — fall back to `Type=simple` (drop the
+`Type`/`WatchdogSec`/`NotifyAccess` lines) until that's debugged; the sd-notify code
+is a no-op without `NOTIFY_SOCKET`, so it's safe either way.
+
+`podium-backend.service` is the legacy single-process unit (relay + daemon in one
+`scripts/host.ts`), kept as a disabled fallback. Run EITHER the split pair OR the
+combined backend — never both (they bind the same :18787).
 
 HTTPS (the primary URL) is served by **`tailscale serve`**, which terminates TLS
 on **:55555** and proxies to the Vite origin on :55556 — tailnet-internal (not

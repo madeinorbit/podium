@@ -1,0 +1,27 @@
+[Unit]
+Description=Podium coordinating server (relay + HTTP/tRPC + client/daemon WebSockets, :18787)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+# Type=notify + WatchdogSec: the server pets the watchdog from its event loop
+# (scripts/sd-notify.ts), so a wedged-but-alive coordinating loop stops petting and
+# systemd restarts it — Restart=always only fires on EXIT and can't see a stall.
+# NotifyAccess=all because the notifier (systemd-notify) is a child of the tsx pid.
+Type=notify
+NotifyAccess=all
+WatchdogSec=30
+WorkingDirectory=/home/user/src/other/podium
+Environment=HOME=/home/user
+Environment=PATH=/home/user/.local/bin:/home/user/.opencode/bin:/home/user/.bun/bin:/usr/local/bin:/usr/bin:/bin
+Environment=PODIUM_PORT=18787
+# Run @podium/* from TypeScript SOURCE (--conditions=@podium/source), like Vite —
+# no build, no dist, no stale-dist trap. Node runtime (via tsx); @podium/agent-bridge
+# is a shared dep. This process does NO PTY work (that's the daemon) — keeping per-agent
+# work out of here is what stops a misbehaving agent from starving the relay loop.
+ExecStart=/home/user/src/other/podium/node_modules/.bin/tsx --conditions=@podium/source scripts/server.ts
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=default.target

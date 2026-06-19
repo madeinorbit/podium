@@ -1,0 +1,28 @@
+[Unit]
+Description=Podium per-machine agent daemon (PTY attach, transcript tails, discovery, metrics)
+After=network-online.target podium-server.service
+Wants=network-online.target
+# Loose coupling on purpose: the daemon reconnects to the server with backoff, so it
+# can start before the server and survives a server restart without dropping agents.
+
+[Service]
+# Type=notify + WatchdogSec: the daemon exposes no HTTP surface, so the systemd
+# watchdog is the ONLY thing that catches a wedged-but-alive daemon — the documented
+# big-paste msg-loop wedge that previously needed a manual `systemctl restart`. The
+# pet rides the event loop (scripts/sd-notify.ts); a stalled loop stops petting.
+Type=notify
+NotifyAccess=all
+WatchdogSec=30
+WorkingDirectory=/home/user/src/other/podium
+Environment=HOME=/home/user
+Environment=PATH=/home/user/.local/bin:/home/user/.opencode/bin:/home/user/.bun/bin:/usr/local/bin:/usr/bin:/bin
+Environment=PODIUM_PORT=18787
+# node-pty is a native Node addon, so this MUST run under tsx on Node (never Bun).
+# The abduco/tmux masters live in their own systemd --user scopes (spawnAbducoAgent),
+# so they survive this unit restarting — that's how live agents outlast a daemon redeploy.
+ExecStart=/home/user/src/other/podium/node_modules/.bin/tsx --conditions=@podium/source scripts/daemon.ts
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=default.target
