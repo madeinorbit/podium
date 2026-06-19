@@ -1,10 +1,12 @@
 // apps/web/src/MarkdownFilePanel.tsx
 import type { EditorView } from '@codemirror/view'
+import { EditorView as CMView } from '@codemirror/view'
 import { Columns2, Eye, Pencil, Save, X } from 'lucide-react'
 import { type JSX, useEffect, useRef, useState } from 'react'
 import { canSave } from './editor-save'
 import { useIsMobile } from './hooks/use-is-mobile'
 import { MarkdownPreview } from './MarkdownPreview'
+import { lineForTop, topForLine, type BlockPos } from './scroll-sync'
 import { SourceEditor } from './SourceEditor'
 import { useFileDocument } from './useFileDocument'
 
@@ -56,6 +58,52 @@ export function MarkdownFilePanel({
   useEffect(() => {
     if (mobile && mode === 'split') setMode('source')
   }, [mobile, mode])
+
+  // Split-mode scroll sync: map the editor's top visible line <-> the preview's
+  // top visible block via data-source-line anchors. A guard flag prevents the two
+  // scroll handlers from ping-ponging.
+  useEffect(() => {
+    if (mode !== 'split') return
+    const view = viewRef.current
+    const preview = previewScrollRef.current
+    if (!view || !preview) return
+
+    const blocks = (): BlockPos[] => {
+      const top = preview.getBoundingClientRect().top - preview.scrollTop
+      return Array.from(preview.querySelectorAll<HTMLElement>('[data-source-line]')).map((el) => ({
+        line: Number(el.getAttribute('data-source-line')) || 1,
+        top: el.getBoundingClientRect().top - top,
+      }))
+    }
+
+    let lock = false
+    const release = (): void => {
+      lock = false
+    }
+
+    const onEditorScroll = (): void => {
+      if (lock) return
+      lock = true
+      const line = view.state.doc.lineAt(view.lineBlockAtHeight(view.scrollDOM.scrollTop).from).number
+      preview.scrollTop = topForLine(blocks(), line)
+      requestAnimationFrame(release)
+    }
+    const onPreviewScroll = (): void => {
+      if (lock) return
+      lock = true
+      const line = lineForTop(blocks(), preview.scrollTop)
+      const pos = view.state.doc.line(Math.min(line, view.state.doc.lines)).from
+      view.dispatch({ effects: CMView.scrollIntoView(pos, { y: 'start' }) })
+      requestAnimationFrame(release)
+    }
+
+    view.scrollDOM.addEventListener('scroll', onEditorScroll, { passive: true })
+    preview.addEventListener('scroll', onPreviewScroll, { passive: true })
+    return () => {
+      view.scrollDOM.removeEventListener('scroll', onEditorScroll)
+      preview.removeEventListener('scroll', onPreviewScroll)
+    }
+  }, [mode, doc.content])
 
   const handleClose = (): void => {
     if (doc.dirty && !window.confirm('You have unsaved changes. Close anyway?')) return
