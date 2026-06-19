@@ -75,7 +75,7 @@ export function SnoozeControl({
         size="icon-sm"
         aria-haspopup="menu"
         aria-expanded={open}
-        aria-controls={menuId}
+        aria-controls={open ? menuId : undefined}
         aria-pressed={snoozed}
         title={wakeLabel}
         className={cn(
@@ -92,13 +92,21 @@ export function SnoozeControl({
         )}
       </Button>
       {open && (
-        <div
-          id={menuId}
-          role="menu"
-          className="absolute right-0 top-full z-50 mt-1 min-w-[150px] rounded-lg bg-popover p-1 text-popover-foreground shadow-md ring-1 ring-foreground/10"
-          onMouseEnter={openMenu}
-          onMouseLeave={scheduleClose}
-        >
+        <>
+          {COARSE_POINTER && (
+            <div
+              className="fixed inset-0 z-40"
+              aria-hidden="true"
+              onClick={() => setOpen(false)}
+            />
+          )}
+          <div
+            id={menuId}
+            role="menu"
+            className="absolute right-0 top-full z-50 mt-1 min-w-[150px] rounded-lg bg-popover p-1 text-popover-foreground shadow-md ring-1 ring-foreground/10"
+            onMouseEnter={openMenu}
+            onMouseLeave={scheduleClose}
+          >
           <div className="px-1.5 py-1 text-xs font-medium text-muted-foreground">Snooze for</div>
           <button
             type="button"
@@ -134,7 +142,8 @@ export function SnoozeControl({
               Un-snooze
             </button>
           )}
-        </div>
+          </div>
+        </>
       )}
     </div>
   )
