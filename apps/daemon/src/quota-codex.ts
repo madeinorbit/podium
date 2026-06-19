@@ -80,16 +80,22 @@ export const readCodexRateLimitsViaAppServer: CodexRateLimitReader = ({ homeDir 
       if (err) reject(err)
       else resolve(val ?? {})
     }
-    const timer = setTimeout(() => finish(new Error('codex app-server timed out')), 25_000)
+    // MUST stay below the relay's 20s `agentQuota` timeout (apps/server/src/relay.ts) so a slow Codex
+    // returns an error wire in-window instead of blanking the whole response.
+    const timer = setTimeout(() => finish(new Error('codex app-server timed out')), 15_000)
     timer.unref?.()
     const send = (obj: unknown) => child.stdin.write(`${JSON.stringify(obj)}\n`)
     child.once('spawn', () => {
-      send({
-        jsonrpc: '2.0',
-        id: 1,
-        method: 'initialize',
-        params: { clientInfo: { name: 'podium', version: '0.0.0' } },
-      })
+      try {
+        send({
+          jsonrpc: '2.0',
+          id: 1,
+          method: 'initialize',
+          params: { clientInfo: { name: 'podium', version: '0.0.0' } },
+        })
+      } catch (e) {
+        finish(e instanceof Error ? e : new Error(String(e)))
+      }
     })
     child.stdout.on('data', (chunk: Buffer) => {
       buf += chunk.toString('utf8')
