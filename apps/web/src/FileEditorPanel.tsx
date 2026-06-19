@@ -7,8 +7,17 @@ import { canSave } from './editor-save'
 import { langIdForPath, loadLanguage } from './editor-lang'
 import { useStore } from './store'
 
-export function FileEditorPanel(): JSX.Element | null {
-  const { editorFile, closeFile, readFile, writeFile } = useStore()
+/** A single open file, rendered as a workspace panel (one per editor tab). */
+export function FileEditorPanel({
+  sessionId,
+  path,
+  onClose,
+}: {
+  sessionId: string
+  path: string
+  onClose: () => void
+}): JSX.Element {
+  const { readFile, writeFile } = useStore()
   const hostRef = useRef<HTMLDivElement | null>(null)
   const viewRef = useRef<EditorView | null>(null)
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading')
@@ -22,11 +31,11 @@ export function FileEditorPanel(): JSX.Element | null {
   const editable = true
 
   const save = useCallback(async () => {
-    if (!editorFile || !viewRef.current) return
+    if (!viewRef.current) return
     if (!canSave({ editable, dirty, saving })) return
     setSaving(true)
     const content = viewRef.current.state.doc.toString()
-    const r = await writeFile({ sessionId: editorFile.sessionId, path: editorFile.path, content, baseHash })
+    const r = await writeFile({ sessionId, path, content, baseHash })
     setSaving(false)
     if (r.ok) {
       setBaseHash(r.baseHash)
@@ -38,7 +47,7 @@ export function FileEditorPanel(): JSX.Element | null {
           label: 'Overwrite',
           onClick: async () => {
             setSaving(true)
-            const r2 = await writeFile({ sessionId: editorFile.sessionId, path: editorFile.path, content })
+            const r2 = await writeFile({ sessionId, path, content })
             setSaving(false)
             if (r2.ok) {
               setBaseHash(r2.baseHash)
@@ -57,7 +66,7 @@ export function FileEditorPanel(): JSX.Element | null {
     } else {
       toast.error(r.error ?? 'Save failed')
     }
-  }, [editorFile, writeFile, baseHash, dirty, saving, editable])
+  }, [sessionId, path, writeFile, baseHash, dirty, saving, editable])
 
   // Keep a stable ref to save so the keydown handler doesn't go stale
   const saveRef = useRef(save)
@@ -66,13 +75,12 @@ export function FileEditorPanel(): JSX.Element | null {
   }, [save])
 
   useEffect(() => {
-    if (!editorFile) return
     let cancelled = false
     setStatus('loading')
     setDirty(false)
     setBaseHash(undefined)
     void (async () => {
-      const r = await readFile(editorFile.sessionId, editorFile.path)
+      const r = await readFile(sessionId, path)
       if (cancelled) return
       if (!r.ok) {
         setStatus('error')
@@ -80,7 +88,7 @@ export function FileEditorPanel(): JSX.Element | null {
         return
       }
       setBaseHash(r.baseHash)
-      const ext = await loadLanguage(langIdForPath(editorFile.path))
+      const ext = await loadLanguage(langIdForPath(path))
       if (cancelled || !hostRef.current) return
 
       const updateListener = EditorView.updateListener.of((u) => {
@@ -117,19 +125,18 @@ export function FileEditorPanel(): JSX.Element | null {
       viewRef.current?.destroy()
       viewRef.current = null
     }
-  }, [editorFile, readFile, editable, reloadNonce])
+  }, [sessionId, path, readFile, editable, reloadNonce])
 
   const handleClose = useCallback(() => {
     if (dirty && !window.confirm('You have unsaved changes. Close anyway?')) return
-    closeFile()
-  }, [dirty, closeFile])
+    onClose()
+  }, [dirty, onClose])
 
-  if (!editorFile) return null
   return (
-    <div className="absolute inset-0 z-50 flex flex-col bg-background">
+    <div className="flex h-full w-full min-w-0 flex-col bg-background">
       <div className="flex items-center gap-2 border-b border-border px-3 py-1.5">
         <span className="min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground">
-          {editorFile.path}
+          {path}
           {dirty && <span className="ml-1 text-amber-500" aria-label="unsaved changes">●</span>}
         </span>
         <button

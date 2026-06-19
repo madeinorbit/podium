@@ -151,6 +151,71 @@ test('native terminal: clicking a styled file path opens it in the editor; edit+
   await rm(probeAbs, { force: true })
 })
 
+/** Print a styled relative path into the shell and click it open; returns once the
+ *  editor shows. Mirrors the first test's robust click (visible terminal + retry). */
+async function openStyledFile(page: Page, rel: string, st: { cols: number; rows: number }): Promise<void> {
+  await sh(page, `printf '\\033[1;34m%s\\033[0m\\n' '${rel}'`)
+  await expect.poll(async () => (await podium.screen(page)).includes(rel), { timeout: 15_000 }).toBe(true)
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const lines = (await podium.screen(page)).split('\n')
+    const total = lines.length - 1
+    const screenRow = lines.lastIndexOf(rel) - (total - st.rows)
+    if (lines.lastIndexOf(rel) >= 0 && screenRow >= 0 && screenRow < st.rows) {
+      const box = await page.evaluate(() => {
+        const els = [...document.querySelectorAll('.xterm-screen')] as HTMLElement[]
+        const el = els.find((e) => e.offsetParent !== null && e.getBoundingClientRect().width > 0) ?? els[0]
+        const r = el.getBoundingClientRect()
+        return { x: r.x, y: r.y, w: r.width, h: r.height }
+      })
+      const x = Math.round(box.x + 6.5 * (box.w / st.cols))
+      const y = Math.round(box.y + (screenRow + 0.5) * (box.h / st.rows))
+      await page.mouse.move(x, y)
+      await page.waitForTimeout(250)
+      await page.mouse.click(x, y)
+      const base = rel.replace('./', '')
+      try {
+        await page.getByRole('button', { name: base }).waitFor({ state: 'visible', timeout: 1500 })
+        return
+      } catch {
+        /* render/hit-test miss — recompute and retry */
+      }
+    } else {
+      await page.waitForTimeout(300)
+    }
+  }
+  throw new Error(`could not open ${rel}`)
+}
+
+test('native terminal: each opened file is its own closeable tab in the strip', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 820 })
+  await openWorkspaceWithShell(page)
+  await expect.poll(async () => (await podium.screen(page)).length, { timeout: 20_000 }).toBeGreaterThan(0)
+  await sh(page, 'printf "CWDIS<<%s>>\\n" "$PWD"')
+  let cwd = ''
+  await expect
+    .poll(async () => {
+      const m = (await podium.screen(page)).match(/CWDIS<<(\/[^>]*)>>/)
+      if (m) cwd = m[1].trim()
+      return cwd
+    }, { timeout: 15_000 })
+    .toMatch(/^\//)
+  await sh(page, `printf 'TAB_ONE\\n' > ./e2e_tab_one.txt`)
+  const st = await gridSize(page)
+
+  // Open the file → it becomes a closeable TAB in the strip (not an overlay), and the
+  // editor shows its content.
+  await openStyledFile(page, './e2e_tab_one.txt', st)
+  const tab = page.getByRole('button', { name: 'e2e_tab_one.txt' })
+  await expect(tab, 'opened file appears as a tab in the strip').toBeVisible()
+  await expect(page.locator('.cm-content')).toContainText('TAB_ONE', { timeout: 10_000 })
+
+  // Close the tab via its × → it disappears from the strip.
+  await tab.locator('..').getByRole('button', { name: 'Close file' }).click()
+  await expect(page.getByRole('button', { name: 'e2e_tab_one.txt' })).toHaveCount(0)
+
+  await rm(`${cwd}/e2e_tab_one.txt`, { force: true }).catch(() => {})
+})
+
 test('native terminal: a wrapped URL opens the FULL url in a NEW tab (not same window)', async ({
   page,
   context,

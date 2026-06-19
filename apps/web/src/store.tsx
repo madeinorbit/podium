@@ -61,9 +61,9 @@ export interface Store {
   paneA: string | null // sessionId in pane A
   paneB: string | null // sessionId in pane B (null = no split)
   setPane: (pane: 'A' | 'B', sessionId: string | null) => void
-  editorFile: { sessionId: string; path: string } | null
+  fileTabs: FileTab[]
   openFile: (sessionId: string, path: string) => void
-  closeFile: () => void
+  closeFileTab: (id: string) => void
   readFile: (
     sessionId: string,
     path: string,
@@ -108,6 +108,16 @@ const Ctx = createContext<Store | null>(null)
 // throws in private-mode/SSR.
 const VIEW_KEY = 'podium.view'
 const WT_KEY = 'podium.selectedWorktree'
+/** An open inline file-editor tab. `id` (`file:<sessionId>:<path>`) is what paneA/paneB
+ *  hold when an editor tab is active; `worktreePath` (the session cwd) scopes it to a
+ *  worktree's tab strip. */
+export interface FileTab {
+  id: string
+  sessionId: string
+  path: string
+  worktreePath: string
+}
+
 const PANE_A_KEY = 'podium.paneA'
 function lsGet(key: string): string | null {
   try {
@@ -169,7 +179,7 @@ export function StoreProvider({
   const [paneA, setPaneA] = useState<string | null>(() => lsGet(PANE_A_KEY))
   const [paneB, setPaneB] = useState<string | null>(null)
   const [split, setSplit] = useState(false)
-  const [editorFile, setEditorFile] = useState<{ sessionId: string; path: string } | null>(null)
+  const [fileTabs, setFileTabs] = useState<FileTab[]>([])
   const started = useRef(false)
 
   const refreshRepos = useMemo(
@@ -199,10 +209,24 @@ export function StoreProvider({
     [trpc],
   )
   const openFile = useMemo(
-    () => (sessionId: string, path: string) => setEditorFile({ sessionId, path }),
+    () => (sessionId: string, path: string) => {
+      const id = `file:${sessionId}:${path}`
+      const worktreePath = sessions.find((s) => s.sessionId === sessionId)?.cwd ?? ''
+      setFileTabs((tabs) =>
+        tabs.some((t) => t.id === id) ? tabs : [...tabs, { id, sessionId, path, worktreePath }],
+      )
+      setPaneA(id)
+    },
+    [sessions],
+  )
+  const closeFileTab = useMemo(
+    () => (id: string) => {
+      setFileTabs((tabs) => tabs.filter((t) => t.id !== id))
+      setPaneA((p) => (p === id ? null : p))
+      setPaneB((p) => (p === id ? null : p))
+    },
     [],
   )
-  const closeFile = useMemo(() => () => setEditorFile(null), [])
   const readFile = useMemo(
     () => (sessionId: string, path: string) => trpc.files.read.query({ sessionId, path }),
     [trpc],
@@ -230,6 +254,7 @@ export function StoreProvider({
   const killSession = useMemo(
     () => async (sessionId: string) => {
       await trpc.sessions.kill.mutate({ sessionId }).catch(() => {})
+      setFileTabs((tabs) => tabs.filter((t) => t.sessionId !== sessionId))
       setPaneA((p) => (p === sessionId ? null : p))
       setPaneB((p) => (p === sessionId ? null : p))
       setPins((p) => ({ ...p, panels: p.panels.filter((id) => id !== sessionId) }))
@@ -435,9 +460,9 @@ export function StoreProvider({
     setWorkState,
     drafts,
     setSessionDraft,
-    editorFile,
+    fileTabs,
     openFile,
-    closeFile,
+    closeFileTab,
     readFile,
     writeFile,
   }
