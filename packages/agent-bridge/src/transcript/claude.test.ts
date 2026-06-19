@@ -49,6 +49,38 @@ describe('claudeRecordToItems', () => {
     })
   })
 
+  it('surfaces the Bash description as toolTitle (used for the lone-command batch summary)', () => {
+    const items = claudeRecordToItems({
+      type: 'assistant',
+      uuid: 'a2',
+      message: {
+        role: 'assistant',
+        content: [
+          {
+            type: 'tool_use',
+            id: 'toolu_2',
+            name: 'Bash',
+            input: { command: 'node render.mjs', description: 'Render the three chat-view mockups to PNG' },
+          },
+        ],
+      },
+    })
+    expect(items[0]).toMatchObject({
+      toolName: 'Bash',
+      toolInput: 'node render.mjs',
+      toolTitle: 'Render the three chat-view mockups to PNG',
+    })
+  })
+
+  it('omits toolTitle when the call has no description', () => {
+    const items = claudeRecordToItems({
+      type: 'assistant',
+      uuid: 'a3',
+      message: { role: 'assistant', content: [{ type: 'tool_use', id: 't', name: 'Read', input: { file_path: '/a.ts' } }] },
+    })
+    expect(items[0]).not.toHaveProperty('toolTitle')
+  })
+
   it('maps tool results (user-typed records) to tool items linked by toolUseId', () => {
     const items = claudeRecordToItems({
       type: 'user',

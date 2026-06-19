@@ -241,7 +241,7 @@ body:has(.mobile-shell) {
 /* ── Transcript / document layout ───────────────────────────────────────────
    Each message row is a flex container: a narrow left-rail column (3px wide +
    12px gap) and a body column. Rails are only shown for user messages (blue)
-   and the final answer (primary/amber). Intermediate assistant narration and
+   and the final answer (emerald, matching the minimap). Intermediate assistant narration and
    tool rows get a transparent/none rail so they all share the same column
    alignment without visual noise.
    ─────────────────────────────────────────────────────────────────────────── */
@@ -265,8 +265,11 @@ body:has(.mobile-shell) {
   background-color: #3b82f6; /* blue-500 */
 }
 .transcript-rail--answer {
-  background-color: var(--primary);
-  opacity: 0.8;
+  /* Emerald to match the minimap's final-answer tick (bg-emerald-500). An explicit
+     hue, not var(--primary): primary is near-black in the light theme, so the
+     agent's answer rail read as grey and clashed with the minimap. Mirrors how
+     --user uses an explicit blue-500 to match the minimap's user tick. */
+  background-color: #10b981; /* emerald-500 */
 }
 /* No rail — transparent spacer so body column stays aligned */
 .transcript-rail--none {

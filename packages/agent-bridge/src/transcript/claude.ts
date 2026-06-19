@@ -181,6 +181,7 @@ function assistantItems(
       // collapsed tool row, and preview the question text rather than a JSON blob.
       const isAsk = b.name === 'AskUserQuestion'
       const paths = toolPathsFromInput(b.input)
+      const title = isAsk ? undefined : toolTitleFromInput(b.input)
       items.push({
         id: toolUseId ?? freshId('t'),
         role: 'tool',
@@ -188,6 +189,7 @@ function assistantItems(
         text: '',
         toolName: b.name,
         toolInput: isAsk ? askQuestionPreview(b.input) : toolInputPreview(b.input),
+        ...(title ? { toolTitle: title } : {}),
         ...(isAsk ? { toolInputJson: safeJsonString(b.input) } : {}),
         ...(toolUseId ? { toolUseId } : {}),
         ...(paths.length ? { toolPaths: paths } : {}),
@@ -221,6 +223,14 @@ function toolPathsFromInput(input: unknown): string[] {
   const out: string[] = []
   for (const k of FILE_PATH_KEYS) if (typeof rec[k] === 'string') out.push(rec[k] as string)
   return out
+}
+
+/** The agent's own one-line intent for the call (Bash `description`) — the chat
+ *  shows it instead of the raw shell for a lone-command batch. */
+function toolTitleFromInput(input: unknown): string | undefined {
+  if (!input || typeof input !== 'object') return undefined
+  const d = (input as Record<string, unknown>).description
+  return typeof d === 'string' && d.trim() ? d.trim() : undefined
 }
 
 /** One-line, human-scannable summary of a tool input, biased to the fields that matter. */

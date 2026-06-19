@@ -199,6 +199,11 @@ export const TranscriptItem = z.object({
   toolName: z.string().optional(),
   /** Compact one-line preview of the tool input. */
   toolInput: z.string().optional(),
+  /** Human-readable one-line summary the agent attached to the call (the Bash
+   *  `description`), when present. Used for the collapsed tool-batch summary so a
+   *  lone command reads as its intent rather than its shell; the chat falls back
+   *  to `toolInput` when absent. */
+  toolTitle: z.string().optional(),
   /** Full tool input as a JSON string, set only for user-facing prompt tools
    *  (AskUserQuestion) so the chat can render an interactive question card rather
    *  than a collapsed tool row. Omitted for ordinary tools to avoid bloat. */

@@ -17,14 +17,18 @@ import { Textarea } from '@/components/ui/textarea'
 import { cn } from '@/lib/utils'
 import {
   blockMatches,
+  buildChatRows,
   type ChatBlock,
+  type ChatRow,
   measureBlockOffsets,
   type MinimapTick,
-  ticksFromOffsets,
   pairToolResults,
   type PendingItem,
   reconcilePending,
+  rowTickMeta,
   searchBlocks,
+  ticksFromOffsets,
+  type ToolBatchRow,
 } from './chat'
 import { chatActivity } from './derive'
 import { resolveAgainstCwd } from './file-path'
@@ -158,8 +162,22 @@ export function ChatView({
 
   const effectiveItems = parked && fetched && fetched.length > 0 ? fetched : items
   const blocks = useMemo(() => pairToolResults(effectiveItems), [effectiveItems])
+  // Render unit: consecutive tool calls fold into one collapsed batch row; the
+  // minimap, scroll-to-match, and [data-block] indices are all keyed by ROW.
+  const rows = useMemo(() => buildChatRows(blocks), [blocks])
   const matches = useMemo(() => searchBlocks(blocks, query), [blocks, query])
   const activeMatch = matches.length > 0 ? matches[matchCursor % matches.length] : undefined
+  // Search runs per block (so a hit inside a collapsed batch is still found); map
+  // a matched block to the row that renders it, to scroll to and auto-expand it.
+  const blockToRow = useMemo(() => {
+    const m = new Map<number, number>()
+    rows.forEach((row, ri) => {
+      if (row.kind === 'tools') for (const bi of row.blockIndices) m.set(bi, ri)
+      else m.set(row.blockIndex, ri)
+    })
+    return m
+  }, [rows])
+  const activeRow = activeMatch !== undefined ? blockToRow.get(activeMatch) : undefined
 
   // A mobile AgentPanel reuses one ChatView instance across sessions (it isn't
   // keyed by sessionId like the desktop tabs are), so reset per-session local UI
@@ -333,8 +351,8 @@ export function ChatView({
   }
   // biome-ignore lint/correctness/useExhaustiveDependencies: scrolling is the effect of cursor moves
   useEffect(() => {
-    if (activeMatch !== undefined) scrollToBlock(activeMatch)
-  }, [activeMatch])
+    if (activeRow !== undefined) scrollToBlock(activeRow)
+  }, [activeRow])
 
   const send = async () => {
     const text = draft.trim()
@@ -438,18 +456,33 @@ export function ChatView({
               prompt; shells have no structured transcript.
             </div>
           )}
-          {blocks.map((block, i) => (
-            <ChatBlockView
-              key={block.item.id}
-              block={block}
-              index={i}
-              highlighted={i === activeMatch}
-              dimmed={query.trim() !== '' && !blockMatches(block, query)}
-              sessionId={sessionId}
-              cwd={cwd}
-              openFile={openFile}
-            />
-          ))}
+          {rows.map((row, ri) =>
+            row.kind === 'tools' ? (
+              <ToolBatchView
+                // A tools row always folds ≥1 block, so [0] and blocks[bi] exist.
+                key={row.blocks[0]!.item.id}
+                row={row}
+                index={ri}
+                highlighted={ri === activeRow}
+                forceOpen={ri === activeRow}
+                dimmed={query.trim() !== '' && !row.blockIndices.some((bi) => blockMatches(blocks[bi]!, query))}
+                sessionId={sessionId}
+                cwd={cwd}
+                openFile={openFile}
+              />
+            ) : (
+              <ChatBlockView
+                key={row.block.item.id}
+                block={row.block}
+                index={ri}
+                highlighted={ri === activeRow}
+                dimmed={query.trim() !== '' && !blockMatches(row.block, query)}
+                sessionId={sessionId}
+                cwd={cwd}
+                openFile={openFile}
+              />
+            ),
+          )}
           {pending.map((p) => (
             <div
               key={p.id}
@@ -509,7 +542,7 @@ export function ChatView({
             </div>
           )}
         </div>
-        <Minimap blocks={blocks} scrollerRef={scrollerRef} />
+        <Minimap rows={rows} scrollerRef={scrollerRef} />
         {!atBottom && (
           <button
             type="button"
@@ -701,16 +734,17 @@ const ChatBlockView = memo(function ChatBlockView({
 
   if (item.role === 'tool' && item.toolName === 'AskUserQuestion' && item.toolInputJson)
     return <AskUserQuestionCard block={block} cls={rowClass} index={index} />
+  // Ordinary tool calls render inside a collapsed ToolBatchView, so they don't
+  // reach here. The only stray case is an AskUserQuestion without structured input
+  // (no card) — show it as a lone quiet tool row so it isn't dropped.
   if (item.role === 'tool')
     return (
-      <ToolBlock
-        block={block}
-        cls={rowClass}
-        index={index}
-        sessionId={sessionId}
-        cwd={cwd}
-        openFile={openFile}
-      />
+      <div className={rowClass} data-block={index}>
+        <div className="transcript-rail transcript-rail--none" aria-hidden="true" />
+        <div className="transcript-body py-0.5">
+          <ToolBlock block={block} sessionId={sessionId} cwd={cwd} openFile={openFile} />
+        </div>
+      </div>
     )
 
   // A recognized user action that isn't a chat message (e.g. interrupt) — show it
@@ -913,17 +947,74 @@ function AskUserQuestionCard({
   )
 }
 
+/**
+ * A run of consecutive tool calls, collapsed under one smart summary title
+ * ("Read 2 files, ran a command"). Quiet by default; click the title to reveal
+ * the individual calls. One [data-block] row → one minimap tick, so the batch
+ * reads as a single beat of activity. Search auto-expands it via `forceOpen`.
+ */
+function ToolBatchView({
+  row,
+  index,
+  highlighted,
+  dimmed,
+  forceOpen,
+  sessionId,
+  cwd,
+  openFile,
+}: {
+  row: ToolBatchRow
+  index: number
+  highlighted: boolean
+  dimmed: boolean
+  forceOpen: boolean
+  sessionId: string
+  cwd: string
+  openFile: (sessionId: string, path: string) => void
+}): JSX.Element {
+  const [open, setOpen] = useState(false)
+  const expanded = open || forceOpen
+  const rowClass = cn(
+    'transcript-row mx-auto w-full max-w-[900px]',
+    highlighted && 'rounded-md outline outline-1 outline-primary outline-offset-4',
+    dimmed && 'opacity-35',
+  )
+  return (
+    <div className={rowClass} data-block={index}>
+      {/* No rail — tool activity stays quiet, aligned with prose via the spacer. */}
+      <div className="transcript-rail transcript-rail--none" aria-hidden="true" />
+      <div className="transcript-body py-0.5">
+        <button
+          type="button"
+          className="flex w-full min-w-0 items-baseline gap-[7px] py-0.5 text-left text-xs text-muted-foreground hover:text-foreground"
+          onClick={() => setOpen((v) => !v)}
+          aria-expanded={expanded}
+        >
+          <span className="flex-none font-mono text-[10px] text-muted-foreground/50">{expanded ? '▾' : '▸'}</span>
+          <span className="min-w-0 truncate text-[12px] font-medium text-muted-foreground/90">{row.title}</span>
+        </button>
+        {expanded && (
+          <div className="mt-0.5 ml-[5px] flex flex-col gap-0.5 border-l border-border/60 pl-2.5">
+            {row.blocks.map((b) => (
+              <ToolBlock key={b.item.id} block={b} sessionId={sessionId} cwd={cwd} openFile={openFile} />
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+/** One tool call inside an expanded batch: name + input preview, file chips, and
+ *  a click-to-reveal result. No outer row/rail/[data-block] — the batch row owns
+ *  the layout column and the minimap tick. */
 function ToolBlock({
   block,
-  cls,
-  index,
   sessionId,
   cwd,
   openFile,
 }: {
   block: ChatBlock
-  cls: string
-  index: number
   sessionId: string
   cwd: string
   openFile: (sessionId: string, path: string) => void
@@ -934,43 +1025,37 @@ function ToolBlock({
   // Orphan results render as a bare result row; calls render name + input.
   const label = item.toolName ?? 'result'
   return (
-    <div className={cls} data-block={index}>
-      {/* No rail for tool rows — they stay quiet */}
-      <div className="transcript-rail transcript-rail--none" aria-hidden="true" />
-      <div className="transcript-body py-0.5">
-        <button
-          type="button"
-          className="flex w-full min-w-0 items-baseline gap-[7px] py-0.5 text-left text-xs text-muted-foreground"
-          onClick={() => setOpen((v) => !v)}
-        >
-          <span className="flex-none font-mono text-[10px] text-muted-foreground/50">{open ? '▾' : '▸'}</span>
-          <span className="flex-none font-mono text-[11px] font-semibold text-muted-foreground/80">{label}</span>
-          {item.toolInput && (
-            <span className="min-w-0 truncate font-mono text-[11px] text-muted-foreground/50">
-              {item.toolInput}
-            </span>
-          )}
-        </button>
-        {item.toolPaths?.map((p) => (
-          <button
-            key={p}
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation()
-              openFile(sessionId, resolveAgainstCwd(cwd, p))
-            }}
-            className="ml-[17px] inline-flex max-w-full items-center gap-1 truncate rounded border border-input px-[7px] py-0.5 font-mono text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground"
-            title={`Open ${p}`}
-          >
-            {p.split('/').pop()}
-          </button>
-        ))}
-        {open && (
-          <pre className="my-1 max-h-[280px] overflow-auto whitespace-pre-wrap break-words rounded-md border border-border bg-muted/40 px-2.5 py-2 font-mono text-[11px] text-muted-foreground">
-            {result ?? '(no result captured)'}
-          </pre>
+    <div className="min-w-0">
+      <button
+        type="button"
+        className="flex w-full min-w-0 items-baseline gap-[7px] py-0.5 text-left text-xs text-muted-foreground"
+        onClick={() => setOpen((v) => !v)}
+      >
+        <span className="flex-none font-mono text-[10px] text-muted-foreground/50">{open ? '▾' : '▸'}</span>
+        <span className="flex-none font-mono text-[11px] font-semibold text-muted-foreground/80">{label}</span>
+        {item.toolInput && (
+          <span className="min-w-0 truncate font-mono text-[11px] text-muted-foreground/50">{item.toolInput}</span>
         )}
-      </div>
+      </button>
+      {item.toolPaths?.map((p) => (
+        <button
+          key={p}
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation()
+            openFile(sessionId, resolveAgainstCwd(cwd, p))
+          }}
+          className="ml-[17px] inline-flex max-w-full items-center gap-1 truncate rounded border border-input px-[7px] py-0.5 font-mono text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground"
+          title={`Open ${p}`}
+        >
+          {p.split('/').pop()}
+        </button>
+      ))}
+      {open && (
+        <pre className="my-1 max-h-[280px] overflow-auto whitespace-pre-wrap break-words rounded-md border border-border bg-muted/40 px-2.5 py-2 font-mono text-[11px] text-muted-foreground">
+          {result ?? '(no result captured)'}
+        </pre>
+      )}
     </div>
   )
 }
@@ -982,10 +1067,10 @@ function ToolBlock({
  * "where did I steer" reads at a glance. Click or drag to scrub.
  */
 function Minimap({
-  blocks,
+  rows,
   scrollerRef,
 }: {
-  blocks: ChatBlock[]
+  rows: ChatRow[]
   scrollerRef: React.RefObject<HTMLDivElement | null>
 }): JSX.Element | null {
   const [ticks, setTicks] = useState<MinimapTick[]>([])
@@ -1004,7 +1089,7 @@ function Minimap({
       const total = el.scrollHeight || 1
       setViewport({ top: el.scrollTop / total, height: el.clientHeight / total })
       const offsets = measureBlockOffsets(el)
-      setTicks(ticksFromOffsets(blocks, offsets))
+      setTicks(ticksFromOffsets(rows.map(rowTickMeta), offsets))
     }
 
     const schedMeasure = () => {
@@ -1021,7 +1106,7 @@ function Minimap({
       el.removeEventListener('scroll', schedMeasure)
       ro.disconnect()
     }
-  }, [scrollerRef, blocks])
+  }, [scrollerRef, rows])
 
   // Map a pointer Y on the strip to a scroll position, centring the viewport on
   // the pointer — so a click jumps there and a drag scrubs continuously.
@@ -1035,7 +1120,7 @@ function Minimap({
     el.scrollTop = Math.max(0, Math.min(max, f * el.scrollHeight - el.clientHeight / 2))
   }
 
-  if (blocks.length < 2) return null
+  if (rows.length < 2) return null
   return (
     // The whole strip is the scrub surface; ticks are non-interactive colour
     // guides (pointer-events-none) so clicks/drags reach the track.
