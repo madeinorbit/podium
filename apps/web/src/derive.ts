@@ -209,25 +209,28 @@ export function sidebarSections(
   pins: PinState,
 ): SidebarSections {
   const repoViews = reposToViews(repos)
-  const pinnedPanelIds = new Set(pins.panels)
   const pinnedWorktreePaths = new Set(pins.worktrees)
   const pinnedRepoPaths = new Set(pins.repos)
 
   const allWorktrees = repoViews.flatMap((repo) =>
     repo.worktrees.map((worktree) => ({ repo, worktree })),
   )
-  const pinnedPanels = pins.panels
-    .map((sessionId) => sessions.find((session) => session.sessionId === sessionId))
-    .filter((session): session is SessionMeta => session !== undefined)
+  // Pinned panels are ordered by agent state (same comparator as the repo
+  // sections) rather than pin-insertion order, so the whole sidebar reads
+  // consistently — needs-you first, working sunk to the bottom.
+  const pinnedPanels = sortSessionsForSidebar(
+    pins.panels
+      .map((sessionId) => sessions.find((session) => session.sessionId === sessionId))
+      .filter((session): session is SessionMeta => session !== undefined),
+  )
 
+  // A pinned panel still appears in its own repo/worktree list (it's not removed
+  // from there) — pinning lifts a copy into PINNED PANELS for quick reach without
+  // hiding it from its home. The selected highlight lights up in both places.
   const navWorktree = (repo: RepoView, worktree: WorktreeView): WorktreeNavView => ({
     ...worktree,
     repoName: repo.name,
-    sessions: sortSessionsForSidebar(
-      sessionsForWorktree(sessions, worktree.path).filter(
-        (session) => !pinnedPanelIds.has(session.sessionId),
-      ),
-    ),
+    sessions: sortSessionsForSidebar(sessionsForWorktree(sessions, worktree.path)),
   })
 
   const navRepo = (repo: RepoView): RepoNavView => ({
@@ -252,6 +255,44 @@ export function sidebarSections(
       .filter((repo) => !pinnedRepoPaths.has(repo.path))
       .map(navRepo)
       .filter((repo) => repo.worktrees.length > 0),
+  }
+}
+
+/** Does a worktree row match the inline sidebar filter (case-insensitive over
+ *  branch / path / repo name)? */
+function worktreeMatches(worktree: WorktreeNavView, q: string): boolean {
+  const hay = `${worktree.repoName} ${worktree.branch ?? ''} ${worktree.path}`.toLowerCase()
+  return hay.includes(q)
+}
+
+/**
+ * Inline client-side filter for the repos/worktrees tree (the small Input next to
+ * the WORKTREES header). Case-insensitive substring over repo name / branch /
+ * path; an empty query passes everything through unchanged. A repo is kept when
+ * its own name matches (then all its worktrees show) OR when it has any matching
+ * worktree (then only the matching worktrees show). Pinned panels are not touched
+ * — they're a flat reach-list, not part of the tree being filtered.
+ */
+export function filterSidebarSections(sections: SidebarSections, query: string): SidebarSections {
+  const q = query.trim().toLowerCase()
+  if (!q) return sections
+
+  const filterWorktrees = (worktrees: WorktreeNavView[]): WorktreeNavView[] =>
+    worktrees.filter((w) => worktreeMatches(w, q))
+
+  const filterRepo = (repo: RepoNavView): RepoNavView | null => {
+    if (repo.name.toLowerCase().includes(q)) return repo
+    const worktrees = filterWorktrees(repo.worktrees)
+    return worktrees.length > 0 ? { ...repo, worktrees } : null
+  }
+
+  return {
+    pinnedPanels: sections.pinnedPanels,
+    pinnedWorktrees: filterWorktrees(sections.pinnedWorktrees),
+    pinnedRepos: sections.pinnedRepos
+      .map(filterRepo)
+      .filter((repo): repo is RepoNavView => repo !== null),
+    repos: sections.repos.map(filterRepo).filter((repo): repo is RepoNavView => repo !== null),
   }
 }
 
@@ -347,21 +388,22 @@ export function chatActivity(
 //   attention → yellow  (needs you: question / approval / permission)
 //   error     → red
 //   ready     → blue    (idle-and-waiting, a fresh agent, or a shell at its prompt)
-//   neutral   → grey    (hibernated/exited carry no live colour; the parked
-//                        grayed-italic row carries hibernation instead)
+//   neutral   → grey    (exited carries no live colour)
 export type DotTone = 'working' | 'attention' | 'error' | 'ready' | 'neutral'
 
 /**
  * The status-dot tone for a session row/tab/card — the single source of truth
  * for agent colour, shared by every mode so the semantics never drift.
  *
- * Hibernated sessions get NO status colour (grey): per the colour rules, a parked
- * agent's state is carried by the grayed/italic row (`.dot.parked`), not the dot.
+ * Hibernated sessions KEEP their last real status colour: the server preserves
+ * `agentState` across a hibernate (the kill is the expected result, so `onExit`
+ * leaves the phase intact), so a hibernated agent that "needs input" still reads
+ * yellow. Hibernation is conveyed only by the grayed/italic `.dot.parked` row, not
+ * by draining the dot to grey.
  */
 export function sessionDotTone(s: SessionMeta): DotTone {
-  // Parked/terminal: no live status colour. Hibernation's state rides on the
-  // grayed/italic row instead of the dot.
-  if (s.status === 'hibernated' || s.status === 'exited') return 'neutral'
+  // Exited (process gone, phase cleared server-side): no live status colour.
+  if (s.status === 'exited') return 'neutral'
   // Booting / brief reconnect: not working yet → blue.
   if (s.status === 'starting' || s.status === 'reconnecting') return 'ready'
   const badge = agentBadge(s)
@@ -399,13 +441,18 @@ const DOT_TONE_CLASS: Record<DotTone, string> = {
 /**
  * Full className for a session's status dot: the tone hue plus a `parked` marker
  * for hibernated sessions. The marker drives the grayed/italic row look in CSS
- * (`.dot.parked + .worker-label`), independent of the (neutral) dot colour.
+ * (`.dot.parked + .worker-label`), independent of the dot colour. A live working
+ * (green) dot also gets `dot-working` for the breathing-glow animation — but a
+ * hibernated dot stays calm (no animation) even if its last tone was working.
  */
 export function sessionDotClass(s: SessionMeta): string {
+  const tone = sessionDotTone(s)
+  const parked = s.status === 'hibernated'
   return cn(
     'dot inline-block size-2 min-w-2 flex-none rounded-full',
-    DOT_TONE_CLASS[sessionDotTone(s)],
-    s.status === 'hibernated' && 'parked',
+    DOT_TONE_CLASS[tone],
+    parked && 'parked',
+    tone === 'working' && !parked && 'dot-working',
   )
 }
 

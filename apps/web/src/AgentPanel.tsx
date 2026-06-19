@@ -33,14 +33,16 @@ import { WorkerLabel } from './WorkerLabel'
 const E2E = typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('e2e')
 
 type PanelMode = 'native' | 'chat'
-const MODE_KEY = 'podium.panelMode'
+const MODE_KEY = 'podium.panelModeDefault'
 
 /**
  * Per-device default: chat reads best on a phone (native terminals reflow
- * painfully there); the real PTY is the desktop default. A user toggle
- * overrides and sticks for the device.
+ * painfully there); the real PTY is the desktop default. The last mode a user
+ * picked (anywhere) becomes the device default for sessions that have no
+ * remembered per-session mode yet; per-session overrides live in the store
+ * (`panelMode`, persisted under `podium.panelMode`) — see issue #35.
  */
-function initialMode(): PanelMode {
+function deviceDefaultMode(): PanelMode {
   const saved = localStorage.getItem(MODE_KEY)
   if (saved === 'native' || saved === 'chat') return saved
   return window.matchMedia('(max-width: 768px)').matches ? 'chat' : 'native'
@@ -55,7 +57,17 @@ export function AgentPanel({
    *  switching back catches up instead of wiping). Gates focus, nothing else. */
   active?: boolean
 }): JSX.Element {
-  const { hub, sessions, archiveSession, startBtw, setSessionDraft, hibernateSession, openFile } = useStore()
+  const {
+    hub,
+    sessions,
+    archiveSession,
+    startBtw,
+    setSessionDraft,
+    hibernateSession,
+    openFile,
+    panelMode,
+    setPanelMode,
+  } = useStore()
   const session = sessions.find((s) => s.sessionId === sessionId)
   const termRef = useRef<HTMLDivElement | null>(null)
   const toolbarRef = useRef<HTMLDivElement | null>(null)
@@ -66,11 +78,16 @@ export function AgentPanel({
   // immediately, before the first transcript frame arrives.
   const chatCapable =
     session?.transcriptAvailable ?? (session ? defaultChatCapable(session.agentKind) : false)
-  const [mode, setMode] = useState<PanelMode>(() => (chatCapable ? initialMode() : 'native'))
+  // Per-session mode is restored from the store (persisted to localStorage) so a
+  // reload returns this session to the view it was last left in; a session the user
+  // never toggled falls back to the per-device default (#35).
+  const mode: PanelMode = panelMode[sessionId] ?? deviceDefaultMode()
+  // The hibernated/exited-forces-chat rule still wins over any persisted 'native'.
   const effectiveMode: PanelMode = chatCapable ? mode : 'native'
 
   const pickMode = (m: PanelMode) => {
-    setMode(m)
+    setPanelMode(sessionId, m)
+    // Remember the latest pick as the device default for not-yet-seen sessions.
     localStorage.setItem(MODE_KEY, m)
   }
 

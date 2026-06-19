@@ -4,11 +4,14 @@ import {
   agentBadge,
   chatActivity,
   defaultChatCapable,
+  filterSidebarSections,
   formatMemBytes,
   hostMemoryView,
   orderTabs,
   panelLabel,
   reposToViews,
+  sessionDotClass,
+  sessionDotTone,
   sessionsForWorktree,
   sidebarSections,
   sortSessionsForPins,
@@ -154,7 +157,7 @@ describe('formatMemBytes', () => {
 })
 
 describe('pin-aware navigation derivation', () => {
-  it('lifts pinned panels, worktrees, and repos without duplicating them in lower groups', () => {
+  it('lifts pinned worktrees/repos out of lower groups, but keeps pinned panels in their worktree too', () => {
     const sessions = [session('/src/app'), session('/src/app-feat')]
     const sections = sidebarSections([repo], sessions, {
       panels: ['s-/src/app-feat'],
@@ -162,9 +165,13 @@ describe('pin-aware navigation derivation', () => {
       repos: ['/src/app'],
     })
 
+    // A pinned panel is lifted into PINNED PANELS *and* still shown in its own
+    // worktree (so it appears in both places, selected in both).
     expect(sections.pinnedPanels.map((panel) => panel.sessionId)).toEqual(['s-/src/app-feat'])
     expect(sections.pinnedWorktrees.map((worktree) => worktree.path)).toEqual(['/src/app-feat'])
-    expect(sections.pinnedWorktrees[0].sessions).toEqual([])
+    expect(sections.pinnedWorktrees[0].sessions.map((panel) => panel.sessionId)).toEqual([
+      's-/src/app-feat',
+    ])
     expect(sections.pinnedRepos.map((pinnedRepo) => pinnedRepo.path)).toEqual(['/src/app'])
     expect(sections.pinnedRepos[0].worktrees.map((worktree) => worktree.path)).toEqual(['/src/app'])
     expect(sections.pinnedRepos[0].worktrees[0].sessions.map((panel) => panel.sessionId)).toEqual([
@@ -393,5 +400,136 @@ describe('chatActivity', () => {
       chatActivity(base({ agentState: { phase: 'idle', since: '', openTaskCount: 0 } }), false),
     ).toBeNull()
     expect(chatActivity(undefined, false)).toBeNull()
+  })
+})
+
+describe('sessionDotTone', () => {
+  it('maps live phases to semantic tones', () => {
+    expect(sessionDotTone(base({ agentState: { phase: 'working', since: '', openTaskCount: 0 } }))).toBe(
+      'working',
+    )
+    expect(
+      sessionDotTone(
+        base({ agentState: { phase: 'needs_user', since: '', openTaskCount: 0, need: { kind: 'question' } } }),
+      ),
+    ).toBe('attention')
+    expect(sessionDotTone(base({ agentState: { phase: 'idle', since: '', openTaskCount: 0 } }))).toBe(
+      'ready',
+    )
+  })
+
+  it('keeps the last real tone on a hibernated session (#57), not grey', () => {
+    // A hibernated agent that needed input still reads yellow — hibernation rides
+    // on the grayed/italic row, not on draining the dot to grey.
+    expect(
+      sessionDotTone(
+        base({
+          status: 'hibernated',
+          agentState: { phase: 'needs_user', since: '', openTaskCount: 0, need: { kind: 'question' } },
+        }),
+      ),
+    ).toBe('attention')
+    expect(
+      sessionDotTone(
+        base({ status: 'hibernated', agentState: { phase: 'working', since: '', openTaskCount: 0 } }),
+      ),
+    ).toBe('working')
+  })
+
+  it('still drains an exited session to grey (phase is cleared server-side)', () => {
+    expect(sessionDotTone(base({ status: 'exited' }))).toBe('neutral')
+  })
+})
+
+describe('sessionDotClass', () => {
+  it('adds the breathing-glow class for a live working dot only (#102)', () => {
+    const working = sessionDotClass(
+      base({ agentState: { phase: 'working', since: '', openTaskCount: 0 } }),
+    )
+    expect(working).toContain('dot-working')
+    expect(working).toContain('bg-emerald-500')
+  })
+
+  it('does not animate a hibernated dot even if its last tone was working', () => {
+    const cls = sessionDotClass(
+      base({ status: 'hibernated', agentState: { phase: 'working', since: '', openTaskCount: 0 } }),
+    )
+    expect(cls).toContain('parked')
+    expect(cls).not.toContain('dot-working')
+  })
+
+  it('does not animate non-working tones', () => {
+    expect(sessionDotClass(base({ agentState: { phase: 'idle', since: '', openTaskCount: 0 } }))).not.toContain(
+      'dot-working',
+    )
+  })
+})
+
+describe('pinned panel ordering & co-location', () => {
+  const work = (cwd: string, id: string): SessionMeta => ({
+    ...session(cwd),
+    sessionId: id,
+    agentState: { phase: 'working', since: '', openTaskCount: 0 },
+  })
+  const needs = (cwd: string, id: string): SessionMeta => ({
+    ...session(cwd),
+    sessionId: id,
+    agentState: { phase: 'needs_user', since: '', openTaskCount: 0, need: { kind: 'question' } },
+  })
+
+  it('orders pinned panels by agent state, not pin-insertion order (#105)', () => {
+    // Pin a working one first, then a needs-you one — the comparator should sink
+    // the working panel below the needs-you one regardless of pin order.
+    const sessions = [work('/src/app', 'w'), needs('/src/app', 'n')]
+    const sections = sidebarSections([repo], sessions, {
+      panels: ['w', 'n'],
+      worktrees: [],
+      repos: [],
+    })
+    expect(sections.pinnedPanels.map((p) => p.sessionId)).toEqual(['n', 'w'])
+  })
+})
+
+describe('filterSidebarSections (#100)', () => {
+  const sessions = [session('/src/app'), session('/src/app-feat')]
+  const noPins = { panels: [], worktrees: [], repos: [] }
+
+  it('passes everything through on an empty/whitespace query', () => {
+    const sections = sidebarSections([repo], sessions, noPins)
+    expect(filterSidebarSections(sections, '')).toBe(sections)
+    expect(filterSidebarSections(sections, '   ')).toBe(sections)
+  })
+
+  it('keeps a repo and all its worktrees when the repo name matches', () => {
+    const sections = sidebarSections([repo], sessions, noPins)
+    const filtered = filterSidebarSections(sections, 'APP') // case-insensitive
+    expect(filtered.repos).toHaveLength(1)
+    expect(filtered.repos[0].worktrees.map((w) => w.path)).toEqual(['/src/app', '/src/app-feat'])
+  })
+
+  it('narrows to only the matching worktree when matching a branch', () => {
+    const sections = sidebarSections([repo], sessions, noPins)
+    const filtered = filterSidebarSections(sections, 'feat')
+    expect(filtered.repos).toHaveLength(1)
+    expect(filtered.repos[0].worktrees.map((w) => w.path)).toEqual(['/src/app-feat'])
+  })
+
+  it('matches on path and drops repos with no match', () => {
+    const sections = sidebarSections([repo], sessions, noPins)
+    expect(filterSidebarSections(sections, 'nonexistent').repos).toEqual([])
+    expect(filterSidebarSections(sections, '/src/app-feat').repos[0].worktrees.map((w) => w.path)).toEqual(
+      ['/src/app-feat'],
+    )
+  })
+
+  it('leaves pinned panels untouched (they are a flat reach-list)', () => {
+    const sections = sidebarSections([repo], sessions, {
+      panels: ['s-/src/app-feat'],
+      worktrees: [],
+      repos: [],
+    })
+    expect(filterSidebarSections(sections, 'nonexistent').pinnedPanels.map((p) => p.sessionId)).toEqual([
+      's-/src/app-feat',
+    ])
   })
 })

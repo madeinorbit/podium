@@ -12,10 +12,12 @@ import {
 import type { JSX, ReactNode } from 'react'
 import { useState } from 'react'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
 import {
   agentBadge,
   agentColorHex,
+  filterSidebarSections,
   type RepoNavView,
   repoBranchForCwd,
   sessionDotClass,
@@ -53,9 +55,12 @@ export function Sidebar(): JSX.Element {
     superOpen,
     setSuperOpen,
   } = useStore()
-  const sections = sidebarSections(repos, sessions, pins)
   const [pickerOpen, setPickerOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
+  // Inline filter over the repos/worktrees tree (name/branch/path). Distinct from
+  // the global SearchView (the magnifier) — this only narrows the visible list.
+  const [treeFilter, setTreeFilter] = useState('')
+  const sections = filterSidebarSections(sidebarSections(repos, sessions, pins), treeFilter)
   const hasRows =
     sections.pinnedPanels.length > 0 ||
     sections.pinnedWorktrees.length > 0 ||
@@ -153,6 +158,34 @@ export function Sidebar(): JSX.Element {
           </Button>
         </div>
       </div>
+      {/* Inline filter over the visible repo/worktree tree (name/branch/path). */}
+      <div className="relative px-3 pb-2">
+        <Search
+          size={13}
+          aria-hidden="true"
+          className="pointer-events-none absolute top-1/2 left-5 -translate-y-1/2 text-muted-foreground/70"
+        />
+        <Input
+          type="search"
+          value={treeFilter}
+          onChange={(e) => setTreeFilter(e.target.value)}
+          placeholder="Filter worktrees…"
+          aria-label="Filter worktrees by name, branch, or path"
+          className="h-7 pl-7 text-xs"
+        />
+        {treeFilter && (
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className="absolute top-1/2 right-4 size-5 -translate-y-1/2 text-muted-foreground/70 hover:text-foreground"
+            title="Clear filter"
+            aria-label="Clear filter"
+            onClick={() => setTreeFilter('')}
+          >
+            <X size={13} aria-hidden="true" />
+          </Button>
+        )}
+      </div>
       {(reposLoading || repoDiagnostics.length > 0) && (
         <div className="px-3 pt-1.5 pb-2 text-xs text-muted-foreground">
           {reposLoading
@@ -223,11 +256,16 @@ export function Sidebar(): JSX.Element {
           />
         ))}
 
-        {!hasRows && (
-          <div className="p-3 text-xs text-muted-foreground/70">
-            No repos yet. Use "+ Add repo" to scan a folder.
-          </div>
-        )}
+        {!hasRows &&
+          (treeFilter.trim() ? (
+            <div className="p-3 text-xs text-muted-foreground/70">
+              No worktrees match "{treeFilter.trim()}".
+            </div>
+          ) : (
+            <div className="p-3 text-xs text-muted-foreground/70">
+              No repos yet. Use "+ Add repo" to scan a folder.
+            </div>
+          ))}
       </div>
       {/* Host health strip, pinned under the list — machine-level indicators
           (connection health, memory). */}

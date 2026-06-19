@@ -60,6 +60,10 @@ export function Workspace(): JSX.Element {
   // the keep-pane-valid effect below sees an unknown paneA and bounces it to
   // tabs[0]. Hold the pane on it until the store actually knows the session.
   const justOpened = useRef<string | null>(paneA)
+  // Same hold for a restored/just-opened pane B (the split's second pane): don't
+  // clear it before the store knows the session, or a reload with split=true would
+  // wipe pane B back to the picker before sessions arrive.
+  const justOpenedB = useRef<string | null>(paneB)
   // A small drag threshold keeps plain clicks (select/pin/kill) working — the
   // drag only starts once the pointer has actually moved.
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
@@ -99,6 +103,25 @@ export function Workspace(): JSX.Element {
     }
     setPane('A', tabs[0]?.sessionId ?? null)
   }, [tabs, paneA, setPane, sessions, fileTabs])
+
+  // Keep pane B (the split's second pane) pointed at something valid. Unlike pane
+  // A there's no fall-back target — a B that goes stale just clears to the picker —
+  // but it gets the same just-opened/restored hold so a reload doesn't wipe it
+  // before the session it names has reached the store.
+  useEffect(() => {
+    if (!paneB) return
+    if (paneB !== justOpenedB.current && !sessions.some((s) => s.sessionId === paneB)) {
+      justOpenedB.current = paneB
+    }
+    if (tabs.some((t) => t.sessionId === paneB) || myFileTabs.some((f) => f.id === paneB)) {
+      justOpenedB.current = null
+      return
+    }
+    // Still holding a restored/just-opened pane the store hasn't broadcast yet.
+    if (justOpenedB.current === paneB && !sessions.some((s) => s.sessionId === paneB)) return
+    // Genuinely gone (or moved out of this worktree) — drop it back to the picker.
+    setPane('B', null)
+  }, [tabs, paneB, setPane, sessions, fileTabs])
 
   if (!worktree)
     return (

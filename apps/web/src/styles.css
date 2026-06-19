@@ -30,6 +30,48 @@ body {
   display: inline-block;
 }
 
+/* Working (green) status dot only: a soft breathing halo so a live, running agent
+   reads as alive at a glance. The pulse rides on a `::after` ring (its own box) so
+   the dot's own colour/size never moves — only the ring's transform+opacity
+   animate, keeping it GPU-friendly and layout-free even with many dots on screen.
+   `currentColor` would be the row's text colour, so the ring is painted with the
+   emerald the dot itself uses (matches `bg-emerald-500`). */
+.dot-working {
+  position: relative;
+}
+.dot-working::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: rgb(16 185 129); /* emerald-500 — same hue as the dot */
+  /* Animate transform/opacity only — never layout. */
+  transform: scale(1);
+  opacity: 0.55;
+  animation: dot-breathe 2s ease-in-out infinite;
+  /* Decorative; the dot's own colour already conveys state. */
+  pointer-events: none;
+  z-index: -1;
+}
+@keyframes dot-breathe {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 0.45;
+  }
+  50% {
+    transform: scale(2.1);
+    opacity: 0;
+  }
+}
+/* Respect a reduced-motion preference — show the dot, drop the pulse. */
+@media (prefers-reduced-motion: reduce) {
+  .dot-working::after {
+    animation: none;
+    opacity: 0;
+  }
+}
+
 /* ---- shells ---- */
 .desktop-shell {
   display: flex;
