@@ -275,4 +275,19 @@ describe('Session', () => {
     s.onExit(3)
     expect(s.toRow()).toMatchObject({ status: 'exited', exitCode: 3 })
   })
+
+  it('toMeta surfaces snoozedUntil only when set; clearSnooze reports change', () => {
+    const s = makeSession()
+    expect('snoozedUntil' in s.toMeta()).toBe(false)
+    expect(s.clearSnooze()).toBe(false)
+
+    s.snoozedUntil = null
+    expect(s.toMeta().snoozedUntil).toBeNull()
+
+    s.snoozedUntil = '2999-01-01T05:00:00.000Z'
+    expect(s.toMeta().snoozedUntil).toBe('2999-01-01T05:00:00.000Z')
+
+    expect(s.clearSnooze()).toBe(true)
+    expect('snoozedUntil' in s.toMeta()).toBe(false)
+  })
 })
