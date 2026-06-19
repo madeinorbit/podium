@@ -3,6 +3,7 @@ import {
   BarChart3,
   ChevronDown,
   ChevronRight,
+  GripVertical,
   Home,
   Pin,
   Plus,
@@ -11,9 +12,16 @@ import {
   Sparkles,
   X,
 } from 'lucide-react'
-import type { JSX, ReactNode } from 'react'
-import { useState } from 'react'
+import type { DragEvent, JSX, ReactNode } from 'react'
+import { useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { cn } from '@/lib/utils'
 import {
   agentBadge,
@@ -23,6 +31,7 @@ import {
   repoBranchForCwd,
   sessionDotClass,
   sidebarSections,
+  sortRepos,
   type WorktreeNavView,
 } from './derive'
 import { HostIndicators } from './HostIndicators'
@@ -72,11 +81,63 @@ export function Sidebar(): JSX.Element {
     setView,
     superOpen,
     setSuperOpen,
+    sidebarSettings,
+    setSidebarSettings,
   } = useStore()
   const sections = sidebarSections(repos, sessions, pins)
   const [pickerOpen, setPickerOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
   const [workingExpanded, setWorkingExpandedState] = useState<boolean>(getWorkingExpanded)
+
+  // Drag-to-reorder state.
+  const dragRepoPath = useRef<string | null>(null)
+  const [dragOverPath, setDragOverPath] = useState<string | null>(null)
+
+  // Build a lastUsedAt map from sessions (most-recent lastActiveAt per repo path).
+  const lastUsedAtMap = new Map<string, number>()
+  for (const s of sessions) {
+    const ts = new Date(s.lastActiveAt).getTime()
+    const cur = lastUsedAtMap.get(s.cwd) ?? 0
+    if (ts > cur) lastUsedAtMap.set(s.cwd, ts)
+  }
+
+  // Apply the sort to the non-pinned repos list.
+  const sortedRepos = sortRepos(
+    sections.repos.map((r) => ({ ...r, id: r.path })),
+    sidebarSettings.repoSort,
+    sidebarSettings.repoOrder,
+    lastUsedAtMap,
+  )
+
+  const handleRepoDragStart = (e: DragEvent<HTMLDivElement>, repoPath: string) => {
+    dragRepoPath.current = repoPath
+    e.dataTransfer.effectAllowed = 'move'
+  }
+  const handleRepoDragOver = (e: DragEvent<HTMLDivElement>, repoPath: string) => {
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+    setDragOverPath(repoPath)
+  }
+  const handleRepoDrop = (e: DragEvent<HTMLDivElement>, targetPath: string) => {
+    e.preventDefault()
+    setDragOverPath(null)
+    const srcPath = dragRepoPath.current
+    dragRepoPath.current = null
+    if (!srcPath || srcPath === targetPath) return
+    // Compute the new custom order from the current visible list.
+    const paths = sortedRepos.map((r) => r.path)
+    const srcIdx = paths.indexOf(srcPath)
+    const tgtIdx = paths.indexOf(targetPath)
+    if (srcIdx === -1 || tgtIdx === -1) return
+    const next = [...paths]
+    next.splice(srcIdx, 1)
+    next.splice(tgtIdx, 0, srcPath)
+    void setSidebarSettings({ repoSort: 'custom', repoOrder: next })
+  }
+  const handleRepoDragEnd = () => {
+    dragRepoPath.current = null
+    setDragOverPath(null)
+  }
 
   const pinnedSessionIds = new Set(pins.panels)
   const workItems = partitionWorkItems(sessions, pinnedSessionIds)
@@ -269,6 +330,29 @@ export function Sidebar(): JSX.Element {
           <span className="text-[11px] font-semibold tracking-[0.08em] text-muted-foreground">
             WORKTREES
           </span>
+          <Select
+            value={sidebarSettings.repoSort}
+            onValueChange={(v) =>
+              void setSidebarSettings({
+                repoSort: v as 'alphabetical' | 'lastUsed' | 'custom',
+              })
+            }
+          >
+            <SelectTrigger className="h-5 w-auto gap-1 border-0 px-1 text-[10px] text-muted-foreground/70 shadow-none hover:text-foreground focus:ring-0">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent align="end">
+              <SelectItem value="lastUsed" className="text-xs">
+                Last used
+              </SelectItem>
+              <SelectItem value="alphabetical" className="text-xs">
+                A–Z
+              </SelectItem>
+              <SelectItem value="custom" className="text-xs">
+                Custom
+              </SelectItem>
+            </SelectContent>
+          </Select>
         </div>
 
         {sections.pinnedWorktrees.length > 0 && (
@@ -305,17 +389,32 @@ export function Sidebar(): JSX.Element {
           </PinnedSection>
         )}
 
-        {sections.repos.map((repo) => (
-          <RepoBlock
+        {sortedRepos.map((repo) => (
+          <div
             key={repo.path}
-            repo={repo}
-            pinned={false}
-            selectedWorktree={selectedWorktree}
-            paneA={paneA}
-            setPinned={setPinned}
-            onSelectWorktree={selectWorktree}
-            onSelectPanel={selectPanel}
-          />
+            draggable
+            onDragStart={(e) => handleRepoDragStart(e, repo.path)}
+            onDragOver={(e) => handleRepoDragOver(e, repo.path)}
+            onDrop={(e) => handleRepoDrop(e, repo.path)}
+            onDragEnd={handleRepoDragEnd}
+            className={cn(
+              'transition-opacity',
+              dragOverPath === repo.path && dragRepoPath.current !== repo.path
+                ? 'opacity-50 outline outline-1 outline-primary'
+                : '',
+            )}
+          >
+            <RepoBlock
+              repo={repo}
+              pinned={false}
+              selectedWorktree={selectedWorktree}
+              paneA={paneA}
+              setPinned={setPinned}
+              onSelectWorktree={selectWorktree}
+              onSelectPanel={selectPanel}
+              dragHandle={<GripVertical size={12} className="ml-1 flex-none cursor-grab text-muted-foreground/40 hover:text-muted-foreground" aria-hidden="true" />}
+            />
+          </div>
         ))}
 
         {!hasRows && (
@@ -354,6 +453,7 @@ function RepoBlock({
   setPinned,
   onSelectWorktree,
   onSelectPanel,
+  dragHandle,
 }: {
   repo: RepoNavView
   pinned: boolean
@@ -362,10 +462,12 @@ function RepoBlock({
   setPinned: (kind: PinKind, id: string, pinned: boolean) => Promise<void>
   onSelectWorktree: (path: string) => void
   onSelectPanel: (worktreePath: string, sessionId: string) => void
+  dragHandle?: ReactNode
 }): JSX.Element {
   return (
     <div className="mt-1">
       <div className="flex items-center justify-between pr-2">
+        {dragHandle}
         <div className="min-w-0 flex-1 px-3 pt-1.5 pb-0.5 text-[11px] tracking-[0.06em] uppercase text-muted-foreground/70">
           {repo.name}
         </div>

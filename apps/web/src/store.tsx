@@ -6,6 +6,7 @@ import type {
   WorkState,
 } from '@podium/protocol'
 import { SocketHub } from '@podium/terminal-client'
+import type { Sidebar as SidebarSettings } from '@podium/core'
 import type { JSX } from 'react'
 import {
   createContext,
@@ -84,6 +85,10 @@ export interface Store {
    *  one input state we *can* synchronize. */
   drafts: Record<string, string>
   setSessionDraft: (sessionId: string, text: string) => void
+  /** Sidebar layout preferences (repo sort mode + custom order). */
+  sidebarSettings: SidebarSettings
+  /** Persist a new sidebar sort/order — optimistic update + server round-trip. */
+  setSidebarSettings: (next: Partial<SidebarSettings>) => Promise<void>
 }
 
 export type MainView = 'home' | 'workspace' | 'settings' | 'usage'
@@ -152,6 +157,10 @@ export function StoreProvider({
   const [superOpen, setSuperOpen] = useState(false)
   const [superRefreshKey, setSuperRefreshKey] = useState(0)
   const [drafts, setDrafts] = useState<Record<string, string>>({})
+  const [sidebarSettings, setSidebarSettingsState] = useState<SidebarSettings>({
+    repoSort: 'lastUsed',
+    repoOrder: [],
+  })
   const [selectedWorktree, setSelectedWorktree] = useState<string | null>(() => lsGet(WT_KEY))
   const [paneA, setPaneA] = useState<string | null>(() => lsGet(PANE_A_KEY))
   const [paneB, setPaneB] = useState<string | null>(null)
@@ -284,6 +293,24 @@ export function StoreProvider({
     },
     [hub],
   )
+  const setSidebarSettings = useMemo(
+    () => async (next: Partial<SidebarSettings>) => {
+      // Optimistic update so the UI reorders instantly.
+      setSidebarSettingsState((s) => ({ ...s, ...next }))
+      // Persist by loading the full settings blob, patching sidebar, and saving.
+      try {
+        const current = await trpc.settings.get.query()
+        const updated = await trpc.settings.set.mutate({
+          ...current,
+          sidebar: { ...current.sidebar, ...next },
+        })
+        setSidebarSettingsState(updated.sidebar)
+      } catch {
+        // best-effort — the optimistic state already applied
+      }
+    },
+    [trpc],
+  )
   const setWorkState = useMemo(
     () => async (sessionId: string, workState: WorkState | null) => {
       setSessions((all) =>
@@ -351,7 +378,12 @@ export function StoreProvider({
     }, 0)
     if (!started.current) {
       started.current = true
-      void Promise.all([refreshRepos(), refreshPins(), refreshTabOrders()]).catch((e) => {
+      void Promise.all([
+        refreshRepos(),
+        refreshPins(),
+        refreshTabOrders(),
+        trpc.settings.get.query().then((s) => setSidebarSettingsState(s.sidebar)).catch(() => {}),
+      ]).catch((e) => {
         onFatalError(formatAppError(e, 'Could not load Podium data'))
       })
     }
@@ -407,6 +439,8 @@ export function StoreProvider({
     setWorkState,
     drafts,
     setSessionDraft,
+    sidebarSettings,
+    setSidebarSettings,
   }
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }
