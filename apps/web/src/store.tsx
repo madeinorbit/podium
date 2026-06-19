@@ -116,7 +116,7 @@ export interface Store {
   httpOrigin: string
 }
 
-export type MainView = 'home' | 'workspace' | 'settings' | 'usage' | 'quota'
+export type MainView = 'home' | 'workspace' | 'settings' | 'usage'
 
 const Ctx = createContext<Store | null>(null)
 
@@ -159,9 +159,7 @@ function readStoredView(): MainView {
   const v = lsGet(VIEW_KEY)
   // 'superagent' is no longer a full view (it's a dock now) — a returning user who
   // left on it lands on home instead of a dead surface.
-  return v === 'home' || v === 'workspace' || v === 'settings' || v === 'usage' || v === 'quota'
-    ? v
-    : 'home'
+  return v === 'home' || v === 'workspace' || v === 'settings' || v === 'usage' ? v : 'home'
 }
 /** The persisted per-session panel-mode map. A corrupt/missing blob reads as empty. */
 function readStoredPanelModes(): Record<string, 'chat' | 'native'> {
@@ -222,7 +220,8 @@ export function StoreProvider({
   const [paneA, setPaneA] = useState<string | null>(() => lsGet(PANE_A_KEY))
   const [paneB, setPaneB] = useState<string | null>(() => lsGet(PANE_B_KEY))
   const [split, setSplit] = useState(() => lsGet(SPLIT_KEY) === '1')
-  const [panelMode, setPanelMode] = useState<Record<string, 'chat' | 'native'>>(readStoredPanelModes)
+  const [panelMode, setPanelMode] =
+    useState<Record<string, 'chat' | 'native'>>(readStoredPanelModes)
   const [fileTabs, setFileTabs] = useState<FileTab[]>([])
   const started = useRef(false)
 
@@ -505,7 +504,10 @@ export function StoreProvider({
       started.current = true
       // Sidebar prefs load out of band so boot fans out only repos + pins + tab
       // orders (never gated on settings or a conversation scan).
-      void trpc.settings.get.query().then((s) => setSidebarSettingsState(s.sidebar)).catch(() => {})
+      void trpc.settings.get
+        .query()
+        .then((s) => setSidebarSettingsState(s.sidebar))
+        .catch(() => {})
       void Promise.all([refreshRepos(), refreshPins(), refreshTabOrders()]).catch((e) => {
         onFatalError(formatAppError(e, 'Could not load Podium data'))
       })

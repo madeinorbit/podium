@@ -9,7 +9,6 @@ import { ErrorBoundary } from './ErrorBoundary'
 import { HomeView } from './HomeView'
 import { MobileApp } from './MobileApp'
 import { OnboardingWizard } from './OnboardingWizard'
-import { QuotaView } from './QuotaView'
 import { SettingsView } from './SettingsView'
 import { Sidebar } from './Sidebar'
 import { SuperagentView } from './SuperagentView'
@@ -100,8 +99,6 @@ function AppBody({ isMobile }: { isMobile: boolean }): JSX.Element {
         <SettingsView />
       ) : view === 'usage' ? (
         <UsageView />
-      ) : view === 'quota' ? (
-        <QuotaView />
       ) : (
         <Workspace />
       )}

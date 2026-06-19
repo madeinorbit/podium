@@ -1,7 +1,6 @@
 import {
   BarChart3,
   ChevronDown,
-  Gauge,
   Home,
   Pin,
   Search,
@@ -29,7 +28,6 @@ import {
 import { HomeView } from './HomeView'
 import { HostIndicators } from './HostIndicators'
 import { NewPanelMenu } from './NewPanelMenu'
-import { QuotaView } from './QuotaView'
 import { RepoScanFlow } from './RepoScanFlow'
 import { SearchView } from './SearchView'
 import { SettingsView } from './SettingsView'
@@ -305,8 +303,6 @@ export function MobileApp(): JSX.Element {
           <SettingsView />
         ) : view === 'usage' ? (
           <UsageView />
-        ) : view === 'quota' ? (
-          <QuotaView />
         ) : paneA ? (
           <AgentPanel sessionId={paneA} />
         ) : (
@@ -378,18 +374,6 @@ export function MobileApp(): JSX.Element {
                 }}
               >
                 <BarChart3 size={14} aria-hidden="true" />
-              </Button>
-              <Button
-                variant="secondary"
-                size="icon-sm"
-                title="Agent quota"
-                aria-label="Agent quota"
-                onClick={() => {
-                  setPickerOpen(false)
-                  setView('quota')
-                }}
-              >
-                <Gauge size={14} aria-hidden="true" />
               </Button>
               <Button
                 variant="secondary"

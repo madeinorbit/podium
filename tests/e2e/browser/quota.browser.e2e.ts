@@ -3,43 +3,31 @@ import { openApp } from './_harness'
 
 /**
  * Drives the real Live UI (built bundle + harness relay + a real local daemon —
- * see serve-harness.ts) so the agent-quota tool is exercised end to end: the
- * sidebar tools-row button switches the main view, QuotaView mounts, and its
- * `trpc.quota.summary` query flows relay → daemon → the real Claude/Codex quota
- * fetchers on this host. We assert the view mounts and reaches a terminal state
- * (never stuck on "Loading quota…") rather than pinning exact percentages, which
- * depend on the host's live plan usage.
+ * see serve-harness.ts) so the agent-quota status item is exercised end to end:
+ * a gauge glyph appears in the host status strip (HostIndicators, beside the
+ * memory/connection glyphs) once `trpc.quota.summary` resolves — relay → daemon
+ * → the real Claude/Codex quota endpoints — and clicking it opens the per-window
+ * breakdown dialog. We assert it reaches a terminal (non-loading) state rather
+ * than pinning percentages, which depend on the host's live plan usage.
  */
-test('agent quota: sidebar button opens QuotaView which renders a terminal state', async ({
+test('agent quota: status-strip glyph opens the per-agent breakdown', async ({
   page,
   isMobile,
 }) => {
-  // The desktop tools-row Gauge button is the entry point exercised here. On
-  // mobile the same Agent-quota action lives inside the action sheet (mirroring
-  // the Usage entry); QuotaView itself is identical, and this desktop path proves
-  // it renders end to end with live daemon data.
-  test.skip(
-    isMobile,
-    'Mobile entry is in the action sheet; desktop tools-row entry is covered here.',
-  )
+  // The glyph also renders compact in the mobile header; the desktop status
+  // strip is exercised here (the component and dialog are identical).
+  test.skip(isMobile, 'Desktop status strip covered here; glyph also renders compact on mobile.')
   await openApp(page)
 
-  // Tools-row Gauge button (mirrors the Usage button) — title="Agent quota".
-  const quotaBtn = page.locator('[title="Agent quota"]')
-  await expect(quotaBtn).toBeVisible({ timeout: 15_000 })
-  await quotaBtn.click()
+  // The glyph mounts only after the first quota payload arrives (real daemon →
+  // live Claude/Codex). Generous wait for the network round-trips.
+  const glyph = page.getByRole('button', { name: /Agent quota/ })
+  await expect(glyph).toBeVisible({ timeout: 30_000 })
+  await glyph.click()
 
-  // View switched + QuotaView mounted + button reflects active state.
-  await expect(page.getByRole('heading', { name: 'Agent quota' })).toBeVisible()
-  await expect(quotaBtn).toHaveAttribute('aria-pressed', 'true')
-
-  // The query resolves through the real daemon (which spawns codex app-server),
-  // so allow a generous window. A terminal state is any agent card (window
-  // labels) or a graceful empty/auth state — but NOT the loading placeholder.
-  const body = page.locator('section[aria-label="Agent quota"]')
-  await expect(body).toContainText(
-    /5-hour|Weekly|Not signed in|Token expired|Unavailable|No agents reported quota/,
-    { timeout: 30_000 },
-  )
-  await expect(body).not.toContainText('Loading quota…')
+  // Click opens the breakdown dialog with the per-agent cards in a terminal
+  // (non-loading) state — window labels, or a graceful auth/error note.
+  const dialog = page.getByRole('dialog')
+  await expect(dialog).toBeVisible()
+  await expect(dialog).toContainText(/5-hour|Weekly|Not signed in|Token expired|Unavailable/)
 })

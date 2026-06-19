@@ -6,6 +6,7 @@ import { cn } from '@/lib/utils'
 import { ConnectionIndicator, describeHealth, useStableConnection } from './ConnectionIndicator'
 import { hostMemoryView } from './derive'
 import { type HostInfoTab, HostInfoView, useHibernationSetting } from './HostMemoryView'
+import { QuotaIndicator } from './QuotaIndicator'
 import { useStore } from './store'
 
 // Memory pressure → colors, reproducing the legacy `.mem-*` contract: the bar
@@ -92,11 +93,7 @@ export function HostIndicators({ compact = false }: { compact?: boolean }): JSX.
                       {host.hostname}
                     </span>
                   )}
-                  <MemoryStick
-                    size={14}
-                    aria-hidden="true"
-                    className={cn(!compact && tone.icon)}
-                  />
+                  <MemoryStick size={14} aria-hidden="true" className={cn(!compact && tone.icon)} />
                   {!compact && (
                     <span
                       className="h-1 w-9 overflow-hidden rounded-sm bg-secondary"
@@ -112,9 +109,7 @@ export function HostIndicators({ compact = false }: { compact?: boolean }): JSX.
               }
             />
             <TooltipContent className="max-w-60 flex-col items-start gap-0.5">
-              <strong>
-                {hostMetrics.length > 1 ? `${host.hostname} — ${summary}` : summary}
-              </strong>
+              <strong>{hostMetrics.length > 1 ? `${host.hostname} — ${summary}` : summary}</strong>
               {hibNote && <span className="text-background/70">{hibNote}</span>}
               <span className="text-background/70">Click for the breakdown</span>
             </TooltipContent>
@@ -124,6 +119,7 @@ export function HostIndicators({ compact = false }: { compact?: boolean }): JSX.
       {connVisible && (
         <ConnectionIndicator health={health} onOpen={() => setInfoTab('connection')} />
       )}
+      <QuotaIndicator compact={compact} />
       {infoTab && <HostInfoView initialTab={infoTab} onClose={() => setInfoTab(null)} />}
     </div>
   )

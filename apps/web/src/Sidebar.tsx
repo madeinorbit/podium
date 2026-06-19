@@ -3,7 +3,6 @@ import {
   BarChart3,
   ChevronDown,
   ChevronRight,
-  Gauge,
   GripVertical,
   Home,
   Pin,
@@ -240,19 +239,6 @@ export function Sidebar(): JSX.Element {
           size="icon"
           className={cn(
             'border border-input text-muted-foreground hover:border-primary hover:text-foreground',
-            view === 'quota' && 'border-primary bg-secondary text-foreground',
-          )}
-          aria-pressed={view === 'quota'}
-          title="Agent quota"
-          onClick={() => setView('quota')}
-        >
-          <Gauge size={15} aria-hidden="true" />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          className={cn(
-            'border border-input text-muted-foreground hover:border-primary hover:text-foreground',
             view === 'settings' && 'border-primary bg-secondary text-foreground',
           )}
           aria-pressed={view === 'settings'}
@@ -482,7 +468,13 @@ export function Sidebar(): JSX.Element {
               setPinned={setPinned}
               onSelectWorktree={selectWorktree}
               onSelectPanel={selectPanel}
-              dragHandle={<GripVertical size={12} className="ml-1 flex-none cursor-grab text-muted-foreground/40 hover:text-muted-foreground" aria-hidden="true" />}
+              dragHandle={
+                <GripVertical
+                  size={12}
+                  className="ml-1 flex-none cursor-grab text-muted-foreground/40 hover:text-muted-foreground"
+                  aria-hidden="true"
+                />
+              }
             />
           </div>
         ))}
