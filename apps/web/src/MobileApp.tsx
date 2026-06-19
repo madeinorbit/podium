@@ -36,6 +36,7 @@ import { SettingsView } from './SettingsView'
 import { SuperagentView } from './SuperagentView'
 import { useStore } from './store'
 import type { PinKind } from './types'
+import { useNow } from './useNow'
 import { UsageView } from './UsageView'
 import { WorkerLabel } from './WorkerLabel'
 
@@ -102,8 +103,9 @@ export function MobileApp(): JSX.Element {
   } = store
   const { guardedKill } = useSessionGuard()
   const { reposLoading, repoDiagnostics } = store
+  const now = useNow(60_000)
   const repoViews = reposToViews(store.repos)
-  const sections = sidebarSections(store.repos, sessions, pins)
+  const sections = sidebarSections(store.repos, sessions, pins, now)
   const worktree = repoViews.flatMap((r) => r.worktrees).find((w) => w.path === selectedWorktree)
   const worktreeRepoName = worktree
     ? (repoViews.find((r) => r.path === worktree.repoPath)?.name ??

@@ -43,8 +43,10 @@ import { HostIndicators } from './HostIndicators'
 import { NewPanelMenu } from './NewPanelMenu'
 import { RepoScanFlow } from './RepoScanFlow'
 import { SearchView } from './SearchView'
+import { SnoozeControl } from './SnoozeControl'
 import { useStore } from './store'
 import type { PinKind, WorktreeView } from './types'
+import { useNow } from './useNow'
 import { SessionNameEditor, sessionDisplayName, WorkerLabel } from './WorkerLabel'
 
 const WORKING_EXPANDED_KEY = 'podium:sidebar:working-expanded'
@@ -90,6 +92,7 @@ export function Sidebar(): JSX.Element {
     sidebarSettings,
     setSidebarSettings,
   } = useStore()
+  const now = useNow(60_000)
   const [pickerOpen, setPickerOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
   const [workingExpanded, setWorkingExpandedState] = useState<boolean>(getWorkingExpanded)
@@ -98,7 +101,7 @@ export function Sidebar(): JSX.Element {
   // the global SearchView (the magnifier in the tools row), which searches
   // conversation transcripts — this only narrows the visible repo/worktree list.
   const [treeFilter, setTreeFilter] = useState('')
-  const sections = filterSidebarSections(sidebarSections(repos, sessions, pins), treeFilter)
+  const sections = filterSidebarSections(sidebarSections(repos, sessions, pins, now), treeFilter)
 
   // Drag-to-reorder state.
   const dragRepoPath = useRef<string | null>(null)
@@ -163,7 +166,7 @@ export function Sidebar(): JSX.Element {
   }
 
   const pinnedSessionIds = new Set(pins.panels)
-  const workItems = partitionWorkItems(sessions, pinnedSessionIds)
+  const workItems = partitionWorkItems(sessions, pinnedSessionIds, now)
 
   const hasRows =
     workItems.attention.length > 0 ||
@@ -735,6 +738,7 @@ function PanelRow({
           Continue
         </Button>
       )}
+      <SnoozeControl session={session} />
       <Button
         variant="ghost"
         size="icon-sm"
