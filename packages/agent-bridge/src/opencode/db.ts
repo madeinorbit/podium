@@ -1,3 +1,4 @@
+import { statSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
@@ -43,6 +44,33 @@ export function openOpencodeDb(homeDir?: string): DatabaseSyncType | undefined {
   } catch {
     return undefined
   }
+}
+
+/**
+ * Freshest mtime (ms) across the opencode DB and its WAL sidecars, for polling
+ * change-detection. opencode.db runs in WAL mode, so a write usually lands in
+ * `opencode.db-wal`/`-shm` and bumps THEIR mtime while the main `.db` mtime stays
+ * put until a checkpoint — gating on the main file alone would miss live writes.
+ * Returns `undefined` if even the main DB can't be statted (caller must then treat
+ * the change-state as unknown and do a fresh read rather than trust a cache).
+ */
+export function opencodeDbMtimeMs(homeDir?: string): number | undefined {
+  const base = opencodeDbPath(homeDir)
+  let main: number
+  try {
+    main = statSync(base).mtimeMs
+  } catch {
+    return undefined
+  }
+  let newest = main
+  for (const suffix of ['-wal', '-shm']) {
+    try {
+      newest = Math.max(newest, statSync(base + suffix).mtimeMs)
+    } catch {
+      // sidecar absent (non-WAL or checkpointed) — ignore; the main mtime stands.
+    }
+  }
+  return newest
 }
 
 export function listOpencodeSessions(db: DatabaseSyncType): OpencodeSessionRow[] {

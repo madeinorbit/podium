@@ -3,7 +3,10 @@ import { open, readdir, readFile, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { cleanCodexTitle, codexPromptTitle } from '../discovery/providers/codex.js'
-import { readCodexStateMetadata } from '../discovery/providers/codex-state.js'
+import {
+  createCodexStateMetadataReader,
+  readCodexStateMetadata,
+} from '../discovery/providers/codex-state.js'
 import { LineDecoder } from '../jsonl-stream.js'
 import type { AgentStateEvent, AgentStateProvider } from './types.js'
 
@@ -173,6 +176,10 @@ export function observeCodexState(opts: {
   let dropLeadingPartial = false
   const decoder = new LineDecoder()
   let reading = false
+  // The hot path: re-read the native (state-DB) title on every ~700ms tick. The
+  // reader skips the SQLite open+`SELECT *` while the state DB's mtime is unchanged,
+  // returning the prior metadata, so an idle session no longer hits sqlite per tick.
+  const readState = createCodexStateMetadataReader()
 
   // Emit only on an actual change to a non-empty title — dedups identical values
   // (the daemon forwards every `onTitle` call straight to a `title` frame) while
@@ -192,7 +199,7 @@ export function observeCodexState(opts: {
   const pollNativeTitle = async (): Promise<void> => {
     if (!threadId) return
     try {
-      const meta = await readCodexStateMetadata(codexHome)
+      const meta = await readState(codexHome)
       sendTitle(cleanCodexTitle(meta.byThreadId.get(threadId)?.title))
     } catch {
       // no/unreadable state DB — fall back to the first-prompt tail

@@ -60,12 +60,41 @@ export function observeOpencodeState(opts: {
   let lastCompacting: number | null | undefined
   let firstTranscript = true
 
+  // A single opencode DB handle reused across every ~700ms poll tick (was opened
+  // and closed per tick, per call). A `readOnly` SQLite handle re-reads the latest
+  // committed snapshot on each query, so reuse stays correct under live writes. Any
+  // query error drops the handle (via `dropDb`) so the next call reopens — a broken
+  // handle is never reused. Closed once in `stop()`.
+  let db: OpencodeDb | undefined
+  const getDb = (rt: OpencodeRuntime): OpencodeDb => {
+    db ??= rt.openOpencodeDb(opts.homeDir)
+    return db
+  }
+  const dropDb = (): void => {
+    try {
+      db?.close()
+    } catch {
+      // already closed / errored — discard the reference either way
+    }
+    db = undefined
+  }
+
+  // Last DB mtime the hot poll path observed. The opencode DB is WAL-mode, so
+  // `opencodeDbMtimeMs` watches the `.db` + its `-wal`/`-shm` sidecars: when none
+  // advanced since the last tick the per-tick queries are skipped (the cached state
+  // is unchanged). `undefined` (a stat failure) is treated as "unknown" — we never
+  // skip on uncertainty, so a fresh read always runs.
+  let lastPollMtimeMs: number | undefined
+
   const attach = (session: OpencodeSessionRow): void => {
     if (attached?.id === session.id) return
     attached = session
     lastPartTime = 0
     lastCompacting = session.timeCompacting
     firstTranscript = true
+    // Force the next poll tick to read regardless of the mtime gate, so a freshly
+    // attached session isn't skipped on a coincidentally-equal mtime.
+    lastPollMtimeMs = undefined
     opts.onSession?.(session.id)
     void emitTranscript(true)
   }
@@ -74,17 +103,17 @@ export function observeOpencodeState(opts: {
     if (stopped || attached) return
     const rt = await maybeLoadOpencodeRuntime()
     if (!rt || stopped || attached) return
-    const db = rt.openOpencodeDb(opts.homeDir)
-    if (!db) return
+    const handle = getDb(rt)
+    if (!handle) return
     try {
       const session = rt.findLatestOpencodeSession(
-        db,
+        handle,
         opts.cwd,
         startedAtMs - FRESH_SESSION_MARGIN_MS,
       )
       if (session && !stopped) attach(session)
-    } finally {
-      db.close()
+    } catch {
+      dropDb()
     }
   }
 
@@ -92,12 +121,12 @@ export function observeOpencodeState(opts: {
     if (!attached || !opts.onTranscriptItems) return
     const rt = await maybeLoadOpencodeRuntime()
     if (!rt || !attached) return
-    const db = rt.openOpencodeDb(opts.homeDir)
-    if (!db) return
+    const handle = getDb(rt)
+    if (!handle) return
     try {
       const rows = firstTranscript
-        ? rt.loadOpencodeTranscriptTail(db, attached.id)
-        : rt.loadOpencodeMessageParts(db, attached.id, lastPartTime)
+        ? rt.loadOpencodeTranscriptTail(handle, attached.id)
+        : rt.loadOpencodeMessageParts(handle, attached.id, lastPartTime)
       if (rows.length === 0) return
       lastPartTime = Math.max(lastPartTime, ...rows.map((r) => r.timeUpdated))
       const items = rt.opencodeRowsToItems(rows)
@@ -105,8 +134,8 @@ export function observeOpencodeState(opts: {
         opts.onTranscriptItems(items, reset || firstTranscript)
         firstTranscript = false
       }
-    } finally {
-      db.close()
+    } catch {
+      dropDb()
     }
   }
 
@@ -114,10 +143,10 @@ export function observeOpencodeState(opts: {
     if (stopped || !attached) return
     const rt = await maybeLoadOpencodeRuntime()
     if (!rt || stopped || !attached) return
-    const db = rt.openOpencodeDb(opts.homeDir)
-    if (!db) return
+    const handle = getDb(rt)
+    if (!handle) return
     try {
-      const session = rt.getOpencodeSession(db, attached.id)
+      const session = rt.getOpencodeSession(handle, attached.id)
       if (!session) return
       const events: AgentStateEvent[] = []
       if (session.timeCompacting && session.timeCompacting !== lastCompacting) {
@@ -127,7 +156,7 @@ export function observeOpencodeState(opts: {
       }
       lastCompacting = session.timeCompacting
 
-      const rows = rt.loadOpencodeMessageParts(db, attached.id, lastPartTime)
+      const rows = rt.loadOpencodeMessageParts(handle, attached.id, lastPartTime)
       if (rows.length > 0) {
         lastPartTime = Math.max(lastPartTime, ...rows.map((r) => r.timeUpdated))
         for (const row of rows) {
@@ -138,7 +167,7 @@ export function observeOpencodeState(opts: {
           if (role === 'user' && partType === 'text') events.push({ kind: 'prompt_submitted' })
           else if (partType === 'text' || partType === 'tool') events.push({ kind: 'activity' })
           else if (partType === 'step-finish') {
-            const text = lastAssistantText(rt, db, attached.id)
+            const text = lastAssistantText(rt, handle, attached.id)
             events.push({
               kind: 'turn_completed',
               verdict: rt.classifyOpencodeIdleText(text),
@@ -151,22 +180,35 @@ export function observeOpencodeState(opts: {
         }
       }
       if (events.length > 0) opts.onEvents(events)
-    } finally {
-      db.close()
+    } catch {
+      dropDb()
     }
+  }
+
+  // The hot path: run the two per-tick reads only when the DB (or its WAL sidecars)
+  // changed since the last tick. An unknown mtime (stat failed) reads anyway.
+  const pollOnce = async (): Promise<void> => {
+    if (stopped || !attached) return
+    const rt = await maybeLoadOpencodeRuntime()
+    if (!rt || stopped || !attached) return
+    const mtimeMs = rt.opencodeDbMtimeMs(opts.homeDir)
+    if (mtimeMs !== undefined && mtimeMs === lastPollMtimeMs) return
+    lastPollMtimeMs = mtimeMs
+    await emitTranscript(false)
+    await tick()
   }
 
   if (opts.resumeValue) {
     void (async () => {
       const rt = await maybeLoadOpencodeRuntime()
       if (!rt || stopped) return
-      const db = rt.openOpencodeDb(opts.homeDir)
-      if (!db) return
+      const handle = getDb(rt)
+      if (!handle) return
       try {
-        const session = rt.getOpencodeSession(db, opts.resumeValue ?? '')
+        const session = rt.getOpencodeSession(handle, opts.resumeValue ?? '')
         if (session && !stopped) attach(session)
-      } finally {
-        db.close()
+      } catch {
+        dropDb()
       }
     })()
   }
@@ -175,10 +217,7 @@ export function observeOpencodeState(opts: {
   discoverTimer?.unref?.()
   if (!opts.resumeValue) void discover()
 
-  const pollTimer = setInterval(() => {
-    void emitTranscript(false)
-    void tick()
-  }, pollMs)
+  const pollTimer = setInterval(() => void pollOnce(), pollMs)
   pollTimer.unref?.()
 
   return {
@@ -189,6 +228,7 @@ export function observeOpencodeState(opts: {
       stopped = true
       if (discoverTimer) clearInterval(discoverTimer)
       clearInterval(pollTimer)
+      dropDb()
     },
   }
 }

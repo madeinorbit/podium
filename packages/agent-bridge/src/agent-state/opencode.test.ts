@@ -1,9 +1,58 @@
 import { mkdir, mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeAll, describe, expect, it } from 'vitest'
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { agentStateProviderFor } from './claude-code.js'
-import { opencodeStateProvider } from './opencode.js'
+import { observeOpencodeState, opencodeStateProvider } from './opencode.js'
+
+// Mock the opencode DB module so the gate test can (a) count handle opens and the
+// per-tick session query and (b) drive the mtime gate deterministically. The
+// observer snapshots these functions into a memoized runtime via a module spread,
+// so a post-load `vi.spyOn` on the namespace wouldn't be visible — a hoisted
+// `vi.mock` is applied before any (static OR dynamic) import resolves, so the
+// spread captures these wrappers. Each wrapper delegates to the real export by
+// default, so every other test keeps its real behavior.
+const dbHooks = vi.hoisted(() => ({
+  // Settable mtime for the gate; undefined ⇒ delegate to the real stat.
+  mtimeMs: undefined as number | undefined,
+  openCount: 0,
+  getCount: 0,
+  closed: [] as unknown[],
+}))
+
+vi.mock('../opencode/db.js', async (importOriginal) => {
+  const real = await importOriginal<typeof import('../opencode/db.js')>()
+  return {
+    ...real,
+    openOpencodeDb: (homeDir?: string) => {
+      const db = real.openOpencodeDb(homeDir)
+      dbHooks.openCount += 1
+      if (db) {
+        const realClose = db.close.bind(db)
+        db.close = () => {
+          dbHooks.closed.push(db)
+          realClose()
+        }
+      }
+      return db
+    },
+    getOpencodeSession: (db: Parameters<typeof real.getOpencodeSession>[0], id: string) => {
+      dbHooks.getCount += 1
+      return real.getOpencodeSession(db, id)
+    },
+    opencodeDbMtimeMs: (homeDir?: string) => dbHooks.mtimeMs ?? real.opencodeDbMtimeMs(homeDir),
+  }
+})
+
+// Poll a predicate until true or a deadline so tests read the observer's effects
+// without coupling to its exact poll cadence.
+async function waitFor(pred: () => boolean, timeoutMs = 2000): Promise<void> {
+  const deadline = Date.now() + timeoutMs
+  while (!pred()) {
+    if (Date.now() > deadline) throw new Error('waitFor: predicate not satisfied in time')
+    await new Promise((r) => setTimeout(r, 5))
+  }
+}
 
 type TestDatabase = {
   exec(sql: string): void
@@ -129,5 +178,57 @@ describe('opencode state provider', () => {
     expect(events).toEqual([
       { kind: 'turn_completed', verdict: { kind: 'done', summary: 'Ready when you are.' } },
     ])
+  })
+})
+
+describe('observeOpencodeState DB handle reuse + mtime gate', () => {
+  it('reuses one handle, skips the per-tick query while mtime is unchanged, re-runs when it advances, and closes on stop', async () => {
+    if (!DatabaseSync) return // node:sqlite unavailable in this runtime
+
+    const home = await mkdtemp(join(tmpdir(), 'podium-opencode-gate-'))
+    const root = join(home, '.local', 'share', 'opencode')
+    await mkdir(root, { recursive: true })
+    await seedSessionDb(root, 'ses_gate', '/repo/gate', 'idle text')
+
+    // Reset the shared counters/state, then pin the gate to a fixed mtime so the
+    // tick read can be skipped deterministically (independent of fs granularity).
+    dbHooks.openCount = 0
+    dbHooks.getCount = 0
+    dbHooks.closed = []
+    dbHooks.mtimeMs = 1_000
+
+    const obs = observeOpencodeState({
+      cwd: '/repo/gate',
+      homeDir: home,
+      resumeValue: 'ses_gate',
+      pollMs: 10,
+      onEvents: () => {},
+    })
+    try {
+      // Attach via the resume path; once attached the poll ticks run.
+      await waitFor(() => obs.sessionId === 'ses_gate')
+      // The attach read + the first (ungated) poll tick run once each; let the gate
+      // settle, then snapshot a count that must then hold steady while mtime is pinned.
+      await waitFor(() => dbHooks.getCount >= 1)
+      await new Promise((r) => setTimeout(r, 60)) // let attach + first tick settle
+      const settled = dbHooks.getCount
+      await new Promise((r) => setTimeout(r, 80)) // ~8 more ticks, all gated out
+      // The query did NOT re-run while the mtime was unchanged…
+      expect(dbHooks.getCount).toBe(settled)
+      // …and the handle was opened exactly once and reused across every tick.
+      expect(dbHooks.openCount).toBe(1)
+
+      // A write bumps the (pinned) mtime → the next tick must read again.
+      dbHooks.mtimeMs = 2_000
+      await waitFor(() => dbHooks.getCount > settled)
+      // Still the same single reused handle — no extra opens.
+      expect(dbHooks.openCount).toBe(1)
+    } finally {
+      obs.stop()
+    }
+
+    // stop() closed the one handle it held open.
+    expect(dbHooks.closed.length).toBe(1)
+    dbHooks.mtimeMs = undefined // un-pin for any later tests
   })
 })

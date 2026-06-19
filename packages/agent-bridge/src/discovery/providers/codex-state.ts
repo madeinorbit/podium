@@ -1,4 +1,4 @@
-import { readdir } from 'node:fs/promises'
+import { readdir, stat } from 'node:fs/promises'
 import { isAbsolute, join } from 'node:path'
 import { compactText, dateFromEpochMillis, isRecord } from '../jsonl.js'
 import type { AgentConversationDiagnostic, AgentConversationGitMetadata } from '../types.js'
@@ -109,6 +109,68 @@ export async function readCodexStateMetadata(root: string): Promise<CodexStateMe
   }
 
   return { byThreadId, byRolloutPath, diagnostics }
+}
+
+/**
+ * A stateful `readCodexStateMetadata` whose expensive SQLite open+`SELECT *` is
+ * skipped while the underlying `state_*.sqlite` file is unchanged. Built for the
+ * ~700ms per-session title poller (`observeCodexState`), which otherwise re-opens
+ * the state DB and re-reads every thread on every tick on the daemon event loop.
+ *
+ * The gate is the latest state DB's path + mtime: only when it advances (a Codex
+ * write, e.g. a `/rename`) do we re-open and re-query, otherwise the previous
+ * result is returned verbatim. The result handed back when content changes is
+ * byte-identical to calling `readCodexStateMetadata` directly. On any uncertainty
+ * — the latest-DB lookup or stat throws, or the prior read errored — we fall back
+ * to a fresh uncached read so stale data is never served on doubt.
+ *
+ * NOTE: the returned result's Maps are the same objects across cache hits; callers
+ * must treat them as read-only (the existing callers only read).
+ *
+ * `read` is injectable purely so tests can count the expensive reads; production
+ * uses the default `readCodexStateMetadata`.
+ */
+export function createCodexStateMetadataReader(
+  read: (root: string) => Promise<CodexStateMetadataResult> = readCodexStateMetadata,
+): (root: string) => Promise<CodexStateMetadataResult> {
+  let cachedRoot: string | undefined
+  let cachedStatePath: string | undefined
+  let cachedMtimeMs: number | undefined
+  let cachedResult: CodexStateMetadataResult | undefined
+
+  return async (root: string): Promise<CodexStateMetadataResult> => {
+    let statePath: string | undefined
+    let mtimeMs: number | undefined
+    try {
+      statePath = await findLatestStateDatabase(root)
+      if (statePath) mtimeMs = (await stat(statePath)).mtimeMs
+    } catch {
+      // Couldn't resolve/stat the state DB — don't trust the cache; do a fresh
+      // read (which handles a missing/unreadable DB itself) and don't memoize.
+      return read(root)
+    }
+
+    // No DB to gate on yet (and the no-DB read is already cheap: a readdir that
+    // finds nothing, no sqlite open). Never memoize it, so a DB that appears with
+    // a coincidentally-equal mtime can't be missed.
+    if (!statePath) return read(root)
+
+    if (
+      cachedResult !== undefined &&
+      cachedRoot === root &&
+      cachedStatePath === statePath &&
+      cachedMtimeMs === mtimeMs
+    ) {
+      return cachedResult
+    }
+
+    const result = await read(root)
+    cachedRoot = root
+    cachedStatePath = statePath
+    cachedMtimeMs = mtimeMs
+    cachedResult = result
+    return result
+  }
 }
 
 async function findLatestStateDatabase(root: string): Promise<string | undefined> {
