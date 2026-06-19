@@ -12,6 +12,7 @@ import {
   reposToViews,
   sessionsForWorktree,
   sidebarSections,
+  sortRepos,
   sortSessionsForPins,
 } from '../src/derive'
 
@@ -400,6 +401,40 @@ describe('partitionWorkItems', () => {
   it('returns empty buckets for an empty input', () => {
     const result = partitionWorkItems([], new Set())
     expect(result).toEqual({ attention: [], working: [], pinnedPanels: [] })
+  })
+})
+
+describe('sortRepos', () => {
+  const r = (id: string) => ({ id, name: id.toUpperCase() })
+  it('sorts by mode', () => {
+    const repos = [r('b'), r('a'), r('c')]
+    const lu = new Map([['a', 1], ['b', 3], ['c', 2]])
+    expect(sortRepos(repos, 'alphabetical', [], lu).map((x) => x.id)).toEqual(['a', 'b', 'c'])
+    expect(sortRepos(repos, 'lastUsed', [], lu).map((x) => x.id)).toEqual(['b', 'c', 'a'])
+    expect(sortRepos(repos, 'custom', ['c', 'a'], lu).map((x) => x.id)).toEqual(['c', 'a', 'b'])
+  })
+
+  it('alphabetical is case-insensitive locale sort', () => {
+    const repos = [r('Zebra'), r('apple'), r('Mango')]
+    expect(sortRepos(repos, 'alphabetical', [], new Map()).map((x) => x.id)).toEqual([
+      'apple',
+      'Mango',
+      'Zebra',
+    ])
+  })
+
+  it('lastUsed puts unknown lastUsedAt at end, tiebreaks by name', () => {
+    const repos = [{ id: 'a', name: 'A' }, { id: 'b', name: 'B' }, { id: 'c', name: 'C' }]
+    const lu = new Map([['b', 5]])
+    // b (ts=5), then a and c (ts=0) sorted by name
+    expect(sortRepos(repos, 'lastUsed', [], lu).map((x) => x.id)).toEqual(['b', 'a', 'c'])
+  })
+
+  it('custom appends unknown ids in lastUsed order', () => {
+    const repos = [{ id: 'x', name: 'X' }, { id: 'y', name: 'Y' }, { id: 'z', name: 'Z' }]
+    const lu = new Map([['z', 10], ['y', 5]])
+    // order=['x'], then z (ts=10), y (ts=5)
+    expect(sortRepos(repos, 'custom', ['x'], lu).map((x) => x.id)).toEqual(['x', 'z', 'y'])
   })
 })
 

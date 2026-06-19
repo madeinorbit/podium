@@ -301,6 +301,47 @@ export function partitionWorkItems(
   return { attention, working, pinnedPanels }
 }
 
+/**
+ * Sort repos by the given mode:
+ *  - alphabetical: locale, case-insensitive by name.
+ *  - lastUsed: by lastUsedAt desc (unknown → 0 / end), tiebreak name.
+ *  - custom: by index in `order`; ids not in `order` appended in lastUsed order.
+ */
+export function sortRepos<T extends { id: string; name: string }>(
+  repos: T[],
+  mode: 'alphabetical' | 'lastUsed' | 'custom',
+  order: string[],
+  lastUsedAt: Map<string, number>,
+): T[] {
+  const lu = (id: string): number => lastUsedAt.get(id) ?? 0
+
+  if (mode === 'alphabetical') {
+    return [...repos].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }))
+  }
+
+  if (mode === 'lastUsed') {
+    return [...repos].sort((a, b) => {
+      const diff = lu(b.id) - lu(a.id)
+      if (diff !== 0) return diff
+      return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
+    })
+  }
+
+  // custom: pinned order first, then remainder by lastUsed desc
+  const position = orderMap(order)
+  const inOrder = [...repos]
+    .filter((r) => position.has(r.id))
+    .sort((a, b) => (position.get(a.id) ?? 0) - (position.get(b.id) ?? 0))
+  const remainder = [...repos]
+    .filter((r) => !position.has(r.id))
+    .sort((a, b) => {
+      const diff = lu(b.id) - lu(a.id)
+      if (diff !== 0) return diff
+      return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
+    })
+  return [...inOrder, ...remainder]
+}
+
 function orderMap(ids: string[]): Map<string, number> {
   return new Map(ids.map((id, index) => [id, index]))
 }
