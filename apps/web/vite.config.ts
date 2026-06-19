@@ -20,6 +20,9 @@ const BACKEND_WS = `ws://localhost:${BACKEND_PORT}`
 const proxy = {
   '/health': { target: BACKEND, changeOrigin: true },
   '/trpc': { target: BACKEND, changeOrigin: true },
+  // Backend HTTP route that streams sandboxed file bytes (e.g. markdown-preview
+  // relative images). Same-origin from the browser, so it must reach the backend.
+  '/files': { target: BACKEND, changeOrigin: true },
   '/client': { target: BACKEND_WS, ws: true, changeOrigin: true },
   '/daemon': { target: BACKEND_WS, ws: true, changeOrigin: true },
 }
@@ -48,7 +51,7 @@ export default defineConfig({
         // SPA fallback for navigations — but never shadow the live API/WS
         // routes, which must always reach the backend through the proxy.
         navigateFallback: '/index.html',
-        navigateFallbackDenylist: [/^\/trpc/, /^\/health/, /^\/client/, /^\/daemon/],
+        navigateFallbackDenylist: [/^\/trpc/, /^\/health/, /^\/files/, /^\/client/, /^\/daemon/],
       },
       // Keep the service worker out of `npm run dev` (it fights HMR); it only
       // ships in the built bundle served by `vite preview`.
