@@ -18,7 +18,8 @@ export function parseClaudeUsage(body: ClaudeUsageResponse): QuotaWindowWire[] {
   const windows: QuotaWindowWire[] = []
   if (body.five_hour) {
     windows.push({
-      key: '5h', label: '5-hour',
+      key: '5h',
+      label: '5-hour',
       usedPercent: toPct(body.five_hour.utilization),
       resetsAt: body.five_hour.resets_at ?? '',
       windowMinutes: 300,
@@ -26,7 +27,8 @@ export function parseClaudeUsage(body: ClaudeUsageResponse): QuotaWindowWire[] {
   }
   if (body.seven_day) {
     windows.push({
-      key: 'weekly', label: 'Weekly',
+      key: 'weekly',
+      label: 'Weekly',
       usedPercent: toPct(body.seven_day.utilization),
       resetsAt: body.seven_day.resets_at ?? '',
       windowMinutes: 10_080,
@@ -40,7 +42,11 @@ export async function fetchClaudeQuota(
 ): Promise<AgentQuotaWire> {
   const now = deps.now ?? Date.now()
   const fetchImpl = deps.fetchImpl ?? fetch
-  const base = { agent: 'claude-code' as const, windows: [] as QuotaWindowWire[], fetchedAt: new Date(now).toISOString() }
+  const base = {
+    agent: 'claude-code' as const,
+    windows: [] as QuotaWindowWire[],
+    fetchedAt: new Date(now).toISOString(),
+  }
   const credPath = join(deps.homeDir ?? homedir(), '.claude', '.credentials.json')
   let token: string | undefined
   let expiresAt: number | undefined

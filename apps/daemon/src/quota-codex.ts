@@ -22,10 +22,22 @@ const pct = (p: number | undefined): number => (typeof p === 'number' && Number.
 export function parseCodexRateLimits(rl: CodexRateLimits): QuotaWindowWire[] {
   const windows: QuotaWindowWire[] = []
   if (rl.primary) {
-    windows.push({ key: '5h', label: '5-hour', usedPercent: pct(rl.primary.usedPercent), resetsAt: isoFromUnix(rl.primary.resetsAt), windowMinutes: 300 })
+    windows.push({
+      key: '5h',
+      label: '5-hour',
+      usedPercent: pct(rl.primary.usedPercent),
+      resetsAt: isoFromUnix(rl.primary.resetsAt),
+      windowMinutes: 300,
+    })
   }
   if (rl.secondary) {
-    windows.push({ key: 'weekly', label: 'Weekly', usedPercent: pct(rl.secondary.usedPercent), resetsAt: isoFromUnix(rl.secondary.resetsAt), windowMinutes: 10_080 })
+    windows.push({
+      key: 'weekly',
+      label: 'Weekly',
+      usedPercent: pct(rl.secondary.usedPercent),
+      resetsAt: isoFromUnix(rl.secondary.resetsAt),
+      windowMinutes: 10_080,
+    })
   }
   return windows
 }
@@ -35,7 +47,11 @@ export function decodeJwtEmail(idToken: string | undefined): string | undefined 
   const parts = idToken.split('.')
   if (parts.length < 2) return undefined
   try {
-    const payload = JSON.parse(Buffer.from(parts[1]!, 'base64url').toString('utf8')) as { email?: string }
+    const payloadSegment = parts[1]
+    if (!payloadSegment) return undefined
+    const payload = JSON.parse(Buffer.from(payloadSegment, 'base64url').toString('utf8')) as {
+      email?: string
+    }
     return typeof payload.email === 'string' ? payload.email : undefined
   } catch {
     return undefined
@@ -49,7 +65,8 @@ export const readCodexRateLimitsViaAppServer: CodexRateLimitReader = ({ homeDir 
   new Promise<CodexRateLimits>((resolve, reject) => {
     const env = { ...process.env, ...(homeDir ? { CODEX_HOME: join(homeDir, '.codex') } : {}) }
     const child = spawn('codex', ['-s', 'read-only', '-a', 'untrusted', 'app-server'], {
-      stdio: ['pipe', 'pipe', 'ignore'], env,
+      stdio: ['pipe', 'pipe', 'ignore'],
+      env,
     })
     let buf = ''
     let settled = false
@@ -57,7 +74,9 @@ export const readCodexRateLimitsViaAppServer: CodexRateLimitReader = ({ homeDir 
       if (settled) return
       settled = true
       clearTimeout(timer)
-      try { child.kill('SIGKILL') } catch {}
+      try {
+        child.kill('SIGKILL')
+      } catch {}
       if (err) reject(err)
       else resolve(val ?? {})
     }
@@ -65,7 +84,12 @@ export const readCodexRateLimitsViaAppServer: CodexRateLimitReader = ({ homeDir 
     timer.unref?.()
     const send = (obj: unknown) => child.stdin.write(`${JSON.stringify(obj)}\n`)
     child.once('spawn', () => {
-      send({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { clientInfo: { name: 'podium', version: '0.0.0' } } })
+      send({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'initialize',
+        params: { clientInfo: { name: 'podium', version: '0.0.0' } },
+      })
     })
     child.stdout.on('data', (chunk: Buffer) => {
       buf += chunk.toString('utf8')
@@ -76,7 +100,11 @@ export const readCodexRateLimitsViaAppServer: CodexRateLimitReader = ({ homeDir 
         nl = buf.indexOf('\n')
         if (!line) continue
         let msg: { id?: number; result?: { rateLimits?: CodexRateLimits } }
-        try { msg = JSON.parse(line) } catch { continue }
+        try {
+          msg = JSON.parse(line)
+        } catch {
+          continue
+        }
         if (msg.id === 1) {
           send({ jsonrpc: '2.0', method: 'initialized', params: {} })
           send({ jsonrpc: '2.0', id: 2, method: 'account/rateLimits/read', params: {} })
@@ -93,7 +121,11 @@ export async function fetchCodexQuota(
   deps: { homeDir?: string; now?: number; readImpl?: CodexRateLimitReader } = {},
 ): Promise<AgentQuotaWire> {
   const now = deps.now ?? Date.now()
-  const base = { agent: 'codex' as const, windows: [] as QuotaWindowWire[], fetchedAt: new Date(now).toISOString() }
+  const base = {
+    agent: 'codex' as const,
+    windows: [] as QuotaWindowWire[],
+    fetchedAt: new Date(now).toISOString(),
+  }
   const authPath = join(deps.homeDir ?? homedir(), '.codex', 'auth.json')
   let email: string | undefined
   try {
@@ -105,7 +137,12 @@ export async function fetchCodexQuota(
   const read = deps.readImpl ?? readCodexRateLimitsViaAppServer
   try {
     const rl = await read({ ...(deps.homeDir ? { homeDir: deps.homeDir } : {}) })
-    return { ...base, status: 'ok', windows: parseCodexRateLimits(rl), ...(email ? { account: { email } } : {}) }
+    return {
+      ...base,
+      status: 'ok',
+      windows: parseCodexRateLimits(rl),
+      ...(email ? { account: { email } } : {}),
+    }
   } catch (e) {
     return { ...base, status: 'error', error: e instanceof Error ? e.message : String(e) }
   }

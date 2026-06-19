@@ -1,4 +1,4 @@
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -25,7 +25,7 @@ describe('parseCodexRateLimits', () => {
       ['5h', 30, 300],
       ['weekly', 12, 10080],
     ])
-    expect(w[0]!.resetsAt).toBe(new Date(1_750_356_000 * 1000).toISOString())
+    expect(w[0]?.resetsAt).toBe(new Date(1_750_356_000 * 1000).toISOString())
   })
 })
 
@@ -55,8 +55,11 @@ describe('fetchCodexQuota', () => {
   it('maps a reader throw to error', async () => {
     const home = homeWithAuth({ tokens: {} })
     const r = await fetchCodexQuota({
-      homeDir: home, now,
-      readImpl: async () => { throw new Error('app-server timed out') },
+      homeDir: home,
+      now,
+      readImpl: async () => {
+        throw new Error('app-server timed out')
+      },
     })
     expect(r.status).toBe('error')
     expect(r.error).toContain('app-server')
