@@ -7,6 +7,7 @@ import type { AgentQuotaWire, QuotaWindowWire } from '@podium/protocol'
 export interface CodexRateLimitWindow {
   usedPercent?: number
   resetsAt?: number // unix seconds
+  windowDurationMins?: number // present in the live response; we hardcode windowMinutes instead
 }
 export interface CodexRateLimits {
   primary?: CodexRateLimitWindow
