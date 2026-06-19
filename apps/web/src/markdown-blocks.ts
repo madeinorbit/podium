@@ -16,7 +16,8 @@ function countNewlines(s: string): number {
 }
 
 // Rewrite relative <img src>. Absolute (http/https/data/blob), protocol-relative,
-// and root-absolute srcs are left untouched.
+// and root-absolute srcs are left untouched. marked always emits double-quoted
+// attributes, so matching `src="…"` is sufficient (single-quoted src is not produced).
 function rewriteImageSrc(html: string, resolveAsset?: (src: string) => string | null): string {
   if (!resolveAsset) return html
   return html.replace(/(<img\b[^>]*?\bsrc=")([^"]*)(")/g, (full, pre: string, src: string, post: string) => {
@@ -27,13 +28,16 @@ function rewriteImageSrc(html: string, resolveAsset?: (src: string) => string | 
 }
 
 /**
- * Assemble (but do NOT sanitize) markdown into HTML where each top-level block is
- * wrapped in `<div class="md-block" data-source-line="N">` (N = 1-based source line).
- * Pure and deterministic — this is the unit that carries the source-line map and is
- * tested directly. Sanitization is a separate, browser-dependent step (see
- * renderMarkdownBlocks).
+ * @internal — UNSANITIZED. Returns raw HTML; NEVER render its output into the DOM.
+ * Use {@link renderMarkdownBlocks} for anything that reaches a browser. Exported only
+ * so the source-line map can be unit-tested deterministically (without DOMPurify, whose
+ * behavior differs under happy-dom).
+ *
+ * Assembles markdown into HTML where each top-level block is wrapped in
+ * `<div class="md-block" data-source-line="N">` (N = 1-based source line). Pure and
+ * deterministic — this is the unit that carries the source-line map.
  */
-export function assembleMarkdownBlocks(text: string, opts: RenderBlocksOptions = {}): string {
+export function assembleMarkdownBlocksUnsafe(text: string, opts: RenderBlocksOptions = {}): string {
   const tokens = marked.lexer(text)
   let offset = 0
   let out = ''
@@ -51,10 +55,11 @@ export function assembleMarkdownBlocks(text: string, opts: RenderBlocksOptions =
 }
 
 /**
- * Markdown → sanitized HTML for rendering in the browser. Uses DOMPurify's default
- * policy — exactly like markdown.ts's renderMarkdown — so it keeps <div>, class, and
- * the data-source-line anchors in a real browser, with no lossy allowlist.
+ * Markdown → sanitized HTML for rendering in the browser. `opts` (e.g. `resolveAsset`)
+ * are applied during assembly, before sanitization. Uses DOMPurify's default policy —
+ * exactly like markdown.ts's renderMarkdown — so it keeps <div>, class, and the
+ * data-source-line anchors in a real browser, with no lossy allowlist.
  */
 export function renderMarkdownBlocks(text: string, opts: RenderBlocksOptions = {}): string {
-  return DOMPurify.sanitize(assembleMarkdownBlocks(text, opts))
+  return DOMPurify.sanitize(assembleMarkdownBlocksUnsafe(text, opts))
 }
