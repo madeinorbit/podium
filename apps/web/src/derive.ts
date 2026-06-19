@@ -161,6 +161,27 @@ export interface SidebarSections {
 
 export const EMPTY_PINS: PinState = { panels: [], worktrees: [], repos: [] }
 
+/** Is the session snoozed *right now*? `undefined` snoozedUntil = never; `null`
+ *  (until next message) = always; an ISO string = until that instant. */
+export function isSnoozed(s: SessionMeta, now: number): boolean {
+  if (s.snoozedUntil === undefined) return false
+  if (s.snoozedUntil === null) return true
+  return now < Date.parse(s.snoozedUntil)
+}
+
+/** ISO deadline one hour from `now`. */
+export function snoozeUntil1h(now: number): string {
+  return new Date(now + 3_600_000).toISOString()
+}
+
+/** ISO deadline at the next 5:00am local strictly after `now`. */
+export function snoozeUntilTomorrow5am(now: number): string {
+  const d = new Date(now)
+  const target = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 5, 0, 0, 0)
+  if (target.getTime() <= now) target.setDate(target.getDate() + 1)
+  return target.toISOString()
+}
+
 export function sortSessionsForPins(sessions: SessionMeta[], pins: PinState): SessionMeta[] {
   const panelOrder = orderMap(pins.panels)
   return [...sessions].sort((left, right) =>
@@ -169,16 +190,20 @@ export function sortSessionsForPins(sessions: SessionMeta[], pins: PinState): Se
 }
 
 /**
- * Sidebar session order: most-recently-active first, with currently-working
- * sessions sunk beneath everything else. You steer the parked and blocked ones;
- * the agents happily running on their own need your eyes the least, so they sit
- * at the bottom of the list.
+ * Sidebar session order: non-snoozed attention first, then snoozed attention
+ * (de-emphasised), then working sessions at the bottom. Within each rank,
+ * most-recently-active first.
  */
-export function sortSessionsForSidebar(sessions: SessionMeta[]): SessionMeta[] {
+export function sortSessionsForSidebar(sessions: SessionMeta[], now: number = Date.now()): SessionMeta[] {
+  // Rank 0 = needs-you/idle and not snoozed (top); 1 = attention but snoozed
+  // (de-emphasised, just above working); 2 = working (bottom).
+  const rank = (s: SessionMeta): number => {
+    if (attentionGroup(s) === 'working') return 2
+    return isSnoozed(s, now) ? 1 : 0
+  }
   return [...sessions].sort((a, b) => {
-    const aWorking = attentionGroup(a) === 'working'
-    const bWorking = attentionGroup(b) === 'working'
-    if (aWorking !== bWorking) return aWorking ? 1 : -1
+    const dr = rank(a) - rank(b)
+    if (dr !== 0) return dr
     return b.lastActiveAt.localeCompare(a.lastActiveAt)
   })
 }
@@ -207,6 +232,7 @@ export function sidebarSections(
   repos: GitRepositoryWire[],
   sessions: SessionMeta[],
   pins: PinState,
+  now: number = Date.now(),
 ): SidebarSections {
   const repoViews = reposToViews(repos)
   const pinnedPanelIds = new Set(pins.panels)
@@ -227,6 +253,7 @@ export function sidebarSections(
       sessionsForWorktree(sessions, worktree.path).filter(
         (session) => !pinnedPanelIds.has(session.sessionId),
       ),
+      now,
     ),
   })
 
@@ -278,6 +305,7 @@ export interface WorkItemPartition {
 export function partitionWorkItems(
   sessions: SessionMeta[],
   pinnedSessionIds: Set<string>,
+  now: number = Date.now(),
 ): WorkItemPartition {
   const attention: SessionMeta[] = []
   const working: SessionMeta[] = []
@@ -292,8 +320,11 @@ export function partitionWorkItems(
     const group = attentionGroup(s)
     if (group === 'working') {
       working.push(s)
+    } else if (isSnoozed(s, now)) {
+      // Snoozed: drop out of the top NEEDS YOUR ATTENTION group entirely. It still
+      // appears (sunk) under its worktree via sortSessionsForSidebar.
+      continue
     } else {
-      // 'needsYou' or 'idle' — both map to attention
       attention.push(s)
     }
   }

@@ -6,14 +6,18 @@ import {
   defaultChatCapable,
   formatMemBytes,
   hostMemoryView,
+  isSnoozed,
   orderTabs,
   panelLabel,
   partitionWorkItems,
   reposToViews,
   sessionsForWorktree,
   sidebarSections,
+  snoozeUntil1h,
+  snoozeUntilTomorrow5am,
   sortRepos,
   sortSessionsForPins,
+  sortSessionsForSidebar,
 } from '../src/derive'
 
 describe('defaultChatCapable', () => {
@@ -501,5 +505,68 @@ describe('chatActivity', () => {
       chatActivity(base({ agentState: { phase: 'idle', since: '', openTaskCount: 0 } }), false),
     ).toBeNull()
     expect(chatActivity(undefined, false)).toBeNull()
+  })
+})
+
+const NOW = Date.parse('2026-06-19T12:00:00.000Z')
+const withState = (
+  s: SessionMeta,
+  phase: NonNullable<SessionMeta['agentState']>['phase'],
+  extra: Record<string, unknown> = {},
+): SessionMeta => ({
+  ...s,
+  agentState: { phase, since: '2026-06-19T00:00:00.000Z', openTaskCount: 0, ...extra } as NonNullable<
+    SessionMeta['agentState']
+  >,
+})
+
+describe('isSnoozed', () => {
+  it('undefined=never, null=always, timed=until deadline', () => {
+    const s = session('/w')
+    expect(isSnoozed(s, NOW)).toBe(false)
+    expect(isSnoozed({ ...s, snoozedUntil: null }, NOW)).toBe(true)
+    expect(isSnoozed({ ...s, snoozedUntil: '2026-06-19T13:00:00.000Z' }, NOW)).toBe(true)
+    expect(isSnoozed({ ...s, snoozedUntil: '2026-06-19T11:00:00.000Z' }, NOW)).toBe(false)
+  })
+})
+
+describe('snooze time helpers', () => {
+  it('1h adds an hour', () => {
+    expect(snoozeUntil1h(NOW)).toBe(new Date(NOW + 3_600_000).toISOString())
+  })
+  it('tomorrow = next 5am local strictly after now', () => {
+    const out = Date.parse(snoozeUntilTomorrow5am(NOW))
+    const d = new Date(out)
+    expect(d.getHours()).toBe(5)
+    expect(out).toBeGreaterThan(NOW)
+    // strictly the *next* 5am: no more than 24h away
+    expect(out - NOW).toBeLessThanOrEqual(24 * 3_600_000)
+  })
+})
+
+describe('partitionWorkItems with snooze', () => {
+  it('excludes an effectively-snoozed needs_user session from attention', () => {
+    const needs = withState(session('/w'), 'needs_user')
+    const snoozed = { ...withState(session('/w2'), 'needs_user'), snoozedUntil: null }
+    const { attention } = partitionWorkItems([needs, snoozed], new Set(), NOW)
+    expect(attention.map((s) => s.sessionId)).toEqual([needs.sessionId])
+  })
+  it('a lapsed timed snooze re-enters attention', () => {
+    const lapsed = {
+      ...withState(session('/w'), 'needs_user'),
+      snoozedUntil: '2026-06-19T11:00:00.000Z',
+    }
+    const { attention } = partitionWorkItems([lapsed], new Set(), NOW)
+    expect(attention).toHaveLength(1)
+  })
+})
+
+describe('sortSessionsForSidebar with snooze', () => {
+  it('orders non-snoozed attention, then snoozed attention, then working', () => {
+    const att = withState(session('/a'), 'needs_user')
+    const snoozedAtt = { ...withState(session('/b'), 'needs_user'), snoozedUntil: null }
+    const working = withState(session('/c'), 'working')
+    const out = sortSessionsForSidebar([working, snoozedAtt, att], NOW)
+    expect(out.map((s) => s.sessionId)).toEqual([att.sessionId, snoozedAtt.sessionId, working.sessionId])
   })
 })
