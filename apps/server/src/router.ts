@@ -50,6 +50,19 @@ export const appRouter = t.router({
     sendText: t.procedure
       .input(z.object({ sessionId: z.string(), text: z.string().min(1).max(32_768) }))
       .mutation(({ ctx, input }) => ctx.registry.sendText(input)),
+    // Chat-view answer to a live AskUserQuestion prompt: type the chosen option
+    // number(s) into the agent's native menu (the native terminal is unmounted in
+    // chat mode). One entry per question, each with its 1-based option indices.
+    answerAskUserQuestion: t.procedure
+      .input(
+        z.object({
+          sessionId: z.string(),
+          choices: z
+            .array(z.object({ optionIndices: z.array(z.number().int().min(1).max(9)).min(1) }))
+            .min(1),
+        }),
+      )
+      .mutation(({ ctx, input }) => ctx.registry.answerAskUserQuestion(input)),
     // Chat compose for a parked session: wake it if needed, then deliver the
     // message once the resumed CLI is ready (auto-resume on submit).
     resumeAndSend: t.procedure

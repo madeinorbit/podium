@@ -19,8 +19,8 @@ import {
   blockMatches,
   type ChatBlock,
   minimapSegments,
-  pairToolResults,
   type PendingItem,
+  pairToolResults,
   reconcilePending,
   searchBlocks,
 } from './chat'
@@ -112,14 +112,30 @@ export function ChatView({ sessionId }: { sessionId: string }): JSX.Element {
 
   const effectiveItems = parked && fetched && fetched.length > 0 ? fetched : items
   const blocks = useMemo(() => pairToolResults(effectiveItems), [effectiveItems])
+  // The single AskUserQuestion the user can answer right now: the LAST one in the
+  // transcript that hasn't been answered yet (no paired tool result), and only
+  // when the session is live so a digit can actually reach the native menu.
+  // Every other AskUserQuestion card stays read-only with its chosen-option
+  // highlight. Index into `blocks` so the card can self-identify by position.
+  const livePendingAskIndex = useMemo(() => {
+    const live = session?.status === 'live' || session?.status === 'starting'
+    if (!live) return -1
+    let last = -1
+    blocks.forEach((b, i) => {
+      const isAsk =
+        b.item.role === 'tool' && b.item.toolName === 'AskUserQuestion' && b.item.toolInputJson
+      const answered = (b.result ?? b.item.toolResult) !== undefined
+      if (isAsk && !answered) last = i
+    })
+    return last
+  }, [blocks, session?.status])
   // Show the loader (not the empty-state copy) while a transcript is still in
   // flight. Two cases: a parked session's on-disk history hasn't resolved
   // (`fetched === null`), or a live/starting session hasn't streamed anything yet
   // and we're still inside the initial grace window (the buffered snapshot may
   // still land). Once the live grace expires with zero items, we trust it's empty.
   const loadingTranscript =
-    blocks.length === 0 &&
-    (parked ? fetched === null : (session !== undefined && !liveGraceElapsed))
+    blocks.length === 0 && (parked ? fetched === null : session !== undefined && !liveGraceElapsed)
   const matches = useMemo(() => searchBlocks(blocks, query), [blocks, query])
   const activeMatch = matches.length > 0 ? matches[matchCursor % matches.length] : undefined
 
@@ -256,6 +272,20 @@ export function ChatView({ sessionId }: { sessionId: string }): JSX.Element {
     }
   }
 
+  // Answer a live AskUserQuestion from its chat card: send the chosen 1-based
+  // option index per question to the server, which types the matching digit(s)
+  // into the agent's native menu. Returns the promise so the card can show a
+  // pending/failed state; the transcript reconciles when the agent's result tails
+  // back (the answered card then renders read-only with its highlight). Memoized
+  // so its identity stays stable — ChatBlockView is memo'd and a fresh callback
+  // each render would defeat that for every block.
+  const answerAsk = useMemo(
+    () => async (choices: { optionIndices: number[] }[]) => {
+      await trpc.sessions.answerAskUserQuestion.mutate({ sessionId, choices })
+    },
+    [trpc, sessionId],
+  )
+
   const sendable = session?.status === 'live' || session?.status === 'starting'
   // The composer accepts input when the agent is live OR when it can be woken by
   // sending (auto-resume). Only a truly dead/unrecoverable session locks it out.
@@ -351,6 +381,8 @@ export function ChatView({ sessionId }: { sessionId: string }): JSX.Element {
               sessionId={sessionId}
               cwd={cwd}
               openFile={openFile}
+              askLivePending={i === livePendingAskIndex}
+              onAnswerAsk={answerAsk}
             />
           ))}
           {pending.map((p) => (
@@ -363,8 +395,14 @@ export function ChatView({ sessionId }: { sessionId: string }): JSX.Element {
             >
               <div className="mb-[3px] flex items-center gap-1.5 text-[10px] uppercase tracking-[0.07em] text-muted-foreground/70">
                 You
-                {p.state === 'sending' && <span className="normal-case tracking-normal opacity-70">· sending…</span>}
-                {p.state === 'failed' && <span className="normal-case tracking-normal text-destructive">· not delivered</span>}
+                {p.state === 'sending' && (
+                  <span className="normal-case tracking-normal opacity-70">· sending…</span>
+                )}
+                {p.state === 'failed' && (
+                  <span className="normal-case tracking-normal text-destructive">
+                    · not delivered
+                  </span>
+                )}
               </div>
               <div className="whitespace-pre-wrap break-words text-sm leading-[1.45] text-foreground">
                 {p.text}
@@ -489,6 +527,8 @@ const ChatBlockView = memo(function ChatBlockView({
   sessionId,
   cwd,
   openFile,
+  askLivePending,
+  onAnswerAsk,
 }: {
   block: ChatBlock
   index: number
@@ -497,6 +537,9 @@ const ChatBlockView = memo(function ChatBlockView({
   sessionId: string
   cwd: string
   openFile: (sessionId: string, path: string) => void
+  /** True only for the latest unanswered AskUserQuestion on a live session. */
+  askLivePending: boolean
+  onAnswerAsk: (choices: { optionIndices: number[] }[]) => Promise<void>
 }): JSX.Element | null {
   const { item } = block
   const html = useMemo(() => renderMarkdown(item.text), [item.text])
@@ -507,7 +550,15 @@ const ChatBlockView = memo(function ChatBlockView({
   )
 
   if (item.role === 'tool' && item.toolName === 'AskUserQuestion' && item.toolInputJson)
-    return <AskUserQuestionCard block={block} cls={blockClass} index={index} />
+    return (
+      <AskUserQuestionCard
+        block={block}
+        cls={blockClass}
+        index={index}
+        livePending={askLivePending}
+        onAnswer={onAnswerAsk}
+      />
+    )
   if (item.role === 'tool')
     return (
       <ToolBlock
@@ -561,7 +612,9 @@ const ChatBlockView = memo(function ChatBlockView({
         </div>
       )}
       {item.role === 'assistant' && item.answer && (
-        <div className="mb-[3px] text-[10px] uppercase tracking-[0.07em] text-primary/70">Answer</div>
+        <div className="mb-[3px] text-[10px] uppercase tracking-[0.07em] text-primary/70">
+          Answer
+        </div>
       )}
       <div
         className="chat-md"
@@ -578,9 +631,10 @@ const ChatBlockView = memo(function ChatBlockView({
       {item.tags && item.tags.length > 0 && (
         <div className="mt-1.5 flex gap-1.5">
           {item.tags.map((tag, i) => {
-            const filePath = tag.kind === 'file' && item.toolPaths?.[0]
-              ? resolveAgainstCwd(cwd, item.toolPaths[0])
-              : null
+            const filePath =
+              tag.kind === 'file' && item.toolPaths?.[0]
+                ? resolveAgainstCwd(cwd, item.toolPaths[0])
+                : null
             return filePath ? (
               <button
                 key={`${tag.kind}-${i}`}
@@ -628,18 +682,36 @@ interface AskQuestion {
 
 /**
  * The agent asking the human (AskUserQuestion) — render the question(s) and
- * options as a readable card instead of a collapsed tool row, with the chosen
- * option highlighted once answered. (Answering a *live* pending question from
- * here is a separate feature — it needs to drive the native prompt selection.)
+ * options as a readable card instead of a collapsed tool row.
+ *
+ * Two modes:
+ *  - `livePending`: the latest unanswered question on a live session. Options are
+ *    clickable; a click submits the chosen 1-based option index(es) through the
+ *    server, which types the matching digit(s) into the agent's native selector
+ *    menu (the native terminal is unmounted in chat mode, so this is the only
+ *    route to the prompt). After submit the card shows an optimistic selection +
+ *    "Answer sent" and disables further clicks; the agent's tailed-back result
+ *    then reconciles it to the read-only highlight.
+ *  - otherwise (historical / already-answered / parked): read-only, with the
+ *    chosen option highlighted from the tool result text.
+ *
+ * NEEDS IN-BROWSER VERIFICATION against a real Claude prompt: the exact key the
+ * AskUserQuestion TUI accepts is documented (single-select commits on the option
+ * number key; multi-select takes comma-separated numbers + Enter) but not yet
+ * confirmed live here.
  */
 function AskUserQuestionCard({
   block,
   cls,
   index,
+  livePending,
+  onAnswer,
 }: {
   block: ChatBlock
   cls: string
   index: number
+  livePending: boolean
+  onAnswer: (choices: { optionIndices: number[] }[]) => Promise<void>
 }): JSX.Element {
   const { item } = block
   let questions: AskQuestion[] = []
@@ -653,13 +725,72 @@ function AskUserQuestionCard({
   const answer = block.result ?? item.toolResult ?? ''
   const isChosen = (label: string) => answer.includes(`"${label}"`)
 
+  // Local answer state for a live question. `picks[qi]` is the set of selected
+  // 0-based option indices for question qi. Multi-select toggles; single-select
+  // submits on the first click. Once submitted we lock the card and wait for the
+  // transcript to reconcile (which turns it back into a read-only highlight).
+  const [picks, setPicks] = useState<Record<number, Set<number>>>({})
+  const [submitState, setSubmitState] = useState<'idle' | 'sending' | 'failed'>('idle')
+  const locked = submitState === 'sending' || !livePending
+
+  const submit = async (next: Record<number, Set<number>>) => {
+    // One choice entry per question, in order, with 1-based option indices.
+    const choices = questions.map((_, qi) => ({
+      optionIndices: [...(next[qi] ?? new Set<number>())].sort((a, b) => a - b).map((oi) => oi + 1),
+    }))
+    if (choices.some((c) => c.optionIndices.length === 0)) return // not every question answered yet
+    setSubmitState('sending')
+    try {
+      await onAnswer(choices)
+    } catch {
+      setSubmitState('failed')
+    }
+  }
+
+  const onOptionClick = (q: AskQuestion, qi: number, oi: number) => {
+    if (locked) return
+    setPicks((prev) => {
+      const cur = new Set(prev[qi])
+      if (q.multiSelect) {
+        // Toggle within the question; the user confirms the set with the button.
+        if (cur.has(oi)) cur.delete(oi)
+        else cur.add(oi)
+      } else {
+        cur.clear()
+        cur.add(oi)
+      }
+      const next = { ...prev, [qi]: cur }
+      // Single-select with a single question → submit immediately (matches the
+      // native menu, which commits the instant the option number is pressed).
+      const allSingle = questions.every((qq) => !qq.multiSelect)
+      const allAnswered = questions.every((_, i) => (next[i]?.size ?? 0) > 0)
+      if (allSingle && allAnswered) void submit(next)
+      return next
+    })
+  }
+
+  // A live multi-select (or multi-question) card needs an explicit confirm: the
+  // user toggles options, then submits the whole set in one go.
+  const needsConfirmButton =
+    livePending && submitState !== 'sending' && questions.some((q) => q.multiSelect)
+  const allAnswered = questions.length > 0 && questions.every((_, qi) => (picks[qi]?.size ?? 0) > 0)
+
   return (
     <div
-      className={cn(cls, 'rounded-[10px] border border-amber-500/40 bg-amber-500/[0.05] px-3.5 py-2.5')}
+      className={cn(
+        cls,
+        'rounded-[10px] border border-amber-500/40 bg-amber-500/[0.05] px-3.5 py-2.5',
+      )}
       data-block={index}
     >
-      <div className="mb-1.5 text-[10px] uppercase tracking-[0.07em] text-amber-600 dark:text-amber-400/90">
+      <div className="mb-1.5 flex items-center gap-1.5 text-[10px] uppercase tracking-[0.07em] text-amber-600 dark:text-amber-400/90">
         Question for you
+        {livePending && submitState === 'sending' && (
+          <span className="normal-case tracking-normal text-muted-foreground">· answer sent…</span>
+        )}
+        {livePending && submitState === 'failed' && (
+          <span className="normal-case tracking-normal text-destructive">· not delivered</span>
+        )}
       </div>
       {questions.map((q, qi) => (
         <div key={`${q.header ?? q.question}-${qi}`} className={qi > 0 ? 'mt-3' : ''}>
@@ -671,19 +802,14 @@ function AskUserQuestionCard({
           <div className="text-sm font-medium text-foreground">{q.question}</div>
           <div className="mt-1.5 flex flex-col gap-1">
             {(q.options ?? []).map((o, oi) => {
-              const chosen = isChosen(o.label)
-              return (
-                <div
-                  key={`${o.label}-${oi}`}
-                  className={cn(
-                    'rounded-md border px-2.5 py-1.5 text-xs',
-                    chosen
-                      ? 'border-amber-500 bg-amber-500/15 text-foreground'
-                      : 'border-border text-muted-foreground',
-                  )}
-                >
+              // Pending: highlight the user's local pick. Read-only: highlight the
+              // option the agent's result says was chosen.
+              const picked = (picks[qi]?.has(oi) ?? false) && livePending
+              const chosen = livePending ? picked : isChosen(o.label)
+              const body = (
+                <>
                   <span className="font-medium text-foreground">
-                    {chosen ? '✓ ' : ''}
+                    {chosen ? '✓ ' : livePending ? `${oi + 1}. ` : ''}
                     {o.label}
                   </span>
                   {o.description && (
@@ -691,12 +817,51 @@ function AskUserQuestionCard({
                       {o.description}
                     </span>
                   )}
+                </>
+              )
+              const baseCls = cn(
+                'rounded-md border px-2.5 py-1.5 text-left text-xs',
+                chosen
+                  ? 'border-amber-500 bg-amber-500/15 text-foreground'
+                  : 'border-border text-muted-foreground',
+              )
+              // Only the live pending card gets clickable controls; everything
+              // else stays a plain read-only row.
+              return livePending ? (
+                <button
+                  key={`${o.label}-${oi}`}
+                  type="button"
+                  disabled={locked}
+                  onClick={() => onOptionClick(q, qi, oi)}
+                  className={cn(
+                    baseCls,
+                    'transition-colors',
+                    locked
+                      ? 'cursor-default'
+                      : 'cursor-pointer hover:border-amber-500/70 hover:bg-amber-500/10',
+                  )}
+                >
+                  {body}
+                </button>
+              ) : (
+                <div key={`${o.label}-${oi}`} className={baseCls}>
+                  {body}
                 </div>
               )
             })}
           </div>
         </div>
       ))}
+      {needsConfirmButton && (
+        <button
+          type="button"
+          disabled={!allAnswered}
+          onClick={() => void submit(picks)}
+          className="mt-2.5 rounded-md border border-amber-500 bg-amber-500/15 px-3 py-1.5 text-xs font-medium text-foreground hover:bg-amber-500/25 disabled:cursor-default disabled:opacity-50"
+        >
+          Submit answer
+        </button>
+      )}
       {questions.length === 0 && (
         <div className="text-xs text-muted-foreground">AskUserQuestion (unparseable input)</div>
       )}

@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { basename } from 'node:path'
 import type { PodiumSettings } from '@podium/core'
+import type { FileReadResultMessage, FileWriteResultMessage } from '@podium/protocol'
 import {
   AgentKind,
   type AgentRuntimeState,
@@ -21,9 +22,8 @@ import {
   type UsageBucketWire,
   type WorkState,
 } from '@podium/protocol'
-import type { FileReadResultMessage, FileWriteResultMessage } from '@podium/protocol'
-import { attentionNotice, pushNtfy } from './notify'
 import { knownPathsFor } from './file-relay-policy'
+import { attentionNotice, pushNtfy } from './notify'
 import { type ClientConn, type Send, Session } from './session'
 import { type PinKind, SessionStore } from './store'
 
@@ -330,6 +330,51 @@ export class SessionRegistry {
     // both line counts now go through the same paste-then-submit sequence.
     send(`\x1b[200~${text}\x1b[201~`)
     send('\r')
+    return { ok: true }
+  }
+
+  /**
+   * Chat-view answer to a live AskUserQuestion prompt. The chat card sends the
+   * 1-based option index (per question) and we type the matching digit(s) into
+   * the agent's PTY to drive its native multiple-choice selector — the native
+   * terminal is unmounted in chat mode, so this is the only path to the prompt.
+   *
+   * Claude Code's AskUserQuestion menu commits a single-select choice the instant
+   * the option's number key is pressed (no Enter), and accepts comma-separated
+   * numbers + Enter for multi-select. We send raw digits here (NOT bracketed
+   * paste like `sendText`, which would land them as message text rather than
+   * menu keystrokes). See the chat card for the option→digit mapping.
+   *
+   * `choices` is one entry per question being answered, each carrying the
+   * question's 1-based option indices (one for single-select, ≥1 for multi).
+   * NEEDS IN-BROWSER VERIFICATION against a real Claude prompt — the exact
+   * key sequence the TUI expects is documented-but-unconfirmed here.
+   */
+  answerAskUserQuestion({
+    sessionId,
+    choices,
+  }: {
+    sessionId: string
+    choices: { optionIndices: number[] }[]
+  }): { ok: boolean } {
+    const session = this.sessions.get(sessionId)
+    if (!session || (session.status !== 'live' && session.status !== 'starting')) {
+      return { ok: false }
+    }
+    const send = (data: string) =>
+      this.toDaemon({ type: 'input', sessionId, data: Buffer.from(data).toString('base64') })
+    for (const choice of choices) {
+      const digits = choice.optionIndices.filter((n) => Number.isInteger(n) && n >= 1 && n <= 9)
+      if (digits.length === 0) continue
+      if (digits.length === 1) {
+        // Single-select: the number key alone commits the choice and advances to
+        // the next question (no Enter). A multi-question payload chains naturally.
+        send(String(digits[0]))
+      } else {
+        // Multi-select: comma-separated indices, then Enter to confirm the set.
+        send(`${digits.join(',')}\r`)
+      }
+    }
     return { ok: true }
   }
 
