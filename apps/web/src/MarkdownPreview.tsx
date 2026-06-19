@@ -1,5 +1,5 @@
 // apps/web/src/MarkdownPreview.tsx
-import { type JSX, useMemo, useRef } from 'react'
+import { type JSX, useMemo } from 'react'
 import { assetUrl } from './asset-url'
 import { resolveAgainstCwd } from './file-path'
 import { renderMarkdownBlocks } from './markdown-blocks'
@@ -21,7 +21,6 @@ export function MarkdownPreview({
 }): JSX.Element {
   const { httpOrigin, openFile } = useStore()
   const fileDir = path.replace(/\/[^/]*$/, '') || '/'
-  const localRef = useRef<HTMLDivElement | null>(null)
   const html = useMemo(
     () =>
       renderMarkdownBlocks(content, {
@@ -41,7 +40,6 @@ export function MarkdownPreview({
   return (
     <div
       ref={(el) => {
-        localRef.current = el
         if (scrollRef) scrollRef.current = el
       }}
       className="markdown-preview min-h-0 flex-1 overflow-auto px-4 py-3 text-[13px]"
