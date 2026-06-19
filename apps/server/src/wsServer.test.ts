@@ -1,9 +1,58 @@
 import { describe, expect, it, vi } from 'vitest'
-import { type HeartbeatSocket, sweepClientLiveness } from './wsServer'
+import { encode } from '@podium/protocol'
+import { type HeartbeatSocket, safeSend, type SendSocket, sweepClientLiveness } from './wsServer'
 
 function fakeSocket(readyState = 1) {
   return { readyState, ping: vi.fn(), terminate: vi.fn() }
 }
+
+function fakeSendSocket(over: { readyState?: number; bufferedAmount?: number } = {}): SendSocket & {
+  send: ReturnType<typeof vi.fn>
+  terminate: ReturnType<typeof vi.fn>
+} {
+  return {
+    readyState: over.readyState ?? 1,
+    bufferedAmount: over.bufferedAmount ?? 0,
+    send: vi.fn(),
+    terminate: vi.fn(),
+  }
+}
+
+describe('safeSend', () => {
+  const msg = { type: 'pong' } as const
+  const LIMIT = 1000
+
+  it('encodes and sends when the socket is OPEN and under the buffer limit', () => {
+    const ws = fakeSendSocket({ bufferedAmount: 10 })
+    safeSend(ws, msg, LIMIT)
+    expect(ws.send).toHaveBeenCalledOnce()
+    expect(ws.send).toHaveBeenCalledWith(encode(msg))
+    expect(ws.terminate).not.toHaveBeenCalled()
+  })
+
+  it('terminates (does not send) a slow socket whose send buffer exceeds the limit', () => {
+    const ws = fakeSendSocket({ bufferedAmount: LIMIT + 1 })
+    safeSend(ws, msg, LIMIT)
+    expect(ws.send).not.toHaveBeenCalled()
+    expect(ws.terminate).toHaveBeenCalledOnce()
+  })
+
+  it('does nothing for a socket that is not OPEN', () => {
+    const ws = fakeSendSocket({ readyState: 0 /* CONNECTING */ })
+    safeSend(ws, msg, LIMIT)
+    expect(ws.send).not.toHaveBeenCalled()
+    expect(ws.terminate).not.toHaveBeenCalled()
+  })
+
+  it('swallows a throwing send (socket died mid-send) without rethrowing or terminating', () => {
+    const ws = fakeSendSocket()
+    ws.send.mockImplementation(() => {
+      throw new Error('WebSocket is not open')
+    })
+    expect(() => safeSend(ws, msg, LIMIT)).not.toThrow()
+    expect(ws.terminate).not.toHaveBeenCalled()
+  })
+})
 
 describe('sweepClientLiveness', () => {
   it('pings a live (alive-marked) socket and clears its mark', () => {
