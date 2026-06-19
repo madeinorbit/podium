@@ -146,6 +146,22 @@ export const appRouter = t.router({
         return ctx.registry.listPins()
       }),
   }),
+  snoozes: t.router({
+    list: t.procedure.query(({ ctx }) => ctx.registry.listSnoozes()),
+    // until === null => "until next message"; ISO string => timed.
+    set: t.procedure
+      .input(z.object({ sessionId: z.string(), until: z.string().nullable() }))
+      .mutation(({ ctx, input }) => {
+        ctx.registry.setSnooze(input)
+        return ctx.registry.listSnoozes()
+      }),
+    clear: t.procedure
+      .input(z.object({ sessionId: z.string() }))
+      .mutation(({ ctx, input }) => {
+        ctx.registry.clearSnooze(input.sessionId)
+        return ctx.registry.listSnoozes()
+      }),
+  }),
   superagent: t.router({
     // The global orchestrator thread plus per-session 'btw' threads.
     listThreads: t.procedure.query(({ ctx }) => ctx.superagent.listThreads()),
