@@ -14,7 +14,12 @@ describe('file asset messages', () => {
       type: 'fileAssetResult', requestId: 'fa1', ok: true, path: '/w/a.png',
       dataBase64: 'AAAA', contentType: 'image/png',
     })
-    expect(m.ok).toBe(true)
-    if (m.type === 'fileAssetResult') expect(m.contentType).toBe('image/png')
+    expect(m.type).toBe('fileAssetResult')
+    // Narrow the discriminated union before reading result-only fields (strict TS).
+    if (m.type === 'fileAssetResult') {
+      expect(m.ok).toBe(true)
+      expect(m.contentType).toBe('image/png')
+      expect(m.dataBase64).toBe('AAAA')
+    }
   })
 })
