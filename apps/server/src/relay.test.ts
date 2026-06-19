@@ -1,7 +1,7 @@
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { ControlMessage, ServerMessage } from '@podium/protocol'
+import type { AgentPhase, ControlMessage, ServerMessage } from '@podium/protocol'
 import { describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from './relay'
 import { type SessionRow, SessionStore } from './store'
@@ -1042,7 +1042,7 @@ describe('reconnect identity (hello reclaim)', () => {
 })
 
 describe('SessionRegistry snooze', () => {
-  const agentState = (sessionId: string, phase: string, extra: Record<string, unknown> = {}) =>
+  const agentState = (sessionId: string, phase: AgentPhase, extra: Record<string, unknown> = {}) =>
     ({
       type: 'agentState',
       sessionId,
