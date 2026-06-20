@@ -1,0 +1,115 @@
+import type { SessionMeta } from '@podium/protocol'
+import { describe, expect, it } from 'vitest'
+import { partitionStaleSessions, sortWorktrees, type WorktreeNavView } from './derive'
+
+const NOW = Date.parse('2026-06-21T12:00:00.000Z')
+
+/** Minimal session: idle/done (non-working) by default, last active `hoursAgo`. */
+function sess(id: string, hoursAgo: number, over: Partial<SessionMeta> = {}): SessionMeta {
+  return {
+    sessionId: id,
+    lastActiveAt: new Date(NOW - hoursAgo * 3_600_000).toISOString(),
+    agentKind: 'claude-code',
+    status: 'hibernated',
+    busy: false,
+    archived: false,
+    agentState: { phase: 'idle', since: '', openTaskCount: 0, idle: { kind: 'done' } },
+    ...over,
+  } as unknown as SessionMeta
+}
+
+const working = (id: string, hoursAgo: number): SessionMeta =>
+  sess(id, hoursAgo, {
+    status: 'live',
+    agentState: { phase: 'working', since: '', openTaskCount: 0 },
+  } as Partial<SessionMeta>)
+
+describe('partitionStaleSessions', () => {
+  it('keeps everything visible when 5 or fewer sessions', () => {
+    const list = [sess('a', 100), sess('b', 100), sess('c', 100), sess('d', 100), sess('e', 100)]
+    const { visible, stale } = partitionStaleSessions(list, NOW)
+    expect(stale).toEqual([])
+    expect(visible).toHaveLength(5)
+  })
+
+  it('keeps everything visible when 3 or fewer stale candidates', () => {
+    // 6 total but only 3 are old & non-working.
+    const list = [
+      sess('old1', 20),
+      sess('old2', 20),
+      sess('old3', 20),
+      sess('fresh1', 1),
+      sess('fresh2', 1),
+      sess('fresh3', 1),
+    ]
+    const { stale } = partitionStaleSessions(list, NOW)
+    expect(stale).toEqual([])
+  })
+
+  it('collapses stale candidates past the 3 most-recently-active', () => {
+    // 7 total, 5 stale candidates (>16h, non-working) + 2 fresh.
+    const list = [
+      sess('s1', 17),
+      sess('s2', 18),
+      sess('s3', 19),
+      sess('s4', 20),
+      sess('s5', 21),
+      sess('fresh1', 1),
+      sess('fresh2', 2),
+    ]
+    const { visible, stale } = partitionStaleSessions(list, NOW)
+    // The 3 most-recently-active candidates (s1,s2,s3) stay; s4,s5 collapse.
+    expect(stale.map((s) => s.sessionId).sort()).toEqual(['s4', 's5'])
+    expect(visible.map((s) => s.sessionId)).toContain('s1')
+    expect(visible.map((s) => s.sessionId)).toContain('fresh1')
+    expect(visible.map((s) => s.sessionId)).not.toContain('s4')
+  })
+
+  it('never collapses working sessions even if old', () => {
+    const list = [
+      working('w1', 50),
+      working('w2', 50),
+      sess('s1', 17),
+      sess('s2', 18),
+      sess('s3', 19),
+      sess('s4', 20),
+      sess('s5', 21),
+    ]
+    const { stale } = partitionStaleSessions(list, NOW)
+    expect(stale.every((s) => s.sessionId.startsWith('s'))).toBe(true)
+    expect(stale.map((s) => s.sessionId).sort()).toEqual(['s4', 's5'])
+  })
+})
+
+function wt(path: string, branch: string | undefined, isMain: boolean): WorktreeNavView {
+  return {
+    path,
+    branch,
+    repoPath: '/repo',
+    repoName: 'repo',
+    isMain,
+    sessions: [],
+  } as WorktreeNavView
+}
+
+describe('sortWorktrees', () => {
+  const main = wt('/repo', 'main', true)
+  const zeta = wt('/repo/zeta', 'zeta', false)
+  const alpha = wt('/repo/alpha', 'alpha', false)
+  const all = [main, zeta, alpha]
+
+  it('sorts alphabetically by branch', () => {
+    const out = sortWorktrees(all, 'alphabetical', new Map())
+    expect(out.map((w) => w.branch)).toEqual(['alpha', 'main', 'zeta'])
+  })
+
+  it('sorts by last used (recency desc), main wins ties', () => {
+    const lru = new Map<string, number>([
+      ['/repo/zeta', NOW - 1000],
+      ['/repo/alpha', NOW - 5000],
+    ])
+    const out = sortWorktrees(all, 'lastUsed', lru)
+    // zeta most recent, alpha next, main (no activity) last.
+    expect(out.map((w) => w.branch)).toEqual(['zeta', 'alpha', 'main'])
+  })
+})

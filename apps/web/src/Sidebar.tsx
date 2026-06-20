@@ -17,25 +17,21 @@ import type { DragEvent, JSX, ReactNode } from 'react'
 import { useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
+import { Select, SelectContent, SelectItem, SelectTrigger } from '@/components/ui/select'
 import { useSessionGuard } from '@/hooks/use-session-guard'
 import { cn } from '@/lib/utils'
 import {
   agentBadge,
   agentColorHex,
   filterSidebarSections,
+  partitionStaleSessions,
   partitionWorkItems,
   type RepoNavView,
   repoBranchForCwd,
   sessionDotClass,
   sidebarSections,
   sortRepos,
+  sortWorktrees,
   type WorktreeNavView,
 } from './derive'
 import { HostIndicators } from './HostIndicators'
@@ -49,6 +45,12 @@ import { useNow } from './useNow'
 import { SessionNameEditor, sessionDisplayName, WorkerLabel } from './WorkerLabel'
 
 const WORKING_EXPANDED_KEY = 'podium:sidebar:working-expanded'
+
+const REPO_SORT_LABELS: Record<'alphabetical' | 'lastUsed' | 'custom', string> = {
+  lastUsed: 'Last used',
+  alphabetical: 'A–Z',
+  custom: 'Custom',
+}
 
 function getWorkingExpanded(): boolean {
   try {
@@ -117,21 +119,28 @@ export function Sidebar(): JSX.Element {
     for (const wt of repo.worktrees) worktreeToRepo.set(wt.path, repo.path)
   }
   for (const wt of sections.pinnedWorktrees) worktreeToRepo.set(wt.path, wt.repoPath)
+  // lastUsedAt aggregated to the repo (for repo ordering) and kept per-worktree
+  // (for worktree ordering within a repo). A session's cwd is its worktree path.
   const lastUsedAtMap = new Map<string, number>()
+  const lastUsedByWorktree = new Map<string, number>()
   for (const s of sessions) {
-    const repoPath = worktreeToRepo.get(s.cwd) ?? s.cwd
     const ts = new Date(s.lastActiveAt).getTime()
-    const cur = lastUsedAtMap.get(repoPath) ?? 0
-    if (ts > cur) lastUsedAtMap.set(repoPath, ts)
+    const repoPath = worktreeToRepo.get(s.cwd) ?? s.cwd
+    if (ts > (lastUsedAtMap.get(repoPath) ?? 0)) lastUsedAtMap.set(repoPath, ts)
+    if (ts > (lastUsedByWorktree.get(s.cwd) ?? 0)) lastUsedByWorktree.set(s.cwd, ts)
   }
 
-  // Apply the sort to the non-pinned repos list.
+  // Apply the sort to the non-pinned repos list AND to the worktrees inside each
+  // repo — with one repo and many worktrees, repo-only sorting looks like a no-op.
   const sortedRepos = sortRepos(
     sections.repos.map((r) => ({ ...r, id: r.path })),
     sidebarSettings.repoSort,
     sidebarSettings.repoOrder,
     lastUsedAtMap,
-  )
+  ).map((repo) => ({
+    ...repo,
+    worktrees: sortWorktrees(repo.worktrees, sidebarSettings.repoSort, lastUsedByWorktree),
+  }))
 
   const handleRepoDragStart = (e: DragEvent<HTMLDivElement>, repoPath: string) => {
     dragRepoPath.current = repoPath
@@ -307,10 +316,12 @@ export function Sidebar(): JSX.Element {
           workItems.working.length > 0 ||
           workItems.pinnedPanels.length > 0) && (
           <div className="min-w-0 border-b border-border">
-            {/* NEEDS YOUR ATTENTION — always expanded */}
-            {workItems.attention.length > 0 && (
-              <PinnedSection label="NEEDS YOUR ATTENTION">
-                {workItems.attention.map((session) => (
+            {/* NEEDS YOUR ATTENTION — always expanded; long-idle items collapse
+                into a Stale subsection once the list gets crowded. */}
+            {workItems.attention.length > 0 &&
+              (() => {
+                const { visible, stale } = partitionStaleSessions(workItems.attention, now)
+                const renderRow = (session: SessionMeta) => (
                   <PanelRow
                     key={session.sessionId}
                     session={session}
@@ -319,9 +330,14 @@ export function Sidebar(): JSX.Element {
                     onSelect={() => selectPanel(session.cwd, session.sessionId)}
                     onPinned={(p) => void setPinned('panel', session.sessionId, p)}
                   />
-                ))}
-              </PinnedSection>
-            )}
+                )
+                return (
+                  <PinnedSection label="NEEDS YOUR ATTENTION">
+                    {visible.map(renderRow)}
+                    <StaleSection sessions={stale} render={renderRow} />
+                  </PinnedSection>
+                )
+              })()}
 
             {/* WORKING — collapsible, default collapsed, shows count in header */}
             {workItems.working.length > 0 && (
@@ -395,7 +411,9 @@ export function Sidebar(): JSX.Element {
               aria-label="Sort repositories"
               className="h-5 w-auto gap-1 border-0 px-1 text-[10px] text-muted-foreground/70 shadow-none hover:text-foreground focus:ring-0"
             >
-              <SelectValue />
+              {/* Render the human label, not the raw enum value — Base UI's
+                  SelectValue shows the bare `value` (e.g. "lastUsed") otherwise. */}
+              <span>{REPO_SORT_LABELS[sidebarSettings.repoSort]}</span>
             </SelectTrigger>
             <SelectContent align="end">
               <SelectItem value="lastUsed" className="text-xs">
@@ -420,6 +438,7 @@ export function Sidebar(): JSX.Element {
                 pinned={true}
                 active={selectedWorktree === worktree.path}
                 paneA={paneA}
+                now={now}
                 setPinned={setPinned}
                 onSelectWorktree={() => selectWorktree(worktree.path)}
                 onSelectPanel={selectPanel}
@@ -437,6 +456,7 @@ export function Sidebar(): JSX.Element {
                 pinned={true}
                 selectedWorktree={selectedWorktree}
                 paneA={paneA}
+                now={now}
                 setPinned={setPinned}
                 onSelectWorktree={selectWorktree}
                 onSelectPanel={selectPanel}
@@ -465,6 +485,7 @@ export function Sidebar(): JSX.Element {
               pinned={false}
               selectedWorktree={selectedWorktree}
               paneA={paneA}
+              now={now}
               setPinned={setPinned}
               onSelectWorktree={selectWorktree}
               onSelectPanel={selectPanel}
@@ -529,6 +550,7 @@ function RepoBlock({
   pinned,
   selectedWorktree,
   paneA,
+  now,
   setPinned,
   onSelectWorktree,
   onSelectPanel,
@@ -538,6 +560,7 @@ function RepoBlock({
   pinned: boolean
   selectedWorktree: string | null
   paneA: string | null
+  now: number
   setPinned: (kind: PinKind, id: string, pinned: boolean) => Promise<void>
   onSelectWorktree: (path: string) => void
   onSelectPanel: (worktreePath: string, sessionId: string) => void
@@ -573,6 +596,7 @@ function RepoBlock({
           pinned={pinned}
           label={repo.name}
           setPinned={setPinned}
+          revealClass="group-hover/repo:inline-flex"
         />
       </div>
       {repo.worktrees.map((worktree) => (
@@ -582,6 +606,7 @@ function RepoBlock({
           pinned={false}
           active={selectedWorktree === worktree.path}
           paneA={paneA}
+          now={now}
           setPinned={setPinned}
           onSelectWorktree={() => onSelectWorktree(worktree.path)}
           onSelectPanel={onSelectPanel}
@@ -596,6 +621,7 @@ function WorktreeBlock({
   pinned,
   active,
   paneA,
+  now,
   setPinned,
   onSelectWorktree,
   onSelectPanel,
@@ -604,13 +630,25 @@ function WorktreeBlock({
   pinned: boolean
   active: boolean
   paneA: string | null
+  now: number
   setPinned: (kind: PinKind, id: string, pinned: boolean) => Promise<void>
   onSelectWorktree: () => void
   onSelectPanel: (worktreePath: string, sessionId: string) => void
 }): JSX.Element {
+  const { visible, stale } = partitionStaleSessions(worktree.sessions, now)
+  const renderRow = (session: SessionMeta) => (
+    <PanelRow
+      key={session.sessionId}
+      session={session}
+      pinned={false}
+      active={active && paneA === session.sessionId}
+      onSelect={() => onSelectPanel(worktree.path, session.sessionId)}
+      onPinned={(p) => void setPinned('panel', session.sessionId, p)}
+    />
+  )
   return (
     <div className="min-w-0">
-      <div className="flex min-w-0 items-stretch">
+      <div className="group/wt flex min-w-0 items-stretch">
         <button
           type="button"
           className={cn(
@@ -641,21 +679,45 @@ function WorktreeBlock({
           pinned={pinned}
           label={worktree.branch ?? worktree.path}
           setPinned={setPinned}
+          revealClass="group-hover/wt:inline-flex"
         />
       </div>
-      {worktree.sessions.map((session) => {
-        const panelActive = active && paneA === session.sessionId
-        return (
-          <PanelRow
-            key={session.sessionId}
-            session={session}
-            pinned={false}
-            active={panelActive}
-            onSelect={() => onSelectPanel(worktree.path, session.sessionId)}
-            onPinned={(p) => void setPinned('panel', session.sessionId, p)}
-          />
-        )
-      })}
+      {visible.map(renderRow)}
+      <StaleSection sessions={stale} render={renderRow} />
+    </div>
+  )
+}
+
+/** Collapsed "Stale" subsection at the bottom of a session group — quiet,
+ *  long-inactive sessions tucked away so the active ones stay scannable. */
+function StaleSection({
+  sessions,
+  render,
+}: {
+  sessions: SessionMeta[]
+  render: (session: SessionMeta) => JSX.Element
+}): JSX.Element | null {
+  const [open, setOpen] = useState(false)
+  if (sessions.length === 0) return null
+  return (
+    <div>
+      <button
+        type="button"
+        className="flex w-full items-center gap-1 py-[3px] pr-3 pl-7 text-left text-[10px] font-semibold tracking-[0.08em] uppercase text-muted-foreground/60 hover:text-muted-foreground"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+      >
+        {open ? (
+          <ChevronDown size={11} aria-hidden="true" className="flex-none" />
+        ) : (
+          <ChevronRight size={11} aria-hidden="true" className="flex-none" />
+        )}
+        <span>
+          Stale
+          {!open && <span className="ml-1 font-normal lowercase">· {sessions.length}</span>}
+        </span>
+      </button>
+      {open && sessions.map(render)}
     </div>
   )
 }
@@ -736,7 +798,10 @@ function PanelRow({
         size="icon-sm"
         className={cn(
           'w-7 min-w-7 flex-none rounded-none',
-          pinned ? 'text-primary' : 'text-muted-foreground/70 hover:text-foreground',
+          // Unpinned: hidden (label keeps full width) until row hover; pinned: lit.
+          pinned
+            ? 'text-primary'
+            : 'hidden text-muted-foreground/70 hover:text-foreground group-hover:inline-flex',
         )}
         aria-pressed={pinned}
         title={pinned ? 'Unpin panel' : 'Pin panel'}
@@ -787,12 +852,16 @@ function PinButton({
   pinned,
   label,
   setPinned,
+  revealClass,
 }: {
   kind: PinKind
   id: string
   pinned: boolean
   label: string
   setPinned: (kind: PinKind, id: string, pinned: boolean) => Promise<void>
+  /** Group-hover class that reveals the pin when it isn't pinned (e.g.
+   *  `group-hover/repo:inline-flex`). Pinned pins stay visible regardless. */
+  revealClass: string
 }): JSX.Element {
   const title = `${pinned ? 'Unpin' : 'Pin'} ${label}`
   return (
@@ -801,7 +870,11 @@ function PinButton({
       size="icon-sm"
       className={cn(
         'w-7 min-w-7 flex-none rounded-none',
-        pinned ? 'text-primary' : 'text-muted-foreground/70 hover:text-foreground',
+        // Unpinned pins are hidden (no reserved width, so the label spans full
+        // width) and only surface on row hover; pinned pins stay lit.
+        pinned
+          ? 'text-primary'
+          : cn('hidden text-muted-foreground/70 hover:text-foreground', revealClass),
       )}
       aria-pressed={pinned}
       title={title}

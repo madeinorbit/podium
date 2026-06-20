@@ -377,6 +377,68 @@ export function sortRepos<T extends { id: string; name: string }>(
   return [...inOrder, ...remainder]
 }
 
+/** A session is "stale" when it's been inactive longer than this. */
+export const STALE_INACTIVE_MS = 16 * 60 * 60 * 1000
+
+export interface StalePartition {
+  /** Sessions to render normally. */
+  visible: SessionMeta[]
+  /** Sessions sunk into the collapsed "Stale" subsection at the bottom. */
+  stale: SessionMeta[]
+}
+
+/**
+ * Split a worktree's (or attention list's) already-sorted sessions into a
+ * visible head and a collapsed "Stale" tail. Stale candidates are non-working
+ * sessions inactive for more than {@link STALE_INACTIVE_MS}. The split only
+ * kicks in for a crowded group — MORE than 5 sessions total AND MORE than 3
+ * stale candidates — and even then the 3 most-recently-active candidates stay
+ * visible; only the rest collapse. Working sessions are never collapsed.
+ */
+export function partitionStaleSessions(
+  sorted: SessionMeta[],
+  now: number = Date.now(),
+): StalePartition {
+  const isCandidate = (s: SessionMeta): boolean =>
+    attentionGroup(s) !== 'working' && now - Date.parse(s.lastActiveAt) > STALE_INACTIVE_MS
+  const candidates = sorted.filter(isCandidate)
+  if (sorted.length <= 5 || candidates.length <= 3) return { visible: sorted, stale: [] }
+  // Keep the 3 most-recently-active candidates visible; collapse the remainder.
+  const byRecency = [...candidates].sort((a, b) => b.lastActiveAt.localeCompare(a.lastActiveAt))
+  const staleIds = new Set(byRecency.slice(3).map((s) => s.sessionId))
+  return {
+    visible: sorted.filter((s) => !staleIds.has(s.sessionId)),
+    stale: sorted.filter((s) => staleIds.has(s.sessionId)),
+  }
+}
+
+/**
+ * Order the worktrees within a repo by the sidebar's sort mode. The mode is the
+ * same one that orders repos; without it a one-repo, many-worktree setup sees no
+ * effect from the control. There's no per-worktree manual order, so `custom`
+ * falls back to recency like `lastUsed`. Recency ties (and worktrees with no
+ * sessions) break toward the main worktree, then branch name.
+ */
+export function sortWorktrees(
+  worktrees: WorktreeNavView[],
+  mode: 'alphabetical' | 'lastUsed' | 'custom',
+  lastUsedByWorktree: Map<string, number>,
+): WorktreeNavView[] {
+  const name = (w: WorktreeNavView): string => w.branch ?? w.path.split('/').pop() ?? w.path
+  if (mode === 'alphabetical') {
+    return [...worktrees].sort((a, b) =>
+      name(a).localeCompare(name(b), undefined, { sensitivity: 'base' }),
+    )
+  }
+  const lu = (w: WorktreeNavView): number => lastUsedByWorktree.get(w.path) ?? 0
+  return [...worktrees].sort((a, b) => {
+    const diff = lu(b) - lu(a)
+    if (diff !== 0) return diff
+    if (a.isMain !== b.isMain) return a.isMain ? -1 : 1
+    return name(a).localeCompare(name(b), undefined, { sensitivity: 'base' })
+  })
+}
+
 /** Does a worktree row match the inline sidebar filter (case-insensitive over
  *  branch / path / repo name)? */
 function worktreeMatches(worktree: WorktreeNavView, q: string): boolean {
