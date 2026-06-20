@@ -3,18 +3,19 @@ import type { BufferLike } from './buffer-line'
 import { findUrlMatches, makeUrlLinkProvider } from './url-link-provider'
 
 // Fake xterm buffer: rows of strings; `wrapped[y]` marks a SOFT (reflow) wrap.
-function fakeBuf(rows: string[], wrapped: boolean[] = []): BufferLike {
+function fakeBuf(rows: string[], wrapped: boolean[] = [], width?: number): BufferLike {
   return {
     getLine(y: number) {
       const s = rows[y]
       if (s === undefined) return undefined
+      const lineWidth = Math.max(width ?? s.length, s.length)
       return {
-        length: s.length,
+        length: lineWidth,
         isWrapped: wrapped[y] === true,
         getCell(x: number) {
-          if (x >= s.length) return undefined
+          if (x >= lineWidth) return undefined
           return {
-            getChars: () => s[x]!,
+            getChars: () => s[x] ?? ' ',
             getWidth: () => 1,
             isBold: () => false,
             isUnderline: () => false,
@@ -29,7 +30,10 @@ function fakeBuf(rows: string[], wrapped: boolean[] = []): BufferLike {
 
 function linksFor(buf: BufferLike, row1: number): Array<{ text: string; sy: number; ey: number }> {
   const opened: string[] = []
-  const provider = makeUrlLinkProvider(() => buf, () => ({ onOpen: (u) => opened.push(u) }))
+  const provider = makeUrlLinkProvider(
+    () => buf,
+    () => ({ onOpen: (u) => opened.push(u) }),
+  )
   let got: Array<{ text: string; sy: number; ey: number }> = []
   provider.provideLinks(row1, (links) => {
     got = (links ?? []).map((l) => ({ text: l.text, sy: l.range.start.y, ey: l.range.end.y }))
@@ -39,7 +43,12 @@ function linksFor(buf: BufferLike, row1: number): Array<{ text: string; sy: numb
 
 describe('findUrlMatches', () => {
   it('trims trailing sentence punctuation', () => {
-    const cells = [...'see https://example.com/a).'].map((char, x) => ({ char, x, y: 0, styled: false }))
+    const cells = [...'see https://example.com/a).'].map((char, x) => ({
+      char,
+      x,
+      y: 0,
+      styled: false,
+    }))
     const m = findUrlMatches(cells)
     expect(m).toHaveLength(1)
     expect(m[0]!.url).toBe('https://example.com/a')
@@ -79,6 +88,22 @@ describe('makeUrlLinkProvider', () => {
     expect(fromCont[0]!.text).toBe('https://example.com/abcdefg')
   })
 
+  it('stitches a zero-indent HARD-wrapped URL (Claude management/login output)', () => {
+    const head = 'https://example.com/docs/abcdefghi'
+    const rows = [head, 'j'.repeat(head.length), 'efghijklmnop']
+    const buf = fakeBuf(rows, [false, false, false], rows[0]!.length)
+    const full = rows.join('')
+
+    const fromTop = linksFor(buf, 1)
+    expect(fromTop, 'top row yields the FULL url (not just line 1)').toHaveLength(1)
+    expect(fromTop[0]!.text).toBe(full)
+    expect(fromTop[0]!.ey).toBeGreaterThan(fromTop[0]!.sy)
+
+    const fromCont = linksFor(buf, 2)
+    expect(fromCont).toHaveLength(1)
+    expect(fromCont[0]!.text).toBe(full)
+  })
+
   it('does not hard-wrap-stitch an unrelated indented next line', () => {
     // row0 does NOT fill the width → the next indented line is not a continuation.
     const buf = fakeBuf(['https://example.com/a', '  some other text'], [false, false])
@@ -86,5 +111,13 @@ describe('makeUrlLinkProvider', () => {
     expect(links).toHaveLength(1)
     expect(links[0]!.text).toBe('https://example.com/a')
     expect(links[0]!.ey).toBe(links[0]!.sy) // single row, no bogus stitch
+  })
+
+  it('does not zero-indent-stitch when the URL row did not reach the right edge', () => {
+    const buf = fakeBuf(['https://example.com/a', 'nexttoken'], [false, false], 80)
+    const links = linksFor(buf, 1)
+    expect(links).toHaveLength(1)
+    expect(links[0]!.text).toBe('https://example.com/a')
+    expect(links[0]!.ey).toBe(links[0]!.sy)
   })
 })

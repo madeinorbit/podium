@@ -1,6 +1,6 @@
 import { readFile, rm } from 'node:fs/promises'
 import { expect, type Page, test } from '@playwright/test'
-import { podium, RELAY } from './_harness'
+import { gotoWorkspace, podium, RELAY } from './_harness'
 
 // The committed _harness helpers (openApp/newSession) use pre-shadcn selectors
 // (.tab-add / .sidebar .worktree) that no longer exist, so we drive the current
@@ -9,14 +9,20 @@ import { podium, RELAY } from './_harness'
 async function openWorkspaceWithShell(page: Page): Promise<void> {
   await page.addInitScript(() => localStorage.setItem('podium.panelMode', 'native'))
   await page.goto(`/?server=${RELAY}&e2e=1`)
-  // Enter the workspace by selecting the worktree in the sidebar.
-  await page.getByRole('button', { name: /worktree-clickable-files\s+main/ }).click({ timeout: 20_000 })
+  await page.waitForFunction(() => !document.querySelector('.app-loading'), undefined, {
+    timeout: 20_000,
+  })
+  await gotoWorkspace(page)
   // Create a real shell session.
   await page.getByRole('button', { name: 'New panel' }).click({ timeout: 15_000 })
   await page.getByRole('menuitem', { name: 'New Shell' }).click({ timeout: 10_000 })
-  await page.waitForFunction(() => !!(window as unknown as { __podium?: unknown }).__podium, undefined, {
-    timeout: 20_000,
-  })
+  await page.waitForFunction(
+    () => !!(window as unknown as { __podium?: unknown }).__podium,
+    undefined,
+    {
+      timeout: 20_000,
+    },
+  )
   await page.waitForTimeout(800)
 }
 
@@ -50,7 +56,9 @@ test('native terminal: clicking a styled file path opens it in the editor; edit+
   await openWorkspaceWithShell(page)
 
   // Wait for a live shell (prompt produces output).
-  await expect.poll(async () => (await podium.screen(page)).length, { timeout: 20_000 }).toBeGreaterThan(0)
+  await expect
+    .poll(async () => (await podium.screen(page)).length, { timeout: 20_000 })
+    .toBeGreaterThan(0)
 
   // Discover the session cwd (the link provider + daemon sandbox key off session.cwd,
   // which is the cwd the shell starts in — so the probe must live there).
@@ -82,7 +90,9 @@ test('native terminal: clicking a styled file path opens it in the editor; edit+
   await sh(page, `printf '${marker}\\n' > ${relToken}`)
   await sh(page, `printf '\\033[1;34m%s\\033[0m\\n' '${relToken}'`)
 
-  await expect.poll(async () => (await podium.screen(page)).includes(relToken), { timeout: 15_000 }).toBe(true)
+  await expect
+    .poll(async () => (await podium.screen(page)).includes(relToken), { timeout: 15_000 })
+    .toBe(true)
   const st = await gridSize(page)
 
   // Convert the styled-path buffer line to a viewport cell, then pixels, and click it.
@@ -104,7 +114,8 @@ test('native terminal: clicking a styled file path opens it in the editor; edit+
         const box = await page.evaluate(() => {
           const els = Array.from(document.querySelectorAll('.xterm-screen')) as HTMLElement[]
           const el =
-            els.find((e) => e.offsetParent !== null && e.getBoundingClientRect().width > 0) ?? els[0]
+            els.find((e) => e.offsetParent !== null && e.getBoundingClientRect().width > 0) ??
+            els[0]
           const r = el.getBoundingClientRect()
           return { x: r.x, y: r.y, w: r.width, h: r.height }
         })
@@ -153,9 +164,15 @@ test('native terminal: clicking a styled file path opens it in the editor; edit+
 
 /** Print a styled relative path into the shell and click it open; returns once the
  *  editor shows. Mirrors the first test's robust click (visible terminal + retry). */
-async function openStyledFile(page: Page, rel: string, st: { cols: number; rows: number }): Promise<void> {
+async function openStyledFile(
+  page: Page,
+  rel: string,
+  st: { cols: number; rows: number },
+): Promise<void> {
   await sh(page, `printf '\\033[1;34m%s\\033[0m\\n' '${rel}'`)
-  await expect.poll(async () => (await podium.screen(page)).includes(rel), { timeout: 15_000 }).toBe(true)
+  await expect
+    .poll(async () => (await podium.screen(page)).includes(rel), { timeout: 15_000 })
+    .toBe(true)
   for (let attempt = 0; attempt < 8; attempt += 1) {
     const lines = (await podium.screen(page)).split('\n')
     const total = lines.length - 1
@@ -163,7 +180,8 @@ async function openStyledFile(page: Page, rel: string, st: { cols: number; rows:
     if (lines.lastIndexOf(rel) >= 0 && screenRow >= 0 && screenRow < st.rows) {
       const box = await page.evaluate(() => {
         const els = [...document.querySelectorAll('.xterm-screen')] as HTMLElement[]
-        const el = els.find((e) => e.offsetParent !== null && e.getBoundingClientRect().width > 0) ?? els[0]
+        const el =
+          els.find((e) => e.offsetParent !== null && e.getBoundingClientRect().width > 0) ?? els[0]
         const r = el.getBoundingClientRect()
         return { x: r.x, y: r.y, w: r.width, h: r.height }
       })
@@ -174,7 +192,10 @@ async function openStyledFile(page: Page, rel: string, st: { cols: number; rows:
       await page.mouse.click(x, y)
       const base = rel.replace('./', '')
       try {
-        await page.getByRole('button', { name: base }).first().waitFor({ state: 'visible', timeout: 1500 })
+        await page
+          .getByRole('button', { name: base })
+          .first()
+          .waitFor({ state: 'visible', timeout: 1500 })
         return
       } catch {
         /* render/hit-test miss — recompute and retry */
@@ -186,18 +207,25 @@ async function openStyledFile(page: Page, rel: string, st: { cols: number; rows:
   throw new Error(`could not open ${rel}`)
 }
 
-test('native terminal: each opened file is its own closeable tab in the strip', async ({ page }) => {
+test('native terminal: each opened file is its own closeable tab in the strip', async ({
+  page,
+}) => {
   await page.setViewportSize({ width: 1280, height: 820 })
   await openWorkspaceWithShell(page)
-  await expect.poll(async () => (await podium.screen(page)).length, { timeout: 20_000 }).toBeGreaterThan(0)
+  await expect
+    .poll(async () => (await podium.screen(page)).length, { timeout: 20_000 })
+    .toBeGreaterThan(0)
   await sh(page, 'printf "CWDIS<<%s>>\\n" "$PWD"')
   let cwd = ''
   await expect
-    .poll(async () => {
-      const m = (await podium.screen(page)).match(/CWDIS<<(\/[^>]*)>>/)
-      if (m) cwd = m[1].trim()
-      return cwd
-    }, { timeout: 15_000 })
+    .poll(
+      async () => {
+        const m = (await podium.screen(page)).match(/CWDIS<<(\/[^>]*)>>/)
+        if (m) cwd = m[1].trim()
+        return cwd
+      },
+      { timeout: 15_000 },
+    )
     .toMatch(/^\//)
   await sh(page, `printf 'TAB_ONE\\n' > ./e2e_tab_one.txt`)
   const st = await gridSize(page)
@@ -227,12 +255,16 @@ test('native terminal: a HARD-wrapped URL (agent hang-indent) opens whole in a n
   // (not a terminal soft-wrap). The link must come back WHOLE, not the line-1 fragment.
   await page.setViewportSize({ width: 1280, height: 820 })
   await openWorkspaceWithShell(page)
-  await expect.poll(async () => (await podium.screen(page)).length, { timeout: 20_000 }).toBeGreaterThan(0)
+  await expect
+    .poll(async () => (await podium.screen(page)).length, { timeout: 20_000 })
+    .toBeGreaterThan(0)
   const head = `https://example.com/docs/${'seg-'.repeat(15)}x`
   const tail = `${'tl-'.repeat(8)}end`
   const full = head + tail
   await sh(page, `printf '%s\\n  %s\\n' '${head}' '${tail}'`)
-  await expect.poll(async () => (await podium.screen(page)).includes(tail), { timeout: 15_000 }).toBe(true)
+  await expect
+    .poll(async () => (await podium.screen(page)).includes(tail), { timeout: 15_000 })
+    .toBe(true)
 
   const st = await gridSize(page)
   const popup = await (async () => {
@@ -244,7 +276,9 @@ test('native terminal: a HARD-wrapped URL (agent hang-indent) opens whole in a n
       if (rowIdx >= 0 && screenRow >= 0 && screenRow < st.rows) {
         const box = await page.evaluate(() => {
           const els = [...document.querySelectorAll('.xterm-screen')] as HTMLElement[]
-          const el = els.find((e) => e.offsetParent !== null && e.getBoundingClientRect().width > 0) ?? els[0]
+          const el =
+            els.find((e) => e.offsetParent !== null && e.getBoundingClientRect().width > 0) ??
+            els[0]
           const r = el.getBoundingClientRect()
           return { x: r.x, y: r.y, w: r.width, h: r.height }
         })
@@ -268,6 +302,73 @@ test('native terminal: a HARD-wrapped URL (agent hang-indent) opens whole in a n
   await popup!.close().catch(() => {})
 })
 
+test('native terminal: a zero-indent HARD-wrapped URL opens whole in a new tab', async ({
+  page,
+  context,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 820 })
+  await openWorkspaceWithShell(page)
+  await expect
+    .poll(async () => (await podium.screen(page)).length, { timeout: 20_000 })
+    .toBeGreaterThan(0)
+
+  const st = await gridSize(page)
+  const prefix = 'https://example.com/docs/'
+  expect(st.cols).toBeGreaterThan(prefix.length + 10)
+  const head = prefix + 'a'.repeat(st.cols - prefix.length)
+  const finalTail = `${'d'.repeat(24)}end`
+  const tails = ['b'.repeat(st.cols), 'c'.repeat(st.cols), finalTail]
+  const full = [head, ...tails].join('')
+
+  await sh(
+    page,
+    `printf '%s\\n%s\\n%s\\n%s\\n' '${head}' '${tails[0]}' '${tails[1]}' '${tails[2]}'`,
+  )
+  await expect
+    .poll(async () => (await podium.screen(page)).split('\n').includes(finalTail), {
+      timeout: 15_000,
+    })
+    .toBe(true)
+
+  const popup = await (async () => {
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      const lines = (await podium.screen(page)).split('\n')
+      const total = lines.length - 1
+      const rowIdx = lines.indexOf(head)
+      const screenRow = rowIdx - (total - st.rows)
+      if (rowIdx >= 0 && screenRow >= 0 && screenRow < st.rows) {
+        const box = await page.evaluate(() => {
+          const els = [...document.querySelectorAll('.xterm-screen')] as HTMLElement[]
+          const el =
+            els.find((e) => e.offsetParent !== null && e.getBoundingClientRect().width > 0) ??
+            els[0]
+          const r = el.getBoundingClientRect()
+          return { x: r.x, y: r.y, w: r.width, h: r.height }
+        })
+        const x = Math.round(box.x + 10.5 * (box.w / st.cols))
+        const y = Math.round(box.y + (screenRow + 0.5) * (box.h / st.rows))
+        const popupP = context.waitForEvent('page', { timeout: 2500 }).catch(() => null)
+        await page.mouse.move(x, y)
+        await page.waitForTimeout(250)
+        await page.mouse.click(x, y)
+        const pop = await popupP
+        if (pop) return pop
+      } else {
+        await page.waitForTimeout(300)
+      }
+    }
+    return null
+  })()
+
+  if (!popup) throw new Error('clicking the head row did not open a tab')
+  await popup.waitForLoadState('domcontentloaded').catch(() => {})
+  expect(
+    popup.url(),
+    'the WHOLE zero-indent hard-wrapped URL opened, not the line-1 fragment',
+  ).toBe(full)
+  await popup.close().catch(() => {})
+})
+
 test('native terminal: a wrapped URL opens the FULL url in a NEW tab (not same window)', async ({
   page,
   context,
@@ -277,7 +378,9 @@ test('native terminal: a wrapped URL opens the FULL url in a NEW tab (not same w
   // space on the logical-line start row — the row the unpatched addon truncated.
   await page.setViewportSize({ width: 900, height: 760 })
   await openWorkspaceWithShell(page)
-  await expect.poll(async () => (await podium.screen(page)).length, { timeout: 20_000 }).toBeGreaterThan(0)
+  await expect
+    .poll(async () => (await podium.screen(page)).length, { timeout: 20_000 })
+    .toBeGreaterThan(0)
 
   // ~230 chars, no spaces, and example.com serves 200 for any path with NO redirect,
   // so the opened tab's URL equals exactly what was clicked (clean truncation check).
@@ -285,7 +388,9 @@ test('native terminal: a wrapped URL opens the FULL url in a NEW tab (not same w
   const prose = 'See the docs at '
   await sh(page, `printf '%s%s\\n' '${prose}' '${url}'`)
   await expect
-    .poll(async () => (await podium.screen(page)).includes('example.com/docs/segment-'), { timeout: 15_000 })
+    .poll(async () => (await podium.screen(page)).includes('example.com/docs/segment-'), {
+      timeout: 15_000,
+    })
     .toBe(true)
 
   const st = await gridSize(page)
@@ -300,7 +405,8 @@ test('native terminal: a wrapped URL opens the FULL url in a NEW tab (not same w
         const box = await page.evaluate(() => {
           const els = [...document.querySelectorAll('.xterm-screen')] as HTMLElement[]
           const el =
-            els.find((e) => e.offsetParent !== null && e.getBoundingClientRect().width > 0) ?? els[0]
+            els.find((e) => e.offsetParent !== null && e.getBoundingClientRect().width > 0) ??
+            els[0]
           const r = el.getBoundingClientRect()
           return { x: r.x, y: r.y, w: r.width, h: r.height }
         })
@@ -325,6 +431,8 @@ test('native terminal: a wrapped URL opens the FULL url in a NEW tab (not same w
   // The WHOLE url, not a wrap-truncated fragment like https://example.com/docs/segment-…(first row only).
   expect(popup!.url(), 'the full wrapped URL opened').toBe(url)
   // Podium itself was NOT navigated away — it opened in a separate tab (the PWA-safety fix).
-  expect(page.url(), 'Podium stayed put (new tab, not same-window replace)').toContain('localhost:4317')
+  expect(page.url(), 'Podium stayed put (new tab, not same-window replace)').toContain(
+    'localhost:4317',
+  )
   await popup!.close().catch(() => {})
 })
