@@ -4,10 +4,13 @@ import {
   ArrowUp,
   ChevronDown,
   ChevronUp,
+  Clock,
   FileText,
   Image as ImageIcon,
   Mic,
   Paperclip,
+  ScrollText,
+  X,
 } from 'lucide-react'
 import type { JSX } from 'react'
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
@@ -15,26 +18,28 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { cn } from '@/lib/utils'
+import { assetUrl } from './asset-url'
 import {
   blockMatches,
   buildChatRows,
   type ChatBlock,
   type ChatRow,
-  measureBlockOffsets,
   type MinimapTick,
+  measureBlockOffsets,
   type PendingItem,
   pairToolResults,
   reconcilePending,
   rowTickMeta,
   searchBlocks,
-  ticksFromOffsets,
   type ToolBatchRow,
+  ticksFromOffsets,
 } from './chat'
 import { chatActivity } from './derive'
 import { resolveAgainstCwd } from './file-path'
 import { useIsMobile } from './hooks/use-is-mobile'
 import { renderMarkdown } from './markdown'
 import { useStore } from './store'
+import { useNow } from './useNow'
 import { useVoiceInput } from './voice'
 
 // Windowing: a marathon session can hold tens of thousands of items, and
@@ -74,6 +79,28 @@ export function buildImagePrompt(paths: string[], text: string): string {
   return `${paths.join('\n')}\n${text}`
 }
 
+/** "Churned for …" duration, Claude-style: "2s", "18m 24s", "1h 3m". */
+export function formatChurn(ms: number): string {
+  const total = Math.max(0, Math.round(ms / 1000))
+  const h = Math.floor(total / 3600)
+  const m = Math.floor((total % 3600) / 60)
+  const s = total % 60
+  if (h > 0) return `${h}h ${m}m`
+  if (m > 0) return `${m}m ${s}s`
+  return `${s}s`
+}
+
+const IMAGE_EXT = /\.(png|jpe?g|gif|webp|avif|svg|bmp|ico)$/i
+/** Does this path look like an image we can render inline? */
+export function isImagePath(path: string): boolean {
+  return IMAGE_EXT.test(path)
+}
+
+/** Live elapsed since an ISO instant, coarse: "5s", "4m 12s", "1h 6m". */
+export function formatElapsed(sinceMs: number, nowMs: number): string {
+  return formatChurn(Math.max(0, nowMs - sinceMs))
+}
+
 type Attachment = {
   id: string
   name: string
@@ -105,9 +132,23 @@ export function ChatView({
    *  becoming active (true) the view snaps to the bottom if still pinned. */
   active?: boolean
 }): JSX.Element {
-  const { hub, trpc, sessions, drafts, setSessionDraft, resumeAndSend, openFile } = useStore()
+  const {
+    hub,
+    trpc,
+    sessions,
+    drafts,
+    setSessionDraft,
+    resumeAndSend,
+    openFile,
+    httpOrigin,
+    tldrSession,
+  } = useStore()
   const session = sessions.find((s) => s.sessionId === sessionId)
   const cwd = session?.cwd ?? '/'
+  // Full-screen image preview (SendUserFile / image tags), null when closed.
+  const [lightbox, setLightbox] = useState<string | null>(null)
+  // Whether the last user prompt is stuck to the top (scrolled up past it).
+  const [showStickyUser, setShowStickyUser] = useState(false)
   const [items, setItems] = useState<TranscriptItem[]>([])
   // A parked session (hibernated/exited) has no live tail and an empty server
   // buffer after a restart, so the stream stays empty. Read its history off disk
@@ -251,6 +292,22 @@ export function ChatView({
     })
     return last
   }, [blocks, session?.status])
+  // The most recent user prompt (block index → sticky header that keeps it in
+  // view while reading the answer; text → tl;dr context) and the latest answer.
+  const lastUserBlockIndex = useMemo(() => {
+    for (let i = blocks.length - 1; i >= 0; i--) {
+      const it = blocks[i]?.item
+      if (it && it.role === 'user' && it.event !== 'interrupt' && it.text.trim()) return i
+    }
+    return -1
+  }, [blocks])
+  const lastUserText = lastUserBlockIndex >= 0 ? (blocks[lastUserBlockIndex]?.item.text ?? '') : ''
+  const lastAnswerText = useMemo(() => {
+    let answer = ''
+    for (const b of blocks)
+      if (b.item.role === 'assistant' && b.item.text.trim()) answer = b.item.text
+    return answer
+  }, [blocks])
   // Show the loader (not the empty-state copy) while a transcript is still in
   // flight. Two cases: a parked session's on-disk history hasn't resolved
   // (`fetched === null`), or a live/starting session hasn't streamed anything yet
@@ -447,6 +504,7 @@ export function ChatView({
     const near = el.scrollHeight - el.scrollTop - el.clientHeight < 80
     pinnedToBottom.current = near
     setAtBottom(near)
+    recomputeStickyUser()
     // Near the TOP and more exists above → reveal/fetch older content.
     if (el.scrollTop < 200 && moreAbove) loadOlder()
   }
@@ -457,6 +515,31 @@ export function ChatView({
     el.scrollTop = el.scrollHeight
     setAtBottom(true)
   }
+
+  // Sticky last-user header: keep the latest prompt pinned at the top while
+  // reading the answer below it. Show it ONLY once it has scrolled out the TOP of
+  // the viewport (you scrolled down toward newer content). If it's still visible,
+  // or scrolled out the BOTTOM (you scrolled up toward older content), hide it.
+  const recomputeStickyUser = () => {
+    const el = scrollerRef.current
+    if (!el || lastUserBlockIndex < 0) {
+      setShowStickyUser(false)
+      return
+    }
+    const node = el.querySelector<HTMLElement>(`[data-block="${lastUserBlockIndex}"]`)
+    if (!node) {
+      setShowStickyUser(false)
+      return
+    }
+    const top = el.getBoundingClientRect().top
+    setShowStickyUser(node.getBoundingClientRect().bottom <= top + 1)
+  }
+  // Re-evaluate stickiness when the list grows (new answer pushes the prompt up
+  // while pinned to bottom) or the active prompt changes.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: recompute on list/prompt change
+  useEffect(() => {
+    recomputeStickyUser()
+  }, [blocks.length, lastUserBlockIndex, active])
 
   const processFiles = async (files: File[]) => {
     const imageFiles = files.filter((f) => f.type.startsWith('image/'))
@@ -547,7 +630,16 @@ export function ChatView({
     setAtBottom(true)
     const id = `pending-${++pendingSeq.current}`
     const tags = readyAttachments.map((a) => ({ kind: 'image' as const, label: a.name }))
-    setPending((p) => [...p, { id, text: fullText, at: Date.now(), state: 'sending', tags: tags.length > 0 ? tags : undefined }])
+    setPending((p) => [
+      ...p,
+      {
+        id,
+        text: fullText,
+        at: Date.now(),
+        state: 'sending',
+        tags: tags.length > 0 ? tags : undefined,
+      },
+    ])
     setJustSent(true)
     try {
       // Live → send straight through. Parked but recoverable → wake it and let
@@ -635,8 +727,38 @@ export function ChatView({
             </Button>
           </span>
         )}
+        {/* tl;dr — open this session's BTW superagent thread and ask for a concise
+            summary of the agent's last answer (seeded with the answer + context). */}
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-auto flex-none gap-1 px-1.5 py-1 text-[11px] text-muted-foreground hover:text-foreground"
+          title="tl;dr — summarize the last answer via the superagent"
+          disabled={!lastAnswerText}
+          onClick={() => void tldrSession(sessionId, lastAnswerText)}
+        >
+          <ScrollText size={13} aria-hidden="true" /> tl;dr
+        </Button>
       </div>
       <div className="relative flex min-h-0 flex-1">
+        {/* Sticky last-user prompt: stays pinned at the top while reading the
+            answer once it has scrolled out the top of the view. Click to jump. */}
+        {showStickyUser && lastUserText && (
+          <button
+            type="button"
+            onClick={() => scrollToBlock(lastUserBlockIndex)}
+            title="Jump to this message"
+            className="absolute top-0 right-[18px] left-0 z-[3] flex items-start gap-2 border-b border-border bg-card/95 px-5 py-1.5 text-left backdrop-blur supports-[backdrop-filter]:bg-card/80"
+          >
+            <span className="mt-px flex-none text-[10px] font-semibold tracking-[0.06em] text-blue-500 uppercase">
+              You
+            </span>
+            <span className="line-clamp-2 min-w-0 flex-1 text-xs whitespace-pre-wrap text-muted-foreground">
+              {lastUserText}
+            </span>
+          </button>
+        )}
         <div
           className="flex min-w-0 flex-1 flex-col gap-0 overflow-y-auto px-5 pt-5 pb-6"
           ref={scrollerRef}
@@ -698,7 +820,10 @@ export function ChatView({
                 index={idx}
                 highlighted={idx === activeRow}
                 forceOpen={idx === activeRow}
-                dimmed={query.trim() !== '' && !row.blockIndices.some((bi) => blockMatches(blocks[bi]!, query))}
+                dimmed={
+                  query.trim() !== '' &&
+                  !row.blockIndices.some((bi) => blockMatches(blocks[bi]!, query))
+                }
                 sessionId={sessionId}
                 cwd={cwd}
                 openFile={openFile}
@@ -713,6 +838,8 @@ export function ChatView({
                 sessionId={sessionId}
                 cwd={cwd}
                 openFile={openFile}
+                httpOrigin={httpOrigin}
+                onOpenImage={setLightbox}
                 // AskUserQuestion is its own block-row; light up the one that is the
                 // latest unanswered question on a live session (livePendingAskIndex
                 // indexes into `blocks`, matched here against the row's blockIndex).
@@ -734,9 +861,7 @@ export function ChatView({
               <div className="transcript-body">
                 <div className="transcript-header">
                   <span className="transcript-role">You</span>
-                  {p.state === 'sending' && (
-                    <span className="transcript-meta">sending…</span>
-                  )}
+                  {p.state === 'sending' && <span className="transcript-meta">sending…</span>}
                   {p.state === 'failed' && (
                     <span className="transcript-meta text-destructive">not delivered</span>
                   )}
@@ -780,6 +905,11 @@ export function ChatView({
               </span>
               {activity.label}
             </div>
+          )}
+          {/* General live timer since the agent last stopped — shown when it's
+              idle (no active working/attention indicator). */}
+          {!activity && session?.agentState?.since && (
+            <SinceStopTimer since={session.agentState.since} />
           )}
         </div>
         {/* Minimap maps the RENDERED window (visibleRows), so its segments line
@@ -934,7 +1064,11 @@ export function ChatView({
               type="button"
               size="icon"
               className="rounded-full bg-primary text-primary-foreground hover:bg-primary/80 disabled:bg-secondary disabled:text-muted-foreground/70 disabled:opacity-100 [&_svg:not([class*='size-'])]:size-4"
-              disabled={!composerEnabled || (!draft.trim() && attachments.length === 0) || attachments.some((a) => a.state === 'uploading')}
+              disabled={
+                !composerEnabled ||
+                (!draft.trim() && attachments.length === 0) ||
+                attachments.some((a) => a.state === 'uploading')
+              }
               title="Send (⌘/Ctrl+Enter)"
               onClick={() => void send()}
             >
@@ -943,6 +1077,40 @@ export function ChatView({
           </div>
         </div>
       </div>
+      {lightbox && (
+        <button
+          type="button"
+          aria-label="Close image preview"
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 p-6"
+          onClick={() => setLightbox(null)}
+        >
+          <X
+            size={22}
+            aria-hidden="true"
+            className="absolute top-4 right-4 text-white/80 hover:text-white"
+          />
+          {/* biome-ignore lint/a11y/noStaticElementInteractions: stops the backdrop close */}
+          <img
+            src={lightbox}
+            alt="Preview"
+            className="max-h-full max-w-full rounded-md object-contain shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          />
+        </button>
+      )}
+    </div>
+  )
+}
+
+/** Live "Idle for …" clock since the agent last changed phase (its last stop). */
+function SinceStopTimer({ since }: { since: string }): JSX.Element | null {
+  const now = useNow(1000)
+  const ms = Date.parse(since)
+  if (Number.isNaN(ms)) return null
+  return (
+    <div className="mx-auto flex w-full max-w-[960px] items-center gap-1.5 py-2 pl-[calc(3px+12px)] text-[11px] text-muted-foreground/55">
+      <Clock size={11} aria-hidden="true" />
+      Idle for {formatElapsed(ms, now)}
     </div>
   )
 }
@@ -959,6 +1127,8 @@ const ChatBlockView = memo(function ChatBlockView({
   sessionId,
   cwd,
   openFile,
+  httpOrigin,
+  onOpenImage,
   askLivePending,
   onAnswerAsk,
 }: {
@@ -969,6 +1139,9 @@ const ChatBlockView = memo(function ChatBlockView({
   sessionId: string
   cwd: string
   openFile: (sessionId: string, path: string) => void
+  httpOrigin: string
+  /** Open a full-screen image preview (lightbox) for the given asset URL. */
+  onOpenImage: (src: string) => void
   /** True only for the latest unanswered AskUserQuestion on a live session. */
   askLivePending: boolean
   onAnswerAsk: (choices: { optionIndices: number[] }[]) => Promise<void>
@@ -990,6 +1163,53 @@ const ChatBlockView = memo(function ChatBlockView({
         livePending={askLivePending}
         onAnswer={onAnswerAsk}
       />
+    )
+  // SendUserFile surfaces images/files to the user — render them inline (images as
+  // clickable thumbnails → lightbox; other files as openable chips).
+  if (item.role === 'tool' && item.toolName === 'SendUserFile')
+    return (
+      <SendUserFileBlock
+        item={item}
+        cls={rowClass}
+        index={index}
+        sessionId={sessionId}
+        cwd={cwd}
+        httpOrigin={httpOrigin}
+        openFile={openFile}
+        onOpenImage={onOpenImage}
+      />
+    )
+  // Claude Code's while-you-were-gone recap (away_summary) — a distinct block.
+  if (item.role === 'system' && item.systemKind === 'recap')
+    return (
+      <div className={rowClass} data-block={index}>
+        <div className="transcript-rail transcript-rail--answer" aria-hidden="true" />
+        <div className="transcript-body">
+          <div className="transcript-header">
+            <span className="transcript-role transcript-role--answer">Recap</span>
+          </div>
+          <div
+            className="chat-md"
+            // biome-ignore lint/security/noDangerouslySetInnerHtml: sanitized by DOMPurify above
+            dangerouslySetInnerHTML={{ __html: html }}
+          />
+        </div>
+      </div>
+    )
+  // A turn's churn time (turn_duration) — a subtle "Churned for …" divider.
+  if (item.role === 'system' && item.systemKind === 'duration')
+    return (
+      <div
+        data-block={index}
+        className={cn(
+          rowClass,
+          'my-1 flex items-center gap-2 text-[10px] tracking-[0.06em] text-muted-foreground/45 uppercase',
+        )}
+      >
+        <span className="h-px flex-1 bg-border/60" />
+        <Clock size={11} aria-hidden="true" /> Churned for {formatChurn(item.durationMs ?? 0)}
+        <span className="h-px flex-1 bg-border/60" />
+      </div>
     )
   // Ordinary tool calls render inside a collapsed ToolBatchView, so they don't
   // reach here. The only stray case is an AskUserQuestion without structured input
@@ -1111,6 +1331,84 @@ const ChatBlockView = memo(function ChatBlockView({
     </div>
   )
 })
+
+/**
+ * The agent sharing files with the user (SendUserFile). Images render as
+ * clickable thumbnails (→ lightbox); other files as openable chips. The optional
+ * caption rides in on `toolTitle` (set by the transcript parser).
+ */
+function SendUserFileBlock({
+  item,
+  cls,
+  index,
+  sessionId,
+  cwd,
+  httpOrigin,
+  openFile,
+  onOpenImage,
+}: {
+  item: TranscriptItem
+  cls: string
+  index: number
+  sessionId: string
+  cwd: string
+  httpOrigin: string
+  openFile: (sessionId: string, path: string) => void
+  onOpenImage: (src: string) => void
+}): JSX.Element {
+  const paths = item.toolPaths ?? []
+  return (
+    <div className={cls} data-block={index}>
+      <div className="transcript-rail transcript-rail--none" aria-hidden="true" />
+      <div className="transcript-body">
+        <div className="transcript-header">
+          <span className="transcript-role">Shared {paths.length === 1 ? 'a file' : 'files'}</span>
+        </div>
+        {item.toolTitle && (
+          <div className="mt-0.5 text-xs text-muted-foreground">{item.toolTitle}</div>
+        )}
+        <div className="mt-1.5 flex flex-wrap gap-2">
+          {paths.map((p) => {
+            const abs = resolveAgainstCwd(cwd, p)
+            const name = p.split('/').pop() ?? p
+            if (isImagePath(p)) {
+              const url = assetUrl({ httpOrigin, sessionId, fileDir: cwd, src: abs })
+              if (url)
+                return (
+                  <button
+                    key={p}
+                    type="button"
+                    onClick={() => onOpenImage(url)}
+                    className="overflow-hidden rounded-md border border-border hover:border-primary"
+                    title={`Open ${name}`}
+                  >
+                    <img
+                      src={url}
+                      alt={name}
+                      loading="lazy"
+                      className="max-h-48 max-w-[260px] object-cover"
+                    />
+                  </button>
+                )
+            }
+            return (
+              <button
+                key={p}
+                type="button"
+                onClick={() => openFile(sessionId, abs)}
+                className="inline-flex items-center gap-1 rounded border border-input px-[7px] py-0.5 text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground"
+                title={`Open ${p}`}
+              >
+                <FileText size={12} aria-hidden="true" />
+                {name}
+              </button>
+            )
+          })}
+        </div>
+      </div>
+    </div>
+  )
+}
 
 interface AskOption {
   label: string
@@ -1355,13 +1653,23 @@ function ToolBatchView({
           onClick={() => setOpen((v) => !v)}
           aria-expanded={expanded}
         >
-          <span className="flex-none font-mono text-[10px] text-muted-foreground/50">{expanded ? '▾' : '▸'}</span>
-          <span className="min-w-0 truncate text-[12px] font-medium text-muted-foreground/90">{row.title}</span>
+          <span className="flex-none font-mono text-[10px] text-muted-foreground/50">
+            {expanded ? '▾' : '▸'}
+          </span>
+          <span className="min-w-0 truncate text-[12px] font-medium text-muted-foreground/90">
+            {row.title}
+          </span>
         </button>
         {expanded && (
           <div className="mt-0.5 ml-[5px] flex flex-col gap-0.5 border-l border-border/60 pl-2.5">
             {row.blocks.map((b) => (
-              <ToolBlock key={b.item.id} block={b} sessionId={sessionId} cwd={cwd} openFile={openFile} />
+              <ToolBlock
+                key={b.item.id}
+                block={b}
+                sessionId={sessionId}
+                cwd={cwd}
+                openFile={openFile}
+              />
             ))}
           </div>
         )}
@@ -1396,10 +1704,16 @@ function ToolBlock({
         className="flex w-full min-w-0 items-baseline gap-[7px] py-0.5 text-left text-xs text-muted-foreground"
         onClick={() => setOpen((v) => !v)}
       >
-        <span className="flex-none font-mono text-[10px] text-muted-foreground/50">{open ? '▾' : '▸'}</span>
-        <span className="flex-none font-mono text-[11px] font-semibold text-muted-foreground/80">{label}</span>
+        <span className="flex-none font-mono text-[10px] text-muted-foreground/50">
+          {open ? '▾' : '▸'}
+        </span>
+        <span className="flex-none font-mono text-[11px] font-semibold text-muted-foreground/80">
+          {label}
+        </span>
         {item.toolInput && (
-          <span className="min-w-0 truncate font-mono text-[11px] text-muted-foreground/50">{item.toolInput}</span>
+          <span className="min-w-0 truncate font-mono text-[11px] text-muted-foreground/50">
+            {item.toolInput}
+          </span>
         )}
       </button>
       {item.toolPaths?.map((p) => (

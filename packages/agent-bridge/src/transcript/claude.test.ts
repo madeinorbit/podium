@@ -415,4 +415,69 @@ describe('claudeRecordToItems toolPaths', () => {
     expect(item1!.toolPaths).toContain(filename)
     expect(item2!.toolPaths).toContain(filename)
   })
+
+  it('maps a turn_duration system record to a duration item (Churned for…)', () => {
+    const items = claudeRecordToItems({
+      type: 'system',
+      subtype: 'turn_duration',
+      uuid: 'd1',
+      timestamp: '2026-06-18T14:29:53.029Z',
+      durationMs: 479963,
+    })
+    expect(items).toEqual([
+      {
+        id: 'd1',
+        role: 'system',
+        ts: '2026-06-18T14:29:53.029Z',
+        text: '',
+        systemKind: 'duration',
+        durationMs: 479963,
+      },
+    ])
+  })
+
+  it('maps an away_summary system record to a recap item', () => {
+    const items = claudeRecordToItems({
+      type: 'system',
+      subtype: 'away_summary',
+      uuid: 's1',
+      content: 'Fixed the title bug. (disable recaps in /config)',
+    })
+    expect(items[0]).toMatchObject({
+      role: 'system',
+      systemKind: 'recap',
+      text: 'Fixed the title bug. (disable recaps in /config)',
+    })
+  })
+
+  it('keeps other content-bearing system records as plain system items', () => {
+    const items = claudeRecordToItems({
+      type: 'system',
+      subtype: 'informational',
+      uuid: 's2',
+      content: 'Remote Control disconnected',
+    })
+    expect(items[0]).toMatchObject({ role: 'system', text: 'Remote Control disconnected' })
+    expect(items[0]!.systemKind).toBeUndefined()
+  })
+
+  it('carries SendUserFile paths (the files array) into toolPaths', () => {
+    const items = claudeRecordToItems({
+      type: 'assistant',
+      uuid: 'a9',
+      message: {
+        role: 'assistant',
+        content: [
+          {
+            type: 'tool_use',
+            id: 'toolu_suf',
+            name: 'SendUserFile',
+            input: { files: ['/tmp/a.png', '/tmp/b.png'], caption: 'shots', status: 'normal' },
+          },
+        ],
+      },
+    })
+    expect(items[0]).toMatchObject({ role: 'tool', toolName: 'SendUserFile' })
+    expect(items[0]!.toolPaths).toEqual(['/tmp/a.png', '/tmp/b.png'])
+  })
 })

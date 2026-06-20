@@ -240,6 +240,14 @@ export const TranscriptItem = z.object({
    *  elevates it (distinct bubble + minimap accent). Note: a *buried* answer in an
    *  intermediate block carries no transcript marker, so it can't be flagged here. */
   answer: z.boolean().optional(),
+  /** Distinguishes special system items so the chat can render them apart from a
+   *  generic "System" line: 'recap' = Claude Code's away/while-you-were-gone
+   *  summary (subtype away_summary); 'duration' = a turn's churn time (subtype
+   *  turn_duration), carried in `durationMs`. Absent on plain system messages. */
+  systemKind: z.enum(['recap', 'duration']).optional(),
+  /** Wall-clock duration of the turn in ms (set with systemKind 'duration'),
+   *  surfaced as "Churned for Xm Ys". */
+  durationMs: z.number().optional(),
 })
 export type TranscriptItem = z.infer<typeof TranscriptItem>
 

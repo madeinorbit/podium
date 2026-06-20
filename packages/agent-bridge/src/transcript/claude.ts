@@ -45,8 +45,30 @@ export function claudeRecordToItems(record: unknown): TranscriptItem[] {
   if (r.type === 'user') return userItems(uuid, ts, message, promptSource)
   if (r.type === 'assistant') return assistantItems(uuid, ts, message)
   if (r.type === 'system') {
+    const subtype = typeof r.subtype === 'string' ? r.subtype : undefined
+    // turn_duration carries the turn's churn time (durationMs) and no content —
+    // surface it as a 'duration' item ("Churned for Xm Ys") instead of dropping it.
+    if (subtype === 'turn_duration' && typeof r.durationMs === 'number') {
+      return [
+        {
+          id: uuid ?? `dur-${ts ?? Math.random()}`,
+          role: 'system',
+          ts,
+          text: '',
+          systemKind: 'duration',
+          durationMs: r.durationMs,
+        },
+      ]
+    }
     const text = typeof r.content === 'string' ? r.content : ''
     if (!text.trim()) return []
+    // away_summary is Claude Code's while-you-were-gone recap — tag it so the chat
+    // renders a distinct "Recap" block rather than a generic "System" line.
+    if (subtype === 'away_summary') {
+      return [
+        { id: uuid ?? `sys-${ts ?? Math.random()}`, role: 'system', ts, text, systemKind: 'recap' },
+      ]
+    }
     return [{ id: uuid ?? `sys-${ts ?? Math.random()}`, role: 'system', ts, text }]
   }
   if (r.type === 'attachment') {
@@ -222,14 +244,19 @@ function toolPathsFromInput(input: unknown): string[] {
   const rec = input as Record<string, unknown>
   const out: string[] = []
   for (const k of FILE_PATH_KEYS) if (typeof rec[k] === 'string') out.push(rec[k] as string)
+  // SendUserFile (and similar) surface files via a `files` array of paths — carry
+  // them so the chat can render the images/files the agent sent to the user.
+  if (Array.isArray(rec.files)) for (const f of rec.files) if (typeof f === 'string') out.push(f)
   return out
 }
 
-/** The agent's own one-line intent for the call (Bash `description`) — the chat
- *  shows it instead of the raw shell for a lone-command batch. */
+/** The agent's own one-line intent for the call — the Bash `description`, or the
+ *  SendUserFile `caption`. The chat shows it instead of the raw input (a
+ *  lone-command batch summary, or the caption above shared files). */
 function toolTitleFromInput(input: unknown): string | undefined {
   if (!input || typeof input !== 'object') return undefined
-  const d = (input as Record<string, unknown>).description
+  const rec = input as Record<string, unknown>
+  const d = typeof rec.description === 'string' ? rec.description : rec.caption
   return typeof d === 'string' && d.trim() ? d.trim() : undefined
 }
 

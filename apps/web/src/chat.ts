@@ -37,12 +37,17 @@ export function pairToolResults(items: TranscriptItem[]): ChatBlock[] {
 }
 
 /**
- * A tool call quiet enough to fold into a batch. AskUserQuestion is the agent
- * prompting the human — it renders as an interactive card, so it breaks a run
- * like any text output.
+ * A tool call quiet enough to fold into a batch. AskUserQuestion (the agent
+ * prompting the human → interactive card) and SendUserFile (the agent surfacing
+ * images/files → inline previews + lightbox) both render richly, so they break a
+ * run like any text output instead of collapsing into a summary line.
  */
 export function isBatchableTool(item: TranscriptItem): boolean {
-  return item.role === 'tool' && item.toolName !== 'AskUserQuestion'
+  return (
+    item.role === 'tool' &&
+    item.toolName !== 'AskUserQuestion' &&
+    item.toolName !== 'SendUserFile'
+  )
 }
 
 /** A run of consecutive tool calls, shown collapsed under one summary title. */

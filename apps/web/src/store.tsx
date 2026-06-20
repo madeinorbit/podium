@@ -1,3 +1,4 @@
+import type { Sidebar as SidebarSettings } from '@podium/core'
 import type {
   GitDiscoveryDiagnosticWire,
   GitRepositoryWire,
@@ -6,7 +7,6 @@ import type {
   WorkState,
 } from '@podium/protocol'
 import { SocketHub } from '@podium/terminal-client'
-import type { Sidebar as SidebarSettings } from '@podium/core'
 import type { JSX } from 'react'
 import {
   createContext,
@@ -57,6 +57,9 @@ export interface Store {
   superRefreshKey: number
   /** Open (or re-open) a btw superagent thread seeded from a chat session's transcript. */
   startBtw: (sessionId: string) => Promise<void>
+  /** Open the session's btw thread and ask the superagent for a concise tl;dr of
+   *  the agent's last answer (passed in for context). */
+  tldrSession: (sessionId: string, answerText: string) => Promise<void>
   selectedWorktree: string | null
   setSelectedWorktree: (path: string | null) => void
   paneA: string | null // sessionId in pane A
@@ -382,6 +385,21 @@ export function StoreProvider({
     },
     [trpc],
   )
+  const tldrSession = useMemo(
+    () => async (sessionId: string, answerText: string) => {
+      const threadId = `btw_${sessionId}`
+      setSuperThreadId(threadId)
+      setSuperOpen(true)
+      // Ensure the thread is seeded with this session's context before we ask.
+      await trpc.superagent.startBtw.mutate({ sessionId }).catch(() => {})
+      const prompt = answerText.trim()
+        ? `Give me a concise tl;dr (2–4 bullet points) of the agent's last answer below.\n\n---\n${answerText.trim().slice(0, 4000)}`
+        : "Give me a concise tl;dr (2–4 bullet points) of the agent's last answer."
+      await trpc.superagent.send.mutate({ threadId, text: prompt }).catch(() => {})
+      setSuperRefreshKey((k) => k + 1)
+    },
+    [trpc],
+  )
   const setSessionDraft = useMemo(
     () => (sessionId: string, text: string) => {
       setDrafts((d) => (d[sessionId] === text ? d : { ...d, [sessionId]: text }))
@@ -546,6 +564,7 @@ export function StoreProvider({
     setSuperOpen,
     superRefreshKey,
     startBtw,
+    tldrSession,
     selectedWorktree,
     setSelectedWorktree,
     paneA,

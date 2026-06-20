@@ -10,6 +10,7 @@ import {
   Archive,
   ArrowDownToLine,
   Copy,
+  Folder,
   MessageSquareText,
   Mic,
   Moon,
@@ -89,6 +90,11 @@ export function initialPanelMode({
   if (startScreen === 'auto') return isMobile ? 'chat' : 'native'
   if (startScreen === 'chat') return 'chat'
   return 'native'
+}
+
+/** Collapse the user's home directory to `~` for a compact cwd display. */
+export function prettyCwd(path: string): string {
+  return path.replace(/^\/(?:home|Users)\/[^/]+/, '~')
 }
 
 export function AgentPanel({
@@ -374,30 +380,53 @@ export function AgentPanel({
     <div className="flex min-w-0 flex-1 flex-col">
       <div className="flex items-center gap-2.5 border-b border-border bg-card px-2.5 py-[5px]">
         {session && <WorkerLabel session={session} />}
+        {/* The agent's working directory — context for which checkout/worktree this
+            session runs in. Truncates; full path on hover. */}
+        {session?.cwd && (
+          <span
+            className="hidden min-w-0 max-w-[40%] items-center gap-1 truncate text-[11px] text-muted-foreground/70 sm:inline-flex"
+            title={session.cwd}
+          >
+            <Folder size={11} aria-hidden="true" className="flex-none" />
+            <span className="truncate">{prettyCwd(session.cwd)}</span>
+          </span>
+        )}
         {/* The chat/native toggle only makes sense with a live PTY behind it — a
             hibernated/exited session has no terminal to switch to, so hide it
             rather than render a control that visibly does nothing. */}
         {chatCapable && !hibernated && !exited && (
-          <span className="inline-flex gap-1" role="group" aria-label="Panel view">
-            <Button
+          <div className="inline-flex flex-none items-center rounded-md border border-input p-0.5">
+            <button
               type="button"
-              variant={effectiveMode === 'chat' ? 'default' : 'outline'}
-              size="sm"
+              aria-pressed={effectiveMode === 'chat'}
+              aria-label="Chat view"
               title="Chat view"
               onClick={() => pickMode('chat')}
+              className={cn(
+                'flex items-center justify-center rounded-[5px] px-2 py-1 transition-colors',
+                effectiveMode === 'chat'
+                  ? 'bg-primary text-primary-foreground'
+                  : 'text-muted-foreground hover:text-foreground',
+              )}
             >
               <MessageSquareText size={13} aria-hidden="true" />
-            </Button>
-            <Button
+            </button>
+            <button
               type="button"
-              variant={effectiveMode === 'native' ? 'default' : 'outline'}
-              size="sm"
+              aria-pressed={effectiveMode === 'native'}
+              aria-label="Native terminal"
               title="Native terminal"
               onClick={() => pickMode('native')}
+              className={cn(
+                'flex items-center justify-center rounded-[5px] px-2 py-1 transition-colors',
+                effectiveMode === 'native'
+                  ? 'bg-primary text-primary-foreground'
+                  : 'text-muted-foreground hover:text-foreground',
+              )}
             >
               <TerminalIcon size={13} aria-hidden="true" />
-            </Button>
-          </span>
+            </button>
+          </div>
         )}
         {/* Native resume command (#119): the literal `claude --resume <id>` etc.
             so you can pick the conversation back up in your own terminal. Shown
@@ -476,12 +505,27 @@ export function AgentPanel({
           <HibernatedPane sessionId={sessionId} />
         )
       ) : exited && session ? (
-        <ExitedPane
-          sessionId={sessionId}
-          exitCode={session.exitCode}
-          isShell={session.agentKind === 'shell'}
-          resumable={session.resumable === true}
-        />
+        chatCapable ? (
+          // The process is gone but the transcript outlives it — keep the chat
+          // readable (and resumable via the composer) with a banner, instead of
+          // replacing it with a dead-end pane. Shells (no transcript) still get it.
+          <>
+            <ExitedBanner
+              sessionId={sessionId}
+              exitCode={session.exitCode}
+              isShell={session.agentKind === 'shell'}
+              resumable={session.resumable === true}
+            />
+            <ChatView sessionId={sessionId} active={active} />
+          </>
+        ) : (
+          <ExitedPane
+            sessionId={sessionId}
+            exitCode={session.exitCode}
+            isShell={session.agentKind === 'shell'}
+            resumable={session.resumable === true}
+          />
+        )
       ) : effectiveMode === 'chat' ? (
         <ChatView sessionId={sessionId} active={active} />
       ) : (
@@ -676,6 +720,62 @@ function ExitedPane({
       ) : (
         <Button type="button" variant="secondary" onClick={() => void killSession(sessionId)}>
           Remove session
+        </Button>
+      )}
+    </div>
+  )
+}
+
+/** Thin bar over an exited session's (read-only) transcript: says the process is
+ *  gone but keeps the conversation readable, with resume/restart or remove. */
+function ExitedBanner({
+  sessionId,
+  exitCode,
+  isShell,
+  resumable,
+}: {
+  sessionId: string
+  exitCode: number | undefined
+  isShell: boolean
+  resumable: boolean
+}): JSX.Element {
+  const { resurrectSession, killSession } = useStore()
+  const [waking, setWaking] = useState(false)
+  const what = isShell ? 'shell' : 'agent process'
+  const detail =
+    exitCode === undefined || exitCode === 0
+      ? `The ${what} is no longer running.`
+      : exitCode === -1
+        ? `The ${what} failed to start.`
+        : `The ${what} exited with code ${exitCode}.`
+  const recoverable = isShell || resumable
+  return (
+    <div className="flex shrink-0 items-center gap-2 border-b border-warning/30 bg-warning/10 px-3 py-1.5 text-xs text-warning">
+      <RotateCcw size={14} aria-hidden="true" />
+      <span className="min-w-0 flex-1 truncate">{detail} Transcript is read-only.</span>
+      {recoverable ? (
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="shrink-0 border-warning/50 text-warning hover:bg-warning/10 hover:text-warning"
+          disabled={waking}
+          onClick={() => {
+            setWaking(true)
+            void resurrectSession(sessionId)
+          }}
+        >
+          {waking ? (isShell ? 'Restarting…' : 'Resuming…') : isShell ? 'Restart' : 'Resume'}
+        </Button>
+      ) : (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="shrink-0"
+          onClick={() => void killSession(sessionId)}
+        >
+          Remove
         </Button>
       )}
     </div>
