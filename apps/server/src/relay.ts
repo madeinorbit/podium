@@ -37,7 +37,12 @@ import {
 } from './notify'
 import { type ClientConn, type Send, Session } from './session'
 import { type PinKind, SessionStore } from './store'
-import { isTransientTitle, makeTitleDebouncer } from './title-filter'
+import {
+  isGenericClaudeTitle,
+  isTransientTitle,
+  makeTitleDebouncer,
+  titleFromPrompt,
+} from './title-filter'
 
 const DEFAULT_GEOMETRY: Geometry = { cols: 80, rows: 24 }
 const SCAN_TIMEOUT_MS = 10_000
@@ -1141,11 +1146,25 @@ export class SessionRegistry {
       case 'title': {
         const session = this.sessions.get(msg.sessionId)
         if (!session) break
+        // Claude Code's OSC title sits at the generic "Claude Code" placeholder for
+        // a while after start. Don't let it overwrite a real title we already have
+        // (its own later summary, or the first-prompt fallback below) — that's the
+        // "stuck on Claude Code" regression.
+        if (
+          isGenericClaudeTitle(msg.title) &&
+          session.title &&
+          !isGenericClaudeTitle(session.title)
+        ) {
+          break
+        }
         // Apply the title to the in-memory session + persist immediately so that
         // write-through tests and late-joining clients always see the current title,
         // even during a rapid burst of transient spinner frames.
         if (!isTransientTitle(msg.title)) {
           session.setTitle(msg.title)
+          // A non-generic agent title (Claude's own summary) is the real thing —
+          // lock it so the first-prompt fallback won't fire/override.
+          if (!isGenericClaudeTitle(msg.title)) session.titleLocked = true
           this.persist(session)
         }
         // The client broadcast is debounced: spinner/braille frames arrive at
@@ -1228,6 +1247,27 @@ export class SessionRegistry {
           // First transcript for this session → its chat capability flipped on;
           // push the updated meta so clients can offer the chat toggle.
           this.broadcastSessions()
+        }
+        // Fast title for Claude: until a real title is locked in (its own summary,
+        // or this fallback), name the session from the first user prompt so it
+        // doesn't sit on the cwd/"Claude Code" placeholder for the long stretch
+        // before Claude generates its own title.
+        if (session && session.agentKind === 'claude-code' && !session.titleLocked) {
+          const firstUser = session
+            .transcriptItems()
+            .find((it) => it.role === 'user' && it.text.trim().length > 0)
+          const derived = firstUser ? titleFromPrompt(firstUser.text) : undefined
+          if (derived) {
+            session.setTitle(derived)
+            session.titleLocked = true
+            this.persist(session)
+            const update: ServerMessage = {
+              type: 'sessionTitleChanged',
+              sessionId: msg.sessionId,
+              title: derived,
+            }
+            for (const c of this.clients.values()) c.send(update)
+          }
         }
         break
       }

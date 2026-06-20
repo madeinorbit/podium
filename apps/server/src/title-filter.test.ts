@@ -1,5 +1,26 @@
 import { describe, expect, it, vi } from 'vitest'
-import { isTransientTitle, makeTitleDebouncer } from './title-filter'
+import {
+  isGenericClaudeTitle,
+  isTransientTitle,
+  makeTitleDebouncer,
+  titleFromPrompt,
+} from './title-filter'
+
+describe('isGenericClaudeTitle', () => {
+  it('matches the bare placeholder, not a real title', () => {
+    expect(isGenericClaudeTitle('Claude Code')).toBe(true)
+    expect(isGenericClaudeTitle('  Claude Code  ')).toBe(true)
+    expect(isGenericClaudeTitle('Fix the parser')).toBe(false)
+  })
+})
+
+describe('titleFromPrompt', () => {
+  it('takes the first non-empty line, collapsed and capped', () => {
+    expect(titleFromPrompt('  \n Fix the   parser \n more')).toBe('Fix the parser')
+    expect(titleFromPrompt('')).toBeUndefined()
+    expect(titleFromPrompt('x'.repeat(100), 10)).toBe(`${'x'.repeat(10)}…`)
+  })
+})
 
 describe('isTransientTitle', () => {
   it('flags spinner/braille and control-laden titles', () => {

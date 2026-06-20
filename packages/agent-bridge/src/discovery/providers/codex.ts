@@ -299,13 +299,24 @@ function codexPayload(record: unknown): Record<string, unknown> {
 }
 
 /**
- * Condense raw title text to a clean one-line title (≤100 chars), or undefined when
- * it's empty or an injected `<…>` preamble rather than something a person typed.
+ * Condense raw title text to a clean one-line title, or undefined when it's empty
+ * or an injected `<…>` preamble rather than something a person typed.
+ *
+ * Codex has no auto-generated short title — its `threads.title` (and `preview` /
+ * `first_user_message`) are just the raw first message, often a long voice-typed
+ * run-on. So the best "readout" is the tidy head of that: collapse whitespace,
+ * prefer the first sentence when it ends early, and otherwise cut at a word
+ * boundary (≤80 chars) instead of mid-word.
  */
 export function cleanCodexTitle(raw: string | undefined): string | undefined {
   const text = (raw ?? '').replace(/\s+/g, ' ').trim()
   if (!text || text.startsWith('<')) return undefined
-  return text.length > 100 ? `${text.slice(0, 100)}…` : text
+  const sentence = text.match(/^.{15,80}?[.!?](?=\s|$)/)?.[0]
+  if (sentence) return sentence
+  if (text.length <= 80) return text
+  const cut = text.slice(0, 80)
+  const lastSpace = cut.lastIndexOf(' ')
+  return `${(lastSpace > 48 ? cut.slice(0, lastSpace) : cut).trimEnd()}…`
 }
 
 /**

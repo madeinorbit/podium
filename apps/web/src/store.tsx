@@ -18,7 +18,7 @@ import {
   useState,
 } from 'react'
 import { formatAppError } from './AppErrorPage'
-import { EMPTY_PINS, reposToViews } from './derive'
+import { dedupeSessionsByResume, EMPTY_PINS, reposToViews } from './derive'
 import { makeTrpc, type ServerOrigin, type Trpc } from './trpc'
 import type { PinKind, PinState } from './types'
 
@@ -491,7 +491,9 @@ export function StoreProvider({
   useEffect(() => lsSet(PANEL_MODE_KEY, JSON.stringify(panelMode)), [panelMode])
 
   useEffect(() => {
-    const offSessions = hub.onSessions(setSessions)
+    // Collapse duplicate rows for the same underlying conversation (e.g. a Codex
+    // thread surfaced twice on resume) before they reach any view.
+    const offSessions = hub.onSessions((s) => setSessions(dedupeSessionsByResume(s)))
     const offHostMetrics = hub.onHostMetrics(setHostMetrics)
     const offDraft = hub.onSessionDraft((sessionId, text) =>
       setDrafts((d) => (d[sessionId] === text ? d : { ...d, [sessionId]: text })),

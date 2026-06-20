@@ -10,6 +10,26 @@ export function isTransientTitle(title: string): boolean {
   return false
 }
 
+/** The generic placeholder Claude Code shows before it generates a real title.
+ *  We treat it as low-priority: a first-prompt title beats it, and it must never
+ *  overwrite a real title the agent later sets. */
+export function isGenericClaudeTitle(title: string): boolean {
+  return title.trim() === 'Claude Code'
+}
+
+/** A readable one-line title from a user prompt — the fast fallback while the
+ *  agent's own title is still the generic placeholder. First non-empty line,
+ *  whitespace-collapsed and capped; undefined for empty input. */
+export function titleFromPrompt(text: string, max = 72): string | undefined {
+  const firstLine = text
+    .split('\n')
+    .map((l) => l.trim())
+    .find((l) => l.length > 0)
+  const t = (firstLine ?? '').replace(/\s+/g, ' ').trim()
+  if (!t) return undefined
+  return t.length > max ? `${t.slice(0, max)}…` : t
+}
+
 export function makeTitleDebouncer(
   emit: (t: string) => void,
   delayMs = 500,

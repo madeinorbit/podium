@@ -1,6 +1,11 @@
 import type { SessionMeta } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
-import { partitionStaleSessions, sortWorktrees, type WorktreeNavView } from './derive'
+import {
+  dedupeSessionsByResume,
+  partitionStaleSessions,
+  sortWorktrees,
+  type WorktreeNavView,
+} from './derive'
 
 const NOW = Date.parse('2026-06-21T12:00:00.000Z')
 
@@ -91,6 +96,43 @@ function wt(path: string, branch: string | undefined, isMain: boolean): Worktree
     sessions: [],
   } as WorktreeNavView
 }
+
+function withResume(
+  id: string,
+  status: SessionMeta['status'],
+  resumeValue: string | undefined,
+  hoursAgo = 1,
+): SessionMeta {
+  return sess(id, hoursAgo, {
+    status,
+    ...(resumeValue ? { resume: { kind: 'codex-thread', value: resumeValue } } : {}),
+  } as Partial<SessionMeta>)
+}
+
+describe('dedupeSessionsByResume', () => {
+  it('keeps sessions with no resume ref untouched', () => {
+    const list = [withResume('a', 'live', undefined), withResume('b', 'live', undefined)]
+    expect(dedupeSessionsByResume(list).map((s) => s.sessionId)).toEqual(['a', 'b'])
+  })
+
+  it('collapses two rows sharing a codex thread, keeping the live one', () => {
+    const list = [
+      withResume('exited-twin', 'exited', 'thread-1', 5),
+      withResume('live-one', 'live', 'thread-1', 1),
+      withResume('other', 'live', 'thread-2', 1),
+    ]
+    const out = dedupeSessionsByResume(list)
+    expect(out.map((s) => s.sessionId).sort()).toEqual(['live-one', 'other'])
+  })
+
+  it('keeps the most-recently-active when statuses tie', () => {
+    const list = [
+      withResume('old', 'exited', 'thread-9', 10),
+      withResume('new', 'exited', 'thread-9', 1),
+    ]
+    expect(dedupeSessionsByResume(list).map((s) => s.sessionId)).toEqual(['new'])
+  })
+})
 
 describe('sortWorktrees', () => {
   const main = wt('/repo', 'main', true)

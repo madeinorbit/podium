@@ -94,6 +94,10 @@ export class Session {
   resume?: ResumeRef
   lastActiveAt: string
   title: string
+  /** Live heuristic (not persisted): a real title — the agent's own summary, or
+   *  the first-prompt fallback — has been set, so the generic "Claude Code"
+   *  placeholder must not overwrite it and the fallback shouldn't re-fire. */
+  titleLocked = false
   /** User-set name; empty = fall back to the live title. */
   name = ''
   archived = false

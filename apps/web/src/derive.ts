@@ -377,6 +377,51 @@ export function sortRepos<T extends { id: string; name: string }>(
   return [...inOrder, ...remainder]
 }
 
+/**
+ * Collapse duplicate session rows that point at the SAME underlying agent
+ * conversation (same resume ref) — e.g. a Codex thread that surfaced twice on
+ * resume. Keeps the most useful row per ref (live > starting/reconnecting >
+ * hibernated > exited; ties break to the most-recently-active) and preserves
+ * order. Sessions with no resume ref are distinct and never merged.
+ */
+export function dedupeSessionsByResume(sessions: SessionMeta[]): SessionMeta[] {
+  const rank = (s: SessionMeta): number => {
+    switch (s.status) {
+      case 'live':
+        return 3
+      case 'starting':
+      case 'reconnecting':
+        return 2
+      case 'hibernated':
+        return 1
+      default:
+        return 0 // exited
+    }
+  }
+  const better = (a: SessionMeta, b: SessionMeta): SessionMeta => {
+    if (rank(a) !== rank(b)) return rank(a) > rank(b) ? a : b
+    return a.lastActiveAt >= b.lastActiveAt ? a : b
+  }
+  const indexByRef = new Map<string, number>()
+  const out: SessionMeta[] = []
+  for (const s of sessions) {
+    if (!s.resume) {
+      out.push(s)
+      continue
+    }
+    const key = `${s.resume.kind}:${s.resume.value}`
+    const at = indexByRef.get(key)
+    const existing = at === undefined ? undefined : out[at]
+    if (at === undefined || existing === undefined) {
+      indexByRef.set(key, out.length)
+      out.push(s)
+    } else {
+      out[at] = better(existing, s)
+    }
+  }
+  return out
+}
+
 /** A session is "stale" when it's been inactive longer than this. */
 export const STALE_INACTIVE_MS = 16 * 60 * 60 * 1000
 
