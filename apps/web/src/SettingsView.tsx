@@ -370,6 +370,23 @@ export function SettingsView(): JSX.Element {
                     }
                   />
                 </Row>
+                <div className="mt-2 max-w-[68ch] border-border border-l pl-3 text-[12px] text-muted-foreground">
+                  <div className="mb-1 font-medium text-foreground">Telegram setup</div>
+                  <ol className="list-decimal space-y-1 pl-4">
+                    <li>
+                      In Telegram, message <code className="text-[11px]">@BotFather</code> and use <code className="text-[11px]">/newbot</code> to create a bot. Paste its bot token here.
+                    </li>
+                    <li>
+                      Open a chat with the bot, or add it to the target group/channel, then send one message so Telegram can see the destination.
+                    </li>
+                    <li>
+                      Find the chat ID with <code className="text-[11px]">https://api.telegram.org/bot&lt;token&gt;/getUpdates</code>. Groups usually use negative IDs like <code className="text-[11px]">-1001234567890</code>; public channels can use <code className="text-[11px]">@channelusername</code>.
+                    </li>
+                  </ol>
+                  <p className="mt-1.5">
+                    Telegram sends only when both a bot token and chat ID are set. These settings are global for this Podium server.
+                  </p>
+                </div>
               </Section>
             )}
 
