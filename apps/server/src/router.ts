@@ -1,5 +1,5 @@
 import { PodiumSettings } from '@podium/core'
-import { AgentKind, ResumeRef, WorkState } from '@podium/protocol'
+import { AgentKind, IssueStage, ResumeRef, WorkState } from '@podium/protocol'
 import { initTRPC, TRPCError } from '@trpc/server'
 import { z } from 'zod'
 import type { SessionRegistry } from './relay'
@@ -324,6 +324,71 @@ export const appRouter = t.router({
           maxDepth: input.maxDepth ?? 6,
         }),
       ),
+  }),
+  issues: t.router({
+    list: t.procedure
+      .input(z.object({ repoPath: z.string().optional() }))
+      .query(({ ctx, input }) => ctx.registry.issues.list(input.repoPath)),
+    get: t.procedure
+      .input(z.object({ id: z.string() }))
+      .query(({ ctx, input }) => ctx.registry.issues.get(input.id)),
+    create: t.procedure
+      .input(
+        z.object({
+          repoPath: z.string(),
+          title: z.string().min(1),
+          description: z.string().optional(),
+          parentBranch: z.string().optional(),
+          defaultAgent: z.string().optional(),
+          startNow: z.boolean(),
+          linear: z
+            .object({ id: z.string().optional(), identifier: z.string(), url: z.string() })
+            .optional(),
+        }),
+      )
+      .mutation(({ ctx, input }) => ctx.registry.issues.createAndMaybeStart(input)),
+    start: t.procedure
+      .input(z.object({ id: z.string() }))
+      .mutation(({ ctx, input }) => ctx.registry.issues.start(input.id)),
+    update: t.procedure
+      .input(
+        z.object({
+          id: z.string(),
+          patch: z.object({
+            title: z.string().optional(),
+            description: z.string().optional(),
+            stage: IssueStage.optional(),
+            parentBranch: z.string().optional(),
+            defaultAgent: z.string().optional(),
+            archived: z.boolean().optional(),
+          }),
+        }),
+      )
+      .mutation(({ ctx, input }) => ctx.registry.issues.update(input.id, input.patch)),
+    archive: t.procedure
+      .input(z.object({ id: z.string() }))
+      .mutation(({ ctx, input }) => ctx.registry.issues.archive(input.id)),
+    action: t.procedure
+      .input(z.object({ id: z.string(), kind: z.enum(['rebase', 'pr', 'merge']) }))
+      .mutation(({ ctx, input }) => ctx.registry.issues.action(input.id, input.kind)),
+    addSession: t.procedure
+      .input(z.object({ id: z.string(), agentKind: z.string().optional() }))
+      .mutation(({ ctx, input }) => ctx.registry.issues.addSession(input.id, input.agentKind)),
+    addShell: t.procedure
+      .input(z.object({ id: z.string() }))
+      .mutation(({ ctx, input }) => ctx.registry.issues.addShell(input.id)),
+    applySuggestion: t.procedure
+      .input(z.object({ id: z.string() }))
+      .mutation(({ ctx, input }) => ctx.registry.issues.applySuggestion(input.id)),
+    dismissSuggestion: t.procedure
+      .input(z.object({ id: z.string() }))
+      .mutation(({ ctx, input }) => ctx.registry.issues.dismissSuggestion(input.id)),
+    refreshAssistant: t.procedure
+      .input(z.object({ id: z.string() }))
+      .mutation(({ ctx, input }) => ctx.registry.issues.refreshAssistant(input.id)),
+    linearSearch: t.procedure
+      .input(z.object({ query: z.string() }))
+      .query(({ ctx, input }) => ctx.registry.issues.linearSearch(input.query)),
   }),
   files: t.router({
     read: t.procedure
