@@ -30,10 +30,14 @@ export function parseServerOrigin(server: string): ServerOrigin | null {
 
   if (url.protocol !== 'ws:' && url.protocol !== 'wss:') return null
 
-  const wsBase = url.toString().replace(/\/$/, '')
-  const http = new URL(wsBase)
-  http.protocol = url.protocol === 'wss:' ? 'https:' : 'http:'
-  const httpOrigin = http.toString().replace(/\/$/, '')
+  // Preserve the explicit port even when it matches the protocol default (URL API normalises it away).
+  // Extract any port from the original string (e.g. wss://host:443 → ":443").
+  const rawPortMatch = server.match(/^wss?:\/\/[^/:]+(:(\d+))/)
+  const explicitPort = rawPortMatch ? rawPortMatch[2] : url.port || ''
+  const hostWithPort = explicitPort ? `${url.hostname}:${explicitPort}` : url.hostname
+  const wsBase = `${url.protocol}//${hostWithPort}`
+  const httpProto = url.protocol === 'wss:' ? 'https:' : 'http:'
+  const httpOrigin = `${httpProto}//${hostWithPort}`
   return { wsClientUrl: `${wsBase}/client`, httpOrigin }
 }
 
@@ -43,8 +47,14 @@ export function parseServerOrigin(server: string): ServerOrigin | null {
  * backend), so hitting the host on its own port connects with no query param.
  */
 export function serverConfig(loc: Location): ServerConfig {
+  // 1. Backend injected by the Tauri shell / headless setup (a ws://|wss:// URL).
+  const injected = (globalThis as { __PODIUM_SERVER__?: string }).__PODIUM_SERVER__
+  const fromInjected = injected ? parseServerOrigin(injected) : null
+  if (fromInjected) return { ...fromInjected, override: true }
+  // 2. Explicit ?server= override.
   const parsed = parseServer(loc.search)
   if (parsed) return { ...parsed, override: true }
+  // 3. Same-origin derived from window.location.
   const wsProto = loc.protocol === 'https:' ? 'wss:' : 'ws:'
   return { wsClientUrl: `${wsProto}//${loc.host}/client`, httpOrigin: loc.origin, override: false }
 }
