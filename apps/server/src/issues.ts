@@ -110,6 +110,33 @@ export class IssueService {
     return this.update(id, { archived: true })
   }
 
+  private worktreePathFor(repoPath: string, branch: string): string {
+    // branch is `issue/<seq>-<slug>`; flatten to a directory name under <repo>/.worktrees
+    const dir = branch.replace(/\//g, '-')
+    return `${repoPath}/.worktrees/${dir}`
+  }
+
+  async start(id: string): Promise<IssueWire> {
+    const row = this.rowOrThrow(id)
+    if (row.worktreePath) return this.toWire(row) // already started
+    const branch = this.slug(row.seq, row.title)
+    const path = this.worktreePathFor(row.repoPath, branch)
+    const res = await this.d.repoOp('worktreeAdd', row.repoPath, { path, branch, startPoint: row.parentBranch })
+    if (!res.ok) throw new Error(`worktree add failed: ${res.output}`)
+    row.branch = branch
+    row.worktreePath = path
+    row.stage = 'planning'
+    const wire = this.persistRow(row)
+    const { sessionId } = this.d.spawnSession({ cwd: path, agentKind: row.defaultAgent })
+    if (row.description.trim()) this.d.seedDraft(sessionId, row.description)
+    return wire
+  }
+
+  async createAndMaybeStart(input: CreateIssueInput): Promise<IssueWire> {
+    const created = this.create(input)
+    return input.startNow ? this.start(created.id) : created
+  }
+
   // The following are implemented in later tasks (declared here so the class is complete):
   // start(id), action(id, kind), linearSearch(query), applySuggestion(id),
   // dismissSuggestion(id), refreshAssistant(id), addSession/addShell, onSessionActivity.

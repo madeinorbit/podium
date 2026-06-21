@@ -50,3 +50,32 @@ describe('IssueService CRUD', () => {
     expect(svc.archive(w.id).archived).toBe(true)
   })
 })
+
+describe('IssueService.start', () => {
+  it('creates a worktree off parent, spawns the agent, seeds the draft, moves to planning', async () => {
+    const { svc, deps } = harness()
+    const created = svc.create({ repoPath: '/r', title: 'Fix login', description: 'do the thing', startNow: false })
+    const started = await svc.start(created.id)
+    expect(started.stage).toBe('planning')
+    expect(started.branch).toBe('issue/1-fix-login')
+    expect(started.worktreePath).toBe('/r/.worktrees/issue-1-fix-login')
+    expect(deps.repoOp).toHaveBeenCalledWith('worktreeAdd', '/r',
+      { path: '/r/.worktrees/issue-1-fix-login', branch: 'issue/1-fix-login', startPoint: 'main' })
+    expect(deps.spawnSession).toHaveBeenCalledWith({ cwd: '/r/.worktrees/issue-1-fix-login', agentKind: 'claude-code' })
+    expect(deps.seedDraft).toHaveBeenCalledWith('s1', 'do the thing')
+  })
+
+  it('create(startNow=true) starts immediately', async () => {
+    const { svc } = harness()
+    const wire = await svc.createAndMaybeStart({ repoPath: '/r', title: 'X', startNow: true })
+    expect(wire.stage).toBe('planning')
+    expect(wire.worktreePath).not.toBeNull()
+  })
+
+  it('start fails clearly when the worktree op fails', async () => {
+    const { svc, deps } = harness()
+    ;(deps.repoOp as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ ok: false, output: 'fatal: branch exists' })
+    const created = svc.create({ repoPath: '/r', title: 'X', startNow: false })
+    await expect(svc.start(created.id)).rejects.toThrow(/fatal: branch exists/)
+  })
+})
