@@ -377,12 +377,15 @@ export function SettingsView(): JSX.Element {
                       In Telegram, message <code className="text-[11px]">@BotFather</code> and use <code className="text-[11px]">/newbot</code> to create a bot. Paste its bot token here.
                     </li>
                     <li>
-                      Open a chat with the bot, or add it to the target group/channel, then send one message so Telegram can see the destination.
+                      For a personal chat, start the new bot, then message <code className="text-[11px]">@userinfobot</code> and paste the <code className="text-[11px]">Id</code> it shows.
                     </li>
                     <li>
-                      Find the chat ID with <code className="text-[11px]">https://api.telegram.org/bot&lt;token&gt;/getUpdates</code>. Groups usually use negative IDs like <code className="text-[11px]">-1001234567890</code>; public channels can use <code className="text-[11px]">@channelusername</code>.
+                      For a group or private channel, add your Podium bot, then add <code className="text-[11px]">@RawDataBot</code> briefly and copy the <code className="text-[11px]">chat.id</code> it posts. For public channels, <code className="text-[11px]">@channelusername</code> also works; remove the helper bot when done.
                     </li>
                   </ol>
+                  <p className="mt-1.5">
+                    If you prefer not to add a helper bot, send a test message and use <code className="text-[11px]">https://api.telegram.org/bot&lt;token&gt;/getUpdates</code> as a fallback.
+                  </p>
                   <p className="mt-1.5">
                     Telegram sends only when both a bot token and chat ID are set. These settings are global for this Podium server.
                   </p>
