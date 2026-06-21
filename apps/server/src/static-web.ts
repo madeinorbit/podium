@@ -13,6 +13,7 @@ const BACKEND_PREFIXES = [
   '/trpc',
   '/health',
   '/version',
+  '/setup',
   '/files',
   '/client',
   '/daemon',

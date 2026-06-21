@@ -8,6 +8,7 @@ import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { registerAssetRoute } from './file-asset-route'
 import { registerMcpRoute } from './mcp-route'
+import { registerSetupRoute } from './setup-route'
 import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
 import { appRouter } from './router'
@@ -40,6 +41,7 @@ export async function startServer(opts: { port?: number } = {}): Promise<ServerH
   const app = new Hono()
   app.get('/health', (c) => c.text('ok'))
   registerVersionRoute(app)
+  registerSetupRoute(app)
   registerAssetRoute(app, registry)
   // In-process MCP server exposing the superagent's orchestrator tools to a
   // harness-backed superagent (Claude via --mcp-config). Token-gated.
