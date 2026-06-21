@@ -802,7 +802,9 @@ function PanelRow({
   // for a snoozed session, but never a plain "snooze" icon.
   const snoozed = isSnoozed(session, useNow(60_000))
   return (
-    <div className="group flex min-w-0 items-center gap-1">
+    // Constant row height (matches the icon-sm controls) so revealing pin/close on
+    // hover never grows the row — otherwise every row below jumps down.
+    <div className="group flex min-h-7 min-w-0 items-center gap-1">
       {editing ? (
         <div className="flex min-w-0 flex-1 items-center gap-1.5 py-[3px] pr-3 pl-7">
           <StatusDot session={session} />

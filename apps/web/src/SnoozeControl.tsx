@@ -75,11 +75,15 @@ export function SnoozeControl({
     cancelClose()
     if (activeMenu === menuKey) setActiveMenu(null)
   }
-  // Anchor the menu under the icon, right edges aligned. Fixed positioning +
-  // a portal escapes the sidebar's `overflow-y-auto` clip.
+  // Anchor the menu to the LEFT of the icon (its right edge just left of the
+  // icon), top-aligned. The snooze icons form a vertical column at the sidebar's
+  // right edge, so reaching a menu that opens *downward* means crossing the next
+  // row's icon (which steals the hover). Opening leftward means the pointer
+  // travels away from that column — no sibling trigger sits in the path. Fixed
+  // positioning + a portal escapes the sidebar's `overflow-y-auto` clip.
   const place = () => {
     const r = triggerRef.current?.getBoundingClientRect()
-    if (r) setPos({ top: r.bottom + 4, right: Math.max(8, window.innerWidth - r.right) })
+    if (r) setPos({ top: r.top, right: Math.max(8, window.innerWidth - r.left + 4) })
   }
   const openMenu = () => {
     if (COARSE_POINTER) return // touch opens on tap, not hover
