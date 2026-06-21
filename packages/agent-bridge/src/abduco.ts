@@ -1,7 +1,8 @@
 import { execFile, execFileSync, spawnSync } from 'node:child_process'
 import { promisify } from 'node:util'
-import { type IPty, spawn as ptySpawn } from 'node-pty'
 import { resolveAbducoBin } from './abduco-bin.js'
+import { nodePtyBackend } from './pty/node-pty-backend.js'
+import type { PtyBackend, PtyProcess } from './pty/types.js'
 import { type AgentSession, withHardRepaint, wrapPty } from './session'
 import { shellQuote } from './tmux.js'
 
@@ -182,7 +183,8 @@ export async function killAbducoSessionAsync(label: string): Promise<void> {
   }
 }
 
-const ATTACH_CHROME = '\x1b[?1049h\x1b[H'
+const ATTACH_CHROME = Buffer.from('\x1b[?1049h\x1b[H', 'latin1')
+const EMPTY = new Uint8Array(0)
 
 /**
  * One-shot, split-safe strip of the alt-screen chrome the abduco client prints when
@@ -191,52 +193,44 @@ const ATTACH_CHROME = '\x1b[?1049h\x1b[H'
  * exists to remove. Holds back at most ATTACH_CHROME.length bytes, only until the
  * first divergence, and is a pure passthrough afterward.
  */
-export function createAltScreenStripper(): (data: string) => string {
-  let held = ''
+export function createAltScreenStripper(): (data: Uint8Array) => Uint8Array {
+  let held = Buffer.alloc(0)
   let done = false
-  return (data: string): string => {
+  return (data: Uint8Array): Uint8Array => {
     if (done) return data
-    held += data
-    if (ATTACH_CHROME.startsWith(held)) {
+    held = Buffer.concat([held, Buffer.from(data)])
+    if (held.length <= ATTACH_CHROME.length && ATTACH_CHROME.subarray(0, held.length).equals(held)) {
       if (held.length === ATTACH_CHROME.length) {
         done = true // full prefix seen — swallow it
-        return ''
+        return EMPTY
       }
-      return '' // still a plausible prefix — keep holding
+      return EMPTY // still a plausible prefix — keep holding
     }
     done = true
-    return held.startsWith(ATTACH_CHROME) ? held.slice(ATTACH_CHROME.length) : held
+    return held.length >= ATTACH_CHROME.length &&
+      held.subarray(0, ATTACH_CHROME.length).equals(ATTACH_CHROME)
+      ? held.subarray(ATTACH_CHROME.length)
+      : held
   }
 }
 
-/** Delegate IPty whose onData passes through the one-time chrome stripper. */
-function stripAttachChrome(proc: IPty): IPty {
+/** Delegate PtyProcess whose onData passes through the one-time chrome stripper. */
+function stripAttachChrome(proc: PtyProcess): PtyProcess {
   const strip = createAltScreenStripper()
-  const filtered: Pick<IPty, 'pid' | 'cols' | 'rows' | 'onData' | 'onExit'> & {
-    write(data: string): void
-    resize(cols: number, rows: number): void
-    kill(signal?: string): void
-  } = {
+  return {
     get pid() {
       return proc.pid
-    },
-    get cols() {
-      return proc.cols
-    },
-    get rows() {
-      return proc.rows
     },
     onData: (cb) =>
       proc.onData((d) => {
         const out = strip(d)
-        if (out) cb(out)
+        if (out.length) cb(out)
       }),
     onExit: (cb) => proc.onExit(cb),
     write: (d) => proc.write(d),
     resize: (c, r) => proc.resize(c, r),
     kill: (s) => proc.kill(s),
   }
-  return filtered as IPty
 }
 
 export interface AbducoSpawnOptions {
@@ -247,6 +241,7 @@ export interface AbducoSpawnOptions {
   cols: number
   rows: number
   env?: Record<string, string>
+  backend?: PtyBackend
 }
 
 /**
@@ -287,6 +282,7 @@ export function spawnAbducoAgent(opts: AbducoSpawnOptions): AgentSession {
         cols: opts.cols,
         rows: opts.rows,
         ...(opts.env ? { env: opts.env } : {}),
+        ...(opts.backend ? { backend: opts.backend } : {}),
       })
     } catch (err) {
       // A direct master would be reaped on the next redeploy, so make the
@@ -302,6 +298,7 @@ export function spawnAbducoAgent(opts: AbducoSpawnOptions): AgentSession {
     cols: opts.cols,
     rows: opts.rows,
     ...(opts.env ? { env: opts.env } : {}),
+    ...(opts.backend ? { backend: opts.backend } : {}),
   })
 }
 
@@ -323,15 +320,21 @@ export function attachAbducoAgent(opts: {
   env?: Record<string, string>
   /** Reattaching a shell: nudge with Ctrl-L too, since it won't repaint on SIGWINCH while idle. */
   hardRepaint?: boolean
+  backend?: PtyBackend
 }): AgentSession {
   const [cmd, ...args] = abducoAttachArgv(opts.label, resolveAbducoBin() ?? 'abduco')
-  const proc = ptySpawn(cmd as string, args, {
-    name: 'xterm-256color',
+  const backend = opts.backend ?? nodePtyBackend()
+  const proc = backend.spawn({
+    file: cmd as string,
+    args,
     cols: opts.cols,
     rows: opts.rows,
     env: { ...process.env, COLORTERM: 'truecolor', ...opts.env } as Record<string, string>,
   })
-  const session = withHardRepaint(wrapPty(stripAttachChrome(proc)), opts.hardRepaint ?? false)
+  const session = withHardRepaint(
+    wrapPty(stripAttachChrome(proc), { cols: opts.cols, rows: opts.rows }),
+    opts.hardRepaint ?? false,
+  )
   session.redraw()
   return {
     ...session,

@@ -89,30 +89,32 @@ describe('abduco session list parser', () => {
 
 describe('alt-screen chrome stripper', () => {
   const CHROME = '\x1b[?1049h\x1b[H'
+  const enc = (s: string) => new Uint8Array(Buffer.from(s, 'latin1'))
+  const dec = (u: Uint8Array) => Buffer.from(u).toString('latin1')
 
   it('strips the exact one-time prefix and passes the rest through', () => {
     const strip = createAltScreenStripper()
-    expect(strip(`${CHROME}hello`)).toBe('hello')
-    expect(strip(CHROME)).toBe(CHROME) // later occurrences are app output, untouched
+    expect(dec(strip(enc(`${CHROME}hello`)))).toBe('hello')
+    expect(dec(strip(enc(CHROME)))).toBe(CHROME) // later occurrences are app output
   })
 
   it('strips a prefix split across chunks', () => {
     const strip = createAltScreenStripper()
-    expect(strip('\x1b[?10')).toBe('')
-    expect(strip('49h\x1b[Hworld')).toBe('world')
+    expect(dec(strip(enc('\x1b[?10')))).toBe('')
+    expect(dec(strip(enc('49h\x1b[Hworld')))).toBe('world')
   })
 
   it('flushes held bytes when the stream turns out not to start with the chrome', () => {
     const strip = createAltScreenStripper()
-    expect(strip('\x1b[?10')).toBe('')
-    expect(strip('25h')).toBe('\x1b[?1025h')
-    expect(strip(CHROME)).toBe(CHROME)
+    expect(dec(strip(enc('\x1b[?10')))).toBe('')
+    expect(dec(strip(enc('25h')))).toBe('\x1b[?1025h')
+    expect(dec(strip(enc(CHROME)))).toBe(CHROME)
   })
 
   it('passes a chrome-less stream through unchanged', () => {
     const strip = createAltScreenStripper()
-    expect(strip('plain')).toBe('plain')
-    expect(strip(CHROME)).toBe(CHROME)
+    expect(dec(strip(enc('plain')))).toBe('plain')
+    expect(dec(strip(enc(CHROME)))).toBe(CHROME)
   })
 })
 
