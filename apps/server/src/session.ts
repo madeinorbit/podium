@@ -360,6 +360,12 @@ export class Session {
   }
 
   private markShellBusy(): void {
+    // A shell has no harness instrumentation, so a running command's output (and the
+    // Enter that started it) is its only activity signal — the event-time IS now (the
+    // frame just arrived). This is what lets shells participate in recency ordering
+    // instead of being frozen at spawn/bind time. Reattach produces no input/output
+    // unless a command is genuinely still running, so it can't restamp a quiet shell.
+    this.lastActiveAt = new Date().toISOString()
     if (!this.shellBusy) {
       this.shellBusy = true
       this.onActivity?.()
@@ -420,8 +426,12 @@ export class Session {
   /** Adopt a live terminal title the agent set (OSC). Replaces the cwd-derived default. */
   /** Harness-observed runtime state (hooks-driven). Not persisted — it's live-only. */
   setAgentState(state: AgentRuntimeState): void {
-    this.lastActiveAt = new Date().toISOString()
     this.agentState = state
+    // Recency tracks the phase event-time (state.since), not "now". Monotonic max:
+    // a reattach replays the recent transcript tail — the last turn_completed can be
+    // hours old — and re-seeds boot state; neither must pull recency backward nor
+    // restamp it to the reattach moment. Only a genuinely newer event advances it.
+    if (state.since > this.lastActiveAt) this.lastActiveAt = state.since
   }
 
   /** Adopt a `/color` value from the transcript. Treats Claude's "no colour"
@@ -446,12 +456,16 @@ export class Session {
   private static readonly NO_COLOR = new Set(['default', 'none', 'reset', 'gray', 'grey'])
 
   setTitle(title: string): void {
-    this.lastActiveAt = new Date().toISOString()
+    // A title change is not activity (spinner frames are filtered upstream, but even
+    // a stable rename isn't the agent doing work) — it must not move recency. Agent
+    // activity flows through setAgentState; shells through the busy path.
     this.title = title
   }
 
   markLive(cmd: string, geometry: Geometry): void {
-    this.lastActiveAt = new Date().toISOString()
+    // Reattaching to a surviving PTY is NOT activity — it must not restamp recency
+    // (that reshuffled the whole ordering on every daemon redeploy). The persisted
+    // lastActiveAt is authoritative; genuine activity (agentState/output) advances it.
     this.cmd = cmd
     // 'exited' is included on purpose: a reattach only produces a bind when the
     // daemon found the durable master alive. That means the row was wrongly

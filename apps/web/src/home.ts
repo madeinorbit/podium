@@ -75,8 +75,20 @@ export function attentionSummary(s: SessionMeta): string | null {
   return null
 }
 
-const byRecency = (a: SessionMeta, b: SessionMeta): number =>
-  b.lastActiveAt.localeCompare(a.lastActiveAt)
+/**
+ * Recency comparator for session ordering (newest-active first). `lastActiveAt` is
+ * the primary key; `createdAt` then `sessionId` break ties into a *total* order, so
+ * sessions with equal timestamps (common right after a reattach, when several rows
+ * carry the same persisted time) keep a fixed, deterministic order instead of
+ * reshuffling with the input order frame to frame.
+ */
+export function compareRecency(a: SessionMeta, b: SessionMeta): number {
+  const byActive = b.lastActiveAt.localeCompare(a.lastActiveAt)
+  if (byActive !== 0) return byActive
+  const byCreated = b.createdAt.localeCompare(a.createdAt)
+  if (byCreated !== 0) return byCreated
+  return a.sessionId.localeCompare(b.sessionId)
+}
 
 export function groupSessions(sessions: SessionMeta[]): HomeGroups {
   const groups: HomeGroups = { needsYou: [], idle: [], working: [] }
@@ -84,9 +96,9 @@ export function groupSessions(sessions: SessionMeta[]): HomeGroups {
     if (s.archived) continue
     groups[attentionGroup(s)].push(s)
   }
-  groups.needsYou.sort(byRecency)
-  groups.idle.sort(byRecency)
-  groups.working.sort(byRecency)
+  groups.needsYou.sort(compareRecency)
+  groups.idle.sort(compareRecency)
+  groups.working.sort(compareRecency)
   return groups
 }
 
@@ -119,7 +131,7 @@ export function kanbanColumns(
     const key = s.archived ? 'done' : (s.workState ?? 'unsorted')
     ;(byKey.get(key) ?? byKey.get('unsorted'))?.sessions.push(s)
   }
-  for (const lane of lanes) lane.sessions.sort(byRecency)
+  for (const lane of lanes) lane.sessions.sort(compareRecency)
   return lanes
 }
 

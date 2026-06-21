@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -31,9 +31,18 @@ describe('cursorStateProvider', () => {
         message: { content: [{ type: 'text', text: 'done' }] },
       }),
     ).resolves.toEqual([{ kind: 'activity' }])
-    await expect(translateCursorRecord({ type: 'turn_ended', status: 'success' })).resolves.toEqual([
-      { kind: 'turn_completed', verdict: { kind: 'done' } },
-    ])
+    await expect(translateCursorRecord({ type: 'turn_ended', status: 'success' })).resolves.toEqual(
+      [{ kind: 'turn_completed', verdict: { kind: 'done' } }],
+    )
+  })
+
+  it('stamps the record timestamp as event-time (at) so reattach replays carry the real time', async () => {
+    const events = await translateCursorRecord({
+      type: 'turn_ended',
+      status: 'success',
+      timestamp: '2026-06-12T15:00:00.000Z',
+    })
+    expect(events[0]?.at).toBe('2026-06-12T15:00:00.000Z')
   })
 
   it('classifies idle transcripts from the last assistant message', () => {
@@ -70,11 +79,14 @@ describe('cursorStateProvider', () => {
       ].join('\n'),
     )
 
+    const { mtime } = await stat(transcript)
     const events = await cursorStateProvider.bootEvents?.({
       cwd,
       resumeValue: chatId,
       homeDir: home,
     })
-    expect(events).toEqual([{ kind: 'turn_completed', verdict: { kind: 'done' } }])
+    expect(events).toEqual([
+      { kind: 'turn_completed', verdict: { kind: 'done' }, at: mtime.toISOString() },
+    ])
   })
 })

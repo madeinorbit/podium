@@ -3,7 +3,9 @@ import { open, readdir, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { LineDecoder } from '../jsonl-stream.js'
+import { fileMtimeIso } from './boot-time.js'
 import { chooseGrokSessionDir } from './grok-binding.js'
+import { withEventTime } from './reducer.js'
 import type { AgentStateEvent, AgentStateProvider } from './types.js'
 
 const POLL_MS = 700
@@ -60,17 +62,21 @@ export async function translateGrokUpdatePayload(payload: unknown): Promise<Agen
   const update = recordField(params, 'update')
   if (!update) return []
 
+  // The update record's own timestamp is the event-time. The observer seeks to the
+  // tail on reattach and replays recent records; stamping `at` keeps those replays
+  // carrying their original time so recency isn't restamped to "now".
+  const at = stringField(payload, 'timestamp')
   const sessionUpdate = normalizeName(stringField(update, 'sessionUpdate'))
   switch (sessionUpdate) {
     case 'user_message_chunk':
-      return [{ kind: 'prompt_submitted' }]
+      return withEventTime([{ kind: 'prompt_submitted' }], at)
     case 'agent_thought_chunk':
     case 'agent_message_chunk':
     case 'tool_call_update':
     case 'tool_result_update':
-      return [{ kind: 'activity' }]
+      return withEventTime([{ kind: 'activity' }], at)
     case 'hook_execution':
-      return await grokHookEvents(update, payload)
+      return withEventTime(await grokHookEvents(update, payload), at)
     default:
       return []
   }
@@ -128,7 +134,11 @@ export async function findLatestGrokSessionPaths(opts: {
   }
 
   const chosen = chooseGrokSessionDir({
-    dirs: dirInfos.map((d) => ({ id: d.paths.sessionId, createdMs: d.createdMs, mtimeMs: d.mtimeMs })),
+    dirs: dirInfos.map((d) => ({
+      id: d.paths.sessionId,
+      createdMs: d.createdMs,
+      mtimeMs: d.mtimeMs,
+    })),
     watermarkMs: opts.watermarkMs,
     boundId: opts.boundId,
   })
@@ -213,7 +223,12 @@ async function grokBootEvents(opts: {
       const verdict = classifyGrokIdleTranscript(
         await readGrokChatHistoryTail(paths.chatHistoryPath),
       )
-      if (verdict) return [{ kind: 'turn_completed', verdict }]
+      if (verdict) {
+        // Stamp the chat-history mtime so re-seeding this idle session on reattach
+        // restores its real last-active time, not the reattach moment.
+        const at = await fileMtimeIso(paths.chatHistoryPath)
+        return [{ kind: 'turn_completed', verdict, ...(at ? { at } : {}) }]
+      }
     } catch {
       // Missing/unreadable chat history falls back to a bare boot event.
     }
@@ -312,7 +327,10 @@ function tailGrokUpdates(
             if (isAvailableCommandsUpdate(payload) && observedWork) {
               next.push({ kind: 'turn_completed' })
             }
-            for (const event of next) {
+            // Stamp the synthetic turn_completed (translate already stamped the rest)
+            // with this record's event-time so a tail replay can't restamp recency.
+            const at = isRecord(record) ? stringField(record, 'timestamp') : undefined
+            for (const event of withEventTime(next, at)) {
               observedWork = updateObservedWork(observedWork, event)
               events.push(event)
             }

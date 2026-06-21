@@ -1,6 +1,6 @@
 import type { AgentKind, GitRepositoryWire, HostMetricsWire, SessionMeta } from '@podium/protocol'
 import { cn } from '@/lib/utils'
-import { attentionGroup } from './home'
+import { attentionGroup, compareRecency } from './home'
 import type { PinState, RepoView, WorktreeView } from './types'
 
 export type MemorySeverity = 'ok' | 'warn' | 'critical'
@@ -194,7 +194,10 @@ export function sortSessionsForPins(sessions: SessionMeta[], pins: PinState): Se
  * (de-emphasised), then working sessions at the bottom. Within each rank,
  * most-recently-active first.
  */
-export function sortSessionsForSidebar(sessions: SessionMeta[], now: number = Date.now()): SessionMeta[] {
+export function sortSessionsForSidebar(
+  sessions: SessionMeta[],
+  now: number = Date.now(),
+): SessionMeta[] {
   // Rank 0 = needs-you/idle and not snoozed (top); 1 = attention but snoozed
   // (de-emphasised, just above working); 2 = working (bottom).
   const rank = (s: SessionMeta): number => {
@@ -204,7 +207,7 @@ export function sortSessionsForSidebar(sessions: SessionMeta[], now: number = Da
   return [...sessions].sort((a, b) => {
     const dr = rank(a) - rank(b)
     if (dr !== 0) return dr
-    return b.lastActiveAt.localeCompare(a.lastActiveAt)
+    return compareRecency(a, b)
   })
 }
 
@@ -323,9 +326,6 @@ export function partitionWorkItems(
     if (group === 'working') {
       working.push(s)
     } else if (isSnoozed(s, now)) {
-      // Snoozed: drop out of the top NEEDS YOUR ATTENTION group entirely. It still
-      // appears (sunk) under its worktree via sortSessionsForSidebar.
-      continue
     } else {
       attention.push(s)
     }
@@ -349,7 +349,9 @@ export function sortRepos<T extends { id: string; name: string }>(
   const lu = (id: string): number => lastUsedAt.get(id) ?? 0
 
   if (mode === 'alphabetical') {
-    return [...repos].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }))
+    return [...repos].sort((a, b) =>
+      a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }),
+    )
   }
 
   if (mode === 'lastUsed') {

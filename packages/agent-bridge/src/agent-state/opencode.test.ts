@@ -176,7 +176,11 @@ describe('opencode state provider', () => {
       homeDir: home,
     })
     expect(events).toEqual([
-      { kind: 'turn_completed', verdict: { kind: 'done', summary: 'Ready when you are.' } },
+      {
+        kind: 'turn_completed',
+        verdict: { kind: 'done', summary: 'Ready when you are.' },
+        at: new Date(2).toISOString(), // the assistant part row's time_updated
+      },
     ])
   })
 })

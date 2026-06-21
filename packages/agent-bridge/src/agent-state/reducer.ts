@@ -11,12 +11,28 @@ export function initialAgentState(now: string): AgentRuntimeState {
  * (idle/need/error) never leak across phases: each transition rebuilds the
  * state from scratch.
  */
+/**
+ * Stamp a record's source timestamp onto translated events so the reducer can use
+ * it as the phase `since`. Recency then reflects when the agent actually acted, not
+ * when we observed it — so a poller replaying its recent tail on reattach carries
+ * the original (old) times and can't restamp every session to "now". No-op for
+ * events that already set `at`, and when no event-time is available (→ falls back
+ * to `now` downstream).
+ */
+export function withEventTime(
+  events: AgentStateEvent[],
+  at: string | undefined,
+): AgentStateEvent[] {
+  if (!at) return events
+  return events.map((e) => (e.at === undefined ? { ...e, at } : e))
+}
+
 export function reduceAgentState(
   prev: AgentRuntimeState,
   event: AgentStateEvent,
   now: string,
 ): AgentRuntimeState {
-  const base = { since: now, openTaskCount: prev.openTaskCount }
+  const base = { since: event.at ?? now, openTaskCount: prev.openTaskCount }
   switch (event.kind) {
     case 'session_started':
       return { phase: 'idle', ...base }

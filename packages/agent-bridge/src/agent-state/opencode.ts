@@ -1,5 +1,11 @@
 import type { TranscriptItem } from '@podium/protocol'
+import { withEventTime } from './reducer.js'
 import type { AgentStateEvent, AgentStateProvider } from './types.js'
+
+/** An opencode row's `time_updated` (epoch ms) as ISO event-time, or undefined. */
+function isoFromMs(ms: number | undefined): string | undefined {
+  return typeof ms === 'number' && ms > 0 ? new Date(ms).toISOString() : undefined
+}
 
 type OpencodeDbModule = typeof import('../opencode/db.js')
 type OpencodeTranscriptModule = typeof import('../transcript/opencode.js')
@@ -150,7 +156,12 @@ export function observeOpencodeState(opts: {
       if (!session) return
       const events: AgentStateEvent[] = []
       if (session.timeCompacting && session.timeCompacting !== lastCompacting) {
-        events.push({ kind: 'compaction', phase: 'start' })
+        events.push(
+          ...withEventTime(
+            [{ kind: 'compaction', phase: 'start' }],
+            isoFromMs(session.timeCompacting),
+          ),
+        )
       } else if (!session.timeCompacting && lastCompacting) {
         events.push({ kind: 'compaction', phase: 'end' })
       }
@@ -164,15 +175,20 @@ export function observeOpencodeState(opts: {
           const part = parseJson(row.partData)
           const role = messageInfo ? stringField(messageInfo, 'role') : undefined
           const partType = part ? stringField(part, 'type') : undefined
-          if (role === 'user' && partType === 'text') events.push({ kind: 'prompt_submitted' })
-          else if (partType === 'text' || partType === 'tool') events.push({ kind: 'activity' })
+          // The row's time_updated is the event-time. opencode replays the whole
+          // history on attach (lastPartTime starts at 0), so stamping keeps that
+          // replay from restamping recency to "now".
+          const at = isoFromMs(row.timeUpdated)
+          const rowEvents: AgentStateEvent[] = []
+          if (role === 'user' && partType === 'text') rowEvents.push({ kind: 'prompt_submitted' })
+          else if (partType === 'text' || partType === 'tool') rowEvents.push({ kind: 'activity' })
           else if (partType === 'step-finish') {
-            const text = lastAssistantText(rt, handle, attached.id)
-            events.push({
+            rowEvents.push({
               kind: 'turn_completed',
-              verdict: rt.classifyOpencodeIdleText(text),
+              verdict: rt.classifyOpencodeIdleText(lastAssistantText(rt, handle, attached.id)?.text),
             })
           }
+          events.push(...withEventTime(rowEvents, at))
         }
         if (opts.onTranscriptItems) {
           const items = rows.flatMap((row) => rt.opencodePartToItems(row))
@@ -245,8 +261,19 @@ async function opencodeBootEvents(opts: {
   try {
     const sessionId = opts.resumeValue
     if (!sessionId) return [{ kind: 'session_started' }]
-    const text = lastAssistantText(rt, db, sessionId)
-    if (text) return [{ kind: 'turn_completed', verdict: rt.classifyOpencodeIdleText(text) }]
+    const last = lastAssistantText(rt, db, sessionId)
+    if (last) {
+      // Stamp the assistant row's time_updated so re-seeding this idle session on
+      // reattach restores its real last-active time, not the reattach moment.
+      const at = isoFromMs(last.timeUpdated)
+      return [
+        {
+          kind: 'turn_completed',
+          verdict: rt.classifyOpencodeIdleText(last.text),
+          ...(at ? { at } : {}),
+        },
+      ]
+    }
     return [{ kind: 'session_started' }]
   } finally {
     db.close()
@@ -257,7 +284,7 @@ function lastAssistantText(
   rt: OpencodeRuntime,
   db: OpencodeDb,
   sessionId: string,
-): string | undefined {
+): { text: string; timeUpdated: number } | undefined {
   if (!db) return undefined
   const rows = rt.loadOpencodeTranscriptTail(db, sessionId, 200)
   for (let i = rows.length - 1; i >= 0; i--) {
@@ -268,7 +295,7 @@ function lastAssistantText(
     if (stringField(messageInfo ?? {}, 'role') !== 'assistant') continue
     if (stringField(part ?? {}, 'type') !== 'text') continue
     const text = stringField(part ?? {}, 'text')
-    if (text) return text
+    if (text) return { text, timeUpdated: row.timeUpdated }
   }
   return undefined
 }

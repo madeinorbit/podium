@@ -72,6 +72,7 @@ Make gaps as visible as implementations. Where multiple methods exist, enumerate
 - Reconciliation: dedup / quiet-window / stickiness rules; how conflicting signals resolve.
 - Sub-agent / nested-task state and identity inheritance.
 - Latency: how fast each signal fires; debounce.
+- **Last-active timestamp (recency, drives session ordering):** what is the authoritative "this session last did something the user cares about" timestamp, and which signal is it derived from (transcript/rollout record `timestamp`, hook event time, OSC title change, PTY output frame)? Is it **event-time** (the timestamp embedded in the source-of-truth record) or **observe-time** (wall-clock when the orchestrator happened to process the signal)? Event-time is required for accuracy and stability. Must be **stable across reattach/redeploy** — a daemon bind/reattach is *not* activity and must not restamp it. Must be **uniform across all harnesses and the plain shell** (and across live vs. parked/discovered sessions) so a mixed list sorts on one comparable clock. Note granularity and a deterministic tiebreaker for equal timestamps so the order doesn't reshuffle frame-to-frame.
 
 ## 8. Hooks & instrumentation install
 *Scope: the machinery that makes §7 authoritative.*

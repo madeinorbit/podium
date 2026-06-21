@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { initialAgentState, reduceAgentState } from './reducer'
+import { initialAgentState, reduceAgentState, withEventTime } from './reducer'
 
 const T0 = '2026-06-12T10:00:00.000Z'
 const T1 = '2026-06-12T10:00:01.000Z'
+const EVENT_TIME = '2026-06-12T09:30:00.000Z'
 
 describe('reduceAgentState', () => {
   it('starts unknown, goes idle on session_started', () => {
@@ -120,5 +121,41 @@ describe('reduceAgentState', () => {
     let s = reduceAgentState(initialAgentState(T0), { kind: 'task_delta', delta: 1 }, T0)
     s = reduceAgentState(s, { kind: 'prompt_submitted' }, T1)
     expect(s.openTaskCount).toBe(1)
+  })
+
+  it('uses the event-time (event.at) for `since`, not the observe-time `now`', () => {
+    // A poller replaying an old transcript record on reattach must produce the
+    // record's real timestamp as `since` — not "now" — so recency stays stable.
+    const s = reduceAgentState(
+      initialAgentState(T0),
+      { kind: 'turn_completed', at: EVENT_TIME },
+      T1,
+    )
+    expect(s.since).toBe(EVENT_TIME)
+  })
+
+  it('falls back to `now` for `since` when the event carries no event-time', () => {
+    const s = reduceAgentState(initialAgentState(T0), { kind: 'prompt_submitted' }, T1)
+    expect(s.since).toBe(T1)
+  })
+})
+
+describe('withEventTime', () => {
+  it('stamps `at` onto events that lack it', () => {
+    const out = withEventTime([{ kind: 'prompt_submitted' }, { kind: 'activity' }], EVENT_TIME)
+    expect(out).toEqual([
+      { kind: 'prompt_submitted', at: EVENT_TIME },
+      { kind: 'activity', at: EVENT_TIME },
+    ])
+  })
+
+  it('leaves an event that already has `at` untouched', () => {
+    const out = withEventTime([{ kind: 'activity', at: T0 }], EVENT_TIME)
+    expect(out[0]?.at).toBe(T0)
+  })
+
+  it('is a no-op when no event-time is available', () => {
+    const events = [{ kind: 'activity' as const }]
+    expect(withEventTime(events, undefined)).toBe(events)
   })
 })

@@ -2,13 +2,15 @@ import type { Dirent } from 'node:fs'
 import { open, readdir, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import { LineDecoder } from '../jsonl-stream.js'
 import {
+  type CursorSessionPaths,
   cursorProjectSlug,
   cursorRoot,
   cursorSessionPaths,
-  type CursorSessionPaths,
 } from '../cursor/paths.js'
+import { LineDecoder } from '../jsonl-stream.js'
+import { fileMtimeIso } from './boot-time.js'
+import { withEventTime } from './reducer.js'
 import type { AgentStateEvent, AgentStateProvider } from './types.js'
 
 const POLL_MS = 700
@@ -31,17 +33,24 @@ export const cursorStateProvider: AgentStateProvider = {
 export async function translateCursorRecord(record: unknown): Promise<AgentStateEvent[]> {
   if (!isRecord(record)) return []
 
+  // The transcript record's own timestamp is the event-time. The observer seeks to
+  // the tail on reattach and replays recent records; stamping `at` keeps those
+  // replays carrying their original time so recency isn't restamped to "now".
+  const at = stringField(record, 'timestamp')
   const turnType = stringField(record, 'type')
   if (turnType === 'turn_ended') {
     const status = stringField(record, 'status')
     if (status === 'error' || status === 'failed') {
-      return [{ kind: 'turn_failed', errorClass: status, retryable: false }]
+      return withEventTime([{ kind: 'turn_failed', errorClass: status, retryable: false }], at)
     }
-    return [{ kind: 'turn_completed', verdict: await classifyCursorTurnEnd(record) }]
+    return withEventTime(
+      [{ kind: 'turn_completed', verdict: await classifyCursorTurnEnd(record) }],
+      at,
+    )
   }
 
   const role = stringField(record, 'role')
-  if (role === 'user') return [{ kind: 'prompt_submitted' }]
+  if (role === 'user') return withEventTime([{ kind: 'prompt_submitted' }], at)
   if (role === 'assistant') {
     const message = recordField(record, 'message')
     const hasTool = Array.isArray(message?.content)
@@ -51,7 +60,7 @@ export async function translateCursorRecord(record: unknown): Promise<AgentState
             (stringField(part, 'type') === 'tool_use' || stringField(part, 'type') === 'tool_call'),
         )
       : false
-    return [{ kind: 'activity' }, ...(hasTool ? [] : [])]
+    return withEventTime([{ kind: 'activity' }, ...(hasTool ? [] : [])], at)
   }
   return []
 }
@@ -191,8 +200,15 @@ async function cursorBootEvents(opts: {
       ...(opts.homeDir ? { homeDir: opts.homeDir } : {}),
     })
     try {
-      const verdict = classifyCursorIdleTranscript(await readCursorTranscriptTail(paths.transcriptPath))
-      if (verdict) return [{ kind: 'turn_completed', verdict }]
+      const verdict = classifyCursorIdleTranscript(
+        await readCursorTranscriptTail(paths.transcriptPath),
+      )
+      if (verdict) {
+        // Stamp the transcript mtime so re-seeding this idle session on reattach
+        // restores its real last-active time, not the reattach moment.
+        const at = await fileMtimeIso(paths.transcriptPath)
+        return [{ kind: 'turn_completed', verdict, ...(at ? { at } : {}) }]
+      }
     } catch {
       // Missing/unreadable transcript falls back to a bare boot event.
     }

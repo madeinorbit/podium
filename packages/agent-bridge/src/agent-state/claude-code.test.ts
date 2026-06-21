@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -332,10 +332,14 @@ describe('bootEvents', () => {
     const cwd = '/home/dev/my.app'
     const projectDir = join(home, '.claude', 'projects', '-home-dev-my-app')
     await mkdir(projectDir, { recursive: true })
+    const transcript = join(projectDir, 'conv1.jsonl')
     await writeFile(
-      join(projectDir, 'conv1.jsonl'),
+      transcript,
       assistantLine([text('Should I also migrate the staging database?')]),
     )
+    // The transcript's mtime (last write = last activity) is the boot event-time, so
+    // re-seeding an idle session on reattach restores its real recency, not "now".
+    const { mtime } = await stat(transcript)
     const events = await claudeCodeStateProvider.bootEvents?.({
       cwd,
       resumeValue: 'conv1',
@@ -345,6 +349,7 @@ describe('bootEvents', () => {
       {
         kind: 'turn_completed',
         verdict: { kind: 'question', summary: 'Should I also migrate the staging database?' },
+        at: mtime.toISOString(),
       },
     ])
   })

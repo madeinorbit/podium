@@ -1,8 +1,13 @@
-import type { Geometry, ServerMessage } from '@podium/protocol'
+import type { AgentRuntimeState, Geometry, ServerMessage } from '@podium/protocol'
 import { describe, expect, it, vi } from 'vitest'
 import { type ClientConn, Session } from './session'
 
 const geo: Geometry = { cols: 80, rows: 24 }
+const CREATED = '2026-06-03T00:00:00.000Z'
+
+function state(phase: AgentRuntimeState['phase'], since: string): AgentRuntimeState {
+  return { phase, since, openTaskCount: 0 }
+}
 
 function makeSession(toDaemon = vi.fn()) {
   return new Session({
@@ -275,6 +280,64 @@ describe('Session', () => {
     })
     s.onExit(3)
     expect(s.toRow()).toMatchObject({ status: 'exited', exitCode: 3 })
+  })
+
+  it('setAgentState advances lastActiveAt to the phase event-time (state.since)', () => {
+    const s = makeSession()
+    expect(s.lastActiveAt).toBe(CREATED)
+    s.setAgentState(state('working', '2026-06-04T00:00:00.000Z'))
+    expect(s.lastActiveAt).toBe('2026-06-04T00:00:00.000Z')
+  })
+
+  it('lastActiveAt is monotonic: re-applying an older state never pulls it back', () => {
+    // A reattach replays the recent transcript tail (e.g. the last turn_completed,
+    // hours old). Its event-time is in the past — recency must not regress to it,
+    // and must not jump to "now" either. It stays at the genuine last-active time.
+    const s = makeSession()
+    s.setAgentState(state('idle', '2026-06-10T00:00:00.000Z'))
+    expect(s.lastActiveAt).toBe('2026-06-10T00:00:00.000Z')
+    s.setAgentState(state('idle', '2026-06-04T00:00:00.000Z')) // older replay
+    expect(s.lastActiveAt).toBe('2026-06-10T00:00:00.000Z')
+  })
+
+  it('markLive (daemon reattach/bind) does NOT restamp lastActiveAt', () => {
+    const s = new Session({
+      sessionId: 's1',
+      agentKind: 'claude-code',
+      cwd: '/w',
+      title: 'w',
+      origin: { kind: 'spawn' },
+      createdAt: CREATED,
+      lastActiveAt: '2026-06-10T00:00:00.000Z',
+      geometry: geo,
+      toDaemon: vi.fn(),
+      status: 'reconnecting',
+    })
+    s.markLive('claude', geo)
+    expect(s.lastActiveAt).toBe('2026-06-10T00:00:00.000Z')
+  })
+
+  it('setTitle does NOT restamp lastActiveAt (a title change is not activity)', () => {
+    const s = makeSession()
+    s.setTitle('new title')
+    expect(s.title).toBe('new title')
+    expect(s.lastActiveAt).toBe(CREATED)
+  })
+
+  it('a running shell command advances lastActiveAt (output is its only signal)', () => {
+    const s = new Session({
+      sessionId: 'sh',
+      agentKind: 'shell',
+      cwd: '/w',
+      title: 'w',
+      origin: { kind: 'spawn' },
+      createdAt: CREATED,
+      geometry: geo,
+      toDaemon: vi.fn(),
+    })
+    s.attachClient(makeClient('a'))
+    s.handleInput('a', Buffer.from('ls\r').toString('base64'))
+    expect(s.lastActiveAt > CREATED).toBe(true)
   })
 
   it('toMeta surfaces snoozedUntil only when set; clearSnooze reports change', () => {

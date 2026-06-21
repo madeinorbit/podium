@@ -51,6 +51,16 @@ describe('translateCodexEvent', () => {
     ).toEqual([])
     expect(await translateCodexEvent(env('mystery_event'))).toEqual([])
   })
+
+  it('stamps the record timestamp as event-time (at) so reattach replays carry the real time', async () => {
+    const ts = '2026-06-12T13:49:53.366Z'
+    const events = await translateCodexEvent({
+      type: 'event_msg',
+      timestamp: ts,
+      payload: { type: 'task_complete', last_agent_message: 'done' },
+    })
+    expect(events[0]?.at).toBe(ts)
+  })
 })
 
 describe('classifyCodexVerdict', () => {

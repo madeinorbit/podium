@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -46,6 +46,15 @@ describe('grok live state provider', () => {
     ])
   })
 
+  it('stamps the update timestamp as event-time (at) so reattach replays carry the real time', async () => {
+    const events = await translateGrokUpdatePayload({
+      timestamp: '2026-06-12T14:00:00.000Z',
+      method: 'session/update',
+      params: { update: { sessionUpdate: 'agent_message_chunk' } },
+    })
+    expect(events[0]?.at).toBe('2026-06-12T14:00:00.000Z')
+  })
+
   it('classifies Grok chat history idle verdicts', () => {
     expect(
       classifyGrokIdleTranscript([
@@ -67,6 +76,7 @@ describe('grok live state provider', () => {
       paths.chatHistoryPath,
       JSON.stringify({ type: 'assistant', content: 'Want me to run the tests?' }),
     )
+    const { mtime } = await stat(paths.chatHistoryPath)
 
     await expect(
       grokStateProvider.bootEvents?.({ cwd, resumeValue: 'g1', homeDir: home }),
@@ -74,6 +84,7 @@ describe('grok live state provider', () => {
       {
         kind: 'turn_completed',
         verdict: { kind: 'question', summary: 'Want me to run the tests?' },
+        at: mtime.toISOString(),
       },
     ])
   })

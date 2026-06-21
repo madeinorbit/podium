@@ -8,6 +8,8 @@ import {
   readCodexStateMetadata,
 } from '../discovery/providers/codex-state.js'
 import { LineDecoder } from '../jsonl-stream.js'
+import { fileMtimeIso } from './boot-time.js'
+import { withEventTime } from './reducer.js'
 import type { AgentStateEvent, AgentStateProvider } from './types.js'
 
 const POLL_MS = 700
@@ -46,28 +48,38 @@ export async function translateCodexEvent(record: unknown): Promise<AgentStateEv
   if (!isRecord(record) || strField(record, 'type') !== 'event_msg') return []
   const payload = isRecord(record.payload) ? record.payload : undefined
   if (!payload) return []
+  // The rollout record's own timestamp is the event-time. The state observer seeks
+  // to the tail on reattach and replays the recent records — stamping `at` keeps
+  // those replays carrying their original time so recency isn't restamped to "now".
+  const at = strField(record, 'timestamp')
   switch (strField(payload, 'type')) {
     case 'user_message':
     case 'task_started':
-      return [{ kind: 'prompt_submitted' }]
+      return withEventTime([{ kind: 'prompt_submitted' }], at)
     case 'agent_message':
     case 'token_count':
     case 'patch_apply_end':
-      return [{ kind: 'activity' }]
+      return withEventTime([{ kind: 'activity' }], at)
     case 'task_complete':
-      return [
-        {
-          kind: 'turn_completed',
-          verdict: classifyCodexVerdict(strField(payload, 'last_agent_message')),
-        },
-      ]
+      return withEventTime(
+        [
+          {
+            kind: 'turn_completed',
+            verdict: classifyCodexVerdict(strField(payload, 'last_agent_message')),
+          },
+        ],
+        at,
+      )
     case 'turn_aborted':
-      return [
-        {
-          kind: 'turn_completed',
-          verdict: { kind: 'interrupted', summary: 'turn aborted' },
-        },
-      ]
+      return withEventTime(
+        [
+          {
+            kind: 'turn_completed',
+            verdict: { kind: 'interrupted', summary: 'turn aborted' },
+          },
+        ],
+        at,
+      )
     default:
       return []
   }
@@ -85,8 +97,14 @@ async function codexBootEvents(opts: {
       const rollout = meta.byThreadId.get(opts.resumeValue)?.rolloutPath
       if (rollout) {
         const last = lastTaskComplete(await readFile(rollout, 'utf8'))
-        if (last !== undefined)
-          return [{ kind: 'turn_completed', verdict: classifyCodexVerdict(last) }]
+        if (last !== undefined) {
+          // Stamp the rollout mtime so re-seeding this idle session on reattach
+          // restores its real last-active time, not the reattach moment.
+          const at = await fileMtimeIso(rollout)
+          return [
+            { kind: 'turn_completed', verdict: classifyCodexVerdict(last), ...(at ? { at } : {}) },
+          ]
+        }
       }
     } catch {
       // missing/unreadable → fall through to a bare boot event

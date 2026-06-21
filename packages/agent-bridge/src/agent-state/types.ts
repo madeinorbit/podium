@@ -6,7 +6,7 @@ import type { AgentRuntimeState } from '@podium/protocol'
  * folds them into AgentRuntimeState. A provider that can only emit a subset
  * degrades to coarser states instead of breaking the model.
  */
-export type AgentStateEvent =
+export type AgentStateEvent = (
   | { kind: 'session_started' }
   | { kind: 'prompt_submitted' }
   /** Liveness heartbeat (tool use etc.) — anything that proves the agent is computing. */
@@ -22,6 +22,15 @@ export type AgentStateEvent =
   | { kind: 'compaction'; phase: 'start' | 'end' }
   | { kind: 'task_delta'; delta: 1 | -1 }
   | { kind: 'session_ended' }
+) & {
+  /** Event-time (ISO 8601) of the source record/hook, when the provider can supply
+   *  it (a transcript record's `timestamp`, a rollout file's mtime). The reducer
+   *  uses it as the phase `since`, so recency tracks when the agent actually acted —
+   *  not when the daemon observed it. This is what keeps a reattach (which replays
+   *  the recent transcript tail) from restamping every session to "now". Absent →
+   *  the reducer falls back to wall-clock `now` (fine for real-time hooks). */
+  at?: string
+}
 
 /** What a provider injects at spawn so the harness reports events. */
 export interface AgentInstrumentation {

@@ -29,8 +29,8 @@ import {
 } from '@podium/protocol'
 import { knownPathsFor } from './file-relay-policy'
 import {
-  attentionNotice,
   type AttentionNotice,
+  attentionNotice,
   pushNtfy,
   pushTelegram,
   type TelegramConfig,
@@ -198,7 +198,12 @@ export class SessionRegistry {
         createdAt: r.createdAt,
         geometry: { ...DEFAULT_GEOMETRY },
         toDaemon: this.toDaemon,
-        onActivity: () => this.broadcastSessions(),
+        onActivity: () => {
+          // Shell busy transitions advance lastActiveAt (their only activity signal);
+          // persist so that recency is durable across a restart, then rebroadcast.
+          this.persist(session)
+          this.broadcastSessions()
+        },
         durableLabel: r.durableLabel,
         lastActiveAt: r.lastActiveAt,
         status: reloadStatus,
@@ -888,7 +893,12 @@ export class SessionRegistry {
       createdAt: new Date().toISOString(),
       geometry: { ...DEFAULT_GEOMETRY },
       toDaemon: this.toDaemon,
-      onActivity: () => this.broadcastSessions(),
+      onActivity: () => {
+        // Shell busy transitions advance lastActiveAt (their only activity signal);
+        // persist so that recency is durable across a restart, then rebroadcast.
+        this.persist(session)
+        this.broadcastSessions()
+      },
       durableLabel: `podium-${sessionId}`,
       ...(input.resume ? { resume: input.resume } : {}),
     })
@@ -1096,6 +1106,10 @@ export class SessionRegistry {
         if (!session) break
         const prev = session.agentState
         session.setAgentState(msg.state)
+        // Persist so the advanced recency (lastActiveAt) is durable across a server
+        // restart — otherwise the row keeps its stale last-persisted time and the
+        // ordering jumps backward on every redeploy until events re-arrive.
+        this.persist(session)
         // A dedicated per-session message — not broadcastSessions(). Hook events
         // fire often (TodoWrite mutations, turn boundaries, across all sessions);
         // re-serializing and fanning out the whole session list each time is

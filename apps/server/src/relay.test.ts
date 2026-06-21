@@ -466,6 +466,39 @@ describe('SessionRegistry', () => {
     expect(store.loadSessions()).toEqual([])
   })
 
+  it('write-through: an agentState change persists lastActiveAt so recency survives a restart', () => {
+    const store = new SessionStore(':memory:')
+    const reg = new SessionRegistry(store)
+    reg.attachDaemon(() => {})
+    const { sessionId } = reg.createSession({ agentKind: 'claude-code', cwd: '/a' })
+    reg.onDaemonMessage(bind(sessionId))
+    const future = '2999-01-01T00:00:00.000Z'
+    reg.onDaemonMessage({
+      type: 'agentState',
+      sessionId,
+      state: { phase: 'working', since: future, openTaskCount: 0 },
+    })
+    expect(store.loadSessions().at(0)?.lastActiveAt).toBe(future)
+  })
+
+  it('write-through: running-shell activity persists the row (recency is durable)', () => {
+    const store = new SessionStore(':memory:')
+    const reg = new SessionRegistry(store)
+    reg.attachDaemon(() => {})
+    const { sessionId } = reg.createSession({ agentKind: 'shell', cwd: '/a' })
+    reg.onDaemonMessage(bind(sessionId))
+    const cid = reg.attachClient(sink().send) // first client → controller
+    reg.onClientMessage(cid, { type: 'attach', sessionId })
+    const spy = vi.spyOn(store, 'upsertSession')
+    reg.onClientMessage(cid, {
+      type: 'input',
+      sessionId,
+      data: Buffer.from('ls\r').toString('base64'),
+    })
+    expect(reg.listSessions().find((m) => m.sessionId === sessionId)?.busy).toBe(true)
+    expect(spy).toHaveBeenCalled()
+  })
+
   it('mints opaque durable session ids (uuid), not the s0 counter', () => {
     const reg = new SessionRegistry(new SessionStore(':memory:'))
     reg.attachDaemon(() => {})
@@ -1095,7 +1128,11 @@ describe('reconnect identity (hello reclaim)', () => {
       reg.attachClient((m) => b.push(m))
       reg.onClientMessage(idA, { type: 'setSessionDraft', sessionId: 'sess', text: 'half typed' })
       expect(a.filter((m) => m.type === 'sessionDraftChanged')).toEqual([])
-      expect(b).toContainEqual({ type: 'sessionDraftChanged', sessionId: 'sess', text: 'half typed' })
+      expect(b).toContainEqual({
+        type: 'sessionDraftChanged',
+        sessionId: 'sess',
+        text: 'half typed',
+      })
     })
 
     it('replays stored drafts to a freshly connected client', () => {
@@ -1138,7 +1175,11 @@ describe('reconnect identity (hello reclaim)', () => {
         const reg2 = new SessionRegistry(store2)
         const c: ServerMessage[] = []
         reg2.attachClient((m) => c.push(m))
-        expect(c).toContainEqual({ type: 'sessionDraftChanged', sessionId: 'sess', text: 'real work' })
+        expect(c).toContainEqual({
+          type: 'sessionDraftChanged',
+          sessionId: 'sess',
+          text: 'real work',
+        })
         store2.close()
       } finally {
         vi.useRealTimers()
@@ -1151,7 +1192,11 @@ describe('reconnect identity (hello reclaim)', () => {
         const store = new SessionStore(':memory:')
         const reg = new SessionRegistry(store)
         const idA = reg.attachClient(() => {})
-        reg.onClientMessage(idA, { type: 'setSessionDraft', sessionId: 'sess', text: 'about to send' })
+        reg.onClientMessage(idA, {
+          type: 'setSessionDraft',
+          sessionId: 'sess',
+          text: 'about to send',
+        })
         reg.onClientMessage(idA, { type: 'setSessionDraft', sessionId: 'sess', text: '' })
         // No debounce wait: an empty draft flushes at once so a restart right after
         // a send never restores stale text.
