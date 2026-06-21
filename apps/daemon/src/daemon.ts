@@ -8,6 +8,8 @@ import { promisify } from 'node:util'
 
 const execFileAsync = promisify(execFile)
 
+import { repoOpCommand } from './repo-op'
+
 import {
   type AgentConversationDiagnostic,
   type AgentConversationSummary,
@@ -1349,32 +1351,18 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
   const runRepoOp = async (
     msg: Extract<ControlMessage, { type: 'repoOpRequest' }>,
   ): Promise<void> => {
-    const argvFor = (): string[] | undefined => {
-      switch (msg.op) {
-        case 'status':
-          return ['status', '--porcelain=v1', '-b']
-        case 'log':
-          return ['log', '--oneline', '-20']
-        case 'branches':
-          return ['branch', '-a', '-v']
-        case 'worktreeAdd': {
-          const path = msg.args?.path
-          const branch = msg.args?.branch
-          if (!path || !branch) return undefined
-          return ['worktree', 'add', path, '-b', branch]
-        }
-      }
-    }
-    const argv = argvFor()
-    if (!argv) {
-      send({ type: 'repoOpResult', requestId: msg.requestId, ok: false, output: 'missing args' })
+    const cmd = repoOpCommand(msg.op, msg.args ?? {})
+    if ('error' in cmd) {
+      send({ type: 'repoOpResult', requestId: msg.requestId, ok: false, output: cmd.error })
       return
     }
     try {
-      const { stdout, stderr } = await execFileAsync('git', ['-C', msg.cwd, ...argv], {
-        timeout: 30_000,
-        maxBuffer: 1024 * 1024,
-      })
+      const runArgs = cmd.bin === 'git' ? ['-C', msg.cwd, ...cmd.argv] : cmd.argv
+      const opts =
+        cmd.bin === 'git'
+          ? { timeout: 120_000, maxBuffer: 1024 * 1024 }
+          : { cwd: msg.cwd, timeout: 120_000, maxBuffer: 1024 * 1024 }
+      const { stdout, stderr } = await execFileAsync(cmd.bin, runArgs, opts)
       send({
         type: 'repoOpResult',
         requestId: msg.requestId,
