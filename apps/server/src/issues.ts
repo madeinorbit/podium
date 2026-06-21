@@ -3,6 +3,7 @@ import type { PodiumSettings } from '@podium/core'
 import { type IssueWire, type RepoOp, type ServerMessage, type SessionMeta } from '@podium/protocol'
 import { sessionsForIssue, slugifyBranch, summarizeSessions } from './issue-util'
 import type { IssueRow, SessionStore } from './store'
+import { buildAssistantMessages, parseAssistantJson } from './issueAssistant'
 import { llmClient } from './llm'
 import { type LinearIssue, searchIssues } from './linear'
 
@@ -180,6 +181,91 @@ export class IssueService {
     if (!key) return []
     const search = this.d.linearSearch ?? searchIssues
     return search(key, query)
+  }
+
+  private assistantTimers = new Map<string, ReturnType<typeof setTimeout>>()
+
+  applySuggestion(id: string): IssueWire {
+    const row = this.rowOrThrow(id)
+    if (row.suggestedStage) row.stage = row.suggestedStage
+    row.suggestedStage = null
+    row.suggestedReason = null
+    return this.persistRow(row)
+  }
+  dismissSuggestion(id: string): IssueWire {
+    const row = this.rowOrThrow(id)
+    row.suggestedStage = null
+    row.suggestedReason = null
+    return this.persistRow(row)
+  }
+
+  onSessionActivity(sessionId: string): void {
+    if (!this.d.getSettings().issues?.assistantEnabled) return
+    const sess = this.d.listSessions().find((s) => s.sessionId === sessionId)
+    if (!sess) return
+    const row = [...this.rows.values()].find(
+      (r) => r.worktreePath && (sess.cwd === r.worktreePath || sess.cwd.startsWith(`${r.worktreePath}/`)),
+    )
+    if (!row) return
+    const prev = this.assistantTimers.get(row.id)
+    if (prev) clearTimeout(prev)
+    this.assistantTimers.set(
+      row.id,
+      setTimeout(() => {
+        this.assistantTimers.delete(row.id)
+        void this.refreshAssistant(row.id).catch(() => {})
+      }, 120_000),
+    )
+  }
+
+  async refreshAssistant(id: string): Promise<IssueWire> {
+    const row = this.rowOrThrow(id)
+    if (!row.worktreePath) return this.toWire(row)
+    const settings = this.d.getSettings()
+    const members = sessionsForIssue(row.worktreePath, this.d.listSessions()).map((s) => ({
+      agentKind: s.agentKind,
+      phase: s.agentState?.phase ?? 'shell',
+      tail: '',
+    }))
+    const [status, log] = await Promise.all([
+      this.d.repoOp('status', row.worktreePath).catch(() => ({ ok: false, output: '' })),
+      this.d.repoOp('log', row.worktreePath).catch(() => ({ ok: false, output: '' })),
+    ])
+    const others = [...this.rows.values()]
+      .filter((r) => r.id !== row.id && r.repoPath === row.repoPath && !r.archived)
+      .map((r) => ({ seq: r.seq, title: r.title, stage: r.stage, branch: r.branch }))
+    const ctx = {
+      issue: {
+        title: row.title,
+        description: row.description,
+        stage: row.stage,
+        branch: row.branch,
+        ...(row.prUrl ? { prUrl: row.prUrl } : {}),
+      },
+      gitStatus: status.output,
+      gitLog: log.output,
+      members,
+      otherIssues: others,
+    }
+    let result = null as ReturnType<typeof parseAssistantJson>
+    try {
+      const factory = this.d.llm ?? llmClient
+      const client = factory(settings.workLlm, settings.apiKeys)
+      const resp = await client.complete(buildAssistantMessages(ctx), [])
+      result = parseAssistantJson(resp.text)
+    } catch {
+      result = null
+    }
+    if (!result) return this.toWire(row) // leave prior state intact on any LLM/parse failure
+    row.activityNotes = result.activityNotes || row.activityNotes
+    row.notesUpdatedAt = this.now()
+    row.blockedBy = result.blockedBy
+    row.dependencyNote = result.dependencyNote || null
+    // Trust the model's stage when valid and different from current; else clear the suggestion.
+    const digestStage = result.suggestedStage
+    row.suggestedStage = digestStage && digestStage !== row.stage ? digestStage : null
+    row.suggestedReason = row.suggestedStage ? result.suggestedReason : null
+    return this.persistRow(row)
   }
 
   // The following are implemented in later tasks (declared here so the class is complete):

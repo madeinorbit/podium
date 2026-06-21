@@ -1104,6 +1104,7 @@ export class SessionRegistry {
         const s = this.sessions.get(msg.sessionId)
         if (s) this.persist(s)
         this.broadcastSessions()
+        this.issues.onSessionActivity(msg.sessionId)
         break
       }
       case 'spawnError': {
@@ -1145,6 +1146,7 @@ export class SessionRegistry {
           state: msg.state,
         }
         for (const c of this.clients.values()) c.send(update)
+        this.issues.onSessionActivity(msg.sessionId)
         this.notifyAttention(session, prev, msg.state)
         if (
           session.snoozedUntil !== undefined &&

@@ -118,3 +118,46 @@ describe('IssueService.linearSearch', () => {
     expect(await svc.linearSearch('login')).toEqual([])
   })
 })
+
+describe('IssueService assistant', () => {
+  function harnessWithLlm(json: string) {
+    const { deps } = harness([])
+    deps.llm = (() => ({ label: 'fake', complete: async () => ({ text: json, toolCalls: [] }) })) as never
+    deps.repoOp = vi.fn(async (op: string) => ({ ok: true, output: op === 'status' ? '## issue/1-x' : 'abc plan' })) as never
+    deps.getSettings = (() => ({
+      gitWorkflow: { defaultParentBranch: '', mergeStyle: 'ff-only', autoRebaseBeforeMerge: true },
+      sessionDefaults: { agent: 'claude-code' }, integrations: { linearApiKey: '' },
+      issues: { assistantEnabled: true }, workLlm: { kind: 'api', provider: 'openrouter', model: 'm' }, apiKeys: {},
+    })) as never
+    return { svc: new IssueService(deps), deps }
+  }
+
+  it('refreshAssistant writes activity notes + suggestion and broadcasts', async () => {
+    const { svc } = harnessWithLlm('{"activityNotes":"making progress","suggestedStage":"in_progress","suggestedReason":"plan done","blockedBy":[],"dependencyNote":""}')
+    const c = svc.create({ repoPath: '/r', title: 'X', startNow: false })
+    await svc.update(c.id, { worktreePath: '/r/wt', branch: 'issue/1-x', stage: 'planning' })
+    const wire = await svc.refreshAssistant(c.id)
+    expect(wire.activityNotes).toBe('making progress')
+    expect(wire.suggestedStage).toBe('in_progress')
+  })
+
+  it('applySuggestion moves the stage and clears the suggestion', async () => {
+    const { svc } = harnessWithLlm('{"activityNotes":"x","suggestedStage":"in_progress","suggestedReason":"r","blockedBy":[],"dependencyNote":""}')
+    const c = svc.create({ repoPath: '/r', title: 'X', startNow: false })
+    await svc.update(c.id, { worktreePath: '/r/wt', branch: 'issue/1-x', stage: 'planning' })
+    await svc.refreshAssistant(c.id)
+    const moved = svc.applySuggestion(c.id)
+    expect(moved.stage).toBe('in_progress')
+    expect(moved.suggestedStage).toBeUndefined()
+  })
+
+  it('dismissSuggestion clears without moving', async () => {
+    const { svc } = harnessWithLlm('{"activityNotes":"x","suggestedStage":"in_progress","suggestedReason":"r","blockedBy":[],"dependencyNote":""}')
+    const c = svc.create({ repoPath: '/r', title: 'X', startNow: false })
+    await svc.update(c.id, { worktreePath: '/r/wt', branch: 'issue/1-x', stage: 'planning' })
+    await svc.refreshAssistant(c.id)
+    const d = svc.dismissSuggestion(c.id)
+    expect(d.stage).toBe('planning')
+    expect(d.suggestedStage).toBeUndefined()
+  })
+})
