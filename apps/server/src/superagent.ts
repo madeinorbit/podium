@@ -346,11 +346,16 @@ export class SuperagentService {
     }
 
     if (backend.kind === 'harness') {
+      // Full harness: run the real agent CLI with its own tool belt, injecting our
+      // orchestrator system prompt (natively via --append-system-prompt for Claude,
+      // else prepended). The conversation so far is folded into the prompt, the same
+      // way the API path re-sends history each turn.
       const prompt = this.renderHarnessPrompt(threadId, latestText)
       const result = await this.registry.harnessExec({
         agent: backend.harnessAgent,
         model: backend.harnessModel,
         prompt,
+        systemPrompt: SYSTEM_PROMPT,
       })
       record({
         role: 'assistant',
@@ -455,7 +460,10 @@ export class SuperagentService {
     return sanitizeToolPairing(out)
   }
 
-  /** Harness mode is one-shot: fold recent history into a single prompt. */
+  /** Harness mode folds the recent conversation into one prompt per turn (the
+   *  system prompt is injected separately, via harnessExec). The agent runs with
+   *  its real tools, so this is the conversation transcript, not a tools-disabled
+   *  fallback. */
   private renderHarnessPrompt(threadId: string, latest: string): string {
     const rows = this.store
       .loadSuperagentMessages(threadId, 12)
@@ -464,7 +472,7 @@ export class SuperagentService {
       .slice(0, -1)
       .map((r) => `${r.role === 'user' ? 'User' : 'You'}: ${r.content}`)
       .join('\n\n')
-    return `${SYSTEM_PROMPT}\n\n(You are running without tools in this mode — answer from reasoning; suggest concrete next steps the user can click in Podium.)\n\n${history ? `Conversation so far:\n${history}\n\n` : ''}User: ${latest}`
+    return `${history ? `Conversation so far:\n${history}\n\n` : ''}User: ${latest}`
   }
 
   private tools(linearKey: string): { spec: LlmTool; run: (args: Args) => Promise<string> }[] {

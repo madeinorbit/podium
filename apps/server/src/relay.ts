@@ -825,6 +825,7 @@ export class SessionRegistry {
     model?: string
     prompt: string
     cwd?: string
+    systemPrompt?: string
   }): Promise<OpResult> {
     return this.daemonRequest(
       this.pendingHarnessExecs,
@@ -838,6 +839,7 @@ export class SessionRegistry {
         prompt: input.prompt,
         ...(input.model && input.model !== 'auto' ? { model: input.model } : {}),
         ...(input.cwd ? { cwd: input.cwd } : {}),
+        ...(input.systemPrompt ? { systemPrompt: input.systemPrompt } : {}),
       }),
     )
   }

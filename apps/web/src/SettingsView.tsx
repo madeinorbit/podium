@@ -663,12 +663,19 @@ function BackendEditor({
               onChange={(harnessModel) => onChange({ ...backend, harnessModel })}
             />
           </Row>
-          <p className="mt-1.5 mb-0.5 max-w-[60ch] text-[12px] text-warning">
-            Heads up: Claude Code's programmatic mode (<code className="text-[11px]">claude -p</code>)
-            bills pay-per-use API rates even when you have a subscription. Grok runs through{' '}
-            <code className="text-[11px]">grok -p</code> with your local Grok login. For free Codex
-            orchestration, pick API provider → Codex instead.
-          </p>
+          {backend.harnessAgent === 'claude-code' ? (
+            <p className="mt-1.5 mb-0.5 max-w-[60ch] text-[12px] text-warning">
+              Heads up: Claude Code's programmatic mode (
+              <code className="text-[11px]">claude -p</code>) consumes your Claude usage / rate
+              limits and bills pay-per-use API rates even with a subscription. For free
+              orchestration, pick API provider → Codex instead.
+            </p>
+          ) : (
+            <p className="mt-1.5 mb-0.5 max-w-[60ch] text-[12px] text-muted-foreground">
+              The superagent runs as a real {backend.harnessAgent} agent with its full tool belt,
+              using your local login, and Podium injects its orchestrator system prompt.
+            </p>
+          )}
         </>
       )}
     </>

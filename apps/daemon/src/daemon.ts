@@ -77,6 +77,7 @@ import {
 } from '@podium/protocol'
 import WebSocket, { type RawData } from 'ws'
 import { readAssetSandboxed, readFileSandboxed, writeFileSandboxed } from './file-access'
+import { buildHarnessExec } from './harness-exec.js'
 import { startHookIngest } from './hook-ingest'
 import { sampleHostMemory } from './host-metrics'
 import { attributeMemory, snapshotProcesses } from './memory-breakdown'
@@ -1342,31 +1343,15 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
   const runHarnessExec = async (
     msg: Extract<ControlMessage, { type: 'harnessExecRequest' }>,
   ): Promise<void> => {
-    const cmd =
-      msg.agent === 'claude-code'
-        ? 'claude'
-        : msg.agent === 'codex'
-          ? 'codex'
-          : msg.agent === 'opencode'
-            ? resolveOpencodeBin()
-            : msg.agent === 'cursor'
-              ? resolveCursorBin()
-              : 'grok'
-    const args =
-      msg.agent === 'claude-code'
-        ? ['-p', msg.prompt, ...(msg.model ? ['--model', msg.model] : [])]
-        : msg.agent === 'codex'
-          ? [
-              'exec',
-              '--skip-git-repo-check',
-              ...(msg.model ? ['--model', msg.model] : []),
-              msg.prompt,
-            ]
-          : msg.agent === 'opencode'
-            ? ['run', ...(msg.model ? ['-m', msg.model] : []), msg.prompt]
-            : msg.agent === 'cursor'
-              ? ['-p', msg.prompt, ...(msg.model ? ['--model', msg.model] : [])]
-              : ['-p', msg.prompt, ...(msg.model ? ['--model', msg.model] : [])]
+    const { cmd, args } = buildHarnessExec(
+      msg.agent,
+      {
+        prompt: msg.prompt,
+        ...(msg.model ? { model: msg.model } : {}),
+        ...(msg.systemPrompt ? { systemPrompt: msg.systemPrompt } : {}),
+      },
+      { opencode: resolveOpencodeBin, cursor: resolveCursorBin },
+    )
     try {
       const { stdout } = await execFileAsync(cmd, args, {
         timeout: 240_000,

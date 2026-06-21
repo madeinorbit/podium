@@ -632,6 +632,9 @@ export const HarnessExecRequestMessage = z.object({
   model: z.string().optional(),
   prompt: z.string(),
   cwd: z.string().optional(),
+  /** Extra system prompt injected into the harness turn (the superagent's
+   *  orchestrator prompt) — natively where the CLI supports it, else prepended. */
+  systemPrompt: z.string().optional(),
 })
 
 // Token-usage harvest from harness transcripts (ccusage-style, in-house so it
