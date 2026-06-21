@@ -11,7 +11,7 @@ describe('podium config', () => {
     process.env.PODIUM_STATE_DIR = dir
   })
   afterEach(() => {
-    process.env.PODIUM_STATE_DIR = undefined
+    delete process.env.PODIUM_STATE_DIR
     rmSync(dir, { recursive: true, force: true })
   })
 

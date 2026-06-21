@@ -28,30 +28,36 @@ export function resolvePlan(argv: string[], config: PodiumConfig): LaunchPlan {
   return serverUrl ? { mode, serverUrl, showSetupHint } : { mode, showSetupHint }
 }
 
-async function main(): Promise<void> {
-  const { startServer } = await import('../apps/server/src/server')
-  const { startDaemon } = await import('../apps/daemon/src/daemon')
+export async function main(): Promise<void> {
+  const argv = process.argv.slice(2)
+  const config = loadConfig()
 
-  const plan = resolvePlan(process.argv.slice(2), loadConfig())
-  const port = Number(process.env.PODIUM_PORT ?? 18787)
+  // Crash net BEFORE anything else (mirror scripts/daemon.ts, audit P0-1).
+  const { installProcessSafetyNet } = await import('./process-safety')
+  installProcessSafetyNet('podium')
 
-  if (plan.mode === 'client') {
-    const url = plan.serverUrl ?? '(no serverUrl configured)'
-    console.log(`podium client mode — open the web UI pointed at ${url}`)
+  // Escape hatch: `podium setup` (or --reconfigure) force-serves the setup UI
+  // regardless of the saved mode, so a client/daemon install can be reconfigured.
+  const forceSetup = argv.includes('setup') || argv.includes('--reconfigure')
+  const plan = resolvePlan(argv, config)
+  const port = config.port ?? Number(process.env.PODIUM_PORT ?? 18787)
+
+  if (!forceSetup && plan.mode === 'client') {
+    console.log(`podium client mode — open the web UI pointed at ${plan.serverUrl ?? '(no serverUrl configured)'}`)
+    console.log('(run `podium setup` to reconfigure this install)')
     return
   }
 
-  const runServer = plan.mode === 'all-in-one' || plan.mode === 'server'
-  const runDaemon = plan.mode === 'all-in-one' || plan.mode === 'daemon'
+  const runServer = forceSetup || plan.mode === 'all-in-one' || plan.mode === 'server'
+  const runDaemon = !forceSetup && (plan.mode === 'all-in-one' || plan.mode === 'daemon')
 
   let serverPort = port
   if (runServer) {
+    const { startServer } = await import('../apps/server/src/server')
     const server = await startServer({ port })
     serverPort = server.port
     console.log(`podium server up on http://localhost:${serverPort}`)
-    if (plan.showSetupHint) {
-      console.log(`\n  → Open setup:  http://localhost:${serverPort}/\n`)
-    }
+    if (forceSetup || plan.showSetupHint) console.log(`\n  → Open setup:  http://localhost:${serverPort}/\n`)
   }
   if (runDaemon) {
     const serverUrl = plan.mode === 'daemon' ? plan.serverUrl : `ws://localhost:${serverPort}`
@@ -59,15 +65,21 @@ async function main(): Promise<void> {
       console.error('podium daemon mode needs a serverUrl (config.serverUrl or --server)')
       process.exit(2)
     }
+    const { startDaemon } = await import('../apps/daemon/src/daemon')
     await startDaemon({ serverUrl })
     console.log(`podium daemon up → ${serverUrl}`)
   }
 
-  // Stay alive until a signal.
+  // Watchdog pet (no-op off a Type=notify unit) — mirror scripts/daemon.ts.
+  const { startWatchdog } = await import('./sd-notify')
+  const stopWatchdog = startWatchdog()
+  const shutdown = (): void => {
+    stopWatchdog?.()
+    process.exit(0)
+  }
+  process.on('SIGINT', shutdown)
+  process.on('SIGTERM', shutdown)
   await new Promise(() => {})
 }
 
-// Only run main() when executed (not when imported by the unit test).
-if (import.meta.main) {
-  void main()
-}
+if (import.meta.main) void main()

@@ -15,7 +15,7 @@ describe('setup route', () => {
     registerSetupRoute(app)
   })
   afterEach(() => {
-    process.env.PODIUM_STATE_DIR = undefined
+    delete process.env.PODIUM_STATE_DIR
     rmSync(dir, { recursive: true, force: true })
   })
 

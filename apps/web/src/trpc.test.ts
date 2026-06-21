@@ -19,6 +19,7 @@ describe('serverConfig backend resolution', () => {
   it('falls back to ?server= when no global', () => {
     const cfg = serverConfig(loc({ search: '?server=wss://q:443' }))
     expect(cfg.wsClientUrl).toBe('wss://q:443/client')
+    expect(cfg.httpOrigin).toBe('https://q:443')
     expect(cfg.override).toBe(true)
   })
   it('falls back to same-origin from location', () => {

@@ -1,5 +1,4 @@
-import { type PodiumConfig as PodiumConfigType, loadConfig, needsSetup, saveConfig } from '@podium/core'
-import { PodiumConfig } from '@podium/core'
+import { PodiumConfig, type PodiumConfig as PodiumConfigType, loadConfig, needsSetup, saveConfig } from '@podium/core'
 import type { Hono } from 'hono'
 
 /**
@@ -7,6 +6,7 @@ import type { Hono } from 'hono'
  * writes the chosen deployment mode here. The CLI / Tauri shell read the same config file.
  */
 export function registerSetupRoute(app: Hono): void {
+  // TODO(phase3/6): gate /setup/config POST (loopback-only or daemon.secret) before off-box server modes ship
   app.get('/setup/config', (c) => {
     const config = loadConfig()
     return c.json({ config, needsSetup: needsSetup(config) })

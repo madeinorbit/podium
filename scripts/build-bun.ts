@@ -33,7 +33,7 @@ const compile = (entry: string, name: string): void => {
 
 compile('scripts/server.ts', 'podium-server')
 compile('scripts/daemon-compiled.ts', 'podium-daemon')
-compile('scripts/cli.ts', 'podium')
+compile('scripts/cli-compiled.ts', 'podium')
 console.log('[build-bun] done -> dist-bun/podium-server, dist-bun/podium-daemon, dist-bun/podium')
 
 // --- headless bundle: binaries + web + launcher ---------------------------------
