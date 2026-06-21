@@ -1,6 +1,10 @@
+import { StringDecoder } from 'node:string_decoder'
 import type { Geometry } from '@podium/protocol'
-import { type IPty, spawn } from 'node-pty'
 import { createTitleScanner } from './osc-title.js'
+import { nodePtyBackend } from './pty/node-pty-backend.js'
+import type { PtyBackend, PtyProcess } from './pty/types.js'
+
+const CTRL_L = Uint8Array.of(0x0c)
 
 export interface SpawnOptions {
   cmd: string
@@ -48,26 +52,30 @@ export function withHardRepaint(session: AgentSession, hard: boolean): AgentSess
   return { ...session, redraw: (opts) => session.redraw({ hard: opts?.hard ?? true }) }
 }
 
-export function spawnAgent(opts: SpawnOptions): AgentSession {
-  const proc: IPty = spawn(opts.cmd, opts.args ?? [], {
-    name: 'xterm-256color',
+export function spawnAgent(opts: SpawnOptions, backend: PtyBackend = nodePtyBackend()): AgentSession {
+  const proc = backend.spawn({
+    file: opts.cmd,
+    args: opts.args ?? [],
     cols: opts.cols,
     rows: opts.rows,
     cwd: opts.cwd ?? process.cwd(),
-    // The frontend is xterm.js, which renders 24-bit color. `name` pins
-    // TERM=xterm-256color (node-pty writes it into the child env); COLORTERM is the
-    // companion signal supports-color/chalk read to unlock truecolor. Without it agents
-    // like Claude Code degrade to a 256-color approximation of their real palette. We
-    // assert it after process.env (the frontend's capability doesn't depend on how the
-    // daemon was launched) but before opts.env so callers/tests can still override.
-    env: { ...process.env, COLORTERM: 'truecolor', ...opts.env } as Record<string, string>,
+    // The frontend is xterm.js, which renders 24-bit color. TERM=xterm-256color is set
+    // explicitly (not via node-pty's `name`) so BOTH backends advertise it identically.
+    // COLORTERM is the companion signal supports-color/chalk read to unlock truecolor;
+    // without it agents like Claude Code degrade to a 256-color approximation. We assert
+    // both after process.env (the frontend's capability doesn't depend on how the daemon
+    // was launched) but before opts.env so callers/tests can still override.
+    env: { ...process.env, TERM: 'xterm-256color', COLORTERM: 'truecolor', ...opts.env } as Record<
+      string,
+      string
+    >,
   })
-  return wrapPty(proc)
+  return wrapPty(proc, { cols: opts.cols, rows: opts.rows })
 }
 
-export function wrapPty(proc: IPty): AgentSession {
-  let cols = proc.cols
-  let rows = proc.rows
+export function wrapPty(proc: PtyProcess, init: { cols: number; rows: number }): AgentSession {
+  let cols = init.cols
+  let rows = init.rows
   let seq = 0
   let disposed = false
   let cancelNudge: (() => void) | undefined
@@ -75,13 +83,17 @@ export function wrapPty(proc: IPty): AgentSession {
   const exitCbs = new Set<(code: number) => void>()
   const titleCbs = new Set<(t: string) => void>()
   const titleScanner = createTitleScanner()
+  // The backend delivers raw bytes; a streaming decoder reassembles multi-byte chars
+  // (and escape sequences) split across reads so the title scanner sees whole strings.
+  const decoder = new StringDecoder('utf8')
   let lastTitle: string | undefined
 
-  proc.onData((data: string) => {
-    const frame: AgentFrame = { seq, data: Buffer.from(data, 'utf8').toString('base64') }
+  proc.onData((bytes: Uint8Array) => {
+    const buf = Buffer.from(bytes)
+    const frame: AgentFrame = { seq, data: buf.toString('base64') }
     seq += 1
     for (const cb of [...frameCbs]) cb(frame)
-    for (const raw of titleScanner.push(data)) {
+    for (const raw of titleScanner.push(decoder.write(buf))) {
       // Strip stray control chars; keep the spinner/brand glyphs. Skip empty
       // titles and unchanged repeats so we don't churn the relay.
       const title = raw.replace(/\p{Cc}/gu, '').trim()
@@ -126,9 +138,9 @@ export function wrapPty(proc: IPty): AgentSession {
       // Idle shells ignore the SIGWINCH nudge below; Ctrl-L makes readline/zle
       // redraw the prompt regardless. Sent before the resize so the shrink's ack
       // frame (the restore trigger) is the repaint we just forced.
-      if (opts?.hard) proc.write('\x0c')
+      if (opts?.hard) proc.write(CTRL_L)
       if (rows <= 1) {
-        if (!opts?.hard) proc.write('\x0c') // Ctrl-L fallback when a one-row nudge is impossible
+        if (!opts?.hard) proc.write(CTRL_L) // Ctrl-L fallback when a one-row nudge is impossible
         return
       }
       cancelNudge?.() // drop any in-flight nudge
