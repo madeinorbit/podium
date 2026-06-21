@@ -33,7 +33,8 @@ const compile = (entry: string, name: string): void => {
 
 compile('scripts/server.ts', 'podium-server')
 compile('scripts/daemon-compiled.ts', 'podium-daemon')
-console.log('[build-bun] done -> dist-bun/podium-server, dist-bun/podium-daemon')
+compile('scripts/cli.ts', 'podium')
+console.log('[build-bun] done -> dist-bun/podium-server, dist-bun/podium-daemon, dist-bun/podium')
 
 // --- headless bundle: binaries + web + launcher ---------------------------------
 const headless = `${out}/headless`
@@ -48,22 +49,12 @@ for (const bin of ['podium-server', 'podium-daemon']) {
 }
 cpSync(webDist, `${headless}/web`, { recursive: true })
 
+cpSync(`${out}/podium`, `${headless}/podium-cli`)
+chmodSync(`${headless}/podium-cli`, 0o755)
 const launcher = `#!/bin/sh
-# Podium headless launcher. Subcommands: all (default) | server | daemon
 DIR="$(cd "$(dirname "$0")" && pwd)"
 export PODIUM_WEB_DIR="\${PODIUM_WEB_DIR:-$DIR/web}"
-cmd="\${1:-all}"
-[ $# -gt 0 ] && shift
-case "$cmd" in
-  all)
-    "$DIR/podium-server" & SRV=$!
-    "$DIR/podium-daemon" & DMN=$!
-    trap 'kill $SRV $DMN 2>/dev/null' INT TERM
-    wait ;;
-  server) exec "$DIR/podium-server" "$@" ;;
-  daemon) exec "$DIR/podium-daemon" "$@" ;;
-  *) echo "usage: podium {all|server|daemon}" >&2; exit 2 ;;
-esac
+exec "$DIR/podium-cli" "$@"
 `
 writeFileSync(`${headless}/podium`, launcher)
 chmodSync(`${headless}/podium`, 0o755)
