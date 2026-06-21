@@ -1,7 +1,7 @@
 import { StringDecoder } from 'node:string_decoder'
 import type { Geometry } from '@podium/protocol'
 import { createTitleScanner } from './osc-title.js'
-import { nodePtyBackend } from './pty/node-pty-backend.js'
+import { defaultPtyBackend } from './pty/index.js'
 import type { PtyBackend, PtyProcess } from './pty/types.js'
 
 const CTRL_L = Uint8Array.of(0x0c)
@@ -52,7 +52,7 @@ export function withHardRepaint(session: AgentSession, hard: boolean): AgentSess
   return { ...session, redraw: (opts) => session.redraw({ hard: opts?.hard ?? true }) }
 }
 
-export function spawnAgent(opts: SpawnOptions, backend: PtyBackend = nodePtyBackend()): AgentSession {
+export function spawnAgent(opts: SpawnOptions, backend: PtyBackend = defaultPtyBackend()): AgentSession {
   const proc = backend.spawn({
     file: opts.cmd,
     args: opts.args ?? [],

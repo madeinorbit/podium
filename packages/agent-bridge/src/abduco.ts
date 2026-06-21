@@ -1,7 +1,7 @@
 import { execFile, execFileSync, spawnSync } from 'node:child_process'
 import { promisify } from 'node:util'
 import { resolveAbducoBin } from './abduco-bin.js'
-import { nodePtyBackend } from './pty/node-pty-backend.js'
+import { defaultPtyBackend } from './pty/index.js'
 import type { PtyBackend, PtyProcess } from './pty/types.js'
 import { type AgentSession, withHardRepaint, wrapPty } from './session'
 import { shellQuote } from './tmux.js'
@@ -323,7 +323,7 @@ export function attachAbducoAgent(opts: {
   backend?: PtyBackend
 }): AgentSession {
   const [cmd, ...args] = abducoAttachArgv(opts.label, resolveAbducoBin() ?? 'abduco')
-  const backend = opts.backend ?? nodePtyBackend()
+  const backend = opts.backend ?? defaultPtyBackend()
   const proc = backend.spawn({
     file: cmd as string,
     args,
