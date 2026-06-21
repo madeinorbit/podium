@@ -304,12 +304,13 @@ describe('codexPromptTitle', () => {
     ).toBe('add a dark mode toggle')
   })
 
-  test('caps very long prompts to 100 chars with an ellipsis', () => {
+  test('caps very long prompts with an ellipsis (≤80 chars, tidier than a raw slice)', () => {
     const title = codexPromptTitle({
       type: 'event_msg',
       payload: { type: 'user_message', message: 'x'.repeat(150) },
     })
-    expect(title).toBe(`${'x'.repeat(100)}…`)
+    // No spaces to break on → hard cut at 80 + ellipsis.
+    expect(title).toBe(`${'x'.repeat(80)}…`)
   })
 
   test('ignores injected preamble (text starting with <) and non-prompt records', () => {
