@@ -1,8 +1,8 @@
 import { mkdirSync, readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
-import { DatabaseSync } from 'node:sqlite'
 import { normalizeSettings, type PodiumSettings } from '@podium/core'
+import { openDatabase, type SqlDatabase } from '@podium/core/sqlite'
 
 export type PinKind = 'panel' | 'worktree' | 'repo'
 
@@ -98,13 +98,13 @@ export interface SuperagentThreadRow {
 
 /** Durable server-side store: repos + sessions registry. Single writer (the server). */
 export class SessionStore {
-  private readonly db: DatabaseSync
-  /** FTS5 is compiled into node:sqlite normally; LIKE fallback if not. */
+  private readonly db: SqlDatabase
+  /** FTS5 is compiled into the bundled SQLite normally; LIKE fallback if not. */
   private ftsAvailable = false
 
   constructor(private readonly path: string = defaultDbPath()) {
     if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true })
-    this.db = new DatabaseSync(path)
+    this.db = openDatabase(path)
     this.migrate()
   }
 

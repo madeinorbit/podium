@@ -1,15 +1,8 @@
 import { readdir, stat } from 'node:fs/promises'
 import { isAbsolute, join } from 'node:path'
+import { openDatabase, type SqlDatabase } from '@podium/core/sqlite'
 import { compactText, dateFromEpochMillis, isRecord } from '../jsonl.js'
 import type { AgentConversationDiagnostic, AgentConversationGitMetadata } from '../types.js'
-
-type DatabaseSyncConstructor = new (
-  path: string,
-  options?: { readOnly?: boolean },
-) => {
-  prepare(sql: string): { all(): unknown[] }
-  close(): void
-}
 
 export type CodexThreadMetadata = {
   id: string
@@ -38,24 +31,9 @@ export async function readCodexStateMetadata(root: string): Promise<CodexStateMe
 
   if (!statePath) return { byThreadId, byRolloutPath, diagnostics }
 
-  let DatabaseSync: DatabaseSyncConstructor
+  let db: SqlDatabase | undefined
   try {
-    ;({ DatabaseSync } = (await import('node:sqlite')) as { DatabaseSync: DatabaseSyncConstructor })
-  } catch (cause) {
-    diagnostics.push({
-      severity: 'warning',
-      providerId: 'codex-jsonl',
-      root,
-      path: statePath,
-      message: 'Codex SQLite metadata could not be read because node:sqlite is unavailable',
-      cause,
-    })
-    return { byThreadId, byRolloutPath, diagnostics }
-  }
-
-  let db: InstanceType<DatabaseSyncConstructor> | undefined
-  try {
-    db = new DatabaseSync(statePath, { readOnly: true })
+    db = openDatabase(statePath, { readOnly: true })
     const threadRows = db.prepare('SELECT * FROM threads').all()
     const edgeRows = tableExists(db, 'thread_spawn_edges')
       ? db.prepare('SELECT * FROM thread_spawn_edges').all()
@@ -193,7 +171,7 @@ function stateVersion(fileName: string): number {
   return Number(fileName.match(/^state_(\d+)\.sqlite$/)?.[1] ?? 0)
 }
 
-function tableExists(db: InstanceType<DatabaseSyncConstructor>, tableName: string): boolean {
+function tableExists(db: SqlDatabase, tableName: string): boolean {
   const rows = db
     .prepare(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = '${tableName}'`)
     .all()

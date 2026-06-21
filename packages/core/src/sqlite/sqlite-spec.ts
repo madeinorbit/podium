@@ -30,7 +30,10 @@ export function sqliteShimSpec(t: SqlTestPrimitives): void {
         db.exec('CREATE TABLE t (id INTEGER PRIMARY KEY, k TEXT NOT NULL, v INTEGER)')
         db.prepare('INSERT INTO t (k, v) VALUES (?, ?)').run('a', 1)
         db.prepare('INSERT INTO t (k, v) VALUES (?, ?)').run('b', 2)
-        const rows = db.prepare('SELECT k, v FROM t ORDER BY id').all() as { k: string; v: number }[]
+        const rows = db.prepare('SELECT k, v FROM t ORDER BY id').all() as {
+          k: string
+          v: number
+        }[]
         expect(rows).toEqual([
           { k: 'a', v: 1 },
           { k: 'b', v: 2 },
