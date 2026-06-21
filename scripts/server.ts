@@ -6,9 +6,10 @@
  * work out of this process is the whole point: a reattach storm or a misbehaving agent
  * can never starve this coordinating loop, so /health and the UI stay responsive.
  *
- * This process does no PTY work, but @podium/agent-bridge is a shared dep, so run under
- * tsx like the rest:
+ * This process does no PTY work. Run under Node (tsx) today, or under Bun:
  *   node_modules/.bin/tsx --conditions=@podium/source scripts/server.ts
+ *   bun --conditions=@podium/source scripts/server.ts
+ * Persistence resolves to node:sqlite/bun:sqlite per runtime (@podium/core/sqlite).
  */
 import { startServer } from '../apps/server/src/server'
 import { installProcessSafetyNet } from './process-safety'

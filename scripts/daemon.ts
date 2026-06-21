@@ -5,8 +5,13 @@
  * with backoff, so it can start before the server is ready and survive a server restart
  * without dropping running agents (the abduco masters live in their own systemd scopes).
  *
- * node-pty is a native Node addon, so this must run under tsx on Node (not Bun):
+ * Runs on Node (tsx) today:
  *   node_modules/.bin/tsx --conditions=@podium/source scripts/daemon.ts
+ * It also boots under Bun:
+ *   bun --conditions=@podium/source scripts/daemon.ts
+ * The PTY backend is selected at runtime (@podium/agent-bridge): node-pty under Node,
+ * Bun.Terminal under Bun — so the native addon is never loaded on Bun, and persistence
+ * uses node:sqlite/bun:sqlite accordingly. (Default deployment is still Node.)
  */
 import { startDaemon } from '../apps/daemon/src/daemon'
 import { installProcessSafetyNet } from './process-safety'
