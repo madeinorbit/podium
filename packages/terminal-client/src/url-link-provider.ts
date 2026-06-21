@@ -61,6 +61,27 @@ function reachesRightEdge(buf: BufferLike, y: number): boolean {
   return !!last && last.x >= line.length - 1
 }
 
+/** True when a row looks like it WRAPPED (ran out of width) rather than simply
+ *  ending. Reaching the terminal edge is the clearest signal, but management/login
+ *  output (no agent margin) wraps a URL at its own fixed width — often narrower
+ *  than the terminal — so the row never touches the edge. Treat a row that fills at
+ *  least half the line as a wrap origin too. (Sentry login URLs hit exactly this.) */
+function looksLikeWrapOrigin(buf: BufferLike, y: number): boolean {
+  if (reachesRightEdge(buf, y)) return true
+  const line = buf.getLine(y)
+  const t = trimmedRow(buf, y)
+  const last = t[t.length - 1]
+  if (!line || !last) return false
+  return last.x + 1 >= Math.max(24, Math.floor(line.length / 2))
+}
+
+/** A continuation run that reads as a fresh prose sentence — a single capitalised
+ *  word, optionally with trailing punctuation — rather than a URL tail. Guards the
+ *  relaxed zero-indent rule from merging "…example.com" + "Done." into one link. */
+function looksLikeProseTail(cells: Cell[]): boolean {
+  return /^[A-Z][a-z]+[.,;:!?]?$/.test(cells.map((c) => c.char).join(''))
+}
+
 interface HardWrapContinuation {
   cells: Cell[]
   indent: number
@@ -86,7 +107,11 @@ function hardWrapContinuationAfter(buf: BufferLike, previousY: number): Cell[] |
   if (!endsWithUrlChar(buf, previousY)) return null
   const cont = hardWrapContinuation(buf, previousY + 1)
   if (!cont) return null
-  if (cont.indent === 0 && !reachesRightEdge(buf, previousY)) return null
+  // A zero-indent continuation is the ambiguous case: accept it only when the
+  // previous row actually wrapped (filled the line) AND the continuation isn't a
+  // fresh prose word. Indented continuations carry their own hang-indent signal.
+  if (cont.indent === 0 && (!looksLikeWrapOrigin(buf, previousY) || looksLikeProseTail(cont.cells)))
+    return null
   return cont.cells
 }
 

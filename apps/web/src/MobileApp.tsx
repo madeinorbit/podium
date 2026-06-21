@@ -9,7 +9,7 @@ import {
   X,
 } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
-import { useEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { useIsMobile } from '@/hooks/use-is-mobile'
@@ -37,6 +37,11 @@ import type { PinKind } from './types'
 import { useNow } from './useNow'
 import { UsageView } from './UsageView'
 import { WorkerLabel } from './WorkerLabel'
+
+// File viewer (clickable transcript paths) — lazy, mirroring the desktop Workspace.
+const MarkdownFilePanel = lazy(() =>
+  import('./MarkdownFilePanel').then((m) => ({ default: m.MarkdownFilePanel })),
+)
 
 /**
  * Pin the mobile shell to the visual viewport. The layout viewport (what dvh
@@ -98,6 +103,8 @@ export function MobileApp(): JSX.Element {
     setView,
     superOpen,
     setSuperOpen,
+    fileTabs,
+    closeFileTab,
   } = store
   const { guardedKill } = useSessionGuard()
   const { reposLoading, repoDiagnostics } = store
@@ -123,6 +130,11 @@ export function MobileApp(): JSX.Element {
   // Hold a freshly-opened (or reload-restored) session in pane A until the store
   // knows it — see the keep-pane-valid effect — otherwise it bounces to tabs[0].
   const justOpened = useRef<string | null>(paneA)
+  // A clicked transcript file path opens a `file:` pane (not a session) — render
+  // the file viewer for it instead of an AgentPanel (which would mount a stray
+  // shell for the non-session id).
+  const activeFileTab =
+    paneA?.startsWith('file:') === true ? fileTabs.find((f) => f.id === paneA) : undefined
   const currentTab = tabs.find((t) => t.sessionId === paneA)
   const hasRows =
     sections.pinnedWorktrees.length > 0 ||
@@ -130,15 +142,22 @@ export function MobileApp(): JSX.Element {
     sections.repos.length > 0
 
   useEffect(() => {
-    if (paneA && tabs.some((t) => t.sessionId === paneA)) {
+    // A valid `file:` pane is legitimate — don't bounce it to a session tab.
+    if (paneA?.startsWith('file:')) {
+      if (fileTabs.some((f) => f.id === paneA)) return
+      // its tab was closed → fall through to pick a session
+    } else if (paneA && tabs.some((t) => t.sessionId === paneA)) {
       justOpened.current = null
       return
-    }
-    if (paneA && justOpened.current === paneA && !sessions.some((s) => s.sessionId === paneA)) {
+    } else if (
+      paneA &&
+      justOpened.current === paneA &&
+      !sessions.some((s) => s.sessionId === paneA)
+    ) {
       return
     }
     setPane('A', tabs[0]?.sessionId ?? null)
-  }, [tabs, paneA, setPane, sessions])
+  }, [tabs, paneA, setPane, sessions, fileTabs])
 
   const pickWorktree = (path: string) => {
     setSelectedWorktree(path)
@@ -155,7 +174,7 @@ export function MobileApp(): JSX.Element {
   }
 
   return (
-    <div className="mobile-shell flex touch-manipulation h-[var(--viewport-h,100dvh)] flex-col">
+    <div className="mobile-shell relative flex touch-manipulation h-[var(--viewport-h,100dvh)] flex-col">
       <header
         className="flex items-stretch border-b border-border bg-card pt-[var(--safe-top)]"
         style={{ height: 'calc(44px + var(--safe-top))' }}
@@ -249,7 +268,13 @@ export function MobileApp(): JSX.Element {
         <HostIndicators compact />
       </header>
       {sessionMenuOpen && tabs.length > 0 && (
-        <div className="flex flex-col border-b border-border bg-muted shadow-[0_8px_24px_rgba(0,0,0,0.5)]">
+        // Drops DOWN over the content as an overlay (not in flow) so a long tab
+        // list doesn't push the panel down; it caps its height and scrolls when
+        // it would otherwise reach the bottom of the screen.
+        <div
+          className="absolute inset-x-0 z-30 flex max-h-[min(70vh,calc(var(--viewport-h,100dvh)-120px))] flex-col overflow-y-auto border-b border-border bg-muted shadow-[0_8px_24px_rgba(0,0,0,0.5)]"
+          style={{ top: 'calc(44px + var(--safe-top))' }}
+        >
           {tabs.map((t) => {
             const pinned = pins.panels.includes(t.sessionId)
             return (
@@ -303,6 +328,14 @@ export function MobileApp(): JSX.Element {
           <SettingsView />
         ) : view === 'usage' ? (
           <UsageView />
+        ) : activeFileTab ? (
+          <Suspense fallback={<div className="m-auto text-[13px] text-muted-foreground/70">Loading…</div>}>
+            <MarkdownFilePanel
+              sessionId={activeFileTab.sessionId}
+              path={activeFileTab.path}
+              onClose={() => closeFileTab(activeFileTab.id)}
+            />
+          </Suspense>
         ) : paneA ? (
           <AgentPanel sessionId={paneA} />
         ) : (

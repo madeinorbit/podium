@@ -120,4 +120,34 @@ describe('makeUrlLinkProvider', () => {
     expect(links[0]!.text).toBe('https://example.com/a')
     expect(links[0]!.ey).toBe(links[0]!.sy)
   })
+
+  it('stitches a zero-indent URL wrapped NARROWER than the terminal (Sentry login)', () => {
+    // Management-mode output (login/MCP auth) wraps the URL at its own fixed width
+    // (~78) even though the terminal is wider (120) — so the rows never reach the
+    // terminal edge, yet they ARE one wrapped URL. All three rows must link.
+    const l1 = `https://sentry.io/auth/${'a'.repeat(78 - 'https://sentry.io/auth/'.length)}`
+    const l2 = 'b'.repeat(78)
+    const l3 = 'c'.repeat(24)
+    const rows = [l1, l2, l3]
+    const buf = fakeBuf(rows, [false, false, false], 120)
+    const full = rows.join('')
+
+    const fromTop = linksFor(buf, 1)
+    expect(fromTop, 'top row yields the full url').toHaveLength(1)
+    expect(fromTop[0]!.text).toBe(full)
+    expect(fromTop[0]!.ey).toBeGreaterThan(fromTop[0]!.sy)
+
+    expect(linksFor(buf, 2)[0]?.text).toBe(full) // middle row
+    expect(linksFor(buf, 3)[0]?.text).toBe(full) // last row
+  })
+
+  it('does not merge a prose word that happens to follow a URL at zero indent', () => {
+    // A long prose line ending in a URL, then a new sentence at zero indent: the
+    // URL must stay clean, not absorb "Done".
+    const buf = fakeBuf(['Open the dashboard at https://example.com', 'Done.'], [false, false], 80)
+    const links = linksFor(buf, 1)
+    expect(links).toHaveLength(1)
+    expect(links[0]!.text).toBe('https://example.com')
+    expect(links[0]!.ey).toBe(links[0]!.sy)
+  })
 })
