@@ -289,15 +289,16 @@ describe('Session', () => {
     expect(s.lastActiveAt).toBe('2026-06-04T00:00:00.000Z')
   })
 
-  it('lastActiveAt is monotonic: re-applying an older state never pulls it back', () => {
-    // A reattach replays the recent transcript tail (e.g. the last turn_completed,
-    // hours old). Its event-time is in the past — recency must not regress to it,
-    // and must not jump to "now" either. It stays at the genuine last-active time.
+  it('setAgentState re-syncs lastActiveAt to the event-time (boot re-seed can correct a stale value down)', () => {
+    // lastActiveAt tracks the phase event-time (state.since), sourced from the real
+    // transcript record. A reattach re-seeds boot state from the transcript's true
+    // last-activity time; if recency was wrongly bumped (e.g. a metadata write once
+    // moved the file mtime), re-seeding must correct it back DOWN to the truth.
     const s = makeSession()
     s.setAgentState(state('idle', '2026-06-10T00:00:00.000Z'))
     expect(s.lastActiveAt).toBe('2026-06-10T00:00:00.000Z')
-    s.setAgentState(state('idle', '2026-06-04T00:00:00.000Z')) // older replay
-    expect(s.lastActiveAt).toBe('2026-06-10T00:00:00.000Z')
+    s.setAgentState(state('idle', '2026-06-04T00:00:00.000Z')) // re-seed with the true (older) time
+    expect(s.lastActiveAt).toBe('2026-06-04T00:00:00.000Z')
   })
 
   it('markLive (daemon reattach/bind) does NOT restamp lastActiveAt', () => {

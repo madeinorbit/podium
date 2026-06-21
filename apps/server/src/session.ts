@@ -431,11 +431,13 @@ export class Session {
   /** Harness-observed runtime state (hooks-driven). Not persisted — it's live-only. */
   setAgentState(state: AgentRuntimeState): void {
     this.agentState = state
-    // Recency tracks the phase event-time (state.since), not "now". Monotonic max:
-    // a reattach replays the recent transcript tail — the last turn_completed can be
-    // hours old — and re-seeds boot state; neither must pull recency backward nor
-    // restamp it to the reattach moment. Only a genuinely newer event advances it.
-    if (state.since > this.lastActiveAt) this.lastActiveAt = state.since
+    // Recency = the phase event-time (state.since), which is the real source-record
+    // time (transcript timestamp), never "now". Authoritative SET, not a monotonic
+    // max: a reattach re-seeds boot state from the transcript's true last-activity,
+    // so this must be able to CORRECT a stale-high value back down (e.g. one a
+    // metadata mtime bump once poisoned). Every event source delivers timestamps in
+    // increasing order, so a genuinely-newer value is never regressed.
+    this.lastActiveAt = state.since
   }
 
   /** Adopt a `/color` value from the transcript. Treats Claude's "no colour"

@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, stat, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -327,19 +327,30 @@ describe('bootEvents', () => {
     expect(events).toEqual([{ kind: 'session_started' }])
   })
 
-  it('resume → classifies the resumed transcript tail (question pending)', async () => {
+  it('resume → classifies the tail and stamps the last DATED record time, not the mtime', async () => {
     const home = await mkdtemp(join(tmpdir(), 'podium-boot-home-'))
     const cwd = '/home/dev/my.app'
     const projectDir = join(home, '.claude', 'projects', '-home-dev-my-app')
     await mkdir(projectDir, { recursive: true })
     const transcript = join(projectDir, 'conv1.jsonl')
+    const realActivity = '2026-06-19T17:45:23.251Z'
     await writeFile(
       transcript,
-      assistantLine([text('Should I also migrate the staging database?')]),
+      [
+        JSON.stringify({
+          type: 'assistant',
+          timestamp: realActivity,
+          message: {
+            role: 'assistant',
+            content: [text('Should I also migrate the staging database?')],
+          },
+        }),
+        // Claude appends timestamp-less metadata (bridge-session etc.) on resume/
+        // reattach. These bump the file mtime to "now" but are NOT activity — recency
+        // must come from the last DATED record, not the mtime.
+        JSON.stringify({ type: 'bridge-session', sessionId: 'conv1', bridgeSessionId: 'cse_x' }),
+      ].join('\n'),
     )
-    // The transcript's mtime (last write = last activity) is the boot event-time, so
-    // re-seeding an idle session on reattach restores its real recency, not "now".
-    const { mtime } = await stat(transcript)
     const events = await claudeCodeStateProvider.bootEvents?.({
       cwd,
       resumeValue: 'conv1',
@@ -349,7 +360,7 @@ describe('bootEvents', () => {
       {
         kind: 'turn_completed',
         verdict: { kind: 'question', summary: 'Should I also migrate the staging database?' },
-        at: mtime.toISOString(),
+        at: realActivity,
       },
     ])
   })

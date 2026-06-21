@@ -2,7 +2,7 @@ import { open } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import type { AgentKind } from '@podium/protocol'
-import { fileMtimeIso } from './boot-time.js'
+import { lastTimestampedRecordIso } from './boot-time.js'
 import {
   type ClaudeTranscriptFeatures,
   classifyClaudeTranscriptDeterministically,
@@ -84,9 +84,11 @@ export async function claudeBootEvents(opts: {
     try {
       const verdict = classifyIdleTranscript(await readTranscriptTail(transcript), 'default')
       if (verdict) {
-        // Stamp the transcript mtime so re-seeding this idle session on reattach
-        // restores its real last-active time, not the reattach moment.
-        const at = await fileMtimeIso(transcript)
+        // Stamp the last DATED record's time, NOT the file mtime: Claude appends
+        // timestamp-less metadata (bridge-session/mode/…) on resume/reattach, which
+        // bumps the mtime to "now" though no real activity happened. Using mtime here
+        // restamped idle sessions to "now" on every redeploy.
+        const at = await lastTimestampedRecordIso(transcript)
         return [{ kind: 'turn_completed', verdict, ...(at ? { at } : {}) }]
       }
     } catch {
