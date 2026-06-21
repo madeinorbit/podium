@@ -1,271 +1,255 @@
 # Packaging & Distribution — Design
 
 - **Date:** 2026-06-21
-- **Status:** Approved (brainstorm) → ready for implementation plan
-- **Spec:** this document. Implementation plan to follow via writing-plans.
+- **Status:** Revised after discovering the Bun migration already landed on `main`
+  (`7ca3926`). Supersedes the first draft, which assumed a Node/tsx runtime and an
+  esbuild bundle. Ready for an updated implementation plan.
+- **Spec:** this document. Implementation plan: `docs/superpowers/plans/`.
 
 ## Goal
 
 Offer Podium as **one download per operating system**. On first launch the download
-gives the user a **server + daemon + native client, all in one**, running on their
-desktop and ready out of the box with zero configuration.
+gives the user a **server + daemon + native desktop client, all in one**, running on
+their machine and ready out of the box with zero configuration.
 
-The exact same artifacts must also run **headless and distributed from day one**:
-the user can later move the server onto another box, and/or add daemons on other
-machines, and manage all of it from an in-app **Machines** UI. A person who does
-**not** want the desktop app can instead point a browser at a running server and use
-the **web version**.
+The exact same artifacts must also run **headless and distributed from day one**: the
+user can later move the server onto another box, and/or add daemons on other machines,
+and manage all of it from an in-app **Machines** UI. Someone who does *not* run the
+desktop app can connect an external client — a browser, a phone, or another desktop
+app — to a machine that is already running.
 
 Ship an **auto-update** mechanism for both the desktop app and headless deployments.
 
-### First-run scope (this effort)
+### "Single download" ≠ "single binary"
 
-- Target **macOS + Linux**. Windows is deferred (PTY/abduco story is riskiest).
+A single download is **one installer/bundle per OS**, not one executable file:
+
+- **macOS:** a `.dmg` containing `Podium.app`. A `.app` is a *bundle* — one Finder
+  icon, but internally a directory tree (`Contents/MacOS`, `Contents/Resources`,
+  `Contents/Frameworks`). It holds the Tauri shell **plus** the `podium-server` and
+  `podium-daemon` sidecar binaries **plus** the web assets as resources.
+- **Linux:** an **AppImage** (a single file that mounts an internal directory tree at
+  run time) and/or a **`.deb`** (installs a tree). Either is one download containing
+  multiple sub-binaries.
+
+So we use Tauri's **sidecar** model: the shell ships the two compiled Bun binaries and
+supervises them. There is no need to fuse them into one executable, and no need to
+embed the web build inside a binary.
+
+### Scope of this effort
+
+- Target **macOS + Linux**. Windows deferred (PTY/abduco story riskiest).
 - Produce **working local installers** (`.dmg`/`.app`, AppImage/`.deb`). Code-signing
-  and notarization are *wired* but require the user's Apple Developer credentials to
-  produce signed/notarized output; unsigned local builds work meanwhile.
-- The **full multi-machine** capability lands as part of this work (rebase the
-  existing `58399ee` branch).
-- The update mechanism is built against a **pluggable release-feed URL**; the concrete
-  host (Cloudflare R2 vs GitHub Releases) is chosen later and does not block phases 1–4.
-- CI build matrix and website download wiring are a **follow-up**, not blockers.
+  and notarization are *wired* but need the user's Apple Developer credentials; unsigned
+  local builds work meanwhile.
+- **Full multi-machine** lands as part of this work (rebase the existing
+  `worktree-multi-machine-agents` branch, head `bbc3485`).
+- Auto-update is built against a **pluggable release-feed URL**; the concrete host
+  (Cloudflare R2 vs GitHub Releases) is chosen later and does not block earlier phases.
+- CI build matrix and website download wiring are a **follow-up**, not a blocker.
 
 ### Non-goals
 
-- Windows packaging (deferred; structure must leave room for it).
-- Cloud sandbox orchestration (separate growth-path item).
-- Choosing/standing up the production release-feed host and website (follow-up).
-- Mobile native app (`apps/mobile`); the browser/PWA path covers mobile for now.
+- Windows packaging; cloud sandbox orchestration; production feed host + website;
+  native mobile app (the browser/PWA path covers mobile).
 
-## Background: current topology & hard constraints
+## Background: what already exists (Bun migration, on `main`)
 
-(Confirmed by exploration on 2026-06-21, `main` @ `9eb1111`.)
+Confirmed 2026-06-21 at `main` `7ca3926`. The runtime moved from Node/tsx to **Bun**,
+and `bun build --compile` is the chosen release mechanism. Already done:
 
-- **Three processes today.**
-  - `apps/server` (`@podium/server`) — Hono + tRPC + WebSocket relay. Entry
-    `apps/server/src/server.ts` `startServer()`, run via `scripts/server.ts`. Binds
-    `:18787` (`PODIUM_PORT`). Endpoints: `/health`, `/trpc`, `/client` (browser WS),
-    `/daemon` (daemon WS), `/files`, `/hooks`.
-  - `apps/daemon` (`@podium/daemon`) — per-machine agent host. Entry
-    `apps/daemon/src/daemon.ts` `startDaemon()`, run via `scripts/daemon.ts`.
-    Connects **out** to the server's `/daemon` WS (server-initiated flow reversal) with
-    exponential-backoff reconnect. Owns all PTY work, transcript tailing, conversation
-    discovery, host metrics, file uploads.
-  - `apps/web` (`@podium/web`) — React PWA (Vite + vite-plugin-pwa). Built to
-    `apps/web/dist`. Today served by `vite preview`.
-  - `scripts/host.ts` already runs server **and** daemon in one process (dev combined
-    mode) — the seed of the single-box experience.
+- **Compiled single-file binaries** — `scripts/build-bun.ts` emits
+  `dist-bun/podium-server` (entry `scripts/server.ts`) and `dist-bun/podium-daemon`
+  (entry `scripts/daemon-compiled.ts`), ~98 MB each, standalone (no Bun/Node install).
+  Current platform only — no `--target` cross-compile yet.
+- **Embedded abduco** — `scripts/build-bun.ts` prebuilds the vendored abduco to
+  `dist-bun/abduco.bin`; `scripts/embedded-abduco.ts` imports it
+  `with { type: 'file' }` and, on first daemon start, materializes it to
+  `~/.podium/bin/abduco` so `resolveAbducoBin()` finds it. **No C compiler needed on
+  the user's machine.** The non-compiled source path keeps the cc-build fallback in
+  `packages/agent-bridge/src/abduco-bin.ts`.
+- **Runtime-neutral PTY** — `packages/agent-bridge/src/pty/` has a `PtyProcess`/
+  `PtyBackend` interface (`types.ts`), a `node-pty` adapter, and a `Bun.Terminal`
+  adapter, auto-selected (`PODIUM_PTY_BACKEND` overrides). `node-pty` is **no longer a
+  hard dependency** — that was the entire reason Node used to be mandatory. Behavioral
+  suite green on both backends.
+- **Runtime-neutral SQLite** — `packages/core/src/sqlite/` shim dispatches `bun:sqlite`
+  vs `node:sqlite`; `apps/server/src/store.ts` and discovery DBs consume it. Cross-
+  runtime DB compatibility (WAL, FTS5) verified (`docs/bun-migration-readiness.md`).
+- **Live backend runs under Bun from source** via the systemd units in
+  `scripts/systemd/` (`bun --conditions=@podium/source scripts/{server,daemon}.ts`).
 
-- **Runtime constraint: real Node ≥22, not Bun.** `node-pty` is a hard native
-  dependency: `packages/agent-bridge/src/session.ts`, `abduco.ts`, and `tmux.ts` all
-  attach the PTY *through* `node-pty` (`spawn`). abduco/tmux are only the durable
-  *master* behind that node-pty client. → The backend must ship a **prebuilt
-  `node-pty` `.node`** per (os, arch). Bun is used for package management / web build,
-  not as the backend runtime.
+Already-existing reference docs to honor: `docs/bun-migration-readiness.md`,
+`docs/superpowers/specs/2026-06-21-pty-backend-abstraction-design.md`.
 
-- **abduco** is vendored C (`packages/agent-bridge/vendor/abduco/`), compiled
-  on-demand to `~/.podium/bin/abduco` via the system C compiler
-  (`packages/agent-bridge/src/abduco-bin.ts`). Resolution order:
-  `$PODIUM_ABDUCO` → `abduco` on PATH → `~/.podium/bin/abduco` → compile from vendor.
-  → Packaging ships a **prebuilt abduco** per (os, arch) and sets `PODIUM_ABDUCO`;
-  the on-demand compile remains as a fallback.
+### What is still missing for the goal
 
-- **Server does not serve the web UI today** (no `serveStatic` in `apps/server/src`).
-  Production currently depends on `vite preview`.
+- Server does **not** serve the web UI yet (no static-file route in
+  `apps/server/src`).
+- No **wire protocol-version handshake** between client/server/daemon, and no
+  `/version` route. (Note: `apps/server/src/mcp-route.ts` has a `PROTOCOL_VERSION`
+  constant for the *MCP* spec date — unrelated; the wire version must use a distinct
+  name, e.g. `WIRE_VERSION`.)
+- No **cross-target** builds; embedded abduco is per-platform.
+- No **Tauri shell** (`apps/desktop` absent), no **multi-machine** on `main` (branch
+  `bbc3485` unmerged), no **auto-update**.
 
-- **State** lives under `$PODIUM_STATE_DIR` or `~/.podium`: `podium.db` (sessions,
-  conversations, pins, snoozes, settings — `apps/server/src/store.ts`),
-  `discovery.db`, `hooks/`, `uploads/`, `bin/abduco`, `daemon.secret`.
+## Core model: roles are compiled binaries inside a bundle
 
-- **Distributed/multi-daemon routing is not on `main`** but exists on branch
-  `58399ee` (`worktree-multi-machine-agents`), +4931/−362 across 54 files: `machineId`
-  UUID routing, pairing-code auth, server-startup adoption of `__local__`→`local`,
-  DB v4 migration, `apps/web/src/MachinesPanel.tsx`, Settings→Machines, machine-aware
-  New-panel + badge, protocol changes in `packages/protocol/src/messages.ts`. Branched
-  from `6dcfdcf`, which is ~6 hardening commits behind current `main` → needs a rebase
-  (expect conflicts in `protocol/messages.ts` and `daemon.ts`).
+The Bun migration gives us per-role compiled binaries. Distribution wraps them:
 
-## Core model: one set of artifacts, three roles
-
-Everything is built from the **same bundled backend**. There are three *roles*, not
-three codebases:
-
-| Role | What it is | Frontend source | Runs where |
+| Role | Artifact | Frontend source | Runs where |
 |---|---|---|---|
-| `podium-server` | relay + API + **serves the web UI over HTTP** | serves `apps/web/dist` | anywhere (laptop, VPS, container) |
-| `podium-daemon` | PTY/agent host (node-pty + abduco) | — (no UI) | any dev machine |
-| `podium-desktop` | **Tauri** shell; embeds & supervises a *local* server **and** daemon, shows the UI in a native window | **bundled** assets (`tauri://`) | the user's desktop |
+| `podium-server` | compiled Bun binary | serves `web/` resource (external clients only) | anywhere (laptop, VPS) |
+| `podium-daemon` | compiled Bun binary (abduco embedded) | — | any dev machine |
+| `podium-desktop` | **Tauri** bundle embedding both sidecars + web resources | **Tauri-bundled** assets (`tauri://`) | the user's desktop |
 
-The desktop app's embedded server/daemon **are literally the headless artifacts**.
-Therefore:
+The desktop bundle's sidecars **are** the headless binaries. So "move the server
+elsewhere" = run `podium-server` on a box; "add a daemon elsewhere" = run
+`podium-daemon` on another machine and pair it. One artifact set, both modes.
 
-- "Move the server elsewhere" = run the same `podium-server` on a box; point the
-  desktop (or a browser) at it.
-- "Add a daemon elsewhere" = run the same `podium-daemon` on another machine; pair it.
+### How the web UI is delivered
 
-One codepath, both modes — that is how "distributed from day one" falls out for free.
-
-### How each surface gets the frontend
-
-- **Desktop app** loads the React build from **bundled assets** via Tauri's internal
-  protocol — no HTTP server needed for the UI, works offline, instant, and the UI is
-  version-locked to the app shell. Even in "connect to remote server" mode the desktop
-  keeps its **bundled** UI and only aims its **API** calls at the remote backend.
-- **Browser / no-install path** ("just point at the server") is served the React build
-  by **`podium-server` over HTTP**. Same `apps/web/dist` artifact, shipped two ways.
-
-There is no benefit to routing the desktop's own frontend through its embedded HTTP
-server; bundling avoids a startup port race, works offline, and prevents UI/shell
-version skew. The server-serves-web path exists specifically for the browser audience.
+- **Desktop window** loads the React build from **Tauri-bundled** assets via
+  `tauri://` — *not* through the embedded webserver. Offline, instant, version-locked
+  to the shell. Even when the desktop is pointed at a remote server, it keeps its
+  bundled UI and only aims its **API** calls at the remote backend.
+- **External clients** (a browser, a phone, another desktop app) connecting to a
+  machine someone already started are served the React build by that machine's
+  **`podium-server` over HTTP**. The web assets ship as a **resource folder** inside
+  every bundle (`PODIUM_WEB_DIR`); the same folder backs both the Tauri window and the
+  HTTP path. No web build is embedded into a binary.
+- Version skew (a desktop's bundled UI vs a different-version remote server) is handled
+  by the **wire protocol-version handshake** — on mismatch, surface "update needed".
 
 ## Components
 
-### A — Make the backend shippable
+### A — Finish the headless backend (mostly done)
 
-1. **Bundle the entrypoints.** Bundle `scripts/server.ts`, `scripts/daemon.ts`, and
-   `scripts/host.ts` to single ESM files via esbuild/tsup (already a dev dep),
-   resolving the `@podium/source` condition so cross-package TS source is pulled in.
-   Keep **`node-pty` external** (native; shipped as a prebuilt sidecar artifact).
-2. **Ship a pinned Node ≥22 runtime** inside each package so the user installs nothing.
-3. **Ship prebuilt natives**: `node-pty` `.node` for {mac-arm64, mac-x64, linux-x64,
-   linux-arm64}; a prebuilt `abduco` per (os, arch) with `PODIUM_ABDUCO` pointed at it.
-   (Verify node-pty prebuilds exist for linux-arm64 and mac-arm64; otherwise build them
-   in CI.)
-4. **Server serves the web build.** Add Hono static serving of `apps/web/dist` with an
-   SPA fallback, **carefully preserving the route denylist** so backend routes
-   (`/trpc`, `/files`, `/hooks`, `/daemon`, `/client`, `/health`, plus any asset
-   routes) are not swallowed by the `index.html` fallback. (See the markdown-preview
-   gotcha: new backend routes must be excluded from the SPA fallback.) Removes the
-   production dependency on `vite preview`.
-5. **`podium` CLI** — the headless interface. Subcommands:
-   - `podium all` — combined server+daemon (host.ts) for a single box.
-   - `podium server` — relay + web only.
-   - `podium daemon` — agent host; flags for remote server URL + pairing.
-   - `podium pair <code>` — pair this daemon to a server.
-   - `podium update` — self-update (Component E).
+Already done (above): compiled `podium-server` + `podium-daemon`, embedded abduco,
+`Bun.Terminal` PTY, SQLite shim. **Remaining:**
+
+1. **Server serves the web UI** for external clients: add a static-file route to the
+   Hono app serving `PODIUM_WEB_DIR` (default `apps/web/dist`) with an SPA fallback
+   that never shadows backend routes (`/trpc`, `/health`, `/version`, `/files`,
+   `/client`, `/daemon`, `/hooks`, `/mcp`). Returns a no-op when no build is present.
+2. **Wire protocol-version handshake**: a `WIRE_VERSION` constant in `@podium/protocol`;
+   a `GET /version` route (`{ wireVersion, appVersion }`); reject an incompatible
+   `?pv=` on the `/daemon` and `/client` WebSocket upgrades with HTTP 426; the daemon
+   sends its `pv` and logs an update-needed message on rejection.
+3. **Headless packaging layout**: extend `scripts/build-bun.ts` (or a new
+   `scripts/package-headless.ts`) to assemble `dist-bun/headless/` = `podium-server` +
+   `podium-daemon` + `web/` (a copy of `apps/web/dist`) + a small POSIX `podium`
+   launcher script dispatching `server`/`daemon`/`all`, with `PODIUM_WEB_DIR` wired.
+   This folder (tar/zip) is the headless "one download".
 
 ### B — Tauri desktop shell (`apps/desktop`)
 
-- Rust shell + OS webview. The bundled `podium-server` and `podium-daemon` are Tauri
-  **sidecars** (or shell-spawned child processes), supervised by the shell.
+- Rust shell + OS webview. The compiled `podium-server` and `podium-daemon` are Tauri
+  **sidecars** (named with the target triple per Tauri convention), supervised by the
+  shell. The web build is a Tauri resource (bundled UI).
 - **First-run bootstrap:** choose a free local port (prefer 18787, fall back) → read or
-  generate `~/.podium/daemon.secret` → start server → poll `/health` until ready →
-  start daemon pointed at `127.0.0.1:PORT` with the secret and `machineId='local'` →
-  load the bundled UI in the window, configured to talk to `127.0.0.1:PORT`.
-- **Supervision:** restart crashed children with backoff; clean shutdown on quit
-  (abduco masters must survive per existing cgroup-scope behavior); single-instance
-  guard.
-- **Tray / menu item:** status (running/connecting/error), Open, Quit, and
-  "Connect to remote server…".
-- **Mode switch:**
-  - *This computer* (default) — embedded server + daemon.
-  - *Connect to remote server* — enter URL + pairing; the shell then runs **only a
-    local daemon** paired to the remote (so this machine contributes its agents), or
-    acts as a **pure client** (no local daemon) if the user only wants to view/control
-    remote machines. Bundled UI throughout.
-- **Packaging outputs:** `.dmg`/`.app` (macOS, arm64 + x64), AppImage + `.deb` (Linux).
+  generate `~/.podium/daemon.secret` → start `podium-server` → poll `/health` → start
+  `podium-daemon` (`machineId='local'`) → show the window on the bundled UI, pointed at
+  `127.0.0.1:PORT`.
+- **Supervision:** restart crashed sidecars with backoff; clean shutdown on quit
+  (abduco masters survive in their own scopes); single-instance guard.
+- **Tray/menu:** status, Open, Quit, "Connect to remote server…".
+- **Mode switch:** *This computer* (embedded sidecars) vs *Connect to remote server*
+  (URL + pairing; then run only a local daemon paired to the remote, or be a pure
+  client). The embedded server still serves the bundled web folder to any external
+  client (e.g. the user's phone) that connects to this machine.
+- **Outputs:** `.dmg`/`.app` (macOS arm64 + x64), AppImage + `.deb` (Linux).
 
-### C — Land multi-machine (branch `58399ee`)
+### C — Land multi-machine (branch `bbc3485`)
 
 - Rebase `worktree-multi-machine-agents` onto current `main`; resolve conflicts
-  (expected in `packages/protocol/src/messages.ts` and `apps/daemon/src/daemon.ts`
-  from the robustness-hardening commits).
-- Delivers: `machineId` UUID join key + per-machine registry/routing; pairing-code
-  auth; server-startup adoption of `__local__`→`local` (data cannot vanish even if no
-  daemon registers); DB v4 migration; `MachinesPanel.tsx` + Settings→Machines;
-  machine-aware New-panel dropdown; machine badge.
-- This is what makes "add a daemon somewhere" real and provides the in-app Machines UI.
-- Carry forward the hardening lessons from the prior rollback: the persistent same-host
-  shared secret (`daemon.secret`) and startup adoption must both remain intact so the
-  single-box mode never regresses.
+  (expected in `packages/protocol/src/messages.ts` and `apps/daemon/src/daemon.ts` —
+  more than before, since the branch predates the Bun migration).
+- Delivers: `machineId` UUID routing, pairing-code auth, server-startup adoption of
+  `__local__`→`local`, DB v4 migration, `apps/web/src/MachinesPanel.tsx` +
+  Settings→Machines, machine-aware New-panel + badge. This makes "add a daemon
+  somewhere" real and provides the in-app Machines UI.
+- Carry forward the prior hardening: the persistent same-host `daemon.secret` and the
+  startup adoption must remain so single-box never regresses.
 
 ### D — Distribution pipeline
 
-- `bun run package:mac` / `package:linux` scripts that: build web → bundle backend →
-  fetch/assemble Node + prebuilt node-pty + prebuilt abduco + web `dist` into the Tauri
-  sidecar layout → invoke the Tauri bundler → emit installers.
-- A separate headless artifact (tarball / container image) carrying the same bundled
-  server/daemon for VPS + remote-daemon installs.
-- CI matrix (mac-arm64, mac-x64, linux-x64; linux-arm64 if feasible) and website
-  download links are a **follow-up**; the deliverable here is reproducible **local**
-  installer builds.
+- **Cross-target builds:** `bun build --compile --target=bun-{darwin-arm64,darwin-x64,
+  linux-x64,linux-arm64}`. The embedded abduco is platform-specific, so each target's
+  abduco must be built for that platform — cleanest is a **CI matrix on native runners**
+  (macOS runner builds macOS, Linux runner builds Linux), each prebuilding its own
+  abduco. (zig-cc cross-compilation is a fallback if native runners are unavailable.)
+- **Bundle assembly:** per OS, package the Tauri shell + sidecars + web resources into
+  `.dmg`/`.app` and AppImage/`.deb`; assemble the headless tar/zip from Component A.3.
+- CI wiring + website download links are a **follow-up**; the deliverable here is
+  reproducible local installer + headless builds.
 
 ### E — Updates & versioning
 
-- **Desktop app:** Tauri's built-in updater. Checks an update manifest, downloads the
-  signed new bundle (shell + bundled frontend + bundled server/daemon sidecars),
-  installs on restart. Requires a Tauri **update-signing key** (distinct from OS
-  code-signing) and a hosted **update feed**.
-- **Headless server/daemon:** `podium update` self-update — fetch the new bundle from
-  the same feed, swap it, restart the service (systemd/launchd). Container/package
-  installs track release tags.
-- **Release feed is pluggable:** a configurable base URL + manifest format implemented
-  now; concrete host (Cloudflare R2 or GitHub Releases) chosen later.
-- **Cross-version safety — protocol-version handshake:** because server, daemon, and
-  clients can run different versions across machines, add a protocol/schema version to
-  the connection handshake (server↔daemon and client↔server). On mismatch, surface an
-  "update needed" banner in the UI rather than failing silently. **This lands in
-  Phase 1** (cheap, and Phase 2's distributed mode needs it).
+- **Desktop app:** Tauri's built-in updater — checks an update manifest, downloads the
+  signed new bundle (shell + bundled UI + sidecars), installs on restart. Needs a Tauri
+  update-signing key (distinct from OS code-signing) and a hosted feed.
+- **Headless:** a `podium update` action (the launcher script / a daemon subcommand)
+  that fetches the new headless bundle from the same feed and swaps the binaries +
+  web folder, then restarts the service (systemd/launchd). Container/package installs
+  track release tags.
+- **Release feed is pluggable** (configurable base URL + manifest format) now; host
+  (Cloudflare R2 or GitHub Releases) chosen later.
+- **Wire protocol-version handshake** (Component A.2) is the cross-version safety net;
+  the client surfaces an "update needed" banner on mismatch (the banner UI lands with
+  Phase 2's version-aware client work).
 
-## Distributed scenarios (concrete walkthroughs)
+## Distributed scenarios
 
-1. **Out of the box (single box).** User downloads `Podium.dmg`, opens it. Tauri starts
-   embedded server + daemon, opens the native window. Works offline, zero config.
-2. **Move the server to a VPS.** User installs the headless bundle on a VPS
-   (`podium server`), opens the firewall/TLS, and either (a) points a browser at it
-   (web version) or (b) switches the desktop app to "Connect to remote server". The
-   local daemon can stay (contributing this machine's agents) or be turned off.
-3. **Add a daemon on another machine.** User installs the headless bundle on machine B
-   (`podium daemon`), runs `podium pair <code>` (code generated by the server / Machines
-   UI). Machine B appears in Settings→Machines; its repos/agents become selectable in
-   the New-panel dropdown.
-4. **Pure web user.** Someone who never installs the desktop app just opens the
-   server's URL in a browser/phone and uses the served PWA.
+1. **Out of the box (single box).** Download `Podium.dmg`, open it. Tauri starts the
+   embedded server + daemon sidecars, shows the native window on bundled UI. Offline,
+   zero config.
+2. **Connect a phone/browser to a started machine.** The embedded `podium-server`
+   serves the web folder over HTTP; the user opens the machine's URL on their phone.
+3. **Move the server to a VPS.** Install the headless bundle (`podium server`) on a
+   VPS; point a browser at it, or switch the desktop app to "Connect to remote server".
+4. **Add a daemon on another machine.** Install the headless bundle on machine B
+   (`podium daemon`), run pairing; it appears in Settings→Machines; its repos/agents
+   become selectable.
 
 ## Phasing & verification
 
-Each phase is independently verifiable; distributed mode is proven **before** the GUI.
+1. **Finish headless backend (A).** Server serves web for external clients; wire
+   version handshake; headless packaging layout.
+   *Verify:* the `dist-bun/headless/` bundle runs `podium all` with nothing installed;
+   an external browser loads the UI from the server; an agent spawns/streams under
+   `Bun.Terminal`; `/version` reports `WIRE_VERSION`; the upgrade guard rejects a forced
+   `pv` mismatch.
+2. **Multi-machine (C).** Rebase + land the branch.
+   *Verify:* rebased branch green (typecheck + unit + e2e); pair a second headless
+   daemon to a server; `__local__`→`local` adoption holds; single-box unaffected.
+3. **Tauri desktop (B).** The all-in-one native app + remote mode.
+   *Verify:* an unsigned local `.app`/AppImage launches, bootstraps the sidecars, shows
+   a ready window; tray works; remote-connect switches modes; a phone can reach the
+   embedded server; quit leaves abduco masters alive.
+4. **Distribution (D).** Cross-target CI matrix → installers + headless bundles.
+   *Verify:* mac (arm64/x64) + linux (x64) artifacts build on native runners and run on
+   clean machines.
+5. **Auto-update (E).** Tauri updater + `podium update`.
+   *Verify:* desktop updates from a newer manifest on restart (staging feed); headless
+   self-updates.
 
-1. **Backend shippable (A) + protocol-version handshake (E partial).**
-   *Verify:* bundled `podium all` starts server+daemon with no repo checkout / no tsx;
-   the server serves the web UI to a browser; node-pty + abduco resolve from shipped
-   prebuilts; an agent spawns and streams. Handshake rejects/ warns on a forced
-   version mismatch.
-2. **Multi-machine (C).**
-   *Verify:* rebased branch is green (typecheck + unit + e2e `multi-machine.e2e`,
-   `split-local.e2e`); pair a second headless daemon to a server; its agents are
-   controllable; `__local__`→`local` adoption holds; single-box mode unaffected.
-3. **Tauri desktop (B).**
-   *Verify:* an unsigned local `.app`/AppImage launches, bootstraps embedded
-   server+daemon, opens the window ready-to-use; tray works; "Connect to remote server"
-   switches modes; quit leaves abduco masters alive.
-4. **Distribution (D).**
-   *Verify:* `package:mac` and `package:linux` produce installers on a clean machine;
-   the headless tarball/image runs `podium server`/`daemon`.
-5. **Auto-update (E full).**
-   *Verify:* desktop app detects a newer manifest, downloads, and updates on restart
-   (against a local/staging feed); `podium update` self-updates a headless install.
-
-Signing/notarization is layered on once the user supplies Apple credentials; it does
-not gate phases 1–3.
+Signing/notarization layers on once Apple credentials are supplied; it does not gate
+phases 1–3.
 
 ## Risks & open questions
 
-- **macOS signing/notarization** needs the user's Apple Developer ID + secrets. Wire
-  the pipeline; produce unsigned builds until creds are provided.
-- **node-pty prebuild coverage** for linux-arm64 / mac-arm64 — verify upstream
-  prebuilds exist; build in CI otherwise.
-- **Rebasing `58399ee`** over the hardening commits (conflicts in `messages.ts`,
-  `daemon.ts`).
-- **Node runtime embedding strategy** — pin a single Node ≥22; decide bundle vs Node
-  SEA. Default: ship a pinned Node binary + bundled JS (most robust with native
-  addons); revisit SEA later.
-- **Windows** deferred; keep the abduco/PTY abstraction and packaging layout
-  Windows-extensible.
-- **Live-host caution:** implementation happens in a **worktree**, not the live `main`
-  checkout (the live backend runs from main's working tree).
-
-## Out of scope
-
-- Windows installers; cloud sandbox orchestration; production feed-host + website;
-  native mobile app.
+- **Cross-target abduco** — `bun build --compile --target` cross-compiles JS+runtime,
+  but the embedded abduco is built with the host `cc`. Mitigation: native CI runners
+  per OS (default), or zig-cc cross-compilation.
+- **`Bun.Terminal` maturity** at scale (reattach, resize, many concurrent PTYs) — the
+  behavioral suite passes; soak under real load during Phase 1/3.
+- **Binary size** (~98 MB/binary; the desktop bundle ships two) — acceptable; revisit
+  if it matters (shared-runtime options are limited with compile).
+- **Rebasing `bbc3485`** over the Bun migration (more conflicts than the pre-Bun
+  estimate).
+- **macOS signing/notarization** needs the user's Apple Developer ID; produce unsigned
+  builds until provided.
+- **Live-host caution:** implement in a **worktree**, not the live `main` checkout.
+- **Windows** deferred; keep the PTY/abduco/packaging layout Windows-extensible.
