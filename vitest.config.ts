@@ -4,6 +4,7 @@ import { configDefaults, defineConfig } from 'vitest/config'
 export default defineConfig({
   resolve: {
     alias: {
+      '@': fileURLToPath(new URL('./apps/web/src', import.meta.url)),
       '@podium/agent-bridge': fileURLToPath(
         new URL('./packages/agent-bridge/src/index.ts', import.meta.url),
       ),

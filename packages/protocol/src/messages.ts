@@ -467,6 +467,60 @@ export const AttentionEventMessage = z.object({
   body: z.string(),
 })
 
+// ---------------------------------------------------------------------------
+// Issue tracker
+// ---------------------------------------------------------------------------
+
+// Ordered lifecycle stages an issue moves through.
+export const IssueStage = z.enum(['backlog', 'planning', 'in_progress', 'review', 'verifying', 'done'])
+export type IssueStage = z.infer<typeof IssueStage>
+export const ISSUE_STAGES: IssueStage[] = ['backlog', 'planning', 'in_progress', 'review', 'verifying', 'done']
+
+export const IssueSessionSummary = z.object({
+  total: z.number().int().nonnegative(),
+  byPhase: z.record(z.number().int().nonnegative()),
+})
+export type IssueSessionSummary = z.infer<typeof IssueSessionSummary>
+
+export const IssueWire = z.object({
+  id: z.string(),
+  repoPath: z.string(),
+  seq: z.number().int(),
+  title: z.string(),
+  description: z.string(),
+  stage: IssueStage,
+  worktreePath: z.string().nullable(),
+  branch: z.string().nullable(),
+  parentBranch: z.string(),
+  defaultAgent: z.string(),
+  linearId: z.string().optional(),
+  linearIdentifier: z.string().optional(),
+  linearUrl: z.string().optional(),
+  activityNotes: z.string().optional(),
+  notesUpdatedAt: z.string().optional(),
+  suggestedStage: IssueStage.optional(),
+  suggestedReason: z.string().optional(),
+  blockedBy: z.array(z.string()),
+  dependencyNote: z.string().optional(),
+  prUrl: z.string().optional(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  archived: z.boolean(),
+  // Derived server-side at serialization (not persisted):
+  sessions: z.array(SessionMeta),
+  sessionSummary: IssueSessionSummary,
+})
+export type IssueWire = z.infer<typeof IssueWire>
+
+export const IssuesChangedMessage = z.object({
+  type: z.literal('issuesChanged'),
+  issues: z.array(IssueWire),
+})
+export const IssueUpdatedMessage = z.object({
+  type: z.literal('issueUpdated'),
+  issue: IssueWire,
+})
+
 export const ServerMessage = z.discriminatedUnion('type', [
   WelcomeMessage,
   AttachedMessage,
@@ -483,6 +537,8 @@ export const ServerMessage = z.discriminatedUnion('type', [
   PongMessage,
   AttentionEventMessage,
   TranscriptDeltaMessage,
+  IssuesChangedMessage,
+  IssueUpdatedMessage,
 ])
 export type ServerMessage = z.infer<typeof ServerMessage>
 
@@ -619,7 +675,7 @@ export const ImageUploadResultMessage = z.object({
 // Constrained git operations the superagent may run on a dev machine. An
 // allowlisted enum (not a shell string) — the daemon maps each op to a fixed
 // git invocation.
-export const RepoOp = z.enum(['status', 'log', 'branches', 'worktreeAdd'])
+export const RepoOp = z.enum(['status', 'log', 'branches', 'worktreeAdd', 'rebase', 'mergeFfOnly', 'prCreate'])
 export type RepoOp = z.infer<typeof RepoOp>
 export const RepoOpRequestMessage = z.object({
   type: z.literal('repoOpRequest'),
