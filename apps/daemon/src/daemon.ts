@@ -74,6 +74,7 @@ import {
   type GitRepositoryWire,
   parseControlMessage,
   type TranscriptItem,
+  WIRE_VERSION,
 } from '@podium/protocol'
 import WebSocket, { type RawData } from 'ws'
 import { readAssetSandboxed, readFileSandboxed, writeFileSandboxed } from './file-access'
@@ -1484,10 +1485,19 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     }
     function connect(): void {
       if (closing) return
-      const w = new WebSocket(`${opts.serverUrl}/daemon`)
+      const w = new WebSocket(`${opts.serverUrl}/daemon?pv=${WIRE_VERSION}`)
       currentWs = w
       w.on('open', onOpen)
       w.on('message', handleControlMessage)
+      // Server rejected the upgrade (426 = wire-protocol mismatch). Surface it loudly;
+      // 'close' still drives the backoff reconnect below.
+      w.on('unexpected-response', (_req, res) => {
+        if (res.statusCode === 426) {
+          console.error(
+            `[podium:daemon] server rejected this daemon: protocol mismatch (daemon pv=${WIRE_VERSION}). Update the daemon to match the server.`,
+          )
+        }
+      })
       // A dropped/refused connection (server restart, or not up yet) must NOT tear
       // down running agents — keep the abduco attaches + transcript tails alive and
       // just reconnect. Only an explicit handle.close() disposes. ('error' is

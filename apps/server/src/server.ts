@@ -3,6 +3,7 @@ import type { Server } from 'node:http'
 import { fileURLToPath } from 'node:url'
 import { serve } from '@hono/node-server'
 import { trpcServer } from '@hono/trpc-server'
+import { WIRE_VERSION } from '@podium/protocol'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { registerAssetRoute } from './file-asset-route'
@@ -21,6 +22,16 @@ export interface ServerHandle {
   close(): Promise<void>
 }
 
+/** Machine-readable version probe — distinct from /health (which stays plaintext "ok"). */
+export function registerVersionRoute(app: Hono): void {
+  app.get('/version', (c) =>
+    c.json({
+      wireVersion: WIRE_VERSION,
+      appVersion: process.env.PODIUM_APP_VERSION ?? 'dev',
+    }),
+  )
+}
+
 export async function startServer(opts: { port?: number } = {}): Promise<ServerHandle> {
   const store = new SessionStore()
   const registry = new SessionRegistry(store)
@@ -28,6 +39,7 @@ export async function startServer(opts: { port?: number } = {}): Promise<ServerH
   const superagent = new SuperagentService(registry, repos, store)
   const app = new Hono()
   app.get('/health', (c) => c.text('ok'))
+  registerVersionRoute(app)
   registerAssetRoute(app, registry)
   // In-process MCP server exposing the superagent's orchestrator tools to a
   // harness-backed superagent (Claude via --mcp-config). Token-gated.
