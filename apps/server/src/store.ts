@@ -47,6 +47,33 @@ export interface SessionRow {
   workState: string | null
 }
 
+/** One row of the `issues` table (camelCase mirror; `blockedBy` stored as JSON text). */
+export interface IssueRow {
+  id: string
+  repoPath: string
+  seq: number
+  title: string
+  description: string
+  stage: string
+  worktreePath: string | null
+  branch: string | null
+  parentBranch: string
+  defaultAgent: string
+  linearId: string | null
+  linearIdentifier: string | null
+  linearUrl: string | null
+  activityNotes: string | null
+  notesUpdatedAt: string | null
+  suggestedStage: string | null
+  suggestedReason: string | null
+  blockedBy: string[]
+  dependencyNote: string | null
+  prUrl: string | null
+  createdAt: string
+  updatedAt: string
+  archived: boolean
+}
+
 /** One row of the conversation index (camelCase mirror of `conversations`). */
 export interface ConversationIndexRow {
   id: string
@@ -615,6 +642,92 @@ export class SessionStore {
     }
   }
 
+  // ---- issues ----
+
+  upsertIssue(row: IssueRow): void {
+    this.db
+      .prepare(
+        `INSERT INTO issues
+           (id, repo_path, seq, title, description, stage, worktree_path, branch, parent_branch,
+            default_agent, linear_id, linear_identifier, linear_url, activity_notes, notes_updated_at,
+            suggested_stage, suggested_reason, blocked_by, dependency_note, pr_url,
+            created_at, updated_at, archived)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET
+           title = excluded.title, description = excluded.description, stage = excluded.stage,
+           worktree_path = excluded.worktree_path, branch = excluded.branch,
+           parent_branch = excluded.parent_branch, default_agent = excluded.default_agent,
+           linear_id = excluded.linear_id, linear_identifier = excluded.linear_identifier,
+           linear_url = excluded.linear_url, activity_notes = excluded.activity_notes,
+           notes_updated_at = excluded.notes_updated_at, suggested_stage = excluded.suggested_stage,
+           suggested_reason = excluded.suggested_reason, blocked_by = excluded.blocked_by,
+           dependency_note = excluded.dependency_note, pr_url = excluded.pr_url,
+           updated_at = excluded.updated_at, archived = excluded.archived`,
+      )
+      .run(
+        row.id, row.repoPath, row.seq, row.title, row.description, row.stage, row.worktreePath,
+        row.branch, row.parentBranch, row.defaultAgent, row.linearId, row.linearIdentifier,
+        row.linearUrl, row.activityNotes, row.notesUpdatedAt, row.suggestedStage, row.suggestedReason,
+        JSON.stringify(row.blockedBy ?? []), row.dependencyNote, row.prUrl,
+        row.createdAt, row.updatedAt, row.archived ? 1 : 0,
+      )
+  }
+
+  private mapIssueRow(r: Record<string, unknown>): IssueRow {
+    return {
+      id: r.id as string,
+      repoPath: r.repo_path as string,
+      seq: r.seq as number,
+      title: r.title as string,
+      description: (r.description as string) ?? '',
+      stage: r.stage as string,
+      worktreePath: (r.worktree_path as string | null) ?? null,
+      branch: (r.branch as string | null) ?? null,
+      parentBranch: r.parent_branch as string,
+      defaultAgent: r.default_agent as string,
+      linearId: (r.linear_id as string | null) ?? null,
+      linearIdentifier: (r.linear_identifier as string | null) ?? null,
+      linearUrl: (r.linear_url as string | null) ?? null,
+      activityNotes: (r.activity_notes as string | null) ?? null,
+      notesUpdatedAt: (r.notes_updated_at as string | null) ?? null,
+      suggestedStage: (r.suggested_stage as string | null) ?? null,
+      suggestedReason: (r.suggested_reason as string | null) ?? null,
+      blockedBy: JSON.parse((r.blocked_by as string | null) ?? '[]'),
+      dependencyNote: (r.dependency_note as string | null) ?? null,
+      prUrl: (r.pr_url as string | null) ?? null,
+      createdAt: r.created_at as string,
+      updatedAt: r.updated_at as string,
+      archived: r.archived === 1,
+    }
+  }
+
+  getIssue(id: string): IssueRow | null {
+    const r = this.db.prepare('SELECT * FROM issues WHERE id = ?').get(id) as
+      | Record<string, unknown>
+      | undefined
+    return r ? this.mapIssueRow(r) : null
+  }
+
+  listIssueRows(repoPath?: string): IssueRow[] {
+    const rows = (repoPath
+      ? this.db.prepare('SELECT * FROM issues WHERE repo_path = ? ORDER BY seq ASC').all(repoPath)
+      : this.db
+          .prepare('SELECT * FROM issues ORDER BY repo_path ASC, seq ASC')
+          .all()) as Record<string, unknown>[]
+    return rows.map((r) => this.mapIssueRow(r))
+  }
+
+  deleteIssue(id: string): void {
+    this.db.prepare('DELETE FROM issues WHERE id = ?').run(id)
+  }
+
+  nextIssueSeq(repoPath: string): number {
+    const r = this.db
+      .prepare('SELECT MAX(seq) AS m FROM issues WHERE repo_path = ?')
+      .get(repoPath) as { m: number | null }
+    return (r.m ?? 0) + 1
+  }
+
   close(): void {
     this.db.close()
   }
@@ -739,6 +852,34 @@ export class SessionStore {
          VALUES ('global', 'global', ?, ?)`,
       )
       .run(saNow, saNow)
+    this.db.exec(
+      `CREATE TABLE IF NOT EXISTS issues (
+         id TEXT PRIMARY KEY,
+         repo_path TEXT NOT NULL,
+         seq INTEGER NOT NULL,
+         title TEXT NOT NULL,
+         description TEXT NOT NULL DEFAULT '',
+         stage TEXT NOT NULL,
+         worktree_path TEXT,
+         branch TEXT,
+         parent_branch TEXT NOT NULL DEFAULT 'main',
+         default_agent TEXT NOT NULL,
+         linear_id TEXT,
+         linear_identifier TEXT,
+         linear_url TEXT,
+         activity_notes TEXT,
+         notes_updated_at TEXT,
+         suggested_stage TEXT,
+         suggested_reason TEXT,
+         blocked_by TEXT NOT NULL DEFAULT '[]',
+         dependency_note TEXT,
+         pr_url TEXT,
+         created_at TEXT NOT NULL,
+         updated_at TEXT NOT NULL,
+         archived INTEGER NOT NULL DEFAULT 0
+       )`,
+    )
+    this.db.exec('CREATE INDEX IF NOT EXISTS idx_issues_repo ON issues(repo_path)')
     // External-content FTS over the searchable text columns. Hybrid search note:
     // keyword now; a vector column joins when an embeddings provider is configured.
     try {
@@ -795,10 +936,10 @@ export class SessionStore {
     const v = this.db.prepare('SELECT value FROM meta WHERE key = ?').get('schema_version') as
       | { value: string }
       | undefined
-    if (!v || Number(v.value) < 4)
+    if (!v || Number(v.value) < 5)
       this.db
         .prepare('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)')
-        .run('schema_version', '4')
+        .run('schema_version', '5')
     this.importReposJson()
   }
 
