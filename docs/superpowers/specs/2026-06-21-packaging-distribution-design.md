@@ -161,17 +161,30 @@ Already done (above): compiled `podium-server` + `podium-daemon`, embedded abduc
   client (e.g. the user's phone) that connects to this machine.
 - **Outputs:** `.dmg`/`.app` (macOS arm64 + x64), AppImage + `.deb` (Linux).
 
-### C — Land multi-machine (branch `bbc3485`)
+### C — Multi-machine (DEFERRED to last; RE-IMPLEMENT, do not rebase)
 
-- Rebase `worktree-multi-machine-agents` onto current `main`; resolve conflicts
-  (expected in `packages/protocol/src/messages.ts` and `apps/daemon/src/daemon.ts` —
-  more than before, since the branch predates the Bun migration).
-- Delivers: `machineId` UUID routing, pairing-code auth, server-startup adoption of
-  `__local__`→`local`, DB v4 migration, `apps/web/src/MachinesPanel.tsx` +
-  Settings→Machines, machine-aware New-panel + badge. This makes "add a daemon
-  somewhere" real and provides the in-app Machines UI.
-- Carry forward the prior hardening: the persistent same-host `daemon.secret` and the
-  startup adoption must remain so single-box never regresses.
+**Decision (2026-06-21):** defer multi-machine to the final phase and **re-implement it
+fresh on Bun `main`**, rather than rebasing the pre-Bun implementation branch
+(`worktree-multi-machine-agents-impl`, `e897e60`). Evidence: a trial merge produced 12
+conflicts in core files, and the substrate moved underneath the branch — `store.ts` now
+goes through the SQLite shim (the branch used `node:sqlite` `DatabaseSync` directly),
+`daemon.ts` grew ~600 LOC of new agent observers (Cursor/Opencode/Codex) + quota/upload
+the branch never integrated with, and `relay.ts`'s `SessionRegistry` is rewritten on
+both sides. The heavy files (`relay`, `daemon`, `store`, `wsServer`) would be rewritten
+either way, so a clean re-implementation guided by the branch's design + code + tests is
+lower-risk than fighting the rebase. The existing branch stays as the reference; its
+design doc (`docs/superpowers/specs/2026-06-17-multi-machine-agents-design.md`) and plan
+(`docs/superpowers/plans/2026-06-17-multi-machine-agents.md`) are the spec.
+
+- Delivers (unchanged): `machineId` UUID routing, pairing-code auth, server-startup
+  adoption of `__local__`→`local`, DB v4 migration, `apps/web/src/MachinesPanel.tsx` +
+  Settings→Machines, machine-aware New-panel + badge. Makes "add a daemon somewhere"
+  real and provides the in-app Machines UI.
+- Re-implement Bun-native from day one (shim + PtyProcess), integrating with the 5
+  current agent kinds; carry forward the same-host `daemon.secret` + startup adoption so
+  single-box never regresses.
+- Until this lands, the Tauri shell's "Connect to remote server" supports the
+  single-server / single-daemon case (remote URL); multi-daemon fan-out arrives here.
 
 ### D — Distribution pipeline
 
@@ -215,28 +228,30 @@ Already done (above): compiled `podium-server` + `podium-daemon`, embedded abduc
 
 ## Phasing & verification
 
-1. **Finish headless backend (A).** Server serves web for external clients; wire
-   version handshake; headless packaging layout.
-   *Verify:* the `dist-bun/headless/` bundle runs `podium all` with nothing installed;
-   an external browser loads the UI from the server; an agent spawns/streams under
-   `Bun.Terminal`; `/version` reports `WIRE_VERSION`; the upgrade guard rejects a forced
-   `pv` mismatch.
-2. **Multi-machine (C).** Rebase + land the branch.
-   *Verify:* rebased branch green (typecheck + unit + e2e); pair a second headless
-   daemon to a server; `__local__`→`local` adoption holds; single-box unaffected.
-3. **Tauri desktop (B).** The all-in-one native app + remote mode.
+**Re-sequenced 2026-06-21:** multi-machine moved to last (re-implement, not rebase — see
+Component C). Packaging proceeds first; multi-machine lands on top of finished packaging.
+
+1. **Finish headless backend (A).** ✅ DONE — branch `feat/packaging-phase1` (parked,
+   unmerged). Server serves web for external clients; `WIRE_VERSION` handshake (`/version`
+   + `pv` upgrade guard + daemon `pv`); `dist-bun/headless/` bundle (binaries + web +
+   `podium` launcher). Verified: bundle runs `podium all` standalone; external browser
+   loads UI; `/version` reports `WIRE_VERSION`; upgrade guard rejects forced `pv` mismatch.
+2. **Tauri desktop (B).** The all-in-one native app + single-remote mode.
    *Verify:* an unsigned local `.app`/AppImage launches, bootstraps the sidecars, shows
-   a ready window; tray works; remote-connect switches modes; a phone can reach the
-   embedded server; quit leaves abduco masters alive.
-4. **Distribution (D).** Cross-target CI matrix → installers + headless bundles.
+   a ready window; tray works; remote-connect (single server URL) switches modes; a phone
+   can reach the embedded server; quit leaves abduco masters alive.
+3. **Distribution (D).** Cross-target CI matrix → installers + headless bundles.
    *Verify:* mac (arm64/x64) + linux (x64) artifacts build on native runners and run on
    clean machines.
-5. **Auto-update (E).** Tauri updater + `podium update`.
+4. **Auto-update (E).** Tauri updater + `podium update`.
    *Verify:* desktop updates from a newer manifest on restart (staging feed); headless
    self-updates.
+5. **Multi-machine (C).** Re-implement fresh on Bun `main` (last).
+   *Verify:* unit + e2e green; pair a second headless daemon to a server; `__local__`→
+   `local` adoption holds; single-box unaffected.
 
 Signing/notarization layers on once Apple credentials are supplied; it does not gate
-phases 1–3.
+phases 2–3.
 
 ## Risks & open questions
 
@@ -247,8 +262,9 @@ phases 1–3.
   behavioral suite passes; soak under real load during Phase 1/3.
 - **Binary size** (~98 MB/binary; the desktop bundle ships two) — acceptable; revisit
   if it matters (shared-runtime options are limited with compile).
-- **Rebasing `bbc3485`** over the Bun migration (more conflicts than the pre-Bun
-  estimate).
+- **Multi-machine re-implementation fidelity** — re-implementing fresh (not rebasing)
+  risks missing a subtlety the original branch solved; mitigate by using the branch's
+  code + tests as a per-file reference during the (final) phase.
 - **macOS signing/notarization** needs the user's Apple Developer ID; produce unsigned
   builds until provided.
 - **Live-host caution:** implement in a **worktree**, not the live `main` checkout.
