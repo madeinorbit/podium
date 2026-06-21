@@ -7,6 +7,7 @@ import { useIsMobile } from '@/hooks/use-is-mobile'
 import { AppErrorPage } from './AppErrorPage'
 import { ErrorBoundary } from './ErrorBoundary'
 import { HomeView } from './HomeView'
+import { IssuesView } from './IssuesView'
 import { MobileApp } from './MobileApp'
 import { OnboardingWizard } from './OnboardingWizard'
 import { SettingsView } from './SettingsView'
@@ -99,6 +100,8 @@ function AppBody({ isMobile }: { isMobile: boolean }): JSX.Element {
         <SettingsView />
       ) : view === 'usage' ? (
         <UsageView />
+      ) : view === 'issues' ? (
+        <IssuesView />
       ) : (
         <Workspace />
       )}

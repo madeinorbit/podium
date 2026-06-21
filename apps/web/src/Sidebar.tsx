@@ -5,6 +5,7 @@ import {
   ChevronRight,
   GripVertical,
   Home,
+  KanbanSquare,
   Pin,
   Plus,
   Search,
@@ -166,7 +167,6 @@ export function Sidebar(): JSX.Element {
     sections.pinnedRepos.length > 0 ||
     sections.repos.length > 0
 
-
   const selectPanel = (worktreePath: string, sessionId: string) => {
     setSelectedWorktree(worktreePath)
     setPane('A', sessionId)
@@ -207,6 +207,19 @@ export function Sidebar(): JSX.Element {
       {/* App-level tools row. Analytics + settings + search + add-repo live
           here — global actions that are not tied to a specific section. */}
       <div className="flex items-center gap-1 px-3 pt-0.5 pb-1">
+        <Button
+          variant="ghost"
+          size="icon"
+          className={cn(
+            'border border-input text-muted-foreground hover:border-primary hover:text-foreground',
+            view === 'issues' && 'border-primary bg-secondary text-foreground',
+          )}
+          aria-pressed={view === 'issues'}
+          title="Issues"
+          onClick={() => setView('issues')}
+        >
+          <KanbanSquare size={15} aria-hidden="true" />
+        </Button>
         <Button
           variant="ghost"
           size="icon"

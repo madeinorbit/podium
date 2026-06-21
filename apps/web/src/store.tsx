@@ -165,7 +165,9 @@ function readStoredView(): MainView {
   const v = lsGet(VIEW_KEY)
   // 'superagent' is no longer a full view (it's a dock now) — a returning user who
   // left on it lands on home instead of a dead surface.
-  return v === 'home' || v === 'workspace' || v === 'settings' || v === 'usage' ? v : 'home'
+  return v === 'home' || v === 'workspace' || v === 'settings' || v === 'usage' || v === 'issues'
+    ? v
+    : 'home'
 }
 /** The persisted per-session panel-mode map. A corrupt/missing blob reads as empty. */
 function readStoredPanelModes(): Record<string, 'chat' | 'native'> {
