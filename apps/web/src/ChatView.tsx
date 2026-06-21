@@ -1371,27 +1371,9 @@ function SendUserFileBlock({
           {paths.map((p) => {
             const abs = resolveAgainstCwd(cwd, p)
             const name = p.split('/').pop() ?? p
-            if (isImagePath(p)) {
-              const url = assetUrl({ httpOrigin, sessionId, fileDir: cwd, src: abs })
-              if (url)
-                return (
-                  <button
-                    key={p}
-                    type="button"
-                    onClick={() => onOpenImage(url)}
-                    className="overflow-hidden rounded-md border border-border hover:border-primary"
-                    title={`Open ${name}`}
-                  >
-                    <img
-                      src={url}
-                      alt={name}
-                      loading="lazy"
-                      className="max-h-48 max-w-[260px] object-cover"
-                    />
-                  </button>
-                )
-            }
-            return (
+            // Defined once: the openable file chip — used for non-image files and
+            // as the fallback when an image fails to load (moved/deleted/denied).
+            const chip = (
               <button
                 key={p}
                 type="button"
@@ -1403,10 +1385,57 @@ function SendUserFileBlock({
                 {name}
               </button>
             )
+            if (isImagePath(p)) {
+              const url = assetUrl({ httpOrigin, sessionId, fileDir: cwd, src: abs })
+              if (url)
+                return (
+                  <SentImageThumb
+                    key={p}
+                    url={url}
+                    name={name}
+                    onOpen={() => onOpenImage(url)}
+                    fallback={chip}
+                  />
+                )
+            }
+            return chip
           })}
         </div>
       </div>
     </div>
+  )
+}
+
+/** One SendUserFile image thumbnail. Falls back to the file chip if the image
+ *  fails to load (file moved/deleted, or read denied) — no broken-image glyph. */
+function SentImageThumb({
+  url,
+  name,
+  onOpen,
+  fallback,
+}: {
+  url: string
+  name: string
+  onOpen: () => void
+  fallback: JSX.Element
+}): JSX.Element {
+  const [failed, setFailed] = useState(false)
+  if (failed) return fallback
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      className="overflow-hidden rounded-md border border-border hover:border-primary"
+      title={`Open ${name}`}
+    >
+      <img
+        src={url}
+        alt={name}
+        loading="lazy"
+        onError={() => setFailed(true)}
+        className="max-h-48 max-w-[260px] object-cover"
+      />
+    </button>
   )
 }
 
