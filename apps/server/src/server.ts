@@ -1,9 +1,11 @@
+import { randomUUID } from 'node:crypto'
 import type { Server } from 'node:http'
 import { serve } from '@hono/node-server'
 import { trpcServer } from '@hono/trpc-server'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { registerAssetRoute } from './file-asset-route'
+import { registerMcpRoute } from './mcp-route'
 import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
 import { appRouter } from './router'
@@ -25,6 +27,10 @@ export async function startServer(opts: { port?: number } = {}): Promise<ServerH
   const app = new Hono()
   app.get('/health', (c) => c.text('ok'))
   registerAssetRoute(app, registry)
+  // In-process MCP server exposing the superagent's orchestrator tools to a
+  // harness-backed superagent (Claude via --mcp-config). Token-gated.
+  const mcpToken = randomUUID()
+  registerMcpRoute(app, superagent, mcpToken)
   app.use('/trpc/*', cors())
   app.use(
     '/trpc/*',
@@ -33,6 +39,9 @@ export async function startServer(opts: { port?: number } = {}): Promise<ServerH
 
   return new Promise<ServerHandle>((resolve) => {
     const server = serve({ fetch: app.fetch, port: opts.port ?? 0 }, (info) => {
+      // The harness agent runs on the same host (single-machine), so loopback
+      // reaches this MCP route. Now that the port is known, point it there.
+      superagent.setMcpEndpoint(`http://127.0.0.1:${info.port}/mcp`, mcpToken)
       const ws = attachWebSockets(server as unknown as Server, registry)
       resolve({
         port: info.port,

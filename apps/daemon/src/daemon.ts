@@ -2,7 +2,7 @@ import { execFile } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { mkdir, readdir, rm, stat, writeFile } from 'node:fs/promises'
-import { homedir, hostname } from 'node:os'
+import { homedir, hostname, tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { promisify } from 'node:util'
 
@@ -1343,12 +1343,25 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
   const runHarnessExec = async (
     msg: Extract<ControlMessage, { type: 'harnessExecRequest' }>,
   ): Promise<void> => {
+    // MCP config (Claude's --mcp-config) must be a file path, so write the JSON to
+    // a temp file for the run and clean it up afterwards.
+    let mcpConfigPath: string | undefined
+    if (msg.mcpConfig) {
+      mcpConfigPath = join(tmpdir(), `podium-mcp-${randomUUID()}.json`)
+      try {
+        writeFileSync(mcpConfigPath, msg.mcpConfig)
+      } catch {
+        mcpConfigPath = undefined
+      }
+    }
     const { cmd, args } = buildHarnessExec(
       msg.agent,
       {
         prompt: msg.prompt,
         ...(msg.model ? { model: msg.model } : {}),
         ...(msg.systemPrompt ? { systemPrompt: msg.systemPrompt } : {}),
+        ...(mcpConfigPath ? { mcpConfigPath } : {}),
+        ...(msg.allowedTools ? { allowedTools: msg.allowedTools } : {}),
       },
       { opencode: resolveOpencodeBin, cursor: resolveCursorBin },
     )
@@ -1371,6 +1384,14 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
         ok: false,
         output: err instanceof Error ? err.message : String(err),
       })
+    } finally {
+      if (mcpConfigPath) {
+        try {
+          rmSync(mcpConfigPath, { force: true })
+        } catch {
+          // best-effort temp cleanup
+        }
+      }
     }
   }
 

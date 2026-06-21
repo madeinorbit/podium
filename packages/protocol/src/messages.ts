@@ -635,6 +635,11 @@ export const HarnessExecRequestMessage = z.object({
   /** Extra system prompt injected into the harness turn (the superagent's
    *  orchestrator prompt) — natively where the CLI supports it, else prepended. */
   systemPrompt: z.string().optional(),
+  /** MCP config JSON (Claude `--mcp-config`) giving the harness agent Podium's
+   *  own orchestrator tools. The daemon writes it to a temp file per run. */
+  mcpConfig: z.string().optional(),
+  /** Tools pre-approved so they run headlessly without a permission prompt. */
+  allowedTools: z.array(z.string()).optional(),
 })
 
 // Token-usage harvest from harness transcripts (ccusage-style, in-house so it

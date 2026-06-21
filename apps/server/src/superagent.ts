@@ -7,6 +7,13 @@ import type { SessionStore, SuperagentMessageRow, SuperagentThreadRow } from './
 
 const MAX_TOOL_ROUNDS = 8
 const HISTORY_WINDOW = 40
+/** MCP server name the harness agent sees Podium's tools under (→ tool ids
+ *  `mcp__podium__<tool>`). Header carries the access token to the in-process route. */
+export const MCP_SERVER_NAME = 'podium'
+export const MCP_TOKEN_HEADER = 'x-podium-mcp-token'
+/** Read-only built-in tools the harness orchestrator may use headlessly without a
+ *  permission prompt (alongside the Podium MCP tools). */
+const HARNESS_BUILTIN_ALLOWED = ['Read', 'Grep', 'Glob']
 
 /**
  * Make a windowed message list valid for both provider adapters. Slicing the
@@ -222,12 +229,40 @@ export class SuperagentService {
   // Per-thread serialization: a second send on a thread waits for the first (tools
   // mutate shared state), but the global thread and a btw thread don't block each other.
   private readonly busy = new Map<string, Promise<void>>()
+  // Where a harness-backed agent reaches Podium's own tools over MCP. Set by the
+  // server once it's listening (it knows its own HTTP port + the access token).
+  private mcpEndpoint: { url: string; token: string } | undefined
 
   constructor(
     private readonly registry: SessionRegistry,
     private readonly repos: RepoRegistry,
     private readonly store: SessionStore,
   ) {}
+
+  /** Point harness agents at the in-process MCP server (Podium's orchestrator
+   *  tools). Called by the server after it binds its port. */
+  setMcpEndpoint(url: string, token: string): void {
+    this.mcpEndpoint = { url, token }
+  }
+
+  /** Tool specs exposed over MCP — the same orchestrator tools the API tool-loop
+   *  uses, in MCP's `{name, description, inputSchema}` shape. */
+  mcpToolSpecs(): Array<{ name: string; description: string; inputSchema: unknown }> {
+    return this.tools(this.store.getSettings().integrations.linearApiKey).map((t) => ({
+      name: t.spec.name,
+      description: t.spec.description,
+      inputSchema: t.spec.parameters,
+    }))
+  }
+
+  /** Run one MCP tool call, returning its text output. */
+  async callMcpTool(name: string, args: Record<string, unknown>): Promise<string> {
+    const tool = this.tools(this.store.getSettings().integrations.linearApiKey).find(
+      (t) => t.spec.name === name,
+    )
+    if (!tool) throw new Error(`unknown tool: ${name}`)
+    return tool.run(args as Args)
+  }
 
   private async withLock<T>(threadId: string, fn: () => Promise<T>): Promise<T> {
     const prev = this.busy.get(threadId) ?? Promise.resolve()
@@ -346,16 +381,36 @@ export class SuperagentService {
     }
 
     if (backend.kind === 'harness') {
-      // Full harness: run the real agent CLI with its own tool belt, injecting our
-      // orchestrator system prompt (natively via --append-system-prompt for Claude,
-      // else prepended). The conversation so far is folded into the prompt, the same
-      // way the API path re-sends history each turn.
+      // Full harness: run the real agent CLI with its own tool belt + Podium's
+      // orchestrator tools over MCP, injecting our system prompt (natively via
+      // --append-system-prompt for Claude, else prepended). The conversation so far
+      // is folded into the prompt, the same way the API path re-sends history.
       const prompt = this.renderHarnessPrompt(threadId, latestText)
+      // MCP tool access is wired for Claude (the only harness with --mcp-config).
+      const mcp =
+        backend.harnessAgent === 'claude-code' && this.mcpEndpoint
+          ? {
+              mcpConfig: JSON.stringify({
+                mcpServers: {
+                  [MCP_SERVER_NAME]: {
+                    type: 'http',
+                    url: this.mcpEndpoint.url,
+                    headers: { [MCP_TOKEN_HEADER]: this.mcpEndpoint.token },
+                  },
+                },
+              }),
+              allowedTools: [
+                ...HARNESS_BUILTIN_ALLOWED,
+                ...this.mcpToolSpecs().map((t) => `mcp__${MCP_SERVER_NAME}__${t.name}`),
+              ],
+            }
+          : undefined
       const result = await this.registry.harnessExec({
         agent: backend.harnessAgent,
         model: backend.harnessModel,
         prompt,
         systemPrompt: SYSTEM_PROMPT,
+        ...(mcp ?? {}),
       })
       record({
         role: 'assistant',
@@ -525,7 +580,10 @@ export class SuperagentService {
           parameters: {
             type: 'object',
             properties: {
-              agentKind: { type: 'string', enum: ['claude-code', 'codex', 'grok', 'opencode', 'cursor', 'shell'] },
+              agentKind: {
+                type: 'string',
+                enum: ['claude-code', 'codex', 'grok', 'opencode', 'cursor', 'shell'],
+              },
               cwd: { type: 'string', description: 'absolute worktree/repo path' },
               name: { type: 'string', description: 'optional display name' },
               firstMessage: {
@@ -751,7 +809,9 @@ function str(v: unknown): string | undefined {
 function num(v: unknown): number | undefined {
   return typeof v === 'number' && Number.isFinite(v) ? v : undefined
 }
-function isAgentKind(v: unknown): v is 'claude-code' | 'codex' | 'grok' | 'opencode' | 'cursor' | 'shell' {
+function isAgentKind(
+  v: unknown,
+): v is 'claude-code' | 'codex' | 'grok' | 'opencode' | 'cursor' | 'shell' {
   return (
     v === 'claude-code' ||
     v === 'codex' ||

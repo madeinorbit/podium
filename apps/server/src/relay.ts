@@ -826,6 +826,8 @@ export class SessionRegistry {
     prompt: string
     cwd?: string
     systemPrompt?: string
+    mcpConfig?: string
+    allowedTools?: string[]
   }): Promise<OpResult> {
     return this.daemonRequest(
       this.pendingHarnessExecs,
@@ -840,6 +842,8 @@ export class SessionRegistry {
         ...(input.model && input.model !== 'auto' ? { model: input.model } : {}),
         ...(input.cwd ? { cwd: input.cwd } : {}),
         ...(input.systemPrompt ? { systemPrompt: input.systemPrompt } : {}),
+        ...(input.mcpConfig ? { mcpConfig: input.mcpConfig } : {}),
+        ...(input.allowedTools ? { allowedTools: input.allowedTools } : {}),
       }),
     )
   }

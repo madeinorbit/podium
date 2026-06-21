@@ -27,7 +27,15 @@ function supportsSystemFlag(agent: HarnessAgentKind): boolean {
  */
 export function buildHarnessExec(
   agent: HarnessAgentKind,
-  opts: { prompt: string; model?: string; systemPrompt?: string },
+  opts: {
+    prompt: string
+    model?: string
+    systemPrompt?: string
+    /** Path to a written MCP config JSON (Claude `--mcp-config`). */
+    mcpConfigPath?: string
+    /** Tools pre-approved so they run headlessly without a permission prompt. */
+    allowedTools?: string[]
+  },
   bins: HarnessBins,
 ): HarnessExecSpec {
   const model = opts.model && opts.model !== 'auto' ? opts.model : undefined
@@ -45,6 +53,13 @@ export function buildHarnessExec(
           '-p',
           ...(sys ? ['--append-system-prompt', sys] : []),
           ...modelArgs('--model'),
+          // MCP gives the orchestrator Podium's own tools (list/start/steer agents);
+          // --allowedTools pre-approves them (and read-only built-ins) so they run
+          // without a permission prompt in headless print mode.
+          ...(opts.mcpConfigPath ? ['--mcp-config', opts.mcpConfigPath] : []),
+          ...(opts.allowedTools && opts.allowedTools.length > 0
+            ? ['--allowedTools', opts.allowedTools.join(',')]
+            : []),
           prompt,
         ],
       }

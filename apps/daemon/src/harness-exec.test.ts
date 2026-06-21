@@ -42,6 +42,31 @@ describe('buildHarnessExec', () => {
     expect(args[args.indexOf('--model') + 1]).toBe('opus')
   })
 
+  it('wires --mcp-config and --allowedTools for Claude', () => {
+    const { args } = buildHarnessExec(
+      'claude-code',
+      {
+        prompt: 'go',
+        mcpConfigPath: '/tmp/mcp.json',
+        allowedTools: ['Read', 'mcp__podium__list_sessions'],
+      },
+      bins,
+    )
+    expect(args[args.indexOf('--mcp-config') + 1]).toBe('/tmp/mcp.json')
+    expect(args[args.indexOf('--allowedTools') + 1]).toBe('Read,mcp__podium__list_sessions')
+    expect(args.at(-1)).toBe('go')
+  })
+
+  it('ignores mcp args for non-claude agents', () => {
+    const { args } = buildHarnessExec(
+      'grok',
+      { prompt: 'go', mcpConfigPath: '/tmp/mcp.json', allowedTools: ['Read'] },
+      bins,
+    )
+    expect(args).not.toContain('--mcp-config')
+    expect(args).not.toContain('--allowedTools')
+  })
+
   it('resolves opencode/cursor bins and uses their run flags', () => {
     expect(buildHarnessExec('opencode', { prompt: 'p' }, bins)).toEqual({
       cmd: '/bin/opencode',
