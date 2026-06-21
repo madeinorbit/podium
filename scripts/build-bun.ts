@@ -9,7 +9,7 @@
  * Run with: bun scripts/build-bun.ts
  */
 import { execFileSync } from 'node:child_process'
-import { mkdirSync } from 'node:fs'
+import { chmodSync, cpSync, existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { buildVendoredAbduco } from '../packages/agent-bridge/src/abduco-bin.js'
 
@@ -34,3 +34,37 @@ const compile = (entry: string, name: string): void => {
 compile('scripts/server.ts', 'podium-server')
 compile('scripts/daemon-compiled.ts', 'podium-daemon')
 console.log('[build-bun] done -> dist-bun/podium-server, dist-bun/podium-daemon')
+
+// --- headless bundle: binaries + web + launcher ---------------------------------
+const headless = `${out}/headless`
+const webDist = `${root}apps/web/dist`
+if (!existsSync(`${webDist}/index.html`)) {
+  throw new Error('build-bun: apps/web/dist not built — run `bun run --filter @podium/web build` first')
+}
+mkdirSync(headless, { recursive: true })
+for (const bin of ['podium-server', 'podium-daemon']) {
+  cpSync(`${out}/${bin}`, `${headless}/${bin}`)
+  chmodSync(`${headless}/${bin}`, 0o755)
+}
+cpSync(webDist, `${headless}/web`, { recursive: true })
+
+const launcher = `#!/bin/sh
+# Podium headless launcher. Subcommands: all (default) | server | daemon
+DIR="$(cd "$(dirname "$0")" && pwd)"
+export PODIUM_WEB_DIR="\${PODIUM_WEB_DIR:-$DIR/web}"
+cmd="\${1:-all}"
+[ $# -gt 0 ] && shift
+case "$cmd" in
+  all)
+    "$DIR/podium-server" & SRV=$!
+    "$DIR/podium-daemon" & DMN=$!
+    trap 'kill $SRV $DMN 2>/dev/null' INT TERM
+    wait ;;
+  server) exec "$DIR/podium-server" "$@" ;;
+  daemon) exec "$DIR/podium-daemon" "$@" ;;
+  *) echo "usage: podium {all|server|daemon}" >&2; exit 2 ;;
+esac
+`
+writeFileSync(`${headless}/podium`, launcher)
+chmodSync(`${headless}/podium`, 0o755)
+console.log(`[build-bun] headless bundle -> ${headless}`)

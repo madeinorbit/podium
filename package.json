@@ -25,7 +25,8 @@
     "format": "biome format --write .",
     "changeset": "changeset",
     "version-packages": "changeset version",
-    "release": "bun run build && changeset publish"
+    "release": "bun run build && changeset publish",
+    "package:headless": "bun run --filter @podium/web build && bun scripts/build-bun.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.16",
