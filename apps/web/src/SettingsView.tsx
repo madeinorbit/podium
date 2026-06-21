@@ -30,6 +30,7 @@ export type SettingsTab =
   | 'keys'
   | 'hibernation'
   | 'notifications'
+  | 'workflow'
   | 'integrations'
 
 export const SETTINGS_TABS: { key: SettingsTab; label: string }[] = [
@@ -40,6 +41,7 @@ export const SETTINGS_TABS: { key: SettingsTab; label: string }[] = [
   { key: 'keys', label: 'API keys' },
   { key: 'hibernation', label: 'Hibernation' },
   { key: 'notifications', label: 'Notifications' },
+  { key: 'workflow', label: 'Workflow' },
   { key: 'integrations', label: 'Integrations' },
 ]
 
@@ -390,6 +392,72 @@ export function SettingsView(): JSX.Element {
                     Telegram sends only when both a bot token and chat ID are set. These settings are global for this Podium server.
                   </p>
                 </div>
+              </Section>
+            )}
+
+            {tab === 'workflow' && settings && (
+              <Section
+                title="Git workflow"
+                hint="Defaults for issue worktrees and the quick-action buttons."
+              >
+                <Row label="Default parent branch">
+                  <Input
+                    type="text"
+                    placeholder="(auto-detect)"
+                    value={settings.gitWorkflow.defaultParentBranch}
+                    onChange={(e) =>
+                      patch({
+                        gitWorkflow: {
+                          ...settings.gitWorkflow,
+                          defaultParentBranch: e.target.value,
+                        },
+                      })
+                    }
+                  />
+                </Row>
+                <Row label="Merge style">
+                  <Select
+                    value={settings.gitWorkflow.mergeStyle}
+                    onValueChange={(value) =>
+                      patch({
+                        gitWorkflow: {
+                          ...settings.gitWorkflow,
+                          mergeStyle: value as 'ff-only' | 'pr' | 'ask',
+                        },
+                      })
+                    }
+                  >
+                    <SelectTrigger className="w-full flex-1">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="ff-only">FF-only merge</SelectItem>
+                      <SelectItem value="pr">Open PR</SelectItem>
+                      <SelectItem value="ask">Ask each time</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </Row>
+                <Row label="Rebase before merge">
+                  <Switch
+                    checked={settings.gitWorkflow.autoRebaseBeforeMerge}
+                    onCheckedChange={(checked) =>
+                      patch({
+                        gitWorkflow: {
+                          ...settings.gitWorkflow,
+                          autoRebaseBeforeMerge: checked,
+                        },
+                      })
+                    }
+                  />
+                </Row>
+                <Row label="Issue AI assistant enabled">
+                  <Switch
+                    checked={settings.issues.assistantEnabled}
+                    onCheckedChange={(checked) =>
+                      patch({ issues: { ...settings.issues, assistantEnabled: checked } })
+                    }
+                  />
+                </Row>
               </Section>
             )}
 
