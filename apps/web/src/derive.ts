@@ -331,6 +331,12 @@ export function partitionWorkItems(
     }
   }
 
+  // Every WORK ITEMS section reads newest-active first (the home board and repo
+  // tree already do). Without this the buckets kept raw arrival order, which put
+  // the newest session at the BOTTOM of NEEDS YOUR ATTENTION.
+  attention.sort(compareRecency)
+  working.sort(compareRecency)
+  pinnedPanels.sort(compareRecency)
   return { attention, working, pinnedPanels }
 }
 

@@ -1,7 +1,19 @@
-import type { SessionMeta } from '@podium/protocol'
+import type { AgentRuntimeState, SessionMeta } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
-import { sortSessionsForSidebar } from './derive'
+import { partitionWorkItems, sortSessionsForSidebar } from './derive'
 import { compareRecency, groupSessions } from './home'
+
+const needsUser = (since: string): AgentRuntimeState => ({
+  phase: 'needs_user',
+  since,
+  openTaskCount: 0,
+  need: { kind: 'question' },
+})
+const working = (since: string): AgentRuntimeState => ({
+  phase: 'working',
+  since,
+  openTaskCount: 0,
+})
 
 const SAME = '2026-06-10T00:00:00.000Z'
 
@@ -57,5 +69,39 @@ describe('stable ordering with equal lastActiveAt', () => {
     expect(groupSessions([a, b]).idle.map((s) => s.sessionId)).toEqual(
       groupSessions([b, a]).idle.map((s) => s.sessionId),
     )
+  })
+})
+
+describe('partitionWorkItems (sidebar WORK ITEMS) ordering', () => {
+  // Input is oldest-first on purpose — the raw session list arrives roughly in
+  // insertion order, which is what put newest at the BOTTOM of the sidebar.
+  const old = '2026-06-08T00:00:00.000Z'
+  const mid = '2026-06-09T00:00:00.000Z'
+  const recent = '2026-06-10T00:00:00.000Z'
+
+  it('orders NEEDS YOUR ATTENTION newest-active first', () => {
+    const a = meta({ sessionId: 'old', lastActiveAt: old, agentState: needsUser(old) })
+    const b = meta({ sessionId: 'mid', lastActiveAt: mid, agentState: needsUser(mid) })
+    const c = meta({ sessionId: 'new', lastActiveAt: recent, agentState: needsUser(recent) })
+    const { attention } = partitionWorkItems([a, b, c], new Set(), Date.parse('2026-06-11'))
+    expect(attention.map((s) => s.sessionId)).toEqual(['new', 'mid', 'old'])
+  })
+
+  it('orders WORKING newest-active first', () => {
+    const a = meta({ sessionId: 'old', lastActiveAt: old, agentState: working(old) })
+    const b = meta({ sessionId: 'new', lastActiveAt: recent, agentState: working(recent) })
+    const { working: w } = partitionWorkItems([a, b], new Set(), Date.parse('2026-06-11'))
+    expect(w.map((s) => s.sessionId)).toEqual(['new', 'old'])
+  })
+
+  it('orders PINNED PANELS newest-active first', () => {
+    const a = meta({ sessionId: 'old', lastActiveAt: old })
+    const b = meta({ sessionId: 'new', lastActiveAt: recent })
+    const { pinnedPanels } = partitionWorkItems(
+      [a, b],
+      new Set(['old', 'new']),
+      Date.parse('2026-06-11'),
+    )
+    expect(pinnedPanels.map((s) => s.sessionId)).toEqual(['new', 'old'])
   })
 })
