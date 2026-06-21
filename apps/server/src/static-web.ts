@@ -4,7 +4,10 @@ import type { Hono } from 'hono'
 
 /**
  * Backend route prefixes that must never be shadowed by the SPA index.html.
- * Keep in sync with apps/web/vite.config.ts navigateFallbackDenylist (+ /mcp, /version).
+ * Intentionally a SUPERSET of apps/web/vite.config.ts navigateFallbackDenylist:
+ * it also covers /version, /mcp, and /hooks (which the vite dev proxy doesn't list).
+ * Do NOT trim it down to match vite — that would let the SPA shell shadow a backend
+ * route. When adding a backend route, add its prefix here.
  */
 const BACKEND_PREFIXES = [
   '/trpc',
