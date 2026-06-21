@@ -19,6 +19,8 @@ export default defineConfig({
   test: {
     passWithNoTests: true,
     // Don't run tests inside nested agent-harness worktrees (e.g. .claude/worktrees/*).
-    exclude: [...configDefaults.exclude, '**/.claude/**', '**/.claire/**'],
+    // `*.bun.test.ts` files are for `bun test` only (they import `bun:test`); vitest
+    // must never collect them.
+    exclude: [...configDefaults.exclude, '**/.claude/**', '**/.claire/**', '**/*.bun.test.ts'],
   },
 })
