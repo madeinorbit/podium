@@ -35,7 +35,10 @@ const shutdown = async (): Promise<void> => {
   if (shuttingDown) return
   shuttingDown = true
   stopWatchdog?.()
-  await server.close()
+  // Bound the close: Bun's node:http server.close() can wait on lingering keep-alive
+  // sockets that Node drains promptly, which would stall SIGTERM (and force systemd to
+  // SIGKILL). On Node the close resolves first, so this is a no-op there.
+  await Promise.race([server.close(), new Promise((r) => setTimeout(r, 4000))])
   process.exit(0)
 }
 process.on('SIGINT', () => void shutdown())

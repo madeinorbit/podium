@@ -54,7 +54,9 @@ const shutdown = async (): Promise<void> => {
   shuttingDown = true
   stopWatchdog?.()
   // Detaches attach clients only — durable masters survive in their systemd scopes.
-  await daemon.close()
+  // Bounded so a slow close (e.g. a lingering socket under Bun's node:http) can't stall
+  // SIGTERM; on Node close resolves first, so this is a no-op there.
+  await Promise.race([daemon.close(), new Promise((r) => setTimeout(r, 4000))])
   process.exit(0)
 }
 process.on('SIGINT', () => void shutdown())
