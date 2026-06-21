@@ -79,3 +79,42 @@ describe('IssueService.start', () => {
     await expect(svc.start(created.id)).rejects.toThrow(/fatal: branch exists/)
   })
 })
+
+describe('IssueService.action', () => {
+  async function started() {
+    const { svc, deps } = harness()
+    const c = svc.create({ repoPath: '/r', title: 'X', startNow: false })
+    await svc.start(c.id)
+    return { svc, deps, id: c.id }
+  }
+
+  it('rebase calls repoOp on the worktree with the parent branch', async () => {
+    const { svc, deps, id } = await started()
+    const r = await svc.action(id, 'rebase')
+    expect(r.ok).toBe(true)
+    expect(deps.repoOp).toHaveBeenCalledWith('rebase', '/r/.worktrees/issue-1-x', { parentBranch: 'main' })
+  })
+
+  it('pr captures the PR url from output', async () => {
+    const { svc, deps, id } = await started()
+    ;(deps.repoOp as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ ok: true, output: 'https://github.com/o/r/pull/42' })
+    const r = await svc.action(id, 'pr')
+    expect(r.issue.prUrl).toBe('https://github.com/o/r/pull/42')
+  })
+
+  it('merge auto-rebases then ff-merges in the repo root', async () => {
+    const { svc, deps, id } = await started()
+    const calls: string[] = []
+    ;(deps.repoOp as ReturnType<typeof vi.fn>).mockImplementation(async (op: string) => { calls.push(op); return { ok: true, output: '' } })
+    await svc.action(id, 'merge')
+    expect(calls).toEqual(['rebase', 'mergeFfOnly'])
+    expect(deps.repoOp).toHaveBeenCalledWith('mergeFfOnly', '/r', { branch: 'issue/1-x' })
+  })
+})
+
+describe('IssueService.linearSearch', () => {
+  it('returns [] when no key configured', async () => {
+    const { svc } = harness()
+    expect(await svc.linearSearch('login')).toEqual([])
+  })
+})

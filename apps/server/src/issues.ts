@@ -4,6 +4,7 @@ import { type IssueWire, type RepoOp, type ServerMessage, type SessionMeta } fro
 import { sessionsForIssue, slugifyBranch, summarizeSessions } from './issue-util'
 import type { IssueRow, SessionStore } from './store'
 import { llmClient } from './llm'
+import { type LinearIssue, searchIssues } from './linear'
 
 export interface IssueDeps {
   store: SessionStore
@@ -16,6 +17,7 @@ export interface IssueDeps {
   now?(): string
   defaultRepoBranch?(repoPath: string): Promise<string>
   llm?: typeof llmClient
+  linearSearch?(key: string, q: string): Promise<LinearIssue[]>
 }
 
 export interface CreateIssueInput {
@@ -135,6 +137,49 @@ export class IssueService {
   async createAndMaybeStart(input: CreateIssueInput): Promise<IssueWire> {
     const created = this.create(input)
     return input.startNow ? this.start(created.id) : created
+  }
+
+  async action(id: string, kind: 'rebase' | 'pr' | 'merge'): Promise<{ ok: boolean; output: string; issue: IssueWire }> {
+    const row = this.rowOrThrow(id)
+    if (!row.worktreePath || !row.branch) throw new Error('issue not started')
+    const gw = this.d.getSettings().gitWorkflow
+    if (kind === 'rebase') {
+      const r = await this.d.repoOp('rebase', row.worktreePath, { parentBranch: row.parentBranch })
+      return { ...r, issue: this.toWire(row) }
+    }
+    if (kind === 'pr') {
+      const r = await this.d.repoOp('prCreate', row.worktreePath, { branch: row.branch, parentBranch: row.parentBranch })
+      if (r.ok) {
+        const url = r.output.match(/https?:\/\/\S+/)?.[0]
+        if (url) row.prUrl = url
+      }
+      return { ...r, issue: this.persistRow(row) }
+    }
+    // merge
+    if (gw.autoRebaseBeforeMerge) {
+      const rb = await this.d.repoOp('rebase', row.worktreePath, { parentBranch: row.parentBranch })
+      if (!rb.ok) return { ...rb, issue: this.toWire(row) }
+    }
+    // mergeFfOnly runs on the repo root (parent-branch checkout), NOT the worktree
+    const r = await this.d.repoOp('mergeFfOnly', row.repoPath, { branch: row.branch })
+    return { ...r, issue: this.toWire(row) }
+  }
+
+  addSession(id: string, agentKind?: string): IssueWire {
+    const row = this.rowOrThrow(id)
+    if (!row.worktreePath) throw new Error('issue not started')
+    this.d.spawnSession({ cwd: row.worktreePath, agentKind: agentKind ?? row.defaultAgent })
+    return this.toWire(row)
+  }
+  addShell(id: string): IssueWire {
+    return this.addSession(id, 'shell')
+  }
+
+  async linearSearch(query: string): Promise<LinearIssue[]> {
+    const key = this.d.getSettings().integrations?.linearApiKey
+    if (!key) return []
+    const search = this.d.linearSearch ?? searchIssues
+    return search(key, query)
   }
 
   // The following are implemented in later tasks (declared here so the class is complete):
