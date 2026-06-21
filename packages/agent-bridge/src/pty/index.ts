@@ -2,9 +2,9 @@ import { bunTerminalBackend, hasBunTerminal } from './bun-terminal-backend.js'
 import { nodePtyBackend } from './node-pty-backend.js'
 import type { PtyBackend } from './types.js'
 
-export type { PtyBackend, PtyProcess, PtySpawnOptions } from './types.js'
-export { nodePtyBackend } from './node-pty-backend.js'
 export { bunTerminalBackend, hasBunTerminal } from './bun-terminal-backend.js'
+export { nodePtyBackend } from './node-pty-backend.js'
+export type { PtyBackend, PtyProcess, PtySpawnOptions } from './types.js'
 
 /**
  * Resolve the PTY backend. `PODIUM_PTY_BACKEND` forces a choice; otherwise auto:

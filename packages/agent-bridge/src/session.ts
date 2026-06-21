@@ -52,7 +52,10 @@ export function withHardRepaint(session: AgentSession, hard: boolean): AgentSess
   return { ...session, redraw: (opts) => session.redraw({ hard: opts?.hard ?? true }) }
 }
 
-export function spawnAgent(opts: SpawnOptions, backend: PtyBackend = defaultPtyBackend()): AgentSession {
+export function spawnAgent(
+  opts: SpawnOptions,
+  backend: PtyBackend = defaultPtyBackend(),
+): AgentSession {
   const proc = backend.spawn({
     file: opts.cmd,
     args: opts.args ?? [],

@@ -10,9 +10,8 @@ const ANSI = /\x1b\[[0-9;?]*[ -/]*[@-~]/g
 
 export interface TestPrimitives {
   describe: (name: string, fn: () => void) => void
-  // biome-ignore lint/suspicious/noExplicitAny: runner-neutral primitives
   it: (name: string, fn: () => Promise<void> | void, timeout?: number) => void
-  // biome-ignore lint/suspicious/noExplicitAny: runner-neutral primitives
+  // biome-ignore lint/suspicious/noExplicitAny: runner-neutral primitive (vitest/bun expect)
   expect: (actual: unknown) => any
 }
 
@@ -39,7 +38,8 @@ async function waitFor(pred: () => boolean, timeoutMs = 8000): Promise<void> {
 }
 const b64 = (s: string): string => Buffer.from(s, 'utf8').toString('base64')
 const b64bytes = (bytes: number[]): string => Buffer.from(bytes).toString('base64')
-const paints = (t: string): number[] => (t.match(/paint=(\d+)/g) ?? []).map((m) => Number(m.slice(6)))
+const paints = (t: string): number[] =>
+  (t.match(/paint=(\d+)/g) ?? []).map((m) => Number(m.slice(6)))
 
 export function ptyBehaviorSpec(t: TestPrimitives, makeBackend: () => PtyBackend): void {
   const { describe, it, expect } = t
@@ -86,7 +86,13 @@ export function ptyBehaviorSpec(t: TestPrimitives, makeBackend: () => PtyBackend
     it('2b: keyecho decodes real keystrokes under this backend', async () => {
       // cwd = keyecho's package dir so tsx picks up its React-runtime tsconfig.
       const s = spawnAgent(
-        { cmd: 'node', args: ['--import', 'tsx', KEYECHO_CLI, '--mode', 'raw'], cols: 100, rows: 30, cwd: KEYECHO_DIR },
+        {
+          cmd: 'node',
+          args: ['--import', 'tsx', KEYECHO_CLI, '--mode', 'raw'],
+          cols: 100,
+          rows: 30,
+          cwd: KEYECHO_DIR,
+        },
         makeBackend(),
       )
       try {
@@ -199,6 +205,7 @@ export function ptyBehaviorSpec(t: TestPrimitives, makeBackend: () => PtyBackend
     it('9: advertises TERM + COLORTERM to the child', async () => {
       const s = spawn('node', [
         '-e',
+        // biome-ignore lint/suspicious/noTemplateCurlyInString: literal node -e source, not a JS template
         'process.stdout.write(`T=${process.env.TERM};C=${process.env.COLORTERM}`)',
       ])
       try {

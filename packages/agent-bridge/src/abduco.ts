@@ -199,7 +199,10 @@ export function createAltScreenStripper(): (data: Uint8Array) => Uint8Array {
   return (data: Uint8Array): Uint8Array => {
     if (done) return data
     held = Buffer.concat([held, Buffer.from(data)])
-    if (held.length <= ATTACH_CHROME.length && ATTACH_CHROME.subarray(0, held.length).equals(held)) {
+    if (
+      held.length <= ATTACH_CHROME.length &&
+      ATTACH_CHROME.subarray(0, held.length).equals(held)
+    ) {
       if (held.length === ATTACH_CHROME.length) {
         done = true // full prefix seen — swallow it
         return EMPTY
