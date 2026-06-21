@@ -161,9 +161,39 @@ export class IssueService {
       const rb = await this.d.repoOp('rebase', row.worktreePath, { parentBranch: row.parentBranch })
       if (!rb.ok) return { ...rb, issue: this.toWire(row) }
     }
-    // mergeFfOnly runs on the repo root (parent-branch checkout), NOT the worktree
+    // mergeFfOnly runs on the repo root (parent-branch checkout), NOT the worktree.
+    // The daemon's `git merge --ff-only <branch>` merges into whatever branch the repo
+    // ROOT currently has checked out. We must NOT auto-checkout the parent branch — the
+    // repo root is the LIVE deployment-source checkout and switching its branch can
+    // crash-loop the backend. Instead, GUARD: only merge if the root is already on the
+    // parent branch; otherwise fail clearly without merging.
+    const st = await this.d.repoOp('status', row.repoPath)
+    const current = this.parseCurrentBranch(st.output)
+    if (current !== row.parentBranch) {
+      return {
+        ok: false,
+        output: `repo root at ${row.repoPath} is on '${current}', not the parent branch '${row.parentBranch}'. Check out ${row.parentBranch} there before merging.`,
+        issue: this.toWire(row),
+      }
+    }
     const r = await this.d.repoOp('mergeFfOnly', row.repoPath, { branch: row.branch })
     return { ...r, issue: this.toWire(row) }
+  }
+
+  /**
+   * Parse the current branch from `git status --porcelain=v1 -b` output.
+   * The first line is `## <branch>...<upstream>`, `## <branch>`, or
+   * `## HEAD (no branch)` when detached. Returns null for detached/unparseable.
+   */
+  private parseCurrentBranch(statusOutput: string): string | null {
+    const first = statusOutput.split('\n', 1)[0] ?? ''
+    if (!first.startsWith('## ')) return null
+    const rest = first.slice(3) // strip "## "
+    // Detached HEAD renders as "## HEAD (no branch)".
+    if (rest.startsWith('HEAD (no branch)')) return null
+    // `## <branch>...<upstream>` — the branch ends at the first "...".
+    const branch = (rest.split('...', 1)[0] ?? '').trim()
+    return branch || null
   }
 
   addSession(id: string, agentKind?: string): IssueWire {

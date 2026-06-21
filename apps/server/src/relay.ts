@@ -1580,8 +1580,10 @@ export class SessionRegistry {
     // Session changes also change issues' DERIVED member data (sessions/summary),
     // so keep issue clients live. Guard with `this.issues?` — broadcastSessions()
     // can run during construction (via loadFromStore) before `this.issues` is set.
-    for (const c of this.clients.values())
-      c.send({ type: 'issuesChanged', issues: this.issues?.allWire() ?? [] })
+    // Build the payload ONCE: allWire() is O(issues × sessions), so calling it
+    // per-client would be a hot-path perf bug (mirrors the sessionsMsg hoist above).
+    const issuesMsg: ServerMessage = { type: 'issuesChanged', issues: this.issues?.allWire() ?? [] }
+    for (const c of this.clients.values()) c.send(issuesMsg)
   }
 
   private broadcastConversations(): void {

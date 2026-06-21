@@ -105,10 +105,93 @@ describe('IssueService.action', () => {
   it('merge auto-rebases then ff-merges in the repo root', async () => {
     const { svc, deps, id } = await started()
     const calls: string[] = []
-    ;(deps.repoOp as ReturnType<typeof vi.fn>).mockImplementation(async (op: string) => { calls.push(op); return { ok: true, output: '' } })
+    ;(deps.repoOp as ReturnType<typeof vi.fn>).mockImplementation(async (op: string) => {
+      calls.push(op)
+      return { ok: true, output: op === 'status' ? '## main...origin/main' : '' }
+    })
     await svc.action(id, 'merge')
-    expect(calls).toEqual(['rebase', 'mergeFfOnly'])
+    expect(calls).toEqual(['rebase', 'status', 'mergeFfOnly'])
     expect(deps.repoOp).toHaveBeenCalledWith('mergeFfOnly', '/r', { branch: 'issue/1-x' })
+  })
+
+  it('merge short-circuits when the rebase fails and never ff-merges', async () => {
+    const { svc, deps, id } = await started()
+    const calls: string[] = []
+    ;(deps.repoOp as ReturnType<typeof vi.fn>).mockImplementation(async (op: string) => {
+      calls.push(op)
+      if (op === 'rebase') return { ok: false, output: 'CONFLICT' }
+      return { ok: true, output: '' }
+    })
+    const r = await svc.action(id, 'merge')
+    expect(r.ok).toBe(false)
+    expect(r.output).toBe('CONFLICT')
+    expect(calls).toEqual(['rebase'])
+    expect(calls).not.toContain('mergeFfOnly')
+  })
+
+  it('merge refuses (no ff-merge) when the repo root is not on the parent branch', async () => {
+    const { svc, deps, id } = await started()
+    const calls: string[] = []
+    ;(deps.repoOp as ReturnType<typeof vi.fn>).mockImplementation(async (op: string) => {
+      calls.push(op)
+      return { ok: true, output: op === 'status' ? '## some-other-branch' : '' }
+    })
+    const r = await svc.action(id, 'merge')
+    expect(r.ok).toBe(false)
+    expect(r.output).toContain("is on 'some-other-branch'")
+    expect(r.output).toContain("not the parent branch 'main'")
+    expect(calls).toEqual(['rebase', 'status'])
+    expect(calls).not.toContain('mergeFfOnly')
+  })
+
+  it('merge refuses (no ff-merge) when the repo root is detached', async () => {
+    const { svc, deps, id } = await started()
+    const calls: string[] = []
+    ;(deps.repoOp as ReturnType<typeof vi.fn>).mockImplementation(async (op: string) => {
+      calls.push(op)
+      return { ok: true, output: op === 'status' ? '## HEAD (no branch)' : '' }
+    })
+    const r = await svc.action(id, 'merge')
+    expect(r.ok).toBe(false)
+    expect(r.output).toContain("is on 'null'")
+    expect(calls).not.toContain('mergeFfOnly')
+  })
+})
+
+describe('IssueService.parseCurrentBranch', () => {
+  // parseCurrentBranch is private; exercise it through the merge guard, which only
+  // proceeds to mergeFfOnly when the parsed branch === parentBranch ('main').
+  async function startedSvc() {
+    const { svc, deps } = harness()
+    const c = svc.create({ repoPath: '/r', title: 'X', startNow: false })
+    await svc.start(c.id)
+    return { svc, deps, id: c.id }
+  }
+  async function mergedBranch(statusOutput: string): Promise<{ ok: boolean; output: string; calls: string[] }> {
+    const { svc, deps, id } = await startedSvc()
+    const calls: string[] = []
+    ;(deps.repoOp as ReturnType<typeof vi.fn>).mockImplementation(async (op: string) => {
+      calls.push(op)
+      return { ok: true, output: op === 'status' ? statusOutput : '' }
+    })
+    const r = await svc.action(id, 'merge')
+    return { ok: r.ok, output: r.output, calls }
+  }
+
+  it('parses a plain branch (## main) and allows the ff-merge', async () => {
+    const { calls } = await mergedBranch('## main')
+    expect(calls).toContain('mergeFfOnly')
+  })
+
+  it('parses a branch with an upstream (## main...origin/main) and allows the ff-merge', async () => {
+    const { calls } = await mergedBranch('## main...origin/main')
+    expect(calls).toContain('mergeFfOnly')
+  })
+
+  it('treats detached HEAD (## HEAD (no branch)) as null and refuses the ff-merge', async () => {
+    const { ok, calls } = await mergedBranch('## HEAD (no branch)')
+    expect(ok).toBe(false)
+    expect(calls).not.toContain('mergeFfOnly')
   })
 })
 
