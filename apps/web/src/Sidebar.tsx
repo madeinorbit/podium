@@ -24,6 +24,7 @@ import {
   agentBadge,
   agentColorHex,
   filterSidebarSections,
+  isSnoozed,
   partitionStaleSessions,
   partitionWorkItems,
   type RepoNavView,
@@ -796,6 +797,10 @@ function PanelRow({
   const { guardedKill } = useSessionGuard()
   const badge = agentBadge(session)
   const [editing, setEditing] = useState(false)
+  // Snooze control shows: on attention rows always (to snooze); elsewhere ONLY
+  // when already snoozed — so worktree/pinned rows surface an un-snooze affordance
+  // for a snoozed session, but never a plain "snooze" icon.
+  const snoozed = isSnoozed(session, useNow(60_000))
   return (
     <div className="group flex min-w-0 items-center gap-1">
       {editing ? (
@@ -877,9 +882,11 @@ function PanelRow({
       >
         <X size={13} aria-hidden="true" />
       </Button>
-      {/* Snooze lives ONLY on NEEDS YOUR ATTENTION rows. Rightmost + always
-          visible, so it never shifts when pin/close reveal on hover. */}
-      {attention && <SnoozeControl session={session} />}
+      {/* Rightmost + always visible (never shifts when pin/close reveal on hover).
+          On attention rows: the snooze control. Elsewhere (worktree/pinned/working):
+          only when snoozed, so it reads as an un-snooze affordance — never a plain
+          "snooze" icon outside NEEDS YOUR ATTENTION. */}
+      {(attention || snoozed) && <SnoozeControl session={session} />}
     </div>
   )
 }

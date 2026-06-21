@@ -39,9 +39,20 @@ test.describe('session snooze', () => {
     await expect(page.getByRole('menuitem', { name: 'Until next message' })).toBeVisible()
 
     // Pick "Until next message" → snooze. The server persists + broadcasts; the row
-    // leaves NEEDS YOUR ATTENTION and its (attention-only) snooze control disappears,
-    // so the sidebar's snooze-control count drops by one. Full round-trip.
+    // leaves NEEDS YOUR ATTENTION and its (attention-only) plain snooze control
+    // disappears, so the plain-snooze count drops by one. Full round-trip.
     await page.getByRole('menuitem', { name: 'Until next message' }).click()
     await expect(snooze).toHaveCount(before - 1, { timeout: 10_000 })
+
+    // But in its normal worktree location the session now shows an UN-snooze
+    // affordance (title starts "Snoozed…") — never a plain snooze icon out there.
+    const unsnooze = aside.getByRole('button', { name: /^Snoozed/ })
+    await expect(unsnooze.first()).toBeVisible({ timeout: 10_000 })
+
+    // Un-snoozing from the worktree row returns the session to NEEDS YOUR ATTENTION:
+    // the plain snooze control comes back and the un-snooze affordance is gone.
+    await unsnooze.first().click()
+    await expect(snooze).toHaveCount(before, { timeout: 10_000 })
+    await expect(aside.getByRole('button', { name: /^Snoozed/ })).toHaveCount(0)
   })
 })
