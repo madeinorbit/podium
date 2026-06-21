@@ -143,22 +143,67 @@ Already done (above): compiled `podium-server` + `podium-daemon`, embedded abduc
    launcher script dispatching `server`/`daemon`/`all`, with `PODIUM_WEB_DIR` wired.
    This folder (tar/zip) is the headless "one download".
 
+### F — Shared setup & deployment modes (the foundation under B)
+
+Setup (choosing how this install runs) is **one shared layer** with multiple drivers —
+the desktop window and the CLI are just two ways into the same step. Deployment **modes
+are orthogonal to entry path**: e.g. all-in-one runs in the Tauri window *or* headless
+on a box reached via the web client.
+
+**Deployment modes** (what setup chooses):
+
+| Mode | Local server | Local daemon | Typical use |
+|---|---|---|---|
+| `all-in-one` | ✓ | ✓ | desktop default; also headless `podium all` + remote web access |
+| `daemon` | — | ✓ | contribute this machine's agents to a remote server |
+| `client` | — | — | a UI pointing at a remote server (Tauri-as-remote-client; or browser) |
+| `server` | ✓ | — | headless relay (VPS); daemons live elsewhere |
+
+**Shared pieces:**
+- **Config** — `~/.podium/config.json` (`{ mode, serverUrl?, pairing?, port? }`), the
+  single source of truth both drivers read; mode decides which processes start.
+- **Mode-driven launcher** — the `podium` CLI/launcher reads config + flags and starts
+  the right processes (supersedes Phase 1's fixed `all`/`server`/`daemon` dispatch).
+- **Setup web UI + setup API** — a screen in `apps/web` + a small backend route that
+  writes the config. Built once, reused by every driver.
+- **Backend discovery in the web client** — `apps/web/src/trpc.ts serverConfig` learns
+  its backend from injected config (Tauri) / served config (headless), falling back to
+  `window.location` for the plain same-origin browser case. (Subsumes the old "wrinkle 1".)
+
+**Drivers:**
+- **CLI** — `podium` with no config starts minimal and **prints the setup URL** to the
+  shared web UI (open locally or from a phone); explicit flags / a pre-written config
+  skip it for ops/headless (`podium all`, `podium daemon --server URL --pair CODE`, …).
+- **Tauri** (Phase 3) shows the same setup UI **in-window on first run**, mode
+  preselected to `all-in-one` ("This computer"), with a startup/settings control to
+  switch to an external server.
+- **Non-interactive** — flags or a committed `config.json` (automation, systemd, CI).
+
+This phase is fully buildable + verifiable on a headless Linux host (web + CLI + config;
+no Tauri): `podium` → setup URL → pick all-in-one → reach it from a browser; pick
+`daemon` → it joins a remote relay.
+
 ### B — Tauri desktop shell (`apps/desktop`)
 
 - Rust shell + OS webview. The compiled `podium-server` and `podium-daemon` are Tauri
   **sidecars** (named with the target triple per Tauri convention), supervised by the
   shell. The web build is a Tauri resource (bundled UI).
-- **First-run bootstrap:** choose a free local port (prefer 18787, fall back) → read or
-  generate `~/.podium/daemon.secret` → start `podium-server` → poll `/health` → start
-  `podium-daemon` (`machineId='local'`) → show the window on the bundled UI, pointed at
-  `127.0.0.1:PORT`.
-- **Supervision:** restart crashed sidecars with backoff; clean shutdown on quit
-  (abduco masters survive in their own scopes); single-instance guard.
-- **Tray/menu:** status, Open, Quit, "Connect to remote server…".
-- **Mode switch:** *This computer* (embedded sidecars) vs *Connect to remote server*
-  (URL + pairing; then run only a local daemon paired to the remote, or be a pure
-  client). The embedded server still serves the bundled web folder to any external
-  client (e.g. the user's phone) that connects to this machine.
+- **First-run:** drives the **shared setup UI** (Component F) in-window, mode preselected
+  to `all-in-one`. Once a mode is chosen, bootstrap = choose a free local port (prefer
+  18787) → read/generate `~/.podium/daemon.secret` → start the processes the mode calls
+  for (server and/or daemon) → poll `/health` → show the window on the bundled UI,
+  pointed at the backend from config (injected, per Component F).
+- **Supervision:** restart crashed sidecars with backoff; clean shutdown on quit;
+  single-instance guard. **abduco master lifecycle without systemd** (macOS has no
+  `systemd --user` scope) needs a detached-process fallback (`setsid`/double-fork) so
+  durable agents survive an app relaunch; Linux desktop keeps the systemd-scope path.
+- **Tray/menu:** status, Open, Quit, "Connect to remote server…" (re-opens setup).
+- **Mode switch:** the same setup UI — `all-in-one` ("This computer") vs an external
+  server (`client`, or `daemon` contributing this machine). The embedded server still
+  serves the bundled web folder to any external client (e.g. a phone) on this machine.
+- **Verification here:** build a Linux AppImage and launch it under **Xvfb** (this host
+  is headless) to confirm sidecars spawn, `/health` is ok, the window creates, and a
+  phone can reach the server. Visual UI + macOS `.dmg`/`.app` are verified on a Mac/CI.
 - **Outputs:** `.dmg`/`.app` (macOS arm64 + x64), AppImage + `.deb` (Linux).
 
 ### C — Multi-machine (DEFERRED to last; RE-IMPLEMENT, do not rebase)
@@ -211,20 +256,23 @@ design doc (`docs/superpowers/specs/2026-06-17-multi-machine-agents-design.md`) 
   (Cloudflare R2 or GitHub Releases) chosen later.
 - **Wire protocol-version handshake** (Component A.2) is the cross-version safety net;
   the client surfaces an "update needed" banner on mismatch (the banner UI lands with
-  Phase 2's version-aware client work).
+  the version-aware client work in the multi-machine phase, when cross-version peers
+  first actually exist).
 
 ## Distributed scenarios
 
-1. **Out of the box (single box).** Download `Podium.dmg`, open it. Tauri starts the
-   embedded server + daemon sidecars, shows the native window on bundled UI. Offline,
-   zero config.
-2. **Connect a phone/browser to a started machine.** The embedded `podium-server`
-   serves the web folder over HTTP; the user opens the machine's URL on their phone.
-3. **Move the server to a VPS.** Install the headless bundle (`podium server`) on a
+1. **Out of the box (desktop).** Download `Podium.dmg`, open it. Tauri runs the shared
+   setup (preselected `all-in-one`), starts the embedded server + daemon sidecars, shows
+   the native window on bundled UI. Offline, zero config.
+2. **Headless all-in-one + remote web.** Run `podium` on a box (no desktop app); open the
+   printed setup URL, pick `all-in-one`; reach the served web UI from a browser/phone.
+3. **Connect a phone/browser to a started machine.** Any running `podium-server` serves
+   the web folder over HTTP; open the machine's URL on a phone.
+4. **Move the server to a VPS.** Install the headless bundle (`podium server`) on a
    VPS; point a browser at it, or switch the desktop app to "Connect to remote server".
-4. **Add a daemon on another machine.** Install the headless bundle on machine B
+5. **Add a daemon on another machine.** Install the headless bundle on machine B
    (`podium daemon`), run pairing; it appears in Settings→Machines; its repos/agents
-   become selectable.
+   become selectable (multi-machine phase).
 
 ## Phasing & verification
 
@@ -236,17 +284,23 @@ Component C). Packaging proceeds first; multi-machine lands on top of finished p
    + `pv` upgrade guard + daemon `pv`); `dist-bun/headless/` bundle (binaries + web +
    `podium` launcher). Verified: bundle runs `podium all` standalone; external browser
    loads UI; `/version` reports `WIRE_VERSION`; upgrade guard rejects forced `pv` mismatch.
-2. **Tauri desktop (B).** The all-in-one native app + single-remote mode.
-   *Verify:* an unsigned local `.app`/AppImage launches, bootstraps the sidecars, shows
-   a ready window; tray works; remote-connect (single server URL) switches modes; a phone
-   can reach the embedded server; quit leaves abduco masters alive.
-3. **Distribution (D).** Cross-target CI matrix → installers + headless bundles.
+2. **Shared setup & deployment modes (F).** Fully verifiable on this headless Linux host
+   (no Tauri). Config schema + mode-driven `podium` launcher + shared setup web UI/API +
+   config-driven backend discovery in the web client.
+   *Verify:* `podium` with no config prints a setup URL; the setup UI writes config;
+   `all-in-one` is reachable from a browser; `daemon` mode joins a remote relay; flags/
+   committed config skip the UI.
+3. **Tauri desktop (B).** Wraps Phase 2; drives the same setup UI in-window (preselect
+   `all-in-one`) + tray + supervision; macOS abduco-without-systemd fallback.
+   *Verify:* an unsigned Linux AppImage launches under Xvfb, runs setup, bootstraps the
+   mode's processes, shows a ready window, a phone reaches the server; macOS `.dmg` on a Mac.
+4. **Distribution (D).** Cross-target CI matrix → installers + headless bundles.
    *Verify:* mac (arm64/x64) + linux (x64) artifacts build on native runners and run on
    clean machines.
-4. **Auto-update (E).** Tauri updater + `podium update`.
+5. **Auto-update (E).** Tauri updater + `podium update`.
    *Verify:* desktop updates from a newer manifest on restart (staging feed); headless
    self-updates.
-5. **Multi-machine (C).** Re-implement fresh on Bun `main` (last).
+6. **Multi-machine (C).** Re-implement fresh on Bun `main` (last).
    *Verify:* unit + e2e green; pair a second headless daemon to a server; `__local__`→
    `local` adoption holds; single-box unaffected.
 
