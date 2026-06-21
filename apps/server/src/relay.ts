@@ -28,6 +28,7 @@ import {
   type WorkState,
 } from '@podium/protocol'
 import { knownPathsFor } from './file-relay-policy'
+import { IssueService } from './issues'
 import {
   type AttentionNotice,
   attentionNotice,
@@ -89,6 +90,8 @@ export class SessionRegistry {
   private readonly pendingToDaemon: ControlMessage[] = []
   private readonly sessions = new Map<string, Session>()
   private readonly clients = new Map<string, ClientConn>()
+  /** Server-side issue tracker — constructed after loadFromStore() in the constructor. */
+  readonly issues: IssueService
   private readonly pendingScans = new Map<string, (r: ScanResult) => void>()
   private readonly pendingRepoScans = new Map<string, (r: ScanReposResult) => void>()
   private readonly pendingBreakdowns = new Map<string, (r: MemoryBreakdown | undefined) => void>()
@@ -155,6 +158,17 @@ export class SessionRegistry {
     private readonly notificationPushers: NotificationPushers = DEFAULT_NOTIFICATION_PUSHERS,
   ) {
     this.loadFromStore()
+    this.issues = new IssueService({
+      store: this.store,
+      listSessions: () => this.listSessions(),
+      getSettings: () => this.store.getSettings(),
+      spawnSession: (o) => this.createSession({ cwd: o.cwd, agentKind: o.agentKind as AgentKind }),
+      seedDraft: (sessionId, text) => this.setSessionDraft({ sessionId, text }),
+      repoOp: (op, cwd, args) => this.repoOp(op, cwd, args),
+      broadcast: (msg) => {
+        for (const c of this.clients.values()) c.send(msg)
+      },
+    })
   }
 
   /** The backing store — shared with services that persist their own tables (superagent). */
@@ -959,6 +973,7 @@ export class SessionRegistry {
     })
     send({ type: 'welcome', clientId: id })
     send({ type: 'sessionsChanged', sessions: this.listSessions() })
+    send({ type: 'issuesChanged', issues: this.issues.allWire() })
     for (const [sessionId, text] of this.draftBySession) {
       send({ type: 'sessionDraftChanged', sessionId, text })
     }
@@ -1560,6 +1575,11 @@ export class SessionRegistry {
     this.lastSessionsBroadcast = key
     const msg: ServerMessage = { type: 'sessionsChanged', sessions }
     for (const c of this.clients.values()) c.send(msg)
+    // Session changes also change issues' DERIVED member data (sessions/summary),
+    // so keep issue clients live. Guard with `this.issues?` — broadcastSessions()
+    // can run during construction (via loadFromStore) before `this.issues` is set.
+    for (const c of this.clients.values())
+      c.send({ type: 'issuesChanged', issues: this.issues?.allWire() ?? [] })
   }
 
   private broadcastConversations(): void {
