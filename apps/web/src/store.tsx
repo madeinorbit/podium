@@ -3,6 +3,7 @@ import type {
   GitDiscoveryDiagnosticWire,
   GitRepositoryWire,
   HostMetricsWire,
+  IssueWire,
   SessionMeta,
   WorkState,
 } from '@podium/protocol'
@@ -32,6 +33,8 @@ export interface Store {
   reposLoaded: boolean
   repoDiagnostics: GitDiscoveryDiagnosticWire[]
   sessions: SessionMeta[]
+  /** Issues (work items) broadcast by the server — full list, refreshed on every mutation. */
+  issues: IssueWire[]
   /** Latest health sample per daemon host; empty until a daemon reports (or after it drops). */
   hostMetrics: HostMetricsWire[]
   pins: PinState
@@ -119,7 +122,7 @@ export interface Store {
   httpOrigin: string
 }
 
-export type MainView = 'home' | 'workspace' | 'settings' | 'usage'
+export type MainView = 'home' | 'workspace' | 'settings' | 'usage' | 'issues'
 
 const Ctx = createContext<Store | null>(null)
 
@@ -206,6 +209,7 @@ export function StoreProvider({
   const [reposLoaded, setReposLoaded] = useState(false)
   const [repoDiagnostics, setRepoDiagnostics] = useState<GitDiscoveryDiagnosticWire[]>([])
   const [sessions, setSessions] = useState<SessionMeta[]>([])
+  const [issues, setIssues] = useState<IssueWire[]>([])
   const [hostMetrics, setHostMetrics] = useState<HostMetricsWire[]>([])
   const [pins, setPins] = useState<PinState>(EMPTY_PINS)
   const [tabOrders, setTabOrders] = useState<Record<string, string[]>>({})
@@ -494,6 +498,10 @@ export function StoreProvider({
     // Collapse duplicate rows for the same underlying conversation (e.g. a Codex
     // thread surfaced twice on resume) before they reach any view.
     const offSessions = hub.onSessions((s) => setSessions(dedupeSessionsByResume(s)))
+    const offIssues = hub.onIssues(setIssues)
+    const offIssueUpd = hub.onIssueUpdated((u) =>
+      setIssues((xs) => xs.map((i) => (i.id === u.id ? u : i))),
+    )
     const offHostMetrics = hub.onHostMetrics(setHostMetrics)
     const offDraft = hub.onSessionDraft((sessionId, text) =>
       setDrafts((d) => (d[sessionId] === text ? d : { ...d, [sessionId]: text })),
@@ -535,6 +543,8 @@ export function StoreProvider({
     return () => {
       clearTimeout(connectTimer)
       offSessions()
+      offIssues()
+      offIssueUpd()
       offHostMetrics()
       offDraft()
       offAttention()
@@ -551,6 +561,7 @@ export function StoreProvider({
     reposLoaded,
     repoDiagnostics,
     sessions,
+    issues,
     hostMetrics,
     pins,
     setPinned,

@@ -2,6 +2,7 @@ import {
   type ConversationSummaryWire,
   encode,
   type HostMetricsWire,
+  type IssueWire,
   parseServerMessage,
   type ServerMessage,
   type SessionMeta,
@@ -129,6 +130,7 @@ export class SocketHub {
   private sessionList: SessionMeta[] = []
   private conversationList: ConversationSummaryWire[] = []
   private hostMetricsList: HostMetricsWire[] = []
+  private issueList: IssueWire[] = []
   private intentionalClose = false
   private everConnected = false
   private reconnectDelay = RECONNECT_MIN_MS
@@ -158,6 +160,8 @@ export class SocketHub {
   private readonly sessionObservers = new Set<(s: SessionMeta[]) => void>()
   private readonly conversationObservers = new Set<(c: ConversationSummaryWire[]) => void>()
   private readonly hostMetricsObservers = new Set<(h: HostMetricsWire[]) => void>()
+  private readonly issueObservers = new Set<(i: IssueWire[]) => void>()
+  private readonly issueUpdatedObservers = new Set<(i: IssueWire) => void>()
   private readonly healthObservers = new Set<(h: ConnectionHealth) => void>()
   private readonly attentionObservers = new Set<(e: AttentionEvent) => void>()
   private draftObservers = new Set<(sessionId: string, text: string) => void>()
@@ -396,6 +400,23 @@ export class SocketHub {
     return () => this.hostMetricsObservers.delete(cb)
   }
 
+  issues(): IssueWire[] {
+    return this.issueList
+  }
+
+  /** Observe the full issue list. Replays the current list immediately, like `onSessions`. */
+  onIssues(cb: (i: IssueWire[]) => void): () => void {
+    this.issueObservers.add(cb)
+    cb(this.issueList)
+    return () => this.issueObservers.delete(cb)
+  }
+
+  /** Observe single-issue updates (no immediate replay; mirrors `onAttention`). */
+  onIssueUpdated(cb: (i: IssueWire) => void): () => void {
+    this.issueUpdatedObservers.add(cb)
+    return () => this.issueUpdatedObservers.delete(cb)
+  }
+
   /**
    * Observe a session's live structured-transcript deltas, resuming from `since`
    * (the cursor of the newest item the caller already holds — typically the
@@ -562,6 +583,17 @@ export class SocketHub {
     if (msg.type === 'hostMetricsChanged') {
       this.hostMetricsList = msg.hosts
       for (const o of this.hostMetricsObservers) o(this.hostMetricsList)
+      return
+    }
+    if (msg.type === 'issuesChanged') {
+      this.issueList = msg.issues
+      for (const o of this.issueObservers) o(this.issueList)
+      return
+    }
+    if (msg.type === 'issueUpdated') {
+      this.issueList = this.issueList.map((i) => (i.id === msg.issue.id ? msg.issue : i))
+      for (const o of this.issueObservers) o(this.issueList)
+      for (const o of this.issueUpdatedObservers) o(msg.issue)
       return
     }
     if (msg.type === 'attentionEvent') {
