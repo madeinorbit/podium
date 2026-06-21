@@ -17,10 +17,12 @@ WorkingDirectory=/home/user/src/other/podium
 Environment=HOME=/home/user
 Environment=PATH=/home/user/.local/bin:/home/user/.opencode/bin:/home/user/.bun/bin:/usr/local/bin:/usr/bin:/bin
 Environment=PODIUM_PORT=18787
-# node-pty is a native Node addon, so this MUST run under tsx on Node (never Bun).
-# The abduco/tmux masters live in their own systemd --user scopes (spawnAbducoAgent),
-# so they survive this unit restarting — that's how live agents outlast a daemon redeploy.
-ExecStart=/home/user/src/other/podium/node_modules/.bin/tsx --conditions=@podium/source scripts/daemon.ts
+# Bun runtime: the PTY backend is selected at runtime (@podium/agent-bridge) — Bun.Terminal
+# under Bun, node-pty under Node — so no native addon is loaded here on Bun. Run from SOURCE
+# (not the bun build --compile binary) so redeploy-on-main-change re-reads it like tsx did.
+# The abduco/tmux masters live in their own systemd --user scopes (spawnAbducoAgent), so they
+# survive this unit restarting — that's how live agents outlast a daemon redeploy.
+ExecStart=/home/user/.local/bin/bun --conditions=@podium/source scripts/daemon.ts
 Restart=always
 RestartSec=2
 

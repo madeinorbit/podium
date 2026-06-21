@@ -7,7 +7,9 @@ Wants=network-online.target
 # Type=notify + WatchdogSec: the server pets the watchdog from its event loop
 # (scripts/sd-notify.ts), so a wedged-but-alive coordinating loop stops petting and
 # systemd restarts it — Restart=always only fires on EXIT and can't see a stall.
-# NotifyAccess=all because the notifier (systemd-notify) is a child of the tsx pid.
+# NotifyAccess=all because the notifier (systemd-notify) is a child of the bun pid.
+# (sd-notify shells out to systemd-notify, so the watchdog is runtime-agnostic — verified
+# under Bun.)
 Type=notify
 NotifyAccess=all
 WatchdogSec=30
@@ -16,10 +18,13 @@ Environment=HOME=/home/user
 Environment=PATH=/home/user/.local/bin:/home/user/.opencode/bin:/home/user/.bun/bin:/usr/local/bin:/usr/bin:/bin
 Environment=PODIUM_PORT=18787
 # Run @podium/* from TypeScript SOURCE (--conditions=@podium/source), like Vite —
-# no build, no dist, no stale-dist trap. Node runtime (via tsx); @podium/agent-bridge
+# no build, no dist, no stale-dist trap. Bun runtime (runs TS natively); @podium/agent-bridge
 # is a shared dep. This process does NO PTY work (that's the daemon) — keeping per-agent
 # work out of here is what stops a misbehaving agent from starving the relay loop.
-ExecStart=/home/user/src/other/podium/node_modules/.bin/tsx --conditions=@podium/source scripts/server.ts
+# Persistence resolves to bun:sqlite (@podium/core/sqlite). Running from SOURCE (not the
+# `bun build --compile` binary) preserves redeploy-on-main-change: a restart re-reads the
+# updated source, exactly like tsx did.
+ExecStart=/home/user/.local/bin/bun --conditions=@podium/source scripts/server.ts
 Restart=always
 RestartSec=2
 
