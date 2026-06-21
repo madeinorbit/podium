@@ -44,4 +44,10 @@ describe('registerWebStatic', () => {
     expect(registerWebStatic(new Hono(), empty)).toBe(false)
     rmSync(empty, { recursive: true, force: true })
   })
+  it('deny-prefix guard returns notFound for backend routes without an explicit handler', async () => {
+    const app2 = new Hono()
+    registerWebStatic(app2, dir) // dir from the describe scope (has index.html)
+    const res = await app2.request('/health')
+    expect(res.status).toBe(404)
+  })
 })

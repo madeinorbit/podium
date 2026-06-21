@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, statSync } from 'node:fs'
-import { extname, join, normalize } from 'node:path'
+import { extname, join, normalize, sep } from 'node:path'
 import type { Hono } from 'hono'
 
 /**
@@ -52,7 +52,7 @@ export function registerWebStatic(app: Hono, webDir: string): boolean {
     }
     const rel = normalize(decodeURIComponent(pathname)).replace(/^(\.\.[/\\])+/, '')
     const filePath = join(webDir, rel)
-    if (filePath.startsWith(webDir) && existsSync(filePath) && statSync(filePath).isFile()) {
+    if ((filePath === webDir || filePath.startsWith(webDir + sep)) && existsSync(filePath) && statSync(filePath).isFile()) {
       return new Response(readFileSync(filePath), {
         status: 200,
         headers: { 'Content-Type': contentType(filePath) },
