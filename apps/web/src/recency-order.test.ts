@@ -79,12 +79,37 @@ describe('partitionWorkItems (sidebar WORK ITEMS) ordering', () => {
   const mid = '2026-06-09T00:00:00.000Z'
   const recent = '2026-06-10T00:00:00.000Z'
 
+  const agent = (over: Partial<SessionMeta> & { sessionId: string }): SessionMeta =>
+    meta({ agentKind: 'claude-code', ...over })
+
   it('orders NEEDS YOUR ATTENTION newest-active first', () => {
-    const a = meta({ sessionId: 'old', lastActiveAt: old, agentState: needsUser(old) })
-    const b = meta({ sessionId: 'mid', lastActiveAt: mid, agentState: needsUser(mid) })
-    const c = meta({ sessionId: 'new', lastActiveAt: recent, agentState: needsUser(recent) })
+    const a = agent({ sessionId: 'old', lastActiveAt: old, agentState: needsUser(old) })
+    const b = agent({ sessionId: 'mid', lastActiveAt: mid, agentState: needsUser(mid) })
+    const c = agent({ sessionId: 'new', lastActiveAt: recent, agentState: needsUser(recent) })
     const { attention } = partitionWorkItems([a, b, c], new Set(), Date.parse('2026-06-11'))
     expect(attention.map((s) => s.sessionId)).toEqual(['new', 'mid', 'old'])
+  })
+
+  it('never shows shells in NEEDS YOUR ATTENTION (an idle shell is not a work item)', () => {
+    const idleShell = meta({ sessionId: 'sh', agentKind: 'shell' }) // not busy → idle shell
+    const blockedAgent = agent({ sessionId: 'ag', agentState: needsUser(recent) })
+    const { attention } = partitionWorkItems(
+      [idleShell, blockedAgent],
+      new Set(),
+      Date.parse('2026-06-11'),
+    )
+    expect(attention.map((s) => s.sessionId)).toEqual(['ag'])
+  })
+
+  it('a busy shell stays in WORKING, never attention', () => {
+    const busyShell = meta({ sessionId: 'sh', agentKind: 'shell', busy: true })
+    const { attention, working: w } = partitionWorkItems(
+      [busyShell],
+      new Set(),
+      Date.parse('2026-06-11'),
+    )
+    expect(attention).toEqual([])
+    expect(w.map((s) => s.sessionId)).toEqual(['sh'])
   })
 
   it('orders WORKING newest-active first', () => {

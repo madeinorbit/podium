@@ -326,6 +326,9 @@ export function partitionWorkItems(
     if (group === 'working') {
       working.push(s)
     } else if (isSnoozed(s, now)) {
+    } else if (s.agentKind === 'shell') {
+      // A shell sitting at its prompt isn't an agent blocked on you — it never
+      // "needs your attention". (A shell running a command is `working` above.)
     } else {
       attention.push(s)
     }
