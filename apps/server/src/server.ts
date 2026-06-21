@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import type { Server } from 'node:http'
+import { fileURLToPath } from 'node:url'
 import { serve } from '@hono/node-server'
 import { trpcServer } from '@hono/trpc-server'
 import { Hono } from 'hono'
@@ -9,6 +10,7 @@ import { registerMcpRoute } from './mcp-route'
 import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
 import { appRouter } from './router'
+import { registerWebStatic } from './static-web'
 import { SessionStore } from './store'
 import { SuperagentService } from './superagent'
 import { attachWebSockets } from './wsServer'
@@ -36,6 +38,20 @@ export async function startServer(opts: { port?: number } = {}): Promise<ServerH
     '/trpc/*',
     trpcServer({ router: appRouter, createContext: () => ({ registry, repos, superagent }) }),
   )
+
+  // Serve the built web UI for external clients (browser/phone/other desktop). The
+  // packaged headless bundle sets PODIUM_WEB_DIR; a source run defaults to apps/web/dist.
+  // In a `bun build --compile` binary import.meta.url is not a file:// URL, so guard the
+  // default — an unset PODIUM_WEB_DIR there simply means "API only", never a crash.
+  let webDir = process.env.PODIUM_WEB_DIR
+  if (!webDir) {
+    try {
+      webDir = fileURLToPath(new URL('../../web/dist', import.meta.url))
+    } catch {
+      webDir = ''
+    }
+  }
+  if (webDir) registerWebStatic(app, webDir)
 
   return new Promise<ServerHandle>((resolve) => {
     const server = serve({ fetch: app.fetch, port: opts.port ?? 0 }, (info) => {
