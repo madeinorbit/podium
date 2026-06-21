@@ -7,10 +7,12 @@
     ".": {
       "types": "./src/index.ts",
       "import": "./src/index.ts"
-    }
+    },
+    "./sqlite": "./src/sqlite/index.ts"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --passWithNoTests"
   },
   "devDependencies": {
     "typescript": "^6.0.3"

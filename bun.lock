@@ -104,6 +104,7 @@
       "name": "@podium/agent-bridge",
       "version": "0.0.0",
       "dependencies": {
+        "@podium/core": "workspace:*",
         "@podium/protocol": "workspace:*",
         "node-pty": "^1.0.0",
       },
