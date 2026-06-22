@@ -9,7 +9,7 @@ use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 use tauri::path::BaseDirectory;
 
 fn main() {
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
         .setup(|app| {
             let port = bootstrap::pick_free_port();
 
@@ -100,6 +100,19 @@ fn main() {
                 }
             }
         })
-        .run(tauri::generate_context!())
-        .expect("error while running Podium");
+        .build(tauri::generate_context!())
+        .expect("error while building Podium");
+
+    app.run(|app_handle, event| {
+        if let tauri::RunEvent::Exit = event {
+            if let Some(state) = app_handle.try_state::<std::sync::Mutex<Option<std::process::Child>>>() {
+                if let Ok(mut guard) = state.lock() {
+                    if let Some(mut child) = guard.take() {
+                        let _ = child.kill();
+                        let _ = child.wait();
+                    }
+                }
+            }
+        }
+    });
 }
