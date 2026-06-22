@@ -10,6 +10,7 @@
 import { encode } from '@podium/protocol'
 import WebSocket from 'ws'
 import { startDaemon } from '../../apps/daemon/src/daemon'
+import { LOCAL_MACHINE_ID } from '../../apps/server/src/local-machine'
 import { startServer } from '../../apps/server/src/server'
 
 const SERVER_PORT = Number(process.env.PORT ?? 8787)
@@ -27,7 +28,11 @@ const tail = (s: string, n: number): string =>
 const wait = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
 
 const server = await startServer({ port: SERVER_PORT })
-const daemon = await startDaemon({ serverUrl: `ws://localhost:${server.port}` })
+const daemon = await startDaemon({
+  serverUrl: `ws://localhost:${server.port}`,
+  bootstrapToken: server.bootstrapToken,
+  machineId: LOCAL_MACHINE_ID,
+})
 const { sessionId } = server.registry.createSession({
   agentKind: 'claude-code',
   cwd: process.cwd(),

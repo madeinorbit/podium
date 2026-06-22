@@ -6,10 +6,15 @@
  * Run: PODIUM_STATE_DIR=/tmp/podium-dogfood bunx tsx tests/e2e/serve-min.ts   (Ctrl-C to stop)
  */
 import { startDaemon } from '../../apps/daemon/src/daemon'
+import { LOCAL_MACHINE_ID } from '../../apps/server/src/local-machine'
 import { startServer } from '../../apps/server/src/server'
 
 const server = await startServer({ port: Number(process.env.PORT ?? 8787) })
-const daemon = await startDaemon({ serverUrl: `ws://localhost:${server.port}` })
+const daemon = await startDaemon({
+  serverUrl: `ws://localhost:${server.port}`,
+  bootstrapToken: server.bootstrapToken,
+  machineId: LOCAL_MACHINE_ID,
+})
 console.log(`RELAY_READY ws://localhost:${server.port}`)
 
 const shutdown = async (): Promise<void> => {

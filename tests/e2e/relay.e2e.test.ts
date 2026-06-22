@@ -3,6 +3,7 @@ import { encode, parseServerMessage } from '@podium/protocol'
 import { afterAll, describe, expect, it } from 'vitest'
 import WebSocket from 'ws'
 import { startDaemon } from '../../apps/daemon/src/daemon'
+import { LOCAL_MACHINE_ID } from '../../apps/server/src/local-machine'
 import { startServer } from '../../apps/server/src/server'
 import { applyHarnessEnv, reapHarnessSessions } from './harness-env'
 
@@ -65,6 +66,8 @@ describe('e2e: daemon -> server -> client', () => {
     // Start daemon first so it is attached before we create the session.
     const daemon = await startDaemon({
       serverUrl: `ws://localhost:${srv.port}`,
+      bootstrapToken: srv.bootstrapToken,
+      machineId: LOCAL_MACHINE_ID,
       launch: () => ({
         cmd: process.execPath,
         args: [FIXTURE],

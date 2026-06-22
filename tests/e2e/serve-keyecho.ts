@@ -14,6 +14,7 @@ import { fileURLToPath } from 'node:url'
 import type { LaunchOptions, LaunchSpec } from '@podium/agent-bridge'
 import type { AgentKind } from '@podium/protocol'
 import { startDaemon } from '../../apps/daemon/src/daemon'
+import { LOCAL_MACHINE_ID } from '../../apps/server/src/local-machine'
 import { startServer } from '../../apps/server/src/server'
 
 const PORT = Number(process.env.PORT ?? 8787)
@@ -43,7 +44,12 @@ function lanIp(): string {
 }
 
 const server = await startServer({ port: PORT })
-const daemon = await startDaemon({ serverUrl: `ws://localhost:${server.port}`, launch })
+const daemon = await startDaemon({
+  serverUrl: `ws://localhost:${server.port}`,
+  bootstrapToken: server.bootstrapToken,
+  machineId: LOCAL_MACHINE_ID,
+  launch,
+})
 
 const { sessionId } = server.registry.createSession({
   agentKind: 'claude-code',

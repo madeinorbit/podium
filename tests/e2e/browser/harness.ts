@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { type DaemonHandle, startDaemon } from '../../../apps/daemon/src/daemon'
+import { LOCAL_MACHINE_ID } from '../../../apps/server/src/local-machine'
 import { type ServerHandle, startServer } from '../../../apps/server/src/server'
 
 const FIXTURE = fileURLToPath(
@@ -20,6 +21,8 @@ export async function startRelay(): Promise<Relay> {
   const server: ServerHandle = await startServer()
   const daemon: DaemonHandle = await startDaemon({
     serverUrl: `ws://localhost:${server.port}`,
+    bootstrapToken: server.bootstrapToken,
+    machineId: LOCAL_MACHINE_ID,
     // Spawn the deterministic fixture; label it by its cwd so each session renders distinct content.
     launch: (_kind, opts) => ({
       cmd: process.execPath,

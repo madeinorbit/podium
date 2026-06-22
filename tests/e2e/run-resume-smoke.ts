@@ -10,6 +10,7 @@ import { scanAgentConversations } from '@podium/agent-bridge'
 import { encode } from '@podium/protocol'
 import WebSocket from 'ws'
 import { startDaemon } from '../../apps/daemon/src/daemon'
+import { LOCAL_MACHINE_ID } from '../../apps/server/src/local-machine'
 import { startServer } from '../../apps/server/src/server'
 
 const SERVER_PORT = Number(process.env.PORT ?? 8788)
@@ -33,7 +34,11 @@ if (!conv) {
 console.log(`Resuming: "${conv.title ?? conv.id}" (${conv.resume?.value}) in ${conv.projectPath}`)
 
 const server = await startServer({ port: SERVER_PORT })
-const daemon = await startDaemon({ serverUrl: `ws://localhost:${server.port}` })
+const daemon = await startDaemon({
+  serverUrl: `ws://localhost:${server.port}`,
+  bootstrapToken: server.bootstrapToken,
+  machineId: LOCAL_MACHINE_ID,
+})
 const { sessionId } = server.registry.resumeSession({
   agentKind: 'claude-code',
   cwd: conv.projectPath ?? process.cwd(),
