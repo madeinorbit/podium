@@ -18,23 +18,48 @@ function itemKey(item: TranscriptItem): string {
 }
 
 /**
- * Append live-delta items onto the held list, skipping any whose cursor (or id)
- * is already present — so a live delta that repeats the tail of the read window
- * doesn't duplicate it. Order is preserved (deltas are newer → appended). Returns
- * `prev` unchanged (referentially) when every delta item is a duplicate, so a
+ * Merge live-delta items into the held list, keyed by cursor (or id). A delta item
+ * whose key is already present REPLACES the held one in place (preserving its
+ * position); a new key is appended (deltas are newer → appended). Order preserved.
+ * Returns `prev` unchanged (referentially) when nothing actually changed, so a
  * no-op delta doesn't trigger a re-render.
+ *
+ * Replace-not-skip is load-bearing: the live tailer flushes an unterminated
+ * trailing record immediately (so a final message surfaces promptly), then
+ * re-emits it at the SAME cursor once its newline lands with the complete content.
+ * A skip-on-seen (first-wins) merge would pin the earlier, possibly truncated
+ * version; replacing lets the completed record supersede it.
  */
 export function mergeByCursor(prev: TranscriptItem[], delta: TranscriptItem[]): TranscriptItem[] {
   if (delta.length === 0) return prev
-  const seen = new Set(prev.map(itemKey))
+  const indexByKey = new Map<string, number>()
+  prev.forEach((it, i) => {
+    indexByKey.set(itemKey(it), i)
+  })
+  let next: TranscriptItem[] | null = null // cloned lazily on the first real change
   const additions: TranscriptItem[] = []
   for (const it of delta) {
     const key = itemKey(it)
-    if (seen.has(key)) continue
-    seen.add(key)
-    additions.push(it)
+    const at = indexByKey.get(key)
+    if (at !== undefined) {
+      const existing = (next ?? prev)[at]
+      if (existing !== undefined && !sameItemContent(existing, it)) {
+        if (!next) next = [...prev]
+        next[at] = it
+      }
+    } else {
+      indexByKey.set(key, prev.length + additions.length)
+      additions.push(it)
+    }
   }
-  return additions.length === 0 ? prev : [...prev, ...additions]
+  if (!next && additions.length === 0) return prev
+  return [...(next ?? prev), ...additions]
+}
+
+/** Cheap content equality for the fields a re-emitted (growing) record changes —
+ *  lets mergeByCursor skip a re-render when a same-cursor re-emit is identical. */
+function sameItemContent(a: TranscriptItem, b: TranscriptItem): boolean {
+  return a.text === b.text && a.toolResult === b.toolResult && a.toolInput === b.toolInput
 }
 
 /**

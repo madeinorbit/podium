@@ -73,6 +73,27 @@ describe('mergeByCursor', () => {
     const merged = mergeByCursor(prev, [it_('a'), it_('b')])
     expect(merged.map((i) => i.id)).toEqual(['a', 'b'])
   })
+
+  it('replaces a same-cursor item in place when its content grew (truncated→complete)', () => {
+    // The tailer flushes an unterminated trailing record, then re-emits it at the
+    // SAME cursor with the completed (longer) content once its newline lands.
+    const prev = [
+      it_('a', 'c1'),
+      { id: 'b', cursor: 'c2', role: 'assistant' as const, text: 'partial' },
+    ]
+    const merged = mergeByCursor(prev, [
+      { id: 'b', cursor: 'c2', role: 'assistant' as const, text: 'partial then complete' },
+    ])
+    expect(merged.map((i) => i.text)).toEqual(['a', 'partial then complete'])
+    expect(merged).not.toBe(prev) // content changed → fresh array (re-render)
+  })
+
+  it('returns prev unchanged when a same-cursor re-emit is byte-identical (no re-render)', () => {
+    const prev = [it_('a', 'c1'), it_('b', 'c2')]
+    const merged = mergeByCursor(prev, [it_('b', 'c2'), it_('c', 'c3')])
+    // c2 is identical → no replace; only c3 is genuinely new.
+    expect(merged.map((i) => i.id)).toEqual(['a', 'b', 'c'])
+  })
 })
 
 const pathItem = (id: string, paths: string[]): TranscriptItem => ({
