@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { TranscriptItem } from '@podium/protocol'
 import { describe, expect, it, vi } from 'vitest'
-import { decodeCursor } from './cursor-codec.js'
+import { decodeCursor, encodeCursor } from './cursor-codec.js'
 import type { ChainEntry } from './file-chain.js'
 import { fileIdFor } from './file-chain.js'
 import * as slice from './slice.js'
@@ -368,5 +368,161 @@ describe('readTranscriptSlice', () => {
     })
     expect(after.items).toEqual([])
     expect(after.hasMore).toBe(false)
+  })
+
+  it('after-anchor hasMore stays true when the first window edge lands exactly between the limit-th and (limit+1)-th strictly-after item (pins usable `>` not `>=`)', async () => {
+    // Why this exists: the `'newer'` doubling loop stops when it holds `need =
+    // limit + 1` items STRICTLY AFTER the anchor — counted by
+    // `items.filter(it => offsetOf(it) > anchorOffset)`. A regression `>` → `>=`
+    // would also count the anchor record itself (it sits AT `anchorOffset`), so the
+    // loop would stop one record early. That only changes the OUTPUT when the very
+    // first window edge lands precisely between the `limit`-th and `(limit+1)`-th
+    // strictly-after record: with `>` the loop must grow (and discovers a later item
+    // → hasMore=true); with `>=` it stops, the page holds exactly `limit` items, and
+    // `hasMore` wrongly reports false. Every other test's window overshoots far past
+    // this edge, masking the difference. We force the edge with the `initialWindowBytes`
+    // test seam so the math is exact, not dependent on the 256 KB default.
+    const dir = await mkdtemp(join(tmpdir(), 'slice-edge-'))
+    const path = join(dir, 'edge.jsonl')
+    // Fixed-width records so byte offsets are predictable. Index baked into a
+    // zero-padded field of constant length → every record line is the same size.
+    const recFixed = (i: number): string =>
+      JSON.stringify({
+        uuid: `u${String(i).padStart(4, '0')}`,
+        type: 'user',
+        message: { role: 'user', content: [{ type: 'text', text: String(i).padStart(4, '0') }] },
+        timestamp: '2026-06-22T00:00:00Z',
+      })
+    const N = 12
+    const lines: string[] = []
+    for (let i = 0; i < N; i++) lines.push(recFixed(i))
+    await writeFile(path, `${lines.join('\n')}\n`)
+    const recLen = Buffer.byteLength(lines[0] ?? '')
+    // Every line is `recLen` bytes + 1 newline, so record i starts at i*(recLen+1)
+    // and its trailing \n sits at i*(recLen+1) + recLen.
+    const stride = recLen + 1
+    expect(lines.every((l) => Buffer.byteLength(l) === recLen)).toBe(true)
+
+    const fixedToItems = (r: unknown): TranscriptItem[] => {
+      const t = r as TestRecord
+      return [
+        { id: t.uuid, role: t.type, text: t.message.content[0]?.text },
+      ] as unknown as TranscriptItem[]
+    }
+    const chain: ChainEntry[] = [{ path, fileId: fileIdFor(path) }]
+
+    // Anchor on record A; page the `limit` after it. We want the first `'newer'`
+    // window to span the anchor record A plus EXACTLY `limit` strictly-after records
+    // (A+1 .. A+limit) and stop short of A+limit+1, while NOT yet at EOF.
+    const A = 2
+    const limit = 3
+    const anchorOffset = A * stride
+    // `'newer'` seeds the window start at `anchorOffset - 1`. A record at offset O is
+    // emitted only when its trailing \n (at O + recLen) is strictly inside the window
+    // end. To include A+limit's \n but exclude A+limit+1's, land `end` one byte past
+    // A+limit's \n: end = (A+limit)*stride + recLen + 1.
+    const start = anchorOffset - 1
+    const desiredEnd = (A + limit) * stride + recLen + 1
+    const initialWindowBytes = desiredEnd - start
+    // Sanity: A+limit+1 (and more) must still exist beyond the window so the loop is
+    // NOT at EOF on that first iteration (else it would stop via atBoundary, not usable).
+    const { size } = await stat(path)
+    expect(desiredEnd).toBeLessThan(size)
+    expect(A + limit + 1).toBeLessThan(N)
+
+    const anchorCursor = encodeCursor({
+      fileId: fileIdFor(path),
+      offset: anchorOffset,
+      uuid: `u${String(A).padStart(4, '0')}`,
+      sub: 0,
+    })
+    const after = await readTranscriptSlice(chain, fixedToItems, {
+      anchor: anchorCursor,
+      direction: 'after',
+      limit,
+      initialWindowBytes,
+    })
+    // The page is exactly the `limit` records after the anchor...
+    expect(after.items.map((i) => i.text)).toEqual(['0003', '0004', '0005'])
+    // ...and because record A+limit+1 (and more) follow, hasMore MUST be true. With a
+    // `>=` regression the loop stops on this first window (anchor counted), reports
+    // collected.length === limit, and hasMore would be a wrong `false`.
+    expect(after.hasMore).toBe(true)
+  })
+
+  it('sub>0: anchor mid-record pages the sibling then later records (multi-item-per-record)', async () => {
+    // All other tests map one item per record; this exercises the `sub` dimension:
+    // anchoring on a sub=0 item whose record also yields a sub=1 sibling, the `after`
+    // page must include that same-offset higher-sub sibling first, then continue into
+    // later records — and `before` must exclude both the anchor and its later sibling.
+    const dir = await mkdtemp(join(tmpdir(), 'slice-sub-'))
+    const path = join(dir, 'sub.jsonl')
+    // Each record carries two texts; mapper emits two items (sub 0 and sub 1).
+    const twoRec = (i: number): string =>
+      JSON.stringify({
+        uuid: `u${i}`,
+        type: 'user',
+        message: {
+          role: 'user',
+          content: [
+            { type: 'text', text: `${i}a` },
+            { type: 'text', text: `${i}b` },
+          ],
+        },
+        timestamp: '2026-06-22T00:00:00Z',
+      })
+    const N = 5
+    const lines: string[] = []
+    for (let i = 0; i < N; i++) lines.push(twoRec(i))
+    await writeFile(path, `${lines.join('\n')}\n`)
+    const twoItems = (r: unknown): TranscriptItem[] => {
+      const t = r as { uuid: string; type: string; message: { content: { text: string }[] } }
+      return t.message.content.map((c) => ({
+        id: `${t.uuid}`,
+        role: t.type,
+        text: c.text,
+      })) as unknown as TranscriptItem[]
+    }
+    const chain: ChainEntry[] = [{ path, fileId: fileIdFor(path) }]
+
+    // Sequence of items is: 0a,0b,1a,1b,2a,2b,3a,3b,4a,4b (record i → sub 0,1).
+    const all = await readTranscriptSlice(chain, twoItems, { direction: 'before', limit: 100 })
+    expect(all.items.map((i) => i.text)).toEqual([
+      '0a',
+      '0b',
+      '1a',
+      '1b',
+      '2a',
+      '2b',
+      '3a',
+      '3b',
+      '4a',
+      '4b',
+    ])
+    // Anchor on '2a' — the sub=0 item of record 2; its record also yields '2b' (sub=1).
+    const anchor2a = all.items.find((i) => i.text === '2a')
+    expect(anchor2a).toBeDefined()
+    const c = decodeCursor(anchor2a?.cursor ?? '')
+    expect(c?.sub).toBe(0)
+
+    // `after` must include the same-offset, higher-sub sibling ('2b') FIRST, then
+    // flow into later records with no gap/overlap.
+    const after = await readTranscriptSlice(chain, twoItems, {
+      anchor: anchor2a?.cursor,
+      direction: 'after',
+      limit: 4,
+    })
+    expect(after.items.map((i) => i.text)).toEqual(['2b', '3a', '3b', '4a'])
+    expect(after.hasMore).toBe(true) // '4b' still follows
+
+    // `before` must exclude the anchor ('2a') AND its later sibling ('2b'), ending at
+    // '1b' with no overlap into record 2.
+    const before = await readTranscriptSlice(chain, twoItems, {
+      anchor: anchor2a?.cursor,
+      direction: 'before',
+      limit: 3,
+    })
+    expect(before.items.map((i) => i.text)).toEqual(['0b', '1a', '1b'])
+    expect(before.hasMore).toBe(true) // '0a' still precedes
   })
 })

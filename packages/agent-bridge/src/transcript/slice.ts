@@ -91,6 +91,13 @@ export interface SliceOptions {
   direction: 'before' | 'after'
   /** Maximum number of items to return. */
   limit: number
+  /** TEST-ONLY seam: override the first bounded-read window size (bytes) so a test
+   *  can shrink the doubling window and land its growing edge precisely between two
+   *  records — needed to deterministically pin the strict-`>` `usable` invariant on
+   *  the `after` path, which the default 256 KB window's overshoot otherwise masks.
+   *  Defaults to `INITIAL_WINDOW_BYTES`; production callers never set it. Mirrors the
+   *  existing `readFileItems` `window` and tailer `pollMs` test seams. */
+  initialWindowBytes?: number
 }
 
 // First bounded-read window per file. A page is a small slice near a cursor, so a
@@ -153,6 +160,7 @@ export async function readTranscriptSlice(
         toward: 'older',
         anchorOffset: isAnchorFile && want ? want.offset : undefined,
         need: need - collected.length,
+        initialWindowBytes: opts.initialWindowBytes,
       })
       const contribution = isAnchorFile
         ? sliceBeforeAnchor(fileItems, opts.anchor, want)
@@ -184,6 +192,7 @@ export async function readTranscriptSlice(
       toward: 'newer',
       anchorOffset: isAnchorFile && want ? want.offset : undefined,
       need: need - collected.length,
+      initialWindowBytes: opts.initialWindowBytes,
     })
     const contribution = isAnchorFile ? sliceAfterAnchor(fileItems, opts.anchor, want) : fileItems
     collected.push(...contribution)
@@ -231,7 +240,13 @@ interface WindowedResult {
 async function readFileWindowed(
   entry: ChainEntry,
   recordToItems: (r: unknown) => TranscriptItem[],
-  opts: { toward: 'older' | 'newer'; anchorOffset?: number; need: number },
+  opts: {
+    toward: 'older' | 'newer'
+    anchorOffset?: number
+    need: number
+    /** TEST-ONLY override of the first-window size; see SliceOptions. */
+    initialWindowBytes?: number
+  },
 ): Promise<WindowedResult> {
   let size: number
   try {
@@ -242,6 +257,7 @@ async function readFileWindowed(
   if (size === 0) return { items: [], atBoundary: true }
 
   const needed = Math.max(1, opts.need)
+  const initialWindow = opts.initialWindowBytes ?? INITIAL_WINDOW_BYTES
 
   if (opts.toward === 'older') {
     // Window ends at the anchor record's start (no anchor → EOF), so it spans only
@@ -252,7 +268,7 @@ async function readFileWindowed(
     // `end` on a record boundary cleanly excludes the record starting there.)
     const end = opts.anchorOffset ?? size
     if (end === 0) return { items: [], atBoundary: true }
-    let windowBytes = Math.min(end, INITIAL_WINDOW_BYTES)
+    let windowBytes = Math.min(end, initialWindow)
     for (;;) {
       const start = Math.max(0, end - windowBytes)
       const atBoundary = start === 0
@@ -268,7 +284,7 @@ async function readFileWindowed(
   // toward === 'newer': window starts before the anchor record (so it survives the
   // leading-partial drop) or at byte 0 (no anchor → file head); grow END forward.
   const anchorOffset = opts.anchorOffset
-  let windowBytes = Math.min(size, INITIAL_WINDOW_BYTES)
+  let windowBytes = Math.min(size, initialWindow)
   for (;;) {
     // Seed start strictly before the anchor record. With no anchor we read from 0.
     const start = anchorOffset === undefined ? 0 : Math.max(0, anchorOffset - 1)
@@ -303,6 +319,11 @@ function sliceBeforeAnchor(
   want: ReturnType<typeof decodeCursor>,
 ): TranscriptItem[] {
   if (!anchor) return items
+  // Defensive safety net: on the bounded `before` path the `'older'` window ends at
+  // `anchorOffset`, so the anchor record never appears in `items` and this lookup
+  // returns -1 (→ keep all items, all of which are strictly older). The `slice(0,
+  // idx)` branch only matters if a future/unbounded caller ever passes items that DO
+  // include the anchor — then it still correctly trims the anchor and everything after.
   const idx = findAnchorIndex(items, anchor, want)
   return idx < 0 ? items : items.slice(0, idx)
 }
