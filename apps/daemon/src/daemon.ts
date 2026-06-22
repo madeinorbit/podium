@@ -68,17 +68,21 @@ import {
   type ControlMessage,
   type ConversationDiagnosticWire,
   type ConversationSummaryWire,
+  type DaemonHandshake,
+  type DaemonHandshakeReply,
   type DaemonMessage,
   encode,
   type GitDiscoveryDiagnosticWire,
   type GitRepositoryWire,
   parseControlMessage,
+  parseDaemonHandshakeReply,
   type TranscriptItem,
 } from '@podium/protocol'
 import WebSocket, { type RawData } from 'ws'
 import { readAssetSandboxed, readFileSandboxed, writeFileSandboxed } from './file-access'
 import { buildHarnessExec } from './harness-exec.js'
 import { startHookIngest } from './hook-ingest'
+import { loadIdentity, saveToken } from './identity'
 import { sampleHostMemory } from './host-metrics'
 import { attributeMemory, snapshotProcesses } from './memory-breakdown'
 import { makeQuotaFetcher } from './quota-fetch'
@@ -119,6 +123,26 @@ export type DurableBackend = 'abduco' | 'tmux' | 'none'
 
 export interface DaemonOptions {
   serverUrl: string
+  /**
+   * The in-process bootstrap secret (from the ServerHandle) OR the persistent shared
+   * secret read from the state dir. When set, the daemon authenticates as the local
+   * machine by presenting it as the `hello` token — the bundled localhost daemon needs
+   * no paired credential of its own.
+   */
+  bootstrapToken?: string
+  /**
+   * A one-time pairing code (UI-issued) for a NEW remote daemon with no stored
+   * token yet. Used only when there's no bootstrapToken and no persisted token.
+   */
+  pairCode?: string
+  /** Display name to register on first pair (defaults to the hostname server-side). */
+  name?: string
+  /** Override the identity-file directory (tests/isolated state). Defaults per loadIdentity. */
+  identityDir?: string
+  /** Override the machineId to register as, instead of the one in the identity file. The
+   *  bundled LOCAL daemon passes the stable local id so it attaches to the machine the
+   *  server already adopted its sessions onto; remote daemons use their own identity. */
+  machineId?: string
   /** Map an agent kind to a spawn command. Defaults to agentLaunchCommand; tests inject a fixture. */
   launch?: typeof agentLaunchCommand
   /**
@@ -1107,7 +1131,14 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     }
   }
 
+  // The control loop only runs after the handshake reply resolves the daemon (see the
+  // connect Promise below): startBackground() flips `authenticated` true. Until then the
+  // first inbound frame is the handshake reply, handled separately by the once('message')
+  // interceptor. Each (re)connect resets this so every socket re-authenticates.
+  let authenticated = false
+
   const handleControlMessage = (raw: RawData): void => {
+    if (!authenticated) return // pre-auth frames belong to the handshake handler
     // Drop absurdly large frames before materializing/parsing them (audit P0-4): a
     // multi-hundred-MB frame's synchronous toString()+JSON.parse would stall the loop
     // and back up the socket Recv-Q — the wedge shape. The cap is generous so it never
@@ -1441,7 +1472,12 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     },
   }
 
-  return new Promise<DaemonHandle>((resolve) => {
+  const identity = loadIdentity(opts.identityDir ? { dir: opts.identityDir } : {})
+  // The bundled local daemon overrides this with the server's stable local id so it
+  // attaches to the machine the server already adopted; remote daemons use the identity.
+  const machineId = opts.machineId ?? identity.machineId
+
+  return new Promise<DaemonHandle>((resolve, reject) => {
     let resolved = false
     let kickedOff = false
     const resolveStart = (): void => {
@@ -1450,11 +1486,14 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
         resolve(handle)
       }
     }
-    const onOpen = (): void => {
-      reconnectBackoffMs = RECONNECT_MIN_MS // healthy connect resets the backoff
-      // Kick off background discovery/metrics exactly once — a reconnect must not
-      // double-start the metrics interval. The server re-sends reattach for live
-      // sessions on every (re)connect; handleReattach is idempotent.
+    // Discovery + metrics startup, deferred until the handshake succeeds (the server
+    // only sends control frames after our helloOk). Flips `authenticated` true so the
+    // control loop accepts frames; kicks off discovery/metrics/uploads-GC exactly once
+    // across reconnects (a reconnect must not double-start the intervals). The server
+    // re-sends reattach for live sessions on every (re)connect; handleReattach is
+    // idempotent.
+    const startBackground = (): void => {
+      authenticated = true
       if (!kickedOff) {
         kickedOff = true
         if (discoveryBackground) {
@@ -1473,6 +1512,34 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
       }
       resolveStart()
     }
+    // Send the handshake as the FIRST frame on a socket's open. The server holds the
+    // socket unauthenticated until this proves who we are: bootstrap token (in-process
+    // local daemon) or a stored token (returning paired daemon) → hello; else a
+    // one-time pair code (new remote daemon) → pair; else we can't authenticate. Runs
+    // on every (re)connect so each socket re-authenticates.
+    const sendHandshake = (w: WebSocket): boolean => {
+      const hostname0 = hostname()
+      // Build the frame as a typed DaemonHandshake first. The `hello`/`pair` type
+      // literals also exist in the Client/Control unions encode() accepts, so an inline
+      // object literal would resolve against the wrong member; the annotation pins it.
+      const token = opts.bootstrapToken ?? identity.token
+      let frame: DaemonHandshake
+      if (token) {
+        frame = { type: 'hello', machineId, token, hostname: hostname0 }
+      } else if (opts.pairCode) {
+        frame = {
+          type: 'pair',
+          code: opts.pairCode,
+          machineId,
+          hostname: hostname0,
+          ...(opts.name ? { name: opts.name } : {}),
+        }
+      } else {
+        return false
+      }
+      w.send(encode(frame))
+      return true
+    }
     const scheduleReconnect = (): void => {
       if (closing || reconnectTimer) return
       reconnectTimer = setTimeout(() => {
@@ -1486,12 +1553,52 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
       if (closing) return
       const w = new WebSocket(`${opts.serverUrl}/daemon`)
       currentWs = w
-      w.on('open', onOpen)
+      authenticated = false // each connection re-authenticates before the control loop runs
+      w.once('open', () => {
+        reconnectBackoffMs = RECONNECT_MIN_MS // healthy connect resets the backoff
+        if (!sendHandshake(w)) {
+          disposeAll()
+          reject(new Error('daemon has no token and no pair code; pair it first'))
+          w.close()
+        }
+      })
+      // The FIRST inbound frame is the handshake reply: intercept it before the
+      // persistent control loop (gated by `authenticated`). On accept, persist any
+      // minted token, start background work, and resolve; on reject, tear down.
+      w.once('message', (raw: RawData) => {
+        let reply: DaemonHandshakeReply
+        try {
+          reply = parseDaemonHandshakeReply(raw.toString())
+        } catch {
+          // The server's first frame wasn't a valid handshake reply — refuse rather
+          // than silently proceed unauthenticated.
+          disposeAll()
+          reject(new Error('daemon handshake failed: malformed reply'))
+          w.close()
+          return
+        }
+        switch (reply.type) {
+          case 'paired':
+            // First pairing: persist the minted token so future boots send `hello`.
+            saveToken(reply.token, opts.identityDir ? { dir: opts.identityDir } : {})
+            startBackground()
+            break
+          case 'helloOk':
+            startBackground()
+            break
+          case 'helloRejected':
+          case 'pairRejected':
+            disposeAll()
+            reject(new Error(`daemon handshake rejected: ${reply.reason}`))
+            w.close()
+            break
+        }
+      })
       w.on('message', handleControlMessage)
       // A dropped/refused connection (server restart, or not up yet) must NOT tear
       // down running agents — keep the abduco attaches + transcript tails alive and
-      // just reconnect. Only an explicit handle.close() disposes. ('error' is
-      // followed by 'close', which drives the backoff reconnect.)
+      // just reconnect (re-authenticating). Only an explicit handle.close() disposes.
+      // ('error' is followed by 'close', which drives the backoff reconnect.)
       w.on('close', () => {
         if (currentWs === w) currentWs = undefined
         scheduleReconnect()
@@ -1501,7 +1608,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
       })
     }
     // Don't hang the entrypoint if the server isn't up yet — resolve after a grace
-    // window; the daemon keeps retrying in the background and kicks off on real open.
+    // window; the daemon keeps retrying in the background and authenticates on real open.
     const startGrace = setTimeout(resolveStart, 10_000)
     startGrace.unref?.()
     connect()

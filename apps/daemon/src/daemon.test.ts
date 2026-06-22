@@ -13,7 +13,12 @@ import {
   killTmuxServer,
   tmuxHasSession,
 } from '@podium/agent-bridge'
-import { type DaemonMessage, encode, parseDaemonMessage } from '@podium/protocol'
+import {
+  type DaemonHandshakeReply,
+  type DaemonMessage,
+  encode,
+  parseDaemonMessage,
+} from '@podium/protocol'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { WebSocketServer, type WebSocket as WS } from 'ws'
 import {
@@ -31,6 +36,25 @@ const G = { cols: 80, rows: 24 }
 const decode = (b64: string): string => Buffer.from(b64, 'base64').toString('utf8')
 type AgentFrame = Extract<DaemonMessage, { type: 'agentFrame' }>
 
+// The daemon now authenticates before doing anything: its FIRST frame is a `hello`
+// handshake (driven by bootstrapToken: 'test' below) and it waits for `helloOk` before
+// starting background work / accepting control messages. Every fake server here must
+// therefore answer the handshake. This helper replies `helloOk` to the first frame (the
+// hello), then records every subsequent DaemonMessage — exactly what the old bare
+// `on('message')` did, minus the (now non-DaemonMessage) handshake frame.
+function handshakeAndCollect(ws: WS, received: DaemonMessage[]): void {
+  let authed = false
+  ws.on('message', (raw) => {
+    if (!authed) {
+      authed = true
+      const ok: DaemonHandshakeReply = { type: 'helloOk', name: 'test' }
+      ws.send(encode(ok))
+      return
+    }
+    received.push(parseDaemonMessage(raw.toString()))
+  })
+}
+
 describe('daemon multi-bridge', () => {
   let wss: WebSocketServer
   let serverSocket: WS
@@ -45,12 +69,13 @@ describe('daemon multi-bridge', () => {
     const connected = new Promise<void>((r) => {
       wss.once('connection', (ws) => {
         serverSocket = ws
-        ws.on('message', (raw) => received.push(parseDaemonMessage(raw.toString())))
+        handshakeAndCollect(ws, received)
         r()
       })
     })
     daemon = await startDaemon({
       serverUrl: `ws://localhost:${port}`,
+      bootstrapToken: 'test',
       hooks: { port: 0, settingsDir: mkdtempSync(join(tmpdir(), 'podium-hooks-')) },
       // direct node-pty path keeps these fixtures/assertions deterministic (no tmux dependency)
       tmux: false,
@@ -340,13 +365,14 @@ describe.skipIf(!isAbducoAvailable())('daemon abduco survival', () => {
     const connected = new Promise<void>((r) => {
       wss.once('connection', (ws) => {
         serverSocket = ws
-        ws.on('message', (raw) => received.push(parseDaemonMessage(raw.toString())))
+        handshakeAndCollect(ws, received)
         r()
       })
     })
 
     const daemon = await startDaemon({
       serverUrl: `ws://localhost:${port}`,
+      bootstrapToken: 'test',
       hooks: { port: 0, settingsDir: mkdtempSync(join(tmpdir(), 'podium-hooks-')) },
       backend: 'abduco',
       discovery: { background: false, cachePath: ':memory:' },
@@ -436,13 +462,14 @@ describe.skipIf(!isAbducoAvailable())('daemon abduco survival', () => {
     const connected = new Promise<void>((r) => {
       wss.once('connection', (ws) => {
         serverSocket = ws
-        ws.on('message', (raw) => received.push(parseDaemonMessage(raw.toString())))
+        handshakeAndCollect(ws, received)
         r()
       })
     })
 
     const daemon = await startDaemon({
       serverUrl: `ws://localhost:${port}`,
+      bootstrapToken: 'test',
       hooks: { port: 0, settingsDir: mkdtempSync(join(tmpdir(), 'podium-hooks-')) },
       backend: 'abduco',
       discovery: { background: false, cachePath: ':memory:' },
@@ -536,7 +563,7 @@ describe.skipIf(!isAbducoAvailable())('daemon abduco survival', () => {
       const ready = new Promise<void>((r) => {
         wss.once('connection', (ws) => {
           socket = ws
-          ws.on('message', (raw) => received.push(parseDaemonMessage(raw.toString())))
+          handshakeAndCollect(ws, received)
           r()
         })
       })
@@ -551,6 +578,7 @@ describe.skipIf(!isAbducoAvailable())('daemon abduco survival', () => {
     const a = await startServer()
     const daemonA = await startDaemon({
       serverUrl: `ws://localhost:${(a.wss.address() as { port: number }).port}`,
+      bootstrapToken: 'test',
       hooks: { port: 0, settingsDir },
       backend: 'abduco',
       discovery: { background: false, cachePath: ':memory:' },
@@ -572,6 +600,7 @@ describe.skipIf(!isAbducoAvailable())('daemon abduco survival', () => {
     const b = await startServer()
     const daemonB = await startDaemon({
       serverUrl: `ws://localhost:${(b.wss.address() as { port: number }).port}`,
+      bootstrapToken: 'test',
       hooks: { port: 0, settingsDir },
       backend: 'abduco',
       discovery: { background: false, cachePath: ':memory:' },
@@ -657,7 +686,7 @@ describe.skipIf(!isAbducoAvailable())('daemon abduco survival', () => {
       const ready = new Promise<void>((r) => {
         wss.once('connection', (ws) => {
           socket = ws
-          ws.on('message', (raw) => received.push(parseDaemonMessage(raw.toString())))
+          handshakeAndCollect(ws, received)
           r()
         })
       })
@@ -672,6 +701,7 @@ describe.skipIf(!isAbducoAvailable())('daemon abduco survival', () => {
     const a = await startServer()
     const daemonA = await startDaemon({
       serverUrl: `ws://localhost:${(a.wss.address() as { port: number }).port}`,
+      bootstrapToken: 'test',
       hooks: { port: 0, settingsDir },
       backend: 'abduco',
       discovery: { background: false, cachePath: ':memory:' },
@@ -690,6 +720,7 @@ describe.skipIf(!isAbducoAvailable())('daemon abduco survival', () => {
     const b = await startServer()
     const daemonB = await startDaemon({
       serverUrl: `ws://localhost:${(b.wss.address() as { port: number }).port}`,
+      bootstrapToken: 'test',
       hooks: { port: 0, settingsDir },
       backend: 'abduco',
       discovery: { background: false, cachePath: ':memory:' },
@@ -740,13 +771,14 @@ describe.skipIf(!isAbducoAvailable())('daemon abduco survival', () => {
     const connected = new Promise<void>((r) => {
       wss.once('connection', (ws) => {
         serverSocket = ws
-        ws.on('message', (raw) => received.push(parseDaemonMessage(raw.toString())))
+        handshakeAndCollect(ws, received)
         r()
       })
     })
 
     const daemon = await startDaemon({
       serverUrl: `ws://localhost:${port}`,
+      bootstrapToken: 'test',
       hooks: { port: 0, settingsDir: mkdtempSync(join(tmpdir(), 'podium-hooks-')) },
       backend: 'abduco',
       discovery: { background: false, cachePath: ':memory:' },
@@ -788,13 +820,14 @@ describe.skipIf(!isTmuxAvailable())('daemon tmux survival', () => {
     const connected = new Promise<void>((r) => {
       wss.once('connection', (ws) => {
         serverSocket = ws
-        ws.on('message', (raw) => received.push(parseDaemonMessage(raw.toString())))
+        handshakeAndCollect(ws, received)
         r()
       })
     })
 
     const daemon = await startDaemon({
       serverUrl: `ws://localhost:${port}`,
+      bootstrapToken: 'test',
       hooks: { port: 0, settingsDir: mkdtempSync(join(tmpdir(), 'podium-hooks-')) },
       tmux: true,
       discovery: { background: false, cachePath: ':memory:' },
@@ -835,13 +868,14 @@ describe.skipIf(!isTmuxAvailable())('daemon tmux survival', () => {
     const connected = new Promise<void>((r) => {
       wss.once('connection', (ws) => {
         serverSocket = ws
-        ws.on('message', (raw) => received.push(parseDaemonMessage(raw.toString())))
+        handshakeAndCollect(ws, received)
         r()
       })
     })
 
     const daemon = await startDaemon({
       serverUrl: `ws://localhost:${port}`,
+      bootstrapToken: 'test',
       hooks: { port: 0, settingsDir: mkdtempSync(join(tmpdir(), 'podium-hooks-')) },
       tmux: true,
       discovery: { background: false, cachePath: ':memory:' },
@@ -932,13 +966,14 @@ describe('daemon conversation discovery', () => {
     const received: DaemonMessage[] = []
     const connected = new Promise<void>((r) => {
       wss.once('connection', (ws) => {
-        ws.on('message', (raw) => received.push(parseDaemonMessage(raw.toString())))
+        handshakeAndCollect(ws, received)
         r()
       })
     })
 
     const daemon = await startDaemon({
       serverUrl: `ws://localhost:${port}`,
+      bootstrapToken: 'test',
       hooks: { port: 0, settingsDir: mkdtempSync(join(tmpdir(), 'podium-hooks-')) },
       tmux: false,
       launch: (_kind, opts) => ({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
@@ -976,10 +1011,11 @@ describe('daemon host metrics', () => {
     await new Promise<void>((r) => wss.once('listening', () => r()))
     const port = (wss.address() as { port: number }).port
     wss.on('connection', (ws) => {
-      ws.on('message', (raw) => received.push(parseDaemonMessage(raw.toString())))
+      handshakeAndCollect(ws, received)
     })
     const daemon = await startDaemon({
       serverUrl: `ws://localhost:${port}`,
+      bootstrapToken: 'test',
       hooks: { port: 0, settingsDir: mkdtempSync(join(tmpdir(), 'podium-hooks-')) },
       tmux: false,
       discovery: { background: false, cachePath: ':memory:' },
@@ -1012,10 +1048,11 @@ describe('daemon host metrics', () => {
     await new Promise<void>((r) => wss.once('listening', () => r()))
     const port = (wss.address() as { port: number }).port
     wss.on('connection', (ws) => {
-      ws.on('message', (raw) => received.push(parseDaemonMessage(raw.toString())))
+      handshakeAndCollect(ws, received)
     })
     const daemon = await startDaemon({
       serverUrl: `ws://localhost:${port}`,
+      bootstrapToken: 'test',
       hooks: { port: 0, settingsDir: mkdtempSync(join(tmpdir(), 'podium-hooks-')) },
       tmux: false,
       discovery: { background: false, cachePath: ':memory:' },
@@ -1042,10 +1079,11 @@ describe('daemon memory breakdown', () => {
       let serverWs: WS | undefined
       wss.on('connection', (ws) => {
         serverWs = ws
-        ws.on('message', (raw) => received.push(parseDaemonMessage(raw.toString())))
+        handshakeAndCollect(ws, received)
       })
       const daemon = await startDaemon({
         serverUrl: `ws://localhost:${port}`,
+        bootstrapToken: 'test',
         hooks: { port: 0, settingsDir: mkdtempSync(join(tmpdir(), 'podium-hooks-')) },
         tmux: false,
         discovery: { background: false, cachePath: ':memory:' },
@@ -1106,12 +1144,13 @@ describe('agent state instrumentation', () => {
     const connected = new Promise<void>((r) => {
       wss.once('connection', (ws) => {
         serverSocket = ws
-        ws.on('message', (raw) => received.push(parseDaemonMessage(raw.toString())))
+        handshakeAndCollect(ws, received)
         r()
       })
     })
     daemon = await startDaemon({
       serverUrl: `ws://localhost:${port}`,
+      bootstrapToken: 'test',
       tmux: false,
       discovery: { background: false, cachePath: ':memory:' },
       metrics: { background: false },
