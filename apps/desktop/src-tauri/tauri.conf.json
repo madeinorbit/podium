@@ -13,7 +13,7 @@
   "bundle": {
     "active": true,
     "targets": ["appimage", "deb"],
-    "resources": ["resources/web"],
+    "resources": ["resources/web", "resources/podium"],
     "icon": ["icons/icon.png"]
   }
 }

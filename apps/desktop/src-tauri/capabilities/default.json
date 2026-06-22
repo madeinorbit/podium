@@ -6,10 +6,6 @@
   "permissions": [
     "core:default",
     "core:window:allow-create",
-    "core:webview:allow-create-webview-window",
-    {
-      "identifier": "shell:allow-spawn",
-      "allow": [{ "name": "binaries/podium", "sidecar": true }]
-    }
+    "core:webview:allow-create-webview-window"
   ]
 }
