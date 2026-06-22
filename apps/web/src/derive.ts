@@ -1,4 +1,11 @@
-import type { AgentKind, GitRepositoryWire, HostMetricsWire, SessionMeta } from '@podium/protocol'
+import { normalizeOriginUrl } from '@podium/core'
+import type {
+  AgentKind,
+  GitRepositoryWire,
+  HostMetricsWire,
+  MachineWire,
+  SessionMeta,
+} from '@podium/protocol'
 import { cn } from '@/lib/utils'
 import { attentionGroup, compareRecency } from './home'
 import type { PinState, RepoView, WorktreeView } from './types'
@@ -96,23 +103,108 @@ export function reposToViews(repos: GitRepositoryWire[]): RepoView[] {
   // worktrees[]) and each worktree as its own top-level entry. Drop the standalone
   // duplicates so each worktree shows once, nested under its parent.
   const linkedWorktreePaths = new Set(repos.flatMap((r) => r.worktrees.map((w) => w.path)))
-  return repos
-    .filter((r) => !linkedWorktreePaths.has(r.path))
-    .map((r) => {
+  const candidates = repos.filter((r) => !linkedWorktreePaths.has(r.path))
+
+  // Group by normalized origin URL so that the same repo cloned on multiple machines
+  // collapses into one RepoView. Repos without a remote (empty normalizedOrigin) are
+  // keyed by (machineId, path) so they stay separate — two unrelated local repos that
+  // happen to have no remote must never be merged.
+  const groups = new Map<string, GitRepositoryWire[]>()
+  for (const r of candidates) {
+    const origin = normalizeOriginUrl(r.originUrl)
+    const key = origin !== '' ? origin : `__no_remote__:${r.machineId ?? ''}:${r.path}`
+    const existing = groups.get(key)
+    if (existing) {
+      existing.push(r)
+    } else {
+      groups.set(key, [r])
+    }
+  }
+
+  const views: RepoView[] = []
+  for (const [, group] of groups) {
+    // Use the first repo's path/name as the canonical identity for the RepoView.
+    // The group is always non-empty (we only insert when we have a repo to key).
+    if (group.length === 0) continue
+    const first: GitRepositoryWire = group[0] as GitRepositoryWire
+    const originUrl = normalizeOriginUrl(first.originUrl) || undefined
+
+    const worktrees: WorktreeView[] = []
+    const machines: { machineId: string; path: string }[] = []
+
+    for (const r of group) {
+      const machineId = r.machineId
+      if (machineId !== undefined) {
+        machines.push({ machineId, path: r.path })
+      }
       const main: WorktreeView = {
         path: r.path,
         ...(r.branch !== undefined ? { branch: r.branch } : {}),
         repoPath: r.path,
         isMain: true,
+        ...(machineId !== undefined ? { machineId } : {}),
       }
-      const linked: WorktreeView[] = r.worktrees.map((w) => ({
-        path: w.path,
-        ...(w.branch !== undefined ? { branch: w.branch } : {}),
-        repoPath: r.path,
-        isMain: false,
-      }))
-      return { path: r.path, name: r.path.split('/').pop() || r.path, worktrees: [main, ...linked] }
+      worktrees.push(main)
+      for (const w of r.worktrees) {
+        worktrees.push({
+          path: w.path,
+          ...(w.branch !== undefined ? { branch: w.branch } : {}),
+          repoPath: r.path,
+          isMain: false,
+          ...(machineId !== undefined ? { machineId } : {}),
+        })
+      }
+    }
+
+    views.push({
+      path: first.path,
+      name: first.path.split('/').pop() || first.path,
+      worktrees,
+      machines,
+      ...(originUrl !== undefined ? { originUrl } : {}),
     })
+  }
+
+  return views
+}
+
+/** Online machines that have this repo (intersection of repo.machines and online machines). */
+export function machinesForRepo(repo: RepoView, machines: MachineWire[]): MachineWire[] {
+  const repoMachineIds = new Set(repo.machines.map((m) => m.machineId))
+  return machines.filter((m) => m.online && repoMachineIds.has(m.id))
+}
+
+/** The machineId of the most recently created session among the given machines;
+ *  undefined if none of the sessions belong to those machines. */
+export function lastUsedMachine(
+  sessions: SessionMeta[],
+  machines: MachineWire[],
+): string | undefined {
+  const machineIds = new Set(machines.map((m) => m.id))
+  let best: SessionMeta | undefined
+  for (const s of sessions) {
+    if (s.machineId !== undefined && machineIds.has(s.machineId)) {
+      if (best === undefined || s.createdAt > best.createdAt) {
+        best = s
+      }
+    }
+  }
+  return best?.machineId
+}
+
+/** The recommended machine to open an agent on for this repo.
+ *  Prefers the most-recently-used machine that also has the repo;
+ *  falls back to the first online machine that has the repo; else undefined. */
+export function resolveTargetMachine(
+  repo: RepoView,
+  sessions: SessionMeta[],
+  machines: MachineWire[],
+): string | undefined {
+  const eligible = machinesForRepo(repo, machines)
+  if (eligible.length === 0) return undefined
+  const mru = lastUsedMachine(sessions, eligible)
+  if (mru !== undefined) return mru
+  return eligible[0]?.id
 }
 
 /** Sessions shown in a worktree's tab strip / sidebar — archived ones stay out. */

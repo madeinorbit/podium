@@ -14,12 +14,20 @@ export interface WorktreeView {
   branch?: string
   repoPath: string
   isMain: boolean
+  /** Which machine this worktree lives on (undefined = single-machine or unknown). */
+  machineId?: string
 }
 
 export interface RepoView {
   path: string
   name: string
   worktrees: WorktreeView[]
+  /** All machines that have this repo, with each machine's local repo path.
+   *  Single-machine deployments will always have exactly one entry. */
+  machines: { machineId: string; path: string }[]
+  /** Normalized origin URL used as the cross-machine identity key.
+   *  Undefined for repos without a git remote. */
+  originUrl?: string
 }
 
 export type { ConversationSummaryWire, GitRepositoryWire, SessionMeta }
