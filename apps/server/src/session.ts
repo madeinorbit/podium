@@ -56,13 +56,14 @@ export interface SessionInit {
 // apps (shells, Ink) whose scrollback a redraw cannot recreate. Reset on a screen clear
 // or alt-screen transition keeps the buffer small and aligned to the current screen.
 const MAX_REPLAY_BYTES = 256 * 1024
-// Bounded structured-transcript buffer per session — the live window late
-// subscribers get as a snapshot. Generous on purpose so the common case loads
-// whole, but still bounded (each item is small; ~12k is a few MB per live
-// session). Items older than this window are no longer lost: the chat view pages
-// them back in on demand straight off disk (sessions.transcriptPage), so this is
-// the live-stream window cap, not a hard transcript ceiling. Kept in step with the
-// tailer's MAX_INITIAL_ITEMS so a reattach snapshot and the live buffer match.
+// Bounded recent-delta cache per session — the live window a late subscriber gets
+// to bridge the gap between its last on-disk read and the live tail. It is NOT the
+// source of truth (disk is): the chat view reads its history off disk via
+// sessions.transcriptRead, and this cache only carries forward items streamed since.
+// Generous on purpose so a freshly-subscribing client usually catches up whole, but
+// still bounded (each item is small; ~12k is a few MB per live session). Items older
+// than this window fall off — the client already has them from its disk read. Kept in
+// step with the tailer's MAX_INITIAL_ITEMS so a reattach delta and the cache match.
 const MAX_TRANSCRIPT_ITEMS = 12_000
 // How long after the last output frame a running shell command still reads as
 // "busy". A command keeps resetting it; once output goes quiet for this long the
@@ -143,9 +144,10 @@ export class Session {
   // Recent agent output (base64 frames) for replay-on-attach; bounded by MAX_REPLAY_BYTES.
   private readonly outputLog: { seq: number; data: string }[] = []
   private outputLogBytes = 0
-  // Structured transcript buffer (chat view) + which clients want its stream.
+  // Bounded recent-delta cache (chat view) + which clients want its stream.
   // Holds the connection (not just the id): a chat-only client subscribes
-  // without ever attaching to the PTY.
+  // without ever attaching to the PTY. This is a gap-bridging window, not the
+  // transcript source of truth — disk is.
   private transcript: TranscriptItem[] = []
   private readonly transcriptSubscribers = new Map<string, ClientConn>()
 
@@ -231,48 +233,60 @@ export class Session {
     if (this.controllerId === fromId) this.controllerId = toId
   }
 
-  /** Subscribe a client to the structured transcript: snapshot now, appends after. */
-  subscribeTranscript(client: ClientConn): void {
+  /**
+   * Subscribe a client to the live transcript stream and replay the recent-delta
+   * cache so it bridges the gap between the client's last on-disk read and the live
+   * tail. The client already loaded its history off disk (sessions.transcriptRead);
+   * `since` is the cursor of the newest item it holds, so we replay only the cached
+   * items AFTER it. If `since` isn't in the cache (the client read an older cursor,
+   * or the cache rolled past it) we replay the WHOLE cache and let the client's
+   * cursor-dedup drop overlaps — better an overlap than a gap. No reset: the client
+   * keeps its read history. An empty replay sends nothing.
+   */
+  subscribeTranscript(client: ClientConn, since?: string): void {
     this.transcriptSubscribers.set(client.id, client)
-    client.send({
-      type: 'transcriptSnapshot',
-      sessionId: this.sessionId,
-      items: this.transcript,
-    })
+    let replay = this.transcript
+    if (since !== undefined) {
+      const idx = this.transcript.findIndex((it) => it.cursor === since)
+      // Found `since` in the cache → replay strictly after it. Not found → replay all.
+      replay = idx >= 0 ? this.transcript.slice(idx + 1) : this.transcript
+    }
+    if (replay.length > 0) {
+      client.send({ type: 'transcriptDelta', sessionId: this.sessionId, items: replay })
+    }
   }
 
   unsubscribeTranscript(clientId: string): void {
     this.transcriptSubscribers.delete(clientId)
   }
 
-  /** The buffered structured transcript (superagent tools read this). */
+  /** The cached recent transcript items (superagent + first-prompt title read this). */
   transcriptItems(): TranscriptItem[] {
     return this.transcript
   }
 
-  /** Daemon pushed parsed transcript items; buffer (bounded) and fan out.
-   *  Returns true the first time a transcript is observed (the chat-capability
-   *  transition), so the registry can broadcast the updated SessionMeta. */
-  appendTranscript(items: TranscriptItem[], reset: boolean): boolean {
+  /** Daemon pushed parsed transcript items (a live delta); update the bounded cache
+   *  and fan out to subscribers as a transcriptDelta. `reset` (tailer switched files)
+   *  clears the cache first; `tail` is the cursor of the last item, forwarded so a
+   *  subscriber can resume from it. Returns true the first time a transcript is
+   *  observed (the chat-capability transition), so the registry can broadcast meta. */
+  applyDelta(items: TranscriptItem[], opts: { reset?: boolean; tail?: string }): boolean {
     const becameAvailable =
       !this.transcriptAvailable && (items.length > 0 || this.transcript.length > 0)
     if (becameAvailable) this.transcriptAvailable = true
-    if (reset) this.transcript = []
+    if (opts.reset) this.transcript = []
     this.transcript = this.transcript.concat(items)
     if (this.transcript.length > MAX_TRANSCRIPT_ITEMS) {
       this.transcript = this.transcript.slice(-MAX_TRANSCRIPT_ITEMS)
     }
-    for (const client of this.transcriptSubscribers.values()) {
-      if (reset) {
-        client.send({
-          type: 'transcriptSnapshot',
-          sessionId: this.sessionId,
-          items: this.transcript,
-        })
-      } else {
-        client.send({ type: 'transcriptAppend', sessionId: this.sessionId, items })
-      }
+    const delta: ServerMessage = {
+      type: 'transcriptDelta',
+      sessionId: this.sessionId,
+      items,
+      ...(opts.tail !== undefined ? { tail: opts.tail } : {}),
+      ...(opts.reset ? { reset: true } : {}),
     }
+    for (const client of this.transcriptSubscribers.values()) client.send(delta)
     return becameAvailable
   }
 
