@@ -255,28 +255,34 @@ export const TranscriptItem = z.object({
 })
 export type TranscriptItem = z.infer<typeof TranscriptItem>
 
-// daemon -> server AND server -> client (identical shape). `reset` replaces the
-// buffer (tailer switched files, e.g. resume rolled into a fresh transcript).
-export const TranscriptAppendMessage = z.object({
-  type: z.literal('transcriptAppend'),
+// daemon -> server AND server -> client (identical shape). Streams newly-tailed
+// transcript items as they arrive. `tail` is the cursor of the last item in this
+// batch (the resume point for a late subscribe). `reset` replaces the client's
+// buffer (the tailer switched files, e.g. resume rolled into a fresh transcript).
+export const TranscriptDeltaMessage = z.object({
+  type: z.literal('transcriptDelta'),
   sessionId: z.string(),
   items: z.array(TranscriptItem),
+  tail: z.string().optional(),
   reset: z.boolean().optional(),
 })
-// server -> client on subscribe: the whole buffered transcript so far.
-export const TranscriptSnapshotMessage = z.object({
-  type: z.literal('transcriptSnapshot'),
-  sessionId: z.string(),
-  items: z.array(TranscriptItem),
-})
+export type TranscriptDeltaMessage = z.infer<typeof TranscriptDeltaMessage>
+
+// client -> server. `since` is the cursor of the last item the client already
+// holds; the server streams only items after it (omitted = stream from the live
+// tail / send what the server buffers).
 export const TranscriptSubscribeMessage = z.object({
   type: z.literal('transcriptSubscribe'),
   sessionId: z.string(),
+  since: z.string().optional(),
 })
+export type TranscriptSubscribeMessage = z.infer<typeof TranscriptSubscribeMessage>
+
 export const TranscriptUnsubscribeMessage = z.object({
   type: z.literal('transcriptUnsubscribe'),
   sessionId: z.string(),
 })
+export type TranscriptUnsubscribeMessage = z.infer<typeof TranscriptUnsubscribeMessage>
 
 // ---- Browser client -> server ----
 export const HelloMessage = z.object({
@@ -476,8 +482,7 @@ export const ServerMessage = z.discriminatedUnion('type', [
   HostMetricsChangedMessage,
   PongMessage,
   AttentionEventMessage,
-  TranscriptAppendMessage,
-  TranscriptSnapshotMessage,
+  TranscriptDeltaMessage,
 ])
 export type ServerMessage = z.infer<typeof ServerMessage>
 
@@ -522,35 +527,23 @@ export const ScanReposRequestMessage = z.object({
   maxDepth: z.number().int().nonnegative().optional(),
 })
 export const RedrawMessage = z.object({ type: z.literal('redraw'), sessionId: z.string() })
-// On-demand transcript read for a PARKED session (hibernated/exited): its process
-// is gone, so nothing is tailing the file and the server's in-memory buffer is
-// empty after a restart. The daemon reads the JSONL straight off disk (path derived
-// from the resume ref + cwd) and returns the parsed tail. Live sessions don't use
-// this — they stream via transcriptAppend.
+// Unified, cursor-based transcript read (server -> daemon). One request shape for
+// both the initial tail and scroll-back paging: the daemon resolves the items
+// relative to an opaque `anchor` cursor. `anchor` omitted = read from the tail
+// (newest) when direction is 'before', or from the head when 'after'. `direction`
+// 'before' walks toward older items (scroll-to-top paging), 'after' toward newer.
+// `limit` bounds the page. The daemon keyed by sessionId resolves the file +
+// position; the server holds the session→cwd/resume mapping, so this message no
+// longer carries agentKind/cwd/resume.
 export const TranscriptReadRequestMessage = z.object({
-  type: z.literal('transcriptReadRequest'),
+  type: z.literal('transcriptRead'),
   requestId: z.string(),
-  agentKind: AgentKind,
-  cwd: z.string(),
-  resume: ResumeRef,
+  sessionId: z.string(),
+  anchor: z.string().optional(),
+  direction: z.enum(['before', 'after']),
+  limit: z.number(),
 })
-
-// Scroll-to-top paging: fetch the page of OLDER transcript items that come BEFORE
-// the client's current window, so arbitrarily long sessions load incrementally
-// rather than the tail alone. `fromEnd` is how many items the client already holds
-// counted from the END of the full transcript (0 = the latest item); the daemon
-// returns the `limit` items immediately before that window. A positional cursor
-// (not an item id) on purpose: some item ids are synthesized per-parse and aren't
-// stable across reads, but item count/content are deterministic for the same bytes.
-export const TranscriptPageRequestMessage = z.object({
-  type: z.literal('transcriptPageRequest'),
-  requestId: z.string(),
-  agentKind: AgentKind,
-  cwd: z.string(),
-  resume: ResumeRef,
-  fromEnd: z.number().int().nonnegative(),
-  limit: z.number().int().positive().max(2000),
-})
+export type TranscriptReadRequestMessage = z.infer<typeof TranscriptReadRequestMessage>
 
 export const FileReadRequestMessage = z.object({
   type: z.literal('fileReadRequest'),
@@ -724,7 +717,6 @@ export const ControlMessage = z.discriminatedUnion('type', [
   RedrawMessage,
   MemoryBreakdownRequestMessage,
   TranscriptReadRequestMessage,
-  TranscriptPageRequestMessage,
   FileReadRequestMessage,
   FileAssetRequestMessage,
   FileWriteRequestMessage,
@@ -833,20 +825,21 @@ export const SessionResumeRefMessage = z.object({
   resume: ResumeRef,
 })
 
+// Reply to a TranscriptReadRequest (daemon -> server): the requested page of
+// items plus the cursors that bound it. `head`/`tail` are the cursors of the
+// first/last item in `items` (omitted when the page is empty), and `hasMore`
+// says whether further items remain in the requested `direction` (so the client
+// can stop paging at the file's head/tail).
 export const TranscriptReadResultMessage = z.object({
   type: z.literal('transcriptReadResult'),
   requestId: z.string(),
+  sessionId: z.string(),
   items: z.array(TranscriptItem),
-})
-
-// Reply to a TranscriptPageRequest: the older page, plus whether earlier items
-// still remain on disk (so the client can stop paging at the head of the file).
-export const TranscriptPageResultMessage = z.object({
-  type: z.literal('transcriptPageResult'),
-  requestId: z.string(),
-  items: z.array(TranscriptItem),
+  head: z.string().optional(),
+  tail: z.string().optional(),
   hasMore: z.boolean(),
 })
+export type TranscriptReadResultMessage = z.infer<typeof TranscriptReadResultMessage>
 
 export const FileReadResultMessage = z.object({
   type: z.literal('fileReadResult'),
@@ -918,9 +911,8 @@ export const DaemonMessage = z.discriminatedUnion('type', [
   ScanReposResultMessage,
   HostMetricsMessage,
   MemoryBreakdownResultMessage,
-  TranscriptAppendMessage,
+  TranscriptDeltaMessage,
   TranscriptReadResultMessage,
-  TranscriptPageResultMessage,
   FileReadResultMessage,
   FileAssetResultMessage,
   FileWriteResultMessage,
