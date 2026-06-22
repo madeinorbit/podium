@@ -830,6 +830,25 @@ export class SessionStore {
         .prepare('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)')
         .run('schema_version', '5')
     }
+    // v5 -> v6: conversation-scoped state (drafts, snoozes) now keys by
+    // conversation_id, not the row id. Remap rows whose session belongs to a
+    // conversation under a different canonical id (merged dups / resume origin).
+    // UPDATE OR REPLACE collapses the rare case where both a non-canonical row and
+    // its canonical already hold state — the conversation keeps one entry.
+    if (ver < 6) {
+      for (const table of ['session_drafts', 'snoozes']) {
+        this.db.exec(
+          `UPDATE OR REPLACE ${table}
+             SET session_id = (SELECT conversation_id FROM sessions WHERE sessions.id = ${table}.session_id)
+             WHERE session_id IN (
+               SELECT id FROM sessions WHERE conversation_id IS NOT NULL AND conversation_id <> id
+             )`,
+        )
+      }
+      this.db
+        .prepare('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)')
+        .run('schema_version', '6')
+    }
     this.importReposJson()
   }
 

@@ -168,10 +168,14 @@ export class SessionRegistry {
   }
 
   private loadFromStore(): void {
-    // Restore persisted composer drafts so attachClient can replay them to the
-    // first client to connect after a server restart (issue #34).
-    for (const [sessionId, text] of Object.entries(this.store.loadDrafts())) {
-      this.draftBySession.set(sessionId, text)
+    // Composer drafts and snoozes are persisted by conversationId. Seed drafts by
+    // their stored key so an orphan draft (its conversation has no live row) still
+    // replays to the first client (issue #34); the session loop below additionally
+    // keys a merged-dup row by its own id and applies the snooze, so both ride the
+    // conversation rather than the volatile row id.
+    const draftsByConversation = this.store.loadDrafts()
+    for (const [conversationId, text] of Object.entries(draftsByConversation)) {
+      this.draftBySession.set(conversationId, text)
     }
     const snoozes = this.store.listSnoozes()
     for (const r of this.store.loadSessions()) {
@@ -226,7 +230,9 @@ export class SessionRegistry {
           : {}),
       })
       this.sessions.set(r.id, session)
-      if (r.id in snoozes) session.snoozedUntil = snoozes[r.id]
+      if (session.conversationId in snoozes) session.snoozedUntil = snoozes[session.conversationId]
+      const draft = draftsByConversation[session.conversationId]
+      if (draft !== undefined) this.draftBySession.set(r.id, draft)
       if (r.status !== reloadStatus) this.persist(session)
     }
   }
@@ -307,15 +313,22 @@ export class SessionRegistry {
     return this.store.listSnoozes()
   }
 
+  /** Conversation-scoped persistent state (drafts, snoozes) is keyed by the stable
+   *  conversationId, never the volatile row id — so it survives a resume-fork merge
+   *  or re-resume. Falls back to the sessionId for an unknown session. */
+  private convId(sessionId: string): string {
+    return this.sessions.get(sessionId)?.conversationId ?? sessionId
+  }
+
   setSnooze({ sessionId, until }: { sessionId: string; until: string | null }): void {
-    this.store.setSnooze(sessionId, until)
+    this.store.setSnooze(this.convId(sessionId), until)
     const session = this.sessions.get(sessionId)
     if (session) session.snoozedUntil = until
     this.broadcastSessions()
   }
 
   clearSnooze(sessionId: string): void {
-    this.store.clearSnooze(sessionId)
+    this.store.clearSnooze(this.convId(sessionId))
     const session = this.sessions.get(sessionId)
     if (session) session.clearSnooze()
     this.broadcastSessions()
@@ -544,7 +557,8 @@ export class SessionRegistry {
 
   private writeDraft(sessionId: string, text: string): void {
     try {
-      this.store.setDraft(sessionId, text)
+      // Persist by conversationId so the draft follows the conversation, not the row.
+      this.store.setDraft(this.convId(sessionId), text)
     } catch (e) {
       console.warn(`[podium] failed to persist draft for ${sessionId}:`, e)
     }
