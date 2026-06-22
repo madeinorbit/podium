@@ -3,6 +3,8 @@
 mod bootstrap;
 
 use std::process::Command;
+use tauri::menu::{Menu, MenuItem};
+use tauri::tray::TrayIconBuilder;
 use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 use tauri::path::BaseDirectory;
 
@@ -39,8 +41,26 @@ fn main() {
                     e
                 })?;
 
-            // Keep the child alive for the lifetime of the app (Task 3 will add graceful shutdown).
+            // Keep the child alive; kill it when the app exits.
             app.manage(std::sync::Mutex::new(Some(child)));
+
+            // Build the tray icon with Open / Quit menu items.
+            let open = MenuItem::with_id(app, "open", "Open Podium", true, None::<&str>)?;
+            let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
+            let menu = Menu::with_items(app, &[&open, &quit])?;
+            let _tray = TrayIconBuilder::new()
+                .menu(&menu)
+                .on_menu_event(|app, event| match event.id.as_ref() {
+                    "open" => {
+                        if let Some(w) = app.get_webview_window("main") {
+                            let _ = w.show();
+                            let _ = w.set_focus();
+                        }
+                    }
+                    "quit" => app.exit(0),
+                    _ => {}
+                })
+                .build(app)?;
 
             // Wait for the backend to accept connections, then open the window.
             let handle = app.handle().clone();
@@ -68,6 +88,17 @@ fn main() {
             });
 
             Ok(())
+        })
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::Destroyed = event {
+                let app = window.app_handle();
+                if let Some(state) = app.try_state::<std::sync::Mutex<Option<std::process::Child>>>() {
+                    if let Some(mut child) = state.lock().unwrap().take() {
+                        let _ = child.kill();
+                        let _ = child.wait();
+                    }
+                }
+            }
         })
         .run(tauri::generate_context!())
         .expect("error while running Podium");
