@@ -1,6 +1,7 @@
 import { readdir, realpath, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { dirname, isAbsolute, join } from 'node:path'
+import type { ScanReposResult, SessionRegistry } from './relay'
 import type { SessionStore } from './store'
 
 export type DirectoryBrowserEntry = {
@@ -58,23 +59,77 @@ export async function browseDirectories(
 }
 
 /** Persisted list of absolute repo-root paths, backed by SessionStore. Shared by all
- *  clients so the repo list survives and shows on every device (desktop + phone). */
+ *  clients so the repo list survives and shows on every device (desktop + phone).
+ *
+ *  Multi-machine: repos are keyed (machine_id, path). The optional `machineId`
+ *  parameter on `list`/`add`/`remove` selects a specific machine's repos; omitting
+ *  it returns/uses all machines (back-compat for callers that don't know the machine),
+ *  except `add` which defaults to the registry's default machine so a single-machine
+ *  install attributes the repo to its one machine. `scanReposAll()` fans out one
+ *  `scanReposRequest` per online machine and stamps each returned `GitRepositoryWire`
+ *  with the responding machine's id. */
 export class RepoRegistry {
-  constructor(private readonly store: SessionStore) {}
+  constructor(
+    private readonly sessionReg: SessionRegistry,
+    private readonly store: SessionStore,
+  ) {}
 
-  list(): string[] {
-    return this.store.listRepoPaths()
+  /** Flat list of registered repo paths. Optionally filtered to a machine. */
+  list(machineId?: string): string[] {
+    return this.store.listRepoPaths(machineId)
   }
 
-  async add(path: string): Promise<void> {
+  async add(path: string, machineId?: string): Promise<void> {
     const p = path.trim()
     if (!p) throw new Error('repo path is empty')
     if (!isAbsolute(p)) throw new Error(`repo path must be absolute: ${p}`)
-    this.store.addRepo(p)
+    const mid = machineId ?? this.sessionReg.defaultMachineId()
+    this.store.addRepo(p, mid)
   }
 
-  async remove(path: string): Promise<void> {
-    this.store.removeRepo(path.trim())
+  async remove(path: string, machineId?: string): Promise<void> {
+    const mid = machineId ?? this.sessionReg.defaultMachineId()
+    this.store.removeRepo(path.trim(), mid)
+  }
+
+  /**
+   * Fan out one `scanReposRequest` to each online daemon (using the roots that
+   * machine has registered), await all replies, and stamp each returned
+   * `GitRepositoryWire` with the responding machine's `machineId`.
+   *
+   * Single-machine invariant: with one online daemon this returns exactly the
+   * same repos that `scanRepos(list())` returned before — just with `machineId`
+   * added. The web ignores `machineId` until the machine-aware UI lands, so the
+   * single-machine UI is unchanged.
+   */
+  async scanReposAll(): Promise<ScanReposResult> {
+    const machineIds = this.sessionReg.onlineMachineIds()
+    if (machineIds.length === 0) {
+      return {
+        repositories: [],
+        diagnostics: [{ severity: 'error', path: '', message: 'no daemons online' }],
+      }
+    }
+
+    const perMachine = await Promise.all(
+      machineIds.map(async (machineId) => {
+        const roots = this.store.listRepoPaths(machineId)
+        const result = await this.sessionReg.scanReposForMachine(roots, machineId, {
+          includeHome: false,
+          maxDepth: 0,
+        })
+        // Stamp each repo with the machine that returned it
+        return {
+          repositories: result.repositories.map((r) => ({ ...r, machineId })),
+          diagnostics: result.diagnostics,
+        }
+      }),
+    )
+
+    return {
+      repositories: perMachine.flatMap((r) => r.repositories),
+      diagnostics: perMachine.flatMap((r) => r.diagnostics),
+    }
   }
 }
 

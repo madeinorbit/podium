@@ -43,7 +43,7 @@ export async function startServer(opts: { port?: number } = {}): Promise<ServerH
   // against the regression where data vanished because no daemon ever registered. The
   // same-host daemon then authenticates through the normal hello path (wsServer).
   registry.ensureLocalMachine(hostname(), bootstrapToken)
-  const repos = new RepoRegistry(store)
+  const repos = new RepoRegistry(registry, store)
   const superagent = new SuperagentService(registry, repos, store)
   const app = new Hono()
   app.get('/health', (c) => c.text('ok'))
