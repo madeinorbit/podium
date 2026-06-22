@@ -55,6 +55,22 @@ describe('transcript read (server -> daemon)', () => {
       ),
     ).toThrow()
   })
+
+  it('rejects a transcriptRead with an out-of-bounds limit (negative / non-int / over max)', () => {
+    for (const limit of [-1, 0, 3.7, 5000]) {
+      expect(() =>
+        parseControlMessage(
+          JSON.stringify({
+            type: 'transcriptRead',
+            requestId: 'tr4',
+            sessionId: 's1',
+            direction: 'before',
+            limit,
+          }),
+        ),
+      ).toThrow()
+    }
+  })
 })
 
 describe('transcript read result (daemon -> server)', () => {

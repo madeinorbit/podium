@@ -541,7 +541,10 @@ export const TranscriptReadRequestMessage = z.object({
   sessionId: z.string(),
   anchor: z.string().optional(),
   direction: z.enum(['before', 'after']),
-  limit: z.number(),
+  // Wire-level guard: the daemon reads `limit` items off disk, so bound it at the
+  // boundary (positive integer, capped) — a negative/NaN/huge limit must not reach
+  // the slice reader. Mirrors the bound the retired transcriptPageRequest carried.
+  limit: z.number().int().positive().max(2000),
 })
 export type TranscriptReadRequestMessage = z.infer<typeof TranscriptReadRequestMessage>
 
