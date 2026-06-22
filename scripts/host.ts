@@ -11,6 +11,7 @@
  * No starter session — sessions are created from the Live UI.
  */
 import { startDaemon } from '../apps/daemon/src/daemon'
+import { LOCAL_MACHINE_ID } from '../apps/server/src/local-machine'
 import { startServer } from '../apps/server/src/server'
 
 // Boot watchdog: under heavy host memory pressure (swap thrash) the startup can
@@ -29,7 +30,11 @@ const bootWatchdog = setTimeout(() => {
 
 // Uncommon internal port; the Vite proxy in apps/web/vite.config.ts uses the same PODIUM_PORT.
 const server = await startServer({ port: Number(process.env.PODIUM_PORT ?? 18787) })
-const daemon = await startDaemon({ serverUrl: `ws://localhost:${server.port}` })
+const daemon = await startDaemon({
+  serverUrl: `ws://localhost:${server.port}`,
+  bootstrapToken: server.bootstrapToken,
+  machineId: LOCAL_MACHINE_ID, // attach to the machine the server adopted '__local__' rows onto
+})
 clearTimeout(bootWatchdog)
 console.log(`podium backend up: relay + daemon on ws://localhost:${server.port}`)
 

@@ -55,7 +55,12 @@ describe('daemon socket auth', () => {
     // The local machine is a normal registered machine: the server provisioned it at
     // startup (ensureLocalMachine) with a server-owned credential. Its same-host daemon
     // then authenticates through the same hello path as any remote — no special case.
-    store.upsertMachine({ id: 'local', name: 'thishost', hostname: 'thishost', tokenHash: sha256('sekret') })
+    store.upsertMachine({
+      id: 'local',
+      name: 'thishost',
+      hostname: 'thishost',
+      tokenHash: sha256('sekret'),
+    })
     const reg = new SessionRegistry(store)
     const attach = vi.spyOn(reg, 'attachDaemon')
     const onMsg = vi.spyOn(reg, 'onDaemonMessageFrom')
@@ -65,7 +70,12 @@ describe('daemon socket auth', () => {
     ws.emit(
       'message',
       Buffer.from(
-        JSON.stringify({ type: 'hello', machineId: 'local', token: 'sekret', hostname: 'thishost' }),
+        JSON.stringify({
+          type: 'hello',
+          machineId: 'local',
+          token: 'sekret',
+          hostname: 'thishost',
+        }),
       ),
     )
     expect(attach).toHaveBeenCalledWith('local', expect.any(Function))
