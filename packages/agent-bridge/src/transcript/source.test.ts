@@ -6,7 +6,12 @@ import { afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { decodeCursor } from './cursor-codec.js'
 import type { ChainEntry } from './file-chain.js'
 import { fileIdFor } from './file-chain.js'
-import { fileChainSource, opencodeDbSource, transcriptSourceFor } from './source.js'
+import {
+  fileChainSource,
+  opencodeDbSource,
+  stampOpencodeItems,
+  transcriptSourceFor,
+} from './source.js'
 
 // ---------------------------------------------------------------------------
 // File-chain source fixtures (mirrors slice.test.ts twoFiles()).
@@ -369,6 +374,37 @@ describe('opencodeDbSource', () => {
     expect(before.items.map((i) => i.text)).toEqual(['first'])
     const after = await src.readSlice({ anchor: second?.cursor, direction: 'after', limit: 10 })
     expect(after.items.map((i) => i.text)).toEqual(['third'])
+  })
+})
+
+describe('stampOpencodeItems (shared by live observer + DB read)', () => {
+  it('stamps rows with the same cursors opencodeDbSource produces (live↔read interop)', async () => {
+    if (!DatabaseSync) return
+    const sid = 'ses_stamp'
+    const parts = [0, 1, 2].map((i) =>
+      textPart(`prt-${i}`, `msg-${i}`, i % 2 === 0 ? 'user' : 'assistant', `m${i}`, 500 + i),
+    )
+    const { homeDir } = await seedOpencode(sid, parts)
+    const { openOpencodeDb, loadOpencodeTranscriptTail } = await import('../opencode/db.js')
+    const db = openOpencodeDb(homeDir)
+    if (!db) throw new Error('db open failed')
+    const rows = loadOpencodeTranscriptTail(db, sid)
+    db.close()
+    // Stamping the raw rows (the live-observer path) yields items cursor-identical
+    // to what the on-demand read source returns (the read path).
+    const stamped = stampOpencodeItems(rows, sid)
+    const read = await opencodeDbSource({ sessionId: sid, homeDir }).readSlice({
+      direction: 'before',
+      limit: 100,
+    })
+    expect(stamped.map((i) => i.cursor)).toEqual(read.items.map((i) => i.cursor))
+    expect(stamped.map((i) => i.text)).toEqual(['m0', 'm1', 'm2'])
+    // Cursor namespace is derived from the sessionId.
+    expect(decodeCursor(stamped[0]?.cursor ?? '')?.fileId).toBe(`opencode:${sid}`)
+  })
+
+  it('returns [] for no rows', () => {
+    expect(stampOpencodeItems([], 'ses_empty')).toEqual([])
   })
 })
 

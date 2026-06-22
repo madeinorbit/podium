@@ -532,13 +532,19 @@ export const RedrawMessage = z.object({ type: z.literal('redraw'), sessionId: z.
 // relative to an opaque `anchor` cursor. `anchor` omitted = read from the tail
 // (newest) when direction is 'before', or from the head when 'after'. `direction`
 // 'before' walks toward older items (scroll-to-top paging), 'after' toward newer.
-// `limit` bounds the page. The daemon keyed by sessionId resolves the file +
-// position; the server holds the session→cwd/resume mapping, so this message no
-// longer carries agentKind/cwd/resume.
+// `limit` bounds the page. The server supplies the session metadata the daemon
+// needs to RESOLVE the right TranscriptSource (the daemon is keyed by sessionId
+// for live PTYs, but a transcript read off disk needs the harness + cwd, and the
+// optional resume ref names the on-disk file / DB session): `agentKind` selects
+// the source, `cwd` locates the per-cwd file bucket, `resume` (when known) names
+// the specific transcript file / opencode session.
 export const TranscriptReadRequestMessage = z.object({
   type: z.literal('transcriptRead'),
   requestId: z.string(),
   sessionId: z.string(),
+  agentKind: AgentKind,
+  cwd: z.string(),
+  resume: ResumeRef.optional(),
   anchor: z.string().optional(),
   direction: z.enum(['before', 'after']),
   // Wire-level guard: the daemon reads `limit` items off disk, so bound it at the

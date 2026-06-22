@@ -1,6 +1,7 @@
 export * from './claude.js'
 export * from './codex.js'
 export * from './cursor.js'
+export * from './file-chain.js'
 export * from './grok.js'
 export * from './opencode.js'
 export * from './source.js'

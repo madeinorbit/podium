@@ -59,12 +59,12 @@ function opencodeFileId(sessionId: string): string {
 }
 
 /**
- * Map one opencode part row to its items, stamping each with a cursor that
- * encodes the part's position in the session's total `(time_updated, id, sub)`
- * order. One part → 0..N items (a tool part is a call + a result), so each item
- * gets its own `sub` index within the part. We can't reuse `stampCursors`
- * directly: every row is its own sub-sequence keyed by the row's `timeUpdated`
- * and `partId`, not a single shared `(offset, uuid)`.
+ * Map opencode part rows to cursor-stamped items, stamping each item with a
+ * cursor that encodes the part's position in the session's total
+ * `(time_updated, id, sub)` order. One part → 0..N items (a tool part is a call +
+ * a result), so each item gets its own `sub` index within the part. We can't
+ * reuse `stampCursors` directly: every row is its own sub-sequence keyed by the
+ * row's `timeUpdated` and `partId`, not a single shared `(offset, uuid)`.
  *
  *   - `offset` = `row.timeUpdated` (the DB's primary order key)
  *   - `uuid`   = `row.partId`      (disambiguates same-`time_updated` ties; the
@@ -73,13 +73,31 @@ function opencodeFileId(sessionId: string): string {
  *
  * The triple is the part-position analog of the file `(offset, uuid, sub)` and
  * yields a total order matching the DB's `(time_updated, id, sub)`.
+ *
+ * Shared so the daemon's live opencode observer stamps emitted items with the
+ * EXACT SAME cursor scheme as `opencodeDbSource`'s on-demand read — live deltas
+ * and read pages then interoperate (the client can dedup/subscribe-from-cursor).
+ * The cursor namespace (`fileId`) is derived from `sessionId` here so callers
+ * pass only `(rows, sessionId)` — they never construct the fileId themselves.
  */
-function stampOpencodeItems(row: OpencodeMessagePartRow, fileId: string): TranscriptItem[] {
-  const items = opencodePartToItems(row)
-  return items.map((item, sub) => ({
-    ...item,
-    cursor: encodeCursor({ fileId, offset: row.timeUpdated, uuid: row.partId, sub }),
-  }))
+export function stampOpencodeItems(
+  rows: OpencodeMessagePartRow[],
+  sessionId: string,
+): TranscriptItem[] {
+  const fileId = opencodeFileId(sessionId)
+  const out: TranscriptItem[] = []
+  for (const row of rows) {
+    const items = opencodePartToItems(row)
+    for (let sub = 0; sub < items.length; sub++) {
+      const item = items[sub]
+      if (!item) continue
+      out.push({
+        ...item,
+        cursor: encodeCursor({ fileId, offset: row.timeUpdated, uuid: row.partId, sub }),
+      })
+    }
+  }
+  return out
 }
 
 /**
@@ -91,7 +109,6 @@ function stampOpencodeItems(row: OpencodeMessagePartRow, fileId: string): Transc
  * index-slice it in memory, exactly matching `readTranscriptSlice`'s semantics.
  */
 export function opencodeDbSource(input: { sessionId: string; homeDir?: string }): TranscriptSource {
-  const fileId = opencodeFileId(input.sessionId)
   return {
     readSlice: async (opts) => {
       if (opts.limit <= 0) return { items: [], hasMore: false }
@@ -107,8 +124,7 @@ export function opencodeDbSource(input: { sessionId: string; homeDir?: string })
       }
       // ASC by (time_updated, id); each part expands to 0..N stamped items in
       // intra-part order, so `all` is the session's full transcript in total order.
-      const all: TranscriptItem[] = []
-      for (const row of rows) all.push(...stampOpencodeItems(row, fileId))
+      const all = stampOpencodeItems(rows, input.sessionId)
       return sliceItemsByAnchor(all, opts)
     },
   }

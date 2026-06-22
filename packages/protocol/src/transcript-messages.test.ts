@@ -19,11 +19,14 @@ const item: TranscriptItem = {
 }
 
 describe('transcript read (server -> daemon)', () => {
-  it('round-trips a transcriptRead control message (with anchor)', () => {
+  it('round-trips a transcriptRead control message (with anchor + session metadata)', () => {
     const msg = {
       type: 'transcriptRead' as const,
       requestId: 'tr1',
       sessionId: 's1',
+      agentKind: 'claude-code' as const,
+      cwd: '/work',
+      resume: { kind: 'claude-session', value: 'conv-1' },
       anchor: 'c5',
       direction: 'before' as const,
       limit: 50,
@@ -31,11 +34,13 @@ describe('transcript read (server -> daemon)', () => {
     expect(parseControlMessage(encode(msg))).toEqual(msg)
   })
 
-  it('round-trips a transcriptRead without an anchor (initial tail)', () => {
+  it('round-trips a transcriptRead without an anchor or resume (initial tail)', () => {
     const msg = {
       type: 'transcriptRead' as const,
       requestId: 'tr2',
       sessionId: 's1',
+      agentKind: 'claude-code' as const,
+      cwd: '/work',
       direction: 'after' as const,
       limit: 100,
     }
@@ -49,7 +54,23 @@ describe('transcript read (server -> daemon)', () => {
           type: 'transcriptRead',
           requestId: 'tr3',
           sessionId: 's1',
+          agentKind: 'claude-code',
+          cwd: '/work',
           direction: 'sideways',
+          limit: 10,
+        }),
+      ),
+    ).toThrow()
+  })
+
+  it('rejects a transcriptRead missing agentKind/cwd', () => {
+    expect(() =>
+      parseControlMessage(
+        JSON.stringify({
+          type: 'transcriptRead',
+          requestId: 'tr3b',
+          sessionId: 's1',
+          direction: 'before',
           limit: 10,
         }),
       ),
@@ -64,6 +85,8 @@ describe('transcript read (server -> daemon)', () => {
             type: 'transcriptRead',
             requestId: 'tr4',
             sessionId: 's1',
+            agentKind: 'claude-code',
+            cwd: '/work',
             direction: 'before',
             limit,
           }),
