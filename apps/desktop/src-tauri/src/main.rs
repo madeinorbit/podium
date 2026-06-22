@@ -27,6 +27,20 @@ fn main() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_process::init())
         .setup(|app| {
+            // TEST AID: record the running app version so the e2e can deterministically
+            // distinguish 0.1.0 from 0.1.1 across a self-replace+restart. Only writes when
+            // PODIUM_STATE_DIR is set (the e2e sets it to a scratch dir); a no-op otherwise.
+            if let Ok(state_dir) = std::env::var("PODIUM_STATE_DIR") {
+                let version = app.package_info().version.to_string();
+                let path = std::path::Path::new(&state_dir).join("running-version");
+                let _ = std::fs::create_dir_all(&state_dir);
+                if let Err(e) = std::fs::write(&path, &version) {
+                    eprintln!("[podium-desktop] could not write running-version: {e}");
+                } else {
+                    eprintln!("[podium-desktop] running version {version} (wrote {path:?})");
+                }
+            }
+
             let port = bootstrap::pick_free_port();
 
             // Resolve the bundled podium binary (plain resource, never patchelf'd).
