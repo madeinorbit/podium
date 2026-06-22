@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, utimes, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -13,37 +13,43 @@ describe('fileIdFor', () => {
 })
 
 describe('resolveFileChain', () => {
-  it('orders claude bucket files oldest→newest by mtime', async () => {
+  it('resolves ONLY the claude conversation named by the resume value, not the whole bucket', async () => {
+    // The cwd bucket holds many distinct conversations. resolveFileChain must return
+    // exactly the resume value's file — NOT every sibling in the bucket (which would
+    // merge unrelated conversations into one transcript).
     const home = await mkdtemp(join(tmpdir(), 'home-'))
-    process.env.HOME = home
     const slug = '/work/repo'.replace(/[^a-zA-Z0-9]/g, '-')
     const dir = join(home, '.claude', 'projects', slug)
     await mkdir(dir, { recursive: true })
-    const older = join(dir, 'older.jsonl')
-    const newer = join(dir, 'newer.jsonl')
-    await writeFile(older, '{}\n')
-    await writeFile(newer, '{}\n')
-    await utimes(older, new Date(1000), new Date(1000))
-    await utimes(newer, new Date(2000), new Date(2000))
-    const chain = await resolveFileChain({ agentKind: 'claude-code', cwd: '/work/repo' })
-    expect(chain.map((c) => c.path)).toEqual([older, newer])
+    const target = join(dir, 'conv-1.jsonl')
+    const sibling = join(dir, 'conv-2.jsonl')
+    await writeFile(target, '{}\n')
+    await writeFile(sibling, '{}\n') // a DIFFERENT conversation in the same bucket
+    const chain = await resolveFileChain({
+      agentKind: 'claude-code',
+      cwd: '/work/repo',
+      resumeValue: 'conv-1',
+      homeDir: home,
+    })
+    expect(chain.map((c) => c.path)).toEqual([target]) // sibling must NOT appear
   })
 
-  it('breaks claude mtime ties deterministically by filename ascending', async () => {
+  it('returns [] for claude with no resume value (wait for the hook, do not guess a sibling)', async () => {
     const home = await mkdtemp(join(tmpdir(), 'home-'))
-    process.env.HOME = home
-    const slug = '/work/repo'.replace(/[^a-zA-Z0-9]/g, '-')
-    const dir = join(home, '.claude', 'projects', slug)
-    await mkdir(dir, { recursive: true })
-    const bbb = join(dir, 'bbb.jsonl')
-    const aaa = join(dir, 'aaa.jsonl')
-    await writeFile(bbb, '{}\n')
-    await writeFile(aaa, '{}\n')
-    // Identical mtimes — only the filename tiebreak can order these.
-    await utimes(bbb, new Date(5000), new Date(5000))
-    await utimes(aaa, new Date(5000), new Date(5000))
-    const chain = await resolveFileChain({ agentKind: 'claude-code', cwd: '/work/repo' })
-    expect(chain.map((c) => c.path)).toEqual([aaa, bbb])
+    expect(
+      await resolveFileChain({ agentKind: 'claude-code', cwd: '/work/repo', homeDir: home }),
+    ).toEqual([])
+  })
+
+  it('returns [] for claude when the resume value file does not exist', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'home-'))
+    const chain = await resolveFileChain({
+      agentKind: 'claude-code',
+      cwd: '/work/repo',
+      resumeValue: 'missing',
+      homeDir: home,
+    })
+    expect(chain).toEqual([])
   })
 
   it('resolves a one-entry chain for cursor from cwd + chatId', async () => {

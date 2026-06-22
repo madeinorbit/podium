@@ -1535,11 +1535,13 @@ describe('daemon transcript read + delta (cursor protocol)', () => {
     expect(seed?.tail).toBe(seed?.items.at(-1)?.cursor)
   })
 
-  it('starts a claude tail with NO resume (discovers the newest file in the cwd bucket)', async () => {
+  it('does NOT tail a sibling bucket file for a claude spawn with no resume (waits for the hook)', async () => {
     const home = await mkdtemp(join(tmpdir(), 'podium-trx-noresume-home-'))
     const cwd = home // real cwd so the spawn stays alive
-    // A file exists in the bucket, but the spawn carries no resume ref.
-    await seedClaudeTranscript(home, cwd, 'orphan-conv', ['discovered without resume'])
+    // A DIFFERENT conversation exists in the same cwd bucket. A no-resume spawn must
+    // NOT pick it up — guessing the newest sibling file merged unrelated conversations
+    // (the regression). The tail must wait for the hook's authoritative transcript_path.
+    await seedClaudeTranscript(home, cwd, 'sibling-conv', ['a DIFFERENT conversation'])
 
     const srv = await startServer()
     await startTestDaemon(srv, home)
@@ -1558,12 +1560,13 @@ describe('daemon transcript read + delta (cursor protocol)', () => {
       cwd,
       geometry: G,
     })
-    await waitFor(() => deltas().some((m) => m.items.length > 0))
+    // Wait well past the tail poll interval so a (wrong) sibling tail would have fired.
+    await new Promise((resolve) => setTimeout(resolve, 1200))
     expect(
       deltas()
         .flatMap((m) => m.items)
-        .some((i) => i.text.includes('discovered without resume')),
-    ).toBe(true)
+        .some((i) => i.text.includes('a DIFFERENT conversation')),
+    ).toBe(false)
   })
 })
 

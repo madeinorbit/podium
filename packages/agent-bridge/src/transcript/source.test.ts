@@ -457,6 +457,7 @@ describe('transcriptSourceFor', () => {
     const src = await transcriptSourceFor({
       agentKind: 'claude-code',
       cwd: '/repo/x',
+      resumeValue: 'conv', // resolves <bucket>/conv.jsonl (claude resolves by resume value, not bucket-glob)
       homeDir: home,
     })
     const r = await src.readSlice({ direction: 'before', limit: 3 })
