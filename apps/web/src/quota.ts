@@ -1,4 +1,4 @@
-import type { AgentKind, AgentQuotaWire } from '@podium/protocol'
+import type { AgentKind, AgentQuotaWire, QuotaWindowWire } from '@podium/protocol'
 
 /** "resets in 40m" / "resets in 2h 14m" / "resets in 1d 4h". */
 export function formatReset(resetsAt: string, nowMs: number): string {
@@ -47,5 +47,63 @@ export function statusNote(a: AgentQuotaWire): string {
       return a.error ?? 'Unavailable'
     default:
       return ''
+  }
+}
+
+/** Share of the rolling window already elapsed (0–100), from reset time + duration. */
+export function windowElapsedPercent(
+  resetsAt: string,
+  windowMinutes: number,
+  nowMs: number,
+): number | null {
+  const resetMs = Date.parse(resetsAt)
+  if (Number.isNaN(resetMs) || windowMinutes <= 0) return null
+  const windowMs = windowMinutes * 60_000
+  const remainingMs = resetMs - nowMs
+  if (remainingMs <= 0) return 100
+  const elapsedMs = windowMs - remainingMs
+  if (elapsedMs <= 0) return 0
+  return Math.min(100, Math.max(0, (elapsedMs / windowMs) * 100))
+}
+
+/** Whether usage pace matches time elapsed — will quota last until the window ends? */
+export type QuotaPace = 'comfortable' | 'on-pace' | 'hot'
+
+const PACE_TOLERANCE = 8
+
+export function quotaPace(usedPercent: number, elapsedPercent: number | null): QuotaPace | null {
+  if (elapsedPercent === null || elapsedPercent <= 0) return null
+  const delta = usedPercent - elapsedPercent
+  if (delta > PACE_TOLERANCE) return 'hot'
+  if (delta < -PACE_TOLERANCE) return 'comfortable'
+  return 'on-pace'
+}
+
+export function windowPace(w: QuotaWindowWire, nowMs: number): QuotaPace | null {
+  const elapsed = windowElapsedPercent(w.resetsAt, w.windowMinutes, nowMs)
+  return quotaPace(w.usedPercent, elapsed)
+}
+
+export function paceLabel(pace: QuotaPace): string {
+  switch (pace) {
+    case 'comfortable':
+      return 'Headroom'
+    case 'on-pace':
+      return 'On pace'
+    case 'hot':
+      return "Won't last"
+  }
+}
+
+export function paceHint(pace: QuotaPace, usedPercent: number, elapsedPercent: number): string {
+  const used = Math.round(usedPercent)
+  const elapsed = Math.round(elapsedPercent)
+  switch (pace) {
+    case 'comfortable':
+      return `${used}% used with ${elapsed}% of the window elapsed — pace is below time, so quota should last.`
+    case 'on-pace':
+      return `${used}% used, ${elapsed}% elapsed — usage tracks the window; should last until reset.`
+    case 'hot':
+      return `${used}% used with only ${elapsed}% elapsed — burning faster than time; may hit the limit early.`
   }
 }
