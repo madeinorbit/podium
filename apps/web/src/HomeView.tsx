@@ -3,6 +3,7 @@ import type { SessionMeta, WorkState } from '@podium/protocol'
 import { Archive, ArchiveRestore, Columns3, Moon, Pencil, Rows3 } from 'lucide-react'
 import type { JSX } from 'react'
 import { useEffect, useState } from 'react'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useIsMobile } from '@/hooks/use-is-mobile'
@@ -241,6 +242,7 @@ function SessionCard({
   archivedDim?: boolean
 }): JSX.Element {
   const {
+    machines,
     setSelectedWorktree,
     setPane,
     setView,
@@ -335,6 +337,16 @@ function SessionCard({
         <span className="min-w-0 truncate" title={session.cwd}>
           {where}
         </span>
+        {/* Machine badge: only when > 1 machine is connected. */}
+        {machines.length > 1 && session.machineName && (
+          <Badge
+            variant="outline"
+            className="shrink-0 border-border/50 py-0 text-[10px] font-normal text-muted-foreground/70"
+            aria-label={`Running on ${session.machineName}`}
+          >
+            {session.machineName}
+          </Badge>
+        )}
         <span className="ml-auto whitespace-nowrap text-muted-foreground/70">
           {relativeTime(session.lastActiveAt, now)}
         </span>

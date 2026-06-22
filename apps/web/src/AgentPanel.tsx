@@ -22,6 +22,7 @@ import type { JSX } from 'react'
 import { useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { ArrowSwipeKey } from '@/ArrowSwipeKey'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -116,6 +117,7 @@ export function AgentPanel({
   const {
     hub,
     sessions,
+    machines,
     repos,
     trpc,
     drafts,
@@ -395,6 +397,17 @@ export function AgentPanel({
     <div className="flex min-w-0 flex-1 flex-col">
       <div className="flex items-center gap-2.5 border-b border-border bg-card px-2.5 py-[5px]">
         {session && <WorkerLabel session={session} />}
+        {/* Machine badge: only when > 1 machine is connected, so single-machine
+            users see no change. Shows which daemon host this session runs on. */}
+        {machines.length > 1 && session?.machineName && (
+          <Badge
+            variant="secondary"
+            className="shrink-0 font-normal text-muted-foreground"
+            aria-label={`Running on ${session.machineName}`}
+          >
+            {session.machineName}
+          </Badge>
+        )}
         {/* The agent's working directory — context for which checkout/worktree this
             session runs in. Truncates; full path on hover. */}
         {session?.cwd && (
