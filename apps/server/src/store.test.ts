@@ -13,13 +13,13 @@ async function tmpDbPath(): Promise<string> {
 describe('SessionStore repos', () => {
   it('starts empty, adds, dedupes, lists in insertion order, removes', () => {
     const store = new SessionStore(':memory:')
-    expect(store.listRepos()).toEqual([])
+    expect(store.listRepoPaths()).toEqual([])
     store.addRepo('/home/u/b')
     store.addRepo('/home/u/a')
     store.addRepo('/home/u/b') // dedupe
-    expect(store.listRepos()).toEqual(['/home/u/b', '/home/u/a'])
+    expect(store.listRepoPaths()).toEqual(['/home/u/b', '/home/u/a'])
     store.removeRepo('/home/u/b')
-    expect(store.listRepos()).toEqual(['/home/u/a'])
+    expect(store.listRepoPaths()).toEqual(['/home/u/a'])
     store.close()
   })
 
@@ -29,7 +29,7 @@ describe('SessionStore repos', () => {
     a.addRepo('/abs/one')
     a.close()
     const b = new SessionStore(file)
-    expect(b.listRepos()).toEqual(['/abs/one'])
+    expect(b.listRepoPaths()).toEqual(['/abs/one'])
     b.close()
   })
 
@@ -58,6 +58,9 @@ function row(overrides: Partial<SessionRow> = {}): SessionRow {
     durableLabel: 'podium-id-1',
     createdAt: '2026-06-09T00:00:00.000Z',
     lastActiveAt: '2026-06-09T00:00:00.000Z',
+    // loadSessions() always returns the attribution column ('__local__' pre-multi-machine),
+    // so the round-trip fixture carries it too.
+    machineId: '__local__',
     ...overrides,
   }
 }
@@ -134,21 +137,21 @@ describe('SessionStore repos.json import', () => {
     const file = await tmpDbPath()
     await writeFile(join(dirname(file), 'repos.json'), JSON.stringify(['/a', '/b']))
     const a = new SessionStore(file)
-    expect(a.listRepos()).toEqual(['/a', '/b'])
+    expect(a.listRepoPaths()).toEqual(['/a', '/b'])
     a.close()
     // Re-open: repos already present, so a (possibly changed) json is NOT re-imported.
     await writeFile(join(dirname(file), 'repos.json'), JSON.stringify(['/c']))
     const b = new SessionStore(file)
-    expect(b.listRepos()).toEqual(['/a', '/b'])
+    expect(b.listRepoPaths()).toEqual(['/a', '/b'])
     b.close()
   })
 
   it('tolerates a missing or corrupt repos.json', async () => {
     const missing = await tmpDbPath()
-    expect(new SessionStore(missing).listRepos()).toEqual([])
+    expect(new SessionStore(missing).listRepoPaths()).toEqual([])
     const corrupt = await tmpDbPath()
     await writeFile(join(dirname(corrupt), 'repos.json'), 'not json')
-    expect(new SessionStore(corrupt).listRepos()).toEqual([])
+    expect(new SessionStore(corrupt).listRepoPaths()).toEqual([])
   })
 })
 

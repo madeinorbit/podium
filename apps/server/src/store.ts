@@ -1,3 +1,4 @@
+import { createHash, timingSafeEqual } from 'node:crypto'
 import { mkdirSync, readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -45,6 +46,17 @@ export interface SessionRow {
   archived: boolean
   /** Kanban column on the home board; null = unsorted. */
   workState: string | null
+  /** The machine this session runs on. Optional during build-out (Task 5 always emits it). */
+  machineId?: string
+}
+
+/** One row of the machines table (token_hash is internal — not included here). */
+export interface MachineRecord {
+  id: string
+  name: string
+  hostname: string
+  createdAt: string
+  lastSeenAt: string
 }
 
 /** One row of the conversation index (camelCase mirror of `conversations`). */
@@ -63,6 +75,8 @@ export interface ConversationIndexRow {
   createdAt?: string
   updatedAt?: string
   messageCount?: number
+  /** Which machine owns this conversation; '__local__' for pre-multi-machine rows. */
+  machineId?: string
 }
 
 export interface ToolCallRow {
@@ -109,22 +123,47 @@ export class SessionStore {
   }
 
   // ---- repos ----
-  listRepos(): string[] {
-    const rows = this.db.prepare('SELECT path FROM repos ORDER BY rowid ASC').all() as {
-      path: string
-    }[]
-    return rows.map((r) => r.path)
+
+  /** Full repo rows including machineId and originUrl (multi-machine schema). */
+  listRepos(machineId?: string): { machineId: string; path: string; originUrl: string | null }[] {
+    const rows = (
+      machineId
+        ? this.db
+            .prepare(
+              'SELECT machine_id, path, origin_url FROM repos WHERE machine_id = ? ORDER BY rowid ASC',
+            )
+            .all(machineId)
+        : this.db.prepare('SELECT machine_id, path, origin_url FROM repos ORDER BY rowid ASC').all()
+    ) as Record<string, unknown>[]
+    return rows.map((r) => ({
+      machineId: r.machine_id as string,
+      path: r.path as string,
+      originUrl: (r.origin_url as string | null) ?? null,
+    }))
+  }
+
+  /** Back-compat: flat list of paths across all machines. RepoRegistry.list() uses this. */
+  listRepoPaths(machineId?: string): string[] {
+    return this.listRepos(machineId).map((r) => r.path)
   }
 
   // No path validation here by design — RepoRegistry (the caller) rejects empty/non-absolute paths.
-  addRepo(path: string): void {
+  addRepo(path: string, machineId = '__local__', originUrl?: string): void {
     this.db
-      .prepare('INSERT OR IGNORE INTO repos (path, added_at) VALUES (?, ?)')
-      .run(path, new Date().toISOString())
+      .prepare(
+        'INSERT OR IGNORE INTO repos (machine_id, path, origin_url, repo_name, added_at) VALUES (?, ?, ?, ?, ?)',
+      )
+      .run(
+        machineId,
+        path,
+        originUrl ?? null,
+        path.split('/').pop() ?? null,
+        new Date().toISOString(),
+      )
   }
 
-  removeRepo(path: string): void {
-    this.db.prepare('DELETE FROM repos WHERE path = ?').run(path)
+  removeRepo(path: string, machineId = '__local__'): void {
+    this.db.prepare('DELETE FROM repos WHERE machine_id = ? AND path = ?').run(machineId, path)
   }
 
   // ---- pins ----
@@ -245,7 +284,7 @@ export class SessionStore {
       .prepare(
         `SELECT id, agent_kind, cwd, title, name, origin_kind, conversation_id, resume_kind,
                 resume_value, status, exit_code, durable_label, created_at, last_active_at,
-                archived, work_state
+                archived, work_state, machine_id
          FROM sessions ORDER BY created_at ASC, rowid ASC`,
       )
       .all() as Record<string, unknown>[]
@@ -266,6 +305,7 @@ export class SessionStore {
       lastActiveAt: r.last_active_at as string,
       archived: r.archived === 1,
       workState: (r.work_state as string | null) ?? null,
+      machineId: (r.machine_id as string | null) ?? '__local__',
     }))
   }
 
@@ -275,8 +315,8 @@ export class SessionStore {
         `INSERT INTO sessions
            (id, agent_kind, cwd, title, name, origin_kind, conversation_id, resume_kind,
             resume_value, status, exit_code, durable_label, created_at, last_active_at,
-            archived, work_state)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            archived, work_state, machine_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            title = excluded.title,
            name = excluded.name,
@@ -289,7 +329,8 @@ export class SessionStore {
            durable_label = excluded.durable_label,
            last_active_at = excluded.last_active_at,
            archived = excluded.archived,
-           work_state = excluded.work_state`,
+           work_state = excluded.work_state,
+           machine_id = excluded.machine_id`,
       )
       .run(
         row.id,
@@ -308,6 +349,7 @@ export class SessionStore {
         row.lastActiveAt,
         row.archived ? 1 : 0,
         row.workState,
+        row.machineId ?? '__local__',
       )
   }
 
@@ -377,16 +419,17 @@ export class SessionStore {
    * Upsert discovered conversations (daemon pushes summaries). User-set name and
    * work-LLM summary survive re-discovery — discovery never overwrites curation.
    */
-  upsertConversations(rows: ConversationIndexRow[]): void {
+  upsertConversations(rows: (ConversationIndexRow & { machineId?: string })[]): void {
     if (rows.length === 0) return
     const stmt = this.db.prepare(
       `INSERT INTO conversations
          (id, agent_kind, title, project_path, provider_id, resume_kind, resume_value,
-          created_at, updated_at, message_count)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          created_at, updated_at, message_count, machine_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          agent_kind = excluded.agent_kind,
          provider_id = excluded.provider_id,
+         machine_id = excluded.machine_id,
          -- COALESCE the optional columns: a later discovery push that omits a
          -- field (ConversationSummaryWire marks title/resume optional) must not
          -- null out what an earlier richer push recorded, or search stops
@@ -417,6 +460,7 @@ export class SessionStore {
           r.createdAt ?? null,
           r.updatedAt ?? null,
           r.messageCount ?? null,
+          r.machineId ?? '__local__',
         )
       }
       this.db.exec('COMMIT')
@@ -504,6 +548,7 @@ export class SessionStore {
       createdAt: (r.created_at as string | null) ?? undefined,
       updatedAt: (r.updated_at as string | null) ?? undefined,
       messageCount: (r.message_count as number | null) ?? undefined,
+      machineId: (r.machine_id as string | null) ?? undefined,
     }))
   }
 
@@ -601,6 +646,91 @@ export class SessionStore {
     this.db.prepare('UPDATE superagent_threads SET archived = 1 WHERE id = ?').run(id)
   }
 
+  // ---- machines ----
+
+  upsertMachine(m: { id: string; name: string; hostname: string; tokenHash: string }): void {
+    const now = new Date().toISOString()
+    this.db
+      .prepare(
+        `INSERT INTO machines (id, name, hostname, token_hash, created_at, last_seen_at)
+         VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET
+           name = excluded.name,
+           hostname = excluded.hostname,
+           token_hash = excluded.token_hash,
+           last_seen_at = excluded.last_seen_at`,
+      )
+      .run(m.id, m.name, m.hostname, m.tokenHash, now, now)
+  }
+
+  listMachines(): MachineRecord[] {
+    return (
+      this.db
+        .prepare(
+          'SELECT id, name, hostname, created_at, last_seen_at FROM machines ORDER BY created_at ASC',
+        )
+        .all() as Record<string, unknown>[]
+    ).map((r) => ({
+      id: r.id as string,
+      name: r.name as string,
+      hostname: r.hostname as string,
+      createdAt: r.created_at as string,
+      lastSeenAt: r.last_seen_at as string,
+    }))
+  }
+
+  getMachine(id: string): MachineRecord | undefined {
+    const r = this.db
+      .prepare('SELECT id, name, hostname, created_at, last_seen_at FROM machines WHERE id = ?')
+      .get(id) as Record<string, unknown> | undefined
+    if (!r) return undefined
+    return {
+      id: r.id as string,
+      name: r.name as string,
+      hostname: r.hostname as string,
+      createdAt: r.created_at as string,
+      lastSeenAt: r.last_seen_at as string,
+    }
+  }
+
+  /** Constant-time token comparison using sha-256 hex. */
+  getMachineByToken(id: string, token: string): boolean {
+    const row = this.db.prepare('SELECT token_hash FROM machines WHERE id = ?').get(id) as
+      | { token_hash: string }
+      | undefined
+    if (!row) return false
+    const a = Buffer.from(createHash('sha256').update(token).digest('hex'))
+    const b = Buffer.from(row.token_hash)
+    return a.length === b.length && timingSafeEqual(a, b)
+  }
+
+  renameMachine(id: string, name: string): void {
+    this.db.prepare('UPDATE machines SET name = ? WHERE id = ?').run(name, id)
+  }
+
+  deleteMachine(id: string): void {
+    this.db.prepare('DELETE FROM machines WHERE id = ?').run(id)
+  }
+
+  touchMachine(id: string, hostname: string): void {
+    this.db
+      .prepare('UPDATE machines SET last_seen_at = ?, hostname = ? WHERE id = ?')
+      .run(new Date().toISOString(), hostname, id)
+  }
+
+  /**
+   * Rewrite all rows carrying the placeholder `'__local__'` machine_id to the
+   * real machineId. Idempotent: re-running after adoption is a no-op (no rows
+   * will match `__local__` any more).
+   */
+  adoptLocalRows(machineId: string): void {
+    for (const t of ['sessions', 'repos', 'conversations']) {
+      this.db
+        .prepare(`UPDATE ${t} SET machine_id = ? WHERE machine_id = '__local__'`)
+        .run(machineId)
+    }
+  }
+
   private mapSuperagentThread(r: Record<string, unknown>): SuperagentThreadRow {
     return {
       id: r.id as string,
@@ -623,7 +753,16 @@ export class SessionStore {
   private migrate(): void {
     this.db.exec('PRAGMA journal_mode = WAL')
     this.db.exec('PRAGMA busy_timeout = 5000')
-    this.db.exec('CREATE TABLE IF NOT EXISTS repos (path TEXT PRIMARY KEY, added_at TEXT NOT NULL)')
+    this.db.exec(
+      `CREATE TABLE IF NOT EXISTS repos (
+         machine_id TEXT NOT NULL DEFAULT '__local__',
+         path TEXT NOT NULL,
+         origin_url TEXT,
+         repo_name TEXT,
+         added_at TEXT NOT NULL,
+         PRIMARY KEY (machine_id, path)
+       )`,
+    )
     this.db.exec(
       `CREATE TABLE IF NOT EXISTS pins (
          kind TEXT NOT NULL,
@@ -792,13 +931,88 @@ export class SessionStore {
     // v3 -> v4: per-session composer drafts (issue #34). A brand-new standalone
     // table created by the CREATE IF NOT EXISTS above — pre-v4 DBs gain it with no
     // ALTER, so the bump is just the recorded version marker.
+    // v4 -> v5: machines table + machine attribution on sessions, conversations, repos.
+    // All DDL steps run inside one transaction so a mid-rebuild crash leaves the DB
+    // fully pre-v5 and the next boot retries cleanly. SQLite DDL is transactional.
+    // The guard (`needsMachineMigration`) is STRUCTURAL — it inspects the actual
+    // schema (machines table + machine_id columns) rather than the version marker —
+    // so it is correct regardless of how the version number was previously bumped.
+    const sessionCols = new Set(
+      (this.db.prepare('PRAGMA table_info(sessions)').all() as { name: string }[]).map(
+        (c) => c.name,
+      ),
+    )
+    const convCols = new Set(
+      (this.db.prepare('PRAGMA table_info(conversations)').all() as { name: string }[]).map(
+        (c) => c.name,
+      ),
+    )
+    // repos re-key: (path) PRIMARY KEY -> (machine_id, path) + origin_url.
+    // Guard: only rebuild if the old single-column schema exists (no machine_id column).
+    const repoCols = new Set(
+      (this.db.prepare('PRAGMA table_info(repos)').all() as { name: string }[]).map((c) => c.name),
+    )
+    const needsMachineMigration =
+      !this.db
+        .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='machines'")
+        .get() ||
+      !sessionCols.has('machine_id') ||
+      !convCols.has('machine_id') ||
+      !repoCols.has('machine_id')
+    if (needsMachineMigration) {
+      this.db.exec('BEGIN IMMEDIATE')
+      try {
+        // The machines table is safe to CREATE IF NOT EXISTS on every boot.
+        this.db.exec(
+          `CREATE TABLE IF NOT EXISTS machines (
+             id TEXT PRIMARY KEY,
+             name TEXT NOT NULL,
+             hostname TEXT NOT NULL,
+             token_hash TEXT NOT NULL,
+             created_at TEXT NOT NULL,
+             last_seen_at TEXT NOT NULL
+           )`,
+        )
+        if (!sessionCols.has('machine_id')) {
+          this.db.exec(
+            "ALTER TABLE sessions ADD COLUMN machine_id TEXT NOT NULL DEFAULT '__local__'",
+          )
+        }
+        if (!convCols.has('machine_id')) {
+          this.db.exec(
+            "ALTER TABLE conversations ADD COLUMN machine_id TEXT NOT NULL DEFAULT '__local__'",
+          )
+        }
+        if (!repoCols.has('machine_id')) {
+          this.db.exec(
+            `CREATE TABLE repos_v5 (
+               machine_id TEXT NOT NULL DEFAULT '__local__',
+               path TEXT NOT NULL,
+               origin_url TEXT,
+               repo_name TEXT,
+               added_at TEXT NOT NULL,
+               PRIMARY KEY (machine_id, path)
+             )`,
+          )
+          this.db.exec(
+            "INSERT INTO repos_v5 (machine_id, path, added_at) SELECT '__local__', path, added_at FROM repos",
+          )
+          this.db.exec('DROP TABLE repos')
+          this.db.exec('ALTER TABLE repos_v5 RENAME TO repos')
+        }
+        this.db.exec('COMMIT')
+      } catch (e) {
+        this.db.exec('ROLLBACK')
+        throw e
+      }
+    }
     const v = this.db.prepare('SELECT value FROM meta WHERE key = ?').get('schema_version') as
       | { value: string }
       | undefined
-    if (!v || Number(v.value) < 4)
+    if (!v || Number(v.value) < 5)
       this.db
         .prepare('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)')
-        .run('schema_version', '4')
+        .run('schema_version', '5')
     this.importReposJson()
   }
 
@@ -820,8 +1034,11 @@ export class SessionStore {
       return // corrupt file -> skip
     }
     if (!Array.isArray(parsed)) return
-    const insert = this.db.prepare('INSERT OR IGNORE INTO repos (path, added_at) VALUES (?, ?)')
+    const insert = this.db.prepare(
+      "INSERT OR IGNORE INTO repos (machine_id, path, origin_url, repo_name, added_at) VALUES ('__local__', ?, NULL, ?, ?)",
+    )
     const now = new Date().toISOString()
-    for (const p of parsed) if (typeof p === 'string') insert.run(p, now)
+    for (const p of parsed)
+      if (typeof p === 'string') insert.run(p, p.split('/').pop() ?? null, now)
   }
 }

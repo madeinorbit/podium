@@ -63,7 +63,7 @@ export class RepoRegistry {
   constructor(private readonly store: SessionStore) {}
 
   list(): string[] {
-    return this.store.listRepos()
+    return this.store.listRepoPaths()
   }
 
   async add(path: string): Promise<void> {
