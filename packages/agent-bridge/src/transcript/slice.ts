@@ -9,8 +9,17 @@ export interface SliceResult {
   hasMore: boolean
 }
 
-/** Parse a whole JSONL file into cursor-stamped items, in file order.
- *  Each line's byte offset is tracked so its items anchor to a stable position. */
+/** Parse a JSONL file into cursor-stamped items, in file order.
+ *  Each line's byte offset is tracked so its items anchor to a stable position.
+ *
+ *  @param window Optional byte window `[start, end)` to read instead of the whole
+ *    file. Offsets stamped on items are always FILE-ABSOLUTE (not window-relative),
+ *    so cursors are stable regardless of how the window was sized. When `start > 0`
+ *    the first line in the window is unconditionally dropped as a partial-record
+ *    fragment (the read almost always begins mid-record). Callers that need the
+ *    record at `start` MUST size the window to begin INSIDE or BEFORE the prior
+ *    record — the established TAIL_BYTES rule — because a `start` landing exactly on
+ *    a record boundary would silently lose that record. */
 export async function readFileItems(
   path: string,
   fileId: string,
@@ -40,6 +49,8 @@ export async function readFileItems(
   }
   const out: TranscriptItem[] = []
   // Walk line boundaries on the raw buffer, tracking each record's ABSOLUTE offset.
+  // Items emit only at a `\n`, so a final line without a trailing newline is
+  // intentionally dropped as a possible torn write (matches readTranscriptTail).
   let lineStart = 0
   let firstLine = true
   for (let i = 0; i < buf.length; i++) {
