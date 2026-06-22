@@ -6,6 +6,7 @@ import { trpcServer } from '@hono/trpc-server'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { registerAssetRoute } from './file-asset-route'
+import { readOrCreateDaemonSecret } from './local-machine'
 import { registerMcpRoute } from './mcp-route'
 import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
@@ -17,19 +18,31 @@ import { attachWebSockets } from './wsServer'
 export interface ServerHandle {
   port: number
   registry: SessionRegistry
+  /**
+   * The persistent same-host shared secret the bundled local daemon presents (as its
+   * `hello` token) to authenticate as the local machine. Exposed so the in-process
+   * daemon (host.ts) can pass it straight through without re-reading the file.
+   */
+  bootstrapToken: string
   close(): Promise<void>
 }
 
 export async function startServer(opts: { port?: number } = {}): Promise<ServerHandle> {
   const store = new SessionStore()
   const registry = new SessionRegistry(store)
-  // Provision the local machine NOW, at startup: register it and adopt any pre-existing
-  // `'__local__'` rows onto it — so a single-machine install's sessions/repos are
-  // attributed and visible regardless of whether/when the daemon connects. This is the
-  // structural guard against the regression where data vanished because no daemon ever
-  // registered. (The full same-host secret credential is wired with the launcher task;
-  // the same-host daemon attaches as the local machine in wsServer.)
-  registry.ensureLocalMachine(hostname())
+  // The persistent same-host shared secret, read (or created 0600) from the state dir.
+  // The server hashes it into the local machine's stored credential below; the bundled
+  // local daemon reads the SAME file (or, in-process, gets this value via ServerHandle)
+  // and presents it as its `hello` token — so the local daemon authenticates with no
+  // pairing step and no per-boot token race.
+  const bootstrapToken = readOrCreateDaemonSecret()
+  // Provision the local machine NOW, at startup: register it with the server-owned
+  // credential (sha256 of the shared secret) and adopt any pre-existing `'__local__'`
+  // rows onto it — so a single-machine install's sessions/repos are attributed and
+  // visible regardless of whether/when the daemon connects. This is the structural guard
+  // against the regression where data vanished because no daemon ever registered. The
+  // same-host daemon then authenticates through the normal hello path (wsServer).
+  registry.ensureLocalMachine(hostname(), bootstrapToken)
   const repos = new RepoRegistry(store)
   const superagent = new SuperagentService(registry, repos, store)
   const app = new Hono()
@@ -54,6 +67,7 @@ export async function startServer(opts: { port?: number } = {}): Promise<ServerH
       resolve({
         port: info.port,
         registry,
+        bootstrapToken,
         close: () =>
           ws.close().then(
             () =>
