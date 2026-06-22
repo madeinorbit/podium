@@ -8,8 +8,11 @@ import {
   type DaemonMessage,
   encode,
   GitRepositoryWire,
+  MachineWire,
   parseClientMessage,
   parseControlMessage,
+  parseDaemonHandshake,
+  parseDaemonHandshakeReply,
   parseDaemonMessage,
   parseServerMessage,
   ResumeRef,
@@ -395,6 +398,36 @@ describe('session draft messages', () => {
       type: 'sessionDraftChanged',
       text: 'hi',
     })
+  })
+})
+
+describe('multi-machine protocol', () => {
+  it('parses a hello handshake frame', () => {
+    const m = parseDaemonHandshake(
+      JSON.stringify({ type: 'hello', machineId: 'm1', token: 't', hostname: 'box' }),
+    )
+    expect(m.type).toBe('hello')
+  })
+  it('parses a pair frame and the paired reply', () => {
+    expect(
+      parseDaemonHandshake(
+        JSON.stringify({ type: 'pair', code: 'AAAA-BBBB', machineId: 'm1', hostname: 'box' }),
+      ).type,
+    ).toBe('pair')
+    expect(
+      parseDaemonHandshakeReply(
+        JSON.stringify({ type: 'paired', token: 't', machineId: 'm1', name: 'box' }),
+      ).type,
+    ).toBe('paired')
+  })
+  it('accepts a MachineWire and rejects an incomplete SessionMeta', () => {
+    // machineId/machineName are OPTIONAL on SessionMeta; this still throws on the
+    // other required fields (sessionId, agentKind, …) being absent.
+    expect(() => SessionMeta.parse({ machineId: 'm1' })).toThrow()
+    expect(
+      MachineWire.parse({ id: 'm1', name: 'box', hostname: 'box', online: true, lastSeenAt: 'x' })
+        .id,
+    ).toBe('m1')
   })
 })
 
