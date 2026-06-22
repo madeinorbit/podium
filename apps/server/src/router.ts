@@ -68,24 +68,21 @@ export const appRouter = t.router({
     resumeAndSend: t.procedure
       .input(z.object({ sessionId: z.string(), text: z.string().min(1).max(32_768) }))
       .mutation(({ ctx, input }) => ctx.registry.resumeAndSend(input)),
-    // On-demand transcript for the chat view — recovers a parked session's history
-    // (hibernated/exited) that isn't in the live stream / server buffer.
-    transcript: t.procedure
-      .input(z.object({ sessionId: z.string() }))
-      .query(({ ctx, input }) => ctx.registry.readTranscript(input)),
-    // Scroll-to-top paging: the page of OLDER items before the client's window.
-    // `fromEnd` = how many items the client already holds counted from the END of
-    // the full on-disk transcript (0 = latest). Returns up to `limit` items just
-    // before that, plus `hasMore` so the client stops at the head of the file.
-    transcriptPage: t.procedure
+    // On-demand transcript window for the chat view — a pure disk read via the
+    // daemon (disk = source of truth). `anchor` is a cursor; `direction` reads the
+    // `limit` items before (older) or after (newer) it. No anchor = the latest
+    // window. Serves both initial load and scroll-to-top paging, for live AND parked
+    // sessions alike — independent of the server's recent-delta cache.
+    transcriptRead: t.procedure
       .input(
         z.object({
           sessionId: z.string(),
-          fromEnd: z.number().int().nonnegative(),
-          limit: z.number().int().positive().max(2000).default(400),
+          anchor: z.string().optional(),
+          direction: z.enum(['before', 'after']),
+          limit: z.number().int().positive().max(2000),
         }),
       )
-      .query(({ ctx, input }) => ctx.registry.transcriptPage(input)),
+      .query(({ ctx, input }) => ctx.registry.readTranscript(input)),
     hibernate: t.procedure
       .input(z.object({ sessionId: z.string() }))
       .mutation(({ ctx, input }) => ctx.registry.hibernateSession(input)),
