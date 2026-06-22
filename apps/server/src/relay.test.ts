@@ -149,6 +149,15 @@ describe('SessionRegistry', () => {
     expect(reg.listPins().panels.sort()).toEqual([x, y].sort())
   })
 
+  it('tab order round-trips through conversationId', () => {
+    const reg = new SessionRegistry()
+    reg.attachDaemon(() => {})
+    const a = reg.createSession({ agentKind: 'claude-code', cwd: '/w' }).sessionId
+    const b = reg.createSession({ agentKind: 'claude-code', cwd: '/w' }).sessionId
+    reg.setTabOrder('/w', [b, a])
+    expect(reg.listTabOrders()['/w']).toEqual([b, a])
+  })
+
   it('answers a client ping with pong (browser-level keepalive)', () => {
     const reg = new SessionRegistry()
     const c = sink()

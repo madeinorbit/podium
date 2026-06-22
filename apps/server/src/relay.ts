@@ -358,11 +358,33 @@ export class SessionRegistry {
   }
 
   listTabOrders() {
-    return this.store.listTabOrders()
+    // tab_order persists by conversationId; map each back to the live row of that
+    // conversation so the client orders the rows it actually shows (ids whose
+    // conversation has no live row drop out — the order self-heals on reorder).
+    const raw = this.store.listTabOrders()
+    const rowOf = new Map<string, string>()
+    for (const s of this.sessions.values()) {
+      if (!rowOf.has(s.conversationId)) rowOf.set(s.conversationId, s.sessionId)
+    }
+    const out: Record<string, string[]> = {}
+    for (const [worktree, ids] of Object.entries(raw)) {
+      out[worktree] = ids.map((id) => rowOf.get(id)).filter((sid): sid is string => sid !== undefined)
+    }
+    return out
   }
 
   setTabOrder(worktree: string, sessionIds: string[]) {
-    this.store.setTabOrder(worktree, sessionIds)
+    // Persist by conversationId so an order survives a resume-fork merge / re-resume.
+    const seen = new Set<string>()
+    const conversationIds: string[] = []
+    for (const sid of sessionIds) {
+      const cid = this.convId(sid)
+      if (!seen.has(cid)) {
+        seen.add(cid)
+        conversationIds.push(cid)
+      }
+    }
+    this.store.setTabOrder(worktree, conversationIds)
   }
 
   getSettings(): PodiumSettings {
