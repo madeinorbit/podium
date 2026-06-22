@@ -324,7 +324,13 @@ export class SuperagentService {
       agentKind: info?.agentKind,
       cwd: info?.cwd,
     }
-    const { items } = await this.registry.readTranscript({ sessionId })
+    // Latest window off disk (no anchor + 'before' = the newest items). The seed is
+    // char-budgeted, so a large recent window is plenty.
+    const { items } = await this.registry.readTranscript({
+      sessionId,
+      direction: 'before',
+      limit: 2000,
+    })
     const last = items[items.length - 1]
 
     if (existing?.kind !== 'btw') {
@@ -658,7 +664,12 @@ export class SuperagentService {
         },
         run: async (args) => {
           const lastN = Math.min(100, Math.max(1, num(args.lastN) ?? 30))
-          const { items } = await registry.readTranscript({ sessionId: str(args.sessionId) ?? '' })
+          // The latest window off disk; 'before' with no anchor returns the newest items.
+          const { items } = await registry.readTranscript({
+            sessionId: str(args.sessionId) ?? '',
+            direction: 'before',
+            limit: lastN,
+          })
           const tail = items.slice(-lastN)
           if (tail.length === 0) return '(no transcript found for this session)'
           return tail.map(renderTranscriptItem).join('\n')

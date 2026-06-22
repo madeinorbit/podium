@@ -850,22 +850,68 @@ describe('agent state', () => {
 })
 
 describe('structured transcript channel', () => {
-  it('snapshot on subscribe, appends after, snapshot again on reset', () => {
+  it('replays nothing on an empty subscribe, then streams live deltas', () => {
     const reg = new SessionRegistry()
     reg.attachDaemon(() => {})
     const { sessionId } = reg.createSession({ agentKind: 'claude-code', cwd: '/w' })
     const client = sink()
     const clientId = reg.attachClient(client.send)
+    // Empty cache → subscribe sends no replay delta (NOT a snapshot/reset — the
+    // client loads its history off disk via transcriptRead, not the stream).
     reg.onClientMessage(clientId, { type: 'transcriptSubscribe', sessionId })
-    expect(client.sent).toContainEqual({ type: 'transcriptSnapshot', sessionId, items: [] })
+    expect(client.sent.filter((m) => m.type === 'transcriptDelta')).toEqual([])
 
-    const item = { id: 'u1', role: 'user' as const, text: 'hi' }
-    reg.onDaemonMessage({ type: 'transcriptAppend', sessionId, items: [item] })
-    expect(client.sent).toContainEqual({ type: 'transcriptAppend', sessionId, items: [item] })
+    const item = { id: 'u1', role: 'user' as const, text: 'hi', cursor: 'c1' }
+    reg.onDaemonMessage({ type: 'transcriptDelta', sessionId, items: [item], tail: 'c1' })
+    expect(client.sent).toContainEqual({
+      type: 'transcriptDelta',
+      sessionId,
+      items: [item],
+      tail: 'c1',
+    })
 
-    const item2 = { id: 'u2', role: 'user' as const, text: 'again' }
-    reg.onDaemonMessage({ type: 'transcriptAppend', sessionId, items: [item2], reset: true })
-    expect(client.sent.at(-1)).toEqual({ type: 'transcriptSnapshot', sessionId, items: [item2] })
+    // A reset delta (tailer switched files) clears the cache and fans out reset:true.
+    const item2 = { id: 'u2', role: 'user' as const, text: 'again', cursor: 'c2' }
+    reg.onDaemonMessage({ type: 'transcriptDelta', sessionId, items: [item2], reset: true })
+    expect(client.sent.at(-1)).toEqual({
+      type: 'transcriptDelta',
+      sessionId,
+      items: [item2],
+      reset: true,
+    })
+  })
+
+  it('replays only cached items after `since`, and the whole cache when since is unknown', () => {
+    const reg = new SessionRegistry()
+    reg.attachDaemon(() => {})
+    const { sessionId } = reg.createSession({ agentKind: 'claude-code', cwd: '/w' })
+    // Seed the recent-delta cache via live deltas.
+    const a = { id: 'a', role: 'user' as const, text: 'a', cursor: 'c1' }
+    const b = { id: 'b', role: 'assistant' as const, text: 'b', cursor: 'c2' }
+    const c = { id: 'c', role: 'user' as const, text: 'c', cursor: 'c3' }
+    reg.onDaemonMessage({ type: 'transcriptDelta', sessionId, items: [a, b, c], tail: 'c3' })
+
+    // since=c1 → replay strictly after it (b, c).
+    const known = sink()
+    const knownId = reg.attachClient(known.send)
+    reg.onClientMessage(knownId, { type: 'transcriptSubscribe', sessionId, since: 'c1' })
+    expect(known.sent.filter((m) => m.type === 'transcriptDelta')).toEqual([
+      { type: 'transcriptDelta', sessionId, items: [b, c] },
+    ])
+
+    // since unknown to the cache → replay the whole cache (client cursor-dedups).
+    const stale = sink()
+    const staleId = reg.attachClient(stale.send)
+    reg.onClientMessage(staleId, { type: 'transcriptSubscribe', sessionId, since: 'c0-older' })
+    expect(stale.sent.filter((m) => m.type === 'transcriptDelta')).toEqual([
+      { type: 'transcriptDelta', sessionId, items: [a, b, c] },
+    ])
+
+    // since = the newest cached cursor → nothing after it, send nothing.
+    const caught = sink()
+    const caughtId = reg.attachClient(caught.send)
+    reg.onClientMessage(caughtId, { type: 'transcriptSubscribe', sessionId, since: 'c3' })
+    expect(caught.sent.filter((m) => m.type === 'transcriptDelta')).toEqual([])
   })
 
   it('a subscriber needs no PTY attachment, and unsubscribe stops the stream', () => {
@@ -876,19 +922,131 @@ describe('structured transcript channel', () => {
     const clientId = reg.attachClient(client.send)
     reg.onClientMessage(clientId, { type: 'transcriptSubscribe', sessionId })
     reg.onClientMessage(clientId, { type: 'transcriptUnsubscribe', sessionId })
-    // Count transcript-stream frames only: the first append flips the session's
+    // Count transcript-stream frames only: the first delta flips the session's
     // transcriptAvailable flag, which broadcasts a sessionsChanged to every
     // client (subscribed or not) — that capability flip is not a stream frame.
-    const frames = () =>
-      client.sent.filter((m) => m.type === 'transcriptAppend' || m.type === 'transcriptSnapshot')
-        .length
+    const frames = () => client.sent.filter((m) => m.type === 'transcriptDelta').length
     const before = frames()
     reg.onDaemonMessage({
-      type: 'transcriptAppend',
+      type: 'transcriptDelta',
       sessionId,
-      items: [{ id: 'x', role: 'user', text: 'unseen' }],
+      items: [{ id: 'x', role: 'user', text: 'unseen', cursor: 'cx' }],
     })
     expect(frames()).toBe(before)
+  })
+
+  it('a daemon transcriptDelta drives the Claude first-prompt title', () => {
+    const reg = new SessionRegistry()
+    reg.attachDaemon(() => {})
+    const { sessionId } = reg.createSession({ agentKind: 'claude-code', cwd: '/w' })
+    const client = sink()
+    reg.attachClient(client.send)
+    reg.onDaemonMessage({
+      type: 'transcriptDelta',
+      sessionId,
+      items: [{ id: 'u1', role: 'user', text: 'Refactor the transcript reader', cursor: 'c1' }],
+      tail: 'c1',
+    })
+    // First-prompt fallback names the session from the first user prompt.
+    expect(client.sent).toContainEqual(
+      expect.objectContaining({ type: 'sessionTitleChanged', sessionId }),
+    )
+    const titled = client.sent.find((m) => m.type === 'sessionTitleChanged') as
+      | { title: string }
+      | undefined
+    expect(titled?.title).toContain('Refactor')
+  })
+})
+
+describe('readTranscript (disk read via daemon — no cache short-circuit)', () => {
+  it('a LIVE session with an EMPTY cache still round-trips to the daemon (the bug fix)', async () => {
+    const reg = new SessionRegistry()
+    const daemon: ControlMessage[] = []
+    reg.attachDaemon((m) => daemon.push(m))
+    // A live, bound session whose recent-delta cache is empty (e.g. right after a
+    // server restart). The OLD code short-circuited and returned [] without ever
+    // asking the daemon — the core bug. The new code MUST round-trip to disk.
+    const { sessionId } = reg.createSession({ agentKind: 'claude-code', cwd: '/w' })
+    reg.onDaemonMessage(bind(sessionId))
+
+    const p = reg.readTranscript({ sessionId, direction: 'before', limit: 50 })
+    const req = daemon.find((m) => m.type === 'transcriptRead') as
+      | { requestId: string; direction: string; limit: number; sessionId: string }
+      | undefined
+    expect(req).toBeDefined()
+    if (!req) throw new Error('transcriptRead not sent — short-circuit regression')
+    expect(req.direction).toBe('before')
+    expect(req.limit).toBe(50)
+    expect(req.sessionId).toBe(sessionId)
+
+    const items = [{ id: 'd1', role: 'user' as const, text: 'from disk', cursor: 'c1' }]
+    reg.onDaemonMessage({
+      type: 'transcriptReadResult',
+      requestId: req.requestId,
+      sessionId,
+      items,
+      head: 'c1',
+      tail: 'c1',
+      hasMore: true,
+    })
+    await expect(p).resolves.toEqual({ items, head: 'c1', tail: 'c1', hasMore: true })
+  })
+
+  it('passes anchor/direction/limit + agentKind/cwd/resume through to the daemon message', async () => {
+    const reg = new SessionRegistry()
+    const daemon: ControlMessage[] = []
+    reg.attachDaemon((m) => daemon.push(m))
+    const { sessionId } = reg.resumeSession({
+      agentKind: 'codex',
+      cwd: '/repo',
+      resume: { kind: 'codex-rollout', value: '/r/rollout.jsonl' },
+      conversationId: 'conv-1',
+    })
+
+    const p = reg.readTranscript({
+      sessionId,
+      anchor: 'c42',
+      direction: 'after',
+      limit: 200,
+    })
+    const req = daemon.find((m) => m.type === 'transcriptRead') as
+      | {
+          requestId: string
+          agentKind: string
+          cwd: string
+          resume?: { kind: string; value: string }
+          anchor?: string
+          direction: string
+          limit: number
+        }
+      | undefined
+    expect(req).toBeDefined()
+    if (!req) throw new Error('transcriptRead not sent')
+    expect(req.agentKind).toBe('codex')
+    expect(req.cwd).toBe('/repo')
+    expect(req.resume).toEqual({ kind: 'codex-rollout', value: '/r/rollout.jsonl' })
+    expect(req.anchor).toBe('c42')
+    expect(req.direction).toBe('after')
+    expect(req.limit).toBe(200)
+
+    reg.onDaemonMessage({
+      type: 'transcriptReadResult',
+      requestId: req.requestId,
+      sessionId,
+      items: [],
+      hasMore: false,
+    })
+    await expect(p).resolves.toEqual({ items: [], hasMore: false })
+  })
+
+  it('resolves an empty page for an unknown session (no daemon round-trip)', async () => {
+    const reg = new SessionRegistry()
+    const daemon: ControlMessage[] = []
+    reg.attachDaemon((m) => daemon.push(m))
+    await expect(
+      reg.readTranscript({ sessionId: 'nope', direction: 'before', limit: 10 }),
+    ).resolves.toEqual({ items: [], hasMore: false })
+    expect(daemon.find((m) => m.type === 'transcriptRead')).toBeUndefined()
   })
 })
 

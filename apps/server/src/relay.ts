@@ -102,12 +102,11 @@ export class SessionRegistry {
     string,
     (r: { hostname: string; agents: AgentQuotaWire[] }) => void
   >()
-  private readonly pendingTranscriptReads = new Map<string, (r: TranscriptItem[]) => void>()
-  private readonly pendingUploads = new Map<string, (r: { path: string; error?: string }) => void>()
-  private readonly pendingTranscriptPages = new Map<
+  private readonly pendingTranscriptReads = new Map<
     string,
-    (r: { items: TranscriptItem[]; hasMore: boolean }) => void
+    (r: { items: TranscriptItem[]; head?: string; tail?: string; hasMore: boolean }) => void
   >()
+  private readonly pendingUploads = new Map<string, (r: { path: string; error?: string }) => void>()
   private readonly pendingFileReads = new Map<
     string,
     (r: Omit<FileReadResultMessage, 'type' | 'requestId'>) => void
@@ -1045,7 +1044,7 @@ export class SessionRegistry {
         break
       case 'transcriptSubscribe':
         client.transcriptSubs.add(msg.sessionId)
-        this.sessions.get(msg.sessionId)?.subscribeTranscript(client)
+        this.sessions.get(msg.sessionId)?.subscribeTranscript(client, msg.since)
         break
       case 'transcriptUnsubscribe':
         client.transcriptSubs.delete(msg.sessionId)
@@ -1247,9 +1246,14 @@ export class SessionRegistry {
         }
         break
       }
-      case 'transcriptAppend': {
+      case 'transcriptDelta': {
         const session = this.sessions.get(msg.sessionId)
-        if (session?.appendTranscript(msg.items, msg.reset ?? false)) {
+        if (
+          session?.applyDelta(msg.items, {
+            ...(msg.reset !== undefined ? { reset: msg.reset } : {}),
+            ...(msg.tail !== undefined ? { tail: msg.tail } : {}),
+          })
+        ) {
           // First transcript for this session → its chat capability flipped on;
           // push the updated meta so clients can offer the chat toggle.
           this.broadcastSessions()
@@ -1313,7 +1317,12 @@ export class SessionRegistry {
         const resolve = this.pendingTranscriptReads.get(msg.requestId)
         if (resolve) {
           this.pendingTranscriptReads.delete(msg.requestId)
-          resolve(msg.items)
+          resolve({
+            items: msg.items,
+            ...(msg.head !== undefined ? { head: msg.head } : {}),
+            ...(msg.tail !== undefined ? { tail: msg.tail } : {}),
+            hasMore: msg.hasMore,
+          })
         }
         break
       }
@@ -1322,14 +1331,6 @@ export class SessionRegistry {
         if (resolve) {
           this.pendingUploads.delete(msg.requestId)
           resolve({ path: msg.path, ...(msg.error !== undefined ? { error: msg.error } : {}) })
-        }
-        break
-      }
-      case 'transcriptPageResult': {
-        const resolve = this.pendingTranscriptPages.get(msg.requestId)
-        if (resolve) {
-          this.pendingTranscriptPages.delete(msg.requestId)
-          resolve({ items: msg.items, hasMore: msg.hasMore })
         }
         break
       }
@@ -1398,67 +1399,44 @@ export class SessionRegistry {
   }
 
   /**
-   * Transcript for the chat view. A live session streams it (and has it buffered),
-   * so we return the buffer. A PARKED session (hibernated/exited) has no live tail
-   * and an empty buffer after a server restart — read it off disk via the daemon,
-   * derived from its resume ref. Resolves the (possibly empty) buffer when there's
-   * no resume ref or no daemon answers.
+   * Transcript for the chat view — a pure daemon round-trip; disk is the source of
+   * truth. Reads the requested window of `limit` items relative to `anchor` (a
+   * cursor) in `direction` ('before' = older, 'after' = newer; no anchor = the
+   * latest window). The daemon resolves the on-disk transcript from the session's
+   * agentKind/cwd/resume and serves the slice — so a LIVE session with an empty
+   * recent-delta cache (e.g. right after a server restart) still loads its history
+   * straight off disk, instead of the old short-circuit that returned an empty
+   * buffer. Resolves an empty, hasMore:false page when the session is unknown or no
+   * daemon answers.
    */
-  readTranscript({ sessionId }: { sessionId: string }): Promise<{ items: TranscriptItem[] }> {
-    const session = this.sessions.get(sessionId)
-    const buffered = session?.transcriptItems() ?? []
-    const resume = session?.resume
-    if (!session || !resume || buffered.length > 0) return Promise.resolve({ items: buffered })
-    return this.daemonRequest<TranscriptItem[]>(
+  readTranscript(input: {
+    sessionId: string
+    anchor?: string
+    direction: 'before' | 'after'
+    limit: number
+  }): Promise<{ items: TranscriptItem[]; head?: string; tail?: string; hasMore: boolean }> {
+    const session = this.sessions.get(input.sessionId)
+    if (!session) return Promise.resolve({ items: [], hasMore: false })
+    return this.daemonRequest<{
+      items: TranscriptItem[]
+      head?: string
+      tail?: string
+      hasMore: boolean
+    }>(
       this.pendingTranscriptReads,
       'tr',
       SCAN_TIMEOUT_MS,
-      () => [],
-      (requestId) => ({
-        type: 'transcriptReadRequest',
-        requestId,
-        agentKind: session.agentKind,
-        cwd: session.cwd,
-        resume,
-      }),
-    ).then((items) => ({ items }))
-  }
-
-  /**
-   * Scroll-to-top paging for the chat view: the page of OLDER transcript items
-   * that come BEFORE the client's current window. `fromEnd` is how many items the
-   * client already holds, counted from the END of the full on-disk transcript
-   * (0 = the latest item); the daemon returns the `limit` items just before that.
-   * It's a pure disk read off the same JSONL the tail uses, so it works for live
-   * AND parked sessions alike — independent of the server's bounded live buffer.
-   * Resolves an empty, hasMore:false page when there is no resume ref (can't
-   * derive a file) or no daemon answers.
-   */
-  transcriptPage({
-    sessionId,
-    fromEnd,
-    limit,
-  }: {
-    sessionId: string
-    fromEnd: number
-    limit: number
-  }): Promise<{ items: TranscriptItem[]; hasMore: boolean }> {
-    const session = this.sessions.get(sessionId)
-    const resume = session?.resume
-    if (!session || !resume) return Promise.resolve({ items: [], hasMore: false })
-    return this.daemonRequest<{ items: TranscriptItem[]; hasMore: boolean }>(
-      this.pendingTranscriptPages,
-      'tp',
-      SCAN_TIMEOUT_MS,
       () => ({ items: [], hasMore: false }),
       (requestId) => ({
-        type: 'transcriptPageRequest',
+        type: 'transcriptRead',
         requestId,
+        sessionId: input.sessionId,
         agentKind: session.agentKind,
         cwd: session.cwd,
-        resume,
-        fromEnd,
-        limit,
+        ...(session.resume ? { resume: session.resume } : {}),
+        ...(input.anchor ? { anchor: input.anchor } : {}),
+        direction: input.direction,
+        limit: input.limit,
       }),
     )
   }
