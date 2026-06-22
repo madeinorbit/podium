@@ -38,6 +38,24 @@ export function mergeByCursor(prev: TranscriptItem[], delta: TranscriptItem[]): 
 }
 
 /**
+ * Accumulate the file paths a transcript references (for the terminal file-link
+ * provider) across the hub's per-frame DELTAS. Each non-reset frame folds its
+ * items' `toolPaths` into the growing set; a `reset` frame (file roll / reattach
+ * re-seed) starts the set over from empty. Returns a FRESH `Set` every call (never
+ * the `prev` identity) so callers can hand it straight to React state / a view
+ * setter without aliasing the accumulator they keep.
+ */
+export function accumulateFileLinkPaths(
+  prev: ReadonlySet<string>,
+  delta: TranscriptItem[],
+  reset: boolean,
+): Set<string> {
+  const set = reset ? new Set<string>() : new Set(prev)
+  for (const it of delta) for (const p of it.toolPaths ?? []) set.add(p)
+  return set
+}
+
+/**
  * Drop later items that share a cursor (or id) with an earlier one — keeps the
  * first occurrence, preserving order. Used at the `[...older, ...items]` seam to
  * guard a one-item paging/live overlap.

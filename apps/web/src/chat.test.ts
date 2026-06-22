@@ -1,6 +1,7 @@
 import type { TranscriptItem } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import {
+  accumulateFileLinkPaths,
   buildChatRows,
   dedupeByCursor,
   isBatchableTool,
@@ -71,6 +72,49 @@ describe('mergeByCursor', () => {
     const prev = [it_('a')]
     const merged = mergeByCursor(prev, [it_('a'), it_('b')])
     expect(merged.map((i) => i.id)).toEqual(['a', 'b'])
+  })
+})
+
+const pathItem = (id: string, paths: string[]): TranscriptItem => ({
+  id,
+  role: 'tool',
+  text: '',
+  toolName: 'Read',
+  toolPaths: paths,
+})
+
+describe('accumulateFileLinkPaths (AgentPanel file-link delta contract)', () => {
+  it('ACCUMULATES toolPaths across two non-reset delta frames (second does not replace first)', () => {
+    // Frame 1: the hub forwards a delta, not the full list.
+    const afterFirst = accumulateFileLinkPaths(new Set(), [pathItem('a', ['/repo/a.ts'])], false)
+    expect([...afterFirst]).toEqual(['/repo/a.ts'])
+    // Frame 2: a SECOND delta. The regression we guard against ("treat the delta
+    // as the whole list") would drop /repo/a.ts here — assert both survive.
+    const afterSecond = accumulateFileLinkPaths(afterFirst, [pathItem('b', ['/repo/b.ts'])], false)
+    expect([...afterSecond].sort()).toEqual(['/repo/a.ts', '/repo/b.ts'])
+  })
+
+  it('a reset frame CLEARS the set — only the reset frame paths remain', () => {
+    const accumulated = accumulateFileLinkPaths(
+      new Set(['/repo/a.ts', '/repo/b.ts']),
+      [pathItem('c', ['/repo/c.ts'])],
+      true,
+    )
+    expect([...accumulated]).toEqual(['/repo/c.ts'])
+  })
+
+  it('returns a FRESH Set (never the prev identity) so callers can hand it on safely', () => {
+    const prev = new Set(['/repo/a.ts'])
+    const next = accumulateFileLinkPaths(prev, [pathItem('b', ['/repo/b.ts'])], false)
+    expect(next).not.toBe(prev)
+    // Mutating the result must not bleed back into the accumulator we were given.
+    expect([...prev]).toEqual(['/repo/a.ts'])
+  })
+
+  it('folds multiple paths per item and dedupes a path seen across frames', () => {
+    const f1 = accumulateFileLinkPaths(new Set(), [pathItem('a', ['/x.ts', '/y.ts'])], false)
+    const f2 = accumulateFileLinkPaths(f1, [pathItem('b', ['/y.ts', '/z.ts'])], false)
+    expect([...f2].sort()).toEqual(['/x.ts', '/y.ts', '/z.ts'])
   })
 })
 

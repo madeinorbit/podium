@@ -423,7 +423,7 @@ function SpawnedAgentCard({
 
 /** Inline live transcript tail for a spawned worker — the last few items, kept
  *  scrolled to the newest, so you can follow what it's doing within the chat. */
-function SpawnedFollow({
+export function SpawnedFollow({
   sessionId,
   hub,
 }: {

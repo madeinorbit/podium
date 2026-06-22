@@ -33,6 +33,7 @@ import {
 import { useSessionGuard } from '@/hooks/use-session-guard'
 import { cn } from '@/lib/utils'
 import { ChatView } from './ChatView'
+import { accumulateFileLinkPaths } from './chat'
 import {
   defaultChatCapable,
   exitedRecovery,
@@ -226,12 +227,14 @@ export function AgentPanel({
   useEffect(() => {
     knownPathsRef.current = new Set()
     return hub.subscribeTranscript(sessionId, undefined, (delta, meta) => {
-      const set = meta.reset ? new Set<string>() : knownPathsRef.current
-      for (const it of delta) for (const p of it.toolPaths ?? []) set.add(p)
+      // accumulateFileLinkPaths returns a fresh Set each frame, so we hand the
+      // view a copy (not the live ref identity) — defensive against the view
+      // mutating or aliasing our accumulator.
+      const set = accumulateFileLinkPaths(knownPathsRef.current, delta, meta.reset)
       knownPathsRef.current = set
       mountedRef.current?.view.setFileLinks({
         cwd: session?.cwd ?? '/',
-        knownPaths: set,
+        knownPaths: new Set(set),
         onOpen: (abs) => openFile(sessionId, abs),
       })
     })
