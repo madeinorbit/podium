@@ -50,17 +50,20 @@ fn main() {
                 if !ready {
                     eprintln!("[podium-desktop] backend did not become ready within timeout");
                 }
-                let handle_for_closure = handle.clone();
+                let handle2 = handle.clone();
                 let _ = handle.run_on_main_thread(move || {
-                    let _ = WebviewWindowBuilder::new(
-                        &handle_for_closure,
+                    if let Err(e) = WebviewWindowBuilder::new(
+                        &handle2,
                         "main",
                         WebviewUrl::default(),
                     )
                     .title("Podium")
                     .inner_size(1200.0, 800.0)
                     .initialization_script(&init)
-                    .build();
+                    .build()
+                    {
+                        eprintln!("[podium-desktop] window build failed: {e}");
+                    }
                 });
             });
 

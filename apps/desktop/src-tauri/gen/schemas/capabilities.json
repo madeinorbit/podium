@@ -1,1 +1,0 @@
-{"default":{"identifier":"default","description":"Podium desktop default capabilities","local":true,"windows":["main"],"permissions":["core:default","core:window:allow-create","core:webview:allow-create-webview-window"]}}
