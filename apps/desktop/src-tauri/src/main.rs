@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod bootstrap;
+mod updater;
 
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -20,6 +21,11 @@ fn main() {
                 let _ = w.set_focus();
             }
         }))
+        // Auto-updater stack: updater (check/download/install signed artifacts),
+        // dialog (the prompt-then-restart confirmation), process (app.restart()).
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_process::init())
         .setup(|app| {
             let port = bootstrap::pick_free_port();
 
@@ -160,6 +166,13 @@ fn main() {
                         eprintln!("[podium-desktop] window build failed: {e}");
                     }
                 });
+            });
+
+            // Check for updates on launch (non-blocking): if a newer signed version
+            // exists, prompt the user and — on confirm — download, install, restart.
+            let updater_handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                crate::updater::check_and_prompt_update(updater_handle).await;
             });
 
             Ok(())

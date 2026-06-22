@@ -3,3 +3,7 @@ src-tauri/binaries/
 src-tauri/resources/
 src-tauri/gen/
 dist-bun/
+
+# Tauri updater DEV signing key (never commit — dev/test only)
+.tauri-dev-signing.key
+.tauri-dev-signing.key.pub

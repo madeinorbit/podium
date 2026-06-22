@@ -14,6 +14,13 @@
     "active": true,
     "targets": ["appimage", "deb"],
     "resources": ["resources/web", "resources/podium"],
-    "icon": ["icons/icon.png"]
+    "icon": ["icons/icon.png"],
+    "createUpdaterArtifacts": true
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEZFQkZCOEMxNzA2REIxClJXU3hiWERCdUwvK0FFS2RRTGRlRGlSVCt5Q2tTUlBFY1I2Mm9DOTZJN2xRa2NUOTRuc0Z3MXZjCg==",
+      "endpoints": ["http://127.0.0.1:8788/update/{{target}}/{{arch}}/{{current_version}}"]
+    }
   }
 }
