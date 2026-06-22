@@ -42,6 +42,14 @@ set_version() { # $1 = version — Tauri reads version from tauri.conf.json.
 }
 
 build() { # $1 = version
+  # Artifact reuse: a prior run may have already staged this version's AppImage+sig.
+  # Both are deterministic for a given source tree, so reuse them and skip the ~4-min
+  # release rebuild. Only rebuild a version whose artifact (or its sig) is missing.
+  if [ -f "dist-verify/$1/Podium_$1_amd64.AppImage" ] && [ -f "dist-verify/$1/Podium_$1_amd64.AppImage.sig" ]; then
+    echo "=== BUILD v$1 SKIPPED — reusing existing dist-verify/$1/ artifacts ==="
+    ls -la "dist-verify/$1/"
+    return 0
+  fi
   echo "=== BUILD v$1 START $(date -Is) ==="
   set_version "$1"
   bun run stage
@@ -71,14 +79,31 @@ echo "=== FEED up (pid $FEED) on :$PORT ==="
 # prove the manifest serves
 curl -fsS "http://127.0.0.1:$PORT/update/linux-x86_64/x86_64/0.1.0" | head -c 400; echo
 
+# --- single-instance pre-flight guard ---------------------------------------
+# tauri_plugin_single_instance holds a lock; a STALE podium-desktop instance makes a
+# fresh launch focus-the-existing-window-and-exit BEFORE setup() runs, so running-version
+# is never written and the upgrade is silently a no-op (false negative / false positive).
+# Kill any stale desktop instances so the lock is free. NEVER touch the live systemd
+# podium-server / :18787 — these patterns only match the desktop AppImage + its mounts.
+kill_stale_desktop() {
+  pkill -f 'podium-desktop' 2>/dev/null || true
+  pkill -f '/tmp/.mount_Podium' 2>/dev/null || true
+  pkill -f 'appimage_extracted' 2>/dev/null || true
+  sleep 2
+}
+echo "=== single-instance pre-flight: killing stale desktop instances ==="
+kill_stale_desktop
+
 # --- run v0.1.0 under Xvfb; let the updater check+download+install -----------
+# FRESH EMPTY state dir — deliberately do NOT pre-seed running-version. If the launch
+# no-ops (single-instance focus-exit, or setup() never runs), running-version is ABSENT,
+# which is a DETECTABLE failure rather than a stale 0.1.0 that would mask it.
 SMOKE_STATE="$(mktemp -d)"
 APP010="dist-verify/0.1.0/Podium_0.1.0_amd64.AppImage"
 chmod +x "$APP010"
 ABS_APP010="$(readlink -f "$APP010")"
-echo "0.1.0" > "$SMOKE_STATE/running-version"   # baseline; the app overwrites it on boot
 PRE_SIZE=$(stat -c%s "$ABS_APP010")
-echo "=== RUN v0.1.0 (state=$SMOKE_STATE, APPIMAGE=$ABS_APP010, size=$PRE_SIZE) ==="
+echo "=== RUN v0.1.0 (state=$SMOKE_STATE [fresh/empty], APPIMAGE=$ABS_APP010, size=$PRE_SIZE) ==="
 
 # APPIMAGE points the updater at the on-disk file to self-replace.
 PODIUM_UPDATE_AUTOCONFIRM=1 PODIUM_STATE_DIR="$SMOKE_STATE" APPIMAGE="$ABS_APP010" \
@@ -90,38 +115,60 @@ grep -iE "update|version|signature|install|restart|podium-desktop" /tmp/update-r
 echo "=== STAGE ASSERTIONS ==="
 CHECK_OK=no; DL_OK=no; SIG_OK=no; INSTALL_OK=no; UPGRADE_OK=no
 
-# check: the app logged the running version 0.1.0 (proves it booted + ran setup)
-grep -q "running version 0.1.0" /tmp/update-run.log && CHECK_OK=booted
-# download: the feed logged an artifact request
-# signature: no signature-verification error appeared in the run log
-if grep -qiE "signature.*(error|fail|invalid|mismatch)" /tmp/update-run.log; then SIG_OK=no; else SIG_OK=clean; fi
-# install error?
-grep -qi "update install failed" /tmp/update-run.log && INSTALL_OK=failed
-
-# The deterministic signal: did the on-disk app become 0.1.1?
-POST_VERSION="$(cat "$SMOKE_STATE/running-version" 2>/dev/null || echo '?')"
+# Authoritative boot signal = the STATE DIR, not the log. Under --appimage-extract-and-run
+# AppRun redirects the child's stdout, so /tmp/update-run.log is frequently EMPTY even on a
+# fully successful boot. setup() writes BOTH $PODIUM_STATE_DIR/running-version and (via
+# ensure_executable) $PODIUM_STATE_DIR/bin/podium-sidecar; their presence proves setup() ran
+# (i.e. NOT a single-instance focus-exit no-op). Log greps are kept as best-effort diagnostics.
+POST_VERSION="$(cat "$SMOKE_STATE/running-version" 2>/dev/null || echo 'ABSENT')"
 POST_SIZE=$(stat -c%s "$ABS_APP010" 2>/dev/null || echo 0)
-echo "running-version after run: $POST_VERSION  (appimage size $PRE_SIZE -> $POST_SIZE)"
+if [ -f "$SMOKE_STATE/running-version" ] && [ -f "$SMOKE_STATE/bin/podium-sidecar" ]; then
+  CHECK_OK="booted(state:$POST_VERSION)"
+else
+  CHECK_OK="NO-OP (running-version=$POST_VERSION, sidecar present: $([ -f "$SMOKE_STATE/bin/podium-sidecar" ] && echo yes || echo no))"
+fi
+# signature: no signature-verification error in the (best-effort) run log
+if grep -qiE "signature.*(error|fail|invalid|mismatch)" /tmp/update-run.log 2>/dev/null; then SIG_OK=no; else SIG_OK=clean; fi
+# install error? (best-effort log diagnostic)
+grep -qi "update install failed" /tmp/update-run.log 2>/dev/null && INSTALL_OK=failed
+echo "first-run state-dir running-version: $POST_VERSION  (appimage size $PRE_SIZE -> $POST_SIZE)"
 
-# Re-run the (possibly replaced) on-disk AppImage to capture its self-reported version.
-echo "0.1.0" > "$SMOKE_STATE/running-version"
-PODIUM_STATE_DIR="$SMOKE_STATE" timeout 30 xvfb-run -a "$APP010" >/tmp/post-run.log 2>&1 || true
-RERUN_VERSION="$(cat "$SMOKE_STATE/running-version" 2>/dev/null || echo '?')"
-echo "on-disk AppImage now self-reports version: $RERUN_VERSION"
+# --- authoritative gate: re-run the (possibly replaced) on-disk AppImage ------
+# Kill any lingering desktop instance again so this re-run is NOT a single-instance no-op.
+echo "=== single-instance pre-flight (pre re-run) ==="
+kill_stale_desktop
+# FRESH state dir; do NOT pre-seed running-version. Absence => the launch no-op'd
+# (detectable failure) rather than a stale value masking it.
+RERUN_STATE="$(mktemp -d)"
+rm -f "$RERUN_STATE/running-version"
+PODIUM_STATE_DIR="$RERUN_STATE" timeout 30 xvfb-run -a "$APP010" >/tmp/post-run.log 2>&1 || true
+RERUN_VERSION="$(cat "$RERUN_STATE/running-version" 2>/dev/null || echo 'ABSENT')"
+RERUN_SETUP_RAN=no
+[ -f "$RERUN_STATE/running-version" ] && [ -f "$RERUN_STATE/bin/podium-sidecar" ] && RERUN_SETUP_RAN=yes
+echo "on-disk AppImage re-run: setup ran=$RERUN_SETUP_RAN, self-reports version: $RERUN_VERSION"
 
-if [ "$RERUN_VERSION" = "0.1.1" ] || [ "$POST_SIZE" != "$PRE_SIZE" ]; then
+# FIX 1 — STRICT pass gate: success iff the on-disk re-run reports 0.1.1 (setup() actually ran).
+# The size OR-clause is REMOVED: both AppImages are byte-identical in size, so a size change
+# would mean CORRUPTION, not a successful upgrade. Size is a logged diagnostic only.
+if [ "$RERUN_SETUP_RAN" = "yes" ] && [ "$RERUN_VERSION" = "0.1.1" ]; then
   UPGRADE_OK=yes
 fi
 
 echo "---- RESULT ----"
-echo "check(booted+0.1.0 seen): $CHECK_OK"
+echo "first run (state-dir boot signal): $CHECK_OK"
 echo "signature (no error in log): $SIG_OK"
 echo "install step: $INSTALL_OK"
+echo "re-run setup() ran (running-version + bin/podium-sidecar present): $RERUN_SETUP_RAN"
 echo "self-reported version after upgrade: $RERUN_VERSION"
-echo "appimage size: $PRE_SIZE -> $POST_SIZE"
+echo "appimage size (diagnostic only): $PRE_SIZE -> $POST_SIZE"
 if [ "$UPGRADE_OK" = "yes" ]; then
-  echo "UPGRADE VERIFIED ✓ (v0.1.0 -> v0.1.1)"
+  echo "UPGRADE VERIFIED ✓ (v0.1.0 -> v0.1.1) — on-disk re-run boots 0.1.1"
+  RESULT_RC=0
 else
-  echo "UPGRADE NOT verified by file-swap — inspect /tmp/update-run.log (headless \$APPIMAGE self-replace risk)"
+  echo "UPGRADE NOT verified — on-disk re-run did not boot 0.1.1 (running-version=$RERUN_VERSION, setup ran=$RERUN_SETUP_RAN)."
+  echo "  Inspect /tmp/update-run.log and /tmp/post-run.log. Note: under --appimage-extract-and-run"
+  echo "  the in-place \$APPIMAGE self-replace may not occur, and AppRun may swallow stdout."
+  RESULT_RC=2
 fi
-rm -rf "$SMOKE_STATE"
+rm -rf "$SMOKE_STATE" "$RERUN_STATE"
+exit "$RESULT_RC"
