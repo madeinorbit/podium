@@ -375,11 +375,11 @@ export function StoreProvider({
   )
   const startBtw = useMemo(
     () => async (sessionId: string) => {
-      // Open the superagent dock on the session's btw thread immediately; the
-      // server seeds it (and runs the orientation turn) in the background.
-      setSuperThreadId(`btw_${sessionId}`)
+      // The btw thread is keyed by the conversation, not the row — take the
+      // authoritative threadId from the server rather than recomputing it here.
       setSuperOpen(true)
-      await trpc.superagent.startBtw.mutate({ sessionId }).catch(() => {})
+      const res = await trpc.superagent.startBtw.mutate({ sessionId }).catch(() => null)
+      setSuperThreadId(res?.threadId ?? `btw_${sessionId}`)
       // Seeding + the orientation turn are done now — nudge the view to refetch.
       setSuperRefreshKey((k) => k + 1)
     },
@@ -387,11 +387,11 @@ export function StoreProvider({
   )
   const tldrSession = useMemo(
     () => async (sessionId: string, answerText: string) => {
-      const threadId = `btw_${sessionId}`
-      setSuperThreadId(threadId)
       setSuperOpen(true)
-      // Ensure the thread is seeded with this session's context before we ask.
-      await trpc.superagent.startBtw.mutate({ sessionId }).catch(() => {})
+      // Seed (or find) the conversation's btw thread and use its authoritative id.
+      const res = await trpc.superagent.startBtw.mutate({ sessionId }).catch(() => null)
+      const threadId = res?.threadId ?? `btw_${sessionId}`
+      setSuperThreadId(threadId)
       const prompt = answerText.trim()
         ? `Give me a concise tl;dr (2–4 bullet points) of the agent's last answer below.\n\n---\n${answerText.trim().slice(0, 4000)}`
         : "Give me a concise tl;dr (2–4 bullet points) of the agent's last answer."

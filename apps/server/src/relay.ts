@@ -302,11 +302,24 @@ export class SessionRegistry {
   }
 
   listPins() {
-    return this.store.listPins()
+    // Panel pins persist by conversationId; expand each to the live rows of that
+    // conversation so whichever row the client's dedup displays is recognised as
+    // pinned (a conversation with no live row keeps its raw id so the pin isn't
+    // lost). Keeps the wire/web contract sessionId-based.
+    const raw = this.store.listPins()
+    const panels: string[] = []
+    for (const conversationId of raw.panels) {
+      const rows = [...this.sessions.values()].filter((s) => s.conversationId === conversationId)
+      if (rows.length === 0) panels.push(conversationId)
+      else for (const s of rows) panels.push(s.sessionId)
+    }
+    return { ...raw, panels }
   }
 
   setPin(kind: PinKind, id: string, pinned: boolean) {
-    this.store.setPin(kind, id, pinned)
+    // A panel pin belongs to the conversation, not the row — store it by
+    // conversationId so it survives a resume-fork merge or re-resume.
+    this.store.setPin(kind, kind === 'panel' ? this.convId(id) : id, pinned)
   }
 
   listSnoozes() {
@@ -744,9 +757,19 @@ export class SessionRegistry {
   }
 
   killSession(input: { sessionId: string }): void {
+    const session = this.sessions.get(input.sessionId)
     this.toDaemon({ type: 'kill', sessionId: input.sessionId })
-    this.sessions.get(input.sessionId)?.detachAll()
+    session?.detachAll()
     this.sessions.delete(input.sessionId)
+    // When the last row of a conversation is killed, drop the conversation's panel
+    // pin (keyed by conversationId) — nothing is left to display. A surviving twin
+    // row keeps the pin.
+    if (
+      session &&
+      ![...this.sessions.values()].some((s) => s.conversationId === session.conversationId)
+    ) {
+      this.store.setPin('panel', session.conversationId, false)
+    }
     this.draftBySession.delete(input.sessionId)
     this.titleDebouncers.get(input.sessionId)?.dispose()
     this.titleDebouncers.delete(input.sessionId)

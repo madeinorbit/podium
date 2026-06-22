@@ -849,6 +849,20 @@ export class SessionStore {
         .prepare('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)')
         .run('schema_version', '6')
     }
+    // v6 -> v7: panel pins key by conversation_id too. Remap a panel pin whose id is
+    // a row that belongs to a conversation under a different canonical id.
+    if (ver < 7) {
+      this.db.exec(
+        `UPDATE OR REPLACE pins
+           SET id = (SELECT conversation_id FROM sessions WHERE sessions.id = pins.id)
+           WHERE kind = 'panel' AND id IN (
+             SELECT id FROM sessions WHERE conversation_id IS NOT NULL AND conversation_id <> id
+           )`,
+      )
+      this.db
+        .prepare('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)')
+        .run('schema_version', '7')
+    }
     this.importReposJson()
   }
 

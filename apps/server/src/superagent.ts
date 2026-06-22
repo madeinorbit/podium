@@ -315,9 +315,11 @@ export class SuperagentService {
   }: {
     sessionId: string
   }): Promise<{ threadId: string; isNew: boolean }> {
-    const threadId = `btw_${sessionId}`
-    const existing = this.store.getSuperagentThread(threadId)
     const info = this.registry.listSessions().find((s) => s.sessionId === sessionId)
+    // Key the btw thread by the conversation, not the row, so it survives a
+    // resume-fork merge or re-resume (matches the web's threadId derivation).
+    const threadId = `btw_${info?.conversationId ?? sessionId}`
+    const existing = this.store.getSuperagentThread(threadId)
     const session: BtwSessionInfo = {
       sessionId,
       name: info?.name ?? info?.title,

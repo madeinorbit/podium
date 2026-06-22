@@ -128,6 +128,27 @@ describe('SessionRegistry', () => {
     expect(byId.get(x)).toBe(byId.get(y))
   })
 
+  it('a panel pin follows the conversation across merged rows', () => {
+    const reg = new SessionRegistry()
+    reg.attachDaemon(() => {})
+    const y = reg.resumeSession({
+      agentKind: 'claude-code',
+      cwd: '/w',
+      resume: { kind: 'claude-session', value: 'b5' },
+      conversationId: 'convB5',
+    }).sessionId
+    const x = reg.createSession({ agentKind: 'claude-code', cwd: '/w' }).sessionId
+    reg.onDaemonMessage({
+      type: 'sessionResumeRef',
+      sessionId: x,
+      resume: { kind: 'claude-session', value: 'b5' },
+    })
+    // Pin via one row's id; stored by conversationId, it expands to BOTH rows so
+    // whichever the client displays is recognised as pinned.
+    reg.setPin('panel', x, true)
+    expect(reg.listPins().panels.sort()).toEqual([x, y].sort())
+  })
+
   it('answers a client ping with pong (browser-level keepalive)', () => {
     const reg = new SessionRegistry()
     const c = sink()

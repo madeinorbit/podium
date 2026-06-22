@@ -284,6 +284,42 @@ describe('SessionStore schema migration', () => {
     expect(Object.keys(store.listSnoozes())).toEqual(['a-dup'])
     store.close()
   })
+
+  it('v6->v7 re-keys a panel pin from a dup row id onto the conversation id', async () => {
+    const file = await tmpDbPath()
+    const { DatabaseSync } = await import('node:sqlite')
+    const db = new DatabaseSync(file)
+    db.exec(
+      `CREATE TABLE sessions (
+         id TEXT PRIMARY KEY, agent_kind TEXT NOT NULL, cwd TEXT NOT NULL,
+         title TEXT NOT NULL, name TEXT, origin_kind TEXT NOT NULL, conversation_id TEXT,
+         resume_kind TEXT, resume_value TEXT, status TEXT NOT NULL, exit_code INTEGER,
+         durable_label TEXT NOT NULL, created_at TEXT NOT NULL, last_active_at TEXT NOT NULL,
+         archived INTEGER NOT NULL DEFAULT 0, work_state TEXT
+       )`,
+    )
+    db.exec(
+      'CREATE TABLE pins (kind TEXT NOT NULL, id TEXT NOT NULL, pinned_at TEXT NOT NULL, PRIMARY KEY (kind, id))',
+    )
+    db.exec('CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)')
+    db.prepare('INSERT INTO meta (key, value) VALUES (?, ?)').run('schema_version', '6')
+    const t = '2026-06-09T00:00:00.000Z'
+    db.prepare(
+      `INSERT INTO sessions (id, agent_kind, cwd, title, origin_kind, conversation_id,
+        status, durable_label, created_at, last_active_at)
+       VALUES (?, 'claude-code', '/w', 't', 'spawn', ?, 'exited', ?, ?, ?)`,
+    ).run('b-dup', 'a-dup', 'podium-b', t, t)
+    // A worktree pin must be left untouched (only panel pins are session-scoped).
+    db.prepare('INSERT INTO pins (kind, id, pinned_at) VALUES (?, ?, ?)').run('panel', 'b-dup', t)
+    db.prepare('INSERT INTO pins (kind, id, pinned_at) VALUES (?, ?, ?)').run('worktree', '/repo', t)
+    db.close()
+
+    const store = new SessionStore(file)
+    const pins = store.listPins()
+    expect(pins.panels).toEqual(['a-dup'])
+    expect(pins.worktrees).toEqual(['/repo'])
+    store.close()
+  })
 })
 
 describe('SessionStore pins', () => {
