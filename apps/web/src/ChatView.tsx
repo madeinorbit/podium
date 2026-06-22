@@ -24,8 +24,10 @@ import {
   buildChatRows,
   type ChatBlock,
   type ChatRow,
+  dedupeByCursor,
   type MinimapTick,
   measureBlockOffsets,
+  mergeByCursor,
   type PendingItem,
   pairToolResults,
   reconcilePending,
@@ -49,9 +51,12 @@ import { useVoiceInput } from './voice'
 // long the transcript is. RENDER_WINDOW is the initial/grow-step ROW count (the
 // render unit is a ChatRow — consecutive tool calls fold into one batch row).
 const RENDER_WINDOW = 300
+// Items in the initial transcript window (the newest N off disk, via
+// sessions.transcriptRead). ≤ the protocol's 2000 read cap.
+const INITIAL_LIMIT = 1000
 // On-demand older-page size fetched off disk when the user scrolls past the items
-// already held locally (sessions.transcriptPage). Matches the server input default.
-const OLDER_PAGE_LIMIT = 400
+// already held locally (anchored read, direction 'before').
+const PAGE_LIMIT = 400
 
 /**
  * Claude-app-style chat rendering of a session's structured transcript, with a
@@ -60,9 +65,9 @@ const OLDER_PAGE_LIMIT = 400
  *
  * Arbitrary-length sessions: only a bounded tail of blocks is rendered at once;
  * scrolling toward the top first reveals more locally-held blocks, then autoloads
- * older pages straight off disk (sessions.transcriptPage) and prepends them while
- * preserving the scroll position. Live tailing (append + auto-scroll-to-bottom)
- * is unchanged.
+ * older pages straight off disk (a cursor-anchored sessions.transcriptRead) and
+ * prepends them while preserving the scroll position. Live tailing (cursor-merged
+ * deltas + auto-scroll-to-bottom) is unchanged.
  */
 
 /** Returns true when a DataTransferItemList contains at least one image item. */
@@ -149,17 +154,18 @@ export function ChatView({
   const [lightbox, setLightbox] = useState<string | null>(null)
   // Whether the last user prompt is stuck to the top (scrolled up past it).
   const [showStickyUser, setShowStickyUser] = useState(false)
+  // The held transcript window: seeded by an initial read (the newest items off
+  // disk) for ANY status, then grown by live deltas merged in by cursor. Uniform
+  // across live/parked — no separate WS-only vs disk-fetch path.
   const [items, setItems] = useState<TranscriptItem[]>([])
-  // A parked session (hibernated/exited) has no live tail and an empty server
-  // buffer after a restart, so the stream stays empty. Read its history off disk
-  // on demand instead. Prefer it only when the live buffer is empty (a session
-  // parked within this server's lifetime still has its buffer).
-  const [fetched, setFetched] = useState<TranscriptItem[] | null>(null)
-  const parked = session !== undefined && session.status !== 'live' && session.status !== 'starting'
-  // Older items paged in from disk on scroll-to-top (sessions.transcriptPage),
-  // newest-last. Always a contiguous chunk that sits immediately BEFORE the
-  // live/fetched tail, so [...older, ...tail] is a clean prefix→suffix of the full
-  // on-disk transcript.
+  // Cursor of the OLDEST loaded item (the read's `head`) — the anchor for
+  // scroll-up back-paging. Null until the first read resolves or after an empty read.
+  const [headCursor, setHeadCursor] = useState<string | undefined>(undefined)
+  // False until the initial read resolves; gates the loader vs the empty-state copy.
+  const [initialLoaded, setInitialLoaded] = useState(false)
+  // Older items paged in from disk on scroll-to-top (anchored reads), newest-last.
+  // Always a contiguous chunk that sits immediately BEFORE the held `items`, so
+  // [...older, ...items] is a clean prefix→suffix of the full on-disk transcript.
   const [older, setOlder] = useState<TranscriptItem[]>([])
   // True while we still believe earlier items exist on disk beyond what's loaded.
   const [hasMoreOlder, setHasMoreOlder] = useState(true)
@@ -167,13 +173,10 @@ export function ChatView({
   // How many trailing blocks to render (bounded DOM). Grows in RENDER_WINDOW steps
   // as the user scrolls up; reset per session.
   const [renderCount, setRenderCount] = useState(RENDER_WINDOW)
-  // A live/starting session streams its transcript over the WS subscription: the
-  // initial `cb(entry.items)` fires synchronously (usually empty) and the server's
-  // buffered snapshot lands a beat later. Until that snapshot arrives we can't tell
-  // "still loading" from "genuinely empty", so show a loader for a short grace
-  // window after the subscription starts; once it expires (or any item arrives) we
-  // trust the empty feed and fall back to the "No transcript yet" copy.
-  const [liveGraceElapsed, setLiveGraceElapsed] = useState(false)
+  // Head cursor mirrored into a ref so the (stable-identity) paging callback reads
+  // the latest anchor without re-binding the scroll handler each time it changes.
+  const headCursorRef = useRef<string | undefined>(undefined)
+  headCursorRef.current = headCursor
   // A parked-but-recoverable session can still take a composed message — submitting
   // wakes it and the text is delivered once it's ready (auto-resume on submit).
   const canResume =
@@ -211,53 +214,74 @@ export function ChatView({
   const [dragOver, setDragOver] = useState(false)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
 
-  useEffect(
-    () =>
-      hub.subscribeTranscript(sessionId, (newItems, meta) => {
+  // Read-then-subscribe: the single source of the transcript window for ANY
+  // status. (1) Read the newest window off disk via tRPC — this alone populates a
+  // LIVE session even if the hub never yields a live delta (the loading-bug fix).
+  // (2) Subscribe to live deltas FROM the read's tail cursor, merging each delta
+  // in by cursor (dedup vs the read window). A `reset` delta (file roll / reattach
+  // re-seed) re-reads the newest window. Keyed on the session so it tears down and
+  // re-runs on switch.
+  useEffect(() => {
+    let cancelled = false
+    let unsub = () => {}
+    // Fresh per-session state — clear before the async read so a stale window from
+    // the previous session never flashes.
+    setItems([])
+    setOlder([])
+    setHasMoreOlder(true)
+    setHeadCursor(undefined)
+    setInitialLoaded(false)
+    pinnedToBottom.current = true
+    didInitialScroll.current = false
+
+    // Re-read the newest window (initial load + on a reset delta), replacing the
+    // held items and re-pinning to the bottom.
+    const readNewest = async () => {
+      const r = await trpc.sessions.transcriptRead.query({
+        sessionId,
+        direction: 'before',
+        limit: INITIAL_LIMIT,
+      })
+      if (cancelled) return r
+      setItems(r.items)
+      setOlder([])
+      setHeadCursor(r.head)
+      setHasMoreOlder(r.hasMore)
+      setInitialLoaded(true)
+      return r
+    }
+
+    ;(async () => {
+      const r = await readNewest()
+      if (cancelled) return
+      unsub = hub.subscribeTranscript(sessionId, r.tail, (delta, meta) => {
         if (meta.reset) {
-          // A snapshot reset replaces the whole list — re-pin and re-arm the
-          // one-shot initial-scroll so the new content lands at the bottom.
+          // The tailer re-seeded (resume rolled into a fresh file). Re-pin and
+          // re-read the newest window — the old cursors no longer apply.
           pinnedToBottom.current = true
           didInitialScroll.current = false
+          void readNewest()
+          return
         }
-        setItems(newItems)
-      }),
-    [hub, sessionId],
-  )
-
-  // Live-transcript grace window (see `liveGraceElapsed` above): reset on every
-  // session switch, then expire after a beat so a genuinely empty live session
-  // settles to the "No transcript yet" copy instead of spinning forever.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: re-arm the timer per session
-  useEffect(() => {
-    setLiveGraceElapsed(false)
-    const t = setTimeout(() => setLiveGraceElapsed(true), 1500)
-    return () => clearTimeout(t)
-  }, [sessionId])
-
-  useEffect(() => {
-    if (!parked) {
-      setFetched(null)
-      return
-    }
-    let cancelled = false
-    trpc.sessions.transcript
-      .query({ sessionId })
-      .then((r) => {
-        if (!cancelled) setFetched(r.items)
+        setItems((prev) => mergeByCursor(prev, delta))
       })
-      .catch(() => {})
+    })().catch(() => {
+      // The read failed (e.g. daemon offline). Don't spin forever — settle to the
+      // empty/"No transcript yet" state.
+      if (!cancelled) setInitialLoaded(true)
+    })
+
     return () => {
       cancelled = true
+      unsub()
     }
-  }, [parked, sessionId, trpc])
+  }, [hub, sessionId, trpc])
 
-  // The live/fetched tail the server hands us (the bounded window). Older items
-  // beyond it are paged in via `older` and prepended below.
-  const tail = parked && fetched && fetched.length > 0 ? fetched : items
+  // The full loaded list: older pages prepended to the held window. A small
+  // cursor-dedupe at the seam guards a one-item paging/live overlap.
   const effectiveItems = useMemo(
-    () => (older.length > 0 ? [...older, ...tail] : tail),
-    [older, tail],
+    () => (older.length > 0 ? dedupeByCursor([...older, ...items]) : items),
+    [older, items],
   )
   const blocks = useMemo(() => pairToolResults(effectiveItems), [effectiveItems])
   // Render unit: consecutive tool calls fold into one collapsed batch row; the
@@ -308,13 +332,10 @@ export function ChatView({
       if (b.item.role === 'assistant' && b.item.text.trim()) answer = b.item.text
     return answer
   }, [blocks])
-  // Show the loader (not the empty-state copy) while a transcript is still in
-  // flight. Two cases: a parked session's on-disk history hasn't resolved
-  // (`fetched === null`), or a live/starting session hasn't streamed anything yet
-  // and we're still inside the initial grace window (the buffered snapshot may
-  // still land). Once the live grace expires with zero items, we trust it's empty.
-  const loadingTranscript =
-    blocks.length === 0 && (parked ? fetched === null : session !== undefined && !liveGraceElapsed)
+  // Show the loader (not the empty-state copy) until the initial read resolves.
+  // Once it has resolved with zero blocks we trust the feed is genuinely empty and
+  // show the "No transcript yet" copy. Uniform across live/parked.
+  const loadingTranscript = blocks.length === 0 && session !== undefined && !initialLoaded
   const matches = useMemo(() => searchBlocks(blocks, query), [blocks, query])
   const activeMatch = matches.length > 0 ? matches[matchCursor % matches.length] : undefined
   // Search runs per block (so a hit inside a collapsed batch is still found); map
@@ -338,11 +359,9 @@ export function ChatView({
     setPending([])
     setJustSent(false)
     seenUserIds.current = new Set()
-    pinnedToBottom.current = true
-    didInitialScroll.current = false
-    // Fresh paging state for the newly selected session.
-    setOlder([])
-    setHasMoreOlder(true)
+    // Window/loader reset (items/older/headCursor/initialLoaded + the scroll pins)
+    // is owned by the read-then-subscribe effect above; here we just clear the
+    // local render/UI state that effect doesn't touch.
     setLoadingOlder(false)
     setRenderCount(RENDER_WINDOW)
   }, [sessionId])
@@ -468,17 +487,23 @@ export function ChatView({
     }
     // Nothing left to reveal locally and nothing more on disk → done.
     if (!hasMoreOlder) return
+    // No anchor to page before (read hasn't resolved yet / empty) → nothing to do.
+    const anchor = headCursorRef.current
+    if (!anchor) return
     loadingOlderRef.current = true
     setLoadingOlder(true)
     if (el) prependAnchor.current = { scrollHeight: el.scrollHeight, scrollTop: el.scrollTop }
-    // `fromEnd` = items we already hold (a contiguous suffix of the full
-    // transcript); ask for the page immediately before them.
-    const fromEnd = effectiveItems.length
-    trpc.sessions.transcriptPage
-      .query({ sessionId, fromEnd, limit: OLDER_PAGE_LIMIT })
+    // Cursor-anchored back-page: read the window immediately BEFORE the oldest
+    // loaded item (`headCursor`). No `fromEnd` index math — the cursor anchors the
+    // slice exactly, so there's no gap/overlap as the held window grows.
+    trpc.sessions.transcriptRead
+      .query({ sessionId, anchor, direction: 'before', limit: PAGE_LIMIT })
       .then((r) => {
         if (r.items.length > 0) {
           setOlder((prev) => [...r.items, ...prev])
+          // Advance the back-paging anchor to the new oldest item. A page can come
+          // back empty-of-new-head only if it was empty; guard with `?? anchor`.
+          setHeadCursor(r.head ?? anchor)
           // Keep the freshly-prepended page rendered (don't let the window slice
           // it straight back off). `renderCount` is a ROW count and the page is in
           // raw items; items fold into ≤ items rows, so adding the item count is a
