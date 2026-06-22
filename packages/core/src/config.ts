@@ -13,6 +13,8 @@ export const PodiumConfig = z.object({
   mode: PodiumMode.optional(),
   serverUrl: z.string().optional(),
   port: z.number().int().positive().optional(),
+  /** Base URL of the self-update feed (`podium update`). Env PODIUM_UPDATE_FEED wins. */
+  updateFeed: z.string().optional(),
 })
 export type PodiumConfig = z.infer<typeof PodiumConfig>
 

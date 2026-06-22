@@ -36,6 +36,13 @@ export async function main(): Promise<void> {
   const { installProcessSafetyNet } = await import('./process-safety')
   installProcessSafetyNet('podium')
 
+  // `podium update`: self-update the headless bundle from the configured feed, then exit.
+  if (argv[0] === 'update') {
+    const { runUpdate } = await import('./podium-update')
+    await runUpdate(process.env.PODIUM_UPDATE_FEED ?? config.updateFeed ?? 'http://127.0.0.1:8789')
+    return
+  }
+
   // Escape hatch: `podium setup` (or --reconfigure) force-serves the setup UI
   // regardless of the saved mode, so a client/daemon install can be reconfigured.
   const forceSetup = argv.includes('setup') || argv.includes('--reconfigure')
