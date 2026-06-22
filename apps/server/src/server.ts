@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import type { Server } from 'node:http'
+import { hostname } from 'node:os'
 import { serve } from '@hono/node-server'
 import { trpcServer } from '@hono/trpc-server'
 import { Hono } from 'hono'
@@ -22,6 +23,13 @@ export interface ServerHandle {
 export async function startServer(opts: { port?: number } = {}): Promise<ServerHandle> {
   const store = new SessionStore()
   const registry = new SessionRegistry(store)
+  // Provision the local machine NOW, at startup: register it and adopt any pre-existing
+  // `'__local__'` rows onto it — so a single-machine install's sessions/repos are
+  // attributed and visible regardless of whether/when the daemon connects. This is the
+  // structural guard against the regression where data vanished because no daemon ever
+  // registered. (The full same-host secret credential is wired with the launcher task;
+  // the same-host daemon attaches as the local machine in wsServer.)
+  registry.ensureLocalMachine(hostname())
   const repos = new RepoRegistry(store)
   const superagent = new SuperagentService(registry, repos, store)
   const app = new Hono()

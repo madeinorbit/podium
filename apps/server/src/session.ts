@@ -37,6 +37,9 @@ export interface SessionInit {
   createdAt: string
   geometry: Geometry
   toDaemon: Send<ControlMessage>
+  /** The machine (daemon) this session runs on. Defaults to the placeholder
+   *  '__local__' until a real machine adopts it (single-machine boot, pre-pairing). */
+  machineId?: string
   resume?: ResumeRef
   durableLabel?: string
   lastActiveAt?: string
@@ -89,6 +92,10 @@ export class Session {
   readonly origin: SessionOrigin
   readonly createdAt: string
   readonly durableLabel: string
+  /** The machine (daemon) this session runs on. The registry routes this
+   *  session's control messages to it; '__local__' until a real machine adopts
+   *  it (see SessionRegistry.ensureLocalMachine), so it is reassignable, not readonly. */
+  machineId: string
   /** How to bring this session back after its process is gone (hibernate→resume).
    *  Set at spawn for resumes; learned later from the daemon for fresh spawns. */
   resume?: ResumeRef
@@ -158,6 +165,7 @@ export class Session {
     this.createdAt = init.createdAt
     this.geometry = { ...init.geometry }
     this.toDaemon = init.toDaemon
+    this.machineId = init.machineId ?? '__local__'
     this.durableLabel = init.durableLabel ?? `podium-${init.sessionId}`
     this.resume = init.resume
     this.lastActiveAt = init.lastActiveAt ?? init.createdAt
@@ -518,6 +526,7 @@ export class Session {
       durableLabel: this.durableLabel,
       createdAt: this.createdAt,
       lastActiveAt: this.lastActiveAt,
+      machineId: this.machineId,
     }
   }
 
@@ -539,6 +548,11 @@ export class Session {
       lastActiveAt: this.lastActiveAt,
       origin: this.origin,
       archived: this.archived,
+      // The registry overwrites machineName in listSessions() from the machines
+      // table; an empty default keeps toMeta() self-contained for callers that
+      // read it directly (e.g. tests on a Session in isolation).
+      machineId: this.machineId,
+      machineName: '',
       ...(this.workState ? { workState: this.workState } : {}),
       ...(this.resume ? { resumable: true, resume: this.resume } : {}),
       ...(this.transcriptAvailable ? { transcriptAvailable: true } : {}),

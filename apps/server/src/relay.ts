@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { basename } from 'node:path'
 import type { PodiumSettings } from '@podium/core'
 import type {
@@ -14,11 +14,13 @@ import {
   type ControlMessage,
   type ConversationDiagnosticWire,
   type ConversationSummaryWire,
+  type DaemonHandshake,
   type DaemonMessage,
   type Geometry,
   type GitDiscoveryDiagnosticWire,
   type GitRepositoryWire,
   type HostMetricsWire,
+  type MachineWire,
   type RepoOp,
   type ResumeRef,
   type ServerMessage,
@@ -28,6 +30,7 @@ import {
   type WorkState,
 } from '@podium/protocol'
 import { knownPathsFor } from './file-relay-policy'
+import { LOCAL_MACHINE_ID } from './local-machine'
 import {
   type AttentionNotice,
   attentionNotice,
@@ -35,6 +38,7 @@ import {
   pushTelegram,
   type TelegramConfig,
 } from './notify'
+import { PairingManager } from './pairing'
 import { type ClientConn, type Send, Session } from './session'
 import { type PinKind, SessionStore } from './store'
 import {
@@ -43,6 +47,15 @@ import {
   makeTitleDebouncer,
   titleFromPrompt,
 } from './title-filter'
+
+/** sha-256 hex of a secret — matches the store's token-hash scheme. */
+function sha256(s: string): string {
+  return createHash('sha256').update(s).digest('hex')
+}
+
+/** Placeholder machineId for sessions/rows created before a real machine adopts
+ *  them (single-machine boot, pre-provisioning). ensureLocalMachine rewrites these. */
+const LOCAL_PLACEHOLDER = '__local__'
 
 const DEFAULT_GEOMETRY: Geometry = { cols: 80, rows: 24 }
 const SCAN_TIMEOUT_MS = 10_000
@@ -80,13 +93,18 @@ const DEFAULT_NOTIFICATION_PUSHERS: NotificationPushers = {
   telegram: pushTelegram,
 }
 
-/** Registry of all sessions + the single daemon link + all client connections. Routes by sessionId. */
+/** Registry of all sessions + the per-machine daemon links + all client connections. Routes by sessionId. */
 export class SessionRegistry {
-  private daemonSend: Send<ControlMessage> | undefined
-  // Control messages produced before a daemon attaches (e.g. a starter session
-  // created at boot, before the daemon ws finishes connecting) would otherwise be
-  // dropped silently. Queue them here and flush in order once a daemon attaches.
-  private readonly pendingToDaemon: ControlMessage[] = []
+  // machineId -> control-message sender for that daemon. Replaces the single
+  // socket: each connected machine has its own send, so a session's control
+  // messages route to the daemon that actually runs it.
+  private readonly daemons = new Map<string, Send<ControlMessage>>()
+  // Per-machine queue for control messages produced while that daemon is briefly
+  // offline (e.g. the local daemon during boot, or a survivor session's reattach
+  // before its machine re-attaches). Flushed in order on attachDaemon.
+  private readonly pendingByMachine = new Map<string, ControlMessage[]>()
+  // Short-lived pairing codes for new daemons (wsServer redeems these on handshake).
+  private readonly pairing = new PairingManager()
   private readonly sessions = new Map<string, Session>()
   private readonly clients = new Map<string, ClientConn>()
   private readonly pendingScans = new Map<string, (r: ScanResult) => void>()
@@ -142,8 +160,8 @@ export class SessionRegistry {
   // clients already hold this state; a NEW client gets the current list via
   // attachClient, so the dedup can never leave a client stale.
   private lastSessionsBroadcast = ''
-  // Latest health sample per daemon host, keyed by hostname — ready for several
-  // machines even while the registry holds a single daemon socket.
+  // Latest health sample per daemon host, keyed by machineId — each connected
+  // machine reports its own sample, scoped to it so a detach drops only its row.
   private readonly latestHostMetrics = new Map<string, HostMetricsWire>()
   private nextClientNum = 0
   // Shared by scan() ('r' prefix) and scanRepos() ('rr' prefix). Each scan
@@ -191,6 +209,10 @@ export class SessionRegistry {
       if (r.originKind === 'resume' && !r.conversationId) {
         console.warn(`[podium] persisted resume session ${r.id} has no conversationId`)
       }
+      // Route this session's control messages to the machine that owns it. Capture
+      // the id so the closure binds to the right daemon even as the row's machineId
+      // is later rewritten by ensureLocalMachine (it also rewrites the Session's field).
+      const machineId = r.machineId ?? LOCAL_PLACEHOLDER
       const session = new Session({
         sessionId: r.id,
         agentKind: kind.data,
@@ -202,7 +224,8 @@ export class SessionRegistry {
             : { kind: 'spawn' },
         createdAt: r.createdAt,
         geometry: { ...DEFAULT_GEOMETRY },
-        toDaemon: this.toDaemon,
+        machineId,
+        toDaemon: (msg) => this.toMachine(this.sessions.get(r.id)?.machineId ?? machineId, msg),
         onActivity: () => {
           // Shell busy transitions advance lastActiveAt (their only activity signal);
           // persist so that recency is durable across a restart, then rebroadcast.
@@ -228,29 +251,41 @@ export class SessionRegistry {
     }
   }
 
-  attachDaemon(send: Send<ControlMessage>): void {
-    this.daemonSend = send
-    // Flush control messages buffered while no daemon was attached (e.g. a boot
-    // session's spawn produced before the daemon ws connected).
-    if (this.pendingToDaemon.length > 0) {
-      for (const m of this.pendingToDaemon.splice(0)) send(m)
+  attachDaemon(machineId: string, send: Send<ControlMessage>): void {
+    this.daemons.set(machineId, send)
+    // The local machine adopts every lingering `'__local__'` placeholder row/session/
+    // queue onto itself as it attaches. ensureLocalMachine already ran this at startup,
+    // but a session created in the gap between that and the daemon connecting (the boot
+    // race) is still attributed to `'__local__'` — adopting on attach reattributes it and
+    // carries its queued spawn over to this machine so it isn't dead-queued. Idempotent.
+    if (machineId === LOCAL_MACHINE_ID) this.adoptPlaceholderRows(machineId)
+    // Flush control messages buffered while this machine was offline (e.g. a boot
+    // session's spawn produced before the local daemon ws connected).
+    const pending = this.pendingByMachine.get(machineId)
+    if (pending && pending.length > 0) {
+      this.pendingByMachine.delete(machineId)
+      for (const m of pending) send(m)
     }
-    // Re-bind survivor sessions: ask the daemon to reattach to their live durable
-    // host. 'reconnecting' = was live/starting at boot. 'exited' (not archived) is
-    // also probed because a row can be wrongly 'exited': its attach client died on
-    // a daemon restart while the master + agent survived in their scope (pre-fix
-    // orphans, or any residual race). The daemon reattaches a live master (→ a
-    // bind → markLive) or replies reattachFailed (→ it stays exited). The durable
-    // host, not the persisted row, is the source of truth for liveness.
+    // Re-bind survivor sessions ON THIS MACHINE: ask its daemon to reattach to their
+    // live durable host. 'reconnecting' = was live/starting at boot. 'exited' (not
+    // archived) is also probed because a row can be wrongly 'exited': its attach
+    // client died on a daemon restart while the master + agent survived in their
+    // scope (pre-fix orphans, or any residual race). The daemon reattaches a live
+    // master (→ a bind → markLive) or replies reattachFailed (→ it stays exited).
+    // The durable host, not the persisted row, is the source of truth for liveness.
     // Most-recently-used first: the daemon gates its spawn fan-out, so the order we
     // send in decides who reattaches soonest. Prioritise the sessions the user most
     // likely has open. lastActiveAt is an ISO string, so a reverse lexical sort is
     // newest-first.
     const probes = [...this.sessions.values()]
-      .filter((s) => s.status === 'reconnecting' || (s.status === 'exited' && !s.archived))
+      .filter(
+        (s) =>
+          s.machineId === machineId &&
+          (s.status === 'reconnecting' || (s.status === 'exited' && !s.archived)),
+      )
       .sort((a, b) => (b.lastActiveAt ?? '').localeCompare(a.lastActiveAt ?? ''))
     for (const s of probes) {
-      this.toDaemon({
+      this.toMachine(machineId, {
         type: 'reattach',
         sessionId: s.sessionId,
         durableLabel: s.durableLabel,
@@ -260,36 +295,99 @@ export class SessionRegistry {
         ...(s.resume ? { resume: s.resume } : {}),
       })
     }
+    this.broadcastMachines()
   }
-  detachDaemon(): void {
-    this.daemonSend = undefined
-    // The daemon that held these sessions' PTY bridges is gone (daemon restart/crash;
-    // durable masters survive in their own scopes). Drop live/starting sessions to
-    // 'reconnecting' so the next daemon to attach re-binds them — attachDaemon only
-    // probes 'reconnecting'/'exited'. Without this a daemon-only restart leaves
-    // sessions 'live' but unattached: the server never re-asks and they orphan until
-    // a server restart. (In the old single-process world the daemon never restarted
-    // alone, so this gap couldn't surface.)
+  detachDaemon(machineId: string): void {
+    this.daemons.delete(machineId)
+    // This machine's host sample is only as live as its socket — drop it so a dead
+    // machine's numbers never linger as truth. Keyed by machineId, so other machines'
+    // samples are untouched.
+    if (this.latestHostMetrics.delete(machineId)) this.broadcastHostMetrics()
+    // The daemon that held THIS machine's sessions' PTY bridges is gone (daemon
+    // restart/crash; durable masters survive in their own scopes). Drop only THIS
+    // machine's live/starting sessions to 'reconnecting' so the next daemon to attach
+    // re-binds them — attachDaemon only probes 'reconnecting'/'exited'. Sessions on
+    // OTHER machines are untouched. Without this a daemon-only restart leaves sessions
+    // 'live' but unattached: the server never re-asks and they orphan until a server
+    // restart. (In the old single-process world the daemon never restarted alone, so
+    // this gap couldn't surface.)
     let changed = false
     for (const s of this.sessions.values()) {
+      if (s.machineId !== machineId) continue
       if (s.markReconnecting()) changed = true
     }
     if (changed) this.broadcastSessions()
-    // The daemon's host samples are only as live as its socket — drop them so a
-    // dead machine's numbers never linger as truth.
-    if (this.latestHostMetrics.size > 0) {
-      this.latestHostMetrics.clear()
-      this.broadcastHostMetrics()
-    }
+    this.broadcastMachines()
   }
-  private readonly toDaemon: Send<ControlMessage> = (msg) => {
-    if (this.daemonSend) this.daemonSend(msg)
-    else this.pendingToDaemon.push(msg)
+
+  /** Route a control message to the daemon that owns `machineId`; queue it if that
+   *  machine is briefly offline (flushed in order on its next attachDaemon). */
+  private readonly toMachine = (machineId: string, msg: ControlMessage): void => {
+    const send = this.daemons.get(machineId)
+    if (send) {
+      send(msg)
+      return
+    }
+    const q = this.pendingByMachine.get(machineId)
+    if (q) q.push(msg)
+    else this.pendingByMachine.set(machineId, [msg])
   }
 
   // ---- tRPC control plane ----
   listSessions(): SessionMeta[] {
-    return [...this.sessions.values()].map((s) => s.toMeta())
+    return [...this.sessions.values()].map((s) => ({
+      ...s.toMeta(),
+      machineName: this.machineName(s.machineId),
+    }))
+  }
+
+  /** Display name for a machineId (the machines table); falls back to the id. */
+  machineName(id: string): string {
+    return this.store.listMachines().find((m) => m.id === id)?.name ?? id
+  }
+
+  /** machineIds with a live daemon socket right now. Public for RepoRegistry fan-out. */
+  onlineMachineIds(): string[] {
+    return [...this.daemons.keys()]
+  }
+
+  /**
+   * Resolve the machine a new session should spawn on. An explicitly requested
+   * machine wins when it's online; otherwise pick by repo affinity, else the sole
+   * online machine, else the local placeholder. For a single connected daemon this
+   * always returns that one machine — single-machine behavior is unchanged.
+   */
+  private resolveMachine(requested: string | undefined, cwd: string): string {
+    if (requested && this.daemons.has(requested)) return requested
+    return this.pickMachineForRepo(undefined, cwd)
+  }
+
+  /**
+   * Pick the best online machine for a repo: one that has the cwd registered as a
+   * repo path, else the sole online machine, else (for 2+ online machines) any
+   * online machine via defaultMachine(). Only falls through to LOCAL_PLACEHOLDER
+   * when NO daemon is online — that is the deliberate boot-time queue: a session
+   * created before the local daemon connects is queued under __local__ and flushed
+   * once ensureLocalMachine/attachDaemon runs. With at least one daemon online, queuing
+   * under __local__ would dead-queue forever because no daemon ever attaches as
+   * '__local__' after adoption.
+   *
+   * Single-machine behavior is unchanged: online.length === 1 returns that machine
+   * before the multi-machine branch is reached.
+   */
+  pickMachineForRepo(_originUrl: string | undefined, cwd: string): string {
+    const online = this.onlineMachineIds()
+    const byRepo = online.find((id) =>
+      this.store.listRepos(id).some((r) => cwd === r.path || cwd.startsWith(`${r.path}/`)),
+    )
+    if (byRepo) return byRepo
+    if (online.length === 1) return online[0] as string
+    // 2+ daemons online but no repo match: route to the default online machine
+    // rather than dead-queueing under __local__ (no daemon attaches as '__local__'
+    // after adoption). Boot-before-connect (online.length === 0) still falls through
+    // to LOCAL_PLACEHOLDER so the spawn is queued and flushed on first attachDaemon.
+    if (online.length > 1) return this.defaultMachine()
+    return LOCAL_PLACEHOLDER
   }
 
   listPins() {
@@ -346,7 +444,12 @@ export class SessionRegistry {
   }
 
   /** Agent kind may be omitted — the settings default decides ('auto' = Claude Code). */
-  createSession(input: { agentKind?: AgentKind; cwd: string; title?: string }): {
+  createSession(input: {
+    agentKind?: AgentKind
+    cwd: string
+    title?: string
+    machineId?: string
+  }): {
     sessionId: string
   } {
     const defaults = this.store.getSettings().sessionDefaults
@@ -357,6 +460,7 @@ export class SessionRegistry {
       cwd: input.cwd,
       ...(input.title !== undefined ? { title: input.title } : {}),
       origin: { kind: 'spawn' },
+      machineId: this.resolveMachine(input.machineId, input.cwd),
     })
   }
 
@@ -366,6 +470,7 @@ export class SessionRegistry {
     resume: ResumeRef
     conversationId: string
     title?: string
+    machineId?: string
   }): { sessionId: string } {
     return this.spawn({
       agentKind: input.agentKind,
@@ -373,6 +478,7 @@ export class SessionRegistry {
       title: input.title,
       origin: { kind: 'resume', conversationId: input.conversationId },
       resume: input.resume,
+      machineId: this.resolveMachine(input.machineId, input.cwd),
     })
   }
 
@@ -389,7 +495,7 @@ export class SessionRegistry {
     // vanish into a dead PTY yet still report ok. Only a running session can retry.
     if (session.status !== 'live' && session.status !== 'starting') return { ok: false }
     if (session.agentState?.phase !== 'errored') return { ok: false }
-    this.toDaemon({
+    this.toMachine(session.machineId, {
       type: 'input',
       sessionId,
       data: Buffer.from('continue\r').toString('base64'),
@@ -411,7 +517,11 @@ export class SessionRegistry {
     // to the normal attention flow (covers chat send + resumeAndSend paths).
     if (session.snoozedUntil !== undefined) this.clearSnooze(sessionId)
     const send = (data: string) =>
-      this.toDaemon({ type: 'input', sessionId, data: Buffer.from(data).toString('base64') })
+      this.toMachine(session.machineId, {
+        type: 'input',
+        sessionId,
+        data: Buffer.from(data).toString('base64'),
+      })
     // Bracketed paste so the harness takes the message as one input block, then the
     // submitting CR as its OWN write. A CR in the same chunk as the text (or right
     // after the paste-end marker) gets absorbed by some TUIs — the message lands in
@@ -452,7 +562,11 @@ export class SessionRegistry {
       return { ok: false }
     }
     const send = (data: string) =>
-      this.toDaemon({ type: 'input', sessionId, data: Buffer.from(data).toString('base64') })
+      this.toMachine(session.machineId, {
+        type: 'input',
+        sessionId,
+        data: Buffer.from(data).toString('base64'),
+      })
     for (const choice of choices) {
       const digits = choice.optionIndices.filter((n) => Number.isInteger(n) && n >= 1 && n <= 9)
       if (digits.length === 0) continue
@@ -587,7 +701,7 @@ export class SessionRegistry {
     }
     session.status = 'hibernated'
     this.persist(session)
-    this.toDaemon({ type: 'kill', sessionId })
+    this.toMachine(session.machineId, { type: 'kill', sessionId })
     this.broadcastSessions()
     return { ok: true }
   }
@@ -636,7 +750,7 @@ export class SessionRegistry {
     session.status = 'starting'
     session.exitCode = undefined
     this.persist(session)
-    this.toDaemon({
+    this.toMachine(session.machineId, {
       type: 'spawn',
       sessionId,
       agentKind: session.agentKind,
@@ -649,24 +763,21 @@ export class SessionRegistry {
     return { ok: true }
   }
 
-  // At most one hibernation per cooldown window — memory readings need time to
-  // reflect the previous kill before deciding to take down another agent.
-  //
-  // Single-daemon assumption: the registry holds one daemon socket, so every
-  // session runs on the host these samples describe, and the cooldown is global
-  // because there's one memory budget. When multi-daemon lands, sessions will
-  // need a host id (none exists today) so candidate selection and the cooldown
-  // can be scoped per host — building that attribution now would be speculative.
-  private lastAutoHibernateMs = 0
+  // At most one hibernation per cooldown window PER MACHINE — memory readings need
+  // time to reflect the previous kill before deciding to take down another agent.
+  // Each machine has its own memory budget, so the cooldown and the candidate pool
+  // are both scoped to the machine whose sample triggered this (sample.machineId).
+  private readonly lastAutoHibernateMsByMachine = new Map<string, number>()
   private maybeAutoHibernate(sample: HostMetricsWire): void {
     const cfg = this.store.getSettings().hibernation
     if (!cfg.enabled) return
+    const machineId = sample.machineId ?? LOCAL_PLACEHOLDER
     const m = sample.memory
     if (m.totalBytes <= 0) return
     const usedPct = ((m.totalBytes - m.availableBytes) / m.totalBytes) * 100
     if (usedPct < cfg.memoryPct) return
     const now = Date.now()
-    if (now - this.lastAutoHibernateMs < 60_000) return
+    if (now - (this.lastAutoHibernateMsByMachine.get(machineId) ?? 0) < 60_000) return
     const idleCutoff = now - cfg.idleMinutes * 60_000
     // A foreground turn can end (phase → idle) while a background agent or
     // `&`-spawned task keeps running — and a running agent paints its TUI, so
@@ -676,6 +787,8 @@ export class SessionRegistry {
     const candidates = [...this.sessions.values()]
       .filter(
         (s) =>
+          // Only this machine's sessions are bound by this machine's memory budget.
+          s.machineId === machineId &&
           s.status === 'live' &&
           s.resume !== undefined &&
           // Only agents that are demonstrably done/idle. needs_user keeps its
@@ -687,7 +800,7 @@ export class SessionRegistry {
       .sort((a, b) => a.lastActiveAt.localeCompare(b.lastActiveAt))
     const target = candidates[0]
     if (!target) return
-    this.lastAutoHibernateMs = now
+    this.lastAutoHibernateMsByMachine.set(machineId, now)
     console.info(
       `[podium] memory ${usedPct.toFixed(0)}% on ${sample.hostname} ≥ ${cfg.memoryPct}% — hibernating idle session ${target.sessionId}`,
     )
@@ -695,8 +808,12 @@ export class SessionRegistry {
   }
 
   killSession(input: { sessionId: string }): void {
-    this.toDaemon({ type: 'kill', sessionId: input.sessionId })
-    this.sessions.get(input.sessionId)?.detachAll()
+    const session = this.sessions.get(input.sessionId)
+    this.toMachine(session?.machineId ?? LOCAL_PLACEHOLDER, {
+      type: 'kill',
+      sessionId: input.sessionId,
+    })
+    session?.detachAll()
     this.sessions.delete(input.sessionId)
     this.draftBySession.delete(input.sessionId)
     this.titleDebouncers.get(input.sessionId)?.dispose()
@@ -726,6 +843,7 @@ export class SessionRegistry {
     timeoutMs: number,
     onTimeout: () => T,
     buildMsg: (requestId: string) => ControlMessage,
+    machineId: string = this.defaultMachine(),
   ): Promise<T> {
     const requestId = `${prefix}${this.nextRequestNum++}`
     return new Promise<T>((resolve) => {
@@ -738,8 +856,24 @@ export class SessionRegistry {
         clearTimeout(timer)
         resolve(r)
       })
-      this.toDaemon(buildMsg(requestId))
+      this.toMachine(machineId, buildMsg(requestId))
     })
+  }
+
+  /**
+   * The machine a host-scoped request (scan/usage/repoOp/…) targets when the caller
+   * has no machine context: the sole online machine, else the local placeholder.
+   * For a single connected daemon this is that one machine — behavior is unchanged.
+   * Multi-machine fan-out of these is a later task; for now they hit one machine.
+   */
+  private defaultMachine(): string {
+    const online = this.onlineMachineIds()
+    return online.length >= 1 ? (online[0] as string) : LOCAL_PLACEHOLDER
+  }
+
+  /** Public alias for defaultMachine() — used by RepoRegistry when no machineId is provided. */
+  defaultMachineId(): string {
+    return this.defaultMachine()
   }
 
   scan(): Promise<ScanResult> {
@@ -774,6 +908,36 @@ export class SessionRegistry {
         ...(opts.includeHome === undefined ? {} : { includeHome: opts.includeHome }),
         ...(opts.maxDepth === undefined ? {} : { maxDepth: opts.maxDepth }),
       }),
+    )
+  }
+
+  /**
+   * Per-machine variant of scanRepos: sends the request to a specific machine.
+   * Used by RepoRegistry to fan out to each online daemon. Requestids are globally
+   * unique (shared counter) so concurrent per-machine requests are safe across the
+   * single pendingRepoScans map.
+   */
+  scanReposForMachine(
+    roots: string[],
+    machineId: string,
+    opts: { includeHome?: boolean; maxDepth?: number } = {},
+  ): Promise<ScanReposResult> {
+    return this.daemonRequest(
+      this.pendingRepoScans,
+      'rr',
+      SCAN_TIMEOUT_MS,
+      () => ({
+        repositories: [],
+        diagnostics: [{ severity: 'error', path: '', message: 'repos scan timed out' }],
+      }),
+      (requestId) => ({
+        type: 'scanReposRequest',
+        requestId,
+        roots,
+        ...(opts.includeHome === undefined ? {} : { includeHome: opts.includeHome }),
+        ...(opts.maxDepth === undefined ? {} : { maxDepth: opts.maxDepth }),
+      }),
+      machineId,
     )
   }
 
@@ -860,6 +1024,9 @@ export class SessionRegistry {
     mimeType: string
     dataBase64: string
   }): Promise<{ path: string; error?: string }> {
+    // The upload is written to (and read back by) the machine that runs the session,
+    // so the returned path is valid in that session's prompt.
+    const session = this.sessions.get(input.sessionId)
     return this.daemonRequest(
       this.pendingUploads,
       'iu',
@@ -873,6 +1040,7 @@ export class SessionRegistry {
         mimeType: input.mimeType,
         dataBase64: input.dataBase64,
       }),
+      session?.machineId,
     )
   }
 
@@ -893,8 +1061,10 @@ export class SessionRegistry {
     title?: string
     origin: SessionMeta['origin']
     resume?: ResumeRef
+    machineId?: string
   }): { sessionId: string } {
     const sessionId = randomUUID()
+    const machineId = input.machineId ?? LOCAL_PLACEHOLDER
     const session = new Session({
       sessionId,
       agentKind: input.agentKind,
@@ -903,7 +1073,9 @@ export class SessionRegistry {
       origin: input.origin,
       createdAt: new Date().toISOString(),
       geometry: { ...DEFAULT_GEOMETRY },
-      toDaemon: this.toDaemon,
+      machineId,
+      // Bind the route to the live machineId (tracks the local-adoption reassignment).
+      toDaemon: (msg) => this.toMachine(this.sessions.get(sessionId)?.machineId ?? machineId, msg),
       onActivity: () => {
         // Shell busy transitions advance lastActiveAt (their only activity signal);
         // persist so that recency is durable across a restart, then rebroadcast.
@@ -915,7 +1087,7 @@ export class SessionRegistry {
     })
     this.sessions.set(sessionId, session)
     this.persist(session)
-    this.toDaemon({
+    this.toMachine(machineId, {
       type: 'spawn',
       sessionId,
       agentKind: input.agentKind,
@@ -968,6 +1140,7 @@ export class SessionRegistry {
       conversations: this.latestConversations,
       diagnostics: this.latestConversationDiagnostics,
     })
+    send({ type: 'machinesChanged', machines: this.listMachines() })
     if (this.latestHostMetrics.size > 0) send(this.hostMetricsMessage())
     return id
   }
@@ -1064,7 +1237,11 @@ export class SessionRegistry {
   }
 
   // ---- ws data plane: daemon ----
-  onDaemonMessage(msg: DaemonMessage): void {
+  /** Inbound daemon message, tagged with the machine it came from. Session-keyed
+   *  handlers (bind/agentFrame/agentExit/…) look up by sessionId and are machine-
+   *  agnostic; host-scoped ones (hostMetrics, conversation discovery) use machineId
+   *  to scope/tag their data. */
+  onDaemonMessageFrom(machineId: string, msg: DaemonMessage): void {
     switch (msg.type) {
       case 'bind': {
         this.sessions.get(msg.sessionId)?.markLive(msg.cmd, msg.geometry)
@@ -1203,7 +1380,7 @@ export class SessionRegistry {
       case 'scanResult': {
         this.latestConversations = msg.conversations
         this.latestConversationDiagnostics = msg.diagnostics
-        this.indexConversations(msg.conversations)
+        this.indexConversations(msg.conversations, machineId)
         this.broadcastConversations()
         const resolve = this.pendingScans.get(msg.requestId)
         if (resolve) {
@@ -1215,7 +1392,7 @@ export class SessionRegistry {
       case 'conversationsChanged': {
         this.latestConversations = msg.conversations
         this.latestConversationDiagnostics = msg.diagnostics
-        this.indexConversations(msg.conversations)
+        this.indexConversations(msg.conversations, machineId)
         this.broadcastConversations()
         break
       }
@@ -1228,8 +1405,12 @@ export class SessionRegistry {
         break
       }
       case 'hostMetrics': {
-        const { type: _type, ...sample } = msg
-        this.latestHostMetrics.set(msg.hostname, sample)
+        const { type: _type, ...rest } = msg
+        // Tag the sample with the reporting machine so clients can attribute it and
+        // the per-machine cooldown/candidate scoping works. Keyed by machineId so a
+        // detach drops only this machine's row.
+        const sample: HostMetricsWire = { ...rest, machineId, name: this.machineName(machineId) }
+        this.latestHostMetrics.set(machineId, sample)
         this.broadcastHostMetrics()
         this.maybeAutoHibernate(sample)
         break
@@ -1372,13 +1553,16 @@ export class SessionRegistry {
     }
   }
 
-  /** Every discovery push lands in the durable index — search sees machines' full history. */
-  private indexConversations(conversations: ConversationSummaryWire[]): void {
+  /** Every discovery push lands in the durable index — search sees machines' full
+   *  history. Tagged with the reporting machineId so a conversation is attributable
+   *  to (and resumable on) the machine that owns its on-disk transcript. */
+  private indexConversations(conversations: ConversationSummaryWire[], machineId: string): void {
     this.store.upsertConversations(
       conversations.map((c) => ({
         id: c.id,
         agentKind: c.agentKind,
         providerId: c.providerId,
+        machineId,
         ...(c.title !== undefined ? { title: c.title } : {}),
         ...(c.projectPath !== undefined ? { projectPath: c.projectPath } : {}),
         ...(c.resume ? { resumeKind: c.resume.kind, resumeValue: c.resume.value } : {}),
@@ -1421,6 +1605,7 @@ export class SessionRegistry {
         cwd: session.cwd,
         resume,
       }),
+      session.machineId, // the transcript lives on the machine that runs the session
     ).then((items) => ({ items }))
   }
 
@@ -1460,6 +1645,7 @@ export class SessionRegistry {
         fromEnd,
         limit,
       }),
+      session.machineId, // the transcript file lives on the session's machine
     )
   }
 
@@ -1479,6 +1665,7 @@ export class SessionRegistry {
       FILE_RPC_TIMEOUT_MS,
       () => ({ ok: false, path, error: 'timeout' }),
       (requestId) => ({ type: 'fileReadRequest', requestId, cwd: session.cwd, path, knownPath }),
+      session.machineId, // the file lives in the session's cwd on its machine
     )
   }
 
@@ -1498,6 +1685,7 @@ export class SessionRegistry {
       FILE_RPC_TIMEOUT_MS,
       () => ({ ok: false, path, error: 'timeout' }),
       (requestId) => ({ type: 'fileAssetRequest', requestId, cwd: session.cwd, path, knownPath }),
+      session.machineId, // the asset lives in the session's cwd on its machine
     )
   }
 
@@ -1527,6 +1715,7 @@ export class SessionRegistry {
         content,
         ...(baseHash ? { baseHash } : {}),
       }),
+      session.machineId, // the file lives in the session's cwd on its machine
     )
   }
 
@@ -1570,6 +1759,121 @@ export class SessionRegistry {
         if (telegramEnabled) this.notificationPushers.telegram(telegram, notice)
       }
     }
+  }
+
+  // ---- machine admin + daemon pairing/auth ----
+
+  /** Issue a short-lived, single-use pairing code for a new daemon (UI shows it). */
+  mintPairingCode(): string {
+    return this.pairing.mint()
+  }
+
+  /**
+   * Authenticate a daemon's handshake frame (pre-Control/Daemon-union, parsed by
+   * wsServer). `pair` redeems a one-time code and mints a fresh token, hashing it
+   * for storage and returning the plaintext once (the daemon persists it). `hello`
+   * verifies a returning daemon's token against the stored hash for its machineId,
+   * then attaches as that machineId — the id always comes FROM the frame, never a
+   * token lookup, so getMachineByToken returning a boolean is sufficient.
+   */
+  authenticateDaemon(
+    frame: DaemonHandshake,
+  ): { ok: true; machineId: string; name: string; token?: string } | { ok: false; reason: string } {
+    if (frame.type === 'pair') {
+      if (!this.pairing.redeem(frame.code)) return { ok: false, reason: 'invalid or expired code' }
+      const name = frame.name ?? frame.hostname
+      const token = randomUUID()
+      this.store.upsertMachine({
+        id: frame.machineId,
+        name,
+        hostname: frame.hostname,
+        tokenHash: sha256(token),
+      })
+      return { ok: true, machineId: frame.machineId, name, token }
+    }
+    if (this.store.getMachineByToken(frame.machineId, frame.token)) {
+      this.store.touchMachine(frame.machineId, frame.hostname)
+      const name =
+        this.store.listMachines().find((m) => m.id === frame.machineId)?.name ?? frame.hostname
+      return { ok: true, machineId: frame.machineId, name }
+    }
+    return { ok: false, reason: 'unknown machine — re-pair' }
+  }
+
+  /** All known machines with live online status (a daemon socket is attached). */
+  listMachines(): MachineWire[] {
+    return this.store.listMachines().map((m) => ({
+      id: m.id,
+      name: m.name,
+      hostname: m.hostname,
+      online: this.daemons.has(m.id),
+      lastSeenAt: m.lastSeenAt,
+    }))
+  }
+
+  renameMachine(id: string, name: string): void {
+    this.store.renameMachine(id, name)
+    this.broadcastSessions() // sessions show machineName — refresh it
+    this.broadcastMachines()
+  }
+
+  revokeMachine(id: string): void {
+    this.store.deleteMachine(id)
+    this.daemons.delete(id)
+    this.broadcastMachines()
+  }
+
+  /**
+   * Rewrite the store's `'__local__'` placeholder rows (sessions/repos/conversations)
+   * onto `machineId`, retarget in-memory sessions still on the placeholder, carry over
+   * any queued control messages, and broadcast the updated session list. Idempotent.
+   */
+  private adoptPlaceholderRows(machineId: string): void {
+    this.store.adoptLocalRows(machineId)
+    for (const s of this.sessions.values()) {
+      if (s.machineId === LOCAL_PLACEHOLDER) s.machineId = machineId
+    }
+    // Carry over any control messages queued under the placeholder (e.g. a boot
+    // session's spawn produced before adoption) so they reach the adopting machine.
+    const queued = this.pendingByMachine.get(LOCAL_PLACEHOLDER)
+    if (queued && queued.length > 0) {
+      this.pendingByMachine.delete(LOCAL_PLACEHOLDER)
+      const dest = this.pendingByMachine.get(machineId)
+      if (dest) dest.unshift(...queued)
+      else this.pendingByMachine.set(machineId, queued)
+    }
+    // Parked (hibernated/exited) sessions aren't touched by attachDaemon's reattach
+    // loop, so push the updated list now — this is what makes pre-existing sessions
+    // reappear on upgrade.
+    this.broadcastSessions()
+  }
+
+  /**
+   * Provision the local machine at SERVER STARTUP. The local machine is just a normally
+   * registered machine: the server owns its credential (`tokenHash = sha256(secret)`,
+   * where `secret` is the value it wrote to the state-dir file for the same-host daemon
+   * to read), so the local daemon authenticates through the regular hello path — exactly
+   * like a paired remote, with no special bootstrap case. Adoption of pre-existing
+   * `'__local__'` rows happens HERE, independent of the daemon, so a single-machine
+   * install's sessions/repos are attributed and visible even if the daemon never connects
+   * (the regression that lost everyone's data). The daemon presents this id + the secret,
+   * attaches, and re-binds its sessions. Idempotent. Tests omit `secret` (a random
+   * throwaway — they attach via the registry without authenticating).
+   */
+  ensureLocalMachine(hostname: string = LOCAL_MACHINE_ID, secret: string = randomUUID()): string {
+    this.store.upsertMachine({
+      id: LOCAL_MACHINE_ID,
+      name: hostname,
+      hostname,
+      tokenHash: sha256(secret),
+    })
+    this.adoptPlaceholderRows(LOCAL_MACHINE_ID)
+    return LOCAL_MACHINE_ID
+  }
+
+  private broadcastMachines(): void {
+    const msg: ServerMessage = { type: 'machinesChanged', machines: this.listMachines() }
+    for (const c of this.clients.values()) c.send(msg)
   }
 
   private broadcastSessions(): void {

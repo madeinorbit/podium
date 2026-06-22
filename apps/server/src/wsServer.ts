@@ -1,6 +1,7 @@
 import type { Server } from 'node:http'
 import { encode, parseClientMessage, parseDaemonMessage } from '@podium/protocol'
 import { WebSocketServer } from 'ws'
+import { LOCAL_MACHINE_ID } from './local-machine'
 import type { SessionRegistry } from './relay'
 
 export interface WsHandle {
@@ -112,17 +113,23 @@ export function attachWebSockets(server: Server, registry: SessionRegistry): WsH
   // Liveness marks for the daemon socket: present = ponged since the last sweep.
   const aliveDaemons = new WeakSet<HeartbeatSocket>()
   daemonWss.on('connection', (ws) => {
-    registry.attachDaemon((msg) => safeSend(ws, msg, SEND_BUFFER_LIMIT_BYTES))
+    // The same-host daemon attaches as the local machine. The pre-auth handshake gate
+    // (drop non-handshake first frames; hello/pair → authenticateDaemon → attach as the
+    // authenticated machineId) lands with the daemon-identity task; until then the
+    // single same-host daemon is the local machine, which ensureLocalMachine() has
+    // already registered and adopted its rows onto at server startup.
+    const machineId = LOCAL_MACHINE_ID
+    registry.attachDaemon(machineId, (msg) => safeSend(ws, msg, SEND_BUFFER_LIMIT_BYTES))
     aliveDaemons.add(ws)
     ws.on('pong', () => aliveDaemons.add(ws))
     ws.on('message', (raw: import('ws').RawData) => {
       try {
-        registry.onDaemonMessage(parseDaemonMessage(raw.toString()))
+        registry.onDaemonMessageFrom(machineId, parseDaemonMessage(raw.toString()))
       } catch {
         // ignore malformed daemon frames
       }
     })
-    ws.on('close', () => registry.detachDaemon())
+    ws.on('close', () => registry.detachDaemon(machineId))
   })
 
   // Liveness marks for client sockets: present = ponged since the last sweep.
