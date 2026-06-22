@@ -1,6 +1,12 @@
 import type { TranscriptItem } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
-import { buildChatRows, isBatchableTool, pairToolResults } from './chat'
+import {
+  buildChatRows,
+  dedupeByCursor,
+  isBatchableTool,
+  mergeByCursor,
+  pairToolResults,
+} from './chat'
 
 const tool = (toolName: string, id: string): TranscriptItem => ({
   id,
@@ -31,5 +37,52 @@ describe('buildChatRows with SendUserFile', () => {
     expect(rows.map((r) => r.kind)).toEqual(['tools', 'block', 'tools'])
     const mid = rows[1]
     expect(mid?.kind === 'block' && mid.block.item.toolName).toBe('SendUserFile')
+  })
+})
+
+const it_ = (id: string, cursor?: string): TranscriptItem => ({
+  id,
+  ...(cursor !== undefined ? { cursor } : {}),
+  role: 'assistant',
+  text: id,
+})
+
+describe('mergeByCursor', () => {
+  it('appends delta items not already present (by cursor)', () => {
+    const prev = [it_('a', 'c1'), it_('b', 'c2')]
+    const merged = mergeByCursor(prev, [it_('c', 'c3')])
+    expect(merged.map((i) => i.id)).toEqual(['a', 'b', 'c'])
+  })
+
+  it('dedupes a delta item whose cursor is already in prev (live repeats read window)', () => {
+    const prev = [it_('a', 'c1'), it_('b', 'c2')]
+    // c2 repeats the last read-window item; only the genuinely new c3 appends.
+    const merged = mergeByCursor(prev, [it_('b', 'c2'), it_('c', 'c3')])
+    expect(merged.map((i) => i.id)).toEqual(['a', 'b', 'c'])
+  })
+
+  it('returns prev unchanged when every delta item is a duplicate', () => {
+    const prev = [it_('a', 'c1'), it_('b', 'c2')]
+    const merged = mergeByCursor(prev, [it_('b', 'c2')])
+    expect(merged).toBe(prev)
+  })
+
+  it('falls back to id when a cursor is missing', () => {
+    const prev = [it_('a')]
+    const merged = mergeByCursor(prev, [it_('a'), it_('b')])
+    expect(merged.map((i) => i.id)).toEqual(['a', 'b'])
+  })
+})
+
+describe('dedupeByCursor', () => {
+  it('drops later items sharing a cursor with an earlier one (paging/live seam)', () => {
+    // [...older, ...items] where the boundary item overlaps.
+    const seam = [it_('a', 'c1'), it_('b', 'c2'), it_('b', 'c2'), it_('c', 'c3')]
+    expect(dedupeByCursor(seam).map((i) => i.id)).toEqual(['a', 'b', 'c'])
+  })
+
+  it('preserves order and items without cursors (dedupes by id)', () => {
+    const list = [it_('a'), it_('a'), it_('b', 'c2')]
+    expect(dedupeByCursor(list).map((i) => i.id)).toEqual(['a', 'b'])
   })
 })

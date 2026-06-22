@@ -11,6 +11,49 @@ export interface ChatBlock {
   result?: string
 }
 
+/** Identity key for dedup/merge: the opaque cursor when present (stable across
+ *  re-reads), else the synthesized `id` (a few items have no cursor). */
+function itemKey(item: TranscriptItem): string {
+  return item.cursor ?? item.id
+}
+
+/**
+ * Append live-delta items onto the held list, skipping any whose cursor (or id)
+ * is already present — so a live delta that repeats the tail of the read window
+ * doesn't duplicate it. Order is preserved (deltas are newer → appended). Returns
+ * `prev` unchanged (referentially) when every delta item is a duplicate, so a
+ * no-op delta doesn't trigger a re-render.
+ */
+export function mergeByCursor(prev: TranscriptItem[], delta: TranscriptItem[]): TranscriptItem[] {
+  if (delta.length === 0) return prev
+  const seen = new Set(prev.map(itemKey))
+  const additions: TranscriptItem[] = []
+  for (const it of delta) {
+    const key = itemKey(it)
+    if (seen.has(key)) continue
+    seen.add(key)
+    additions.push(it)
+  }
+  return additions.length === 0 ? prev : [...prev, ...additions]
+}
+
+/**
+ * Drop later items that share a cursor (or id) with an earlier one — keeps the
+ * first occurrence, preserving order. Used at the `[...older, ...items]` seam to
+ * guard a one-item paging/live overlap.
+ */
+export function dedupeByCursor(items: TranscriptItem[]): TranscriptItem[] {
+  const seen = new Set<string>()
+  const out: TranscriptItem[] = []
+  for (const it of items) {
+    const key = itemKey(it)
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push(it)
+  }
+  return out
+}
+
 /**
  * Collapse the raw item stream into renderable blocks: tool results fold into
  * their originating tool call; everything else passes through in order.
@@ -44,9 +87,7 @@ export function pairToolResults(items: TranscriptItem[]): ChatBlock[] {
  */
 export function isBatchableTool(item: TranscriptItem): boolean {
   return (
-    item.role === 'tool' &&
-    item.toolName !== 'AskUserQuestion' &&
-    item.toolName !== 'SendUserFile'
+    item.role === 'tool' && item.toolName !== 'AskUserQuestion' && item.toolName !== 'SendUserFile'
   )
 }
 
@@ -77,7 +118,12 @@ export function buildChatRows(blocks: ChatBlock[]): ChatRow[] {
   let run: { blocks: ChatBlock[]; indices: number[] } | null = null
   const flush = (): void => {
     if (!run) return
-    rows.push({ kind: 'tools', blocks: run.blocks, blockIndices: run.indices, title: toolBatchTitle(run.blocks) })
+    rows.push({
+      kind: 'tools',
+      blocks: run.blocks,
+      blockIndices: run.indices,
+      title: toolBatchTitle(run.blocks),
+    })
     run = null
   }
   blocks.forEach((block, i) => {
@@ -118,7 +164,8 @@ function toolCategory(item: TranscriptItem): { verb: string; noun: string } {
   }
 }
 
-const pluralizeNoun = (noun: string): string => (/(?:s|x|ch|sh)$/.test(noun) ? `${noun}es` : `${noun}s`)
+const pluralizeNoun = (noun: string): string =>
+  /(?:s|x|ch|sh)$/.test(noun) ? `${noun}es` : `${noun}s`
 const articleFor = (noun: string): string => (/^[aeiou]/i.test(noun) ? 'an' : 'a')
 const lowerFirst = (s: string): string => s.charAt(0).toLowerCase() + s.slice(1)
 const clauseFor = (verb: string, noun: string, count: number): string =>
