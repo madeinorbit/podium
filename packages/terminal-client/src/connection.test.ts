@@ -666,3 +666,26 @@ describe('host metrics', () => {
     expect(seen).toEqual([0, 1, 0])
   })
 })
+
+describe('machines', () => {
+  it('exposes machinesChanged via machines() + onMachines', () => {
+    const { hub, sock } = setup()
+    hub.connect()
+    sock.open()
+    const seen: number[] = []
+    hub.onMachines((m) => seen.push(m.length))
+    const machine = {
+      id: 'm1',
+      name: 'box',
+      hostname: 'box.local',
+      online: true,
+      lastSeenAt: '2026-06-17T00:00:00.000Z',
+    }
+    sock.recv({ type: 'machinesChanged', machines: [machine] })
+    expect(hub.machines()).toEqual([machine])
+    expect(seen).toEqual([0, 1]) // immediate replay + the update
+    sock.recv({ type: 'machinesChanged', machines: [] })
+    expect(hub.machines()).toEqual([])
+    expect(seen).toEqual([0, 1, 0])
+  })
+})
