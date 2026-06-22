@@ -57,7 +57,7 @@ export async function readFileItems(
   const out: TranscriptItem[] = []
   // Walk line boundaries on the raw buffer, tracking each record's ABSOLUTE offset.
   // Items emit only at a `\n`, so a final line without a trailing newline is
-  // intentionally dropped as a possible torn write (matches readTranscriptTail).
+  // intentionally dropped as a possible torn write (matches the live tail).
   let lineStart = 0
   let firstLine = true
   for (let i = 0; i < buf.length; i++) {
@@ -103,8 +103,7 @@ export interface SliceOptions {
 // First bounded-read window per file. A page is a small slice near a cursor, so a
 // 256 KB window usually covers `limit + 1` records in one read; if a record is
 // huge or the page sits far from any boundary, the window doubles until it does or
-// it reaches the file edge. Keeps a page O(page size), not O(file size). In step
-// with readTranscriptPage's INITIAL_PAGE_WINDOW_BYTES.
+// it reaches the file edge. Keeps a page O(page size), not O(file size).
 const INITIAL_WINDOW_BYTES = 256 * 1024
 
 /**
