@@ -40,7 +40,7 @@ export async function main(): Promise<void> {
   // regardless of the saved mode, so a client/daemon install can be reconfigured.
   const forceSetup = argv.includes('setup') || argv.includes('--reconfigure')
   const plan = resolvePlan(argv, config)
-  const port = config.port ?? Number(process.env.PODIUM_PORT ?? 18787)
+  const port = Number(process.env.PODIUM_PORT) || config.port || 18787
 
   if (!forceSetup && plan.mode === 'client') {
     console.log(`podium client mode — open the web UI pointed at ${plan.serverUrl ?? '(no serverUrl configured)'}`)

@@ -3,6 +3,8 @@
 mod bootstrap;
 
 use std::process::Command;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::TrayIconBuilder;
 use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
@@ -10,6 +12,14 @@ use tauri::path::BaseDirectory;
 
 fn main() {
     let app = tauri::Builder::default()
+        // FIX 1: single-instance guard — if a 2nd instance is launched, focus the existing
+        // window and exit the duplicate. Registered FIRST so it fires before any setup work.
+        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+            if let Some(w) = app.get_webview_window("main") {
+                let _ = w.show();
+                let _ = w.set_focus();
+            }
+        }))
         .setup(|app| {
             let port = bootstrap::pick_free_port();
 
@@ -32,6 +42,12 @@ fn main() {
 
             eprintln!("[podium-desktop] spawning {runnable:?} on port {port}");
 
+            // FIX 2: shared shutting-down flag — set true in exit handlers so the supervision
+            // monitor thread does not attempt to respawn the child during a deliberate quit.
+            let shutting_down = Arc::new(AtomicBool::new(false));
+            app.manage(shutting_down.clone());
+
+            // Spawn the initial sidecar child process.
             let child = Command::new(&runnable)
                 .env("PODIUM_PORT", port.to_string())
                 .env("PODIUM_WEB_DIR", web_dir.to_string_lossy().to_string())
@@ -42,7 +58,66 @@ fn main() {
                 })?;
 
             // Keep the child alive; kill it when the app exits.
-            app.manage(std::sync::Mutex::new(Some(child)));
+            let child_state: Arc<Mutex<Option<std::process::Child>>> =
+                Arc::new(Mutex::new(Some(child)));
+            app.manage(child_state.clone());
+
+            // FIX 2: supervision monitor thread — waits on the child, and if it exits while
+            // the app is NOT shutting down, respawns it on the same port with bounded backoff
+            // (500ms → cap 5s). The web client auto-reconnects over WS on the same port.
+            let runnable2 = runnable.clone();
+            let web_dir2 = web_dir.clone();
+            let child_state2 = child_state.clone();
+            let shutting_down2 = shutting_down.clone();
+            std::thread::spawn(move || {
+                let mut backoff_ms: u64 = 500;
+                const BACKOFF_CAP_MS: u64 = 5_000;
+
+                loop {
+                    // Wait for the current child to exit.
+                    let exited = {
+                        let mut guard = child_state2.lock().unwrap();
+                        if let Some(ref mut child) = *guard {
+                            child.wait().ok()
+                        } else {
+                            // Child was already reaped by the exit handler — stop monitoring.
+                            break;
+                        }
+                    };
+
+                    // If we're shutting down, do not respawn.
+                    if shutting_down2.load(Ordering::Acquire) {
+                        break;
+                    }
+
+                    eprintln!(
+                        "[podium-desktop] backend exited ({exited:?}); \
+                         respawning in {backoff_ms}ms on port {port}"
+                    );
+                    std::thread::sleep(std::time::Duration::from_millis(backoff_ms));
+                    backoff_ms = (backoff_ms * 2).min(BACKOFF_CAP_MS);
+
+                    // Check the flag again after sleeping — user may have quit during backoff.
+                    if shutting_down2.load(Ordering::Acquire) {
+                        break;
+                    }
+
+                    match Command::new(&runnable2)
+                        .env("PODIUM_PORT", port.to_string())
+                        .env("PODIUM_WEB_DIR", web_dir2.to_string_lossy().to_string())
+                        .spawn()
+                    {
+                        Ok(new_child) => {
+                            *child_state2.lock().unwrap() = Some(new_child);
+                            backoff_ms = 500; // reset on successful spawn
+                        }
+                        Err(e) => {
+                            eprintln!("[podium-desktop] respawn failed: {e}");
+                            // Keep backing off; next loop iteration will try again.
+                        }
+                    }
+                }
+            });
 
             // Build the tray icon with Open / Quit menu items.
             let open = MenuItem::with_id(app, "open", "Open Podium", true, None::<&str>)?;
@@ -90,14 +165,30 @@ fn main() {
             Ok(())
         })
         .on_window_event(|window, event| {
-            if let tauri::WindowEvent::Destroyed = event {
-                let app = window.app_handle();
-                if let Some(state) = app.try_state::<std::sync::Mutex<Option<std::process::Child>>>() {
-                    if let Some(mut child) = state.lock().unwrap().take() {
-                        let _ = child.kill();
-                        let _ = child.wait();
+            match event {
+                // FIX 3: hide-on-close so the tray "Open Podium" is meaningful. Intercept
+                // the close button → hide the window instead of destroying it. The tray
+                // "Quit" item calls app.exit(0) which is the real exit path.
+                tauri::WindowEvent::CloseRequested { api, .. } => {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+                tauri::WindowEvent::Destroyed => {
+                    // Reap the child when the window is actually destroyed (e.g. app.exit).
+                    let app = window.app_handle();
+                    if let Some(sd) = app.try_state::<Arc<AtomicBool>>() {
+                        sd.store(true, Ordering::Release);
+                    }
+                    if let Some(state) = app.try_state::<Arc<Mutex<Option<std::process::Child>>>>() {
+                        if let Ok(mut guard) = state.lock() {
+                            if let Some(mut child) = guard.take() {
+                                let _ = child.kill();
+                                let _ = child.wait();
+                            }
+                        }
                     }
                 }
+                _ => {}
             }
         })
         .build(tauri::generate_context!())
@@ -105,7 +196,11 @@ fn main() {
 
     app.run(|app_handle, event| {
         if let tauri::RunEvent::Exit = event {
-            if let Some(state) = app_handle.try_state::<std::sync::Mutex<Option<std::process::Child>>>() {
+            // Set the shutting-down flag first so the monitor thread stops respawning.
+            if let Some(sd) = app_handle.try_state::<Arc<AtomicBool>>() {
+                sd.store(true, Ordering::Release);
+            }
+            if let Some(state) = app_handle.try_state::<Arc<Mutex<Option<std::process::Child>>>>() {
                 if let Ok(mut guard) = state.lock() {
                     if let Some(mut child) = guard.take() {
                         let _ = child.kill();
