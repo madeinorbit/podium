@@ -19,6 +19,7 @@ const SAME = '2026-06-10T00:00:00.000Z'
 
 function meta(over: Partial<SessionMeta> & { sessionId: string }): SessionMeta {
   return {
+    conversationId: over.sessionId,
     agentKind: 'shell',
     title: 't',
     cwd: '/w',

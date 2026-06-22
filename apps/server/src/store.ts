@@ -799,6 +799,37 @@ export class SessionStore {
       this.db
         .prepare('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)')
         .run('schema_version', '4')
+    // v4 -> v5: every session row gets a stable conversation_id — the identity that
+    // conversation-scoped state (drafts, pins, snoozes, …) keys off instead of the
+    // volatile row id. Backfill rows that predate it: rows sharing a resume ref are
+    // grouped under the oldest row's id (so duplicate rows of one conversation agree);
+    // ref-less rows are their own id. New rows get their id from the app at insert.
+    const ver = Number(
+      (
+        this.db.prepare('SELECT value FROM meta WHERE key = ?').get('schema_version') as
+          | { value: string }
+          | undefined
+      )?.value ?? '0',
+    )
+    if (ver < 5) {
+      this.db.exec(
+        `UPDATE sessions
+           SET conversation_id = (
+             SELECT MIN(s2.id) FROM sessions s2
+             WHERE s2.resume_kind IS sessions.resume_kind
+               AND s2.resume_value IS sessions.resume_value
+           )
+           WHERE (conversation_id IS NULL OR conversation_id = '')
+             AND resume_value IS NOT NULL AND resume_value <> ''`,
+      )
+      this.db.exec(
+        `UPDATE sessions SET conversation_id = id
+           WHERE conversation_id IS NULL OR conversation_id = ''`,
+      )
+      this.db
+        .prepare('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)')
+        .run('schema_version', '5')
+    }
     this.importReposJson()
   }
 

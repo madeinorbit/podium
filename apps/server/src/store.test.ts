@@ -198,6 +198,43 @@ describe('SessionStore schema migration', () => {
     ).toEqual(['podium-new-1', 'podium-old-1'])
     store.close()
   })
+
+  it('v4->v5 backfills a stable conversation_id, grouping rows that share a resume ref', async () => {
+    const file = await tmpDbPath()
+    const { DatabaseSync } = await import('node:sqlite')
+    const db = new DatabaseSync(file)
+    db.exec(
+      `CREATE TABLE sessions (
+         id TEXT PRIMARY KEY, agent_kind TEXT NOT NULL, cwd TEXT NOT NULL,
+         title TEXT NOT NULL, name TEXT, origin_kind TEXT NOT NULL, conversation_id TEXT,
+         resume_kind TEXT, resume_value TEXT, status TEXT NOT NULL, exit_code INTEGER,
+         durable_label TEXT NOT NULL, created_at TEXT NOT NULL, last_active_at TEXT NOT NULL,
+         archived INTEGER NOT NULL DEFAULT 0, work_state TEXT
+       )`,
+    )
+    db.exec('CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)')
+    db.prepare('INSERT INTO meta (key, value) VALUES (?, ?)').run('schema_version', '4')
+    const ins = db.prepare(
+      `INSERT INTO sessions (id, agent_kind, cwd, title, origin_kind, conversation_id,
+        resume_kind, resume_value, status, durable_label, created_at, last_active_at)
+       VALUES (?, ?, ?, ?, 'spawn', NULL, ?, ?, 'exited', ?, ?, ?)`,
+    )
+    const t = '2026-06-09T00:00:00.000Z'
+    // Two rows for the same claude conversation (the duplicate-row bug) + a ref-less row.
+    ins.run('b-dup', 'claude-code', '/w', 't', 'claude-session', 'conv-x', 'podium-b', t, t)
+    ins.run('a-dup', 'claude-code', '/w', 't', 'claude-session', 'conv-x', 'podium-a', t, t)
+    ins.run('solo', 'shell', '/w', 't', null, null, 'podium-solo', t, t)
+    db.close()
+
+    const store = new SessionStore(file)
+    const byId = new Map(store.loadSessions().map((r) => [r.id, r.conversationId]))
+    // Both duplicates collapse to the lexicographically-smallest row id in the group.
+    expect(byId.get('a-dup')).toBe('a-dup')
+    expect(byId.get('b-dup')).toBe('a-dup')
+    // A row with no resume ref is its own conversation.
+    expect(byId.get('solo')).toBe('solo')
+    store.close()
+  })
 })
 
 describe('SessionStore pins', () => {

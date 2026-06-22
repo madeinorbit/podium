@@ -30,6 +30,12 @@ export interface ClientConn {
 
 export interface SessionInit {
   sessionId: string
+  /** Stable identity of the underlying conversation, shared by every row that
+   *  represents it (survives resume-ref rebinds and re-resumes). Defaults to the
+   *  sessionId for a brand-new conversation; an existing conversation's id is
+   *  passed in when a row reattaches/resumes it. Conversation-scoped state
+   *  (drafts, pins, snoozes, …) keys off this, NOT the volatile row id. */
+  conversationId?: string
   agentKind: AgentKind
   cwd: string
   title: string
@@ -84,6 +90,8 @@ const SCREEN_RESET = /\x1b\[[23]J|\x1bc|\x1b\[\?1049[hl]/
 /** One agent's relay state: controller gating, geometry/epoch, and its attached clients. */
 export class Session {
   readonly sessionId: string
+  /** Stable conversation identity (see SessionInit.conversationId). Always set. */
+  readonly conversationId: string
   readonly agentKind: AgentKind
   readonly cwd: string
   readonly origin: SessionOrigin
@@ -151,6 +159,12 @@ export class Session {
 
   constructor(init: SessionInit) {
     this.sessionId = init.sessionId
+    // A brand-new conversation is its own canonical id; a row resumed from the
+    // picker adopts that conversation's discovery id; reattach/load passes the
+    // stored id. So duplicate rows of one conversation share a conversationId.
+    this.conversationId =
+      init.conversationId ??
+      (init.origin.kind === 'resume' ? init.origin.conversationId : init.sessionId)
     this.agentKind = init.agentKind
     this.cwd = init.cwd
     this.title = init.title
@@ -510,7 +524,7 @@ export class Session {
       archived: this.archived,
       workState: this.workState ?? null,
       originKind: this.origin.kind,
-      conversationId: this.origin.kind === 'resume' ? this.origin.conversationId : null,
+      conversationId: this.conversationId,
       resumeKind: this.resume?.kind ?? null,
       resumeValue: this.resume?.value ?? null,
       status: this.status,
@@ -524,6 +538,7 @@ export class Session {
   toMeta(): SessionMeta {
     return {
       sessionId: this.sessionId,
+      conversationId: this.conversationId,
       agentKind: this.agentKind,
       title: this.title,
       ...(this.name ? { name: this.name } : {}),

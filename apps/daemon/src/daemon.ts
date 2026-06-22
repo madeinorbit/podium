@@ -284,6 +284,9 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
   // for both harnesses, so reattached chat gets history before new activity.
   const tails = new Map<string, TranscriptTailer>()
   const grokStateObservers = new Map<string, GrokStateObserver>()
+  // The grok session id each live session has bound, so a still-unbound session can
+  // be steered away from a dir another session already owns (one dir ↔ one session).
+  const grokBoundIds = new Map<string, string>()
   // Codex is observed the same way as Grok (no hooks): one poller per session
   // that discovers the rollout file, tails it for state, and feeds the chat tail.
   const codexStateObservers = new Map<string, { stop(): void }>()
@@ -320,6 +323,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
   const stopGrokStateObserver = (sessionId: string): void => {
     grokStateObservers.get(sessionId)?.stop()
     grokStateObservers.delete(sessionId)
+    grokBoundIds.delete(sessionId)
   }
   const stopCodexStateObserver = (sessionId: string): void => {
     codexStateObservers.get(sessionId)?.stop()
@@ -361,7 +365,15 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
         ...(resumeValue ? { resumeValue } : {}),
         ...(opts.discovery?.homeDir ? { homeDir: opts.discovery.homeDir } : {}),
         ...(startedAtMs !== undefined ? { startedAtMs } : {}),
+        claimedIds: () => {
+          const claimed = new Set<string>()
+          for (const [otherSession, grokId] of grokBoundIds) {
+            if (otherSession !== sessionId) claimed.add(grokId)
+          }
+          return claimed
+        },
         onSession: (grokSessionId) => {
+          grokBoundIds.set(sessionId, grokSessionId)
           send({
             type: 'sessionResumeRef',
             sessionId,

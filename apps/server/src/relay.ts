@@ -193,6 +193,9 @@ export class SessionRegistry {
       }
       const session = new Session({
         sessionId: r.id,
+        // Post-migration every row has a conversation_id; fall back to the row id
+        // for any pre-migration straggler so the identity is never empty.
+        conversationId: r.conversationId ?? r.id,
         agentKind: kind.data,
         cwd: r.cwd,
         title: r.title,

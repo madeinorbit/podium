@@ -109,6 +109,7 @@ export async function findLatestGrokSessionPaths(opts: {
   homeDir?: string
   watermarkMs: number
   boundId?: string
+  excludeIds?: ReadonlySet<string>
 }): Promise<GrokSessionPaths | undefined> {
   const workspaceDir = join(grokRoot(opts.homeDir), 'sessions', encodeURIComponent(opts.cwd))
   let entries: Dirent<string>[]
@@ -141,6 +142,7 @@ export async function findLatestGrokSessionPaths(opts: {
     })),
     watermarkMs: opts.watermarkMs,
     boundId: opts.boundId,
+    ...(opts.excludeIds ? { excludeIds: opts.excludeIds } : {}),
   })
   if (!chosen) return undefined
   return dirInfos.find((d) => d.paths.sessionId === chosen)?.paths
@@ -152,6 +154,12 @@ export function observeGrokState(opts: {
   homeDir?: string
   startedAtMs?: number
   pollMs?: number
+  // Grok session ids already claimed by OTHER live sessions. A grok session dir
+  // maps to at most one Podium session, so an unbound session must skip these —
+  // otherwise two unbound sessions reattaching at once both grab the freshest dir
+  // and collide on one resume ref (the prod mis-bind). A thunk so the live set is
+  // read on every poll (claims appear as siblings bind).
+  claimedIds?: () => ReadonlySet<string>
   onSession?: (sessionId: string) => void
   onEvents: (events: AgentStateEvent[]) => void
 }): GrokStateObserver {
@@ -178,11 +186,13 @@ export function observeGrokState(opts: {
 
   const discover = async (): Promise<void> => {
     if (stopped || attached) return
+    const claimed = opts.claimedIds?.()
     const paths = await findLatestGrokSessionPaths({
       cwd: opts.cwd,
       ...(opts.homeDir ? { homeDir: opts.homeDir } : {}),
       watermarkMs,
       boundId,
+      ...(claimed ? { excludeIds: claimed } : {}),
     })
     if (paths && !stopped) attach(paths)
   }

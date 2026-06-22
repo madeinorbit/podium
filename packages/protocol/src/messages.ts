@@ -81,6 +81,9 @@ export type WorkState = z.infer<typeof WorkState>
 
 export const SessionMeta = z.object({
   sessionId: z.string(),
+  /** Stable identity of the underlying conversation. Conversation-scoped client
+   *  state (drafts, pins, …) keys off this, not the volatile per-row sessionId. */
+  conversationId: z.string(),
   agentKind: AgentKind,
   title: z.string(),
   /** User-set name. Wins over `title` (the live terminal title) wherever shown. */

@@ -198,6 +198,42 @@ describe('observeGrokState', () => {
       observer.stop()
     }
   })
+
+  it('skips a grok dir already claimed by another session and binds its own', async () => {
+    // The prod mis-bind: two unbound sessions reattach and both grab the freshest
+    // dir. With claimedIds, a session never binds a dir another session already owns.
+    const home = await mkdtemp(join(tmpdir(), 'podium-grok-claimed-'))
+    const cwd = '/repo/grok'
+    const claimed = new Set<string>(['g-taken'])
+    const seenSessions: string[] = []
+    const observer = observeGrokState({
+      homeDir: home,
+      cwd,
+      pollMs: 10,
+      claimedIds: () => claimed,
+      onSession: (sessionId) => seenSessions.push(sessionId),
+      onEvents: () => {},
+    })
+    try {
+      // Only the claimed dir exists → the observer must stay unbound.
+      const taken = grokSessionPaths({ homeDir: home, cwd, sessionId: 'g-taken' })
+      await mkdir(taken.sessionDir, { recursive: true })
+      await writeFile(taken.summaryPath, JSON.stringify({ info: { id: 'g-taken', cwd } }))
+      await writeFile(taken.updatesPath, '')
+      await new Promise((resolve) => setTimeout(resolve, 60))
+      expect(seenSessions).toEqual([])
+
+      // Its own (unclaimed) dir appears → now it binds that, not the claimed one.
+      const mine = grokSessionPaths({ homeDir: home, cwd, sessionId: 'g-mine' })
+      await mkdir(mine.sessionDir, { recursive: true })
+      await writeFile(mine.summaryPath, JSON.stringify({ info: { id: 'g-mine', cwd } }))
+      await writeFile(mine.updatesPath, '')
+      await waitFor(() => seenSessions.includes('g-mine'))
+      expect(seenSessions).toEqual(['g-mine'])
+    } finally {
+      observer.stop()
+    }
+  })
 })
 
 async function waitFor(fn: () => boolean): Promise<void> {

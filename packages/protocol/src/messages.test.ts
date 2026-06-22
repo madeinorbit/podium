@@ -22,6 +22,7 @@ describe('shared schemas', () => {
   it('round-trips a SessionMeta (spawn origin)', () => {
     const meta = {
       sessionId: 's1',
+      conversationId: 's1',
       agentKind: 'claude-code' as const,
       title: 'fix the bug',
       cwd: '/home/u/proj',
@@ -41,6 +42,7 @@ describe('shared schemas', () => {
   it('round-trips a SessionMeta (resume origin, exited)', () => {
     const meta = {
       sessionId: 's2',
+      conversationId: 's2',
       agentKind: 'codex' as const,
       title: 'old thread',
       cwd: '/w',
@@ -62,6 +64,7 @@ describe('shared schemas', () => {
   it('round-trips a SessionMeta (starting, no controller yet)', () => {
     const meta = {
       sessionId: 's3',
+      conversationId: 's3',
       agentKind: 'claude-code' as const,
       title: 'new',
       cwd: '/w',
@@ -135,6 +138,7 @@ describe('ServerMessage', () => {
   const geometry = { cols: 80, rows: 24 }
   const sessionMeta = {
     sessionId: 's1',
+    conversationId: 's1',
     agentKind: 'claude-code' as const,
     title: 't',
     cwd: '/w',
@@ -456,6 +460,7 @@ describe('agent runtime state', () => {
   it('SessionMeta accepts an optional agentState', () => {
     const meta = SessionMeta.parse({
       sessionId: 's1',
+      conversationId: 's1',
       agentKind: 'claude-code',
       title: 't',
       cwd: '/tmp',
@@ -481,6 +486,7 @@ describe('agent runtime state', () => {
   it('SessionMeta carries an optional, nullable snoozedUntil', () => {
     const base = {
       sessionId: 's1',
+      conversationId: 's1',
       agentKind: 'claude-code',
       title: 't',
       cwd: '/w',

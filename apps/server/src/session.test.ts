@@ -269,7 +269,8 @@ describe('Session', () => {
       cwd: '/w',
       title: 'w',
       originKind: 'spawn',
-      conversationId: null,
+      // A spawn session is its own conversation: identity defaults to the row id.
+      conversationId: 's1',
       resumeKind: null,
       resumeValue: null,
       status: 'starting',
