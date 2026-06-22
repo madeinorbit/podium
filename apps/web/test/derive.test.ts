@@ -503,14 +503,15 @@ describe('partitionWorkItems', () => {
     expect(pinnedPanels).toHaveLength(0)
   })
 
-  it('pinned sessions never appear in attention or working even if needs_user', () => {
+  it('a pinned session that needs you still surfaces in NEEDS YOUR ATTENTION', () => {
+    // A pin keeps a session handy but must not suppress an active attention signal.
     const { attention, working, pinnedPanels } = partitionWorkItems(
       [s('p', 'needs_user')],
       new Set(['p']),
     )
-    expect(attention).toHaveLength(0)
+    expect(attention.map((x) => x.sessionId)).toEqual(['p'])
     expect(working).toHaveLength(0)
-    expect(pinnedPanels.map((x) => x.sessionId)).toEqual(['p'])
+    expect(pinnedPanels).toHaveLength(0)
   })
 
   it('compacting phase goes to working', () => {

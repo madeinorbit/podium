@@ -380,11 +380,15 @@ export function partitionWorkItems(
 
   for (const s of sessions) {
     if (s.archived) continue
+    const group = attentionGroup(s)
     if (pinnedSessionIds.has(s.sessionId)) {
-      pinnedPanels.push(s)
+      // A pin keeps a session handy in PINNED PANELS, but must NOT suppress an
+      // active attention signal: a pinned session that's waiting on you still
+      // surfaces in NEEDS YOUR ATTENTION. Quiet/working pins stay in PINNED PANELS.
+      if (group === 'needsYou') attention.push(s)
+      else pinnedPanels.push(s)
       continue
     }
-    const group = attentionGroup(s)
     if (group === 'working') {
       working.push(s)
     } else if (isSnoozed(s, now)) {
@@ -449,13 +453,20 @@ export function sortRepos<T extends { id: string; name: string }>(
 }
 
 /**
- * Collapse duplicate session rows that point at the SAME underlying agent
- * conversation (same resume ref) — e.g. a Codex thread that surfaced twice on
- * resume. Keeps the most useful row per ref (live > starting/reconnecting >
- * hibernated > exited; ties break to the most-recently-active) and preserves
- * order. Sessions with no resume ref are distinct and never merged.
+ * Collapse rows that represent the SAME conversation to one entry, keyed by the
+ * stable `conversationId` (the server already enforces one live row per
+ * conversation; this is the client-side safety net for legacy/transient dupes).
+ *
+ * The winner is chosen DETERMINISTICALLY so it cannot flip between broadcasts —
+ * the old resume-keyed version broke ties on `lastActiveAt`, which two rows of one
+ * conversation share to the millisecond after a reattach, so the winner swung on
+ * arrival order and the visible row vanished/swapped mid-use. It was also
+ * archived-blind: an archived dup could win and then be filtered out, hiding the
+ * live row entirely. Order: non-archived first, then live-rank, then
+ * most-recently-active, then the smallest sessionId as a STABLE final tiebreak.
+ * Distinct conversations (each its own id) are never merged.
  */
-export function dedupeSessionsByResume(sessions: SessionMeta[]): SessionMeta[] {
+export function dedupeSessionsByConversation(sessions: SessionMeta[]): SessionMeta[] {
   const rank = (s: SessionMeta): number => {
     switch (s.status) {
       case 'live':
@@ -470,21 +481,18 @@ export function dedupeSessionsByResume(sessions: SessionMeta[]): SessionMeta[] {
     }
   }
   const better = (a: SessionMeta, b: SessionMeta): SessionMeta => {
+    if (a.archived !== b.archived) return a.archived ? b : a
     if (rank(a) !== rank(b)) return rank(a) > rank(b) ? a : b
-    return a.lastActiveAt >= b.lastActiveAt ? a : b
+    if (a.lastActiveAt !== b.lastActiveAt) return a.lastActiveAt > b.lastActiveAt ? a : b
+    return a.sessionId <= b.sessionId ? a : b
   }
-  const indexByRef = new Map<string, number>()
+  const indexByConversation = new Map<string, number>()
   const out: SessionMeta[] = []
   for (const s of sessions) {
-    if (!s.resume) {
-      out.push(s)
-      continue
-    }
-    const key = `${s.resume.kind}:${s.resume.value}`
-    const at = indexByRef.get(key)
+    const at = indexByConversation.get(s.conversationId)
     const existing = at === undefined ? undefined : out[at]
     if (at === undefined || existing === undefined) {
-      indexByRef.set(key, out.length)
+      indexByConversation.set(s.conversationId, out.length)
       out.push(s)
     } else {
       out[at] = better(existing, s)

@@ -1,8 +1,9 @@
 import type { SessionMeta } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import {
-  dedupeSessionsByResume,
+  dedupeSessionsByConversation,
   partitionStaleSessions,
+  partitionWorkItems,
   sortWorktrees,
   type WorktreeNavView,
 } from './derive'
@@ -13,6 +14,7 @@ const NOW = Date.parse('2026-06-21T12:00:00.000Z')
 function sess(id: string, hoursAgo: number, over: Partial<SessionMeta> = {}): SessionMeta {
   return {
     sessionId: id,
+    conversationId: id,
     lastActiveAt: new Date(NOW - hoursAgo * 3_600_000).toISOString(),
     agentKind: 'claude-code',
     status: 'hibernated',
@@ -105,23 +107,56 @@ function withResume(
 ): SessionMeta {
   return sess(id, hoursAgo, {
     status,
-    ...(resumeValue ? { resume: { kind: 'codex-thread', value: resumeValue } } : {}),
+    // Rows of one conversation share a conversationId (what the server now enforces);
+    // the resume thread doubles as that id in these fixtures.
+    ...(resumeValue
+      ? { resume: { kind: 'codex-thread', value: resumeValue }, conversationId: resumeValue }
+      : {}),
   } as Partial<SessionMeta>)
 }
 
-describe('dedupeSessionsByResume', () => {
-  it('keeps sessions with no resume ref untouched', () => {
-    const list = [withResume('a', 'live', undefined), withResume('b', 'live', undefined)]
-    expect(dedupeSessionsByResume(list).map((s) => s.sessionId)).toEqual(['a', 'b'])
+describe('partitionWorkItems pin vs attention', () => {
+  const needsYou = (id: string): SessionMeta =>
+    sess(id, 1, {
+      status: 'live',
+      agentState: {
+        phase: 'needs_user',
+        since: '',
+        openTaskCount: 0,
+        need: { kind: 'question' },
+      },
+    } as Partial<SessionMeta>)
+
+  it('a pinned session that needs you still appears in NEEDS YOUR ATTENTION', () => {
+    const { attention, pinnedPanels } = partitionWorkItems([needsYou('p')], new Set(['p']), NOW)
+    expect(attention.map((s) => s.sessionId)).toEqual(['p'])
+    expect(pinnedPanels).toEqual([])
   })
 
-  it('collapses two rows sharing a codex thread, keeping the live one', () => {
+  it('a pinned idle session stays in PINNED PANELS', () => {
+    const { attention, pinnedPanels } = partitionWorkItems(
+      [sess('p', 1, { status: 'live' })],
+      new Set(['p']),
+      NOW,
+    )
+    expect(pinnedPanels.map((s) => s.sessionId)).toEqual(['p'])
+    expect(attention).toEqual([])
+  })
+})
+
+describe('dedupeSessionsByConversation', () => {
+  it('keeps sessions with distinct conversations untouched', () => {
+    const list = [withResume('a', 'live', undefined), withResume('b', 'live', undefined)]
+    expect(dedupeSessionsByConversation(list).map((s) => s.sessionId)).toEqual(['a', 'b'])
+  })
+
+  it('collapses two rows of one conversation, keeping the live one', () => {
     const list = [
       withResume('exited-twin', 'exited', 'thread-1', 5),
       withResume('live-one', 'live', 'thread-1', 1),
       withResume('other', 'live', 'thread-2', 1),
     ]
-    const out = dedupeSessionsByResume(list)
+    const out = dedupeSessionsByConversation(list)
     expect(out.map((s) => s.sessionId).sort()).toEqual(['live-one', 'other'])
   })
 
@@ -130,7 +165,24 @@ describe('dedupeSessionsByResume', () => {
       withResume('old', 'exited', 'thread-9', 10),
       withResume('new', 'exited', 'thread-9', 1),
     ]
-    expect(dedupeSessionsByResume(list).map((s) => s.sessionId)).toEqual(['new'])
+    expect(dedupeSessionsByConversation(list).map((s) => s.sessionId)).toEqual(['new'])
+  })
+
+  it('never keeps an archived row over a non-archived one (the disappearance bug)', () => {
+    const archivedLive = withResume('arch', 'live', 'thread-x', 1)
+    ;(archivedLive as { archived: boolean }).archived = true
+    const live = withResume('keep', 'live', 'thread-x', 5) // older but not archived
+    expect(dedupeSessionsByConversation([archivedLive, live]).map((s) => s.sessionId)).toEqual([
+      'keep',
+    ])
+  })
+
+  it('is order-independent on a full tie (no flip across broadcasts)', () => {
+    // Same rank AND same lastActiveAt — the case that used to swing on arrival order.
+    const a = withResume('aaa', 'live', 'thread-z', 1)
+    const b = withResume('bbb', 'live', 'thread-z', 1)
+    expect(dedupeSessionsByConversation([a, b]).map((s) => s.sessionId)).toEqual(['aaa'])
+    expect(dedupeSessionsByConversation([b, a]).map((s) => s.sessionId)).toEqual(['aaa'])
   })
 })
 
