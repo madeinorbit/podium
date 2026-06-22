@@ -141,6 +141,68 @@ export function repoBranchForCwd(
   return null
 }
 
+/** Does `cwd` still resolve to a live, scanned worktree? False when the path is
+ *  no longer among any repo's worktrees — e.g. a session whose git worktree was
+ *  removed out from under it (an "orphaned" session). Also false when no repos
+ *  are loaded yet; callers that must not flag orphans during the boot window
+ *  should gate on `repos.length > 0` themselves. */
+export function isKnownWorktreePath(repos: GitRepositoryWire[], cwd: string): boolean {
+  return repoBranchForCwd(repos, cwd) !== null
+}
+
+/** When the selected path no longer resolves to a live worktree but still has
+ *  sessions pinned to it (its worktree was removed out from under them), pick
+ *  which orphan to surface in the workspace: the one already in pane A if it's
+ *  one of them, else the first. Null when there's nothing to show — so the
+ *  caller falls back to the empty "Select a worktree." placeholder. */
+export function orphanSessionFor(opts: {
+  selectedWorktree: string | null
+  sessions: SessionMeta[]
+  paneA: string | null
+}): SessionMeta | null {
+  if (!opts.selectedWorktree) return null
+  const orphans = sessionsForWorktree(opts.sessions, opts.selectedWorktree)
+  return orphans.find((s) => s.sessionId === opts.paneA) ?? orphans[0] ?? null
+}
+
+/** The recovery action offered for a session whose process has exited. */
+export type ExitedAction = 'restart' | 'resume' | 'remove'
+
+/** Copy + recovery action for an exited session, shared by the inline
+ *  `ExitedBanner` and the full-pane `ExitedPane` so the two never drift.
+ *
+ *  Orthogonal to the exit cause, a missing worktree (an orphaned session whose
+ *  directory was removed out from under it) forces `remove`: the conversation
+ *  can't be resumed in place — Claude buckets transcripts by their original cwd,
+ *  and a shell can't restart in a directory that's gone. The header's
+ *  copy-resume-command stays available for resuming by hand elsewhere. */
+export function exitedRecovery(opts: {
+  exitCode: number | undefined
+  isShell: boolean
+  resumable: boolean
+  worktreeMissing: boolean
+  /** Pretty worktree path, woven into the notice when the worktree is missing. */
+  worktreePath?: string
+}): { detail: string; action: ExitedAction } {
+  const what = opts.isShell ? 'shell' : 'agent process'
+  // Exit code 0 can still be an external kill of the durable host (the PTY
+  // reports the attach client's exit, not the agent's) — stay neutral about why.
+  const cause =
+    opts.exitCode === undefined || opts.exitCode === 0
+      ? `The ${what} is no longer running.`
+      : opts.exitCode === -1
+        ? `The ${what} failed to start.`
+        : `The ${what} exited with code ${opts.exitCode}.`
+  if (opts.worktreeMissing) {
+    const where = opts.worktreePath ? ` (${opts.worktreePath})` : ''
+    return {
+      detail: `${cause} Its worktree${where} no longer exists, so it can't be resumed here.`,
+      action: 'remove',
+    }
+  }
+  return { detail: cause, action: opts.isShell ? 'restart' : opts.resumable ? 'resume' : 'remove' }
+}
+
 export interface WorktreeNavView extends WorktreeView {
   repoName: string
   sessions: SessionMeta[]
