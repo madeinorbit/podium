@@ -202,6 +202,10 @@ export type TranscriptTag = z.infer<typeof TranscriptTag>
 
 export const TranscriptItem = z.object({
   id: z.string(),
+  /** Opaque, daemon-defined position anchor for read-from/subscribe-since paging.
+   *  Stable across re-reads of the same file bytes (unlike `id`, which is
+   *  synthesized for some items). The client treats it as opaque. */
+  cursor: z.string().optional(),
   role: TranscriptRole,
   ts: z.string().optional(), // ISO 8601
   /** Markdown body. Empty for pure tool-call items. */

@@ -1,3 +1,5 @@
+import type { TranscriptItem } from '@podium/protocol'
+
 export interface CursorParts {
   /** Stable id of the JSONL file this item's record lives in. */
   fileId: string
@@ -20,10 +22,34 @@ export function decodeCursor(c: string): CursorParts | null {
     const arr = JSON.parse(Buffer.from(c, 'base64url').toString('utf8'))
     if (!Array.isArray(arr) || arr.length !== 4) return null
     const [fileId, offset, uuid, sub] = arr
-    if (typeof fileId !== 'string' || typeof offset !== 'number' || typeof sub !== 'number') return null
+    if (typeof fileId !== 'string' || typeof offset !== 'number' || typeof sub !== 'number')
+      return null
     if (uuid !== null && typeof uuid !== 'string') return null
     return { fileId, offset, uuid, sub }
   } catch {
     return null
   }
+}
+
+export function stampCursors(
+  items: TranscriptItem[],
+  fileId: string,
+  offset: number,
+  uuid: string | null,
+): TranscriptItem[] {
+  return items.map((item, sub) => ({
+    ...item,
+    cursor: encodeCursor({ fileId, offset, uuid, sub }),
+  }))
+}
+
+export function recordUuid(record: unknown): string | null {
+  if (
+    record &&
+    typeof record === 'object' &&
+    typeof (record as { uuid?: unknown }).uuid === 'string'
+  ) {
+    return (record as { uuid: string }).uuid
+  }
+  return null
 }
