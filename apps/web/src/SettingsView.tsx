@@ -19,6 +19,7 @@ import {
 } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import { cn } from '@/lib/utils'
+import { MachinesPanel } from './MachinesPanel'
 import { useStore } from './store'
 import { type ThemeMode, type ThemePreset, useTheme } from './theme'
 
@@ -31,6 +32,7 @@ export type SettingsTab =
   | 'hibernation'
   | 'notifications'
   | 'integrations'
+  | 'machines'
 
 export const SETTINGS_TABS: { key: SettingsTab; label: string }[] = [
   { key: 'appearance', label: 'Appearance' },
@@ -41,6 +43,7 @@ export const SETTINGS_TABS: { key: SettingsTab; label: string }[] = [
   { key: 'hibernation', label: 'Hibernation' },
   { key: 'notifications', label: 'Notifications' },
   { key: 'integrations', label: 'Integrations' },
+  { key: 'machines', label: 'Machines' },
 ]
 
 /**
@@ -413,6 +416,8 @@ export function SettingsView(): JSX.Element {
                 </Row>
               </Section>
             )}
+
+            {tab === 'machines' && <MachinesPanel />}
           </div>
         </div>
       )}
