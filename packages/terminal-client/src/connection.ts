@@ -2,6 +2,7 @@ import {
   type ConversationSummaryWire,
   encode,
   type HostMetricsWire,
+  type MachineWire,
   parseServerMessage,
   type ServerMessage,
   type SessionMeta,
@@ -129,6 +130,7 @@ export class SocketHub {
   private sessionList: SessionMeta[] = []
   private conversationList: ConversationSummaryWire[] = []
   private hostMetricsList: HostMetricsWire[] = []
+  private machinesList: MachineWire[] = []
   private intentionalClose = false
   private everConnected = false
   private reconnectDelay = RECONNECT_MIN_MS
@@ -152,6 +154,7 @@ export class SocketHub {
   private readonly sessionObservers = new Set<(s: SessionMeta[]) => void>()
   private readonly conversationObservers = new Set<(c: ConversationSummaryWire[]) => void>()
   private readonly hostMetricsObservers = new Set<(h: HostMetricsWire[]) => void>()
+  private readonly machinesObservers = new Set<(m: MachineWire[]) => void>()
   private readonly healthObservers = new Set<(h: ConnectionHealth) => void>()
   private readonly attentionObservers = new Set<(e: AttentionEvent) => void>()
   private draftObservers = new Set<(sessionId: string, text: string) => void>()
@@ -384,6 +387,16 @@ export class SocketHub {
     return () => this.hostMetricsObservers.delete(cb)
   }
 
+  machines(): MachineWire[] {
+    return this.machinesList
+  }
+
+  onMachines(cb: (m: MachineWire[]) => void): () => void {
+    this.machinesObservers.add(cb)
+    cb(this.machinesList)
+    return () => this.machinesObservers.delete(cb)
+  }
+
   /**
    * Observe a session's structured transcript. The first observer triggers a
    * server-side subscription (snapshot + live appends); the last one leaving
@@ -583,6 +596,11 @@ export class SocketHub {
         return { ...s, agentState: msg.state }
       })
       if (changed) for (const o of this.sessionObservers) o(this.sessionList)
+      return
+    }
+    if (msg.type === 'machinesChanged') {
+      this.machinesList = msg.machines
+      for (const o of this.machinesObservers) o(this.machinesList)
       return
     }
     this.connections.get(msg.sessionId)?._ingest(msg)

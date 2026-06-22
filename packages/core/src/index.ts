@@ -5,4 +5,5 @@
  * TypeScript source by the apps; not published.
  */
 export * from './settings.js'
-export * from './config'
+export * from './config.js'
+export * from './git.js'

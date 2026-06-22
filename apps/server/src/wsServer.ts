@@ -1,5 +1,14 @@
 import type { Server } from 'node:http'
-import { encode, isProtocolCompatible, parseClientMessage, parseDaemonMessage, WIRE_VERSION } from '@podium/protocol'
+import {
+  type DaemonHandshake,
+  type DaemonHandshakeReply,
+  WIRE_VERSION,
+  encode,
+  isProtocolCompatible,
+  parseClientMessage,
+  parseDaemonHandshake,
+  parseDaemonMessage,
+} from '@podium/protocol'
 import { WebSocketServer } from 'ws'
 import type { SessionRegistry } from './relay'
 
@@ -94,6 +103,75 @@ export function sweepClientLiveness(
   }
 }
 
+/**
+ * Per-daemon-socket lifecycle: hold the connection unauthenticated until the FIRST
+ * frame proves identity, then route everything after as control messages.
+ *
+ * The first frame MUST parse as a `DaemonHandshake` (pair/hello) — anything else
+ * (junk, or a stray control frame from a buggy/hostile client) is dropped on the
+ * floor, never reaching the registry. One auth path for every daemon, local or remote:
+ *  - `hello` (token in the store): `authenticateDaemon` verifies it. The local machine
+ *    is pre-registered at server startup (ensureLocalMachine) with a server-owned
+ *    credential, so its same-host daemon comes through here too — no special bootstrap.
+ *  - `pair` (one-time code): `authenticateDaemon` redeems it and mints a token, which
+ *    we hand back once via `paired` (the daemon persists it).
+ * Only after a successful handshake do we `attachDaemon`; subsequent frames route to
+ * `onDaemonMessageFrom(machineId, …)`. Close detaches the machine.
+ *
+ * Outbound frames go through {@link safeSend} (backpressure + never-throws), the same
+ * chokepoint client frames use. The caller (attachWebSockets) layers the heartbeat
+ * sweep on top — terminating a wedged daemon fires this socket's `close` → detachDaemon.
+ *
+ * Extracted from the connection handler so the auth logic is unit-testable against a
+ * fake socket (see wsServer.daemon.test.ts).
+ */
+export function wireDaemonSocket(ws: import('ws').WebSocket, registry: SessionRegistry): void {
+  let machineId: string | undefined
+  // Reply helper. The reply `type` literals (helloOk/paired/…) collide with members
+  // of other encode() unions, so annotate the value as a DaemonHandshakeReply to
+  // pin it to the handshake schema.
+  const reply = (msg: DaemonHandshakeReply): void => ws.send(encode(msg))
+  ws.on('message', (raw: import('ws').RawData) => {
+    if (machineId === undefined) {
+      let frame: DaemonHandshake
+      try {
+        frame = parseDaemonHandshake(raw.toString())
+      } catch {
+        return // first frame must be a handshake; ignore anything else (pre-auth)
+      }
+      // One auth path for every daemon, local or remote: a `hello` is verified against
+      // the machine's stored credential, a `pair` redeems a code + mints one. The local
+      // machine is pre-registered at startup (ensureLocalMachine) with a server-owned
+      // credential, so its same-host daemon authenticates here too.
+      const auth = registry.authenticateDaemon(frame)
+      if (!auth.ok) {
+        reply({
+          type: frame.type === 'pair' ? 'pairRejected' : 'helloRejected',
+          reason: auth.reason,
+        })
+        return
+      }
+      machineId = auth.machineId
+      // A fresh pair hands the minted token back exactly once (the daemon persists
+      // it). `authenticateDaemon` only returns a token on the pair branch.
+      if (frame.type === 'pair' && auth.token !== undefined) {
+        reply({ type: 'paired', token: auth.token, machineId, name: auth.name })
+      }
+      registry.attachDaemon(machineId, (msg) => safeSend(ws, msg, SEND_BUFFER_LIMIT_BYTES))
+      reply({ type: 'helloOk', name: auth.name })
+      return
+    }
+    try {
+      registry.onDaemonMessageFrom(machineId, parseDaemonMessage(raw.toString()))
+    } catch {
+      // ignore malformed daemon frames
+    }
+  })
+  ws.on('close', () => {
+    if (machineId) registry.detachDaemon(machineId)
+  })
+}
+
 export function attachWebSockets(server: Server, registry: SessionRegistry): WsHandle {
   const daemonWss = new WebSocketServer({ noServer: true })
   const clientWss = new WebSocketServer({ noServer: true })
@@ -126,17 +204,16 @@ export function attachWebSockets(server: Server, registry: SessionRegistry): WsH
   // Liveness marks for the daemon socket: present = ponged since the last sweep.
   const aliveDaemons = new WeakSet<HeartbeatSocket>()
   daemonWss.on('connection', (ws) => {
-    registry.attachDaemon((msg) => safeSend(ws, msg, SEND_BUFFER_LIMIT_BYTES))
+    // Pre-auth handshake gate: drop non-handshake first frames; the first hello/pair →
+    // authenticateDaemon → attach as the authenticated machineId. UNIFIED auth — the
+    // same-host daemon authenticates as the local machine through the SAME hello path as
+    // any remote (the server pre-registered 'local' via ensureLocalMachine + adopted its
+    // '__local__' rows at startup, so its data is attributed regardless). No bootstrap
+    // special-case. The heartbeat liveness mark is layered on so a wedged daemon is
+    // terminate()d within two sweeps → fires `close` → detachDaemon.
+    wireDaemonSocket(ws, registry)
     aliveDaemons.add(ws)
     ws.on('pong', () => aliveDaemons.add(ws))
-    ws.on('message', (raw: import('ws').RawData) => {
-      try {
-        registry.onDaemonMessage(parseDaemonMessage(raw.toString()))
-      } catch {
-        // ignore malformed daemon frames
-      }
-    })
-    ws.on('close', () => registry.detachDaemon())
   })
 
   // Liveness marks for client sockets: present = ponged since the last sweep.

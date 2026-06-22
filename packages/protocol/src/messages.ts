@@ -118,6 +118,12 @@ export const SessionMeta = z.object({
    *  shown as the tab/sidebar accent line. Absent / 'default' = no colour. This is
    *  identity, distinct from the runtime *status* dot. */
   agentColor: z.string().optional(),
+  // The machine (daemon) this session runs on. machineId is the stable join key;
+  // machineName is the display label (server-resolved from the machines table).
+  // OPTIONAL during build-out so every task stays typecheck-green: Task 5 always
+  // emits them, and the web treats absent as the local machine.
+  machineId: z.string().optional(),
+  machineName: z.string().optional(),
   /** Snooze state — orthogonal to agentState. `undefined`/absent = not snoozed;
    *  `null` = snoozed until the next message; an ISO string = snoozed until that
    *  time (or the next message, whichever first). Drives the sidebar's attention
@@ -175,6 +181,8 @@ export const GitRepositoryWire = z.object({
   originUrl: z.string().optional(),
   // Always present on the wire; defaults to [] so producers may omit it safely.
   worktrees: z.array(GitWorktreeWire).default([]),
+  /** Server-stamped on scanReposAll(); the daemon never sets this. */
+  machineId: z.string().optional(),
 })
 export type GitRepositoryWire = z.infer<typeof GitRepositoryWire>
 
@@ -435,10 +443,67 @@ export type HostMemoryWire = z.infer<typeof HostMemoryWire>
 
 export const HostMetricsWire = z.object({
   hostname: z.string(),
+  machineId: z.string().optional(), // server-filled before broadcast
+  name: z.string().optional(), // server-filled before broadcast
   sampledAt: z.string(), // ISO 8601
   memory: HostMemoryWire,
 })
 export type HostMetricsWire = z.infer<typeof HostMetricsWire>
+
+export const MachineWire = z.object({
+  id: z.string(),
+  name: z.string(),
+  hostname: z.string(),
+  online: z.boolean(),
+  lastSeenAt: z.string(), // ISO 8601
+})
+export type MachineWire = z.infer<typeof MachineWire>
+
+export const MachinesChangedMessage = z.object({
+  type: z.literal('machinesChanged'),
+  machines: z.array(MachineWire),
+})
+
+// ---- daemon handshake (pre-auth; NOT part of the Control/Daemon unions) ----
+export const PairFrame = z.object({
+  type: z.literal('pair'),
+  code: z.string(),
+  machineId: z.string(),
+  hostname: z.string(),
+  name: z.string().optional(),
+})
+export const HelloFrame = z.object({
+  type: z.literal('hello'),
+  machineId: z.string(),
+  token: z.string(),
+  hostname: z.string(),
+})
+export const DaemonHandshake = z.discriminatedUnion('type', [PairFrame, HelloFrame])
+export type DaemonHandshake = z.infer<typeof DaemonHandshake>
+
+export const PairedReply = z.object({
+  type: z.literal('paired'),
+  token: z.string(),
+  machineId: z.string(),
+  name: z.string(),
+})
+export const PairRejectedReply = z.object({ type: z.literal('pairRejected'), reason: z.string() })
+export const HelloOkReply = z.object({ type: z.literal('helloOk'), name: z.string() })
+export const HelloRejectedReply = z.object({ type: z.literal('helloRejected'), reason: z.string() })
+export const DaemonHandshakeReply = z.discriminatedUnion('type', [
+  PairedReply,
+  PairRejectedReply,
+  HelloOkReply,
+  HelloRejectedReply,
+])
+export type DaemonHandshakeReply = z.infer<typeof DaemonHandshakeReply>
+
+export function parseDaemonHandshake(raw: string): DaemonHandshake {
+  return DaemonHandshake.parse(JSON.parse(raw))
+}
+export function parseDaemonHandshakeReply(raw: string): DaemonHandshakeReply {
+  return DaemonHandshakeReply.parse(JSON.parse(raw))
+}
 
 // Latest sample per daemon host. An array (not a single host) so the wire shape
 // already accommodates multiple machines each running a daemon.
@@ -470,6 +535,7 @@ export const ServerMessage = z.discriminatedUnion('type', [
   SessionAgentStateChangedMessage,
   SessionDraftChangedMessage,
   HostMetricsChangedMessage,
+  MachinesChangedMessage,
   PongMessage,
   AttentionEventMessage,
   TranscriptAppendMessage,
@@ -926,7 +992,16 @@ export type DaemonMessage = z.infer<typeof DaemonMessage>
 // Codecs. parse* functions throw on malformed JSON (SyntaxError) or on a schema
 // mismatch (ZodError); callers handle both.
 // ---- codec ----
-type AnyMessage = ClientMessage | ServerMessage | DaemonMessage | ControlMessage
+// The handshake frames (pair/hello and their replies) ride the same wire but are
+// deliberately outside the Control/Daemon unions — they're exchanged before a
+// daemon is authenticated. encode() must still serialize them on both sides.
+type AnyMessage =
+  | ClientMessage
+  | ServerMessage
+  | DaemonMessage
+  | ControlMessage
+  | DaemonHandshake
+  | DaemonHandshakeReply
 
 export function encode(msg: AnyMessage): string {
   return JSON.stringify(msg)

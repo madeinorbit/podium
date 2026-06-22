@@ -22,6 +22,7 @@ import type { JSX } from 'react'
 import { useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { ArrowSwipeKey } from '@/ArrowSwipeKey'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -33,7 +34,14 @@ import {
 import { useSessionGuard } from '@/hooks/use-session-guard'
 import { cn } from '@/lib/utils'
 import { ChatView } from './ChatView'
-import { defaultChatCapable, isSnoozed, panelLabel, resumeCommand } from './derive'
+import {
+  defaultChatCapable,
+  exitedRecovery,
+  isKnownWorktreePath,
+  isSnoozed,
+  panelLabel,
+  resumeCommand,
+} from './derive'
 import { attentionGroup } from './home'
 import { SnoozeControl } from './SnoozeControl'
 import { useStore } from './store'
@@ -109,6 +117,8 @@ export function AgentPanel({
   const {
     hub,
     sessions,
+    machines,
+    repos,
     trpc,
     drafts,
     startBtw,
@@ -161,6 +171,13 @@ export function AgentPanel({
 
   const hibernated = session?.status === 'hibernated'
   const exited = session?.status === 'exited'
+  // The session's worktree was removed out from under it (an orphaned session):
+  // its cwd no longer matches any scanned worktree. Gate on repos being loaded so
+  // the boot window (no repos yet) doesn't transiently flag every session. Feeds
+  // the exited banners — a missing worktree forces "remove" (can't resume in a
+  // directory that's gone), while the header's copy-resume-command stays for
+  // resuming by hand elsewhere.
+  const worktreeMissing = !!session && repos.length > 0 && !isKnownWorktreePath(repos, session.cwd)
   // The native CLI resume command for this session (#119), or null when no
   // resume ref is known. Also the first right-aligned header control, so the
   // `ml-auto` fallbacks below defer to it when present.
@@ -380,6 +397,17 @@ export function AgentPanel({
     <div className="flex min-w-0 flex-1 flex-col">
       <div className="flex items-center gap-2.5 border-b border-border bg-card px-2.5 py-[5px]">
         {session && <WorkerLabel session={session} />}
+        {/* Machine badge: only when > 1 machine is connected, so single-machine
+            users see no change. Shows which daemon host this session runs on. */}
+        {machines.length > 1 && session?.machineName && (
+          <Badge
+            variant="secondary"
+            className="shrink-0 font-normal text-muted-foreground"
+            aria-label={`Running on ${session.machineName}`}
+          >
+            {session.machineName}
+          </Badge>
+        )}
         {/* The agent's working directory — context for which checkout/worktree this
             session runs in. Truncates; full path on hover. */}
         {session?.cwd && (
@@ -520,6 +548,8 @@ export function AgentPanel({
               exitCode={session.exitCode}
               isShell={session.agentKind === 'shell'}
               resumable={session.resumable === true}
+              worktreeMissing={worktreeMissing}
+              worktreePath={prettyCwd(session.cwd)}
             />
             <ChatView sessionId={sessionId} active={active} />
           </>
@@ -529,6 +559,8 @@ export function AgentPanel({
             exitCode={session.exitCode}
             isShell={session.agentKind === 'shell'}
             resumable={session.resumable === true}
+            worktreeMissing={worktreeMissing}
+            worktreePath={prettyCwd(session.cwd)}
           />
         )
       ) : effectiveMode === 'chat' ? (
@@ -679,52 +711,59 @@ function ExitedPane({
   exitCode,
   isShell,
   resumable,
+  worktreeMissing,
+  worktreePath,
 }: {
   sessionId: string
   exitCode: number | undefined
   isShell: boolean
   resumable: boolean
+  worktreeMissing: boolean
+  worktreePath?: string
 }): JSX.Element {
   const { resurrectSession, killSession } = useStore()
   const [waking, setWaking] = useState(false)
-  const what = isShell ? 'shell' : 'agent process'
-  // Exit code 0 can still be an external kill of the durable host (the PTY
-  // reports the attach client's exit, not the agent's) — stay neutral about why.
-  const detail =
-    exitCode === undefined || exitCode === 0
-      ? `The ${what} is no longer running.`
-      : exitCode === -1
-        ? `The ${what} failed to start.`
-        : `The ${what} exited with code ${exitCode}.`
-  const recoverable = isShell || resumable
-  const restart = () => {
-    setWaking(true)
-    void resurrectSession(sessionId)
-  }
+  const { detail, action } = exitedRecovery({
+    exitCode,
+    isShell,
+    resumable,
+    worktreeMissing,
+    ...(worktreePath ? { worktreePath } : {}),
+  })
+  const secondary =
+    action === 'restart'
+      ? 'Restart opens a fresh shell in the same directory.'
+      : action === 'resume'
+        ? 'The conversation is intact — resume to pick up where it left off.'
+        : worktreeMissing
+          ? 'Remove it to clear it away.'
+          : 'It left no conversation to resume.'
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center text-warning">
       <RotateCcw size={28} aria-hidden="true" />
       <p className="m-0 max-w-[42ch] text-[13px] text-muted-foreground">
-        {detail}{' '}
-        {isShell
-          ? 'Restart opens a fresh shell in the same directory.'
-          : resumable
-            ? 'The conversation is intact — resume to pick up where it left off.'
-            : 'It left no conversation to resume.'}
+        {detail} {secondary}
       </p>
-      {recoverable ? (
-        <Button type="button" disabled={waking} onClick={restart}>
-          {waking
-            ? isShell
-              ? 'Restarting…'
-              : 'Resuming…'
-            : isShell
-              ? 'Restart shell'
-              : 'Resume session'}
-        </Button>
-      ) : (
+      {action === 'remove' ? (
         <Button type="button" variant="secondary" onClick={() => void killSession(sessionId)}>
           Remove session
+        </Button>
+      ) : (
+        <Button
+          type="button"
+          disabled={waking}
+          onClick={() => {
+            setWaking(true)
+            void resurrectSession(sessionId)
+          }}
+        >
+          {waking
+            ? action === 'restart'
+              ? 'Restarting…'
+              : 'Resuming…'
+            : action === 'restart'
+              ? 'Restart shell'
+              : 'Resume session'}
         </Button>
       )}
     </div>
@@ -738,27 +777,42 @@ function ExitedBanner({
   exitCode,
   isShell,
   resumable,
+  worktreeMissing,
+  worktreePath,
 }: {
   sessionId: string
   exitCode: number | undefined
   isShell: boolean
   resumable: boolean
+  worktreeMissing: boolean
+  worktreePath?: string
 }): JSX.Element {
   const { resurrectSession, killSession } = useStore()
   const [waking, setWaking] = useState(false)
-  const what = isShell ? 'shell' : 'agent process'
-  const detail =
-    exitCode === undefined || exitCode === 0
-      ? `The ${what} is no longer running.`
-      : exitCode === -1
-        ? `The ${what} failed to start.`
-        : `The ${what} exited with code ${exitCode}.`
-  const recoverable = isShell || resumable
+  const { detail, action } = exitedRecovery({
+    exitCode,
+    isShell,
+    resumable,
+    worktreeMissing,
+    ...(worktreePath ? { worktreePath } : {}),
+  })
   return (
-    <div className="flex shrink-0 items-center gap-2 border-b border-warning/30 bg-warning/10 px-3 py-1.5 text-xs text-warning">
-      <RotateCcw size={14} aria-hidden="true" />
-      <span className="min-w-0 flex-1 truncate">{detail} Transcript is read-only.</span>
-      {recoverable ? (
+    // items-start (not -center) so the action stays put when the notice wraps to
+    // a second line — the worktree-missing message is longer than a bare exit line.
+    <div className="flex shrink-0 items-start gap-2 border-b border-warning/30 bg-warning/10 px-3 py-1.5 text-xs text-warning">
+      <RotateCcw size={14} aria-hidden="true" className="mt-0.5 shrink-0" />
+      <span className="min-w-0 flex-1">{detail} Transcript is read-only.</span>
+      {action === 'remove' ? (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="shrink-0"
+          onClick={() => void killSession(sessionId)}
+        >
+          Remove
+        </Button>
+      ) : (
         <Button
           type="button"
           variant="outline"
@@ -770,17 +824,13 @@ function ExitedBanner({
             void resurrectSession(sessionId)
           }}
         >
-          {waking ? (isShell ? 'Restarting…' : 'Resuming…') : isShell ? 'Restart' : 'Resume'}
-        </Button>
-      ) : (
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          className="shrink-0"
-          onClick={() => void killSession(sessionId)}
-        >
-          Remove
+          {waking
+            ? action === 'restart'
+              ? 'Restarting…'
+              : 'Resuming…'
+            : action === 'restart'
+              ? 'Restart'
+              : 'Resume'}
         </Button>
       )}
     </div>

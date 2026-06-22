@@ -24,6 +24,7 @@ import { AgentPanel } from './AgentPanel'
 import {
   agentColorHex,
   orderTabs,
+  orphanSessionFor,
   reposToViews,
   sessionDotClass,
   sessionsForWorktree,
@@ -116,8 +117,21 @@ export function Workspace(): JSX.Element {
     if (paneA && justOpened.current === paneA && !sessions.some((s) => s.sessionId === paneA)) {
       return
     }
+    // An orphaned session — paneA names a real, non-archived session whose
+    // worktree was removed out from under it (so `worktree` is undefined and the
+    // session is absent from allTabs, there being no worktree to list it under) —
+    // is still a valid pane that the orphan branch below renders. Keep it instead
+    // of bouncing to null. Scoped to `!worktree` so the archive-active-session
+    // flow (worktree present) still falls through and re-points pane A.
+    if (
+      !worktree &&
+      paneA &&
+      sessions.some((s) => s.sessionId === paneA && s.cwd === selectedWorktree && !s.archived)
+    ) {
+      return
+    }
     setPane('A', allTabs[0]?.id ?? null)
-  }, [allTabs, paneA, setPane, sessions])
+  }, [allTabs, paneA, setPane, sessions, selectedWorktree, worktree])
 
   // Keep pane B (the split's second pane) pointed at something valid. Unlike pane
   // A there's no fall-back target — a B that goes stale just clears to the picker —
@@ -138,12 +152,27 @@ export function Workspace(): JSX.Element {
     setPane('B', null)
   }, [allTabs, paneB, setPane, sessions])
 
-  if (!worktree)
+  if (!worktree) {
+    // The selected path is no longer a live worktree, but it may still own
+    // sessions whose directory was removed out from under them (an orphaned
+    // session — e.g. a deleted git worktree). Rather than a dead-end "Select a
+    // worktree." screen, surface the orphan so its transcript stays readable:
+    // AgentPanel renders it read-only and its exited banner explains the worktree
+    // is gone. Only fall back to the placeholder when there's genuinely nothing
+    // to show (no selection, or the path has no sessions).
+    const orphan = orphanSessionFor({ selectedWorktree, sessions, paneA })
+    if (orphan)
+      return (
+        <div className="flex min-w-0 flex-1">
+          <AgentPanel sessionId={orphan.sessionId} active />
+        </div>
+      )
     return (
       <div className="flex flex-1 items-center justify-center text-xs text-muted-foreground/70">
         Select a worktree.
       </div>
     )
+  }
 
   const onDragEnd = (event: DragEndEvent) => {
     const { active, over } = event

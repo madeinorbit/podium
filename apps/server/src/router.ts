@@ -25,6 +25,9 @@ export const appRouter = t.router({
           agentKind: AgentKind.optional(),
           cwd: z.string(),
           title: z.string().optional(),
+          // Which machine to spawn on. Omitted = resolved by repo affinity / the sole
+          // online machine (single-machine behavior is unchanged).
+          machineId: z.string().optional(),
         }),
       )
       .mutation(({ ctx, input }) => ctx.registry.createSession(input)),
@@ -36,6 +39,7 @@ export const appRouter = t.router({
           resume: ResumeRef,
           conversationId: z.string(),
           title: z.string().optional(),
+          machineId: z.string().optional(),
         }),
       )
       .mutation(({ ctx, input }) => ctx.registry.resumeSession(input)),
@@ -231,36 +235,40 @@ export const appRouter = t.router({
   }),
   repos: t.router({
     list: t.procedure.query(({ ctx }) => ctx.repos.list()),
-    add: t.procedure.input(z.object({ path: z.string() })).mutation(async ({ ctx, input }) => {
-      try {
-        await ctx.repos.add(input.path)
-      } catch (e) {
-        throw new TRPCError({
-          code: 'BAD_REQUEST',
-          message: e instanceof Error ? e.message : String(e),
-        })
-      }
-      return ctx.repos.list()
-    }),
+    add: t.procedure
+      .input(z.object({ path: z.string(), machineId: z.string().optional() }))
+      .mutation(async ({ ctx, input }) => {
+        try {
+          await ctx.repos.add(input.path, input.machineId)
+        } catch (e) {
+          throw new TRPCError({
+            code: 'BAD_REQUEST',
+            message: e instanceof Error ? e.message : String(e),
+          })
+        }
+        return ctx.repos.list()
+      }),
     // Persist a selected set in one call (the scan-and-select flow). Each path is
     // added independently so one bad entry doesn't drop the rest; failures are reported.
     addMany: t.procedure
-      .input(z.object({ paths: z.array(z.string()) }))
+      .input(z.object({ paths: z.array(z.string()), machineId: z.string().optional() }))
       .mutation(async ({ ctx, input }) => {
         const failed: { path: string; message: string }[] = []
         for (const path of input.paths) {
           try {
-            await ctx.repos.add(path)
+            await ctx.repos.add(path, input.machineId)
           } catch (e) {
             failed.push({ path, message: e instanceof Error ? e.message : String(e) })
           }
         }
         return { repos: ctx.repos.list(), failed }
       }),
-    remove: t.procedure.input(z.object({ path: z.string() })).mutation(async ({ ctx, input }) => {
-      await ctx.repos.remove(input.path)
-      return ctx.repos.list()
-    }),
+    remove: t.procedure
+      .input(z.object({ path: z.string(), machineId: z.string().optional() }))
+      .mutation(async ({ ctx, input }) => {
+        await ctx.repos.remove(input.path, input.machineId)
+        return ctx.repos.list()
+      }),
     browse: t.procedure
       .input(
         z.object({ path: z.string().optional(), includeHidden: z.boolean().optional() }).optional(),
@@ -312,11 +320,10 @@ export const appRouter = t.router({
   discovery: t.router({
     scan: t.procedure.mutation(({ ctx }) => ctx.registry.scan()),
     // Load path: enrich only the already-registered repos with branch/worktree metadata.
-    // maxDepth:0 inspects each registered root in place, so this never walks the
-    // filesystem and stays fast regardless of how many repos live under $HOME.
-    refreshRepos: t.procedure.mutation(({ ctx }) =>
-      ctx.registry.scanRepos(ctx.repos.list(), { includeHome: false, maxDepth: 0 }),
-    ),
+    // Fans out to each online machine; each result is stamped with its machineId.
+    // Single-machine: identical to the old scanRepos(list()) path (maxDepth:0 inspects
+    // each registered root in place, never walking the filesystem), just with machineId added.
+    refreshRepos: t.procedure.mutation(({ ctx }) => ctx.repos.scanReposAll()),
     // Discovery path: walk a user-picked folder (never all of $HOME) to a bounded
     // depth and return candidates for the selection screen.
     scanFolder: t.procedure
@@ -327,6 +334,24 @@ export const appRouter = t.router({
           maxDepth: input.maxDepth ?? 6,
         }),
       ),
+  }),
+  machines: t.router({
+    // Registered machines (online flag + last-seen), shown in Settings → Machines and
+    // the machine dropdown. Single-machine: just the one 'local' machine.
+    list: t.procedure.query(({ ctx }) => ctx.registry.listMachines()),
+    rename: t.procedure
+      .input(z.object({ id: z.string(), name: z.string().min(1).max(80) }))
+      .mutation(({ ctx, input }) => {
+        ctx.registry.renameMachine(input.id, input.name)
+        return ctx.registry.listMachines()
+      }),
+    revoke: t.procedure.input(z.object({ id: z.string() })).mutation(({ ctx, input }) => {
+      ctx.registry.revokeMachine(input.id)
+      return ctx.registry.listMachines()
+    }),
+    // Mint a short-lived pairing code the user types into a new machine's daemon to
+    // join it to this server.
+    pairingCode: t.procedure.mutation(({ ctx }) => ({ code: ctx.registry.mintPairingCode() })),
   }),
   files: t.router({
     read: t.procedure

@@ -4,11 +4,14 @@ import {
   agentBadge,
   chatActivity,
   defaultChatCapable,
+  exitedRecovery,
   filterSidebarSections,
   formatMemBytes,
   hostMemoryView,
+  isKnownWorktreePath,
   isSnoozed,
   orderTabs,
+  orphanSessionFor,
   panelLabel,
   partitionWorkItems,
   reposToViews,
@@ -91,6 +94,122 @@ describe('sessionsForWorktree', () => {
     const all = [session('/src/app'), session('/src/app-feat')]
     expect(sessionsForWorktree(all, '/src/app-feat')).toHaveLength(1)
     expect(sessionsForWorktree(all, '/src/app-feat')[0].cwd).toBe('/src/app-feat')
+  })
+})
+
+describe('isKnownWorktreePath', () => {
+  it('is true for the repo checkout and its linked worktrees', () => {
+    expect(isKnownWorktreePath([repo], '/src/app')).toBe(true)
+    expect(isKnownWorktreePath([repo], '/src/app-feat')).toBe(true)
+  })
+
+  it('is false for a path that no live worktree covers (e.g. a removed worktree)', () => {
+    expect(isKnownWorktreePath([repo], '/src/app-gone')).toBe(false)
+  })
+
+  it('is false when no repos are loaded', () => {
+    expect(isKnownWorktreePath([], '/src/app')).toBe(false)
+  })
+})
+
+describe('exitedRecovery', () => {
+  it('a resumable agent resumes; a shell restarts; a dead-end agent is removed', () => {
+    expect(
+      exitedRecovery({ exitCode: 0, isShell: false, resumable: true, worktreeMissing: false })
+        .action,
+    ).toBe('resume')
+    expect(
+      exitedRecovery({ exitCode: 0, isShell: true, resumable: false, worktreeMissing: false })
+        .action,
+    ).toBe('restart')
+    expect(
+      exitedRecovery({ exitCode: 0, isShell: false, resumable: false, worktreeMissing: false })
+        .action,
+    ).toBe('remove')
+  })
+
+  it('forces remove and explains when the worktree is missing — even for a resumable agent', () => {
+    const r = exitedRecovery({
+      exitCode: 0,
+      isShell: false,
+      resumable: true,
+      worktreeMissing: true,
+    })
+    expect(r.action).toBe('remove')
+    expect(r.detail).toMatch(/worktree/i)
+    expect(r.detail).toMatch(/can'?t be resumed/i)
+  })
+
+  it('a missing worktree also blocks a shell restart (its directory is gone)', () => {
+    expect(
+      exitedRecovery({ exitCode: 0, isShell: true, resumable: false, worktreeMissing: true })
+        .action,
+    ).toBe('remove')
+  })
+
+  it('names the worktree path in the notice when given one', () => {
+    const r = exitedRecovery({
+      exitCode: -1,
+      isShell: false,
+      resumable: true,
+      worktreeMissing: true,
+      worktreePath: '~/src/app-feat',
+    })
+    expect(r.detail).toContain('~/src/app-feat')
+  })
+
+  it('describes the exit cause when the worktree is intact', () => {
+    expect(
+      exitedRecovery({ exitCode: 137, isShell: false, resumable: true, worktreeMissing: false })
+        .detail,
+    ).toContain('137')
+    expect(
+      exitedRecovery({ exitCode: -1, isShell: false, resumable: true, worktreeMissing: false })
+        .detail,
+    ).toMatch(/failed to start/i)
+  })
+})
+
+describe('orphanSessionFor', () => {
+  const mk = (sessionId: string, cwd: string, archived = false): SessionMeta => ({
+    ...session(cwd),
+    sessionId,
+    archived,
+  })
+
+  it('is null when nothing is selected', () => {
+    expect(
+      orphanSessionFor({ selectedWorktree: null, sessions: [mk('a', '/gone')], paneA: 'a' }),
+    ).toBeNull()
+  })
+
+  it('is null when the selected path still has no sessions', () => {
+    expect(
+      orphanSessionFor({
+        selectedWorktree: '/gone',
+        sessions: [mk('a', '/elsewhere')],
+        paneA: null,
+      }),
+    ).toBeNull()
+  })
+
+  it('surfaces the pane-A session when it is an orphan of the selected path', () => {
+    const sessions = [mk('a', '/gone'), mk('b', '/gone')]
+    expect(orphanSessionFor({ selectedWorktree: '/gone', sessions, paneA: 'b' })?.sessionId).toBe(
+      'b',
+    )
+  })
+
+  it('falls back to the first orphan when pane A is not one of them', () => {
+    const sessions = [mk('a', '/gone'), mk('b', '/gone')]
+    expect(orphanSessionFor({ selectedWorktree: '/gone', sessions, paneA: null })?.sessionId).toBe(
+      'a',
+    )
+  })
+
+  it('ignores archived sessions', () => {
+    const sessions = [mk('a', '/gone', true)]
+    expect(orphanSessionFor({ selectedWorktree: '/gone', sessions, paneA: 'a' })).toBeNull()
   })
 })
 
@@ -419,7 +538,11 @@ describe('sortRepos', () => {
   const r = (id: string) => ({ id, name: id.toUpperCase() })
   it('sorts by mode', () => {
     const repos = [r('b'), r('a'), r('c')]
-    const lu = new Map([['a', 1], ['b', 3], ['c', 2]])
+    const lu = new Map([
+      ['a', 1],
+      ['b', 3],
+      ['c', 2],
+    ])
     expect(sortRepos(repos, 'alphabetical', [], lu).map((x) => x.id)).toEqual(['a', 'b', 'c'])
     expect(sortRepos(repos, 'lastUsed', [], lu).map((x) => x.id)).toEqual(['b', 'c', 'a'])
     expect(sortRepos(repos, 'custom', ['c', 'a'], lu).map((x) => x.id)).toEqual(['c', 'a', 'b'])
@@ -435,15 +558,26 @@ describe('sortRepos', () => {
   })
 
   it('lastUsed puts unknown lastUsedAt at end, tiebreaks by name', () => {
-    const repos = [{ id: 'a', name: 'A' }, { id: 'b', name: 'B' }, { id: 'c', name: 'C' }]
+    const repos = [
+      { id: 'a', name: 'A' },
+      { id: 'b', name: 'B' },
+      { id: 'c', name: 'C' },
+    ]
     const lu = new Map([['b', 5]])
     // b (ts=5), then a and c (ts=0) sorted by name
     expect(sortRepos(repos, 'lastUsed', [], lu).map((x) => x.id)).toEqual(['b', 'a', 'c'])
   })
 
   it('custom appends unknown ids in lastUsed order', () => {
-    const repos = [{ id: 'x', name: 'X' }, { id: 'y', name: 'Y' }, { id: 'z', name: 'Z' }]
-    const lu = new Map([['z', 10], ['y', 5]])
+    const repos = [
+      { id: 'x', name: 'X' },
+      { id: 'y', name: 'Y' },
+      { id: 'z', name: 'Z' },
+    ]
+    const lu = new Map([
+      ['z', 10],
+      ['y', 5],
+    ])
     // order=['x'], then z (ts=10), y (ts=5)
     expect(sortRepos(repos, 'custom', ['x'], lu).map((x) => x.id)).toEqual(['x', 'z', 'y'])
   })
@@ -517,17 +651,24 @@ describe('chatActivity', () => {
 
 describe('sessionDotTone', () => {
   it('maps live phases to semantic tones', () => {
-    expect(sessionDotTone(base({ agentState: { phase: 'working', since: '', openTaskCount: 0 } }))).toBe(
-      'working',
-    )
+    expect(
+      sessionDotTone(base({ agentState: { phase: 'working', since: '', openTaskCount: 0 } })),
+    ).toBe('working')
     expect(
       sessionDotTone(
-        base({ agentState: { phase: 'needs_user', since: '', openTaskCount: 0, need: { kind: 'question' } } }),
+        base({
+          agentState: {
+            phase: 'needs_user',
+            since: '',
+            openTaskCount: 0,
+            need: { kind: 'question' },
+          },
+        }),
       ),
     ).toBe('attention')
-    expect(sessionDotTone(base({ agentState: { phase: 'idle', since: '', openTaskCount: 0 } }))).toBe(
-      'ready',
-    )
+    expect(
+      sessionDotTone(base({ agentState: { phase: 'idle', since: '', openTaskCount: 0 } })),
+    ).toBe('ready')
   })
 
   it('keeps the last real tone on a hibernated session (#57), not grey', () => {
@@ -537,13 +678,21 @@ describe('sessionDotTone', () => {
       sessionDotTone(
         base({
           status: 'hibernated',
-          agentState: { phase: 'needs_user', since: '', openTaskCount: 0, need: { kind: 'question' } },
+          agentState: {
+            phase: 'needs_user',
+            since: '',
+            openTaskCount: 0,
+            need: { kind: 'question' },
+          },
         }),
       ),
     ).toBe('attention')
     expect(
       sessionDotTone(
-        base({ status: 'hibernated', agentState: { phase: 'working', since: '', openTaskCount: 0 } }),
+        base({
+          status: 'hibernated',
+          agentState: { phase: 'working', since: '', openTaskCount: 0 },
+        }),
       ),
     ).toBe('working')
   })
@@ -571,9 +720,9 @@ describe('sessionDotClass', () => {
   })
 
   it('does not animate non-working tones', () => {
-    expect(sessionDotClass(base({ agentState: { phase: 'idle', since: '', openTaskCount: 0 } }))).not.toContain(
-      'dot-working',
-    )
+    expect(
+      sessionDotClass(base({ agentState: { phase: 'idle', since: '', openTaskCount: 0 } })),
+    ).not.toContain('dot-working')
   })
 })
 
@@ -629,9 +778,9 @@ describe('filterSidebarSections (#100)', () => {
   it('matches on path and drops repos with no match', () => {
     const sections = sidebarSections([repo], sessions, noPins)
     expect(filterSidebarSections(sections, 'nonexistent').repos).toEqual([])
-    expect(filterSidebarSections(sections, '/src/app-feat').repos[0].worktrees.map((w) => w.path)).toEqual(
-      ['/src/app-feat'],
-    )
+    expect(
+      filterSidebarSections(sections, '/src/app-feat').repos[0].worktrees.map((w) => w.path),
+    ).toEqual(['/src/app-feat'])
   })
 
   it('leaves pinned panels untouched (they are a flat reach-list)', () => {
@@ -640,9 +789,9 @@ describe('filterSidebarSections (#100)', () => {
       worktrees: [],
       repos: [],
     })
-    expect(filterSidebarSections(sections, 'nonexistent').pinnedPanels.map((p) => p.sessionId)).toEqual([
-      's-/src/app-feat',
-    ])
+    expect(
+      filterSidebarSections(sections, 'nonexistent').pinnedPanels.map((p) => p.sessionId),
+    ).toEqual(['s-/src/app-feat'])
   })
 })
 
@@ -653,9 +802,12 @@ const withState = (
   extra: Record<string, unknown> = {},
 ): SessionMeta => ({
   ...s,
-  agentState: { phase, since: '2026-06-19T00:00:00.000Z', openTaskCount: 0, ...extra } as NonNullable<
-    SessionMeta['agentState']
-  >,
+  agentState: {
+    phase,
+    since: '2026-06-19T00:00:00.000Z',
+    openTaskCount: 0,
+    ...extra,
+  } as NonNullable<SessionMeta['agentState']>,
 })
 
 describe('isSnoozed', () => {
@@ -720,6 +872,10 @@ describe('sortSessionsForSidebar with snooze', () => {
     const snoozedAtt = { ...withState(session('/b'), 'needs_user'), snoozedUntil: null }
     const working = withState(session('/c'), 'working')
     const out = sortSessionsForSidebar([working, snoozedAtt, att], NOW)
-    expect(out.map((s) => s.sessionId)).toEqual([att.sessionId, snoozedAtt.sessionId, working.sessionId])
+    expect(out.map((s) => s.sessionId)).toEqual([
+      att.sessionId,
+      snoozedAtt.sessionId,
+      working.sessionId,
+    ])
   })
 })

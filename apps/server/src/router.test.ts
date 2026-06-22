@@ -2,13 +2,12 @@ import { describe, expect, it } from 'vitest'
 import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
 import { appRouter } from './router'
-import { SessionStore } from './store'
 import { SuperagentService } from './superagent'
 
 function caller() {
   const registry = new SessionRegistry()
-  registry.attachDaemon(() => {})
-  const repos = new RepoRegistry(new SessionStore(':memory:'))
+  registry.attachDaemon('local', () => {})
+  const repos = new RepoRegistry(registry, registry.sessionStore)
   const superagent = new SuperagentService(registry, repos, registry.sessionStore)
   return { registry, call: appRouter.createCaller({ registry, repos, superagent }) }
 }
@@ -31,8 +30,8 @@ describe('appRouter', () => {
   it('discovery.scan resolves via the registry', async () => {
     const daemon: import('@podium/protocol').ControlMessage[] = []
     const registry = new SessionRegistry()
-    registry.attachDaemon((m) => daemon.push(m))
-    const repos = new RepoRegistry(new SessionStore(':memory:'))
+    registry.attachDaemon('local', (m) => daemon.push(m))
+    const repos = new RepoRegistry(registry, registry.sessionStore)
     const call = appRouter.createCaller({
       registry,
       repos,
@@ -44,7 +43,7 @@ describe('appRouter', () => {
     const req = daemon.find((m) => m.type === 'scanRequest') as { requestId: string } | undefined
     expect(req).toBeDefined()
     if (!req) throw new Error('scanRequest not sent')
-    registry.onDaemonMessage({
+    registry.onDaemonMessageFrom('local', {
       type: 'scanResult',
       requestId: req.requestId,
       conversations: [],
@@ -55,10 +54,10 @@ describe('appRouter', () => {
 })
 
 function repoCaller() {
-  const repos = new RepoRegistry(new SessionStore(':memory:'))
   const registry = new SessionRegistry()
+  const repos = new RepoRegistry(registry, registry.sessionStore)
   const daemon: import('@podium/protocol').ControlMessage[] = []
-  registry.attachDaemon((m) => daemon.push(m))
+  registry.attachDaemon('local', (m) => daemon.push(m))
   return {
     registry,
     repos,
@@ -112,7 +111,7 @@ describe('repos router', () => {
     expect(req?.includeHome).toBe(false)
     expect(req?.maxDepth).toBe(0)
     if (!req) throw new Error('no scanReposRequest')
-    registry.onDaemonMessage({
+    registry.onDaemonMessageFrom('local', {
       type: 'scanReposResult',
       requestId: req.requestId,
       repositories: [],
@@ -132,7 +131,7 @@ describe('repos router', () => {
     expect(req?.includeHome).toBe(false)
     expect(req?.maxDepth).toBe(6)
     if (!req) throw new Error('no scanReposRequest')
-    registry.onDaemonMessage({
+    registry.onDaemonMessageFrom('local', {
       type: 'scanReposResult',
       requestId: req.requestId,
       repositories: [],

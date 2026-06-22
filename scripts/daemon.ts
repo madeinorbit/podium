@@ -14,6 +14,7 @@
  * uses node:sqlite/bun:sqlite accordingly. (Default deployment is still Node.)
  */
 import { startDaemon } from '../apps/daemon/src/daemon'
+import { LOCAL_MACHINE_ID, readOrCreateDaemonSecret } from '../apps/server/src/local-machine'
 import { installProcessSafetyNet } from './process-safety'
 import { startWatchdog } from './sd-notify'
 
@@ -36,9 +37,17 @@ const bootWatchdog = setTimeout(() => {
   process.exit(1)
 }, BOOT_TIMEOUT_MS)
 
-// Resolves on the first successful connect (or after a short grace if the server
-// isn't up yet); the daemon keeps retrying in the background regardless.
-const daemon = await startDaemon({ serverUrl: `ws://localhost:${port}` })
+// Same-host trust: this bundled daemon authenticates as the LOCAL machine using the
+// shared secret in the state dir (the server reads/creates the same file). Without it
+// the split daemon has no credential, never registers a machine, and existing
+// `machine_id='__local__'` sessions/repos are never adopted — they vanish on restart.
+// Resolves on the first successful connect (or after a short grace if the server isn't
+// up yet); the daemon keeps retrying in the background regardless.
+const daemon = await startDaemon({
+  serverUrl: `ws://localhost:${port}`,
+  bootstrapToken: readOrCreateDaemonSecret(),
+  machineId: LOCAL_MACHINE_ID, // attach to the machine the server adopted '__local__' rows onto
+})
 clearTimeout(bootWatchdog)
 console.log(`podium daemon up: connected to ws://localhost:${port}/daemon`)
 

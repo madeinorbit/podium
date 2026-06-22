@@ -17,6 +17,7 @@ import { fileURLToPath } from 'node:url'
 import { agentLaunchCommand, type LaunchOptions, type LaunchSpec } from '@podium/agent-bridge'
 import type { AgentKind } from '@podium/protocol'
 import { startDaemon } from '../../apps/daemon/src/daemon'
+import { LOCAL_MACHINE_ID } from '../../apps/server/src/local-machine'
 import { startServer } from '../../apps/server/src/server'
 import { applyHarnessEnv, reapHarnessSessions } from './harness-env'
 
@@ -43,7 +44,12 @@ const launch = (kind: AgentKind, opts: LaunchOptions): LaunchSpec =>
       }
 
 const server = await startServer({ port: PORT })
-const daemon = await startDaemon({ serverUrl: `ws://localhost:${server.port}`, launch })
+const daemon = await startDaemon({
+  serverUrl: `ws://localhost:${server.port}`,
+  bootstrapToken: server.bootstrapToken,
+  machineId: LOCAL_MACHINE_ID,
+  launch,
+})
 console.log(
   `harness relay on ws://localhost:${server.port} (shell=real, else=keyecho); state=${stateDir}`,
 )

@@ -3,6 +3,7 @@ import type {
   GitDiscoveryDiagnosticWire,
   GitRepositoryWire,
   HostMetricsWire,
+  MachineWire,
   SessionMeta,
   WorkState,
 } from '@podium/protocol'
@@ -34,6 +35,8 @@ export interface Store {
   sessions: SessionMeta[]
   /** Latest health sample per daemon host; empty until a daemon reports (or after it drops). */
   hostMetrics: HostMetricsWire[]
+  /** Connected machines registered with this Podium server; refreshed via machinesChanged. */
+  machines: MachineWire[]
   pins: PinState
   setPinned: (kind: PinKind, id: string, pinned: boolean) => Promise<void>
   /** Manual tab order per worktree path (drag-to-reorder). Absent key = no manual order. */
@@ -207,6 +210,7 @@ export function StoreProvider({
   const [repoDiagnostics, setRepoDiagnostics] = useState<GitDiscoveryDiagnosticWire[]>([])
   const [sessions, setSessions] = useState<SessionMeta[]>([])
   const [hostMetrics, setHostMetrics] = useState<HostMetricsWire[]>([])
+  const [machines, setMachines] = useState<MachineWire[]>([])
   const [pins, setPins] = useState<PinState>(EMPTY_PINS)
   const [tabOrders, setTabOrders] = useState<Record<string, string[]>>({})
   const [view, setView] = useState<MainView>(readStoredView)
@@ -495,6 +499,17 @@ export function StoreProvider({
     // thread surfaced twice on resume) before they reach any view.
     const offSessions = hub.onSessions((s) => setSessions(dedupeSessionsByResume(s)))
     const offHostMetrics = hub.onHostMetrics(setHostMetrics)
+    // Repos are only scannable through a connected daemon, so a machine coming online
+    // (e.g. the split daemon reconnecting after a restart) can make previously-empty
+    // repos available. Refetch when the online count climbs, so the workspace isn't
+    // stuck on the "add a repo" empty state until a manual reload.
+    let onlineMachines = 0
+    const offMachines = hub.onMachines((m) => {
+      setMachines(m)
+      const online = m.reduce((n, x) => n + (x.online ? 1 : 0), 0)
+      if (online > onlineMachines) void refreshRepos()
+      onlineMachines = online
+    })
     const offDraft = hub.onSessionDraft((sessionId, text) =>
       setDrafts((d) => (d[sessionId] === text ? d : { ...d, [sessionId]: text })),
     )
@@ -536,6 +551,7 @@ export function StoreProvider({
       clearTimeout(connectTimer)
       offSessions()
       offHostMetrics()
+      offMachines()
       offDraft()
       offAttention()
       document.removeEventListener('visibilitychange', reportVisibility)
@@ -552,6 +568,7 @@ export function StoreProvider({
     repoDiagnostics,
     sessions,
     hostMetrics,
+    machines,
     pins,
     setPinned,
     tabOrders,
