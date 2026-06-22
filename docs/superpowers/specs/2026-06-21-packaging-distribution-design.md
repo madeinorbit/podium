@@ -254,6 +254,16 @@ design doc (`docs/superpowers/specs/2026-06-17-multi-machine-agents-design.md`) 
   track release tags.
 - **Release feed is pluggable** (configurable base URL + manifest format) now; host
   (Cloudflare R2 or GitHub Releases) chosen later.
+- **Phase 5 decisions (2026-06-22):** build + verify BOTH paths (desktop Tauri updater
+  AND headless `podium update`). Desktop UX = **prompt-then-restart** (on launch, check
+  the feed; if an update exists, show "Update available — restart to apply?" → download +
+  relaunch on confirm; no surprise restarts). Signing: generate a **dev keypair** for
+  local verification (pubkey committed in `tauri.conf.json`, private key NOT committed);
+  document swapping in the production key. Verify by building **v0.1.0 → v0.1.1**, serving
+  v0.1.1 from a **local static feed**, and confirming the running v0.1.0 detects +
+  downloads + installs + relaunches as v0.1.1 (desktop, under Xvfb) and that
+  `podium update` swaps the headless bundle from the same feed. Manifest schema =
+  Tauri's `{ version, notes, pub_date, platforms: { "<target>-<arch>": { signature, url } } }`.
 - **Wire protocol-version handshake** (Component A.2) is the cross-version safety net;
   the client surfaces an "update needed" banner on mismatch (the banner UI lands with
   the version-aware client work in the multi-machine phase, when cross-version peers
