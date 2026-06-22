@@ -1,0 +1,14 @@
+{
+  "name": "@podium/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "stage": "bun scripts/stage-sidecar.ts",
+    "build": "bun scripts/stage-sidecar.ts && tauri build",
+    "dev": "bun scripts/stage-sidecar.ts && tauri dev"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2"
+  }
+}

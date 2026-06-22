@@ -1,0 +1,19 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Podium",
+  "version": "0.1.0",
+  "identifier": "app.podium.desktop",
+  "build": {
+    "frontendDist": "../../web/dist"
+  },
+  "app": {
+    "windows": [],
+    "security": { "csp": null }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["appimage", "deb"],
+    "resources": ["resources/web"],
+    "icon": ["icons/icon.png"]
+  }
+}
