@@ -2,13 +2,12 @@ import { describe, expect, it } from 'vitest'
 import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
 import { appRouter } from './router'
-import { SessionStore } from './store'
 import { SuperagentService } from './superagent'
 
 function caller() {
   const registry = new SessionRegistry()
   registry.attachDaemon('local', () => {})
-  const repos = new RepoRegistry(new SessionStore(':memory:'))
+  const repos = new RepoRegistry(registry, registry.sessionStore)
   const superagent = new SuperagentService(registry, repos, registry.sessionStore)
   return { registry, call: appRouter.createCaller({ registry, repos, superagent }) }
 }
@@ -32,7 +31,7 @@ describe('appRouter', () => {
     const daemon: import('@podium/protocol').ControlMessage[] = []
     const registry = new SessionRegistry()
     registry.attachDaemon('local', (m) => daemon.push(m))
-    const repos = new RepoRegistry(new SessionStore(':memory:'))
+    const repos = new RepoRegistry(registry, registry.sessionStore)
     const call = appRouter.createCaller({
       registry,
       repos,
@@ -55,8 +54,8 @@ describe('appRouter', () => {
 })
 
 function repoCaller() {
-  const repos = new RepoRegistry(new SessionStore(':memory:'))
   const registry = new SessionRegistry()
+  const repos = new RepoRegistry(registry, registry.sessionStore)
   const daemon: import('@podium/protocol').ControlMessage[] = []
   registry.attachDaemon('local', (m) => daemon.push(m))
   return {
