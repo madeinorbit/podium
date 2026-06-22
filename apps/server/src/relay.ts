@@ -370,6 +370,16 @@ export class SessionRegistry {
     conversationId: string
     title?: string
   }): { sessionId: string } {
+    // One row per conversation: if a (non-archived) row already represents this
+    // conversation, reattach to it instead of standing up a duplicate. A parked or
+    // dead row is woken in place; a live one is simply focused.
+    const existing = this.findByResume(input.resume)
+    if (existing) {
+      if (existing.status === 'hibernated' || existing.status === 'exited') {
+        this.resurrectSession({ sessionId: existing.sessionId })
+      }
+      return { sessionId: existing.sessionId }
+    }
     return this.spawn({
       agentKind: input.agentKind,
       cwd: input.cwd,
@@ -377,6 +387,28 @@ export class SessionRegistry {
       origin: { kind: 'resume', conversationId: input.conversationId },
       resume: input.resume,
     })
+  }
+
+  /** The (non-archived) session already representing a resume ref, if any. Prefers
+   *  a live/starting row over a parked/dead one; ties break to the smallest
+   *  conversationId so the "canonical" choice is stable. Used to enforce one row
+   *  per conversation on resume and to merge a late resume-fork onto its twin. */
+  private findByResume(ref: ResumeRef, excludeSessionId?: string): Session | undefined {
+    const rank = (s: Session): number =>
+      s.status === 'live' || s.status === 'starting' ? 2 : s.status === 'hibernated' ? 1 : 0
+    let best: Session | undefined
+    for (const s of this.sessions.values()) {
+      if (s.archived || s.sessionId === excludeSessionId) continue
+      if (s.resume?.kind !== ref.kind || s.resume?.value !== ref.value) continue
+      if (
+        !best ||
+        rank(s) > rank(best) ||
+        (rank(s) === rank(best) && s.conversationId < best.conversationId)
+      ) {
+        best = s
+      }
+    }
+    return best
   }
 
   /**
@@ -1242,6 +1274,24 @@ export class SessionRegistry {
         if (!session) break
         if (session.resume?.value !== msg.resume.value) {
           session.resume = msg.resume
+          // A fresh spawn that the user /resume'd from inside the agent learns, late,
+          // that it landed on a conversation another row already owns. Merge the two
+          // onto one stable identity (the smaller conversationId) so they group as a
+          // single conversation — drafts/pins/snoozes follow the identity, and the
+          // sidebar shows one entry instead of two rival rows that flip on reattach.
+          const twin = this.findByResume(msg.resume, session.sessionId)
+          if (twin && twin.conversationId !== session.conversationId) {
+            const canonical =
+              session.conversationId < twin.conversationId
+                ? session.conversationId
+                : twin.conversationId
+            for (const s of [session, twin]) {
+              if (s.conversationId !== canonical) {
+                s.conversationId = canonical
+                this.persist(s)
+              }
+            }
+          }
           this.persist(session)
           // A resume ref makes the session resumable (→ hibernate button). Push the
           // updated meta so already-connected clients see it live, rather than only

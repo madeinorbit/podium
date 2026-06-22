@@ -87,6 +87,47 @@ describe('SessionRegistry', () => {
     })
   })
 
+  it('resume reattaches to the existing row for a conversation instead of duplicating', () => {
+    const reg = new SessionRegistry()
+    reg.attachDaemon(() => {})
+    const first = reg.resumeSession({
+      agentKind: 'codex',
+      cwd: '/w',
+      resume: { kind: 'codex-thread', value: 't9' },
+      conversationId: 'c9',
+    })
+    const second = reg.resumeSession({
+      agentKind: 'codex',
+      cwd: '/w',
+      resume: { kind: 'codex-thread', value: 't9' },
+      conversationId: 'c9',
+    })
+    expect(second.sessionId).toBe(first.sessionId)
+    expect(reg.listSessions()).toHaveLength(1)
+  })
+
+  it('a late resume-fork merges onto its twin (shared conversationId)', () => {
+    const reg = new SessionRegistry()
+    reg.attachDaemon(() => {})
+    const y = reg.resumeSession({
+      agentKind: 'claude-code',
+      cwd: '/w',
+      resume: { kind: 'claude-session', value: 'b5' },
+      conversationId: 'convB5',
+    }).sessionId
+    // A fresh spawn (its own identity) that the user /resume's onto the same
+    // conversation from inside the agent — the daemon reports the ref late.
+    const x = reg.createSession({ agentKind: 'claude-code', cwd: '/w' }).sessionId
+    expect(reg.listSessions().find((s) => s.sessionId === x)?.conversationId).toBe(x)
+    reg.onDaemonMessage({
+      type: 'sessionResumeRef',
+      sessionId: x,
+      resume: { kind: 'claude-session', value: 'b5' },
+    })
+    const byId = new Map(reg.listSessions().map((s) => [s.sessionId, s.conversationId]))
+    expect(byId.get(x)).toBe(byId.get(y))
+  })
+
   it('answers a client ping with pong (browser-level keepalive)', () => {
     const reg = new SessionRegistry()
     const c = sink()

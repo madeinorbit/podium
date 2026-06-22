@@ -90,8 +90,11 @@ const SCREEN_RESET = /\x1b\[[23]J|\x1bc|\x1b\[\?1049[hl]/
 /** One agent's relay state: controller gating, geometry/epoch, and its attached clients. */
 export class Session {
   readonly sessionId: string
-  /** Stable conversation identity (see SessionInit.conversationId). Always set. */
-  readonly conversationId: string
+  /** Stable conversation identity (see SessionInit.conversationId). Always set.
+   *  Mutable only so a fresh spawn that resume-forks onto an EXISTING conversation
+   *  (learned late from the daemon) can adopt that conversation's id and merge,
+   *  instead of standing up a rival identity. The row id never changes; this does. */
+  conversationId: string
   readonly agentKind: AgentKind
   readonly cwd: string
   readonly origin: SessionOrigin
