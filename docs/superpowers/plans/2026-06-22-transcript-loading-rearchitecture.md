@@ -16,7 +16,10 @@
 - All five harnesses (claude-code, codex, grok, cursor, opencode) ride the unified primitive. Claude Code is verified first.
 - Streaming stays block-granular — NO token streaming. Only `flush()` + poll tightening for latency.
 - Big-bang protocol swap: remove old `transcriptSnapshot`/`transcriptAppend`/`transcriptPage`; no back-compat shim. web+server+daemon deploy together from `main`.
+- **Bounded reads (no whole-file slurp):** a transcript can be hundreds of MB. Every disk read MUST be a bounded byte window anchored at the cursor offset (generalize the existing doubling-window strategy in the retired `readTranscriptPage`), never a whole-file read. A page/seed request is O(window), not O(file). `readFileItems` whole-file parsing is permitted ONLY as a small-file/test building block, never on the live read path.
+- Big-bang swap makes the repo cross-package-untypecheck mid-plan (messages removed in Phase C, consumers fixed in D–F). Task reviews scope to the task's own package tests; the final whole-branch review verifies full-repo typecheck + suite.
 - Dispatch implementer/reviewer subagents on the **opus** model (per project preference).
+- All work in the `feat/transcript-rearch` worktree at `/home/user/src/other/podium/.claude/worktrees/transcript-rearch`. Implementers MUST `cd` there and commit there — NEVER the main checkout.
 - Never break the live `main` checkout — all work stays in the `feat/transcript-rearch` worktree.
 - Keep the daemon-side window cap (`MAX_INITIAL_ITEMS`) and server cap (`MAX_TRANSCRIPT_ITEMS`) in step at 12_000.
 
@@ -256,9 +259,10 @@ Replace the positional `fromEnd` reader with a cursor-anchored one. This task ha
   function readFileItems(
     path: string, fileId: string,
     recordToItems: (r: unknown) => TranscriptItem[],
-  ): Promise<TranscriptItem[]>   // whole-file parse, every item cursor-stamped, in file order
+    window?: { start: number; end: number },   // byte window; omitted = whole file (small-file/test only)
+  ): Promise<TranscriptItem[]>   // parse the window, every item cursor-stamped, in file order
   ```
-  (`readFileItems` is the testable core; the windowed-perf variant is a later optimization tracked in Task B1b. Correctness first.)
+  `readFileItems` is the cursor-stamping building block. When `window` is given it reads only `[start,end)`, dropping a leading partial line if `start>0` (the established TAIL_BYTES pattern). The whole-file form is for tests and small files ONLY — the live read path (Task B3) always passes a bounded window per Global Constraints.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -312,12 +316,23 @@ export async function readFileItems(
   path: string,
   fileId: string,
   recordToItems: (r: unknown) => TranscriptItem[],
+  window?: { start: number; end: number },
 ): Promise<TranscriptItem[]> {
   let buf: Buffer
+  let base = 0 // absolute byte offset of buf[0] within the file
   try {
     const handle = await open(path, 'r')
     try {
-      buf = await handle.readFile()
+      if (window) {
+        const start = Math.max(0, window.start)
+        const len = Math.max(0, window.end - start)
+        const b = Buffer.alloc(len)
+        const { bytesRead } = await handle.read(b, 0, len, start)
+        buf = b.subarray(0, bytesRead)
+        base = start
+      } else {
+        buf = await handle.readFile()
+      }
     } finally {
       await handle.close()
     }
@@ -325,14 +340,18 @@ export async function readFileItems(
     return []
   }
   const out: TranscriptItem[] = []
-  let offset = 0
-  // Split keeping byte offsets: walk line boundaries on the raw buffer.
+  // Walk line boundaries on the raw buffer, tracking each record's ABSOLUTE offset.
   let lineStart = 0
+  let firstLine = true
   for (let i = 0; i < buf.length; i++) {
     if (buf[i] !== 0x0a /* \n */) continue
     const lineBytes = buf.subarray(lineStart, i)
-    const recOffset = lineStart
+    const recOffset = base + lineStart
+    const wasFirst = firstLine
+    firstLine = false
     lineStart = i + 1
+    // Seeked past byte 0 → the first line is a fragment of a prior record; drop it.
+    if (wasFirst && base > 0) continue
     const trimmed = lineBytes.toString('utf8').trim()
     if (!trimmed) continue
     let record: unknown
@@ -343,9 +362,7 @@ export async function readFileItems(
     }
     const items = recordToItems(record)
     if (items.length > 0) out.push(...stampCursors(items, fileId, recOffset, recordUuid(record)))
-    offset = recOffset
   }
-  void offset
   return out
 }
 ```
@@ -576,6 +593,10 @@ export async function readTranscriptSlice(
 ): Promise<SliceResult> {
   // Correctness-first: build the full ordered list, then slice. Windowed perf is
   // Task B5 (only matters for very large chains; the daemon caps reads anyway).
+  // Step 3 (this step) builds the correct result by reading files whole — this is
+  // the CORRECTNESS reference and what the behavior tests below pin. Step 3.5
+  // (next) replaces the whole-file reads with bounded windows WITHOUT changing
+  // any test output, satisfying the Global Constraints "Bounded reads" rule.
   const all: TranscriptItem[] = []
   for (const entry of chain) all.push(...(await readFileItems(entry.path, entry.fileId, recordToItems)))
   if (all.length === 0) return { items: [], hasMore: false }
@@ -620,11 +641,30 @@ function findAnchorIndex(all: TranscriptItem[], anchor: string): number {
 Run: `cd packages/agent-bridge && bunx vitest run src/transcript/slice.test.ts`
 Expected: PASS (all slice tests).
 
+- [ ] **Step 4.5: Make reads bounded (perf — Global Constraints "Bounded reads")**
+
+Refactor `readTranscriptSlice` so it does NOT read whole files. Read each file via bounded `readFileItems(path, fileId, recordToItems, {start, end})` windows, anchored at the cursor offset and **doubling** until the needed side has `limit + 1` items or the file boundary is reached; only then continue into the adjacent chain file. Walk the chain newest→oldest for `before` and oldest→newest for `after`. Generalize the doubling-window logic from the retired `readTranscriptPage`. The behavior (and every Step-1 test) must be byte-for-byte identical — this is a pure perf refactor.
+
+Add a perf-intent test on a synthetic large file proving a small page does not parse the whole file:
+
+```ts
+it('pages a large file without reading all of it (bounded window)', async () => {
+  // write a file with ~5000 records (each item carries an incrementing index);
+  // request {direction:'before', limit: 10} with no anchor.
+  // Assert: result has the LAST 10 items, hasMore === true, and (instrument
+  // readFileItems via a spy or a byte-counter) the total bytes read is far less
+  // than the file size — e.g. < 25% — proving the window did not slurp the file.
+})
+```
+
+Run: `cd packages/agent-bridge && bunx vitest run src/transcript/slice.test.ts`
+Expected: PASS (behavior tests unchanged + the bounded-read test).
+
 - [ ] **Step 5: Commit**
 
 ```bash
 git add packages/agent-bridge/src/transcript/slice.ts packages/agent-bridge/src/transcript/slice.test.ts
-git commit -m "feat(transcript): readTranscriptSlice — cursor anchor/direction/limit over a file chain"
+git commit -m "feat(transcript): readTranscriptSlice — bounded-window cursor read over a file chain"
 ```
 
 ---
