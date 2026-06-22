@@ -12,7 +12,7 @@
 
 - Spec: `docs/superpowers/specs/2026-06-22-transcript-loading-rearchitecture-design.md`. Every task implicitly serves it.
 - Source of truth = the JSONL on disk. The server cache is NEVER the source of truth and is NEVER persisted to SQLite.
-- Cursor is OPAQUE to client and server: only `packages/agent-bridge/src/transcript/cursor.ts` encodes/decodes it.
+- Cursor is OPAQUE to client and server: only `packages/agent-bridge/src/transcript/cursor-codec.ts` encodes/decodes it.
 - All five harnesses (claude-code, codex, grok, cursor, opencode) ride the unified primitive. Claude Code is verified first.
 - Streaming stays block-granular — NO token streaming. Only `flush()` + poll tightening for latency.
 - Big-bang protocol swap: remove old `transcriptSnapshot`/`transcriptAppend`/`transcriptPage`; no back-compat shim. web+server+daemon deploy together from `main`.
@@ -28,8 +28,8 @@
 ## File Structure
 
 **New files**
-- `packages/agent-bridge/src/transcript/cursor.ts` — opaque cursor codec + types. One responsibility: encode/decode/compare cursors.
-- `packages/agent-bridge/src/transcript/cursor.test.ts`
+- `packages/agent-bridge/src/transcript/cursor-codec.ts` — opaque cursor codec + types. One responsibility: encode/decode/compare cursors.
+- `packages/agent-bridge/src/transcript/cursor-codec.test.ts`
 - `packages/agent-bridge/src/transcript/file-chain.ts` — per-harness ordered JSONL file-chain resolution.
 - `packages/agent-bridge/src/transcript/file-chain.test.ts`
 - `packages/agent-bridge/src/transcript/slice.ts` — cursor-anchored `readTranscriptSlice` over a file chain (replaces `readTranscriptTail` + `readTranscriptPage`).
@@ -55,8 +55,8 @@
 ### Task A1: Opaque cursor codec
 
 **Files:**
-- Create: `packages/agent-bridge/src/transcript/cursor.ts`
-- Test: `packages/agent-bridge/src/transcript/cursor.test.ts`
+- Create: `packages/agent-bridge/src/transcript/cursor-codec.ts`
+- Test: `packages/agent-bridge/src/transcript/cursor-codec.test.ts`
 
 **Interfaces:**
 - Produces:
@@ -68,7 +68,7 @@
 
 ```ts
 import { describe, expect, it } from 'vitest'
-import { decodeCursor, encodeCursor } from './cursor.js'
+import { decodeCursor, encodeCursor } from './cursor-codec.js'
 
 describe('cursor codec', () => {
   it('round-trips parts', () => {
@@ -91,13 +91,13 @@ describe('cursor codec', () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd packages/agent-bridge && bunx vitest run src/transcript/cursor.test.ts`
-Expected: FAIL — `Cannot find module './cursor.js'`.
+Run: `cd packages/agent-bridge && bunx vitest run src/transcript/cursor-codec.test.ts`
+Expected: FAIL — `Cannot find module './cursor-codec.js'`.
 
 - [ ] **Step 3: Write minimal implementation**
 
 ```ts
-// packages/agent-bridge/src/transcript/cursor.ts
+// packages/agent-bridge/src/transcript/cursor-codec.ts
 export interface CursorParts {
   /** Stable id of the JSONL file this item's record lives in. */
   fileId: string
@@ -131,13 +131,13 @@ export function decodeCursor(c: string): CursorParts | null {
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cd packages/agent-bridge && bunx vitest run src/transcript/cursor.test.ts`
+Run: `cd packages/agent-bridge && bunx vitest run src/transcript/cursor-codec.test.ts`
 Expected: PASS (4 tests).
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add packages/agent-bridge/src/transcript/cursor.ts packages/agent-bridge/src/transcript/cursor.test.ts
+git add packages/agent-bridge/src/transcript/cursor-codec.ts packages/agent-bridge/src/transcript/cursor-codec.test.ts
 git commit -m "feat(transcript): opaque cursor codec ({fileId,offset,uuid,sub})"
 ```
 
@@ -148,9 +148,9 @@ git commit -m "feat(transcript): opaque cursor codec ({fileId,offset,uuid,sub})"
 The parser (`claudeRecordToItems` etc.) does not know byte offsets — the reader does. Add a small generic helper that, given the file's `fileId`, a record's start `offset`, its parsed `uuid`, and the items it produced, stamps each item's `cursor`. This is consumed by both the tailer (Task B3) and the slice reader (Task B1).
 
 **Files:**
-- Create: helper `stampCursors` in `packages/agent-bridge/src/transcript/cursor.ts`
+- Create: helper `stampCursors` in `packages/agent-bridge/src/transcript/cursor-codec.ts`
 - Modify: `packages/protocol/src/messages.ts` — add `cursor?: string` to `TranscriptItem` (Task C1 finalizes protocol; the field is added here because the helper sets it).
-- Test: `packages/agent-bridge/src/transcript/cursor.test.ts` (extend)
+- Test: `packages/agent-bridge/src/transcript/cursor-codec.test.ts` (extend)
 
 **Interfaces:**
 - Consumes: `CursorParts`, `encodeCursor` (A1); `TranscriptItem` (`@podium/protocol`).
@@ -168,10 +168,10 @@ In `packages/protocol/src/messages.ts`, inside the `TranscriptItem` object (afte
   cursor: z.string().optional(),
 ```
 
-- [ ] **Step 2: Write the failing test (extend cursor.test.ts)**
+- [ ] **Step 2: Write the failing test (extend cursor-codec.test.ts)**
 
 ```ts
-import { recordUuid, stampCursors } from './cursor.js'
+import { recordUuid, stampCursors } from './cursor-codec.js'
 
 describe('stampCursors', () => {
   it('stamps a distinct cursor per sub-index, all sharing file+offset', () => {
@@ -202,10 +202,10 @@ describe('recordUuid', () => {
 
 - [ ] **Step 3: Run test to verify it fails**
 
-Run: `cd packages/agent-bridge && bunx vitest run src/transcript/cursor.test.ts`
+Run: `cd packages/agent-bridge && bunx vitest run src/transcript/cursor-codec.test.ts`
 Expected: FAIL — `stampCursors`/`recordUuid` not exported.
 
-- [ ] **Step 4: Implement in `cursor.ts`**
+- [ ] **Step 4: Implement in `cursor-codec.ts`**
 
 ```ts
 import type { TranscriptItem } from '@podium/protocol'
@@ -229,13 +229,13 @@ export function recordUuid(record: unknown): string | null {
 
 - [ ] **Step 5: Run tests to verify pass**
 
-Run: `cd packages/agent-bridge && bunx vitest run src/transcript/cursor.test.ts`
+Run: `cd packages/agent-bridge && bunx vitest run src/transcript/cursor-codec.test.ts`
 Expected: PASS.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add packages/agent-bridge/src/transcript/cursor.ts packages/agent-bridge/src/transcript/cursor.test.ts packages/protocol/src/messages.ts
+git add packages/agent-bridge/src/transcript/cursor-codec.ts packages/agent-bridge/src/transcript/cursor-codec.test.ts packages/protocol/src/messages.ts
 git commit -m "feat(transcript): stampCursors + recordUuid; TranscriptItem.cursor"
 ```
 
@@ -271,7 +271,7 @@ import { mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { decodeCursor } from './cursor.js'
+import { decodeCursor } from './cursor-codec.js'
 import { readFileItems } from './slice.js'
 
 const rec = (uuid: string, type: string, text: string) =>
@@ -306,7 +306,7 @@ Expected: FAIL — `./slice.js` not found.
 import { open } from 'node:fs/promises'
 import type { TranscriptItem } from '@podium/protocol'
 import { LineDecoder } from '../jsonl-stream.js'
-import { recordUuid, stampCursors } from './cursor.js'
+import { recordUuid, stampCursors } from './cursor-codec.js'
 
 export interface SliceResult { items: TranscriptItem[]; head?: string; tail?: string; hasMore: boolean }
 
@@ -583,7 +583,7 @@ Expected: FAIL — `readTranscriptSlice` not exported.
 - [ ] **Step 3: Implement**
 
 ```ts
-import { decodeCursor } from './cursor.js'
+import { decodeCursor } from './cursor-codec.js'
 import type { ChainEntry } from './file-chain.js'
 
 export async function readTranscriptSlice(
