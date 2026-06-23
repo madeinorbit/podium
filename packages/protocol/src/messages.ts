@@ -999,6 +999,49 @@ export function parseClientMessage(raw: string): ClientMessage {
 export function parseServerMessage(raw: string): ServerMessage {
   return ServerMessage.parse(JSON.parse(raw))
 }
+
+/** Server messages carrying a homogeneous array we can quarantine per-element. */
+const COLLECTION_MESSAGE_ELEMENTS: Record<string, { key: string; element: z.ZodTypeAny }> = {
+  sessionsChanged: { key: 'sessions', element: SessionMeta },
+  issuesChanged: { key: 'issues', element: IssueWire },
+  conversationsChanged: { key: 'conversations', element: ConversationSummaryWire },
+  hostMetricsChanged: { key: 'hosts', element: HostMetricsWire },
+}
+
+export interface LenientServerMessage {
+  /** The parsed message, or null only if the structural envelope was invalid. */
+  message: ServerMessage | null
+  /** How many array elements were quarantined (invalid) and dropped. */
+  dropped: number
+}
+
+/**
+ * Like {@link parseServerMessage}, but for the collection-bearing messages
+ * (`sessionsChanged`/`issuesChanged`/`conversationsChanged`/`hostMetricsChanged`)
+ * it validates each array element individually and DROPS the invalid ones instead
+ * of failing the whole batch. One poisoned element (e.g. a session with an
+ * out-of-enum agentKind) can no longer blank an entire list on the client.
+ *
+ * Throws only when the frame is structurally unparseable (bad JSON, or an envelope
+ * whose non-array fields fail validation) — the caller should catch + log that, and
+ * inspect `dropped` to surface quarantined elements.
+ */
+export function parseServerMessageLenient(raw: string): LenientServerMessage {
+  const json = JSON.parse(raw) as Record<string, unknown>
+  const spec = typeof json?.type === 'string' ? COLLECTION_MESSAGE_ELEMENTS[json.type] : undefined
+  const arr = spec ? json[spec.key] : undefined
+  if (spec && Array.isArray(arr)) {
+    const good: unknown[] = []
+    let dropped = 0
+    for (const el of arr) {
+      const r = spec.element.safeParse(el)
+      if (r.success) good.push(r.data)
+      else dropped++
+    }
+    return { message: ServerMessage.parse({ ...json, [spec.key]: good }), dropped }
+  }
+  return { message: ServerMessage.parse(json), dropped: 0 }
+}
 export function parseDaemonMessage(raw: string): DaemonMessage {
   return DaemonMessage.parse(JSON.parse(raw))
 }

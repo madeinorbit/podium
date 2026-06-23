@@ -159,14 +159,23 @@ async function loadConversation(summary: AgentConversationSummary): Promise<Agen
     })
   }
 
+  // A read failure already threw above. Per-line PARSE diagnostics were isolated by
+  // the JSONL reader (good records survive) — don't re-escalate them into a
+  // whole-conversation throw; keep the records and surface them non-fatally.
   if (parsed.diagnostics.length > 0) {
-    throw new AgentConversationLoadError(`Could not parse Cursor conversation ${summary.source.path}`, {
-      cause: { diagnostics: parsed.diagnostics },
-    })
+    console.warn(
+      `[podium] ${parsed.diagnostics.length} unparseable line(s) in Cursor conversation ${summary.source.path} — skipped`,
+    )
   }
 
   const messages = cursorMessages(parsed.records)
-  return { ...summary, messageCount: messages.length, messages, raw: parsed.records }
+  return {
+    ...summary,
+    messageCount: messages.length,
+    messages,
+    raw: parsed.records,
+    diagnostics: parsed.diagnostics,
+  }
 }
 
 function summarizeCursorHeadRecords(

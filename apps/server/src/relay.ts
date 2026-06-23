@@ -984,7 +984,7 @@ export class SessionRegistry {
     })
     send({ type: 'welcome', clientId: id })
     send({ type: 'sessionsChanged', sessions: this.listSessions() })
-    send({ type: 'issuesChanged', issues: this.issues.allWire() })
+    send(this.safeIssuesMessage())
     for (const [sessionId, text] of this.draftBySession) {
       send({ type: 'sessionDraftChanged', sessionId, text })
     }
@@ -1589,12 +1589,28 @@ export class SessionRegistry {
     const msg: ServerMessage = { type: 'sessionsChanged', sessions }
     for (const c of this.clients.values()) c.send(msg)
     // Session changes also change issues' DERIVED member data (sessions/summary),
-    // so keep issue clients live. Guard with `this.issues?` — broadcastSessions()
-    // can run during construction (via loadFromStore) before `this.issues` is set.
-    // Build the payload ONCE: allWire() is O(issues × sessions), so calling it
-    // per-client would be a hot-path perf bug (mirrors the sessionsMsg hoist above).
-    const issuesMsg: ServerMessage = { type: 'issuesChanged', issues: this.issues?.allWire() ?? [] }
+    // so keep issue clients live. Build the payload ONCE: allWire() is
+    // O(issues × sessions), so calling it per-client would be a hot-path perf bug
+    // (mirrors the sessionsMsg hoist above). sessionsChanged was already sent above,
+    // so even if the issues build fails it can't take the session list down with it.
+    const issuesMsg = this.safeIssuesMessage()
     for (const c of this.clients.values()) c.send(issuesMsg)
+  }
+
+  /**
+   * Build the `issuesChanged` payload, degrading to an empty list if the DERIVED
+   * build throws (e.g. a poison issue row whose member sessions fail to serialize).
+   * An issues-layer throw must never abort an attach, a broadcast, or the daemon
+   * handler that triggered it. `this.issues?` also guards construction-time calls
+   * (broadcastSessions can run via loadFromStore before `this.issues` is set).
+   */
+  private safeIssuesMessage(): ServerMessage {
+    try {
+      return { type: 'issuesChanged', issues: this.issues?.allWire() ?? [] }
+    } catch (err) {
+      console.warn('[podium] issues payload build failed — broadcasting empty issues list', err)
+      return { type: 'issuesChanged', issues: [] }
+    }
   }
 
   private broadcastConversations(): void {

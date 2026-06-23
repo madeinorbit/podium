@@ -209,14 +209,23 @@ async function loadConversation(summary: AgentConversationSummary): Promise<Agen
     })
   }
 
+  // A read failure already threw above. Per-line PARSE diagnostics were isolated by
+  // the JSONL reader (good records survive) — don't re-escalate them into a
+  // whole-conversation throw; keep the records and surface them non-fatally.
   if (parsed.diagnostics.length > 0) {
-    throw new AgentConversationLoadError(`Could not parse Grok conversation ${chatPath}`, {
-      cause: { diagnostics: parsed.diagnostics },
-    })
+    console.warn(
+      `[podium] ${parsed.diagnostics.length} unparseable line(s) in Grok conversation ${chatPath} — skipped`,
+    )
   }
 
   const messages = grokMessages(parsed.records)
-  return { ...summary, messageCount: messages.length, messages, raw: parsed.records }
+  return {
+    ...summary,
+    messageCount: messages.length,
+    messages,
+    raw: parsed.records,
+    diagnostics: parsed.diagnostics,
+  }
 }
 
 function grokMessages(records: unknown[]): AgentConversationMessage[] {

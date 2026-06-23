@@ -3,6 +3,7 @@ import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { normalizeSettings, type PodiumSettings } from '@podium/core'
 import { openDatabase, type SqlDatabase } from '@podium/core/sqlite'
+import { AgentKind, IssueStage } from '@podium/protocol'
 
 export type PinKind = 'panel' | 'worktree' | 'repo'
 
@@ -16,6 +17,41 @@ export interface PinState {
 export type SnoozeMap = Record<string, string | null>
 
 const PIN_KINDS = new Set<PinKind>(['panel', 'worktree', 'repo'])
+
+/**
+ * Parse a JSON text column that should hold `string[]`, tolerating corruption.
+ * A single malformed value (bad JSON, or valid JSON of the wrong shape) must not
+ * throw out of a row mapper — that would abort the whole table load (and, for the
+ * issues table, crash-loop the server at boot, since IssueService loads in its
+ * constructor). Quarantine the bad value to `[]` and warn so it stays observable.
+ */
+function parseStringArray(raw: unknown, label: string): string[] {
+  if (raw == null) return []
+  try {
+    const v = JSON.parse(raw as string)
+    if (Array.isArray(v) && v.every((x) => typeof x === 'string')) return v
+    console.warn(`[podium] ${label}: expected string[], got ${typeof v} — quarantined to []`)
+    return []
+  } catch (err) {
+    console.warn(`[podium] ${label}: unparseable JSON — quarantined to [] (${String(err)})`)
+    return []
+  }
+}
+
+/**
+ * Parse a JSON text column to `T | undefined`, tolerating corruption (see
+ * {@link parseStringArray}). Returns `undefined` for a null column or any parse
+ * failure, so one corrupt blob can't abort the rest of the load.
+ */
+function parseJsonColumn<T>(raw: unknown, label: string): T | undefined {
+  if (raw == null) return undefined
+  try {
+    return JSON.parse(raw as string) as T
+  } catch (err) {
+    console.warn(`[podium] ${label}: unparseable JSON — quarantined (${String(err)})`)
+    return undefined
+  }
+}
 
 /** Default DB file: $PODIUM_STATE_DIR/podium.db, else ~/.podium/podium.db. */
 export function defaultDbPath(): string {
@@ -297,6 +333,14 @@ export class SessionStore {
   }
 
   upsertSession(row: SessionRow): void {
+    // Strict on write: never persist an out-of-enum agentKind. That value later fails
+    // the sessionsChanged zod-parse on every client and silently blanks the whole list
+    // (see relay.createSession, which resolves the 'auto' sentinel before it gets here).
+    if (!AgentKind.safeParse(row.agentKind).success) {
+      throw new Error(
+        `upsertSession: refusing to persist invalid agentKind ${JSON.stringify(row.agentKind)} for ${row.id}`,
+      )
+    }
     this.db
       .prepare(
         `INSERT INTO sessions
@@ -546,7 +590,7 @@ export class SessionStore {
       id: r.id as number,
       role: r.role as SuperagentMessageRow['role'],
       content: r.content as string,
-      toolCalls: r.tool_calls ? (JSON.parse(r.tool_calls as string) as ToolCallRow[]) : undefined,
+      toolCalls: parseJsonColumn<ToolCallRow[]>(r.tool_calls, `superagent msg ${String(r.id)} tool_calls`),
       toolCallId: (r.tool_call_id as string | null) ?? undefined,
       toolName: (r.tool_name as string | null) ?? undefined,
       createdAt: r.created_at as string,
@@ -645,6 +689,18 @@ export class SessionStore {
   // ---- issues ----
 
   upsertIssue(row: IssueRow): void {
+    // Strict on write: stage is a load-bearing enum (the board column + zod-validated
+    // on the wire). defaultAgent is intentionally NOT validated here — 'auto' is a
+    // legal stored sentinel resolved to a concrete kind only at spawn time.
+    if (!IssueStage.safeParse(row.stage).success) {
+      throw new Error(
+        `upsertIssue: refusing to persist invalid stage ${JSON.stringify(row.stage)} for ${row.id}`,
+      )
+    }
+    // Normalize blockedBy so the column is always a clean string[] JSON value.
+    const blockedBy = Array.isArray(row.blockedBy)
+      ? row.blockedBy.filter((x): x is string => typeof x === 'string')
+      : []
     this.db
       .prepare(
         `INSERT INTO issues
@@ -668,7 +724,7 @@ export class SessionStore {
         row.id, row.repoPath, row.seq, row.title, row.description, row.stage, row.worktreePath,
         row.branch, row.parentBranch, row.defaultAgent, row.linearId, row.linearIdentifier,
         row.linearUrl, row.activityNotes, row.notesUpdatedAt, row.suggestedStage, row.suggestedReason,
-        JSON.stringify(row.blockedBy ?? []), row.dependencyNote, row.prUrl,
+        JSON.stringify(blockedBy), row.dependencyNote, row.prUrl,
         row.createdAt, row.updatedAt, row.archived ? 1 : 0,
       )
   }
@@ -692,7 +748,7 @@ export class SessionStore {
       notesUpdatedAt: (r.notes_updated_at as string | null) ?? null,
       suggestedStage: (r.suggested_stage as string | null) ?? null,
       suggestedReason: (r.suggested_reason as string | null) ?? null,
-      blockedBy: JSON.parse((r.blocked_by as string | null) ?? '[]'),
+      blockedBy: parseStringArray(r.blocked_by, `issue ${String(r.id)} blocked_by`),
       dependencyNote: (r.dependency_note as string | null) ?? null,
       prUrl: (r.pr_url as string | null) ?? null,
       createdAt: r.created_at as string,

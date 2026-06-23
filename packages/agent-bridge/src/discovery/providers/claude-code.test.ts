@@ -250,7 +250,7 @@ describe('createClaudeCodeConversationProvider', () => {
     )
   })
 
-  test('reports lazy-load parse failures with parse diagnostic context', async () => {
+  test('keeps the parseable records instead of failing the whole conversation on a torn line', async () => {
     const root = await createRoot()
     await writeClaudeSession(root, 'projects/-repo-project/claude-session-1.jsonl')
     const provider = createClaudeCodeConversationProvider()
@@ -260,28 +260,19 @@ describe('createClaudeCodeConversationProvider', () => {
     if (!summary) throw new Error('Expected Claude Code conversation summary')
     await writeFile(summary.source.path, '{"ok":true}\nnot-json\n')
 
-    let error: unknown
-    try {
-      await provider.loadConversation(summary)
-    } catch (cause) {
-      error = cause
-    }
-
-    expect(error).toBeInstanceOf(AgentConversationLoadError)
-    expect(error).toEqual(
+    // A torn line is already isolated per-line by the JSONL reader — loadConversation
+    // must NOT re-escalate that into a whole-conversation throw (which would discard
+    // the good records). It keeps the parseable record and surfaces the parse failure
+    // as a non-fatal diagnostic.
+    const conversation = await provider.loadConversation(summary)
+    expect(conversation.raw).toEqual([{ ok: true }])
+    expect(conversation.diagnostics).toEqual([
       expect.objectContaining({
-        message: expect.stringContaining('Could not parse Claude Code conversation'),
-        cause: {
-          diagnostics: [
-            expect.objectContaining({
-              severity: 'warning',
-              providerId: 'claude-code-jsonl',
-              message: expect.stringContaining('Could not parse JSONL line 2'),
-              cause: expect.any(SyntaxError),
-            }),
-          ],
-        },
+        severity: 'warning',
+        providerId: 'claude-code-jsonl',
+        message: expect.stringContaining('Could not parse JSONL line 2'),
+        cause: expect.any(SyntaxError),
       }),
-    )
+    ])
   })
 })

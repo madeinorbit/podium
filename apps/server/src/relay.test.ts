@@ -82,6 +82,25 @@ describe('SessionRegistry', () => {
     expect(reg.listSessions()[0]?.agentKind).toBe('claude-code')
   })
 
+  it('still sends welcome + sessions when the issues payload build throws', () => {
+    // The issues list is DERIVED (allWire embeds member sessions). If building it
+    // throws (e.g. a poison issue row), it must NOT abort the attach / broadcast and
+    // take sessions + the whole connection down with it. Degrade issues to [] + log.
+    const reg = new SessionRegistry()
+    ;(reg.issues as unknown as { allWire: () => unknown }).allWire = () => {
+      throw new Error('boom')
+    }
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const sent: ServerMessage[] = []
+    expect(() => reg.attachClient((m) => sent.push(m))).not.toThrow()
+    expect(sent.some((m) => m.type === 'welcome')).toBe(true)
+    expect(sent.some((m) => m.type === 'sessionsChanged')).toBe(true)
+    const issues = sent.find((m) => m.type === 'issuesChanged')
+    expect(issues?.type === 'issuesChanged' && issues.issues).toEqual([])
+    expect(warn).toHaveBeenCalled()
+    warn.mockRestore()
+  })
+
   it('resume spawns with the resume ref + resume origin', () => {
     const reg = new SessionRegistry()
     const daemon: ControlMessage[] = []
@@ -607,9 +626,12 @@ describe('SessionRegistry', () => {
       createdAt: '2026-06-09T00:00:00.000Z',
       lastActiveAt: '2026-06-09T00:00:00.000Z',
     })
+    // upsertSession now refuses an out-of-enum agentKind (write-side guard), so a
+    // legacy/externally-corrupted row is simulated by writing a valid row and then
+    // corrupting the persisted agent_kind directly — the exact loadFromStore scenario.
     store.upsertSession({
       id: 'bad',
-      agentKind: 'bogus-agent',
+      agentKind: 'claude-code',
       cwd: '/b',
       title: 'bad',
       name: null,
@@ -625,6 +647,9 @@ describe('SessionRegistry', () => {
       createdAt: '2026-06-09T00:00:00.000Z',
       lastActiveAt: '2026-06-09T00:00:00.000Z',
     })
+    ;(store as unknown as { db: { prepare(q: string): { run(...a: unknown[]): unknown } } }).db
+      .prepare("UPDATE sessions SET agent_kind = 'bogus-agent' WHERE id = 'bad'")
+      .run()
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const reg = new SessionRegistry(store)
     const ids = reg.listSessions().map((m) => m.sessionId)

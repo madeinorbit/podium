@@ -85,6 +85,36 @@ describe('SocketHub', () => {
     expect(seen.at(-1)).toBe(1)
   })
 
+  it('quarantines a poisoned session in a batch and still exposes the rest (lenient route)', () => {
+    const { sock, hub } = setup()
+    hub.connect()
+    sock.open()
+    const good = {
+      sessionId: 's1',
+      agentKind: 'claude-code',
+      title: 't',
+      cwd: '/w',
+      status: 'live',
+      controllerId: 'c0',
+      geometry: { cols: 80, rows: 24 },
+      epoch: 0,
+      clientCount: 1,
+      createdAt: '2026-06-03T00:00:00.000Z',
+      lastActiveAt: '2026-06-03T00:00:00.000Z',
+      origin: { kind: 'spawn' },
+      archived: false,
+    }
+    const bad = { ...good, sessionId: 'bad', agentKind: 'auto' } // out-of-enum poison
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    // Raw frame (bypasses the typed encode) carrying one poisoned element.
+    sock.onmessage?.({ data: JSON.stringify({ type: 'sessionsChanged', sessions: [good, bad] }) })
+    // The whole list is NOT dropped — the good session survives, the bad one is gone…
+    expect(hub.sessions().map((s) => s.sessionId)).toEqual(['s1'])
+    // …and the drop is observable, not silent.
+    expect(warn).toHaveBeenCalled()
+    warn.mockRestore()
+  })
+
   it('exposes conversationsChanged via conversations() + onConversations', () => {
     const { sock, hub } = setup()
     const seen: number[] = []

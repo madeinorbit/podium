@@ -5,6 +5,7 @@ import { useState } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
+import { CardBoundary } from './CardBoundary'
 import { IssueDetail } from './IssueDetail'
 import { issueCardModel } from './issue-card'
 import { NewIssueDialog } from './NewIssueDialog'
@@ -78,7 +79,11 @@ function IssueColumn({
         {issues.length === 0 ? (
           <p className="px-1 py-2 text-[12px] text-muted-foreground/60">No issues.</p>
         ) : (
-          issues.map((issue) => <IssueCard key={issue.id} issue={issue} onOpen={onOpen} />)
+          issues.map((issue) => (
+            <CardBoundary key={issue.id} resetKey={issue.id} label="issue card">
+              <IssueCard issue={issue} onOpen={onOpen} />
+            </CardBoundary>
+          ))
         )}
       </div>
     </div>

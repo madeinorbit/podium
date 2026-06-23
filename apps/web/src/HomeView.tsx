@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input'
 import { useIsMobile } from '@/hooks/use-is-mobile'
 import { useSessionGuard } from '@/hooks/use-session-guard'
 import { cn } from '@/lib/utils'
+import { CardBoundary } from './CardBoundary'
 import { agentBadge, panelLabel, sessionDotClass } from './derive'
 import { attentionSummary, groupSessions, kanbanColumns, relativeTime } from './home'
 import { useStore } from './store'
@@ -91,7 +92,9 @@ export function HomeView(): JSX.Element {
           {showArchived && (
             <div className="grid grid-cols-[repeat(auto-fill,minmax(250px,1fr))] gap-2.5">
               {archived.map((s) => (
-                <SessionCard key={s.sessionId} session={s} now={now} archivedDim />
+                <CardBoundary key={s.sessionId} resetKey={s.sessionId} label="session card">
+                  <SessionCard session={s} now={now} archivedDim />
+                </CardBoundary>
               ))}
             </div>
           )}
@@ -149,7 +152,9 @@ function HomeGroup({
       </div>
       <div className="grid grid-cols-[repeat(auto-fill,minmax(250px,1fr))] gap-2.5">
         {sessions.map((s) => (
-          <SessionCard key={s.sessionId} session={s} now={now} attention={tone === 'attention'} />
+          <CardBoundary key={s.sessionId} resetKey={s.sessionId} label="session card">
+            <SessionCard session={s} now={now} attention={tone === 'attention'} />
+          </CardBoundary>
         ))}
       </div>
     </div>
@@ -171,7 +176,9 @@ function KanbanBoard({ now }: { now: number }): JSX.Element {
         {lanes.map((lane) => (
           <KanbanLane key={lane.key} laneKey={lane.key} label={lane.label}>
             {lane.sessions.map((s) => (
-              <DraggableCard key={s.sessionId} session={s} now={now} />
+              <CardBoundary key={s.sessionId} resetKey={s.sessionId} label="session card">
+                <DraggableCard session={s} now={now} />
+              </CardBoundary>
             ))}
           </KanbanLane>
         ))}

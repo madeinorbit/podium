@@ -3,7 +3,7 @@ import {
   encode,
   type HostMetricsWire,
   type IssueWire,
-  parseServerMessage,
+  parseServerMessageLenient,
   type ServerMessage,
   type SessionMeta,
   type TranscriptItem,
@@ -548,12 +548,23 @@ export class SocketHub {
   }
 
   private route(raw: string): void {
-    let msg: ServerMessage
+    let msg: ServerMessage | null
     try {
-      msg = parseServerMessage(raw)
-    } catch {
+      // Lenient parse: for the collection-bearing messages, one poisoned element
+      // (e.g. a session with an out-of-enum agentKind) is quarantined instead of
+      // failing the whole batch — otherwise a single bad row blanks an entire list.
+      const result = parseServerMessageLenient(raw)
+      msg = result.message
+      if (result.dropped > 0) {
+        // Never silent: a swallowed drop here was what turned a one-row data bug into
+        // an invisible, blank-UI outage. Make every quarantine observable.
+        console.warn(`[podium] quarantined ${result.dropped} invalid item(s) in a ${msg?.type ?? '?'} message`)
+      }
+    } catch (err) {
+      console.warn('[podium] dropped an unparseable server message', err)
       return
     }
+    if (!msg) return
     if (msg.type === 'pong') {
       // Liveness was already recorded in onmessage; here the pong closes out the
       // oldest in-flight ping to yield a round-trip sample.

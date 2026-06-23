@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { cn } from '@/lib/utils'
 import { mergeByCursor } from './chat'
+import { CardBoundary } from './CardBoundary'
 import { agentBadge, panelLabel, reposToViews, sessionDotClass } from './derive'
 import { renderMarkdown } from './markdown'
 import { useStore } from './store'
@@ -250,7 +251,9 @@ export function SuperagentView({ onClose }: { onClose?: () => void } = {}): JSX.
           </div>
         )}
         {messages.map((m) => (
-          <SuperMessageView key={m.id} message={m} />
+          <CardBoundary key={m.id} resetKey={String(m.id)} label="superagent message">
+            <SuperMessageView message={m} />
+          </CardBoundary>
         ))}
         {busy && (
           <div className="mx-auto w-full max-w-[760px] animate-pulse text-xs text-muted-foreground/70">

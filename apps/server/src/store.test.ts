@@ -63,6 +63,15 @@ function row(overrides: Partial<SessionRow> = {}): SessionRow {
 }
 
 describe('SessionStore sessions', () => {
+  it('rejects persisting an invalid agentKind (write-side guard against poison rows)', () => {
+    // Strict on write: an agentKind outside the enum (e.g. the 'auto' sentinel) must
+    // never reach the table, since it later fails the sessionsChanged zod-parse and
+    // blanks every client. Fail loudly at the source instead.
+    const s = new SessionStore(':memory:')
+    expect(() => s.upsertSession(row({ agentKind: 'auto' }))).toThrow(/agentKind/i)
+    s.close()
+  })
+
   it('upserts, loads, updates in place (preserving created_at), and deletes', async () => {
     const file = await tmpDbPath()
     const a = new SessionStore(file)
@@ -443,6 +452,24 @@ describe('SessionStore superagent threads', () => {
     s.clearSuperagentMessages('btw_z')
     expect(s.loadSuperagentMessages('global').length).toBe(1)
     expect(s.loadSuperagentMessages('btw_z').length).toBe(0)
+    s.close()
+  })
+
+  it('tolerates a corrupt tool_calls column instead of dropping the whole thread', () => {
+    // One message with unparseable tool_calls must NOT throw out of the row map and
+    // blank the entire thread's history — quarantine that field to undefined, keep
+    // the message and the rest of the thread.
+    const s = new SessionStore(':memory:')
+    s.appendSuperagentMessage('global', { role: 'assistant', content: 'a' })
+    s.appendSuperagentMessage('global', { role: 'assistant', content: 'b' })
+    ;(s as unknown as { db: { prepare(q: string): { run(...a: unknown[]): unknown } } }).db
+      .prepare("UPDATE superagent_messages SET tool_calls = '{bad' WHERE content = 'a'")
+      .run()
+
+    expect(() => s.loadSuperagentMessages('global')).not.toThrow()
+    const msgs = s.loadSuperagentMessages('global')
+    expect(msgs.map((m) => m.content)).toEqual(['a', 'b'])
+    expect(msgs[0]?.toolCalls).toBeUndefined()
     s.close()
   })
 })

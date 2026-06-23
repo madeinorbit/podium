@@ -100,4 +100,23 @@ describe('createCursorConversationProvider', () => {
       AgentConversationLoadError,
     )
   })
+
+  test('keeps the parseable records instead of failing the whole conversation on a torn line', async () => {
+    const root = await createRoot()
+    await writeCursorSession(root)
+    const provider = createCursorConversationProvider()
+    const scan = await provider.scanRoot(root)
+    const summary = scan.conversations[0]
+    if (!summary) throw new Error('Expected Cursor conversation summary')
+    await writeFile(summary.source.path, '{"ok":true}\nnot-json\n')
+
+    const conversation = await provider.loadConversation(summary)
+    expect(Array.isArray(conversation.messages)).toBe(true)
+    expect(conversation.diagnostics).toEqual([
+      expect.objectContaining({
+        providerId: 'cursor-agent-transcripts',
+        message: expect.stringContaining('Could not parse JSONL line 2'),
+      }),
+    ])
+  })
 })

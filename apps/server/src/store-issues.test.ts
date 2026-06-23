@@ -49,4 +49,47 @@ describe('store issues', () => {
     s.deleteIssue('iss_1')
     expect(s.getIssue('iss_1')).toBeNull()
   })
+
+  it('rejects an invalid stage on write but allows the auto defaultAgent sentinel', () => {
+    const s = new SessionStore(':memory:')
+    expect(() => s.upsertIssue({ ...base(), stage: 'bogus' })).toThrow(/stage/i)
+    // 'auto' is a legal defaultAgent (AgentChoice sentinel) — it must NOT be rejected;
+    // it is resolved to a concrete kind only at spawn time.
+    expect(() => s.upsertIssue({ ...base(), defaultAgent: 'auto' })).not.toThrow()
+  })
+
+  it('normalizes a non-array blockedBy to [] on write', () => {
+    const s = new SessionStore(':memory:')
+    s.upsertIssue({ ...base(), blockedBy: 'nope' as unknown as string[] })
+    expect(s.getIssue('iss_1')?.blockedBy).toEqual([])
+  })
+
+  it('tolerates a corrupt blocked_by column instead of crashing the whole load', () => {
+    // A row whose blocked_by holds non-JSON (legacy/externally-corrupted data) must
+    // NOT throw out of mapIssueRow — that would abort listIssueRows, which runs in
+    // IssueService's constructor at boot, crash-looping the server. Quarantine the
+    // bad field (blockedBy -> []) and keep the row.
+    const s = new SessionStore(':memory:')
+    s.upsertIssue(base())
+    rawDb(s).prepare('UPDATE issues SET blocked_by = ? WHERE id = ?').run('{not json', 'iss_1')
+
+    expect(() => s.listIssueRows()).not.toThrow()
+    expect(s.getIssue('iss_1')?.blockedBy).toEqual([])
+    expect(s.listIssueRows().map((i) => i.id)).toContain('iss_1')
+  })
+
+  it('quarantines a non-array blocked_by JSON value', () => {
+    const s = new SessionStore(':memory:')
+    s.upsertIssue(base())
+    // Valid JSON, wrong shape (an object, not a string[]).
+    rawDb(s).prepare('UPDATE issues SET blocked_by = ? WHERE id = ?').run('{"a":1}', 'iss_1')
+    expect(s.getIssue('iss_1')?.blockedBy).toEqual([])
+  })
 })
+
+/** White-box seam: reach the store's own SQLite connection to inject corrupt rows. */
+function rawDb(s: SessionStore): {
+  prepare(q: string): { run(...a: unknown[]): unknown }
+} {
+  return (s as unknown as { db: { prepare(q: string): { run(...a: unknown[]): unknown } } }).db
+}

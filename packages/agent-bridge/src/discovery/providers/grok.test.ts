@@ -113,4 +113,26 @@ describe('createGrokConversationProvider', () => {
       AgentConversationLoadError,
     )
   })
+
+  test('keeps the parseable records instead of failing the whole conversation on a torn line', async () => {
+    const root = await createRoot()
+    await writeGrokSession(root)
+    const provider = createGrokConversationProvider()
+    const scan = await provider.scanRoot(root)
+    const summary = scan.conversations[0]
+    if (!summary) throw new Error('Expected Grok conversation summary')
+    await writeFile(
+      join(summary.source.path, '..', 'chat_history.jsonl'),
+      '{"ok":true}\nnot-json\n',
+    )
+
+    const conversation = await provider.loadConversation(summary)
+    expect(Array.isArray(conversation.messages)).toBe(true)
+    expect(conversation.diagnostics).toEqual([
+      expect.objectContaining({
+        providerId: 'grok-sessions',
+        message: expect.stringContaining('Could not parse JSONL line 2'),
+      }),
+    ])
+  })
 })

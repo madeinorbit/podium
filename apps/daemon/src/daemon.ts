@@ -94,6 +94,18 @@ const DEFAULT_HOST_METRICS_INTERVAL_MS = 5_000
 // 64 MB leaves generous headroom over real uploads/pastes/file writes.
 const MAX_CONTROL_FRAME_BYTES = 64 * 1024 * 1024
 
+// Malformed inbound frames and failed outbound sends are dropped so they can't wedge
+// the daemon's control loop — but the drop is logged (never silent), throttled so a
+// flapping socket or a poison-frame storm can't flood the journal.
+const CONTROL_FRAME_WARN_THROTTLE_MS = 1_000
+let lastControlFrameWarnAt = 0
+function warnDroppedControlFrame(err: unknown, dir: 'inbound' | 'outbound' = 'inbound'): void {
+  const now = Date.now()
+  if (now - lastControlFrameWarnAt < CONTROL_FRAME_WARN_THROTTLE_MS) return
+  lastControlFrameWarnAt = now
+  console.warn(`[podium:daemon] dropped malformed ${dir} control frame:`, err)
+}
+
 /** Byte length of an inbound ws frame without materializing it to a string. Exported
  *  for unit testing the oversized-frame guard. */
 export function controlFrameByteLength(raw: RawData): number {
@@ -721,7 +733,15 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
 
   const send = (msg: DaemonMessage): void => {
     const w = currentWs
-    if (w && w.readyState === WebSocket.OPEN) w.send(encode(msg))
+    if (!w || w.readyState !== WebSocket.OPEN) return
+    // Mirror the server's safeSend: a send/encode throw (socket transitioning to
+    // CLOSING between the check and the call, or an unencodable payload) must not
+    // escape a handler and abort the rest of a burst (e.g. a reattach fan-out).
+    try {
+      w.send(encode(msg))
+    } catch (err) {
+      warnDroppedControlFrame(err, 'outbound')
+    }
   }
 
   // Seed agent state for a session whose CLI is already running but hasn't fired a
@@ -1176,7 +1196,10 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     let msg: ControlMessage
     try {
       msg = parseControlMessage(raw.toString())
-    } catch {
+    } catch (err) {
+      // Drop the malformed control frame (don't wedge the loop) — but log it, never
+      // silently, so protocol drift / poison frames are observable.
+      warnDroppedControlFrame(err)
       return
     }
     switch (msg.type) {
