@@ -63,6 +63,25 @@ describe('SessionRegistry', () => {
     expect(reg.listSessions()).toMatchObject([{ sessionId, agentKind: 'shell', cwd: '/proj' }])
   })
 
+  it('resolves the "auto" agent sentinel to a concrete kind (issue start-flow)', () => {
+    // The issue start-flow spawns with the issue's defaultAgent, which falls back
+    // to the 'auto' settings sentinel and is cast `as AgentKind` at the boundary.
+    // A session must NEVER persist/broadcast 'auto' — it is not a valid AgentKind,
+    // so it fails the sessionsChanged zod-parse and silently wipes the entire
+    // session list on every client.
+    const reg = new SessionRegistry()
+    const daemon: ControlMessage[] = []
+    reg.attachDaemon((m) => daemon.push(m))
+    const { sessionId } = reg.createSession({
+      agentKind: 'auto' as unknown as 'claude-code',
+      cwd: '/proj',
+    })
+    expect(daemon).toContainEqual(
+      expect.objectContaining({ type: 'spawn', sessionId, agentKind: 'claude-code' }),
+    )
+    expect(reg.listSessions()[0]?.agentKind).toBe('claude-code')
+  })
+
   it('resume spawns with the resume ref + resume origin', () => {
     const reg = new SessionRegistry()
     const daemon: ControlMessage[] = []

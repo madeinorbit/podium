@@ -363,8 +363,19 @@ export class SessionRegistry {
     sessionId: string
   } {
     const defaults = this.store.getSettings().sessionDefaults
-    const agentKind =
-      input.agentKind ?? (defaults.agent === 'auto' ? 'claude-code' : defaults.agent)
+    // Resolve the agent down to a concrete AgentKind. `agentKind` may be absent,
+    // or carry a non-AgentKind sentinel like 'auto' (the issue start-flow casts
+    // the issue's `defaultAgent` — which defaults to the 'auto' settings choice —
+    // `as AgentKind` at the boundary). 'auto' is NOT a valid AgentKind: persisting
+    // or broadcasting it fails the sessionsChanged zod-parse and silently wipes
+    // the whole session list on every client. safeParse anything that isn't a real
+    // kind back to the configured default (itself resolved out of 'auto').
+    const requested = AgentKind.safeParse(input.agentKind)
+    const agentKind = requested.success
+      ? requested.data
+      : defaults.agent === 'auto'
+        ? 'claude-code'
+        : defaults.agent
     return this.spawn({
       agentKind,
       cwd: input.cwd,
