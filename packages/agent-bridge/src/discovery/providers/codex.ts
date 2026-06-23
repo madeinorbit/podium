@@ -159,24 +159,32 @@ async function loadConversation(summary: AgentConversationSummary): Promise<Agen
     )
   }
 
-  if (parsed.diagnostics.length > 0) {
-    const readDiagnostic = parsed.diagnostics.find(
-      (diagnostic) => diagnostic.message === 'Codex session file cannot be read',
-    )
-    if (readDiagnostic) {
-      throw new AgentConversationLoadError(
-        `Could not load Codex conversation from ${summary.source.path}`,
-        { cause: readDiagnostic.cause },
-      )
-    }
-
+  // A genuine "cannot be read" diagnostic is a real load failure — throw. Per-line
+  // PARSE diagnostics were already isolated by the JSONL reader (good records
+  // survive), so keep the records and surface those diagnostics non-fatally.
+  const readDiagnostic = parsed.diagnostics.find(
+    (diagnostic) => diagnostic.message === 'Codex session file cannot be read',
+  )
+  if (readDiagnostic) {
     throw new AgentConversationLoadError(
-      `Could not parse Codex conversation ${summary.source.path}`,
+      `Could not load Codex conversation from ${summary.source.path}`,
+      { cause: readDiagnostic.cause },
+    )
+  }
+  if (parsed.diagnostics.length > 0) {
+    console.warn(
+      `[podium] ${parsed.diagnostics.length} unparseable line(s) in Codex conversation ${summary.source.path} — skipped`,
     )
   }
 
   const messages = codexMessages(parsed.records)
-  return { ...summary, messageCount: messages.length, messages, raw: parsed.records }
+  return {
+    ...summary,
+    messageCount: messages.length,
+    messages,
+    raw: parsed.records,
+    diagnostics: parsed.diagnostics,
+  }
 }
 
 async function readCodexHeadRecords(

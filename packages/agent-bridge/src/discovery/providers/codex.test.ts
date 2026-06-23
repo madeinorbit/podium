@@ -276,6 +276,27 @@ describe('createCodexConversationProvider', () => {
     )
   })
 
+  test('keeps the parseable records instead of failing the whole conversation on a torn line', async () => {
+    const root = await createRoot()
+    await writeCodexSession(root, 'sessions/2026/06/01/session.jsonl')
+    const provider = createCodexConversationProvider()
+    const scan = await provider.scanRoot(root)
+    const summary = scan.conversations[0]
+    if (!summary) throw new Error('Expected Codex conversation summary')
+    await writeFile(summary.source.path, '{"ok":true}\nnot-json\n')
+
+    // A torn line is isolated per-line by the JSONL reader — loadConversation must
+    // not re-escalate it into a whole-conversation throw.
+    const conversation = await provider.loadConversation(summary)
+    expect(Array.isArray(conversation.messages)).toBe(true)
+    expect(conversation.diagnostics).toEqual([
+      expect.objectContaining({
+        providerId: 'codex-jsonl',
+        message: expect.stringContaining('Could not parse JSONL line 2'),
+      }),
+    ])
+  })
+
   test('reports malformed candidate files without failing the whole root', async () => {
     const root = await createRoot()
     await mkdir(join(root, 'sessions/2026/06/01'), { recursive: true })

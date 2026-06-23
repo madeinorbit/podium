@@ -2,8 +2,9 @@ import {
   type ConversationSummaryWire,
   encode,
   type HostMetricsWire,
+  type IssueWire,
   type MachineWire,
-  parseServerMessage,
+  parseServerMessageLenient,
   type ServerMessage,
   type SessionMeta,
   type TranscriptItem,
@@ -131,6 +132,7 @@ export class SocketHub {
   private conversationList: ConversationSummaryWire[] = []
   private hostMetricsList: HostMetricsWire[] = []
   private machinesList: MachineWire[] = []
+  private issueList: IssueWire[] = []
   private intentionalClose = false
   private everConnected = false
   private reconnectDelay = RECONNECT_MIN_MS
@@ -145,16 +147,24 @@ export class SocketHub {
   private lastRttMs: number | null = null
   private health: ConnectionHealth = { status: 'ok', rttMs: null, since: Date.now() }
   private readonly connections = new Map<string, SessionConnection>()
-  // Per-session structured transcript: buffered items + observers. An entry
-  // exists while at least one observer is subscribed.
+  // Per-session structured transcript subscriptions. The hub is a thin
+  // delta-forwarder: it holds NO buffered items (ChatView owns history, seeded
+  // from a tRPC read). It tracks only `since` — the cursor of the newest item
+  // forwarded so far — so a reconnect can resume the live stream from that point.
+  // An entry exists while at least one observer is subscribed.
   private readonly transcripts = new Map<
     string,
-    { items: TranscriptItem[]; observers: Set<(items: TranscriptItem[], meta: { reset: boolean }) => void> }
+    {
+      since: string | undefined
+      observers: Set<(items: TranscriptItem[], meta: { reset: boolean }) => void>
+    }
   >()
   private readonly sessionObservers = new Set<(s: SessionMeta[]) => void>()
   private readonly conversationObservers = new Set<(c: ConversationSummaryWire[]) => void>()
   private readonly hostMetricsObservers = new Set<(h: HostMetricsWire[]) => void>()
   private readonly machinesObservers = new Set<(m: MachineWire[]) => void>()
+  private readonly issueObservers = new Set<(i: IssueWire[]) => void>()
+  private readonly issueUpdatedObservers = new Set<(i: IssueWire) => void>()
   private readonly healthObservers = new Set<(h: ConnectionHealth) => void>()
   private readonly attentionObservers = new Set<(e: AttentionEvent) => void>()
   private draftObservers = new Set<(sessionId: string, text: string) => void>()
@@ -214,9 +224,15 @@ export class SocketHub {
         this.sendRaw({ type: 'attach', sessionId, ...(sinceSeq >= 0 ? { sinceSeq } : {}) })
       }
       // Transcript subscriptions survive reconnects the same way attaches do —
-      // the server re-sends a fresh snapshot which replaces local state.
-      for (const sessionId of this.transcripts.keys()) {
-        this.sendRaw({ type: 'transcriptSubscribe', sessionId })
+      // resume from the last cursor we forwarded (`since`) so the stream picks up
+      // where it left off instead of replaying. A subscription that hasn't seen a
+      // delta yet (since undefined) re-subscribes from the live tail.
+      for (const [sessionId, entry] of this.transcripts) {
+        this.sendRaw({
+          type: 'transcriptSubscribe',
+          sessionId,
+          ...(entry.since ? { since: entry.since } : {}),
+        })
       }
       // Always assert presence on (re)connect: the server defaults a new client
       // to not-visible (fail-safe toward notifying), so a visible tab must say so.
@@ -397,29 +413,51 @@ export class SocketHub {
     return () => this.machinesObservers.delete(cb)
   }
 
+  issues(): IssueWire[] {
+    return this.issueList
+  }
+
+  /** Observe the full issue list. Replays the current list immediately, like `onSessions`. */
+  onIssues(cb: (i: IssueWire[]) => void): () => void {
+    this.issueObservers.add(cb)
+    cb(this.issueList)
+    return () => this.issueObservers.delete(cb)
+  }
+
+  /** Observe single-issue updates (no immediate replay; mirrors `onAttention`). */
+  onIssueUpdated(cb: (i: IssueWire) => void): () => void {
+    this.issueUpdatedObservers.add(cb)
+    return () => this.issueUpdatedObservers.delete(cb)
+  }
+
   /**
-   * Observe a session's structured transcript. The first observer triggers a
-   * server-side subscription (snapshot + live appends); the last one leaving
-   * unsubscribes and drops the buffer. The callback always receives the FULL
-   * item list (simplest correct contract across snapshot resets).
+   * Observe a session's live structured-transcript deltas, resuming from `since`
+   * (the cursor of the newest item the caller already holds — typically the
+   * `tail` of an initial tRPC read). The first observer triggers a server-side
+   * subscription; the last one leaving unsubscribes.
    *
-   * The second `meta` argument signals whether this batch is a full reset
-   * (`reset: true`, from a `transcriptSnapshot`) vs. an incremental append.
-   * Callers that don't care can ignore it — the signature is backward-compatible
-   * because the parameter is optional to read, just always present.
+   * The hub is a thin forwarder: each `transcriptDelta` frame calls the callback
+   * with ONLY that frame's delta items (not an accumulated list) — the caller
+   * owns history. `meta.reset` is true when the tailer re-seeded (resume rolled
+   * into a fresh file / reattach) and the caller should re-read its window.
+   *
+   * The callback is NOT invoked synchronously: the caller seeds its initial state
+   * from the read, and a sync empty cb would clobber it.
    */
   subscribeTranscript(
     sessionId: string,
+    since: string | undefined,
     cb: (items: TranscriptItem[], meta: { reset: boolean }) => void,
   ): () => void {
     let entry = this.transcripts.get(sessionId)
     if (!entry) {
-      entry = { items: [], observers: new Set() }
+      entry = { since, observers: new Set() }
       this.transcripts.set(sessionId, entry)
-      if (this.connectedFlag) this.sendRaw({ type: 'transcriptSubscribe', sessionId })
+      if (this.connectedFlag) {
+        this.sendRaw({ type: 'transcriptSubscribe', sessionId, ...(since ? { since } : {}) })
+      }
     }
     entry.observers.add(cb)
-    cb(entry.items, { reset: true })
     return () => {
       const current = this.transcripts.get(sessionId)
       if (!current) return
@@ -523,12 +561,23 @@ export class SocketHub {
   }
 
   private route(raw: string): void {
-    let msg: ServerMessage
+    let msg: ServerMessage | null
     try {
-      msg = parseServerMessage(raw)
-    } catch {
+      // Lenient parse: for the collection-bearing messages, one poisoned element
+      // (e.g. a session with an out-of-enum agentKind) is quarantined instead of
+      // failing the whole batch — otherwise a single bad row blanks an entire list.
+      const result = parseServerMessageLenient(raw)
+      msg = result.message
+      if (result.dropped > 0) {
+        // Never silent: a swallowed drop here was what turned a one-row data bug into
+        // an invisible, blank-UI outage. Make every quarantine observable.
+        console.warn(`[podium] quarantined ${result.dropped} invalid item(s) in a ${msg?.type ?? '?'} message`)
+      }
+    } catch (err) {
+      console.warn('[podium] dropped an unparseable server message', err)
       return
     }
+    if (!msg) return
     if (msg.type === 'pong') {
       // Liveness was already recorded in onmessage; here the pong closes out the
       // oldest in-flight ping to yield a round-trip sample.
@@ -560,18 +609,31 @@ export class SocketHub {
       for (const o of this.hostMetricsObservers) o(this.hostMetricsList)
       return
     }
+    if (msg.type === 'issuesChanged') {
+      this.issueList = msg.issues
+      for (const o of this.issueObservers) o(this.issueList)
+      return
+    }
+    if (msg.type === 'issueUpdated') {
+      this.issueList = this.issueList.map((i) => (i.id === msg.issue.id ? msg.issue : i))
+      for (const o of this.issueObservers) o(this.issueList)
+      for (const o of this.issueUpdatedObservers) o(msg.issue)
+      return
+    }
     if (msg.type === 'attentionEvent') {
       for (const o of this.attentionObservers) {
         o({ sessionId: msg.sessionId, title: msg.title, body: msg.body })
       }
       return
     }
-    if (msg.type === 'transcriptSnapshot' || msg.type === 'transcriptAppend') {
+    if (msg.type === 'transcriptDelta') {
       const entry = this.transcripts.get(msg.sessionId)
       if (!entry) return
-      const reset = msg.type === 'transcriptSnapshot'
-      entry.items = reset ? msg.items : entry.items.concat(msg.items)
-      for (const o of entry.observers) o(entry.items, { reset })
+      // Track the newest cursor so a reconnect resumes from here. A reset frame
+      // re-seeds: keep the new tail too (the caller re-reads its window).
+      if (msg.tail) entry.since = msg.tail
+      const reset = msg.reset ?? false
+      for (const o of entry.observers) o(msg.items, { reset })
       return
     }
     if (msg.type === 'sessionTitleChanged') {

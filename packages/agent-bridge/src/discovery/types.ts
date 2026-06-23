@@ -64,6 +64,12 @@ export type AgentConversationMessage = {
 export type AgentConversation = AgentConversationSummary & {
   messages: AgentConversationMessage[]
   raw?: unknown
+  /**
+   * Non-fatal per-line parse diagnostics encountered while loading. A torn/partial
+   * JSONL line quarantines that line (the rest of the transcript still loads) and is
+   * surfaced here rather than thrown — so one bad line can't blank the whole view.
+   */
+  diagnostics?: AgentConversationDiagnostic[]
 }
 
 export type AgentConversationDiagnostic = {

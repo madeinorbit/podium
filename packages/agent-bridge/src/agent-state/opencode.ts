@@ -9,7 +9,11 @@ function isoFromMs(ms: number | undefined): string | undefined {
 
 type OpencodeDbModule = typeof import('../opencode/db.js')
 type OpencodeTranscriptModule = typeof import('../transcript/opencode.js')
-type OpencodeRuntime = OpencodeDbModule & OpencodeTranscriptModule
+// The cursor-stamping helper lives in the source layer (shared with the on-demand
+// read path) so live deltas and reads carry IDENTICAL cursors; lazy-load it the
+// same way so observing opencode state stays optional (no eager SQLite import).
+type OpencodeSourceModule = Pick<typeof import('../transcript/source.js'), 'stampOpencodeItems'>
+type OpencodeRuntime = OpencodeDbModule & OpencodeTranscriptModule & OpencodeSourceModule
 type OpencodeSessionRow = import('../opencode/db.js').OpencodeSessionRow
 type OpencodeDb = ReturnType<OpencodeDbModule['openOpencodeDb']>
 
@@ -22,7 +26,8 @@ async function loadOpencodeRuntime(): Promise<OpencodeRuntime> {
   runtimePromise ??= Promise.all([
     import('../opencode/db.js'),
     import('../transcript/opencode.js'),
-  ]).then(([db, transcript]) => ({ ...db, ...transcript }) as OpencodeRuntime)
+    import('../transcript/source.js'),
+  ]).then(([db, transcript, source]) => ({ ...db, ...transcript, ...source }) as OpencodeRuntime)
   return runtimePromise
 }
 
@@ -135,7 +140,9 @@ export function observeOpencodeState(opts: {
         : rt.loadOpencodeMessageParts(handle, attached.id, lastPartTime)
       if (rows.length === 0) return
       lastPartTime = Math.max(lastPartTime, ...rows.map((r) => r.timeUpdated))
-      const items = rt.opencodeRowsToItems(rows)
+      // Cursor-stamp via the SAME helper the on-demand read uses, so a live delta's
+      // cursors interoperate with a paged read's (dedup / subscribe-from-cursor).
+      const items = rt.stampOpencodeItems(rows, attached.id)
       if (items.length > 0) {
         opts.onTranscriptItems(items, reset || firstTranscript)
         firstTranscript = false
@@ -185,13 +192,15 @@ export function observeOpencodeState(opts: {
           else if (partType === 'step-finish') {
             rowEvents.push({
               kind: 'turn_completed',
-              verdict: rt.classifyOpencodeIdleText(lastAssistantText(rt, handle, attached.id)?.text),
+              verdict: rt.classifyOpencodeIdleText(
+                lastAssistantText(rt, handle, attached.id)?.text,
+              ),
             })
           }
           events.push(...withEventTime(rowEvents, at))
         }
         if (opts.onTranscriptItems) {
-          const items = rows.flatMap((row) => rt.opencodePartToItems(row))
+          const items = rt.stampOpencodeItems(rows, attached.id)
           if (items.length > 0) opts.onTranscriptItems(items, false)
         }
       }

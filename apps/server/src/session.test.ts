@@ -356,3 +356,70 @@ describe('Session', () => {
     expect('snoozedUntil' in s.toMeta()).toBe(false)
   })
 })
+
+describe('Session transcript cache (recent-delta window)', () => {
+  const item = (id: string, cursor: string, text = id) =>
+    ({ id, role: 'user' as const, text, cursor }) as const
+
+  it('applyDelta appends, fans out a transcriptDelta, and flips availability once', () => {
+    const s = makeSession()
+    const a = makeClient('a')
+    s.subscribeTranscript(a)
+    // Empty subscribe → no replay frame.
+    expect(a.sent.filter((m) => m.type === 'transcriptDelta')).toEqual([])
+
+    const became = s.applyDelta([item('u1', 'c1')], { tail: 'c1' })
+    expect(became).toBe(true) // first transcript observed → chat capability flips on
+    expect(a.sent.at(-1)).toEqual({
+      type: 'transcriptDelta',
+      sessionId: 's1',
+      items: [item('u1', 'c1')],
+      tail: 'c1',
+    })
+    expect(s.transcriptItems()).toEqual([item('u1', 'c1')])
+    // A second delta no longer flips availability.
+    expect(s.applyDelta([item('u2', 'c2')], {})).toBe(false)
+    expect(s.transcriptItems()).toEqual([item('u1', 'c1'), item('u2', 'c2')])
+  })
+
+  it('applyDelta({reset}) clears the cache and fans out reset:true', () => {
+    const s = makeSession()
+    const a = makeClient('a')
+    s.subscribeTranscript(a)
+    s.applyDelta([item('u1', 'c1')], {})
+    s.applyDelta([item('u2', 'c2')], { reset: true, tail: 'c2' })
+    expect(s.transcriptItems()).toEqual([item('u2', 'c2')])
+    expect(a.sent.at(-1)).toEqual({
+      type: 'transcriptDelta',
+      sessionId: 's1',
+      items: [item('u2', 'c2')],
+      tail: 'c2',
+      reset: true,
+    })
+  })
+
+  it('subscribeTranscript(since) replays only items after since; whole cache when unknown; nothing when caught up', () => {
+    const s = makeSession()
+    s.applyDelta([item('a', 'c1'), item('b', 'c2'), item('c', 'c3')], { tail: 'c3' })
+
+    const known = makeClient('k')
+    s.subscribeTranscript(known, 'c1')
+    expect(known.sent).toEqual([
+      { type: 'transcriptDelta', sessionId: 's1', items: [item('b', 'c2'), item('c', 'c3')] },
+    ])
+
+    const stale = makeClient('s')
+    s.subscribeTranscript(stale, 'older')
+    expect(stale.sent).toEqual([
+      {
+        type: 'transcriptDelta',
+        sessionId: 's1',
+        items: [item('a', 'c1'), item('b', 'c2'), item('c', 'c3')],
+      },
+    ])
+
+    const caught = makeClient('c')
+    s.subscribeTranscript(caught, 'c3')
+    expect(caught.sent).toEqual([])
+  })
+})

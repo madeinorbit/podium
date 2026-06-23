@@ -11,6 +11,92 @@ export interface ChatBlock {
   result?: string
 }
 
+/** Identity key for dedup/merge: the opaque cursor when present (stable across
+ *  re-reads), else the synthesized `id` (a few items have no cursor). */
+function itemKey(item: TranscriptItem): string {
+  return item.cursor ?? item.id
+}
+
+/**
+ * Merge live-delta items into the held list, keyed by cursor (or id). A delta item
+ * whose key is already present REPLACES the held one in place (preserving its
+ * position); a new key is appended (deltas are newer → appended). Order preserved.
+ * Returns `prev` unchanged (referentially) when nothing actually changed, so a
+ * no-op delta doesn't trigger a re-render.
+ *
+ * Replace-not-skip is load-bearing: the live tailer flushes an unterminated
+ * trailing record immediately (so a final message surfaces promptly), then
+ * re-emits it at the SAME cursor once its newline lands with the complete content.
+ * A skip-on-seen (first-wins) merge would pin the earlier, possibly truncated
+ * version; replacing lets the completed record supersede it.
+ */
+export function mergeByCursor(prev: TranscriptItem[], delta: TranscriptItem[]): TranscriptItem[] {
+  if (delta.length === 0) return prev
+  const indexByKey = new Map<string, number>()
+  prev.forEach((it, i) => {
+    indexByKey.set(itemKey(it), i)
+  })
+  let next: TranscriptItem[] | null = null // cloned lazily on the first real change
+  const additions: TranscriptItem[] = []
+  for (const it of delta) {
+    const key = itemKey(it)
+    const at = indexByKey.get(key)
+    if (at !== undefined) {
+      const existing = (next ?? prev)[at]
+      if (existing !== undefined && !sameItemContent(existing, it)) {
+        if (!next) next = [...prev]
+        next[at] = it
+      }
+    } else {
+      indexByKey.set(key, prev.length + additions.length)
+      additions.push(it)
+    }
+  }
+  if (!next && additions.length === 0) return prev
+  return [...(next ?? prev), ...additions]
+}
+
+/** Cheap content equality for the fields a re-emitted (growing) record changes —
+ *  lets mergeByCursor skip a re-render when a same-cursor re-emit is identical. */
+function sameItemContent(a: TranscriptItem, b: TranscriptItem): boolean {
+  return a.text === b.text && a.toolResult === b.toolResult && a.toolInput === b.toolInput
+}
+
+/**
+ * Accumulate the file paths a transcript references (for the terminal file-link
+ * provider) across the hub's per-frame DELTAS. Each non-reset frame folds its
+ * items' `toolPaths` into the growing set; a `reset` frame (file roll / reattach
+ * re-seed) starts the set over from empty. Returns a FRESH `Set` every call (never
+ * the `prev` identity) so callers can hand it straight to React state / a view
+ * setter without aliasing the accumulator they keep.
+ */
+export function accumulateFileLinkPaths(
+  prev: ReadonlySet<string>,
+  delta: TranscriptItem[],
+  reset: boolean,
+): Set<string> {
+  const set = reset ? new Set<string>() : new Set(prev)
+  for (const it of delta) for (const p of it.toolPaths ?? []) set.add(p)
+  return set
+}
+
+/**
+ * Drop later items that share a cursor (or id) with an earlier one — keeps the
+ * first occurrence, preserving order. Used at the `[...older, ...items]` seam to
+ * guard a one-item paging/live overlap.
+ */
+export function dedupeByCursor(items: TranscriptItem[]): TranscriptItem[] {
+  const seen = new Set<string>()
+  const out: TranscriptItem[] = []
+  for (const it of items) {
+    const key = itemKey(it)
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push(it)
+  }
+  return out
+}
+
 /**
  * Collapse the raw item stream into renderable blocks: tool results fold into
  * their originating tool call; everything else passes through in order.
@@ -44,9 +130,7 @@ export function pairToolResults(items: TranscriptItem[]): ChatBlock[] {
  */
 export function isBatchableTool(item: TranscriptItem): boolean {
   return (
-    item.role === 'tool' &&
-    item.toolName !== 'AskUserQuestion' &&
-    item.toolName !== 'SendUserFile'
+    item.role === 'tool' && item.toolName !== 'AskUserQuestion' && item.toolName !== 'SendUserFile'
   )
 }
 
@@ -77,7 +161,12 @@ export function buildChatRows(blocks: ChatBlock[]): ChatRow[] {
   let run: { blocks: ChatBlock[]; indices: number[] } | null = null
   const flush = (): void => {
     if (!run) return
-    rows.push({ kind: 'tools', blocks: run.blocks, blockIndices: run.indices, title: toolBatchTitle(run.blocks) })
+    rows.push({
+      kind: 'tools',
+      blocks: run.blocks,
+      blockIndices: run.indices,
+      title: toolBatchTitle(run.blocks),
+    })
     run = null
   }
   blocks.forEach((block, i) => {
@@ -118,7 +207,8 @@ function toolCategory(item: TranscriptItem): { verb: string; noun: string } {
   }
 }
 
-const pluralizeNoun = (noun: string): string => (/(?:s|x|ch|sh)$/.test(noun) ? `${noun}es` : `${noun}s`)
+const pluralizeNoun = (noun: string): string =>
+  /(?:s|x|ch|sh)$/.test(noun) ? `${noun}es` : `${noun}s`
 const articleFor = (noun: string): string => (/^[aeiou]/i.test(noun) ? 'an' : 'a')
 const lowerFirst = (s: string): string => s.charAt(0).toLowerCase() + s.slice(1)
 const clauseFor = (verb: string, noun: string, count: number): string =>

@@ -210,6 +210,10 @@ export type TranscriptTag = z.infer<typeof TranscriptTag>
 
 export const TranscriptItem = z.object({
   id: z.string(),
+  /** Opaque, daemon-defined position anchor for read-from/subscribe-since paging.
+   *  Stable across re-reads of the same file bytes (unlike `id`, which is
+   *  synthesized for some items). The client treats it as opaque. */
+  cursor: z.string().optional(),
   role: TranscriptRole,
   ts: z.string().optional(), // ISO 8601
   /** Markdown body. Empty for pure tool-call items. */
@@ -259,28 +263,34 @@ export const TranscriptItem = z.object({
 })
 export type TranscriptItem = z.infer<typeof TranscriptItem>
 
-// daemon -> server AND server -> client (identical shape). `reset` replaces the
-// buffer (tailer switched files, e.g. resume rolled into a fresh transcript).
-export const TranscriptAppendMessage = z.object({
-  type: z.literal('transcriptAppend'),
+// daemon -> server AND server -> client (identical shape). Streams newly-tailed
+// transcript items as they arrive. `tail` is the cursor of the last item in this
+// batch (the resume point for a late subscribe). `reset` replaces the client's
+// buffer (the tailer switched files, e.g. resume rolled into a fresh transcript).
+export const TranscriptDeltaMessage = z.object({
+  type: z.literal('transcriptDelta'),
   sessionId: z.string(),
   items: z.array(TranscriptItem),
+  tail: z.string().optional(),
   reset: z.boolean().optional(),
 })
-// server -> client on subscribe: the whole buffered transcript so far.
-export const TranscriptSnapshotMessage = z.object({
-  type: z.literal('transcriptSnapshot'),
-  sessionId: z.string(),
-  items: z.array(TranscriptItem),
-})
+export type TranscriptDeltaMessage = z.infer<typeof TranscriptDeltaMessage>
+
+// client -> server. `since` is the cursor of the last item the client already
+// holds; the server streams only items after it (omitted = stream from the live
+// tail / send what the server buffers).
 export const TranscriptSubscribeMessage = z.object({
   type: z.literal('transcriptSubscribe'),
   sessionId: z.string(),
+  since: z.string().optional(),
 })
+export type TranscriptSubscribeMessage = z.infer<typeof TranscriptSubscribeMessage>
+
 export const TranscriptUnsubscribeMessage = z.object({
   type: z.literal('transcriptUnsubscribe'),
   sessionId: z.string(),
 })
+export type TranscriptUnsubscribeMessage = z.infer<typeof TranscriptUnsubscribeMessage>
 
 // ---- Browser client -> server ----
 export const HelloMessage = z.object({
@@ -522,6 +532,60 @@ export const AttentionEventMessage = z.object({
   body: z.string(),
 })
 
+// ---------------------------------------------------------------------------
+// Issue tracker
+// ---------------------------------------------------------------------------
+
+// Ordered lifecycle stages an issue moves through.
+export const IssueStage = z.enum(['backlog', 'planning', 'in_progress', 'review', 'verifying', 'done'])
+export type IssueStage = z.infer<typeof IssueStage>
+export const ISSUE_STAGES: IssueStage[] = ['backlog', 'planning', 'in_progress', 'review', 'verifying', 'done']
+
+export const IssueSessionSummary = z.object({
+  total: z.number().int().nonnegative(),
+  byPhase: z.record(z.number().int().nonnegative()),
+})
+export type IssueSessionSummary = z.infer<typeof IssueSessionSummary>
+
+export const IssueWire = z.object({
+  id: z.string(),
+  repoPath: z.string(),
+  seq: z.number().int(),
+  title: z.string(),
+  description: z.string(),
+  stage: IssueStage,
+  worktreePath: z.string().nullable(),
+  branch: z.string().nullable(),
+  parentBranch: z.string(),
+  defaultAgent: z.string(),
+  linearId: z.string().optional(),
+  linearIdentifier: z.string().optional(),
+  linearUrl: z.string().optional(),
+  activityNotes: z.string().optional(),
+  notesUpdatedAt: z.string().optional(),
+  suggestedStage: IssueStage.optional(),
+  suggestedReason: z.string().optional(),
+  blockedBy: z.array(z.string()),
+  dependencyNote: z.string().optional(),
+  prUrl: z.string().optional(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  archived: z.boolean(),
+  // Derived server-side at serialization (not persisted):
+  sessions: z.array(SessionMeta),
+  sessionSummary: IssueSessionSummary,
+})
+export type IssueWire = z.infer<typeof IssueWire>
+
+export const IssuesChangedMessage = z.object({
+  type: z.literal('issuesChanged'),
+  issues: z.array(IssueWire),
+})
+export const IssueUpdatedMessage = z.object({
+  type: z.literal('issueUpdated'),
+  issue: IssueWire,
+})
+
 export const ServerMessage = z.discriminatedUnion('type', [
   WelcomeMessage,
   AttachedMessage,
@@ -538,8 +602,9 @@ export const ServerMessage = z.discriminatedUnion('type', [
   MachinesChangedMessage,
   PongMessage,
   AttentionEventMessage,
-  TranscriptAppendMessage,
-  TranscriptSnapshotMessage,
+  TranscriptDeltaMessage,
+  IssuesChangedMessage,
+  IssueUpdatedMessage,
 ])
 export type ServerMessage = z.infer<typeof ServerMessage>
 
@@ -584,35 +649,32 @@ export const ScanReposRequestMessage = z.object({
   maxDepth: z.number().int().nonnegative().optional(),
 })
 export const RedrawMessage = z.object({ type: z.literal('redraw'), sessionId: z.string() })
-// On-demand transcript read for a PARKED session (hibernated/exited): its process
-// is gone, so nothing is tailing the file and the server's in-memory buffer is
-// empty after a restart. The daemon reads the JSONL straight off disk (path derived
-// from the resume ref + cwd) and returns the parsed tail. Live sessions don't use
-// this — they stream via transcriptAppend.
+// Unified, cursor-based transcript read (server -> daemon). One request shape for
+// both the initial tail and scroll-back paging: the daemon resolves the items
+// relative to an opaque `anchor` cursor. `anchor` omitted = read from the tail
+// (newest) when direction is 'before', or from the head when 'after'. `direction`
+// 'before' walks toward older items (scroll-to-top paging), 'after' toward newer.
+// `limit` bounds the page. The server supplies the session metadata the daemon
+// needs to RESOLVE the right TranscriptSource (the daemon is keyed by sessionId
+// for live PTYs, but a transcript read off disk needs the harness + cwd, and the
+// optional resume ref names the on-disk file / DB session): `agentKind` selects
+// the source, `cwd` locates the per-cwd file bucket, `resume` (when known) names
+// the specific transcript file / opencode session.
 export const TranscriptReadRequestMessage = z.object({
-  type: z.literal('transcriptReadRequest'),
+  type: z.literal('transcriptRead'),
   requestId: z.string(),
+  sessionId: z.string(),
   agentKind: AgentKind,
   cwd: z.string(),
-  resume: ResumeRef,
-})
-
-// Scroll-to-top paging: fetch the page of OLDER transcript items that come BEFORE
-// the client's current window, so arbitrarily long sessions load incrementally
-// rather than the tail alone. `fromEnd` is how many items the client already holds
-// counted from the END of the full transcript (0 = the latest item); the daemon
-// returns the `limit` items immediately before that window. A positional cursor
-// (not an item id) on purpose: some item ids are synthesized per-parse and aren't
-// stable across reads, but item count/content are deterministic for the same bytes.
-export const TranscriptPageRequestMessage = z.object({
-  type: z.literal('transcriptPageRequest'),
-  requestId: z.string(),
-  agentKind: AgentKind,
-  cwd: z.string(),
-  resume: ResumeRef,
-  fromEnd: z.number().int().nonnegative(),
+  resume: ResumeRef.optional(),
+  anchor: z.string().optional(),
+  direction: z.enum(['before', 'after']),
+  // Wire-level guard: the daemon reads `limit` items off disk, so bound it at the
+  // boundary (positive integer, capped) — a negative/NaN/huge limit must not reach
+  // the slice reader. Mirrors the bound the retired transcriptPageRequest carried.
   limit: z.number().int().positive().max(2000),
 })
+export type TranscriptReadRequestMessage = z.infer<typeof TranscriptReadRequestMessage>
 
 export const FileReadRequestMessage = z.object({
   type: z.literal('fileReadRequest'),
@@ -679,7 +741,7 @@ export const ImageUploadResultMessage = z.object({
 // Constrained git operations the superagent may run on a dev machine. An
 // allowlisted enum (not a shell string) — the daemon maps each op to a fixed
 // git invocation.
-export const RepoOp = z.enum(['status', 'log', 'branches', 'worktreeAdd'])
+export const RepoOp = z.enum(['status', 'log', 'branches', 'worktreeAdd', 'rebase', 'mergeFfOnly', 'prCreate'])
 export type RepoOp = z.infer<typeof RepoOp>
 export const RepoOpRequestMessage = z.object({
   type: z.literal('repoOpRequest'),
@@ -786,7 +848,6 @@ export const ControlMessage = z.discriminatedUnion('type', [
   RedrawMessage,
   MemoryBreakdownRequestMessage,
   TranscriptReadRequestMessage,
-  TranscriptPageRequestMessage,
   FileReadRequestMessage,
   FileAssetRequestMessage,
   FileWriteRequestMessage,
@@ -895,20 +956,21 @@ export const SessionResumeRefMessage = z.object({
   resume: ResumeRef,
 })
 
+// Reply to a TranscriptReadRequest (daemon -> server): the requested page of
+// items plus the cursors that bound it. `head`/`tail` are the cursors of the
+// first/last item in `items` (omitted when the page is empty), and `hasMore`
+// says whether further items remain in the requested `direction` (so the client
+// can stop paging at the file's head/tail).
 export const TranscriptReadResultMessage = z.object({
   type: z.literal('transcriptReadResult'),
   requestId: z.string(),
+  sessionId: z.string(),
   items: z.array(TranscriptItem),
-})
-
-// Reply to a TranscriptPageRequest: the older page, plus whether earlier items
-// still remain on disk (so the client can stop paging at the head of the file).
-export const TranscriptPageResultMessage = z.object({
-  type: z.literal('transcriptPageResult'),
-  requestId: z.string(),
-  items: z.array(TranscriptItem),
+  head: z.string().optional(),
+  tail: z.string().optional(),
   hasMore: z.boolean(),
 })
+export type TranscriptReadResultMessage = z.infer<typeof TranscriptReadResultMessage>
 
 export const FileReadResultMessage = z.object({
   type: z.literal('fileReadResult'),
@@ -980,9 +1042,8 @@ export const DaemonMessage = z.discriminatedUnion('type', [
   ScanReposResultMessage,
   HostMetricsMessage,
   MemoryBreakdownResultMessage,
-  TranscriptAppendMessage,
+  TranscriptDeltaMessage,
   TranscriptReadResultMessage,
-  TranscriptPageResultMessage,
   FileReadResultMessage,
   FileAssetResultMessage,
   FileWriteResultMessage,
@@ -1012,6 +1073,49 @@ export function parseClientMessage(raw: string): ClientMessage {
 }
 export function parseServerMessage(raw: string): ServerMessage {
   return ServerMessage.parse(JSON.parse(raw))
+}
+
+/** Server messages carrying a homogeneous array we can quarantine per-element. */
+const COLLECTION_MESSAGE_ELEMENTS: Record<string, { key: string; element: z.ZodTypeAny }> = {
+  sessionsChanged: { key: 'sessions', element: SessionMeta },
+  issuesChanged: { key: 'issues', element: IssueWire },
+  conversationsChanged: { key: 'conversations', element: ConversationSummaryWire },
+  hostMetricsChanged: { key: 'hosts', element: HostMetricsWire },
+}
+
+export interface LenientServerMessage {
+  /** The parsed message, or null only if the structural envelope was invalid. */
+  message: ServerMessage | null
+  /** How many array elements were quarantined (invalid) and dropped. */
+  dropped: number
+}
+
+/**
+ * Like {@link parseServerMessage}, but for the collection-bearing messages
+ * (`sessionsChanged`/`issuesChanged`/`conversationsChanged`/`hostMetricsChanged`)
+ * it validates each array element individually and DROPS the invalid ones instead
+ * of failing the whole batch. One poisoned element (e.g. a session with an
+ * out-of-enum agentKind) can no longer blank an entire list on the client.
+ *
+ * Throws only when the frame is structurally unparseable (bad JSON, or an envelope
+ * whose non-array fields fail validation) — the caller should catch + log that, and
+ * inspect `dropped` to surface quarantined elements.
+ */
+export function parseServerMessageLenient(raw: string): LenientServerMessage {
+  const json = JSON.parse(raw) as Record<string, unknown>
+  const spec = typeof json?.type === 'string' ? COLLECTION_MESSAGE_ELEMENTS[json.type] : undefined
+  const arr = spec ? json[spec.key] : undefined
+  if (spec && Array.isArray(arr)) {
+    const good: unknown[] = []
+    let dropped = 0
+    for (const el of arr) {
+      const r = spec.element.safeParse(el)
+      if (r.success) good.push(r.data)
+      else dropped++
+    }
+    return { message: ServerMessage.parse({ ...json, [spec.key]: good }), dropped }
+  }
+  return { message: ServerMessage.parse(json), dropped: 0 }
 }
 export function parseDaemonMessage(raw: string): DaemonMessage {
   return DaemonMessage.parse(JSON.parse(raw))

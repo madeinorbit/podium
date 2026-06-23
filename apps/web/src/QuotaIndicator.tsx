@@ -8,10 +8,15 @@ import { cn } from '@/lib/utils'
 import {
   agentLabel,
   formatReset,
+  paceHint,
+  paceLabel,
   percentTone,
+  type QuotaPace,
   type QuotaTone,
   statusNote,
   toneBarClass,
+  windowElapsedPercent,
+  windowPace,
 } from './quota'
 import { useStore } from './store'
 
@@ -22,6 +27,12 @@ const TONE: Record<QuotaTone, { fill: string; icon: string; compact: string }> =
   ok: { fill: 'bg-success', icon: '', compact: 'text-success' },
   warn: { fill: 'bg-warning', icon: 'text-warning', compact: 'text-warning' },
   crit: { fill: 'bg-destructive', icon: 'text-destructive', compact: 'text-destructive' },
+}
+
+const PACE: Record<QuotaPace, string> = {
+  comfortable: 'text-success',
+  'on-pace': 'text-muted-foreground',
+  hot: 'text-destructive',
 }
 
 /** Highest window utilization across all `ok` agents — the at-a-glance signal. */
@@ -158,23 +169,51 @@ function AgentQuotaCard({ a }: { a: AgentQuotaWire }): JSX.Element {
       ) : (
         <div className="mt-2 flex flex-col gap-2">
           {a.windows.map((w) => (
-            <div key={w.key}>
-              <div className="mb-1 flex items-center justify-between text-[11px]">
-                <span className="text-muted-foreground">{w.label}</span>
-                <span className="text-foreground">
-                  {Math.round(w.usedPercent)}% · {formatReset(w.resetsAt, now)}
-                </span>
-              </div>
-              <div className="h-2 w-full overflow-hidden rounded-full bg-secondary">
-                <div
-                  className={`h-full rounded-full ${toneBarClass(percentTone(w.usedPercent))}`}
-                  style={{ width: `${Math.min(100, Math.max(0, w.usedPercent))}%` }}
-                />
-              </div>
-            </div>
+            <QuotaWindowRow key={w.key} w={w} now={now} />
           ))}
         </div>
       )}
+    </div>
+  )
+}
+
+function QuotaWindowRow({ w, now }: { w: AgentQuotaWire['windows'][number]; now: number }): JSX.Element {
+  const elapsed = windowElapsedPercent(w.resetsAt, w.windowMinutes, now)
+  const pace = windowPace(w, now)
+  return (
+    <div>
+      <div className="mb-1 flex items-center justify-between gap-2 text-[11px]">
+        <span className="text-muted-foreground">{w.label}</span>
+        <span className="flex items-center gap-1.5 text-foreground">
+          {pace ? (
+            <span
+              className={cn('font-medium', PACE[pace])}
+              title={
+                elapsed !== null ? paceHint(pace, w.usedPercent, elapsed) : paceLabel(pace)
+              }
+            >
+              {paceLabel(pace)}
+            </span>
+          ) : null}
+          <span>
+            {Math.round(w.usedPercent)}% · {formatReset(w.resetsAt, now)}
+          </span>
+        </span>
+      </div>
+      <div className="relative h-2 w-full overflow-hidden rounded-full bg-secondary">
+        <div
+          className={cn('h-full rounded-full', toneBarClass(percentTone(w.usedPercent)))}
+          style={{ width: `${Math.min(100, Math.max(0, w.usedPercent))}%` }}
+        />
+        {elapsed !== null ? (
+          <div
+            className="pointer-events-none absolute top-0 bottom-0 w-px bg-foreground/35"
+            style={{ left: `${Math.min(99, Math.max(1, elapsed))}%` }}
+            title={`${Math.round(elapsed)}% of window elapsed`}
+            aria-hidden="true"
+          />
+        ) : null}
+      </div>
     </div>
   )
 }

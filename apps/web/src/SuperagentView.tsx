@@ -5,6 +5,8 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { cn } from '@/lib/utils'
+import { mergeByCursor } from './chat'
+import { CardBoundary } from './CardBoundary'
 import { agentBadge, panelLabel, reposToViews, sessionDotClass } from './derive'
 import { renderMarkdown } from './markdown'
 import { useStore } from './store'
@@ -194,11 +196,7 @@ export function SuperagentView({ onClose }: { onClose?: () => void } = {}): JSX.
           <Sparkles size={16} aria-hidden="true" /> Superagent
         </h1>
         {threads.length > 1 && (
-          <div
-            className="flex flex-wrap gap-1.5"
-            role="tablist"
-            aria-label="Superagent threads"
-          >
+          <div className="flex flex-wrap gap-1.5" role="tablist" aria-label="Superagent threads">
             {threads.map((th) => (
               <button
                 key={th.id}
@@ -253,7 +251,9 @@ export function SuperagentView({ onClose }: { onClose?: () => void } = {}): JSX.
           </div>
         )}
         {messages.map((m) => (
-          <SuperMessageView key={m.id} message={m} />
+          <CardBoundary key={m.id} resetKey={String(m.id)} label="superagent message">
+            <SuperMessageView message={m} />
+          </CardBoundary>
         ))}
         {busy && (
           <div className="mx-auto w-full max-w-[760px] animate-pulse text-xs text-muted-foreground/70">
@@ -379,9 +379,7 @@ function SpawnedAgentCard({
   const { sessions, setPane, setSelectedWorktree, setView, hub } = useStore()
   const [following, setFollowing] = useState(false)
   const session = sessions.find((s) => s.sessionId === sessionId)
-  const status = session
-    ? (agentBadge(session)?.label ?? session.status)
-    : 'starting…'
+  const status = session ? (agentBadge(session)?.label ?? session.status) : 'starting…'
   const open = () => {
     setSelectedWorktree(cwd)
     setPane('A', sessionId)
@@ -395,7 +393,10 @@ function SpawnedAgentCard({
         ) : (
           <span className="inline-block size-2 min-w-2 flex-none animate-pulse rounded-full bg-blue-500" />
         )}
-        <KindIcon kind={agentKind} dimmed={session?.status === 'hibernated' || session?.status === 'exited'} />
+        <KindIcon
+          kind={agentKind}
+          dimmed={session?.status === 'hibernated' || session?.status === 'exited'}
+        />
         <button
           type="button"
           onClick={open}
@@ -425,7 +426,7 @@ function SpawnedAgentCard({
 
 /** Inline live transcript tail for a spawned worker — the last few items, kept
  *  scrolled to the newest, so you can follow what it's doing within the chat. */
-function SpawnedFollow({
+export function SpawnedFollow({
   sessionId,
   hub,
 }: {
@@ -434,7 +435,15 @@ function SpawnedFollow({
 }): JSX.Element {
   const [items, setItems] = useState<TranscriptItem[]>([])
   const endRef = useRef<HTMLDivElement | null>(null)
-  useEffect(() => hub.subscribeTranscript(sessionId, (newItems) => setItems(newItems)), [hub, sessionId])
+  // Live tail only (no initial read — this inline follow just shows the last few
+  // items as they stream). The hub now forwards per-frame DELTAS, so accumulate
+  // them; a reset (file roll / reattach re-seed) clears the local buffer.
+  useEffect(() => {
+    setItems([])
+    return hub.subscribeTranscript(sessionId, undefined, (delta, meta) => {
+      setItems((prev) => (meta.reset ? delta : mergeByCursor(prev, delta)))
+    })
+  }, [hub, sessionId])
   // biome-ignore lint/correctness/useExhaustiveDependencies: follow the tail
   useEffect(() => {
     endRef.current?.scrollIntoView({ block: 'nearest' })
@@ -493,9 +502,7 @@ function SuperMessageView({ message }: { message: SuperMessage }): JSX.Element |
           className="flex w-full min-w-0 cursor-pointer items-baseline gap-[7px] py-0.5 text-left text-xs text-muted-foreground"
           onClick={() => setOpen((v) => !v)}
         >
-          <span className="flex-none text-[10px] text-muted-foreground/70">
-            {open ? '▾' : '▸'}
-          </span>
+          <span className="flex-none text-[10px] text-muted-foreground/70">{open ? '▾' : '▸'}</span>
           <span className="flex-none text-xs font-semibold text-foreground">
             {message.toolName ?? 'tool'}
           </span>
@@ -524,9 +531,7 @@ function SuperMessageView({ message }: { message: SuperMessage }): JSX.Element |
           className="flex w-full min-w-0 cursor-pointer items-baseline gap-[7px] py-0.5 text-left text-xs text-muted-foreground"
           onClick={() => setOpen((v) => !v)}
         >
-          <span className="flex-none text-[10px] text-muted-foreground/70">
-            {open ? '▾' : '▸'}
-          </span>
+          <span className="flex-none text-[10px] text-muted-foreground/70">{open ? '▾' : '▸'}</span>
           <span className="flex-none text-xs font-semibold text-foreground">{label}</span>
         </button>
         {open && (

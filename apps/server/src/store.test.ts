@@ -66,6 +66,15 @@ function row(overrides: Partial<SessionRow> = {}): SessionRow {
 }
 
 describe('SessionStore sessions', () => {
+  it('rejects persisting an invalid agentKind (write-side guard against poison rows)', () => {
+    // Strict on write: an agentKind outside the enum (e.g. the 'auto' sentinel) must
+    // never reach the table, since it later fails the sessionsChanged zod-parse and
+    // blanks every client. Fail loudly at the source instead.
+    const s = new SessionStore(':memory:')
+    expect(() => s.upsertSession(row({ agentKind: 'auto' }))).toThrow(/agentKind/i)
+    s.close()
+  })
+
   it('upserts, loads, updates in place (preserving created_at), and deletes', async () => {
     const file = await tmpDbPath()
     const a = new SessionStore(file)
@@ -200,6 +209,96 @@ describe('SessionStore schema migration', () => {
         .sort(),
     ).toEqual(['podium-new-1', 'podium-old-1'])
     store.close()
+  })
+
+  it('migrates a main-only v5 db (conversation_id present, NO machines) to the merged v6', async () => {
+    // The collision case: a DB that reached schema_version=5 via main's lineage
+    // (conversation_id + issues) but never saw the multi-machine migration — so it has
+    // NO machines table and NO machine_id columns. The marker says 5, so a
+    // version-number gate would skip the machine migration; the STRUCTURAL guard must
+    // still fire, add the machines table + machine_id columns, and bump the marker to 6.
+    const file = await tmpDbPath()
+    const { DatabaseSync } = await import('node:sqlite')
+    const db = new DatabaseSync(file)
+    // Sessions as main's v5 created them: conversation_id present, machine_id ABSENT.
+    db.exec(
+      `CREATE TABLE sessions (
+         id TEXT PRIMARY KEY, agent_kind TEXT NOT NULL, cwd TEXT NOT NULL,
+         title TEXT NOT NULL, name TEXT, origin_kind TEXT NOT NULL, conversation_id TEXT,
+         resume_kind TEXT, resume_value TEXT, status TEXT NOT NULL, exit_code INTEGER,
+         durable_label TEXT NOT NULL, created_at TEXT NOT NULL, last_active_at TEXT NOT NULL,
+         archived INTEGER NOT NULL DEFAULT 0, work_state TEXT
+       )`,
+    )
+    // Conversations as main's v5 created them: machine_id ABSENT.
+    db.exec(
+      `CREATE TABLE conversations (
+         id TEXT PRIMARY KEY, agent_kind TEXT NOT NULL, provider_id TEXT NOT NULL,
+         title TEXT, name TEXT, summary TEXT, project_path TEXT,
+         resume_kind TEXT, resume_value TEXT, created_at TEXT, updated_at TEXT,
+         message_count INTEGER
+       )`,
+    )
+    // Repos as the pre-multi-machine schema: single-column (path) PK, NO machine_id.
+    db.exec(
+      `CREATE TABLE repos (
+         path TEXT PRIMARY KEY, repo_name TEXT, added_at TEXT NOT NULL
+       )`,
+    )
+    db.exec('CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)')
+    db.prepare('INSERT INTO meta (key, value) VALUES (?, ?)').run('schema_version', '5')
+    db.prepare(
+      `INSERT INTO sessions (id, agent_kind, cwd, title, origin_kind, conversation_id, status,
+        durable_label, created_at, last_active_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      'mv5-1',
+      'claude-code',
+      '/proj',
+      'proj',
+      'spawn',
+      'conv-1',
+      'running',
+      'podium-mv5-1',
+      '2026-06-22T00:00:00.000Z',
+      '2026-06-22T00:00:00.000Z',
+    )
+    db.prepare('INSERT INTO repos (path, repo_name, added_at) VALUES (?, ?, ?)').run(
+      '/proj',
+      'proj',
+      '2026-06-22T00:00:00.000Z',
+    )
+    // Sanity: the fixture really lacks the machines table before migration.
+    expect(
+      db
+        .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='machines'")
+        .get(),
+    ).toBeUndefined()
+    db.close()
+
+    // Opening through SessionStore runs migrate(): the structural guard must fire.
+    const store = new SessionStore(file)
+    // The session survived and its conversation_id was preserved (main lineage intact).
+    const sessions = store.loadSessions()
+    expect(sessions).toHaveLength(1)
+    expect(sessions[0]?.conversationId).toBe('conv-1')
+    // It gained a machine_id, defaulting to the '__local__' placeholder (multi-machine).
+    expect(sessions[0]?.machineId).toBe('__local__')
+    // The repos table was re-keyed to (machine_id, path) and the row carried over.
+    expect(store.listRepos()).toEqual([
+      { machineId: '__local__', path: '/proj', originUrl: null },
+    ])
+    // The machines table now exists (listMachines reads it — would throw otherwise).
+    expect(store.listMachines()).toEqual([])
+    store.close()
+
+    // And the version marker is now the merged v6.
+    const reopened = new (await import('node:sqlite')).DatabaseSync(file)
+    const ver = reopened.prepare('SELECT value FROM meta WHERE key = ?').get('schema_version') as
+      | { value: string }
+      | undefined
+    expect(ver?.value).toBe('6')
+    reopened.close()
   })
 })
 
@@ -446,6 +545,24 @@ describe('SessionStore superagent threads', () => {
     s.clearSuperagentMessages('btw_z')
     expect(s.loadSuperagentMessages('global').length).toBe(1)
     expect(s.loadSuperagentMessages('btw_z').length).toBe(0)
+    s.close()
+  })
+
+  it('tolerates a corrupt tool_calls column instead of dropping the whole thread', () => {
+    // One message with unparseable tool_calls must NOT throw out of the row map and
+    // blank the entire thread's history — quarantine that field to undefined, keep
+    // the message and the rest of the thread.
+    const s = new SessionStore(':memory:')
+    s.appendSuperagentMessage('global', { role: 'assistant', content: 'a' })
+    s.appendSuperagentMessage('global', { role: 'assistant', content: 'b' })
+    ;(s as unknown as { db: { prepare(q: string): { run(...a: unknown[]): unknown } } }).db
+      .prepare("UPDATE superagent_messages SET tool_calls = '{bad' WHERE content = 'a'")
+      .run()
+
+    expect(() => s.loadSuperagentMessages('global')).not.toThrow()
+    const msgs = s.loadSuperagentMessages('global')
+    expect(msgs.map((m) => m.content)).toEqual(['a', 'b'])
+    expect(msgs[0]?.toolCalls).toBeUndefined()
     s.close()
   })
 })

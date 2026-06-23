@@ -34,6 +34,7 @@ import {
 import { useSessionGuard } from '@/hooks/use-session-guard'
 import { cn } from '@/lib/utils'
 import { ChatView } from './ChatView'
+import { accumulateFileLinkPaths } from './chat'
 import {
   defaultChatCapable,
   exitedRecovery,
@@ -143,9 +144,14 @@ export function AgentPanel({
   // drives the configurable default mode for sessions the user has never toggled.
   const [startScreen, setStartScreen] = useState<'native' | 'chat' | 'auto'>('native')
   useEffect(() => {
-    trpc.settings.get.query().then((s) => {
-      setStartScreen(s.sessionDefaults.startScreen)
-    }).catch(() => { /* keep default */ })
+    trpc.settings.get
+      .query()
+      .then((s) => {
+        setStartScreen(s.sessionDefaults.startScreen)
+      })
+      .catch(() => {
+        /* keep default */
+      })
   }, [trpc])
 
   // Per-session mode is restored from the store (persisted to localStorage) so a
@@ -218,15 +224,19 @@ export function AgentPanel({
 
   // Subscribe to the transcript to build the set of known absolute paths for
   // the file-link provider. Updates mountedRef.current?.view.setFileLinks so
-  // links stay fresh as new tool calls land.
+  // links stay fresh as new tool calls land. The hub now forwards per-frame
+  // DELTAS, so accumulate paths into a growing set (a reset re-seeds it empty).
   useEffect(() => {
-    return hub.subscribeTranscript(sessionId, (items) => {
-      const set = new Set<string>()
-      for (const it of items) for (const p of it.toolPaths ?? []) set.add(p)
+    knownPathsRef.current = new Set()
+    return hub.subscribeTranscript(sessionId, undefined, (delta, meta) => {
+      // accumulateFileLinkPaths returns a fresh Set each frame, so we hand the
+      // view a copy (not the live ref identity) — defensive against the view
+      // mutating or aliasing our accumulator.
+      const set = accumulateFileLinkPaths(knownPathsRef.current, delta, meta.reset)
       knownPathsRef.current = set
       mountedRef.current?.view.setFileLinks({
         cwd: session?.cwd ?? '/',
-        knownPaths: set,
+        knownPaths: new Set(set),
         onOpen: (abs) => openFile(sessionId, abs),
       })
     })

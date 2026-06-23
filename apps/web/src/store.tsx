@@ -3,6 +3,7 @@ import type {
   GitDiscoveryDiagnosticWire,
   GitRepositoryWire,
   HostMetricsWire,
+  IssueWire,
   MachineWire,
   SessionMeta,
   WorkState,
@@ -33,6 +34,8 @@ export interface Store {
   reposLoaded: boolean
   repoDiagnostics: GitDiscoveryDiagnosticWire[]
   sessions: SessionMeta[]
+  /** Issues (work items) broadcast by the server — full list, refreshed on every mutation. */
+  issues: IssueWire[]
   /** Latest health sample per daemon host; empty until a daemon reports (or after it drops). */
   hostMetrics: HostMetricsWire[]
   /** Connected machines registered with this Podium server; refreshed via machinesChanged. */
@@ -122,7 +125,7 @@ export interface Store {
   httpOrigin: string
 }
 
-export type MainView = 'home' | 'workspace' | 'settings' | 'usage'
+export type MainView = 'home' | 'workspace' | 'settings' | 'usage' | 'issues'
 
 const Ctx = createContext<Store | null>(null)
 
@@ -165,7 +168,9 @@ function readStoredView(): MainView {
   const v = lsGet(VIEW_KEY)
   // 'superagent' is no longer a full view (it's a dock now) — a returning user who
   // left on it lands on home instead of a dead surface.
-  return v === 'home' || v === 'workspace' || v === 'settings' || v === 'usage' ? v : 'home'
+  return v === 'home' || v === 'workspace' || v === 'settings' || v === 'usage' || v === 'issues'
+    ? v
+    : 'home'
 }
 /** The persisted per-session panel-mode map. A corrupt/missing blob reads as empty. */
 function readStoredPanelModes(): Record<string, 'chat' | 'native'> {
@@ -209,6 +214,7 @@ export function StoreProvider({
   const [reposLoaded, setReposLoaded] = useState(false)
   const [repoDiagnostics, setRepoDiagnostics] = useState<GitDiscoveryDiagnosticWire[]>([])
   const [sessions, setSessions] = useState<SessionMeta[]>([])
+  const [issues, setIssues] = useState<IssueWire[]>([])
   const [hostMetrics, setHostMetrics] = useState<HostMetricsWire[]>([])
   const [machines, setMachines] = useState<MachineWire[]>([])
   const [pins, setPins] = useState<PinState>(EMPTY_PINS)
@@ -498,6 +504,10 @@ export function StoreProvider({
     // Collapse duplicate rows for the same underlying conversation (e.g. a Codex
     // thread surfaced twice on resume) before they reach any view.
     const offSessions = hub.onSessions((s) => setSessions(dedupeSessionsByResume(s)))
+    const offIssues = hub.onIssues(setIssues)
+    const offIssueUpd = hub.onIssueUpdated((u) =>
+      setIssues((xs) => xs.map((i) => (i.id === u.id ? u : i))),
+    )
     const offHostMetrics = hub.onHostMetrics(setHostMetrics)
     // Repos are only scannable through a connected daemon, so a machine coming online
     // (e.g. the split daemon reconnecting after a restart) can make previously-empty
@@ -550,6 +560,8 @@ export function StoreProvider({
     return () => {
       clearTimeout(connectTimer)
       offSessions()
+      offIssues()
+      offIssueUpd()
       offHostMetrics()
       offMachines()
       offDraft()
@@ -567,6 +579,7 @@ export function StoreProvider({
     reposLoaded,
     repoDiagnostics,
     sessions,
+    issues,
     hostMetrics,
     machines,
     pins,

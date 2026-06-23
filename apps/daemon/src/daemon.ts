@@ -8,6 +8,8 @@ import { promisify } from 'node:util'
 
 const execFileAsync = promisify(execFile)
 
+import { repoOpCommand } from './repo-op'
+
 import {
   type AgentConversationDiagnostic,
   type AgentConversationSummary,
@@ -23,12 +25,10 @@ import {
   ConversationDiscoveryCache,
   type CursorStateObserver,
   claudeProjectSlug,
-  claudeRecordToItems,
   codexRecordToItems,
   compareConversationSummaries,
   cursorRecordToItems,
   cursorSessionPaths,
-  findCodexRolloutPath,
   type GitDiscoveryDiagnostic,
   type GitRepositorySummary,
   type GrokStateObserver,
@@ -41,27 +41,26 @@ import {
   killAbducoSessionAsync,
   killTmuxServer,
   killTmuxServerAsync,
-  loadOpencodeTranscriptTail,
   type OpencodeStateObserver,
   observeCodexState,
   observeCursorState,
   observeGrokState,
   observeOpencodeState,
-  opencodeRowsToItems,
-  openOpencodeDb,
-  readTranscriptPage,
-  readTranscriptTail,
   reduceAgentState,
   resolveCursorBin,
+  resolveFileChain,
   resolveOpencodeBin,
+  type SliceResult,
   scanAgentConversationsCached,
   scanGitRepositories,
   spawnAbducoAgent,
   spawnAgent,
   spawnTmuxAgent,
+  type TranscriptSource,
   type TranscriptTailer,
   tailTranscript,
   tmuxHasSessionAsync,
+  transcriptSourceFor,
 } from '@podium/agent-bridge'
 import {
   type AgentKind,
@@ -99,6 +98,18 @@ const DEFAULT_HOST_METRICS_INTERVAL_MS = 5_000
 // toString()+JSON.parse would stall the daemon loop and back up the socket (audit P0-4).
 // 64 MB leaves generous headroom over real uploads/pastes/file writes.
 const MAX_CONTROL_FRAME_BYTES = 64 * 1024 * 1024
+
+// Malformed inbound frames and failed outbound sends are dropped so they can't wedge
+// the daemon's control loop — but the drop is logged (never silent), throttled so a
+// flapping socket or a poison-frame storm can't flood the journal.
+const CONTROL_FRAME_WARN_THROTTLE_MS = 1_000
+let lastControlFrameWarnAt = 0
+function warnDroppedControlFrame(err: unknown, dir: 'inbound' | 'outbound' = 'inbound'): void {
+  const now = Date.now()
+  if (now - lastControlFrameWarnAt < CONTROL_FRAME_WARN_THROTTLE_MS) return
+  lastControlFrameWarnAt = now
+  console.warn(`[podium:daemon] dropped malformed ${dir} control frame:`, err)
+}
 
 /** Byte length of an inbound ws frame without materializing it to a string. Exported
  *  for unit testing the oversized-frame guard. */
@@ -217,6 +228,30 @@ export function createLimiter(max: number): <T>(fn: () => Promise<T>) => Promise
     })
 }
 
+/**
+ * Resolve a session's TRUE harness for the transcript-source layer, which routes
+ * on `agentKind` alone. A session's real harness can hide behind its `resume.kind`
+ * — e.g. a shell that the server later reclassifies, or a kind the server didn't
+ * stamp precisely — so prefer the resume kind when it names a known harness; this
+ * closes the mis-route gap where an opencode/grok/codex/cursor session arrived
+ * with a generic `agentKind` and got read as the wrong source (empty chat). Falls
+ * back to `agentKind` when the resume kind is absent or unrecognized.
+ */
+export function normalizeAgentKind(agentKind: AgentKind, resumeKind?: string): AgentKind {
+  switch (resumeKind) {
+    case 'opencode-session':
+      return 'opencode'
+    case 'grok-session':
+      return 'grok'
+    case 'codex-thread':
+      return 'codex'
+    case 'cursor-chat':
+      return 'cursor'
+    default:
+      return agentKind
+  }
+}
+
 export interface DaemonHandle {
   /** Where the hook ingest is actually listening (fixed port unless it was taken). */
   readonly hookPort: number
@@ -326,9 +361,15 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
       sessionId,
       tailTranscript(
         path,
-        (items, reset) => {
-          if (items.length === 0 && !reset) return
-          send({ type: 'transcriptAppend', sessionId, items, ...(reset ? { reset } : {}) })
+        (items, meta) => {
+          if (items.length === 0 && !meta.reset) return
+          send({
+            type: 'transcriptDelta',
+            sessionId,
+            items,
+            ...(meta.tail ? { tail: meta.tail } : {}),
+            ...(meta.reset ? { reset: true } : {}),
+          })
         },
         {
           ...(recordToItems ? { recordToItems } : {}),
@@ -404,10 +445,41 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
   // fires no hook to register one, so chat would stay blank while the PTY scrollback
   // (native view) still shows the whole conversation.
   const tailResumeTranscript = (sessionId: string, cwd: string, resumeValue: string): void => {
+    // Honor a discovery homeDir override (tests / isolated HOME) so the live tail
+    // reads the SAME location the on-demand read source does — otherwise a daemon
+    // run against an isolated home would tail the real ~/.claude and find nothing.
+    const home = opts.discovery?.homeDir ?? homedir()
     ensureTranscriptTail(
       sessionId,
-      join(homedir(), '.claude', 'projects', claudeProjectSlug(cwd), `${resumeValue}.jsonl`),
+      join(home, '.claude', 'projects', claudeProjectSlug(cwd), `${resumeValue}.jsonl`),
     )
+  }
+  // Start a claude-code session's transcript tail. With a resume ref we know the
+  // exact file (derivable path). WITHOUT one — a fresh spawn that hasn't yet
+  // reported a session id, or a reattach where the server never learned the resume
+  // value — discover the newest .jsonl in the cwd bucket and tail that, so chat has
+  // history from the start instead of waiting for the first hook (and so an idle
+  // survivor that fires no hook still gets a tail). Hooks remain a fast-path: when
+  // a hook lands, its transcript_path re-points ensureTranscriptTail at the live
+  // file (the discovered one is the same file in the common case).
+  const startClaudeTranscriptTail = (
+    sessionId: string,
+    cwd: string,
+    resumeValue?: string,
+  ): void => {
+    if (resumeValue) {
+      tailResumeTranscript(sessionId, cwd, resumeValue)
+      return
+    }
+    void (async () => {
+      const chain = await resolveFileChain({
+        agentKind: 'claude-code',
+        cwd,
+        ...(opts.discovery?.homeDir ? { homeDir: opts.discovery.homeDir } : {}),
+      })
+      const newest = chain.at(-1)
+      if (newest) ensureTranscriptTail(sessionId, newest.path)
+    })()
   }
   const tailGrokTranscript = (sessionId: string, cwd: string, grokConversationId: string): void => {
     ensureTranscriptTail(
@@ -491,7 +563,16 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
         onEvents: (events) => applyAgentStateEvents(sessionId, events),
         onTranscriptItems: (items, reset) => {
           if (items.length === 0 && !reset) return
-          send({ type: 'transcriptAppend', sessionId, items, ...(reset ? { reset } : {}) })
+          // Items are already cursor-stamped (stampOpencodeItems) by the observer,
+          // so the live delta carries the same cursors the on-demand read produces.
+          const tail = items.at(-1)?.cursor
+          send({
+            type: 'transcriptDelta',
+            sessionId,
+            items,
+            ...(reset ? { reset: true } : {}),
+            ...(tail ? { tail } : {}),
+          })
         },
       }),
     )
@@ -522,91 +603,54 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
       }),
     )
   }
-  // Resolve a session's on-disk transcript file + record→items mapper from its
-  // resume ref, the same way the live tails are. Opencode has no JSONL file (it's
-  // a SQLite store) so it returns null — callers read it via the DB path instead.
-  const resolveTranscriptSource = async (msg: {
+  // Build a TranscriptSource for the session named by a transcript-read request.
+  // The factory routes on the TRUE harness (normalizeAgentKind, since a session's
+  // real harness can hide behind resume.kind) and resolves the file chain / DB
+  // session from cwd + resume value. Centralizes the per-read source resolution so
+  // both the on-demand read and the reattach re-seed share one path.
+  const sourceForRead = (msg: {
     agentKind: AgentKind
     cwd: string
-    resume: { kind: string; value: string }
-  }): Promise<{ path: string; recordToItems: (record: unknown) => TranscriptItem[] } | null> => {
-    const isGrok = msg.agentKind === 'grok' || msg.resume.kind === 'grok-session'
-    const isCodex = msg.agentKind === 'codex' || msg.resume.kind === 'codex-thread'
-    const isCursor = msg.agentKind === 'cursor' || msg.resume.kind === 'cursor-chat'
-    if (isCodex) {
-      // Codex stores no derivable per-cwd path; resolve the rollout from the
-      // resume value (state DB, then filename fallback).
-      const path = await findCodexRolloutPath({
-        resumeValue: msg.resume.value,
-        ...(opts.discovery?.homeDir ? { homeDir: opts.discovery.homeDir } : {}),
+    resume?: { kind: string; value: string }
+  }): Promise<TranscriptSource> => {
+    const agentKind = normalizeAgentKind(msg.agentKind, msg.resume?.kind)
+    return transcriptSourceFor({
+      agentKind,
+      cwd: msg.cwd,
+      ...(msg.resume?.value ? { resumeValue: msg.resume.value } : {}),
+      ...(opts.discovery?.homeDir ? { homeDir: opts.discovery.homeDir } : {}),
+    })
+  }
+
+  // Unified cursor-anchored read (replaces the old parked-tail + scroll-back-page
+  // handlers): resolve the right TranscriptSource and serve a SliceResult for ANY
+  // harness, opencode included (the source layer hides the storage difference).
+  // No anchor + 'before' = newest window; an anchor + 'before' pages older; 'after'
+  // pages newer. Items carry cursors that interoperate with the live deltas.
+  const readTranscript = async (
+    msg: Extract<ControlMessage, { type: 'transcriptRead' }>,
+  ): Promise<void> => {
+    let res: SliceResult = { items: [], hasMore: false }
+    try {
+      const source = await sourceForRead(msg)
+      res = await source.readSlice({
+        ...(msg.anchor ? { anchor: msg.anchor } : {}),
+        direction: msg.direction,
+        limit: msg.limit,
       })
-      return path ? { path, recordToItems: codexRecordToItems } : null
+    } catch (err) {
+      // A read failure (missing file/DB, decode error) must still answer the
+      // server's pending request — reply with an empty page rather than hang it.
+      console.warn(`[podium] transcript read failed for ${msg.sessionId}:`, err)
     }
-    if (isCursor) {
-      const path = cursorSessionPaths({
-        cwd: msg.cwd,
-        chatId: msg.resume.value,
-        ...(opts.discovery?.homeDir ? { homeDir: opts.discovery.homeDir } : {}),
-      }).transcriptPath
-      return { path, recordToItems: cursorRecordToItems }
-    }
-    if (isGrok) {
-      const path = grokSessionPaths({
-        cwd: msg.cwd,
-        sessionId: msg.resume.value,
-        ...(opts.discovery?.homeDir ? { homeDir: opts.discovery.homeDir } : {}),
-      }).chatHistoryPath
-      return { path, recordToItems: grokRecordToItems }
-    }
-    const path = join(
-      homedir(),
-      '.claude',
-      'projects',
-      claudeProjectSlug(msg.cwd),
-      `${msg.resume.value}.jsonl`,
-    )
-    return { path, recordToItems: claudeRecordToItems }
-  }
-
-  // On-demand disk read of a parked session's transcript (no live tail running).
-  const readParkedTranscript = async (
-    msg: Extract<ControlMessage, { type: 'transcriptReadRequest' }>,
-  ): Promise<void> => {
-    const isOpencode = msg.agentKind === 'opencode' || msg.resume.kind === 'opencode-session'
-    let items: TranscriptItem[] = []
-    if (isOpencode) {
-      const db = openOpencodeDb(opts.discovery?.homeDir)
-      items = db ? opencodeRowsToItems(loadOpencodeTranscriptTail(db, msg.resume.value)) : []
-      db?.close()
-    } else {
-      const source = await resolveTranscriptSource(msg)
-      items = source ? await readTranscriptTail(source.path, source.recordToItems) : []
-    }
-    send({ type: 'transcriptReadResult', requestId: msg.requestId, items })
-  }
-
-  // Scroll-to-top paging: read the page of OLDER items before the client's window
-  // (see TranscriptPageRequestMessage for the fromEnd cursor). Works for both live
-  // and parked sessions — it's a pure disk read off the same JSONL the tail uses,
-  // independent of whatever in-memory window the server is streaming. Opencode is
-  // unsupported (DB-backed, no JSONL to page) → empty page, hasMore:false.
-  const readTranscriptPageRequest = async (
-    msg: Extract<ControlMessage, { type: 'transcriptPageRequest' }>,
-  ): Promise<void> => {
-    const isOpencode = msg.agentKind === 'opencode' || msg.resume.kind === 'opencode-session'
-    if (isOpencode) {
-      send({ type: 'transcriptPageResult', requestId: msg.requestId, items: [], hasMore: false })
-      return
-    }
-    const source = await resolveTranscriptSource(msg)
-    const page = source
-      ? await readTranscriptPage(source.path, msg.fromEnd, msg.limit, source.recordToItems)
-      : { items: [], hasMore: false }
     send({
-      type: 'transcriptPageResult',
+      type: 'transcriptReadResult',
       requestId: msg.requestId,
-      items: page.items,
-      hasMore: page.hasMore,
+      sessionId: msg.sessionId,
+      items: res.items,
+      ...(res.head ? { head: res.head } : {}),
+      ...(res.tail ? { tail: res.tail } : {}),
+      hasMore: res.hasMore,
     })
   }
   const ingest = await startHookIngest({
@@ -714,7 +758,15 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
 
   const send = (msg: DaemonMessage): void => {
     const w = currentWs
-    if (w && w.readyState === WebSocket.OPEN) w.send(encode(msg))
+    if (!w || w.readyState !== WebSocket.OPEN) return
+    // Mirror the server's safeSend: a send/encode throw (socket transitioning to
+    // CLOSING between the check and the call, or an unencodable payload) must not
+    // escape a handler and abort the rest of a burst (e.g. a reattach fan-out).
+    try {
+      w.send(encode(msg))
+    } catch (err) {
+      warnDroppedControlFrame(err, 'outbound')
+    }
   }
 
   // Seed agent state for a session whose CLI is already running but hasn't fired a
@@ -779,8 +831,10 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     } else if (msg.agentKind === 'cursor') {
       startCursorStateObserver(msg.sessionId, msg.cwd, msg.resume?.value, init.grokStartedAt)
       if (msg.resume) tailCursorTranscript(msg.sessionId, msg.cwd, msg.resume.value)
-    } else if (msg.agentKind === 'claude-code' && msg.resume) {
-      tailResumeTranscript(msg.sessionId, msg.cwd, msg.resume.value)
+    } else if (msg.agentKind === 'claude-code') {
+      // Ungated: start the tail even without a resume ref (discover the newest
+      // file in the cwd bucket). A hook later re-points the tail if needed.
+      startClaudeTranscriptTail(msg.sessionId, msg.cwd, msg.resume?.value)
     }
     if (provider?.bootEvents) {
       // const capture so the narrowing survives into the onFrame closure.
@@ -1055,6 +1109,29 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
         geometry: msg.geometry,
       })
       existing.redraw()
+      // Re-seed the transcript even though we already hold the bridge: a freshly
+      // restarted SERVER (the daemon survived) has an empty per-session buffer, and
+      // this already-held branch otherwise does no transcript work, so chat would
+      // stay blank. The live tail (if any) only re-emits on its NEXT file change, so
+      // read the newest window now and push it as a reset delta. Best-effort; a read
+      // failure just leaves the buffer to refill from live deltas.
+      void (async () => {
+        try {
+          const source = await sourceForRead(msg)
+          const res = await source.readSlice({ direction: 'before', limit: 2000 })
+          if (res.items.length > 0) {
+            send({
+              type: 'transcriptDelta',
+              sessionId: msg.sessionId,
+              items: res.items,
+              reset: true,
+              ...(res.tail ? { tail: res.tail } : {}),
+            })
+          }
+        } catch (err) {
+          console.warn(`[podium] reattach re-seed failed for ${msg.sessionId}:`, err)
+        }
+      })()
       return
     }
     await reattachGate(async () => {
@@ -1151,7 +1228,10 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     let msg: ControlMessage
     try {
       msg = parseControlMessage(raw.toString())
-    } catch {
+    } catch (err) {
+      // Drop the malformed control frame (don't wedge the loop) — but log it, never
+      // silently, so protocol drift / poison frames are observable.
+      warnDroppedControlFrame(err)
       return
     }
     switch (msg.type) {
@@ -1221,14 +1301,11 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
       case 'agentQuotaRequest':
         void runAgentQuotaScan(msg)
         break
-      case 'transcriptReadRequest':
-        void readParkedTranscript(msg)
+      case 'transcriptRead':
+        void readTranscript(msg)
         break
       case 'imageUploadRequest':
         void handleImageUpload(msg)
-        break
-      case 'transcriptPageRequest':
-        void readTranscriptPageRequest(msg)
         break
       case 'fileReadRequest':
         // .catch (audit P0-1): a sandboxed-read reject (ENOENT race, EACCES, decode
@@ -1329,32 +1406,18 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
   const runRepoOp = async (
     msg: Extract<ControlMessage, { type: 'repoOpRequest' }>,
   ): Promise<void> => {
-    const argvFor = (): string[] | undefined => {
-      switch (msg.op) {
-        case 'status':
-          return ['status', '--porcelain=v1', '-b']
-        case 'log':
-          return ['log', '--oneline', '-20']
-        case 'branches':
-          return ['branch', '-a', '-v']
-        case 'worktreeAdd': {
-          const path = msg.args?.path
-          const branch = msg.args?.branch
-          if (!path || !branch) return undefined
-          return ['worktree', 'add', path, '-b', branch]
-        }
-      }
-    }
-    const argv = argvFor()
-    if (!argv) {
-      send({ type: 'repoOpResult', requestId: msg.requestId, ok: false, output: 'missing args' })
+    const cmd = repoOpCommand(msg.op, msg.args ?? {})
+    if ('error' in cmd) {
+      send({ type: 'repoOpResult', requestId: msg.requestId, ok: false, output: cmd.error })
       return
     }
     try {
-      const { stdout, stderr } = await execFileAsync('git', ['-C', msg.cwd, ...argv], {
-        timeout: 30_000,
-        maxBuffer: 1024 * 1024,
-      })
+      const runArgs = cmd.bin === 'git' ? ['-C', msg.cwd, ...cmd.argv] : cmd.argv
+      const opts =
+        cmd.bin === 'git'
+          ? { timeout: 120_000, maxBuffer: 1024 * 1024 }
+          : { cwd: msg.cwd, timeout: 120_000, maxBuffer: 1024 * 1024 }
+      const { stdout, stderr } = await execFileAsync(cmd.bin, runArgs, opts)
       send({
         type: 'repoOpResult',
         requestId: msg.requestId,

@@ -2,6 +2,7 @@ import {
   BarChart3,
   ChevronDown,
   Home,
+  KanbanSquare,
   Pin,
   Search,
   Settings as SettingsIcon,
@@ -27,6 +28,7 @@ import {
 } from './derive'
 import { HomeView } from './HomeView'
 import { HostIndicators } from './HostIndicators'
+import { IssuesView } from './IssuesView'
 import { NewPanelMenu } from './NewPanelMenu'
 import { RepoScanFlow } from './RepoScanFlow'
 import { SearchView } from './SearchView'
@@ -34,8 +36,8 @@ import { SettingsView } from './SettingsView'
 import { SuperagentView } from './SuperagentView'
 import { useStore } from './store'
 import type { PinKind } from './types'
-import { useNow } from './useNow'
 import { UsageView } from './UsageView'
+import { useNow } from './useNow'
 import { WorkerLabel } from './WorkerLabel'
 
 // File viewer (clickable transcript paths) — lazy, mirroring the desktop Workspace.
@@ -204,6 +206,18 @@ export function MobileApp(): JSX.Element {
         </button>
         <button
           type="button"
+          className={cn(
+            'inline-flex items-center border-r border-border px-3 text-muted-foreground',
+            view === 'issues' && 'text-primary',
+          )}
+          title="Issues"
+          aria-pressed={view === 'issues'}
+          onClick={() => setView('issues')}
+        >
+          <KanbanSquare size={15} aria-hidden="true" />
+        </button>
+        <button
+          type="button"
           className="flex min-w-0 max-w-[45%] items-center overflow-hidden border-r border-border px-2 text-left text-xs text-foreground"
           onClick={() => setPickerOpen(true)}
         >
@@ -328,8 +342,12 @@ export function MobileApp(): JSX.Element {
           <SettingsView />
         ) : view === 'usage' ? (
           <UsageView />
+        ) : view === 'issues' ? (
+          <IssuesView />
         ) : activeFileTab ? (
-          <Suspense fallback={<div className="m-auto text-[13px] text-muted-foreground/70">Loading…</div>}>
+          <Suspense
+            fallback={<div className="m-auto text-[13px] text-muted-foreground/70">Loading…</div>}
+          >
             <MarkdownFilePanel
               sessionId={activeFileTab.sessionId}
               path={activeFileTab.path}

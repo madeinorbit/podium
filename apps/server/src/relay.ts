@@ -30,6 +30,7 @@ import {
   type WorkState,
 } from '@podium/protocol'
 import { knownPathsFor } from './file-relay-policy'
+import { IssueService } from './issues'
 import { LOCAL_MACHINE_ID } from './local-machine'
 import {
   type AttentionNotice,
@@ -107,6 +108,8 @@ export class SessionRegistry {
   private readonly pairing = new PairingManager()
   private readonly sessions = new Map<string, Session>()
   private readonly clients = new Map<string, ClientConn>()
+  /** Server-side issue tracker — constructed after loadFromStore() in the constructor. */
+  readonly issues: IssueService
   private readonly pendingScans = new Map<string, (r: ScanResult) => void>()
   private readonly pendingRepoScans = new Map<string, (r: ScanReposResult) => void>()
   private readonly pendingBreakdowns = new Map<string, (r: MemoryBreakdown | undefined) => void>()
@@ -120,12 +123,11 @@ export class SessionRegistry {
     string,
     (r: { hostname: string; agents: AgentQuotaWire[] }) => void
   >()
-  private readonly pendingTranscriptReads = new Map<string, (r: TranscriptItem[]) => void>()
-  private readonly pendingUploads = new Map<string, (r: { path: string; error?: string }) => void>()
-  private readonly pendingTranscriptPages = new Map<
+  private readonly pendingTranscriptReads = new Map<
     string,
-    (r: { items: TranscriptItem[]; hasMore: boolean }) => void
+    (r: { items: TranscriptItem[]; head?: string; tail?: string; hasMore: boolean }) => void
   >()
+  private readonly pendingUploads = new Map<string, (r: { path: string; error?: string }) => void>()
   private readonly pendingFileReads = new Map<
     string,
     (r: Omit<FileReadResultMessage, 'type' | 'requestId'>) => void
@@ -174,6 +176,17 @@ export class SessionRegistry {
     private readonly notificationPushers: NotificationPushers = DEFAULT_NOTIFICATION_PUSHERS,
   ) {
     this.loadFromStore()
+    this.issues = new IssueService({
+      store: this.store,
+      listSessions: () => this.listSessions(),
+      getSettings: () => this.store.getSettings(),
+      spawnSession: (o) => this.createSession({ cwd: o.cwd, agentKind: o.agentKind as AgentKind }),
+      sendFirstPrompt: (sessionId, text) => this.sendTextWhenReady(sessionId, text),
+      repoOp: (op, cwd, args) => this.repoOp(op, cwd, args),
+      broadcast: (msg) => {
+        for (const c of this.clients.values()) c.send(msg)
+      },
+    })
   }
 
   /** The backing store — shared with services that persist their own tables (superagent). */
@@ -453,8 +466,19 @@ export class SessionRegistry {
     sessionId: string
   } {
     const defaults = this.store.getSettings().sessionDefaults
-    const agentKind =
-      input.agentKind ?? (defaults.agent === 'auto' ? 'claude-code' : defaults.agent)
+    // Resolve the agent down to a concrete AgentKind. `agentKind` may be absent,
+    // or carry a non-AgentKind sentinel like 'auto' (the issue start-flow casts
+    // the issue's `defaultAgent` — which defaults to the 'auto' settings choice —
+    // `as AgentKind` at the boundary). 'auto' is NOT a valid AgentKind: persisting
+    // or broadcasting it fails the sessionsChanged zod-parse and silently wipes
+    // the whole session list on every client. safeParse anything that isn't a real
+    // kind back to the configured default (itself resolved out of 'auto').
+    const requested = AgentKind.safeParse(input.agentKind)
+    const agentKind = requested.success
+      ? requested.data
+      : defaults.agent === 'auto'
+        ? 'claude-code'
+        : defaults.agent
     return this.spawn({
       agentKind,
       cwd: input.cwd,
@@ -1132,6 +1156,7 @@ export class SessionRegistry {
     })
     send({ type: 'welcome', clientId: id })
     send({ type: 'sessionsChanged', sessions: this.listSessions() })
+    send(this.safeIssuesMessage())
     for (const [sessionId, text] of this.draftBySession) {
       send({ type: 'sessionDraftChanged', sessionId, text })
     }
@@ -1218,7 +1243,7 @@ export class SessionRegistry {
         break
       case 'transcriptSubscribe':
         client.transcriptSubs.add(msg.sessionId)
-        this.sessions.get(msg.sessionId)?.subscribeTranscript(client)
+        this.sessions.get(msg.sessionId)?.subscribeTranscript(client, msg.since)
         break
       case 'transcriptUnsubscribe':
         client.transcriptSubs.delete(msg.sessionId)
@@ -1267,6 +1292,7 @@ export class SessionRegistry {
         const s = this.sessions.get(msg.sessionId)
         if (s) this.persist(s)
         this.broadcastSessions()
+        this.issues.onSessionActivity(msg.sessionId)
         break
       }
       case 'spawnError': {
@@ -1308,6 +1334,7 @@ export class SessionRegistry {
           state: msg.state,
         }
         for (const c of this.clients.values()) c.send(update)
+        this.issues.onSessionActivity(msg.sessionId)
         this.notifyAttention(session, prev, msg.state)
         if (
           session.snoozedUntil !== undefined &&
@@ -1428,9 +1455,14 @@ export class SessionRegistry {
         }
         break
       }
-      case 'transcriptAppend': {
+      case 'transcriptDelta': {
         const session = this.sessions.get(msg.sessionId)
-        if (session?.appendTranscript(msg.items, msg.reset ?? false)) {
+        if (
+          session?.applyDelta(msg.items, {
+            ...(msg.reset !== undefined ? { reset: msg.reset } : {}),
+            ...(msg.tail !== undefined ? { tail: msg.tail } : {}),
+          })
+        ) {
           // First transcript for this session → its chat capability flipped on;
           // push the updated meta so clients can offer the chat toggle.
           this.broadcastSessions()
@@ -1494,7 +1526,12 @@ export class SessionRegistry {
         const resolve = this.pendingTranscriptReads.get(msg.requestId)
         if (resolve) {
           this.pendingTranscriptReads.delete(msg.requestId)
-          resolve(msg.items)
+          resolve({
+            items: msg.items,
+            ...(msg.head !== undefined ? { head: msg.head } : {}),
+            ...(msg.tail !== undefined ? { tail: msg.tail } : {}),
+            hasMore: msg.hasMore,
+          })
         }
         break
       }
@@ -1503,14 +1540,6 @@ export class SessionRegistry {
         if (resolve) {
           this.pendingUploads.delete(msg.requestId)
           resolve({ path: msg.path, ...(msg.error !== undefined ? { error: msg.error } : {}) })
-        }
-        break
-      }
-      case 'transcriptPageResult': {
-        const resolve = this.pendingTranscriptPages.get(msg.requestId)
-        if (resolve) {
-          this.pendingTranscriptPages.delete(msg.requestId)
-          resolve({ items: msg.items, hasMore: msg.hasMore })
         }
         break
       }
@@ -1582,68 +1611,44 @@ export class SessionRegistry {
   }
 
   /**
-   * Transcript for the chat view. A live session streams it (and has it buffered),
-   * so we return the buffer. A PARKED session (hibernated/exited) has no live tail
-   * and an empty buffer after a server restart — read it off disk via the daemon,
-   * derived from its resume ref. Resolves the (possibly empty) buffer when there's
-   * no resume ref or no daemon answers.
+   * Transcript for the chat view — a pure daemon round-trip; disk is the source of
+   * truth. Reads the requested window of `limit` items relative to `anchor` (a
+   * cursor) in `direction` ('before' = older, 'after' = newer; no anchor = the
+   * latest window). The daemon resolves the on-disk transcript from the session's
+   * agentKind/cwd/resume and serves the slice — so a LIVE session with an empty
+   * recent-delta cache (e.g. right after a server restart) still loads its history
+   * straight off disk, instead of the old short-circuit that returned an empty
+   * buffer. Resolves an empty, hasMore:false page when the session is unknown or no
+   * daemon answers.
    */
-  readTranscript({ sessionId }: { sessionId: string }): Promise<{ items: TranscriptItem[] }> {
-    const session = this.sessions.get(sessionId)
-    const buffered = session?.transcriptItems() ?? []
-    const resume = session?.resume
-    if (!session || !resume || buffered.length > 0) return Promise.resolve({ items: buffered })
-    return this.daemonRequest<TranscriptItem[]>(
+  readTranscript(input: {
+    sessionId: string
+    anchor?: string
+    direction: 'before' | 'after'
+    limit: number
+  }): Promise<{ items: TranscriptItem[]; head?: string; tail?: string; hasMore: boolean }> {
+    const session = this.sessions.get(input.sessionId)
+    if (!session) return Promise.resolve({ items: [], hasMore: false })
+    return this.daemonRequest<{
+      items: TranscriptItem[]
+      head?: string
+      tail?: string
+      hasMore: boolean
+    }>(
       this.pendingTranscriptReads,
       'tr',
       SCAN_TIMEOUT_MS,
-      () => [],
-      (requestId) => ({
-        type: 'transcriptReadRequest',
-        requestId,
-        agentKind: session.agentKind,
-        cwd: session.cwd,
-        resume,
-      }),
-      session.machineId, // the transcript lives on the machine that runs the session
-    ).then((items) => ({ items }))
-  }
-
-  /**
-   * Scroll-to-top paging for the chat view: the page of OLDER transcript items
-   * that come BEFORE the client's current window. `fromEnd` is how many items the
-   * client already holds, counted from the END of the full on-disk transcript
-   * (0 = the latest item); the daemon returns the `limit` items just before that.
-   * It's a pure disk read off the same JSONL the tail uses, so it works for live
-   * AND parked sessions alike — independent of the server's bounded live buffer.
-   * Resolves an empty, hasMore:false page when there is no resume ref (can't
-   * derive a file) or no daemon answers.
-   */
-  transcriptPage({
-    sessionId,
-    fromEnd,
-    limit,
-  }: {
-    sessionId: string
-    fromEnd: number
-    limit: number
-  }): Promise<{ items: TranscriptItem[]; hasMore: boolean }> {
-    const session = this.sessions.get(sessionId)
-    const resume = session?.resume
-    if (!session || !resume) return Promise.resolve({ items: [], hasMore: false })
-    return this.daemonRequest<{ items: TranscriptItem[]; hasMore: boolean }>(
-      this.pendingTranscriptPages,
-      'tp',
-      SCAN_TIMEOUT_MS,
       () => ({ items: [], hasMore: false }),
       (requestId) => ({
-        type: 'transcriptPageRequest',
+        type: 'transcriptRead',
         requestId,
+        sessionId: input.sessionId,
         agentKind: session.agentKind,
         cwd: session.cwd,
-        resume,
-        fromEnd,
-        limit,
+        ...(session.resume ? { resume: session.resume } : {}),
+        ...(input.anchor ? { anchor: input.anchor } : {}),
+        direction: input.direction,
+        limit: input.limit,
       }),
       session.machineId, // the transcript file lives on the session's machine
     )
@@ -1886,6 +1891,29 @@ export class SessionRegistry {
     this.lastSessionsBroadcast = key
     const msg: ServerMessage = { type: 'sessionsChanged', sessions }
     for (const c of this.clients.values()) c.send(msg)
+    // Session changes also change issues' DERIVED member data (sessions/summary),
+    // so keep issue clients live. Build the payload ONCE: allWire() is
+    // O(issues × sessions), so calling it per-client would be a hot-path perf bug
+    // (mirrors the sessionsMsg hoist above). sessionsChanged was already sent above,
+    // so even if the issues build fails it can't take the session list down with it.
+    const issuesMsg = this.safeIssuesMessage()
+    for (const c of this.clients.values()) c.send(issuesMsg)
+  }
+
+  /**
+   * Build the `issuesChanged` payload, degrading to an empty list if the DERIVED
+   * build throws (e.g. a poison issue row whose member sessions fail to serialize).
+   * An issues-layer throw must never abort an attach, a broadcast, or the daemon
+   * handler that triggered it. `this.issues?` also guards construction-time calls
+   * (broadcastSessions can run via loadFromStore before `this.issues` is set).
+   */
+  private safeIssuesMessage(): ServerMessage {
+    try {
+      return { type: 'issuesChanged', issues: this.issues?.allWire() ?? [] }
+    } catch (err) {
+      console.warn('[podium] issues payload build failed — broadcasting empty issues list', err)
+      return { type: 'issuesChanged', issues: [] }
+    }
   }
 
   private broadcastConversations(): void {

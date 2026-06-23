@@ -15,6 +15,7 @@ import {
   parseDaemonHandshakeReply,
   parseDaemonMessage,
   parseServerMessage,
+  parseServerMessageLenient,
   ResumeRef,
   ServerMessage,
   SessionMeta,
@@ -184,6 +185,56 @@ describe('ServerMessage', () => {
   ]
   it.each(cases)('round-trips %j', (msg) => {
     expect(parseServerMessage(encode(msg))).toEqual(msg)
+  })
+})
+
+describe('parseServerMessageLenient (per-element quarantine)', () => {
+  const geometry = { cols: 80, rows: 24 }
+  const session = (id: string, agentKind: string) => ({
+    sessionId: id,
+    agentKind,
+    title: 't',
+    cwd: '/w',
+    status: 'live',
+    controllerId: 'c0',
+    geometry,
+    epoch: 0,
+    clientCount: 1,
+    createdAt: '2026-06-03T00:00:00.000Z',
+    lastActiveAt: '2026-06-03T00:00:00.000Z',
+    origin: { kind: 'spawn' },
+    archived: false,
+  })
+
+  it('drops one poisoned session and keeps the rest (the original bug, survivable)', () => {
+    const raw = JSON.stringify({
+      type: 'sessionsChanged',
+      sessions: [session('a', 'claude-code'), session('bad', 'auto'), session('c', 'codex')],
+    })
+    const { message, dropped } = parseServerMessageLenient(raw)
+    expect(dropped).toBe(1)
+    expect(
+      message?.type === 'sessionsChanged' && message.sessions.map((s) => s.sessionId),
+    ).toEqual(['a', 'c'])
+  })
+
+  it('passes a fully valid collection through unchanged (dropped=0)', () => {
+    const raw = JSON.stringify({ type: 'sessionsChanged', sessions: [session('a', 'claude-code')] })
+    const { message, dropped } = parseServerMessageLenient(raw)
+    expect(dropped).toBe(0)
+    expect(message?.type === 'sessionsChanged' && message.sessions.length).toBe(1)
+  })
+
+  it('parses non-collection messages strictly', () => {
+    const { message, dropped } = parseServerMessageLenient(
+      JSON.stringify({ type: 'welcome', clientId: 'c0' }),
+    )
+    expect(dropped).toBe(0)
+    expect(message?.type).toBe('welcome')
+  })
+
+  it('throws on a structurally malformed frame (not a quarantine case)', () => {
+    expect(() => parseServerMessageLenient('{not json')).toThrow()
   })
 })
 

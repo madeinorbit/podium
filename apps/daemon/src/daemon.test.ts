@@ -25,6 +25,7 @@ import {
   controlFrameByteLength,
   createLimiter,
   type DaemonHandle,
+  normalizeAgentKind,
   resolveDurableBackend,
   startDaemon,
 } from './daemon'
@@ -727,10 +728,10 @@ describe.skipIf(!isAbducoAvailable())('daemon abduco survival', () => {
       launch,
     })
     await b.ready
-    const appends = () =>
+    const deltas = () =>
       b.received.filter(
-        (m): m is Extract<DaemonMessage, { type: 'transcriptAppend' }> =>
-          m.type === 'transcriptAppend' && m.sessionId === sessionId,
+        (m): m is Extract<DaemonMessage, { type: 'transcriptDelta' }> =>
+          m.type === 'transcriptDelta' && m.sessionId === sessionId,
       )
     try {
       b.send({
@@ -743,9 +744,10 @@ describe.skipIf(!isAbducoAvailable())('daemon abduco survival', () => {
         resume: { kind: 'claude-session', value: resumeValue },
       })
       await waitFor(() => b.received.some((m) => m.type === 'bind' && m.sessionId === sessionId))
-      // The fix: the reattaching daemon tails the seeded transcript and streams it.
-      await waitFor(() => appends().some((m) => m.items.length > 0))
-      const items = appends().flatMap((m) => m.items)
+      // The fix: the reattaching daemon tails the seeded transcript and streams it
+      // as a transcriptDelta (the unified cursor-based protocol).
+      await waitFor(() => deltas().some((m) => m.items.length > 0))
+      const items = deltas().flatMap((m) => m.items)
       expect(items.some((i) => i.role === 'user' && i.text.includes('fix mobile ui issues'))).toBe(
         true,
       )
@@ -1297,3 +1299,370 @@ describe('controlFrameByteLength', () => {
     expect(controlFrameByteLength(new ArrayBuffer(7))).toBe(7)
   })
 })
+
+describe('normalizeAgentKind', () => {
+  it('maps each resume.kind to its true harness', () => {
+    expect(normalizeAgentKind('shell', 'opencode-session')).toBe('opencode')
+    expect(normalizeAgentKind('shell', 'grok-session')).toBe('grok')
+    expect(normalizeAgentKind('shell', 'codex-thread')).toBe('codex')
+    expect(normalizeAgentKind('shell', 'cursor-chat')).toBe('cursor')
+  })
+
+  it('falls back to agentKind when the resume kind is absent or unknown', () => {
+    expect(normalizeAgentKind('claude-code')).toBe('claude-code')
+    expect(normalizeAgentKind('claude-code', 'claude-session')).toBe('claude-code')
+    expect(normalizeAgentKind('codex', 'something-else')).toBe('codex')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Task D: unified cursor-based transcript reads + live deltas. A throwaway
+// server + daemon with an isolated discovery.homeDir so the read source resolves
+// seeded fixtures (no real ~/.claude / ~/.local opencode store).
+// ---------------------------------------------------------------------------
+describe('daemon transcript read + delta (cursor protocol)', () => {
+  type TestServer = {
+    wss: WebSocketServer
+    received: DaemonMessage[]
+    send: (msg: unknown) => void
+    ready: Promise<void>
+  }
+  const servers: TestServer[] = []
+  const daemons: DaemonHandle[] = []
+
+  const startServer = async (): Promise<TestServer> => {
+    const wss = new WebSocketServer({ port: 0 })
+    await new Promise<void>((r) => wss.once('listening', () => r()))
+    const received: DaemonMessage[] = []
+    let socket!: WS
+    const ready = new Promise<void>((r) => {
+      wss.once('connection', (ws) => {
+        socket = ws
+        // The daemon authenticates first (hello → helloOk) before any control frames;
+        // reply to the handshake, then collect every subsequent DaemonMessage.
+        handshakeAndCollect(ws, received)
+        r()
+      })
+    })
+    const srv: TestServer = {
+      wss,
+      received,
+      ready,
+      send: (msg) => socket.send(encode(msg as never)),
+    }
+    servers.push(srv)
+    return srv
+  }
+
+  const startTestDaemon = async (server: TestServer, homeDir: string): Promise<DaemonHandle> => {
+    const d = await startDaemon({
+      serverUrl: `ws://localhost:${(server.wss.address() as { port: number }).port}`,
+      bootstrapToken: 'test',
+      hooks: { port: 0, settingsDir: mkdtempSync(join(tmpdir(), 'podium-hooks-')) },
+      tmux: false,
+      discovery: { background: false, cachePath: ':memory:', homeDir },
+      launch: (_kind, opts) => ({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
+    })
+    daemons.push(d)
+    return d
+  }
+
+  const waitFor = async (fn: () => boolean, timeout = 5000): Promise<void> => {
+    const startedAt = Date.now()
+    while (!fn()) {
+      if (Date.now() - startedAt > timeout) throw new Error('waitFor timed out')
+      await new Promise((r) => setTimeout(r, 20))
+    }
+  }
+
+  // Seed a claude cwd-bucket transcript under `home` and return its resume value.
+  const seedClaudeTranscript = async (
+    home: string,
+    cwd: string,
+    resumeValue: string,
+    texts: string[],
+  ): Promise<void> => {
+    const projDir = join(home, '.claude', 'projects', claudeProjectSlug(cwd))
+    await mkdir(projDir, { recursive: true })
+    const lines = texts.map((text, i) =>
+      JSON.stringify({
+        type: 'user',
+        uuid: `u${i}`,
+        timestamp: `2026-06-14T00:00:0${i}.000Z`,
+        message: { role: 'user', content: text },
+      }),
+    )
+    await writeFile(join(projDir, `${resumeValue}.jsonl`), `${lines.join('\n')}\n`)
+  }
+
+  afterEach(async () => {
+    for (const d of daemons.splice(0)) await d.close()
+    for (const s of servers.splice(0)) await new Promise<void>((r) => s.wss.close(() => r()))
+  })
+
+  it('serves a claude transcriptRead: newest window (no anchor), cursor-stamped, then pages older', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'podium-trx-home-'))
+    const cwd = '/work/repo'
+    const resumeValue = 'conv-read-1'
+    await seedClaudeTranscript(home, cwd, resumeValue, ['m0', 'm1', 'm2', 'm3', 'm4'])
+
+    const srv = await startServer()
+    await startTestDaemon(srv, home)
+    await srv.ready
+
+    const results = () =>
+      srv.received.filter(
+        (m): m is Extract<DaemonMessage, { type: 'transcriptReadResult' }> =>
+          m.type === 'transcriptReadResult',
+      )
+
+    // No anchor + before → newest window of 3.
+    srv.send({
+      type: 'transcriptRead',
+      requestId: 'r-newest',
+      sessionId: 's-read',
+      agentKind: 'claude-code',
+      cwd,
+      resume: { kind: 'claude-session', value: resumeValue },
+      direction: 'before',
+      limit: 3,
+    })
+    await waitFor(() => results().some((m) => m.requestId === 'r-newest'))
+    const newest = results().find((m) => m.requestId === 'r-newest')
+    expect(newest?.items.map((i) => i.text)).toEqual(['m2', 'm3', 'm4'])
+    expect(newest?.hasMore).toBe(true)
+    // Every served item carries a cursor (interoperates with live deltas).
+    expect(newest?.items.every((i) => typeof i.cursor === 'string' && i.cursor.length > 0)).toBe(
+      true,
+    )
+    expect(newest?.head).toBe(newest?.items[0]?.cursor)
+    expect(newest?.tail).toBe(newest?.items.at(-1)?.cursor)
+
+    // Page older: anchor on the head of the newest window, before → m0,m1 (head reached).
+    srv.send({
+      type: 'transcriptRead',
+      requestId: 'r-older',
+      sessionId: 's-read',
+      agentKind: 'claude-code',
+      cwd,
+      resume: { kind: 'claude-session', value: resumeValue },
+      anchor: newest?.head,
+      direction: 'before',
+      limit: 3,
+    })
+    await waitFor(() => results().some((m) => m.requestId === 'r-older'))
+    const older = results().find((m) => m.requestId === 'r-older')
+    expect(older?.items.map((i) => i.text)).toEqual(['m0', 'm1'])
+    expect(older?.hasMore).toBe(false)
+  })
+
+  it('serves an opencode transcriptRead from the DB store', async () => {
+    let DatabaseSync: (new (path: string) => OpencodeTestDb) | undefined
+    try {
+      DatabaseSync = (await import('node:sqlite')).DatabaseSync as unknown as new (
+        path: string,
+      ) => OpencodeTestDb
+    } catch {
+      return // node:sqlite unavailable in this runtime — skip
+    }
+    const home = await mkdtemp(join(tmpdir(), 'podium-trx-oc-home-'))
+    const sid = 'oc-ses-read'
+    seedOpencodeDb(DatabaseSync, home, sid, ['o0', 'o1', 'o2'])
+
+    const srv = await startServer()
+    await startTestDaemon(srv, home)
+    await srv.ready
+
+    srv.send({
+      type: 'transcriptRead',
+      requestId: 'r-oc',
+      sessionId: 's-oc',
+      agentKind: 'opencode',
+      cwd: '/repo/oc',
+      resume: { kind: 'opencode-session', value: sid },
+      direction: 'before',
+      limit: 10,
+    })
+    await waitFor(() =>
+      srv.received.some((m) => m.type === 'transcriptReadResult' && m.requestId === 'r-oc'),
+    )
+    const res = srv.received.find(
+      (m): m is Extract<DaemonMessage, { type: 'transcriptReadResult' }> =>
+        m.type === 'transcriptReadResult' && m.requestId === 'r-oc',
+    )
+    expect(res?.items.map((i) => i.text)).toEqual(['o0', 'o1', 'o2'])
+    expect(res?.items.every((i) => i.cursor?.startsWith('') ?? false)).toBe(true)
+  })
+
+  it('a live claude file tail emits transcriptDelta (with a tail cursor), not transcriptAppend', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'podium-trx-tail-home-'))
+    const cwd = home // real cwd so the spawn stays alive while the tail polls
+    const resumeValue = 'conv-tail-1'
+    await seedClaudeTranscript(home, cwd, resumeValue, ['hello tail'])
+
+    const srv = await startServer()
+    await startTestDaemon(srv, home)
+    await srv.ready
+
+    const deltas = () =>
+      srv.received.filter(
+        (m): m is Extract<DaemonMessage, { type: 'transcriptDelta' }> =>
+          m.type === 'transcriptDelta' && m.sessionId === 's-tail',
+      )
+
+    srv.send({
+      type: 'spawn',
+      sessionId: 's-tail',
+      agentKind: 'claude-code',
+      cwd,
+      resume: { kind: 'claude-session', value: resumeValue },
+      geometry: G,
+    })
+    await waitFor(() => deltas().some((m) => m.items.length > 0))
+    const d = deltas().find((m) => m.items.length > 0)
+    expect(d?.items.some((i) => i.text.includes('hello tail'))).toBe(true)
+    // The first emission is a reset seed, and it carries the tail cursor.
+    expect(deltas().some((m) => m.reset === true)).toBe(true)
+    expect(d?.tail).toBe(d?.items.at(-1)?.cursor)
+    // No retired transcriptAppend is ever emitted.
+    expect(srv.received.some((m) => (m as { type: string }).type === 'transcriptAppend')).toBe(
+      false,
+    )
+  })
+
+  it('re-seeds the transcript on an already-held-bridge reattach (transcriptDelta reset)', async () => {
+    // A reattach for a session whose bridge the daemon already holds (server
+    // restarted, daemon survived). The early branch must re-seed chat from disk so
+    // the freshly-restarted server's empty buffer repopulates.
+    const home = await mkdtemp(join(tmpdir(), 'podium-trx-reseed-home-'))
+    // A REAL cwd so the spawned bridge actually starts and stays held in memory.
+    const cwd = home
+    const resumeValue = 'conv-reseed-1'
+    const sessionId = 's-reseed'
+
+    const srv = await startServer()
+    await startTestDaemon(srv, home)
+    await srv.ready
+
+    // Spawn WITHOUT a resume so the live claude tail does a one-shot bucket scan
+    // (empty now) and starts NO polling tail — the only path that can re-seed the
+    // file we add next is the already-held-bridge reattach branch under test.
+    srv.send({ type: 'spawn', sessionId, agentKind: 'claude-code', cwd, geometry: G })
+    await waitFor(() => srv.received.some((m) => m.type === 'bind' && m.sessionId === sessionId))
+
+    // Now the transcript exists on disk; a reattach must re-seed it.
+    await seedClaudeTranscript(home, cwd, resumeValue, ['re-seeded line a', 're-seeded line b'])
+
+    srv.send({
+      type: 'reattach',
+      sessionId,
+      durableLabel: `podium-${sessionId}`,
+      agentKind: 'claude-code',
+      cwd,
+      geometry: G,
+      resume: { kind: 'claude-session', value: resumeValue },
+    })
+
+    const resetDeltas = () =>
+      srv.received.filter(
+        (m): m is Extract<DaemonMessage, { type: 'transcriptDelta' }> =>
+          m.type === 'transcriptDelta' &&
+          m.sessionId === sessionId &&
+          m.reset === true &&
+          m.items.some((i) => i.text.includes('re-seeded line')),
+      )
+    await waitFor(() => resetDeltas().length > 0)
+    const seed = resetDeltas().at(-1)
+    expect(seed?.items.map((i) => i.text)).toEqual(['re-seeded line a', 're-seeded line b'])
+    expect(seed?.tail).toBe(seed?.items.at(-1)?.cursor)
+  })
+
+  it('does NOT tail a sibling bucket file for a claude spawn with no resume (waits for the hook)', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'podium-trx-noresume-home-'))
+    const cwd = home // real cwd so the spawn stays alive
+    // A DIFFERENT conversation exists in the same cwd bucket. A no-resume spawn must
+    // NOT pick it up — guessing the newest sibling file merged unrelated conversations
+    // (the regression). The tail must wait for the hook's authoritative transcript_path.
+    await seedClaudeTranscript(home, cwd, 'sibling-conv', ['a DIFFERENT conversation'])
+
+    const srv = await startServer()
+    await startTestDaemon(srv, home)
+    await srv.ready
+
+    const deltas = () =>
+      srv.received.filter(
+        (m): m is Extract<DaemonMessage, { type: 'transcriptDelta' }> =>
+          m.type === 'transcriptDelta' && m.sessionId === 's-noresume',
+      )
+
+    srv.send({
+      type: 'spawn',
+      sessionId: 's-noresume',
+      agentKind: 'claude-code',
+      cwd,
+      geometry: G,
+    })
+    // Wait well past the tail poll interval so a (wrong) sibling tail would have fired.
+    await new Promise((resolve) => setTimeout(resolve, 1200))
+    expect(
+      deltas()
+        .flatMap((m) => m.items)
+        .some((i) => i.text.includes('a DIFFERENT conversation')),
+    ).toBe(false)
+  })
+})
+
+// Minimal node:sqlite shape for seeding an opencode store in tests.
+type OpencodeTestDb = {
+  exec(sql: string): void
+  prepare(sql: string): { run(...args: unknown[]): unknown }
+  close(): void
+}
+
+/** Seed a temp opencode store under `home` with one session + N text parts. */
+function seedOpencodeDb(
+  DatabaseSync: new (path: string) => OpencodeTestDb,
+  home: string,
+  sessionId: string,
+  texts: string[],
+): void {
+  const root = join(home, '.local', 'share', 'opencode')
+  mkdirSync(root, { recursive: true })
+  const db = new DatabaseSync(join(root, 'opencode.db'))
+  db.exec(
+    `CREATE TABLE session (id TEXT PRIMARY KEY, project_id TEXT NOT NULL DEFAULT 'proj',
+      parent_id TEXT, slug TEXT NOT NULL DEFAULT 'slug', directory TEXT NOT NULL,
+      title TEXT NOT NULL, version TEXT NOT NULL DEFAULT '1', share_url TEXT,
+      summary_additions INTEGER, summary_deletions INTEGER, summary_files INTEGER,
+      summary_diffs TEXT, revert TEXT, permission TEXT, time_created INTEGER NOT NULL,
+      time_updated INTEGER NOT NULL, time_compacting INTEGER, time_archived INTEGER,
+      workspace_id TEXT, path TEXT, agent TEXT, model TEXT, cost REAL NOT NULL DEFAULT 0,
+      tokens_input INTEGER NOT NULL DEFAULT 0, tokens_output INTEGER NOT NULL DEFAULT 0,
+      tokens_reasoning INTEGER NOT NULL DEFAULT 0, tokens_cache_read INTEGER NOT NULL DEFAULT 0,
+      tokens_cache_write INTEGER NOT NULL DEFAULT 0, metadata TEXT)`,
+  )
+  db.exec(
+    `CREATE TABLE message (id TEXT PRIMARY KEY, session_id TEXT NOT NULL,
+      time_created INTEGER NOT NULL, time_updated INTEGER NOT NULL, data TEXT NOT NULL)`,
+  )
+  db.exec(
+    `CREATE TABLE part (id TEXT PRIMARY KEY, message_id TEXT NOT NULL, session_id TEXT NOT NULL,
+      time_created INTEGER NOT NULL, time_updated INTEGER NOT NULL, data TEXT NOT NULL)`,
+  )
+  db.prepare(
+    `INSERT INTO session (id, directory, title, time_created, time_updated) VALUES (?, ?, ?, ?, ?)`,
+  ).run(sessionId, '/repo/oc', 't', 1, 2)
+  const insMsg = db.prepare(
+    `INSERT INTO message (id, session_id, time_created, time_updated, data) VALUES (?, ?, ?, ?, ?)`,
+  )
+  const insPart = db.prepare(
+    `INSERT INTO part (id, message_id, session_id, time_created, time_updated, data)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+  )
+  texts.forEach((text, i) => {
+    const t = 100 + i
+    insMsg.run(`msg-${i}`, sessionId, t, t, JSON.stringify({ role: 'user' }))
+    insPart.run(`prt-${i}`, `msg-${i}`, sessionId, t, t, JSON.stringify({ type: 'text', text }))
+  })
+  db.close()
+}

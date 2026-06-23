@@ -105,6 +105,19 @@ export const PodiumSettings = z.object({
     })
     .default({}),
   sidebar: Sidebar.default({}),
+  gitWorkflow: z
+    .object({
+      /** Parent branch for new issue worktrees + merge target. '' = auto-detect repo default. */
+      defaultParentBranch: z.string().default(''),
+      mergeStyle: z.enum(['ff-only', 'pr', 'ask']).default('ff-only'),
+      autoRebaseBeforeMerge: z.boolean().default(true),
+    })
+    .default({}),
+  issues: z
+    .object({
+      assistantEnabled: z.boolean().default(true),
+    })
+    .default({}),
 })
 export type PodiumSettings = z.infer<typeof PodiumSettings>
 

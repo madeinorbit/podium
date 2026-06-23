@@ -41,6 +41,17 @@ const DAEMON_HEARTBEAT_INTERVAL_MS = 10_000
 // bounded 256 KB ring) protects everyone else.
 const SEND_BUFFER_LIMIT_BYTES = 16 * 1024 * 1024
 
+// A malformed frame is dropped so it can't wedge the connection — but the drop is
+// logged (never silent), throttled so a misbehaving peer can't flood the journal.
+const FRAME_WARN_THROTTLE_MS = 1_000
+const lastFrameWarnAt: Record<'client' | 'daemon', number> = { client: 0, daemon: 0 }
+function warnDroppedFrame(kind: 'client' | 'daemon', err: unknown): void {
+  const now = Date.now()
+  if (now - lastFrameWarnAt[kind] < FRAME_WARN_THROTTLE_MS) return
+  lastFrameWarnAt[kind] = now
+  console.warn(`[podium] dropped malformed ${kind} frame:`, err)
+}
+
 /** Minimal slice of a `ws` socket {@link safeSend} needs (kept tiny for tests). */
 export interface SendSocket {
   readyState: number
@@ -163,8 +174,10 @@ export function wireDaemonSocket(ws: import('ws').WebSocket, registry: SessionRe
     }
     try {
       registry.onDaemonMessageFrom(machineId, parseDaemonMessage(raw.toString()))
-    } catch {
-      // ignore malformed daemon frames
+    } catch (err) {
+      // Drop the malformed frame (don't let it tear down the connection) — but
+      // never silently: a silent drop here hides protocol drift / poison frames.
+      warnDroppedFrame('daemon', err)
     }
   })
   ws.on('close', () => {
@@ -225,8 +238,8 @@ export function attachWebSockets(server: Server, registry: SessionRegistry): WsH
     ws.on('message', (raw: import('ws').RawData) => {
       try {
         registry.onClientMessage(id, parseClientMessage(raw.toString()))
-      } catch {
-        // ignore malformed client frames
+      } catch (err) {
+        warnDroppedFrame('client', err)
       }
     })
     ws.on('close', () => registry.detachClient(id))

@@ -51,6 +51,45 @@ describe('appRouter', () => {
     })
     await expect(p).resolves.toEqual({ conversations: [], diagnostics: [] })
   })
+
+  it('sessions.transcriptRead delegates to registry.readTranscript (daemon round-trip)', async () => {
+    const daemon: import('@podium/protocol').ControlMessage[] = []
+    const registry = new SessionRegistry()
+    registry.attachDaemon('local', (m) => daemon.push(m))
+    const repos = new RepoRegistry(registry, registry.sessionStore)
+    const call = appRouter.createCaller({
+      registry,
+      repos,
+      superagent: new SuperagentService(registry, repos, registry.sessionStore),
+    })
+    const { sessionId } = await call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
+    const p = call.sessions.transcriptRead({ sessionId, direction: 'before', limit: 100 })
+    // Let the tRPC handler's async body (registry.readTranscript → toDaemon) flush.
+    await new Promise((r) => setTimeout(r, 0))
+    const req = daemon.find((m) => m.type === 'transcriptRead') as { requestId: string } | undefined
+    expect(req).toBeDefined()
+    if (!req) throw new Error('transcriptRead not sent')
+    registry.onDaemonMessageFrom('local', {
+      type: 'transcriptReadResult',
+      requestId: req.requestId,
+      sessionId,
+      items: [],
+      hasMore: false,
+    })
+    await expect(p).resolves.toEqual({ items: [], hasMore: false })
+  })
+
+  it('the old sessions.transcript / transcriptPage procedures are gone', () => {
+    // tRPC v11 keeps a flat record of procedures keyed by dotted path — assert against
+    // it directly (the caller proxy returns a callable for any path, so it can't tell
+    // a missing procedure from a present one).
+    const procedures = Object.keys(
+      (appRouter as unknown as { _def: { procedures: Record<string, unknown> } })._def.procedures,
+    )
+    expect(procedures).toContain('sessions.transcriptRead')
+    expect(procedures).not.toContain('sessions.transcript')
+    expect(procedures).not.toContain('sessions.transcriptPage')
+  })
 })
 
 function repoCaller() {

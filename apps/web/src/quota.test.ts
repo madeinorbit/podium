@@ -1,5 +1,15 @@
 import { describe, expect, it } from 'vitest'
-import { agentLabel, formatReset, percentTone, statusNote } from './quota'
+import {
+  agentLabel,
+  formatReset,
+  paceHint,
+  paceLabel,
+  percentTone,
+  quotaPace,
+  statusNote,
+  windowElapsedPercent,
+  windowPace,
+} from './quota'
 
 const now = Date.parse('2026-06-19T18:00:00.000Z')
 
@@ -28,5 +38,46 @@ describe('agentLabel / statusNote', () => {
     expect(agentLabel('codex')).toBe('Codex')
     expect(statusNote({ agent: 'codex', status: 'unauthenticated', windows: [], fetchedAt: '' })).toBe('Not signed in')
     expect(statusNote({ agent: 'codex', status: 'ok', windows: [], fetchedAt: '' })).toBe('')
+  })
+})
+
+describe('windowElapsedPercent', () => {
+  it('derives elapsed share from reset time and window length', () => {
+    const resetsAt = new Date(now + 150 * 60_000).toISOString() // 2.5h left in 5h window
+    expect(windowElapsedPercent(resetsAt, 300, now)).toBeCloseTo(50, 1)
+    expect(windowElapsedPercent('', 300, now)).toBeNull()
+    expect(windowElapsedPercent(resetsAt, 0, now)).toBeNull()
+  })
+})
+
+describe('quotaPace / windowPace', () => {
+  it('classifies comfortable, on-pace, and hot windows', () => {
+    expect(quotaPace(30, 50)).toBe('comfortable')
+    expect(quotaPace(48, 50)).toBe('on-pace')
+    expect(quotaPace(52, 50)).toBe('on-pace')
+    expect(quotaPace(70, 50)).toBe('hot')
+    expect(quotaPace(10, 0)).toBeNull()
+  })
+
+  it('labels and hints pace for UI copy', () => {
+    expect(paceLabel('comfortable')).toBe('Headroom')
+    expect(paceLabel('on-pace')).toBe('On pace')
+    expect(paceLabel('hot')).toBe("Won't last")
+    expect(paceHint('hot', 70, 50)).toContain('70%')
+    expect(paceHint('hot', 70, 50)).toContain('50%')
+  })
+
+  it('composes window pace from wire fields', () => {
+    const pace = windowPace(
+      {
+        key: '5h',
+        label: '5-hour',
+        usedPercent: 70,
+        resetsAt: new Date(now + 150 * 60_000).toISOString(),
+        windowMinutes: 300,
+      },
+      now,
+    )
+    expect(pace).toBe('hot')
   })
 })

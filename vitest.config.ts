@@ -9,6 +9,7 @@ export default defineConfig({
       // to '<index.ts>/sqlite' and break it. Bare '@podium/core' resolves fine via the
       // workspace exports map; scripts/cli.ts imports core by relative path for the
       // bun-compile, so no alias is needed.
+      '@': fileURLToPath(new URL('./apps/web/src', import.meta.url)),
       '@podium/agent-bridge': fileURLToPath(
         new URL('./packages/agent-bridge/src/index.ts', import.meta.url),
       ),

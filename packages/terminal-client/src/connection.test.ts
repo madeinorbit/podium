@@ -85,6 +85,36 @@ describe('SocketHub', () => {
     expect(seen.at(-1)).toBe(1)
   })
 
+  it('quarantines a poisoned session in a batch and still exposes the rest (lenient route)', () => {
+    const { sock, hub } = setup()
+    hub.connect()
+    sock.open()
+    const good = {
+      sessionId: 's1',
+      agentKind: 'claude-code',
+      title: 't',
+      cwd: '/w',
+      status: 'live',
+      controllerId: 'c0',
+      geometry: { cols: 80, rows: 24 },
+      epoch: 0,
+      clientCount: 1,
+      createdAt: '2026-06-03T00:00:00.000Z',
+      lastActiveAt: '2026-06-03T00:00:00.000Z',
+      origin: { kind: 'spawn' },
+      archived: false,
+    }
+    const bad = { ...good, sessionId: 'bad', agentKind: 'auto' } // out-of-enum poison
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    // Raw frame (bypasses the typed encode) carrying one poisoned element.
+    sock.onmessage?.({ data: JSON.stringify({ type: 'sessionsChanged', sessions: [good, bad] }) })
+    // The whole list is NOT dropped — the good session survives, the bad one is gone…
+    expect(hub.sessions().map((s) => s.sessionId)).toEqual(['s1'])
+    // …and the drop is observable, not silent.
+    expect(warn).toHaveBeenCalled()
+    warn.mockRestore()
+  })
+
   it('exposes conversationsChanged via conversations() + onConversations', () => {
     const { sock, hub } = setup()
     const seen: number[] = []
@@ -643,6 +673,112 @@ describe('resume + offline input queue', () => {
       resumed: true,
     })
     expect(resets).toBe(1) // a resume keeps the screen — no clear
+  })
+})
+
+describe('transcript delta forwarding', () => {
+  const item = (id: string, cursor: string): import('@podium/protocol').TranscriptItem => ({
+    id,
+    cursor,
+    role: 'assistant' as const,
+    text: id,
+  })
+
+  it('first subscribe sends transcriptSubscribe (with since) and does NOT call cb synchronously', () => {
+    const { hub, sock } = setup()
+    hub.connect()
+    sock.open()
+    const calls: Array<{ items: number; reset: boolean }> = []
+    hub.subscribeTranscript('s1', 'c0', (items, meta) => {
+      calls.push({ items: items.length, reset: meta.reset })
+    })
+    expect(calls).toEqual([]) // no synchronous cb — the read seeds initial state
+    expect(sock.parsed()).toContainEqual({
+      type: 'transcriptSubscribe',
+      sessionId: 's1',
+      since: 'c0',
+    })
+  })
+
+  it('omits since when undefined', () => {
+    const { hub, sock } = setup()
+    hub.connect()
+    sock.open()
+    hub.subscribeTranscript('s1', undefined, () => {})
+    expect(sock.parsed()).toContainEqual({ type: 'transcriptSubscribe', sessionId: 's1' })
+  })
+
+  it('forwards a transcriptDelta frame as delta items with reset=false', () => {
+    const { hub, sock } = setup()
+    hub.connect()
+    sock.open()
+    const calls: Array<{ ids: string[]; reset: boolean }> = []
+    hub.subscribeTranscript('s1', undefined, (items, meta) => {
+      calls.push({ ids: items.map((i) => i.id), reset: meta.reset })
+    })
+    sock.recv({ type: 'transcriptDelta', sessionId: 's1', items: [item('a', 'c1')], tail: 'c1' })
+    sock.recv({ type: 'transcriptDelta', sessionId: 's1', items: [item('b', 'c2')], tail: 'c2' })
+    // Each frame forwards ONLY its own delta items (no accumulation in the hub).
+    expect(calls).toEqual([
+      { ids: ['a'], reset: false },
+      { ids: ['b'], reset: false },
+    ])
+  })
+
+  it('forwards reset=true from a reset delta', () => {
+    const { hub, sock } = setup()
+    hub.connect()
+    sock.open()
+    const resets: boolean[] = []
+    hub.subscribeTranscript('s1', undefined, (_items, meta) => resets.push(meta.reset))
+    sock.recv({ type: 'transcriptDelta', sessionId: 's1', items: [item('a', 'c1')], reset: true })
+    expect(resets).toEqual([true])
+  })
+
+  it('tracks since from the delta tail and re-subscribes with it on reconnect', () => {
+    vi.useFakeTimers()
+    const sockets: FakeSocket[] = []
+    const hub = new SocketHub({
+      url: 'ws://x',
+      viewport: { cols: 80, rows: 24, dpr: 1 },
+      makeSocket: () => {
+        const s = new FakeSocket()
+        sockets.push(s)
+        return s
+      },
+    })
+    hub.connect()
+    sockets[0]?.open()
+    hub.subscribeTranscript('s1', 'c0', () => {})
+    sockets[0]?.recv({
+      type: 'transcriptDelta',
+      sessionId: 's1',
+      items: [item('a', 'c5')],
+      tail: 'c5',
+    })
+    sockets[0]?.close() // backend dropped the socket
+    vi.advanceTimersByTime(30_000)
+    sockets[1]?.open()
+    // The re-subscribe carries the LATEST tracked since, not the original 'c0'.
+    expect(sockets[1]?.parsed()).toContainEqual({
+      type: 'transcriptSubscribe',
+      sessionId: 's1',
+      since: 'c5',
+    })
+    vi.useRealTimers()
+  })
+
+  it('ignores deltas for an unsubscribed session and unsubscribes on last observer leaving', () => {
+    const { hub, sock } = setup()
+    hub.connect()
+    sock.open()
+    const unsub = hub.subscribeTranscript('s1', undefined, () => {})
+    unsub()
+    expect(sock.parsed()).toContainEqual({ type: 'transcriptUnsubscribe', sessionId: 's1' })
+    // A late delta for the dropped session is a no-op (no throw).
+    expect(() =>
+      sock.recv({ type: 'transcriptDelta', sessionId: 's1', items: [item('a', 'c1')] }),
+    ).not.toThrow()
   })
 })
 

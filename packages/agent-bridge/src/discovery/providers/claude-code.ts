@@ -132,25 +132,33 @@ async function summarizeFile(
 async function loadConversation(summary: AgentConversationSummary): Promise<AgentConversation> {
   const parsed = await readClaudeRecords(summary.source.path, summary.source.root)
 
-  if (parsed.diagnostics.length > 0) {
-    const readDiagnostic = parsed.diagnostics.find(
-      (diagnostic) => diagnostic.message === 'Claude Code conversation file cannot be read',
-    )
-    if (readDiagnostic) {
-      throw new AgentConversationLoadError(
-        `Could not load Claude Code conversation from ${summary.source.path}`,
-        { cause: readDiagnostic.cause },
-      )
-    }
-
+  // A genuine "cannot be read" diagnostic is a real load failure — throw. But a
+  // per-line PARSE diagnostic was already isolated by the JSONL reader (the good
+  // records survive), so it must NOT discard the whole conversation: keep the
+  // records and surface the parse diagnostics non-fatally.
+  const readDiagnostic = parsed.diagnostics.find(
+    (diagnostic) => diagnostic.message === 'Claude Code conversation file cannot be read',
+  )
+  if (readDiagnostic) {
     throw new AgentConversationLoadError(
-      `Could not parse Claude Code conversation ${summary.source.path}`,
-      { cause: { diagnostics: parsed.diagnostics } },
+      `Could not load Claude Code conversation from ${summary.source.path}`,
+      { cause: readDiagnostic.cause },
+    )
+  }
+  if (parsed.diagnostics.length > 0) {
+    console.warn(
+      `[podium] ${parsed.diagnostics.length} unparseable line(s) in Claude Code conversation ${summary.source.path} — skipped`,
     )
   }
 
   const messages = claudeMessages(parsed.records)
-  return { ...summary, messageCount: messages.length, messages, raw: parsed.records }
+  return {
+    ...summary,
+    messageCount: messages.length,
+    messages,
+    raw: parsed.records,
+    diagnostics: parsed.diagnostics,
+  }
 }
 
 async function listClaudeConversationFiles(
