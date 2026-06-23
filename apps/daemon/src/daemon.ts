@@ -974,6 +974,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
         cwd: msg.cwd,
         ...(msg.resume ? { resume: msg.resume } : {}),
         ...(msg.model ? { model: msg.model } : {}),
+        ...(msg.initialPrompt ? { initialPrompt: msg.initialPrompt } : {}),
       })
       const label = `podium-${msg.sessionId}`
       const provider = agentStateProviderFor(msg.agentKind)

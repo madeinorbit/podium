@@ -8,6 +8,7 @@ import type {
 } from '@podium/protocol'
 import {
   AgentKind,
+  agentSupportsInitialPrompt,
   type AgentQuotaWire,
   type AgentRuntimeState,
   type ClientMessage,
@@ -162,8 +163,12 @@ export class SessionRegistry {
       store: this.store,
       listSessions: () => this.listSessions(),
       getSettings: () => this.store.getSettings(),
-      spawnSession: (o) => this.createSession({ cwd: o.cwd, agentKind: o.agentKind as AgentKind }),
-      sendFirstPrompt: (sessionId, text) => this.sendTextWhenReady(sessionId, text),
+      spawnSession: (o) =>
+        this.createSession({
+          cwd: o.cwd,
+          agentKind: o.agentKind as AgentKind,
+          ...(o.initialPrompt ? { initialPrompt: o.initialPrompt } : {}),
+        }),
       repoOp: (op, cwd, args) => this.repoOp(op, cwd, args),
       broadcast: (msg) => {
         for (const c of this.clients.values()) c.send(msg)
@@ -358,8 +363,16 @@ export class SessionRegistry {
     return settings
   }
 
-  /** Agent kind may be omitted — the settings default decides ('auto' = Claude Code). */
-  createSession(input: { agentKind?: AgentKind; cwd: string; title?: string }): {
+  /** Agent kind may be omitted — the settings default decides ('auto' = Claude Code).
+   *  `initialPrompt` hands the fresh session a first prompt: for argv-capable agents
+   *  (claude/codex/grok) it rides the launch command (`claude "<prompt>"`, race-free);
+   *  for the rest it's seeded into the composer draft so the text still appears. */
+  createSession(input: {
+    agentKind?: AgentKind
+    cwd: string
+    title?: string
+    initialPrompt?: string
+  }): {
     sessionId: string
   } {
     const defaults = this.store.getSettings().sessionDefaults
@@ -376,12 +389,21 @@ export class SessionRegistry {
       : defaults.agent === 'auto'
         ? 'claude-code'
         : defaults.agent
-    return this.spawn({
+    const prompt = input.initialPrompt?.trim() ? input.initialPrompt : undefined
+    // argv delivery is race-free (the CLI reads the prompt at startup); only
+    // argv-capable agents get it that way. Others fall through to a draft seed.
+    const useArgv = prompt !== undefined && agentSupportsInitialPrompt(agentKind)
+    const spawned = this.spawn({
       agentKind,
       cwd: input.cwd,
       ...(input.title !== undefined ? { title: input.title } : {}),
       origin: { kind: 'spawn' },
+      ...(useArgv ? { initialPrompt: prompt } : {}),
     })
+    if (prompt !== undefined && !useArgv) {
+      this.setSessionDraft({ sessionId: spawned.sessionId, text: prompt })
+    }
+    return spawned
   }
 
   resumeSession(input: {
@@ -917,6 +939,7 @@ export class SessionRegistry {
     title?: string
     origin: SessionMeta['origin']
     resume?: ResumeRef
+    initialPrompt?: string
   }): { sessionId: string } {
     const sessionId = randomUUID()
     const session = new Session({
@@ -945,6 +968,7 @@ export class SessionRegistry {
       agentKind: input.agentKind,
       cwd: input.cwd,
       ...(input.resume ? { resume: input.resume } : {}),
+      ...(input.initialPrompt ? { initialPrompt: input.initialPrompt } : {}),
       geometry: { ...DEFAULT_GEOMETRY },
       ...this.modelDefaults(input.agentKind),
     })

@@ -15,6 +15,14 @@ export type Viewport = z.infer<typeof Viewport>
 export const AgentKind = z.enum(['claude-code', 'codex', 'grok', 'opencode', 'cursor', 'shell'])
 export type AgentKind = z.infer<typeof AgentKind>
 
+/** Agent CLIs that accept an initial prompt as a trailing positional argv token
+ *  (`claude "<prompt>"` / `codex "<prompt>"` / `grok "<prompt>"`) — the race-free
+ *  way to hand a fresh session its first prompt. Others must seed the composer draft. */
+const ARGV_PROMPT_AGENTS: ReadonlySet<AgentKind> = new Set(['claude-code', 'codex', 'grok'])
+export function agentSupportsInitialPrompt(kind: AgentKind): boolean {
+  return ARGV_PROMPT_AGENTS.has(kind)
+}
+
 export const ResumeRef = z.object({ kind: z.string(), value: z.string() })
 export type ResumeRef = z.infer<typeof ResumeRef>
 
@@ -554,6 +562,9 @@ export const SpawnMessage = z.object({
   // Settings-driven model defaults. Absent = the harness decides (no flag/env).
   model: z.string().optional(),
   subagentModel: z.string().optional(),
+  // A first prompt handed to the agent at launch as a positional argv token
+  // (race-free; e.g. an issue's description). Only set for argv-capable agents.
+  initialPrompt: z.string().optional(),
 })
 export const ReattachMessage = z.object({
   type: z.literal('reattach'),

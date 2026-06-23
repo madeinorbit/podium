@@ -11,10 +11,10 @@ export interface IssueDeps {
   store: SessionStore
   listSessions(): SessionMeta[]
   getSettings(): PodiumSettings
-  spawnSession(o: { cwd: string; agentKind?: string }): { sessionId: string }
-  /** Deliver the issue description to the freshly-spawned agent as its first
-   *  prompt once it's live (auto-starts the work). */
-  sendFirstPrompt(sessionId: string, text: string): void
+  /** Spawn a session in the issue's worktree. `initialPrompt` hands the agent its
+   *  first prompt at spawn (argv for capable agents, draft-seed fallback otherwise —
+   *  resolved inside createSession), which is the race-free way to start the work. */
+  spawnSession(o: { cwd: string; agentKind?: string; initialPrompt?: string }): { sessionId: string }
   repoOp(op: RepoOp, cwd: string, args?: Record<string, string>): Promise<{ ok: boolean; output: string }>
   broadcast(msg: ServerMessage): void
   now?(): string
@@ -132,10 +132,14 @@ export class IssueService {
     row.worktreePath = path
     row.stage = 'planning'
     const wire = this.persistRow(row)
-    const { sessionId } = this.d.spawnSession({ cwd: path, agentKind: row.defaultAgent })
-    // Auto-submit the description as the agent's first prompt so it starts working
-    // immediately (delivered once the session is live, not into a dead/early PTY).
-    if (row.description.trim()) this.d.sendFirstPrompt(sessionId, row.description)
+    // Hand the agent the description as its first prompt AT SPAWN. createSession
+    // delivers it via argv for claude/codex/grok (`claude "<prompt>"` — consumed at
+    // startup, no TUI-readiness race) or seeds the composer draft for other agents.
+    this.d.spawnSession({
+      cwd: path,
+      agentKind: row.defaultAgent,
+      ...(row.description.trim() ? { initialPrompt: row.description } : {}),
+    })
     return wire
   }
 

@@ -63,6 +63,34 @@ describe('SessionRegistry', () => {
     expect(reg.listSessions()).toMatchObject([{ sessionId, agentKind: 'shell', cwd: '/proj' }])
   })
 
+  it('passes initialPrompt to the daemon spawn for argv-capable agents (claude/codex/grok)', () => {
+    const reg = new SessionRegistry()
+    const daemon: ControlMessage[] = []
+    reg.attachDaemon((m) => daemon.push(m))
+    reg.createSession({ agentKind: 'claude-code', cwd: '/w', initialPrompt: 'fix the bug' })
+    expect(daemon).toContainEqual(
+      expect.objectContaining({ type: 'spawn', agentKind: 'claude-code', initialPrompt: 'fix the bug' }),
+    )
+  })
+
+  it('does NOT put initialPrompt on the spawn for non-argv agents — seeds the composer draft instead', () => {
+    const reg = new SessionRegistry()
+    const daemon: ControlMessage[] = []
+    reg.attachDaemon((m) => daemon.push(m))
+    const client = sink()
+    reg.attachClient(client.send)
+    const { sessionId } = reg.createSession({ agentKind: 'shell', cwd: '/w', initialPrompt: 'remember this' })
+    const spawn = daemon.find((m) => m.type === 'spawn')
+    expect(spawn).toBeDefined()
+    expect(spawn).not.toHaveProperty('initialPrompt')
+    // The prompt is delivered as a draft instead, broadcast to clients.
+    expect(client.sent).toContainEqual({
+      type: 'sessionDraftChanged',
+      sessionId,
+      text: 'remember this',
+    })
+  })
+
   it('resolves the "auto" agent sentinel to a concrete kind (issue start-flow)', () => {
     // The issue start-flow spawns with the issue's defaultAgent, which falls back
     // to the 'auto' settings sentinel and is cast `as AgentKind` at the boundary.
