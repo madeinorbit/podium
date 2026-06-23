@@ -1589,6 +1589,18 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
             break
           case 'helloRejected':
           case 'pairRejected':
+            // The server refused this daemon (bad/missing token, or the machine was
+            // revoked). STOP — set `closing` so the `close` handler below does NOT
+            // schedule a reconnect; otherwise the daemon would re-hammer the server with
+            // the same rejected handshake on backoff forever. Re-pairing requires
+            // operator action (a new pair code) + a restart. Log the reason loudly: the
+            // `reject()` is usually a no-op here because the start-grace already resolved
+            // the start handle, so this console line is the only surfaced signal.
+            console.error(
+              `[podium:daemon] server rejected this daemon (${reply.type}): ${reply.reason}. ` +
+                `Not reconnecting — re-pair the machine (new pair code) and restart the daemon.`,
+            )
+            closing = true
             disposeAll()
             reject(new Error(`daemon handshake rejected: ${reply.reason}`))
             w.close()
