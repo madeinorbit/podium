@@ -163,7 +163,7 @@ export class SessionRegistry {
       listSessions: () => this.listSessions(),
       getSettings: () => this.store.getSettings(),
       spawnSession: (o) => this.createSession({ cwd: o.cwd, agentKind: o.agentKind as AgentKind }),
-      seedDraft: (sessionId, text) => this.setSessionDraft({ sessionId, text }),
+      sendFirstPrompt: (sessionId, text) => this.sendTextWhenReady(sessionId, text),
       repoOp: (op, cwd, args) => this.repoOp(op, cwd, args),
       broadcast: (msg) => {
         for (const c of this.clients.values()) c.send(msg)

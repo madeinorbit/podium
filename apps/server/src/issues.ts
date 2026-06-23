@@ -12,7 +12,9 @@ export interface IssueDeps {
   listSessions(): SessionMeta[]
   getSettings(): PodiumSettings
   spawnSession(o: { cwd: string; agentKind?: string }): { sessionId: string }
-  seedDraft(sessionId: string, text: string): void
+  /** Deliver the issue description to the freshly-spawned agent as its first
+   *  prompt once it's live (auto-starts the work). */
+  sendFirstPrompt(sessionId: string, text: string): void
   repoOp(op: RepoOp, cwd: string, args?: Record<string, string>): Promise<{ ok: boolean; output: string }>
   broadcast(msg: ServerMessage): void
   now?(): string
@@ -131,7 +133,9 @@ export class IssueService {
     row.stage = 'planning'
     const wire = this.persistRow(row)
     const { sessionId } = this.d.spawnSession({ cwd: path, agentKind: row.defaultAgent })
-    if (row.description.trim()) this.d.seedDraft(sessionId, row.description)
+    // Auto-submit the description as the agent's first prompt so it starts working
+    // immediately (delivered once the session is live, not into a dead/early PTY).
+    if (row.description.trim()) this.d.sendFirstPrompt(sessionId, row.description)
     return wire
   }
 

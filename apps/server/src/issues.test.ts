@@ -10,7 +10,7 @@ function harness(sessions: SessionMeta[] = []) {
     listSessions: () => sessions,
     getSettings: () => ({ gitWorkflow: { defaultParentBranch: '', mergeStyle: 'ff-only', autoRebaseBeforeMerge: true }, sessionDefaults: { agent: 'claude-code' } }) as never,
     spawnSession: vi.fn(() => ({ sessionId: 's1' })),
-    seedDraft: vi.fn(),
+    sendFirstPrompt: vi.fn(),
     repoOp: vi.fn(async () => ({ ok: true, output: '' })),
     broadcast: vi.fn(),
     now: () => 't0',
@@ -62,7 +62,7 @@ describe('IssueService.start', () => {
     expect(deps.repoOp).toHaveBeenCalledWith('worktreeAdd', '/r',
       { path: '/r/.worktrees/issue-1-fix-login', branch: 'issue/1-fix-login', startPoint: 'main' })
     expect(deps.spawnSession).toHaveBeenCalledWith({ cwd: '/r/.worktrees/issue-1-fix-login', agentKind: 'claude-code' })
-    expect(deps.seedDraft).toHaveBeenCalledWith('s1', 'do the thing')
+    expect(deps.sendFirstPrompt).toHaveBeenCalledWith('s1', 'do the thing')
   })
 
   it('create(startNow=true) starts immediately', async () => {
