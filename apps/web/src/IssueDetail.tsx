@@ -39,7 +39,7 @@ export function IssueDetail({
   issue: IssueWire
   onClose: () => void
 }): JSX.Element {
-  const { trpc, setSelectedWorktree, setView } = useStore()
+  const { trpc, setSelectedWorktree, setPane, setView } = useStore()
   // The merge style lives in the settings blob, which the store doesn't expose —
   // fetch it once so the primary action matches the user's git workflow.
   const [mergeStyle, setMergeStyle] = useState<MergeStyle>('ff-only')
@@ -82,8 +82,13 @@ export function IssueDetail({
       setToast(r.ok ? `${kind} ok` : `${kind} failed:\n${r.output}`)
     })
 
-  const openSession = (cwd: string) => {
-    setSelectedWorktree(cwd)
+  // Open a member session the same way the sidebar does: select its worktree AND
+  // bind the specific session into pane A, then switch to the workspace. Setting
+  // only the worktree (the old behavior) left the workspace on the worktree with
+  // no panel attached — the session looked unopenable even though it exists.
+  const openSession = (session: { sessionId: string; cwd: string }) => {
+    setSelectedWorktree(session.cwd)
+    setPane('A', session.sessionId)
     setView('workspace')
   }
 
@@ -210,7 +215,7 @@ export function IssueDetail({
                   variant="ghost"
                   size="sm"
                   className="h-auto w-full justify-start whitespace-normal px-2 py-1.5 text-left font-normal"
-                  onClick={() => openSession(s.cwd)}
+                  onClick={() => openSession(s)}
                 >
                   {sessionDisplayName(s)}
                 </Button>
