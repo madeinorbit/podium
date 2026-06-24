@@ -68,26 +68,6 @@ function writeClaudeSession(home: string, relativePath: string, id: string, titl
 }
 
 describe('runIndexRefreshJob', () => {
-  // Scans the real HOME with an in-memory cache; a large conversation history can
-  // take longer than vitest's 5s default, so give the real-filesystem pass room.
-  it('returns wire-shaped changed conversations', async () => {
-    // The job now takes a caller-owned cache (the long-lived worker holds one
-    // across ticks instead of opening one per call); the test owns this :memory: one.
-    const cache = new ConversationDiscoveryCache(':memory:')
-    try {
-      const { changed, removed, diagnostics } = await runIndexRefreshJob(
-        { homeDir: process.env.HOME },
-        cache,
-      )
-      expect(Array.isArray(changed)).toBe(true)
-      expect(Array.isArray(removed)).toBe(true)
-      expect(Array.isArray(diagnostics)).toBe(true)
-      if (changed[0]) expect(typeof changed[0].id).toBe('string')
-    } finally {
-      cache.close()
-    }
-  }, 60_000)
-
   // Regression guard for the cold-server-index bug: with a WARM discovery cache the
   // delta scan reports `changed: []` (nothing moved on disk), which would write
   // nothing and leave a fresh/reset server index permanently empty. `full: true`

@@ -86,7 +86,10 @@ export class DiscoveryWorkerClient {
       this.pending.set(id, { resolve, reject, timer })
       this.ensureWorker().postMessage({ id, kind, input } as WorkerJob)
     }).finally(() => {
-      this.inflightByKind.delete(kind)
+      // Guarded delete: only clear the map if it still holds THIS promise. A
+      // stale/abandoned finally (e.g. one rejected by crash()/stop()) must never
+      // delete a newer same-kind entry that was set after this job was replaced.
+      if (this.inflightByKind.get(kind) === promise) this.inflightByKind.delete(kind)
     })
     // Keep an internally-swallowed copy so an abandoned/coalesced in-flight job
     // rejected by stop()/crash() never surfaces as an unhandled rejection; the
