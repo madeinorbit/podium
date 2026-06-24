@@ -1,4 +1,4 @@
-import { ConversationDiscoveryCache, scanAgentConversationsCached } from '@podium/agent-bridge'
+import { type ConversationDiscoveryCache, scanAgentConversationsCached } from '@podium/agent-bridge'
 import type { ConversationDiagnosticWire, ConversationSummaryWire } from '@podium/protocol'
 import { diagnosticToWire, summaryToWire } from './conversation-wire.js'
 import {
@@ -33,17 +33,23 @@ export interface IndexRefreshJobInput {
 }
 
 /**
- * Worker-side conversation discovery: opens its OWN cache (the worker owns it,
- * keeping the daemon loop off the SQLite reads/writes), runs one incremental
- * scan, and maps the cache delta to wire types. Returns just what moved
- * (`changed`/`removed`) so callers forward a delta, not the full list.
+ * Worker-side conversation discovery: runs one incremental scan against a
+ * caller-owned cache, and maps the cache delta to wire types. Returns just what
+ * moved (`changed`/`removed`) so callers forward a delta, not the full list.
+ *
+ * The `cache` is injected (not opened per call) so the long-lived worker can hold
+ * ONE cache across the every-15s `indexRefresh` ticks — opening a fresh
+ * `ConversationDiscoveryCache(cachePath)` here each pass would leak a SQLite
+ * connection (and re-run migrate()) on every tick of a long-running daemon.
  */
-export async function runIndexRefreshJob(input: IndexRefreshJobInput): Promise<{
+export async function runIndexRefreshJob(
+  input: IndexRefreshJobInput,
+  cache: ConversationDiscoveryCache,
+): Promise<{
   changed: ConversationSummaryWire[]
   removed: string[]
   diagnostics: ConversationDiagnosticWire[]
 }> {
-  const cache = new ConversationDiscoveryCache(input.cachePath)
   const result = await scanAgentConversationsCached({
     cache,
     ...(input.homeDir ? { homeDir: input.homeDir } : {}),

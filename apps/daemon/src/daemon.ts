@@ -8,8 +8,6 @@ import { promisify } from 'node:util'
 
 const execFileAsync = promisify(execFile)
 
-import { repoOpCommand } from './repo-op'
-
 import {
   type AgentRuntimeState,
   type AgentSession,
@@ -20,11 +18,9 @@ import {
   agentStateProviderFor,
   attachAbducoAgent,
   attachTmuxAgent,
-  ConversationDiscoveryCache,
   type CursorStateObserver,
   claudeProjectSlug,
   codexRecordToItems,
-  compareConversationSummaries,
   cursorRecordToItems,
   cursorSessionPaths,
   type GitDiscoveryDiagnostic,
@@ -49,7 +45,6 @@ import {
   resolveFileChain,
   resolveOpencodeBin,
   type SliceResult,
-  scanAgentConversationsCached,
   scanGitRepositories,
   spawnAbducoAgent,
   spawnAgent,
@@ -74,13 +69,13 @@ import {
   type TranscriptItem,
 } from '@podium/protocol'
 import WebSocket, { type RawData } from 'ws'
-import { diagnosticToWire, summaryToWire } from './conversation-wire.js'
 import { readAssetSandboxed, readFileSandboxed, writeFileSandboxed } from './file-access'
 import { buildHarnessExec } from './harness-exec.js'
 import { startHookIngest } from './hook-ingest'
 import { sampleHostMemory } from './host-metrics'
 import type { MemoryAttribution } from './memory-breakdown'
 import { makeQuotaFetcher } from './quota-fetch'
+import { repoOpCommand } from './repo-op'
 import { uploadFilePath } from './upload'
 import { uploadsToGc } from './uploads-gc'
 import { scanClaudeUsage } from './usage-scan'
@@ -248,8 +243,14 @@ export interface DaemonHandle {
 
 type SpawnControl = Extract<ControlMessage, { type: 'spawn' }>
 type ReattachControl = Extract<ControlMessage, { type: 'reattach' }>
-type ConversationWireResult = {
-  conversations: ConversationSummaryWire[]
+/**
+ * What a discovery pass moved: the worker runs the scan against discovery.db and
+ * returns just the delta (`changed`/`removed`) plus any diagnostics, so the daemon
+ * forwards a delta instead of re-broadcasting the full conversation list every 15s.
+ */
+type ConversationDelta = {
+  changed: ConversationSummaryWire[]
+  removed: string[]
   diagnostics: ConversationDiagnosticWire[]
 }
 
@@ -647,16 +648,18 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
   let closing = false
   const bridges = new Map<string, AgentSession>()
   const reattachGate = createLimiter(REATTACH_CONCURRENCY)
-  // The /proc memory walk runs on a worker thread so it never stalls the
-  // interactive daemon loop; stopped in disposeAll().
+  // The /proc memory walk AND the conversation discovery scan both run on the
+  // worker thread so neither stalls the interactive daemon loop; stopped in
+  // disposeAll(). The worker now owns discovery.db exclusively (no daemon-main
+  // ConversationDiscoveryCache), so the every-15s scan never touches the loop.
   const workerClient = opts.workerClient ?? new DiscoveryWorkerClient()
   if (process.env.PODIUM_LOOP_PROFILE) startLoopMetrics({ label: 'daemon' })
-  const discoveryCache = new ConversationDiscoveryCache(opts.discovery?.cachePath)
   const discoveryBackground = opts.discovery?.background ?? true
   const discoveryIntervalMs = opts.discovery?.scanIntervalMs ?? DEFAULT_DISCOVERY_SCAN_INTERVAL_MS
   let discoveryTimer: ReturnType<typeof setTimeout> | undefined
-  let discoveryInFlight: Promise<ConversationWireResult> | undefined
-  let lastConversationPush = ''
+  // Coalesce overlapping scans: a 15s tick that fires while a worker job is still
+  // in flight (or an on-demand scanRequest racing the timer) shares the one result.
+  let discoveryInFlight: Promise<ConversationDelta> | undefined
   const metricsBackground = opts.metrics?.background ?? true
   const metricsIntervalMs = opts.metrics?.intervalMs ?? DEFAULT_HOST_METRICS_INTERVAL_MS
   let metricsTimer: ReturnType<typeof setInterval> | undefined
@@ -811,36 +814,36 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     }
   }
 
-  const cachedConversationResult = (): ConversationWireResult => ({
-    conversations: discoveryCache
-      .listSummaries()
-      .sort(compareConversationSummaries)
-      .map(summaryToWire),
-    diagnostics: [],
-  })
-
-  const publishConversations = (result: ConversationWireResult, force = false): void => {
-    const key = JSON.stringify(result)
-    if (!force && key === lastConversationPush) return
-    lastConversationPush = key
-    send({ type: 'conversationsChanged', ...result })
+  // Send the conversation delta. The common case every 15s is "nothing moved": an
+  // all-empty delta produces NO broadcast at all, so an idle host doesn't fan a
+  // pointless conversationsChanged frame out to every client every tick.
+  const publishConversations = (delta: ConversationDelta): void => {
+    if (delta.changed.length === 0 && delta.removed.length === 0 && delta.diagnostics.length === 0)
+      return
+    send({
+      type: 'conversationsChanged',
+      conversations: delta.changed,
+      removed: delta.removed,
+      diagnostics: delta.diagnostics,
+    })
   }
 
-  const runDiscoveryScan = (): Promise<ConversationWireResult> => {
+  // Run the discovery scan on the worker thread (off the interactive loop) and
+  // return the delta. The worker owns discovery.db, so the scan's SQLite reads/
+  // writes — the old ~800ms loop block — never touch the daemon's event loop.
+  // A worker failure (crash, timeout) surfaces as an error diagnostic, never silent.
+  const runDiscoveryDelta = (): Promise<ConversationDelta> => {
     if (discoveryInFlight) return discoveryInFlight
     discoveryInFlight = (async () => {
       try {
-        const result = await scanAgentConversationsCached({
-          cache: discoveryCache,
+        return (await workerClient.runJob('indexRefresh', {
           ...(opts.discovery?.homeDir ? { homeDir: opts.discovery.homeDir } : {}),
-        })
-        return {
-          conversations: result.conversations.map(summaryToWire),
-          diagnostics: result.diagnostics.map(diagnosticToWire),
-        }
+          ...(opts.discovery?.cachePath ? { cachePath: opts.discovery.cachePath } : {}),
+        })) as ConversationDelta
       } catch (err) {
         return {
-          conversations: [],
+          changed: [],
+          removed: [],
           diagnostics: [
             { severity: 'error', message: err instanceof Error ? err.message : String(err) },
           ],
@@ -852,10 +855,10 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     return discoveryInFlight
   }
 
-  const refreshAndPublishConversations = async (): Promise<ConversationWireResult> => {
-    const result = await runDiscoveryScan()
-    publishConversations(result)
-    return result
+  const refreshAndPublishConversations = async (): Promise<ConversationDelta> => {
+    const delta = await runDiscoveryDelta()
+    publishConversations(delta)
+    return delta
   }
 
   const scheduleDiscoveryScan = (): void => {
@@ -1022,8 +1025,17 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
   }
 
   const scan = async (requestId: string): Promise<void> => {
-    const result = await refreshAndPublishConversations()
-    send({ type: 'scanResult', requestId, ...result })
+    // On-demand scan also runs on the worker + publishes the delta to all clients;
+    // the requester additionally gets a scanResult tagged with its requestId so its
+    // pending request resolves. Both carry the delta fields (changed + removed).
+    const delta = await refreshAndPublishConversations()
+    send({
+      type: 'scanResult',
+      requestId,
+      conversations: delta.changed,
+      removed: delta.removed,
+      diagnostics: delta.diagnostics,
+    })
   }
 
   const scanRepos = async (
@@ -1455,7 +1467,8 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     if (discoveryTimer) clearTimeout(discoveryTimer)
     if (metricsTimer) clearInterval(metricsTimer)
     if (uploadsGcTimer) clearInterval(uploadsGcTimer)
-    discoveryCache.close()
+    // discovery.db now lives entirely in the worker; stopping it terminates the
+    // worker thread (and with it the cache's SQLite connection).
     workerClient.stop()
     // For durable sessions (abduco/tmux), dispose() only takes down the attach client,
     // so the agent survives the daemon going down — do NOT kill the masters here
@@ -1515,7 +1528,10 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
       if (!kickedOff) {
         kickedOff = true
         if (discoveryBackground) {
-          publishConversations(cachedConversationResult(), true)
+          // No instant full-list push: the server persists the conversation index
+          // across daemon restarts, so it just needs the delta. Run one scan now on
+          // the worker (emits whatever moved while the daemon was down) then settle
+          // into the periodic delta loop.
           void refreshAndPublishConversations()
           scheduleDiscoveryScan()
         }
