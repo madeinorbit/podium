@@ -28,11 +28,11 @@ export interface MemoryAttribution {
 const PAGE_SIZE = 4096
 const TOP_PROCESSES = 3
 
-function pssBytes(pid: number): number | undefined {
+function pssBytes(procRoot: string, pid: number): number | undefined {
   // smaps_rollup (same-user readable) gives PSS: shared pages divided fairly
   // across their users — the honest per-process attribution number.
   try {
-    const m = readFileSync(`/proc/${pid}/smaps_rollup`, 'utf8').match(/^Pss:\s+(\d+) kB$/m)
+    const m = readFileSync(`${procRoot}/${pid}/smaps_rollup`, 'utf8').match(/^Pss:\s+(\d+) kB$/m)
     if (m) return Number(m[1]) * 1024
   } catch {
     // fall through to RSS
@@ -40,9 +40,9 @@ function pssBytes(pid: number): number | undefined {
   return undefined
 }
 
-function rssBytes(pid: number): number | undefined {
+function rssBytes(procRoot: string, pid: number): number | undefined {
   try {
-    const resident = readFileSync(`/proc/${pid}/statm`, 'utf8').split(' ')[1]
+    const resident = readFileSync(`${procRoot}/${pid}/statm`, 'utf8').split(' ')[1]
     return resident === undefined ? undefined : Number(resident) * PAGE_SIZE
   } catch {
     return undefined
@@ -79,7 +79,7 @@ export function snapshotProcesses(procRoot = '/proc'): ProcSample[] {
       } catch {
         // other users' processes: cwd unreadable → never attributed to a project
       }
-      const memBytes = pssBytes(pid) ?? rssBytes(pid)
+      const memBytes = pssBytes(procRoot, pid) ?? rssBytes(procRoot, pid)
       if (memBytes === undefined) continue
       out.push({ pid, ppid, name, cmdline, ...(cwd === undefined ? {} : { cwd }), memBytes })
     } catch {
