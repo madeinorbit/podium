@@ -5,6 +5,7 @@ import { TooltipProvider } from '@/components/ui/tooltip'
 import { ConfirmProvider } from '@/hooks/use-confirm'
 import { useIsMobile } from '@/hooks/use-is-mobile'
 import { AppErrorPage } from './AppErrorPage'
+import { AutoContinueDialog } from './AutoContinueDialog'
 import { ErrorBoundary } from './ErrorBoundary'
 import { HomeView } from './HomeView'
 import { IssuesView } from './IssuesView'
@@ -90,28 +91,34 @@ function AppBody({ isMobile }: { isMobile: boolean }): JSX.Element {
     return <OnboardingWizard onDismiss={() => setDismissed(true)} />
   }
 
-  if (isMobile) return <MobileApp />
   return (
-    <div className="desktop-shell">
-      <Sidebar />
-      {view === 'home' ? (
-        <HomeView />
-      ) : view === 'settings' ? (
-        <SettingsView />
-      ) : view === 'usage' ? (
-        <UsageView />
-      ) : view === 'issues' ? (
-        <IssuesView />
+    <>
+      {isMobile ? (
+        <MobileApp />
       ) : (
-        <Workspace />
+        <div className="desktop-shell">
+          <Sidebar />
+          {view === 'home' ? (
+            <HomeView />
+          ) : view === 'settings' ? (
+            <SettingsView />
+          ) : view === 'usage' ? (
+            <UsageView />
+          ) : view === 'issues' ? (
+            <IssuesView />
+          ) : (
+            <Workspace />
+          )}
+          {/* The superagent / BTW thread is a collapsible right dock, so you can watch
+              an agent and orchestrate it side by side instead of a full-screen swap. */}
+          {superOpen && (
+            <aside className="flex w-[400px] max-w-[40vw] min-w-[320px] flex-none flex-col border-l border-border bg-card">
+              <SuperagentView onClose={() => setSuperOpen(false)} />
+            </aside>
+          )}
+        </div>
       )}
-      {/* The superagent / BTW thread is a collapsible right dock, so you can watch
-          an agent and orchestrate it side by side instead of a full-screen swap. */}
-      {superOpen && (
-        <aside className="flex w-[400px] max-w-[40vw] min-w-[320px] flex-none flex-col border-l border-border bg-card">
-          <SuperagentView onClose={() => setSuperOpen(false)} />
-        </aside>
-      )}
-    </div>
+      <AutoContinueDialog />
+    </>
   )
 }

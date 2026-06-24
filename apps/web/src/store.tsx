@@ -1,4 +1,4 @@
-import type { Sidebar as SidebarSettings } from '@podium/core'
+import { type Sidebar as SidebarSettings, shouldPromptAutoContinue } from '@podium/core'
 import type {
   GitDiscoveryDiagnosticWire,
   GitRepositoryWire,
@@ -94,6 +94,10 @@ export interface Store {
   killSession: (sessionId: string) => Promise<void>
   /** Nudge an errored agent to retry ("continue⏎" into its PTY). */
   continueSession: (sessionId: string) => Promise<void>
+  /** Session whose first manual Continue should raise the auto-continue popup,
+   *  or null when the popup is closed. */
+  autoContinuePromptSessionId: string | null
+  closeAutoContinuePrompt: () => void
   renameSession: (sessionId: string, name: string) => Promise<void>
   hibernateSession: (sessionId: string) => Promise<void>
   resurrectSession: (sessionId: string) => Promise<void>
@@ -217,6 +221,9 @@ export function StoreProvider({
   const [tabOrders, setTabOrders] = useState<Record<string, string[]>>({})
   const [view, setView] = useState<MainView>(readStoredView)
   const [settingsTab, setSettingsTab] = useState<string | null>(null)
+  const [autoContinuePromptSessionId, setAutoContinuePromptSessionId] = useState<string | null>(
+    null,
+  )
   const [superThreadId, setSuperThreadId] = useState('global')
   const [superOpen, setSuperOpen] = useState(() => lsGet(SUPER_OPEN_KEY) === '1')
   const [superRefreshKey, setSuperRefreshKey] = useState(0)
@@ -321,8 +328,20 @@ export function StoreProvider({
   const continueSession = useMemo(
     () => async (sessionId: string) => {
       await trpc.sessions.continue.mutate({ sessionId }).catch(() => {})
+      // After the manual nudge, offer to make it automatic — once, and only when
+      // it isn't already on / hasn't already been answered.
+      try {
+        const settings = await trpc.settings.get.query()
+        if (shouldPromptAutoContinue(settings)) setAutoContinuePromptSessionId(sessionId)
+      } catch {
+        // Non-fatal: the nudge already happened; just skip the offer.
+      }
     },
     [trpc],
+  )
+  const closeAutoContinuePrompt = useMemo(
+    () => () => setAutoContinuePromptSessionId(null),
+    [],
   )
   const hibernateSession = useMemo(
     () => async (sessionId: string) => {
@@ -592,6 +611,8 @@ export function StoreProvider({
     refreshRepos,
     killSession,
     continueSession,
+    autoContinuePromptSessionId,
+    closeAutoContinuePrompt,
     hibernateSession,
     resurrectSession,
     resumeAndSend,
