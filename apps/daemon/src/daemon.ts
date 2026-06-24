@@ -80,11 +80,12 @@ import { readAssetSandboxed, readFileSandboxed, writeFileSandboxed } from './fil
 import { buildHarnessExec } from './harness-exec.js'
 import { startHookIngest } from './hook-ingest'
 import { sampleHostMemory } from './host-metrics'
-import { attributeMemory, snapshotProcesses } from './memory-breakdown'
+import type { MemoryAttribution } from './memory-breakdown'
 import { makeQuotaFetcher } from './quota-fetch'
 import { uploadFilePath } from './upload'
 import { uploadsToGc } from './uploads-gc'
 import { scanClaudeUsage } from './usage-scan'
+import { DiscoveryWorkerClient } from './worker-client'
 
 const DEFAULT_DISCOVERY_SCAN_INTERVAL_MS = 15_000
 const DEFAULT_HOST_METRICS_INTERVAL_MS = 5_000
@@ -143,6 +144,13 @@ export interface DaemonOptions {
   discovery?: DaemonDiscoveryOptions
   metrics?: DaemonMetricsOptions
   hooks?: DaemonHooksOptions
+  /**
+   * The worker client that runs the /proc memory walk off the interactive loop.
+   * Defaults to a real `DiscoveryWorkerClient` (spawns ./discovery-worker.ts).
+   * Tests inject one whose `spawn` runs the job inline, because Node-based vitest
+   * cannot spawn the `.ts` worker; the live daemon (Bun) uses the default.
+   */
+  workerClient?: DiscoveryWorkerClient
 }
 
 export interface DaemonMetricsOptions {
@@ -669,6 +677,9 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
   let closing = false
   const bridges = new Map<string, AgentSession>()
   const reattachGate = createLimiter(REATTACH_CONCURRENCY)
+  // The /proc memory walk runs on a worker thread so it never stalls the
+  // interactive daemon loop; stopped in disposeAll().
+  const workerClient = opts.workerClient ?? new DiscoveryWorkerClient()
   if (process.env.PODIUM_LOOP_PROFILE) startLoopMetrics({ label: 'daemon' })
   const discoveryCache = new ConversationDiscoveryCache(opts.discovery?.cachePath)
   const discoveryBackground = opts.discovery?.background ?? true
@@ -894,21 +905,30 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     })
   }
 
-  const memoryBreakdown = (requestId: string, roots: string[]): void => {
+  const memoryBreakdown = async (requestId: string, roots: string[]): Promise<void> => {
     const memory = sampleHostMemory()
     const supported = process.platform === 'linux' // the walk needs /proc
-    const { agents, projects } = supported
-      ? attributeMemory(
-          snapshotProcesses(),
-          [...bridges.entries()].map(([sessionId, session]) => ({
+    let agents: MemoryAttribution['agents'] = []
+    let projects: MemoryAttribution['projects'] = []
+    if (supported) {
+      try {
+        const result = (await workerClient.runJob('memoryBreakdown', {
+          sessions: [...bridges.entries()].map(([sessionId, session]) => ({
             sessionId,
             label: `podium-${sessionId}`,
             pid: session.pid,
           })),
           roots,
-          { selfPid: process.pid },
+          selfPid: process.pid,
+        })) as MemoryAttribution
+        agents = result.agents
+        projects = result.projects
+      } catch (err) {
+        console.warn(
+          `[podium:daemon] memoryBreakdown job failed: ${err instanceof Error ? err.message : String(err)}`,
         )
-      : { agents: [], projects: [] }
+      }
+    }
     const attributed =
       agents.reduce((sum, a) => sum + a.bytes, 0) + projects.reduce((sum, p) => sum + p.bytes, 0)
     const usedBytes = Math.max(0, memory.totalBytes - memory.availableBytes)
@@ -1258,7 +1278,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
         })
         break
       case 'memoryBreakdownRequest':
-        memoryBreakdown(msg.requestId, msg.roots)
+        void memoryBreakdown(msg.requestId, msg.roots)
         break
       case 'repoOpRequest':
         void runRepoOp(msg)
@@ -1466,6 +1486,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     if (metricsTimer) clearInterval(metricsTimer)
     if (uploadsGcTimer) clearInterval(uploadsGcTimer)
     discoveryCache.close()
+    workerClient.stop()
     // For durable sessions (abduco/tmux), dispose() only takes down the attach client,
     // so the agent survives the daemon going down — do NOT kill the masters here
     // unless the caller explicitly asked for a full reap (test harness teardown).

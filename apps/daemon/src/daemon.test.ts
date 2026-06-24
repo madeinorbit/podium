@@ -24,10 +24,41 @@ import {
   resolveDurableBackend,
   startDaemon,
 } from './daemon'
+import { type MemoryBreakdownJobInput, runMemoryBreakdownJob } from './discovery-jobs'
+import { DiscoveryWorkerClient, type WorkerLike } from './worker-client'
 
 const FIXTURE = fileURLToPath(
   new URL('../../../packages/agent-bridge/test/fixtures/fixture-tui.mjs', import.meta.url),
 )
+
+/**
+ * A DiscoveryWorkerClient whose "worker" runs the real /proc job inline. Node-based
+ * vitest cannot spawn the daemon's `.ts` worker (its bare imports have no TS loader
+ * inside the Worker), so this exercises the same daemon→worker-client→job path
+ * without a real thread; the live daemon (Bun) uses a real spawned worker, and the
+ * real-worker spawn itself is proven by apps/daemon/test/worker-isolation.bun.test.ts.
+ */
+function inlineWorkerClient(): DiscoveryWorkerClient {
+  return new DiscoveryWorkerClient({
+    spawn: (): WorkerLike => {
+      const handlers: Array<(m: unknown) => void> = []
+      return {
+        postMessage(m: unknown) {
+          const job = m as { id: string; kind: string; input: MemoryBreakdownJobInput }
+          const value = runMemoryBreakdownJob(job.input)
+          // Reply on a turn of the loop, like a real worker thread would.
+          queueMicrotask(() => {
+            for (const h of handlers) h({ id: job.id, ok: true, value })
+          })
+        },
+        on(ev, cb) {
+          if (ev === 'message') handlers.push(cb)
+        },
+        terminate() {},
+      }
+    },
+  })
+}
 const G = { cols: 80, rows: 24 }
 const decode = (b64: string): string => Buffer.from(b64, 'base64').toString('utf8')
 type AgentFrame = Extract<DaemonMessage, { type: 'agentFrame' }>
@@ -1052,6 +1083,7 @@ describe('daemon memory breakdown', () => {
         tmux: false,
         discovery: { background: false, cachePath: ':memory:' },
         metrics: { background: false },
+        workerClient: inlineWorkerClient(),
         launch: (_kind, opts) => ({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
       })
       try {
