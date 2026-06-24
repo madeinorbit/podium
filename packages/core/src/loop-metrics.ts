@@ -23,6 +23,9 @@ export function startLoopMetrics(opts: {
   sampleMs?: number
   log?: (m: string) => void
   now?: () => number
+  /** Called with the stall duration (ms) each time a long tick is logged, so a
+   *  caller can attribute it (e.g. dump what the loop was busy with). */
+  onLongTick?: (ms: number) => void
 }): LoopMetricsHandle {
   const longTickMs = opts.longTickMs ?? 100
   const sampleMs = opts.sampleMs ?? 1000
@@ -53,20 +56,22 @@ export function startLoopMetrics(opts: {
       if (!loggedThisWindow && late > longTickMs) {
         log(`[podium:loop] ${opts.label} long tick ${late.toFixed(0)}ms`)
         loggedThisWindow = true
+        opts.onLongTick?.(late)
       }
     }
   }, probeMs)
   probe.unref?.()
 
-  // Sample timer: every sampleMs, also fold the histogram's view in (it can
-  // catch stalls between probe fires) and reset the per-window throttle.
+  // Sample timer: every sampleMs, fold the histogram's lifetime max into the
+  // snapshot stat and reset the per-window throttle. We deliberately do NOT log
+  // off the histogram here: `monitorEventLoopDelay`'s `h.max` is never reset, so
+  // it is the LIFETIME max — logging it each window re-reports the same stale
+  // value forever after any one stall (the observed "581ms every second" spam).
+  // The probe path above is the authoritative, per-window logger; a stall >
+  // longTickMs always delays the next probe fire, so nothing escapes it.
   const sample = setInterval(() => {
     const histMaxMs = h.max / 1e6
     if (histMaxMs > lifetimeMaxMs) lifetimeMaxMs = histMaxMs
-    if (!loggedThisWindow && windowMaxMs <= longTickMs && histMaxMs > longTickMs) {
-      log(`[podium:loop] ${opts.label} long tick ${histMaxMs.toFixed(0)}ms`)
-      loggedThisWindow = true
-    }
     windowMaxMs = 0
     loggedThisWindow = false
   }, sampleMs)

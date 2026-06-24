@@ -57,6 +57,15 @@ import {
 } from '@podium/agent-bridge'
 import { startLoopMetrics } from '@podium/core'
 import {
+  countControl,
+  countFrame,
+  countTail,
+  countWorker,
+  reportLongTick,
+  startLoopAttribution,
+  timeTask,
+} from './loop-attribution'
+import {
   type AgentKind,
   type ControlMessage,
   type ConversationDiagnosticWire,
@@ -324,6 +333,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
         path,
         (items, meta) => {
           if (items.length === 0 && !meta.reset) return
+          countTail()
           send({
             type: 'transcriptDelta',
             sessionId,
@@ -663,7 +673,10 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
   // disposeAll(). The worker now owns discovery.db exclusively (no daemon-main
   // ConversationDiscoveryCache), so the every-15s scan never touches the loop.
   const workerClient = opts.workerClient ?? new DiscoveryWorkerClient()
-  if (process.env.PODIUM_LOOP_PROFILE) startLoopMetrics({ label: 'daemon' })
+  if (process.env.PODIUM_LOOP_PROFILE) {
+    startLoopAttribution()
+    startLoopMetrics({ label: 'daemon', onLongTick: reportLongTick })
+  }
   const discoveryBackground = opts.discovery?.background ?? true
   const discoveryIntervalMs = opts.discovery?.scanIntervalMs ?? DEFAULT_DISCOVERY_SCAN_INTERVAL_MS
   let discoveryTimer: ReturnType<typeof setTimeout> | undefined
@@ -831,12 +844,15 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
   const publishConversations = (delta: ConversationDelta): void => {
     if (delta.changed.length === 0 && delta.removed.length === 0 && delta.diagnostics.length === 0)
       return
-    send({
-      type: 'conversationsChanged',
-      conversations: delta.changed,
-      removed: delta.removed,
-      diagnostics: delta.diagnostics,
-    })
+    countWorker()
+    timeTask(`publishConv(${delta.changed.length})`, () =>
+      send({
+        type: 'conversationsChanged',
+        conversations: delta.changed,
+        removed: delta.removed,
+        diagnostics: delta.diagnostics,
+      }),
+    )
   }
 
   // Now that `publishConversations` + `workerClient` exist, wire the event-driven
@@ -960,9 +976,10 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
 
   const wireBridge = (sessionId: string, session: AgentSession, agentKind: AgentKind): void => {
     bridges.set(sessionId, session)
-    session.onFrame((frame) =>
-      send({ type: 'agentFrame', sessionId, seq: frame.seq, data: frame.data }),
-    )
+    session.onFrame((frame) => {
+      countFrame(frame.data.length)
+      send({ type: 'agentFrame', sessionId, seq: frame.seq, data: frame.data })
+    })
     // Codex sets its OSC title to the cwd basename (+ a spinner glyph that churns at
     // frame-rate), which would clobber the real title the codex observer derives.
     // Every other harness sets a meaningful OSC title, so forward it for them.
@@ -1232,6 +1249,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
   }
 
   const handleControlMessage = (raw: RawData): void => {
+    countControl()
     // Drop absurdly large frames before materializing/parsing them (audit P0-4): a
     // multi-hundred-MB frame's synchronous toString()+JSON.parse would stall the loop
     // and back up the socket Recv-Q — the wedge shape. The cap is generous so it never
