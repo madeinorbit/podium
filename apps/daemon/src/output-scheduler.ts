@@ -82,9 +82,7 @@ export class OutputScheduler {
   }
 
   remove(sessionId: string): void {
-    this.flush(sessionId)
-    const p = this.pending.get(sessionId)
-    if (p?.timer !== undefined) this.clearTimer(p.timer)
+    this.flush(sessionId) // flush already clears+nulls the timer
     this.pending.delete(sessionId)
   }
 

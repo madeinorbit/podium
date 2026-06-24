@@ -598,4 +598,9 @@ describe('output-scheduling protocol', () => {
     const m = { type: 'sessionPriority' as const, sessionId: 's1', priority: 0 }
     expect(parseControlMessage(encode(m))).toEqual(m)
   })
+  it('rejects out-of-range / non-int sessionPriority', () => {
+    for (const p of [-1, 4, 1.5]) {
+      expect(() => parseControlMessage(encode({ type: 'sessionPriority', sessionId: 's', priority: p } as never))).toThrow()
+    }
+  })
 })
