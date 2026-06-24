@@ -816,7 +816,8 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
 
   // Send the conversation delta. The common case every 15s is "nothing moved": an
   // all-empty delta produces NO broadcast at all, so an idle host doesn't fan a
-  // pointless conversationsChanged frame out to every client every tick.
+  // pointless conversationsChanged frame out to every client every tick. (A genuinely
+  // empty full snapshot — zero conversations on the host — is correctly skipped too.)
   const publishConversations = (delta: ConversationDelta): void => {
     if (delta.changed.length === 0 && delta.removed.length === 0 && delta.diagnostics.length === 0)
       return
@@ -832,13 +833,20 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
   // return the delta. The worker owns discovery.db, so the scan's SQLite reads/
   // writes — the old ~800ms loop block — never touch the daemon's event loop.
   // A worker failure (crash, timeout) surfaces as an error diagnostic, never silent.
-  const runDiscoveryDelta = (): Promise<ConversationDelta> => {
+  //
+  // `full: true` asks the worker for the ENTIRE conversation list (mapped into
+  // `changed`), not just the cache-miss delta. Connect-time and on-demand scans use
+  // it so a snapshot upserts everything — repopulating a cold/reset server index
+  // even when the daemon's warm discovery.db cache reports nothing as "changed".
+  // The periodic loop omits it and forwards only the delta.
+  const runDiscoveryDelta = (full = false): Promise<ConversationDelta> => {
     if (discoveryInFlight) return discoveryInFlight
     discoveryInFlight = (async () => {
       try {
         return (await workerClient.runJob('indexRefresh', {
           ...(opts.discovery?.homeDir ? { homeDir: opts.discovery.homeDir } : {}),
           ...(opts.discovery?.cachePath ? { cachePath: opts.discovery.cachePath } : {}),
+          ...(full ? { full: true } : {}),
         })) as ConversationDelta
       } catch (err) {
         return {
@@ -855,8 +863,10 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     return discoveryInFlight
   }
 
-  const refreshAndPublishConversations = async (): Promise<ConversationDelta> => {
-    const delta = await runDiscoveryDelta()
+  // `full: true` (connect-time + on-demand) requests the entire conversation list so
+  // the publish repopulates a cold server index; the periodic loop omits it (delta only).
+  const refreshAndPublishConversations = async (full = false): Promise<ConversationDelta> => {
+    const delta = await runDiscoveryDelta(full)
     publishConversations(delta)
     return delta
   }
@@ -1025,10 +1035,12 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
   }
 
   const scan = async (requestId: string): Promise<void> => {
-    // On-demand scan also runs on the worker + publishes the delta to all clients;
-    // the requester additionally gets a scanResult tagged with its requestId so its
-    // pending request resolves. Both carry the delta fields (changed + removed).
-    const delta = await refreshAndPublishConversations()
+    // On-demand (user-triggered) scan requests a FULL snapshot so a manual rescan can
+    // recover a cold/reset server index — not just whatever moved since the last tick.
+    // It runs on the worker + publishes to all clients; the requester additionally gets
+    // a scanResult tagged with its requestId so its pending request resolves. Both carry
+    // the (now full-list) changed + removed fields.
+    const delta = await refreshAndPublishConversations(true)
     send({
       type: 'scanResult',
       requestId,
@@ -1528,11 +1540,14 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
       if (!kickedOff) {
         kickedOff = true
         if (discoveryBackground) {
-          // No instant full-list push: the server persists the conversation index
-          // across daemon restarts, so it just needs the delta. Run one scan now on
-          // the worker (emits whatever moved while the daemon was down) then settle
-          // into the periodic delta loop.
-          void refreshAndPublishConversations()
+          // Run one FULL snapshot on the worker at connect (emits the entire current
+          // conversation list, not just what moved), then settle into the periodic
+          // delta loop. The full snapshot is required because the server index can be
+          // COLD — a fresh server, or a reset/schema-migrated podium.db — while the
+          // daemon's discovery.db cache is WARM (survives a daemon restart); a delta
+          // off a warm cache would be empty and leave the cold index permanently bare.
+          // The full scan still runs on the worker, so this never blocks the loop.
+          void refreshAndPublishConversations(true)
           scheduleDiscoveryScan()
         }
         if (metricsBackground) {

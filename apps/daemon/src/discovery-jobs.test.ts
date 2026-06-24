@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { ConversationDiscoveryCache } from '@podium/agent-bridge'
@@ -37,6 +37,36 @@ describe('runMemoryBreakdownJob', () => {
   })
 })
 
+// Build a tmp HOME containing a few real Claude Code conversation files so the
+// real default providers (not a fake provider) discover them, matching the way
+// runIndexRefreshJob actually scans.
+function writeClaudeSession(home: string, relativePath: string, id: string, title: string): void {
+  const file = join(home, relativePath)
+  mkdirSync(join(file, '..'), { recursive: true })
+  writeFileSync(
+    file,
+    [
+      JSON.stringify({ type: 'summary', customTitle: title, sessionId: id }),
+      JSON.stringify({
+        type: 'user',
+        uuid: `${id}-user-1`,
+        timestamp: '2026-06-01T11:00:00.000Z',
+        cwd: '/repo/project',
+        sessionId: id,
+        message: { role: 'user', content: 'scan conversations' },
+      }),
+      JSON.stringify({
+        type: 'assistant',
+        uuid: `${id}-assistant-1`,
+        timestamp: '2026-06-01T11:01:00.000Z',
+        cwd: '/repo/project',
+        sessionId: id,
+        message: { role: 'assistant', content: [{ type: 'text', text: 'found conversations' }] },
+      }),
+    ].join('\n'),
+  )
+}
+
 describe('runIndexRefreshJob', () => {
   // Scans the real HOME with an in-memory cache; a large conversation history can
   // take longer than vitest's 5s default, so give the real-filesystem pass room.
@@ -55,6 +85,52 @@ describe('runIndexRefreshJob', () => {
       if (changed[0]) expect(typeof changed[0].id).toBe('string')
     } finally {
       cache.close()
+    }
+  }, 60_000)
+
+  // Regression guard for the cold-server-index bug: with a WARM discovery cache the
+  // delta scan reports `changed: []` (nothing moved on disk), which would write
+  // nothing and leave a fresh/reset server index permanently empty. `full: true`
+  // must instead return the ENTIRE current conversation list so a snapshot can
+  // repopulate the cold index.
+  it('with full:true returns ALL conversations off a warm cache (not just the delta)', async () => {
+    const home = mkdtempSync(join(tmpdir(), 'podium-full-snapshot-'))
+    // The Claude provider's default root is <home>/.claude, so place the session
+    // files under .claude/projects/... for the real provider to discover them.
+    writeClaudeSession(
+      home,
+      '.claude/projects/-repo-project/conv-a.jsonl',
+      'conv-a',
+      'Conversation A',
+    )
+    writeClaudeSession(
+      home,
+      '.claude/projects/-repo-project/conv-b.jsonl',
+      'conv-b',
+      'Conversation B',
+    )
+    const cache = new ConversationDiscoveryCache(':memory:')
+    try {
+      // First scan WARMS the cache and records the full list as the delta.
+      const first = await runIndexRefreshJob({ homeDir: home }, cache)
+      const fullCount = first.changed.length
+      expect(fullCount).toBeGreaterThanOrEqual(2)
+
+      // Second delta scan off the now-warm cache: nothing changed on disk, so the
+      // delta is empty — this is exactly the situation that starved a cold index.
+      const delta = await runIndexRefreshJob({ homeDir: home }, cache)
+      expect(delta.changed.length).toBe(0)
+
+      // Second FULL scan off the SAME warm cache must return the entire list again,
+      // proving the snapshot path can repopulate a cold server index.
+      const snapshot = await runIndexRefreshJob({ homeDir: home, full: true }, cache)
+      expect(snapshot.changed.length).toBe(fullCount)
+      const ids = snapshot.changed.map((c) => c.id)
+      expect(ids).toContain('conv-a')
+      expect(ids).toContain('conv-b')
+    } finally {
+      cache.close()
+      rmSync(home, { recursive: true, force: true })
     }
   }, 60_000)
 })

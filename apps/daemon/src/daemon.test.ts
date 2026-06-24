@@ -94,6 +94,43 @@ function fakeDeltaWorkerClient(delta: ConversationDelta): DiscoveryWorkerClient 
     },
   })
 }
+
+/**
+ * Like fakeDeltaWorkerClient but RECORDS the `full` flag of every `indexRefresh`
+ * input, so a test can assert the connect-time + on-demand scans request a full
+ * snapshot (`full: true`) while the periodic loop forwards only the delta (`full`
+ * falsy). Returns the recorder array alongside the client.
+ */
+function recordingDeltaWorkerClient(delta: ConversationDelta): {
+  client: DiscoveryWorkerClient
+  fullFlags: Array<boolean | undefined>
+} {
+  const fullFlags: Array<boolean | undefined> = []
+  const client = new DiscoveryWorkerClient({
+    spawn: (): WorkerLike => {
+      const handlers: Array<(m: unknown) => void> = []
+      return {
+        postMessage(m: unknown) {
+          const job = m as {
+            id: string
+            kind: string
+            input: MemoryBreakdownJobInput & { full?: boolean }
+          }
+          if (job.kind === 'indexRefresh') fullFlags.push(job.input.full)
+          const value = job.kind === 'indexRefresh' ? delta : runMemoryBreakdownJob(job.input)
+          queueMicrotask(() => {
+            for (const h of handlers) h({ id: job.id, ok: true, value })
+          })
+        },
+        on(ev, cb) {
+          if (ev === 'message') handlers.push(cb)
+        },
+        terminate() {},
+      }
+    },
+  })
+  return { client, fullFlags }
+}
 const G = { cols: 80, rows: 24 }
 const decode = (b64: string): string => Buffer.from(b64, 'base64').toString('utf8')
 type AgentFrame = Extract<DaemonMessage, { type: 'agentFrame' }>
@@ -1086,6 +1123,129 @@ describe('daemon conversation discovery', () => {
       await daemon.close()
       await new Promise<void>((r) => wss.close(() => r()))
     }
+  })
+
+  it('connect-time kickoff requests a FULL snapshot; periodic ticks request a delta', async () => {
+    // Regression guard for the cold-server-index bug: the connect-time scan MUST
+    // request a full snapshot (full: true) so a fresh/reset server index gets
+    // repopulated even off a warm discovery cache. The periodic loop must keep
+    // requesting deltas (full falsy) so it doesn't re-broadcast the whole list every
+    // tick. We record the `full` flag of each indexRefresh job to prove both.
+    const changed: ConversationSummaryWire[] = [
+      {
+        id: 'sess-full',
+        agentKind: 'claude-code',
+        providerId: 'claude-code-jsonl',
+        title: 'Snapshot session',
+      },
+    ]
+    const { client, fullFlags } = recordingDeltaWorkerClient({
+      changed,
+      removed: [],
+      diagnostics: [],
+    })
+    const wss = new WebSocketServer({ port: 0 })
+    await new Promise<void>((r) => wss.once('listening', () => r()))
+    const port = (wss.address() as { port: number }).port
+    const received: DaemonMessage[] = []
+    const connected = new Promise<void>((r) => {
+      wss.once('connection', (ws) => {
+        ws.on('message', (raw) => received.push(parseDaemonMessage(raw.toString())))
+        r()
+      })
+    })
+
+    const daemon = await startDaemon({
+      serverUrl: `ws://localhost:${port}`,
+      hooks: { port: 0, settingsDir: mkdtempSync(join(tmpdir(), 'podium-hooks-')) },
+      tmux: false,
+      launch: (_kind, opts) => ({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
+      metrics: { background: false },
+      workerClient: client,
+      discovery: { cachePath: ':memory:', scanIntervalMs: 20 },
+    })
+    await connected
+
+    try {
+      // Wait for the connect-time scan to land its full-list conversationsChanged.
+      const start = Date.now()
+      while (
+        !received.some(
+          (m) =>
+            m.type === 'conversationsChanged' && m.conversations.some((c) => c.id === 'sess-full'),
+        )
+      ) {
+        if (Date.now() - start > 5000) throw new Error('connect-time snapshot timed out')
+        await new Promise((r) => setTimeout(r, 20))
+      }
+      // Let several periodic ticks fire after the connect-time kickoff.
+      await new Promise((r) => setTimeout(r, 120))
+    } finally {
+      await daemon.close()
+      await new Promise<void>((r) => wss.close(() => r()))
+    }
+
+    // The very first indexRefresh (connect-time) requested a full snapshot.
+    expect(fullFlags[0]).toBe(true)
+    // Periodic ticks that followed requested deltas (full falsy), never another full.
+    expect(fullFlags.length).toBeGreaterThan(1)
+    expect(fullFlags.slice(1).every((f) => !f)).toBe(true)
+  })
+
+  it('on-demand scanRequest requests a FULL snapshot (cold-index recovery)', async () => {
+    // A user-triggered rescan must be able to recover a cold/reset server index, so
+    // the on-demand path also requests full: true (not just whatever moved).
+    const changed: ConversationSummaryWire[] = [
+      {
+        id: 'sess-ondemand',
+        agentKind: 'claude-code',
+        providerId: 'claude-code-jsonl',
+        title: 'On-demand session',
+      },
+    ]
+    const { client, fullFlags } = recordingDeltaWorkerClient({
+      changed,
+      removed: [],
+      diagnostics: [],
+    })
+    const wss = new WebSocketServer({ port: 0 })
+    await new Promise<void>((r) => wss.once('listening', () => r()))
+    const port = (wss.address() as { port: number }).port
+    const received: DaemonMessage[] = []
+    let serverWs: WS | undefined
+    const connected = new Promise<void>((r) => {
+      wss.once('connection', (ws) => {
+        serverWs = ws
+        ws.on('message', (raw) => received.push(parseDaemonMessage(raw.toString())))
+        r()
+      })
+    })
+
+    const daemon = await startDaemon({
+      serverUrl: `ws://localhost:${port}`,
+      hooks: { port: 0, settingsDir: mkdtempSync(join(tmpdir(), 'podium-hooks-')) },
+      tmux: false,
+      launch: (_kind, opts) => ({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
+      metrics: { background: false },
+      // No background loop, so the ONLY indexRefresh job is the on-demand scan.
+      discovery: { background: false, cachePath: ':memory:' },
+      workerClient: client,
+    })
+    await connected
+
+    try {
+      serverWs?.send(encode({ type: 'scanRequest', requestId: 'req-full' } as never))
+      const start = Date.now()
+      while (!received.some((m) => m.type === 'scanResult')) {
+        if (Date.now() - start > 5000) throw new Error('scanResult timed out')
+        await new Promise((r) => setTimeout(r, 20))
+      }
+    } finally {
+      await daemon.close()
+      await new Promise<void>((r) => wss.close(() => r()))
+    }
+
+    expect(fullFlags).toEqual([true])
   })
 })
 
