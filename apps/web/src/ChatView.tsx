@@ -31,6 +31,7 @@ import {
   type PendingItem,
   pairToolResults,
   reconcilePending,
+  reconcileReset,
   rowTickMeta,
   searchBlocks,
   type ToolBatchRow,
@@ -234,8 +235,11 @@ export function ChatView({
     pinnedToBottom.current = true
     didInitialScroll.current = false
 
-    // Re-read the newest window (initial load + on a reset delta), replacing the
-    // held items and re-pinning to the bottom.
+    // Re-read the newest window (initial load + on a reset delta) and reconcile it
+    // against the held window — never a blind replace. `reconcileReset` keeps any
+    // live-tailed in-flight record the disk re-read dropped, and refuses to wipe a
+    // populated view on an empty/failed read, so the newest messages can't flash in
+    // and then vanish on a reattach re-seed (e.g. after a server/daemon redeploy).
     const readNewest = async () => {
       const r = await trpc.sessions.transcriptRead.query({
         sessionId,
@@ -243,7 +247,7 @@ export function ChatView({
         limit: INITIAL_LIMIT,
       })
       if (cancelled) return r
-      setItems(r.items)
+      setItems((prev) => reconcileReset(prev, r.items, r.tail))
       setOlder([])
       setHeadCursor(r.head)
       setHasMoreOlder(r.hasMore)
@@ -256,8 +260,10 @@ export function ChatView({
       if (cancelled) return
       unsub = hub.subscribeTranscript(sessionId, r.tail, (delta, meta) => {
         if (meta.reset) {
-          // The tailer re-seeded (resume rolled into a fresh file). Re-pin and
-          // re-read the newest window — the old cursors no longer apply.
+          // A re-seed (reattach after a redeploy, server cache rebuild, or a real
+          // file roll). Re-pin and re-read the newest window; `readNewest` reconciles
+          // rather than replaces, so a same-conversation re-seed can't drop the
+          // in-flight tail, while a genuine roll still swaps to the new file.
           pinnedToBottom.current = true
           didInitialScroll.current = false
           void readNewest()

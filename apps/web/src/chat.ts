@@ -81,6 +81,40 @@ export function accumulateFileLinkPaths(
 }
 
 /**
+ * Reconcile a held window against a fresh `reset` snapshot WITHOUT ever dropping
+ * messages already on screen. A `reset` (reattach re-seed / file roll / server
+ * cache rebuild after a redeploy) used to replace the window outright with a disk
+ * re-read — which silently lost (a) a live-tailed but not-yet-newline-terminated
+ * trailing record that the disk reader drops, and (b) the WHOLE view when the
+ * re-read came back empty (a session with no resume value, or a transient read
+ * failure). Both presented as "the newest messages appear, then vanish".
+ *
+ * Rules, in order:
+ *   - Empty snapshot → keep `prev` as-is (referentially). An empty re-read is never
+ *     authoritative enough to wipe a populated view; the live tail refills it.
+ *   - `snapshotTail` still present in `prev` → SAME conversation continuing: adopt
+ *     the snapshot, then re-append any held items that sat AFTER the snapshot's tail
+ *     (newer in-flight records the re-read dropped). Order-based, so it needs no
+ *     cursor decoding. `mergeByCursor` dedups, so a superset snapshot is a no-op.
+ *   - `snapshotTail` absent from `prev` (or undefined) → genuine roll/replacement:
+ *     the held cursors are stale, so replace wholesale with the snapshot.
+ */
+export function reconcileReset(
+  prev: TranscriptItem[],
+  snapshot: TranscriptItem[],
+  snapshotTail: string | undefined,
+): TranscriptItem[] {
+  if (snapshot.length === 0) return prev
+  const tailIdx =
+    snapshotTail !== undefined ? prev.findIndex((it) => itemKey(it) === snapshotTail) : -1
+  // Roll/replacement (tail not in the held window): adopt the snapshot verbatim.
+  if (tailIdx < 0) return snapshot
+  // Same conversation: keep items the held window has beyond the snapshot's tail.
+  const newerHeld = prev.slice(tailIdx + 1)
+  return newerHeld.length > 0 ? mergeByCursor(snapshot, newerHeld) : snapshot
+}
+
+/**
  * Drop later items that share a cursor (or id) with an earlier one — keeps the
  * first occurrence, preserving order. Used at the `[...older, ...items]` seam to
  * guard a one-item paging/live overlap.
