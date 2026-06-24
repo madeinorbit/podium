@@ -1581,3 +1581,98 @@ describe('SessionRegistry — auto-continue', () => {
     reg.setSettings({ ...reg.getSettings(), autoContinue: { enabled: false, promptDismissed: false } })
   })
 })
+
+describe('output-relay priority + frame batch', () => {
+  const priorities = (daemon: ControlMessage[]) =>
+    daemon.filter(
+      (m): m is Extract<ControlMessage, { type: 'sessionPriority' }> =>
+        m.type === 'sessionPriority',
+    )
+
+  it('a client viewState{visible:[s],focused:s} pushes sessionPriority{priority:0} to the daemon', () => {
+    const reg = new SessionRegistry()
+    const daemon: ControlMessage[] = []
+    reg.attachDaemon((m) => daemon.push(m))
+    const { sessionId } = reg.createSession({ agentKind: 'claude-code', cwd: '/w' })
+    const c = sink()
+    const id = reg.attachClient(c.send)
+    daemon.length = 0 // drop the spawn + daemon-connect priority push
+
+    reg.onClientMessage(id, { type: 'viewState', visible: [sessionId], focused: sessionId })
+    // Focused beats visible/attached: tier 0.
+    expect(priorities(daemon)).toContainEqual({ type: 'sessionPriority', sessionId, priority: 0 })
+  })
+
+  it('computes per-session priority across ALL sessions (clients iterable is materialized, not exhausted)', () => {
+    const reg = new SessionRegistry()
+    const daemon: ControlMessage[] = []
+    reg.attachDaemon((m) => daemon.push(m))
+    // Two sessions: the second would wrongly read as tier 3 if the clients iterator
+    // were single-use (it exhausts after the first session) — the array-materialize
+    // guard is what keeps this correct.
+    const s1 = reg.createSession({ agentKind: 'claude-code', cwd: '/a' }).sessionId
+    const s2 = reg.createSession({ agentKind: 'claude-code', cwd: '/b' }).sessionId
+    const c = sink()
+    const id = reg.attachClient(c.send)
+    daemon.length = 0
+
+    reg.onClientMessage(id, { type: 'viewState', visible: [s1, s2], focused: s2 })
+    const sent = priorities(daemon)
+    expect(sent).toContainEqual({ type: 'sessionPriority', sessionId: s1, priority: 1 }) // visible
+    expect(sent).toContainEqual({ type: 'sessionPriority', sessionId: s2, priority: 0 }) // focused
+  })
+
+  it('only CHANGED sessions are re-pushed (deltas, not the whole map every time)', () => {
+    const reg = new SessionRegistry()
+    const daemon: ControlMessage[] = []
+    reg.attachDaemon((m) => daemon.push(m))
+    const { sessionId } = reg.createSession({ agentKind: 'claude-code', cwd: '/w' })
+    const c = sink()
+    const id = reg.attachClient(c.send)
+
+    reg.onClientMessage(id, { type: 'viewState', visible: [sessionId], focused: sessionId })
+    daemon.length = 0
+    // An identical viewState changes nothing → no re-send.
+    reg.onClientMessage(id, { type: 'viewState', visible: [sessionId], focused: sessionId })
+    expect(priorities(daemon)).toEqual([])
+  })
+
+  it('a fresh daemon (re)connect gets the current priority of every live session', () => {
+    const reg = new SessionRegistry()
+    reg.attachDaemon(() => {})
+    const { sessionId } = reg.createSession({ agentKind: 'claude-code', cwd: '/w' })
+    const c = sink()
+    const id = reg.attachClient(c.send)
+    reg.onClientMessage(id, { type: 'viewState', visible: [sessionId], focused: sessionId })
+    // The daemon drops; a fresh one attaches — it knows no priorities, so the full
+    // current map must be re-pushed (lastPriority.clear() + pushPriorities()).
+    reg.detachDaemon()
+    const daemon2: ControlMessage[] = []
+    reg.attachDaemon((m) => daemon2.push(m))
+    expect(priorities(daemon2)).toContainEqual({
+      type: 'sessionPriority',
+      sessionId,
+      priority: 0,
+    })
+  })
+
+  it('agentFrameBatch unpacks into one outputFrame broadcast per coalesced frame', () => {
+    const reg = new SessionRegistry()
+    reg.attachDaemon(() => {})
+    const { sessionId } = reg.createSession({ agentKind: 'claude-code', cwd: '/w' })
+    reg.onDaemonMessage(bind(sessionId))
+    const c = sink()
+    const id = reg.attachClient(c.send)
+    reg.onClientMessage(id, { type: 'attach', sessionId })
+    c.sent.length = 0
+
+    reg.onDaemonMessage({ type: 'agentFrameBatch', sessionId, frames: ['ZDE=', 'ZDI='] })
+    const frames = c.sent.filter(
+      (m): m is Extract<ServerMessage, { type: 'outputFrame' }> => m.type === 'outputFrame',
+    )
+    // Each coalesced frame becomes its own outputFrame, in order, each with its own
+    // server-assigned seq — clients are unaffected by the daemon's coalescing.
+    expect(frames.map((f) => f.data)).toEqual(['ZDE=', 'ZDI='])
+    expect(frames.map((f) => f.seq)).toEqual([0, 1])
+  })
+})

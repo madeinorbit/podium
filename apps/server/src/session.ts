@@ -26,6 +26,10 @@ export interface ClientConn {
   transcriptSubs: Set<string>
   /** Page-visibility presence — drives smart notification routing. */
   visible: boolean
+  /** Sessions this client currently RENDERS on screen (from viewState). */
+  viewVisible: Set<string>
+  /** The one session that has input focus on this client, or null. */
+  focused: string | null
 }
 
 export interface SessionInit {

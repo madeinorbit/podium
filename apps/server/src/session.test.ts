@@ -30,6 +30,8 @@ function makeClient(id: string): ClientConn & { sent: ServerMessage[] } {
     attached: new Set(),
     transcriptSubs: new Set(),
     visible: true,
+    viewVisible: new Set(),
+    focused: null,
     sent,
   }
 }

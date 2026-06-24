@@ -39,6 +39,7 @@ import {
   type TelegramConfig,
 } from './notify'
 import { type ClientConn, type Send, Session } from './session'
+import { computePriorities } from './session-priority'
 import { type PinKind, SessionStore } from './store'
 import {
   isGenericClaudeTitle,
@@ -156,6 +157,10 @@ export class SessionRegistry {
   // variant must use a distinct string prefix so ids never collide across the
   // separate pending maps.
   private nextRequestNum = 0
+  // Last per-session output-relay priority pushed to the daemon. pushPriorities
+  // diffs against this so only CHANGED sessions are re-sent (a viewState/attach
+  // churn must not re-flood the daemon with the whole map every time).
+  private readonly lastPriority = new Map<string, number>()
 
   constructor(
     private readonly store: SessionStore = new SessionStore(':memory:'),
@@ -271,6 +276,12 @@ export class SessionRegistry {
     if (this.pendingToDaemon.length > 0) {
       for (const m of this.pendingToDaemon.splice(0)) send(m)
     }
+    // A freshly-(re)connected daemon knows no session's relay priority. Clear the
+    // delta cache so every current session re-sends as a change, then push the full
+    // map — otherwise a daemon restart would leave the scheduler at its default
+    // until the next viewState/attach happened to flip a session.
+    this.lastPriority.clear()
+    this.pushPriorities()
     // Re-bind survivor sessions: ask the daemon to reattach to their live durable
     // host. 'reconnecting' = was live/starting at boot. 'exited' (not archived) is
     // also probed because a row can be wrongly 'exited': its attach client died on
@@ -321,6 +332,23 @@ export class SessionRegistry {
   private readonly toDaemon: Send<ControlMessage> = (msg) => {
     if (this.daemonSend) this.daemonSend(msg)
     else this.pendingToDaemon.push(msg)
+  }
+
+  /**
+   * Recompute per-session output-relay priority across every client and push the
+   * deltas to the daemon. computePriorities re-iterates its `clients` argument
+   * ONCE PER SESSION, so a single-use iterator (this.clients.values()) would
+   * exhaust after the first session and read every later session as tier 3 —
+   * materialize it to an array. Only CHANGED sessions are sent (diffed against
+   * lastPriority) so a viewState/attach churn never re-floods the whole map.
+   */
+  private pushPriorities(): void {
+    const priorities = computePriorities([...this.clients.values()], this.sessions.keys())
+    for (const [sessionId, priority] of priorities) {
+      if (this.lastPriority.get(sessionId) === priority) continue
+      this.lastPriority.set(sessionId, priority)
+      this.toDaemon({ type: 'sessionPriority', sessionId, priority })
+    }
   }
 
   // ---- tRPC control plane ----
@@ -1048,6 +1076,10 @@ export class SessionRegistry {
       // connecting). Defaulting to visible:true let one stale/non-browser client
       // silently suppress all mobile push forever.
       visible: false,
+      // View-state defaults to "renders nothing, focuses nothing" until the client
+      // sends its first `viewState`. A session reads as unwatched (tier 3) until then.
+      viewVisible: new Set(),
+      focused: null,
     })
     send({ type: 'welcome', clientId: id })
     send({ type: 'sessionsChanged', sessions: this.listSessions() })
@@ -1074,6 +1106,10 @@ export class SessionRegistry {
     for (const sessionId of client.transcriptSubs)
       this.sessions.get(sessionId)?.unsubscribeTranscript(id)
     this.clients.delete(id)
+    // A gone client no longer attaches/views/focuses anything — recompute so the
+    // sessions it was watching can drop priority (and the daemon stops relaying
+    // them live).
+    this.pushPriorities()
     this.broadcastSessions()
   }
 
@@ -1115,12 +1151,14 @@ export class SessionRegistry {
         client.attached.add(msg.sessionId)
         session.attachClient(client, msg.sinceSeq)
         this.broadcastSessions()
+        this.pushPriorities()
         break
       }
       case 'detach':
         client.attached.delete(msg.sessionId)
         this.sessions.get(msg.sessionId)?.detachClient(id)
         this.broadcastSessions()
+        this.pushPriorities()
         break
       case 'input':
         this.sessions.get(msg.sessionId)?.handleInput(id, msg.data)
@@ -1146,6 +1184,11 @@ export class SessionRegistry {
       case 'presence':
         client.visible = msg.visible
         break
+      case 'viewState':
+        client.viewVisible = new Set(msg.visible)
+        client.focused = msg.focused
+        this.pushPriorities()
+        break
       case 'setSessionDraft':
         this.setSessionDraft(msg, id)
         break
@@ -1170,6 +1213,14 @@ export class SessionRegistry {
         // seq so the client cursor stays stable across daemon reattaches.
         this.sessions.get(msg.sessionId)?.onFrame(msg.data)
         break
+      case 'agentFrameBatch': {
+        // The daemon coalesced several PTY frames for a lower-priority session into
+        // one batch. Unpack back into per-frame onFrame so each still gets its own
+        // server seq + outputFrame broadcast (clients are unchanged by coalescing).
+        const session = this.sessions.get(msg.sessionId)
+        if (session) for (const data of msg.frames) session.onFrame(data)
+        break
+      }
       case 'agentExit': {
         this.sessions.get(msg.sessionId)?.onExit(msg.code)
         this.autoContinue.onSessionGone(msg.sessionId)
