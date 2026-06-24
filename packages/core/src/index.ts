@@ -5,3 +5,4 @@
  * TypeScript source by the apps; not published.
  */
 export * from './settings.js'
+export * from './loop-metrics.js'
