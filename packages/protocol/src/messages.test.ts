@@ -580,3 +580,22 @@ describe('agent quota messages', () => {
     expect(AgentQuotaResultMessage.parse(msg)).toEqual(msg)
   })
 })
+
+describe('output-scheduling protocol', () => {
+  it('round-trips agentFrameBatch (daemon→server)', () => {
+    // Per-field `as const` (not whole-object) keeps `frames` a mutable string[] so it
+    // matches encode()'s AnyMessage param — whole-object `as const` makes it readonly.
+    const m = { type: 'agentFrameBatch' as const, sessionId: 's1', frames: ['YQ==', 'Yg=='] }
+    expect(parseDaemonMessage(encode(m))).toEqual(m)
+  })
+  it('round-trips viewState (client→server), focused nullable', () => {
+    const m = { type: 'viewState' as const, visible: ['s1', 's2'], focused: 's1' }
+    expect(parseClientMessage(encode(m))).toEqual(m)
+    const m2 = { type: 'viewState' as const, visible: [] as string[], focused: null }
+    expect(parseClientMessage(encode(m2))).toEqual(m2)
+  })
+  it('round-trips sessionPriority (server→daemon)', () => {
+    const m = { type: 'sessionPriority' as const, sessionId: 's1', priority: 0 }
+    expect(parseControlMessage(encode(m))).toEqual(m)
+  })
+})

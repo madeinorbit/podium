@@ -340,6 +340,14 @@ export const PingMessage = z.object({ type: z.literal('ping') })
 // User presence (page visibility) — the smart-notification router skips mobile
 // push while some Podium window is visibly open.
 export const PresenceMessage = z.object({ type: z.literal('presence'), visible: z.boolean() })
+// Per-session view state: which sessions this client renders (`visible`) and which
+// single one has input focus (`focused`). The server unions these across clients to
+// prioritize PTY output relay (focused/visible relayed live; the rest coalesced).
+export const ViewStateMessage = z.object({
+  type: z.literal('viewState'),
+  visible: z.array(z.string()),
+  focused: z.string().nullable(),
+})
 
 // The in-progress composer / native-prompt text for a session. The controlling
 // client publishes its scraped native prompt, and a chat composer edit publishes
@@ -370,6 +378,7 @@ export const ClientMessage = z.discriminatedUnion('type', [
   RedrawRequestMessage,
   PingMessage,
   PresenceMessage,
+  ViewStateMessage,
   TranscriptSubscribeMessage,
   TranscriptUnsubscribeMessage,
   SetSessionDraftMessage,
@@ -586,6 +595,13 @@ export const ReattachMessage = z.object({
   resume: ResumeRef.optional(),
 })
 export const KillMessage = z.object({ type: z.literal('kill'), sessionId: z.string() })
+// Server→daemon: relay priority for one session (0=focused,1=visible,2=attached,
+// 3=unwatched). Drives the daemon's output scheduler.
+export const SessionPriorityMessage = z.object({
+  type: z.literal('sessionPriority'),
+  sessionId: z.string(),
+  priority: z.number().int().min(0).max(3),
+})
 export const ScanRequestMessage = z.object({
   type: z.literal('scanRequest'),
   requestId: z.string(),
@@ -794,6 +810,7 @@ export const ControlMessage = z.discriminatedUnion('type', [
   SpawnMessage,
   ReattachMessage,
   KillMessage,
+  SessionPriorityMessage,
   ScanRequestMessage,
   ScanReposRequestMessage,
   InputMessage,
@@ -821,6 +838,12 @@ export const AgentFrameMessage = z.object({
   sessionId: z.string(),
   seq: z.number().int().nonnegative(),
   data: z.string(),
+})
+export const AgentFrameBatchMessage = z.object({
+  type: z.literal('agentFrameBatch'),
+  sessionId: z.string(),
+  // Coalesced PTY frames (base64 data only — the server assigns its own seq).
+  frames: z.array(z.string()),
 })
 export const SpawnErrorMessage = z.object({
   type: z.literal('spawnError'),
@@ -986,6 +1009,7 @@ export const DaemonMessage = z.discriminatedUnion('type', [
   SessionResumeRefMessage,
   BindMessage,
   AgentFrameMessage,
+  AgentFrameBatchMessage,
   AgentExitMessage,
   SpawnErrorMessage,
   ReattachFailedMessage,
