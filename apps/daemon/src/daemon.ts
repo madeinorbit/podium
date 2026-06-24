@@ -62,6 +62,7 @@ import {
   tmuxHasSessionAsync,
   transcriptSourceFor,
 } from '@podium/agent-bridge'
+import { startLoopMetrics } from '@podium/core'
 import {
   type AgentKind,
   type ControlMessage,
@@ -668,6 +669,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
   let closing = false
   const bridges = new Map<string, AgentSession>()
   const reattachGate = createLimiter(REATTACH_CONCURRENCY)
+  if (process.env.PODIUM_LOOP_PROFILE) startLoopMetrics({ label: 'daemon' })
   const discoveryCache = new ConversationDiscoveryCache(opts.discovery?.cachePath)
   const discoveryBackground = opts.discovery?.background ?? true
   const discoveryIntervalMs = opts.discovery?.scanIntervalMs ?? DEFAULT_DISCOVERY_SCAN_INTERVAL_MS

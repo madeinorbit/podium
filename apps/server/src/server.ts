@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import type { Server } from 'node:http'
+import { startLoopMetrics } from '@podium/core'
 import { serve } from '@hono/node-server'
 import { trpcServer } from '@hono/trpc-server'
 import { Hono } from 'hono'
@@ -43,6 +44,7 @@ export async function startServer(opts: { port?: number } = {}): Promise<ServerH
       // reaches this MCP route. Now that the port is known, point it there.
       superagent.setMcpEndpoint(`http://127.0.0.1:${info.port}/mcp`, mcpToken)
       const ws = attachWebSockets(server as unknown as Server, registry)
+      if (process.env.PODIUM_LOOP_PROFILE) startLoopMetrics({ label: 'server' })
       resolve({
         port: info.port,
         registry,
