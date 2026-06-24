@@ -1290,7 +1290,7 @@ export class SessionRegistry {
       case 'scanResult': {
         this.latestConversations = msg.conversations
         this.latestConversationDiagnostics = msg.diagnostics
-        this.indexConversations(msg.conversations)
+        this.indexConversations(msg.conversations, msg.removed ?? [])
         this.broadcastConversations()
         const resolve = this.pendingScans.get(msg.requestId)
         if (resolve) {
@@ -1302,7 +1302,7 @@ export class SessionRegistry {
       case 'conversationsChanged': {
         this.latestConversations = msg.conversations
         this.latestConversationDiagnostics = msg.diagnostics
-        this.indexConversations(msg.conversations)
+        this.indexConversations(msg.conversations, msg.removed ?? [])
         this.broadcastConversations()
         break
       }
@@ -1462,7 +1462,10 @@ export class SessionRegistry {
   }
 
   /** Every discovery push lands in the durable index — search sees machines' full history. */
-  private indexConversations(conversations: ConversationSummaryWire[]): void {
+  private indexConversations(
+    conversations: ConversationSummaryWire[],
+    removed: string[] = [],
+  ): void {
     this.store.upsertConversations(
       conversations.map((c) => ({
         id: c.id,
@@ -1476,6 +1479,7 @@ export class SessionRegistry {
         ...(c.messageCount !== undefined ? { messageCount: c.messageCount } : {}),
       })),
     )
+    if (removed.length) this.store.deleteConversations(removed)
   }
 
   searchConversations(opts: { query?: string; projectPath?: string; limit?: number }) {

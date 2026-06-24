@@ -497,6 +497,28 @@ export class SessionStore {
     }
   }
 
+  /**
+   * Drop conversations the daemon no longer sees (an incremental-discovery delta's
+   * `removed` set). Transactional like {@link upsertConversations}: one BEGIN
+   * IMMEDIATE / COMMIT, ROLLBACK + rethrow on error, so a mid-batch failure never
+   * leaves the index half-pruned. The external-content FTS index stays consistent
+   * automatically — the `conversations_ad` AFTER DELETE trigger (see migrate)
+   * issues the FTS5 'delete' command per affected rowid, so a plain DELETE here is
+   * enough; no manual FTS bookkeeping.
+   */
+  deleteConversations(ids: string[]): void {
+    if (ids.length === 0) return
+    const stmt = this.db.prepare('DELETE FROM conversations WHERE id = ?')
+    this.db.exec('BEGIN IMMEDIATE')
+    try {
+      for (const id of ids) stmt.run(id)
+      this.db.exec('COMMIT')
+    } catch (e) {
+      this.db.exec('ROLLBACK')
+      throw e
+    }
+  }
+
   /** Persist command-center-generated curation: a good name and/or a state summary. */
   setConversationMeta(id: string, meta: { name?: string; summary?: string }): void {
     const exists = this.db.prepare('SELECT 1 FROM conversations WHERE id = ?').get(id)
