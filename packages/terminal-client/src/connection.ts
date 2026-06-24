@@ -166,6 +166,10 @@ export class SocketHub {
   private readonly attentionObservers = new Set<(e: AttentionEvent) => void>()
   private draftObservers = new Set<(sessionId: string, text: string) => void>()
   private lastVisible = true
+  private lastViewState: { visible: string[]; focused: string | null } = {
+    visible: [],
+    focused: null,
+  }
 
   constructor(opts: SocketHubOptions) {
     this.opts = opts
@@ -234,6 +238,10 @@ export class SocketHub {
       // Always assert presence on (re)connect: the server defaults a new client
       // to not-visible (fail-safe toward notifying), so a visible tab must say so.
       this.sendRaw({ type: 'presence', visible: this.lastVisible })
+      // Re-assert per-session view state the same way: the server starts each new
+      // client with empty view state, so a reconnecting client must re-declare which
+      // sessions it renders / has focused for output-relay prioritization to resume.
+      this.sendRaw({ type: 'viewState', ...this.lastViewState })
       // Flush keystrokes typed during the outage — after the re-attaches above, so
       // the session exists and this (reclaimed) client is the controller again
       // before its input lands.
@@ -477,6 +485,16 @@ export class SocketHub {
   setVisible(visible: boolean): void {
     this.lastVisible = visible
     if (this.connectedFlag) this.sendRaw({ type: 'presence', visible })
+  }
+
+  /**
+   * Report which sessions this client renders (`visible`) and which one has input
+   * focus (`focused`). The server unions this across clients to prioritize PTY output
+   * relay (focused/visible live; the rest coalesced). Stored and re-asserted on reconnect.
+   */
+  setViewState(visible: string[], focused: string | null): void {
+    this.lastViewState = { visible, focused }
+    if (this.connectedFlag) this.sendRaw({ type: 'viewState', visible, focused })
   }
 
   connectionHealth(): ConnectionHealth {
