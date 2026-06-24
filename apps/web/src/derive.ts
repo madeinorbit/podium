@@ -354,7 +354,7 @@ export interface WorkItemPartition {
   attention: SessionMeta[]
   /** Sessions actively running without needing the user. */
   working: SessionMeta[]
-  /** Pinned sessions — excluded from attention/working regardless of state. */
+  /** Pinned sessions — also listed in attention/working when their state warrants it. */
   pinnedPanels: SessionMeta[]
 }
 
@@ -362,10 +362,11 @@ export interface WorkItemPartition {
  * Partition sessions into the three WORK ITEMS buckets used by the home board
  * and sidebar work-items view.
  *
- * Pinned sessions always land in `pinnedPanels` only.
- * Unpinned, non-archived sessions:
- *   - `attention` (precedence) — any attentionGroup result other than 'working'
- *     (i.e. needsYou, idle, exited/hibernated/ended).
+ * Non-archived sessions are classified into `attention` or `working` by agent
+ * state regardless of pin status. Pinned sessions additionally appear in
+ * `pinnedPanels` for quick reach (same lift-and-keep pattern as worktree lists).
+ *   - `attention` — any attentionGroup result other than 'working'
+ *     (i.e. needsYou, idle, exited/hibernated/ended), minus snoozed/shells.
  *   - `working` — phase 'working' | 'compacting', or an active shell/uninstrumented live process.
  * Archived sessions are excluded entirely.
  */
@@ -380,10 +381,7 @@ export function partitionWorkItems(
 
   for (const s of sessions) {
     if (s.archived) continue
-    if (pinnedSessionIds.has(s.sessionId)) {
-      pinnedPanels.push(s)
-      continue
-    }
+    if (pinnedSessionIds.has(s.sessionId)) pinnedPanels.push(s)
     const group = attentionGroup(s)
     if (group === 'working') {
       working.push(s)
