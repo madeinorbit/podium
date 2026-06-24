@@ -355,6 +355,17 @@ describe('Session', () => {
     expect(s.clearSnooze()).toBe(true)
     expect('snoozedUntil' in s.toMeta()).toBe(false)
   })
+
+  it('toMeta surfaces draftUpdatedAt only when a draft exists', () => {
+    const s = makeSession()
+    expect('draftUpdatedAt' in s.toMeta()).toBe(false)
+
+    s.draftUpdatedAt = '2026-06-24T12:00:00.000Z'
+    expect(s.toMeta().draftUpdatedAt).toBe('2026-06-24T12:00:00.000Z')
+
+    s.draftUpdatedAt = undefined
+    expect('draftUpdatedAt' in s.toMeta()).toBe(false)
+  })
 })
 
 describe('Session transcript cache (recent-delta window)', () => {

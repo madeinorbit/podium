@@ -407,20 +407,37 @@ export class SessionStore {
     return out
   }
 
-  /** Set (non-empty) or clear (empty/whitespace-only persists as a deleted row) a session's draft. */
-  setDraft(sessionId: string, text: string): void {
+  /** Draft last-edit times by session — the companion to {@link loadDrafts}, used
+   *  to seed `Session.draftUpdatedAt` at boot so a draft lifts its session in the
+   *  attention ordering after a restart. */
+  loadDraftTimes(): Record<string, string> {
+    const rows = this.db.prepare('SELECT session_id, updated_at FROM session_drafts').all() as {
+      session_id: string
+      updated_at: string
+    }[]
+    const out: Record<string, string> = {}
+    for (const r of rows) out[r.session_id] = r.updated_at
+    return out
+  }
+
+  /** Set (non-empty) or clear (empty/whitespace-only persists as a deleted row) a
+   *  session's draft. Returns the new updated_at when set, or undefined when cleared
+   *  — the registry mirrors it onto `Session.draftUpdatedAt`. */
+  setDraft(sessionId: string, text: string): string | undefined {
     const id = sessionId.trim()
-    if (!id) return
+    if (!id) return undefined
     if (text) {
+      const updatedAt = new Date().toISOString()
       this.db
         .prepare(
           `INSERT INTO session_drafts (session_id, text, updated_at) VALUES (?, ?, ?)
            ON CONFLICT(session_id) DO UPDATE SET text = excluded.text, updated_at = excluded.updated_at`,
         )
-        .run(id, text, new Date().toISOString())
-    } else {
-      this.db.prepare('DELETE FROM session_drafts WHERE session_id = ?').run(id)
+        .run(id, text, updatedAt)
+      return updatedAt
     }
+    this.db.prepare('DELETE FROM session_drafts WHERE session_id = ?').run(id)
+    return undefined
   }
 
   // ---- settings ----

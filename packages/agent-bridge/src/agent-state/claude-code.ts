@@ -6,6 +6,7 @@ import { lastTimestampedRecordIso } from './boot-time.js'
 import {
   type ClaudeTranscriptFeatures,
   classifyClaudeTranscriptDeterministically,
+  extractClaudeTranscriptFeatures,
 } from './claude-code-classifier.js'
 import { codexStateProvider } from './codex.js'
 import { cursorStateProvider } from './cursor.js'
@@ -83,13 +84,21 @@ export async function claudeBootEvents(opts: {
     )
     try {
       const verdict = classifyIdleTranscript(await readTranscriptTail(transcript), 'default')
+      // Stamp the last DATED record's time, NOT the file mtime: Claude appends
+      // timestamp-less metadata (bridge-session/mode/…) on resume/reattach, which
+      // bumps the mtime to "now" though no real activity happened. Using mtime here
+      // restamped idle sessions to "now" on every redeploy.
+      const at = await lastTimestampedRecordIso(transcript)
       if (verdict) {
-        // Stamp the last DATED record's time, NOT the file mtime: Claude appends
-        // timestamp-less metadata (bridge-session/mode/…) on resume/reattach, which
-        // bumps the mtime to "now" though no real activity happened. Using mtime here
-        // restamped idle sessions to "now" on every redeploy.
-        const at = await lastTimestampedRecordIso(transcript)
         return [{ kind: 'turn_completed', verdict, ...(at ? { at } : {}) }]
+      }
+      // No verdict (the transcript is real but doesn't classify deterministically —
+      // e.g. autonomous-continuation text). Still seed idle, but carry the real
+      // last-activity time so a reattach NEVER restamps recency to "now" and jumps
+      // the session to the top of NEEDS YOUR ATTENTION. Only when even that is
+      // unknown do we fall through to the bare (now-stamped) boot event.
+      if (at) {
+        return [{ kind: 'session_started', at }]
       }
     } catch {
       // transcript missing or unreadable — fall through to the bare boot event
@@ -139,10 +148,8 @@ export async function translateClaudeHookPayload(payload: unknown): Promise<Agen
       const summary = str(p.message)
       return [{ kind: 'needs_user', need: 'permission', ...(summary ? { summary } : {}) }]
     }
-    case 'Stop': {
-      const verdict = await classifyIdleFromStop(p)
-      return [{ kind: 'turn_completed', ...(verdict ? { verdict } : {}) }]
-    }
+    case 'Stop':
+      return await stopEvents(p)
     case 'StopFailure': {
       // Field name not pinned by docs — accept the plausible spellings, then give up
       // to 'unknown' (still errored, still retryable) rather than dropping the event.
@@ -239,21 +246,38 @@ export function classifyClaudeTranscriptState(
 
 export type { ClaudeTranscriptFeatures }
 
-async function classifyIdleFromStop(
-  p: Record<string, unknown>,
-): Promise<IdleClassification | undefined> {
+/**
+ * Translate a Stop hook into the right lifecycle event(s).
+ *
+ * Normally Stop ends the turn → `turn_completed` (with an idle verdict when the
+ * transcript classifies). But when the agent scheduled its OWN resume this turn
+ * (a /loop `ScheduleWakeup` or a `CronCreate`), it will wake itself — it is NOT
+ * awaiting the user — so we keep it `working` (emit `activity`) rather than drop
+ * it into NEEDS YOUR ATTENTION as a finished turn. This is the one self-resume
+ * signal we can read with certainty; a backgrounded shell is ambiguous (a server
+ * left running vs. a command that will wake the loop) and stays idle.
+ */
+async function stopEvents(p: Record<string, unknown>): Promise<AgentStateEvent[]> {
   const planVerdict: IdleClassification | undefined =
     p.permission_mode === 'plan'
       ? { kind: 'approval', summary: 'plan awaiting approval' }
       : undefined
   const transcriptPath = typeof p.transcript_path === 'string' ? p.transcript_path : undefined
-  if (!transcriptPath) return planVerdict
+  if (!transcriptPath) {
+    return [{ kind: 'turn_completed', ...(planVerdict ? { verdict: planVerdict } : {}) }]
+  }
+  let records: unknown[]
   try {
-    return classifyIdleTranscript(await readTranscriptTail(transcriptPath), p.permission_mode)
+    records = await readTranscriptTail(transcriptPath)
   } catch {
     // unreadable transcript (rotated, perms) — Stop still means idle, just unclassified
-    return planVerdict
+    return [{ kind: 'turn_completed', ...(planVerdict ? { verdict: planVerdict } : {}) }]
   }
+  if (extractClaudeTranscriptFeatures(records, p.permission_mode).scheduledSelfWake) {
+    return [{ kind: 'activity' }]
+  }
+  const verdict = classifyIdleTranscript(records, p.permission_mode) ?? planVerdict
+  return [{ kind: 'turn_completed', ...(verdict ? { verdict } : {}) }]
 }
 
 /** The provider registry. Uninstrumented kinds return undefined → phase stays 'unknown'. */

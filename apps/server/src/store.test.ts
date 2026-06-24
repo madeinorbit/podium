@@ -121,6 +121,16 @@ describe('SessionStore drafts', () => {
     b.close()
   })
 
+  it('exposes draft edit times: setDraft returns the timestamp (undefined on clear) and loadDraftTimes round-trips it', () => {
+    const store = new SessionStore(':memory:')
+    const at = store.setDraft('sess', 'typing')
+    expect(typeof at).toBe('string')
+    expect(store.loadDraftTimes()).toEqual({ sess: at })
+    expect(store.setDraft('sess', '')).toBeUndefined()
+    expect(store.loadDraftTimes()).toEqual({})
+    store.close()
+  })
+
   it('drops a session draft when the session is deleted', () => {
     const store = new SessionStore(':memory:')
     store.upsertSession(row())

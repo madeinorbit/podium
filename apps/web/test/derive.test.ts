@@ -15,6 +15,7 @@ import {
   panelLabel,
   partitionWorkItems,
   reposToViews,
+  returnedFromSnooze,
   sessionDotClass,
   sessionDotTone,
   sessionsForWorktree,
@@ -600,6 +601,20 @@ const base = (over: Partial<SessionMeta>): SessionMeta =>
     archived: false,
     ...over,
   }) as SessionMeta
+
+describe('returnedFromSnooze', () => {
+  const now = Date.parse('2026-06-12T12:00:00.000Z')
+  it('true for a timed snooze whose deadline has passed (back in the queue, not yet cleared)', () => {
+    expect(returnedFromSnooze(base({ snoozedUntil: '2026-06-12T11:00:00.000Z' }), now)).toBe(true)
+  })
+  it('false while still snoozed (future deadline) or never snoozed', () => {
+    expect(returnedFromSnooze(base({ snoozedUntil: '2999-01-01T00:00:00.000Z' }), now)).toBe(false)
+    expect(returnedFromSnooze(base({}), now)).toBe(false)
+  })
+  it('false for an until-next-message snooze (null never expires by time)', () => {
+    expect(returnedFromSnooze(base({ snoozedUntil: null }), now)).toBe(false)
+  })
+})
 
 describe('chatActivity', () => {
   it('shows Working… while the agent phase is working', () => {

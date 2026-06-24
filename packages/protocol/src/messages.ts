@@ -131,6 +131,11 @@ export const SessionMeta = z.object({
    *  time (or the next message, whichever first). Drives the sidebar's attention
    *  triage only; never changes the agent's phase. */
   snoozedUntil: z.string().nullable().optional(),
+  /** Last-edit time (ISO 8601) of a non-empty unsent composer draft, when one
+   *  exists. Drives the "DRAFT" tag and lifts the session in NEEDS YOUR ATTENTION
+   *  by when its prompt was last edited (a draft edit is recent user intent on
+   *  that session). Absent = no draft (or an empty one). */
+  draftUpdatedAt: z.string().optional(),
 })
 export type SessionMeta = z.infer<typeof SessionMeta>
 

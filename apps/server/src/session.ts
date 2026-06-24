@@ -114,6 +114,11 @@ export class Session {
    *  until next message; ISO string = timed. Lives in its own `snoozes` table, so
    *  it is NOT part of toRow(); the registry seeds it at load and on mutation. */
   snoozedUntil: string | null | undefined = undefined
+  /** Last-edit time of a non-empty unsent composer draft (undefined = no draft).
+   *  Lives in its own `session_drafts` table (not toRow()); the registry seeds it
+   *  at load and on every setSessionDraft. Surfaced so the client can show DRAFT
+   *  and lift the session in NEEDS YOUR ATTENTION by when its prompt was edited. */
+  draftUpdatedAt: string | undefined = undefined
   /** True once a structured transcript has been seen — drives chat capability. */
   transcriptAvailable = false
   geometry: Geometry
@@ -559,6 +564,7 @@ export class Session {
       ...(this.shellBusy ? { busy: true } : {}),
       ...(this.agentColor ? { agentColor: this.agentColor } : {}),
       ...(this.snoozedUntil !== undefined ? { snoozedUntil: this.snoozedUntil } : {}),
+      ...(this.draftUpdatedAt !== undefined ? { draftUpdatedAt: this.draftUpdatedAt } : {}),
     }
   }
 

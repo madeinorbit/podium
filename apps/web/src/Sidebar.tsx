@@ -30,6 +30,7 @@ import {
   partitionWorkItems,
   type RepoNavView,
   repoBranchForCwd,
+  returnedFromSnooze,
   sessionDotClass,
   sidebarSections,
   sortRepos,
@@ -813,7 +814,11 @@ function PanelRow({
   // Snooze control shows: on attention rows always (to snooze); elsewhere ONLY
   // when already snoozed — so worktree/pinned rows surface an un-snooze affordance
   // for a snoozed session, but never a plain "snooze" icon.
-  const snoozed = isSnoozed(session, useNow(60_000))
+  const now = useNow(60_000)
+  const snoozed = isSnoozed(session, now)
+  // A timed snooze that has lapsed but isn't cleared yet → the session just came
+  // back into the queue; mark it (compareRecency already lifts it by its deadline).
+  const backFromSnooze = returnedFromSnooze(session, now)
   return (
     // Constant row height (matches the icon-sm controls) so revealing pin/close on
     // hover never grows the row — otherwise every row below jumps down.
@@ -844,6 +849,25 @@ function PanelRow({
           onDoubleClick={() => setEditing(true)}
         >
           <StatusDot session={session} /> <WorkerLabel session={session} />
+          {/* Unsent composer draft → DRAFT tag (shown wherever a session is listed,
+              not just NEEDS YOUR ATTENTION). The session is also lifted by its
+              draft-edit time via compareRecency. */}
+          {session.draftUpdatedAt && (
+            <span
+              className="flex-none rounded border border-input px-1 text-[9px] font-semibold uppercase tracking-wide text-muted-foreground"
+              title="Unsent draft"
+            >
+              Draft
+            </span>
+          )}
+          {backFromSnooze && (
+            <span
+              className="flex-none rounded border border-amber-500/40 px-1 text-[9px] font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-400"
+              title="Snooze ended — back in your queue"
+            >
+              Returned
+            </span>
+          )}
           {/* The agent's /color identity accent — a short vertical line right of
               the name (distinct from the status dot, which is its state). */}
           {agentColorHex(session.agentColor) && (

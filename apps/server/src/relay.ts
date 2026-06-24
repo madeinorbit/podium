@@ -207,6 +207,7 @@ export class SessionRegistry {
     for (const [sessionId, text] of Object.entries(this.store.loadDrafts())) {
       this.draftBySession.set(sessionId, text)
     }
+    const draftTimes = this.store.loadDraftTimes()
     const snoozes = this.store.listSnoozes()
     for (const r of this.store.loadSessions()) {
       const kind = AgentKind.safeParse(r.agentKind)
@@ -258,6 +259,7 @@ export class SessionRegistry {
       })
       this.sessions.set(r.id, session)
       if (r.id in snoozes) session.snoozedUntil = snoozes[r.id]
+      if (r.id in draftTimes) session.draftUpdatedAt = draftTimes[r.id]
       if (r.status !== reloadStatus) this.persist(session)
     }
   }
@@ -548,6 +550,13 @@ export class SessionRegistry {
   setSessionDraft(input: { sessionId: string; text: string }, fromClientId?: string): void {
     if (input.text) this.draftBySession.set(input.sessionId, input.text)
     else this.draftBySession.delete(input.sessionId)
+    // Mirror the draft's last-edit time onto the session so the sidebar can show
+    // DRAFT and lift it in the attention ordering. The DRAFT tag / lift only
+    // appears or disappears when a draft starts or is cleared, so rebroadcast the
+    // session list on that PRESENCE change only — never per keystroke.
+    const session = this.sessions.get(input.sessionId)
+    const presenceChanged = session && (session.draftUpdatedAt !== undefined) !== !!input.text
+    if (session) session.draftUpdatedAt = input.text ? new Date().toISOString() : undefined
     // Keep the existing live cross-client sync: push to every OTHER client (the
     // directional guard skips the originator so its own keystrokes don't echo back).
     for (const c of this.clients.values()) {
@@ -555,6 +564,7 @@ export class SessionRegistry {
       c.send({ type: 'sessionDraftChanged', sessionId: input.sessionId, text: input.text })
     }
     this.persistDraft(input.sessionId, input.text)
+    if (presenceChanged) this.broadcastSessions()
   }
 
   /**

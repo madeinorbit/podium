@@ -231,6 +231,15 @@ export function isSnoozed(s: SessionMeta, now: number): boolean {
   return now < Date.parse(s.snoozedUntil)
 }
 
+/** Did a *timed* snooze just lapse — its deadline has passed but it hasn't been
+ *  cleared yet (no message sent since)? The session has re-surfaced in NEEDS YOUR
+ *  ATTENTION (and `compareRecency` lifts it by that deadline); the sidebar marks it
+ *  so the user sees it's back. `null` (until-next-message) snoozes never expire by
+ *  time, so they're never "returned" this way. */
+export function returnedFromSnooze(s: SessionMeta, now: number): boolean {
+  return typeof s.snoozedUntil === 'string' && Date.parse(s.snoozedUntil) <= now
+}
+
 /** ISO deadline one hour from `now`. */
 export function snoozeUntil1h(now: number): string {
   return new Date(now + 3_600_000).toISOString()
@@ -269,7 +278,7 @@ export function sortSessionsForSidebar(
   return [...sessions].sort((a, b) => {
     const dr = rank(a) - rank(b)
     if (dr !== 0) return dr
-    return compareRecency(a, b)
+    return compareRecency(a, b, now)
   })
 }
 
@@ -397,9 +406,9 @@ export function partitionWorkItems(
   // Every WORK ITEMS section reads newest-active first (the home board and repo
   // tree already do). Without this the buckets kept raw arrival order, which put
   // the newest session at the BOTTOM of NEEDS YOUR ATTENTION.
-  attention.sort(compareRecency)
-  working.sort(compareRecency)
-  pinnedPanels.sort(compareRecency)
+  attention.sort((a, b) => compareRecency(a, b, now))
+  working.sort((a, b) => compareRecency(a, b, now))
+  pinnedPanels.sort((a, b) => compareRecency(a, b, now))
   return { attention, working, pinnedPanels }
 }
 
