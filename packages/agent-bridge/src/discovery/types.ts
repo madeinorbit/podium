@@ -86,6 +86,17 @@ export type ScanAgentConversationsResult = {
   diagnostics: AgentConversationDiagnostic[]
 }
 
+/**
+ * Result of a cached scan. Extends the base result with the pass's delta so
+ * incremental callers can forward just what moved instead of the full list:
+ * - `changed` are the summaries re-derived this pass (cache misses).
+ * - `removed` are the conversation ids pruned from the cache this pass.
+ */
+export type ScanAgentConversationsCachedResult = ScanAgentConversationsResult & {
+  changed: AgentConversationSummary[]
+  removed: string[]
+}
+
 export type ConversationProviderContext = {
   homeDir: string
 }

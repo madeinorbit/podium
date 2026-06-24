@@ -14,6 +14,7 @@ import {
   type AgentKind,
   type ConversationFileStat,
   type ConversationProvider,
+  type ScanAgentConversationsCachedResult,
   type ScanAgentConversationsOptions,
   type ScanAgentConversationsResult,
 } from './types.js'
@@ -79,7 +80,7 @@ export async function scanAgentConversations(
 
 export async function scanAgentConversationsCached(
   options: ScanAgentConversationsCachedOptions,
-): Promise<ScanAgentConversationsResult> {
+): Promise<ScanAgentConversationsCachedResult> {
   const homeDir = options.homeDir ?? process.env.HOME ?? process.cwd()
   const includeDefaults = options.includeDefaults ?? true
   const selectedProviders = selectProviders(options.agents, options.providers)
@@ -169,11 +170,13 @@ export async function scanAgentConversationsCached(
   )
 
   options.cache.upsertMany(cacheWrites)
-  options.cache.deleteMissing(seenPaths, selectedAgentKinds)
+  const pruned = options.cache.deleteMissing(seenPaths, selectedAgentKinds)
 
   return {
     conversations: dedupeConversations(conversations).sort(compareConversationSummaries),
     diagnostics,
+    changed: cacheWrites.map((write) => write.summary),
+    removed: pruned.removedIds,
   }
 }
 
