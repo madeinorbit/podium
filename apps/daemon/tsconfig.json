@@ -1,4 +1,8 @@
 {
   "extends": "../../tooling/tsconfig/node.json",
-  "include": ["src"]
+  "include": ["src"],
+  // `*.bun.test.ts` files run only under `bun test` (they import `bun:test`, which
+  // tsc/vitest can't resolve without @types/bun). Keep them out of the tsc compile
+  // set — they're excluded from vitest too (see vitest.config.ts).
+  "exclude": ["src/**/*.bun.test.ts"]
 }

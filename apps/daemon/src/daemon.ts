@@ -84,6 +84,7 @@ import { buildHarnessExec } from './harness-exec.js'
 import { startHookIngest } from './hook-ingest'
 import { sampleHostMemory } from './host-metrics'
 import type { MemoryAttribution } from './memory-breakdown'
+import { OutputScheduler, type Tier } from './output-scheduler'
 import { makeQuotaFetcher } from './quota-fetch'
 import { repoOpCommand } from './repo-op'
 import { uploadFilePath } from './upload'
@@ -753,6 +754,12 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     }
   }
 
+  // Coalesce + prioritize PTY frame relay (the per-frame stringify+send was the
+  // dominant residual loop hitch). flush() sends one agentFrameBatch per session.
+  const outputScheduler = new OutputScheduler({
+    flush: (sessionId, frames) => send({ type: 'agentFrameBatch', sessionId, frames }),
+  })
+
   // Seed agent state for a session whose CLI is already running but hasn't fired a
   // hook yet. Claude Code emits no SessionStart at interactive boot, so both a
   // fresh spawn and a post-restart reattach would otherwise sit at phase 'unknown'
@@ -978,7 +985,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     bridges.set(sessionId, session)
     session.onFrame((frame) => {
       countFrame(frame.data.length)
-      send({ type: 'agentFrame', sessionId, seq: frame.seq, data: frame.data })
+      outputScheduler.enqueue(sessionId, frame.data)
     })
     // Codex sets its OSC title to the cwd basename (+ a spinner glyph that churns at
     // frame-rate), which would clobber the real title the codex observer derives.
@@ -988,6 +995,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     }
     session.onExit((code) => {
       bridges.delete(sessionId)
+      outputScheduler.remove(sessionId)
       trackers.delete(sessionId)
       stopGrokStateObserver(sessionId)
       stopCodexStateObserver(sessionId)
@@ -1285,6 +1293,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
         if (session) {
           session.dispose()
           bridges.delete(msg.sessionId)
+          outputScheduler.remove(msg.sessionId)
         }
         // Reap the durable host unconditionally — NOT only when a bridge exists.
         // After a daemon restart a session can be live server-side with no local
@@ -1309,6 +1318,9 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
         break
       case 'redraw':
         bridges.get(msg.sessionId)?.redraw()
+        break
+      case 'sessionPriority':
+        outputScheduler.setPriority(msg.sessionId, msg.priority as Tier)
         break
       case 'scanRequest':
         void scan(msg.requestId)
@@ -1531,6 +1543,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     // discovery.db now lives entirely in the worker; stopping it terminates the
     // worker thread (and with it the cache's SQLite connection).
     workerClient.stop()
+    outputScheduler.stop()
     // For durable sessions (abduco/tmux), dispose() only takes down the attach client,
     // so the agent survives the daemon going down — do NOT kill the masters here
     // unless the caller explicitly asked for a full reap (test harness teardown).

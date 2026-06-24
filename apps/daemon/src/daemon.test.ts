@@ -133,7 +133,12 @@ function recordingDeltaWorkerClient(delta: ConversationDelta): {
 }
 const G = { cols: 80, rows: 24 }
 const decode = (b64: string): string => Buffer.from(b64, 'base64').toString('utf8')
-type AgentFrame = Extract<DaemonMessage, { type: 'agentFrame' }>
+// The daemon now relays PTY output as coalesced `agentFrameBatch` messages
+// (one batch per session per flush) rather than one `agentFrame` per frame.
+// Flatten each batch back into per-frame {sessionId, data} so the existing
+// frame-content assertions below keep reading individual frames.
+type AgentFrameBatch = Extract<DaemonMessage, { type: 'agentFrameBatch' }>
+type FlatFrame = { sessionId: string; data: string }
 
 describe('daemon multi-bridge', () => {
   let wss: WebSocketServer
@@ -171,9 +176,11 @@ describe('daemon multi-bridge', () => {
   })
 
   const send = (msg: unknown): void => serverSocket.send(encode(msg as never))
-  const frames = (): AgentFrame[] =>
-    received.filter((m): m is AgentFrame => m.type === 'agentFrame')
-  const fixtureFrame = (sid: string): AgentFrame | undefined =>
+  const frames = (): FlatFrame[] =>
+    received
+      .filter((m): m is AgentFrameBatch => m.type === 'agentFrameBatch')
+      .flatMap((b) => b.frames.map((data) => ({ sessionId: b.sessionId, data })))
+  const fixtureFrame = (sid: string): FlatFrame | undefined =>
     frames().find((f) => f.sessionId === sid && decode(f.data).includes('PODIUM-FIXTURE'))
   async function waitFor(fn: () => boolean, timeout = 5000): Promise<void> {
     const start = Date.now()
@@ -508,9 +515,9 @@ describe.skipIf(!isAbducoAvailable())('daemon abduco survival', () => {
       await waitFor(() =>
         received.some(
           (m) =>
-            m.type === 'agentFrame' &&
+            m.type === 'agentFrameBatch' &&
             m.sessionId === sessionId &&
-            decode(m.data).includes('PODIUM-FIXTURE'),
+            m.frames.some((f) => decode(f).includes('PODIUM-FIXTURE')),
         ),
       )
 
@@ -1005,9 +1012,9 @@ describe.skipIf(!isTmuxAvailable())('daemon tmux survival', () => {
       await waitFor(() =>
         received.some(
           (m) =>
-            m.type === 'agentFrame' &&
+            m.type === 'agentFrameBatch' &&
             m.sessionId === sessionId &&
-            decode(m.data).includes('PODIUM-FIXTURE'),
+            m.frames.some((f) => decode(f).includes('PODIUM-FIXTURE')),
         ),
       )
 
