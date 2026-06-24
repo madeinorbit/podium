@@ -4,6 +4,14 @@ import { serverConfig } from './trpc'
 
 type Phase = 'loading' | 'setup' | 'ready'
 
+/** Desktop shell exposes a restart hook so a mode change re-runs the shell (re-reads config);
+ *  a web reload alone would keep the same shell process. Browser → plain reload. */
+function onSetupSaved(): void {
+  const restart = (window as unknown as { __PODIUM_RESTART__?: () => void }).__PODIUM_RESTART__
+  if (restart) restart()
+  else window.location.reload()
+}
+
 /** Gates the app on setup: shows SetupView until a deployment mode is configured. */
 export function SetupGate({ children }: { children: ReactNode }): ReactNode {
   const [phase, setPhase] = useState<Phase>('loading')
@@ -22,6 +30,6 @@ export function SetupGate({ children }: { children: ReactNode }): ReactNode {
 
   if (phase === 'loading') return null
   if (phase === 'setup')
-    return <SetupView httpOrigin={httpOrigin} onSaved={() => window.location.reload()} />
+    return <SetupView httpOrigin={httpOrigin} onSaved={onSetupSaved} />
   return <>{children}</>
 }

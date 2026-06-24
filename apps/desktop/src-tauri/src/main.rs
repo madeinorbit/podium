@@ -11,6 +11,61 @@ use tauri::tray::TrayIconBuilder;
 use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 use tauri::path::BaseDirectory;
 
+/// FIX 2 (generalized): supervision monitor thread. Waits on the current child; if it exits
+/// while the app is NOT shutting down, respawns it via `spawn_fn` with bounded backoff
+/// (500ms → cap 5s). Works for both the all-in-one server and the daemon child.
+fn spawn_respawn_monitor<F>(
+    child_state: Arc<Mutex<Option<std::process::Child>>>,
+    shutting_down: Arc<AtomicBool>,
+    spawn_fn: F,
+    label: String,
+) where
+    F: Fn() -> std::io::Result<std::process::Child> + Send + 'static,
+{
+    std::thread::spawn(move || {
+        let mut backoff_ms: u64 = 500;
+        const BACKOFF_CAP_MS: u64 = 5_000;
+
+        loop {
+            // Wait for the current child to exit.
+            let exited = {
+                let mut guard = child_state.lock().unwrap();
+                if let Some(ref mut child) = *guard {
+                    child.wait().ok()
+                } else {
+                    // Child was already reaped by the exit handler — stop monitoring.
+                    break;
+                }
+            };
+
+            if shutting_down.load(Ordering::Acquire) {
+                break;
+            }
+
+            eprintln!(
+                "[podium-desktop] backend exited ({exited:?}); \
+                 respawning in {backoff_ms}ms {label}"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(backoff_ms));
+            backoff_ms = (backoff_ms * 2).min(BACKOFF_CAP_MS);
+
+            if shutting_down.load(Ordering::Acquire) {
+                break;
+            }
+
+            match spawn_fn() {
+                Ok(new_child) => {
+                    *child_state.lock().unwrap() = Some(new_child);
+                    backoff_ms = 500; // reset on successful spawn
+                }
+                Err(e) => {
+                    eprintln!("[podium-desktop] respawn failed: {e}");
+                }
+            }
+        }
+    });
+}
+
 fn main() {
     let app = tauri::Builder::default()
         // FIX 1: single-instance guard — if a 2nd instance is launched, focus the existing
@@ -41,103 +96,121 @@ fn main() {
                 }
             }
 
-            let port = bootstrap::pick_free_port();
-
-            // Resolve the bundled podium binary (plain resource, never patchelf'd).
-            let podium_res = app
-                .path()
-                .resolve("resources/podium", BaseDirectory::Resource)?;
-
-            // Resolve the bundled web resource dir for the backend to serve external clients.
-            let web_dir = app
-                .path()
-                .resolve("resources/web", BaseDirectory::Resource)?;
-
-            // Ensure the binary is on a writable, executable filesystem.
-            // AppImage mounts are read-only; ensure_executable copies it to ~/.podium/bin/.
-            let runnable = bootstrap::ensure_executable(&podium_res).map_err(|e| {
-                eprintln!("[podium-desktop] ensure_executable failed: {e}");
-                e
-            })?;
-
-            eprintln!("[podium-desktop] spawning {runnable:?} on port {port}");
+            // Decide what to launch from the persisted deployment mode. A missing/corrupt
+            // config (or all-in-one / server / missing serverUrl) → today's local behavior.
+            let cfg = bootstrap::read_config();
+            let action = bootstrap::resolve_launch(cfg.mode.as_deref(), cfg.server_url.as_deref());
+            eprintln!("[podium-desktop] launch action: {action:?}");
 
             // FIX 2: shared shutting-down flag — set true in exit handlers so the supervision
             // monitor thread does not attempt to respawn the child during a deliberate quit.
+            // (Always managed so the exit handlers have it, even in ClientOnly with no child.)
             let shutting_down = Arc::new(AtomicBool::new(false));
             app.manage(shutting_down.clone());
 
-            // Spawn the initial sidecar child process.
-            let child = Command::new(&runnable)
-                .env("PODIUM_PORT", port.to_string())
-                .env("PODIUM_WEB_DIR", web_dir.to_string_lossy().to_string())
-                .spawn()
-                .map_err(|e| {
-                    eprintln!("[podium-desktop] spawn failed: {e}");
-                    e
-                })?;
-
-            // Keep the child alive; kill it when the app exits.
-            let child_state: Arc<Mutex<Option<std::process::Child>>> =
-                Arc::new(Mutex::new(Some(child)));
+            // Child slot is always managed so the window-event / exit handlers can reap whatever
+            // (if anything) we spawned. ClientOnly leaves it None.
+            let child_state: Arc<Mutex<Option<std::process::Child>>> = Arc::new(Mutex::new(None));
             app.manage(child_state.clone());
 
-            // FIX 2: supervision monitor thread — waits on the child, and if it exits while
-            // the app is NOT shutting down, respawns it on the same port with bounded backoff
-            // (500ms → cap 5s). The web client auto-reconnects over WS on the same port.
-            let runnable2 = runnable.clone();
-            let web_dir2 = web_dir.clone();
-            let child_state2 = child_state.clone();
-            let shutting_down2 = shutting_down.clone();
-            std::thread::spawn(move || {
-                let mut backoff_ms: u64 = 500;
-                const BACKOFF_CAP_MS: u64 = 5_000;
+            // The server URL the window will be pointed at. Local-all-in-one fills this with the
+            // local ws URL once a port is picked; remote modes use the configured serverUrl.
+            let window_injection: String;
+            // Whether to block on a local /health before opening the window (only local server).
+            let wait_local_port: Option<u16>;
 
-                loop {
-                    // Wait for the current child to exit.
-                    let exited = {
-                        let mut guard = child_state2.lock().unwrap();
-                        if let Some(ref mut child) = *guard {
-                            child.wait().ok()
-                        } else {
-                            // Child was already reaped by the exit handler — stop monitoring.
-                            break;
-                        }
-                    };
+            match action {
+                bootstrap::LaunchAction::LocalAllInOne => {
+                    let port = bootstrap::pick_free_port();
 
-                    // If we're shutting down, do not respawn.
-                    if shutting_down2.load(Ordering::Acquire) {
-                        break;
-                    }
+                    // Resolve the bundled podium binary (plain resource, never patchelf'd).
+                    let podium_res = app
+                        .path()
+                        .resolve("resources/podium", BaseDirectory::Resource)?;
+                    // Bundled web resource dir for the backend to serve external clients.
+                    let web_dir = app
+                        .path()
+                        .resolve("resources/web", BaseDirectory::Resource)?;
 
-                    eprintln!(
-                        "[podium-desktop] backend exited ({exited:?}); \
-                         respawning in {backoff_ms}ms on port {port}"
-                    );
-                    std::thread::sleep(std::time::Duration::from_millis(backoff_ms));
-                    backoff_ms = (backoff_ms * 2).min(BACKOFF_CAP_MS);
+                    // Ensure the binary is on a writable, executable filesystem.
+                    // AppImage mounts are read-only; ensure_executable copies it to ~/.podium/bin/.
+                    let runnable = bootstrap::ensure_executable(&podium_res).map_err(|e| {
+                        eprintln!("[podium-desktop] ensure_executable failed: {e}");
+                        e
+                    })?;
 
-                    // Check the flag again after sleeping — user may have quit during backoff.
-                    if shutting_down2.load(Ordering::Acquire) {
-                        break;
-                    }
+                    eprintln!("[podium-desktop] spawning {runnable:?} on port {port}");
 
-                    match Command::new(&runnable2)
+                    // Spawn the initial sidecar child process.
+                    let child = Command::new(&runnable)
                         .env("PODIUM_PORT", port.to_string())
-                        .env("PODIUM_WEB_DIR", web_dir2.to_string_lossy().to_string())
+                        .env("PODIUM_WEB_DIR", web_dir.to_string_lossy().to_string())
                         .spawn()
-                    {
-                        Ok(new_child) => {
-                            *child_state2.lock().unwrap() = Some(new_child);
-                            backoff_ms = 500; // reset on successful spawn
-                        }
-                        Err(e) => {
-                            eprintln!("[podium-desktop] respawn failed: {e}");
-                            // Keep backing off; next loop iteration will try again.
-                        }
-                    }
+                        .map_err(|e| {
+                            eprintln!("[podium-desktop] spawn failed: {e}");
+                            e
+                        })?;
+                    *child_state.lock().unwrap() = Some(child);
+
+                    // FIX 2: supervision monitor thread — waits on the child, and if it exits
+                    // while the app is NOT shutting down, respawns it on the same port with
+                    // bounded backoff (500ms → cap 5s). The web client auto-reconnects over WS.
+                    let runnable2 = runnable.clone();
+                    let web_dir2 = web_dir.clone();
+                    spawn_respawn_monitor(
+                        child_state.clone(),
+                        shutting_down.clone(),
+                        move || {
+                            Command::new(&runnable2)
+                                .env("PODIUM_PORT", port.to_string())
+                                .env("PODIUM_WEB_DIR", web_dir2.to_string_lossy().to_string())
+                                .spawn()
+                        },
+                        format!("on port {port}"),
+                    );
+
+                    window_injection = bootstrap::injection_script(port);
+                    wait_local_port = Some(port);
                 }
-            });
+
+                bootstrap::LaunchAction::LocalDaemon { server_url } => {
+                    // Spawn the local `podium`; it reads config → daemon mode → connects to the
+                    // remote server. There is NO local server, so do not force PODIUM_PORT and do
+                    // not wait for a local /health — the web client connects to the remote.
+                    let podium_res = app
+                        .path()
+                        .resolve("resources/podium", BaseDirectory::Resource)?;
+                    let runnable = bootstrap::ensure_executable(&podium_res).map_err(|e| {
+                        eprintln!("[podium-desktop] ensure_executable failed: {e}");
+                        e
+                    })?;
+
+                    eprintln!("[podium-desktop] spawning daemon {runnable:?} → {server_url}");
+                    let child = Command::new(&runnable).spawn().map_err(|e| {
+                        eprintln!("[podium-desktop] daemon spawn failed: {e}");
+                        e
+                    })?;
+                    *child_state.lock().unwrap() = Some(child);
+
+                    let runnable2 = runnable.clone();
+                    spawn_respawn_monitor(
+                        child_state.clone(),
+                        shutting_down.clone(),
+                        move || Command::new(&runnable2).spawn(),
+                        "(daemon)".to_string(),
+                    );
+
+                    window_injection = bootstrap::server_injection_script(&server_url);
+                    wait_local_port = None;
+                }
+
+                bootstrap::LaunchAction::ClientOnly { server_url } => {
+                    // No backend, no monitor — just point the window at the remote server.
+                    eprintln!("[podium-desktop] client mode → {server_url} (no local backend)");
+                    window_injection = bootstrap::server_injection_script(&server_url);
+                    wait_local_port = None;
+                }
+            }
 
             // Build the tray icon with Open / Quit menu items.
             let open = MenuItem::with_id(app, "open", "Open Podium", true, None::<&str>)?;
@@ -157,13 +230,20 @@ fn main() {
                 })
                 .build(app)?;
 
-            // Wait for the backend to accept connections, then open the window.
+            // Wait for the local backend (if any) to accept connections, then open the window.
+            // Remote modes (daemon/client) skip the wait — the web client handles connect/retry.
             let handle = app.handle().clone();
-            let init = bootstrap::injection_script(port);
+            // The window also gets a restart hook so a setup mode-change can re-run the shell:
+            // raw plugin invoke avoids adding a Tauri JS dependency to apps/web.
+            let restart_hook = "window.__PODIUM_RESTART__ = () => \
+                window.__TAURI_INTERNALS__.invoke('plugin:process|restart');";
+            let init = format!("{window_injection}\n{restart_hook}");
             std::thread::spawn(move || {
-                let ready = bootstrap::wait_for_port(port, 200, 150);
-                if !ready {
-                    eprintln!("[podium-desktop] backend did not become ready within timeout");
+                if let Some(port) = wait_local_port {
+                    let ready = bootstrap::wait_for_port(port, 200, 150);
+                    if !ready {
+                        eprintln!("[podium-desktop] backend did not become ready within timeout");
+                    }
                 }
                 let handle2 = handle.clone();
                 let _ = handle.run_on_main_thread(move || {

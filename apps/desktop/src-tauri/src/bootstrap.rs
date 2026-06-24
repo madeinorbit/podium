@@ -14,10 +14,78 @@ pub fn pick_free_port() -> u16 {
         .unwrap_or(18787)
 }
 
+/// The desktop-relevant slice of ~/.podium/config.json. Other fields are ignored.
+#[derive(Debug, Default, Clone, PartialEq)]
+pub struct DesktopConfig {
+    pub mode: Option<String>,
+    pub server_url: Option<String>,
+}
+
+/// What the shell should do at launch, derived purely from the config.
+#[derive(Debug, Clone, PartialEq)]
+pub enum LaunchAction {
+    /// Default: pick a free port, spawn the local `podium` (server+daemon), point the window local.
+    LocalAllInOne,
+    /// Spawn the local `podium` (which reads config → daemon mode → connects to `server_url`);
+    /// the window points at the remote (no local server to wait for).
+    LocalDaemon { server_url: String },
+    /// Spawn nothing; the window points at the remote server.
+    ClientOnly { server_url: String },
+}
+
+/// Read `$PODIUM_STATE_DIR/config.json` else `~/.podium/config.json`, extracting `mode` and
+/// `serverUrl`. A missing or corrupt file yields an empty config (→ all-in-one behavior).
+pub fn read_config() -> DesktopConfig {
+    let base = std::env::var("PODIUM_STATE_DIR").unwrap_or_else(|_| {
+        let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+        format!("{home}/.podium")
+    });
+    let path = std::path::Path::new(&base).join("config.json");
+    let text = match std::fs::read_to_string(&path) {
+        Ok(t) => t,
+        Err(_) => return DesktopConfig::default(),
+    };
+    let json: serde_json::Value = match serde_json::from_str(&text) {
+        Ok(v) => v,
+        Err(_) => return DesktopConfig::default(),
+    };
+    DesktopConfig {
+        mode: json.get("mode").and_then(|v| v.as_str()).map(str::to_string),
+        server_url: json
+            .get("serverUrl")
+            .and_then(|v| v.as_str())
+            .map(str::to_string),
+    }
+}
+
+/// PURE resolver: map (mode, serverUrl) → the launch action.
+///
+/// - `client` + serverUrl  → ClientOnly (spawn nothing, window → remote)
+/// - `daemon` + serverUrl  → LocalDaemon (spawn local podium daemon, window → remote)
+/// - everything else (all-in-one / server / unset / missing serverUrl) → LocalAllInOne
+pub fn resolve_launch(mode: Option<&str>, server_url: Option<&str>) -> LaunchAction {
+    match (mode, server_url) {
+        (Some("client"), Some(url)) if !url.is_empty() => LaunchAction::ClientOnly {
+            server_url: url.to_string(),
+        },
+        (Some("daemon"), Some(url)) if !url.is_empty() => LaunchAction::LocalDaemon {
+            server_url: url.to_string(),
+        },
+        _ => LaunchAction::LocalAllInOne,
+    }
+}
+
 /// The script injected before page load so the bundled web UI talks to the local backend
 /// (Phase 2 serverConfig reads window.__PODIUM_SERVER__ first).
 pub fn injection_script(port: u16) -> String {
-    format!("window.__PODIUM_SERVER__ = 'ws://127.0.0.1:{port}';")
+    server_injection_script(&format!("ws://127.0.0.1:{port}"))
+}
+
+/// Like `injection_script` but for an arbitrary (remote) server URL — used in client/daemon modes.
+pub fn server_injection_script(server_url: &str) -> String {
+    // serde_json::to_string yields a correctly-escaped JS string literal.
+    let lit = serde_json::to_string(server_url).unwrap_or_else(|_| "\"\"".to_string());
+    format!("window.__PODIUM_SERVER__ = {lit};")
 }
 
 /// Block until http://127.0.0.1:<port>/health accepts a TCP connection or the budget runs
@@ -96,6 +164,10 @@ pub fn ensure_executable(path: &Path) -> std::io::Result<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
+
+    // Serializes tests that mutate the PODIUM_STATE_DIR env var (env is process-global).
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
 
     #[test]
     fn pick_free_port_is_nonzero() {
@@ -107,6 +179,105 @@ mod tests {
         let s = injection_script(18799);
         assert!(s.contains("ws://127.0.0.1:18799"));
         assert!(s.contains("__PODIUM_SERVER__"));
+    }
+
+    #[test]
+    fn server_injection_script_embeds_remote_url() {
+        let s = server_injection_script("wss://relay.example:443");
+        assert!(s.contains("wss://relay.example:443"));
+        assert!(s.contains("__PODIUM_SERVER__"));
+    }
+
+    #[test]
+    fn resolve_launch_client_with_url_is_client_only() {
+        assert_eq!(
+            resolve_launch(Some("client"), Some("ws://h:1")),
+            LaunchAction::ClientOnly {
+                server_url: "ws://h:1".to_string()
+            }
+        );
+    }
+
+    #[test]
+    fn resolve_launch_daemon_with_url_is_local_daemon() {
+        assert_eq!(
+            resolve_launch(Some("daemon"), Some("ws://h:1")),
+            LaunchAction::LocalDaemon {
+                server_url: "ws://h:1".to_string()
+            }
+        );
+    }
+
+    #[test]
+    fn resolve_launch_all_in_one_is_local() {
+        assert_eq!(
+            resolve_launch(Some("all-in-one"), None),
+            LaunchAction::LocalAllInOne
+        );
+    }
+
+    #[test]
+    fn resolve_launch_server_mode_is_local() {
+        assert_eq!(
+            resolve_launch(Some("server"), None),
+            LaunchAction::LocalAllInOne
+        );
+    }
+
+    #[test]
+    fn resolve_launch_unset_is_local() {
+        assert_eq!(resolve_launch(None, None), LaunchAction::LocalAllInOne);
+    }
+
+    #[test]
+    fn resolve_launch_client_without_url_falls_back_to_local() {
+        // No serverUrl → can't connect remotely; behave as all-in-one rather than break.
+        assert_eq!(resolve_launch(Some("client"), None), LaunchAction::LocalAllInOne);
+        assert_eq!(
+            resolve_launch(Some("daemon"), Some("")),
+            LaunchAction::LocalAllInOne
+        );
+    }
+
+    #[test]
+    fn read_config_missing_file_is_empty() {
+        let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let tmp = std::env::temp_dir().join(format!("podium-cfg-missing-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        // Point PODIUM_STATE_DIR at an empty dir (no config.json).
+        let prev = std::env::var("PODIUM_STATE_DIR").ok();
+        std::env::set_var("PODIUM_STATE_DIR", &tmp);
+        let cfg = read_config();
+        assert_eq!(cfg, DesktopConfig::default());
+        match prev {
+            Some(v) => std::env::set_var("PODIUM_STATE_DIR", v),
+            None => std::env::remove_var("PODIUM_STATE_DIR"),
+        }
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn read_config_parses_mode_and_server_url() {
+        let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let tmp = std::env::temp_dir().join(format!("podium-cfg-parse-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        std::fs::write(
+            tmp.join("config.json"),
+            r#"{"mode":"daemon","serverUrl":"ws://h:9","pairCode":"X"}"#,
+        )
+        .unwrap();
+        let prev = std::env::var("PODIUM_STATE_DIR").ok();
+        std::env::set_var("PODIUM_STATE_DIR", &tmp);
+        let cfg = read_config();
+        assert_eq!(cfg.mode.as_deref(), Some("daemon"));
+        assert_eq!(cfg.server_url.as_deref(), Some("ws://h:9"));
+        match prev {
+            Some(v) => std::env::set_var("PODIUM_STATE_DIR", v),
+            None => std::env::remove_var("PODIUM_STATE_DIR"),
+        }
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 
     #[test]

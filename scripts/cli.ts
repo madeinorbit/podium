@@ -25,7 +25,8 @@ export function resolvePlan(argv: string[], config: PodiumConfig): LaunchPlan {
   const flagIdx = argv.indexOf('--server')
   const serverFlag = flagIdx >= 0 ? argv[flagIdx + 1] : undefined
   const pairIdx = argv.indexOf('--pair')
-  const pairCode = pairIdx >= 0 ? argv[pairIdx + 1] : undefined
+  // --pair flag wins; else fall back to config.pairCode so a desktop-spawned daemon pairs.
+  const pairCode = (pairIdx >= 0 ? argv[pairIdx + 1] : undefined) ?? config.pairCode
   const nameIdx = argv.indexOf('--name')
   const name = nameIdx >= 0 ? argv[nameIdx + 1] : undefined
   const mode = sub ?? aliased ?? config.mode ?? 'all-in-one'

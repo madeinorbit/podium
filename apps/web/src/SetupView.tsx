@@ -37,15 +37,22 @@ export function SetupView({
 }): ReactNode {
   const [mode, setMode] = useState<PodiumMode>('all-in-one')
   const [serverUrl, setServerUrl] = useState('')
+  const [pairCode, setPairCode] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const needsServer = MODES.find((m) => m.id === mode)?.needsServer ?? false
+  // Only daemon mode pairs a fresh machine; client mode just connects.
+  const needsPair = mode === 'daemon'
 
   const save = async (): Promise<void> => {
     setBusy(true)
     setError(null)
     try {
-      const body = needsServer ? { mode, serverUrl } : { mode }
+      const body = needsServer
+        ? needsPair
+          ? { mode, serverUrl, pairCode }
+          : { mode, serverUrl }
+        : { mode }
       const res = await fetch(`${httpOrigin}/setup/config`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -91,6 +98,18 @@ export function SetupView({
             placeholder="ws://host:18787"
             value={serverUrl}
             onChange={(e) => setServerUrl(e.target.value)}
+          />
+        </div>
+      )}
+      {needsPair && (
+        <div>
+          <label htmlFor="pair-code">Pairing code</label>
+          <input
+            id="pair-code"
+            type="text"
+            placeholder="from the server's Machines settings"
+            value={pairCode}
+            onChange={(e) => setPairCode(e.target.value)}
           />
         </div>
       )}

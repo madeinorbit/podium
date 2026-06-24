@@ -13,6 +13,8 @@ export const PodiumConfig = z.object({
   mode: PodiumMode.optional(),
   serverUrl: z.string().optional(),
   port: z.number().int().positive().optional(),
+  /** One-shot pairing code for daemon mode (consumed once → token; a stale value is harmless). */
+  pairCode: z.string().optional(),
   /** Base URL of the self-update feed (`podium update`). Env PODIUM_UPDATE_FEED wins. */
   updateFeed: z.string().optional(),
 })

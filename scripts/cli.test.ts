@@ -34,4 +34,16 @@ describe('resolvePlan', () => {
     expect(plan).not.toHaveProperty('pairCode')
     expect(plan).not.toHaveProperty('name')
   })
+  it('daemon pairCode falls back to config.pairCode when no --pair flag', () => {
+    expect(resolvePlan(['daemon'], { serverUrl: 'ws://cfg:1', pairCode: 'CFG999' })).toMatchObject({
+      mode: 'daemon',
+      serverUrl: 'ws://cfg:1',
+      pairCode: 'CFG999',
+    })
+  })
+  it('--pair flag wins over config.pairCode', () => {
+    expect(
+      resolvePlan(['daemon', '--pair', 'FLAG1'], { serverUrl: 'ws://cfg:1', pairCode: 'CFG999' }),
+    ).toMatchObject({ pairCode: 'FLAG1' })
+  })
 })
