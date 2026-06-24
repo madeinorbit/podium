@@ -20,4 +20,18 @@ describe('resolvePlan', () => {
   it('config.serverUrl is used when no flag', () => {
     expect(resolvePlan(['daemon'], { serverUrl: 'ws://cfg:1' })).toMatchObject({ serverUrl: 'ws://cfg:1' })
   })
+  it('--pair and --name are carried into the plan for a fresh remote daemon', () => {
+    expect(resolvePlan(['daemon', '--server', 'ws://h:1', '--pair', 'ABC123', '--name', 'laptop'], {})).toEqual({
+      mode: 'daemon',
+      serverUrl: 'ws://h:1',
+      pairCode: 'ABC123',
+      name: 'laptop',
+      showSetupHint: false,
+    })
+  })
+  it('--pair and --name are absent when not passed', () => {
+    const plan = resolvePlan(['daemon', '--server', 'ws://h:1'], {})
+    expect(plan).not.toHaveProperty('pairCode')
+    expect(plan).not.toHaveProperty('name')
+  })
 })

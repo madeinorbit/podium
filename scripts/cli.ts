@@ -10,6 +10,8 @@ import { type PodiumConfig, type PodiumMode, loadConfig, needsSetup } from '../p
 export interface LaunchPlan {
   mode: PodiumMode
   serverUrl?: string
+  pairCode?: string
+  name?: string
   showSetupHint: boolean
 }
 
@@ -22,10 +24,20 @@ export function resolvePlan(argv: string[], config: PodiumConfig): LaunchPlan {
   const aliased = argv.includes('all') ? 'all-in-one' : undefined
   const flagIdx = argv.indexOf('--server')
   const serverFlag = flagIdx >= 0 ? argv[flagIdx + 1] : undefined
+  const pairIdx = argv.indexOf('--pair')
+  const pairCode = pairIdx >= 0 ? argv[pairIdx + 1] : undefined
+  const nameIdx = argv.indexOf('--name')
+  const name = nameIdx >= 0 ? argv[nameIdx + 1] : undefined
   const mode = sub ?? aliased ?? config.mode ?? 'all-in-one'
   const showSetupHint = !sub && !aliased && needsSetup(config)
   const serverUrl = serverFlag ?? config.serverUrl
-  return serverUrl ? { mode, serverUrl, showSetupHint } : { mode, showSetupHint }
+  return {
+    mode,
+    showSetupHint,
+    ...(serverUrl ? { serverUrl } : {}),
+    ...(pairCode ? { pairCode } : {}),
+    ...(name ? { name } : {}),
+  }
 }
 
 export async function main(): Promise<void> {
@@ -73,7 +85,11 @@ export async function main(): Promise<void> {
       process.exit(2)
     }
     const { startDaemon } = await import('../apps/daemon/src/daemon')
-    await startDaemon({ serverUrl })
+    await startDaemon({
+      serverUrl,
+      ...(plan.pairCode ? { pairCode: plan.pairCode } : {}),
+      ...(plan.name ? { name: plan.name } : {}),
+    })
     console.log(`podium daemon up → ${serverUrl}`)
   }
 
