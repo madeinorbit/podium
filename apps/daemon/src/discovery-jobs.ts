@@ -1,4 +1,8 @@
-import { type ConversationDiscoveryCache, scanAgentConversationsCached } from '@podium/agent-bridge'
+import {
+  type ConversationDiscoveryCache,
+  scanAgentConversationsCached,
+  summarizePaths,
+} from '@podium/agent-bridge'
 import type { ConversationDiagnosticWire, ConversationSummaryWire } from '@podium/protocol'
 import { diagnosticToWire, summaryToWire } from './conversation-wire.js'
 import {
@@ -28,7 +32,12 @@ export function runMemoryBreakdownJob(input: MemoryBreakdownJobInput): MemoryAtt
 export interface IndexRefreshJobInput {
   homeDir?: string
   cachePath?: string
-  /** Declared for Task 11's targeted rescans; unused here — a full incremental pass runs. */
+  /**
+   * Targeted rescan: when set, re-summarize ONLY these transcript file paths (the
+   * daemon's event-driven active refresh, fired off a LOADED session's transcript
+   * tail). A paths-flush returns just those summaries as `changed` and NEVER prunes
+   * (`removed` is always empty) — see `summarizePaths`. `full` is ignored in this mode.
+   */
   paths?: string[]
   /**
    * When true, emit the FULL conversation list as `changed` (not just the cache
@@ -60,14 +69,28 @@ export async function runIndexRefreshJob(
   removed: string[]
   diagnostics: ConversationDiagnosticWire[]
 }> {
-  const result = await scanAgentConversationsCached({
-    cache,
-    ...(input.homeDir ? { homeDir: input.homeDir } : {}),
-  })
+  // Paths-mode: a targeted refresh of just the dirty files (no prune). We run the
+  // SAME full provider listing filtered to those paths rather than a bare per-file
+  // summarize, so per-provider listing state (e.g. codex's sibling-derived
+  // title/parent metadata) is preserved instead of summarized out of context.
+  const result =
+    input.paths && input.paths.length > 0
+      ? await summarizePaths(input.paths, {
+          cache,
+          ...(input.homeDir ? { homeDir: input.homeDir } : {}),
+        })
+      : await scanAgentConversationsCached({
+          cache,
+          ...(input.homeDir ? { homeDir: input.homeDir } : {}),
+        })
+  // Paths-mode is always a delta of the dirty files (`full` is ignored); otherwise
+  // `full` snapshot → the entire current list (repopulates a cold server index even
+  // off a warm cache), and unset → just the cache-miss delta.
+  const inPathsMode = Boolean(input.paths && input.paths.length > 0)
   return {
-    // `full` snapshot → the entire current list (repopulates a cold server index
-    // even off a warm cache); otherwise just the cache-miss delta.
-    changed: (input.full ? result.conversations : result.changed).map(summaryToWire),
+    changed: (!inPathsMode && input.full ? result.conversations : result.changed).map(
+      summaryToWire,
+    ),
     removed: result.removed,
     diagnostics: result.diagnostics.map(diagnosticToWire),
   }

@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { ConversationDiscoveryCache } from '@podium/agent-bridge'
@@ -128,6 +128,47 @@ describe('runIndexRefreshJob', () => {
       const ids = snapshot.changed.map((c) => c.id)
       expect(ids).toContain('conv-a')
       expect(ids).toContain('conv-b')
+    } finally {
+      cache.close()
+      rmSync(home, { recursive: true, force: true })
+    }
+  }, 60_000)
+
+  // Task 11: a targeted refresh via `paths` re-summarizes ONLY the named file(s) and
+  // returns just those in `changed`, never pruning (`removed: []`). This is what the
+  // daemon's event-driven active refresh fires when a LOADED session's transcript
+  // tail moves — it must not depend on the slower periodic full scan.
+  it('with paths returns ONLY the named file as changed and never prunes', async () => {
+    const home = mkdtempSync(join(tmpdir(), 'podium-paths-refresh-'))
+    const relA = '.claude/projects/-repo-project/conv-a.jsonl'
+    const relB = '.claude/projects/-repo-project/conv-b.jsonl'
+    const pathA = join(home, relA)
+    const pathB = join(home, relB)
+    writeClaudeSession(home, relA, 'conv-a', 'Conv A')
+    writeClaudeSession(home, relB, 'conv-b', 'Conv B')
+    const cache = new ConversationDiscoveryCache(':memory:')
+    try {
+      // Warm the cache so a plain delta scan would report nothing changed.
+      await runIndexRefreshJob({ homeDir: home }, cache)
+
+      // Append to BOTH transcripts (mtime/size move → both warm rows miss). A plain
+      // delta scan would report BOTH as changed; the paths-filter below must scope the
+      // result to ONLY conv-a, which is what isolates the `paths` honoring.
+      writeClaudeSession(home, relA, 'conv-a', 'Conv A renamed')
+      writeClaudeSession(home, relB, 'conv-b', 'Conv B renamed')
+
+      // Targeted refresh of ONLY conv-a by its exact transcript path. conv-b is filtered
+      // out of the listing entirely and never re-summarized, even though it is dirty.
+      const refreshed = await runIndexRefreshJob({ homeDir: home, paths: [pathA] }, cache)
+
+      const ids = refreshed.changed.map((c) => c.id)
+      expect(ids).toContain('conv-a')
+      expect(ids).not.toContain('conv-b')
+      // A targeted refresh never prunes, even though conv-b is "missing" from paths.
+      expect(refreshed.removed).toEqual([])
+      // conv-b's warm row is left STALE by the targeted refresh — it was never visited,
+      // proving the paths filter scoped the work (a full scan would have refreshed it).
+      expect(cache.getFresh(pathB, statSync(pathB), 'claude-code')).toBeUndefined()
     } finally {
       cache.close()
       rmSync(home, { recursive: true, force: true })

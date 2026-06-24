@@ -69,6 +69,7 @@ import {
   type TranscriptItem,
 } from '@podium/protocol'
 import WebSocket, { type RawData } from 'ws'
+import { type ActiveRefresh, createActiveRefresh } from './active-refresh'
 import { readAssetSandboxed, readFileSandboxed, writeFileSandboxed } from './file-access'
 import { buildHarnessExec } from './harness-exec.js'
 import { startHookIngest } from './hook-ingest'
@@ -304,6 +305,11 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
   const codexStateObservers = new Map<string, { stop(): void }>()
   const opencodeStateObservers = new Map<string, OpencodeStateObserver>()
   const cursorStateObservers = new Map<string, CursorStateObserver>()
+  // Event-driven active conversation-index refresh. Instantiated below once
+  // `publishConversations` + `workerClient` exist; the tail callback marks a
+  // transcript dirty so the worker re-summarizes JUST that file (coalesced) instead
+  // of waiting for the next periodic scan. Holder is set before any tail can fire.
+  let activeRefresh: ActiveRefresh | undefined
   const ensureTranscriptTail = (
     sessionId: string,
     path: string,
@@ -325,6 +331,10 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
             ...(meta.tail ? { tail: meta.tail } : {}),
             ...(meta.reset ? { reset: true } : {}),
           })
+          // The tail fired because this transcript file was appended to — mark it
+          // dirty so the worker re-summarizes JUST it (coalesced, ~1s) and keeps the
+          // search index near-real-time, instead of waiting for the periodic scan.
+          activeRefresh?.markConversationDirty(path)
         },
         {
           ...(recordToItems ? { recordToItems } : {}),
@@ -828,6 +838,26 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
       diagnostics: delta.diagnostics,
     })
   }
+
+  // Now that `publishConversations` + `workerClient` exist, wire the event-driven
+  // active refresh declared near the tails. The paths-flush runs the SAME
+  // `indexRefresh` worker job (off the interactive loop) scoped to the dirty files;
+  // it shares kind `'indexRefresh'` with the periodic/full scans, so the worker
+  // client may coalesce it onto an in-flight scan and return a superset — still a
+  // correct upsert (see createActiveRefresh's note). Failures are loud, never silent.
+  activeRefresh = createActiveRefresh({
+    runPathsRefresh: (paths) =>
+      workerClient.runJob('indexRefresh', {
+        paths,
+        ...(opts.discovery?.homeDir ? { homeDir: opts.discovery.homeDir } : {}),
+        ...(opts.discovery?.cachePath ? { cachePath: opts.discovery.cachePath } : {}),
+      }) as Promise<ConversationDelta>,
+    publish: publishConversations,
+    onError: (err) =>
+      console.warn(
+        `[podium:daemon] active index refresh failed: ${err instanceof Error ? err.message : String(err)}`,
+      ),
+  })
 
   // Run the discovery scan on the worker thread (off the interactive loop) and
   // return the delta. The worker owns discovery.db, so the scan's SQLite reads/
@@ -1479,6 +1509,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     if (discoveryTimer) clearTimeout(discoveryTimer)
     if (metricsTimer) clearInterval(metricsTimer)
     if (uploadsGcTimer) clearInterval(uploadsGcTimer)
+    activeRefresh?.stop()
     // discovery.db now lives entirely in the worker; stopping it terminates the
     // worker thread (and with it the cache's SQLite connection).
     workerClient.stop()

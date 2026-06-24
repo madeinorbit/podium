@@ -6,6 +6,7 @@ export {
   loadAgentConversation,
   scanAgentConversations,
   scanAgentConversationsCached,
+  summarizePaths,
 } from './scanner.js'
 export type * from './types.js'
 export { AgentConversationLoadError } from './types.js'
