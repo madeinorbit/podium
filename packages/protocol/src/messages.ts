@@ -418,6 +418,9 @@ export const ConversationsChangedMessage = z.object({
   type: z.literal('conversationsChanged'),
   conversations: z.array(ConversationSummaryWire),
   diagnostics: z.array(ConversationDiagnosticWire),
+  // Conversation ids pruned this pass. Optional for back-compat: producers that
+  // don't yet emit a delta (and older parsers) stay valid without it.
+  removed: z.array(z.string()).optional(),
 })
 // A single session's live title changed (an agent set its terminal title via OSC).
 // Sent on its own rather than rebroadcasting the whole session list, because agents
@@ -849,6 +852,8 @@ export const ScanResultMessage = z.object({
   requestId: z.string(),
   conversations: z.array(ConversationSummaryWire),
   diagnostics: z.array(ConversationDiagnosticWire),
+  // Conversation ids pruned this pass. Optional for back-compat (see above).
+  removed: z.array(z.string()).optional(),
 })
 // Periodic host health sample (currently every ~5 s). hostname keys the server's
 // latest-per-host map so several machines' daemons can report side by side.

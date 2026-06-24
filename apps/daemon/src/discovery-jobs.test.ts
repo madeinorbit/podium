@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { runMemoryBreakdownJob } from './discovery-jobs.js'
+import { runIndexRefreshJob, runMemoryBreakdownJob } from './discovery-jobs.js'
 
 function fakeProc(root: string, pid: number, ppid: number, comm: string, cmdline: string, rssPages: number) {
   const d = join(root, String(pid))
@@ -25,4 +25,23 @@ describe('runMemoryBreakdownJob', () => {
     expect(agent).toBeTruthy()
     expect(agent!.processCount).toBe(2)
   })
+})
+
+describe('runIndexRefreshJob', () => {
+  // Scans the real HOME with an in-memory cache; a large conversation history can
+  // take longer than vitest's 5s default, so give the real-filesystem pass room.
+  it(
+    'returns wire-shaped changed conversations',
+    async () => {
+      const { changed, removed, diagnostics } = await runIndexRefreshJob({
+        homeDir: process.env.HOME,
+        cachePath: ':memory:',
+      })
+      expect(Array.isArray(changed)).toBe(true)
+      expect(Array.isArray(removed)).toBe(true)
+      expect(Array.isArray(diagnostics)).toBe(true)
+      if (changed[0]) expect(typeof changed[0].id).toBe('string')
+    },
+    60_000,
+  )
 })
