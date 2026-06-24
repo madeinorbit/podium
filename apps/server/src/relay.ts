@@ -183,6 +183,8 @@ export class SessionRegistry {
         this.continueSession({ sessionId })
       },
       getSession: (sessionId) => {
+        // The controller re-arms off fresh agentState events, so overnight recovery
+        // after a daemon reattach relies on reattach re-seeding agentState (seedBootState).
         const s = this.sessions.get(sessionId)
         if (!s) return undefined
         return { live: s.status === 'live' || s.status === 'starting', state: s.agentState }
@@ -1189,6 +1191,7 @@ export class SessionRegistry {
         // survivor that fails to reattach is a real death — mark it exited.
         if (s && s.status !== 'exited') {
           s.onExit(-1) // the durable host is gone; the agent died with it
+          this.autoContinue.onSessionGone(s.sessionId) // cancel any armed retry promptly, not at the next backoff tick
           this.persist(s)
         }
         this.broadcastSessions()
