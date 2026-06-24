@@ -149,6 +149,7 @@ export function SettingsView(): JSX.Element {
             {tab === 'appearance' && <AppearanceSection />}
 
             {tab === 'sessions' && (
+              <>
               <Section
                 title="New sessions"
                 hint="Defaults applied when starting agents. “Agent decides” passes no flag — the CLI uses its own configuration."
@@ -217,6 +218,20 @@ export function SettingsView(): JSX.Element {
                   </Select>
                 </Row>
               </Section>
+              <Section
+                title="Auto-continue on errors"
+                hint="When an agent stops on a retryable error (rate limit, server error), keep re-sending “continue” on an increasing delay (up to 5 min) until it recovers. Heads up: this can keep an agent running indefinitely and consuming tokens."
+              >
+                <Row label="Enabled">
+                  <Switch
+                    checked={settings.autoContinue.enabled}
+                    onCheckedChange={(checked) =>
+                      patch({ autoContinue: { ...settings.autoContinue, enabled: checked } })
+                    }
+                  />
+                </Row>
+              </Section>
+              </>
             )}
 
             {tab === 'superagent' && (

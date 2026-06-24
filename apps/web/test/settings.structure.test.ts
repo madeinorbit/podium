@@ -20,3 +20,15 @@ describe('settings structure', () => {
     expect(src).toContain('both a bot token and chat ID')
   })
 })
+
+describe('auto-continue setting', () => {
+  it('exposes an auto-continue toggle with a token-cost warning', () => {
+    const src = read('SettingsView.tsx')
+    expect(src).toContain('Auto-continue on errors')
+    expect(src).toContain('autoContinue')
+    expect(src).toContain('enabled: checked')
+    // The plain warning the spec requires.
+    expect(src).toContain('indefinitely')
+    expect(src).toContain('tokens')
+  })
+})
