@@ -1,11 +1,13 @@
 import { execFileSync } from 'node:child_process'
+import { generateKeyPairSync, sign as cryptoSign } from 'node:crypto'
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { createServer, type Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { isNewer, parseManifest, runUpdate } from './podium-update'
+import { isNewer, parseManifest, runUpdate, verifyTarball } from './podium-update'
+import { PODIUM_UPDATE_PUBKEY } from './podium-update-pubkey'
 
 describe('podium update helpers', () => {
   it('isNewer compares semver-ish versions', () => {
@@ -13,14 +15,52 @@ describe('podium update helpers', () => {
     expect(isNewer('0.1.0', '0.1.0')).toBe(false)
     expect(isNewer('0.2.0', '0.10.0')).toBe(false)
   })
-  it('parseManifest extracts version + linux url', () => {
+  it('parseManifest extracts version + linux url + signature', () => {
     const m = parseManifest(
       JSON.stringify({
         version: '0.1.1',
-        platforms: { 'linux-x86_64': { url: 'http://h/a.tar.gz', signature: 'x' } },
+        platforms: { 'linux-x86_64': { url: 'http://h/a.tar.gz', signature: 'sig123' } },
       }),
     )
-    expect(m).toEqual({ version: '0.1.1', url: 'http://h/a.tar.gz' })
+    expect(m).toEqual({ version: '0.1.1', url: 'http://h/a.tar.gz', signature: 'sig123' })
+  })
+  it('parseManifest defaults a missing signature to empty string', () => {
+    const m = parseManifest(
+      JSON.stringify({
+        version: '0.1.1',
+        platforms: { 'linux-x86_64': { url: 'http://h/a.tar.gz' } },
+      }),
+    )
+    expect(m.signature).toBe('')
+  })
+})
+
+// --- Ed25519 verifyTarball (the pure security primitive) --------------------
+describe('verifyTarball', () => {
+  // Independent keypair so we can sign payloads deterministically in-test; the dev
+  // pubkey constant is exercised separately via the round-trip default path.
+  const { privateKey, publicKey } = generateKeyPairSync('ed25519')
+  const pubB64 = publicKey.export({ type: 'spki', format: 'der' }).toString('base64')
+  const payload = new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8])
+  const sigB64 = cryptoSign(null, payload, privateKey).toString('base64')
+
+  it('accepts a correctly-signed payload', () => {
+    expect(verifyTarball(payload, sigB64, pubB64)).toBe(true)
+  })
+  it('REJECTS a tampered payload (same signature)', () => {
+    const tampered = new Uint8Array([1, 2, 3, 4, 5, 6, 7, 9])
+    expect(verifyTarball(tampered, sigB64, pubB64)).toBe(false)
+  })
+  it('REJECTS a wrong signature (signed by a different key)', () => {
+    const other = generateKeyPairSync('ed25519').privateKey
+    const wrongSig = cryptoSign(null, payload, other).toString('base64')
+    expect(verifyTarball(payload, wrongSig, pubB64)).toBe(false)
+  })
+  it('REJECTS a missing/empty signature', () => {
+    expect(verifyTarball(payload, '', pubB64)).toBe(false)
+  })
+  it('REJECTS garbage that is not a valid signature (no throw)', () => {
+    expect(verifyTarball(payload, 'not-base64-sig!!', pubB64)).toBe(false)
   })
 })
 
@@ -52,6 +92,14 @@ describe('podium update swap crash-safety', () => {
     })
   }
 
+  // The dev signing key (private half) — gitignored, matches PODIUM_UPDATE_PUBKEY. Used to
+  // sign served tarballs so runUpdate's real verify gate passes against the committed pubkey.
+  function devSign(bytes: Buffer): string {
+    const der = Buffer.from(readFileSync(join(__dirname, '.podium-update-dev.key'), 'utf8').trim(), 'base64')
+    const key = { key: der, format: 'der' as const, type: 'pkcs8' as const }
+    return cryptoSign(null, bytes, key).toString('base64')
+  }
+
   // Build a v0.1.1 tarball whose root is `headless/`, mirroring the real artifact layout.
   function makeTarball(version: string): string {
     const stage = join(work, 'stage')
@@ -64,8 +112,14 @@ describe('podium update swap crash-safety', () => {
     return tarball
   }
 
-  async function startFeed(version: string, tarball: string | null): Promise<string> {
+  // signature: 'sign' => valid dev signature of the served bytes; 'bad' => a wrong signature.
+  async function startFeed(
+    version: string,
+    tarball: string | null,
+    signature: 'sign' | 'bad' = 'sign',
+  ): Promise<string> {
     const buf = tarball ? readFileSync(tarball) : null
+    const sig = buf ? (signature === 'sign' ? devSign(buf) : 'AAAA') : ''
     let port = 0
     server = createServer((req, res) => {
       const path = req.url ?? ''
@@ -75,7 +129,7 @@ describe('podium update swap crash-safety', () => {
           JSON.stringify({
             version,
             platforms: {
-              'linux-x86_64': { url: `http://127.0.0.1:${port}/artifact`, signature: '' },
+              'linux-x86_64': { url: `http://127.0.0.1:${port}/artifact`, signature: sig },
             },
           }),
         )
@@ -114,6 +168,19 @@ describe('podium update swap crash-safety', () => {
     expect(existsSync(`${dir}.old`)).toBe(false)
     // No sibling .podium-update-* temp dir is left behind.
     expect(readdirSync(dirname(dir)).filter((n) => n.startsWith('.podium-update-'))).toHaveLength(0)
+  })
+
+  it('REFUSES to swap when signature verification fails (tampered tarball)', async () => {
+    const dir = stageInstall('0.1.0')
+    const parent = dirname(dir)
+    // Feed advertises a newer version + a real tarball, but with a WRONG signature.
+    const feed = await startFeed('0.1.1', makeTarball('0.1.1'), 'bad')
+    await runUpdate(feed)
+    // Fail closed: exitCode set, install untouched, no backup, no leftover staging dir.
+    expect(process.exitCode).toBe(1)
+    expect(readFileSync(join(dir, 'VERSION'), 'utf8').trim()).toBe('0.1.0')
+    expect(existsSync(`${dir}.old`)).toBe(false)
+    expect(readdirSync(parent).filter((n) => n.startsWith('.podium-update-'))).toHaveLength(0)
   })
 
   it('stages on the install dir filesystem, not tmpdir (sibling temp dir)', async () => {

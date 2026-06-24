@@ -11,13 +11,18 @@
  *
  * The manifest shape mirrors Tauri's updater "dynamic" endpoint response
  * ({ version, notes, pub_date, platforms: { '<os>-<arch>': { url, signature } } }), so a
- * single feed can serve both the desktop and headless channels. NOTE: the headless path
- * does its OWN version check and does NOT yet verify the tarball signature — signing the
- * headless tarball (minisign, like the desktop AppImage) is a later hardening step.
+ * single feed can serve both the desktop and headless channels.
+ *
+ * SECURITY: the headless path does its own version check AND verifies the manifest's
+ * Ed25519 `signature` over the downloaded tarball bytes (against PODIUM_UPDATE_PUBKEY)
+ * BEFORE extracting/swapping. A tampered or unsigned tarball is rejected and the install
+ * is left untouched. (The desktop AppImage path uses a separate Tauri minisign keypair.)
  */
 import { execFileSync } from 'node:child_process'
+import { verify as cryptoVerify } from 'node:crypto'
 import { existsSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
+import { PODIUM_UPDATE_PUBKEY } from './podium-update-pubkey'
 
 export function isNewer(candidate: string, current: string): boolean {
   const pa = candidate.split('.').map(Number)
@@ -30,11 +35,39 @@ export function isNewer(candidate: string, current: string): boolean {
   return false
 }
 
-export function parseManifest(json: string): { version: string; url: string } {
-  const m = JSON.parse(json) as { version: string; platforms: Record<string, { url: string }> }
-  const url = m.platforms['linux-x86_64']?.url
-  if (!url) throw new Error('manifest has no linux-x86_64 artifact')
-  return { version: m.version, url }
+export function parseManifest(json: string): { version: string; url: string; signature: string } {
+  const m = JSON.parse(json) as {
+    version: string
+    platforms: Record<string, { url: string; signature?: string }>
+  }
+  const plat = m.platforms['linux-x86_64']
+  if (!plat?.url) throw new Error('manifest has no linux-x86_64 artifact')
+  return { version: m.version, url: plat.url, signature: plat.signature ?? '' }
+}
+
+/**
+ * Pure, testable Ed25519 verification of a downloaded tarball. Returns true iff
+ * `signatureB64` is a valid Ed25519 signature of `bytes` under the base64 SPKI/DER
+ * public key `pubkeyB64`. A missing/empty signature, a malformed key, or any crypto
+ * error returns false (never throws) so callers can fail closed.
+ */
+export function verifyTarball(
+  bytes: Uint8Array,
+  signatureB64: string,
+  pubkeyB64: string = PODIUM_UPDATE_PUBKEY,
+): boolean {
+  if (!signatureB64) return false
+  try {
+    const key = {
+      key: Buffer.from(pubkeyB64, 'base64'),
+      format: 'der' as const,
+      type: 'spki' as const,
+    }
+    // Ed25519 verify takes (algorithm=null, data, key, signature).
+    return cryptoVerify(null, bytes, key, Buffer.from(signatureB64, 'base64'))
+  } catch {
+    return false
+  }
 }
 
 function installDir(): string {
@@ -58,7 +91,7 @@ export async function runUpdate(feedBase: string): Promise<void> {
     process.exitCode = 1
     return
   }
-  const { version, url } = parseManifest(await res.text())
+  const { version, url, signature } = parseManifest(await res.text())
   if (!isNewer(version, cur)) {
     console.log(`[podium update] already up to date (${cur})`)
     return
@@ -73,16 +106,26 @@ export async function runUpdate(feedBase: string): Promise<void> {
     const tarball = join(tmp, 'bundle.tar.gz')
     const dl = await fetch(url)
     if (!dl.ok) throw new Error(`artifact download returned ${dl.status}`)
-    writeFileSync(tarball, new Uint8Array(await dl.arrayBuffer()))
+    const bytes = new Uint8Array(await dl.arrayBuffer())
+    // SECURITY GATE: verify the manifest's Ed25519 signature over the EXACT downloaded
+    // bytes against the committed pubkey BEFORE extracting or touching the install. A
+    // tampered/unsigned tarball is rejected here — fail closed, never swap.
+    if (!verifyTarball(bytes, signature)) {
+      console.error(
+        '[podium update] signature verification FAILED — refusing to install. ' +
+          'The tarball was not signed by the trusted Podium update key (tampered, ' +
+          'corrupt, or wrong feed). No changes were made.',
+      )
+      process.exitCode = 1
+      return
+    }
+    writeFileSync(tarball, bytes)
     // Extract into a staging dir, then atomically swap the install dir in place.
     const staged = join(tmp, 'staged')
     execFileSync('mkdir', ['-p', staged])
     execFileSync('tar', ['-xzf', tarball, '-C', staged])
     const newRoot = join(staged, 'headless')
     if (!existsSync(newRoot)) throw new Error('tarball did not contain a headless/ dir')
-    // TODO: verify signature before shipping to a non-localhost feed — the headless manifest
-    // carries a (currently empty) `signature` field but it is NOT yet checked. Sign the tarball
-    // (minisign, like the desktop AppImage) as a production-hardening step before remote feeds.
     const backup = `${dir}.old`
     rmSync(backup, { recursive: true, force: true })
     // Both `dir` and `newRoot` live on the same filesystem (sibling temp dir), so each rename is

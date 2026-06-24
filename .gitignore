@@ -25,3 +25,9 @@ test-results/
 
 # bun build --compile artifacts
 dist-bun/
+
+# Headless self-update DEV signing key (private half; pubkey is committed). Never commit.
+scripts/.podium-update-dev.key
+# Headless update artifacts produced by build-bun.ts
+podium-headless-*.tar.gz
+podium-headless-*.tar.gz.sig

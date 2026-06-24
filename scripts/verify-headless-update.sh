@@ -12,9 +12,10 @@
 # the live :18787 backend or ~/.podium. The build artifact (dist-bun/headless) is rebuilt
 # but that is the worktree's own build output, not a live install.
 #
-# NOTE: the headless tarball uses an UNSIGNED manifest — `podium update` does its own
-# version check only. Signing the headless tarball (minisign, like the desktop AppImage)
-# is a later hardening step.
+# SECURITY: the feed serves the tarball's real Ed25519 signature (built by build-bun.ts as
+# podium-headless-<v>.tar.gz.sig, signed with the dev key). `podium update` verifies it against
+# the committed pubkey BEFORE swapping. This script also exercises the TAMPER path: a feed that
+# advertises a valid version but a corrupted tarball must be REJECTED (no swap).
 set -uo pipefail
 cd "$(dirname "$0")/.."   # worktree root
 export PATH="$HOME/.cargo/bin:$PATH"
@@ -53,12 +54,27 @@ TARBALL="$WORK/podium-headless-0.1.1.tar.gz"
 tar -czf "$TARBALL" -C "$STAGE_V1" headless
 echo "=== staged v0.1.1 tarball $TARBALL ($(stat -c%s "$TARBALL") bytes) ==="
 
-# --- serve the v0.1.1 manifest + tarball on a local port --------------------
+# Sign the tarball with the dev key (matches the committed pubkey) -> SIG (base64).
+SIG="$(bun -e '
+  const { readFileSync } = require("node:fs");
+  const { sign } = require("node:crypto");
+  const der = Buffer.from(readFileSync(process.argv[1], "utf8").trim(), "base64");
+  const sig = sign(null, readFileSync(process.argv[2]), { key: der, format: "der", type: "pkcs8" });
+  process.stdout.write(sig.toString("base64"));
+' "$ROOT/scripts/.podium-update-dev.key" "$TARBALL")"
+echo "=== signed v0.1.1 tarball (sig ${#SIG} chars) ==="
+
+# Also stage a TAMPERED tarball (a byte appended) the bad feed will serve under the same sig.
+TAMPERED="$WORK/podium-headless-0.1.1.tampered.tar.gz"
+cp "$TARBALL" "$TAMPERED"
+printf 'x' >> "$TAMPERED"
+
+# --- serve the v0.1.1 manifest + tarball + signature on a local port --------
 FEED_SCRIPT="$WORK/feed.ts"
 cat > "$FEED_SCRIPT" <<'EOF'
 import { serve } from 'bun'
 import { readFileSync } from 'node:fs'
-const [tarball, version, portArg] = process.argv.slice(2)
+const [tarball, version, sig, portArg] = process.argv.slice(2)
 const port = Number(portArg ?? 8789)
 const buf = readFileSync(tarball)
 serve({
@@ -72,7 +88,7 @@ serve({
         version,
         notes: 'headless verification build',
         pub_date: '2026-06-22T00:00:00Z',
-        platforms: { 'linux-x86_64': { url: `http://127.0.0.1:${port}/artifact`, signature: '' } },
+        platforms: { 'linux-x86_64': { url: `http://127.0.0.1:${port}/artifact`, signature: sig } },
       })
     }
     if (url.pathname === '/artifact') {
@@ -84,26 +100,39 @@ serve({
 })
 console.error(`headless feed v${version} on :${port}`)
 EOF
-bun "$FEED_SCRIPT" "$TARBALL" 0.1.1 "$PORT" &
-FEED_PID=$!
-sleep 1
-echo "=== FEED up (pid $FEED_PID) on :$PORT ==="
-curl -fsS "http://127.0.0.1:$PORT/update/linux-x86_64/x86_64/0.1.0" | head -c 300; echo
 
-# --- run `podium update` from a COPY of the v0.1.0 install -------------------
-COPY="$WORK/copy-under-test"
-cp -a "$INSTALL_V0" "$COPY"
-PRE="$(cat "$COPY/VERSION")"
-echo "=== RUN podium update (copy VERSION pre=$PRE) ==="
-PODIUM_UPDATE_FEED="http://127.0.0.1:$PORT" PODIUM_HOME="$COPY" "$COPY/podium" update 2>&1 | sed 's/^/[update] /'
-POST="$(cat "$COPY/VERSION" 2>/dev/null || echo ABSENT)"
+run_update() { # <tarball-to-serve> ; serves under the valid SIG, runs update on a fresh copy
+  local serve_tar="$1" copy="$2"
+  FEED_PID=""
+  bun "$FEED_SCRIPT" "$serve_tar" 0.1.1 "$SIG" "$PORT" &
+  FEED_PID=$!
+  sleep 1
+  cp -a "$INSTALL_V0" "$copy"
+  PODIUM_UPDATE_FEED="http://127.0.0.1:$PORT" PODIUM_HOME="$copy" "$copy/podium" update 2>&1 | sed 's/^/[update] /'
+  kill "$FEED_PID" 2>/dev/null || true
+  FEED_PID=""
+  sleep 0.3
+}
+
+# --- CASE 1: valid signature -> SWAP ----------------------------------------
+echo "=== CASE 1: valid signed tarball (expect SWAP) ==="
+GOOD="$WORK/copy-good"
+run_update "$TARBALL" "$GOOD"
+GOOD_POST="$(cat "$GOOD/VERSION" 2>/dev/null || echo ABSENT)"
+
+# --- CASE 2: tampered tarball under same sig -> REJECT (no swap) -------------
+echo "=== CASE 2: tampered tarball (expect REJECT, no swap) ==="
+BAD="$WORK/copy-bad"
+run_update "$TAMPERED" "$BAD"
+BAD_POST="$(cat "$BAD/VERSION" 2>/dev/null || echo ABSENT)"
 
 # --- assert -----------------------------------------------------------------
 echo "---- RESULT ----"
-echo "copy VERSION: $PRE -> $POST"
-if [ "$POST" = "0.1.1" ] && [ -x "$COPY/podium" ]; then
-  echo "HEADLESS UPDATE VERIFIED ✓ (v0.1.0 -> v0.1.1) — podium update swapped the bundle"
+echo "good copy VERSION: 0.1.0 -> $GOOD_POST  (expect 0.1.1)"
+echo "bad  copy VERSION: 0.1.0 -> $BAD_POST   (expect 0.1.0, rejected)"
+if [ "$GOOD_POST" = "0.1.1" ] && [ -x "$GOOD/podium" ] && [ "$BAD_POST" = "0.1.0" ]; then
+  echo "HEADLESS UPDATE VERIFIED ✓ — signed tarball SWAPPED, tampered tarball REJECTED"
   exit 0
 fi
-echo "HEADLESS UPDATE NOT verified — VERSION is '$POST' (expected 0.1.1)"
+echo "HEADLESS UPDATE NOT verified — good='$GOOD_POST' (want 0.1.1), bad='$BAD_POST' (want 0.1.0)"
 exit 2

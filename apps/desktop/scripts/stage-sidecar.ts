@@ -7,12 +7,27 @@
  * Bun-compiled binaries (Bun appends a payload after the ELF, patchelf breaks it).
  * Instead we stage podium as a plain resource and spawn it via std::process::Command.
  */
-import { chmodSync, cpSync, existsSync, mkdirSync, rmSync } from 'node:fs'
+import { chmodSync, cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 
 const desktopDir = fileURLToPath(new URL('..', import.meta.url)) // apps/desktop/
 const repoRoot = fileURLToPath(new URL('../../..', import.meta.url)) // repo root
+
+// 0. Single-source the version: copy root package.json `version` into tauri.conf.json so the
+//    desktop + headless bundles always report ONE version. Root package.json is the source.
+const rootVersion = (
+  JSON.parse(readFileSync(`${repoRoot}/package.json`, 'utf8')) as { version?: string }
+).version
+if (rootVersion) {
+  const confPath = `${desktopDir}src-tauri/tauri.conf.json`
+  const conf = JSON.parse(readFileSync(confPath, 'utf8')) as { version?: string }
+  if (conf.version !== rootVersion) {
+    conf.version = rootVersion
+    writeFileSync(confPath, `${JSON.stringify(conf, null, 2)}\n`)
+    console.log(`[stage-sidecar] tauri.conf.json version -> ${rootVersion} (from root package.json)`)
+  }
+}
 
 // 1. Build the backend (compiled podium) + web (dist-bun/headless/web + dist-bun/podium).
 execFileSync('bun', ['run', 'package:headless'], { cwd: repoRoot, stdio: 'inherit' })
