@@ -28,6 +28,7 @@ import {
   type UsageBucketWire,
   type WorkState,
 } from '@podium/protocol'
+import { AutoContinueController } from './auto-continue'
 import { knownPathsFor } from './file-relay-policy'
 import { IssueService } from './issues'
 import {
@@ -93,6 +94,8 @@ export class SessionRegistry {
   private readonly clients = new Map<string, ClientConn>()
   /** Server-side issue tracker — constructed after loadFromStore() in the constructor. */
   readonly issues: IssueService
+  /** Backend auto-continue loop; constructed in the constructor (see below). */
+  private autoContinue!: AutoContinueController
   private readonly pendingScans = new Map<string, (r: ScanResult) => void>()
   private readonly pendingRepoScans = new Map<string, (r: ScanReposResult) => void>()
   private readonly pendingBreakdowns = new Map<string, (r: MemoryBreakdown | undefined) => void>()
@@ -172,6 +175,17 @@ export class SessionRegistry {
       repoOp: (op, cwd, args) => this.repoOp(op, cwd, args),
       broadcast: (msg) => {
         for (const c of this.clients.values()) c.send(msg)
+      },
+    })
+    this.autoContinue = new AutoContinueController({
+      isEnabled: () => this.store.getSettings().autoContinue.enabled,
+      sendContinue: (sessionId) => {
+        this.continueSession({ sessionId })
+      },
+      getSession: (sessionId) => {
+        const s = this.sessions.get(sessionId)
+        if (!s) return undefined
+        return { live: s.status === 'live' || s.status === 'starting', state: s.agentState }
       },
     })
   }
@@ -359,7 +373,22 @@ export class SessionRegistry {
   }
 
   setSettings(settings: PodiumSettings): PodiumSettings {
+    const wasEnabled = this.store.getSettings().autoContinue.enabled
     this.store.setSettings(settings)
+    const nowEnabled = settings.autoContinue.enabled
+    if (nowEnabled !== wasEnabled) {
+      const ids = nowEnabled
+        ? [...this.sessions.values()]
+            .filter(
+              (s) =>
+                (s.status === 'live' || s.status === 'starting') &&
+                s.agentState?.phase === 'errored' &&
+                s.agentState.error?.retryable === true,
+            )
+            .map((s) => s.sessionId)
+        : []
+      this.autoContinue.onSettingsChanged(nowEnabled, ids)
+    }
     return settings
   }
 
@@ -632,6 +661,7 @@ export class SessionRegistry {
       return { ok: false, reason: 'agent is working — let it reach idle first' }
     }
     session.status = 'hibernated'
+    this.autoContinue.onSessionGone(sessionId)
     this.persist(session)
     this.toDaemon({ type: 'kill', sessionId })
     this.broadcastSessions()
@@ -742,6 +772,7 @@ export class SessionRegistry {
 
   killSession(input: { sessionId: string }): void {
     this.toDaemon({ type: 'kill', sessionId: input.sessionId })
+    this.autoContinue.onSessionGone(input.sessionId)
     this.sessions.get(input.sessionId)?.detachAll()
     this.sessions.delete(input.sessionId)
     this.draftBySession.delete(input.sessionId)
@@ -1129,6 +1160,7 @@ export class SessionRegistry {
         break
       case 'agentExit': {
         this.sessions.get(msg.sessionId)?.onExit(msg.code)
+        this.autoContinue.onSessionGone(msg.sessionId)
         // Free the lingering per-session title debouncer when the process ends (audit
         // P1-12) — previously only killSession did, so every exited-but-not-killed
         // session leaked its debouncer closure. The row stays (resurrectable); a new
@@ -1167,6 +1199,7 @@ export class SessionRegistry {
         if (!session) break
         const prev = session.agentState
         session.setAgentState(msg.state)
+        this.autoContinue.onStateChange(msg.sessionId, msg.state)
         // Persist so the advanced recency (lastActiveAt) is durable across a server
         // restart — otherwise the row keeps its stale last-persisted time and the
         // ordering jumps backward on every redeploy until events re-arrive.

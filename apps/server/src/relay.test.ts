@@ -1,7 +1,12 @@
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { AgentPhase, ControlMessage, ServerMessage } from '@podium/protocol'
+import type {
+  AgentPhase,
+  AgentRuntimeState,
+  ControlMessage,
+  ServerMessage,
+} from '@podium/protocol'
 import { describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from './relay'
 import { type SessionRow, SessionStore } from './store'
@@ -1513,5 +1518,66 @@ describe('SessionRegistry snooze', () => {
     store.setSnooze('s1', null)
     const reg = new SessionRegistry(store)
     expect(reg.listSessions()[0]?.snoozedUntil).toBeNull()
+  })
+})
+
+describe('SessionRegistry — auto-continue', () => {
+  const erroredState: AgentRuntimeState = {
+    phase: 'errored',
+    since: '2026-06-24T00:00:00Z',
+    openTaskCount: 0,
+    error: { class: 'server_error', retryable: true },
+  }
+  const continueInput = expect.objectContaining({
+    type: 'input',
+    data: Buffer.from('continue\r').toString('base64'),
+  })
+
+  function enableAutoContinue(reg: SessionRegistry) {
+    const s = reg.getSettings()
+    reg.setSettings({ ...s, autoContinue: { enabled: true, promptDismissed: false } })
+  }
+
+  // A session must exist (createSession) and be marked live (bind) before agentState
+  // does anything — `bind` only marks an already-registered session live, it does not
+  // create the row. continueSession's status gate then accepts the live session.
+  function liveSession(reg: SessionRegistry): string {
+    const { sessionId } = reg.createSession({ agentKind: 'claude-code', cwd: '/proj' })
+    reg.onDaemonMessage(bind(sessionId))
+    return sessionId
+  }
+
+  it('does NOT auto-send continue when the setting is off', () => {
+    const reg = new SessionRegistry()
+    const daemon: ControlMessage[] = []
+    reg.attachDaemon((m) => daemon.push(m))
+    const sessionId = liveSession(reg)
+    reg.onDaemonMessage({ type: 'agentState', sessionId, state: erroredState })
+    expect(daemon).not.toContainEqual(continueInput)
+    reg.setSettings({ ...reg.getSettings(), autoContinue: { enabled: false, promptDismissed: false } })
+  })
+
+  it('auto-sends continue when an enabled session hits a retryable error', () => {
+    const reg = new SessionRegistry()
+    const daemon: ControlMessage[] = []
+    reg.attachDaemon((m) => daemon.push(m))
+    enableAutoContinue(reg)
+    const sessionId = liveSession(reg)
+    reg.onDaemonMessage({ type: 'agentState', sessionId, state: erroredState })
+    expect(daemon).toContainEqual(continueInput)
+    // Cancel the live loop so no real backoff timer dangles past the test.
+    reg.setSettings({ ...reg.getSettings(), autoContinue: { enabled: false, promptDismissed: false } })
+  })
+
+  it('arms already-errored sessions when the setting is switched on', () => {
+    const reg = new SessionRegistry()
+    const daemon: ControlMessage[] = []
+    reg.attachDaemon((m) => daemon.push(m))
+    const sessionId = liveSession(reg)
+    reg.onDaemonMessage({ type: 'agentState', sessionId, state: erroredState })
+    expect(daemon).not.toContainEqual(continueInput) // off → silent so far
+    enableAutoContinue(reg)
+    expect(daemon).toContainEqual(continueInput) // flipping on arms the errored session
+    reg.setSettings({ ...reg.getSettings(), autoContinue: { enabled: false, promptDismissed: false } })
   })
 })
