@@ -10,6 +10,11 @@ import { z } from 'zod'
  * spawn layer passes no flag and the CLI uses whatever the user configured there.
  */
 
+/** Auto-continue backoff: first cooldown after a `continue` nudge, doubling each
+ *  consecutive retry, capped. `min(BASE * 2^attempt, MAX)`. */
+export const AUTO_CONTINUE_BASE_DELAY_MS = 10_000
+export const AUTO_CONTINUE_MAX_DELAY_MS = 300_000
+
 export const HarnessAgent = z.enum(['claude-code', 'codex', 'grok', 'opencode', 'cursor'])
 export type HarnessAgent = z.infer<typeof HarnessAgent>
 
@@ -118,6 +123,15 @@ export const PodiumSettings = z.object({
       assistantEnabled: z.boolean().default(true),
     })
     .default({}),
+  /** When enabled, the server re-sends `continue` to any session stopped on a
+   *  retryable error, on an escalating backoff up to 5 min. `promptDismissed`
+   *  suppresses the one-time opt-in popup once the user has answered it. */
+  autoContinue: z
+    .object({
+      enabled: z.boolean().default(false),
+      promptDismissed: z.boolean().default(false),
+    })
+    .default({}),
 })
 export type PodiumSettings = z.infer<typeof PodiumSettings>
 
@@ -147,4 +161,10 @@ export function normalizeSettings(raw: unknown): PodiumSettings {
     superagent: migrateCodexHarness(parsed.superagent),
     workLlm: migrateCodexHarness(parsed.workLlm),
   }
+}
+
+/** The first manual Continue click offers to enable auto-continue — but only once
+ *  (until answered), and never when it's already on. */
+export function shouldPromptAutoContinue(settings: PodiumSettings): boolean {
+  return !settings.autoContinue.enabled && !settings.autoContinue.promptDismissed
 }
