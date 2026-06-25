@@ -117,6 +117,17 @@ describe('Session', () => {
     expect(toDaemon).toHaveBeenCalledWith({ type: 'resize', sessionId: 's1', cols: 120, rows: 40 })
   })
 
+  it('ignores a resize from the controller when its page is backgrounded', () => {
+    const toDaemon = vi.fn()
+    const s = makeSession(toDaemon)
+    const a = makeClient('a')
+    s.attachClient(a) // controller
+    a.visible = false // page backgrounded
+    s.handleResize('a', 200, 50)
+    expect(s.geometry).toEqual(geo) // unchanged
+    expect(toDaemon).not.toHaveBeenCalledWith({ type: 'resize', sessionId: 's1', cols: 200, rows: 50 })
+  })
+
   it('takeover bumps epoch, resizes+redraws the agent, broadcasts controllerChanged + geometry', () => {
     const toDaemon = vi.fn()
     const s = makeSession(toDaemon)

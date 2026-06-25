@@ -337,7 +337,10 @@ export class Session {
   handleResize(clientId: string, cols: number, rows: number): void {
     const client = this.clients.get(clientId)
     if (client) client.viewport = { cols, rows }
-    if (clientId === this.controllerId) {
+    // A backgrounded page must never move the shared PTY size — its grid is stale
+    // (a hidden xterm reports its last on-screen size). Record the viewport so a
+    // later foreground/takeover can use it, but do not drive the agent.
+    if (clientId === this.controllerId && client?.visible !== false) {
       this.geometry = { cols, rows }
       this.toDaemon({ type: 'resize', sessionId: this.sessionId, cols, rows })
     }
