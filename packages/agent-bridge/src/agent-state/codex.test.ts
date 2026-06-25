@@ -200,6 +200,37 @@ describe('observeCodexState rollout pinning', () => {
     expect(found.id).toBe('sessA')
     expect(found.path).toBe(older)
   })
+
+  it('does not grab a cwd sibling on reattach without a resume value or start floor', async () => {
+    // The reattach signature is: no resumeValue (the session never got a rollout —
+    // e.g. an empty pane the user never prompted) AND no startedAtMs (only a fresh
+    // spawn passes one). Discovering by cwd here would latch onto an unrelated
+    // sibling's rollout and re-corrupt the session. The observer must stay idle
+    // until it has something authoritative to bind to.
+    const home = await mkdtemp(join(tmpdir(), 'podium-codex-noref-'))
+    const dir = join(home, '.codex', 'sessions', '2026', '06', '25')
+    await mkdir(dir, { recursive: true })
+    const cwd = '/repo/empty-pane'
+    await writeFile(
+      join(dir, 'rollout-2026-06-25T11-00-00-sibling.jsonl'),
+      jsonl([{ type: 'session_meta', payload: { id: 'sibling', cwd, source: 'cli' } }]),
+    )
+
+    let announced: { id?: string; path: string } | undefined
+    const obs = observeCodexState({
+      cwd,
+      homeDir: home,
+      // neither resumeValue nor startedAtMs — the reattach-without-ref shape
+      pollMs: 10,
+      onSession: (id, path) => {
+        announced = { id, path }
+      },
+      onEvents: () => {},
+    })
+    await new Promise((r) => setTimeout(r, 200))
+    obs.stop()
+    expect(announced).toBeUndefined()
+  })
 })
 
 describe('observeCodexState titles', () => {

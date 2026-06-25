@@ -171,6 +171,10 @@ export function observeCodexState(opts: {
   const codexHome = join(opts.homeDir ?? homedir(), '.codex')
   const root = join(codexHome, 'sessions')
   const startedAtMs = opts.startedAtMs ?? 0
+  // Only a FRESH SPAWN passes a start floor (the daemon omits it on reattach). With
+  // no resumeValue AND no start floor we're reattaching a session that never had a
+  // rollout — discovering by cwd would grab a sibling's, so we stay idle instead.
+  const canDiscoverByCwd = opts.startedAtMs !== undefined
   let stopped = false
   let rolloutPath: string | undefined
   let announced = false
@@ -242,7 +246,9 @@ export function observeCodexState(opts: {
         // rollout yet) discovers by cwd.
         const found = opts.resumeValue
           ? await resolvePinnedCodexRollout(opts.resumeValue, opts.homeDir)
-          : await findLiveCodexRollout(root, opts.cwd, startedAtMs)
+          : canDiscoverByCwd
+            ? await findLiveCodexRollout(root, opts.cwd, startedAtMs)
+            : undefined
         if (!found) return
         rolloutPath = found.path
         if (!announced && found.id) {
