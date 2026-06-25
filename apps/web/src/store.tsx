@@ -78,6 +78,10 @@ export interface Store {
    *  per-device default; the hibernated/exited-forces-chat rule still wins over it. */
   panelMode: Record<string, 'chat' | 'native'>
   setPanelMode: (sessionId: string, mode: 'chat' | 'native') => void
+  /** The EFFECTIVE rendered mode per session (native terminal vs chat) as each
+   *  AgentPanel computes it — distinct from the saved `panelMode` override. Reported
+   *  up the viewState channel so the server has the signal; not persisted. */
+  setPanelRenderMode: (sessionId: string, mode: 'chat' | 'native') => void
   fileTabs: FileTab[]
   openFile: (sessionId: string, path: string) => void
   closeFileTab: (id: string) => void
@@ -246,6 +250,9 @@ export function StoreProvider({
   const [focusedPane, setFocusedPane] = useState<'A' | 'B'>('A')
   const [panelMode, setPanelMode] =
     useState<Record<string, 'chat' | 'native'>>(readStoredPanelModes)
+  // Effective rendered mode per session (what AgentPanel actually shows), reported up
+  // the viewState channel. Not persisted — it's re-reported on mount from live state.
+  const [panelRenderModes, setPanelRenderModes] = useState<Record<string, 'chat' | 'native'>>({})
   const [fileTabs, setFileTabs] = useState<FileTab[]>([])
   const started = useRef(false)
   // Latest reportViewState closure, so the once-mounted visibilitychange listener
@@ -467,6 +474,12 @@ export function StoreProvider({
     },
     [],
   )
+  const setPanelRenderModeCb = useMemo(
+    () => (sessionId: string, mode: 'chat' | 'native') => {
+      setPanelRenderModes((m) => (m[sessionId] === mode ? m : { ...m, [sessionId]: mode }))
+    },
+    [],
+  )
   const setWorkState = useMemo(
     () => async (sessionId: string, workState: WorkState | null) => {
       setSessions((all) =>
@@ -509,9 +522,14 @@ export function StoreProvider({
         ? [paneA, split ? paneB : null].filter((x): x is string => x != null)
         : []
       const focused = tabVisible ? (effectivePane === 'A' ? paneA : paneB) : null
-      hub.setViewState(visible, focused)
+      // Rendered mode (native/chat) for each visible session — default 'native' until
+      // its AgentPanel reports its effective mode. Wired through to the server; does
+      // not affect output scheduling.
+      const modes: Record<string, 'native' | 'chat'> = {}
+      for (const sid of visible) modes[sid] = panelRenderModes[sid] ?? 'native'
+      hub.setViewState(visible, focused, modes)
     },
-    [hub, paneA, paneB, split, focusedPane],
+    [hub, paneA, paneB, split, focusedPane, panelRenderModes],
   )
   // Re-derive + send on every change to the inputs, and keep the ref current so the
   // visibilitychange listener (registered once at mount) calls the latest closure.
@@ -652,6 +670,7 @@ export function StoreProvider({
     setFocusedPane,
     panelMode,
     setPanelMode: setPanelModeCb,
+    setPanelRenderMode: setPanelRenderModeCb,
     split,
     toggleSplit: () => setSplit((s) => !s),
     refreshRepos,

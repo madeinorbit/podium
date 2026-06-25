@@ -85,6 +85,7 @@ const stableStoreFns = {
   hibernateSession: vi.fn(async () => {}),
   openFile: vi.fn(),
   setPanelMode: vi.fn(),
+  setPanelRenderMode: vi.fn(),
   resurrectSession: vi.fn(async () => {}),
   killSession: vi.fn(async () => {}),
 }

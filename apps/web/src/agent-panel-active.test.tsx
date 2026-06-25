@@ -76,6 +76,7 @@ const stableStoreFns = {
   hibernateSession: vi.fn(async () => {}),
   openFile: vi.fn(),
   setPanelMode: vi.fn(),
+  setPanelRenderMode: vi.fn(),
   // Used by child components (SnoozeControl/Exited/Hibernated) on click only.
   resurrectSession: vi.fn(async () => {}),
   killSession: vi.fn(async () => {}),

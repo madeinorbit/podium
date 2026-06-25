@@ -126,6 +126,7 @@ export function AgentPanel({
     openFile,
     panelMode,
     setPanelMode,
+    setPanelRenderMode,
   } = useStore()
   const { guardedArchive } = useSessionGuard()
   const session = sessions.find((s) => s.sessionId === sessionId)
@@ -165,6 +166,12 @@ export function AgentPanel({
   })
   // The hibernated/exited-forces-chat rule still wins over any persisted 'native'.
   const effectiveMode: PanelMode = chatCapable ? mode : 'native'
+
+  // Report the EFFECTIVE rendered mode up to the store so it's wired through the
+  // viewState channel to the server (available signal; does not change streaming).
+  useEffect(() => {
+    setPanelRenderMode(sessionId, effectiveMode)
+  }, [sessionId, effectiveMode, setPanelRenderMode])
 
   const pickMode = (m: PanelMode) => {
     // Persist the per-session override in the store (#35)…
