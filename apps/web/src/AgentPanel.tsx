@@ -442,16 +442,14 @@ export function AgentPanel({
   }, [effectiveMode])
 
   // Drive the terminal's size eligibility from the tab's active/visible/mode
-  // state. Separate from the mount effect so a tab switch (active flip) never
-  // tears down and re-attaches the terminal — it only flips eligibility.
+  // state. Separate from the mount effect so a tab/mode switch never tears down
+  // and re-attaches the terminal — it only flips eligibility on the live ref.
   //
-  // A native<->chat (or *->hibernated/exited) switch DOES remount/unmount the
-  // terminal (the mount effect owns that), and React runs that effect's cleanup
-  // — which nulls `mountedRef.current` — before this effect's body. So on the
-  // switch INTO chat the ref is already gone and this is a harmless no-op; the
-  // disposed terminal stops driving size by virtue of being disposed. The case
-  // that needs this push is a pure `active` flip while staying native, where the
-  // terminal stays mounted and only its eligibility must change.
+  // The terminal stays mounted across native<->chat (the mount effect no longer
+  // keys on mode), so `mountedRef.current` is still set in chat. This effect is
+  // what flips its eligibility on that still-live ref: `setActive(false)` when
+  // entering chat or going inactive (so the hidden terminal stops driving size),
+  // and `setActive(true)` when returning to active native.
   const terminalActive = active && effectiveMode === 'native' && !hibernated && !exited
   useEffect(() => {
     mountedRef.current?.setActive(terminalActive)
