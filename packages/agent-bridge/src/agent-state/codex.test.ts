@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
@@ -119,6 +119,34 @@ describe('findLiveCodexRollout', () => {
     expect(await findLiveCodexRollout(sessions, '/repo/x', Date.now() + 60_000)).toBeUndefined()
     // …but reattach (floor 0) finds the live session's existing rollout regardless of age.
     expect((await findLiveCodexRollout(sessions, '/repo/x', 0))?.id).toBe('idle')
+  })
+
+  it('ignores the newer guardian subagent rollout and returns the interactive cli session', async () => {
+    // Codex ≥0.142 writes a SECOND rollout per interactive session for its internal
+    // "guardian" risk-judging subagent: same cwd, NEWER mtime, its own thread id, but
+    // `source: { subagent: … }`. Sorting by mtime would latch onto the guardian and
+    // cross-wire the chat view to its "judging one planned action" transcript.
+    const sessions = await mkdtemp(join(tmpdir(), 'podium-codex-obs-'))
+    const dir = join(sessions, '2026', '06', '25')
+    await mkdir(dir, { recursive: true })
+
+    const cli = join(dir, 'rollout-2026-06-25T11-07-49-cliid.jsonl')
+    await writeFile(
+      cli,
+      `${JSON.stringify({ type: 'session_meta', payload: { id: 'cliid', cwd: '/repo/x', source: 'cli' } })}\n`,
+    )
+    const guardian = join(dir, 'rollout-2026-06-25T11-07-50-guardid.jsonl')
+    await writeFile(
+      guardian,
+      `${JSON.stringify({ type: 'session_meta', payload: { id: 'guardid', cwd: '/repo/x', source: { subagent: { other: 'guardian' } } } })}\n`,
+    )
+    // Make the guardian strictly newer so an mtime sort would pick it.
+    await utimes(cli, new Date(1000), new Date(1000))
+    await utimes(guardian, new Date(2000), new Date(2000))
+
+    const found = await findLiveCodexRollout(sessions, '/repo/x', 0)
+    expect(found?.path).toBe(cli)
+    expect(found?.id).toBe('cliid')
   })
 })
 

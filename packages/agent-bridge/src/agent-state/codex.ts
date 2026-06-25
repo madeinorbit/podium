@@ -2,7 +2,11 @@ import type { Dirent } from 'node:fs'
 import { open, readdir, readFile, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import { cleanCodexTitle, codexPromptTitle } from '../discovery/providers/codex.js'
+import {
+  cleanCodexTitle,
+  codexPromptTitle,
+  isInteractiveCodexSource,
+} from '../discovery/providers/codex.js'
 import {
   createCodexStateMetadataReader,
   readCodexStateMetadata,
@@ -316,9 +320,14 @@ export function observeCodexState(opts: {
 }
 
 /**
- * Newest `*.jsonl` under `~/.codex/sessions` whose `session_meta.cwd` matches and
- * whose mtime is at/after the spawn (with a small grace window). Returns its path
- * plus the `session_meta.id` (used as the resume value).
+ * Newest INTERACTIVE `*.jsonl` under `~/.codex/sessions` whose `session_meta.cwd`
+ * matches and whose mtime is at/after the spawn (with a small grace window).
+ * Returns its path plus the `session_meta.id` (used as the resume value).
+ *
+ * "Interactive" (`isInteractiveCodexSource`) is load-bearing: Codex ≥0.142 writes
+ * a second, newer rollout per session for its internal "guardian" subagent. Sorting
+ * by mtime alone would latch onto the guardian and bind the chat view to its
+ * "judging one planned action" transcript instead of the live session's.
  */
 export async function findLiveCodexRollout(
   sessionsRoot: string,
@@ -356,7 +365,8 @@ export async function findLiveCodexRollout(
       if (
         payload &&
         strField(meta, 'type') === 'session_meta' &&
-        strField(payload, 'cwd') === cwd
+        strField(payload, 'cwd') === cwd &&
+        isInteractiveCodexSource(payload.source)
       ) {
         return { path: c.path, id: strField(payload, 'id') }
       }
