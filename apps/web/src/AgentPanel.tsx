@@ -346,6 +346,7 @@ export function AgentPanel({
     const mounted = mountSession(termRef.current, {
       hub,
       sessionId,
+      active: active && effectiveMode === 'native' && !hibernated && !exited,
       ...(toolbarRef.current ? { toolbarEl: toolbarRef.current } : {}),
       ...(E2E ? { test: true } : {}),
       // Don't grab focus on mount — that pops the soft keyboard over the
@@ -386,6 +387,22 @@ export function AgentPanel({
       mountedRef.current = null
     }
   }, [hub, sessionId, effectiveMode, hibernated, exited, session?.agentKind, setSessionDraft])
+
+  // Drive the terminal's size eligibility from the tab's active/visible/mode
+  // state. Separate from the mount effect so a tab switch (active flip) never
+  // tears down and re-attaches the terminal — it only flips eligibility.
+  //
+  // A native<->chat (or *->hibernated/exited) switch DOES remount/unmount the
+  // terminal (the mount effect owns that), and React runs that effect's cleanup
+  // — which nulls `mountedRef.current` — before this effect's body. So on the
+  // switch INTO chat the ref is already gone and this is a harmless no-op; the
+  // disposed terminal stops driving size by virtue of being disposed. The case
+  // that needs this push is a pure `active` flip while staying native, where the
+  // terminal stays mounted and only its eligibility must change.
+  const terminalActive = active && effectiveMode === 'native' && !hibernated && !exited
+  useEffect(() => {
+    mountedRef.current?.setActive(terminalActive)
+  }, [terminalActive])
 
   // Kept mounted while hidden (inactive tab) so its terminal state survives a tab
   // switch — when it becomes the visible tab again, return focus to it. Gated on
