@@ -241,7 +241,13 @@ export function AgentPanel({
   }, [hub, sessionId, session?.cwd, openFile])
 
   useEffect(() => {
-    if (effectiveMode !== 'native' || hibernated || exited) return
+    // The terminal stays mounted across a chat<->native toggle (Task 6): it's
+    // kept alive (hidden under the chat overlay) and marked inactive via the
+    // eligibility effect below, so a toggle neither disposes nor re-attaches it.
+    // Only hibernated/exited (no live PTY) skip mounting; the container is null
+    // then too. Crucially this effect no longer depends on effectiveMode, so a
+    // mode flip doesn't re-run it.
+    if (hibernated || exited) return
     if (!termRef.current) return
     setReady(false)
     setAtBottom(true)
@@ -386,7 +392,7 @@ export function AgentPanel({
       mounted.dispose()
       mountedRef.current = null
     }
-  }, [hub, sessionId, effectiveMode, hibernated, exited, session?.agentKind, setSessionDraft])
+  }, [hub, sessionId, hibernated, exited, session?.agentKind, setSessionDraft])
 
   // Drive the terminal's size eligibility from the tab's active/visible/mode
   // state. Separate from the mount effect so a tab switch (active flip) never
@@ -577,15 +583,23 @@ export function AgentPanel({
             worktreePath={prettyCwd(session.cwd)}
           />
         )
-      ) : effectiveMode === 'chat' ? (
-        <ChatView sessionId={sessionId} active={active} />
       ) : (
+        // Warm chat<->native toggle (Task 6): the terminal container stays
+        // mounted in BOTH modes — `hidden` (display:none) when in chat — so
+        // switching modes never disposes and re-attaches the PTY. ChatView is
+        // rendered as a sibling overlay on top when in chat mode.
         <>
+          {effectiveMode === 'chat' && <ChatView sessionId={sessionId} active={active} />}
           {/* The xterm surface is hard-pinned to its own dark background (#0e0e12,
               matching the terminal theme in terminal-client) regardless of the app
               theme — otherwise a light theme shows a white container edge around the
               still-dark terminal. Revisit when the terminal itself becomes theme-aware. */}
-          <div className="relative flex min-h-0 flex-1 flex-col bg-[#0e0e12]">
+          <div
+            className={cn(
+              'relative flex min-h-0 flex-1 flex-col bg-[#0e0e12]',
+              effectiveMode === 'chat' && 'hidden',
+            )}
+          >
             <div ref={termRef} className="term min-h-0 flex-1 px-1.5 py-1" />
             {!ready && (
               <div
@@ -619,7 +633,10 @@ export function AgentPanel({
               Hidden until the session is ready — the key bar over a "Starting…"
               screen is just noise (and the D-pad floated oddly above the overlay). */}
           <div
-            className={ready ? 'key-actions' : 'key-actions kb-hidden'}
+            className={cn(
+              ready ? 'key-actions' : 'key-actions kb-hidden',
+              effectiveMode === 'chat' && 'hidden',
+            )}
             onPointerDown={(e) => e.preventDefault()}
           >
             <button
@@ -660,7 +677,13 @@ export function AgentPanel({
               </button>
             )}
           </div>
-          <div ref={toolbarRef} className={ready ? 'toolbar' : 'toolbar kb-hidden'} />
+          <div
+            ref={toolbarRef}
+            className={cn(
+              ready ? 'toolbar' : 'toolbar kb-hidden',
+              effectiveMode === 'chat' && 'hidden',
+            )}
+          />
         </>
       )}
     </div>
