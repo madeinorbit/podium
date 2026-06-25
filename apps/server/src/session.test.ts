@@ -187,6 +187,27 @@ describe('Session', () => {
     }
   })
 
+  it('requestControl from a not-visible client is a no-op', () => {
+    const toDaemon = vi.fn()
+    const s = makeSession(toDaemon)
+    const a = makeClient('a')
+    const b = makeClient('b')
+    s.attachClient(a)
+    s.attachClient(b)
+    b.visible = false
+    toDaemon.mockClear()
+    s.requestControl('b')
+    expect(s.controllerId).toBe('a')
+    expect(s.geometry).toEqual(geo)
+    expect(s.epoch).toBe(0)
+    expect(toDaemon).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'resize' }),
+    )
+    expect(toDaemon).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'redraw' }),
+    )
+  })
+
   it('broadcasts frames to attached clients with a server-assigned monotonic seq', () => {
     const s = makeSession()
     const a = makeClient('a')

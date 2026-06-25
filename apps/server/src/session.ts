@@ -361,7 +361,12 @@ export class Session {
   }
 
   requestControl(clientId: string): void {
-    if (!this.clients.has(clientId)) return
+    const client = this.clients.get(clientId)
+    // A PTY has one shared size, driven only by a visible foreground client. A
+    // not-visible requester would resize the shared agent to its stale viewport,
+    // bypassing handleResize's visibility guard — reject it (no-op). Only the
+    // explicit-override path from a visible client may take control.
+    if (!client || client.visible === false) return
     this.controllerId = clientId
     this.geometry = { ...(this.clients.get(clientId)?.viewport ?? this.geometry) }
     this.epoch += 1
