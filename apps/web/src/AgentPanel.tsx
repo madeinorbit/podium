@@ -219,6 +219,15 @@ export function AgentPanel({
   // terminal on every keystroke.
   const draftRef = useRef('')
   draftRef.current = drafts[sessionId] ?? ''
+  // Re-arm hook for the chat→native draft flush. The flush machinery (one-shot
+  // guard + bounded poll) lives inside the mount effect's closure and otherwise
+  // only runs once at mount. Since the terminal now stays mounted across a
+  // chat↔native toggle (Task 6), the mount no longer re-fires on each toggle, so
+  // the mount effect publishes this re-arm fn here and the mode-transition effect
+  // below calls it whenever the panel ENTERS native — re-running the flush so a
+  // chat-authored draft lands in the native composer on every toggle, not just
+  // first mount.
+  const rearmFlushRef = useRef<(() => void) | null>(null)
 
   // Subscribe to the transcript to build the set of known absolute paths for
   // the file-link provider. Updates mountedRef.current?.view.setFileLinks so
@@ -377,22 +386,60 @@ export function AgentPanel({
     // frame, via the effect below). Poll a bounded number of times so the one-shot
     // chat→native flush still fires on a quiet session; it self-stops once the flush
     // resolves (injected, or skipped because empty/occupied/wrong-agent).
-    let flushAttempts = 0
-    const flushPoll = setInterval(() => {
-      if (flushTried || flushAttempts++ >= 40) {
-        clearInterval(flushPoll)
-        return
-      }
-      if (flushDraftToNative()) clearInterval(flushPoll)
-    }, 150)
+    let flushPoll: ReturnType<typeof setInterval> | null = null
+    const startFlushPoll = () => {
+      if (flushPoll) clearInterval(flushPoll)
+      let flushAttempts = 0
+      flushPoll = setInterval(() => {
+        if (flushTried || flushAttempts++ >= 40) {
+          if (flushPoll) clearInterval(flushPoll)
+          flushPoll = null
+          return
+        }
+        if (flushDraftToNative()) {
+          if (flushPoll) clearInterval(flushPoll)
+          flushPoll = null
+        }
+      }, 150)
+    }
+    startFlushPoll()
+    // Publish the re-arm hook: reset the one-shot guard and restart the bounded
+    // poll. Called by the mode-transition effect on each chat→native entry so the
+    // flush re-fires for a fresh chat draft (its own guards still protect against
+    // clobbering native-typed text / empty drafts). No-op when the terminal isn't
+    // mounted (hibernated/exited) since this ref stays null then.
+    rearmFlushRef.current = () => {
+      flushTried = false
+      startFlushPoll()
+    }
     return () => {
+      rearmFlushRef.current = null
       if (sampleTimer) clearTimeout(sampleTimer)
-      clearInterval(flushPoll)
+      if (flushPoll) clearInterval(flushPoll)
       offScroll()
       mounted.dispose()
       mountedRef.current = null
     }
   }, [hub, sessionId, hibernated, exited, session?.agentKind, setSessionDraft])
+
+  // Re-arm the chat→native draft flush whenever the panel ENTERS native mode
+  // while the terminal stays mounted (Task 6's warm toggle). The flush itself is
+  // a one-shot inside the mount effect; without this it would only run at first
+  // mount, so a draft typed in chat and then carried into native on a later
+  // toggle would never be injected. We skip the initial mount-in-native double
+  // (prevModeRef starts unset) — the mount effect already armed the poll there —
+  // and only re-arm on a real chat→native transition. native→chat (and the
+  // sampler direction) are untouched.
+  const prevModeRef = useRef<PanelMode | null>(null)
+  useEffect(() => {
+    const prev = prevModeRef.current
+    prevModeRef.current = effectiveMode
+    if (effectiveMode !== 'native') return
+    // Only a *transition* into native re-arms; the first observation (prev null)
+    // is the mount-in-native case already handled by the mount effect.
+    if (prev === null || prev === 'native') return
+    rearmFlushRef.current?.()
+  }, [effectiveMode])
 
   // Drive the terminal's size eligibility from the tab's active/visible/mode
   // state. Separate from the mount effect so a tab switch (active flip) never
