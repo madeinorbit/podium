@@ -1,5 +1,6 @@
 import type { ConnectionState, SessionConnection, SocketHub } from './connection'
 import { DomViewportSource } from './dom-viewport'
+import { decideResizeAction, type Grid } from './session-viewport'
 import { TerminalView } from './terminal-view'
 import { mountKeyToolbar } from './toolbar'
 
@@ -44,11 +45,19 @@ export interface MountSessionOptions {
    * mobile spawn — it focuses itself once the first frame lands instead.
    */
   focusOnMount?: boolean
+  /**
+   * Whether this panel is the active, foreground tab. Only an active panel on a
+   * visible page may drive the PTY size (and claim control). Defaults to true so
+   * existing single-panel callers are unaffected. Toggle at runtime via
+   * MountedSession.setActive — the panel is NOT remounted on tab switches.
+   */
+  active?: boolean
 }
 
 export interface MountedSession {
   connection: SessionConnection
   view: TerminalView
+  setActive(active: boolean): void
   dispose(): void
 }
 
@@ -60,44 +69,58 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
   const { hub, sessionId } = opts
   const view = new TerminalView()
   view.mount(el)
-  const fitted = view.fit()
 
-  // fitAndSend: attempt fit(); if the container isn't measurable yet, retry
-  // across rAFs (cap MAX_FIT_RETRIES frames). Guarded by a running flag so
-  // overlapping viewport-change events don't spawn multiple loops.
+  let active = opts.active ?? true
+  let serverGrid: Grid = { cols: view.cols(), rows: view.rows() }
+  const pageVisible = (): boolean =>
+    typeof document === 'undefined' || document.visibilityState === 'visible'
+  const eligible = (): boolean => active && pageVisible()
+
+  // fit-with-retry: a measurable container fits immediately; an unmeasurable one
+  // (just-revealed, layout not settled) retries across rAFs. onMeasured runs once
+  // a grid is obtained.
   const MAX_FIT_RETRIES = 10
-  let fitRetryRunning = false
-  function fitAndSend(): void {
+  let fitRunning = false
+  function fitWithRetry(onMeasured: (grid: Grid) => void): void {
     const grid = view.fit()
     if (grid) {
-      connection.sendResize(grid.cols, grid.rows)
+      onMeasured(grid)
       return
     }
-    if (fitRetryRunning) return
-    fitRetryRunning = true
+    if (fitRunning) return
+    fitRunning = true
     let attempts = 0
-    function retry(): void {
+    const retry = (): void => {
       attempts += 1
       const g = view.fit()
       if (g) {
-        fitRetryRunning = false
-        connection.sendResize(g.cols, g.rows)
-        connection.redraw()
+        fitRunning = false
+        onMeasured(g)
         return
       }
-      if (attempts < MAX_FIT_RETRIES) {
-        requestAnimationFrame(retry)
-      } else {
-        fitRetryRunning = false
-      }
+      if (attempts < MAX_FIT_RETRIES) requestAnimationFrame(retry)
+      else fitRunning = false
     }
     requestAnimationFrame(retry)
   }
 
-  let wasController = false
+  function applyFit(forceRedrawIfSame: boolean): void {
+    if (!eligible()) return
+    fitWithRetry((grid) => {
+      const action = decideResizeAction(grid, serverGrid, { forceRedrawIfSame })
+      if (action.kind === 'resize') connection.sendResize(action.cols, action.rows)
+      else if (action.kind === 'redraw') connection.redraw()
+    })
+  }
+
+  function becomeEligible(): void {
+    if (!eligible()) return
+    connection.requestControl() // last-foregrounded-wins
+    applyFit(true) // force a repaint on reveal even when the size is unchanged
+  }
+
   let lastEpoch = -1
   let firstFrameSeen = false
-  let onControllerEnter: (() => void) | undefined
 
   // Ready = "usable, drop the Starting… overlay". Fires on the FIRST of: the server
   // confirming the attach (onAttached), the first real frame, or the timeout backstop
@@ -135,6 +158,7 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
       if (view.cols() !== state.cols || view.rows() !== state.rows) {
         view.resize(state.cols, state.rows)
       }
+      serverGrid = { cols: state.cols, rows: state.rows }
       // Clear only on an in-session epoch bump — a controller takeover repaints the
       // grid for the new owner. The (re)attach clear is owned by onReset above, so a
       // plain reconnect that resumes from our cursor leaves the screen intact.
@@ -147,36 +171,14 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
       }
       el.dataset.role = state.role
       el.dataset.epoch = String(state.epoch)
-      if (state.role === 'controller') {
-        if (!wasController) {
-          wasController = true
-          onControllerEnter?.()
-        }
-      } else {
-        wasController = false
-      }
       opts.onState?.(state)
     },
   })
-  // The terminal was created at `fitted`; make sure the agent matches our viewport.
-  // If the container isn't measurable yet at mount time, the viewport-change retry
-  // loop will pick it up once layout settles.
-  if (fitted) connection.sendResize(fitted.cols, fitted.rows)
 
-  // On becoming controller, fit the terminal to THIS client's viewport and tell the agent.
-  // The initial layout resize fires before we are made controller, so without this the
-  // session would stay at the daemon's initial grid. Uses fitAndSend() so the bounded-rAF
-  // retry loop kicks in when the container isn't measurable yet (same path as viewport changes).
-  onControllerEnter = () => {
-    requestAnimationFrame(() => {
-      const s = connection.state()
-      if (s.role !== 'controller') return
-      // No view.clear() here: the server replays buffered output on attach, and clearing
-      // would wipe it (leaving normal-buffer apps blank). fitAndSend() resizes + redraw
-      // refresh the screen; xterm reflows the replayed content to the new grid.
-      fitAndSend()
-    })
-  }
+  // Becoming the active tab of a visible page claims control (last-foregrounded-wins)
+  // and fits the terminal to THIS client's viewport. We never resize/redraw/requestControl
+  // while ineligible, so a hidden tab can't pin the shared PTY to its stale grid.
+  if (active) becomeEligible()
 
   // Paste + arrows now live in the panel's React action row / D-pad above the key
   // bar, so the bar itself no longer renders a Paste key.
@@ -189,10 +191,14 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
   )
 
   const viewport = new DomViewportSource(el)
-  const offViewport = viewport.onChange(() => {
-    if (connection.state().role !== 'controller') return
-    fitAndSend()
-  })
+  const offViewport = viewport.onChange(() => applyFit(false))
+
+  const onVisibility = (): void => {
+    if (eligible()) becomeEligible()
+  }
+  if (typeof document !== 'undefined') {
+    document.addEventListener('visibilitychange', onVisibility)
+  }
 
   if (opts.focusOnMount !== false) view.focus()
 
@@ -236,8 +242,17 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
   return {
     connection,
     view,
+    setActive(next: boolean): void {
+      if (next === active) return
+      active = next
+      if (active) becomeEligible()
+      // going inactive: do nothing — never resize a hidden panel
+    },
     dispose() {
       if (readyTimer !== undefined) clearTimeout(readyTimer)
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', onVisibility)
+      }
       offInput()
       offViewport()
       toolbar?.dispose()
