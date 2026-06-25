@@ -191,11 +191,11 @@ export class Session {
 
   attachClient(client: ClientConn, sinceSeq?: number): void {
     this.clients.set(client.id, client)
-    // Only a visible client auto-acquires the size-driving controller role. A
-    // backgrounded first attacher (a hidden tab) must not silently start driving
-    // the agent's geometry off its stale grid — leave the controller null and the
-    // geometry frozen until a visible client attaches or takes over.
-    if (this.controllerId === null && client.visible !== false) this.controllerId = client.id
+    // First attacher takes the controller role. A non-rendering controller is
+    // harmless: the size operations are independently gated on per-session
+    // viewState (handleResize / requestControl below), so it can't move the PTY
+    // off a stale grid until it actually renders the session.
+    if (this.controllerId === null) this.controllerId = client.id
     // Resume vs full replay. On a reconnect the client passes the last seq it
     // rendered; if that point is still inside our bounded buffer, replay only the
     // frames it missed and flag the attach `resumed` so it appends to the screen it
@@ -307,17 +307,10 @@ export class Session {
     this.clients.delete(clientId)
     this.transcriptSubscribers.delete(clientId)
     if (this.controllerId === clientId) {
-      // Prefer a visible client; a hidden page must not silently inherit the size-
-      // driving controller role. If none are visible, freeze (null) — geometry is
-      // left untouched so the agent keeps its last real size.
-      let next: string | null = null
-      for (const [id, c] of this.clients) {
-        if (c.visible !== false) {
-          next = id
-          break
-        }
-      }
-      this.controllerId = next
+      // Hand the role to any remaining client (or null when none are left). A
+      // non-rendering inheritor is harmless — the size operations are gated on
+      // per-session viewState, so geometry stays put until it renders the session.
+      this.controllerId = this.clients.keys().next().value ?? null
       if (this.controllerId !== null) {
         this.broadcast({
           type: 'controllerChanged',
@@ -351,10 +344,10 @@ export class Session {
   handleResize(clientId: string, cols: number, rows: number): void {
     const client = this.clients.get(clientId)
     if (client) client.viewport = { cols, rows }
-    // A backgrounded page must never move the shared PTY size — its grid is stale
-    // (a hidden xterm reports its last on-screen size). Record the viewport so a
-    // later foreground/takeover can use it, but do not drive the agent.
-    if (clientId === this.controllerId && client?.visible !== false) {
+    // Only apply a resize from a client that is actually RENDERING this session on
+    // screen (per-session viewState). A backgrounded tab/page reports an empty
+    // viewVisible, so its stale grid can never move the shared PTY.
+    if (clientId === this.controllerId && client?.viewVisible.has(this.sessionId)) {
       this.geometry = { cols, rows }
       this.toDaemon({ type: 'resize', sessionId: this.sessionId, cols, rows })
     }
@@ -362,21 +355,23 @@ export class Session {
 
   requestControl(clientId: string): void {
     const client = this.clients.get(clientId)
-    // A PTY has one shared size, driven only by a visible foreground client. A
-    // not-visible requester would resize the shared agent to its stale viewport,
-    // bypassing handleResize's visibility guard — reject it (no-op). Only the
-    // explicit-override path from a visible client may take control.
-    if (!client || client.visible === false) return
+    if (!client) return
     this.controllerId = clientId
-    this.geometry = { ...(this.clients.get(clientId)?.viewport ?? this.geometry) }
     this.epoch += 1
-    this.toDaemon({
-      type: 'resize',
-      sessionId: this.sessionId,
-      cols: this.geometry.cols,
-      rows: this.geometry.rows,
-    })
-    this.toDaemon({ type: 'redraw', sessionId: this.sessionId })
+    // Only snap geometry to the requester's viewport + resize the agent if the
+    // requester is actually rendering this session (per-session viewState). If not
+    // (e.g. a viewState update hasn't landed yet), transfer control without sizing;
+    // the requester's eligible fit will drive the size through handleResize.
+    if (client.viewVisible.has(this.sessionId)) {
+      this.geometry = { ...(client.viewport ?? this.geometry) }
+      this.toDaemon({
+        type: 'resize',
+        sessionId: this.sessionId,
+        cols: this.geometry.cols,
+        rows: this.geometry.rows,
+      })
+      this.toDaemon({ type: 'redraw', sessionId: this.sessionId })
+    }
     this.broadcast({
       type: 'controllerChanged',
       sessionId: this.sessionId,

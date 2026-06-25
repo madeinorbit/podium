@@ -62,40 +62,6 @@ describe('Session', () => {
     expect(b.sent.at(-1)).toMatchObject({ type: 'attached', controllerId: 'a' })
   })
 
-  it('does not auto-promote a backgrounded first attacher to controller', () => {
-    const s = makeSession()
-    const a = makeClient('a')
-    a.visible = false
-    s.attachClient(a)
-    expect(s.controllerId).toBeNull()
-    expect(s.geometry).toEqual(geo) // frozen at the default; nothing drove it
-  })
-
-  it('hands control on detach to a visible client, not a hidden one', () => {
-    const s = makeSession()
-    const a = makeClient('a') // visible controller
-    const hidden = makeClient('h')
-    hidden.visible = false
-    const c = makeClient('c') // visible
-    s.attachClient(a)
-    s.attachClient(hidden)
-    s.attachClient(c)
-    expect(s.controllerId).toBe('a')
-    s.detachClient('a')
-    expect(s.controllerId).toBe('c') // skips the hidden client
-  })
-
-  it('freezes (null controller) on detach when only hidden clients remain', () => {
-    const s = makeSession()
-    const a = makeClient('a')
-    const hidden = makeClient('h')
-    hidden.visible = false
-    s.attachClient(a)
-    s.attachClient(hidden)
-    s.detachClient('a')
-    expect(s.controllerId).toBeNull()
-  })
-
   it('honors input only from the controller', () => {
     const toDaemon = vi.fn()
     const s = makeSession(toDaemon)
@@ -143,6 +109,7 @@ describe('Session', () => {
     const b = makeClient('b')
     s.attachClient(a)
     s.attachClient(b)
+    a.viewVisible = new Set(['s1']) // controller is rendering the session
     s.handleResize('b', 100, 30)
     expect(s.geometry).toEqual(geo)
     expect(toDaemon).not.toHaveBeenCalled()
@@ -151,15 +118,26 @@ describe('Session', () => {
     expect(toDaemon).toHaveBeenCalledWith({ type: 'resize', sessionId: 's1', cols: 120, rows: 40 })
   })
 
-  it('ignores a resize from the controller when its page is backgrounded', () => {
+  it('ignores a resize from a controller that isn’t rendering the session', () => {
     const toDaemon = vi.fn()
     const s = makeSession(toDaemon)
     const a = makeClient('a')
     s.attachClient(a) // controller
-    a.visible = false // page backgrounded
+    a.viewVisible = new Set() // not rendering s1 (e.g. a backgrounded tab)
     s.handleResize('a', 200, 50)
-    expect(s.geometry).toEqual(geo) // unchanged
+    expect(s.geometry).toEqual(geo) // unchanged — its stale grid can't move the PTY
     expect(toDaemon).not.toHaveBeenCalledWith({ type: 'resize', sessionId: 's1', cols: 200, rows: 50 })
+  })
+
+  it('applies a resize from a controller that is rendering the session', () => {
+    const toDaemon = vi.fn()
+    const s = makeSession(toDaemon)
+    const a = makeClient('a')
+    s.attachClient(a) // controller
+    a.viewVisible = new Set(['s1']) // rendering s1 on screen
+    s.handleResize('a', 200, 50)
+    expect(s.geometry).toEqual({ cols: 200, rows: 50 })
+    expect(toDaemon).toHaveBeenCalledWith({ type: 'resize', sessionId: 's1', cols: 200, rows: 50 })
   })
 
   it('takeover bumps epoch, resizes+redraws the agent, broadcasts controllerChanged + geometry', () => {
@@ -169,6 +147,7 @@ describe('Session', () => {
     const b = makeClient('b')
     s.attachClient(a)
     s.attachClient(b)
+    b.viewVisible = new Set(['s1']) // requester is rendering the session → snap-resizes
     s.handleResize('b', 50, 60)
     s.requestControl('b')
     expect(s.controllerId).toBe('b')
@@ -187,25 +166,25 @@ describe('Session', () => {
     }
   })
 
-  it('requestControl from a not-visible client is a no-op', () => {
+  it('requestControl from a client not rendering the session transfers control but does not snap-resize', () => {
     const toDaemon = vi.fn()
     const s = makeSession(toDaemon)
     const a = makeClient('a')
     const b = makeClient('b')
     s.attachClient(a)
     s.attachClient(b)
-    b.visible = false
+    b.viewport = { cols: 50, rows: 60 } // a stale viewport we must NOT snap to
+    b.viewVisible = new Set() // requester isn't rendering s1 yet (viewState not landed)
     toDaemon.mockClear()
     s.requestControl('b')
-    expect(s.controllerId).toBe('a')
+    // Control STILL transfers — a non-rendering controller is harmless (it can't
+    // resize until handleResize sees it in viewVisible).
+    expect(s.controllerId).toBe('b')
+    expect(s.epoch).toBe(1)
+    // …but the agent is NOT sized to the requester's possibly-stale viewport.
     expect(s.geometry).toEqual(geo)
-    expect(s.epoch).toBe(0)
-    expect(toDaemon).not.toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'resize' }),
-    )
-    expect(toDaemon).not.toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'redraw' }),
-    )
+    expect(toDaemon).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'resize' }))
+    expect(toDaemon).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'redraw' }))
   })
 
   it('broadcasts frames to attached clients with a server-assigned monotonic seq', () => {
@@ -297,6 +276,7 @@ describe('Session', () => {
     const s = makeSession()
     const a = makeClient('a')
     s.attachClient(a)
+    a.viewVisible = new Set(['s1']) // rendering the session → snap to its viewport
     a.viewport = { cols: 33, rows: 21 } // registry updates ClientConn.viewport on hello
     s.requestControl('a')
     expect(s.geometry).toEqual({ cols: 33, rows: 21 })
