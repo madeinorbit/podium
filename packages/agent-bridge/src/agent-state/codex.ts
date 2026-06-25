@@ -233,7 +233,16 @@ export function observeCodexState(opts: {
     reading = true
     try {
       if (!rolloutPath) {
-        const found = await findLiveCodexRollout(root, opts.cwd, startedAtMs)
+        // A reattach/resume already knows the session's own thread id — pin the
+        // rollout to THAT (state DB → filename), never re-discover by cwd+mtime.
+        // Several Codex sessions commonly share a repo cwd; resolving by newest
+        // mtime would collapse them all onto the single most-recent rollout, so
+        // every session's chat showed one transcript and the rest "disappeared"
+        // into one conversation identity. Only a FRESH spawn (no resumeValue, no
+        // rollout yet) discovers by cwd.
+        const found = opts.resumeValue
+          ? await resolvePinnedCodexRollout(opts.resumeValue, opts.homeDir)
+          : await findLiveCodexRollout(root, opts.cwd, startedAtMs)
         if (!found) return
         rolloutPath = found.path
         if (!announced && found.id) {
@@ -375,6 +384,21 @@ export async function findLiveCodexRollout(
     }
   }
   return undefined
+}
+
+/**
+ * The live-observer counterpart to `findCodexRolloutPath`: resolve a known
+ * thread id to `{ path, id }` so a reattached session pins to ITS OWN rollout
+ * instead of re-discovering by cwd+mtime. Returns undefined until the rollout
+ * exists (the poller retries), so a just-resumed session that hasn't written
+ * its file yet keeps waiting rather than latching onto a sibling.
+ */
+async function resolvePinnedCodexRollout(
+  resumeValue: string,
+  homeDir: string | undefined,
+): Promise<{ path: string; id: string } | undefined> {
+  const path = await findCodexRolloutPath({ resumeValue, ...(homeDir ? { homeDir } : {}) })
+  return path ? { path, id: resumeValue } : undefined
 }
 
 /**

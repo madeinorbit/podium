@@ -553,12 +553,22 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
       }),
     )
   }
-  const startCodexStateObserver = (sessionId: string, cwd: string, startedAtMs?: number): void => {
+  const startCodexStateObserver = (
+    sessionId: string,
+    cwd: string,
+    // A reattach/resume passes the session's known codex-thread id so the observer
+    // pins its OWN rollout instead of re-discovering by cwd+mtime (which collapses
+    // sibling sessions in the same repo onto the newest rollout). A fresh spawn
+    // passes undefined → discovery scoped by startedAtMs.
+    resumeValue: string | undefined,
+    startedAtMs?: number,
+  ): void => {
     stopCodexStateObserver(sessionId)
     codexStateObservers.set(
       sessionId,
       observeCodexState({
         cwd,
+        ...(resumeValue ? { resumeValue } : {}),
         ...(opts.discovery?.homeDir ? { homeDir: opts.discovery.homeDir } : {}),
         ...(startedAtMs !== undefined ? { startedAtMs } : {}),
         onSession: (rolloutId, rolloutPath) => {
@@ -816,7 +826,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     if (msg.agentKind === 'grok') {
       startGrokStateObserver(msg.sessionId, msg.cwd, msg.resume?.value, init.grokStartedAt)
     } else if (msg.agentKind === 'codex') {
-      startCodexStateObserver(msg.sessionId, msg.cwd, init.grokStartedAt)
+      startCodexStateObserver(msg.sessionId, msg.cwd, msg.resume?.value, init.grokStartedAt)
     } else if (msg.agentKind === 'opencode') {
       startOpencodeStateObserver(msg.sessionId, msg.cwd, msg.resume?.value, init.grokStartedAt)
     } else if (msg.agentKind === 'cursor') {

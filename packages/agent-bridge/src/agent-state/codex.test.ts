@@ -150,6 +150,58 @@ describe('findLiveCodexRollout', () => {
   })
 })
 
+describe('observeCodexState rollout pinning', () => {
+  const jsonl = (lines: unknown[]): string => `${lines.map((l) => JSON.stringify(l)).join('\n')}\n`
+
+  const sessionFrom = (
+    home: string,
+    cwd: string,
+    resumeValue: string | undefined,
+  ): Promise<{ id?: string; path: string }> =>
+    new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        obs.stop()
+        reject(new Error('onSession was not called'))
+      }, 3000)
+      const obs = observeCodexState({
+        cwd,
+        homeDir: home,
+        ...(resumeValue ? { resumeValue } : {}),
+        startedAtMs: 0,
+        pollMs: 10,
+        onSession: (id, path) => {
+          clearTimeout(timer)
+          obs.stop()
+          resolve({ id, path })
+        },
+        onEvents: () => {},
+      })
+    })
+
+  it('pins to the resumeValue thread on reattach, ignoring a newer sibling in the same cwd', async () => {
+    // The reattach bug: several Codex sessions share a repo cwd. On reattach the
+    // observer re-resolved the rollout purely by cwd + newest mtime, so EVERY session
+    // latched onto the single most-recent rollout — collapsing them onto one
+    // transcript (and one conversation identity, hiding the rest). A reattached
+    // session already knows its own thread id; it must pin to THAT rollout.
+    const home = await mkdtemp(join(tmpdir(), 'podium-codex-pin-'))
+    const dir = join(home, '.codex', 'sessions', '2026', '06', '25')
+    await mkdir(dir, { recursive: true })
+    const cwd = '/repo/multi'
+
+    const older = join(dir, 'rollout-2026-06-25T10-00-00-sessA.jsonl')
+    await writeFile(older, jsonl([{ type: 'session_meta', payload: { id: 'sessA', cwd, source: 'cli' } }]))
+    const newer = join(dir, 'rollout-2026-06-25T11-00-00-sessB.jsonl')
+    await writeFile(newer, jsonl([{ type: 'session_meta', payload: { id: 'sessB', cwd, source: 'cli' } }]))
+    await utimes(older, new Date(1000), new Date(1000))
+    await utimes(newer, new Date(2000), new Date(2000))
+
+    const found = await sessionFrom(home, cwd, 'sessA')
+    expect(found.id).toBe('sessA')
+    expect(found.path).toBe(older)
+  })
+})
+
 describe('observeCodexState titles', () => {
   const jsonl = (lines: unknown[]): string => `${lines.map((l) => JSON.stringify(l)).join('\n')}\n`
 
