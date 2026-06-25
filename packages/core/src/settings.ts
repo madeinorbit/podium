@@ -44,12 +44,13 @@ export type ApiProvider = z.infer<typeof ApiProvider>
  * Flat rather than a discriminated union so the settings form can hold both
  * halves' values while the user toggles `kind`.
  *
- * - `harness`: drive a coding-agent CLI. Claude Code's `claude -p` bills
- *   pay-per-use API rates even with a subscription; Grok runs through `grok -p`.
+ * - `harness`: drive a coding-agent CLI with that CLI's local login/provider
+ *   account. Usage can count against plan limits or API billing depending on the
+ *   selected harness and account configuration.
  * - `api`: call a provider over HTTP. OpenRouter/Anthropic/OpenAI use an API key;
  *   `codex` instead reuses the local ChatGPT login (`~/.codex/auth.json`, no key),
- *   talking to the Codex backend's Responses API — effectively free within plan
- *   limits, and unlike the old `codex exec` harness it gets the full tool belt.
+ *   talking to the Codex backend's Responses API — covered by plan limits, and
+ *   unlike the old `codex exec` harness it gets the full tool belt.
  */
 export const LlmBackend = z.object({
   kind: z.enum(['harness', 'api']).default('api'),

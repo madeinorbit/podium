@@ -550,6 +550,17 @@ function NotificationPermissionButton(): JSX.Element | null {
   )
 }
 
+export function backendWithRunKind(backend: LlmBackend, kind: LlmBackend['kind']): LlmBackend {
+  return {
+    ...backend,
+    kind,
+    harnessAgent:
+      kind === 'harness' && backend.harnessAgent === 'codex'
+        ? 'claude-code'
+        : backend.harnessAgent,
+  }
+}
+
 function providerLabel(p: ApiProvider): string {
   switch (p) {
     case 'openrouter':
@@ -560,6 +571,21 @@ function providerLabel(p: ApiProvider): string {
       return 'OpenAI'
     case 'codex':
       return 'Codex (ChatGPT)'
+  }
+}
+
+function harnessAgentLabel(agent: HarnessAgent): string {
+  switch (agent) {
+    case 'claude-code':
+      return 'Claude Code'
+    case 'codex':
+      return 'Codex'
+    case 'grok':
+      return 'Grok'
+    case 'opencode':
+      return 'OpenCode'
+    case 'cursor':
+      return 'Cursor'
   }
 }
 
@@ -680,14 +706,20 @@ function BackendEditor({
       <Row label="Run on">
         <Select
           value={backend.kind}
-          onValueChange={(value) => onChange({ ...backend, kind: value as LlmBackend['kind'] })}
+          onValueChange={(value) =>
+            onChange(backendWithRunKind(backend, value as LlmBackend['kind']))
+          }
         >
           <SelectTrigger className="w-full flex-1">
-            <SelectValue />
+            <span className="flex flex-1 text-left">
+              {backend.kind === 'api'
+                ? 'Provider backend (API key or local login)'
+                : 'Agent CLI harness'}
+            </span>
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="api">API provider (key required)</SelectItem>
-            <SelectItem value="harness">Coding-agent harness</SelectItem>
+            <SelectItem value="api">Provider backend (API key or local login)</SelectItem>
+            <SelectItem value="harness">Agent CLI harness</SelectItem>
           </SelectContent>
         </Select>
       </Row>
@@ -730,8 +762,9 @@ function BackendEditor({
           {backend.provider === 'codex' ? (
             <p className="mt-1.5 mb-0.5 max-w-[60ch] text-[12px] text-muted-foreground">
               Uses your local ChatGPT login (<code className="text-[11px]">codex login</code> on the
-              server) — no API key, effectively free within your plan's limits. Gets the full
-              orchestrator tool belt and, unlike the old Codex harness, never shells out to a CLI.
+              server) — no API key; it uses your plan's included Codex capacity while limits
+              allow. Gets the full orchestrator tool belt and, unlike the old Codex harness, never
+              shells out to a CLI.
             </p>
           ) : (
             <p className="mt-1.5 mb-0.5 max-w-[60ch] text-[12px] text-muted-foreground">
@@ -750,7 +783,9 @@ function BackendEditor({
               }
             >
               <SelectTrigger className="w-full flex-1">
-                <SelectValue />
+                <span className="flex flex-1 text-left">
+                  {harnessAgentLabel(backend.harnessAgent)}
+                </span>
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="claude-code">Claude Code</SelectItem>
@@ -769,14 +804,15 @@ function BackendEditor({
           {backend.harnessAgent === 'claude-code' ? (
             <p className="mt-1.5 mb-0.5 max-w-[60ch] text-[12px] text-warning">
               Heads up: Claude Code's programmatic mode (
-              <code className="text-[11px]">claude -p</code>) consumes your Claude usage / rate
-              limits and bills pay-per-use API rates even with a subscription. For free
-              orchestration, pick API provider → Codex instead.
+              <code className="text-[11px]">claude -p</code>) uses your Claude Code account and
+              counts against that account's usage/rate limits. API users are billed by token;
+              subscribers consume plan usage. For the ChatGPT-subscription backend, pick Provider
+              backend → Codex instead.
             </p>
           ) : (
             <p className="mt-1.5 mb-0.5 max-w-[60ch] text-[12px] text-muted-foreground">
-              The superagent runs as a real {backend.harnessAgent} agent with its full tool belt,
-              using your local login, and Podium injects its orchestrator system prompt.
+              Podium runs a real {backend.harnessAgent} agent with its CLI tool belt,
+              using your local login, and injects this feature's system prompt.
             </p>
           )}
         </>

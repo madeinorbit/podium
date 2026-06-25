@@ -32,3 +32,19 @@ describe('auto-continue setting', () => {
     expect(src).toContain('tokens')
   })
 })
+
+describe('background LLM backend wording', () => {
+  it('does not imply every API backend needs a separate key', () => {
+    const src = read('SettingsView.tsx')
+    expect(src).toContain('Provider backend (API key or local login)')
+    expect(src).toContain('Agent CLI harness')
+    expect(src).not.toContain('API provider (key required)')
+  })
+
+  it('describes Claude Code harness usage without saying subscriptions are always API-billed', () => {
+    const src = read('SettingsView.tsx')
+    expect(src).toContain('counts against that account')
+    expect(src).toContain('subscribers consume plan usage')
+    expect(src).not.toContain('bills pay-per-use API rates even with a subscription')
+  })
+})
