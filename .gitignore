@@ -18,7 +18,9 @@ tests/e2e/playwright-report/
 .superpowers/
 
 # Agent harness session state + nested worktrees (not part of this repo's lint/test scope)
-.claude/
+.claude/*
+# ...but track shared team settings (e.g. disabled commit attribution)
+!.claude/settings.json
 .claire/
 .worktrees/
 test-results/
