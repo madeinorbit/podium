@@ -62,6 +62,40 @@ describe('Session', () => {
     expect(b.sent.at(-1)).toMatchObject({ type: 'attached', controllerId: 'a' })
   })
 
+  it('does not auto-promote a backgrounded first attacher to controller', () => {
+    const s = makeSession()
+    const a = makeClient('a')
+    a.visible = false
+    s.attachClient(a)
+    expect(s.controllerId).toBeNull()
+    expect(s.geometry).toEqual(geo) // frozen at the default; nothing drove it
+  })
+
+  it('hands control on detach to a visible client, not a hidden one', () => {
+    const s = makeSession()
+    const a = makeClient('a') // visible controller
+    const hidden = makeClient('h')
+    hidden.visible = false
+    const c = makeClient('c') // visible
+    s.attachClient(a)
+    s.attachClient(hidden)
+    s.attachClient(c)
+    expect(s.controllerId).toBe('a')
+    s.detachClient('a')
+    expect(s.controllerId).toBe('c') // skips the hidden client
+  })
+
+  it('freezes (null controller) on detach when only hidden clients remain', () => {
+    const s = makeSession()
+    const a = makeClient('a')
+    const hidden = makeClient('h')
+    hidden.visible = false
+    s.attachClient(a)
+    s.attachClient(hidden)
+    s.detachClient('a')
+    expect(s.controllerId).toBeNull()
+  })
+
   it('honors input only from the controller', () => {
     const toDaemon = vi.fn()
     const s = makeSession(toDaemon)

@@ -191,7 +191,11 @@ export class Session {
 
   attachClient(client: ClientConn, sinceSeq?: number): void {
     this.clients.set(client.id, client)
-    if (this.controllerId === null) this.controllerId = client.id
+    // Only a visible client auto-acquires the size-driving controller role. A
+    // backgrounded first attacher (a hidden tab) must not silently start driving
+    // the agent's geometry off its stale grid — leave the controller null and the
+    // geometry frozen until a visible client attaches or takes over.
+    if (this.controllerId === null && client.visible !== false) this.controllerId = client.id
     // Resume vs full replay. On a reconnect the client passes the last seq it
     // rendered; if that point is still inside our bounded buffer, replay only the
     // frames it missed and flag the attach `resumed` so it appends to the screen it
@@ -303,7 +307,17 @@ export class Session {
     this.clients.delete(clientId)
     this.transcriptSubscribers.delete(clientId)
     if (this.controllerId === clientId) {
-      this.controllerId = this.clients.keys().next().value ?? null
+      // Prefer a visible client; a hidden page must not silently inherit the size-
+      // driving controller role. If none are visible, freeze (null) — geometry is
+      // left untouched so the agent keeps its last real size.
+      let next: string | null = null
+      for (const [id, c] of this.clients) {
+        if (c.visible !== false) {
+          next = id
+          break
+        }
+      }
+      this.controllerId = next
       if (this.controllerId !== null) {
         this.broadcast({
           type: 'controllerChanged',
