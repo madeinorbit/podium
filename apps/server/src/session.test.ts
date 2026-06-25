@@ -32,6 +32,7 @@ function makeClient(id: string): ClientConn & { sent: ServerMessage[] } {
     visible: true,
     viewVisible: new Set(),
     focused: null,
+    viewModes: {},
     sent,
   }
 }

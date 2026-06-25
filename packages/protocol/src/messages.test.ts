@@ -594,6 +594,21 @@ describe('output-scheduling protocol', () => {
     const m2 = { type: 'viewState' as const, visible: [] as string[], focused: null }
     expect(parseClientMessage(encode(m2))).toEqual(m2)
   })
+  it('round-trips viewState with an optional modes map (rendered native/chat)', () => {
+    const m = {
+      type: 'viewState' as const,
+      visible: ['s1', 's2'],
+      focused: 's1',
+      modes: { s1: 'native' as const, s2: 'chat' as const },
+    }
+    expect(parseClientMessage(encode(m))).toEqual(m)
+  })
+  it('viewState without modes still parses (backward compatible old clients)', () => {
+    const m = { type: 'viewState' as const, visible: ['s1'], focused: 's1' }
+    const parsed = parseClientMessage(encode(m))
+    expect(parsed).toEqual(m)
+    expect((parsed as { modes?: unknown }).modes).toBeUndefined()
+  })
   it('round-trips sessionPriority (server→daemon)', () => {
     const m = { type: 'sessionPriority' as const, sessionId: 's1', priority: 0 }
     expect(parseControlMessage(encode(m))).toEqual(m)

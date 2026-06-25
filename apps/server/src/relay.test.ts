@@ -1672,6 +1672,50 @@ describe('output-relay priority + frame batch', () => {
     expect(priorities(daemon)).toContainEqual({ type: 'sessionPriority', sessionId, priority: 0 })
   })
 
+  it('stores the rendered-mode map from a viewState message on the client (available, not used for scheduling)', () => {
+    const reg = new SessionRegistry()
+    reg.attachDaemon(() => {})
+    const { sessionId } = reg.createSession({ agentKind: 'claude-code', cwd: '/w' })
+    const c = sink()
+    const id = reg.attachClient(c.send)
+
+    reg.onClientMessage(id, {
+      type: 'viewState',
+      visible: [sessionId],
+      focused: sessionId,
+      modes: { [sessionId]: 'chat' },
+    })
+    const client = (reg as any).clients.get(id)
+    expect(client.viewModes).toEqual({ [sessionId]: 'chat' })
+  })
+
+  it('defaults viewModes to {} when a viewState omits modes (backward compatible)', () => {
+    const reg = new SessionRegistry()
+    reg.attachDaemon(() => {})
+    const { sessionId } = reg.createSession({ agentKind: 'claude-code', cwd: '/w' })
+    const c = sink()
+    const id = reg.attachClient(c.send)
+
+    // First set a mode, then send a modes-less viewState — it must reset, not retain.
+    reg.onClientMessage(id, {
+      type: 'viewState',
+      visible: [sessionId],
+      focused: sessionId,
+      modes: { [sessionId]: 'native' },
+    })
+    reg.onClientMessage(id, { type: 'viewState', visible: [sessionId], focused: sessionId })
+    const client = (reg as any).clients.get(id)
+    expect(client.viewModes).toEqual({})
+  })
+
+  it('a fresh client starts with empty viewModes', () => {
+    const reg = new SessionRegistry()
+    reg.attachDaemon(() => {})
+    const c = sink()
+    const id = reg.attachClient(c.send)
+    expect((reg as any).clients.get(id).viewModes).toEqual({})
+  })
+
   it('computes per-session priority across ALL sessions (clients iterable is materialized, not exhausted)', () => {
     const reg = new SessionRegistry()
     const daemon: ControlMessage[] = []

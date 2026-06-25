@@ -1113,6 +1113,9 @@ export class SessionRegistry {
       // sends its first `viewState`. A session reads as unwatched (tier 3) until then.
       viewVisible: new Set(),
       focused: null,
+      // Rendered-mode map (native/chat) per session. Stored from viewState but NOT
+      // consulted by scheduling — see ClientConn.viewModes.
+      viewModes: {},
     })
     send({ type: 'welcome', clientId: id })
     send({ type: 'sessionsChanged', sessions: this.listSessions() })
@@ -1220,6 +1223,10 @@ export class SessionRegistry {
       case 'viewState':
         client.viewVisible = new Set(msg.visible)
         client.focused = msg.focused
+        // Store the rendered-mode signal (native/chat). Intentionally NOT fed into
+        // pushPriorities/computePriorities — it's available server-side but does not
+        // alter output relay/coalescing.
+        client.viewModes = msg.modes ?? {}
         this.pushPriorities()
         break
       case 'setSessionDraft':

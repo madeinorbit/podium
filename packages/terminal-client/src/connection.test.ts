@@ -841,6 +841,37 @@ describe('view state', () => {
     expect(sock.parsed()).toContainEqual({ type: 'viewState', visible: ['s1'], focused: 's1' })
   })
 
+  it('includes the rendered-mode map when modes is provided', () => {
+    const { sock, hub } = setup()
+    hub.connect()
+    sock.open()
+    hub.setViewState(['s1', 's2'], 's1', { s1: 'native', s2: 'chat' })
+    expect(sock.parsed()).toContainEqual({
+      type: 'viewState',
+      visible: ['s1', 's2'],
+      focused: 's1',
+      modes: { s1: 'native', s2: 'chat' },
+    })
+  })
+
+  it('re-asserts the last view state (with modes) on reconnect', () => {
+    vi.useFakeTimers()
+    const { sockets, hub } = multiSetup()
+    hub.connect()
+    sockets[0]?.open()
+    hub.setViewState(['s1'], 's1', { s1: 'chat' })
+    sockets[0]?.close()
+    vi.advanceTimersByTime(30_000)
+    expect(sockets.length).toBe(2)
+    sockets[1]?.open()
+    expect(sockets[1]?.parsed()).toContainEqual({
+      type: 'viewState',
+      visible: ['s1'],
+      focused: 's1',
+      modes: { s1: 'chat' },
+    })
+  })
+
   it('re-asserts the last view state on reconnect', () => {
     vi.useFakeTimers()
     const { sockets, hub } = multiSetup()

@@ -347,6 +347,12 @@ export const ViewStateMessage = z.object({
   type: z.literal('viewState'),
   visible: z.array(z.string()),
   focused: z.string().nullable(),
+  // Optional sessionId→rendered-mode map for the visible sessions (native terminal
+  // vs chat). Wired through so the rendered mode is AVAILABLE server-side; it is NOT
+  // (yet) used to schedule/coalesce output — users bounce back to native, so the
+  // terminal stays warm regardless. Optional ⇒ backward compatible (old clients omit
+  // it and the server reads `{}`).
+  modes: z.record(z.string(), z.enum(['native', 'chat'])).optional(),
 })
 
 // The in-progress composer / native-prompt text for a session. The controlling

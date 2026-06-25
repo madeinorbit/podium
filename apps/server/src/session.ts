@@ -30,6 +30,11 @@ export interface ClientConn {
   viewVisible: Set<string>
   /** The one session that has input focus on this client, or null. */
   focused: string | null
+  /** Per-session rendered mode (native terminal vs chat) this client reports for the
+   *  sessions it renders (from viewState `modes`). AVAILABLE for inspection but
+   *  deliberately UNUSED by output scheduling — computePriorities never reads it, so
+   *  relay/coalescing stays mode-agnostic (the terminal stays warm for native bounce-back). */
+  viewModes: Record<string, 'native' | 'chat'>
 }
 
 export interface SessionInit {
