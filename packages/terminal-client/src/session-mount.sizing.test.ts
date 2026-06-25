@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { FitAddon } from '@xterm/addon-fit'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import type { SessionCallbacks, SocketHub } from './connection'
 import { mountSession } from './session-mount'
 
@@ -20,9 +20,23 @@ function withResizeObserver(): void {
 // yields a genuine fitted size synchronously, exercising the resize path the same way
 // a real browser would. 150×50 ≠ the 80×24 server/default grid, so decideResizeAction
 // produces a real 'resize' (not just a 'redraw').
+//
+// The patch mutates a shared prototype, so each patcher is registered for teardown and
+// restored in afterEach — the real zero-size→undefined behaviour must be back in place
+// once a test completes (fragile otherwise under a shared pool or a future test in this
+// file that needs the genuine behaviour).
+const protoPatchRestorers: Array<() => void> = []
+afterEach(() => {
+  while (protoPatchRestorers.length) protoPatchRestorers.pop()?.()
+})
+
 function withFittableAddon(): void {
-  ;(FitAddon.prototype as unknown as { proposeDimensions: () => unknown }).proposeDimensions =
-    () => ({ cols: 150, rows: 50 })
+  const proto = FitAddon.prototype as unknown as { proposeDimensions: () => unknown }
+  const original = proto.proposeDimensions
+  proto.proposeDimensions = () => ({ cols: 150, rows: 50 })
+  protoPatchRestorers.push(() => {
+    proto.proposeDimensions = original
+  })
 }
 
 /** Hub stub that records resize/redraw/requestControl and lets a test drive onState. */
@@ -85,6 +99,32 @@ describe('mountSession eligibility-gated sizing', () => {
     expect(calls.requestControl).toBe(1)
     expect(calls.resize.length).toBeGreaterThanOrEqual(1)
     expect(calls.resize.at(-1)?.[0]).toBeGreaterThan(2) // a real fitted width, not the 80 default-only path
+    mounted.dispose()
+  })
+
+  it('stays silent while the page is hidden, then resizes on visibilitychange', () => {
+    withResizeObserver()
+    withFittableAddon()
+    // Hide the page before mounting: active tab, but the page is not visible, so the
+    // eligibility gate must keep the terminal silent. Restored in afterEach.
+    const originalVisibility = Object.getOwnPropertyDescriptor(document, 'visibilityState')
+    Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true })
+    protoPatchRestorers.push(() => {
+      if (originalVisibility) Object.defineProperty(document, 'visibilityState', originalVisibility)
+      else Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true })
+    })
+
+    const { hub, calls } = fakeHub()
+    const mounted = mountSession(fittableHost(), { hub, sessionId: 's1', active: true })
+    // Active but hidden: no control claim, no resize.
+    expect(calls.requestControl).toBe(0)
+    expect(calls.resize).toEqual([])
+
+    // Page becomes visible → the visibilitychange listener should make it eligible.
+    Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true })
+    document.dispatchEvent(new Event('visibilitychange'))
+    expect(calls.requestControl).toBe(1)
+    expect(calls.resize.length).toBeGreaterThanOrEqual(1)
     mounted.dispose()
   })
 })
