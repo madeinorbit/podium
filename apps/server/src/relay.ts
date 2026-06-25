@@ -1227,6 +1227,14 @@ export class SessionRegistry {
         // pushPriorities/computePriorities — it's available server-side but does not
         // alter output relay/coalescing.
         client.viewModes = msg.modes ?? {}
+        // Heal the resize/viewState race: a foreground panel sends its fitted resize
+        // before this viewState message (panel effect before store effect), so the
+        // viewVisible gate in handleResize dropped it. Now that the client declares
+        // it renders these sessions, re-apply its last viewport where it's controller
+        // — otherwise the PTY stays stuck at the 80x24 default (quarter-size window).
+        for (const sid of client.viewVisible) {
+          this.sessions.get(sid)?.reconcileGeometry(id)
+        }
         this.pushPriorities()
         break
       case 'setSessionDraft':

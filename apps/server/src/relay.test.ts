@@ -314,6 +314,27 @@ describe('SessionRegistry', () => {
     expect(reg.listSessions().find((m) => m.sessionId === s2)?.epoch).toBe(0)
   })
 
+  it('heals a foreground resize that arrives before its viewState (quarter-size bug)', () => {
+    const reg = new SessionRegistry()
+    const daemon: ControlMessage[] = []
+    reg.attachDaemon((m) => daemon.push(m))
+    const s1 = reg.createSession({ agentKind: 'claude-code', cwd: '/a' }).sessionId
+    reg.onDaemonMessage(bind(s1))
+    const c = sink()
+    const id = reg.attachClient(c.send)
+    reg.onClientMessage(id, { type: 'attach', sessionId: s1 })
+    reg.onClientMessage(id, { type: 'presence', visible: true })
+    // Real client order on a live foreground: the panel's effect fires before the
+    // store's, so requestControl + the fitted resize arrive BEFORE viewState.
+    reg.onClientMessage(id, { type: 'requestControl', sessionId: s1 })
+    reg.onClientMessage(id, { type: 'resize', sessionId: s1, cols: 200, rows: 50 })
+    // The viewVisible gate dropped it (the session isn't in viewState yet).
+    expect(daemon).not.toContainEqual({ type: 'resize', sessionId: s1, cols: 200, rows: 50 })
+    // viewState lands → the dropped size self-heals instead of sticking at 80x24.
+    reg.onClientMessage(id, { type: 'viewState', visible: [s1], focused: s1 })
+    expect(daemon).toContainEqual({ type: 'resize', sessionId: s1, cols: 200, rows: 50 })
+  })
+
   it('kill removes the session and tells the daemon', () => {
     const reg = new SessionRegistry()
     const daemon: ControlMessage[] = []

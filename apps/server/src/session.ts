@@ -358,6 +358,32 @@ export class Session {
     }
   }
 
+  /**
+   * Re-apply the controller's last-known viewport if it now renders this session.
+   * A foreground resize can reach {@link handleResize} BEFORE the client's
+   * viewState message lands — the panel's React effect sends the resize before the
+   * store's (ancestor) effect sends viewState, so child-before-parent effect order
+   * puts the resize first and the viewVisible gate drops it. Calling this when a
+   * viewState marks the session visible heals that dropped resize; without it the
+   * PTY stays stuck at the 80x24 default (the "quarter-size window" bug). No-op when
+   * the client isn't the controller, isn't rendering the session, or already matches.
+   */
+  reconcileGeometry(clientId: string): void {
+    const client = this.clients.get(clientId)
+    if (!client) return
+    if (clientId !== this.controllerId || !client.viewVisible.has(this.sessionId)) return
+    if (this.geometry.cols === client.viewport.cols && this.geometry.rows === client.viewport.rows) {
+      return
+    }
+    this.geometry = { ...client.viewport }
+    this.toDaemon({
+      type: 'resize',
+      sessionId: this.sessionId,
+      cols: this.geometry.cols,
+      rows: this.geometry.rows,
+    })
+  }
+
   requestControl(clientId: string): void {
     const client = this.clients.get(clientId)
     if (!client) return
@@ -366,7 +392,8 @@ export class Session {
     // Only snap geometry to the requester's viewport + resize the agent if the
     // requester is actually rendering this session (per-session viewState). If not
     // (e.g. a viewState update hasn't landed yet), transfer control without sizing;
-    // the requester's eligible fit will drive the size through handleResize.
+    // {@link reconcileGeometry} re-applies it when viewState lands (the panel's fit
+    // may also re-drive it through handleResize once viewVisible is populated).
     if (client.viewVisible.has(this.sessionId)) {
       this.geometry = { ...(client.viewport ?? this.geometry) }
       this.toDaemon({

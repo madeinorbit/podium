@@ -188,6 +188,48 @@ describe('Session', () => {
     expect(toDaemon).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'redraw' }))
   })
 
+  it('re-applies a foreground resize that arrived before its viewState (no stuck quarter-size)', () => {
+    // Repro of the quarter-size bug: on a live foreground the client sends
+    // requestControl + the fitted resize from the panel's React effect BEFORE the
+    // store's effect sends the viewState message (child effects fire before parent
+    // effects). So the resize hits handleResize while viewVisible is still empty and
+    // is dropped — and nothing re-sends it. The size must self-heal when viewState
+    // lands, or the PTY is stuck at the 80x24 default.
+    const toDaemon = vi.fn()
+    const s = makeSession(toDaemon)
+    const a = makeClient('a')
+    s.attachClient(a) // controller; viewVisible still empty (viewState not landed yet)
+    s.requestControl('a')
+    s.handleResize('a', 200, 50) // the fitted size — dropped by the viewVisible gate
+    expect(s.geometry).toEqual(geo) // confirmed gated out (still default)
+    toDaemon.mockClear()
+    // viewState arrives: the client now declares it renders s1 on screen.
+    a.viewVisible = new Set(['s1'])
+    s.reconcileGeometry('a')
+    // The dropped fitted size is now applied — not lost.
+    expect(s.geometry).toEqual({ cols: 200, rows: 50 })
+    expect(toDaemon).toHaveBeenCalledWith({ type: 'resize', sessionId: 's1', cols: 200, rows: 50 })
+  })
+
+  it('reconcileGeometry is a no-op when the client is not the controller or not rendering', () => {
+    const toDaemon = vi.fn()
+    const s = makeSession(toDaemon)
+    const a = makeClient('a')
+    const b = makeClient('b')
+    s.attachClient(a) // controller
+    s.attachClient(b) // spectator
+    b.viewport = { cols: 200, rows: 50 }
+    b.viewVisible = new Set(['s1'])
+    toDaemon.mockClear()
+    s.reconcileGeometry('b') // not the controller → nothing
+    expect(s.geometry).toEqual(geo)
+    a.viewport = { cols: 200, rows: 50 }
+    a.viewVisible = new Set() // controller but not rendering → nothing
+    s.reconcileGeometry('a')
+    expect(s.geometry).toEqual(geo)
+    expect(toDaemon).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'resize' }))
+  })
+
   it('broadcasts frames to attached clients with a server-assigned monotonic seq', () => {
     const s = makeSession()
     const a = makeClient('a')
