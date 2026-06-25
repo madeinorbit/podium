@@ -1,0 +1,37 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Podium WebGL warm-set bench harness</title>
+    <link rel="stylesheet" href="./vendor/xterm.css" />
+    <style>
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        background: #0e0e12;
+        color: #d7d7e0;
+        font-family: monospace;
+      }
+      /* Each terminal lives in a fixed 120x40-ish box. We lay them out absolutely
+         so adding terminals doesn't reflow earlier ones. The grid is set explicitly
+         in JS (cols/rows) so we don't depend on layout for the dimensions. */
+      .term-box {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 960px;
+        height: 640px;
+        overflow: hidden;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="stage"></div>
+    <!-- UMD bundles expose globals: Terminal, FitAddon, WebglAddon -->
+    <script src="./vendor/xterm.js"></script>
+    <script src="./vendor/addon-fit.js"></script>
+    <script src="./vendor/addon-webgl.js"></script>
+    <script src="./harness.js"></script>
+  </body>
+</html>
