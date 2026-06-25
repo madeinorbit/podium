@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { LlmConfigError } from './llm'
@@ -7,17 +7,17 @@ import { LlmConfigError } from './llm'
  * Reuse the local ChatGPT login that the Codex CLI maintains in
  * `~/.codex/auth.json`, instead of shelling out to `codex exec`. The superagent's
  * `codex` API provider calls the Codex backend's Responses API directly with this
- * OAuth access token — same thing Hermes does. We never run the CLI.
+ * OAuth access token. We never run the CLI.
  *
- * Access tokens are short-lived JWTs (~1h). Codex refreshes them via the public
- * PKCE client below; we do the same and write the rotated tokens back atomically
- * so the next CLI/Podium read sees them. The client id is the Codex CLI's public
- * identifier (not a secret) and the token endpoint is OpenAI's hosted OAuth.
+ * Read-only on purpose. OAuth refresh tokens are single-use (rotated on every
+ * refresh), so a second refresher racing the Codex CLI over the same auth.json
+ * leaves whichever side loses holding an already-used token — which permanently
+ * wedges the login until `codex login` (the documented codex race, openai/codex
+ * #10332; Hermes inherits the same bug). So Podium never refreshes or writes this
+ * file: it uses the CLI-maintained access token while valid, always re-reads the
+ * file fresh so it picks up whatever the CLI last rotated to, and surfaces an
+ * actionable error when expired rather than rotating the shared credential.
  */
-const CODEX_CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann'
-const TOKEN_ENDPOINT = 'https://auth.openai.com/oauth/token'
-/** Refresh when the token expires within this window (or is already expired). */
-const EXPIRY_SKEW_MS = 60_000
 
 type FetchLike = typeof fetch
 
@@ -101,71 +101,31 @@ function authFromFile(file: AuthFile): CodexAuth {
   return { accessToken, accountId }
 }
 
-/** Atomic write so a concurrent CLI/Podium reader never sees a half-written file. */
-function writeAuthFile(file: AuthFile): void {
-  const path = codexAuthPath()
-  const tmp = `${path}.podium.tmp`
-  writeFileSync(tmp, `${JSON.stringify(file, null, 2)}\n`, { mode: 0o600 })
-  renameSync(tmp, path)
-}
-
-async function refresh(fetchImpl: FetchLike, file: AuthFile): Promise<AuthFile> {
-  const refreshToken = file.tokens?.refresh_token
-  if (!refreshToken) {
-    throw new LlmConfigError('Codex login has no refresh token — run `codex login` again.')
-  }
-  const res = await fetchImpl(TOKEN_ENDPOINT, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({
-      client_id: CODEX_CLIENT_ID,
-      grant_type: 'refresh_token',
-      refresh_token: refreshToken,
-      scope: 'openid profile email',
-    }),
-    // A hung token refresh would wedge the superagent on "Thinking…" forever.
-    signal: AbortSignal.timeout(30_000),
-  })
-  if (!res.ok) {
-    const body = await res.text().catch(() => '')
-    throw new LlmConfigError(
-      `Couldn't refresh the Codex token (${res.status}). Run \`codex login\` again. ${body.slice(0, 200)}`,
-    )
-  }
-  const data = (await res.json()) as {
-    access_token?: string
-    id_token?: string
-    refresh_token?: string
-  }
-  if (!data.access_token) {
-    throw new LlmConfigError('Codex token refresh returned no access token.')
-  }
-  const next: AuthFile = {
-    ...file,
-    tokens: {
-      ...file.tokens,
-      access_token: data.access_token,
-      ...(data.id_token ? { id_token: data.id_token } : {}),
-      ...(data.refresh_token ? { refresh_token: data.refresh_token } : {}),
-    },
-    last_refresh: new Date().toISOString(),
-  }
-  writeAuthFile(next)
-  return next
-}
-
 /**
- * Resolve a usable token, refreshing proactively when it's near expiry. Pass
- * `force` after a 401 to refresh regardless of the local clock.
+ * Resolve a usable token from the CLI-maintained auth file. We never refresh —
+ * see the module header. Each call re-reads the file, so a token a concurrent
+ * codex session has rotated in is picked up automatically. After a 401, pass the
+ * just-rejected token as `rejectedAccessToken`: if that same value is still
+ * sitting in the file we treat it as unusable (and surface an error) instead of
+ * handing it back into a retry loop; if the file now holds a different, valid
+ * token (the CLI rotated it), that one is used and the retry self-heals.
+ *
+ * `_fetchImpl` is accepted for call-site compatibility but never used — this path
+ * makes no network calls.
  */
 export async function resolveCodexAuth(
-  fetchImpl: FetchLike = fetch,
-  opts: { force?: boolean } = {},
+  _fetchImpl: FetchLike = fetch,
+  opts: { rejectedAccessToken?: string } = {},
 ): Promise<CodexAuth> {
-  let file = readAuthFile()
+  const file = readAuthFile()
   const token = file.tokens?.access_token
   const expMs = token ? jwtExpMs(token) : undefined
-  const stale = opts.force || !token || expMs === undefined || expMs - Date.now() < EXPIRY_SKEW_MS
-  if (stale) file = await refresh(fetchImpl, file)
-  return authFromFile(file)
+  const expired = !token || (expMs !== undefined && expMs <= Date.now())
+  const rejected = opts.rejectedAccessToken !== undefined && token === opts.rejectedAccessToken
+  if (!expired && !rejected) return authFromFile(file)
+  throw new LlmConfigError(
+    "Codex access token is expired and Podium won't refresh it — refresh tokens are " +
+      'single-use, and rotating one here would invalidate your Codex CLI sessions. Open a ' +
+      'Codex session or run `codex login` to refresh it, then retry.',
+  )
 }
