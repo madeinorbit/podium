@@ -158,6 +158,75 @@ describe('SessionRegistry', () => {
     })
   })
 
+  it('resume reuses an existing LIVE row for the same conversation instead of spawning a duplicate', () => {
+    // The bug: each resume of one conversation minted a fresh row + its own
+    // durable master. dedupeSessionsByResume only HID the siblings, so closing
+    // the visible row revealed a masked one (its own title/transcript/stage).
+    const reg = new SessionRegistry()
+    const daemon: ControlMessage[] = []
+    reg.attachDaemon((m) => daemon.push(m))
+    const first = reg.resumeSession({
+      agentKind: 'codex',
+      cwd: '/w',
+      resume: { kind: 'codex-thread', value: 't9' },
+      conversationId: 'c9',
+    })
+    reg.onDaemonMessage(bind(first.sessionId))
+    const spawnsBefore = daemon.filter((m) => m.type === 'spawn').length
+    const second = reg.resumeSession({
+      agentKind: 'codex',
+      cwd: '/w',
+      resume: { kind: 'codex-thread', value: 't9' },
+      conversationId: 'c9',
+    })
+    expect(second.sessionId).toBe(first.sessionId)
+    expect(reg.listSessions()).toHaveLength(1)
+    // No second durable master spawned for the same conversation.
+    expect(daemon.filter((m) => m.type === 'spawn').length).toBe(spawnsBefore)
+  })
+
+  it('resume resurrects an existing HIBERNATED row for the same conversation (one row, same id)', () => {
+    const reg = new SessionRegistry()
+    const daemon: ControlMessage[] = []
+    reg.attachDaemon((m) => daemon.push(m))
+    const first = reg.resumeSession({
+      agentKind: 'codex',
+      cwd: '/w',
+      resume: { kind: 'codex-thread', value: 't9' },
+      conversationId: 'c9',
+    })
+    reg.onDaemonMessage(bind(first.sessionId))
+    reg.hibernateSession({ sessionId: first.sessionId })
+    const second = reg.resumeSession({
+      agentKind: 'codex',
+      cwd: '/w',
+      resume: { kind: 'codex-thread', value: 't9' },
+      conversationId: 'c9',
+    })
+    expect(second.sessionId).toBe(first.sessionId)
+    expect(reg.listSessions()).toHaveLength(1)
+    // Reusing a parked row resurrects it (respawn under the same id).
+    expect(reg.listSessions()[0]?.status).toBe('starting')
+  })
+
+  it('resume still spawns a fresh row when no session exists for that conversation', () => {
+    const reg = new SessionRegistry()
+    reg.attachDaemon(() => {})
+    reg.resumeSession({
+      agentKind: 'codex',
+      cwd: '/w',
+      resume: { kind: 'codex-thread', value: 't1' },
+      conversationId: 'c1',
+    })
+    reg.resumeSession({
+      agentKind: 'codex',
+      cwd: '/w',
+      resume: { kind: 'codex-thread', value: 't2' },
+      conversationId: 'c2',
+    })
+    expect(reg.listSessions()).toHaveLength(2)
+  })
+
   it('answers a client ping with pong (browser-level keepalive)', () => {
     const reg = new SessionRegistry()
     const c = sink()

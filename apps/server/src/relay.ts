@@ -474,6 +474,21 @@ export class SessionRegistry {
     conversationId: string
     title?: string
   }): { sessionId: string } {
+    // One row per conversation. A conversation is identified by its durable
+    // resume ref (kind+value); resuming one that already has a row must REUSE
+    // that row, never mint a parallel one. Each parallel row spawned its own
+    // durable master and forked its own transcript, while the web only HID the
+    // siblings (dedupeSessionsByResume) — so closing the visible row revealed a
+    // masked duplicate with its own title/transcript/stage. Reuse kills that at
+    // the source: a running row is focused as-is; a parked (hibernated/exited)
+    // row is resurrected under its same id.
+    const existing = this.findLiveByResume(input.resume)
+    if (existing) {
+      if (existing.status === 'hibernated' || existing.status === 'exited') {
+        this.resurrectSession({ sessionId: existing.sessionId })
+      }
+      return { sessionId: existing.sessionId }
+    }
     return this.spawn({
       agentKind: input.agentKind,
       cwd: input.cwd,
@@ -481,6 +496,24 @@ export class SessionRegistry {
       origin: { kind: 'resume', conversationId: input.conversationId },
       resume: input.resume,
     })
+  }
+
+  /**
+   * The existing session for a resume ref, if any — the canonical row for that
+   * conversation. Prefers a still-running row (live/starting/reconnecting) over a
+   * parked one, breaking ties toward the most-recently-active so we land on the
+   * row the user last touched.
+   */
+  private findLiveByResume(resume: ResumeRef): Session | undefined {
+    const running = (s: Session) =>
+      s.status === 'live' || s.status === 'starting' || s.status === 'reconnecting'
+    return [...this.sessions.values()]
+      .filter((s) => s.resume?.kind === resume.kind && s.resume?.value === resume.value)
+      .sort((a, b) => {
+        if (running(a) !== running(b)) return running(a) ? -1 : 1
+        return (b.lastActiveAt ?? '').localeCompare(a.lastActiveAt ?? '')
+      })
+      .at(0)
   }
 
   /**
