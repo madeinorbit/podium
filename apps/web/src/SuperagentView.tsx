@@ -5,9 +5,10 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { cn } from '@/lib/utils'
-import { mergeByCursor } from './chat'
 import { CardBoundary } from './CardBoundary'
+import { mergeByCursor } from './chat'
 import { agentBadge, panelLabel, reposToViews, sessionDotClass } from './derive'
+import { useIsMobile } from './hooks/use-is-mobile'
 import { renderMarkdown } from './markdown'
 import { useStore } from './store'
 import { useConversationSearch } from './useConversationSearch'
@@ -29,6 +30,10 @@ interface SuperThread {
   kind: 'global' | 'btw'
   originSessionId?: string
   title?: string
+}
+
+function superThreadLabel(thread: SuperThread): string {
+  return thread.id === 'global' ? 'Global' : (thread.title ?? thread.originSessionId ?? thread.id)
 }
 
 interface AtOption {
@@ -56,6 +61,7 @@ export function SuperagentView({ onClose }: { onClose?: () => void } = {}): JSX.
   const scrollRef = useRef<HTMLDivElement | null>(null)
   const inputRef = useRef<HTMLTextAreaElement | null>(null)
   const voice = useVoiceInput((text) => setDraft((d) => (d ? `${d} ${text}` : text)))
+  const isMobile = useIsMobile()
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: refetch on thread switch + after seeding
   useEffect(() => {
@@ -191,33 +197,53 @@ export function SuperagentView({ onClose }: { onClose?: () => void } = {}): JSX.
 
   return (
     <section className="flex min-h-0 min-w-0 flex-1 flex-col">
-      <div className="flex items-center gap-2.5 border-b border-border px-[18px] py-3">
-        <h1 className="m-0 inline-flex items-center gap-[7px] text-[15px] font-medium text-foreground">
+      <div className="flex min-w-0 items-center gap-2.5 border-b border-border px-[18px] py-3">
+        <h1 className="m-0 inline-flex flex-none items-center gap-[7px] text-[15px] font-medium text-foreground">
           <Sparkles size={16} aria-hidden="true" /> Superagent
         </h1>
-        {threads.length > 1 && (
-          <div className="flex flex-wrap gap-1.5" role="tablist" aria-label="Superagent threads">
-            {threads.map((th) => (
-              <button
-                key={th.id}
-                type="button"
-                role="tab"
-                aria-selected={th.id === superThreadId}
-                className={cn(
-                  'cursor-pointer rounded-full border px-2 py-0.5 text-[11px] transition-colors',
-                  th.id === superThreadId
-                    ? 'border-muted-foreground text-foreground'
-                    : 'border-border text-muted-foreground hover:border-muted-foreground hover:text-foreground',
-                )}
-                title={th.kind === 'btw' ? 'BTW thread for a chat session' : 'Global orchestrator'}
-                onClick={() => setSuperThreadId(th.id)}
-              >
-                {th.id === 'global' ? 'Global' : (th.title ?? th.originSessionId ?? th.id)}
-              </button>
-            ))}
-          </div>
-        )}
-        <span className="text-[11px] text-muted-foreground/70">{backendLabel}</span>
+        {threads.length > 1 &&
+          (isMobile ? (
+            <select
+              aria-label="Superagent conversation"
+              className="min-w-0 flex-1 rounded-md border border-input bg-background px-2 py-1 text-[12px] text-foreground outline-none focus:border-primary"
+              value={superThreadId}
+              onChange={(e) => setSuperThreadId(e.currentTarget.value)}
+            >
+              {threads.map((th) => (
+                <option key={th.id} value={th.id}>
+                  {superThreadLabel(th)}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <div
+              className="flex min-w-0 flex-1 flex-nowrap gap-1.5 overflow-x-auto whitespace-nowrap [scrollbar-width:none]"
+              role="tablist"
+              aria-label="Superagent threads"
+            >
+              {threads.map((th) => (
+                <button
+                  key={th.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={th.id === superThreadId}
+                  className={cn(
+                    'max-w-[220px] flex-none cursor-pointer overflow-hidden text-ellipsis whitespace-nowrap rounded-full border px-2 py-0.5 text-[11px] transition-colors',
+                    th.id === superThreadId
+                      ? 'border-muted-foreground text-foreground'
+                      : 'border-border text-muted-foreground hover:border-muted-foreground hover:text-foreground',
+                  )}
+                  title={
+                    th.kind === 'btw' ? 'BTW thread for a chat session' : 'Global orchestrator'
+                  }
+                  onClick={() => setSuperThreadId(th.id)}
+                >
+                  {superThreadLabel(th)}
+                </button>
+              ))}
+            </div>
+          ))}
+        <span className="flex-none text-[11px] text-muted-foreground/70">{backendLabel}</span>
         <Button
           variant="ghost"
           size="icon-sm"
