@@ -569,7 +569,9 @@ export class SessionRegistry {
     for (const [sessionId, priority] of priorities) {
       if (this.lastPriority.get(sessionId) === priority) continue
       this.lastPriority.set(sessionId, priority)
-      this.toDaemon({ type: 'sessionPriority', sessionId, priority })
+      // Route the priority to the daemon that actually runs this session (multi-machine).
+      const machineId = this.sessions.get(sessionId)?.machineId ?? LOCAL_PLACEHOLDER
+      this.toMachine(machineId, { type: 'sessionPriority', sessionId, priority })
     }
   }
 

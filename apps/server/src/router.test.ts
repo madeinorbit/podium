@@ -81,7 +81,7 @@ describe('appRouter', () => {
 
   it('settings Telegram setup endpoints delegate to the registry', async () => {
     const registry = new SessionRegistry()
-    registry.attachDaemon(() => {})
+    registry.attachDaemon('local', () => {})
     let polled = ''
     ;(
       registry as unknown as {
@@ -109,7 +109,7 @@ describe('appRouter', () => {
       polled = setupId
       return { status: 'pending', expiresAt: '2026-06-12T10:05:00.000Z' }
     }
-    const repos = new RepoRegistry(new SessionStore(':memory:'))
+    const repos = new RepoRegistry(registry, registry.sessionStore)
     const call = appRouter.createCaller({
       registry,
       repos,

@@ -71,7 +71,7 @@ describe('SessionRegistry', () => {
   it('passes initialPrompt to the daemon spawn for argv-capable agents (claude/codex/grok)', () => {
     const reg = new SessionRegistry()
     const daemon: ControlMessage[] = []
-    reg.attachDaemon((m) => daemon.push(m))
+    reg.attachDaemon('local', (m) => daemon.push(m))
     reg.createSession({ agentKind: 'claude-code', cwd: '/w', initialPrompt: 'fix the bug' })
     expect(daemon).toContainEqual(
       expect.objectContaining({ type: 'spawn', agentKind: 'claude-code', initialPrompt: 'fix the bug' }),
@@ -81,7 +81,7 @@ describe('SessionRegistry', () => {
   it('does NOT put initialPrompt on the spawn for non-argv agents — seeds the composer draft instead', () => {
     const reg = new SessionRegistry()
     const daemon: ControlMessage[] = []
-    reg.attachDaemon((m) => daemon.push(m))
+    reg.attachDaemon('local', (m) => daemon.push(m))
     const client = sink()
     reg.attachClient(client.send)
     const { sessionId } = reg.createSession({ agentKind: 'shell', cwd: '/w', initialPrompt: 'remember this' })
@@ -164,14 +164,14 @@ describe('SessionRegistry', () => {
     // the visible row revealed a masked one (its own title/transcript/stage).
     const reg = new SessionRegistry()
     const daemon: ControlMessage[] = []
-    reg.attachDaemon((m) => daemon.push(m))
+    reg.attachDaemon('local', (m) => daemon.push(m))
     const first = reg.resumeSession({
       agentKind: 'codex',
       cwd: '/w',
       resume: { kind: 'codex-thread', value: 't9' },
       conversationId: 'c9',
     })
-    reg.onDaemonMessage(bind(first.sessionId))
+    reg.onDaemonMessageFrom('local', bind(first.sessionId))
     const spawnsBefore = daemon.filter((m) => m.type === 'spawn').length
     const second = reg.resumeSession({
       agentKind: 'codex',
@@ -188,14 +188,14 @@ describe('SessionRegistry', () => {
   it('resume resurrects an existing HIBERNATED row for the same conversation (one row, same id)', () => {
     const reg = new SessionRegistry()
     const daemon: ControlMessage[] = []
-    reg.attachDaemon((m) => daemon.push(m))
+    reg.attachDaemon('local', (m) => daemon.push(m))
     const first = reg.resumeSession({
       agentKind: 'codex',
       cwd: '/w',
       resume: { kind: 'codex-thread', value: 't9' },
       conversationId: 'c9',
     })
-    reg.onDaemonMessage(bind(first.sessionId))
+    reg.onDaemonMessageFrom('local', bind(first.sessionId))
     reg.hibernateSession({ sessionId: first.sessionId })
     const second = reg.resumeSession({
       agentKind: 'codex',
@@ -211,7 +211,7 @@ describe('SessionRegistry', () => {
 
   it('resume still spawns a fresh row when no session exists for that conversation', () => {
     const reg = new SessionRegistry()
-    reg.attachDaemon(() => {})
+    reg.attachDaemon('local', () => {})
     reg.resumeSession({
       agentKind: 'codex',
       cwd: '/w',
@@ -322,9 +322,9 @@ describe('SessionRegistry', () => {
   it('heals a foreground resize that arrives before its viewState (quarter-size bug)', () => {
     const reg = new SessionRegistry()
     const daemon: ControlMessage[] = []
-    reg.attachDaemon((m) => daemon.push(m))
+    reg.attachDaemon('local', (m) => daemon.push(m))
     const s1 = reg.createSession({ agentKind: 'claude-code', cwd: '/a' }).sessionId
-    reg.onDaemonMessage(bind(s1))
+    reg.onDaemonMessageFrom('local', bind(s1))
     const c = sink()
     const id = reg.attachClient(c.send)
     reg.onClientMessage(id, { type: 'attach', sessionId: s1 })
@@ -1099,7 +1099,7 @@ describe('agent state', () => {
 
     try {
       const reg = new SessionRegistry(store, { ntfy, telegram })
-      reg.attachDaemon(() => {})
+      reg.attachDaemon('local', () => {})
       const { sessionId } = reg.createSession({
         agentKind: 'claude-code',
         cwd: '/proj',
@@ -1109,7 +1109,7 @@ describe('agent state', () => {
       const visibleId = reg.attachClient(visible.send)
       reg.onClientMessage(visibleId, { type: 'presence', visible: true })
 
-      reg.onDaemonMessage({
+      reg.onDaemonMessageFrom('local', {
         type: 'agentState',
         sessionId,
         state: {
@@ -1775,16 +1775,16 @@ describe('SessionRegistry — auto-continue', () => {
   // create the row. continueSession's status gate then accepts the live session.
   function liveSession(reg: SessionRegistry): string {
     const { sessionId } = reg.createSession({ agentKind: 'claude-code', cwd: '/proj' })
-    reg.onDaemonMessage(bind(sessionId))
+    reg.onDaemonMessageFrom('local', bind(sessionId))
     return sessionId
   }
 
   it('does NOT auto-send continue when the setting is off', () => {
     const reg = new SessionRegistry()
     const daemon: ControlMessage[] = []
-    reg.attachDaemon((m) => daemon.push(m))
+    reg.attachDaemon('local', (m) => daemon.push(m))
     const sessionId = liveSession(reg)
-    reg.onDaemonMessage({ type: 'agentState', sessionId, state: erroredState })
+    reg.onDaemonMessageFrom('local', { type: 'agentState', sessionId, state: erroredState })
     expect(daemon).not.toContainEqual(continueInput)
     reg.setSettings({ ...reg.getSettings(), autoContinue: { enabled: false, promptDismissed: false } })
   })
@@ -1792,10 +1792,10 @@ describe('SessionRegistry — auto-continue', () => {
   it('auto-sends continue when an enabled session hits a retryable error', () => {
     const reg = new SessionRegistry()
     const daemon: ControlMessage[] = []
-    reg.attachDaemon((m) => daemon.push(m))
+    reg.attachDaemon('local', (m) => daemon.push(m))
     enableAutoContinue(reg)
     const sessionId = liveSession(reg)
-    reg.onDaemonMessage({ type: 'agentState', sessionId, state: erroredState })
+    reg.onDaemonMessageFrom('local', { type: 'agentState', sessionId, state: erroredState })
     expect(daemon).toContainEqual(continueInput)
     // Cancel the live loop so no real backoff timer dangles past the test.
     reg.setSettings({ ...reg.getSettings(), autoContinue: { enabled: false, promptDismissed: false } })
@@ -1804,9 +1804,9 @@ describe('SessionRegistry — auto-continue', () => {
   it('arms already-errored sessions when the setting is switched on', () => {
     const reg = new SessionRegistry()
     const daemon: ControlMessage[] = []
-    reg.attachDaemon((m) => daemon.push(m))
+    reg.attachDaemon('local', (m) => daemon.push(m))
     const sessionId = liveSession(reg)
-    reg.onDaemonMessage({ type: 'agentState', sessionId, state: erroredState })
+    reg.onDaemonMessageFrom('local', { type: 'agentState', sessionId, state: erroredState })
     expect(daemon).not.toContainEqual(continueInput) // off → silent so far
     enableAutoContinue(reg)
     expect(daemon).toContainEqual(continueInput) // flipping on arms the errored session
@@ -1824,7 +1824,7 @@ describe('output-relay priority + frame batch', () => {
   it('a client viewState{visible:[s],focused:s} pushes sessionPriority{priority:0} to the daemon', () => {
     const reg = new SessionRegistry()
     const daemon: ControlMessage[] = []
-    reg.attachDaemon((m) => daemon.push(m))
+    reg.attachDaemon('local', (m) => daemon.push(m))
     const { sessionId } = reg.createSession({ agentKind: 'claude-code', cwd: '/w' })
     const c = sink()
     const id = reg.attachClient(c.send)
@@ -1837,7 +1837,7 @@ describe('output-relay priority + frame batch', () => {
 
   it('stores the rendered-mode map from a viewState message on the client (available, not used for scheduling)', () => {
     const reg = new SessionRegistry()
-    reg.attachDaemon(() => {})
+    reg.attachDaemon('local', () => {})
     const { sessionId } = reg.createSession({ agentKind: 'claude-code', cwd: '/w' })
     const c = sink()
     const id = reg.attachClient(c.send)
@@ -1854,7 +1854,7 @@ describe('output-relay priority + frame batch', () => {
 
   it('defaults viewModes to {} when a viewState omits modes (backward compatible)', () => {
     const reg = new SessionRegistry()
-    reg.attachDaemon(() => {})
+    reg.attachDaemon('local', () => {})
     const { sessionId } = reg.createSession({ agentKind: 'claude-code', cwd: '/w' })
     const c = sink()
     const id = reg.attachClient(c.send)
@@ -1873,7 +1873,7 @@ describe('output-relay priority + frame batch', () => {
 
   it('a fresh client starts with empty viewModes', () => {
     const reg = new SessionRegistry()
-    reg.attachDaemon(() => {})
+    reg.attachDaemon('local', () => {})
     const c = sink()
     const id = reg.attachClient(c.send)
     expect((reg as any).clients.get(id).viewModes).toEqual({})
@@ -1882,7 +1882,7 @@ describe('output-relay priority + frame batch', () => {
   it('computes per-session priority across ALL sessions (clients iterable is materialized, not exhausted)', () => {
     const reg = new SessionRegistry()
     const daemon: ControlMessage[] = []
-    reg.attachDaemon((m) => daemon.push(m))
+    reg.attachDaemon('local', (m) => daemon.push(m))
     // Two sessions: the second would wrongly read as tier 3 if the clients iterator
     // were single-use (it exhausts after the first session) — the array-materialize
     // guard is what keeps this correct.
@@ -1901,7 +1901,7 @@ describe('output-relay priority + frame batch', () => {
   it('only CHANGED sessions are re-pushed (deltas, not the whole map every time)', () => {
     const reg = new SessionRegistry()
     const daemon: ControlMessage[] = []
-    reg.attachDaemon((m) => daemon.push(m))
+    reg.attachDaemon('local', (m) => daemon.push(m))
     const { sessionId } = reg.createSession({ agentKind: 'claude-code', cwd: '/w' })
     const c = sink()
     const id = reg.attachClient(c.send)
@@ -1915,16 +1915,16 @@ describe('output-relay priority + frame batch', () => {
 
   it('a fresh daemon (re)connect gets the current priority of every live session', () => {
     const reg = new SessionRegistry()
-    reg.attachDaemon(() => {})
+    reg.attachDaemon('local', () => {})
     const { sessionId } = reg.createSession({ agentKind: 'claude-code', cwd: '/w' })
     const c = sink()
     const id = reg.attachClient(c.send)
     reg.onClientMessage(id, { type: 'viewState', visible: [sessionId], focused: sessionId })
     // The daemon drops; a fresh one attaches — it knows no priorities, so the full
     // current map must be re-pushed (lastPriority.clear() + pushPriorities()).
-    reg.detachDaemon()
+    reg.detachDaemon('local')
     const daemon2: ControlMessage[] = []
-    reg.attachDaemon((m) => daemon2.push(m))
+    reg.attachDaemon('local', (m) => daemon2.push(m))
     expect(priorities(daemon2)).toContainEqual({
       type: 'sessionPriority',
       sessionId,
@@ -1934,15 +1934,15 @@ describe('output-relay priority + frame batch', () => {
 
   it('agentFrameBatch unpacks into one outputFrame broadcast per coalesced frame', () => {
     const reg = new SessionRegistry()
-    reg.attachDaemon(() => {})
+    reg.attachDaemon('local', () => {})
     const { sessionId } = reg.createSession({ agentKind: 'claude-code', cwd: '/w' })
-    reg.onDaemonMessage(bind(sessionId))
+    reg.onDaemonMessageFrom('local', bind(sessionId))
     const c = sink()
     const id = reg.attachClient(c.send)
     reg.onClientMessage(id, { type: 'attach', sessionId })
     c.sent.length = 0
 
-    reg.onDaemonMessage({ type: 'agentFrameBatch', sessionId, frames: ['ZDE=', 'ZDI='] })
+    reg.onDaemonMessageFrom('local', { type: 'agentFrameBatch', sessionId, frames: ['ZDE=', 'ZDI='] })
     const frames = c.sent.filter(
       (m): m is Extract<ServerMessage, { type: 'outputFrame' }> => m.type === 'outputFrame',
     )
