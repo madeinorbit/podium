@@ -121,6 +121,10 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
 
   let lastEpoch = -1
   let firstFrameSeen = false
+  // Tracks whether we've seen an attach before, so onAttached can tell a fresh mount
+  // (sizing already driven by the mount/setActive path) from a RECONNECT (where we must
+  // re-assert the size — see the onAttached handler).
+  let everAttached = false
 
   // Ready = "usable, drop the Starting… overlay". Fires on the FIRST of: the server
   // confirming the attach (onAttached), the first real frame, or the timeout backstop
@@ -136,7 +140,18 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
   readyTimer = setTimeout(markReady, opts.readyTimeoutMs ?? READY_TIMEOUT_MS)
 
   const connection = hub.attach(sessionId, {
-    onAttached: markReady,
+    onAttached: () => {
+      markReady()
+      // RECONNECT re-fit. A server reload rebuilds the session at the 80×24 default and
+      // the 'attached' message carries that grid; _ingest emits onState (serverGrid →
+      // 80×24, the view shrinks) BEFORE this callback, so re-fitting here sees the
+      // mismatch and re-asserts our real viewport (and re-claims control, which the
+      // restarted server also reset). Without this the terminal stays stuck quarter-
+      // sized until a manual resize/tab-switch. Skip the first attach — the mount /
+      // setActive path already sized it, and re-running would double-bump the epoch.
+      if (everAttached && eligible()) becomeEligible()
+      everAttached = true
+    },
     onFrame: (text) => {
       view.write(text)
       if (!firstFrameSeen && text.length > 0) {

@@ -64,6 +64,7 @@ function fakeHub() {
     calls,
     state: (cols: number, rows: number) =>
       cbs.onState?.({ role: 'controller', cols, rows, epoch: 0, connected: true } as never),
+    attached: () => cbs.onAttached?.(),
   }
 }
 
@@ -125,6 +126,24 @@ describe('mountSession eligibility-gated sizing', () => {
     document.dispatchEvent(new Event('visibilitychange'))
     expect(calls.requestControl).toBe(1)
     expect(calls.resize.length).toBeGreaterThanOrEqual(1)
+    mounted.dispose()
+  })
+
+  it('re-fits and re-asserts size on reconnect (server-reload quarter-size fix)', () => {
+    withResizeObserver()
+    withFittableAddon() // fit → 150×50
+    const { hub, calls, attached, state } = fakeHub()
+    const mounted = mountSession(fittableHost(), { hub, sessionId: 's1', active: true })
+    attached() // first attach
+    calls.resize.length = 0
+    const rcBefore = calls.requestControl
+    // Server reload: the rebuilt session resets to 80×24. On reconnect the 'attached'
+    // message emits onState FIRST (serverGrid := 80×24, view shrinks) then fires
+    // onAttached — so a re-fit here sees the mismatch and re-asserts the real size.
+    state(80, 24)
+    attached() // RECONNECT re-attach — must re-fit, not stay quarter-size
+    expect(calls.resize.at(-1), 'reconnect re-asserts the real fitted size').toEqual([150, 50])
+    expect(calls.requestControl, 're-claims control on reconnect').toBeGreaterThan(rcBefore)
     mounted.dispose()
   })
 })
