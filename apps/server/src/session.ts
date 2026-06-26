@@ -355,6 +355,11 @@ export class Session {
     if (clientId === this.controllerId && client?.viewVisible.has(this.sessionId)) {
       this.geometry = { cols, rows }
       this.toDaemon({ type: 'resize', sessionId: this.sessionId, cols, rows })
+      // Tell every client the new authoritative size. Without this broadcast a
+      // client only has its own optimistic sendResize value, which requestControl's
+      // (stale) geometry broadcast clobbers back to the old grid — leaving the xterm
+      // snapped to 80x24 by onState even though the PTY was resized (quarter-size).
+      this.broadcast({ type: 'geometry', sessionId: this.sessionId, cols, rows })
     }
   }
 
@@ -378,6 +383,12 @@ export class Session {
     this.geometry = { ...client.viewport }
     this.toDaemon({
       type: 'resize',
+      sessionId: this.sessionId,
+      cols: this.geometry.cols,
+      rows: this.geometry.rows,
+    })
+    this.broadcast({
+      type: 'geometry',
       sessionId: this.sessionId,
       cols: this.geometry.cols,
       rows: this.geometry.rows,

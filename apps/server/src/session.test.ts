@@ -141,6 +141,37 @@ describe('Session', () => {
     expect(toDaemon).toHaveBeenCalledWith({ type: 'resize', sessionId: 's1', cols: 200, rows: 50 })
   })
 
+  it('broadcasts the applied geometry to all clients so the size is not lost (quarter-size fix)', () => {
+    // The client only learns the authoritative size from a geometry/controllerChanged/
+    // attached message — its own optimistic sendResize value gets clobbered by
+    // requestControl's geometry broadcast. So an applied resize MUST broadcast, or the
+    // xterm snaps back to 80x24 via onState even though the PTY was resized.
+    const s = makeSession()
+    const a = makeClient('a')
+    const b = makeClient('b')
+    s.attachClient(a) // controller
+    s.attachClient(b) // spectator (e.g. another device)
+    a.viewVisible = new Set(['s1'])
+    a.sent.length = 0
+    b.sent.length = 0
+    s.handleResize('a', 200, 50)
+    for (const c of [a, b]) {
+      expect(c.sent).toContainEqual({ type: 'geometry', sessionId: 's1', cols: 200, rows: 50 })
+    }
+  })
+
+  it('reconcileGeometry broadcasts the healed geometry to clients', () => {
+    const s = makeSession()
+    const a = makeClient('a')
+    s.attachClient(a)
+    a.viewport = { cols: 200, rows: 50 } // last fitted size (handleResize stored it, then dropped)
+    a.viewVisible = new Set(['s1']) // viewState now confirms it renders s1
+    a.sent.length = 0
+    s.reconcileGeometry('a')
+    expect(s.geometry).toEqual({ cols: 200, rows: 50 })
+    expect(a.sent).toContainEqual({ type: 'geometry', sessionId: 's1', cols: 200, rows: 50 })
+  })
+
   it('takeover bumps epoch, resizes+redraws the agent, broadcasts controllerChanged + geometry', () => {
     const toDaemon = vi.fn()
     const s = makeSession(toDaemon)
