@@ -57,15 +57,6 @@ import {
 } from '@podium/agent-bridge'
 import { startLoopMetrics } from '@podium/core'
 import {
-  countControl,
-  countFrame,
-  countTail,
-  countWorker,
-  reportLongTick,
-  startLoopAttribution,
-  timeTask,
-} from './loop-attribution'
-import {
   type AgentKind,
   type ControlMessage,
   type ConversationDiagnosticWire,
@@ -88,6 +79,15 @@ import { buildHarnessExec } from './harness-exec.js'
 import { startHookIngest } from './hook-ingest'
 import { sampleHostMemory } from './host-metrics'
 import { loadIdentity, saveToken } from './identity'
+import {
+  countControl,
+  countFrame,
+  countTail,
+  countWorker,
+  reportLongTick,
+  startLoopAttribution,
+  timeTask,
+} from './loop-attribution'
 import type { MemoryAttribution } from './memory-breakdown'
 import { OutputScheduler, type Tier } from './output-scheduler'
 import { makeQuotaFetcher } from './quota-fetch'

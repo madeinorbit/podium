@@ -15,7 +15,11 @@ const setActive = vi.fn()
 const dispose = vi.fn()
 // Loosely typed args (el, opts) so the captured opts.active is inspectable.
 const mountSessionMock = vi.fn((_el: unknown, _opts: { active?: boolean }) => ({
-  connection: { state: () => ({ role: 'controller' }), sendInput: vi.fn(), requestControl: vi.fn() },
+  connection: {
+    state: () => ({ role: 'controller' }),
+    sendInput: vi.fn(),
+    requestControl: vi.fn(),
+  },
   view: {
     setFileLinks: vi.fn(),
     onScroll: () => () => {},

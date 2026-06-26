@@ -856,9 +856,7 @@ describe('view state', () => {
   it('does not send while disconnected but stores it for (re)connect', () => {
     const { sock, hub } = setup()
     hub.setViewState(['s1'], 's1') // before connect
-    expect(sock.parsed()).not.toContainEqual(
-      expect.objectContaining({ type: 'viewState' }),
-    )
+    expect(sock.parsed()).not.toContainEqual(expect.objectContaining({ type: 'viewState' }))
     hub.connect()
     sock.open()
     expect(sock.parsed()).toContainEqual({ type: 'viewState', visible: ['s1'], focused: 's1' })

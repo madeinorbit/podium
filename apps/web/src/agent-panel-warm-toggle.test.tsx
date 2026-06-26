@@ -14,7 +14,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 const setActive = vi.fn()
 const dispose = vi.fn()
 const mountSessionMock = vi.fn((_el: unknown, _opts: { active?: boolean }) => ({
-  connection: { state: () => ({ role: 'controller' }), sendInput: vi.fn(), requestControl: vi.fn() },
+  connection: {
+    state: () => ({ role: 'controller' }),
+    sendInput: vi.fn(),
+    requestControl: vi.fn(),
+  },
   view: {
     setFileLinks: vi.fn(),
     onScroll: () => () => {},

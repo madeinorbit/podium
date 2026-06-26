@@ -126,7 +126,10 @@ afterEach(() => {
 function mount(): void {
   act(() => {
     root.render(
-      <StoreProvider config={{ wsClientUrl: 'ws://x', httpOrigin: 'http://x' }} onFatalError={() => {}}>
+      <StoreProvider
+        config={{ wsClientUrl: 'ws://x', httpOrigin: 'http://x' }}
+        onFatalError={() => {}}
+      >
         <Consumer />
       </StoreProvider>,
     )

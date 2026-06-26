@@ -25,7 +25,9 @@ const dispose = vi.fn()
 // so render the rounded box with just the '>' marker. happy-dom doesn't run real
 // layout, so we also force the terminal container to "contain" the active element
 // (the flush guards on termRef.current.contains(activeElement)).
-const EMPTY_CLAUDE_COMPOSER = ['╭──────────────╮', '│ >            │', '╰──────────────╯'].join('\n')
+const EMPTY_CLAUDE_COMPOSER = ['╭──────────────╮', '│ >            │', '╰──────────────╯'].join(
+  '\n',
+)
 const mountSessionMock = vi.fn((el: unknown, _opts: { active?: boolean }) => {
   // Make the focus guard pass: the flush only injects while the terminal holds
   // focus. Mark the mount element as containing the active element.

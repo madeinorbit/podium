@@ -1,12 +1,7 @@
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type {
-  AgentPhase,
-  AgentRuntimeState,
-  ControlMessage,
-  ServerMessage,
-} from '@podium/protocol'
+import type { AgentPhase, AgentRuntimeState, ControlMessage, ServerMessage } from '@podium/protocol'
 import { describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from './relay'
 import { type SessionRow, SessionStore } from './store'
@@ -74,7 +69,11 @@ describe('SessionRegistry', () => {
     reg.attachDaemon('local', (m) => daemon.push(m))
     reg.createSession({ agentKind: 'claude-code', cwd: '/w', initialPrompt: 'fix the bug' })
     expect(daemon).toContainEqual(
-      expect.objectContaining({ type: 'spawn', agentKind: 'claude-code', initialPrompt: 'fix the bug' }),
+      expect.objectContaining({
+        type: 'spawn',
+        agentKind: 'claude-code',
+        initialPrompt: 'fix the bug',
+      }),
     )
   })
 
@@ -84,7 +83,11 @@ describe('SessionRegistry', () => {
     reg.attachDaemon('local', (m) => daemon.push(m))
     const client = sink()
     reg.attachClient(client.send)
-    const { sessionId } = reg.createSession({ agentKind: 'shell', cwd: '/w', initialPrompt: 'remember this' })
+    const { sessionId } = reg.createSession({
+      agentKind: 'shell',
+      cwd: '/w',
+      initialPrompt: 'remember this',
+    })
     const spawn = daemon.find((m) => m.type === 'spawn')
     expect(spawn).toBeDefined()
     expect(spawn).not.toHaveProperty('initialPrompt')
@@ -1168,7 +1171,12 @@ describe('structured transcript channel', () => {
     expect(client.sent.filter((m) => m.type === 'transcriptDelta')).toEqual([])
 
     const item = { id: 'u1', role: 'user' as const, text: 'hi', cursor: 'c1' }
-    reg.onDaemonMessageFrom('local', { type: 'transcriptDelta', sessionId, items: [item], tail: 'c1' })
+    reg.onDaemonMessageFrom('local', {
+      type: 'transcriptDelta',
+      sessionId,
+      items: [item],
+      tail: 'c1',
+    })
     expect(client.sent).toContainEqual({
       type: 'transcriptDelta',
       sessionId,
@@ -1178,7 +1186,12 @@ describe('structured transcript channel', () => {
 
     // A reset delta (tailer switched files) clears the cache and fans out reset:true.
     const item2 = { id: 'u2', role: 'user' as const, text: 'again', cursor: 'c2' }
-    reg.onDaemonMessageFrom('local', { type: 'transcriptDelta', sessionId, items: [item2], reset: true })
+    reg.onDaemonMessageFrom('local', {
+      type: 'transcriptDelta',
+      sessionId,
+      items: [item2],
+      reset: true,
+    })
     expect(client.sent.at(-1)).toEqual({
       type: 'transcriptDelta',
       sessionId,
@@ -1195,7 +1208,12 @@ describe('structured transcript channel', () => {
     const a = { id: 'a', role: 'user' as const, text: 'a', cursor: 'c1' }
     const b = { id: 'b', role: 'assistant' as const, text: 'b', cursor: 'c2' }
     const c = { id: 'c', role: 'user' as const, text: 'c', cursor: 'c3' }
-    reg.onDaemonMessageFrom('local', { type: 'transcriptDelta', sessionId, items: [a, b, c], tail: 'c3' })
+    reg.onDaemonMessageFrom('local', {
+      type: 'transcriptDelta',
+      sessionId,
+      items: [a, b, c],
+      tail: 'c3',
+    })
 
     // since=c1 → replay strictly after it (b, c).
     const known = sink()
@@ -1786,7 +1804,10 @@ describe('SessionRegistry — auto-continue', () => {
     const sessionId = liveSession(reg)
     reg.onDaemonMessageFrom('local', { type: 'agentState', sessionId, state: erroredState })
     expect(daemon).not.toContainEqual(continueInput)
-    reg.setSettings({ ...reg.getSettings(), autoContinue: { enabled: false, promptDismissed: false } })
+    reg.setSettings({
+      ...reg.getSettings(),
+      autoContinue: { enabled: false, promptDismissed: false },
+    })
   })
 
   it('auto-sends continue when an enabled session hits a retryable error', () => {
@@ -1798,7 +1819,10 @@ describe('SessionRegistry — auto-continue', () => {
     reg.onDaemonMessageFrom('local', { type: 'agentState', sessionId, state: erroredState })
     expect(daemon).toContainEqual(continueInput)
     // Cancel the live loop so no real backoff timer dangles past the test.
-    reg.setSettings({ ...reg.getSettings(), autoContinue: { enabled: false, promptDismissed: false } })
+    reg.setSettings({
+      ...reg.getSettings(),
+      autoContinue: { enabled: false, promptDismissed: false },
+    })
   })
 
   it('arms already-errored sessions when the setting is switched on', () => {
@@ -1810,7 +1834,10 @@ describe('SessionRegistry — auto-continue', () => {
     expect(daemon).not.toContainEqual(continueInput) // off → silent so far
     enableAutoContinue(reg)
     expect(daemon).toContainEqual(continueInput) // flipping on arms the errored session
-    reg.setSettings({ ...reg.getSettings(), autoContinue: { enabled: false, promptDismissed: false } })
+    reg.setSettings({
+      ...reg.getSettings(),
+      autoContinue: { enabled: false, promptDismissed: false },
+    })
   })
 })
 
@@ -1942,7 +1969,11 @@ describe('output-relay priority + frame batch', () => {
     reg.onClientMessage(id, { type: 'attach', sessionId })
     c.sent.length = 0
 
-    reg.onDaemonMessageFrom('local', { type: 'agentFrameBatch', sessionId, frames: ['ZDE=', 'ZDI='] })
+    reg.onDaemonMessageFrom('local', {
+      type: 'agentFrameBatch',
+      sessionId,
+      frames: ['ZDE=', 'ZDI='],
+    })
     const frames = c.sent.filter(
       (m): m is Extract<ServerMessage, { type: 'outputFrame' }> => m.type === 'outputFrame',
     )
