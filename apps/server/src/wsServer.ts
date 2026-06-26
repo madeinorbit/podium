@@ -168,8 +168,13 @@ export function wireDaemonSocket(ws: import('ws').WebSocket, registry: SessionRe
       if (frame.type === 'pair' && auth.token !== undefined) {
         reply({ type: 'paired', token: auth.token, machineId, name: auth.name })
       }
-      registry.attachDaemon(machineId, (msg) => safeSend(ws, msg, SEND_BUFFER_LIMIT_BYTES))
+      // Send the handshake reply BEFORE attaching. attachDaemon synchronously flushes
+      // any buffered control frames and calls pushPriorities(), which would otherwise
+      // reach the daemon ahead of helloOk — on a server with live sessions to prioritize
+      // the daemon's first-frame handshake parse then sees a sessionPriority frame, fails
+      // ("malformed reply"), and refuses, looping forever. helloOk must be the first frame.
       reply({ type: 'helloOk', name: auth.name })
+      registry.attachDaemon(machineId, (msg) => safeSend(ws, msg, SEND_BUFFER_LIMIT_BYTES))
       return
     }
     try {
