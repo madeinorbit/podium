@@ -153,7 +153,13 @@ export class TerminalView {
     if (!gpuEnabled()) return
     try {
       const webgl = new WebglAddon()
-      webgl.onContextLoss(() => webgl.dispose()) // drop back to the DOM renderer
+      webgl.onContextLoss(() => {
+        webgl.dispose() // drop back to the DOM renderer
+        // The lost GL canvas is blank. The DOM renderer that takes over is damage-based
+        // and won't repaint cells it considers clean, so without forcing a full repaint
+        // the screen stays black (showing only cells that change next) until new output.
+        this.forceRepaint()
+      })
       this.term.loadAddon(webgl)
     } catch {
       // WebGL unavailable; the DOM renderer stays active
@@ -177,6 +183,25 @@ export class TerminalView {
       this.term.resize(cols, rows)
     } catch {
       // renderer not ready; the next fit/resize will reconcile geometry
+    }
+  }
+
+  /**
+   * Force a full repaint of the visible buffer. xterm's WebGL and DOM renderers are
+   * damage-based: they only redraw cells that changed since the last frame. After the
+   * canvas is hidden then revealed (a tab/panel switch), resized/reflowed, or a WebGL
+   * context is lost, the GPU backing store can be blank while xterm still considers the
+   * unchanged cells "clean" — so they render black until something overwrites them (the
+   * "only the animated parts / only my typed text shows, rest is black" symptom). This
+   * marks every visible row dirty so the next frame repaints the whole screen from the
+   * local buffer, with no agent round-trip.
+   */
+  forceRepaint(): void {
+    if (this.disposed) return
+    try {
+      this.term.refresh(0, this.term.rows - 1)
+    } catch {
+      // renderer not ready; the next frame will paint
     }
   }
 

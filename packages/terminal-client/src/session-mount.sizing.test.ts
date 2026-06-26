@@ -1,8 +1,9 @@
 // @vitest-environment happy-dom
 import { FitAddon } from '@xterm/addon-fit'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { SessionCallbacks, SocketHub } from './connection'
 import { mountSession } from './session-mount'
+import { TerminalView } from './terminal-view'
 
 function withResizeObserver(): void {
   if (!('ResizeObserver' in globalThis)) {
@@ -144,6 +145,22 @@ describe('mountSession eligibility-gated sizing', () => {
     attached() // RECONNECT re-attach — must re-fit, not stay quarter-size
     expect(calls.resize.at(-1), 'reconnect re-asserts the real fitted size').toEqual([150, 50])
     expect(calls.requestControl, 're-claims control on reconnect').toBeGreaterThan(rcBefore)
+    mounted.dispose()
+  })
+
+  it('forces a full repaint on reveal and on resize (black-screen fix)', () => {
+    withResizeObserver()
+    withFittableAddon()
+    const repaint = vi.spyOn(TerminalView.prototype, 'forceRepaint')
+    protoPatchRestorers.push(() => repaint.mockRestore())
+    const { hub, state } = fakeHub()
+    const mounted = mountSession(fittableHost(), { hub, sessionId: 's1', active: true })
+    // Mounting active reveals the panel → becomeEligible → forceRepaint.
+    expect(repaint, 'repaint on reveal').toHaveBeenCalled()
+    repaint.mockClear()
+    // A server-driven geometry change resizes the view → forceRepaint.
+    state(100, 30)
+    expect(repaint, 'repaint on resize').toHaveBeenCalled()
     mounted.dispose()
   })
 })

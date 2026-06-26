@@ -117,6 +117,10 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
     if (!eligible()) return
     connection.requestControl() // last-foregrounded-wins
     applyFit(true) // force a repaint on reveal even when the size is unchanged
+    // Revealing a warm panel (display:none → flex) can leave the GPU canvas blank while
+    // xterm still treats unchanged cells as clean — they render black until something
+    // overwrites them. Force a full client-side repaint so the screen fills immediately.
+    view.forceRepaint()
   }
 
   let lastEpoch = -1
@@ -172,6 +176,10 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
     onState: (state) => {
       if (view.cols() !== state.cols || view.rows() !== state.rows) {
         view.resize(state.cols, state.rows)
+        // A resize/reflow can leave the GPU canvas showing only the cells that moved or
+        // changed (the "caret at top, my text at bottom, rest black" symptom). Force a
+        // full repaint so the whole grid redraws at the new geometry.
+        view.forceRepaint()
       }
       serverGrid = { cols: state.cols, rows: state.rows }
       // Clear only on an in-session epoch bump — a controller takeover repaints the
