@@ -55,7 +55,7 @@ import {
   tmuxHasSessionAsync,
   transcriptSourceFor,
 } from '@podium/agent-bridge'
-import { startLoopMetrics } from '@podium/core'
+import { startLoopMetrics } from '@podium/core/loop-metrics'
 import {
   type AgentKind,
   type ControlMessage,

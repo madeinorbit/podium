@@ -8,7 +8,9 @@
       "types": "./src/index.ts",
       "import": "./src/index.ts"
     },
-    "./sqlite": "./src/sqlite/index.ts"
+    "./sqlite": "./src/sqlite/index.ts",
+    "./config": "./src/config.ts",
+    "./loop-metrics": "./src/loop-metrics.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

@@ -29,10 +29,22 @@ growth path, and `CONTRIBUTING.md` for setup.
 
 ```bash
 bun install
+bun run host       # runs the app: web UI + backend (relay + daemon), on Bun from source
+```
+
+Then open **http://localhost:55556** (the Vite dev server; it proxies the API/WebSockets to the
+backend on :18787). On first load, pick a folder and scan it for git repositories. No separate
+build step is needed — `bun run host` resolves the workspace packages from source.
+
+Contributor checks:
+
+```bash
 bun run typecheck
-bun run build      # builds the publishable libraries
+bun run build      # builds the publishable libraries (NOT required to run the app)
 bun run lint
 bun run test
 ```
 
-Requires Bun ≥ 1.3 and Node 22 (see `.nvmrc`).
+Requires **Bun ≥ 1.3** (runtime + task runner). On macOS, install the Xcode Command Line Tools
+(`xcode-select --install`) — a C compiler is used to build the bundled `abduco` session helper on
+first run. See `CONTRIBUTING.md` for details.

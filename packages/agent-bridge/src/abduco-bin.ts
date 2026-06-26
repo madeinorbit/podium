@@ -58,20 +58,28 @@ export function buildVendoredAbduco(out: string): string | undefined {
     '-std=c99',
     '-D_POSIX_C_SOURCE=200809L',
     '-D_XOPEN_SOURCE=700',
+    // macOS hides its BSD extensions (SIGWINCH, VLNEXT) under the strict POSIX/XOPEN
+    // macros above; _DARWIN_C_SOURCE re-exposes them so the single-TU compile succeeds.
+    // A no-op on glibc/musl, so it needs no platform guard.
+    '-D_DARWIN_C_SOURCE',
     '-DNDEBUG',
     '-DVERSION="0.6-podium"',
     VENDOR_ABDUCO_C,
     '-o',
     out,
   ]
+  // Capture stderr so a genuine compile/link failure is diagnosable — the daemon's
+  // "neither abduco nor tmux found" otherwise hides the real cc error.
+  let lastErr = ''
   for (const link of [['-lutil'], []]) {
     try {
-      execFileSync(cc, [...base, ...link], { stdio: 'ignore' })
+      execFileSync(cc, [...base, ...link], { stdio: ['ignore', 'ignore', 'pipe'] })
       if (runs(out)) return out
-    } catch {
-      // try the next link variant
+    } catch (e) {
+      lastErr = (e as { stderr?: Buffer | string })?.stderr?.toString() ?? String(e)
     }
   }
+  if (lastErr) console.warn(`[podium] abduco build failed (${cc}):\n${lastErr.trim()}`)
   return undefined
 }
 

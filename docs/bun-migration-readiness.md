@@ -3,6 +3,12 @@
 **Date:** 2026-06-21
 **Branch:** `worktree-feat+pty-backend-abstraction` (off `main` @ `030d70f`)
 
+> **Update (2026-06-26):** partly superseded — the committed `scripts/systemd/podium-server.service`
+> and `podium-daemon.service` already run the backend on Bun from source
+> (`bun --conditions=@podium/source`), and local dev runs on Bun (`bun run host`). Sections below
+> that describe a Node/`tsx` present are historical; treat this file as migration history, not
+> current onboarding (see `CONTRIBUTING.md` for how to run today).
+
 Goal: run Podium on Bun, shippable as a `bun build --compile` single-file binary, and be
 able to flip the live host node→bun on a copy of the existing state.
 

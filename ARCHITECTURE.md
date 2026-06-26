@@ -64,7 +64,8 @@ package and lets each release independently.
 
 ## Toolchain
 
-Bun (package manager / task runner / bundler) · Node 22 (runtime for `server`/`daemon`
-because of `node-pty`) · TypeScript ESM-only · Biome (lint+format) · Vitest · tsup
-(library builds) · Changesets (releases). Cross-workspace tasks run via
-`bun run --filter`.
+Bun (package manager / task runner / bundler / **runtime** — `server`/`daemon` run on Bun from
+source via the `@podium/source` condition; the PTY backend is runtime-selected, so `Bun.Terminal`
+is used under Bun and `node-pty` is never loaded) · Node 22 only for the legacy `tsx`/single-binary
+paths · TypeScript ESM-only · Biome (lint+format) · Vitest · tsup (library builds) · Changesets
+(releases). Cross-workspace tasks run via `bun run --filter`.

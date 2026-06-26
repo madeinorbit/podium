@@ -5,7 +5,12 @@
  * UI (printed URL), so the box is usable at once; switching modes in the UI writes config
  * and asks for a restart.
  */
-import { type PodiumConfig, type PodiumMode, loadConfig, needsSetup } from '../packages/core/src/index'
+import {
+  loadConfig,
+  needsSetup,
+  type PodiumConfig,
+  type PodiumMode,
+} from '../packages/core/src/config'
 
 export interface LaunchPlan {
   mode: PodiumMode

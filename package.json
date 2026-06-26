@@ -17,9 +17,9 @@
   "scripts": {
     "build": "bun run --filter './packages/*' build",
     "dev": "bun run --filter './packages/*' dev",
-    "host": "bun run --filter @podium/web dev & node_modules/.bin/tsx watch scripts/host.ts",
+    "host": "bun run --filter @podium/web dev & bun --conditions=@podium/source --watch scripts/host.ts",
     "host:web": "bun run --filter @podium/web dev",
-    "host:backend": "node_modules/.bin/tsx watch scripts/host.ts",
+    "host:backend": "bun --conditions=@podium/source --watch scripts/host.ts",
     "typecheck": "bun run --filter '*' typecheck",
     "test": "vitest run --passWithNoTests",
     "lint": "biome check .",

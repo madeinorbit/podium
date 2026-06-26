@@ -1,7 +1,7 @@
 [Unit]
 Description=Podium web (built PWA via vite preview, app origin :55556; TLS :55555 via tailscale serve)
-After=podium-backend.service network-online.target
-Wants=podium-backend.service
+After=podium-server.service network-online.target
+Wants=podium-server.service
 
 [Service]
 Type=simple

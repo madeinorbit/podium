@@ -1,4 +1,10 @@
-import { PodiumConfig, type PodiumConfig as PodiumConfigType, loadConfig, needsSetup, saveConfig } from '@podium/core'
+import {
+  loadConfig,
+  needsSetup,
+  PodiumConfig,
+  type PodiumConfig as PodiumConfigType,
+  saveConfig,
+} from '@podium/core/config'
 import type { Hono } from 'hono'
 
 /**

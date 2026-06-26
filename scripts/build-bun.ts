@@ -32,7 +32,10 @@ const version = process.env.PODIUM_APP_VERSION ?? pkgVersion ?? '0.1.0'
 
 console.log('[build-bun] prebuilding abduco…')
 const abduco = buildVendoredAbduco(`${out}/abduco.bin`)
-if (!abduco) throw new Error('build-bun: failed to prebuild abduco (no C compiler?)')
+if (!abduco)
+  throw new Error(
+    'build-bun: failed to prebuild abduco (missing C compiler, or a compile error — see the [podium] abduco build output above)',
+  )
 console.log(`[build-bun] abduco -> ${abduco}`)
 
 const compile = (entry: string, name: string): void => {
