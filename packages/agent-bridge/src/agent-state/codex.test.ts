@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
@@ -119,6 +119,117 @@ describe('findLiveCodexRollout', () => {
     expect(await findLiveCodexRollout(sessions, '/repo/x', Date.now() + 60_000)).toBeUndefined()
     // …but reattach (floor 0) finds the live session's existing rollout regardless of age.
     expect((await findLiveCodexRollout(sessions, '/repo/x', 0))?.id).toBe('idle')
+  })
+
+  it('ignores the newer guardian subagent rollout and returns the interactive cli session', async () => {
+    // Codex ≥0.142 writes a SECOND rollout per interactive session for its internal
+    // "guardian" risk-judging subagent: same cwd, NEWER mtime, its own thread id, but
+    // `source: { subagent: … }`. Sorting by mtime would latch onto the guardian and
+    // cross-wire the chat view to its "judging one planned action" transcript.
+    const sessions = await mkdtemp(join(tmpdir(), 'podium-codex-obs-'))
+    const dir = join(sessions, '2026', '06', '25')
+    await mkdir(dir, { recursive: true })
+
+    const cli = join(dir, 'rollout-2026-06-25T11-07-49-cliid.jsonl')
+    await writeFile(
+      cli,
+      `${JSON.stringify({ type: 'session_meta', payload: { id: 'cliid', cwd: '/repo/x', source: 'cli' } })}\n`,
+    )
+    const guardian = join(dir, 'rollout-2026-06-25T11-07-50-guardid.jsonl')
+    await writeFile(
+      guardian,
+      `${JSON.stringify({ type: 'session_meta', payload: { id: 'guardid', cwd: '/repo/x', source: { subagent: { other: 'guardian' } } } })}\n`,
+    )
+    // Make the guardian strictly newer so an mtime sort would pick it.
+    await utimes(cli, new Date(1000), new Date(1000))
+    await utimes(guardian, new Date(2000), new Date(2000))
+
+    const found = await findLiveCodexRollout(sessions, '/repo/x', 0)
+    expect(found?.path).toBe(cli)
+    expect(found?.id).toBe('cliid')
+  })
+})
+
+describe('observeCodexState rollout pinning', () => {
+  const jsonl = (lines: unknown[]): string => `${lines.map((l) => JSON.stringify(l)).join('\n')}\n`
+
+  const sessionFrom = (
+    home: string,
+    cwd: string,
+    resumeValue: string | undefined,
+  ): Promise<{ id?: string; path: string }> =>
+    new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        obs.stop()
+        reject(new Error('onSession was not called'))
+      }, 3000)
+      const obs = observeCodexState({
+        cwd,
+        homeDir: home,
+        ...(resumeValue ? { resumeValue } : {}),
+        startedAtMs: 0,
+        pollMs: 10,
+        onSession: (id, path) => {
+          clearTimeout(timer)
+          obs.stop()
+          resolve({ id, path })
+        },
+        onEvents: () => {},
+      })
+    })
+
+  it('pins to the resumeValue thread on reattach, ignoring a newer sibling in the same cwd', async () => {
+    // The reattach bug: several Codex sessions share a repo cwd. On reattach the
+    // observer re-resolved the rollout purely by cwd + newest mtime, so EVERY session
+    // latched onto the single most-recent rollout — collapsing them onto one
+    // transcript (and one conversation identity, hiding the rest). A reattached
+    // session already knows its own thread id; it must pin to THAT rollout.
+    const home = await mkdtemp(join(tmpdir(), 'podium-codex-pin-'))
+    const dir = join(home, '.codex', 'sessions', '2026', '06', '25')
+    await mkdir(dir, { recursive: true })
+    const cwd = '/repo/multi'
+
+    const older = join(dir, 'rollout-2026-06-25T10-00-00-sessA.jsonl')
+    await writeFile(older, jsonl([{ type: 'session_meta', payload: { id: 'sessA', cwd, source: 'cli' } }]))
+    const newer = join(dir, 'rollout-2026-06-25T11-00-00-sessB.jsonl')
+    await writeFile(newer, jsonl([{ type: 'session_meta', payload: { id: 'sessB', cwd, source: 'cli' } }]))
+    await utimes(older, new Date(1000), new Date(1000))
+    await utimes(newer, new Date(2000), new Date(2000))
+
+    const found = await sessionFrom(home, cwd, 'sessA')
+    expect(found.id).toBe('sessA')
+    expect(found.path).toBe(older)
+  })
+
+  it('does not grab a cwd sibling on reattach without a resume value or start floor', async () => {
+    // The reattach signature is: no resumeValue (the session never got a rollout —
+    // e.g. an empty pane the user never prompted) AND no startedAtMs (only a fresh
+    // spawn passes one). Discovering by cwd here would latch onto an unrelated
+    // sibling's rollout and re-corrupt the session. The observer must stay idle
+    // until it has something authoritative to bind to.
+    const home = await mkdtemp(join(tmpdir(), 'podium-codex-noref-'))
+    const dir = join(home, '.codex', 'sessions', '2026', '06', '25')
+    await mkdir(dir, { recursive: true })
+    const cwd = '/repo/empty-pane'
+    await writeFile(
+      join(dir, 'rollout-2026-06-25T11-00-00-sibling.jsonl'),
+      jsonl([{ type: 'session_meta', payload: { id: 'sibling', cwd, source: 'cli' } }]),
+    )
+
+    let announced: { id?: string; path: string } | undefined
+    const obs = observeCodexState({
+      cwd,
+      homeDir: home,
+      // neither resumeValue nor startedAtMs — the reattach-without-ref shape
+      pollMs: 10,
+      onSession: (id, path) => {
+        announced = { id, path }
+      },
+      onEvents: () => {},
+    })
+    await new Promise((r) => setTimeout(r, 200))
+    obs.stop()
+    expect(announced).toBeUndefined()
   })
 })
 

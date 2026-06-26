@@ -1,6 +1,9 @@
-import type { AgentKind, ResumeRef } from '@podium/protocol'
+import { type AgentKind, agentSupportsInitialPrompt, type ResumeRef } from '@podium/protocol'
 import { resolveCursorBin } from './cursor/cli.js'
 import { resolveOpencodeBin } from './opencode/cli.js'
+
+// Re-exported so daemon/launch consumers can import it alongside agentLaunchCommand.
+export { agentSupportsInitialPrompt }
 
 export interface LaunchOptions {
   /** Working directory the agent runs in (a project or worktree path). */
@@ -9,6 +12,17 @@ export interface LaunchOptions {
   resume?: ResumeRef
   /** Model override from settings; absent = the CLI's own default. */
   model?: string
+  /**
+   * A first prompt to hand the agent at launch (e.g. an issue's description).
+   * Delivered as a trailing positional argv token (`claude "<prompt>"`) for the
+   * agents whose CLI consumes a positional prompt — claude-code, codex, grok.
+   * This is the RACE-FREE path: the agent reads the prompt from argv at startup,
+   * so there's no need to detect TUI readiness and type into a PTY that may not
+   * have mounted its stdin reader yet. Ignored (no arg appended) for agents
+   * without positional-prompt support; callers should fall back to seeding the
+   * composer draft for those. Blank/whitespace-only prompts are ignored.
+   */
+  initialPrompt?: string
 }
 
 export interface LaunchSpec {
@@ -25,23 +39,26 @@ export interface LaunchSpec {
 export function agentLaunchCommand(kind: AgentKind, opts: LaunchOptions): LaunchSpec {
   const { cwd, resume, model } = opts
   const modelArgs = model ? ['--model', model] : []
+  // Trailing positional prompt for argv-capable agents (last, after all options).
+  const promptArgs =
+    agentSupportsInitialPrompt(kind) && opts.initialPrompt?.trim() ? [opts.initialPrompt] : []
   switch (kind) {
     case 'claude-code':
       return {
         cmd: 'claude',
-        args: [...(resume ? ['--resume', resume.value] : []), ...modelArgs],
+        args: [...(resume ? ['--resume', resume.value] : []), ...modelArgs, ...promptArgs],
         cwd,
       }
     case 'codex':
       return {
         cmd: 'codex',
-        args: [...(resume ? ['resume', resume.value] : []), ...modelArgs],
+        args: [...(resume ? ['resume', resume.value] : []), ...modelArgs, ...promptArgs],
         cwd,
       }
     case 'grok':
       return {
         cmd: 'grok',
-        args: [...(resume ? ['--resume', resume.value] : []), ...modelArgs],
+        args: [...(resume ? ['--resume', resume.value] : []), ...modelArgs, ...promptArgs],
         cwd,
       }
     case 'opencode': {

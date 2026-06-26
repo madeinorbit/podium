@@ -2,7 +2,11 @@ import type { Dirent } from 'node:fs'
 import { open, readdir, readFile, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import { cleanCodexTitle, codexPromptTitle } from '../discovery/providers/codex.js'
+import {
+  cleanCodexTitle,
+  codexPromptTitle,
+  isInteractiveCodexSource,
+} from '../discovery/providers/codex.js'
 import {
   createCodexStateMetadataReader,
   readCodexStateMetadata,
@@ -167,6 +171,10 @@ export function observeCodexState(opts: {
   const codexHome = join(opts.homeDir ?? homedir(), '.codex')
   const root = join(codexHome, 'sessions')
   const startedAtMs = opts.startedAtMs ?? 0
+  // Only a FRESH SPAWN passes a start floor (the daemon omits it on reattach). With
+  // no resumeValue AND no start floor we're reattaching a session that never had a
+  // rollout — discovering by cwd would grab a sibling's, so we stay idle instead.
+  const canDiscoverByCwd = opts.startedAtMs !== undefined
   let stopped = false
   let rolloutPath: string | undefined
   let announced = false
@@ -229,7 +237,18 @@ export function observeCodexState(opts: {
     reading = true
     try {
       if (!rolloutPath) {
-        const found = await findLiveCodexRollout(root, opts.cwd, startedAtMs)
+        // A reattach/resume already knows the session's own thread id — pin the
+        // rollout to THAT (state DB → filename), never re-discover by cwd+mtime.
+        // Several Codex sessions commonly share a repo cwd; resolving by newest
+        // mtime would collapse them all onto the single most-recent rollout, so
+        // every session's chat showed one transcript and the rest "disappeared"
+        // into one conversation identity. Only a FRESH spawn (no resumeValue, no
+        // rollout yet) discovers by cwd.
+        const found = opts.resumeValue
+          ? await resolvePinnedCodexRollout(opts.resumeValue, opts.homeDir)
+          : canDiscoverByCwd
+            ? await findLiveCodexRollout(root, opts.cwd, startedAtMs)
+            : undefined
         if (!found) return
         rolloutPath = found.path
         if (!announced && found.id) {
@@ -316,9 +335,14 @@ export function observeCodexState(opts: {
 }
 
 /**
- * Newest `*.jsonl` under `~/.codex/sessions` whose `session_meta.cwd` matches and
- * whose mtime is at/after the spawn (with a small grace window). Returns its path
- * plus the `session_meta.id` (used as the resume value).
+ * Newest INTERACTIVE `*.jsonl` under `~/.codex/sessions` whose `session_meta.cwd`
+ * matches and whose mtime is at/after the spawn (with a small grace window).
+ * Returns its path plus the `session_meta.id` (used as the resume value).
+ *
+ * "Interactive" (`isInteractiveCodexSource`) is load-bearing: Codex ≥0.142 writes
+ * a second, newer rollout per session for its internal "guardian" subagent. Sorting
+ * by mtime alone would latch onto the guardian and bind the chat view to its
+ * "judging one planned action" transcript instead of the live session's.
  */
 export async function findLiveCodexRollout(
   sessionsRoot: string,
@@ -356,7 +380,8 @@ export async function findLiveCodexRollout(
       if (
         payload &&
         strField(meta, 'type') === 'session_meta' &&
-        strField(payload, 'cwd') === cwd
+        strField(payload, 'cwd') === cwd &&
+        isInteractiveCodexSource(payload.source)
       ) {
         return { path: c.path, id: strField(payload, 'id') }
       }
@@ -365,6 +390,21 @@ export async function findLiveCodexRollout(
     }
   }
   return undefined
+}
+
+/**
+ * The live-observer counterpart to `findCodexRolloutPath`: resolve a known
+ * thread id to `{ path, id }` so a reattached session pins to ITS OWN rollout
+ * instead of re-discovering by cwd+mtime. Returns undefined until the rollout
+ * exists (the poller retries), so a just-resumed session that hasn't written
+ * its file yet keeps waiting rather than latching onto a sibling.
+ */
+async function resolvePinnedCodexRollout(
+  resumeValue: string,
+  homeDir: string | undefined,
+): Promise<{ path: string; id: string } | undefined> {
+  const path = await findCodexRolloutPath({ resumeValue, ...(homeDir ? { homeDir } : {}) })
+  return path ? { path, id: resumeValue } : undefined
 }
 
 /**

@@ -128,6 +128,7 @@ export function AgentPanel({
     openFile,
     panelMode,
     setPanelMode,
+    setPanelRenderMode,
   } = useStore()
   const { guardedArchive } = useSessionGuard()
   const session = sessions.find((s) => s.sessionId === sessionId)
@@ -167,6 +168,12 @@ export function AgentPanel({
   })
   // The hibernated/exited-forces-chat rule still wins over any persisted 'native'.
   const effectiveMode: PanelMode = chatCapable ? mode : 'native'
+
+  // Report the EFFECTIVE rendered mode up to the store so it's wired through the
+  // viewState channel to the server (available signal; does not change streaming).
+  useEffect(() => {
+    setPanelRenderMode(sessionId, effectiveMode)
+  }, [sessionId, effectiveMode, setPanelRenderMode])
 
   const pickMode = (m: PanelMode) => {
     // Persist the per-session override in the store (#35)…
@@ -221,6 +228,15 @@ export function AgentPanel({
   // terminal on every keystroke.
   const draftRef = useRef('')
   draftRef.current = drafts[sessionId] ?? ''
+  // Re-arm hook for the chat→native draft flush. The flush machinery (one-shot
+  // guard + bounded poll) lives inside the mount effect's closure and otherwise
+  // only runs once at mount. Since the terminal now stays mounted across a
+  // chat↔native toggle (Task 6), the mount no longer re-fires on each toggle, so
+  // the mount effect publishes this re-arm fn here and the mode-transition effect
+  // below calls it whenever the panel ENTERS native — re-running the flush so a
+  // chat-authored draft lands in the native composer on every toggle, not just
+  // first mount.
+  const rearmFlushRef = useRef<(() => void) | null>(null)
 
   // Subscribe to the transcript to build the set of known absolute paths for
   // the file-link provider. Updates mountedRef.current?.view.setFileLinks so
@@ -243,7 +259,13 @@ export function AgentPanel({
   }, [hub, sessionId, session?.cwd, openFile])
 
   useEffect(() => {
-    if (effectiveMode !== 'native' || hibernated || exited) return
+    // The terminal stays mounted across a chat<->native toggle (Task 6): it's
+    // kept alive (hidden under the chat overlay) and marked inactive via the
+    // eligibility effect below, so a toggle neither disposes nor re-attaches it.
+    // Only hibernated/exited (no live PTY) skip mounting; the container is null
+    // then too. Crucially this effect no longer depends on effectiveMode, so a
+    // mode flip doesn't re-run it.
+    if (hibernated || exited) return
     if (!termRef.current) return
     setReady(false)
     setAtBottom(true)
@@ -348,6 +370,7 @@ export function AgentPanel({
     const mounted = mountSession(termRef.current, {
       hub,
       sessionId,
+      active: active && effectiveMode === 'native' && !hibernated && !exited,
       ...(toolbarRef.current ? { toolbarEl: toolbarRef.current } : {}),
       ...(E2E ? { test: true } : {}),
       // Don't grab focus on mount — that pops the soft keyboard over the
@@ -372,22 +395,74 @@ export function AgentPanel({
     // frame, via the effect below). Poll a bounded number of times so the one-shot
     // chat→native flush still fires on a quiet session; it self-stops once the flush
     // resolves (injected, or skipped because empty/occupied/wrong-agent).
-    let flushAttempts = 0
-    const flushPoll = setInterval(() => {
-      if (flushTried || flushAttempts++ >= 40) {
-        clearInterval(flushPoll)
-        return
-      }
-      if (flushDraftToNative()) clearInterval(flushPoll)
-    }, 150)
+    let flushPoll: ReturnType<typeof setInterval> | null = null
+    const startFlushPoll = () => {
+      if (flushPoll) clearInterval(flushPoll)
+      let flushAttempts = 0
+      flushPoll = setInterval(() => {
+        if (flushTried || flushAttempts++ >= 40) {
+          if (flushPoll) clearInterval(flushPoll)
+          flushPoll = null
+          return
+        }
+        if (flushDraftToNative()) {
+          if (flushPoll) clearInterval(flushPoll)
+          flushPoll = null
+        }
+      }, 150)
+    }
+    startFlushPoll()
+    // Publish the re-arm hook: reset the one-shot guard and restart the bounded
+    // poll. Called by the mode-transition effect on each chat→native entry so the
+    // flush re-fires for a fresh chat draft (its own guards still protect against
+    // clobbering native-typed text / empty drafts). No-op when the terminal isn't
+    // mounted (hibernated/exited) since this ref stays null then.
+    rearmFlushRef.current = () => {
+      flushTried = false
+      startFlushPoll()
+    }
     return () => {
+      rearmFlushRef.current = null
       if (sampleTimer) clearTimeout(sampleTimer)
-      clearInterval(flushPoll)
+      if (flushPoll) clearInterval(flushPoll)
       offScroll()
       mounted.dispose()
       mountedRef.current = null
     }
-  }, [hub, sessionId, effectiveMode, hibernated, exited, session?.agentKind, setSessionDraft])
+  }, [hub, sessionId, hibernated, exited, session?.agentKind, setSessionDraft])
+
+  // Re-arm the chat→native draft flush whenever the panel ENTERS native mode
+  // while the terminal stays mounted (Task 6's warm toggle). The flush itself is
+  // a one-shot inside the mount effect; without this it would only run at first
+  // mount, so a draft typed in chat and then carried into native on a later
+  // toggle would never be injected. We skip the initial mount-in-native double
+  // (prevModeRef starts unset) — the mount effect already armed the poll there —
+  // and only re-arm on a real chat→native transition. native→chat (and the
+  // sampler direction) are untouched.
+  const prevModeRef = useRef<PanelMode | null>(null)
+  useEffect(() => {
+    const prev = prevModeRef.current
+    prevModeRef.current = effectiveMode
+    if (effectiveMode !== 'native') return
+    // Only a *transition* into native re-arms; the first observation (prev null)
+    // is the mount-in-native case already handled by the mount effect.
+    if (prev === null || prev === 'native') return
+    rearmFlushRef.current?.()
+  }, [effectiveMode])
+
+  // Drive the terminal's size eligibility from the tab's active/visible/mode
+  // state. Separate from the mount effect so a tab/mode switch never tears down
+  // and re-attaches the terminal — it only flips eligibility on the live ref.
+  //
+  // The terminal stays mounted across native<->chat (the mount effect no longer
+  // keys on mode), so `mountedRef.current` is still set in chat. This effect is
+  // what flips its eligibility on that still-live ref: `setActive(false)` when
+  // entering chat or going inactive (so the hidden terminal stops driving size),
+  // and `setActive(true)` when returning to active native.
+  const terminalActive = active && effectiveMode === 'native' && !hibernated && !exited
+  useEffect(() => {
+    mountedRef.current?.setActive(terminalActive)
+  }, [terminalActive])
 
   // Kept mounted while hidden (inactive tab) so its terminal state survives a tab
   // switch — when it becomes the visible tab again, return focus to it. Gated on
@@ -573,15 +648,23 @@ export function AgentPanel({
             worktreePath={prettyCwd(session.cwd)}
           />
         )
-      ) : effectiveMode === 'chat' ? (
-        <ChatView sessionId={sessionId} active={active} />
       ) : (
+        // Warm chat<->native toggle (Task 6): the terminal container stays
+        // mounted in BOTH modes — `hidden` (display:none) when in chat — so
+        // switching modes never disposes and re-attaches the PTY. ChatView is
+        // rendered as a sibling overlay on top when in chat mode.
         <>
+          {effectiveMode === 'chat' && <ChatView sessionId={sessionId} active={active} />}
           {/* The xterm surface is hard-pinned to its own dark background (#0e0e12,
               matching the terminal theme in terminal-client) regardless of the app
               theme — otherwise a light theme shows a white container edge around the
               still-dark terminal. Revisit when the terminal itself becomes theme-aware. */}
-          <div className="relative flex min-h-0 flex-1 flex-col bg-[#0e0e12]">
+          <div
+            className={cn(
+              'relative flex min-h-0 flex-1 flex-col bg-[#0e0e12]',
+              effectiveMode === 'chat' && 'hidden',
+            )}
+          >
             <div ref={termRef} className="term min-h-0 flex-1 px-1.5 py-1" />
             {!ready && (
               <div
@@ -615,7 +698,10 @@ export function AgentPanel({
               Hidden until the session is ready — the key bar over a "Starting…"
               screen is just noise (and the D-pad floated oddly above the overlay). */}
           <div
-            className={ready ? 'key-actions' : 'key-actions kb-hidden'}
+            className={cn(
+              ready ? 'key-actions' : 'key-actions kb-hidden',
+              effectiveMode === 'chat' && 'hidden',
+            )}
             onPointerDown={(e) => e.preventDefault()}
           >
             <button
@@ -656,7 +742,13 @@ export function AgentPanel({
               </button>
             )}
           </div>
-          <div ref={toolbarRef} className={ready ? 'toolbar' : 'toolbar kb-hidden'} />
+          <div
+            ref={toolbarRef}
+            className={cn(
+              ready ? 'toolbar' : 'toolbar kb-hidden',
+              effectiveMode === 'chat' && 'hidden',
+            )}
+          />
         </>
       )}
     </div>

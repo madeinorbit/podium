@@ -32,6 +32,7 @@ import {
 import { NewPanelMenu } from './NewPanelMenu'
 import { type FileTab, useStore } from './store'
 import type { WorktreeView } from './types'
+import { useWarmSet } from './use-warm-set'
 import { SessionNameEditor, sessionDisplayName, WorkerLabel } from './WorkerLabel'
 
 const MarkdownFilePanel = lazy(() =>
@@ -102,6 +103,14 @@ export function Workspace(): JSX.Element {
       ? [...manual.filter((id) => byId.has(id)), ...baseIds.filter((id) => !manual.includes(id))]
       : baseIds
   const allTabs: WTab[] = orderedIds.map((id) => byId.get(id)).filter((t): t is WTab => !!t)
+
+  // Cap how many session panels stay mounted: the active pane(s) plus the most
+  // recently viewed others up to an LRU limit (8 desktop / 3 mobile). Evicted
+  // session tabs render nothing (unmount → dispose → free WebGL/memory); clicking
+  // one re-activates it, re-entering the warm set so it remounts cold.
+  const sessionIds = allTabs.filter((t) => t.kind === 'session').map((t) => t.id)
+  const activeIds = [paneA, split ? paneB : null].filter((x): x is string => x != null)
+  const warm = useWarmSet(sessionIds, activeIds)
 
   // Keep pane A pointed at a valid tab.
   useEffect(() => {
@@ -236,6 +245,12 @@ export function Workspace(): JSX.Element {
           const inA = t.id === paneA
           const inB = split && t.id === paneB
           const visible = inA || inB
+          // Evicted (cold) session tabs render nothing — clicking the tab makes it
+          // active → warm → it remounts. The `!visible` guard is load-bearing: the
+          // hook updates `warm` in an effect (one render behind), so a just-activated
+          // pane may not be in `warm` yet — always mount the visible pane regardless,
+          // or it blanks for a frame. File tabs are cheap and always render.
+          if (t.kind === 'session' && !visible && !warm.has(t.id)) return null
           return (
             <div
               key={t.id}

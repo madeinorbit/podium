@@ -28,10 +28,13 @@ type CacheRow = {
  *   and scope were identical to the previous call and no rows were written since,
  *   so no SQL was issued and no rows were touched.
  * - `deleted` is the number of cache rows pruned (always 0 when `skipped`).
+ * - `removedIds` are the conversation ids of the pruned rows (always empty when
+ *   `skipped`), so callers can emit a removal delta without re-listing the cache.
  */
 export type DeleteMissingResult = {
   skipped: boolean
   deleted: number
+  removedIds: string[]
 }
 
 export class ConversationDiscoveryCache {
@@ -165,11 +168,11 @@ export class ConversationDiscoveryCache {
       this.lastPrune.scopeKey === scopeKey &&
       sameSet(this.lastPrune.seen, existingPaths)
     ) {
-      return { skipped: true, deleted: 0 }
+      return { skipped: true, deleted: 0, removedIds: [] }
     }
 
     const allowed = agentKinds ? [...new Set(agentKinds)] : undefined
-    const deleted = this.runPrune(existingPaths, allowed)
+    const removedIds = this.runPrune(existingPaths, allowed)
 
     // Record the converged state so the next identical tick can short-circuit.
     // Snapshot the seen-set since the caller may mutate/reuse theirs.
@@ -179,15 +182,15 @@ export class ConversationDiscoveryCache {
       seen: new Set(existingPaths),
     }
 
-    return { skipped: false, deleted }
+    return { skipped: false, deleted: removedIds.length, removedIds }
   }
 
   private runPrune(
     existingPaths: ReadonlySet<string>,
     allowed: readonly AgentKind[] | undefined,
-  ): number {
+  ): string[] {
     // An empty scope means "no kinds eligible" — nothing can be pruned.
-    if (allowed && allowed.length === 0) return 0
+    if (allowed && allowed.length === 0) return []
 
     this.db.exec('CREATE TEMP TABLE IF NOT EXISTS discovery_seen_paths (path TEXT PRIMARY KEY)')
     this.db.exec('DELETE FROM discovery_seen_paths')
@@ -214,8 +217,14 @@ export class ConversationDiscoveryCache {
         sql += ` AND agent_kind IN (${allowed.map(() => '?').join(', ')})`
         params.push(...allowed)
       }
-      const result = this.db.prepare(sql).run(...params)
-      return Number(result.changes)
+      sql += ' RETURNING summary_json'
+      const rows = this.db.prepare(sql).all(...params) as { summary_json: string }[]
+      const removedIds: string[] = []
+      for (const row of rows) {
+        const summary = decodeSummary(row.summary_json)
+        if (summary) removedIds.push(summary.id)
+      }
+      return removedIds
     } finally {
       this.db.exec('DELETE FROM discovery_seen_paths')
     }

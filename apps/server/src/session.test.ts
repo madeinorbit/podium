@@ -30,6 +30,9 @@ function makeClient(id: string): ClientConn & { sent: ServerMessage[] } {
     attached: new Set(),
     transcriptSubs: new Set(),
     visible: true,
+    viewVisible: new Set(),
+    focused: null,
+    viewModes: {},
     sent,
   }
 }
@@ -107,12 +110,66 @@ describe('Session', () => {
     const b = makeClient('b')
     s.attachClient(a)
     s.attachClient(b)
+    a.viewVisible = new Set(['s1']) // controller is rendering the session
     s.handleResize('b', 100, 30)
     expect(s.geometry).toEqual(geo)
     expect(toDaemon).not.toHaveBeenCalled()
     s.handleResize('a', 120, 40)
     expect(s.geometry).toEqual({ cols: 120, rows: 40 })
     expect(toDaemon).toHaveBeenCalledWith({ type: 'resize', sessionId: 's1', cols: 120, rows: 40 })
+  })
+
+  it('ignores a resize from a controller that isn’t rendering the session', () => {
+    const toDaemon = vi.fn()
+    const s = makeSession(toDaemon)
+    const a = makeClient('a')
+    s.attachClient(a) // controller
+    a.viewVisible = new Set() // not rendering s1 (e.g. a backgrounded tab)
+    s.handleResize('a', 200, 50)
+    expect(s.geometry).toEqual(geo) // unchanged — its stale grid can't move the PTY
+    expect(toDaemon).not.toHaveBeenCalledWith({ type: 'resize', sessionId: 's1', cols: 200, rows: 50 })
+  })
+
+  it('applies a resize from a controller that is rendering the session', () => {
+    const toDaemon = vi.fn()
+    const s = makeSession(toDaemon)
+    const a = makeClient('a')
+    s.attachClient(a) // controller
+    a.viewVisible = new Set(['s1']) // rendering s1 on screen
+    s.handleResize('a', 200, 50)
+    expect(s.geometry).toEqual({ cols: 200, rows: 50 })
+    expect(toDaemon).toHaveBeenCalledWith({ type: 'resize', sessionId: 's1', cols: 200, rows: 50 })
+  })
+
+  it('broadcasts the applied geometry to all clients so the size is not lost (quarter-size fix)', () => {
+    // The client only learns the authoritative size from a geometry/controllerChanged/
+    // attached message — its own optimistic sendResize value gets clobbered by
+    // requestControl's geometry broadcast. So an applied resize MUST broadcast, or the
+    // xterm snaps back to 80x24 via onState even though the PTY was resized.
+    const s = makeSession()
+    const a = makeClient('a')
+    const b = makeClient('b')
+    s.attachClient(a) // controller
+    s.attachClient(b) // spectator (e.g. another device)
+    a.viewVisible = new Set(['s1'])
+    a.sent.length = 0
+    b.sent.length = 0
+    s.handleResize('a', 200, 50)
+    for (const c of [a, b]) {
+      expect(c.sent).toContainEqual({ type: 'geometry', sessionId: 's1', cols: 200, rows: 50 })
+    }
+  })
+
+  it('reconcileGeometry broadcasts the healed geometry to clients', () => {
+    const s = makeSession()
+    const a = makeClient('a')
+    s.attachClient(a)
+    a.viewport = { cols: 200, rows: 50 } // last fitted size (handleResize stored it, then dropped)
+    a.viewVisible = new Set(['s1']) // viewState now confirms it renders s1
+    a.sent.length = 0
+    s.reconcileGeometry('a')
+    expect(s.geometry).toEqual({ cols: 200, rows: 50 })
+    expect(a.sent).toContainEqual({ type: 'geometry', sessionId: 's1', cols: 200, rows: 50 })
   })
 
   it('takeover bumps epoch, resizes+redraws the agent, broadcasts controllerChanged + geometry', () => {
@@ -122,6 +179,7 @@ describe('Session', () => {
     const b = makeClient('b')
     s.attachClient(a)
     s.attachClient(b)
+    b.viewVisible = new Set(['s1']) // requester is rendering the session → snap-resizes
     s.handleResize('b', 50, 60)
     s.requestControl('b')
     expect(s.controllerId).toBe('b')
@@ -138,6 +196,69 @@ describe('Session', () => {
       })
       expect(c.sent).toContainEqual({ type: 'geometry', sessionId: 's1', cols: 50, rows: 60 })
     }
+  })
+
+  it('requestControl from a client not rendering the session transfers control but does not snap-resize', () => {
+    const toDaemon = vi.fn()
+    const s = makeSession(toDaemon)
+    const a = makeClient('a')
+    const b = makeClient('b')
+    s.attachClient(a)
+    s.attachClient(b)
+    b.viewport = { cols: 50, rows: 60 } // a stale viewport we must NOT snap to
+    b.viewVisible = new Set() // requester isn't rendering s1 yet (viewState not landed)
+    toDaemon.mockClear()
+    s.requestControl('b')
+    // Control STILL transfers — a non-rendering controller is harmless (it can't
+    // resize until handleResize sees it in viewVisible).
+    expect(s.controllerId).toBe('b')
+    expect(s.epoch).toBe(1)
+    // …but the agent is NOT sized to the requester's possibly-stale viewport.
+    expect(s.geometry).toEqual(geo)
+    expect(toDaemon).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'resize' }))
+    expect(toDaemon).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'redraw' }))
+  })
+
+  it('re-applies a foreground resize that arrived before its viewState (no stuck quarter-size)', () => {
+    // Repro of the quarter-size bug: on a live foreground the client sends
+    // requestControl + the fitted resize from the panel's React effect BEFORE the
+    // store's effect sends the viewState message (child effects fire before parent
+    // effects). So the resize hits handleResize while viewVisible is still empty and
+    // is dropped — and nothing re-sends it. The size must self-heal when viewState
+    // lands, or the PTY is stuck at the 80x24 default.
+    const toDaemon = vi.fn()
+    const s = makeSession(toDaemon)
+    const a = makeClient('a')
+    s.attachClient(a) // controller; viewVisible still empty (viewState not landed yet)
+    s.requestControl('a')
+    s.handleResize('a', 200, 50) // the fitted size — dropped by the viewVisible gate
+    expect(s.geometry).toEqual(geo) // confirmed gated out (still default)
+    toDaemon.mockClear()
+    // viewState arrives: the client now declares it renders s1 on screen.
+    a.viewVisible = new Set(['s1'])
+    s.reconcileGeometry('a')
+    // The dropped fitted size is now applied — not lost.
+    expect(s.geometry).toEqual({ cols: 200, rows: 50 })
+    expect(toDaemon).toHaveBeenCalledWith({ type: 'resize', sessionId: 's1', cols: 200, rows: 50 })
+  })
+
+  it('reconcileGeometry is a no-op when the client is not the controller or not rendering', () => {
+    const toDaemon = vi.fn()
+    const s = makeSession(toDaemon)
+    const a = makeClient('a')
+    const b = makeClient('b')
+    s.attachClient(a) // controller
+    s.attachClient(b) // spectator
+    b.viewport = { cols: 200, rows: 50 }
+    b.viewVisible = new Set(['s1'])
+    toDaemon.mockClear()
+    s.reconcileGeometry('b') // not the controller → nothing
+    expect(s.geometry).toEqual(geo)
+    a.viewport = { cols: 200, rows: 50 }
+    a.viewVisible = new Set() // controller but not rendering → nothing
+    s.reconcileGeometry('a')
+    expect(s.geometry).toEqual(geo)
+    expect(toDaemon).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'resize' }))
   })
 
   it('broadcasts frames to attached clients with a server-assigned monotonic seq', () => {
@@ -229,6 +350,7 @@ describe('Session', () => {
     const s = makeSession()
     const a = makeClient('a')
     s.attachClient(a)
+    a.viewVisible = new Set(['s1']) // rendering the session → snap to its viewport
     a.viewport = { cols: 33, rows: 21 } // registry updates ClientConn.viewport on hello
     s.requestControl('a')
     expect(s.geometry).toEqual({ cols: 33, rows: 21 })
@@ -354,6 +476,17 @@ describe('Session', () => {
 
     expect(s.clearSnooze()).toBe(true)
     expect('snoozedUntil' in s.toMeta()).toBe(false)
+  })
+
+  it('toMeta surfaces draftUpdatedAt only when a draft exists', () => {
+    const s = makeSession()
+    expect('draftUpdatedAt' in s.toMeta()).toBe(false)
+
+    s.draftUpdatedAt = '2026-06-24T12:00:00.000Z'
+    expect(s.toMeta().draftUpdatedAt).toBe('2026-06-24T12:00:00.000Z')
+
+    s.draftUpdatedAt = undefined
+    expect('draftUpdatedAt' in s.toMeta()).toBe(false)
   })
 })
 

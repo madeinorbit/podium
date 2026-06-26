@@ -8,11 +8,7 @@ import { promisify } from 'node:util'
 
 const execFileAsync = promisify(execFile)
 
-import { repoOpCommand } from './repo-op'
-
 import {
-  type AgentConversationDiagnostic,
-  type AgentConversationSummary,
   type AgentRuntimeState,
   type AgentSession,
   type AgentStateEvent,
@@ -22,11 +18,9 @@ import {
   agentStateProviderFor,
   attachAbducoAgent,
   attachTmuxAgent,
-  ConversationDiscoveryCache,
   type CursorStateObserver,
   claudeProjectSlug,
   codexRecordToItems,
-  compareConversationSummaries,
   cursorRecordToItems,
   cursorSessionPaths,
   type GitDiscoveryDiagnostic,
@@ -51,7 +45,6 @@ import {
   resolveFileChain,
   resolveOpencodeBin,
   type SliceResult,
-  scanAgentConversationsCached,
   scanGitRepositories,
   spawnAbducoAgent,
   spawnAgent,
@@ -62,6 +55,16 @@ import {
   tmuxHasSessionAsync,
   transcriptSourceFor,
 } from '@podium/agent-bridge'
+import { startLoopMetrics } from '@podium/core'
+import {
+  countControl,
+  countFrame,
+  countTail,
+  countWorker,
+  reportLongTick,
+  startLoopAttribution,
+  timeTask,
+} from './loop-attribution'
 import {
   type AgentKind,
   type ControlMessage,
@@ -79,16 +82,20 @@ import {
   WIRE_VERSION,
 } from '@podium/protocol'
 import WebSocket, { type RawData } from 'ws'
+import { type ActiveRefresh, createActiveRefresh } from './active-refresh'
 import { readAssetSandboxed, readFileSandboxed, writeFileSandboxed } from './file-access'
 import { buildHarnessExec } from './harness-exec.js'
 import { startHookIngest } from './hook-ingest'
 import { sampleHostMemory } from './host-metrics'
 import { loadIdentity, saveToken } from './identity'
-import { attributeMemory, snapshotProcesses } from './memory-breakdown'
+import type { MemoryAttribution } from './memory-breakdown'
+import { OutputScheduler, type Tier } from './output-scheduler'
 import { makeQuotaFetcher } from './quota-fetch'
+import { repoOpCommand } from './repo-op'
 import { uploadFilePath } from './upload'
 import { uploadsToGc } from './uploads-gc'
 import { scanClaudeUsage } from './usage-scan'
+import { DiscoveryWorkerClient } from './worker-client'
 
 const DEFAULT_DISCOVERY_SCAN_INTERVAL_MS = 15_000
 const DEFAULT_HOST_METRICS_INTERVAL_MS = 5_000
@@ -167,6 +174,13 @@ export interface DaemonOptions {
   discovery?: DaemonDiscoveryOptions
   metrics?: DaemonMetricsOptions
   hooks?: DaemonHooksOptions
+  /**
+   * The worker client that runs the /proc memory walk off the interactive loop.
+   * Defaults to a real `DiscoveryWorkerClient` (spawns ./discovery-worker.ts).
+   * Tests inject one whose `spawn` runs the job inline, because Node-based vitest
+   * cannot spawn the `.ts` worker; the live daemon (Bun) uses the default.
+   */
+  workerClient?: DiscoveryWorkerClient
 }
 
 export interface DaemonMetricsOptions {
@@ -265,38 +279,15 @@ export interface DaemonHandle {
 
 type SpawnControl = Extract<ControlMessage, { type: 'spawn' }>
 type ReattachControl = Extract<ControlMessage, { type: 'reattach' }>
-type ConversationWireResult = {
-  conversations: ConversationSummaryWire[]
+/**
+ * What a discovery pass moved: the worker runs the scan against discovery.db and
+ * returns just the delta (`changed`/`removed`) plus any diagnostics, so the daemon
+ * forwards a delta instead of re-broadcasting the full conversation list every 15s.
+ */
+type ConversationDelta = {
+  changed: ConversationSummaryWire[]
+  removed: string[]
   diagnostics: ConversationDiagnosticWire[]
-}
-
-function summaryToWire(s: AgentConversationSummary): ConversationSummaryWire {
-  return {
-    id: s.id,
-    agentKind: s.agentKind,
-    ...(s.title !== undefined ? { title: s.title } : {}),
-    ...(s.projectPath !== undefined ? { projectPath: s.projectPath } : {}),
-    ...(s.parentConversationId !== undefined
-      ? { parentConversationId: s.parentConversationId }
-      : {}),
-    ...(s.statusHint !== undefined ? { statusHint: s.statusHint } : {}),
-    ...(s.createdAt ? { createdAt: s.createdAt.toISOString() } : {}),
-    ...(s.updatedAt ? { updatedAt: s.updatedAt.toISOString() } : {}),
-    ...(s.messageCount !== undefined ? { messageCount: s.messageCount } : {}),
-    ...(s.git ? { git: s.git } : {}),
-    ...(s.resume ? { resume: s.resume } : {}),
-    providerId: s.source.providerId,
-  }
-}
-
-function diagnosticToWire(d: AgentConversationDiagnostic): ConversationDiagnosticWire {
-  return {
-    severity: d.severity,
-    ...(d.providerId !== undefined ? { providerId: d.providerId } : {}),
-    ...(d.root !== undefined ? { root: d.root } : {}),
-    ...(d.path !== undefined ? { path: d.path } : {}),
-    message: d.message,
-  }
 }
 
 function repoToWire(r: GitRepositorySummary): GitRepositoryWire {
@@ -349,6 +340,11 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
   const codexStateObservers = new Map<string, { stop(): void }>()
   const opencodeStateObservers = new Map<string, OpencodeStateObserver>()
   const cursorStateObservers = new Map<string, CursorStateObserver>()
+  // Event-driven active conversation-index refresh. Instantiated below once
+  // `publishConversations` + `workerClient` exist; the tail callback marks a
+  // transcript dirty so the worker re-summarizes JUST that file (coalesced) instead
+  // of waiting for the next periodic scan. Holder is set before any tail can fire.
+  let activeRefresh: ActiveRefresh | undefined
   const ensureTranscriptTail = (
     sessionId: string,
     path: string,
@@ -363,6 +359,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
         path,
         (items, meta) => {
           if (items.length === 0 && !meta.reset) return
+          countTail()
           send({
             type: 'transcriptDelta',
             sessionId,
@@ -370,6 +367,10 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
             ...(meta.tail ? { tail: meta.tail } : {}),
             ...(meta.reset ? { reset: true } : {}),
           })
+          // The tail fired because this transcript file was appended to — mark it
+          // dirty so the worker re-summarizes JUST it (coalesced, ~1s) and keeps the
+          // search index near-real-time, instead of waiting for the periodic scan.
+          activeRefresh?.markConversationDirty(path)
         },
         {
           ...(recordToItems ? { recordToItems } : {}),
@@ -577,12 +578,22 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
       }),
     )
   }
-  const startCodexStateObserver = (sessionId: string, cwd: string, startedAtMs?: number): void => {
+  const startCodexStateObserver = (
+    sessionId: string,
+    cwd: string,
+    // A reattach/resume passes the session's known codex-thread id so the observer
+    // pins its OWN rollout instead of re-discovering by cwd+mtime (which collapses
+    // sibling sessions in the same repo onto the newest rollout). A fresh spawn
+    // passes undefined → discovery scoped by startedAtMs.
+    resumeValue: string | undefined,
+    startedAtMs?: number,
+  ): void => {
     stopCodexStateObserver(sessionId)
     codexStateObservers.set(
       sessionId,
       observeCodexState({
         cwd,
+        ...(resumeValue ? { resumeValue } : {}),
         ...(opts.discovery?.homeDir ? { homeDir: opts.discovery.homeDir } : {}),
         ...(startedAtMs !== undefined ? { startedAtMs } : {}),
         onSession: (rolloutId, rolloutPath) => {
@@ -693,12 +704,21 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
   let closing = false
   const bridges = new Map<string, AgentSession>()
   const reattachGate = createLimiter(REATTACH_CONCURRENCY)
-  const discoveryCache = new ConversationDiscoveryCache(opts.discovery?.cachePath)
+  // The /proc memory walk AND the conversation discovery scan both run on the
+  // worker thread so neither stalls the interactive daemon loop; stopped in
+  // disposeAll(). The worker now owns discovery.db exclusively (no daemon-main
+  // ConversationDiscoveryCache), so the every-15s scan never touches the loop.
+  const workerClient = opts.workerClient ?? new DiscoveryWorkerClient()
+  if (process.env.PODIUM_LOOP_PROFILE) {
+    startLoopAttribution()
+    startLoopMetrics({ label: 'daemon', onLongTick: reportLongTick })
+  }
   const discoveryBackground = opts.discovery?.background ?? true
   const discoveryIntervalMs = opts.discovery?.scanIntervalMs ?? DEFAULT_DISCOVERY_SCAN_INTERVAL_MS
   let discoveryTimer: ReturnType<typeof setTimeout> | undefined
-  let discoveryInFlight: Promise<ConversationWireResult> | undefined
-  let lastConversationPush = ''
+  // Coalesce overlapping scans: a 15s tick that fires while a worker job is still
+  // in flight (or an on-demand scanRequest racing the timer) shares the one result.
+  let discoveryInFlight: Promise<ConversationDelta> | undefined
   const metricsBackground = opts.metrics?.background ?? true
   const metricsIntervalMs = opts.metrics?.intervalMs ?? DEFAULT_HOST_METRICS_INTERVAL_MS
   let metricsTimer: ReturnType<typeof setInterval> | undefined
@@ -769,6 +789,12 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     }
   }
 
+  // Coalesce + prioritize PTY frame relay (the per-frame stringify+send was the
+  // dominant residual loop hitch). flush() sends one agentFrameBatch per session.
+  const outputScheduler = new OutputScheduler({
+    flush: (sessionId, frames) => send({ type: 'agentFrameBatch', sessionId, frames }),
+  })
+
   // Seed agent state for a session whose CLI is already running but hasn't fired a
   // hook yet. Claude Code emits no SessionStart at interactive boot, so both a
   // fresh spawn and a post-restart reattach would otherwise sit at phase 'unknown'
@@ -825,7 +851,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     if (msg.agentKind === 'grok') {
       startGrokStateObserver(msg.sessionId, msg.cwd, msg.resume?.value, init.grokStartedAt)
     } else if (msg.agentKind === 'codex') {
-      startCodexStateObserver(msg.sessionId, msg.cwd, init.grokStartedAt)
+      startCodexStateObserver(msg.sessionId, msg.cwd, msg.resume?.value, init.grokStartedAt)
     } else if (msg.agentKind === 'opencode') {
       startOpencodeStateObserver(msg.sessionId, msg.cwd, msg.resume?.value, init.grokStartedAt)
     } else if (msg.agentKind === 'cursor') {
@@ -853,36 +879,67 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     }
   }
 
-  const cachedConversationResult = (): ConversationWireResult => ({
-    conversations: discoveryCache
-      .listSummaries()
-      .sort(compareConversationSummaries)
-      .map(summaryToWire),
-    diagnostics: [],
-  })
-
-  const publishConversations = (result: ConversationWireResult, force = false): void => {
-    const key = JSON.stringify(result)
-    if (!force && key === lastConversationPush) return
-    lastConversationPush = key
-    send({ type: 'conversationsChanged', ...result })
+  // Send the conversation delta. The common case every 15s is "nothing moved": an
+  // all-empty delta produces NO broadcast at all, so an idle host doesn't fan a
+  // pointless conversationsChanged frame out to every client every tick. (A genuinely
+  // empty full snapshot — zero conversations on the host — is correctly skipped too.)
+  const publishConversations = (delta: ConversationDelta): void => {
+    if (delta.changed.length === 0 && delta.removed.length === 0 && delta.diagnostics.length === 0)
+      return
+    countWorker()
+    timeTask(`publishConv(${delta.changed.length})`, () =>
+      send({
+        type: 'conversationsChanged',
+        conversations: delta.changed,
+        removed: delta.removed,
+        diagnostics: delta.diagnostics,
+      }),
+    )
   }
 
-  const runDiscoveryScan = (): Promise<ConversationWireResult> => {
+  // Now that `publishConversations` + `workerClient` exist, wire the event-driven
+  // active refresh declared near the tails. The paths-flush runs the SAME
+  // `indexRefresh` worker job (off the interactive loop) scoped to the dirty files;
+  // it shares kind `'indexRefresh'` with the periodic/full scans, so the worker
+  // client may coalesce it onto an in-flight scan and return a superset — still a
+  // correct upsert (see createActiveRefresh's note). Failures are loud, never silent.
+  activeRefresh = createActiveRefresh({
+    runPathsRefresh: (paths) =>
+      workerClient.runJob('indexRefresh', {
+        paths,
+        ...(opts.discovery?.homeDir ? { homeDir: opts.discovery.homeDir } : {}),
+        ...(opts.discovery?.cachePath ? { cachePath: opts.discovery.cachePath } : {}),
+      }) as Promise<ConversationDelta>,
+    publish: publishConversations,
+    onError: (err) =>
+      console.warn(
+        `[podium:daemon] active index refresh failed: ${err instanceof Error ? err.message : String(err)}`,
+      ),
+  })
+
+  // Run the discovery scan on the worker thread (off the interactive loop) and
+  // return the delta. The worker owns discovery.db, so the scan's SQLite reads/
+  // writes — the old ~800ms loop block — never touch the daemon's event loop.
+  // A worker failure (crash, timeout) surfaces as an error diagnostic, never silent.
+  //
+  // `full: true` asks the worker for the ENTIRE conversation list (mapped into
+  // `changed`), not just the cache-miss delta. Connect-time and on-demand scans use
+  // it so a snapshot upserts everything — repopulating a cold/reset server index
+  // even when the daemon's warm discovery.db cache reports nothing as "changed".
+  // The periodic loop omits it and forwards only the delta.
+  const runDiscoveryDelta = (full = false): Promise<ConversationDelta> => {
     if (discoveryInFlight) return discoveryInFlight
     discoveryInFlight = (async () => {
       try {
-        const result = await scanAgentConversationsCached({
-          cache: discoveryCache,
+        return (await workerClient.runJob('indexRefresh', {
           ...(opts.discovery?.homeDir ? { homeDir: opts.discovery.homeDir } : {}),
-        })
-        return {
-          conversations: result.conversations.map(summaryToWire),
-          diagnostics: result.diagnostics.map(diagnosticToWire),
-        }
+          ...(opts.discovery?.cachePath ? { cachePath: opts.discovery.cachePath } : {}),
+          ...(full ? { full: true } : {}),
+        })) as ConversationDelta
       } catch (err) {
         return {
-          conversations: [],
+          changed: [],
+          removed: [],
           diagnostics: [
             { severity: 'error', message: err instanceof Error ? err.message : String(err) },
           ],
@@ -894,10 +951,12 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     return discoveryInFlight
   }
 
-  const refreshAndPublishConversations = async (): Promise<ConversationWireResult> => {
-    const result = await runDiscoveryScan()
-    publishConversations(result)
-    return result
+  // `full: true` (connect-time + on-demand) requests the entire conversation list so
+  // the publish repopulates a cold server index; the periodic loop omits it (delta only).
+  const refreshAndPublishConversations = async (full = false): Promise<ConversationDelta> => {
+    const delta = await runDiscoveryDelta(full)
+    publishConversations(delta)
+    return delta
   }
 
   const scheduleDiscoveryScan = (): void => {
@@ -917,21 +976,30 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     })
   }
 
-  const memoryBreakdown = (requestId: string, roots: string[]): void => {
+  const memoryBreakdown = async (requestId: string, roots: string[]): Promise<void> => {
     const memory = sampleHostMemory()
     const supported = process.platform === 'linux' // the walk needs /proc
-    const { agents, projects } = supported
-      ? attributeMemory(
-          snapshotProcesses(),
-          [...bridges.entries()].map(([sessionId, session]) => ({
+    let agents: MemoryAttribution['agents'] = []
+    let projects: MemoryAttribution['projects'] = []
+    if (supported) {
+      try {
+        const result = (await workerClient.runJob('memoryBreakdown', {
+          sessions: [...bridges.entries()].map(([sessionId, session]) => ({
             sessionId,
             label: `podium-${sessionId}`,
             pid: session.pid,
           })),
           roots,
-          { selfPid: process.pid },
+          selfPid: process.pid,
+        })) as MemoryAttribution
+        agents = result.agents
+        projects = result.projects
+      } catch (err) {
+        console.warn(
+          `[podium:daemon] memoryBreakdown job failed: ${err instanceof Error ? err.message : String(err)}`,
         )
-      : { agents: [], projects: [] }
+      }
+    }
     const attributed =
       agents.reduce((sum, a) => sum + a.bytes, 0) + projects.reduce((sum, p) => sum + p.bytes, 0)
     const usedBytes = Math.max(0, memory.totalBytes - memory.availableBytes)
@@ -950,9 +1018,10 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
 
   const wireBridge = (sessionId: string, session: AgentSession, agentKind: AgentKind): void => {
     bridges.set(sessionId, session)
-    session.onFrame((frame) =>
-      send({ type: 'agentFrame', sessionId, seq: frame.seq, data: frame.data }),
-    )
+    session.onFrame((frame) => {
+      countFrame(frame.data.length)
+      outputScheduler.enqueue(sessionId, frame.data)
+    })
     // Codex sets its OSC title to the cwd basename (+ a spinner glyph that churns at
     // frame-rate), which would clobber the real title the codex observer derives.
     // Every other harness sets a meaningful OSC title, so forward it for them.
@@ -961,6 +1030,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     }
     session.onExit((code) => {
       bridges.delete(sessionId)
+      outputScheduler.remove(sessionId)
       trackers.delete(sessionId)
       stopGrokStateObserver(sessionId)
       stopCodexStateObserver(sessionId)
@@ -999,6 +1069,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
         cwd: msg.cwd,
         ...(msg.resume ? { resume: msg.resume } : {}),
         ...(msg.model ? { model: msg.model } : {}),
+        ...(msg.initialPrompt ? { initialPrompt: msg.initialPrompt } : {}),
       })
       const label = `podium-${msg.sessionId}`
       const provider = agentStateProviderFor(msg.agentKind)
@@ -1054,8 +1125,19 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
   }
 
   const scan = async (requestId: string): Promise<void> => {
-    const result = await refreshAndPublishConversations()
-    send({ type: 'scanResult', requestId, ...result })
+    // On-demand (user-triggered) scan requests a FULL snapshot so a manual rescan can
+    // recover a cold/reset server index — not just whatever moved since the last tick.
+    // It runs on the worker + publishes to all clients; the requester additionally gets
+    // a scanResult tagged with its requestId so its pending request resolves. Both carry
+    // the (now full-list) changed + removed fields.
+    const delta = await refreshAndPublishConversations(true)
+    send({
+      type: 'scanResult',
+      requestId,
+      conversations: delta.changed,
+      removed: delta.removed,
+      diagnostics: delta.diagnostics,
+    })
   }
 
   const scanRepos = async (
@@ -1217,6 +1299,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
 
   const handleControlMessage = (raw: RawData): void => {
     if (!authenticated) return // pre-auth frames belong to the handshake handler
+    countControl()
     // Drop absurdly large frames before materializing/parsing them (audit P0-4): a
     // multi-hundred-MB frame's synchronous toString()+JSON.parse would stall the loop
     // and back up the socket Recv-Q — the wedge shape. The cap is generous so it never
@@ -1252,6 +1335,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
         if (session) {
           session.dispose()
           bridges.delete(msg.sessionId)
+          outputScheduler.remove(msg.sessionId)
         }
         // Reap the durable host unconditionally — NOT only when a bridge exists.
         // After a daemon restart a session can be live server-side with no local
@@ -1277,6 +1361,9 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
       case 'redraw':
         bridges.get(msg.sessionId)?.redraw()
         break
+      case 'sessionPriority':
+        outputScheduler.setPriority(msg.sessionId, msg.priority as Tier)
+        break
       case 'scanRequest':
         void scan(msg.requestId)
         break
@@ -1287,7 +1374,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
         })
         break
       case 'memoryBreakdownRequest':
-        memoryBreakdown(msg.requestId, msg.roots)
+        void memoryBreakdown(msg.requestId, msg.roots)
         break
       case 'repoOpRequest':
         void runRepoOp(msg)
@@ -1494,7 +1581,11 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     if (discoveryTimer) clearTimeout(discoveryTimer)
     if (metricsTimer) clearInterval(metricsTimer)
     if (uploadsGcTimer) clearInterval(uploadsGcTimer)
-    discoveryCache.close()
+    activeRefresh?.stop()
+    // discovery.db now lives entirely in the worker; stopping it terminates the
+    // worker thread (and with it the cache's SQLite connection).
+    workerClient.stop()
+    outputScheduler.stop()
     // For durable sessions (abduco/tmux), dispose() only takes down the attach client,
     // so the agent survives the daemon going down — do NOT kill the masters here
     // unless the caller explicitly asked for a full reap (test harness teardown).
@@ -1561,8 +1652,14 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
       if (!kickedOff) {
         kickedOff = true
         if (discoveryBackground) {
-          publishConversations(cachedConversationResult(), true)
-          void refreshAndPublishConversations()
+          // Run one FULL snapshot on the worker at connect (emits the entire current
+          // conversation list, not just what moved), then settle into the periodic
+          // delta loop. The full snapshot is required because the server index can be
+          // COLD — a fresh server, or a reset/schema-migrated podium.db — while the
+          // daemon's discovery.db cache is WARM (survives a daemon restart); a delta
+          // off a warm cache would be empty and leave the cold index permanently bare.
+          // The full scan still runs on the worker, so this never blocks the loop.
+          void refreshAndPublishConversations(true)
           scheduleDiscoveryScan()
         }
         if (metricsBackground) {

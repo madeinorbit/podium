@@ -1,7 +1,12 @@
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { AgentPhase, ControlMessage, ServerMessage } from '@podium/protocol'
+import type {
+  AgentPhase,
+  AgentRuntimeState,
+  ControlMessage,
+  ServerMessage,
+} from '@podium/protocol'
 import { describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from './relay'
 import { type SessionRow, SessionStore } from './store'
@@ -61,6 +66,34 @@ describe('SessionRegistry', () => {
       expect.objectContaining({ type: 'spawn', sessionId, agentKind: 'shell', cwd: '/proj' }),
     )
     expect(reg.listSessions()).toMatchObject([{ sessionId, agentKind: 'shell', cwd: '/proj' }])
+  })
+
+  it('passes initialPrompt to the daemon spawn for argv-capable agents (claude/codex/grok)', () => {
+    const reg = new SessionRegistry()
+    const daemon: ControlMessage[] = []
+    reg.attachDaemon((m) => daemon.push(m))
+    reg.createSession({ agentKind: 'claude-code', cwd: '/w', initialPrompt: 'fix the bug' })
+    expect(daemon).toContainEqual(
+      expect.objectContaining({ type: 'spawn', agentKind: 'claude-code', initialPrompt: 'fix the bug' }),
+    )
+  })
+
+  it('does NOT put initialPrompt on the spawn for non-argv agents — seeds the composer draft instead', () => {
+    const reg = new SessionRegistry()
+    const daemon: ControlMessage[] = []
+    reg.attachDaemon((m) => daemon.push(m))
+    const client = sink()
+    reg.attachClient(client.send)
+    const { sessionId } = reg.createSession({ agentKind: 'shell', cwd: '/w', initialPrompt: 'remember this' })
+    const spawn = daemon.find((m) => m.type === 'spawn')
+    expect(spawn).toBeDefined()
+    expect(spawn).not.toHaveProperty('initialPrompt')
+    // The prompt is delivered as a draft instead, broadcast to clients.
+    expect(client.sent).toContainEqual({
+      type: 'sessionDraftChanged',
+      sessionId,
+      text: 'remember this',
+    })
   })
 
   it('resolves the "auto" agent sentinel to a concrete kind (issue start-flow)', () => {
@@ -123,6 +156,75 @@ describe('SessionRegistry', () => {
       origin: { kind: 'resume', conversationId: 'c9' },
       title: 'old',
     })
+  })
+
+  it('resume reuses an existing LIVE row for the same conversation instead of spawning a duplicate', () => {
+    // The bug: each resume of one conversation minted a fresh row + its own
+    // durable master. dedupeSessionsByResume only HID the siblings, so closing
+    // the visible row revealed a masked one (its own title/transcript/stage).
+    const reg = new SessionRegistry()
+    const daemon: ControlMessage[] = []
+    reg.attachDaemon((m) => daemon.push(m))
+    const first = reg.resumeSession({
+      agentKind: 'codex',
+      cwd: '/w',
+      resume: { kind: 'codex-thread', value: 't9' },
+      conversationId: 'c9',
+    })
+    reg.onDaemonMessage(bind(first.sessionId))
+    const spawnsBefore = daemon.filter((m) => m.type === 'spawn').length
+    const second = reg.resumeSession({
+      agentKind: 'codex',
+      cwd: '/w',
+      resume: { kind: 'codex-thread', value: 't9' },
+      conversationId: 'c9',
+    })
+    expect(second.sessionId).toBe(first.sessionId)
+    expect(reg.listSessions()).toHaveLength(1)
+    // No second durable master spawned for the same conversation.
+    expect(daemon.filter((m) => m.type === 'spawn').length).toBe(spawnsBefore)
+  })
+
+  it('resume resurrects an existing HIBERNATED row for the same conversation (one row, same id)', () => {
+    const reg = new SessionRegistry()
+    const daemon: ControlMessage[] = []
+    reg.attachDaemon((m) => daemon.push(m))
+    const first = reg.resumeSession({
+      agentKind: 'codex',
+      cwd: '/w',
+      resume: { kind: 'codex-thread', value: 't9' },
+      conversationId: 'c9',
+    })
+    reg.onDaemonMessage(bind(first.sessionId))
+    reg.hibernateSession({ sessionId: first.sessionId })
+    const second = reg.resumeSession({
+      agentKind: 'codex',
+      cwd: '/w',
+      resume: { kind: 'codex-thread', value: 't9' },
+      conversationId: 'c9',
+    })
+    expect(second.sessionId).toBe(first.sessionId)
+    expect(reg.listSessions()).toHaveLength(1)
+    // Reusing a parked row resurrects it (respawn under the same id).
+    expect(reg.listSessions()[0]?.status).toBe('starting')
+  })
+
+  it('resume still spawns a fresh row when no session exists for that conversation', () => {
+    const reg = new SessionRegistry()
+    reg.attachDaemon(() => {})
+    reg.resumeSession({
+      agentKind: 'codex',
+      cwd: '/w',
+      resume: { kind: 'codex-thread', value: 't1' },
+      conversationId: 'c1',
+    })
+    reg.resumeSession({
+      agentKind: 'codex',
+      cwd: '/w',
+      resume: { kind: 'codex-thread', value: 't2' },
+      conversationId: 'c2',
+    })
+    expect(reg.listSessions()).toHaveLength(2)
   })
 
   it('answers a client ping with pong (browser-level keepalive)', () => {
@@ -215,6 +317,27 @@ describe('SessionRegistry', () => {
     reg.onClientMessage(id, { type: 'attach', sessionId: s1 })
     reg.onClientMessage(id, { type: 'requestControl', sessionId: s1 })
     expect(reg.listSessions().find((m) => m.sessionId === s2)?.epoch).toBe(0)
+  })
+
+  it('heals a foreground resize that arrives before its viewState (quarter-size bug)', () => {
+    const reg = new SessionRegistry()
+    const daemon: ControlMessage[] = []
+    reg.attachDaemon((m) => daemon.push(m))
+    const s1 = reg.createSession({ agentKind: 'claude-code', cwd: '/a' }).sessionId
+    reg.onDaemonMessage(bind(s1))
+    const c = sink()
+    const id = reg.attachClient(c.send)
+    reg.onClientMessage(id, { type: 'attach', sessionId: s1 })
+    reg.onClientMessage(id, { type: 'presence', visible: true })
+    // Real client order on a live foreground: the panel's effect fires before the
+    // store's, so requestControl + the fitted resize arrive BEFORE viewState.
+    reg.onClientMessage(id, { type: 'requestControl', sessionId: s1 })
+    reg.onClientMessage(id, { type: 'resize', sessionId: s1, cols: 200, rows: 50 })
+    // The viewVisible gate dropped it (the session isn't in viewState yet).
+    expect(daemon).not.toContainEqual({ type: 'resize', sessionId: s1, cols: 200, rows: 50 })
+    // viewState lands → the dropped size self-heals instead of sticking at 80x24.
+    reg.onClientMessage(id, { type: 'viewState', visible: [s1], focused: s1 })
+    expect(daemon).toContainEqual({ type: 'resize', sessionId: s1, cols: 200, rows: 50 })
   })
 
   it('kill removes the session and tells the daemon', () => {
@@ -912,6 +1035,124 @@ describe('agent state', () => {
       store.close()
     }
   })
+
+  it('connects Telegram from a start-code update', async () => {
+    const store = new SessionStore(':memory:')
+    const settings = store.getSettings()
+    store.setSettings({
+      ...settings,
+      notifications: {
+        ...settings.notifications,
+        telegramBotToken: '123456:secret',
+      },
+    })
+    const getMe = vi.fn().mockResolvedValue({ username: 'mwpodium_bot' })
+    const getUpdates = vi.fn().mockImplementation(async () => [
+      {
+        updateId: 12,
+        chatId: 129784115,
+        chatType: 'private',
+        chatLabel: 'mikewirth',
+        text: '/start PODIUM123',
+      },
+    ])
+    const sendMessage = vi.fn().mockResolvedValue(undefined)
+
+    try {
+      const reg = new SessionRegistry(
+        store,
+        { ntfy: vi.fn(), telegram: vi.fn() },
+        {
+          telegramSetup: { getMe, getUpdates, sendMessage },
+          generateTelegramSetupCode: () => 'PODIUM123',
+          now: () => 1_000,
+        },
+      )
+
+      const setup = await reg.startTelegramSetup()
+      expect(setup).toEqual({
+        setupId: expect.any(String),
+        code: 'PODIUM123',
+        botUsername: 'mwpodium_bot',
+        telegramUrl: 'https://t.me/mwpodium_bot?start=PODIUM123',
+        expiresAt: new Date(301_000).toISOString(),
+      })
+
+      const result = await reg.pollTelegramSetup(setup.setupId)
+
+      expect(result.status).toBe('connected')
+      if (result.status !== 'connected') throw new Error('expected setup to connect')
+      expect(result.settings.notifications.telegramChatId).toBe('129784115')
+      expect(sendMessage).toHaveBeenCalledWith(
+        { botToken: '123456:secret', chatId: '129784115' },
+        expect.stringContaining('Telegram notifications are connected'),
+      )
+    } finally {
+      store.close()
+    }
+  })
+
+  it('sends a catch-up Telegram push when Telegram is enabled for an existing attention session', () => {
+    const store = new SessionStore(':memory:')
+    const ntfy = vi.fn()
+    const telegram = vi.fn()
+
+    try {
+      const reg = new SessionRegistry(store, { ntfy, telegram })
+      reg.attachDaemon(() => {})
+      const { sessionId } = reg.createSession({
+        agentKind: 'claude-code',
+        cwd: '/proj',
+        title: 'keyboard',
+      })
+      const visible = sink()
+      const visibleId = reg.attachClient(visible.send)
+      reg.onClientMessage(visibleId, { type: 'presence', visible: true })
+
+      reg.onDaemonMessage({
+        type: 'agentState',
+        sessionId,
+        state: {
+          phase: 'needs_user',
+          since: '2026-06-12T10:00:00.000Z',
+          openTaskCount: 0,
+          need: { kind: 'question', summary: 'SQLite or Postgres?' },
+        },
+      })
+
+      expect(telegram).not.toHaveBeenCalled()
+
+      const settings = reg.getSettings()
+      reg.setSettings({
+        ...settings,
+        notifications: {
+          ...settings.notifications,
+          telegramBotToken: '123456:secret',
+          telegramChatId: '-100123',
+        },
+      })
+
+      expect(telegram).toHaveBeenCalledWith(
+        { botToken: '123456:secret', chatId: '-100123' },
+        { title: 'keyboard needs you', body: 'SQLite or Postgres?' },
+      )
+      expect(ntfy).not.toHaveBeenCalled()
+
+      telegram.mockClear()
+      const updated = reg.getSettings()
+      reg.setSettings({
+        ...updated,
+        notifications: {
+          ...updated.notifications,
+          web: false,
+        },
+      })
+
+      expect(telegram).not.toHaveBeenCalled()
+    } finally {
+      store.close()
+    }
+  })
 })
 
 describe('structured transcript channel', () => {
@@ -1509,5 +1750,205 @@ describe('SessionRegistry snooze', () => {
     store.setSnooze('s1', null)
     const reg = new SessionRegistry(store)
     expect(reg.listSessions()[0]?.snoozedUntil).toBeNull()
+  })
+})
+
+describe('SessionRegistry — auto-continue', () => {
+  const erroredState: AgentRuntimeState = {
+    phase: 'errored',
+    since: '2026-06-24T00:00:00Z',
+    openTaskCount: 0,
+    error: { class: 'server_error', retryable: true },
+  }
+  const continueInput = expect.objectContaining({
+    type: 'input',
+    data: Buffer.from('continue\r').toString('base64'),
+  })
+
+  function enableAutoContinue(reg: SessionRegistry) {
+    const s = reg.getSettings()
+    reg.setSettings({ ...s, autoContinue: { enabled: true, promptDismissed: false } })
+  }
+
+  // A session must exist (createSession) and be marked live (bind) before agentState
+  // does anything — `bind` only marks an already-registered session live, it does not
+  // create the row. continueSession's status gate then accepts the live session.
+  function liveSession(reg: SessionRegistry): string {
+    const { sessionId } = reg.createSession({ agentKind: 'claude-code', cwd: '/proj' })
+    reg.onDaemonMessage(bind(sessionId))
+    return sessionId
+  }
+
+  it('does NOT auto-send continue when the setting is off', () => {
+    const reg = new SessionRegistry()
+    const daemon: ControlMessage[] = []
+    reg.attachDaemon((m) => daemon.push(m))
+    const sessionId = liveSession(reg)
+    reg.onDaemonMessage({ type: 'agentState', sessionId, state: erroredState })
+    expect(daemon).not.toContainEqual(continueInput)
+    reg.setSettings({ ...reg.getSettings(), autoContinue: { enabled: false, promptDismissed: false } })
+  })
+
+  it('auto-sends continue when an enabled session hits a retryable error', () => {
+    const reg = new SessionRegistry()
+    const daemon: ControlMessage[] = []
+    reg.attachDaemon((m) => daemon.push(m))
+    enableAutoContinue(reg)
+    const sessionId = liveSession(reg)
+    reg.onDaemonMessage({ type: 'agentState', sessionId, state: erroredState })
+    expect(daemon).toContainEqual(continueInput)
+    // Cancel the live loop so no real backoff timer dangles past the test.
+    reg.setSettings({ ...reg.getSettings(), autoContinue: { enabled: false, promptDismissed: false } })
+  })
+
+  it('arms already-errored sessions when the setting is switched on', () => {
+    const reg = new SessionRegistry()
+    const daemon: ControlMessage[] = []
+    reg.attachDaemon((m) => daemon.push(m))
+    const sessionId = liveSession(reg)
+    reg.onDaemonMessage({ type: 'agentState', sessionId, state: erroredState })
+    expect(daemon).not.toContainEqual(continueInput) // off → silent so far
+    enableAutoContinue(reg)
+    expect(daemon).toContainEqual(continueInput) // flipping on arms the errored session
+    reg.setSettings({ ...reg.getSettings(), autoContinue: { enabled: false, promptDismissed: false } })
+  })
+})
+
+describe('output-relay priority + frame batch', () => {
+  const priorities = (daemon: ControlMessage[]) =>
+    daemon.filter(
+      (m): m is Extract<ControlMessage, { type: 'sessionPriority' }> =>
+        m.type === 'sessionPriority',
+    )
+
+  it('a client viewState{visible:[s],focused:s} pushes sessionPriority{priority:0} to the daemon', () => {
+    const reg = new SessionRegistry()
+    const daemon: ControlMessage[] = []
+    reg.attachDaemon((m) => daemon.push(m))
+    const { sessionId } = reg.createSession({ agentKind: 'claude-code', cwd: '/w' })
+    const c = sink()
+    const id = reg.attachClient(c.send)
+    daemon.length = 0 // drop the spawn + daemon-connect priority push
+
+    reg.onClientMessage(id, { type: 'viewState', visible: [sessionId], focused: sessionId })
+    // Focused beats visible/attached: tier 0.
+    expect(priorities(daemon)).toContainEqual({ type: 'sessionPriority', sessionId, priority: 0 })
+  })
+
+  it('stores the rendered-mode map from a viewState message on the client (available, not used for scheduling)', () => {
+    const reg = new SessionRegistry()
+    reg.attachDaemon(() => {})
+    const { sessionId } = reg.createSession({ agentKind: 'claude-code', cwd: '/w' })
+    const c = sink()
+    const id = reg.attachClient(c.send)
+
+    reg.onClientMessage(id, {
+      type: 'viewState',
+      visible: [sessionId],
+      focused: sessionId,
+      modes: { [sessionId]: 'chat' },
+    })
+    const client = (reg as any).clients.get(id)
+    expect(client.viewModes).toEqual({ [sessionId]: 'chat' })
+  })
+
+  it('defaults viewModes to {} when a viewState omits modes (backward compatible)', () => {
+    const reg = new SessionRegistry()
+    reg.attachDaemon(() => {})
+    const { sessionId } = reg.createSession({ agentKind: 'claude-code', cwd: '/w' })
+    const c = sink()
+    const id = reg.attachClient(c.send)
+
+    // First set a mode, then send a modes-less viewState — it must reset, not retain.
+    reg.onClientMessage(id, {
+      type: 'viewState',
+      visible: [sessionId],
+      focused: sessionId,
+      modes: { [sessionId]: 'native' },
+    })
+    reg.onClientMessage(id, { type: 'viewState', visible: [sessionId], focused: sessionId })
+    const client = (reg as any).clients.get(id)
+    expect(client.viewModes).toEqual({})
+  })
+
+  it('a fresh client starts with empty viewModes', () => {
+    const reg = new SessionRegistry()
+    reg.attachDaemon(() => {})
+    const c = sink()
+    const id = reg.attachClient(c.send)
+    expect((reg as any).clients.get(id).viewModes).toEqual({})
+  })
+
+  it('computes per-session priority across ALL sessions (clients iterable is materialized, not exhausted)', () => {
+    const reg = new SessionRegistry()
+    const daemon: ControlMessage[] = []
+    reg.attachDaemon((m) => daemon.push(m))
+    // Two sessions: the second would wrongly read as tier 3 if the clients iterator
+    // were single-use (it exhausts after the first session) — the array-materialize
+    // guard is what keeps this correct.
+    const s1 = reg.createSession({ agentKind: 'claude-code', cwd: '/a' }).sessionId
+    const s2 = reg.createSession({ agentKind: 'claude-code', cwd: '/b' }).sessionId
+    const c = sink()
+    const id = reg.attachClient(c.send)
+    daemon.length = 0
+
+    reg.onClientMessage(id, { type: 'viewState', visible: [s1, s2], focused: s2 })
+    const sent = priorities(daemon)
+    expect(sent).toContainEqual({ type: 'sessionPriority', sessionId: s1, priority: 1 }) // visible
+    expect(sent).toContainEqual({ type: 'sessionPriority', sessionId: s2, priority: 0 }) // focused
+  })
+
+  it('only CHANGED sessions are re-pushed (deltas, not the whole map every time)', () => {
+    const reg = new SessionRegistry()
+    const daemon: ControlMessage[] = []
+    reg.attachDaemon((m) => daemon.push(m))
+    const { sessionId } = reg.createSession({ agentKind: 'claude-code', cwd: '/w' })
+    const c = sink()
+    const id = reg.attachClient(c.send)
+
+    reg.onClientMessage(id, { type: 'viewState', visible: [sessionId], focused: sessionId })
+    daemon.length = 0
+    // An identical viewState changes nothing → no re-send.
+    reg.onClientMessage(id, { type: 'viewState', visible: [sessionId], focused: sessionId })
+    expect(priorities(daemon)).toEqual([])
+  })
+
+  it('a fresh daemon (re)connect gets the current priority of every live session', () => {
+    const reg = new SessionRegistry()
+    reg.attachDaemon(() => {})
+    const { sessionId } = reg.createSession({ agentKind: 'claude-code', cwd: '/w' })
+    const c = sink()
+    const id = reg.attachClient(c.send)
+    reg.onClientMessage(id, { type: 'viewState', visible: [sessionId], focused: sessionId })
+    // The daemon drops; a fresh one attaches — it knows no priorities, so the full
+    // current map must be re-pushed (lastPriority.clear() + pushPriorities()).
+    reg.detachDaemon()
+    const daemon2: ControlMessage[] = []
+    reg.attachDaemon((m) => daemon2.push(m))
+    expect(priorities(daemon2)).toContainEqual({
+      type: 'sessionPriority',
+      sessionId,
+      priority: 0,
+    })
+  })
+
+  it('agentFrameBatch unpacks into one outputFrame broadcast per coalesced frame', () => {
+    const reg = new SessionRegistry()
+    reg.attachDaemon(() => {})
+    const { sessionId } = reg.createSession({ agentKind: 'claude-code', cwd: '/w' })
+    reg.onDaemonMessage(bind(sessionId))
+    const c = sink()
+    const id = reg.attachClient(c.send)
+    reg.onClientMessage(id, { type: 'attach', sessionId })
+    c.sent.length = 0
+
+    reg.onDaemonMessage({ type: 'agentFrameBatch', sessionId, frames: ['ZDE=', 'ZDI='] })
+    const frames = c.sent.filter(
+      (m): m is Extract<ServerMessage, { type: 'outputFrame' }> => m.type === 'outputFrame',
+    )
+    // Each coalesced frame becomes its own outputFrame, in order, each with its own
+    // server-assigned seq — clients are unaffected by the daemon's coalescing.
+    expect(frames.map((f) => f.data)).toEqual(['ZDE=', 'ZDI='])
+    expect(frames.map((f) => f.seq)).toEqual([0, 1])
   })
 })

@@ -7,6 +7,7 @@ import {
   isBatchableTool,
   mergeByCursor,
   pairToolResults,
+  reconcileReset,
 } from './chat'
 
 const tool = (toolName: string, id: string): TranscriptItem => ({
@@ -149,5 +150,35 @@ describe('dedupeByCursor', () => {
   it('preserves order and items without cursors (dedupes by id)', () => {
     const list = [it_('a'), it_('a'), it_('b', 'c2')]
     expect(dedupeByCursor(list).map((i) => i.id)).toEqual(['a', 'b'])
+  })
+})
+
+describe('reconcileReset', () => {
+  it('keeps a locally-held in-flight item the re-read snapshot dropped', () => {
+    // The live tail flushed an unterminated trailing record (C); a reset-driven
+    // disk re-read drops it (slice reader skips a final line without a newline),
+    // so the snapshot tail is the last COMPLETE record (B). C must survive.
+    const prev = [it_('a', 'c1'), it_('b', 'c2'), it_('c', 'c3')]
+    const snapshot = [it_('a', 'c1'), it_('b', 'c2')]
+    expect(reconcileReset(prev, snapshot, 'c2').map((i) => i.id)).toEqual(['a', 'b', 'c'])
+  })
+
+  it('does NOT wipe the view when the re-read returns empty (no-resume / failed read)', () => {
+    const prev = [it_('a', 'c1'), it_('b', 'c2')]
+    expect(reconcileReset(prev, [], undefined)).toBe(prev)
+  })
+
+  it('replaces fully on a file roll (snapshot tail absent from held items)', () => {
+    // Genuine resume→new-file: held items carry stale cursors; the snapshot's tail
+    // is a brand-new cursor not in `prev`, so the held items are dropped wholesale.
+    const prev = [it_('old1', 'o1'), it_('old2', 'o2')]
+    const snapshot = [it_('new1', 'n1'), it_('new2', 'n2')]
+    expect(reconcileReset(prev, snapshot, 'n2').map((i) => i.id)).toEqual(['new1', 'new2'])
+  })
+
+  it('adopts the snapshot when it is a superset of the held window', () => {
+    const prev = [it_('a', 'c1'), it_('b', 'c2')]
+    const snapshot = [it_('a', 'c1'), it_('b', 'c2'), it_('c', 'c3')]
+    expect(reconcileReset(prev, snapshot, 'c3').map((i) => i.id)).toEqual(['a', 'b', 'c'])
   })
 })

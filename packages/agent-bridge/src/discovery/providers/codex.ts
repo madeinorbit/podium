@@ -119,6 +119,14 @@ async function summarizeFile(
   if (parsed.diagnostics.length > 0) return { diagnostics: parsed.diagnostics }
   if (parsed.records.length === 0 && stats.size === 0) return { diagnostics: [] }
 
+  // Codex ≥0.142 writes a SECOND rollout per interactive session for its internal
+  // "guardian" risk-judging subagent (`source: { subagent }`). It's not a user
+  // conversation — drop it so the history list doesn't fill with phantom "judging
+  // one planned action" entries. (The live observer excludes it too; see
+  // isInteractiveCodexSource.)
+  const sessionMeta = parsed.records.map(codexPayload).find((p) => stringField(p, 'id'))
+  if (sessionMeta && isCodexSubagentSource(sessionMeta.source)) return { diagnostics: [] }
+
   let canonical: string
   try {
     canonical = await (context.canonicalPath ?? canonicalPath)(file.path)
@@ -304,6 +312,24 @@ function codexMessages(records: unknown[]): AgentConversationMessage[] {
 function codexPayload(record: unknown): Record<string, unknown> {
   if (!isRecord(record)) return {}
   return isRecord(record.payload) ? record.payload : {}
+}
+
+/**
+ * True when a `session_meta.source` describes an interactive Codex TUI session —
+ * the one a Podium pane actually runs. Codex (≥0.142) writes a SECOND rollout per
+ * interactive session for its internal "guardian" risk-judging subagent: same cwd,
+ * newer mtime, its own thread id, but `source: { subagent: … }`. `codex exec` runs
+ * carry `source: 'exec'`. Only `'cli'` is the interactive session; treating the
+ * guardian rollout as the session's cross-wires the chat view to its transcript.
+ * A missing source (older Codex) is treated as interactive for backward-compat.
+ */
+export function isInteractiveCodexSource(source: unknown): boolean {
+  return source === undefined || source === null || source === 'cli'
+}
+
+/** True for a subagent rollout (e.g. Codex's "guardian"): `source: { subagent }`. */
+export function isCodexSubagentSource(source: unknown): boolean {
+  return isRecord(source) && 'subagent' in source
 }
 
 /**

@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
   attentionGroup,
   attentionSummary,
+  compareRecency,
   groupSessions,
   kanbanColumns,
   relativeTime,
@@ -32,6 +33,62 @@ const state = (
   ({ phase, since: '2026-06-12T08:00:00.000Z', openTaskCount: 0, ...extra }) as NonNullable<
     SessionMeta['agentState']
   >
+
+describe('compareRecency with drafts', () => {
+  const ids = (list: SessionMeta[]) => list.sort(compareRecency).map((s) => s.sessionId)
+
+  it('a recent draft edit lifts a session above one with a newer lastActiveAt but no draft', () => {
+    const draft = base({
+      sessionId: 'draft',
+      lastActiveAt: '2026-06-10T00:00:00.000Z',
+      draftUpdatedAt: '2026-06-12T09:00:00.000Z',
+    })
+    const plain = base({ sessionId: 'plain', lastActiveAt: '2026-06-12T08:00:00.000Z' })
+    // draft was edited 09:00 > plain's last activity 08:00 → draft sorts first
+    expect(ids([plain, draft])).toEqual(['draft', 'plain'])
+  })
+
+  it('lastActiveAt still wins when it is newer than the draft edit', () => {
+    const active = base({
+      sessionId: 'active',
+      lastActiveAt: '2026-06-12T10:00:00.000Z',
+      draftUpdatedAt: '2026-06-12T07:00:00.000Z',
+    })
+    const draft = base({
+      sessionId: 'draft',
+      lastActiveAt: '2026-06-10T00:00:00.000Z',
+      draftUpdatedAt: '2026-06-12T09:00:00.000Z',
+    })
+    // active's 10:00 activity beats draft's 09:00 effective recency
+    expect(ids([draft, active])).toEqual(['active', 'draft'])
+  })
+})
+
+describe('compareRecency with a returned (expired) snooze', () => {
+  const now = Date.parse('2026-06-12T12:00:00.000Z')
+  const sorted = (list: SessionMeta[]) =>
+    [...list].sort((a, b) => compareRecency(a, b, now)).map((s) => s.sessionId)
+
+  it('a just-expired snooze lifts the session by its snooze-expiry (it just re-entered the queue)', () => {
+    const returned = base({
+      sessionId: 'returned',
+      lastActiveAt: '2026-06-10T00:00:00.000Z',
+      snoozedUntil: '2026-06-12T11:59:00.000Z', // expired one minute ago
+    })
+    const older = base({ sessionId: 'older', lastActiveAt: '2026-06-11T00:00:00.000Z' })
+    expect(sorted([older, returned])).toEqual(['returned', 'older'])
+  })
+
+  it('a still-active (future) snooze must NOT inflate recency', () => {
+    const snoozed = base({
+      sessionId: 'snz',
+      lastActiveAt: '2026-06-10T00:00:00.000Z',
+      snoozedUntil: '2999-01-01T00:00:00.000Z',
+    })
+    const older = base({ sessionId: 'older', lastActiveAt: '2026-06-11T00:00:00.000Z' })
+    expect(sorted([snoozed, older])).toEqual(['older', 'snz'])
+  })
+})
 
 describe('attentionGroup', () => {
   it('needs_user and errored demand the human', () => {

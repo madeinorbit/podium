@@ -169,6 +169,14 @@ export class SocketHub {
   private readonly attentionObservers = new Set<(e: AttentionEvent) => void>()
   private draftObservers = new Set<(sessionId: string, text: string) => void>()
   private lastVisible = true
+  private lastViewState: {
+    visible: string[]
+    focused: string | null
+    modes?: Record<string, 'native' | 'chat'>
+  } = {
+    visible: [],
+    focused: null,
+  }
 
   constructor(opts: SocketHubOptions) {
     this.opts = opts
@@ -237,6 +245,10 @@ export class SocketHub {
       // Always assert presence on (re)connect: the server defaults a new client
       // to not-visible (fail-safe toward notifying), so a visible tab must say so.
       this.sendRaw({ type: 'presence', visible: this.lastVisible })
+      // Re-assert per-session view state the same way: the server starts each new
+      // client with empty view state, so a reconnecting client must re-declare which
+      // sessions it renders / has focused for output-relay prioritization to resume.
+      this.sendRaw({ type: 'viewState', ...this.lastViewState })
       // Flush keystrokes typed during the outage — after the re-attaches above, so
       // the session exists and this (reclaimed) client is the controller again
       // before its input lands.
@@ -490,6 +502,32 @@ export class SocketHub {
   setVisible(visible: boolean): void {
     this.lastVisible = visible
     if (this.connectedFlag) this.sendRaw({ type: 'presence', visible })
+  }
+
+  /**
+   * Report which sessions this client renders (`visible`) and which one has input
+   * focus (`focused`). The server unions this across clients to prioritize PTY output
+   * relay (focused/visible live; the rest coalesced). Stored and re-asserted on reconnect.
+   *
+   * `modes` (optional) maps each visible session to its rendered mode (native terminal
+   * vs chat). It's wired through so the server has the signal; it does NOT change
+   * relay/coalescing behavior.
+   */
+  setViewState(
+    visible: string[],
+    focused: string | null,
+    modes?: Record<string, 'native' | 'chat'>,
+  ): void {
+    // Omit `modes` entirely when undefined so the wire payload (and the
+    // re-assert below) stays byte-identical to the pre-modes message for clients
+    // that don't report a mode — keeps old expectations exact.
+    this.lastViewState = modes ? { visible, focused, modes } : { visible, focused }
+    if (this.connectedFlag)
+      this.sendRaw(
+        modes
+          ? { type: 'viewState', visible, focused, modes }
+          : { type: 'viewState', visible, focused },
+      )
   }
 
   connectionHealth(): ConnectionHealth {

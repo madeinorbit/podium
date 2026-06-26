@@ -2,7 +2,12 @@ import { mkdir, mkdtemp, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, test } from 'vitest'
-import { loadAgentConversation, scanAgentConversations } from './scanner.js'
+import { ConversationDiscoveryCache } from './cache.js'
+import {
+  loadAgentConversation,
+  scanAgentConversations,
+  scanAgentConversationsCached,
+} from './scanner.js'
 import { AgentConversationLoadError, type AgentConversationSummary } from './types.js'
 
 async function createHome(): Promise<string> {
@@ -222,5 +227,41 @@ describe('loadAgentConversation', () => {
     }
 
     await expect(loadAgentConversation(summary)).rejects.toBeInstanceOf(AgentConversationLoadError)
+  })
+})
+
+describe('scanAgentConversationsCached deltas', () => {
+  test('reports only changed files on the second pass', async () => {
+    const home = await createHome()
+    const file = await writeClaudeSession(join(home, '.claude'))
+    expect(file).toBeDefined()
+    const cache = new ConversationDiscoveryCache(':memory:')
+    try {
+      const first = await scanAgentConversationsCached({ cache, homeDir: home })
+      expect(first.changed.length).toBeGreaterThan(0)
+      expect(first.removed).toEqual([])
+      const second = await scanAgentConversationsCached({ cache, homeDir: home })
+      expect(second.changed.length).toBe(0) // unchanged → empty delta
+      expect(second.removed).toEqual([])
+    } finally {
+      cache.close()
+    }
+  })
+
+  test('reports the conversation ids pruned when a file disappears', async () => {
+    const home = await createHome()
+    await writeClaudeSession(join(home, '.claude'))
+    const cache = new ConversationDiscoveryCache(':memory:')
+    try {
+      const first = await scanAgentConversationsCached({ cache, homeDir: home })
+      expect(first.changed.map((summary) => summary.id)).toContain('claude-session')
+
+      // A second scan over an EMPTY home prunes the cached row; `removed` carries its id.
+      const emptyHome = await createHome()
+      const second = await scanAgentConversationsCached({ cache, homeDir: emptyHome })
+      expect(second.removed).toContain('claude-session')
+    } finally {
+      cache.close()
+    }
   })
 })

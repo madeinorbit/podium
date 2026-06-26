@@ -124,6 +124,16 @@ describe('SessionStore drafts', () => {
     b.close()
   })
 
+  it('exposes draft edit times: setDraft returns the timestamp (undefined on clear) and loadDraftTimes round-trips it', () => {
+    const store = new SessionStore(':memory:')
+    const at = store.setDraft('sess', 'typing')
+    expect(typeof at).toBe('string')
+    expect(store.loadDraftTimes()).toEqual({ sess: at })
+    expect(store.setDraft('sess', '')).toBeUndefined()
+    expect(store.loadDraftTimes()).toEqual({})
+    store.close()
+  })
+
   it('drops a session draft when the session is deleted', () => {
     const store = new SessionStore(':memory:')
     store.upsertSession(row())
@@ -507,6 +517,38 @@ describe('conversation index', () => {
     expect(hit?.id).toBe('a')
     expect(hit?.name).toBe('Soft keyboard epic')
     expect(hit?.summary).toBe('shipped; awaiting review')
+    store.close()
+  })
+
+  it('deleteConversations removes the rows and keeps the FTS index consistent', () => {
+    const store = new SessionStore(':memory:')
+    store.upsertConversations([
+      conv('a', { title: 'keep this keyboard one' }),
+      conv('b', { title: 'remove this keyboard one' }),
+    ])
+    // Both match before the delete.
+    expect(
+      store
+        .searchConversations({ query: 'keyboard' })
+        .map((h) => h.id)
+        .sort(),
+    ).toEqual(['a', 'b'])
+
+    store.deleteConversations(['b'])
+
+    // Browse (empty query, table read) no longer lists the deleted row...
+    expect(store.searchConversations({}).map((h) => h.id)).toEqual(['a'])
+    // ...and the FTS index dropped it too (the DELETE trigger keeps it in sync),
+    // so a keyword search returns only the survivor — no stale match for 'b'.
+    expect(store.searchConversations({ query: 'keyboard' }).map((h) => h.id)).toEqual(['a'])
+    store.close()
+  })
+
+  it('deleteConversations is a no-op on an empty id list', () => {
+    const store = new SessionStore(':memory:')
+    store.upsertConversations([conv('a')])
+    store.deleteConversations([])
+    expect(store.searchConversations({}).map((h) => h.id)).toEqual(['a'])
     store.close()
   })
 })

@@ -10,7 +10,6 @@ function harness(sessions: SessionMeta[] = []) {
     listSessions: () => sessions,
     getSettings: () => ({ gitWorkflow: { defaultParentBranch: '', mergeStyle: 'ff-only', autoRebaseBeforeMerge: true }, sessionDefaults: { agent: 'claude-code' } }) as never,
     spawnSession: vi.fn(() => ({ sessionId: 's1' })),
-    sendFirstPrompt: vi.fn(),
     repoOp: vi.fn(async () => ({ ok: true, output: '' })),
     broadcast: vi.fn(),
     now: () => 't0',
@@ -52,7 +51,7 @@ describe('IssueService CRUD', () => {
 })
 
 describe('IssueService.start', () => {
-  it('creates a worktree off parent, spawns the agent, seeds the draft, moves to planning', async () => {
+  it('creates a worktree off parent, spawns the agent with the description as initialPrompt, moves to planning', async () => {
     const { svc, deps } = harness()
     const created = svc.create({ repoPath: '/r', title: 'Fix login', description: 'do the thing', startNow: false })
     const started = await svc.start(created.id)
@@ -61,8 +60,11 @@ describe('IssueService.start', () => {
     expect(started.worktreePath).toBe('/r/.worktrees/issue-1-fix-login')
     expect(deps.repoOp).toHaveBeenCalledWith('worktreeAdd', '/r',
       { path: '/r/.worktrees/issue-1-fix-login', branch: 'issue/1-fix-login', startPoint: 'main' })
-    expect(deps.spawnSession).toHaveBeenCalledWith({ cwd: '/r/.worktrees/issue-1-fix-login', agentKind: 'claude-code' })
-    expect(deps.sendFirstPrompt).toHaveBeenCalledWith('s1', 'do the thing')
+    expect(deps.spawnSession).toHaveBeenCalledWith({
+      cwd: '/r/.worktrees/issue-1-fix-login',
+      agentKind: 'claude-code',
+      initialPrompt: 'do the thing',
+    })
   })
 
   it('create(startNow=true) starts immediately', async () => {

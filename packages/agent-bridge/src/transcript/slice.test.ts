@@ -85,6 +85,38 @@ describe('readFileItems', () => {
     expect(cThird?.offset).toBe(off2)
     expect(cThird?.uuid).toBe('u2')
   })
+
+  it('flushes a final record without a trailing newline when the read reaches EOF', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'slice-'))
+    const path = join(dir, 't.jsonl')
+    const r0 = rec('u1', 'user', 'first')
+    const r1 = rec('a1', 'assistant', 'second')
+    const r2 = rec('u2', 'user', 'third')
+    // The agent is mid-append: r2's terminating newline has not landed yet. The live
+    // tailer flushes this trailing record; a whole-file read must match it (not drop
+    // it as a torn write) so a reset-driven re-read can't make the newest msg vanish.
+    await writeFile(path, `${[r0, r1].join('\n')}\n${r2}`)
+    const items = await readFileItems(path, 'FID', idxToItems)
+    expect(items.map((i) => i.text)).toEqual(['first', 'second', 'third'])
+    // The flushed record's cursor offset is its TRUE absolute file offset.
+    const off2 = Buffer.byteLength(r0) + 1 + Buffer.byteLength(r1) + 1
+    expect(decodeCursor(items[2]?.cursor ?? '')?.offset).toBe(off2)
+  })
+
+  it('does NOT emit a trailing partial when the window stops before EOF', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'slice-'))
+    const path = join(dir, 't.jsonl')
+    const r0 = rec('u1', 'user', 'first')
+    const r1 = rec('a1', 'assistant', 'second')
+    const r2 = rec('u2', 'user', 'third')
+    await writeFile(path, `${[r0, r1, r2].join('\n')}\n`)
+    const off2 = Buffer.byteLength(r0) + 1 + Buffer.byteLength(r1) + 1
+    // Window ends partway INTO r2 (strictly before EOF): r2 is an incomplete fragment
+    // here, more bytes follow on disk, so it must be dropped — only an EOF read flushes.
+    const end = off2 + Math.floor(Buffer.byteLength(r2) / 2)
+    const items = await readFileItems(path, 'FID', idxToItems, { start: 0, end })
+    expect(items.map((i) => i.text)).toEqual(['first', 'second'])
+  })
 })
 
 // One item per record carrying its index as text; uuid = `u<i>`.

@@ -15,6 +15,14 @@ export type Viewport = z.infer<typeof Viewport>
 export const AgentKind = z.enum(['claude-code', 'codex', 'grok', 'opencode', 'cursor', 'shell'])
 export type AgentKind = z.infer<typeof AgentKind>
 
+/** Agent CLIs that accept an initial prompt as a trailing positional argv token
+ *  (`claude "<prompt>"` / `codex "<prompt>"` / `grok "<prompt>"`) — the race-free
+ *  way to hand a fresh session its first prompt. Others must seed the composer draft. */
+const ARGV_PROMPT_AGENTS: ReadonlySet<AgentKind> = new Set(['claude-code', 'codex', 'grok'])
+export function agentSupportsInitialPrompt(kind: AgentKind): boolean {
+  return ARGV_PROMPT_AGENTS.has(kind)
+}
+
 export const ResumeRef = z.object({ kind: z.string(), value: z.string() })
 export type ResumeRef = z.infer<typeof ResumeRef>
 
@@ -129,6 +137,11 @@ export const SessionMeta = z.object({
    *  time (or the next message, whichever first). Drives the sidebar's attention
    *  triage only; never changes the agent's phase. */
   snoozedUntil: z.string().nullable().optional(),
+  /** Last-edit time (ISO 8601) of a non-empty unsent composer draft, when one
+   *  exists. Drives the "DRAFT" tag and lifts the session in NEEDS YOUR ATTENTION
+   *  by when its prompt was last edited (a draft edit is recent user intent on
+   *  that session). Absent = no draft (or an empty one). */
+  draftUpdatedAt: z.string().optional(),
 })
 export type SessionMeta = z.infer<typeof SessionMeta>
 
@@ -335,6 +348,20 @@ export const PingMessage = z.object({ type: z.literal('ping') })
 // User presence (page visibility) — the smart-notification router skips mobile
 // push while some Podium window is visibly open.
 export const PresenceMessage = z.object({ type: z.literal('presence'), visible: z.boolean() })
+// Per-session view state: which sessions this client renders (`visible`) and which
+// single one has input focus (`focused`). The server unions these across clients to
+// prioritize PTY output relay (focused/visible relayed live; the rest coalesced).
+export const ViewStateMessage = z.object({
+  type: z.literal('viewState'),
+  visible: z.array(z.string()),
+  focused: z.string().nullable(),
+  // Optional sessionId→rendered-mode map for the visible sessions (native terminal
+  // vs chat). Wired through so the rendered mode is AVAILABLE server-side; it is NOT
+  // (yet) used to schedule/coalesce output — users bounce back to native, so the
+  // terminal stays warm regardless. Optional ⇒ backward compatible (old clients omit
+  // it and the server reads `{}`).
+  modes: z.record(z.string(), z.enum(['native', 'chat'])).optional(),
+})
 
 // The in-progress composer / native-prompt text for a session. The controlling
 // client publishes its scraped native prompt, and a chat composer edit publishes
@@ -365,6 +392,7 @@ export const ClientMessage = z.discriminatedUnion('type', [
   RedrawRequestMessage,
   PingMessage,
   PresenceMessage,
+  ViewStateMessage,
   TranscriptSubscribeMessage,
   TranscriptUnsubscribeMessage,
   SetSessionDraftMessage,
@@ -418,6 +446,9 @@ export const ConversationsChangedMessage = z.object({
   type: z.literal('conversationsChanged'),
   conversations: z.array(ConversationSummaryWire),
   diagnostics: z.array(ConversationDiagnosticWire),
+  // Conversation ids pruned this pass. Optional for back-compat: producers that
+  // don't yet emit a delta (and older parsers) stay valid without it.
+  removed: z.array(z.string()).optional(),
 })
 // A single session's live title changed (an agent set its terminal title via OSC).
 // Sent on its own rather than rebroadcasting the whole session list, because agents
@@ -620,6 +651,9 @@ export const SpawnMessage = z.object({
   // Settings-driven model defaults. Absent = the harness decides (no flag/env).
   model: z.string().optional(),
   subagentModel: z.string().optional(),
+  // A first prompt handed to the agent at launch as a positional argv token
+  // (race-free; e.g. an issue's description). Only set for argv-capable agents.
+  initialPrompt: z.string().optional(),
 })
 export const ReattachMessage = z.object({
   type: z.literal('reattach'),
@@ -633,6 +667,13 @@ export const ReattachMessage = z.object({
   resume: ResumeRef.optional(),
 })
 export const KillMessage = z.object({ type: z.literal('kill'), sessionId: z.string() })
+// Server→daemon: relay priority for one session (0=focused,1=visible,2=attached,
+// 3=unwatched). Drives the daemon's output scheduler.
+export const SessionPriorityMessage = z.object({
+  type: z.literal('sessionPriority'),
+  sessionId: z.string(),
+  priority: z.number().int().min(0).max(3),
+})
 export const ScanRequestMessage = z.object({
   type: z.literal('scanRequest'),
   requestId: z.string(),
@@ -841,6 +882,7 @@ export const ControlMessage = z.discriminatedUnion('type', [
   SpawnMessage,
   ReattachMessage,
   KillMessage,
+  SessionPriorityMessage,
   ScanRequestMessage,
   ScanReposRequestMessage,
   InputMessage,
@@ -868,6 +910,12 @@ export const AgentFrameMessage = z.object({
   sessionId: z.string(),
   seq: z.number().int().nonnegative(),
   data: z.string(),
+})
+export const AgentFrameBatchMessage = z.object({
+  type: z.literal('agentFrameBatch'),
+  sessionId: z.string(),
+  // Coalesced PTY frames (base64 data only — the server assigns its own seq).
+  frames: z.array(z.string()),
 })
 export const SpawnErrorMessage = z.object({
   type: z.literal('spawnError'),
@@ -904,6 +952,8 @@ export const ScanResultMessage = z.object({
   requestId: z.string(),
   conversations: z.array(ConversationSummaryWire),
   diagnostics: z.array(ConversationDiagnosticWire),
+  // Conversation ids pruned this pass. Optional for back-compat (see above).
+  removed: z.array(z.string()).optional(),
 })
 // Periodic host health sample (currently every ~5 s). hostname keys the server's
 // latest-per-host map so several machines' daemons can report side by side.
@@ -1031,6 +1081,7 @@ export const DaemonMessage = z.discriminatedUnion('type', [
   SessionResumeRefMessage,
   BindMessage,
   AgentFrameMessage,
+  AgentFrameBatchMessage,
   AgentExitMessage,
   SpawnErrorMessage,
   ReattachFailedMessage,

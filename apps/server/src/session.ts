@@ -26,6 +26,15 @@ export interface ClientConn {
   transcriptSubs: Set<string>
   /** Page-visibility presence — drives smart notification routing. */
   visible: boolean
+  /** Sessions this client currently RENDERS on screen (from viewState). */
+  viewVisible: Set<string>
+  /** The one session that has input focus on this client, or null. */
+  focused: string | null
+  /** Per-session rendered mode (native terminal vs chat) this client reports for the
+   *  sessions it renders (from viewState `modes`). AVAILABLE for inspection but
+   *  deliberately UNUSED by output scheduling — computePriorities never reads it, so
+   *  relay/coalescing stays mode-agnostic (the terminal stays warm for native bounce-back). */
+  viewModes: Record<string, 'native' | 'chat'>
 }
 
 export interface SessionInit {
@@ -121,6 +130,11 @@ export class Session {
    *  until next message; ISO string = timed. Lives in its own `snoozes` table, so
    *  it is NOT part of toRow(); the registry seeds it at load and on mutation. */
   snoozedUntil: string | null | undefined = undefined
+  /** Last-edit time of a non-empty unsent composer draft (undefined = no draft).
+   *  Lives in its own `session_drafts` table (not toRow()); the registry seeds it
+   *  at load and on every setSessionDraft. Surfaced so the client can show DRAFT
+   *  and lift the session in NEEDS YOUR ATTENTION by when its prompt was edited. */
+  draftUpdatedAt: string | undefined = undefined
   /** True once a structured transcript has been seen — drives chat capability. */
   transcriptAvailable = false
   geometry: Geometry
@@ -190,6 +204,10 @@ export class Session {
 
   attachClient(client: ClientConn, sinceSeq?: number): void {
     this.clients.set(client.id, client)
+    // First attacher takes the controller role. A non-rendering controller is
+    // harmless: the size operations are independently gated on per-session
+    // viewState (handleResize / requestControl below), so it can't move the PTY
+    // off a stale grid until it actually renders the session.
     if (this.controllerId === null) this.controllerId = client.id
     // Resume vs full replay. On a reconnect the client passes the last seq it
     // rendered; if that point is still inside our bounded buffer, replay only the
@@ -302,6 +320,9 @@ export class Session {
     this.clients.delete(clientId)
     this.transcriptSubscribers.delete(clientId)
     if (this.controllerId === clientId) {
+      // Hand the role to any remaining client (or null when none are left). A
+      // non-rendering inheritor is harmless — the size operations are gated on
+      // per-session viewState, so geometry stays put until it renders the session.
       this.controllerId = this.clients.keys().next().value ?? null
       if (this.controllerId !== null) {
         this.broadcast({
@@ -336,24 +357,72 @@ export class Session {
   handleResize(clientId: string, cols: number, rows: number): void {
     const client = this.clients.get(clientId)
     if (client) client.viewport = { cols, rows }
-    if (clientId === this.controllerId) {
+    // Only apply a resize from a client that is actually RENDERING this session on
+    // screen (per-session viewState). A backgrounded tab/page reports an empty
+    // viewVisible, so its stale grid can never move the shared PTY.
+    if (clientId === this.controllerId && client?.viewVisible.has(this.sessionId)) {
       this.geometry = { cols, rows }
       this.toDaemon({ type: 'resize', sessionId: this.sessionId, cols, rows })
+      // Tell every client the new authoritative size. Without this broadcast a
+      // client only has its own optimistic sendResize value, which requestControl's
+      // (stale) geometry broadcast clobbers back to the old grid — leaving the xterm
+      // snapped to 80x24 by onState even though the PTY was resized (quarter-size).
+      this.broadcast({ type: 'geometry', sessionId: this.sessionId, cols, rows })
     }
   }
 
-  requestControl(clientId: string): void {
-    if (!this.clients.has(clientId)) return
-    this.controllerId = clientId
-    this.geometry = { ...(this.clients.get(clientId)?.viewport ?? this.geometry) }
-    this.epoch += 1
+  /**
+   * Re-apply the controller's last-known viewport if it now renders this session.
+   * A foreground resize can reach {@link handleResize} BEFORE the client's
+   * viewState message lands — the panel's React effect sends the resize before the
+   * store's (ancestor) effect sends viewState, so child-before-parent effect order
+   * puts the resize first and the viewVisible gate drops it. Calling this when a
+   * viewState marks the session visible heals that dropped resize; without it the
+   * PTY stays stuck at the 80x24 default (the "quarter-size window" bug). No-op when
+   * the client isn't the controller, isn't rendering the session, or already matches.
+   */
+  reconcileGeometry(clientId: string): void {
+    const client = this.clients.get(clientId)
+    if (!client) return
+    if (clientId !== this.controllerId || !client.viewVisible.has(this.sessionId)) return
+    if (this.geometry.cols === client.viewport.cols && this.geometry.rows === client.viewport.rows) {
+      return
+    }
+    this.geometry = { ...client.viewport }
     this.toDaemon({
       type: 'resize',
       sessionId: this.sessionId,
       cols: this.geometry.cols,
       rows: this.geometry.rows,
     })
-    this.toDaemon({ type: 'redraw', sessionId: this.sessionId })
+    this.broadcast({
+      type: 'geometry',
+      sessionId: this.sessionId,
+      cols: this.geometry.cols,
+      rows: this.geometry.rows,
+    })
+  }
+
+  requestControl(clientId: string): void {
+    const client = this.clients.get(clientId)
+    if (!client) return
+    this.controllerId = clientId
+    this.epoch += 1
+    // Only snap geometry to the requester's viewport + resize the agent if the
+    // requester is actually rendering this session (per-session viewState). If not
+    // (e.g. a viewState update hasn't landed yet), transfer control without sizing;
+    // {@link reconcileGeometry} re-applies it when viewState lands (the panel's fit
+    // may also re-drive it through handleResize once viewVisible is populated).
+    if (client.viewVisible.has(this.sessionId)) {
+      this.geometry = { ...(client.viewport ?? this.geometry) }
+      this.toDaemon({
+        type: 'resize',
+        sessionId: this.sessionId,
+        cols: this.geometry.cols,
+        rows: this.geometry.rows,
+      })
+      this.toDaemon({ type: 'redraw', sessionId: this.sessionId })
+    }
     this.broadcast({
       type: 'controllerChanged',
       sessionId: this.sessionId,
@@ -573,6 +642,7 @@ export class Session {
       ...(this.shellBusy ? { busy: true } : {}),
       ...(this.agentColor ? { agentColor: this.agentColor } : {}),
       ...(this.snoozedUntil !== undefined ? { snoozedUntil: this.snoozedUntil } : {}),
+      ...(this.draftUpdatedAt !== undefined ? { draftUpdatedAt: this.draftUpdatedAt } : {}),
     }
   }
 

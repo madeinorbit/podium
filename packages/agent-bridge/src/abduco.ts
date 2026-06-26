@@ -51,6 +51,47 @@ export function systemdScopeArgv(unit: string, command: string[]): string[] {
   return ['--user', '--scope', '--collect', '--quiet', `--unit=${unit}`, '--', ...command]
 }
 
+/** The transient scope unit name for a session label — the single source of truth. */
+export function scopeUnitName(label: string): string {
+  return `${label}.scope`
+}
+
+/**
+ * `systemctl --user` argv pairs that free a stale scope so it can be recreated. A
+ * redeploy/crash can leave a session's scope ACTIVE when the agent's own grandchildren
+ * (a leaked sub-process, stray Xvfb from a verify run …) keep its cgroup non-empty. The
+ * deterministic unit name then blocks every subsequent `systemd-run` with "unit already
+ * exists", so the master silently falls back into the spawning service's cgroup — where
+ * the next redeploy's KillMode=control-group SIGKILLs it. That recurs on each restart
+ * and looks like "the agent keeps getting shut down", but only for the one session whose
+ * scope name is squatted. `stop` SIGTERMs the squatting orphans (freeing the name);
+ * `reset-failed` clears any leftover unit state. Both are best-effort no-ops when absent.
+ */
+export function scopeReclaimArgvs(unit: string): string[][] {
+  return [
+    ['--user', 'stop', unit],
+    ['--user', 'reset-failed', unit],
+  ]
+}
+
+/**
+ * Free a stale scope squatting this label's unit name so the master can be (re)created
+ * in its OWN scope. Guarded on there being NO live master for the label — we only ever
+ * clear a zombie scope held open by orphaned grandchildren, never a live agent. Sync to
+ * match {@link spawnAbducoAgent}; runs only on the (re)spawn path, not per frame.
+ * Best-effort: a missing unit or absent systemd just makes the commands no-ops.
+ */
+function reclaimStaleScope(label: string): void {
+  if (abducoHasSession(label)) return
+  for (const args of scopeReclaimArgvs(scopeUnitName(label))) {
+    try {
+      spawnSync('systemctl', args, { stdio: 'ignore', timeout: 8000 })
+    } catch {
+      // best-effort: no such unit / no systemd
+    }
+  }
+}
+
 let scopeChecked = false
 let scopeOk = false
 
@@ -274,10 +315,15 @@ export function spawnAbducoAgent(opts: AbducoSpawnOptions): AgentSession {
   // daemonizes the master and returns immediately, so timing matches the bare call.
   // (cwd/env are inherited by the scope, verified against the live user manager.)
   if (canScopeMaster()) {
+    // Reclaim a stale scope squatting this label's unit name first, or `systemd-run`
+    // fails ("unit already exists") and the master falls into the daemon's cgroup —
+    // where the next redeploy kills it (see scopeReclaimArgvs). Guarded on no live
+    // master, so we only ever clear a zombie scope held open by orphaned grandchildren.
+    reclaimStaleScope(opts.label)
     try {
       execFileSync(
         'systemd-run',
-        systemdScopeArgv(`${opts.label}.scope`, [bin, ...createArgs]),
+        systemdScopeArgv(scopeUnitName(opts.label), [bin, ...createArgs]),
         execOpts,
       )
       return attachAbducoAgent({

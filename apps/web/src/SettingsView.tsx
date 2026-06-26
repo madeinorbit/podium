@@ -6,6 +6,7 @@ import {
   type LlmBackend,
   type PodiumSettings,
 } from '@podium/core'
+import { CheckCircle2, ExternalLink, Loader2 } from 'lucide-react'
 import type { JSX } from 'react'
 import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
@@ -35,6 +36,22 @@ export type SettingsTab =
   | 'integrations'
   | 'machines'
 
+type TelegramSetupState =
+  | { status: 'idle' }
+  | { status: 'starting' }
+  | {
+      status: 'polling'
+      setupId: string
+      code: string
+      botUsername: string
+      telegramUrl: string
+      expiresAt: string
+      error?: string
+    }
+  | { status: 'connected'; chatId: string; chatType: string; chatLabel?: string }
+  | { status: 'expired' }
+  | { status: 'failed'; message: string }
+
 export const SETTINGS_TABS: { key: SettingsTab; label: string }[] = [
   { key: 'appearance', label: 'Appearance' },
   { key: 'sessions', label: 'New sessions' },
@@ -60,6 +77,8 @@ export function SettingsView(): JSX.Element {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [savedAt, setSavedAt] = useState(0)
+  const [telegramSetup, setTelegramSetup] = useState<TelegramSetupState>({ status: 'idle' })
+  const [telegramSetupNow, setTelegramSetupNow] = useState(() => Date.now())
   // Honor a deep-link target (e.g. from global search) for the initial tab, then
   // clear it so a later plain "open settings" lands on the default.
   const [tab, setTab] = useState<SettingsTab>(() => {
@@ -84,6 +103,91 @@ export function SettingsView(): JSX.Element {
       cancelled = true
     }
   }, [trpc])
+
+  useEffect(() => {
+    if (telegramSetup.status !== 'polling') return
+    setTelegramSetupNow(Date.now())
+    const id = window.setInterval(() => setTelegramSetupNow(Date.now()), 1000)
+    return () => window.clearInterval(id)
+  }, [telegramSetup.status])
+
+  const activeTelegramSetup = telegramSetup.status === 'polling' ? telegramSetup : null
+
+  useEffect(() => {
+    if (!activeTelegramSetup) return
+    let cancelled = false
+    let inFlight = false
+    const poll = async () => {
+      if (inFlight) return
+      if (Date.now() > Date.parse(activeTelegramSetup.expiresAt)) {
+        setTelegramSetup({ status: 'expired' })
+        return
+      }
+      inFlight = true
+      try {
+        const result = await trpc.settings.telegramSetupPoll.mutate({
+          setupId: activeTelegramSetup.setupId,
+        })
+        if (cancelled) return
+        if (result.status === 'connected') {
+          setSettings(result.settings)
+          setSavedAt(Date.now())
+          setTelegramSetup({
+            status: 'connected',
+            chatId: result.chatId,
+            chatType: result.chatType,
+            ...(result.chatLabel ? { chatLabel: result.chatLabel } : {}),
+          })
+        } else if (result.status === 'expired') {
+          setTelegramSetup({ status: 'expired' })
+        } else {
+          setTelegramSetup((current) =>
+            current.status === 'polling' && current.setupId === activeTelegramSetup.setupId
+              ? { ...current, error: undefined }
+              : current,
+          )
+        }
+      } catch (e) {
+        if (!cancelled) {
+          const message = e instanceof Error ? e.message : String(e)
+          setTelegramSetup((current) =>
+            current.status === 'polling' && current.setupId === activeTelegramSetup.setupId
+              ? { ...current, error: message }
+              : current,
+          )
+        }
+      } finally {
+        inFlight = false
+      }
+    }
+    void poll()
+    const id = window.setInterval(() => void poll(), 2500)
+    return () => {
+      cancelled = true
+      window.clearInterval(id)
+    }
+  }, [activeTelegramSetup?.setupId, activeTelegramSetup?.expiresAt, trpc])
+
+  const startTelegramSetup = async () => {
+    if (!settings) return
+    const token = settings.notifications.telegramBotToken.trim()
+    if (!token) {
+      setTelegramSetup({ status: 'failed', message: 'Paste a Telegram bot token first.' })
+      return
+    }
+
+    setError(null)
+    setTelegramSetup({ status: 'starting' })
+    try {
+      const saved = await trpc.settings.set.mutate(settings)
+      setSettings(saved)
+      const setup = await trpc.settings.telegramSetupStart.mutate()
+      setTelegramSetup({ status: 'polling', ...setup })
+      setTelegramSetupNow(Date.now())
+    } catch (e) {
+      setTelegramSetup({ status: 'failed', message: e instanceof Error ? e.message : String(e) })
+    }
+  }
 
   const save = async () => {
     if (!settings) return
@@ -152,6 +256,7 @@ export function SettingsView(): JSX.Element {
             {tab === 'appearance' && <AppearanceSection />}
 
             {tab === 'sessions' && (
+              <>
               <Section
                 title="New sessions"
                 hint="Defaults applied when starting agents. “Agent decides” passes no flag — the CLI uses its own configuration."
@@ -220,6 +325,20 @@ export function SettingsView(): JSX.Element {
                   </Select>
                 </Row>
               </Section>
+              <Section
+                title="Auto-continue on errors"
+                hint="When an agent stops on a retryable error (rate limit, server error), keep re-sending “continue” on an increasing delay (up to 5 min) until it recovers. Heads up: this can keep an agent running indefinitely and consuming tokens."
+              >
+                <Row label="Enabled">
+                  <Switch
+                    checked={settings.autoContinue.enabled}
+                    onCheckedChange={(checked) =>
+                      patch({ autoContinue: { ...settings.autoContinue, enabled: checked } })
+                    }
+                  />
+                </Row>
+              </Section>
+              </>
             )}
 
             {tab === 'superagent' && (
@@ -363,17 +482,37 @@ export function SettingsView(): JSX.Element {
                 <Row label="Telegram chat ID">
                   <Input
                     type="text"
-                    placeholder="e.g. -1001234567890 or @channel"
+                    placeholder="filled by setup, or @channel"
                     value={settings.notifications.telegramChatId}
-                    onChange={(e) =>
+                    onChange={(e) => {
+                      setTelegramSetup({ status: 'idle' })
                       patch({
                         notifications: {
                           ...settings.notifications,
                           telegramChatId: e.target.value,
                         },
                       })
-                    }
+                    }}
                   />
+                </Row>
+                <Row label="Telegram setup">
+                  <div className="min-w-0 flex-1 space-y-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={telegramSetup.status === 'starting' || telegramSetup.status === 'polling'}
+                      onClick={() => void startTelegramSetup()}
+                    >
+                      {telegramSetup.status === 'starting' ? (
+                        <Loader2 className="animate-spin" data-icon="inline-start" />
+                      ) : (
+                        <ExternalLink data-icon="inline-start" />
+                      )}
+                      {settings.notifications.telegramChatId.trim() ? 'Reconnect Telegram' : 'Connect Telegram'}
+                    </Button>
+                    <TelegramSetupStatus setup={telegramSetup} now={telegramSetupNow} />
+                  </div>
                 </Row>
                 <div className="mt-2 max-w-[68ch] border-border border-l pl-3 text-[12px] text-muted-foreground">
                   <div className="mb-1 font-medium text-foreground">Telegram setup</div>
@@ -382,17 +521,14 @@ export function SettingsView(): JSX.Element {
                       In Telegram, message <code className="text-[11px]">@BotFather</code> and use <code className="text-[11px]">/newbot</code> to create a bot. Paste its bot token here.
                     </li>
                     <li>
-                      For a personal chat, start the new bot, then message <code className="text-[11px]">@userinfobot</code> and paste the <code className="text-[11px]">Id</code> it shows.
+                      Click <span className="font-medium text-foreground">Connect Telegram</span>. Podium shows a Telegram link with a setup code and polls for 5 minutes.
                     </li>
                     <li>
-                      For a group or private channel, add your Podium bot, then add <code className="text-[11px]">@RawDataBot</code> briefly and copy the <code className="text-[11px]">chat.id</code> it posts. For public channels, <code className="text-[11px]">@channelusername</code> also works; remove the helper bot when done.
+                      Send the prefilled start message. When Podium sees the code, it fills the chat ID and sends a confirmation.
                     </li>
                   </ol>
                   <p className="mt-1.5">
-                    If you prefer not to add a helper bot, send a test message and use <code className="text-[11px]">https://api.telegram.org/bot&lt;token&gt;/getUpdates</code> as a fallback.
-                  </p>
-                  <p className="mt-1.5">
-                    Telegram sends only when both a bot token and chat ID are set. These settings are global for this Podium server.
+                    Public channels can still use <code className="text-[11px]">@channelusername</code>. These settings are global for this Podium server.
                   </p>
                 </div>
               </Section>
@@ -516,6 +652,59 @@ export function SettingsView(): JSX.Element {
 }
 
 /** Browser notification permission needs a user gesture — this is the gesture. */
+function formatTelegramSetupRemaining(expiresAt: string, now: number): string {
+  const seconds = Math.max(0, Math.ceil((Date.parse(expiresAt) - now) / 1000))
+  const minutes = Math.floor(seconds / 60)
+  const rest = seconds % 60
+  return minutes + ':' + rest.toString().padStart(2, '0')
+}
+
+function TelegramSetupStatus({
+  setup,
+  now,
+}: {
+  setup: TelegramSetupState
+  now: number
+}): JSX.Element | null {
+  if (setup.status === 'idle' || setup.status === 'starting') return null
+  if (setup.status === 'failed') {
+    return <p className="text-destructive text-xs">{setup.message}</p>
+  }
+  if (setup.status === 'expired') {
+    return <p className="text-muted-foreground text-xs">Setup expired. Start again.</p>
+  }
+  if (setup.status === 'connected') {
+    const target = setup.chatLabel ?? setup.chatId
+    return (
+      <p className="inline-flex items-center gap-1 text-success text-xs">
+        <CheckCircle2 className="size-3.5" /> Connected to {target}.
+      </p>
+    )
+  }
+
+  return (
+    <div className="max-w-[68ch] space-y-1 rounded-md border border-border bg-muted/30 p-2 text-xs">
+      <div className="flex flex-wrap items-center gap-2 text-foreground">
+        <span>Waiting for Telegram</span>
+        <code className="rounded bg-background px-1.5 py-0.5 font-mono text-[11px]">{setup.code}</code>
+        <span className="text-muted-foreground">
+          {formatTelegramSetupRemaining(setup.expiresAt, now)} left
+        </span>
+      </div>
+      <a
+        className="inline-flex items-center gap-1 text-primary hover:underline"
+        href={setup.telegramUrl}
+        target="_blank"
+        rel="noreferrer"
+      >
+        Open Telegram with this code
+        <ExternalLink className="size-3" />
+      </a>
+      {setup.error && <p className="text-destructive">{setup.error}</p>}
+    </div>
+  )
+}
+
 function NotificationPermissionButton(): JSX.Element | null {
   const [perm, setPerm] = useState(() =>
     typeof Notification === 'undefined' ? 'unsupported' : Notification.permission,
@@ -540,6 +729,17 @@ function NotificationPermissionButton(): JSX.Element | null {
   )
 }
 
+export function backendWithRunKind(backend: LlmBackend, kind: LlmBackend['kind']): LlmBackend {
+  return {
+    ...backend,
+    kind,
+    harnessAgent:
+      kind === 'harness' && backend.harnessAgent === 'codex'
+        ? 'claude-code'
+        : backend.harnessAgent,
+  }
+}
+
 function providerLabel(p: ApiProvider): string {
   switch (p) {
     case 'openrouter':
@@ -550,6 +750,21 @@ function providerLabel(p: ApiProvider): string {
       return 'OpenAI'
     case 'codex':
       return 'Codex (ChatGPT)'
+  }
+}
+
+function harnessAgentLabel(agent: HarnessAgent): string {
+  switch (agent) {
+    case 'claude-code':
+      return 'Claude Code'
+    case 'codex':
+      return 'Codex'
+    case 'grok':
+      return 'Grok'
+    case 'opencode':
+      return 'OpenCode'
+    case 'cursor':
+      return 'Cursor'
   }
 }
 
@@ -670,14 +885,20 @@ function BackendEditor({
       <Row label="Run on">
         <Select
           value={backend.kind}
-          onValueChange={(value) => onChange({ ...backend, kind: value as LlmBackend['kind'] })}
+          onValueChange={(value) =>
+            onChange(backendWithRunKind(backend, value as LlmBackend['kind']))
+          }
         >
           <SelectTrigger className="w-full flex-1">
-            <SelectValue />
+            <span className="flex flex-1 text-left">
+              {backend.kind === 'api'
+                ? 'Provider backend (API key or local login)'
+                : 'Agent CLI harness'}
+            </span>
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="api">API provider (key required)</SelectItem>
-            <SelectItem value="harness">Coding-agent harness</SelectItem>
+            <SelectItem value="api">Provider backend (API key or local login)</SelectItem>
+            <SelectItem value="harness">Agent CLI harness</SelectItem>
           </SelectContent>
         </Select>
       </Row>
@@ -720,8 +941,9 @@ function BackendEditor({
           {backend.provider === 'codex' ? (
             <p className="mt-1.5 mb-0.5 max-w-[60ch] text-[12px] text-muted-foreground">
               Uses your local ChatGPT login (<code className="text-[11px]">codex login</code> on the
-              server) — no API key, effectively free within your plan's limits. Gets the full
-              orchestrator tool belt and, unlike the old Codex harness, never shells out to a CLI.
+              server) — no API key; it uses your plan's included Codex capacity while limits
+              allow. Gets the full orchestrator tool belt and, unlike the old Codex harness, never
+              shells out to a CLI.
             </p>
           ) : (
             <p className="mt-1.5 mb-0.5 max-w-[60ch] text-[12px] text-muted-foreground">
@@ -740,7 +962,9 @@ function BackendEditor({
               }
             >
               <SelectTrigger className="w-full flex-1">
-                <SelectValue />
+                <span className="flex flex-1 text-left">
+                  {harnessAgentLabel(backend.harnessAgent)}
+                </span>
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="claude-code">Claude Code</SelectItem>
@@ -759,14 +983,15 @@ function BackendEditor({
           {backend.harnessAgent === 'claude-code' ? (
             <p className="mt-1.5 mb-0.5 max-w-[60ch] text-[12px] text-warning">
               Heads up: Claude Code's programmatic mode (
-              <code className="text-[11px]">claude -p</code>) consumes your Claude usage / rate
-              limits and bills pay-per-use API rates even with a subscription. For free
-              orchestration, pick API provider → Codex instead.
+              <code className="text-[11px]">claude -p</code>) uses your Claude Code account and
+              counts against that account's usage/rate limits. API users are billed by token;
+              subscribers consume plan usage. For the ChatGPT-subscription backend, pick Provider
+              backend → Codex instead.
             </p>
           ) : (
             <p className="mt-1.5 mb-0.5 max-w-[60ch] text-[12px] text-muted-foreground">
-              The superagent runs as a real {backend.harnessAgent} agent with its full tool belt,
-              using your local login, and Podium injects its orchestrator system prompt.
+              Podium runs a real {backend.harnessAgent} agent with its CLI tool belt,
+              using your local login, and injects this feature's system prompt.
             </p>
           )}
         </>

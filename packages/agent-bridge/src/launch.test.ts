@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { agentLaunchCommand } from './launch'
+import { agentLaunchCommand, agentSupportsInitialPrompt } from './launch'
 import { resolveCursorBin } from './cursor/cli.js'
 import { resolveOpencodeBin } from './opencode/cli.js'
 
@@ -109,6 +109,60 @@ describe('agentLaunchCommand', () => {
 
   it('threads cwd through unchanged', () => {
     expect(agentLaunchCommand('claude-code', { cwd: '/a/b/c' }).cwd).toBe('/a/b/c')
+  })
+
+  describe('initialPrompt (argv injection — the robust, race-free first prompt)', () => {
+    it('appends the prompt as a trailing positional arg for claude-code', () => {
+      expect(agentLaunchCommand('claude-code', { cwd: '/w', initialPrompt: 'do the thing' })).toEqual(
+        { cmd: 'claude', args: ['do the thing'], cwd: '/w' },
+      )
+    })
+
+    it('places the prompt LAST, after model/option args (claude-code)', () => {
+      expect(
+        agentLaunchCommand('claude-code', { cwd: '/w', model: 'opus', initialPrompt: 'fix login' }),
+      ).toEqual({ cmd: 'claude', args: ['--model', 'opus', 'fix login'], cwd: '/w' })
+    })
+
+    it('appends the prompt as a positional arg for codex and grok', () => {
+      expect(agentLaunchCommand('codex', { cwd: '/w', initialPrompt: 'do X' })).toEqual({
+        cmd: 'codex',
+        args: ['do X'],
+        cwd: '/w',
+      })
+      expect(agentLaunchCommand('grok', { cwd: '/w', initialPrompt: 'do X' })).toEqual({
+        cmd: 'grok',
+        args: ['do X'],
+        cwd: '/w',
+      })
+    })
+
+    it('preserves multi-line prompts as a single argv token', () => {
+      const prompt = 'line one\nline two'
+      expect(agentLaunchCommand('claude-code', { cwd: '/w', initialPrompt: prompt }).args).toEqual([
+        prompt,
+      ])
+    })
+
+    it('ignores a blank/whitespace-only prompt (no empty arg)', () => {
+      expect(agentLaunchCommand('claude-code', { cwd: '/w', initialPrompt: '   ' }).args).toEqual([])
+      expect(agentLaunchCommand('claude-code', { cwd: '/w', initialPrompt: '' }).args).toEqual([])
+    })
+
+    it('does NOT append a prompt arg for non-argv agents (opencode/cursor/shell)', () => {
+      expect(agentLaunchCommand('opencode', { cwd: '/w', initialPrompt: 'x' }).args).toEqual([])
+      expect(agentLaunchCommand('cursor', { cwd: '/w', initialPrompt: 'x' }).args).toEqual([])
+      expect(agentLaunchCommand('shell', { cwd: '/w', initialPrompt: 'x' }).args).toEqual([])
+    })
+
+    it('agentSupportsInitialPrompt: argv-capable agents only', () => {
+      expect(agentSupportsInitialPrompt('claude-code')).toBe(true)
+      expect(agentSupportsInitialPrompt('codex')).toBe(true)
+      expect(agentSupportsInitialPrompt('grok')).toBe(true)
+      expect(agentSupportsInitialPrompt('opencode')).toBe(false)
+      expect(agentSupportsInitialPrompt('cursor')).toBe(false)
+      expect(agentSupportsInitialPrompt('shell')).toBe(false)
+    })
   })
 
   it('spawns an interactive shell in the worktree cwd', () => {

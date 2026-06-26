@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { AgentChoice, HarnessAgent, normalizeSettings } from './settings'
+import {
+  AgentChoice,
+  AUTO_CONTINUE_BASE_DELAY_MS,
+  AUTO_CONTINUE_MAX_DELAY_MS,
+  HarnessAgent,
+  normalizeSettings,
+  shouldPromptAutoContinue,
+} from './settings'
 
 describe('settings harness choices', () => {
   it('accepts Grok and OpenCode as session defaults and harness backends', () => {
@@ -120,5 +127,44 @@ describe('normalizeSettings — notification targets', () => {
 
     expect(s.notifications.telegramBotToken).toBe('123456:secret')
     expect(s.notifications.telegramChatId).toBe('-1001234567890')
+  })
+})
+
+describe('normalizeSettings — autoContinue', () => {
+  it('defaults autoContinue to disabled and not-yet-prompted', () => {
+    expect(normalizeSettings({}).autoContinue).toEqual({ enabled: false, promptDismissed: false })
+  })
+
+  it('fills autoContinue defaults for old blobs without the key', () => {
+    const s = normalizeSettings({ sessionDefaults: { agent: 'grok' } })
+    expect(s.autoContinue).toEqual({ enabled: false, promptDismissed: false })
+  })
+
+  it('keeps explicit autoContinue values', () => {
+    const s = normalizeSettings({ autoContinue: { enabled: true, promptDismissed: true } })
+    expect(s.autoContinue).toEqual({ enabled: true, promptDismissed: true })
+  })
+})
+
+describe('auto-continue backoff constants', () => {
+  it('escalates from 10s and caps at 5 minutes', () => {
+    expect(AUTO_CONTINUE_BASE_DELAY_MS).toBe(10_000)
+    expect(AUTO_CONTINUE_MAX_DELAY_MS).toBe(300_000)
+  })
+})
+
+describe('shouldPromptAutoContinue', () => {
+  it('prompts only when disabled and not previously dismissed', () => {
+    expect(shouldPromptAutoContinue(normalizeSettings({}))).toBe(true)
+    expect(
+      shouldPromptAutoContinue(
+        normalizeSettings({ autoContinue: { enabled: true, promptDismissed: false } }),
+      ),
+    ).toBe(false)
+    expect(
+      shouldPromptAutoContinue(
+        normalizeSettings({ autoContinue: { enabled: false, promptDismissed: true } }),
+      ),
+    ).toBe(false)
   })
 })

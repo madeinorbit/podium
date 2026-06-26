@@ -124,7 +124,8 @@ export class CodexHttpError extends Error {
   }
 }
 
-/** Resolve the token, call the backend, and refresh once if the token 401s. */
+/** Resolve the token and call the backend; on a 401, re-read auth once in case a
+ * concurrent codex session rotated the token (we never rotate it ourselves). */
 async function codexCompleteWithAuth(
   fetchImpl: FetchLike,
   model: string,
@@ -136,7 +137,7 @@ async function codexCompleteWithAuth(
     return await codexComplete(fetchImpl, auth, model, messages, tools)
   } catch (err) {
     if (err instanceof CodexHttpError && err.status === 401) {
-      auth = await resolveCodexAuth(fetchImpl, { force: true })
+      auth = await resolveCodexAuth(fetchImpl, { rejectedAccessToken: auth.accessToken })
       return await codexComplete(fetchImpl, auth, model, messages, tools)
     }
     throw err

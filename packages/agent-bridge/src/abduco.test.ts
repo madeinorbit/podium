@@ -1,14 +1,19 @@
+import { execFileSync, spawnSync } from 'node:child_process'
+import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
+import { resolveAbducoBin } from './abduco-bin.js'
 import {
   abducoAttachArgv,
   abducoCreateArgv,
   abducoHasSession,
   attachAbducoAgent,
+  canScopeMaster,
   createAltScreenStripper,
   isAbducoAvailable,
   killAbducoSession,
   parseAbducoList,
+  scopeReclaimArgvs,
   spawnAbducoAgent,
   systemdScopeArgv,
 } from './abduco.js'
@@ -59,6 +64,19 @@ describe('abduco command builders', () => {
       '-n',
       'podium-1',
       'claude',
+    ])
+  })
+
+  it('builds reclaim commands that free a stale same-named scope before recreating it', () => {
+    // A redeploy can leave a scope ACTIVE because leaked grandchildren keep its cgroup
+    // non-empty; the deterministic unit name then permanently blocks the next
+    // systemd-run (`unit already exists`). Reclaim = stop the stale scope (SIGTERM/KILL
+    // its orphans, freeing the name) then clear its leftover unit state so it can be
+    // re-created. Without this the master falls back into the daemon's cgroup and dies
+    // on the next redeploy (KillMode=control-group).
+    expect(scopeReclaimArgvs('podium-1.scope')).toEqual([
+      ['--user', 'stop', 'podium-1.scope'],
+      ['--user', 'reset-failed', 'podium-1.scope'],
     ])
   })
 })
@@ -206,6 +224,57 @@ describe.skipIf(!hasAbduco)('abduco integration', () => {
     re.dispose()
     killAbducoSession(label)
   }, 15000)
+})
+
+describe.skipIf(!hasAbduco || !canScopeMaster())('scope reclaim before respawn', () => {
+  // Reproduces the diagnosed "agent keeps getting shut down" loop: a session's
+  // deterministic scope (`<label>.scope`) is left ACTIVE by orphaned grandchildren the
+  // agent spawned (a leaked sub-stack, stray Xvfb …). The same-named systemd-run then
+  // fails on every reattach, so the master falls into the daemon's cgroup and is killed
+  // on the next redeploy — only THIS session, because only its scope name is squatted.
+  it('reclaims a stale same-named scope (held by an orphan) so the new master gets its OWN scope', async () => {
+    const label = `podium-scopetest-${process.pid}`
+    const unit = `${label}.scope`
+    const sc = (args: string[]): void => {
+      spawnSync('systemctl', args, { stdio: 'ignore', timeout: 8000 })
+    }
+    const cleanup = (): void => {
+      try {
+        killAbducoSession(label)
+      } catch {
+        /* already gone */
+      }
+      sc(['--user', 'stop', unit])
+      sc(['--user', 'reset-failed', unit])
+    }
+    cleanup()
+    // A scope of the SAME name, left alive by a backgrounded orphan (sh exits, the sleep
+    // lingers in the cgroup) — exactly the leaked-grandchild zombie. No live master.
+    execFileSync(
+      'systemd-run',
+      ['--user', '--scope', '--quiet', `--unit=${unit}`, '--', 'sh', '-c', 'sleep 600 &'],
+      { stdio: 'ignore' },
+    )
+    await wait(300)
+    expect(abducoHasSession(label)).toBe(false)
+
+    try {
+      const session = spawnAbducoAgent({ label, cmd: 'node', args: [FIXTURE], cols: 80, rows: 24 })
+      await wait(800)
+      const master = parseAbducoList(
+        spawnSync(resolveAbducoBin() as string, [], { encoding: 'utf8' }).stdout ?? '',
+      ).find((s) => s.name === label)
+      expect(master).toBeDefined()
+      // The decisive check: the master is in its OWN scope cgroup, not the spawner's.
+      // Before the fix systemd-run fails (name squatted) → direct fallback → wrong cgroup.
+      const cgroup = readFileSync(`/proc/${master?.pid}/cgroup`, 'utf8')
+      expect(cgroup).toContain(unit)
+      session.dispose()
+    } finally {
+      cleanup()
+      await wait(200)
+    }
+  }, 20000)
 })
 
 describe.skipIf(!hasAbduco)('abduco input-fidelity parity', () => {

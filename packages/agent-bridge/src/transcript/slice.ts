@@ -35,16 +35,21 @@ export async function readFileItems(
 ): Promise<TranscriptItem[]> {
   let buf: Buffer
   let base = 0 // absolute byte offset of buf[0] within the file
+  // True when `buf` extends to the file's end — only then is a final line without a
+  // trailing newline a real (in-flight) record rather than a window-edge fragment.
+  let atEof = true // a whole-file read always reaches EOF
   try {
     const handle = await open(path, 'r')
     try {
       if (window) {
+        const { size } = await handle.stat()
         const start = Math.max(0, window.start)
         const len = Math.max(0, window.end - start)
         const b = Buffer.alloc(len)
         const { bytesRead } = await handle.read(b, 0, len, start)
         buf = b.subarray(0, bytesRead)
         base = start
+        atEof = base + buf.length >= size
       } else {
         buf = await handle.readFile()
       }
@@ -55,9 +60,20 @@ export async function readFileItems(
     return []
   }
   const out: TranscriptItem[] = []
+  // Parse one line's bytes into stamped items at an absolute offset; skip blank/torn.
+  const emit = (lineBytes: Buffer, recOffset: number): void => {
+    const trimmed = lineBytes.toString('utf8').trim()
+    if (!trimmed) return
+    let record: unknown
+    try {
+      record = JSON.parse(trimmed)
+    } catch {
+      return
+    }
+    const items = recordToItems(record)
+    if (items.length > 0) out.push(...stampCursors(items, fileId, recOffset, recordUuid(record)))
+  }
   // Walk line boundaries on the raw buffer, tracking each record's ABSOLUTE offset.
-  // Items emit only at a `\n`, so a final line without a trailing newline is
-  // intentionally dropped as a possible torn write (matches the live tail).
   let lineStart = 0
   let firstLine = true
   for (let i = 0; i < buf.length; i++) {
@@ -69,16 +85,17 @@ export async function readFileItems(
     lineStart = i + 1
     // Seeked past byte 0 → the first line is a fragment of a prior record; drop it.
     if (wasFirst && base > 0) continue
-    const trimmed = lineBytes.toString('utf8').trim()
-    if (!trimmed) continue
-    let record: unknown
-    try {
-      record = JSON.parse(trimmed)
-    } catch {
-      continue
-    }
-    const items = recordToItems(record)
-    if (items.length > 0) out.push(...stampCursors(items, fileId, recOffset, recordUuid(record)))
+    emit(lineBytes, recOffset)
+  }
+  // Trailing record without its terminating newline yet. Flush it (best-effort) ONLY
+  // at EOF and when it begins at a real boundary — a newline was seen (lineStart > 0)
+  // or the window started at byte 0. This MATCHES the live tailer, which flushes the
+  // same record at the same cursor, so a reset-driven disk re-read no longer drops a
+  // message the tail already showed. A non-EOF window's trailing bytes are a fragment
+  // continued on disk, and a leading partial (base > 0, no newline) is a prior
+  // record's tail — neither is emitted.
+  if (atEof && lineStart < buf.length && (lineStart > 0 || base === 0)) {
+    emit(buf.subarray(lineStart), base + lineStart)
   }
   return out
 }

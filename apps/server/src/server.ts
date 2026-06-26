@@ -4,6 +4,7 @@ import { hostname } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import { serve } from '@hono/node-server'
 import { trpcServer } from '@hono/trpc-server'
+import { startLoopMetrics } from '@podium/core'
 import { WIRE_VERSION } from '@podium/protocol'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
@@ -94,6 +95,7 @@ export async function startServer(opts: { port?: number } = {}): Promise<ServerH
       // reaches this MCP route. Now that the port is known, point it there.
       superagent.setMcpEndpoint(`http://127.0.0.1:${info.port}/mcp`, mcpToken)
       const ws = attachWebSockets(server as unknown as Server, registry)
+      if (process.env.PODIUM_LOOP_PROFILE) startLoopMetrics({ label: 'server' })
       resolve({
         port: info.port,
         registry,

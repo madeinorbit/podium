@@ -319,6 +319,29 @@ describe('Stop payload end-to-end with a real transcript file', () => {
       },
     ])
   })
+
+  it('a turn that ends by scheduling its own wakeup stays working (it will self-resume, not await the user) — even with trailing courtesy text', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'podium-agent-state-'))
+    const transcript = join(dir, 't.jsonl')
+    await writeFile(
+      transcript,
+      [
+        '{"type":"user","message":{"role":"user","content":"keep looping"}}',
+        assistantLine([{ type: 'tool_use', id: 'w1', name: 'ScheduleWakeup', input: { delaySeconds: 600 } }]),
+        userLine([{ type: 'tool_result', tool_use_id: 'w1', content: 'Next wakeup scheduled' }]),
+        // A /loop tick often prints a one-line recap AFTER scheduling. That trailing
+        // "complete" text must NOT flip the verdict back to idle/finished.
+        assistantLine([text('Iteration complete; loop armed.')]),
+      ].join('\n'),
+    )
+    const events = await translateClaudeHookPayload({
+      hook_event_name: 'Stop',
+      transcript_path: transcript,
+      permission_mode: 'default',
+      stop_hook_active: false,
+    })
+    expect(events).toEqual([{ kind: 'activity' }])
+  })
 })
 
 describe('bootEvents', () => {
@@ -373,5 +396,35 @@ describe('bootEvents', () => {
       homeDir: home,
     })
     expect(events).toEqual([{ kind: 'session_started' }])
+  })
+
+  it('resume → a transcript that does NOT yield a verdict still stamps the last DATED record time (a reattach must never restamp recency to "now")', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'podium-boot-home-'))
+    const cwd = '/home/dev/my.app'
+    const projectDir = join(home, '.claude', 'projects', '-home-dev-my-app')
+    await mkdir(projectDir, { recursive: true })
+    const transcript = join(projectDir, 'conv2.jsonl')
+    const realActivity = '2026-06-20T10:11:12.131Z'
+    // Autonomous-continuation text classifies as needs_semantic_classification →
+    // no verdict; the existing code would fall back to a bare session_started
+    // (since=now), restamping this session to the reattach time and jumping it to
+    // the top of NEEDS YOUR ATTENTION. It must carry the real last-activity time.
+    await writeFile(
+      transcript,
+      JSON.stringify({
+        type: 'assistant',
+        timestamp: realActivity,
+        message: {
+          role: 'assistant',
+          content: [text("I'll continue and report back when it finishes.")],
+        },
+      }),
+    )
+    const events = await claudeCodeStateProvider.bootEvents?.({
+      cwd,
+      resumeValue: 'conv2',
+      homeDir: home,
+    })
+    expect(events).toEqual([{ kind: 'session_started', at: realActivity }])
   })
 })

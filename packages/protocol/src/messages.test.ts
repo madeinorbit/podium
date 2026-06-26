@@ -613,3 +613,42 @@ describe('agent quota messages', () => {
     expect(AgentQuotaResultMessage.parse(msg)).toEqual(msg)
   })
 })
+
+describe('output-scheduling protocol', () => {
+  it('round-trips agentFrameBatch (daemon→server)', () => {
+    // Per-field `as const` (not whole-object) keeps `frames` a mutable string[] so it
+    // matches encode()'s AnyMessage param — whole-object `as const` makes it readonly.
+    const m = { type: 'agentFrameBatch' as const, sessionId: 's1', frames: ['YQ==', 'Yg=='] }
+    expect(parseDaemonMessage(encode(m))).toEqual(m)
+  })
+  it('round-trips viewState (client→server), focused nullable', () => {
+    const m = { type: 'viewState' as const, visible: ['s1', 's2'], focused: 's1' }
+    expect(parseClientMessage(encode(m))).toEqual(m)
+    const m2 = { type: 'viewState' as const, visible: [] as string[], focused: null }
+    expect(parseClientMessage(encode(m2))).toEqual(m2)
+  })
+  it('round-trips viewState with an optional modes map (rendered native/chat)', () => {
+    const m = {
+      type: 'viewState' as const,
+      visible: ['s1', 's2'],
+      focused: 's1',
+      modes: { s1: 'native' as const, s2: 'chat' as const },
+    }
+    expect(parseClientMessage(encode(m))).toEqual(m)
+  })
+  it('viewState without modes still parses (backward compatible old clients)', () => {
+    const m = { type: 'viewState' as const, visible: ['s1'], focused: 's1' }
+    const parsed = parseClientMessage(encode(m))
+    expect(parsed).toEqual(m)
+    expect((parsed as { modes?: unknown }).modes).toBeUndefined()
+  })
+  it('round-trips sessionPriority (server→daemon)', () => {
+    const m = { type: 'sessionPriority' as const, sessionId: 's1', priority: 0 }
+    expect(parseControlMessage(encode(m))).toEqual(m)
+  })
+  it('rejects out-of-range / non-int sessionPriority', () => {
+    for (const p of [-1, 4, 1.5]) {
+      expect(() => parseControlMessage(encode({ type: 'sessionPriority', sessionId: 's', priority: p } as never))).toThrow()
+    }
+  })
+})

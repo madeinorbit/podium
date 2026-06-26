@@ -13,12 +13,12 @@ import {
   killTmuxServer,
   tmuxHasSession,
 } from '@podium/agent-bridge'
-import {
-  type DaemonHandshakeReply,
-  type DaemonMessage,
-  encode,
-  parseDaemonMessage,
+import type {
+  ConversationDiagnosticWire,
+  ConversationSummaryWire,
+  DaemonHandshakeReply,
 } from '@podium/protocol'
+import { type DaemonMessage, encode, parseDaemonMessage } from '@podium/protocol'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { WebSocketServer, type WebSocket as WS } from 'ws'
 import {
@@ -29,13 +29,120 @@ import {
   resolveDurableBackend,
   startDaemon,
 } from './daemon'
+import { type MemoryBreakdownJobInput, runMemoryBreakdownJob } from './discovery-jobs'
+import { DiscoveryWorkerClient, type WorkerLike } from './worker-client'
 
 const FIXTURE = fileURLToPath(
   new URL('../../../packages/agent-bridge/test/fixtures/fixture-tui.mjs', import.meta.url),
 )
+
+/**
+ * A DiscoveryWorkerClient whose "worker" runs the real /proc job inline. Node-based
+ * vitest cannot spawn the daemon's `.ts` worker (its bare imports have no TS loader
+ * inside the Worker), so this exercises the same daemon→worker-client→job path
+ * without a real thread; the live daemon (Bun) uses a real spawned worker, and the
+ * real-worker spawn itself is proven by apps/daemon/test/worker-isolation.bun.test.ts.
+ */
+function inlineWorkerClient(): DiscoveryWorkerClient {
+  return new DiscoveryWorkerClient({
+    spawn: (): WorkerLike => {
+      const handlers: Array<(m: unknown) => void> = []
+      return {
+        postMessage(m: unknown) {
+          const job = m as { id: string; kind: string; input: MemoryBreakdownJobInput }
+          const value = runMemoryBreakdownJob(job.input)
+          // Reply on a turn of the loop, like a real worker thread would.
+          queueMicrotask(() => {
+            for (const h of handlers) h({ id: job.id, ok: true, value })
+          })
+        },
+        on(ev, cb) {
+          if (ev === 'message') handlers.push(cb)
+        },
+        terminate() {},
+      }
+    },
+  })
+}
+
+type ConversationDelta = {
+  changed: ConversationSummaryWire[]
+  removed: string[]
+  diagnostics: ConversationDiagnosticWire[]
+}
+
+/**
+ * A DiscoveryWorkerClient whose `indexRefresh` job returns a fixed delta (and runs
+ * the /proc memoryBreakdown job inline). Node-based vitest can't spawn the daemon's
+ * real `.ts` worker (now the owner of discovery.db), so the periodic + on-demand
+ * delta paths are exercised through this injected fake; the real worker spawn +
+ * cache ownership are proven by apps/daemon/test/worker-isolation.bun.test.ts.
+ */
+function fakeDeltaWorkerClient(delta: ConversationDelta): DiscoveryWorkerClient {
+  return new DiscoveryWorkerClient({
+    spawn: (): WorkerLike => {
+      const handlers: Array<(m: unknown) => void> = []
+      return {
+        postMessage(m: unknown) {
+          const job = m as { id: string; kind: string; input: MemoryBreakdownJobInput }
+          const value = job.kind === 'indexRefresh' ? delta : runMemoryBreakdownJob(job.input)
+          queueMicrotask(() => {
+            for (const h of handlers) h({ id: job.id, ok: true, value })
+          })
+        },
+        on(ev, cb) {
+          if (ev === 'message') handlers.push(cb)
+        },
+        terminate() {},
+      }
+    },
+  })
+}
+
+/**
+ * Like fakeDeltaWorkerClient but RECORDS the `full` flag of every `indexRefresh`
+ * input, so a test can assert the connect-time + on-demand scans request a full
+ * snapshot (`full: true`) while the periodic loop forwards only the delta (`full`
+ * falsy). Returns the recorder array alongside the client.
+ */
+function recordingDeltaWorkerClient(delta: ConversationDelta): {
+  client: DiscoveryWorkerClient
+  fullFlags: Array<boolean | undefined>
+} {
+  const fullFlags: Array<boolean | undefined> = []
+  const client = new DiscoveryWorkerClient({
+    spawn: (): WorkerLike => {
+      const handlers: Array<(m: unknown) => void> = []
+      return {
+        postMessage(m: unknown) {
+          const job = m as {
+            id: string
+            kind: string
+            input: MemoryBreakdownJobInput & { full?: boolean }
+          }
+          if (job.kind === 'indexRefresh') fullFlags.push(job.input.full)
+          const value = job.kind === 'indexRefresh' ? delta : runMemoryBreakdownJob(job.input)
+          queueMicrotask(() => {
+            for (const h of handlers) h({ id: job.id, ok: true, value })
+          })
+        },
+        on(ev, cb) {
+          if (ev === 'message') handlers.push(cb)
+        },
+        terminate() {},
+      }
+    },
+  })
+  return { client, fullFlags }
+}
 const G = { cols: 80, rows: 24 }
 const decode = (b64: string): string => Buffer.from(b64, 'base64').toString('utf8')
-type AgentFrame = Extract<DaemonMessage, { type: 'agentFrame' }>
+// The daemon now relays PTY output as coalesced `agentFrameBatch` messages
+// (one batch per session per flush) rather than one `agentFrame` per frame.
+// Flatten each batch back into per-frame {sessionId, data} so the existing
+// frame-content assertions below keep reading individual frames.
+type AgentFrameBatch = Extract<DaemonMessage, { type: 'agentFrameBatch' }>
+type FlatFrame = { sessionId: string; data: string }
 
 // The daemon now authenticates before doing anything: its FIRST frame is a `hello`
 // handshake (driven by bootstrapToken: 'test' below) and it waits for `helloOk` before
@@ -93,9 +200,11 @@ describe('daemon multi-bridge', () => {
   })
 
   const send = (msg: unknown): void => serverSocket.send(encode(msg as never))
-  const frames = (): AgentFrame[] =>
-    received.filter((m): m is AgentFrame => m.type === 'agentFrame')
-  const fixtureFrame = (sid: string): AgentFrame | undefined =>
+  const frames = (): FlatFrame[] =>
+    received
+      .filter((m): m is AgentFrameBatch => m.type === 'agentFrameBatch')
+      .flatMap((b) => b.frames.map((data) => ({ sessionId: b.sessionId, data })))
+  const fixtureFrame = (sid: string): FlatFrame | undefined =>
     frames().find((f) => f.sessionId === sid && decode(f.data).includes('PODIUM-FIXTURE'))
   async function waitFor(fn: () => boolean, timeout = 5000): Promise<void> {
     const start = Date.now()
@@ -135,48 +244,67 @@ describe('daemon multi-bridge', () => {
     )
   })
 
-  it('scanRequest maps a discovered conversation to a wire-valid scanResult', async () => {
-    // Isolate HOME to a temp dir seeded with one minimal claude conversation: fast +
-    // deterministic (vs the dev's real ~/.claude, which can be thousands of files), and it
-    // actually exercises summaryToWire. parseDaemonMessage (beforeEach) schema-validates
-    // every received message, so a Date leak or a dropped providerId would fail at parse.
-    const home = await mkdtemp(join(tmpdir(), 'podium-scan-'))
-    const projDir = join(home, '.claude', 'projects', 'proj')
-    await mkdir(projDir, { recursive: true })
-    await writeFile(
-      join(projDir, 'sess.jsonl'),
-      `${[
-        JSON.stringify({
-          sessionId: 'sess-9',
-          cwd: '/home/proj',
-          timestamp: '2026-06-01T00:00:00.000Z',
-          message: { role: 'user', content: 'hi' },
-        }),
-        JSON.stringify({
-          timestamp: '2026-06-01T00:01:00.000Z',
-          message: { role: 'assistant', content: 'yo' },
-        }),
-      ].join('\n')}\n`,
-    )
-    const prevHome = process.env.HOME
-    process.env.HOME = home
+  it('scanRequest forwards the worker delta as a wire-valid scanResult', async () => {
+    // The scan now runs on the worker and returns a delta; the on-demand scanResult
+    // carries the same delta fields (changed → `conversations`, plus `removed`),
+    // tagged with the requestId. Node-based vitest can't spawn the real `.ts` worker,
+    // so a fake worker client (injected via the daemon's workerClient seam) returns a
+    // known delta. parseDaemonMessage (beforeEach) schema-validates every received
+    // message, so a malformed wire summary would fail at parse.
+    const changed: ConversationSummaryWire[] = [
+      {
+        id: 'sess-9',
+        agentKind: 'claude-code',
+        providerId: 'claude-code-jsonl',
+        resume: { kind: 'claude-session', value: 'sess-9' },
+        createdAt: '2026-06-01T00:00:00.000Z',
+      },
+    ]
+    const wss = new WebSocketServer({ port: 0 })
+    await new Promise<void>((r) => wss.once('listening', () => r()))
+    const port = (wss.address() as { port: number }).port
+    const received: DaemonMessage[] = []
+    let serverWs: WS | undefined
+    const connected = new Promise<void>((r) => {
+      wss.once('connection', (ws) => {
+        serverWs = ws
+        ws.on('message', (raw) => received.push(parseDaemonMessage(raw.toString())))
+        r()
+      })
+    })
+    const daemon = await startDaemon({
+      serverUrl: `ws://localhost:${port}`,
+      hooks: { port: 0, settingsDir: mkdtempSync(join(tmpdir(), 'podium-hooks-')) },
+      tmux: false,
+      discovery: { background: false, cachePath: ':memory:' },
+      metrics: { background: false },
+      workerClient: fakeDeltaWorkerClient({ changed, removed: ['gone-1'], diagnostics: [] }),
+      launch: (_kind, opts) => ({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
+    })
+    await connected
     try {
-      send({ type: 'scanRequest', requestId: 'req-1' })
-      await waitFor(() => received.some((m) => m.type === 'scanResult'))
+      serverWs?.send(encode({ type: 'scanRequest', requestId: 'req-1' } as never))
+      const start = Date.now()
+      while (!received.some((m) => m.type === 'scanResult')) {
+        if (Date.now() - start > 5000) throw new Error('scanResult timed out')
+        await new Promise((r) => setTimeout(r, 20))
+      }
     } finally {
-      process.env.HOME = prevHome
+      await daemon.close()
+      await new Promise<void>((r) => wss.close(() => r()))
     }
     const result = received.find(
       (m): m is Extract<DaemonMessage, { type: 'scanResult' }> => m.type === 'scanResult',
     )
     expect(result?.requestId).toBe('req-1')
+    expect(result?.removed).toEqual(['gone-1'])
     const conv = result?.conversations.find((c) => c.id === 'sess-9')
     expect(conv).toMatchObject({
       agentKind: 'claude-code',
       providerId: 'claude-code-jsonl',
       resume: { kind: 'claude-session', value: 'sess-9' },
     })
-    expect(typeof conv?.createdAt).toBe('string') // Date → ISO string (mapper exercised)
+    expect(typeof conv?.createdAt).toBe('string')
   })
 
   it('scanReposRequest returns a wire-valid repository for a seeded repo root', async () => {
@@ -412,9 +540,9 @@ describe.skipIf(!isAbducoAvailable())('daemon abduco survival', () => {
       await waitFor(() =>
         received.some(
           (m) =>
-            m.type === 'agentFrame' &&
+            m.type === 'agentFrameBatch' &&
             m.sessionId === sessionId &&
-            decode(m.data).includes('PODIUM-FIXTURE'),
+            m.frames.some((f) => decode(f).includes('PODIUM-FIXTURE')),
         ),
       )
 
@@ -917,9 +1045,9 @@ describe.skipIf(!isTmuxAvailable())('daemon tmux survival', () => {
       await waitFor(() =>
         received.some(
           (m) =>
-            m.type === 'agentFrame' &&
+            m.type === 'agentFrameBatch' &&
             m.sessionId === sessionId &&
-            decode(m.data).includes('PODIUM-FIXTURE'),
+            m.frames.some((f) => decode(f).includes('PODIUM-FIXTURE')),
         ),
       )
 
@@ -945,23 +1073,18 @@ describe.skipIf(!isTmuxAvailable())('daemon tmux survival', () => {
 })
 
 describe('daemon conversation discovery', () => {
-  it('background quick scan pushes conversationsChanged', async () => {
-    const home = await mkdtemp(join(tmpdir(), 'podium-discovery-home-'))
-    const projDir = join(home, '.claude', 'projects', 'proj')
-    await mkdir(projDir, { recursive: true })
-    await writeFile(
-      join(projDir, 'sess.jsonl'),
-      `${[
-        JSON.stringify({ type: 'summary', customTitle: 'Cached session', sessionId: 'sess-bg' }),
-        JSON.stringify({
-          sessionId: 'sess-bg',
-          cwd: '/home/proj',
-          timestamp: '2026-06-01T00:00:00.000Z',
-          message: { role: 'user', content: 'hi' },
-        }),
-      ].join('\n')}\n`,
-    )
-
+  it('background quick scan pushes the worker delta as conversationsChanged', async () => {
+    // The periodic scan runs on the worker and emits a delta; conversationsChanged
+    // now carries `conversations`=changed + `removed`. A fake worker client supplies
+    // the delta (Node vitest can't spawn the real `.ts` worker that owns discovery.db).
+    const changed: ConversationSummaryWire[] = [
+      {
+        id: 'sess-bg',
+        agentKind: 'claude-code',
+        providerId: 'claude-code-jsonl',
+        title: 'Cached session',
+      },
+    ]
     const wss = new WebSocketServer({ port: 0 })
     await new Promise<void>((r) => wss.once('listening', () => r()))
     const port = (wss.address() as { port: number }).port
@@ -979,11 +1102,8 @@ describe('daemon conversation discovery', () => {
       hooks: { port: 0, settingsDir: mkdtempSync(join(tmpdir(), 'podium-hooks-')) },
       tmux: false,
       launch: (_kind, opts) => ({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
-      discovery: {
-        cachePath: join(home, 'discovery.db'),
-        homeDir: home,
-        scanIntervalMs: 20,
-      },
+      workerClient: fakeDeltaWorkerClient({ changed, removed: ['sess-old'], diagnostics: [] }),
+      discovery: { cachePath: ':memory:', scanIntervalMs: 20 },
     })
     await connected
 
@@ -999,10 +1119,174 @@ describe('daemon conversation discovery', () => {
         if (Date.now() - start > 5000) throw new Error('conversationsChanged timed out')
         await new Promise((r) => setTimeout(r, 20))
       }
+      const delta = received.find(
+        (m): m is Extract<DaemonMessage, { type: 'conversationsChanged' }> =>
+          m.type === 'conversationsChanged',
+      )
+      // The broadcast carries the delta — changed in `conversations`, pruned ids in `removed`.
+      expect(delta?.removed).toEqual(['sess-old'])
     } finally {
       await daemon.close()
       await new Promise<void>((r) => wss.close(() => r()))
     }
+  })
+
+  it('an all-empty worker delta produces NO conversationsChanged broadcast', async () => {
+    // The common case every 15s: nothing moved. An empty delta must not fan a
+    // pointless conversationsChanged frame out to every client.
+    const wss = new WebSocketServer({ port: 0 })
+    await new Promise<void>((r) => wss.once('listening', () => r()))
+    const port = (wss.address() as { port: number }).port
+    const received: DaemonMessage[] = []
+    const connected = new Promise<void>((r) => {
+      wss.once('connection', (ws) => {
+        ws.on('message', (raw) => received.push(parseDaemonMessage(raw.toString())))
+        r()
+      })
+    })
+
+    const daemon = await startDaemon({
+      serverUrl: `ws://localhost:${port}`,
+      hooks: { port: 0, settingsDir: mkdtempSync(join(tmpdir(), 'podium-hooks-')) },
+      tmux: false,
+      launch: (_kind, opts) => ({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
+      metrics: { background: false },
+      workerClient: fakeDeltaWorkerClient({ changed: [], removed: [], diagnostics: [] }),
+      discovery: { cachePath: ':memory:', scanIntervalMs: 20 },
+    })
+    await connected
+
+    try {
+      // Let several scan ticks fire (interval 20ms); each returns an empty delta.
+      await new Promise((r) => setTimeout(r, 200))
+      expect(received.some((m) => m.type === 'conversationsChanged')).toBe(false)
+    } finally {
+      await daemon.close()
+      await new Promise<void>((r) => wss.close(() => r()))
+    }
+  })
+
+  it('connect-time kickoff requests a FULL snapshot; periodic ticks request a delta', async () => {
+    // Regression guard for the cold-server-index bug: the connect-time scan MUST
+    // request a full snapshot (full: true) so a fresh/reset server index gets
+    // repopulated even off a warm discovery cache. The periodic loop must keep
+    // requesting deltas (full falsy) so it doesn't re-broadcast the whole list every
+    // tick. We record the `full` flag of each indexRefresh job to prove both.
+    const changed: ConversationSummaryWire[] = [
+      {
+        id: 'sess-full',
+        agentKind: 'claude-code',
+        providerId: 'claude-code-jsonl',
+        title: 'Snapshot session',
+      },
+    ]
+    const { client, fullFlags } = recordingDeltaWorkerClient({
+      changed,
+      removed: [],
+      diagnostics: [],
+    })
+    const wss = new WebSocketServer({ port: 0 })
+    await new Promise<void>((r) => wss.once('listening', () => r()))
+    const port = (wss.address() as { port: number }).port
+    const received: DaemonMessage[] = []
+    const connected = new Promise<void>((r) => {
+      wss.once('connection', (ws) => {
+        ws.on('message', (raw) => received.push(parseDaemonMessage(raw.toString())))
+        r()
+      })
+    })
+
+    const daemon = await startDaemon({
+      serverUrl: `ws://localhost:${port}`,
+      hooks: { port: 0, settingsDir: mkdtempSync(join(tmpdir(), 'podium-hooks-')) },
+      tmux: false,
+      launch: (_kind, opts) => ({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
+      metrics: { background: false },
+      workerClient: client,
+      discovery: { cachePath: ':memory:', scanIntervalMs: 20 },
+    })
+    await connected
+
+    try {
+      // Wait for the connect-time scan to land its full-list conversationsChanged.
+      const start = Date.now()
+      while (
+        !received.some(
+          (m) =>
+            m.type === 'conversationsChanged' && m.conversations.some((c) => c.id === 'sess-full'),
+        )
+      ) {
+        if (Date.now() - start > 5000) throw new Error('connect-time snapshot timed out')
+        await new Promise((r) => setTimeout(r, 20))
+      }
+      // Let several periodic ticks fire after the connect-time kickoff.
+      await new Promise((r) => setTimeout(r, 120))
+    } finally {
+      await daemon.close()
+      await new Promise<void>((r) => wss.close(() => r()))
+    }
+
+    // The very first indexRefresh (connect-time) requested a full snapshot.
+    expect(fullFlags[0]).toBe(true)
+    // Periodic ticks that followed requested deltas (full falsy), never another full.
+    expect(fullFlags.length).toBeGreaterThan(1)
+    expect(fullFlags.slice(1).every((f) => !f)).toBe(true)
+  })
+
+  it('on-demand scanRequest requests a FULL snapshot (cold-index recovery)', async () => {
+    // A user-triggered rescan must be able to recover a cold/reset server index, so
+    // the on-demand path also requests full: true (not just whatever moved).
+    const changed: ConversationSummaryWire[] = [
+      {
+        id: 'sess-ondemand',
+        agentKind: 'claude-code',
+        providerId: 'claude-code-jsonl',
+        title: 'On-demand session',
+      },
+    ]
+    const { client, fullFlags } = recordingDeltaWorkerClient({
+      changed,
+      removed: [],
+      diagnostics: [],
+    })
+    const wss = new WebSocketServer({ port: 0 })
+    await new Promise<void>((r) => wss.once('listening', () => r()))
+    const port = (wss.address() as { port: number }).port
+    const received: DaemonMessage[] = []
+    let serverWs: WS | undefined
+    const connected = new Promise<void>((r) => {
+      wss.once('connection', (ws) => {
+        serverWs = ws
+        ws.on('message', (raw) => received.push(parseDaemonMessage(raw.toString())))
+        r()
+      })
+    })
+
+    const daemon = await startDaemon({
+      serverUrl: `ws://localhost:${port}`,
+      hooks: { port: 0, settingsDir: mkdtempSync(join(tmpdir(), 'podium-hooks-')) },
+      tmux: false,
+      launch: (_kind, opts) => ({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
+      metrics: { background: false },
+      // No background loop, so the ONLY indexRefresh job is the on-demand scan.
+      discovery: { background: false, cachePath: ':memory:' },
+      workerClient: client,
+    })
+    await connected
+
+    try {
+      serverWs?.send(encode({ type: 'scanRequest', requestId: 'req-full' } as never))
+      const start = Date.now()
+      while (!received.some((m) => m.type === 'scanResult')) {
+        if (Date.now() - start > 5000) throw new Error('scanResult timed out')
+        await new Promise((r) => setTimeout(r, 20))
+      }
+    } finally {
+      await daemon.close()
+      await new Promise<void>((r) => wss.close(() => r()))
+    }
+
+    expect(fullFlags).toEqual([true])
   })
 })
 
@@ -1090,6 +1374,7 @@ describe('daemon memory breakdown', () => {
         tmux: false,
         discovery: { background: false, cachePath: ':memory:' },
         metrics: { background: false },
+        workerClient: inlineWorkerClient(),
         launch: (_kind, opts) => ({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
       })
       try {

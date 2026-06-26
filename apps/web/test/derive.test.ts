@@ -15,6 +15,7 @@ import {
   panelLabel,
   partitionWorkItems,
   reposToViews,
+  returnedFromSnooze,
   sessionDotClass,
   sessionDotTone,
   sessionsForWorktree,
@@ -486,12 +487,12 @@ describe('partitionWorkItems', () => {
     ...(phase != null ? { agentState: { phase, since: '', openTaskCount: 0 } } : {}),
   })
 
-  it('partitions unpinned sessions and keeps pinned in pinnedPanels', () => {
+  it('partitions sessions by state and also lists pinned ones in pinnedPanels', () => {
     // 'idle' → attention, 'working' → working, 'needs_user' → attention
     const sessions = [s('a', 'idle'), s('b', 'working'), s('c', 'needs_user'), s('p', 'working')]
     const { attention, working, pinnedPanels } = partitionWorkItems(sessions, new Set(['p']))
     expect(attention.map((x) => x.sessionId)).toEqual(['a', 'c'])
-    expect(working.map((x) => x.sessionId)).toEqual(['b'])
+    expect(working.map((x) => x.sessionId)).toEqual(['b', 'p'])
     expect(pinnedPanels.map((x) => x.sessionId)).toEqual(['p'])
   })
 
@@ -503,12 +504,12 @@ describe('partitionWorkItems', () => {
     expect(pinnedPanels).toHaveLength(0)
   })
 
-  it('pinned sessions never appear in attention or working even if needs_user', () => {
+  it('pinned sessions still appear in attention or working based on state', () => {
     const { attention, working, pinnedPanels } = partitionWorkItems(
       [s('p', 'needs_user')],
       new Set(['p']),
     )
-    expect(attention).toHaveLength(0)
+    expect(attention.map((x) => x.sessionId)).toEqual(['p'])
     expect(working).toHaveLength(0)
     expect(pinnedPanels.map((x) => x.sessionId)).toEqual(['p'])
   })
@@ -600,6 +601,20 @@ const base = (over: Partial<SessionMeta>): SessionMeta =>
     archived: false,
     ...over,
   }) as SessionMeta
+
+describe('returnedFromSnooze', () => {
+  const now = Date.parse('2026-06-12T12:00:00.000Z')
+  it('true for a timed snooze whose deadline has passed (back in the queue, not yet cleared)', () => {
+    expect(returnedFromSnooze(base({ snoozedUntil: '2026-06-12T11:00:00.000Z' }), now)).toBe(true)
+  })
+  it('false while still snoozed (future deadline) or never snoozed', () => {
+    expect(returnedFromSnooze(base({ snoozedUntil: '2999-01-01T00:00:00.000Z' }), now)).toBe(false)
+    expect(returnedFromSnooze(base({}), now)).toBe(false)
+  })
+  it('false for an until-next-message snooze (null never expires by time)', () => {
+    expect(returnedFromSnooze(base({ snoozedUntil: null }), now)).toBe(false)
+  })
+})
 
 describe('chatActivity', () => {
   it('shows Working… while the agent phase is working', () => {

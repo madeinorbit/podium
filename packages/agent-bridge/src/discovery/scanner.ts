@@ -14,6 +14,7 @@ import {
   type AgentKind,
   type ConversationFileStat,
   type ConversationProvider,
+  type ScanAgentConversationsCachedResult,
   type ScanAgentConversationsOptions,
   type ScanAgentConversationsResult,
 } from './types.js'
@@ -31,6 +32,19 @@ const providersById = new Map(builtInProviders.map((provider) => [provider.id, p
 export type ScanAgentConversationsCachedOptions = ScanAgentConversationsOptions & {
   cache: ConversationDiscoveryCache
   providers?: readonly ConversationProvider[]
+}
+
+/**
+ * Internal knobs shared by the full cached scan and the targeted {@link summarizePaths}
+ * refresh. Both walk providers/roots and (re-)summarize on cache miss; they differ only
+ * in which files they consider and whether they prune the cache:
+ * - `onlyPaths` restricts work to the given file paths (a Set for O(1) membership).
+ * - `skipPrune` leaves the cache untouched for absent paths — a targeted refresh must
+ *   not prune (it never sees the whole filesystem, so "missing" is meaningless to it).
+ */
+type CachedScanInternalOptions = {
+  onlyPaths?: ReadonlySet<string>
+  skipPrune?: boolean
 }
 
 export async function scanAgentConversations(
@@ -79,7 +93,41 @@ export async function scanAgentConversations(
 
 export async function scanAgentConversationsCached(
   options: ScanAgentConversationsCachedOptions,
-): Promise<ScanAgentConversationsResult> {
+): Promise<ScanAgentConversationsCachedResult> {
+  return scanAgentConversationsCachedInternal(options, {})
+}
+
+/**
+ * Targeted refresh: re-summarize ONLY the given transcript file paths against the
+ * caller-owned cache, returning their summaries as `changed`. Used by the daemon's
+ * event-driven active refresh — when a LOADED session's transcript tail fires, the
+ * file's mtime has moved, so it misses the cache and is re-summarized here without
+ * waiting for the next periodic scan.
+ *
+ * Unlike {@link scanAgentConversationsCached} this NEVER prunes the cache (`removed`
+ * is always empty): a targeted refresh sees only a handful of dirty paths, never the
+ * whole filesystem, so it has no basis to decide anything is "missing". It still walks
+ * each provider's `listRoot` (filtered to the dirty paths) so per-provider listing
+ * state — e.g. codex's sibling-derived title/parent metadata — is preserved, rather
+ * than summarizing a bare file path out of context.
+ */
+export async function summarizePaths(
+  paths: readonly string[],
+  options: Omit<ScanAgentConversationsCachedOptions, 'agents'> & {
+    agents?: readonly AgentKind[]
+  },
+): Promise<ScanAgentConversationsCachedResult> {
+  const onlyPaths = new Set(paths)
+  if (onlyPaths.size === 0) {
+    return { conversations: [], diagnostics: [], changed: [], removed: [] }
+  }
+  return scanAgentConversationsCachedInternal(options, { onlyPaths, skipPrune: true })
+}
+
+async function scanAgentConversationsCachedInternal(
+  options: ScanAgentConversationsCachedOptions,
+  internal: CachedScanInternalOptions,
+): Promise<ScanAgentConversationsCachedResult> {
   const homeDir = options.homeDir ?? process.env.HOME ?? process.cwd()
   const includeDefaults = options.includeDefaults ?? true
   const selectedProviders = selectProviders(options.agents, options.providers)
@@ -122,8 +170,12 @@ export async function scanAgentConversationsCached(
 
           diagnostics.push(...listing.diagnostics)
 
+          const candidateFiles = internal.onlyPaths
+            ? listing.files.filter((file) => internal.onlyPaths?.has(file.path))
+            : listing.files
+
           await Promise.all(
-            listing.files.map(async (file) => {
+            candidateFiles.map(async (file) => {
               let stats: Awaited<ReturnType<typeof stat>>
               try {
                 stats = await stat(file.path)
@@ -169,11 +221,17 @@ export async function scanAgentConversationsCached(
   )
 
   options.cache.upsertMany(cacheWrites)
-  options.cache.deleteMissing(seenPaths, selectedAgentKinds)
+  // A targeted refresh (`skipPrune`) never prunes: it only ever saw the dirty paths,
+  // so it cannot tell what is genuinely missing — `removed` stays empty.
+  const pruned = internal.skipPrune
+    ? { removedIds: [] as string[] }
+    : options.cache.deleteMissing(seenPaths, selectedAgentKinds)
 
   return {
     conversations: dedupeConversations(conversations).sort(compareConversationSummaries),
     diagnostics,
+    changed: cacheWrites.map((write) => write.summary),
+    removed: pruned.removedIds,
   }
 }
 

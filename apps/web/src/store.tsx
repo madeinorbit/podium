@@ -1,4 +1,4 @@
-import type { Sidebar as SidebarSettings } from '@podium/core'
+import { type Sidebar as SidebarSettings, shouldPromptAutoContinue } from '@podium/core'
 import type {
   GitDiscoveryDiagnosticWire,
   GitRepositoryWire,
@@ -71,11 +71,20 @@ export interface Store {
   paneA: string | null // sessionId in pane A
   paneB: string | null // sessionId in pane B (null = no split)
   setPane: (pane: 'A' | 'B', sessionId: string | null) => void
+  /** Which split pane currently holds input focus — drives the `focused` field of
+   *  the view-state the client reports so the server prioritizes that session's PTY
+   *  relay. Only meaningful when `split` is on; clamps to 'A' otherwise. */
+  focusedPane: 'A' | 'B'
+  setFocusedPane: (pane: 'A' | 'B') => void
   /** Per-session chat-vs-native panel mode, persisted across reloads so a session
    *  returns to the view the user last left it in. A missing entry falls back to the
    *  per-device default; the hibernated/exited-forces-chat rule still wins over it. */
   panelMode: Record<string, 'chat' | 'native'>
   setPanelMode: (sessionId: string, mode: 'chat' | 'native') => void
+  /** The EFFECTIVE rendered mode per session (native terminal vs chat) as each
+   *  AgentPanel computes it — distinct from the saved `panelMode` override. Reported
+   *  up the viewState channel so the server has the signal; not persisted. */
+  setPanelRenderMode: (sessionId: string, mode: 'chat' | 'native') => void
   fileTabs: FileTab[]
   openFile: (sessionId: string, path: string) => void
   closeFileTab: (id: string) => void
@@ -97,6 +106,10 @@ export interface Store {
   killSession: (sessionId: string) => Promise<void>
   /** Nudge an errored agent to retry ("continue⏎" into its PTY). */
   continueSession: (sessionId: string) => Promise<void>
+  /** Session whose first manual Continue should raise the auto-continue popup,
+   *  or null when the popup is closed. */
+  autoContinuePromptSessionId: string | null
+  closeAutoContinuePrompt: () => void
   renameSession: (sessionId: string, name: string) => Promise<void>
   hibernateSession: (sessionId: string) => Promise<void>
   resurrectSession: (sessionId: string) => Promise<void>
@@ -221,6 +234,9 @@ export function StoreProvider({
   const [tabOrders, setTabOrders] = useState<Record<string, string[]>>({})
   const [view, setView] = useState<MainView>(readStoredView)
   const [settingsTab, setSettingsTab] = useState<string | null>(null)
+  const [autoContinuePromptSessionId, setAutoContinuePromptSessionId] = useState<string | null>(
+    null,
+  )
   const [superThreadId, setSuperThreadId] = useState('global')
   const [superOpen, setSuperOpen] = useState(() => lsGet(SUPER_OPEN_KEY) === '1')
   const [superRefreshKey, setSuperRefreshKey] = useState(0)
@@ -233,10 +249,19 @@ export function StoreProvider({
   const [paneA, setPaneA] = useState<string | null>(() => lsGet(PANE_A_KEY))
   const [paneB, setPaneB] = useState<string | null>(() => lsGet(PANE_B_KEY))
   const [split, setSplit] = useState(() => lsGet(SPLIT_KEY) === '1')
+  // Which pane has input focus. Not persisted — it resets to A on reload, which is
+  // the right default (A is always the shown pane when split is off).
+  const [focusedPane, setFocusedPane] = useState<'A' | 'B'>('A')
   const [panelMode, setPanelMode] =
     useState<Record<string, 'chat' | 'native'>>(readStoredPanelModes)
+  // Effective rendered mode per session (what AgentPanel actually shows), reported up
+  // the viewState channel. Not persisted — it's re-reported on mount from live state.
+  const [panelRenderModes, setPanelRenderModes] = useState<Record<string, 'chat' | 'native'>>({})
   const [fileTabs, setFileTabs] = useState<FileTab[]>([])
   const started = useRef(false)
+  // Latest reportViewState closure, so the once-mounted visibilitychange listener
+  // always sees current pane/focus state without re-subscribing on every change.
+  const reportViewStateRef = useRef<() => void>(() => {})
 
   const refreshRepos = useMemo(
     () => async () => {
@@ -325,8 +350,20 @@ export function StoreProvider({
   const continueSession = useMemo(
     () => async (sessionId: string) => {
       await trpc.sessions.continue.mutate({ sessionId }).catch(() => {})
+      // After the manual nudge, offer to make it automatic — once, and only when
+      // it isn't already on / hasn't already been answered.
+      try {
+        const settings = await trpc.settings.get.query()
+        if (shouldPromptAutoContinue(settings)) setAutoContinuePromptSessionId(sessionId)
+      } catch {
+        // Non-fatal: the nudge already happened; just skip the offer.
+      }
     },
     [trpc],
+  )
+  const closeAutoContinuePrompt = useMemo(
+    () => () => setAutoContinuePromptSessionId(null),
+    [],
   )
   const hibernateSession = useMemo(
     () => async (sessionId: string) => {
@@ -441,6 +478,12 @@ export function StoreProvider({
     },
     [],
   )
+  const setPanelRenderModeCb = useMemo(
+    () => (sessionId: string, mode: 'chat' | 'native') => {
+      setPanelRenderModes((m) => (m[sessionId] === mode ? m : { ...m, [sessionId]: mode }))
+    },
+    [],
+  )
   const setWorkState = useMemo(
     () => async (sessionId: string, workState: WorkState | null) => {
       setSessions((all) =>
@@ -470,6 +513,34 @@ export function StoreProvider({
     },
     [trpc],
   )
+
+  // Report which sessions this client renders (`visible`) and which one has input
+  // focus (`focused`) so the server can prioritize PTY relay for them. While the tab
+  // is hidden we report nothing — a backgrounded client isn't watching anything.
+  // `focusedPane` is clamped to A when split is off (B isn't shown).
+  const reportViewState = useMemo(
+    () => () => {
+      const tabVisible = document.visibilityState === 'visible'
+      const effectivePane: 'A' | 'B' = split ? focusedPane : 'A'
+      const visible = tabVisible
+        ? [paneA, split ? paneB : null].filter((x): x is string => x != null)
+        : []
+      const focused = tabVisible ? (effectivePane === 'A' ? paneA : paneB) : null
+      // Rendered mode (native/chat) for each visible session — default 'native' until
+      // its AgentPanel reports its effective mode. Wired through to the server; does
+      // not affect output scheduling.
+      const modes: Record<string, 'native' | 'chat'> = {}
+      for (const sid of visible) modes[sid] = panelRenderModes[sid] ?? 'native'
+      hub.setViewState(visible, focused, modes)
+    },
+    [hub, paneA, paneB, split, focusedPane, panelRenderModes],
+  )
+  // Re-derive + send on every change to the inputs, and keep the ref current so the
+  // visibilitychange listener (registered once at mount) calls the latest closure.
+  useEffect(() => {
+    reportViewStateRef.current = reportViewState
+    reportViewState()
+  }, [reportViewState])
 
   useEffect(() => {
     // Wait for the first repo load — otherwise a persisted (restored) selection
@@ -535,7 +606,11 @@ export function StoreProvider({
       }
     })
     // Presence feeds the server's smart router (skip mobile push while visible).
-    const reportVisibility = () => hub.setVisible(document.visibilityState === 'visible')
+    // Re-report view-state too so hiding the tab clears it (and showing re-asserts).
+    const reportVisibility = () => {
+      hub.setVisible(document.visibilityState === 'visible')
+      reportViewStateRef.current()
+    }
     document.addEventListener('visibilitychange', reportVisibility)
     reportVisibility()
     const connectTimer = setTimeout(() => {
@@ -601,14 +676,25 @@ export function StoreProvider({
     setSelectedWorktree,
     paneA,
     paneB,
-    setPane: (pane, id) => (pane === 'A' ? setPaneA(id) : setPaneB(id)),
+    // Selecting a pane also focuses it — clicking/opening a pane is a reasonable
+    // proxy for input focus, and the terminal components don't expose a focus seam.
+    setPane: (pane, id) => {
+      if (pane === 'A') setPaneA(id)
+      else setPaneB(id)
+      setFocusedPane(pane)
+    },
+    focusedPane,
+    setFocusedPane,
     panelMode,
     setPanelMode: setPanelModeCb,
+    setPanelRenderMode: setPanelRenderModeCb,
     split,
     toggleSplit: () => setSplit((s) => !s),
     refreshRepos,
     killSession,
     continueSession,
+    autoContinuePromptSessionId,
+    closeAutoContinuePrompt,
     hibernateSession,
     resurrectSession,
     resumeAndSend,

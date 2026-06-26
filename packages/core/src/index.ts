@@ -7,3 +7,4 @@
 export * from './settings.js'
 export * from './config.js'
 export * from './git.js'
+export * from './loop-metrics.js'

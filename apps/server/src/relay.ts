@@ -8,6 +8,7 @@ import type {
 } from '@podium/protocol'
 import {
   AgentKind,
+  agentSupportsInitialPrompt,
   type AgentQuotaWire,
   type AgentRuntimeState,
   type ClientMessage,
@@ -29,6 +30,7 @@ import {
   type UsageBucketWire,
   type WorkState,
 } from '@podium/protocol'
+import { AutoContinueController } from './auto-continue'
 import { knownPathsFor } from './file-relay-policy'
 import { IssueService } from './issues'
 import { LOCAL_MACHINE_ID } from './local-machine'
@@ -41,6 +43,7 @@ import {
 } from './notify'
 import { PairingManager } from './pairing'
 import { type ClientConn, type Send, Session } from './session'
+import { computePriorities } from './session-priority'
 import { type PinKind, SessionStore } from './store'
 import {
   isGenericClaudeTitle,
@@ -94,6 +97,173 @@ const DEFAULT_NOTIFICATION_PUSHERS: NotificationPushers = {
   telegram: pushTelegram,
 }
 
+const TELEGRAM_SETUP_TTL_MS = 5 * 60 * 1000
+
+interface TelegramSetupUpdate {
+  updateId: number
+  chatId: string | number
+  chatType: string
+  chatLabel?: string
+  text: string
+}
+
+interface TelegramSetupClient {
+  getMe(botToken: string): Promise<{ username: string }>
+  getUpdates(botToken: string): Promise<TelegramSetupUpdate[]>
+  sendMessage(config: TelegramConfig, text: string): Promise<void>
+  acknowledgeUpdates?(botToken: string, offset: number): Promise<void>
+}
+
+interface SessionRegistryOptions {
+  telegramSetup?: TelegramSetupClient
+  generateTelegramSetupCode?: () => string
+  now?: () => number
+}
+
+interface PendingTelegramSetup {
+  code: string
+  botUsername: string
+  expiresAtMs: number
+}
+
+export interface TelegramSetupStartResult {
+  setupId: string
+  code: string
+  botUsername: string
+  telegramUrl: string
+  expiresAt: string
+}
+
+export type TelegramSetupPollResult =
+  | { status: 'pending'; expiresAt: string }
+  | { status: 'expired' }
+  | {
+      status: 'connected'
+      chatId: string
+      chatType: string
+      chatLabel?: string
+      settings: PodiumSettings
+    }
+
+type NotificationSettings = PodiumSettings['notifications']
+
+function telegramConfig(settings: NotificationSettings): TelegramConfig {
+  return {
+    botToken: settings.telegramBotToken,
+    chatId: settings.telegramChatId,
+  }
+}
+
+function isTelegramEnabled(settings: NotificationSettings): boolean {
+  const telegram = telegramConfig(settings)
+  return telegram.botToken.trim() !== '' && telegram.chatId.trim() !== ''
+}
+
+function normalizedTelegramKey(settings: NotificationSettings): string {
+  const telegram = telegramConfig(settings)
+  return `${telegram.botToken.trim()}\n${telegram.chatId.trim()}`
+}
+
+function telegramApiUrl(botToken: string, method: string): string {
+  return `https://api.telegram.org/bot${botToken.trim()}/${method}`
+}
+
+type TelegramApiBody = {
+  ok?: boolean
+  description?: string
+  result?: unknown
+}
+
+async function telegramJson(
+  botToken: string,
+  method: string,
+  init?: RequestInit,
+): Promise<TelegramApiBody> {
+  const res = await fetch(telegramApiUrl(botToken, method), init)
+  const body = (await res.json().catch(() => ({}))) as TelegramApiBody
+  if (res.ok && body.ok === true) return body
+  const description = typeof body.description === 'string' ? body.description : `HTTP ${res.status}`
+  throw new Error(description)
+}
+
+function telegramUpdateChatLabel(chat: {
+  username?: unknown
+  title?: unknown
+  first_name?: unknown
+}): string | undefined {
+  if (typeof chat.username === 'string' && chat.username) return `@${chat.username}`
+  if (typeof chat.title === 'string' && chat.title) return chat.title
+  if (typeof chat.first_name === 'string' && chat.first_name) return chat.first_name
+  return undefined
+}
+
+function parseTelegramSetupUpdates(result: unknown): TelegramSetupUpdate[] {
+  if (!Array.isArray(result)) return []
+  const updates: TelegramSetupUpdate[] = []
+  for (const update of result) {
+    if (!update || typeof update !== 'object') continue
+    const u = update as { update_id?: unknown; message?: unknown; channel_post?: unknown }
+    const msg = (u.message ?? u.channel_post) as { chat?: unknown; text?: unknown } | undefined
+    const chat = msg?.chat as
+      | { id?: unknown; type?: unknown; username?: unknown; title?: unknown; first_name?: unknown }
+      | undefined
+    if (typeof u.update_id !== 'number') continue
+    if (!chat || (typeof chat.id !== 'number' && typeof chat.id !== 'string')) continue
+    if (typeof chat.type !== 'string') continue
+    if (typeof msg?.text !== 'string') continue
+    updates.push({
+      updateId: u.update_id,
+      chatId: chat.id,
+      chatType: chat.type,
+      chatLabel: telegramUpdateChatLabel(chat),
+      text: msg.text,
+    })
+  }
+  return updates
+}
+
+const DEFAULT_TELEGRAM_SETUP_CLIENT: TelegramSetupClient = {
+  async getMe(botToken) {
+    const body = await telegramJson(botToken, 'getMe')
+    const result = body.result as { username?: unknown } | undefined
+    if (typeof result?.username !== 'string' || !result.username) {
+      throw new Error('Telegram bot username was missing')
+    }
+    return { username: result.username }
+  },
+  async getUpdates(botToken) {
+    const allowedUpdates = encodeURIComponent(JSON.stringify(['message', 'channel_post']))
+    const body = await telegramJson(botToken, `getUpdates?allowed_updates=${allowedUpdates}`)
+    return parseTelegramSetupUpdates(body.result)
+  },
+  async sendMessage(config, text) {
+    await telegramJson(config.botToken, 'sendMessage', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ chat_id: config.chatId.trim(), text }),
+    })
+  },
+  async acknowledgeUpdates(botToken, offset) {
+    await telegramJson(botToken, `getUpdates?offset=${offset}`)
+  },
+}
+
+function defaultTelegramSetupCode(): string {
+  return `PODIUM${randomUUID().replaceAll('-', '').slice(0, 8).toUpperCase()}`
+}
+
+function telegramSetupUrl(botUsername: string, code: string): string {
+  return `https://t.me/${botUsername}?start=${encodeURIComponent(code)}`
+}
+
+function telegramTextHasCode(text: string, code: string): boolean {
+  const want = code.toUpperCase()
+  return text
+    .trim()
+    .split(/\s+/)
+    .some((part) => part.toUpperCase() === want)
+}
+
 /** Registry of all sessions + the per-machine daemon links + all client connections. Routes by sessionId. */
 export class SessionRegistry {
   // machineId -> control-message sender for that daemon. Replaces the single
@@ -108,8 +278,11 @@ export class SessionRegistry {
   private readonly pairing = new PairingManager()
   private readonly sessions = new Map<string, Session>()
   private readonly clients = new Map<string, ClientConn>()
+  private readonly telegramSetups = new Map<string, PendingTelegramSetup>()
   /** Server-side issue tracker — constructed after loadFromStore() in the constructor. */
   readonly issues: IssueService
+  /** Backend auto-continue loop; constructed in the constructor (see below). */
+  private autoContinue!: AutoContinueController
   private readonly pendingScans = new Map<string, (r: ScanResult) => void>()
   private readonly pendingRepoScans = new Map<string, (r: ScanReposResult) => void>()
   private readonly pendingBreakdowns = new Map<string, (r: MemoryBreakdown | undefined) => void>()
@@ -170,21 +343,50 @@ export class SessionRegistry {
   // variant must use a distinct string prefix so ids never collide across the
   // separate pending maps.
   private nextRequestNum = 0
+  // Last per-session output-relay priority pushed to the daemon. pushPriorities
+  // diffs against this so only CHANGED sessions are re-sent (a viewState/attach
+  // churn must not re-flood the daemon with the whole map every time).
+  private readonly lastPriority = new Map<string, number>()
+
+  private readonly telegramSetup: TelegramSetupClient
+  private readonly generateTelegramSetupCode: () => string
+  private readonly now: () => number
 
   constructor(
     private readonly store: SessionStore = new SessionStore(':memory:'),
     private readonly notificationPushers: NotificationPushers = DEFAULT_NOTIFICATION_PUSHERS,
+    options: SessionRegistryOptions = {},
   ) {
+    this.telegramSetup = options.telegramSetup ?? DEFAULT_TELEGRAM_SETUP_CLIENT
+    this.generateTelegramSetupCode = options.generateTelegramSetupCode ?? defaultTelegramSetupCode
+    this.now = options.now ?? Date.now
     this.loadFromStore()
     this.issues = new IssueService({
       store: this.store,
       listSessions: () => this.listSessions(),
       getSettings: () => this.store.getSettings(),
-      spawnSession: (o) => this.createSession({ cwd: o.cwd, agentKind: o.agentKind as AgentKind }),
-      sendFirstPrompt: (sessionId, text) => this.sendTextWhenReady(sessionId, text),
+      spawnSession: (o) =>
+        this.createSession({
+          cwd: o.cwd,
+          agentKind: o.agentKind as AgentKind,
+          ...(o.initialPrompt ? { initialPrompt: o.initialPrompt } : {}),
+        }),
       repoOp: (op, cwd, args) => this.repoOp(op, cwd, args),
       broadcast: (msg) => {
         for (const c of this.clients.values()) c.send(msg)
+      },
+    })
+    this.autoContinue = new AutoContinueController({
+      isEnabled: () => this.store.getSettings().autoContinue.enabled,
+      sendContinue: (sessionId) => {
+        this.continueSession({ sessionId })
+      },
+      getSession: (sessionId) => {
+        // The controller re-arms off fresh agentState events, so overnight recovery
+        // after a daemon reattach relies on reattach re-seeding agentState (seedBootState).
+        const s = this.sessions.get(sessionId)
+        if (!s) return undefined
+        return { live: s.status === 'live' || s.status === 'starting', state: s.agentState }
       },
     })
   }
@@ -204,6 +406,7 @@ export class SessionRegistry {
     for (const [sessionId, text] of Object.entries(this.store.loadDrafts())) {
       this.draftBySession.set(sessionId, text)
     }
+    const draftTimes = this.store.loadDraftTimes()
     const snoozes = this.store.listSnoozes()
     for (const r of this.store.loadSessions()) {
       const kind = AgentKind.safeParse(r.agentKind)
@@ -260,6 +463,7 @@ export class SessionRegistry {
       })
       this.sessions.set(r.id, session)
       if (r.id in snoozes) session.snoozedUntil = snoozes[r.id]
+      if (r.id in draftTimes) session.draftUpdatedAt = draftTimes[r.id]
       if (r.status !== reloadStatus) this.persist(session)
     }
   }
@@ -279,6 +483,12 @@ export class SessionRegistry {
       this.pendingByMachine.delete(machineId)
       for (const m of pending) send(m)
     }
+    // A freshly-(re)connected daemon knows no session's relay priority. Clear the
+    // delta cache so every current session re-sends as a change, then push the full
+    // map — otherwise a daemon restart would leave the scheduler at its default
+    // until the next viewState/attach happened to flip a session.
+    this.lastPriority.clear()
+    this.pushPriorities()
     // Re-bind survivor sessions ON THIS MACHINE: ask its daemon to reattach to their
     // live durable host. 'reconnecting' = was live/starting at boot. 'exited' (not
     // archived) is also probed because a row can be wrongly 'exited': its attach
@@ -344,6 +554,23 @@ export class SessionRegistry {
     const q = this.pendingByMachine.get(machineId)
     if (q) q.push(msg)
     else this.pendingByMachine.set(machineId, [msg])
+  }
+
+  /**
+   * Recompute per-session output-relay priority across every client and push the
+   * deltas to the daemon. computePriorities re-iterates its `clients` argument
+   * ONCE PER SESSION, so a single-use iterator (this.clients.values()) would
+   * exhaust after the first session and read every later session as tier 3 —
+   * materialize it to an array. Only CHANGED sessions are sent (diffed against
+   * lastPriority) so a viewState/attach churn never re-floods the whole map.
+   */
+  private pushPriorities(): void {
+    const priorities = computePriorities([...this.clients.values()], this.sessions.keys())
+    for (const [sessionId, priority] of priorities) {
+      if (this.lastPriority.get(sessionId) === priority) continue
+      this.lastPriority.set(sessionId, priority)
+      this.toDaemon({ type: 'sessionPriority', sessionId, priority })
+    }
   }
 
   // ---- tRPC control plane ----
@@ -452,16 +679,94 @@ export class SessionRegistry {
   }
 
   setSettings(settings: PodiumSettings): PodiumSettings {
+    const previous = this.store.getSettings()
+    const wasEnabled = previous.autoContinue.enabled
     this.store.setSettings(settings)
+    this.notifyAttentionForNewExternalTargets(previous.notifications, settings.notifications)
+    const nowEnabled = settings.autoContinue.enabled
+    if (nowEnabled !== wasEnabled) {
+      const ids = nowEnabled
+        ? [...this.sessions.values()]
+            .filter(
+              (s) =>
+                (s.status === 'live' || s.status === 'starting') &&
+                s.agentState?.phase === 'errored' &&
+                s.agentState.error?.retryable === true,
+            )
+            .map((s) => s.sessionId)
+        : []
+      this.autoContinue.onSettingsChanged(nowEnabled, ids)
+    }
     return settings
   }
 
-  /** Agent kind may be omitted — the settings default decides ('auto' = Claude Code). */
+  async startTelegramSetup(): Promise<TelegramSetupStartResult> {
+    const botToken = this.store.getSettings().notifications.telegramBotToken.trim()
+    if (!botToken) throw new Error('Telegram bot token is required before setup')
+
+    const { username } = await this.telegramSetup.getMe(botToken)
+    const code = this.generateTelegramSetupCode()
+    const setupId = randomUUID()
+    const expiresAtMs = this.now() + TELEGRAM_SETUP_TTL_MS
+    this.telegramSetups.set(setupId, { code, botUsername: username, expiresAtMs })
+    return {
+      setupId,
+      code,
+      botUsername: username,
+      telegramUrl: telegramSetupUrl(username, code),
+      expiresAt: new Date(expiresAtMs).toISOString(),
+    }
+  }
+
+  async pollTelegramSetup(setupId: string): Promise<TelegramSetupPollResult> {
+    const setup = this.telegramSetups.get(setupId)
+    if (!setup) return { status: 'expired' }
+    if (this.now() > setup.expiresAtMs) {
+      this.telegramSetups.delete(setupId)
+      return { status: 'expired' }
+    }
+
+    const current = this.store.getSettings()
+    const botToken = current.notifications.telegramBotToken.trim()
+    if (!botToken) throw new Error('Telegram bot token is required before setup')
+
+    const updates = await this.telegramSetup.getUpdates(botToken)
+    const match = updates.find((update) => telegramTextHasCode(update.text, setup.code))
+    if (!match) return { status: 'pending', expiresAt: new Date(setup.expiresAtMs).toISOString() }
+
+    const chatId = String(match.chatId)
+    const next = this.setSettings({
+      ...current,
+      notifications: {
+        ...current.notifications,
+        telegramChatId: chatId,
+      },
+    })
+    this.telegramSetups.delete(setupId)
+    await this.telegramSetup.sendMessage(
+      { botToken, chatId },
+      'Telegram notifications are connected to Podium.',
+    )
+    await this.telegramSetup.acknowledgeUpdates?.(botToken, match.updateId + 1)
+    return {
+      status: 'connected',
+      chatId,
+      chatType: match.chatType,
+      ...(match.chatLabel ? { chatLabel: match.chatLabel } : {}),
+      settings: next,
+    }
+  }
+
+  /** Agent kind may be omitted — the settings default decides ('auto' = Claude Code).
+   *  `initialPrompt` hands the fresh session a first prompt: for argv-capable agents
+   *  (claude/codex/grok) it rides the launch command (`claude "<prompt>"`, race-free);
+   *  for the rest it's seeded into the composer draft so the text still appears. */
   createSession(input: {
     agentKind?: AgentKind
     cwd: string
     title?: string
     machineId?: string
+    initialPrompt?: string
   }): {
     sessionId: string
   } {
@@ -479,13 +784,22 @@ export class SessionRegistry {
       : defaults.agent === 'auto'
         ? 'claude-code'
         : defaults.agent
-    return this.spawn({
+    const prompt = input.initialPrompt?.trim() ? input.initialPrompt : undefined
+    // argv delivery is race-free (the CLI reads the prompt at startup); only
+    // argv-capable agents get it that way. Others fall through to a draft seed.
+    const useArgv = prompt !== undefined && agentSupportsInitialPrompt(agentKind)
+    const spawned = this.spawn({
       agentKind,
       cwd: input.cwd,
       ...(input.title !== undefined ? { title: input.title } : {}),
       origin: { kind: 'spawn' },
       machineId: this.resolveMachine(input.machineId, input.cwd),
+      ...(useArgv ? { initialPrompt: prompt } : {}),
     })
+    if (prompt !== undefined && !useArgv) {
+      this.setSessionDraft({ sessionId: spawned.sessionId, text: prompt })
+    }
+    return spawned
   }
 
   resumeSession(input: {
@@ -496,6 +810,21 @@ export class SessionRegistry {
     title?: string
     machineId?: string
   }): { sessionId: string } {
+    // One row per conversation. A conversation is identified by its durable
+    // resume ref (kind+value); resuming one that already has a row must REUSE
+    // that row, never mint a parallel one. Each parallel row spawned its own
+    // durable master and forked its own transcript, while the web only HID the
+    // siblings (dedupeSessionsByResume) — so closing the visible row revealed a
+    // masked duplicate with its own title/transcript/stage. Reuse kills that at
+    // the source: a running row is focused as-is; a parked (hibernated/exited)
+    // row is resurrected under its same id.
+    const existing = this.findLiveByResume(input.resume)
+    if (existing) {
+      if (existing.status === 'hibernated' || existing.status === 'exited') {
+        this.resurrectSession({ sessionId: existing.sessionId })
+      }
+      return { sessionId: existing.sessionId }
+    }
     return this.spawn({
       agentKind: input.agentKind,
       cwd: input.cwd,
@@ -504,6 +833,24 @@ export class SessionRegistry {
       resume: input.resume,
       machineId: this.resolveMachine(input.machineId, input.cwd),
     })
+  }
+
+  /**
+   * The existing session for a resume ref, if any — the canonical row for that
+   * conversation. Prefers a still-running row (live/starting/reconnecting) over a
+   * parked one, breaking ties toward the most-recently-active so we land on the
+   * row the user last touched.
+   */
+  private findLiveByResume(resume: ResumeRef): Session | undefined {
+    const running = (s: Session) =>
+      s.status === 'live' || s.status === 'starting' || s.status === 'reconnecting'
+    return [...this.sessions.values()]
+      .filter((s) => s.resume?.kind === resume.kind && s.resume?.value === resume.value)
+      .sort((a, b) => {
+        if (running(a) !== running(b)) return running(a) ? -1 : 1
+        return (b.lastActiveAt ?? '').localeCompare(a.lastActiveAt ?? '')
+      })
+      .at(0)
   }
 
   /**
@@ -609,6 +956,13 @@ export class SessionRegistry {
   setSessionDraft(input: { sessionId: string; text: string }, fromClientId?: string): void {
     if (input.text) this.draftBySession.set(input.sessionId, input.text)
     else this.draftBySession.delete(input.sessionId)
+    // Mirror the draft's last-edit time onto the session so the sidebar can show
+    // DRAFT and lift it in the attention ordering. The DRAFT tag / lift only
+    // appears or disappears when a draft starts or is cleared, so rebroadcast the
+    // session list on that PRESENCE change only — never per keystroke.
+    const session = this.sessions.get(input.sessionId)
+    const presenceChanged = session && (session.draftUpdatedAt !== undefined) !== !!input.text
+    if (session) session.draftUpdatedAt = input.text ? new Date().toISOString() : undefined
     // Keep the existing live cross-client sync: push to every OTHER client (the
     // directional guard skips the originator so its own keystrokes don't echo back).
     for (const c of this.clients.values()) {
@@ -616,6 +970,7 @@ export class SessionRegistry {
       c.send({ type: 'sessionDraftChanged', sessionId: input.sessionId, text: input.text })
     }
     this.persistDraft(input.sessionId, input.text)
+    if (presenceChanged) this.broadcastSessions()
   }
 
   /**
@@ -724,6 +1079,7 @@ export class SessionRegistry {
       return { ok: false, reason: 'agent is working — let it reach idle first' }
     }
     session.status = 'hibernated'
+    this.autoContinue.onSessionGone(sessionId)
     this.persist(session)
     this.toMachine(session.machineId, { type: 'kill', sessionId })
     this.broadcastSessions()
@@ -837,6 +1193,7 @@ export class SessionRegistry {
       type: 'kill',
       sessionId: input.sessionId,
     })
+    this.autoContinue.onSessionGone(input.sessionId)
     session?.detachAll()
     this.sessions.delete(input.sessionId)
     this.draftBySession.delete(input.sessionId)
@@ -1086,6 +1443,7 @@ export class SessionRegistry {
     origin: SessionMeta['origin']
     resume?: ResumeRef
     machineId?: string
+    initialPrompt?: string
   }): { sessionId: string } {
     const sessionId = randomUUID()
     const machineId = input.machineId ?? LOCAL_PLACEHOLDER
@@ -1117,6 +1475,7 @@ export class SessionRegistry {
       agentKind: input.agentKind,
       cwd: input.cwd,
       ...(input.resume ? { resume: input.resume } : {}),
+      ...(input.initialPrompt ? { initialPrompt: input.initialPrompt } : {}),
       geometry: { ...DEFAULT_GEOMETRY },
       ...this.modelDefaults(input.agentKind),
     })
@@ -1153,6 +1512,13 @@ export class SessionRegistry {
       // connecting). Defaulting to visible:true let one stale/non-browser client
       // silently suppress all mobile push forever.
       visible: false,
+      // View-state defaults to "renders nothing, focuses nothing" until the client
+      // sends its first `viewState`. A session reads as unwatched (tier 3) until then.
+      viewVisible: new Set(),
+      focused: null,
+      // Rendered-mode map (native/chat) per session. Stored from viewState but NOT
+      // consulted by scheduling — see ClientConn.viewModes.
+      viewModes: {},
     })
     send({ type: 'welcome', clientId: id })
     send({ type: 'sessionsChanged', sessions: this.listSessions() })
@@ -1180,6 +1546,10 @@ export class SessionRegistry {
     for (const sessionId of client.transcriptSubs)
       this.sessions.get(sessionId)?.unsubscribeTranscript(id)
     this.clients.delete(id)
+    // A gone client no longer attaches/views/focuses anything — recompute so the
+    // sessions it was watching can drop priority (and the daemon stops relaying
+    // them live).
+    this.pushPriorities()
     this.broadcastSessions()
   }
 
@@ -1221,12 +1591,14 @@ export class SessionRegistry {
         client.attached.add(msg.sessionId)
         session.attachClient(client, msg.sinceSeq)
         this.broadcastSessions()
+        this.pushPriorities()
         break
       }
       case 'detach':
         client.attached.delete(msg.sessionId)
         this.sessions.get(msg.sessionId)?.detachClient(id)
         this.broadcastSessions()
+        this.pushPriorities()
         break
       case 'input':
         this.sessions.get(msg.sessionId)?.handleInput(id, msg.data)
@@ -1251,6 +1623,23 @@ export class SessionRegistry {
         break
       case 'presence':
         client.visible = msg.visible
+        break
+      case 'viewState':
+        client.viewVisible = new Set(msg.visible)
+        client.focused = msg.focused
+        // Store the rendered-mode signal (native/chat). Intentionally NOT fed into
+        // pushPriorities/computePriorities — it's available server-side but does not
+        // alter output relay/coalescing.
+        client.viewModes = msg.modes ?? {}
+        // Heal the resize/viewState race: a foreground panel sends its fitted resize
+        // before this viewState message (panel effect before store effect), so the
+        // viewVisible gate in handleResize dropped it. Now that the client declares
+        // it renders these sessions, re-apply its last viewport where it's controller
+        // — otherwise the PTY stays stuck at the 80x24 default (quarter-size window).
+        for (const sid of client.viewVisible) {
+          this.sessions.get(sid)?.reconcileGeometry(id)
+        }
+        this.pushPriorities()
         break
       case 'setSessionDraft':
         this.setSessionDraft(msg, id)
@@ -1280,8 +1669,17 @@ export class SessionRegistry {
         // seq so the client cursor stays stable across daemon reattaches.
         this.sessions.get(msg.sessionId)?.onFrame(msg.data)
         break
+      case 'agentFrameBatch': {
+        // The daemon coalesced several PTY frames for a lower-priority session into
+        // one batch. Unpack back into per-frame onFrame so each still gets its own
+        // server seq + outputFrame broadcast (clients are unchanged by coalescing).
+        const session = this.sessions.get(msg.sessionId)
+        if (session) for (const data of msg.frames) session.onFrame(data)
+        break
+      }
       case 'agentExit': {
         this.sessions.get(msg.sessionId)?.onExit(msg.code)
+        this.autoContinue.onSessionGone(msg.sessionId)
         // Free the lingering per-session title debouncer when the process ends (audit
         // P1-12) — previously only killSession did, so every exited-but-not-killed
         // session leaked its debouncer closure. The row stays (resurrectable); a new
@@ -1310,6 +1708,7 @@ export class SessionRegistry {
         // survivor that fails to reattach is a real death — mark it exited.
         if (s && s.status !== 'exited') {
           s.onExit(-1) // the durable host is gone; the agent died with it
+          this.autoContinue.onSessionGone(s.sessionId) // cancel any armed retry promptly, not at the next backoff tick
           this.persist(s)
         }
         this.broadcastSessions()
@@ -1320,6 +1719,7 @@ export class SessionRegistry {
         if (!session) break
         const prev = session.agentState
         session.setAgentState(msg.state)
+        this.autoContinue.onStateChange(msg.sessionId, msg.state)
         // Persist so the advanced recency (lastActiveAt) is durable across a server
         // restart — otherwise the row keeps its stale last-persisted time and the
         // ordering jumps backward on every redeploy until events re-arrive.
@@ -1407,7 +1807,7 @@ export class SessionRegistry {
       case 'scanResult': {
         this.latestConversations = msg.conversations
         this.latestConversationDiagnostics = msg.diagnostics
-        this.indexConversations(msg.conversations, machineId)
+        this.indexConversations(msg.conversations, machineId, msg.removed ?? [])
         this.broadcastConversations()
         const resolve = this.pendingScans.get(msg.requestId)
         if (resolve) {
@@ -1419,7 +1819,7 @@ export class SessionRegistry {
       case 'conversationsChanged': {
         this.latestConversations = msg.conversations
         this.latestConversationDiagnostics = msg.diagnostics
-        this.indexConversations(msg.conversations, machineId)
+        this.indexConversations(msg.conversations, machineId, msg.removed ?? [])
         this.broadcastConversations()
         break
       }
@@ -1584,8 +1984,13 @@ export class SessionRegistry {
 
   /** Every discovery push lands in the durable index — search sees machines' full
    *  history. Tagged with the reporting machineId so a conversation is attributable
-   *  to (and resumable on) the machine that owns its on-disk transcript. */
-  private indexConversations(conversations: ConversationSummaryWire[], machineId: string): void {
+   *  to (and resumable on) the machine that owns its on-disk transcript. `removed`
+   *  drops conversations the daemon reports as deleted (incremental delta indexing). */
+  private indexConversations(
+    conversations: ConversationSummaryWire[],
+    machineId: string,
+    removed: string[] = [],
+  ): void {
     this.store.upsertConversations(
       conversations.map((c) => ({
         id: c.id,
@@ -1600,6 +2005,7 @@ export class SessionRegistry {
         ...(c.messageCount !== undefined ? { messageCount: c.messageCount } : {}),
       })),
     )
+    if (removed.length) this.store.deleteConversations(removed)
   }
 
   searchConversations(opts: { query?: string; projectPath?: string; limit?: number }) {
@@ -1728,6 +2134,34 @@ export class SessionRegistry {
     this.store.setConversationMeta(input.id, input)
   }
 
+  private attentionNoticeName(session: Session): string {
+    return session.name || session.title || session.cwd.split('/').pop() || 'agent'
+  }
+
+  private notifyAttentionForNewExternalTargets(
+    previous: NotificationSettings,
+    next: NotificationSettings,
+  ): void {
+    const previousNtfy = previous.ntfyTopic.trim()
+    const nextNtfy = next.ntfyTopic.trim()
+    const sendNtfy = nextNtfy !== '' && previousNtfy !== nextNtfy
+    const sendTelegram =
+      isTelegramEnabled(next) &&
+      (!isTelegramEnabled(previous) ||
+        normalizedTelegramKey(previous) !== normalizedTelegramKey(next))
+    if (!sendNtfy && !sendTelegram) return
+
+    const telegram = telegramConfig(next)
+    for (const session of this.sessions.values()) {
+      const state = session.agentState
+      if (!state) continue
+      const notice = attentionNotice(this.attentionNoticeName(session), undefined, state)
+      if (!notice) continue
+      if (sendNtfy) this.notificationPushers.ntfy(nextNtfy, notice)
+      if (sendTelegram) this.notificationPushers.telegram(telegram, notice)
+    }
+  }
+
   /**
    * Smart-routed attention notifications. Web clients always get the event
    * (each shows it only while hidden); the mobile push (ntfy) fires only when
@@ -1740,7 +2174,7 @@ export class SessionRegistry {
     next: AgentRuntimeState,
   ): void {
     const settings = this.store.getSettings().notifications
-    const name = session.name || session.title || session.cwd.split('/').pop() || 'agent'
+    const name = this.attentionNoticeName(session)
     const notice = attentionNotice(name, prev, next)
     if (!notice) return
     if (settings.web) {
@@ -1752,11 +2186,8 @@ export class SessionRegistry {
       }
       for (const c of this.clients.values()) c.send(event)
     }
-    const telegram = {
-      botToken: settings.telegramBotToken,
-      chatId: settings.telegramChatId,
-    }
-    const telegramEnabled = telegram.botToken.trim() !== '' && telegram.chatId.trim() !== ''
+    const telegram = telegramConfig(settings)
+    const telegramEnabled = isTelegramEnabled(settings)
     if (settings.ntfyTopic || telegramEnabled) {
       const someoneWatching = [...this.clients.values()].some((c) => c.visible)
       if (!someoneWatching) {

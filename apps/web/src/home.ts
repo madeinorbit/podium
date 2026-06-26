@@ -76,14 +76,36 @@ export function attentionSummary(s: SessionMeta): string | null {
 }
 
 /**
- * Recency comparator for session ordering (newest-active first). `lastActiveAt` is
- * the primary key; `createdAt` then `sessionId` break ties into a *total* order, so
- * sessions with equal timestamps (common right after a reattach, when several rows
- * carry the same persisted time) keep a fixed, deterministic order instead of
- * reshuffling with the input order frame to frame.
+ * A session's effective recency: the later of its last real activity and its last
+ * unsent-draft edit. Editing a prompt is recent user intent on that session, so a
+ * freshly-drafted-but-otherwise-stale session belongs up with the just-active ones
+ * (and reads as DRAFT). `draftUpdatedAt` is absent unless a non-empty draft exists.
  */
-export function compareRecency(a: SessionMeta, b: SessionMeta): number {
-  const byActive = b.lastActiveAt.localeCompare(a.lastActiveAt)
+function effectiveRecency(s: SessionMeta, now: number): string {
+  let t = s.lastActiveAt
+  if (s.draftUpdatedAt && s.draftUpdatedAt > t) t = s.draftUpdatedAt
+  // A snooze whose deadline has already passed re-enters the attention queue *at
+  // that moment*: surface the session by its expiry so a just-returned one sorts
+  // near the top. A future deadline (still snoozed) must NOT count — that session
+  // is filtered out of the attention list anyway.
+  if (typeof s.snoozedUntil === 'string' && Date.parse(s.snoozedUntil) <= now && s.snoozedUntil > t) {
+    t = s.snoozedUntil
+  }
+  return t
+}
+
+/**
+ * Recency comparator for session ordering (newest-active first). Effective recency
+ * — the latest of last activity, draft edit, and an already-expired snooze deadline
+ * — is the primary key; `createdAt` then `sessionId` break ties into a *total*
+ * order, so sessions with equal timestamps (common right after a reattach, when
+ * several rows carry the same persisted time) keep a fixed, deterministic order
+ * instead of reshuffling with the input order frame to frame. `now` resolves the
+ * "expired?" test for snoozes; it defaults to wall-clock for callers that sort
+ * without a frame-stable clock.
+ */
+export function compareRecency(a: SessionMeta, b: SessionMeta, now: number = Date.now()): number {
+  const byActive = effectiveRecency(b, now).localeCompare(effectiveRecency(a, now))
   if (byActive !== 0) return byActive
   const byCreated = b.createdAt.localeCompare(a.createdAt)
   if (byCreated !== 0) return byCreated

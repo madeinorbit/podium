@@ -28,6 +28,9 @@ export interface ClaudeTranscriptFeatures {
   unresolvedTools: { id?: string; name: string; summary?: unknown }[]
   currentAskUserQuestions: { id?: string; question?: string; options?: string[] }[]
   openTodoCount: number
+  /** The agent scheduled its own resume this turn (a /loop ScheduleWakeup or a
+   *  CronCreate). It will wake itself, so it is NOT awaiting the user. */
+  scheduledSelfWake: boolean
   launchedBackgroundAgent: boolean
   launchedBackgroundShell: boolean
   foregroundShellCommands: { command?: string; runInBackground: boolean }[]
@@ -211,6 +214,7 @@ export function extractClaudeTranscriptFeatures(
   let terminalEvent: ClaudeTranscriptFeatures['terminalEvent'] = null
   let terminalToolName: string | null = null
   let openTodoCount = 0
+  let scheduledSelfWake = false
   let launchedBackgroundAgent = false
   let launchedBackgroundShell = false
 
@@ -231,6 +235,9 @@ export function extractClaudeTranscriptFeatures(
         else unresolvedNoId.push({ ...tool, index })
         terminalEvent = 'tool_use'
         terminalToolName = tool.name
+        if (tool.name === 'ScheduleWakeup' || tool.name === 'CronCreate') {
+          scheduledSelfWake = true
+        }
         if (tool.name === 'Bash') {
           const summary = commandSummary(tool.input)
           if (summary.runInBackground) backgroundShellCommands.push(summary)
@@ -303,6 +310,7 @@ export function extractClaudeTranscriptFeatures(
     unresolvedTools,
     currentAskUserQuestions,
     openTodoCount,
+    scheduledSelfWake,
     launchedBackgroundAgent,
     launchedBackgroundShell,
     foregroundShellCommands,

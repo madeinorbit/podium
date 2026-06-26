@@ -144,6 +144,46 @@ describe('createCodexConversationProvider', () => {
     expect(result.conversations[0]).not.toHaveProperty('messageCount')
   })
 
+  test('excludes internal subagent (guardian) rollouts from the conversation list', async () => {
+    const root = await createRoot()
+    // A real interactive session…
+    await writeCodexSession(root, 'sessions/2026/06/25/cli.jsonl', 'cli-session')
+    // …and the guardian subagent rollout Codex ≥0.142 writes alongside it: same cwd,
+    // its own id, but `source: { subagent }`. It must not surface as a phantom
+    // "judging one planned action" conversation in the list.
+    const guardian = join(root, 'sessions/2026/06/25/guardian.jsonl')
+    await mkdir(join(guardian, '..'), { recursive: true })
+    await writeFile(
+      guardian,
+      [
+        JSON.stringify({
+          timestamp: '2026-06-25T11:00:00.000Z',
+          type: 'session_meta',
+          payload: {
+            id: 'guardian-session',
+            timestamp: '2026-06-25T11:00:00.000Z',
+            cwd: '/repo/from-jsonl',
+            source: { subagent: { other: 'guardian' } },
+          },
+        }),
+        JSON.stringify({
+          timestamp: '2026-06-25T11:00:01.000Z',
+          type: 'response_item',
+          payload: {
+            type: 'message',
+            role: 'user',
+            content: [{ type: 'input_text', text: 'You are judging one planned action' }],
+          },
+        }),
+      ].join('\n'),
+    )
+
+    const result = await createCodexConversationProvider().scanRoot(root)
+
+    expect(result.diagnostics).toEqual([])
+    expect(result.conversations.map((c) => c.id)).toEqual(['cli-session'])
+  })
+
   test('summarizes from a bounded head read and ignores an invalid tail', async () => {
     const root = await createRoot()
     const file = join(root, 'sessions/2026/06/01/head-only.jsonl')
