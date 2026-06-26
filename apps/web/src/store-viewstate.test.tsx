@@ -48,6 +48,9 @@ class FakeHub {
   onHostMetrics() {
     return () => {}
   }
+  onMachines() {
+    return () => {}
+  }
   onSessionDraft() {
     return () => {}
   }

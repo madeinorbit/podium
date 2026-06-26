@@ -77,6 +77,7 @@ vi.mock('./store', () => ({
   useStore: () => ({
     hub: fakeHub,
     sessions: storeSessions,
+    machines: [],
     repos: [],
     trpc: fakeTrpc,
     drafts: {},

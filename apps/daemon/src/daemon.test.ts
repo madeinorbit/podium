@@ -268,12 +268,13 @@ describe('daemon multi-bridge', () => {
     const connected = new Promise<void>((r) => {
       wss.once('connection', (ws) => {
         serverWs = ws
-        ws.on('message', (raw) => received.push(parseDaemonMessage(raw.toString())))
+        handshakeAndCollect(ws, received)
         r()
       })
     })
     const daemon = await startDaemon({
       serverUrl: `ws://localhost:${port}`,
+      bootstrapToken: 'test',
       hooks: { port: 0, settingsDir: mkdtempSync(join(tmpdir(), 'podium-hooks-')) },
       tmux: false,
       discovery: { background: false, cachePath: ':memory:' },
@@ -1140,13 +1141,14 @@ describe('daemon conversation discovery', () => {
     const received: DaemonMessage[] = []
     const connected = new Promise<void>((r) => {
       wss.once('connection', (ws) => {
-        ws.on('message', (raw) => received.push(parseDaemonMessage(raw.toString())))
+        handshakeAndCollect(ws, received)
         r()
       })
     })
 
     const daemon = await startDaemon({
       serverUrl: `ws://localhost:${port}`,
+      bootstrapToken: 'test',
       hooks: { port: 0, settingsDir: mkdtempSync(join(tmpdir(), 'podium-hooks-')) },
       tmux: false,
       launch: (_kind, opts) => ({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
@@ -1191,13 +1193,14 @@ describe('daemon conversation discovery', () => {
     const received: DaemonMessage[] = []
     const connected = new Promise<void>((r) => {
       wss.once('connection', (ws) => {
-        ws.on('message', (raw) => received.push(parseDaemonMessage(raw.toString())))
+        handshakeAndCollect(ws, received)
         r()
       })
     })
 
     const daemon = await startDaemon({
       serverUrl: `ws://localhost:${port}`,
+      bootstrapToken: 'test',
       hooks: { port: 0, settingsDir: mkdtempSync(join(tmpdir(), 'podium-hooks-')) },
       tmux: false,
       launch: (_kind, opts) => ({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
@@ -1257,13 +1260,14 @@ describe('daemon conversation discovery', () => {
     const connected = new Promise<void>((r) => {
       wss.once('connection', (ws) => {
         serverWs = ws
-        ws.on('message', (raw) => received.push(parseDaemonMessage(raw.toString())))
+        handshakeAndCollect(ws, received)
         r()
       })
     })
 
     const daemon = await startDaemon({
       serverUrl: `ws://localhost:${port}`,
+      bootstrapToken: 'test',
       hooks: { port: 0, settingsDir: mkdtempSync(join(tmpdir(), 'podium-hooks-')) },
       tmux: false,
       launch: (_kind, opts) => ({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
