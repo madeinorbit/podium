@@ -209,6 +209,10 @@ export const appRouter = t.router({
     set: t.procedure
       .input(PodiumSettings)
       .mutation(({ ctx, input }) => ctx.registry.setSettings(input)),
+    telegramSetupStart: t.procedure.mutation(({ ctx }) => ctx.registry.startTelegramSetup()),
+    telegramSetupPoll: t.procedure
+      .input(z.object({ setupId: z.string() }))
+      .mutation(({ ctx, input }) => ctx.registry.pollTelegramSetup(input.setupId)),
   }),
   tabs: t.router({
     listOrders: t.procedure.query(({ ctx }) => ctx.registry.listTabOrders()),

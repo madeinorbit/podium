@@ -84,6 +84,173 @@ const DEFAULT_NOTIFICATION_PUSHERS: NotificationPushers = {
   telegram: pushTelegram,
 }
 
+const TELEGRAM_SETUP_TTL_MS = 5 * 60 * 1000
+
+interface TelegramSetupUpdate {
+  updateId: number
+  chatId: string | number
+  chatType: string
+  chatLabel?: string
+  text: string
+}
+
+interface TelegramSetupClient {
+  getMe(botToken: string): Promise<{ username: string }>
+  getUpdates(botToken: string): Promise<TelegramSetupUpdate[]>
+  sendMessage(config: TelegramConfig, text: string): Promise<void>
+  acknowledgeUpdates?(botToken: string, offset: number): Promise<void>
+}
+
+interface SessionRegistryOptions {
+  telegramSetup?: TelegramSetupClient
+  generateTelegramSetupCode?: () => string
+  now?: () => number
+}
+
+interface PendingTelegramSetup {
+  code: string
+  botUsername: string
+  expiresAtMs: number
+}
+
+export interface TelegramSetupStartResult {
+  setupId: string
+  code: string
+  botUsername: string
+  telegramUrl: string
+  expiresAt: string
+}
+
+export type TelegramSetupPollResult =
+  | { status: 'pending'; expiresAt: string }
+  | { status: 'expired' }
+  | {
+      status: 'connected'
+      chatId: string
+      chatType: string
+      chatLabel?: string
+      settings: PodiumSettings
+    }
+
+type NotificationSettings = PodiumSettings['notifications']
+
+function telegramConfig(settings: NotificationSettings): TelegramConfig {
+  return {
+    botToken: settings.telegramBotToken,
+    chatId: settings.telegramChatId,
+  }
+}
+
+function isTelegramEnabled(settings: NotificationSettings): boolean {
+  const telegram = telegramConfig(settings)
+  return telegram.botToken.trim() !== '' && telegram.chatId.trim() !== ''
+}
+
+function normalizedTelegramKey(settings: NotificationSettings): string {
+  const telegram = telegramConfig(settings)
+  return `${telegram.botToken.trim()}\n${telegram.chatId.trim()}`
+}
+
+function telegramApiUrl(botToken: string, method: string): string {
+  return `https://api.telegram.org/bot${botToken.trim()}/${method}`
+}
+
+type TelegramApiBody = {
+  ok?: boolean
+  description?: string
+  result?: unknown
+}
+
+async function telegramJson(
+  botToken: string,
+  method: string,
+  init?: RequestInit,
+): Promise<TelegramApiBody> {
+  const res = await fetch(telegramApiUrl(botToken, method), init)
+  const body = (await res.json().catch(() => ({}))) as TelegramApiBody
+  if (res.ok && body.ok === true) return body
+  const description = typeof body.description === 'string' ? body.description : `HTTP ${res.status}`
+  throw new Error(description)
+}
+
+function telegramUpdateChatLabel(chat: {
+  username?: unknown
+  title?: unknown
+  first_name?: unknown
+}): string | undefined {
+  if (typeof chat.username === 'string' && chat.username) return `@${chat.username}`
+  if (typeof chat.title === 'string' && chat.title) return chat.title
+  if (typeof chat.first_name === 'string' && chat.first_name) return chat.first_name
+  return undefined
+}
+
+function parseTelegramSetupUpdates(result: unknown): TelegramSetupUpdate[] {
+  if (!Array.isArray(result)) return []
+  const updates: TelegramSetupUpdate[] = []
+  for (const update of result) {
+    if (!update || typeof update !== 'object') continue
+    const u = update as { update_id?: unknown; message?: unknown; channel_post?: unknown }
+    const msg = (u.message ?? u.channel_post) as { chat?: unknown; text?: unknown } | undefined
+    const chat = msg?.chat as
+      | { id?: unknown; type?: unknown; username?: unknown; title?: unknown; first_name?: unknown }
+      | undefined
+    if (typeof u.update_id !== 'number') continue
+    if (!chat || (typeof chat.id !== 'number' && typeof chat.id !== 'string')) continue
+    if (typeof chat.type !== 'string') continue
+    if (typeof msg?.text !== 'string') continue
+    updates.push({
+      updateId: u.update_id,
+      chatId: chat.id,
+      chatType: chat.type,
+      chatLabel: telegramUpdateChatLabel(chat),
+      text: msg.text,
+    })
+  }
+  return updates
+}
+
+const DEFAULT_TELEGRAM_SETUP_CLIENT: TelegramSetupClient = {
+  async getMe(botToken) {
+    const body = await telegramJson(botToken, 'getMe')
+    const result = body.result as { username?: unknown } | undefined
+    if (typeof result?.username !== 'string' || !result.username) {
+      throw new Error('Telegram bot username was missing')
+    }
+    return { username: result.username }
+  },
+  async getUpdates(botToken) {
+    const allowedUpdates = encodeURIComponent(JSON.stringify(['message', 'channel_post']))
+    const body = await telegramJson(botToken, `getUpdates?allowed_updates=${allowedUpdates}`)
+    return parseTelegramSetupUpdates(body.result)
+  },
+  async sendMessage(config, text) {
+    await telegramJson(config.botToken, 'sendMessage', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ chat_id: config.chatId.trim(), text }),
+    })
+  },
+  async acknowledgeUpdates(botToken, offset) {
+    await telegramJson(botToken, `getUpdates?offset=${offset}`)
+  },
+}
+
+function defaultTelegramSetupCode(): string {
+  return `PODIUM${randomUUID().replaceAll('-', '').slice(0, 8).toUpperCase()}`
+}
+
+function telegramSetupUrl(botUsername: string, code: string): string {
+  return `https://t.me/${botUsername}?start=${encodeURIComponent(code)}`
+}
+
+function telegramTextHasCode(text: string, code: string): boolean {
+  const want = code.toUpperCase()
+  return text
+    .trim()
+    .split(/\s+/)
+    .some((part) => part.toUpperCase() === want)
+}
+
 /** Registry of all sessions + the single daemon link + all client connections. Routes by sessionId. */
 export class SessionRegistry {
   private daemonSend: Send<ControlMessage> | undefined
@@ -93,6 +260,7 @@ export class SessionRegistry {
   private readonly pendingToDaemon: ControlMessage[] = []
   private readonly sessions = new Map<string, Session>()
   private readonly clients = new Map<string, ClientConn>()
+  private readonly telegramSetups = new Map<string, PendingTelegramSetup>()
   /** Server-side issue tracker — constructed after loadFromStore() in the constructor. */
   readonly issues: IssueService
   /** Backend auto-continue loop; constructed in the constructor (see below). */
@@ -162,10 +330,18 @@ export class SessionRegistry {
   // churn must not re-flood the daemon with the whole map every time).
   private readonly lastPriority = new Map<string, number>()
 
+  private readonly telegramSetup: TelegramSetupClient
+  private readonly generateTelegramSetupCode: () => string
+  private readonly now: () => number
+
   constructor(
     private readonly store: SessionStore = new SessionStore(':memory:'),
     private readonly notificationPushers: NotificationPushers = DEFAULT_NOTIFICATION_PUSHERS,
+    options: SessionRegistryOptions = {},
   ) {
+    this.telegramSetup = options.telegramSetup ?? DEFAULT_TELEGRAM_SETUP_CLIENT
+    this.generateTelegramSetupCode = options.generateTelegramSetupCode ?? defaultTelegramSetupCode
+    this.now = options.now ?? Date.now
     this.loadFromStore()
     this.issues = new IssueService({
       store: this.store,
@@ -405,8 +581,10 @@ export class SessionRegistry {
   }
 
   setSettings(settings: PodiumSettings): PodiumSettings {
-    const wasEnabled = this.store.getSettings().autoContinue.enabled
+    const previous = this.store.getSettings()
+    const wasEnabled = previous.autoContinue.enabled
     this.store.setSettings(settings)
+    this.notifyAttentionForNewExternalTargets(previous.notifications, settings.notifications)
     const nowEnabled = settings.autoContinue.enabled
     if (nowEnabled !== wasEnabled) {
       const ids = nowEnabled
@@ -422,6 +600,63 @@ export class SessionRegistry {
       this.autoContinue.onSettingsChanged(nowEnabled, ids)
     }
     return settings
+  }
+
+  async startTelegramSetup(): Promise<TelegramSetupStartResult> {
+    const botToken = this.store.getSettings().notifications.telegramBotToken.trim()
+    if (!botToken) throw new Error('Telegram bot token is required before setup')
+
+    const { username } = await this.telegramSetup.getMe(botToken)
+    const code = this.generateTelegramSetupCode()
+    const setupId = randomUUID()
+    const expiresAtMs = this.now() + TELEGRAM_SETUP_TTL_MS
+    this.telegramSetups.set(setupId, { code, botUsername: username, expiresAtMs })
+    return {
+      setupId,
+      code,
+      botUsername: username,
+      telegramUrl: telegramSetupUrl(username, code),
+      expiresAt: new Date(expiresAtMs).toISOString(),
+    }
+  }
+
+  async pollTelegramSetup(setupId: string): Promise<TelegramSetupPollResult> {
+    const setup = this.telegramSetups.get(setupId)
+    if (!setup) return { status: 'expired' }
+    if (this.now() > setup.expiresAtMs) {
+      this.telegramSetups.delete(setupId)
+      return { status: 'expired' }
+    }
+
+    const current = this.store.getSettings()
+    const botToken = current.notifications.telegramBotToken.trim()
+    if (!botToken) throw new Error('Telegram bot token is required before setup')
+
+    const updates = await this.telegramSetup.getUpdates(botToken)
+    const match = updates.find((update) => telegramTextHasCode(update.text, setup.code))
+    if (!match) return { status: 'pending', expiresAt: new Date(setup.expiresAtMs).toISOString() }
+
+    const chatId = String(match.chatId)
+    const next = this.setSettings({
+      ...current,
+      notifications: {
+        ...current.notifications,
+        telegramChatId: chatId,
+      },
+    })
+    this.telegramSetups.delete(setupId)
+    await this.telegramSetup.sendMessage(
+      { botToken, chatId },
+      'Telegram notifications are connected to Podium.',
+    )
+    await this.telegramSetup.acknowledgeUpdates?.(botToken, match.updateId + 1)
+    return {
+      status: 'connected',
+      chatId,
+      chatType: match.chatType,
+      ...(match.chatLabel ? { chatLabel: match.chatLabel } : {}),
+      settings: next,
+    }
   }
 
   /** Agent kind may be omitted — the settings default decides ('auto' = Claude Code).
@@ -1713,6 +1948,34 @@ export class SessionRegistry {
     this.store.setConversationMeta(input.id, input)
   }
 
+  private attentionNoticeName(session: Session): string {
+    return session.name || session.title || session.cwd.split('/').pop() || 'agent'
+  }
+
+  private notifyAttentionForNewExternalTargets(
+    previous: NotificationSettings,
+    next: NotificationSettings,
+  ): void {
+    const previousNtfy = previous.ntfyTopic.trim()
+    const nextNtfy = next.ntfyTopic.trim()
+    const sendNtfy = nextNtfy !== '' && previousNtfy !== nextNtfy
+    const sendTelegram =
+      isTelegramEnabled(next) &&
+      (!isTelegramEnabled(previous) ||
+        normalizedTelegramKey(previous) !== normalizedTelegramKey(next))
+    if (!sendNtfy && !sendTelegram) return
+
+    const telegram = telegramConfig(next)
+    for (const session of this.sessions.values()) {
+      const state = session.agentState
+      if (!state) continue
+      const notice = attentionNotice(this.attentionNoticeName(session), undefined, state)
+      if (!notice) continue
+      if (sendNtfy) this.notificationPushers.ntfy(nextNtfy, notice)
+      if (sendTelegram) this.notificationPushers.telegram(telegram, notice)
+    }
+  }
+
   /**
    * Smart-routed attention notifications. Web clients always get the event
    * (each shows it only while hidden); the mobile push (ntfy) fires only when
@@ -1725,7 +1988,7 @@ export class SessionRegistry {
     next: AgentRuntimeState,
   ): void {
     const settings = this.store.getSettings().notifications
-    const name = session.name || session.title || session.cwd.split('/').pop() || 'agent'
+    const name = this.attentionNoticeName(session)
     const notice = attentionNotice(name, prev, next)
     if (!notice) return
     if (settings.web) {
@@ -1737,11 +2000,8 @@ export class SessionRegistry {
       }
       for (const c of this.clients.values()) c.send(event)
     }
-    const telegram = {
-      botToken: settings.telegramBotToken,
-      chatId: settings.telegramChatId,
-    }
-    const telegramEnabled = telegram.botToken.trim() !== '' && telegram.chatId.trim() !== ''
+    const telegram = telegramConfig(settings)
+    const telegramEnabled = isTelegramEnabled(settings)
     if (settings.ntfyTopic || telegramEnabled) {
       const someoneWatching = [...this.clients.values()].some((c) => c.visible)
       if (!someoneWatching) {

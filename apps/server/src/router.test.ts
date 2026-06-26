@@ -80,6 +80,54 @@ describe('appRouter', () => {
     await expect(p).resolves.toEqual({ items: [], hasMore: false })
   })
 
+  it('settings Telegram setup endpoints delegate to the registry', async () => {
+    const registry = new SessionRegistry()
+    registry.attachDaemon(() => {})
+    let polled = ''
+    ;(
+      registry as unknown as {
+        startTelegramSetup: () => Promise<{
+          setupId: string
+          code: string
+          botUsername: string
+          telegramUrl: string
+          expiresAt: string
+        }>
+        pollTelegramSetup: (setupId: string) => Promise<{ status: 'pending'; expiresAt: string }>
+      }
+    ).startTelegramSetup = async () => ({
+      setupId: 'setup-1',
+      code: 'PODIUM123',
+      botUsername: 'mwpodium_bot',
+      telegramUrl: 'https://t.me/mwpodium_bot?start=PODIUM123',
+      expiresAt: '2026-06-12T10:05:00.000Z',
+    })
+    ;(
+      registry as unknown as {
+        pollTelegramSetup: (setupId: string) => Promise<{ status: 'pending'; expiresAt: string }>
+      }
+    ).pollTelegramSetup = async (setupId) => {
+      polled = setupId
+      return { status: 'pending', expiresAt: '2026-06-12T10:05:00.000Z' }
+    }
+    const repos = new RepoRegistry(new SessionStore(':memory:'))
+    const call = appRouter.createCaller({
+      registry,
+      repos,
+      superagent: new SuperagentService(registry, repos, registry.sessionStore),
+    })
+
+    await expect(call.settings.telegramSetupStart()).resolves.toMatchObject({
+      setupId: 'setup-1',
+      code: 'PODIUM123',
+    })
+    await expect(call.settings.telegramSetupPoll({ setupId: 'setup-1' })).resolves.toEqual({
+      status: 'pending',
+      expiresAt: '2026-06-12T10:05:00.000Z',
+    })
+    expect(polled).toBe('setup-1')
+  })
+
   it('the old sessions.transcript / transcriptPage procedures are gone', () => {
     // tRPC v11 keeps a flat record of procedures keyed by dotted path — assert against
     // it directly (the caller proxy returns a callable for any path, so it can't tell

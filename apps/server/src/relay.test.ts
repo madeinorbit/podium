@@ -1014,6 +1014,124 @@ describe('agent state', () => {
       store.close()
     }
   })
+
+  it('connects Telegram from a start-code update', async () => {
+    const store = new SessionStore(':memory:')
+    const settings = store.getSettings()
+    store.setSettings({
+      ...settings,
+      notifications: {
+        ...settings.notifications,
+        telegramBotToken: '123456:secret',
+      },
+    })
+    const getMe = vi.fn().mockResolvedValue({ username: 'mwpodium_bot' })
+    const getUpdates = vi.fn().mockImplementation(async () => [
+      {
+        updateId: 12,
+        chatId: 129784115,
+        chatType: 'private',
+        chatLabel: 'mikewirth',
+        text: '/start PODIUM123',
+      },
+    ])
+    const sendMessage = vi.fn().mockResolvedValue(undefined)
+
+    try {
+      const reg = new SessionRegistry(
+        store,
+        { ntfy: vi.fn(), telegram: vi.fn() },
+        {
+          telegramSetup: { getMe, getUpdates, sendMessage },
+          generateTelegramSetupCode: () => 'PODIUM123',
+          now: () => 1_000,
+        },
+      )
+
+      const setup = await reg.startTelegramSetup()
+      expect(setup).toEqual({
+        setupId: expect.any(String),
+        code: 'PODIUM123',
+        botUsername: 'mwpodium_bot',
+        telegramUrl: 'https://t.me/mwpodium_bot?start=PODIUM123',
+        expiresAt: new Date(301_000).toISOString(),
+      })
+
+      const result = await reg.pollTelegramSetup(setup.setupId)
+
+      expect(result.status).toBe('connected')
+      if (result.status !== 'connected') throw new Error('expected setup to connect')
+      expect(result.settings.notifications.telegramChatId).toBe('129784115')
+      expect(sendMessage).toHaveBeenCalledWith(
+        { botToken: '123456:secret', chatId: '129784115' },
+        expect.stringContaining('Telegram notifications are connected'),
+      )
+    } finally {
+      store.close()
+    }
+  })
+
+  it('sends a catch-up Telegram push when Telegram is enabled for an existing attention session', () => {
+    const store = new SessionStore(':memory:')
+    const ntfy = vi.fn()
+    const telegram = vi.fn()
+
+    try {
+      const reg = new SessionRegistry(store, { ntfy, telegram })
+      reg.attachDaemon(() => {})
+      const { sessionId } = reg.createSession({
+        agentKind: 'claude-code',
+        cwd: '/proj',
+        title: 'keyboard',
+      })
+      const visible = sink()
+      const visibleId = reg.attachClient(visible.send)
+      reg.onClientMessage(visibleId, { type: 'presence', visible: true })
+
+      reg.onDaemonMessage({
+        type: 'agentState',
+        sessionId,
+        state: {
+          phase: 'needs_user',
+          since: '2026-06-12T10:00:00.000Z',
+          openTaskCount: 0,
+          need: { kind: 'question', summary: 'SQLite or Postgres?' },
+        },
+      })
+
+      expect(telegram).not.toHaveBeenCalled()
+
+      const settings = reg.getSettings()
+      reg.setSettings({
+        ...settings,
+        notifications: {
+          ...settings.notifications,
+          telegramBotToken: '123456:secret',
+          telegramChatId: '-100123',
+        },
+      })
+
+      expect(telegram).toHaveBeenCalledWith(
+        { botToken: '123456:secret', chatId: '-100123' },
+        { title: 'keyboard needs you', body: 'SQLite or Postgres?' },
+      )
+      expect(ntfy).not.toHaveBeenCalled()
+
+      telegram.mockClear()
+      const updated = reg.getSettings()
+      reg.setSettings({
+        ...updated,
+        notifications: {
+          ...updated.notifications,
+          web: false,
+        },
+      })
+
+      expect(telegram).not.toHaveBeenCalled()
+    } finally {
+      store.close()
+    }
+  })
 })
 
 describe('structured transcript channel', () => {
