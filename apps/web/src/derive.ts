@@ -3,6 +3,7 @@ import type {
   AgentKind,
   GitRepositoryWire,
   HostMetricsWire,
+  IssueWire,
   MachineWire,
   SessionMeta,
 } from '@podium/protocol'
@@ -690,6 +691,60 @@ export function filterSidebarSections(sections: SidebarSections, query: string):
       .filter((repo): repo is RepoNavView => repo !== null),
     repos: sections.repos.map(filterRepo).filter((repo): repo is RepoNavView => repo !== null),
   }
+}
+
+export interface IssueNavView {
+  issue: IssueWire
+  repoName: string
+  sessions: SessionMeta[]
+  activityAt: number
+}
+
+/** Sessions living in an issue's worktree — exact cwd match or nested under it.
+ *  Mirrors the server's sessionsForIssue membership so the sidebar count stays
+ *  live between issuesChanged broadcasts. */
+function sessionsForIssueWorktree(
+  sessions: SessionMeta[],
+  worktreePath: string | null,
+): SessionMeta[] {
+  if (!worktreePath) return []
+  return sessions.filter((s) => s.cwd === worktreePath || s.cwd.startsWith(`${worktreePath}/`))
+}
+
+/** Flat, activity-sorted issue list for the sidebar Issues tab. Each issue carries
+ *  its live sessions (from the session stream, not the wire snapshot) so badges and
+ *  ordering stay fresh. Archived issues are dropped. Most-recently-active first;
+ *  issues with no sessions fall back to their updatedAt. */
+export function issueNavList(
+  issues: IssueWire[],
+  sessions: SessionMeta[],
+  now: number = Date.now(),
+): IssueNavView[] {
+  const views = issues
+    .filter((i) => !i.archived)
+    .map((issue): IssueNavView => {
+      const mine = sortSessionsForSidebar(
+        sessionsForIssueWorktree(sessions, issue.worktreePath),
+        now,
+      )
+      const lastSession = mine.reduce((max, s) => Math.max(max, Date.parse(s.lastActiveAt) || 0), 0)
+      const activityAt = lastSession || Date.parse(issue.updatedAt) || 0
+      const repoName = issue.repoPath.split('/').filter(Boolean).pop() ?? issue.repoPath
+      return { issue, repoName, sessions: mine, activityAt }
+    })
+  return views.sort((a, b) => b.activityAt - a.activityAt)
+}
+
+/** Narrow the issue list by the sidebar filter text — issue title, repo name, or stage. */
+export function filterIssueNav(list: IssueNavView[], query: string): IssueNavView[] {
+  const q = query.trim().toLowerCase()
+  if (!q) return list
+  return list.filter(
+    (v) =>
+      v.issue.title.toLowerCase().includes(q) ||
+      v.repoName.toLowerCase().includes(q) ||
+      v.issue.stage.toLowerCase().includes(q),
+  )
 }
 
 function orderMap(ids: string[]): Map<string, number> {
