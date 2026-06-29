@@ -349,7 +349,7 @@ export function MobileApp(): JSX.Element {
             fallback={<div className="m-auto text-[13px] text-muted-foreground/70">Loading…</div>}
           >
             <MarkdownFilePanel
-              sessionId={activeFileTab.scope.kind === 'session' ? activeFileTab.scope.sessionId : ''}
+              scope={activeFileTab.scope}
               path={activeFileTab.path}
               onClose={() => closeFileTab(activeFileTab.id)}
             />

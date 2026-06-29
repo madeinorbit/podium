@@ -4,6 +4,7 @@ import { EditorView as CMView } from '@codemirror/view'
 import { Columns2, Eye, Pencil, Save, X } from 'lucide-react'
 import { type JSX, useEffect, useRef, useState } from 'react'
 import { canSave } from './editor-save'
+import { scopeKey, type FileScope } from './file-scope'
 import { useIsMobile } from './hooks/use-is-mobile'
 import { MarkdownPreview } from './MarkdownPreview'
 import { lineForTop, topForLine, type BlockPos } from './scroll-sync'
@@ -31,18 +32,18 @@ function loadMode(id: string, fallback: Mode): Mode {
  *  preview with Preview/Source/Split modes; other files render the source editor as
  *  before. */
 export function MarkdownFilePanel({
-  sessionId,
+  scope,
   path,
   onClose,
 }: {
-  sessionId: string
+  scope: FileScope
   path: string
   onClose: () => void
 }): JSX.Element {
-  const doc = useFileDocument(sessionId, path)
+  const doc = useFileDocument(scope, path)
   const md = isMarkdown(path)
   const mobile = useIsMobile()
-  const tabId = `file:${sessionId}:${path}`
+  const tabId = `file:${scopeKey(scope)}:${path}`
   const [mode, setMode] = useState<Mode>(() => loadMode(tabId, md ? 'preview' : 'source'))
   const viewRef = useRef<EditorView | null>(null)
   const previewScrollRef = useRef<HTMLDivElement | null>(null)
@@ -112,7 +113,7 @@ export function MarkdownFilePanel({
 
   const showSource = !md || mode === 'source' || mode === 'split'
   const showPreview = md && (mode === 'preview' || mode === 'split')
-  const fileKey = `${sessionId}:${path}:${doc.reloadNonce}`
+  const fileKey = `${scopeKey(scope)}:${path}:${doc.reloadNonce}`
 
   return (
     <div className="flex h-full w-full min-w-0 flex-col bg-background">
@@ -177,7 +178,7 @@ export function MarkdownFilePanel({
           {showPreview && (
             <div className="flex min-w-0 flex-1">
               <MarkdownPreview
-                sessionId={sessionId}
+                sessionId={scope.kind === 'session' ? scope.sessionId : ''}
                 path={path}
                 content={doc.content}
                 scrollRef={previewScrollRef}

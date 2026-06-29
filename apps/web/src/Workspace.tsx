@@ -267,7 +267,7 @@ export function Workspace(): JSX.Element {
               ) : (
                 <Suspense fallback={null}>
                   <MarkdownFilePanel
-                    sessionId={t.file.sessionId}
+                    scope={t.file.scope}
                     path={t.file.path}
                     onClose={() => closeFileTab(t.id)}
                   />

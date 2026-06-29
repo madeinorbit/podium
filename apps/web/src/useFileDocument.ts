@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { canSave } from './editor-save'
+import { scopeKey, type FileScope } from './file-scope'
 import { useStore } from './store'
 
 export interface FileDocument {
@@ -22,8 +23,11 @@ export interface FileDocument {
  *  so a preview and a source editor can share the same document. Extracted from
  *  the original FileEditorPanel. All files open editable; the daemon rejects
  *  out-of-repo writes, surfaced via toast. */
-export function useFileDocument(sessionId: string, path: string): FileDocument {
-  const { readFile, writeFile } = useStore()
+export function useFileDocument(scope: FileScope, path: string): FileDocument {
+  const { readFileScoped, writeFileScoped } = useStore()
+  const scopeRef = useRef(scope)
+  scopeRef.current = scope
+  const key = scopeKey(scope)
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading')
   const [message, setMessage] = useState('')
   const [content, setContentState] = useState('')
@@ -46,7 +50,7 @@ export function useFileDocument(sessionId: string, path: string): FileDocument {
     if (!canSave({ editable, dirty, saving })) return
     setSaving(true)
     const body = contentRef.current
-    const r = await writeFile({ sessionId, path, content: body, baseHash })
+    const r = await writeFileScoped({ scope: scopeRef.current, path, content: body, baseHash })
     setSaving(false)
     if (r.ok) {
       setBaseHash(r.baseHash)
@@ -58,7 +62,7 @@ export function useFileDocument(sessionId: string, path: string): FileDocument {
           label: 'Overwrite',
           onClick: async () => {
             setSaving(true)
-            const r2 = await writeFile({ sessionId, path, content: contentRef.current })
+            const r2 = await writeFileScoped({ scope: scopeRef.current, path, content: contentRef.current })
             setSaving(false)
             if (r2.ok) {
               setBaseHash(r2.baseHash)
@@ -74,7 +78,7 @@ export function useFileDocument(sessionId: string, path: string): FileDocument {
     } else {
       toast.error(r.error ?? 'Save failed')
     }
-  }, [sessionId, path, writeFile, baseHash, dirty, saving, editable, reload])
+  }, [key, path, writeFileScoped, baseHash, dirty, saving, editable, reload])
 
   useEffect(() => {
     let cancelled = false
@@ -82,7 +86,7 @@ export function useFileDocument(sessionId: string, path: string): FileDocument {
     setDirty(false)
     setBaseHash(undefined)
     void (async () => {
-      const r = await readFile(sessionId, path)
+      const r = await readFileScoped(scopeRef.current, path)
       if (cancelled) return
       if (!r.ok) {
         setStatus('error')
@@ -97,7 +101,7 @@ export function useFileDocument(sessionId: string, path: string): FileDocument {
     return () => {
       cancelled = true
     }
-  }, [sessionId, path, readFile, reloadNonce])
+  }, [key, path, readFileScoped, reloadNonce])
 
   return {
     status, message, content, contentRef, editable, dirty, saving, baseHash,
