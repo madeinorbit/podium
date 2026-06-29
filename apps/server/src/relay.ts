@@ -356,6 +356,9 @@ export class SessionRegistry {
   private readonly telegramSetup: TelegramSetupClient
   private readonly generateTelegramSetupCode: () => string
   private readonly now: () => number
+  // Single registry-wide timer that persists only sessions whose activity counters
+  // advanced since the last tick — keeps the per-frame / per-keystroke path off the DB.
+  private readonly activityFlushTimer = setInterval(() => this.flushActivity(), 12_000)
 
   constructor(
     private readonly store: SessionStore = new SessionStore(':memory:'),
@@ -365,6 +368,7 @@ export class SessionRegistry {
     this.telegramSetup = options.telegramSetup ?? DEFAULT_TELEGRAM_SETUP_CLIENT
     this.generateTelegramSetupCode = options.generateTelegramSetupCode ?? defaultTelegramSetupCode
     this.now = options.now ?? Date.now
+    this.activityFlushTimer.unref?.()
     this.loadFromStore()
     this.issues = new IssueService({
       store: this.store,
@@ -403,6 +407,22 @@ export class SessionRegistry {
 
   private persist(session: Session): void {
     this.store.upsertSession(session.toRow())
+  }
+
+  /** Persist every session whose activity counters advanced since the last flush.
+   *  Keeps the per-frame / per-keystroke path off the DB — the timer below calls
+   *  this on a coarse interval, so a busy session writes at most once per tick. */
+  flushActivity(): void {
+    for (const s of this.sessions.values()) {
+      if (s.activityDirty) {
+        this.persist(s)
+        s.clearActivityDirty()
+      }
+    }
+  }
+
+  dispose(): void {
+    clearInterval(this.activityFlushTimer)
   }
 
   private loadFromStore(): void {
@@ -455,6 +475,9 @@ export class SessionRegistry {
         },
         durableLabel: r.durableLabel,
         lastActiveAt: r.lastActiveAt,
+        lastOutputAt: r.lastOutputAt,
+        lastInputAt: r.lastInputAt,
+        lastResumedAt: r.lastResumedAt,
         status: reloadStatus,
         exitCode: exitCode ?? undefined,
         ...(r.name ? { name: r.name } : {}),
@@ -829,6 +852,11 @@ export class SessionRegistry {
     if (existing) {
       if (existing.status === 'hibernated' || existing.status === 'exited') {
         this.resurrectSession({ sessionId: existing.sessionId })
+      } else {
+        // Reopening a still-live but long-idle session also resets its hibernation
+        // timer — the user is back on it even with no new message. (resurrectSession
+        // already stamps this for the parked case above.)
+        this.sessions.get(existing.sessionId)?.markResumed()
       }
       return { sessionId: existing.sessionId }
     }
@@ -1136,6 +1164,9 @@ export class SessionRegistry {
     }
     session.status = 'starting'
     session.exitCode = undefined
+    // Waking a session resets its hibernation idle timer — otherwise a stale
+    // lastActiveAt makes it immediately eligible to be parked again.
+    session.markResumed()
     this.persist(session)
     this.toMachine(session.machineId, {
       type: 'spawn',

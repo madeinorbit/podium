@@ -1427,6 +1427,37 @@ describe('hibernation', () => {
     return sessionId
   }
 
+  it('does not write the DB on every output frame — coalesces to the flush', () => {
+    const store = new SessionStore(':memory:')
+    const reg = new SessionRegistry(store)
+    const daemon: ControlMessage[] = []
+    reg.attachDaemon('local', (m) => daemon.push(m))
+    const sessionId = liveSession(reg, daemon)
+    const spy = vi.spyOn(store, 'upsertSession')
+    for (let i = 0; i < 50; i++) {
+      reg.onDaemonMessageFrom('local', { type: 'agentFrame', sessionId, seq: i, data: 'eA==' })
+    }
+    const duringFrames = spy.mock.calls.length
+    reg.flushActivity()
+    expect(spy.mock.calls.length - duringFrames).toBeLessThanOrEqual(1) // one write at flush
+    expect(duringFrames).toBe(0) // zero writes during the 50 frames
+  })
+
+  it('seeds activity counters from the DB on a fresh registry (survives restart)', () => {
+    const store = new SessionStore(':memory:')
+    const reg = new SessionRegistry(store)
+    const daemon: ControlMessage[] = []
+    reg.attachDaemon('local', (m) => daemon.push(m))
+    const sessionId = liveSession(reg, daemon)
+    reg.onDaemonMessageFrom('local', { type: 'agentFrame', sessionId, seq: 0, data: 'eA==' })
+    reg.flushActivity()
+    // New registry on the SAME store — simulates a restart.
+    const reg2 = new SessionRegistry(store)
+    // biome-ignore lint/suspicious/noExplicitAny: inspect the rehydrated session
+    const seeded = (reg2 as any).sessions.get(sessionId)
+    expect(seeded.lastOutputAtMs).toBeGreaterThan(0)
+  })
+
   it('hibernate kills the process, keeps the row, survives the agentExit echo', () => {
     const reg = new SessionRegistry()
     const daemon: ControlMessage[] = []
