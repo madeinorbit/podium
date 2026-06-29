@@ -421,18 +421,35 @@ export const appRouter = t.router({
   }),
   files: t.router({
     read: t.procedure
-      .input(z.object({ sessionId: z.string(), path: z.string() }))
+      .input(
+        z.union([
+          z.object({ sessionId: z.string(), path: z.string() }),
+          z.object({ machineId: z.string().optional(), root: z.string(), path: z.string() }),
+        ]),
+      )
       .query(({ ctx, input }) => ctx.registry.readFile(input)),
     write: t.procedure
       .input(
-        z.object({
-          sessionId: z.string(),
-          path: z.string(),
-          content: z.string(),
-          baseHash: z.string().optional(),
-        }),
+        z.union([
+          z.object({
+            sessionId: z.string(),
+            path: z.string(),
+            content: z.string(),
+            baseHash: z.string().optional(),
+          }),
+          z.object({
+            machineId: z.string().optional(),
+            root: z.string(),
+            path: z.string(),
+            content: z.string(),
+            baseHash: z.string().optional(),
+          }),
+        ]),
       )
       .mutation(({ ctx, input }) => ctx.registry.writeFile(input)),
+    list: t.procedure
+      .input(z.object({ machineId: z.string().optional(), root: z.string(), path: z.string().optional() }))
+      .query(({ ctx, input }) => ctx.registry.listDir(input)),
   }),
 })
 

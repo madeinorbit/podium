@@ -1983,3 +1983,30 @@ describe('output-relay priority + frame batch', () => {
     expect(frames.map((f) => f.seq)).toEqual([0, 1])
   })
 })
+
+describe('listDir routing', () => {
+  it('routes listDir to the worktree machine and resolves entries', async () => {
+    const reg = new SessionRegistry()
+    const daemon: ControlMessage[] = []
+    reg.attachDaemon('local', (m) => daemon.push(m))
+
+    const p = reg.listDir({ machineId: 'local', root: '/w', path: '/w' })
+    const req = daemon.find((m) => m.type === 'dirListRequest') as
+      | { requestId: string; path: string }
+      | undefined
+    expect(req).toBeDefined()
+    if (!req) throw new Error('dirListRequest not sent')
+
+    reg.onDaemonMessageFrom('local', {
+      type: 'dirListResult',
+      requestId: req.requestId,
+      ok: true,
+      path: req.path,
+      entries: [{ name: 'src', isDir: true }],
+    })
+
+    const r = await p
+    expect(r.ok).toBe(true)
+    expect(r.entries).toEqual([{ name: 'src', isDir: true }])
+  })
+})

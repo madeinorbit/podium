@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { basename } from 'node:path'
 import type { PodiumSettings } from '@podium/core'
 import type {
+  DirListResultMessage,
   FileAssetResultMessage,
   FileReadResultMessage,
   FileWriteResultMessage,
@@ -312,6 +313,10 @@ export class SessionRegistry {
   private readonly pendingFileWrites = new Map<
     string,
     (r: Omit<FileWriteResultMessage, 'type' | 'requestId'>) => void
+  >()
+  private readonly pendingDirLists = new Map<
+    string,
+    (r: Omit<DirListResultMessage, 'type' | 'requestId'>) => void
   >()
   /**
    * In-progress composer/prompt text per session. The live value lives here (read
@@ -1981,6 +1986,15 @@ export class SessionRegistry {
         }
         break
       }
+      case 'dirListResult': {
+        const resolve = this.pendingDirLists.get(msg.requestId)
+        if (resolve) {
+          this.pendingDirLists.delete(msg.requestId)
+          const { type: _t, requestId: _r, ...payload } = msg
+          resolve(payload)
+        }
+        break
+      }
     }
   }
 
@@ -2062,23 +2076,57 @@ export class SessionRegistry {
     )
   }
 
-  readFile({
-    sessionId,
-    path,
-  }: {
-    sessionId: string
-    path: string
-  }): Promise<Omit<FileReadResultMessage, 'type' | 'requestId'>> {
-    const session = this.sessions.get(sessionId)
-    if (!session) return Promise.resolve({ ok: false, path, error: 'no session' })
-    const knownPath = knownPathsFor(session.transcriptItems()).has(path)
+  listDir(input: {
+    machineId?: string
+    root: string
+    path?: string
+  }): Promise<Omit<DirListResultMessage, 'type' | 'requestId'>> {
+    const path = input.path ?? input.root
+    return this.daemonRequest(
+      this.pendingDirLists,
+      'dl',
+      FILE_RPC_TIMEOUT_MS,
+      () => ({ ok: false, path, entries: [], error: 'timeout' }),
+      (requestId) => ({ type: 'dirListRequest', requestId, root: input.root, path }),
+      input.machineId ?? this.defaultMachineId(),
+    )
+  }
+
+  readFile(
+    input: { sessionId: string; path: string } | { machineId?: string; root: string; path: string },
+  ): Promise<Omit<FileReadResultMessage, 'type' | 'requestId'>> {
+    if ('sessionId' in input) {
+      const session = this.sessions.get(input.sessionId)
+      if (!session) return Promise.resolve({ ok: false, path: input.path, error: 'no session' })
+      const knownPath = knownPathsFor(session.transcriptItems()).has(input.path)
+      return this.daemonRequest(
+        this.pendingFileReads,
+        'fr',
+        FILE_RPC_TIMEOUT_MS,
+        () => ({ ok: false, path: input.path, error: 'timeout' }),
+        (requestId) => ({
+          type: 'fileReadRequest',
+          requestId,
+          cwd: session.cwd,
+          path: input.path,
+          knownPath,
+        }),
+        session.machineId,
+      )
+    }
     return this.daemonRequest(
       this.pendingFileReads,
       'fr',
       FILE_RPC_TIMEOUT_MS,
-      () => ({ ok: false, path, error: 'timeout' }),
-      (requestId) => ({ type: 'fileReadRequest', requestId, cwd: session.cwd, path, knownPath }),
-      session.machineId, // the file lives in the session's cwd on its machine
+      () => ({ ok: false, path: input.path, error: 'timeout' }),
+      (requestId) => ({
+        type: 'fileReadRequest',
+        requestId,
+        cwd: input.root,
+        path: input.path,
+        knownPath: false,
+      }),
+      input.machineId ?? this.defaultMachineId(),
     )
   }
 
@@ -2102,33 +2150,38 @@ export class SessionRegistry {
     )
   }
 
-  writeFile({
-    sessionId,
-    path,
-    content,
-    baseHash,
-  }: {
-    sessionId: string
-    path: string
-    content: string
-    baseHash?: string
-  }): Promise<Omit<FileWriteResultMessage, 'type' | 'requestId'>> {
-    const session = this.sessions.get(sessionId)
-    if (!session) return Promise.resolve({ ok: false, error: 'no session' })
+  writeFile(
+    input:
+      | { sessionId: string; path: string; content: string; baseHash?: string }
+      | { machineId?: string; root: string; path: string; content: string; baseHash?: string },
+  ): Promise<Omit<FileWriteResultMessage, 'type' | 'requestId'>> {
+    const build = (requestId: string, cwd: string) => ({
+      type: 'fileWriteRequest' as const,
+      requestId,
+      cwd,
+      path: input.path,
+      content: input.content,
+      ...(input.baseHash ? { baseHash: input.baseHash } : {}),
+    })
+    if ('sessionId' in input) {
+      const session = this.sessions.get(input.sessionId)
+      if (!session) return Promise.resolve({ ok: false, error: 'no session' })
+      return this.daemonRequest(
+        this.pendingFileWrites,
+        'fw',
+        FILE_RPC_TIMEOUT_MS,
+        () => ({ ok: false, error: 'timeout' }),
+        (requestId) => build(requestId, session.cwd),
+        session.machineId,
+      )
+    }
     return this.daemonRequest(
       this.pendingFileWrites,
       'fw',
       FILE_RPC_TIMEOUT_MS,
       () => ({ ok: false, error: 'timeout' }),
-      (requestId) => ({
-        type: 'fileWriteRequest',
-        requestId,
-        cwd: session.cwd,
-        path,
-        content,
-        ...(baseHash ? { baseHash } : {}),
-      }),
-      session.machineId, // the file lives in the session's cwd on its machine
+      (requestId) => build(requestId, input.root),
+      input.machineId ?? this.defaultMachineId(),
     )
   }
 
