@@ -423,7 +423,10 @@ export class Session {
     const client = this.clients.get(clientId)
     if (!client) return
     if (clientId !== this.controllerId || !client.viewVisible.has(this.sessionId)) return
-    if (this.geometry.cols === client.viewport.cols && this.geometry.rows === client.viewport.rows) {
+    if (
+      this.geometry.cols === client.viewport.cols &&
+      this.geometry.rows === client.viewport.rows
+    ) {
       return
     }
     this.geometry = { ...client.viewport }

@@ -123,9 +123,9 @@ describe('SessionStore sessions', () => {
       }),
     )
     const [r] = store.loadSessions()
-    expect(r.lastOutputAt).toBe('2026-06-29T01:00:00.000Z')
-    expect(r.lastInputAt).toBe('2026-06-29T02:00:00.000Z')
-    expect(r.lastResumedAt).toBe('2026-06-29T03:00:00.000Z')
+    expect(r?.lastOutputAt).toBe('2026-06-29T01:00:00.000Z')
+    expect(r?.lastInputAt).toBe('2026-06-29T02:00:00.000Z')
+    expect(r?.lastResumedAt).toBe('2026-06-29T03:00:00.000Z')
     store.close()
   })
 
@@ -133,9 +133,9 @@ describe('SessionStore sessions', () => {
     const store = new SessionStore(':memory:')
     store.upsertSession(row({ id: 's2', durableLabel: 'podium-s2' }))
     const [r] = store.loadSessions()
-    expect(r.lastOutputAt).toBeNull()
-    expect(r.lastInputAt).toBeNull()
-    expect(r.lastResumedAt).toBeNull()
+    expect(r?.lastOutputAt).toBeNull()
+    expect(r?.lastInputAt).toBeNull()
+    expect(r?.lastResumedAt).toBeNull()
     store.close()
   })
 })
@@ -311,9 +311,7 @@ describe('SessionStore schema migration', () => {
     )
     // Sanity: the fixture really lacks the machines table before migration.
     expect(
-      db
-        .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='machines'")
-        .get(),
+      db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='machines'").get(),
     ).toBeUndefined()
     db.close()
 
@@ -326,9 +324,7 @@ describe('SessionStore schema migration', () => {
     // It gained a machine_id, defaulting to the '__local__' placeholder (multi-machine).
     expect(sessions[0]?.machineId).toBe('__local__')
     // The repos table was re-keyed to (machine_id, path) and the row carried over.
-    expect(store.listRepos()).toEqual([
-      { machineId: '__local__', path: '/proj', originUrl: null },
-    ])
+    expect(store.listRepos()).toEqual([{ machineId: '__local__', path: '/proj', originUrl: null }])
     // The machines table now exists (listMachines reads it — would throw otherwise).
     expect(store.listMachines()).toEqual([])
     store.close()

@@ -127,7 +127,12 @@ describe('Session', () => {
     a.viewVisible = new Set() // not rendering s1 (e.g. a backgrounded tab)
     s.handleResize('a', 200, 50)
     expect(s.geometry).toEqual(geo) // unchanged — its stale grid can't move the PTY
-    expect(toDaemon).not.toHaveBeenCalledWith({ type: 'resize', sessionId: 's1', cols: 200, rows: 50 })
+    expect(toDaemon).not.toHaveBeenCalledWith({
+      type: 'resize',
+      sessionId: 's1',
+      cols: 200,
+      rows: 50,
+    })
   })
 
   it('applies a resize from a controller that is rendering the session', () => {

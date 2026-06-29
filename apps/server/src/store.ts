@@ -689,7 +689,10 @@ export class SessionStore {
       id: r.id as number,
       role: r.role as SuperagentMessageRow['role'],
       content: r.content as string,
-      toolCalls: parseJsonColumn<ToolCallRow[]>(r.tool_calls, `superagent msg ${String(r.id)} tool_calls`),
+      toolCalls: parseJsonColumn<ToolCallRow[]>(
+        r.tool_calls,
+        `superagent msg ${String(r.id)} tool_calls`,
+      ),
       toolCallId: (r.tool_call_id as string | null) ?? undefined,
       toolName: (r.tool_name as string | null) ?? undefined,
       createdAt: r.created_at as string,
@@ -905,11 +908,29 @@ export class SessionStore {
            updated_at = excluded.updated_at, archived = excluded.archived`,
       )
       .run(
-        row.id, row.repoPath, row.seq, row.title, row.description, row.stage, row.worktreePath,
-        row.branch, row.parentBranch, row.defaultAgent, row.linearId, row.linearIdentifier,
-        row.linearUrl, row.activityNotes, row.notesUpdatedAt, row.suggestedStage, row.suggestedReason,
-        JSON.stringify(blockedBy), row.dependencyNote, row.prUrl,
-        row.createdAt, row.updatedAt, row.archived ? 1 : 0,
+        row.id,
+        row.repoPath,
+        row.seq,
+        row.title,
+        row.description,
+        row.stage,
+        row.worktreePath,
+        row.branch,
+        row.parentBranch,
+        row.defaultAgent,
+        row.linearId,
+        row.linearIdentifier,
+        row.linearUrl,
+        row.activityNotes,
+        row.notesUpdatedAt,
+        row.suggestedStage,
+        row.suggestedReason,
+        JSON.stringify(blockedBy),
+        row.dependencyNote,
+        row.prUrl,
+        row.createdAt,
+        row.updatedAt,
+        row.archived ? 1 : 0,
       )
   }
 
@@ -949,11 +970,11 @@ export class SessionStore {
   }
 
   listIssueRows(repoPath?: string): IssueRow[] {
-    const rows = (repoPath
-      ? this.db.prepare('SELECT * FROM issues WHERE repo_path = ? ORDER BY seq ASC').all(repoPath)
-      : this.db
-          .prepare('SELECT * FROM issues ORDER BY repo_path ASC, seq ASC')
-          .all()) as Record<string, unknown>[]
+    const rows = (
+      repoPath
+        ? this.db.prepare('SELECT * FROM issues WHERE repo_path = ? ORDER BY seq ASC').all(repoPath)
+        : this.db.prepare('SELECT * FROM issues ORDER BY repo_path ASC, seq ASC').all()
+    ) as Record<string, unknown>[]
     return rows.map((r) => this.mapIssueRow(r))
   }
 

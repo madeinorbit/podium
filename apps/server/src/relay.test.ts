@@ -383,6 +383,9 @@ describe('SessionRegistry', () => {
     durableLabel: `podium-${id}`,
     createdAt: '2026-01-01T00:00:00.000Z',
     lastActiveAt: '2026-01-01T00:00:00.000Z',
+    lastOutputAt: null,
+    lastInputAt: null,
+    lastResumedAt: null,
     archived: false,
     workState: null,
     ...over,
@@ -764,6 +767,9 @@ describe('SessionRegistry', () => {
       durableLabel: 'podium-good',
       createdAt: '2026-06-09T00:00:00.000Z',
       lastActiveAt: '2026-06-09T00:00:00.000Z',
+      lastOutputAt: null,
+      lastInputAt: null,
+      lastResumedAt: null,
     })
     // upsertSession now refuses an out-of-enum agentKind (write-side guard), so a
     // legacy/externally-corrupted row is simulated by writing a valid row and then
@@ -785,6 +791,9 @@ describe('SessionRegistry', () => {
       durableLabel: 'podium-bad',
       createdAt: '2026-06-09T00:00:00.000Z',
       lastActiveAt: '2026-06-09T00:00:00.000Z',
+      lastOutputAt: null,
+      lastInputAt: null,
+      lastResumedAt: null,
     })
     ;(store as unknown as { db: { prepare(q: string): { run(...a: unknown[]): unknown } } }).db
       .prepare("UPDATE sessions SET agent_kind = 'bogus-agent' WHERE id = 'bad'")
@@ -1587,6 +1596,78 @@ describe('hibernation', () => {
     })
     expect(reg.listSessions()[0]?.status).toBe('hibernated')
   })
+
+  it('does not re-hibernate a session that was just resurrected (resume resets the idle timer)', () => {
+    const store = new SessionStore(':memory:')
+    const reg = new SessionRegistry(store)
+    const daemon: ControlMessage[] = []
+    reg.attachDaemon('local', (m) => daemon.push(m))
+    store.setSettings({
+      ...store.getSettings(),
+      hibernation: { enabled: true, memoryPct: 80, idleMinutes: 1 },
+    })
+    const sessionId = liveSession(reg, daemon)
+    reg.onDaemonMessageFrom('local', {
+      type: 'agentState',
+      sessionId,
+      state: {
+        phase: 'idle',
+        since: '2026-06-12T00:00:00.000Z',
+        openTaskCount: 0,
+        idle: { kind: 'done' },
+      },
+    })
+    // biome-ignore lint/suspicious/noExplicitAny: reach into the private map on purpose
+    const internal = (reg as any).sessions.get(sessionId)
+    internal.lastActiveAt = new Date(Date.now() - 3_600_000).toISOString()
+    reg.hibernateSession({ sessionId })
+    reg.resurrectSession({ sessionId })
+    reg.onDaemonMessageFrom('local', bind(sessionId)) // respawn binds → live
+    reg.onDaemonMessageFrom('local', {
+      type: 'hostMetrics',
+      hostname: 'box',
+      sampledAt: new Date().toISOString(),
+      memory: { totalBytes: 100, availableBytes: 10, swapTotalBytes: 0, swapFreeBytes: 0 },
+    })
+    expect(reg.listSessions()[0]?.status).toBe('live')
+  })
+
+  it('keeps a session awake when the user typed recently, even with no agent activity', () => {
+    const store = new SessionStore(':memory:')
+    const reg = new SessionRegistry(store)
+    const daemon: ControlMessage[] = []
+    reg.attachDaemon('local', (m) => daemon.push(m))
+    store.setSettings({
+      ...store.getSettings(),
+      hibernation: { enabled: true, memoryPct: 80, idleMinutes: 1 },
+    })
+    const sessionId = liveSession(reg, daemon)
+    reg.onDaemonMessageFrom('local', {
+      type: 'agentState',
+      sessionId,
+      state: {
+        phase: 'idle',
+        since: '2026-06-12T00:00:00.000Z',
+        openTaskCount: 0,
+        idle: { kind: 'done' },
+      },
+    })
+    // biome-ignore lint/suspicious/noExplicitAny: reach into the private map on purpose
+    const internal = (reg as any).sessions.get(sessionId)
+    internal.lastActiveAt = new Date(Date.now() - 3_600_000).toISOString()
+    // Controller types just now — recent input must veto hibernation.
+    const c = sink()
+    const idC = reg.attachClient(c.send)
+    reg.onClientMessage(idC, { type: 'attach', sessionId })
+    reg.onClientMessage(idC, { type: 'input', sessionId, data: 'eA==' })
+    reg.onDaemonMessageFrom('local', {
+      type: 'hostMetrics',
+      hostname: 'box',
+      sampledAt: new Date().toISOString(),
+      memory: { totalBytes: 100, availableBytes: 10, swapTotalBytes: 0, swapFreeBytes: 0 },
+    })
+    expect(reg.listSessions()[0]?.status).toBe('live')
+  })
 })
 
 describe('reconnect identity (hello reclaim)', () => {
@@ -1793,6 +1874,9 @@ describe('SessionRegistry snooze', () => {
       durableLabel: 'd',
       createdAt: '2026-06-19T00:00:00.000Z',
       lastActiveAt: '2026-06-19T00:00:00.000Z',
+      lastOutputAt: null,
+      lastInputAt: null,
+      lastResumedAt: null,
       archived: false,
       workState: null,
     })

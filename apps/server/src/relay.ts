@@ -1212,8 +1212,12 @@ export class SessionRegistry {
           // Only agents that are demonstrably done/idle. needs_user keeps its
           // pending question; working agents are obviously off-limits.
           (s.agentState?.phase === 'idle' || s.agentState?.phase === 'ended') &&
-          Date.parse(s.lastActiveAt) <= idleCutoff &&
-          now - s.lastOutputMs >= OUTPUT_QUIET_MS,
+          // "Idle since" is the latest of genuine agent activity (lastActiveAt),
+          // the last resume, and the last user input — any of them resets the idle
+          // timer WITHOUT restamping lastActiveAt (which owns recency ordering).
+          Math.max(Date.parse(s.lastActiveAt), s.lastResumedAtMs, s.lastInputAtMs) <= idleCutoff &&
+          // A running TUI repaints, so recent output means work is still going.
+          now - s.lastOutputAtMs >= OUTPUT_QUIET_MS,
       )
       .sort((a, b) => a.lastActiveAt.localeCompare(b.lastActiveAt))
     const target = candidates[0]
