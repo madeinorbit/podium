@@ -1,6 +1,6 @@
 import { ChevronUp, File as FileIcon, Folder, RefreshCw } from 'lucide-react'
 import type { JSX } from 'react'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { formatAppError } from './AppErrorPage'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -31,16 +31,23 @@ export function FileBrowserModal({
   const [entries, setEntries] = useState<Entry[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [resolvedRoot, setResolvedRoot] = useState<string | null>(null)
+  const resolvedRootRef = useRef<string | null>(null)
 
   const load = useCallback(
     async (next: string) => {
       setLoading(true)
       setError(null)
+      setEntries([])
       try {
         const r = await listDir({ machineId, root, path: next })
         if (!r.ok) {
           setError(r.error ?? 'Could not open directory')
           return
+        }
+        if (resolvedRootRef.current === null) {
+          resolvedRootRef.current = r.path
+          setResolvedRoot(r.path)
         }
         setPath(r.path)
         setEntries(r.entries)
@@ -57,8 +64,9 @@ export function FileBrowserModal({
     void load(root)
   }, [load, root])
 
-  const atRoot = path === root
-  const parent = path.slice(0, path.lastIndexOf('/')) || '/'
+  const atRoot = resolvedRoot == null || path === resolvedRoot
+  const parentCandidate = path.slice(0, path.lastIndexOf('/')) || '/'
+  const parent = resolvedRoot && parentCandidate.startsWith(resolvedRoot) ? parentCandidate : (resolvedRoot ?? root)
 
   return (
     <Dialog

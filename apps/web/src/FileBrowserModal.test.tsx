@@ -1,6 +1,8 @@
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
-import { describe, it, expect, vi } from 'vitest'
+import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/react'
+import { afterEach, describe, it, expect, vi } from 'vitest'
 import { FileBrowserModal } from './FileBrowserModal'
+
+afterEach(() => cleanup())
 
 const listDir = vi.fn()
 const openFileInWorktree = vi.fn()
@@ -8,6 +10,13 @@ vi.mock('./store', () => ({ useStore: () => ({ listDir, openFileInWorktree }) })
 vi.mock('@/hooks/use-is-mobile', () => ({ useIsMobile: () => false }))
 
 describe('FileBrowserModal', () => {
+  it('disables Up at the root', async () => {
+    listDir.mockResolvedValue({ ok: true, path: '/w', entries: [{ name: 'src', isDir: true }] })
+    render(<FileBrowserModal root="/w" title="files" onClose={vi.fn()} />)
+    await screen.findByText('src')
+    expect((screen.getByLabelText('Up') as HTMLButtonElement).disabled).toBe(true)
+  })
+
   it('lists entries, navigates into a dir, opens a file', async () => {
     listDir.mockImplementation(async ({ path }: { path?: string }) =>
       path && path.endsWith('/src')
