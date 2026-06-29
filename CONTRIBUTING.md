@@ -11,6 +11,8 @@
   the vendored `abduco` session helper into `~/.podium/bin/` on first daemon start; without it,
   sessions don't survive a daemon restart. `tmux` is used as a fallback, or set
   `PODIUM_ABDUCO=/path/to/abduco` to point at a prebuilt binary.
+- (Optional) **Rust + Tauri CLI** — only needed to build the desktop app (`apps/desktop`); the
+  desktop build runs a preflight that checks for it.
 
 ## Setup
 
@@ -33,6 +35,16 @@ your local dev.
 
 Override defaults with env vars when needed: `PODIUM_PORT` (backend, default 18787),
 `PODIUM_WEB_PORT` (web, default 55556), `PODIUM_ALLOWED_HOSTS` (comma-separated Vite allowed hosts).
+
+### Desktop app (Tauri)
+
+A native window that spawns the bun-compiled backend and serves the same web UI locally. Needs the
+Rust + Tauri toolchain (the build runs a preflight that checks for it):
+
+```bash
+bun run --cwd apps/desktop dev                  # dev: stage the compiled backend + web, open the window
+bun run --cwd apps/desktop build                # release build (.app/.dmg on macOS, deb/AppImage on Linux)
+```
 
 ## Everyday commands
 
