@@ -1,4 +1,4 @@
-import type { SessionMeta } from '@podium/protocol'
+import type { IssueWire, SessionMeta } from '@podium/protocol'
 import {
   BarChart3,
   ChevronDown,
@@ -25,8 +25,11 @@ import { cn } from '@/lib/utils'
 import {
   agentBadge,
   agentColorHex,
+  filterIssueNav,
   filterSidebarSections,
   isSnoozed,
+  issueNavList,
+  type IssueNavView,
   partitionStaleSessions,
   partitionWorkItems,
   type RepoNavView,
@@ -79,6 +82,10 @@ export function Sidebar(): JSX.Element {
     setSuperOpen,
     sidebarSettings,
     setSidebarSettings,
+    issues,
+    sidebarTab,
+    setSidebarTab,
+    setOpenIssueId,
   } = useStore()
   const now = useNow(60_000)
   const [pickerOpen, setPickerOpen] = useState(false)
@@ -89,6 +96,7 @@ export function Sidebar(): JSX.Element {
   // conversation transcripts — this only narrows the visible repo/worktree list.
   const [treeFilter, setTreeFilter] = useState('')
   const sections = filterSidebarSections(sidebarSections(repos, sessions, pins, now), treeFilter)
+  const issueList = filterIssueNav(issueNavList(issues, sessions, now), treeFilter)
 
   // Drag-to-reorder state.
   const dragRepoPath = useRef<string | null>(null)
@@ -178,6 +186,15 @@ export function Sidebar(): JSX.Element {
   const selectWorktree = (path: string) => {
     setSelectedWorktree(path)
     setView('workspace')
+  }
+  const selectIssue = (issue: IssueWire) => {
+    if (issue.worktreePath) {
+      setSelectedWorktree(issue.worktreePath)
+      setView('workspace')
+    } else {
+      // Not started yet — open the detail drawer so the user can "Start work".
+      setOpenIssueId(issue.id)
+    }
   }
 
   return (
@@ -380,130 +397,193 @@ export function Sidebar(): JSX.Element {
           </div>
         )}
 
-        {/* ── WORKTREES ── */}
-        <div className="flex items-center justify-between px-3 pt-3 pb-1">
-          <span className="text-[11px] font-semibold tracking-[0.08em] text-muted-foreground">
-            WORKTREES
-          </span>
-          <Select
-            value={sidebarSettings.repoSort}
-            onValueChange={(v) =>
-              void setSidebarSettings({
-                repoSort: v as 'alphabetical' | 'lastUsed' | 'custom',
-              })
-            }
+        {/* Tab switcher: repo/worktree tree vs. flat issues list. The work-items
+            umbrella above stays fixed regardless of tab. */}
+        <div className="flex gap-1 px-3 pt-3 pb-1">
+          <button
+            type="button"
+            className={cn(
+              'flex-1 rounded-md border px-2 py-1 text-[11px] font-medium',
+              sidebarTab === 'worktrees'
+                ? 'border-primary bg-secondary text-foreground'
+                : 'border-transparent text-muted-foreground hover:text-foreground',
+            )}
+            aria-pressed={sidebarTab === 'worktrees'}
+            onClick={() => setSidebarTab('worktrees')}
           >
-            <SelectTrigger
-              aria-label="Sort repositories"
-              className="h-5 w-auto gap-1 border-0 px-1 text-[10px] text-muted-foreground/70 shadow-none hover:text-foreground focus:ring-0"
-            >
-              {/* Render the human label, not the raw enum value — Base UI's
-                  SelectValue shows the bare `value` (e.g. "lastUsed") otherwise. */}
-              <span>{REPO_SORT_LABELS[sidebarSettings.repoSort]}</span>
-            </SelectTrigger>
-            <SelectContent align="end">
-              <SelectItem value="lastUsed" className="text-xs">
-                Last used
-              </SelectItem>
-              <SelectItem value="alphabetical" className="text-xs">
-                A–Z
-              </SelectItem>
-              <SelectItem value="custom" className="text-xs">
-                Custom
-              </SelectItem>
-            </SelectContent>
-          </Select>
+            Worktrees
+          </button>
+          <button
+            type="button"
+            className={cn(
+              'flex-1 rounded-md border px-2 py-1 text-[11px] font-medium',
+              sidebarTab === 'issues'
+                ? 'border-primary bg-secondary text-foreground'
+                : 'border-transparent text-muted-foreground hover:text-foreground',
+            )}
+            aria-pressed={sidebarTab === 'issues'}
+            onClick={() => setSidebarTab('issues')}
+          >
+            Issues
+          </button>
         </div>
 
-        {sections.pinnedWorktrees.length > 0 && (
-          <CollapsibleSection
-            label="PINNED WORKTREES"
-            storageKey="podium:sidebar:collapsed:pinned-worktrees"
-            count={sections.pinnedWorktrees.length}
-          >
-            {sections.pinnedWorktrees.map((worktree) => (
-              <WorktreeBlock
-                key={worktree.path}
-                worktree={worktree}
-                pinned={true}
-                active={selectedWorktree === worktree.path}
-                paneA={paneA}
-                now={now}
-                setPinned={setPinned}
-                onSelectWorktree={() => selectWorktree(worktree.path)}
-                onSelectPanel={selectPanel}
-              />
-            ))}
-          </CollapsibleSection>
-        )}
+        {sidebarTab === 'worktrees' && (
+          <>
+            {/* ── WORKTREES ── */}
+            <div className="flex items-center justify-between px-3 pt-3 pb-1">
+              <span className="text-[11px] font-semibold tracking-[0.08em] text-muted-foreground">
+                WORKTREES
+              </span>
+              <Select
+                value={sidebarSettings.repoSort}
+                onValueChange={(v) =>
+                  void setSidebarSettings({
+                    repoSort: v as 'alphabetical' | 'lastUsed' | 'custom',
+                  })
+                }
+              >
+                <SelectTrigger
+                  aria-label="Sort repositories"
+                  className="h-5 w-auto gap-1 border-0 px-1 text-[10px] text-muted-foreground/70 shadow-none hover:text-foreground focus:ring-0"
+                >
+                  {/* Render the human label, not the raw enum value — Base UI's
+                  SelectValue shows the bare `value` (e.g. "lastUsed") otherwise. */}
+                  <span>{REPO_SORT_LABELS[sidebarSettings.repoSort]}</span>
+                </SelectTrigger>
+                <SelectContent align="end">
+                  <SelectItem value="lastUsed" className="text-xs">
+                    Last used
+                  </SelectItem>
+                  <SelectItem value="alphabetical" className="text-xs">
+                    A–Z
+                  </SelectItem>
+                  <SelectItem value="custom" className="text-xs">
+                    Custom
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
 
-        {sections.pinnedRepos.length > 0 && (
-          <CollapsibleSection
-            label="PINNED REPOS"
-            storageKey="podium:sidebar:collapsed:pinned-repos"
-            count={sections.pinnedRepos.length}
-          >
-            {sections.pinnedRepos.map((repo) => (
-              <RepoBlock
-                key={repo.path}
-                repo={repo}
-                pinned={true}
-                selectedWorktree={selectedWorktree}
-                paneA={paneA}
-                now={now}
-                setPinned={setPinned}
-                onSelectWorktree={selectWorktree}
-                onSelectPanel={selectPanel}
-              />
-            ))}
-          </CollapsibleSection>
-        )}
-
-        {sortedRepos.map((repo) => (
-          <div
-            key={repo.path}
-            draggable
-            onDragStart={(e) => handleRepoDragStart(e, repo.path)}
-            onDragOver={(e) => handleRepoDragOver(e, repo.path)}
-            onDrop={(e) => handleRepoDrop(e, repo.path)}
-            onDragEnd={handleRepoDragEnd}
-            className={cn(
-              'transition-opacity',
-              dragOverPath === repo.path && dragRepoPath.current !== repo.path
-                ? 'opacity-50 outline outline-1 outline-primary'
-                : '',
+            {sections.pinnedWorktrees.length > 0 && (
+              <CollapsibleSection
+                label="PINNED WORKTREES"
+                storageKey="podium:sidebar:collapsed:pinned-worktrees"
+                count={sections.pinnedWorktrees.length}
+              >
+                {sections.pinnedWorktrees.map((worktree) => (
+                  <WorktreeBlock
+                    key={worktree.path}
+                    worktree={worktree}
+                    pinned={true}
+                    active={selectedWorktree === worktree.path}
+                    paneA={paneA}
+                    now={now}
+                    setPinned={setPinned}
+                    onSelectWorktree={() => selectWorktree(worktree.path)}
+                    onSelectPanel={selectPanel}
+                  />
+                ))}
+              </CollapsibleSection>
             )}
-          >
-            <RepoBlock
-              repo={repo}
-              pinned={false}
-              selectedWorktree={selectedWorktree}
-              paneA={paneA}
-              now={now}
-              setPinned={setPinned}
-              onSelectWorktree={selectWorktree}
-              onSelectPanel={selectPanel}
-              dragHandle={
-                <GripVertical
-                  size={12}
-                  className="ml-1 flex-none cursor-grab text-muted-foreground/40 hover:text-muted-foreground"
-                  aria-hidden="true"
-                />
-              }
-            />
-          </div>
-        ))}
 
-        {!hasRows &&
-          (treeFilter.trim() ? (
-            <div className="p-3 text-xs text-muted-foreground/70">
-              No worktrees match "{treeFilter.trim()}".
+            {sections.pinnedRepos.length > 0 && (
+              <CollapsibleSection
+                label="PINNED REPOS"
+                storageKey="podium:sidebar:collapsed:pinned-repos"
+                count={sections.pinnedRepos.length}
+              >
+                {sections.pinnedRepos.map((repo) => (
+                  <RepoBlock
+                    key={repo.path}
+                    repo={repo}
+                    pinned={true}
+                    selectedWorktree={selectedWorktree}
+                    paneA={paneA}
+                    now={now}
+                    setPinned={setPinned}
+                    onSelectWorktree={selectWorktree}
+                    onSelectPanel={selectPanel}
+                  />
+                ))}
+              </CollapsibleSection>
+            )}
+
+            {sortedRepos.map((repo) => (
+              <div
+                key={repo.path}
+                draggable
+                onDragStart={(e) => handleRepoDragStart(e, repo.path)}
+                onDragOver={(e) => handleRepoDragOver(e, repo.path)}
+                onDrop={(e) => handleRepoDrop(e, repo.path)}
+                onDragEnd={handleRepoDragEnd}
+                className={cn(
+                  'transition-opacity',
+                  dragOverPath === repo.path && dragRepoPath.current !== repo.path
+                    ? 'opacity-50 outline outline-1 outline-primary'
+                    : '',
+                )}
+              >
+                <RepoBlock
+                  repo={repo}
+                  pinned={false}
+                  selectedWorktree={selectedWorktree}
+                  paneA={paneA}
+                  now={now}
+                  setPinned={setPinned}
+                  onSelectWorktree={selectWorktree}
+                  onSelectPanel={selectPanel}
+                  dragHandle={
+                    <GripVertical
+                      size={12}
+                      className="ml-1 flex-none cursor-grab text-muted-foreground/40 hover:text-muted-foreground"
+                      aria-hidden="true"
+                    />
+                  }
+                />
+              </div>
+            ))}
+
+            {!hasRows &&
+              (treeFilter.trim() ? (
+                <div className="p-3 text-xs text-muted-foreground/70">
+                  No worktrees match "{treeFilter.trim()}".
+                </div>
+              ) : (
+                <div className="p-3 text-xs text-muted-foreground/70">
+                  No repos yet. Use the + button above to scan a folder.
+                </div>
+              ))}
+          </>
+        )}
+
+        {sidebarTab === 'issues' && (
+          <div className="min-w-0">
+            <div className="px-3 pt-3 pb-1">
+              <span className="text-[11px] font-semibold tracking-[0.08em] text-muted-foreground">
+                ISSUES
+              </span>
             </div>
-          ) : (
-            <div className="p-3 text-xs text-muted-foreground/70">
-              No repos yet. Use the + button above to scan a folder.
-            </div>
-          ))}
+            {issueList.length === 0 ? (
+              <p className="px-3 py-2 text-xs text-muted-foreground/60">
+                {treeFilter ? 'No matching issues.' : 'No issues.'}
+              </p>
+            ) : (
+              issueList.map((nav) => (
+                <IssueBlock
+                  key={nav.issue.id}
+                  nav={nav}
+                  active={selectedWorktree !== null && selectedWorktree === nav.issue.worktreePath}
+                  paneA={paneA}
+                  now={now}
+                  onSelectIssue={() => selectIssue(nav.issue)}
+                  onSelectPanel={selectPanel}
+                  setPinned={setPinned}
+                />
+              ))
+            )}
+          </div>
+        )}
       </div>
       {/* Host health strip, pinned under the list — machine-level indicators
           (connection health, memory). */}
@@ -682,6 +762,103 @@ function RepoBlock({
             onSelectPanel={onSelectPanel}
           />
         ))}
+    </div>
+  )
+}
+
+const ISSUE_STAGE_LABELS: Record<string, string> = {
+  backlog: 'Backlog',
+  planning: 'Planning',
+  in_progress: 'In Progress',
+  review: 'Review',
+  verifying: 'Verifying',
+  done: 'Done',
+}
+
+/** One issue row in the sidebar Issues tab. Default-collapsed (chevron toggles the
+ *  attached sessions); the header shows the title, a session count, a muted repo
+ *  name, and a stage pill. Clicking the header selects the issue's worktree (or
+ *  opens the detail drawer for an unstarted issue). Mirrors WorktreeBlock. */
+function IssueBlock({
+  nav,
+  active,
+  paneA,
+  now,
+  onSelectIssue,
+  onSelectPanel,
+  setPinned,
+}: {
+  nav: IssueNavView
+  active: boolean
+  paneA: string | null
+  now: number
+  onSelectIssue: () => void
+  onSelectPanel: (worktreePath: string, sessionId: string) => void
+  setPinned: (kind: PinKind, id: string, pinned: boolean) => Promise<void>
+}): JSX.Element {
+  const { issue, repoName, sessions } = nav
+  const [collapsed, toggle] = useCollapsed(`podium:sidebar:issue-collapsed:${issue.id}`, true)
+  const { visible, stale } = partitionStaleSessions(sessions, now)
+  const renderRow = (session: SessionMeta) => (
+    <PanelRow
+      key={session.sessionId}
+      session={session}
+      pinned={false}
+      active={active && paneA === session.sessionId}
+      onSelect={() => {
+        if (issue.worktreePath) onSelectPanel(issue.worktreePath, session.sessionId)
+      }}
+      onPinned={(p) => void setPinned('panel', session.sessionId, p)}
+    />
+  )
+  return (
+    <div className="min-w-0">
+      <div className="group/iss flex min-w-0 items-stretch">
+        <button
+          type="button"
+          className="flex-none px-1 text-muted-foreground/60 hover:text-foreground"
+          onClick={toggle}
+          aria-expanded={!collapsed}
+          aria-label={collapsed ? `Expand ${issue.title}` : `Collapse ${issue.title}`}
+        >
+          {collapsed ? (
+            <ChevronRight size={12} aria-hidden="true" />
+          ) : (
+            <ChevronDown size={12} aria-hidden="true" />
+          )}
+        </button>
+        <button
+          type="button"
+          className={cn(
+            'flex min-w-0 flex-1 cursor-pointer items-center gap-2 py-1.5 pr-3 text-left text-sm',
+            active
+              ? 'bg-accent font-medium text-accent-foreground'
+              : 'text-foreground hover:bg-accent',
+          )}
+          onClick={onSelectIssue}
+        >
+          <span className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap">
+            {issue.title}
+          </span>
+          {sessions.length > 0 && (
+            <span className="flex-none text-[10px] text-muted-foreground/70 tabular-nums">
+              {sessions.length}
+            </span>
+          )}
+          <span className="max-w-[80px] flex-none overflow-hidden text-ellipsis whitespace-nowrap text-[10px] text-muted-foreground/70">
+            {repoName}
+          </span>
+          <span className="flex-none rounded border border-input px-1 text-[10px] uppercase text-muted-foreground">
+            {ISSUE_STAGE_LABELS[issue.stage] ?? issue.stage}
+          </span>
+        </button>
+      </div>
+      {!collapsed && (
+        <>
+          {visible.map(renderRow)}
+          <StaleSection sessions={stale} render={renderRow} />
+        </>
+      )}
     </div>
   )
 }
