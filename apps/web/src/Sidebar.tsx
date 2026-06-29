@@ -43,6 +43,7 @@ import {
 } from './derive'
 import { FileBrowserModal } from './FileBrowserModal'
 import { HostIndicators } from './HostIndicators'
+import { STAGE_LABELS } from './issue-card'
 import { NewPanelMenu } from './NewPanelMenu'
 import { RepoScanFlow } from './RepoScanFlow'
 import { SearchView } from './SearchView'
@@ -566,7 +567,7 @@ export function Sidebar(): JSX.Element {
             </div>
             {issueList.length === 0 ? (
               <p className="px-3 py-2 text-xs text-muted-foreground/60">
-                {treeFilter ? 'No matching issues.' : 'No issues.'}
+                {treeFilter.trim() ? 'No matching issues.' : 'No issues.'}
               </p>
             ) : (
               issueList.map((nav) => (
@@ -766,15 +767,6 @@ function RepoBlock({
   )
 }
 
-const ISSUE_STAGE_LABELS: Record<string, string> = {
-  backlog: 'Backlog',
-  planning: 'Planning',
-  in_progress: 'In Progress',
-  review: 'Review',
-  verifying: 'Verifying',
-  done: 'Done',
-}
-
 /** One issue row in the sidebar Issues tab. Default-collapsed (chevron toggles the
  *  attached sessions); the header shows the title, a session count, a muted repo
  *  name, and a stage pill. Clicking the header selects the issue's worktree (or
@@ -814,19 +806,25 @@ function IssueBlock({
   return (
     <div className="min-w-0">
       <div className="group/iss flex min-w-0 items-stretch">
-        <button
-          type="button"
-          className="flex-none px-1 text-muted-foreground/60 hover:text-foreground"
-          onClick={toggle}
-          aria-expanded={!collapsed}
-          aria-label={collapsed ? `Expand ${issue.title}` : `Collapse ${issue.title}`}
-        >
-          {collapsed ? (
-            <ChevronRight size={12} aria-hidden="true" />
-          ) : (
-            <ChevronDown size={12} aria-hidden="true" />
-          )}
-        </button>
+        {sessions.length > 0 ? (
+          <button
+            type="button"
+            className="flex-none px-1 text-muted-foreground/60 hover:text-foreground"
+            onClick={toggle}
+            aria-expanded={!collapsed}
+            aria-label={collapsed ? `Expand ${issue.title}` : `Collapse ${issue.title}`}
+          >
+            {collapsed ? (
+              <ChevronRight size={12} aria-hidden="true" />
+            ) : (
+              <ChevronDown size={12} aria-hidden="true" />
+            )}
+          </button>
+        ) : (
+          <span className="flex-none px-1">
+            <ChevronRight size={12} className="invisible" aria-hidden="true" />
+          </span>
+        )}
         <button
           type="button"
           className={cn(
@@ -849,7 +847,7 @@ function IssueBlock({
             {repoName}
           </span>
           <span className="flex-none rounded border border-input px-1 text-[10px] uppercase text-muted-foreground">
-            {ISSUE_STAGE_LABELS[issue.stage] ?? issue.stage}
+            {STAGE_LABELS[issue.stage]}
           </span>
         </button>
       </div>

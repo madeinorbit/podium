@@ -1,4 +1,13 @@
-import type { IssueWire } from '@podium/protocol'
+import type { IssueStage, IssueWire } from '@podium/protocol'
+
+export const STAGE_LABELS: Record<IssueStage, string> = {
+  backlog: 'Backlog',
+  planning: 'Planning',
+  in_progress: 'In Progress',
+  review: 'Review',
+  verifying: 'Verifying',
+  done: 'Done',
+}
 
 export function issueCardModel(issue: IssueWire): {
   title: string

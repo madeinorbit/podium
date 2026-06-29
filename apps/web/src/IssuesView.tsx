@@ -1,4 +1,4 @@
-import { ISSUE_STAGES, type IssueStage, type IssueWire } from '@podium/protocol'
+import { ISSUE_STAGES, type IssueWire } from '@podium/protocol'
 import { Plus } from 'lucide-react'
 import type { JSX } from 'react'
 import { useState } from 'react'
@@ -6,18 +6,9 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { CardBoundary } from './CardBoundary'
-import { issueCardModel } from './issue-card'
+import { issueCardModel, STAGE_LABELS } from './issue-card'
 import { NewIssueDialog } from './NewIssueDialog'
 import { useStore } from './store'
-
-const STAGE_LABELS: Record<IssueStage, string> = {
-  backlog: 'Backlog',
-  planning: 'Planning',
-  in_progress: 'In Progress',
-  review: 'Review',
-  verifying: 'Verifying',
-  done: 'Done',
-}
 
 /**
  * The Issues board — a kanban over the issue lifecycle stages. One column per

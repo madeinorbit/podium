@@ -11,17 +11,9 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
+import { STAGE_LABELS } from './issue-card'
 import { useStore } from './store'
 import { sessionDisplayName } from './WorkerLabel'
-
-const STAGE_LABELS: Record<IssueStage, string> = {
-  backlog: 'Backlog',
-  planning: 'Planning',
-  in_progress: 'In Progress',
-  review: 'Review',
-  verifying: 'Verifying',
-  done: 'Done',
-}
 
 type MergeStyle = 'ff-only' | 'pr' | 'ask'
 
