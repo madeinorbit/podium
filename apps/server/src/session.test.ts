@@ -574,4 +574,59 @@ describe('Session transcript cache (recent-delta window)', () => {
     s.subscribeTranscript(caught, 'c3')
     expect(caught.sent).toEqual([])
   })
+
+  it('handleInput from the controller bumps lastInputAt and marks dirty', () => {
+    const s = makeSession()
+    // First attach makes this client the controller (see attachClient).
+    s.attachClient(makeClient('c'))
+    expect(s.lastInputAtMs).toBe(0)
+    s.handleInput('c', Buffer.from('x').toString('base64'))
+    expect(s.lastInputAtMs).toBeGreaterThan(0)
+    expect(s.activityDirty).toBe(true)
+  })
+
+  it('markResumed bumps lastResumedAt and marks dirty without touching lastActiveAt', () => {
+    const s = new Session({
+      sessionId: 's1',
+      agentKind: 'claude-code',
+      cwd: '/w',
+      title: 'w',
+      origin: { kind: 'spawn' },
+      createdAt: CREATED,
+      geometry: geo,
+      toDaemon: vi.fn(),
+      lastActiveAt: '2026-06-01T00:00:00.000Z',
+    })
+    s.markResumed()
+    expect(s.lastResumedAtMs).toBeGreaterThan(0)
+    expect(s.activityDirty).toBe(true)
+    expect(s.lastActiveAt).toBe('2026-06-01T00:00:00.000Z') // recency untouched
+  })
+
+  it('toRow serializes the counters as ISO (null when never set)', () => {
+    const s = makeSession()
+    expect(s.toRow().lastOutputAt).toBeNull()
+    s.markResumed()
+    const iso = s.toRow().lastResumedAt
+    expect(iso).not.toBeNull()
+    expect(Number.isNaN(Date.parse(iso as string))).toBe(false)
+  })
+
+  it('seeds counters from SessionInit ISO values', () => {
+    const s = new Session({
+      sessionId: 's1',
+      agentKind: 'claude-code',
+      cwd: '/w',
+      title: 'w',
+      origin: { kind: 'spawn' },
+      createdAt: CREATED,
+      geometry: geo,
+      toDaemon: vi.fn(),
+      lastInputAt: '2026-06-29T02:00:00.000Z',
+    })
+    expect(s.lastInputAtMs).toBe(Date.parse('2026-06-29T02:00:00.000Z'))
+    expect(s.clearActivityDirty).toBeTypeOf('function')
+    s.clearActivityDirty()
+    expect(s.activityDirty).toBe(false)
+  })
 })

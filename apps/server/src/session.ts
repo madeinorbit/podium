@@ -52,6 +52,9 @@ export interface SessionInit {
   resume?: ResumeRef
   durableLabel?: string
   lastActiveAt?: string
+  lastOutputAt?: string | null
+  lastInputAt?: string | null
+  lastResumedAt?: string | null
   status?: 'starting' | 'live' | 'reconnecting' | 'hibernated' | 'exited'
   exitCode?: number
   name?: string
@@ -144,6 +147,11 @@ export class Session {
   // process producing output" signal — the shell busy flag and the hibernation
   // guard that keeps a session with a running background agent awake.
   private outputAtMs = 0
+  private inputAtMs = 0
+  private resumedAtMs = 0
+  // Set when any of the three counters above advances; the registry's periodic
+  // flush persists dirty sessions and clears this. Keeps the hot path off the DB.
+  private activityDirty_ = false
   // Debounced "writing to the PTY right now" flag, maintained for shells only —
   // their activity signal, since they have no harness instrumentation.
   private shellBusy = false
@@ -185,6 +193,9 @@ export class Session {
     this.durableLabel = init.durableLabel ?? `podium-${init.sessionId}`
     this.resume = init.resume
     this.lastActiveAt = init.lastActiveAt ?? init.createdAt
+    this.outputAtMs = init.lastOutputAt ? Date.parse(init.lastOutputAt) : 0
+    this.inputAtMs = init.lastInputAt ? Date.parse(init.lastInputAt) : 0
+    this.resumedAtMs = init.lastResumedAt ? Date.parse(init.lastResumedAt) : 0
     if (init.status) this.status = init.status
     if (init.exitCode !== undefined) this.exitCode = init.exitCode
     if (init.name) this.name = init.name
@@ -197,9 +208,34 @@ export class Session {
     return this.clients.size
   }
 
-  /** Wall-clock ms of the last PTY output frame (0 = none seen yet). */
-  get lastOutputMs(): number {
+  /** Epoch ms of the last PTY output frame (0 = none). */
+  get lastOutputAtMs(): number {
     return this.outputAtMs
+  }
+  /** Epoch ms of the last controller input — any keys/mouse/paste (0 = none). */
+  get lastInputAtMs(): number {
+    return this.inputAtMs
+  }
+  /** Epoch ms of the last resume/resurrect (0 = never). */
+  get lastResumedAtMs(): number {
+    return this.resumedAtMs
+  }
+  get activityDirty(): boolean {
+    return this.activityDirty_
+  }
+
+  clearActivityDirty(): void {
+    this.activityDirty_ = false
+  }
+
+  /**
+   * Mark the session as just resumed/resurrected. Resets the hibernation idle
+   * timer (the eligibility check maxes this with lastActiveAt) WITHOUT touching
+   * lastActiveAt, which is authoritative for recency ordering.
+   */
+  markResumed(): void {
+    this.resumedAtMs = Date.now()
+    this.activityDirty_ = true
   }
 
   attachClient(client: ClientConn, sinceSeq?: number): void {
@@ -350,6 +386,8 @@ export class Session {
         this.shellCommandRunning = true
         this.markShellBusy()
       }
+      this.inputAtMs = Date.now()
+      this.activityDirty_ = true
       this.toDaemon({ type: 'input', sessionId: this.sessionId, data })
     }
   }
@@ -453,6 +491,7 @@ export class Session {
     this.bufferFrame(seq, data)
     this.broadcast({ type: 'outputFrame', sessionId: this.sessionId, seq, epoch: this.epoch, data })
     this.outputAtMs = Date.now()
+    this.activityDirty_ = true
     // Shells have no harness instrumentation, so output is our only progress
     // signal — but only *after* a command was submitted. Output that arrives
     // while no command is running (the prompt redrawing, keystroke echo) must not
@@ -616,8 +655,15 @@ export class Session {
       durableLabel: this.durableLabel,
       createdAt: this.createdAt,
       lastActiveAt: this.lastActiveAt,
+      lastOutputAt: Session.msToIso(this.outputAtMs),
+      lastInputAt: Session.msToIso(this.inputAtMs),
+      lastResumedAt: Session.msToIso(this.resumedAtMs),
       machineId: this.machineId,
     }
+  }
+
+  private static msToIso(ms: number): string | null {
+    return ms > 0 ? new Date(ms).toISOString() : null
   }
 
   toMeta(): SessionMeta {
