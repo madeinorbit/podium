@@ -117,10 +117,20 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
     if (!eligible()) return
     connection.requestControl() // last-foregrounded-wins
     applyFit(true) // force a repaint on reveal even when the size is unchanged
-    // Revealing a warm panel (display:none → flex) can leave the GPU canvas blank while
-    // xterm still treats unchanged cells as clean — they render black until something
-    // overwrites them. Force a full client-side repaint so the screen fills immediately.
     view.forceRepaint()
+  }
+
+  // A true REVEAL — the panel was hidden with display:none (a tab switch, or the page
+  // returning to the foreground), which frees the WebGL canvas's backing store. becomeEligible's
+  // forceRepaint can't repaint a discarded GL surface, so additionally recreate the renderer
+  // on the NEXT frame — by then the panel is laid out at its real size, so the fresh GL
+  // context measures correctly and does a full render. Guarded so a panel hidden again before
+  // the frame fires doesn't recreate a still-hidden (and about-to-be-discarded) canvas.
+  function reveal(): void {
+    becomeEligible()
+    requestAnimationFrame(() => {
+      if (eligible()) view.reloadWebgl()
+    })
   }
 
   let lastEpoch = -1
@@ -217,7 +227,7 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
   const offViewport = viewport.onChange(() => applyFit(false))
 
   const onVisibility = (): void => {
-    if (eligible()) becomeEligible()
+    if (eligible()) reveal() // page returning to the foreground is a reveal (canvas was freed)
   }
   if (typeof document !== 'undefined') {
     document.addEventListener('visibilitychange', onVisibility)
@@ -268,7 +278,9 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
     setActive(next: boolean): void {
       if (next === active) return
       active = next
-      if (active) becomeEligible()
+      // Becoming active = a reveal: the panel was display:none (its WebGL canvas freed),
+      // so recreate the renderer after layout, not just refresh.
+      if (active) reveal()
       // going inactive: do nothing — never resize a hidden panel
     },
     dispose() {

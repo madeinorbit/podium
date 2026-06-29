@@ -163,4 +163,21 @@ describe('mountSession eligibility-gated sizing', () => {
     expect(repaint, 'repaint on resize').toHaveBeenCalled()
     mounted.dispose()
   })
+
+  it('recreates the WebGL renderer on reveal (display:none → flex frees the canvas)', async () => {
+    withResizeObserver()
+    withFittableAddon()
+    const reload = vi.spyOn(TerminalView.prototype, 'reloadWebgl')
+    protoPatchRestorers.push(() => reload.mockRestore())
+    const { hub } = fakeHub()
+    // Mount INACTIVE (hidden), then reveal via setActive — the tab-switch path.
+    const mounted = mountSession(fittableHost(), { hub, sessionId: 's1', active: false })
+    reload.mockClear()
+    mounted.setActive(true) // reveal
+    // reloadWebgl is deferred to the next frame (so the canvas is laid out first).
+    await new Promise((r) => requestAnimationFrame(() => r(null)))
+    await new Promise((r) => setTimeout(r, 0))
+    expect(reload, 'reveal recreates the GL renderer').toHaveBeenCalled()
+    mounted.dispose()
+  })
 })

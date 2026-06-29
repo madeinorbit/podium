@@ -75,6 +75,10 @@ export class TerminalView {
   // we substitute below) flows through the exact same path as real keystrokes.
   private dataSink: ((data: string) => void) | undefined
   private fileLinkConfig: FileLinkConfig | null = null
+  // The live WebGL renderer addon (undefined when GPU is off, WebGL is unavailable, or
+  // after a context loss dropped us to the DOM renderer). Kept so reloadWebgl() can
+  // recreate it to recover a discarded canvas.
+  private webgl: WebglAddon | undefined
 
   constructor(opts: TerminalViewOptions = {}) {
     this.term = new Terminal({
@@ -155,15 +159,43 @@ export class TerminalView {
       const webgl = new WebglAddon()
       webgl.onContextLoss(() => {
         webgl.dispose() // drop back to the DOM renderer
+        if (this.webgl === webgl) this.webgl = undefined
         // The lost GL canvas is blank. The DOM renderer that takes over is damage-based
         // and won't repaint cells it considers clean, so without forcing a full repaint
         // the screen stays black (showing only cells that change next) until new output.
         this.forceRepaint()
       })
       this.term.loadAddon(webgl)
+      this.webgl = webgl
     } catch {
       // WebGL unavailable; the DOM renderer stays active
+      this.webgl = undefined
     }
+  }
+
+  /**
+   * Recover the screen after the panel was hidden with `display:none`: the browser
+   * frees the WebGL canvas's backing store, so on reveal only damage-painted cells show
+   * and the rest is black. A plain refresh can't repaint a discarded GL surface — recreate
+   * the renderer instead. Disposing + reloading the WebGL addon gives a fresh GL context +
+   * glyph atlas and a full render of xterm's buffer. Call this AFTER the panel is visible
+   * and laid out (e.g. on the next animation frame) so the new renderer measures the real
+   * canvas size. Falls back to a plain repaint when GPU rendering is off / unavailable.
+   */
+  reloadWebgl(): void {
+    if (this.disposed) return
+    if (!gpuEnabled()) {
+      this.forceRepaint()
+      return
+    }
+    try {
+      this.webgl?.dispose()
+    } catch {
+      // already disposed / mid-teardown
+    }
+    this.webgl = undefined
+    this.tryLoadWebgl() // creates + loads a fresh WebglAddon (or stays DOM if unavailable)
+    this.forceRepaint() // ensure a full redraw via whichever renderer is now active
   }
 
   write(text: string): void {
