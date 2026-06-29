@@ -79,6 +79,12 @@ export interface SessionRow {
   durableLabel: string
   createdAt: string
   lastActiveAt: string
+  /** Last PTY output frame (ISO); null = none recorded. Hibernation signal only — not recency. */
+  lastOutputAt: string | null
+  /** Last controller input — any keys/mouse/paste (ISO); null = none. Hibernation signal only. */
+  lastInputAt: string | null
+  /** Last resume/resurrect (ISO); null = never. Hibernation signal only. */
+  lastResumedAt: string | null
   archived: boolean
   /** Kanban column on the home board; null = unsorted. */
   workState: string | null
@@ -347,7 +353,7 @@ export class SessionStore {
       .prepare(
         `SELECT id, agent_kind, cwd, title, name, origin_kind, conversation_id, resume_kind,
                 resume_value, status, exit_code, durable_label, created_at, last_active_at,
-                archived, work_state, machine_id
+                archived, work_state, machine_id, last_output_at, last_input_at, last_resumed_at
          FROM sessions ORDER BY created_at ASC, rowid ASC`,
       )
       .all() as Record<string, unknown>[]
@@ -369,6 +375,9 @@ export class SessionStore {
       archived: r.archived === 1,
       workState: (r.work_state as string | null) ?? null,
       machineId: (r.machine_id as string | null) ?? '__local__',
+      lastOutputAt: (r.last_output_at as string | null) ?? null,
+      lastInputAt: (r.last_input_at as string | null) ?? null,
+      lastResumedAt: (r.last_resumed_at as string | null) ?? null,
     }))
   }
 
@@ -386,8 +395,8 @@ export class SessionStore {
         `INSERT INTO sessions
            (id, agent_kind, cwd, title, name, origin_kind, conversation_id, resume_kind,
             resume_value, status, exit_code, durable_label, created_at, last_active_at,
-            archived, work_state, machine_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            archived, work_state, machine_id, last_output_at, last_input_at, last_resumed_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            title = excluded.title,
            name = excluded.name,
@@ -401,7 +410,10 @@ export class SessionStore {
            last_active_at = excluded.last_active_at,
            archived = excluded.archived,
            work_state = excluded.work_state,
-           machine_id = excluded.machine_id`,
+           machine_id = excluded.machine_id,
+           last_output_at = excluded.last_output_at,
+           last_input_at = excluded.last_input_at,
+           last_resumed_at = excluded.last_resumed_at`,
       )
       .run(
         row.id,
@@ -421,6 +433,9 @@ export class SessionStore {
         row.archived ? 1 : 0,
         row.workState,
         row.machineId ?? '__local__',
+        row.lastOutputAt ?? null,
+        row.lastInputAt ?? null,
+        row.lastResumedAt ?? null,
       )
   }
 
@@ -1003,7 +1018,10 @@ export class SessionStore {
          created_at TEXT NOT NULL,
          last_active_at TEXT NOT NULL,
          archived INTEGER NOT NULL DEFAULT 0,
-         work_state TEXT
+         work_state TEXT,
+         last_output_at TEXT,
+         last_input_at TEXT,
+         last_resumed_at TEXT
        )`,
     )
     this.db.exec(
@@ -1164,6 +1182,14 @@ export class SessionStore {
     if (!colNames.has('archived'))
       this.db.exec('ALTER TABLE sessions ADD COLUMN archived INTEGER NOT NULL DEFAULT 0')
     if (!colNames.has('work_state')) this.db.exec('ALTER TABLE sessions ADD COLUMN work_state TEXT')
+    // v6 -> activity timestamps: durable hibernation signals. Nullable adds; old rows read
+    // NULL and behave as today until first live activity. Structural guard, no version gate.
+    if (!colNames.has('last_output_at'))
+      this.db.exec('ALTER TABLE sessions ADD COLUMN last_output_at TEXT')
+    if (!colNames.has('last_input_at'))
+      this.db.exec('ALTER TABLE sessions ADD COLUMN last_input_at TEXT')
+    if (!colNames.has('last_resumed_at'))
+      this.db.exec('ALTER TABLE sessions ADD COLUMN last_resumed_at TEXT')
     // v3 -> v4: per-session composer drafts (issue #34). A brand-new standalone
     // table created by the CREATE IF NOT EXISTS above — pre-v4 DBs gain it with no
     // ALTER, so the bump is just the recorded version marker.

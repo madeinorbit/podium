@@ -58,6 +58,9 @@ function row(overrides: Partial<SessionRow> = {}): SessionRow {
     durableLabel: 'podium-id-1',
     createdAt: '2026-06-09T00:00:00.000Z',
     lastActiveAt: '2026-06-09T00:00:00.000Z',
+    lastOutputAt: null,
+    lastInputAt: null,
+    lastResumedAt: null,
     // loadSessions() always returns the attribution column ('__local__' pre-multi-machine),
     // so the round-trip fixture carries it too.
     machineId: '__local__',
@@ -105,6 +108,34 @@ describe('SessionStore sessions', () => {
     })
     store.upsertSession(r)
     expect(store.loadSessions()).toEqual([r])
+    store.close()
+  })
+
+  it('round-trips the activity timestamps (output/input/resumed)', () => {
+    const store = new SessionStore(':memory:')
+    store.upsertSession(
+      row({
+        id: 's1',
+        durableLabel: 'podium-s1',
+        lastOutputAt: '2026-06-29T01:00:00.000Z',
+        lastInputAt: '2026-06-29T02:00:00.000Z',
+        lastResumedAt: '2026-06-29T03:00:00.000Z',
+      }),
+    )
+    const [r] = store.loadSessions()
+    expect(r.lastOutputAt).toBe('2026-06-29T01:00:00.000Z')
+    expect(r.lastInputAt).toBe('2026-06-29T02:00:00.000Z')
+    expect(r.lastResumedAt).toBe('2026-06-29T03:00:00.000Z')
+    store.close()
+  })
+
+  it('reads null activity timestamps for a row that never had them', () => {
+    const store = new SessionStore(':memory:')
+    store.upsertSession(row({ id: 's2', durableLabel: 'podium-s2' }))
+    const [r] = store.loadSessions()
+    expect(r.lastOutputAt).toBeNull()
+    expect(r.lastInputAt).toBeNull()
+    expect(r.lastResumedAt).toBeNull()
     store.close()
   })
 })
