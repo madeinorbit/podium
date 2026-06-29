@@ -634,4 +634,29 @@ describe('Session transcript cache (recent-delta window)', () => {
     s.clearActivityDirty()
     expect(s.activityDirty).toBe(false)
   })
+
+  it('seeds a malformed activity ISO as 0 (never NaN — would freeze hibernation)', () => {
+    const s = new Session({
+      sessionId: 's1',
+      agentKind: 'claude-code',
+      cwd: '/w',
+      title: 'w',
+      origin: { kind: 'spawn' },
+      createdAt: CREATED,
+      geometry: geo,
+      toDaemon: vi.fn(),
+      lastOutputAt: 'not-a-date',
+      lastInputAt: 'garbage',
+      lastResumedAt: '',
+    })
+    // A NaN seed would make Math.max(..., NaN) === NaN and keep the session
+    // awake forever; the guard must fall back to 0 instead.
+    expect(s.lastOutputAtMs).toBe(0)
+    expect(s.lastInputAtMs).toBe(0)
+    expect(s.lastResumedAtMs).toBe(0)
+    // 0 serializes back to null, so a bad value doesn't poison the persisted row.
+    expect(s.toRow().lastOutputAt).toBeNull()
+    expect(s.toRow().lastInputAt).toBeNull()
+    expect(s.toRow().lastResumedAt).toBeNull()
+  })
 })

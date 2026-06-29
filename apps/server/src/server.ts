@@ -105,6 +105,11 @@ export async function startServer(opts: { port?: number } = {}): Promise<ServerH
             () =>
               new Promise<void>((res) => {
                 ;(server as unknown as Server).close(() => {
+                  // Persist the last dirty activity timestamps while the DB is still
+                  // open, then stop the periodic flush timer (so a tick can't fire an
+                  // upsertSession against a closed DB), and only then close the store.
+                  registry.flushActivity()
+                  registry.dispose()
                   store.close()
                   res()
                 })

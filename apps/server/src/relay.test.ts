@@ -1452,6 +1452,28 @@ describe('hibernation', () => {
     expect(duringFrames).toBe(0) // zero writes during the 50 frames
   })
 
+  it('dispose stops the periodic flush timer (no DB write after shutdown) and is idempotent', () => {
+    vi.useFakeTimers()
+    try {
+      const store = new SessionStore(':memory:')
+      const reg = new SessionRegistry(store)
+      const daemon: ControlMessage[] = []
+      reg.attachDaemon('local', (m) => daemon.push(m))
+      const sessionId = liveSession(reg, daemon)
+      // Mark the session dirty so a timer tick WOULD persist it if the timer still ran.
+      reg.onDaemonMessageFrom('local', { type: 'agentFrame', sessionId, seq: 0, data: 'eA==' })
+      reg.dispose()
+      // Calling dispose twice must be safe (graceful-shutdown path may double-fire).
+      reg.dispose()
+      const spy = vi.spyOn(store, 'upsertSession')
+      // Advance well past the 12s flush interval — the timer is cleared, so nothing fires.
+      vi.advanceTimersByTime(60_000)
+      expect(spy).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('seeds activity counters from the DB on a fresh registry (survives restart)', () => {
     const store = new SessionStore(':memory:')
     const reg = new SessionRegistry(store)

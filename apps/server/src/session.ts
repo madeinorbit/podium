@@ -193,9 +193,16 @@ export class Session {
     this.durableLabel = init.durableLabel ?? `podium-${init.sessionId}`
     this.resume = init.resume
     this.lastActiveAt = init.lastActiveAt ?? init.createdAt
-    this.outputAtMs = init.lastOutputAt ? Date.parse(init.lastOutputAt) : 0
-    this.inputAtMs = init.lastInputAt ? Date.parse(init.lastInputAt) : 0
-    this.resumedAtMs = init.lastResumedAt ? Date.parse(init.lastResumedAt) : 0
+    // A malformed stored ISO string parses to NaN, and Math.max(..., NaN) is NaN —
+    // which makes the session never hibernation-eligible (stuck awake forever). Fall
+    // back to 0 so a bad value behaves like "no activity yet".
+    const seedMs = (iso: string | null | undefined): number => {
+      const ms = iso ? Date.parse(iso) : 0
+      return Number.isNaN(ms) ? 0 : ms
+    }
+    this.outputAtMs = seedMs(init.lastOutputAt)
+    this.inputAtMs = seedMs(init.lastInputAt)
+    this.resumedAtMs = seedMs(init.lastResumedAt)
     if (init.status) this.status = init.status
     if (init.exitCode !== undefined) this.exitCode = init.exitCode
     if (init.name) this.name = init.name

@@ -1203,8 +1203,9 @@ export class SessionStore {
     if (!colNames.has('archived'))
       this.db.exec('ALTER TABLE sessions ADD COLUMN archived INTEGER NOT NULL DEFAULT 0')
     if (!colNames.has('work_state')) this.db.exec('ALTER TABLE sessions ADD COLUMN work_state TEXT')
-    // v6 -> activity timestamps: durable hibernation signals. Nullable adds; old rows read
-    // NULL and behave as today until first live activity. Structural guard, no version gate.
+    // Additive activity-timestamp columns (no version-gate bump): durable hibernation
+    // signals; old rows read NULL and behave as before until first live activity.
+    // Structural guard (column-presence), no version marker change.
     if (!colNames.has('last_output_at'))
       this.db.exec('ALTER TABLE sessions ADD COLUMN last_output_at TEXT')
     if (!colNames.has('last_input_at'))
