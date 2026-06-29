@@ -3,6 +3,7 @@ import {
   BarChart3,
   ChevronDown,
   ChevronRight,
+  FolderTree,
   GripVertical,
   Home,
   KanbanSquare,
@@ -37,6 +38,7 @@ import {
   sortWorktrees,
   type WorktreeNavView,
 } from './derive'
+import { FileBrowserModal } from './FileBrowserModal'
 import { HostIndicators } from './HostIndicators'
 import { NewPanelMenu } from './NewPanelMenu'
 import { RepoScanFlow } from './RepoScanFlow'
@@ -703,6 +705,7 @@ function WorktreeBlock({
   onSelectWorktree: () => void
   onSelectPanel: (worktreePath: string, sessionId: string) => void
 }): JSX.Element {
+  const [browsing, setBrowsing] = useState(false)
   const { visible, stale } = partitionStaleSessions(worktree.sessions, now)
   const renderRow = (session: SessionMeta) => (
     <PanelRow
@@ -749,9 +752,33 @@ function WorktreeBlock({
           setPinned={setPinned}
           revealClass="group-hover/wt:inline-flex"
         />
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          className={cn(
+            'w-7 min-w-7 flex-none rounded-none',
+            'hidden text-muted-foreground/70 hover:text-foreground group-hover/wt:inline-flex',
+          )}
+          title="Browse files"
+          aria-label="Browse files"
+          onClick={(e) => {
+            e.stopPropagation()
+            setBrowsing(true)
+          }}
+        >
+          <FolderTree size={13} aria-hidden="true" />
+        </Button>
       </div>
       {visible.map(renderRow)}
       <StaleSection sessions={stale} render={renderRow} />
+      {browsing && (
+        <FileBrowserModal
+          root={worktree.path}
+          machineId={worktree.machineId}
+          title={`Files — ${worktree.branch ?? worktree.path.split('/').pop()}`}
+          onClose={() => setBrowsing(false)}
+        />
+      )}
     </div>
   )
 }
