@@ -2,7 +2,13 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { serverConfig } from './trpc'
 
 const loc = (over: Partial<Location>): Location =>
-  ({ protocol: 'http:', host: 'localhost:5173', origin: 'http://localhost:5173', search: '', ...over }) as Location
+  ({
+    protocol: 'http:',
+    host: 'localhost:5173',
+    origin: 'http://localhost:5173',
+    search: '',
+    ...over,
+  }) as Location
 
 describe('serverConfig backend resolution', () => {
   afterEach(() => {
@@ -27,6 +33,23 @@ describe('serverConfig backend resolution', () => {
     expect(cfg.wsClientUrl).toBe('wss://h:1/client')
     expect(cfg.httpOrigin).toBe('https://h:1')
     expect(cfg.override).toBe(false)
+  })
+  it('normalizes an injected https:// server to wss:// (Machines-tab URL)', () => {
+    // The Machines tab + `npx @podium/daemon --server …` hand out an https:// origin; the
+    // desktop injects it verbatim. It must resolve, not fall back to same-origin (the freeze).
+    ;(globalThis as { __PODIUM_SERVER__?: string }).__PODIUM_SERVER__ =
+      'https://podium-host.example.com:55555'
+    const cfg = serverConfig(loc({}))
+    expect(cfg.wsClientUrl).toBe('wss://podium-host.example.com:55555/client')
+    expect(cfg.httpOrigin).toBe('https://podium-host.example.com:55555')
+    expect(cfg.override).toBe(true)
+  })
+  it('normalizes an injected http:// server to ws://', () => {
+    ;(globalThis as { __PODIUM_SERVER__?: string }).__PODIUM_SERVER__ = 'http://host:18787'
+    const cfg = serverConfig(loc({}))
+    expect(cfg.wsClientUrl).toBe('ws://host:18787/client')
+    expect(cfg.httpOrigin).toBe('http://host:18787')
+    expect(cfg.override).toBe(true)
   })
   it('ignores a malformed injected global and falls through', () => {
     ;(globalThis as { __PODIUM_SERVER__?: string }).__PODIUM_SERVER__ = 'not-a-url'

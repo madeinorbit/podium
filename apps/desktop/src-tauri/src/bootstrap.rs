@@ -88,6 +88,18 @@ pub fn server_injection_script(server_url: &str) -> String {
     format!("window.__PODIUM_SERVER__ = {lit};")
 }
 
+/// Remote-mode (client/daemon) injection: point the window at `server_url` AND mark setup as
+/// already done. Without the flag the web SetupGate would probe the REMOTE `/setup/config` —
+/// a cross-origin call an older relay answers without CORS (→ a "can't reach backend" screen),
+/// and SetupView there would POST setup config to the remote. This install's mode is already
+/// chosen, so the client must not gate on (or mutate) the remote's setup state.
+pub fn remote_injection_script(server_url: &str) -> String {
+    format!(
+        "{}\nwindow.__PODIUM_SKIP_SETUP__ = true;",
+        server_injection_script(server_url)
+    )
+}
+
 /// Block until http://127.0.0.1:<port>/health accepts a TCP connection or the budget runs
 /// out. Returns true if the port became reachable. (A TCP connect is enough — the server
 /// only binds once it is serving.)
@@ -186,6 +198,14 @@ mod tests {
         let s = server_injection_script("wss://relay.example:443");
         assert!(s.contains("wss://relay.example:443"));
         assert!(s.contains("__PODIUM_SERVER__"));
+    }
+
+    #[test]
+    fn remote_injection_script_sets_server_and_skip_setup() {
+        let s = remote_injection_script("https://relay.example:55555");
+        assert!(s.contains("https://relay.example:55555"));
+        assert!(s.contains("__PODIUM_SERVER__"));
+        assert!(s.contains("__PODIUM_SKIP_SETUP__ = true"));
     }
 
     #[test]

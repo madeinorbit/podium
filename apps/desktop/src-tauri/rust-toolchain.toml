@@ -4,7 +4,8 @@
 # one sanctioned auto-install (no curl|sh in our build scripts; see scripts/preflight.ts).
 #
 # Bump `channel` deliberately when a Tauri/dep MSRV bump requires it. Tauri v2 needs >= 1.77.2.
+# Bumped 1.84.0 -> 1.96.0: the locked `idna_adapter 1.2.2` requires Rust edition 2024 (Cargo >= 1.85).
 [toolchain]
-channel = "1.84.0"
+channel = "1.96.0"
 components = ["rustfmt", "clippy"]
 profile = "minimal"

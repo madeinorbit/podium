@@ -63,6 +63,10 @@ export async function startServer(opts: { port?: number } = {}): Promise<ServerH
   const app = new Hono()
   app.get('/health', (c) => c.text('ok'))
   registerVersionRoute(app)
+  // The setup UI fetches /setup/config from the desktop webview, whose origin (tauri://localhost)
+  // differs from the local server — same cross-origin case as /trpc. Without CORS the fetch is
+  // blocked and SetupGate's catch() silently skips onboarding. Must precede the route handler.
+  app.use('/setup/*', cors())
   registerSetupRoute(app)
   registerAssetRoute(app, registry)
   // In-process MCP server exposing the superagent's orchestrator tools to a

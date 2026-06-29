@@ -1649,6 +1649,10 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
   return new Promise<DaemonHandle>((resolve, reject) => {
     let resolved = false
     let kickedOff = false
+    // One-shot: if a stored token is rejected but a fresh pair code was supplied, drop the
+    // token and re-pair on reconnect (the all-in-one → daemon switch leaves a token minted by
+    // the local server that the remote has never seen). Guarded so a bad code can't loop.
+    let pairFallbackTried = false
     const resolveStart = (): void => {
       if (!resolved) {
         resolved = true
@@ -1724,6 +1728,20 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
       reconnectTimer.unref?.()
       reconnectBackoffMs = Math.min(reconnectBackoffMs * 2, RECONNECT_MAX_MS)
     }
+    // Stop for good: the server refused us and reconnecting would just re-hammer it with the
+    // same rejected handshake. Set `closing` so the `close` handler won't reschedule. The
+    // `reject()` is usually a no-op (the start-grace already resolved the handle), so the log
+    // line is the surfaced signal. Recovery needs operator action (a new code) + a restart.
+    const stopNoReconnect = (type: string, reason: string, w: WebSocket): void => {
+      console.error(
+        `[podium:daemon] server rejected this daemon (${type}): ${reason}. ` +
+          `Not reconnecting — re-pair the machine (new pair code) and restart the daemon.`,
+      )
+      closing = true
+      disposeAll()
+      reject(new Error(`daemon handshake rejected: ${reason}`))
+      w.close()
+    }
     function connect(): void {
       if (closing) return
       const w = new WebSocket(`${opts.serverUrl}/daemon?pv=${WIRE_VERSION}`)
@@ -1764,22 +1782,24 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
             w.on('message', handleControlMessage)
             break
           case 'helloRejected':
+            // A stored token the server won't accept — revoked, OR (common right after an
+            // all-in-one → daemon switch) a token minted by a DIFFERENT server. If the operator
+            // supplied a fresh pair code, drop the stale token and re-pair on the next reconnect
+            // rather than giving up. One-shot (`pairFallbackTried`) so a bad code can't loop.
+            if (opts.pairCode && !pairFallbackTried) {
+              pairFallbackTried = true
+              identity.token = undefined // → sendHandshake() now sends `pair` with the code
+              console.warn(
+                `[podium:daemon] stored token rejected (${reply.reason}); re-pairing with the supplied code.`,
+              )
+              w.close() // the 'close' handler schedules a reconnect, which will pair
+              break
+            }
+            stopNoReconnect(reply.type, reply.reason, w)
+            break
           case 'pairRejected':
-            // The server refused this daemon (bad/missing token, or the machine was
-            // revoked). STOP — set `closing` so the `close` handler below does NOT
-            // schedule a reconnect; otherwise the daemon would re-hammer the server with
-            // the same rejected handshake on backoff forever. Re-pairing requires
-            // operator action (a new pair code) + a restart. Log the reason loudly: the
-            // `reject()` is usually a no-op here because the start-grace already resolved
-            // the start handle, so this console line is the only surfaced signal.
-            console.error(
-              `[podium:daemon] server rejected this daemon (${reply.type}): ${reply.reason}. ` +
-                `Not reconnecting — re-pair the machine (new pair code) and restart the daemon.`,
-            )
-            closing = true
-            disposeAll()
-            reject(new Error(`daemon handshake rejected: ${reply.reason}`))
-            w.close()
+            // A bad/expired pair code: nothing to fall back to.
+            stopNoReconnect(reply.type, reply.reason, w)
             break
         }
       })

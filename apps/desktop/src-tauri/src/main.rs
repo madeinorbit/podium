@@ -200,14 +200,14 @@ fn main() {
                         "(daemon)".to_string(),
                     );
 
-                    window_injection = bootstrap::server_injection_script(&server_url);
+                    window_injection = bootstrap::remote_injection_script(&server_url);
                     wait_local_port = None;
                 }
 
                 bootstrap::LaunchAction::ClientOnly { server_url } => {
                     // No backend, no monitor — just point the window at the remote server.
                     eprintln!("[podium-desktop] client mode → {server_url} (no local backend)");
-                    window_injection = bootstrap::server_injection_script(&server_url);
+                    window_injection = bootstrap::remote_injection_script(&server_url);
                     wait_local_port = None;
                 }
             }

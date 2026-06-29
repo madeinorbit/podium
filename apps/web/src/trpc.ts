@@ -28,15 +28,21 @@ export function parseServerOrigin(server: string): ServerOrigin | null {
     return null
   }
 
-  if (url.protocol !== 'ws:' && url.protocol !== 'wss:') return null
+  // Accept ws/wss AND http/https. The Machines tab + `npx @podium/daemon --server …` hand out
+  // an https:// URL, and the daemon's Node `ws` client normalises https→wss transparently — but
+  // the browser's WebSocket only speaks ws/wss, so an https:// URL injected as __PODIUM_SERVER__
+  // would otherwise be rejected here and silently fall back to same-origin (a frozen desktop).
+  const secure = url.protocol === 'wss:' || url.protocol === 'https:'
+  if (!secure && url.protocol !== 'ws:' && url.protocol !== 'http:') return null
 
   // Preserve the explicit port even when it matches the protocol default (URL API normalises it away).
   // Extract any port from the original string (e.g. wss://host:443 → ":443").
-  const rawPortMatch = server.match(/^wss?:\/\/[^/:]+(:(\d+))/)
-  const explicitPort = rawPortMatch ? rawPortMatch[2] : url.port || ''
+  const rawPortMatch = server.match(/^(?:wss?|https?):\/\/[^/:]+:(\d+)/)
+  const explicitPort = rawPortMatch ? rawPortMatch[1] : url.port || ''
   const hostWithPort = explicitPort ? `${url.hostname}:${explicitPort}` : url.hostname
-  const wsBase = `${url.protocol}//${hostWithPort}`
-  const httpProto = url.protocol === 'wss:' ? 'https:' : 'http:'
+  const wsProto = secure ? 'wss:' : 'ws:'
+  const httpProto = secure ? 'https:' : 'http:'
+  const wsBase = `${wsProto}//${hostWithPort}`
   const httpOrigin = `${httpProto}//${hostWithPort}`
   return { wsClientUrl: `${wsBase}/client`, httpOrigin }
 }
