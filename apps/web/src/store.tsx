@@ -21,6 +21,7 @@ import {
 } from 'react'
 import { formatAppError } from './AppErrorPage'
 import { dedupeSessionsByResume, EMPTY_PINS, reposToViews } from './derive'
+import { type FileScope, scopeKey, tabIdFor } from './file-scope'
 import { makeTrpc, type ServerOrigin, type Trpc } from './trpc'
 import type { PinKind, PinState } from './types'
 
@@ -87,17 +88,23 @@ export interface Store {
   setPanelRenderMode: (sessionId: string, mode: 'chat' | 'native') => void
   fileTabs: FileTab[]
   openFile: (sessionId: string, path: string) => void
+  openFileInWorktree: (args: { machineId?: string; root: string; path: string }) => void
   closeFileTab: (id: string) => void
-  readFile: (
-    sessionId: string,
+  readFileScoped: (
+    scope: FileScope,
     path: string,
   ) => Promise<Awaited<ReturnType<Trpc['files']['read']['query']>>>
-  writeFile: (args: {
-    sessionId: string
+  writeFileScoped: (args: {
+    scope: FileScope
     path: string
     content: string
     baseHash?: string
   }) => Promise<Awaited<ReturnType<Trpc['files']['write']['mutate']>>>
+  listDir: (args: {
+    machineId?: string
+    root: string
+    path?: string
+  }) => Promise<Awaited<ReturnType<Trpc['files']['list']['query']>>>
   split: boolean
   toggleSplit: () => void
   /** Enrich the registered repos with branch/worktree metadata (fast — no
@@ -147,12 +154,12 @@ const Ctx = createContext<Store | null>(null)
 // throws in private-mode/SSR.
 const VIEW_KEY = 'podium.view'
 const WT_KEY = 'podium.selectedWorktree'
-/** An open inline file-editor tab. `id` (`file:<sessionId>:<path>`) is what paneA/paneB
- *  hold when an editor tab is active; `worktreePath` (the session cwd) scopes it to a
- *  worktree's tab strip. */
+/** An open file-editor tab. `id` is `file:<scopeKey>:<path>`; `worktreePath` (the
+ *  containment root) scopes it to a worktree's tab strip. `scope` carries how the
+ *  daemon read/write is addressed (a session today, or a worktree directly). */
 export interface FileTab {
   id: string
-  sessionId: string
+  scope: FileScope
   path: string
   worktreePath: string
 }
@@ -291,14 +298,28 @@ export function StoreProvider({
   )
   const openFile = useMemo(
     () => (sessionId: string, path: string) => {
-      const id = `file:${sessionId}:${path}`
+      const scope: FileScope = { kind: 'session', sessionId }
+      const id = tabIdFor(scope, path)
       const worktreePath = sessions.find((s) => s.sessionId === sessionId)?.cwd ?? ''
       setFileTabs((tabs) =>
-        tabs.some((t) => t.id === id) ? tabs : [...tabs, { id, sessionId, path, worktreePath }],
+        tabs.some((t) => t.id === id) ? tabs : [...tabs, { id, scope, path, worktreePath }],
       )
       setPaneA(id)
     },
     [sessions],
+  )
+  const openFileInWorktree = useMemo(
+    () => (args: { machineId?: string; root: string; path: string }) => {
+      const scope: FileScope = { kind: 'worktree', machineId: args.machineId, root: args.root }
+      const id = tabIdFor(scope, args.path)
+      setFileTabs((tabs) =>
+        tabs.some((t) => t.id === id)
+          ? tabs
+          : [...tabs, { id, scope, path: args.path, worktreePath: args.root }],
+      )
+      setPaneA(id)
+    },
+    [],
   )
   const closeFileTab = useMemo(
     () => (id: string) => {
@@ -308,13 +329,24 @@ export function StoreProvider({
     },
     [],
   )
-  const readFile = useMemo(
-    () => (sessionId: string, path: string) => trpc.files.read.query({ sessionId, path }),
+  const readFileScoped = useMemo(
+    () => (scope: FileScope, path: string) =>
+      scope.kind === 'session'
+        ? trpc.files.read.query({ sessionId: scope.sessionId, path })
+        : trpc.files.read.query({ machineId: scope.machineId, root: scope.root, path }),
     [trpc],
   )
-  const writeFile = useMemo(
-    () => (args: { sessionId: string; path: string; content: string; baseHash?: string }) =>
-      trpc.files.write.mutate(args),
+  const writeFileScoped = useMemo(
+    () =>
+      (args: { scope: FileScope; path: string; content: string; baseHash?: string }) =>
+        args.scope.kind === 'session'
+          ? trpc.files.write.mutate({ sessionId: args.scope.sessionId, path: args.path, content: args.content, baseHash: args.baseHash })
+          : trpc.files.write.mutate({ machineId: args.scope.machineId, root: args.scope.root, path: args.path, content: args.content, baseHash: args.baseHash }),
+    [trpc],
+  )
+  const listDir = useMemo(
+    () => (args: { machineId?: string; root: string; path?: string }) =>
+      trpc.files.list.query(args),
     [trpc],
   )
   const refreshTabOrders = useMemo(
@@ -335,7 +367,9 @@ export function StoreProvider({
   const killSession = useMemo(
     () => async (sessionId: string) => {
       await trpc.sessions.kill.mutate({ sessionId }).catch(() => {})
-      setFileTabs((tabs) => tabs.filter((t) => t.sessionId !== sessionId))
+      setFileTabs((tabs) =>
+        tabs.filter((t) => !(t.scope.kind === 'session' && t.scope.sessionId === sessionId)),
+      )
       setPaneA((p) => (p === sessionId ? null : p))
       setPaneB((p) => (p === sessionId ? null : p))
       setPins((p) => ({ ...p, panels: p.panels.filter((id) => id !== sessionId) }))
@@ -710,9 +744,11 @@ export function StoreProvider({
     httpOrigin: config.httpOrigin,
     fileTabs,
     openFile,
+    openFileInWorktree,
     closeFileTab,
-    readFile,
-    writeFile,
+    readFileScoped,
+    writeFileScoped,
+    listDir,
   }
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }
