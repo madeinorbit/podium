@@ -2,7 +2,7 @@ import { mkdtemp, mkdir, readFile, symlink, writeFile, writeFile as writeFileFs 
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { isInside, readAssetSandboxed, readFileSandboxed, writeFileSandboxed } from './file-access'
+import { isInside, listDirSandboxed, readAssetSandboxed, readFileSandboxed, writeFileSandboxed } from './file-access'
 
 async function repo(): Promise<string> {
   return mkdtemp(join(tmpdir(), 'podium-fa-'))
@@ -125,5 +125,45 @@ describe('readAssetSandboxed', () => {
     const r = await readAssetSandboxed({ cwd: dir, path: '/etc/hosts', knownPath: false })
     expect(r.ok).toBe(false)
     expect(r.error).toBe('outside workspace')
+  })
+})
+
+describe('listDirSandboxed', () => {
+  it('lists entries inside root, dirs first then files, alpha', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'pod-ls-'))
+    await mkdir(join(dir, 'src'))
+    await writeFile(join(dir, 'b.ts'), 'b')
+    await writeFile(join(dir, 'a.md'), 'a')
+    const r = await listDirSandboxed({ root: dir })
+    expect(r.ok).toBe(true)
+    expect(r.entries).toEqual([
+      { name: 'src', isDir: true },
+      { name: 'a.md', isDir: false },
+      { name: 'b.ts', isDir: false },
+    ])
+  })
+
+  it('lists a nested subdir under root', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'pod-ls-'))
+    await mkdir(join(dir, 'src'))
+    await writeFile(join(dir, 'src', 'index.ts'), 'x')
+    const r = await listDirSandboxed({ root: dir, path: join(dir, 'src') })
+    expect(r.ok).toBe(true)
+    expect(r.entries).toEqual([{ name: 'index.ts', isDir: false }])
+  })
+
+  it('rejects a path outside root', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'pod-ls-'))
+    const outside = await mkdtemp(join(tmpdir(), 'pod-out-'))
+    const r = await listDirSandboxed({ root: dir, path: outside })
+    expect(r).toMatchObject({ ok: false, error: 'outside workspace' })
+  })
+
+  it('returns ok:false when the path is not a directory', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'pod-ls-'))
+    const f = join(dir, 'a.ts')
+    await writeFile(f, 'x')
+    const r = await listDirSandboxed({ root: dir, path: f })
+    expect(r.ok).toBe(false)
   })
 })

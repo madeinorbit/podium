@@ -74,7 +74,7 @@ import {
 } from '@podium/protocol'
 import WebSocket, { type RawData } from 'ws'
 import { type ActiveRefresh, createActiveRefresh } from './active-refresh'
-import { readAssetSandboxed, readFileSandboxed, writeFileSandboxed } from './file-access'
+import { listDirSandboxed, readAssetSandboxed, readFileSandboxed, writeFileSandboxed } from './file-access'
 import { buildHarnessExec } from './harness-exec.js'
 import { startHookIngest } from './hook-ingest'
 import { sampleHostMemory } from './host-metrics'
@@ -1436,6 +1436,20 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
               type: 'fileWriteResult',
               requestId: msg.requestId,
               ok: false,
+              error: String(err),
+            }),
+          )
+        break
+      case 'dirListRequest':
+        void listDirSandboxed({ root: msg.root, path: msg.path })
+          .then((r) => send({ type: 'dirListResult', requestId: msg.requestId, ...r }))
+          .catch((err) =>
+            send({
+              type: 'dirListResult',
+              requestId: msg.requestId,
+              ok: false,
+              path: msg.path,
+              entries: [],
               error: String(err),
             }),
           )

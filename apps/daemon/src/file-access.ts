@@ -1,4 +1,4 @@
-import { readFile, realpath, stat, writeFile } from 'node:fs/promises'
+import { readdir, readFile, realpath, stat, writeFile } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, join, relative } from 'node:path'
 import type { FileAssetResultMessage, FileReadResultMessage, FileWriteResultMessage } from '@podium/protocol'
 
@@ -122,5 +122,33 @@ export async function writeFileSandboxed(opts: {
     return { ok: true, baseHash: sig(st) }
   } catch {
     return { ok: false, error: 'write error' }
+  }
+}
+
+export async function listDirSandboxed(opts: {
+  root: string
+  path?: string
+}): Promise<{ ok: boolean; path: string; entries: { name: string; isDir: boolean }[]; error?: string }> {
+  const target = opts.path ?? opts.root
+  let realRoot: string
+  let real: string
+  try {
+    realRoot = await realpath(opts.root)
+    real = await realpath(target)
+  } catch {
+    return { ok: false, path: target, entries: [], error: 'not found' }
+  }
+  if (!isInside(real, realRoot)) return { ok: false, path: target, entries: [], error: 'outside workspace' }
+  try {
+    const st = await stat(real)
+    if (!st.isDirectory()) return { ok: false, path: real, entries: [], error: 'not a directory' }
+    const entries = (await readdir(real, { withFileTypes: true }))
+      .map((e) => ({ name: e.name, isDir: e.isDirectory() }))
+      .sort((a, b) =>
+        a.isDir === b.isDir ? a.name.localeCompare(b.name) : a.isDir ? -1 : 1,
+      )
+    return { ok: true, path: real, entries }
+  } catch {
+    return { ok: false, path: real, entries: [], error: 'read error' }
   }
 }
