@@ -4,6 +4,7 @@ import { initTRPC, TRPCError } from '@trpc/server'
 import { z } from 'zod'
 import type { SessionRegistry } from './relay'
 import { browseDirectories, type RepoRegistry } from './repo-registry'
+import { isAllowedRoot } from './root-allowlist'
 import type { SuperagentService } from './superagent'
 
 export interface Context {
@@ -427,7 +428,12 @@ export const appRouter = t.router({
           z.object({ machineId: z.string().optional(), root: z.string(), path: z.string() }),
         ]),
       )
-      .query(({ ctx, input }) => ctx.registry.readFile(input)),
+      .query(({ ctx, input }) => {
+        if ('root' in input && !isAllowedRoot(ctx.repos.list(), input.root)) {
+          throw new TRPCError({ code: 'FORBIDDEN', message: 'root is not a known repository path' })
+        }
+        return ctx.registry.readFile(input)
+      }),
     write: t.procedure
       .input(
         z.union([
@@ -446,10 +452,20 @@ export const appRouter = t.router({
           }),
         ]),
       )
-      .mutation(({ ctx, input }) => ctx.registry.writeFile(input)),
+      .mutation(({ ctx, input }) => {
+        if ('root' in input && !isAllowedRoot(ctx.repos.list(), input.root)) {
+          throw new TRPCError({ code: 'FORBIDDEN', message: 'root is not a known repository path' })
+        }
+        return ctx.registry.writeFile(input)
+      }),
     list: t.procedure
       .input(z.object({ machineId: z.string().optional(), root: z.string(), path: z.string().optional() }))
-      .query(({ ctx, input }) => ctx.registry.listDir(input)),
+      .query(({ ctx, input }) => {
+        if (!isAllowedRoot(ctx.repos.list(), input.root)) {
+          throw new TRPCError({ code: 'FORBIDDEN', message: 'root is not a known repository path' })
+        }
+        return ctx.registry.listDir(input)
+      }),
   }),
 })
 
