@@ -406,6 +406,13 @@ export class Session {
   requestControl(clientId: string): void {
     const client = this.clients.get(clientId)
     if (!client) return
+    // Re-claiming control you already hold is a no-op. Bumping the epoch here would make
+    // every client treat it as a takeover and view.clear() the screen — so a client that
+    // re-requests control on every reveal (becomeEligible on a tab switch / page refocus,
+    // where it's usually already the controller) would BLANK the terminal on each switch:
+    // a shell loses its scrollback, an alt-screen app flashes black until the agent
+    // redraws. Only a genuine controller CHANGE bumps the epoch.
+    if (this.controllerId === clientId) return
     this.controllerId = clientId
     this.epoch += 1
     // Only snap geometry to the requester's viewport + resize the agent if the

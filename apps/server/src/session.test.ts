@@ -198,6 +198,23 @@ describe('Session', () => {
     }
   })
 
+  it('re-requesting control as the current controller is a no-op (no epoch bump → no reveal-clear)', () => {
+    const toDaemon = vi.fn()
+    const s = makeSession(toDaemon)
+    const a = makeClient('a')
+    s.attachClient(a) // a is the controller
+    a.viewVisible = new Set(['s1'])
+    const epoch0 = s.epoch
+    a.sent.length = 0
+    toDaemon.mockClear()
+    s.requestControl('a') // re-claim control it already holds (e.g. becomeEligible on reveal)
+    // No epoch bump → clients don't view.clear(); no takeover broadcasts; no agent redraw.
+    expect(s.epoch).toBe(epoch0)
+    expect(s.controllerId).toBe('a')
+    expect(a.sent).not.toContainEqual(expect.objectContaining({ type: 'controllerChanged' }))
+    expect(toDaemon).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'redraw' }))
+  })
+
   it('requestControl from a client not rendering the session transfers control but does not snap-resize', () => {
     const toDaemon = vi.fn()
     const s = makeSession(toDaemon)
@@ -346,13 +363,15 @@ describe('Session', () => {
     )
   })
 
-  it('takeover uses the client current viewport (e.g. updated via hello after attach)', () => {
+  it('takeover uses the new controller current viewport (e.g. updated via hello after attach)', () => {
     const s = makeSession()
     const a = makeClient('a')
-    s.attachClient(a)
-    a.viewVisible = new Set(['s1']) // rendering the session → snap to its viewport
-    a.viewport = { cols: 33, rows: 21 } // registry updates ClientConn.viewport on hello
-    s.requestControl('a')
+    const b = makeClient('b')
+    s.attachClient(a) // a is the initial controller
+    s.attachClient(b)
+    b.viewVisible = new Set(['s1']) // b renders the session → snap to its viewport on takeover
+    b.viewport = { cols: 33, rows: 21 } // registry updates ClientConn.viewport on hello
+    s.requestControl('b') // genuine takeover (b was NOT the controller)
     expect(s.geometry).toEqual({ cols: 33, rows: 21 })
   })
 
