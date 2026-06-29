@@ -6,7 +6,6 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { CardBoundary } from './CardBoundary'
-import { IssueDetail } from './IssueDetail'
 import { issueCardModel } from './issue-card'
 import { NewIssueDialog } from './NewIssueDialog'
 import { useStore } from './store'
@@ -28,11 +27,9 @@ const STAGE_LABELS: Record<IssueStage, string> = {
  * `issuesChanged`, so the board reconciles itself with no manual refetch.
  */
 export function IssuesView(): JSX.Element {
-  const { issues } = useStore()
-  const [openId, setOpenId] = useState<string | null>(null)
+  const { issues, setOpenIssueId } = useStore()
   const [creating, setCreating] = useState(false)
   const active = issues.filter((i) => !i.archived)
-  const open = openId ? (issues.find((i) => i.id === openId) ?? null) : null
 
   return (
     <section className="flex min-w-0 flex-1 flex-col overflow-hidden" aria-label="Issues">
@@ -48,12 +45,11 @@ export function IssuesView(): JSX.Element {
             key={stage}
             label={STAGE_LABELS[stage]}
             issues={active.filter((i) => i.stage === stage)}
-            onOpen={setOpenId}
+            onOpen={setOpenIssueId}
           />
         ))}
       </div>
       {creating && <NewIssueDialog onClose={() => setCreating(false)} />}
-      {open && <IssueDetail issue={open} onClose={() => setOpenId(null)} />}
     </section>
   )
 }
