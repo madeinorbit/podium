@@ -4,9 +4,10 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "preflight": "bun scripts/preflight.ts",
     "stage": "bun scripts/stage-sidecar.ts",
-    "build": "bun scripts/stage-sidecar.ts && tauri build",
-    "dev": "bun scripts/stage-sidecar.ts && tauri dev"
+    "build": "bun scripts/preflight.ts && bun scripts/stage-sidecar.ts && tauri build",
+    "dev": "bun scripts/preflight.ts && bun scripts/stage-sidecar.ts && tauri dev"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2"

@@ -12,7 +12,7 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["appimage", "deb"],
+    "targets": "all",
     "resources": ["resources/web", "resources/podium"],
     "icon": ["icons/icon.png"],
     "createUpdaterArtifacts": true
