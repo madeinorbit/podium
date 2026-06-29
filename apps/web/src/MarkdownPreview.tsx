@@ -30,6 +30,7 @@ export function MarkdownPreview({
   )
 
   const onClick = (e: React.MouseEvent): void => {
+    if (!sessionId) return // worktree-scoped preview has no session; links are inert until MarkdownPreview is scope-aware
     const a = (e.target as HTMLElement).closest('a.file-link') as HTMLAnchorElement | null
     if (!a) return
     e.preventDefault()
