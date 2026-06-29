@@ -748,6 +748,16 @@ export const FileWriteRequestMessage = z.object({
 })
 export type FileWriteRequestMessage = z.infer<typeof FileWriteRequestMessage>
 
+export const DirListRequestMessage = z.object({
+  type: z.literal('dirListRequest'),
+  requestId: z.string(),
+  /** Containment root — the daemon enforces the listed path stays inside it. */
+  root: z.string(),
+  /** Directory to list; equal to or nested under `root`. */
+  path: z.string(),
+})
+export type DirListRequestMessage = z.infer<typeof DirListRequestMessage>
+
 // On-demand (chip click), not periodic — a full /proc walk is too heavy for the
 // 5s hostMetrics heartbeat. `roots` are the repo/worktree paths the client controls;
 // the daemon attributes non-agent processes to them by working directory.
@@ -893,6 +903,7 @@ export const ControlMessage = z.discriminatedUnion('type', [
   FileReadRequestMessage,
   FileAssetRequestMessage,
   FileWriteRequestMessage,
+  DirListRequestMessage,
 ])
 export type ControlMessage = z.infer<typeof ControlMessage>
 
@@ -1059,6 +1070,20 @@ export const FileWriteResultMessage = z.object({
 })
 export type FileWriteResultMessage = z.infer<typeof FileWriteResultMessage>
 
+export const DirEntry = z.object({ name: z.string(), isDir: z.boolean() })
+export type DirEntry = z.infer<typeof DirEntry>
+
+export const DirListResultMessage = z.object({
+  type: z.literal('dirListResult'),
+  requestId: z.string(),
+  ok: z.boolean(),
+  /** The resolved directory that was listed (realpath of the request path). */
+  path: z.string(),
+  entries: z.array(DirEntry).default([]),
+  error: z.string().optional(),
+})
+export type DirListResultMessage = z.infer<typeof DirListResultMessage>
+
 export const RepoOpResultMessage = z.object({
   type: z.literal('repoOpResult'),
   requestId: z.string(),
@@ -1098,6 +1123,7 @@ export const DaemonMessage = z.discriminatedUnion('type', [
   FileReadResultMessage,
   FileAssetResultMessage,
   FileWriteResultMessage,
+  DirListResultMessage,
 ])
 export type DaemonMessage = z.infer<typeof DaemonMessage>
 

@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import {
   ControlMessage,
   DaemonMessage,
+  DirListRequestMessage,
+  DirListResultMessage,
   FileReadRequestMessage,
   FileReadResultMessage,
   FileWriteRequestMessage,
@@ -55,5 +57,28 @@ describe('file RPC messages', () => {
   it('TranscriptItem accepts optional toolPaths', () => {
     const item = TranscriptItem.parse({ id: '1', role: 'tool', text: '', toolPaths: ['/repo/a.ts'] })
     expect(item.toolPaths).toEqual(['/repo/a.ts'])
+  })
+})
+
+describe('dir list messages', () => {
+  it('parses a dirListRequest in ControlMessage', () => {
+    const msg = { type: 'dirListRequest', requestId: 'dl1', root: '/w', path: '/w/src' }
+    expect(DirListRequestMessage.parse(msg).path).toBe('/w/src')
+    expect(ControlMessage.parse(msg).type).toBe('dirListRequest')
+  })
+
+  it('parses a dirListResult carrying entries in DaemonMessage', () => {
+    const msg = {
+      type: 'dirListResult',
+      requestId: 'dl1',
+      ok: true,
+      path: '/w/src',
+      entries: [
+        { name: 'lib', isDir: true },
+        { name: 'index.ts', isDir: false },
+      ],
+    }
+    expect(DirListResultMessage.parse(msg).entries).toHaveLength(2)
+    expect(DaemonMessage.parse(msg).type).toBe('dirListResult')
   })
 })
