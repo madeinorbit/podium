@@ -67,6 +67,14 @@ export interface Store {
   /** Open the session's btw thread and ask the superagent for a concise tl;dr of
    *  the agent's last answer (passed in for context). */
   tldrSession: (sessionId: string, answerText: string) => Promise<void>
+  /** Which sidebar tab is active: the repo/worktree tree or the issues list.
+   *  Persisted so a reload lands on the same tab. */
+  sidebarTab: 'worktrees' | 'issues'
+  setSidebarTab: (tab: 'worktrees' | 'issues') => void
+  /** The issue whose detail drawer is open (from the kanban card or the sidebar
+   *  Issues tab), or null when closed. Ephemeral — not persisted. */
+  openIssueId: string | null
+  setOpenIssueId: (id: string | null) => void
   selectedWorktree: string | null
   setSelectedWorktree: (path: string | null) => void
   paneA: string | null // sessionId in pane A
@@ -153,6 +161,7 @@ const Ctx = createContext<Store | null>(null)
 // mobile) lands back on the same surface. localStorage access is guarded — it
 // throws in private-mode/SSR.
 const VIEW_KEY = 'podium.view'
+const SIDEBAR_TAB_KEY = 'podium.sidebarTab'
 const WT_KEY = 'podium.selectedWorktree'
 /** An open file-editor tab. `id` is `file:<scopeKey>:<path>`; `worktreePath` (the
  *  containment root) scopes it to a worktree's tab strip. `scope` carries how the
@@ -191,6 +200,9 @@ function readStoredView(): MainView {
   return v === 'home' || v === 'workspace' || v === 'settings' || v === 'usage' || v === 'issues'
     ? v
     : 'home'
+}
+function readStoredSidebarTab(): 'worktrees' | 'issues' {
+  return lsGet(SIDEBAR_TAB_KEY) === 'issues' ? 'issues' : 'worktrees'
 }
 /** The persisted per-session panel-mode map. A corrupt/missing blob reads as empty. */
 function readStoredPanelModes(): Record<string, 'chat' | 'native'> {
@@ -252,6 +264,12 @@ export function StoreProvider({
     repoSort: 'lastUsed',
     repoOrder: [],
   })
+  const [sidebarTab, setSidebarTabState] = useState<'worktrees' | 'issues'>(readStoredSidebarTab)
+  const setSidebarTab = (tab: 'worktrees' | 'issues') => {
+    setSidebarTabState(tab)
+    lsSet(SIDEBAR_TAB_KEY, tab)
+  }
+  const [openIssueId, setOpenIssueId] = useState<string | null>(null)
   const [selectedWorktree, setSelectedWorktree] = useState<string | null>(() => lsGet(WT_KEY))
   const [paneA, setPaneA] = useState<string | null>(() => lsGet(PANE_A_KEY))
   const [paneB, setPaneB] = useState<string | null>(() => lsGet(PANE_B_KEY))
@@ -706,6 +724,10 @@ export function StoreProvider({
     superRefreshKey,
     startBtw,
     tldrSession,
+    sidebarTab,
+    setSidebarTab,
+    openIssueId,
+    setOpenIssueId,
     selectedWorktree,
     setSelectedWorktree,
     paneA,
