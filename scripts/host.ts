@@ -6,8 +6,11 @@
  * to the server directly on localhost (not through
  * the proxy) and spawns the real `claude`/`codex` CLIs via @podium/agent-bridge.
  *
- * Run under `tsx` (a Node loader — node-pty is a native Node addon, so this must not run on Bun):
- *   node_modules/.bin/tsx watch scripts/host.ts
+ * Single dev process combining server + daemon; production runs them split (scripts/server.ts
+ * + scripts/daemon.ts). Runs on Bun (preferred) or Node via tsx — the PTY backend is selected
+ * at runtime (@podium/agent-bridge): Bun.Terminal under Bun, node-pty under Node, so no native
+ * addon is loaded on Bun.
+ *   bun --watch --conditions=@podium/source scripts/host.ts   # or: bun run host:backend
  * No starter session — sessions are created from the Live UI.
  */
 import { startDaemon } from '../apps/daemon/src/daemon'

@@ -12,9 +12,9 @@ Podium is a Bun-workspace monorepo. Design rationale lives in
 
 ## Packages
 
-`@podium/agent-bridge` (Node) and `@podium/terminal-client` (browser) are the two
+`@podium/agent-bridge` (server-side) and `@podium/terminal-client` (browser) are the two
 standalone libraries. They never depend on each other — they meet only through
-`@podium/protocol`. This keeps a native PTY addon and browser DOM code out of the same
+`@podium/protocol`. This keeps the PTY layer and browser DOM code out of the same
 package and lets each release independently.
 
 ## Dependency direction
@@ -64,7 +64,7 @@ package and lets each release independently.
 
 ## Toolchain
 
-Bun (package manager / task runner / bundler) · Node 22 (runtime for `server`/`daemon`
-because of `node-pty`) · TypeScript ESM-only · Biome (lint+format) · Vitest · tsup
+Bun (package manager / task runner / bundler / runtime) · TypeScript ESM-only · Biome
+(lint+format) · Vitest · tsup
 (library builds) · Changesets (releases). Cross-workspace tasks run via
 `bun run --filter`.

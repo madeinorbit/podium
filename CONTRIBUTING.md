@@ -2,14 +2,53 @@
 
 ## Prerequisites
 
-- Bun ≥ 1.3 (package manager, task runner, bundler)
-- Node 22 (runtime for `apps/server` and `apps/daemon`; see `.nvmrc`)
+- **Bun ≥ 1.3** — package manager, task runner, bundler, *and* runtime. This is the only
+  hard requirement; the shipped `podium-server` / `podium-daemon` / `podium` binaries are
+  `bun build --compile` artifacts that run on Bun.
+- (Optional) **Rust + Tauri CLI** — only needed to build the desktop app (`apps/desktop`).
+
+Node is **not** a prerequisite. The PTY backend (`@podium/agent-bridge`) auto-selects
+`Bun.Terminal` under Bun and only falls back to `node-pty` when a dev entrypoint is run
+under Node (`tsx`). Persistence likewise resolves `bun:sqlite` vs `node:sqlite` per runtime.
 
 ## Setup
 
 ```bash
 bun install
 ```
+
+## Running locally
+
+The backend is a coordinating **server** plus a per-machine **daemon**. The simplest local
+run is all-in-one (server + daemon in one process):
+
+```bash
+bun run --filter @podium/web build              # build the web UI the server serves
+bun --conditions=@podium/source scripts/cli.ts  # server + daemon on http://localhost:18787
+```
+
+The `--conditions=@podium/source` flag resolves the `@podium/*` workspace packages to their
+TypeScript source, so you don't need a prior library build to run from source.
+
+For the **web** UI with hot-reload, run the Vite dev server (`:55556`) against the backend —
+it proxies the API + WebSockets to `:18787`:
+
+```bash
+bun --conditions=@podium/source scripts/cli.ts  # terminal 1 — backend
+bun run host:web                                # terminal 2 — Vite dev server
+```
+
+For the **desktop** app, use the Tauri workspace (needs the Rust + Tauri toolchain):
+
+```bash
+bun run --cwd apps/desktop dev                  # dev window
+bun run --cwd apps/desktop build                # release build
+```
+
+> `bun run host` is a one-command shortcut that starts the Vite dev server *and* the
+> combined server + daemon backend (`scripts/host.ts`) together, both on Bun with
+> `--watch` for auto-restart on edit. `bun run host:web` / `host:backend` run each half
+> on its own.
 
 ## Everyday commands
 
