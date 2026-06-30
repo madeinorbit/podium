@@ -31,6 +31,9 @@ const proxy = {
   // Backend HTTP route that streams sandboxed file bytes (e.g. markdown-preview
   // relative images). Same-origin from the browser, so it must reach the backend.
   '/files': { target: BACKEND, changeOrigin: true },
+  // Backend setup/config route the SetupGate probes (GET) and SetupView saves (POST).
+  // Same-origin fetch from the browser, so it must reach the backend rather than the SPA.
+  '/setup': { target: BACKEND, changeOrigin: true },
   '/client': { target: BACKEND_WS, ws: true, changeOrigin: true },
   '/daemon': { target: BACKEND_WS, ws: true, changeOrigin: true },
 }
@@ -59,7 +62,14 @@ export default defineConfig({
         // SPA fallback for navigations — but never shadow the live API/WS
         // routes, which must always reach the backend through the proxy.
         navigateFallback: '/index.html',
-        navigateFallbackDenylist: [/^\/trpc/, /^\/health/, /^\/files/, /^\/client/, /^\/daemon/],
+        navigateFallbackDenylist: [
+          /^\/trpc/,
+          /^\/health/,
+          /^\/files/,
+          /^\/setup/,
+          /^\/client/,
+          /^\/daemon/,
+        ],
       },
       // Keep the service worker out of `npm run dev` (it fights HMR); it only
       // ships in the built bundle served by `vite preview`.
