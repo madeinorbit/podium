@@ -1377,27 +1377,34 @@ git commit -m "feat(cli): interactive 'podium setup' over the shared setup core 
 
 ### Task 12: Machines "Add machine" → ready-to-paste join command
 
+> **Reality-checked (scout).** `apps/server/src` is FLAT (no `routers/` dir). The machines `pairingCode` procedure is **inline** in `apps/server/src/router.ts` inside the `machines:` group: `pairingCode: t.procedure.mutation(({ ctx }) => ({ code: ctx.registry.mintPairingCode() }))` (no input). The web side that shows the code is `apps/web/src/MachinesPanel.tsx`'s `PairingCodeDisplay`, which TODAY builds the legacy line `npx @podium/daemon --server ${origin} --pair ${code}` client-side — REPLACE that with the server-provided `joinCommand`.
+
 **Files:**
-- Modify: the Machines tRPC procedure that mints a pairing code (per spec, `apps/server/src/router.ts` machines `pairingCode`) to also return a full join command
-- Modify: `apps/web/src/.../MachinesPanel.tsx` to show + copy the whole line
-- Test: `apps/server/src/routers/machines-join.test.ts`
+- Create: `apps/server/src/machines-join.ts` (pure `buildJoinCommand` helper)
+- Test: `apps/server/src/machines-join.test.ts`
+- Modify: `apps/server/src/router.ts` (the inline `machines.pairingCode` mutation → return `{ code, joinCommand }`)
+- Modify: `apps/web/src/MachinesPanel.tsx` (`PairingCodeDisplay` → show the server `joinCommand` with a copy button; replace the old `npx @podium/daemon …` line)
 
 **Interfaces:**
-- Consumes: `encodeJoin` (Task 1), `wssFrom` (Task 3), `loadConfig().publicUrl` (Task 2), the existing pairing-code minting.
-- Produces: the pairing procedure returns `{ code, joinCommand }` where `joinCommand` is the `curl … | sh -s -- --join <token>` line.
+- Consumes: `encodeJoin` (Task 1), `wssFrom` (Task 3, `@podium/core/setup`), `loadConfig().publicUrl` (Task 2).
+- Produces: `buildJoinCommand({ publicUrl?, pairCode, name? }): string` (throws if no `publicUrl`); the `pairingCode` mutation now returns `{ code: string; joinCommand: string | null }`.
 
-- [ ] **Step 1: Write the failing test (the command-builder is pure → extract + test it)**
+**Note on imports:** add a `"./join": "./src/join.ts"` subpath to `packages/core/package.json` exports (mirroring the `./setup`/`./config` entries Task 10 established) so server code can `import { encodeJoin } from '@podium/core/join'` and `decodeJoin` in the test — OR use a relative import (`../../../packages/core/src/join` from `apps/server/src/`). Match the import style `router.ts` already uses for `@podium/core/*`.
+
+- [ ] **Step 1: Write the failing test (the command-builder is pure)**
 
 ```ts
-// apps/server/src/routers/machines-join.test.ts
+// apps/server/src/machines-join.test.ts
 import { describe, expect, it } from 'vitest'
-import { decodeJoin } from '../../../../packages/core/src/join'
+import { decodeJoin } from '@podium/core/join' // or: '../../../packages/core/src/join'
 import { buildJoinCommand } from './machines-join'
 
 describe('buildJoinCommand', () => {
   it('embeds a wss serverUrl + pair code in a decodable token', () => {
     const line = buildJoinCommand({ publicUrl: 'https://box.ts.net', pairCode: 'AB12', name: 'vps' })
-    expect(line).toContain('curl -fsSL https://github.com/madeinorbit/podium/releases/latest/download/install.sh | sh -s -- --join ')
+    expect(line).toContain(
+      'curl -fsSL https://github.com/madeinorbit/podium/releases/latest/download/install.sh | sh -s -- --join ',
+    )
     const token = line.split('--join ')[1].trim()
     expect(decodeJoin(token)).toEqual({ v: 1, serverUrl: 'wss://box.ts.net', pairCode: 'AB12', name: 'vps' })
   })
@@ -1409,14 +1416,14 @@ describe('buildJoinCommand', () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `bun run vitest run apps/server/src/routers/machines-join.test.ts`
+Run: `bun run vitest run apps/server/src/machines-join.test.ts`
 Expected: FAIL — `./machines-join` not found.
 
-- [ ] **Step 3: Write `apps/server/src/routers/machines-join.ts`**
+- [ ] **Step 3: Write `apps/server/src/machines-join.ts`**
 
 ```ts
-import { encodeJoin } from '../../../../packages/core/src/join'
-import { wssFrom } from '../../../../packages/core/src/setup'
+import { encodeJoin } from '@podium/core/join' // or relative '../../../packages/core/src/join'
+import { wssFrom } from '@podium/core/setup'
 
 const INSTALL = 'https://github.com/madeinorbit/podium/releases/latest/download/install.sh'
 
@@ -1434,22 +1441,30 @@ export function buildJoinCommand(p: { publicUrl?: string; pairCode: string; name
 }
 ```
 
-In the machines `pairingCode` procedure, after minting `code`, read `loadConfig().publicUrl` and return `{ code, joinCommand: buildJoinCommand({ publicUrl, pairCode: code, name }) }`. If `publicUrl` is unset, return `{ code, joinCommand: null }` and let the UI show "finish setup first."
+Then change the inline `machines.pairingCode` mutation in `apps/server/src/router.ts` (add `import { loadConfig } from '@podium/core/config'` if not present):
+
+```ts
+    pairingCode: t.procedure.mutation(({ ctx }) => {
+      const code = ctx.registry.mintPairingCode()
+      const publicUrl = loadConfig().publicUrl
+      return { code, joinCommand: publicUrl ? buildJoinCommand({ publicUrl, pairCode: code }) : null }
+    }),
+```
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `bun run vitest run apps/server/src/routers/machines-join.test.ts`
+Run: `bun run vitest run apps/server/src/machines-join.test.ts`
 Expected: PASS (2 tests).
 
-- [ ] **Step 5: Update `MachinesPanel.tsx`** — when `joinCommand` is present, show it in a `<pre>` with a copy button (mirror the existing pairing-code display); when null, show "Finish setup to get a one-line join command." Then:
+- [ ] **Step 5: Update `apps/web/src/MachinesPanel.tsx`** — read `PairingCodeDisplay` first. It currently builds `const command = \`npx @podium/daemon --server ${origin} --pair ${code}\`` and copies it. Change the mint flow to also keep the server's `joinCommand` from the `pairingCode.mutate()` result, and render: when `joinCommand` is non-null, the `curl … | sh -s -- --join …` line in the existing `<code className="block rounded bg-muted px-2 py-1 …">` block with the existing Copy `<Button variant="outline" size="sm">`; when null, render "Finish setup to get a one-line join command." Remove the legacy `npx @podium/daemon` command line. Then:
 
 Run: `bun run typecheck && bun run --filter @podium/web build`
-Expected: both succeed.
+Expected: both succeed (the `AppRouter` type now carries the `{ code, joinCommand }` shape, so the web sees it automatically).
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add apps/server/src/routers/machines-join.ts apps/server/src/routers/machines-join.test.ts apps/server/src/router.ts apps/web/src
+git add apps/server/src/machines-join.ts apps/server/src/machines-join.test.ts apps/server/src/router.ts apps/web/src/MachinesPanel.tsx packages/core/package.json
 git commit -m "feat(machines): Add-machine returns a ready-to-paste join command [podium-4ny]"
 ```
 
