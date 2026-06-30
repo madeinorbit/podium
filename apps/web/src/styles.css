@@ -448,6 +448,50 @@ body:has(.mobile-shell) {
   display: block;
   color: #06b6d4;
 }
+/* Copy button injected into every rendered code block (COPY_BUTTON in markdown.ts).
+   Icon is a CSS mask (an inline lucide "copy" SVG) so it never depends on DOMPurify
+   keeping inline SVG markup. Hover-revealed, top-right, inside the pre's window bar. */
+.chat-md pre > .code-copy,
+.markdown-preview pre > .code-copy {
+  position: absolute;
+  top: 6px;
+  right: 7px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background-color: var(--card);
+  color: var(--muted-foreground);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s ease, color 0.12s ease, background-color 0.12s ease;
+}
+.chat-md pre > .code-copy::after,
+.markdown-preview pre > .code-copy::after {
+  content: '';
+  display: block;
+  width: 13px;
+  height: 13px;
+  background-color: currentColor;
+  -webkit-mask: var(--copy-mask) center / contain no-repeat;
+  mask: var(--copy-mask) center / contain no-repeat;
+  --copy-mask: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2024%2024'%20fill='none'%20stroke='black'%20stroke-width='2'%20stroke-linecap='round'%20stroke-linejoin='round'%3E%3Crect%20width='14'%20height='14'%20x='8'%20y='8'%20rx='2'/%3E%3Cpath%20d='M4%2016c-1.1%200-2-.9-2-2V4c0-1.1.9-2%202-2h10c1.1%200%202%20.9%202%202'/%3E%3C/svg%3E");
+}
+.chat-md pre:hover > .code-copy,
+.markdown-preview pre:hover > .code-copy,
+.chat-md pre > .code-copy:focus-visible,
+.markdown-preview pre > .code-copy:focus-visible {
+  opacity: 1;
+}
+.chat-md pre > .code-copy:hover,
+.markdown-preview pre > .code-copy:hover {
+  color: var(--foreground);
+  background-color: var(--accent);
+}
 .chat-md a {
   color: var(--primary);
   text-decoration: underline;
@@ -504,7 +548,7 @@ body:has(.mobile-shell) {
   background: var(--muted); padding: 0.1em 0.3em; border-radius: 4px;
 }
 .markdown-preview pre {
-  background: var(--muted); padding: 0.75em 1em; border-radius: 6px; overflow: auto;
+  position: relative; background: var(--muted); padding: 0.75em 1em; border-radius: 6px; overflow: auto;
 }
 .markdown-preview blockquote {
   border-left: 3px solid var(--border); padding-left: 1em; color: var(--muted-foreground);

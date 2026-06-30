@@ -40,6 +40,7 @@ import {
 import { chatActivity } from './derive'
 import { resolveAgainstCwd } from './file-path'
 import { useIsMobile } from './hooks/use-is-mobile'
+import { handleCodeCopyClick } from './code-copy'
 import { renderMarkdown } from './markdown'
 import { useStore } from './store'
 import { useNow } from './useNow'
@@ -1249,6 +1250,9 @@ const ChatBlockView = memo(function ChatBlockView({
           </div>
           <div
             className="chat-md"
+            onClick={(e) => {
+              handleCodeCopyClick(e)
+            }}
             // biome-ignore lint/security/noDangerouslySetInnerHtml: sanitized by DOMPurify above
             dangerouslySetInnerHTML={{ __html: html }}
           />
@@ -1340,6 +1344,7 @@ const ChatBlockView = memo(function ChatBlockView({
         <div
           className="chat-md"
           onClick={(e) => {
+            if (handleCodeCopyClick(e)) return
             const a = (e.target as HTMLElement).closest('a.file-link') as HTMLElement | null
             if (!a) return
             e.preventDefault()

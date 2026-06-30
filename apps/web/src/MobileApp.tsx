@@ -222,12 +222,21 @@ export function MobileApp(): JSX.Element {
           onClick={() => setPickerOpen(true)}
         >
           {worktree ? (
-            <span className="flex min-w-0 flex-col items-start leading-[1.15]">
-              <span className="max-w-full truncate text-[10px] tracking-[0.02em] text-muted-foreground">
+            // w-full on the column (not shrink-to-fit) bounds the truncating lines
+            // to the button's 45% cap, so a long branch ellipsizes instead of
+            // overflowing the header. The ▾ caret sits outside the truncating text
+            // so it never gets clipped away.
+            <span className="flex w-full min-w-0 flex-col items-start leading-[1.15]">
+              <span className="w-full truncate text-[10px] tracking-[0.02em] text-muted-foreground">
                 {worktreeRepoName}
               </span>
-              <span className="max-w-full truncate text-[13px] font-medium text-foreground">
-                {worktree.branch ?? worktree.path.split('/').pop()} ▾
+              <span className="flex w-full min-w-0 items-center gap-0.5 text-[13px] font-medium text-foreground">
+                <span className="truncate">
+                  {worktree.branch ?? worktree.path.split('/').pop()}
+                </span>
+                <span className="flex-none" aria-hidden="true">
+                  ▾
+                </span>
               </span>
             </span>
           ) : (

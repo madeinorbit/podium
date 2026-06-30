@@ -28,6 +28,13 @@ function escapeHtml(s: string): string {
 // that clearly is one). Agents emit diffs constantly, and line-level +/- colour
 // reads far more natively than a flat grey block — the readability win we can
 // offer outside a terminal. Other code blocks render escaped, as before.
+// Copy affordance injected into every rendered code block. Empty button (the icon
+// is a CSS mask, so it survives DOMPurify untouched); the click handler reads the
+// sibling <code> text at click time, so the code isn't duplicated into the markup.
+// Handled by handleCodeCopyClick on the chat/preview containers.
+const COPY_BUTTON =
+  '<button type="button" class="code-copy" aria-label="Copy code" title="Copy"></button>'
+
 function renderDiff(text: string): string {
   const body = text
     .split('\n')
@@ -44,7 +51,7 @@ function renderDiff(text: string): string {
       return cls ? `<span class="${cls}">${html}</span>` : html
     })
     .join('\n')
-  return `<pre class="chat-diff"><code>${body}</code></pre>`
+  return `<pre class="chat-diff"><code>${body}</code>${COPY_BUTTON}</pre>`
 }
 
 marked.use({
@@ -54,7 +61,7 @@ marked.use({
       const looksLikeDiff = language === '' && /^@@ /m.test(text) && /^[+-]/m.test(text)
       if (language === 'diff' || language === 'patch' || looksLikeDiff) return renderDiff(text)
       const cls = language ? ` class="language-${escapeHtml(language)}"` : ''
-      return `<pre><code${cls}>${escapeHtml(text)}</code></pre>`
+      return `<pre><code${cls}>${escapeHtml(text)}</code>${COPY_BUTTON}</pre>`
     },
   },
 })
