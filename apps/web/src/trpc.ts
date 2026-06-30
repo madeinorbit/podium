@@ -66,5 +66,14 @@ export function serverConfig(loc: Location): ServerConfig {
 }
 
 export function makeTrpc(httpOrigin: string): Trpc {
-  return createTRPCClient<AppRouter>({ links: [httpBatchLink({ url: `${httpOrigin}/trpc` })] })
+  return createTRPCClient<AppRouter>({
+    links: [
+      httpBatchLink({
+        url: `${httpOrigin}/trpc`,
+        // Send the login session cookie with every tRPC call. Same-origin already does this
+        // by default; being explicit keeps it working if the client is ever cross-origin.
+        fetch: (url, opts) => fetch(url, { ...opts, credentials: 'include' }),
+      }),
+    ],
+  })
 }
