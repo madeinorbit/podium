@@ -1003,6 +1003,28 @@ export class SessionStore {
     return (r.m ?? 0) + 1
   }
 
+  /** One-time, idempotent: mirror legacy issues.blocked_by arrays into issue_deps. */
+  private backfillIssueDeps(): void {
+    const rows = this.db.prepare("SELECT id, blocked_by FROM issues WHERE blocked_by != '[]'").all() as {
+      id: string
+      blocked_by: string
+    }[]
+    const ins = this.db.prepare(
+      "INSERT OR IGNORE INTO issue_deps (from_id, to_id, type) VALUES (?, ?, 'blocks')",
+    )
+    for (const r of rows) {
+      let ids: unknown
+      try {
+        ids = JSON.parse(r.blocked_by)
+      } catch {
+        ids = []
+      }
+      if (Array.isArray(ids)) {
+        for (const to of ids) if (typeof to === 'string' && to) ins.run(r.id, to)
+      }
+    }
+  }
+
   close(): void {
     this.db.close()
   }
@@ -1214,6 +1236,35 @@ export class SessionStore {
     addIssueCol('duplicate_of', 'duplicate_of TEXT')
     addIssueCol('pinned', 'pinned INTEGER NOT NULL DEFAULT 0')
     addIssueCol('estimate_min', 'estimate_min INTEGER')
+    this.db.exec(
+      `CREATE TABLE IF NOT EXISTS issue_labels (
+         issue_id TEXT NOT NULL,
+         label    TEXT NOT NULL,
+         PRIMARY KEY (issue_id, label)
+       )`,
+    )
+    this.db.exec('CREATE INDEX IF NOT EXISTS idx_issue_labels_label ON issue_labels(label)')
+    this.db.exec(
+      `CREATE TABLE IF NOT EXISTS issue_deps (
+         from_id TEXT NOT NULL,
+         to_id   TEXT NOT NULL,
+         type    TEXT NOT NULL DEFAULT 'blocks',
+         PRIMARY KEY (from_id, to_id, type)
+       )`,
+    )
+    this.db.exec('CREATE INDEX IF NOT EXISTS idx_issue_deps_from ON issue_deps(from_id)')
+    this.db.exec('CREATE INDEX IF NOT EXISTS idx_issue_deps_to ON issue_deps(to_id)')
+    this.db.exec(
+      `CREATE TABLE IF NOT EXISTS issue_comments (
+         id         TEXT PRIMARY KEY,
+         issue_id   TEXT NOT NULL,
+         author     TEXT NOT NULL,
+         body       TEXT NOT NULL,
+         created_at TEXT NOT NULL
+       )`,
+    )
+    this.db.exec('CREATE INDEX IF NOT EXISTS idx_issue_comments_issue ON issue_comments(issue_id)')
+    this.backfillIssueDeps()
     // External-content FTS over the searchable text columns. Hybrid search note:
     // keyword now; a vector column joins when an embeddings provider is configured.
     try {
