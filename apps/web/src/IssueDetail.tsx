@@ -1,8 +1,9 @@
-import { ISSUE_STAGES, type IssueStage, type IssueWire } from '@podium/protocol'
+import { ISSUE_STAGES, type IssueStage, IssueType, type IssueWire } from '@podium/protocol'
 import { ExternalLink, RefreshCw, X } from 'lucide-react'
 import type { JSX } from 'react'
 import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import {
   Select,
   SelectContent,
@@ -17,6 +18,9 @@ import { useStore } from './store'
 import { sessionDisplayName } from './WorkerLabel'
 
 type MergeStyle = 'ff-only' | 'pr' | 'ask'
+
+// bd priorities are P0 (highest) … P4; the `update` procedure clamps to 0–4.
+const PRIORITY_OPTIONS = [0, 1, 2, 3, 4] as const
 
 /**
  * The Issue detail drawer — a fixed right-side panel over the board. Shows the
@@ -87,8 +91,9 @@ export function IssueDetail({
 
   const mergeLabel = 'FF-only merge'
   const primaryIsPr = mergeStyle === 'pr'
-  // Read-only view-model for the rich bd fields (priority/type/labels, deps,
-  // hierarchy, lifecycle, comments). Editing these is P4b (browser-verified).
+  // View-model for the rich bd fields. P4b makes priority/type/assignee/labels
+  // editable inline (read straight from `issue` below); deps, hierarchy,
+  // lifecycle and comments stay read-only here (Task 6 makes those interactive).
   const fields = issueDetailFields(issue)
 
   return (
@@ -163,28 +168,146 @@ export function IssueDetail({
           </Select>
         </div>
 
-        <section className="flex flex-col gap-2">
+        <section className="flex flex-col gap-3">
           <h3 className="font-medium text-[13px] text-foreground">Details</h3>
-          <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
-            <span className="rounded border border-border bg-muted px-1.5 py-0.5 font-medium text-muted-foreground">
-              {fields.priorityLabel}
-            </span>
-            <span className="rounded border border-border bg-muted px-1.5 py-0.5 text-muted-foreground">
-              {fields.typeLabel}
-            </span>
-            {fields.assignee && (
-              <span className="rounded border border-border bg-muted px-1.5 py-0.5 text-muted-foreground">
-                {fields.assignee}
-              </span>
-            )}
-            {fields.labels.map((label) => (
-              <span
-                key={label}
-                className="rounded border border-primary/40 bg-primary/5 px-1.5 py-0.5 text-primary"
+
+          <div className="grid grid-cols-2 gap-2">
+            <div className="flex flex-col gap-1">
+              <span className="text-[11px] text-muted-foreground">Priority</span>
+              <Select
+                value={String(issue.priority)}
+                onValueChange={(value) => {
+                  if (!value) return
+                  void run(() =>
+                    trpc.issues.update.mutate({
+                      id: issue.id,
+                      patch: { priority: Number(value) },
+                    }),
+                  )
+                }}
               >
-                {label}
-              </span>
-            ))}
+                <SelectTrigger size="sm" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {PRIORITY_OPTIONS.map((p) => (
+                    <SelectItem key={p} value={String(p)}>
+                      P{p}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="flex flex-col gap-1">
+              <span className="text-[11px] text-muted-foreground">Type</span>
+              <Select
+                value={issue.type}
+                onValueChange={(value) => {
+                  if (!value) return
+                  void run(() =>
+                    trpc.issues.update.mutate({
+                      id: issue.id,
+                      patch: { type: value as IssueType },
+                    }),
+                  )
+                }}
+              >
+                <SelectTrigger size="sm" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {IssueType.options.map((t) => (
+                    <SelectItem key={t} value={t}>
+                      {t}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-1">
+            <span className="text-[11px] text-muted-foreground">Assignee</span>
+            {/* Uncontrolled input keyed by issue id so it re-seeds on switch;
+                commit on blur or Enter, only when the value actually changed. */}
+            <Input
+              key={`assignee-${issue.id}`}
+              defaultValue={issue.assignee ?? ''}
+              placeholder="unassigned"
+              aria-label="Assignee"
+              disabled={busy}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  e.currentTarget.blur()
+                }
+              }}
+              onBlur={(e) => {
+                const next = e.currentTarget.value.trim()
+                if (next === (issue.assignee ?? '')) return
+                void run(() =>
+                  trpc.issues.update.mutate({ id: issue.id, patch: { assignee: next } }),
+                )
+              }}
+            />
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <span className="text-[11px] text-muted-foreground">Labels</span>
+            {issue.labels.length > 0 && (
+              <div className="flex flex-wrap items-center gap-1.5">
+                {issue.labels.map((label) => (
+                  <span
+                    key={label}
+                    className="inline-flex items-center gap-1 rounded border border-primary/40 bg-primary/5 py-0.5 pr-1 pl-1.5 text-[11px] text-primary"
+                  >
+                    {label}
+                    <button
+                      type="button"
+                      aria-label={`Remove label ${label}`}
+                      title={`Remove ${label}`}
+                      disabled={busy}
+                      className="rounded-sm text-primary/70 hover:text-primary disabled:opacity-50"
+                      onClick={() =>
+                        void run(() =>
+                          trpc.issues.setLabels.mutate({
+                            id: issue.id,
+                            labels: issue.labels.filter((l) => l !== label),
+                          }),
+                        )
+                      }
+                    >
+                      <X size={11} aria-hidden="true" />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+            {/* Uncontrolled + keyed so it clears on issue switch; on Enter we
+                clear the box and append the trimmed label (de-duped). */}
+            <Input
+              key={`add-label-${issue.id}`}
+              defaultValue=""
+              placeholder="Add label…"
+              aria-label="Add label"
+              disabled={busy}
+              className="max-w-[200px]"
+              onKeyDown={(e) => {
+                if (e.key !== 'Enter') return
+                e.preventDefault()
+                const input = e.currentTarget
+                const label = input.value.trim()
+                input.value = ''
+                if (!label || issue.labels.includes(label)) return
+                void run(() =>
+                  trpc.issues.setLabels.mutate({
+                    id: issue.id,
+                    labels: [...issue.labels, label],
+                  }),
+                )
+              }}
+            />
           </div>
         </section>
 
