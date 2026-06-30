@@ -61,6 +61,25 @@ export async function main(): Promise<void> {
     return
   }
 
+  // `podium join-config <TOKEN>`: non-interactive daemon configuration from a join token
+  // (used by `install.sh --join`). Writes config + exits; the daemon is started separately.
+  if (argv[0] === 'join-config') {
+    const token = argv[1]
+    if (!token) {
+      console.error('usage: podium join-config <TOKEN>')
+      process.exit(2)
+    }
+    const { applyJoinToken } = await import('./cli-join')
+    try {
+      const { name } = applyJoinToken(token)
+      console.log(`podium configured to join as "${name}"`)
+    } catch (e) {
+      console.error(`invalid join token: ${(e as Error).message}`)
+      process.exit(2)
+    }
+    return
+  }
+
   // Escape hatch: `podium setup` (or --reconfigure) force-serves the setup UI
   // regardless of the saved mode, so a client/daemon install can be reconfigured.
   const forceSetup = argv.includes('setup') || argv.includes('--reconfigure')
