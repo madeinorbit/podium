@@ -519,6 +519,9 @@ export const appRouter = t.router({
     archive: issueProc
       .input(z.object({ id: z.string() }))
       .mutation(({ ctx, input }) => ctx.registry.issues.archive(input.id)),
+    delete: issueProc
+      .input(z.object({ id: z.string() }))
+      .mutation(({ ctx, input }) => ctx.registry.issues.delete(input.id)),
     action: issueProc
       .input(z.object({ id: z.string(), kind: z.enum(['rebase', 'pr', 'merge']) }))
       .mutation(({ ctx, input }) => ctx.registry.issues.action(input.id, input.kind)),

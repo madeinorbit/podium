@@ -400,6 +400,13 @@ export class IssueService {
     return this.update(id, { archived: true })
   }
 
+  delete(id: string): void {
+    this.rowOrThrow(id)
+    this.deps.store.deleteIssue(id)
+    this.rows.delete(id)
+    this.deps.broadcast({ type: 'issuesChanged', issues: this.allWire() })
+  }
+
   setLabels(id: string, labels: string[]): IssueWire {
     const row = this.rowOrThrow(id)
     this.deps.store.setIssueLabels(id, labels)

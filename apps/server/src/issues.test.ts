@@ -595,3 +595,21 @@ describe('IssueService orphans (P2b)', () => {
     expect(await svc.orphans('/r')).toEqual([])
   })
 })
+
+describe('IssueService.delete (P4b)', () => {
+  it('removes the issue from the list and broadcasts', () => {
+    const { svc, store, deps } = harness()
+    const a = svc.create({ repoPath: '/r', title: 'gone', startNow: false })
+    svc.create({ repoPath: '/r', title: 'stays', startNow: false })
+    ;(deps.broadcast as ReturnType<typeof vi.fn>).mockClear()
+    svc.delete(a.id)
+    expect(svc.get(a.id)).toBeNull()
+    expect(svc.list('/r').map((w) => w.title)).toEqual(['stays'])
+    expect(store.getIssue(a.id)).toBeNull()
+    expect(deps.broadcast).toHaveBeenCalled()
+  })
+  it('throws on unknown id', () => {
+    const { svc } = harness()
+    expect(() => svc.delete('iss_missing')).toThrow()
+  })
+})

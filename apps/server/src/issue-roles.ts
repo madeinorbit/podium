@@ -23,6 +23,7 @@ export const PROC_MIN_ROLE: Record<string, Role> = {
   // maintainer — structural / destructive / cross-cutting
   create: 'maintainer',
   archive: 'maintainer',
+  delete: 'maintainer',
   setLabels: 'maintainer',
   depRemove: 'maintainer',
   reparent: 'maintainer',

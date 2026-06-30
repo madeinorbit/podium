@@ -49,6 +49,13 @@ describe('ISSUE_COMMANDS registry', () => {
     }
   })
 
+  it('includes the full verb set (P4b parity)', () => {
+    const names = ISSUE_COMMANDS.map((c) => c.name)
+    for (const v of ['delete', 'label', 'defer', 'undefer', 'supersede', 'duplicate', 'dep-remove', 'reparent', 'find-duplicates', 'graph', 'doctor', 'stale', 'orphans', 'lint', 'preflight', 'count', 'epic-status']) {
+      expect(names, `missing verb ${v}`).toContain(v)
+    }
+  })
+
   it('create calls issues.create.mutate with the title and returns the new id/seq', async () => {
     const { client, calls } = mockClient({ create: { id: 'iss_9', seq: 7, title: 'Fix login' } })
     const out = await cmd('create').run(client, { repoPath: '/r', title: 'Fix login' })
