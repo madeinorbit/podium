@@ -49,24 +49,25 @@ export function SetupView({
   const [step, setStep] = useState<'mode' | 'network'>('mode')
   const [mode, setMode] = useState<PodiumMode>('all-in-one')
   const [serverUrl, setServerUrl] = useState('')
-  const [pairCode, setPairCode] = useState('')
+  const [joinCode, setJoinCode] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const needsServer = MODES.find((m) => m.id === mode)?.needsServer ?? false
-  // Only daemon mode pairs a fresh machine; client mode just connects.
-  const needsPair = mode === 'daemon'
+  // daemon joins with a one-paste code; client just needs the remote URL.
+  const needsJoinCode = mode === 'daemon'
+  const needsServerUrl = mode === 'client'
 
-  // POST the mode-only config (daemon/client/server, or "skip reachability" for all-in-one).
   const save = async (m: PodiumMode = mode): Promise<void> => {
     setBusy(true)
     setError(null)
     try {
-      const ns = MODES.find((x) => x.id === m)?.needsServer ?? false
-      const body = ns
-        ? m === 'daemon'
-          ? { mode: m, serverUrl, pairCode }
-          : { mode: m, serverUrl }
-        : { mode: m }
+      if (m === 'daemon') {
+        // One pasted join code → daemon config, via the same core applyJoin the CLI uses.
+        await trpc.setup.join.mutate({ code: joinCode.trim() })
+        onSaved()
+        return
+      }
+      // client/server (and the all-in-one "skip reachability" path) → mode config POST.
+      const body = m === 'client' ? { mode: m, serverUrl } : { mode: m }
       const res = await fetch(`${httpOrigin}/setup/config`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -121,7 +122,7 @@ export function SetupView({
           </label>
         ))}
       </fieldset>
-      {needsServer && (
+      {needsServerUrl && (
         <div className="flex flex-col gap-1">
           <label htmlFor="server-url" className="text-[12px] text-muted-foreground">
             Server URL
@@ -135,18 +136,21 @@ export function SetupView({
           />
         </div>
       )}
-      {needsPair && (
+      {needsJoinCode && (
         <div className="flex flex-col gap-1">
-          <label htmlFor="pair-code" className="text-[12px] text-muted-foreground">
-            Pairing code
+          <label htmlFor="join-code" className="text-[12px] text-muted-foreground">
+            Join code
           </label>
           <Input
-            id="pair-code"
+            id="join-code"
             type="text"
-            placeholder="from the server's Machines settings"
-            value={pairCode}
-            onChange={(e) => setPairCode(e.target.value)}
+            placeholder="paste the code from the server's Machines → Add machine"
+            value={joinCode}
+            onChange={(e) => setJoinCode(e.target.value)}
           />
+          <p className="text-[11px] text-muted-foreground">
+            One code carries the server URL and pairing code.
+          </p>
         </div>
       )}
       {error && (
@@ -159,7 +163,13 @@ export function SetupView({
           Continue
         </Button>
       ) : (
-        <Button type="button" disabled={busy} onClick={() => void save()}>
+        <Button
+          type="button"
+          disabled={
+            busy || (needsJoinCode && !joinCode.trim()) || (needsServerUrl && !serverUrl.trim())
+          }
+          onClick={() => void save()}
+        >
           {busy ? 'Saving…' : 'Save & start'}
         </Button>
       )}

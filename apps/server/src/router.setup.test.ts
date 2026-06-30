@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { loadConfig } from '@podium/core/config'
+import { encodeJoin } from '@podium/core/join'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { hasPassword, verifyPassword } from './auth-store'
 import { SessionRegistry } from './relay'
@@ -52,5 +53,14 @@ describe('setup tRPC', () => {
   it('leaves auth open when no password is supplied (explicit opt-out)', async () => {
     await caller().setup.complete({ publicUrl: 'https://box.ts.net' })
     expect(hasPassword(dir)).toBe(false)
+  })
+  it('join applies a pasted join code as a daemon config', async () => {
+    const code = encodeJoin({ v: 1, serverUrl: 'wss://relay', pairCode: 'P1', name: 'box' })
+    expect(await caller().setup.join({ code })).toEqual({ name: 'box' })
+    expect(loadConfig().mode).toBe('daemon')
+    expect(loadConfig().serverUrl).toBe('wss://relay')
+  })
+  it('join rejects a malformed code', async () => {
+    await expect(caller().setup.join({ code: 'garbage!' })).rejects.toThrow()
   })
 })

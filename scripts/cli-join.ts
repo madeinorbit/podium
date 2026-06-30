@@ -1,9 +1,10 @@
-import { saveConfig } from '../packages/core/src/config'
-import { decodeJoin } from '../packages/core/src/join'
+import { applyJoin } from '../packages/core/src/setup'
 
-/** Decode a join token and persist a daemon config. Returns the resolved machine name. */
+/**
+ * Decode a join token and persist a daemon config. Returns the resolved machine name.
+ * Thin alias over the shared core `applyJoin` so `podium join-config` and the web setup
+ * (`setup.join` tRPC) apply the exact same logic.
+ */
 export function applyJoinToken(token: string): { name: string } {
-  const p = decodeJoin(token)
-  saveConfig({ mode: 'daemon', serverUrl: p.serverUrl, pairCode: p.pairCode })
-  return { name: p.name ?? 'this machine' }
+  return applyJoin(token)
 }

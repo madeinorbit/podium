@@ -1,6 +1,7 @@
 import { PodiumSettings } from '@podium/core'
 import { loadConfig } from '@podium/core/config'
 import {
+  applyJoin,
   applySetup,
   NETWORK_OPTIONS,
   networkOptionCommand,
@@ -393,6 +394,15 @@ export const appRouter = t.router({
         if (input.password?.trim()) await setPassword(input.password)
         return cfg
       }),
+    // Daemon onboarding: one pasted join code (server URL + pairing code) → daemon config.
+    // Same core `applyJoin` the CLI uses, so the web and terminal flows stay identical.
+    join: t.procedure.input(z.object({ code: z.string() })).mutation(({ input }) => {
+      try {
+        return applyJoin(input.code.trim())
+      } catch (e) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: (e as Error).message })
+      }
+    }),
   }),
   // Manage the human-client login password on an already-configured instance. These run
   // under the same /trpc guard, so once a password is set you must be logged in to reach

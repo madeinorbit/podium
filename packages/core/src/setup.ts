@@ -1,4 +1,5 @@
 import { loadConfig, type PodiumConfig, saveConfig } from './config'
+import { decodeJoin } from './join'
 
 export type NetworkOption = 'tailscale-funnel' | 'tailscale-serve' | 'cloudflare-tunnel' | 'manual'
 
@@ -69,4 +70,17 @@ export function applySetup(input: { publicUrl: string }): PodiumConfig {
   const cfg: PodiumConfig = { ...loadConfig(), mode: 'all-in-one', publicUrl: input.publicUrl }
   saveConfig(cfg)
   return cfg
+}
+
+/**
+ * Apply a one-paste join code (carries the server URL + pairing code) → a self-contained
+ * daemon config. The single source of truth for "join a server", shared by the CLI
+ * (`podium join-config` / `podium setup`) and the web setup's `setup.join` tRPC. Throws on
+ * a malformed token. Replaces (not merges) config — switching to daemon drops any stale
+ * host fields like publicUrl.
+ */
+export function applyJoin(token: string): { name: string } {
+  const p = decodeJoin(token)
+  saveConfig({ mode: 'daemon', serverUrl: p.serverUrl, pairCode: p.pairCode })
+  return { name: p.name ?? 'this machine' }
 }

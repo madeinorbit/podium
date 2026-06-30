@@ -7,6 +7,7 @@ const trpcMock = vi.hoisted(() => ({
   options: vi.fn(),
   commandFor: vi.fn(),
   complete: vi.fn(),
+  join: vi.fn(),
 }))
 
 vi.mock('./trpc', async (importOriginal) => {
@@ -18,6 +19,7 @@ vi.mock('./trpc', async (importOriginal) => {
         options: { query: trpcMock.options },
         commandFor: { query: trpcMock.commandFor },
         complete: { mutate: trpcMock.complete },
+        join: { mutate: trpcMock.join },
       },
     }),
   }
@@ -111,55 +113,39 @@ describe('SetupView', () => {
     })
   })
 
-  it('shows server-url + pairing-code fields for daemon mode and POSTs both', async () => {
-    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ok: true }) })
-    vi.stubGlobal('fetch', fetchMock)
+  it('daemon mode takes one join code and applies it via setup.join', async () => {
     const onSaved = vi.fn()
     const { container } = render(
       <SetupView httpOrigin="http://localhost:18787" onSaved={onSaved} />,
     )
     const view = within(container)
 
-    // Fields must NOT be present for default all-in-one mode
+    // No join-code field for default all-in-one mode.
+    expect(view.queryByLabelText(/join code/i)).toBeNull()
+
+    // Select daemon mode — a single join-code field appears (no separate URL / pair fields).
+    fireEvent.click(view.getByRole('radio', { name: /daemon → external server/i }))
+    expect(view.getByLabelText(/join code/i)).toBeTruthy()
     expect(view.queryByLabelText(/server url/i)).toBeNull()
     expect(view.queryByLabelText(/pairing code/i)).toBeNull()
 
-    // Select daemon mode — both fields must appear
-    // Use exact label-text match to avoid matching "daemons" in other labels' blurbs
-    fireEvent.click(view.getByRole('radio', { name: /daemon → external server/i }))
-    const urlInput = view.getByLabelText(/server url/i)
-    const pairInput = view.getByLabelText(/pairing code/i)
-    expect(urlInput).toBeTruthy()
-    expect(pairInput).toBeTruthy()
-
-    // Fill in a URL + pairing code
-    fireEvent.change(urlInput, { target: { value: 'ws://host:18787' } })
-    fireEvent.change(pairInput, { target: { value: 'ABC123' } })
-
-    const btn = view.getByRole('button', { name: /save/i })
+    fireEvent.change(view.getByLabelText(/join code/i), { target: { value: 'JOINCODE123' } })
     await act(async () => {
-      fireEvent.click(btn)
+      fireEvent.click(view.getByRole('button', { name: /save/i }))
       await flush()
     })
 
-    expect(fetchMock).toHaveBeenCalled()
-    const firstCall = fetchMock.mock.calls[0] as [string, RequestInit]
-    expect(firstCall[0]).toBe('http://localhost:18787/setup/config')
-    expect(JSON.parse(firstCall[1].body as string)).toMatchObject({
-      mode: 'daemon',
-      serverUrl: 'ws://host:18787',
-      pairCode: 'ABC123',
-    })
+    expect(trpcMock.join).toHaveBeenCalledWith({ code: 'JOINCODE123' })
     expect(onSaved).toHaveBeenCalled()
   })
 
-  it('client mode shows server url but NOT a pairing code field', () => {
+  it('client mode shows a server-url field, no join code', () => {
     const { container } = render(
       <SetupView httpOrigin="http://localhost:18787" onSaved={() => {}} />,
     )
     const view = within(container)
     fireEvent.click(view.getByRole('radio', { name: /client → external server/i }))
     expect(view.getByLabelText(/server url/i)).toBeTruthy()
-    expect(view.queryByLabelText(/pairing code/i)).toBeNull()
+    expect(view.queryByLabelText(/join code/i)).toBeNull()
   })
 })
