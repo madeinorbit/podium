@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Hono } from 'hono'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
-import { registerAuthRoute } from './auth-route'
+import { clientAuthGuard, hashToken, registerAuthRoute } from './auth-route'
 import { setPassword } from './auth-store'
 import { SessionStore } from './store'
 
@@ -164,6 +164,47 @@ describe('auth-route', () => {
     // counter cleared: two more bad attempts should not yet lock out
     expect((await bad()).status).toBe(401)
     expect((await bad()).status).toBe(401)
+  })
+})
+
+describe('clientAuthGuard (HTTP surface gate)', () => {
+  function guardedApp() {
+    const app = new Hono()
+    app.use('/trpc/*', clientAuthGuard({ store, authDir: dir }))
+    app.get('/trpc/ping', (c) => c.text('pong'))
+    app.options('/trpc/ping', (c) => c.body(null, 204))
+    return app
+  }
+
+  function validCookie(): string {
+    const token = 'raw-session-token'
+    store.createClientSession(hashToken(token), new Date(Date.now() + 60_000).toISOString())
+    return `podium_session=${token}`
+  }
+
+  test('passes through when no password is set (open mode)', async () => {
+    const res = await guardedApp().request('/trpc/ping')
+    expect(res.status).toBe(200)
+    expect(await res.text()).toBe('pong')
+  })
+
+  test('blocks an unauthenticated request with 401 once a password is set', async () => {
+    await setPassword('hunter2', dir)
+    const res = await guardedApp().request('/trpc/ping')
+    expect(res.status).toBe(401)
+  })
+
+  test('allows a request carrying a valid session cookie', async () => {
+    await setPassword('hunter2', dir)
+    const res = await guardedApp().request('/trpc/ping', { headers: { cookie: validCookie() } })
+    expect(res.status).toBe(200)
+    expect(await res.text()).toBe('pong')
+  })
+
+  test('lets CORS preflight (OPTIONS) through even without a cookie', async () => {
+    await setPassword('hunter2', dir)
+    const res = await guardedApp().request('/trpc/ping', { method: 'OPTIONS' })
+    expect(res.status).not.toBe(401)
   })
 })
 

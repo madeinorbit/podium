@@ -1,19 +1,29 @@
-import type { Server } from 'node:http'
+import type { IncomingMessage, Server } from 'node:http'
 import {
   type DaemonHandshake,
   type DaemonHandshakeReply,
-  WIRE_VERSION,
   encode,
   isProtocolCompatible,
   parseClientMessage,
   parseDaemonHandshake,
   parseDaemonMessage,
+  WIRE_VERSION,
 } from '@podium/protocol'
 import { WebSocketServer } from 'ws'
 import type { SessionRegistry } from './relay'
 
 export interface WsHandle {
   close(): Promise<void>
+}
+
+export interface WsAuthOptions {
+  /**
+   * Gate for the human-client (/client) WS upgrade. Returns false to reject the upgrade
+   * (the password is set and the request carries no valid session cookie). Absent =
+   * surface is open (loopback/all-in-one, or the user opted out of login). The /daemon
+   * link is unaffected — it has its own pre-auth handshake.
+   */
+  authorizeClient?: (req: IncomingMessage) => boolean
 }
 
 // Server-side liveness. The browser answers protocol-level pings with pongs at the
@@ -190,7 +200,11 @@ export function wireDaemonSocket(ws: import('ws').WebSocket, registry: SessionRe
   })
 }
 
-export function attachWebSockets(server: Server, registry: SessionRegistry): WsHandle {
+export function attachWebSockets(
+  server: Server,
+  registry: SessionRegistry,
+  auth: WsAuthOptions = {},
+): WsHandle {
   const daemonWss = new WebSocketServer({ noServer: true })
   const clientWss = new WebSocketServer({ noServer: true })
 
@@ -213,6 +227,15 @@ export function attachWebSockets(server: Server, registry: SessionRegistry): WsH
     if (pathname === '/daemon') {
       daemonWss.handleUpgrade(req, socket, head, (ws) => daemonWss.emit('connection', ws, req))
     } else if (pathname === '/client') {
+      // Gate the human-client surface: if a login password is set, the upgrade must carry
+      // a valid session cookie. Browsers send same-origin cookies on the WS handshake, so
+      // the gate reads them off the upgrade request — mirroring the cookie the /trpc and
+      // /files HTTP guards check, one shared definition of "authed".
+      if (auth.authorizeClient && !auth.authorizeClient(req)) {
+        socket.write('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n')
+        socket.destroy()
+        return
+      }
       clientWss.handleUpgrade(req, socket, head, (ws) => clientWss.emit('connection', ws, req))
     } else {
       socket.destroy()

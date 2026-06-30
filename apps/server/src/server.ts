@@ -8,7 +8,8 @@ import { startLoopMetrics } from '@podium/core/loop-metrics'
 import { WIRE_VERSION } from '@podium/protocol'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
-import { registerAuthRoute } from './auth-route'
+import { clientAuthGuard, isRequestAuthed, registerAuthRoute } from './auth-route'
+import { hasPassword } from './auth-store'
 import { registerAssetRoute } from './file-asset-route'
 import { readOrCreateDaemonSecret } from './local-machine'
 import { registerMcpRoute } from './mcp-route'
@@ -67,19 +68,29 @@ export async function startServer(opts: { port?: number } = {}): Promise<ServerH
   // The setup UI fetches /setup/config from the desktop webview, whose origin (tauri://localhost)
   // differs from the local server — same cross-origin case as /trpc. Without CORS the fetch is
   // blocked and SetupGate's catch() silently skips onboarding. Must precede the route handler.
+  // Gate the human-client data plane (/trpc, /files) and the mutating setup POST behind
+  // the login session whenever a password is configured; open otherwise (loopback /
+  // all-in-one, or the user opted out). The static SPA shell, /auth/*, GET /setup/config,
+  // /health and /version stay open so the login screen can load. The /daemon link and
+  // /mcp keep their own credentials. Guards are registered BEFORE their handlers so Hono
+  // runs them first.
+  const guard = clientAuthGuard({ store })
   app.use('/setup/*', cors())
+  app.on('POST', '/setup/config', guard)
   registerSetupRoute(app)
   // Human-client login (web/desktop UI). Same cross-origin reason as /setup: the desktop
   // webview's origin differs from the server in the all-in-one case. Login itself is
   // same-origin in the supported network topologies; the password store gates it.
   app.use('/auth/*', cors())
   registerAuthRoute(app, { store })
+  app.use('/files/*', guard)
   registerAssetRoute(app, registry)
   // In-process MCP server exposing the superagent's orchestrator tools to a
   // harness-backed superagent (Claude via --mcp-config). Token-gated.
   const mcpToken = randomUUID()
   registerMcpRoute(app, superagent, mcpToken)
   app.use('/trpc/*', cors())
+  app.use('/trpc/*', guard)
   app.use(
     '/trpc/*',
     trpcServer({ router: appRouter, createContext: () => ({ registry, repos, superagent }) }),
@@ -104,7 +115,11 @@ export async function startServer(opts: { port?: number } = {}): Promise<ServerH
       // The harness agent runs on the same host (single-machine), so loopback
       // reaches this MCP route. Now that the port is known, point it there.
       superagent.setMcpEndpoint(`http://127.0.0.1:${info.port}/mcp`, mcpToken)
-      const ws = attachWebSockets(server as unknown as Server, registry)
+      const ws = attachWebSockets(server as unknown as Server, registry, {
+        // Same gate as the HTTP guard: open unless a password is set, then require a valid
+        // session cookie on the upgrade request.
+        authorizeClient: (req) => !hasPassword() || isRequestAuthed(store, req.headers.cookie),
+      })
       if (process.env.PODIUM_LOOP_PROFILE) startLoopMetrics({ label: 'server' })
       resolve({
         port: info.port,

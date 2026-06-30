@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto'
-import type { Context, Hono } from 'hono'
+import type { Context, Hono, MiddlewareHandler } from 'hono'
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie'
 import { hasPassword, verifyPassword } from './auth-store'
 
@@ -50,6 +50,25 @@ function isHttps(c: Context): boolean {
     return new URL(c.req.url).protocol === 'https:'
   } catch {
     return false
+  }
+}
+
+/**
+ * Hono middleware that gates a client surface (e.g. /trpc, /files) behind the login session.
+ * Open (passes through) when no password is configured; otherwise requires a valid session
+ * cookie. CORS preflight (OPTIONS) is always allowed so cross-origin clients can negotiate.
+ */
+export function clientAuthGuard(opts: {
+  store?: ClientSessionStore
+  authDir?: string
+  now?: () => number
+}): MiddlewareHandler {
+  const now = opts.now ?? (() => Date.now())
+  return async (c, next) => {
+    if (c.req.method === 'OPTIONS') return next()
+    if (!hasPassword(opts.authDir)) return next()
+    if (opts.store && isRequestAuthed(opts.store, c.req.header('cookie'), now())) return next()
+    return c.json({ error: 'unauthorized' }, 401)
   }
 }
 
