@@ -6,7 +6,7 @@ import {
   networkOptionCommand,
   validatePublicUrl,
 } from '@podium/core/setup'
-import { AgentKind, IssueStage, ResumeRef, WorkState } from '@podium/protocol'
+import { AgentKind, IssueStage, IssueType, ResumeRef, WorkState } from '@podium/protocol'
 import { initTRPC, TRPCError } from '@trpc/server'
 import { z } from 'zod'
 import { buildJoinCommand } from './machines-join'
@@ -406,6 +406,11 @@ export const appRouter = t.router({
           linear: z
             .object({ id: z.string().optional(), identifier: z.string(), url: z.string() })
             .optional(),
+          priority: z.number().int().min(0).max(4).optional(),
+          type: IssueType.optional(),
+          assignee: z.string().optional(),
+          labels: z.array(z.string()).optional(),
+          parentId: z.string().optional(),
         }),
       )
       .mutation(({ ctx, input }) => ctx.registry.issues.createAndMaybeStart(input)),
@@ -423,6 +428,18 @@ export const appRouter = t.router({
             parentBranch: z.string().optional(),
             defaultAgent: z.string().optional(),
             archived: z.boolean().optional(),
+            priority: z.number().int().min(0).max(4).optional(),
+            type: IssueType.optional(),
+            assignee: z.string().optional(),
+            parentId: z.string().optional(),
+            design: z.string().optional(),
+            acceptance: z.string().optional(),
+            notes: z.string().optional(),
+            dueAt: z.string().optional(),
+            deferUntil: z.string().optional(),
+            closedReason: z.string().optional(),
+            pinned: z.boolean().optional(),
+            estimateMin: z.number().int().optional(),
           }),
         }),
       )
@@ -448,6 +465,30 @@ export const appRouter = t.router({
     refreshAssistant: t.procedure
       .input(z.object({ id: z.string() }))
       .mutation(({ ctx, input }) => ctx.registry.issues.refreshAssistant(input.id)),
+    setLabels: t.procedure
+      .input(z.object({ id: z.string(), labels: z.array(z.string()) }))
+      .mutation(({ ctx, input }) => ctx.registry.issues.setLabels(input.id, input.labels)),
+    addComment: t.procedure
+      .input(z.object({ id: z.string(), author: z.string(), body: z.string().min(1) }))
+      .mutation(({ ctx, input }) => ctx.registry.issues.addComment(input.id, input.author, input.body)),
+    depAdd: t.procedure
+      .input(z.object({ fromId: z.string(), toId: z.string(), type: z.string().optional() }))
+      .mutation(({ ctx, input }) => ctx.registry.issues.addDep(input.fromId, input.toId, input.type)),
+    depRemove: t.procedure
+      .input(z.object({ fromId: z.string(), toId: z.string(), type: z.string().optional() }))
+      .mutation(({ ctx, input }) => ctx.registry.issues.removeDep(input.fromId, input.toId, input.type)),
+    defer: t.procedure
+      .input(z.object({ id: z.string(), until: z.string().nullable() }))
+      .mutation(({ ctx, input }) => ctx.registry.issues.defer(input.id, input.until)),
+    reparent: t.procedure
+      .input(z.object({ id: z.string(), parentId: z.string().nullable() }))
+      .mutation(({ ctx, input }) => ctx.registry.issues.reparent(input.id, input.parentId)),
+    claim: t.procedure
+      .input(z.object({ id: z.string(), assignee: z.string() }))
+      .mutation(({ ctx, input }) => ctx.registry.issues.claim(input.id, input.assignee)),
+    close: t.procedure
+      .input(z.object({ id: z.string(), reason: z.string().optional() }))
+      .mutation(({ ctx, input }) => ctx.registry.issues.close(input.id, input.reason)),
     linearSearch: t.procedure
       .input(z.object({ query: z.string() }))
       .query(({ ctx, input }) => ctx.registry.issues.linearSearch(input.query)),

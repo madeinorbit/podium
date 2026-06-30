@@ -31,6 +31,11 @@ export interface CreateIssueInput {
   defaultAgent?: string
   startNow: boolean
   linear?: { id?: string; identifier: string; url: string }
+  priority?: number
+  type?: string
+  assignee?: string
+  labels?: string[]
+  parentId?: string
 }
 
 export class IssueService {
@@ -147,7 +152,12 @@ export class IssueService {
       duplicateOf: null, pinned: false, estimateMin: null,
       createdAt: ts, updatedAt: ts, archived: false,
     }
+    if (input.priority != null) row.priority = input.priority
+    if (input.type) row.type = input.type
+    if (input.assignee) row.assignee = input.assignee
+    if (input.parentId) row.parentId = input.parentId
     const wire = this.persist(row)
+    if (input.labels?.length) return this.setLabels(row.id, input.labels)
     return wire
   }
 
