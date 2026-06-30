@@ -1,4 +1,5 @@
 import { type ReactNode, useEffect, useState } from 'react'
+import { AppErrorPage } from './AppErrorPage'
 import { SetupView } from './SetupView'
 import { serverConfig } from './trpc'
 
@@ -48,13 +49,11 @@ async function probeSetup(httpOrigin: string): Promise<'setup' | 'ready'> {
  *  setup is needed. Better to say so than to silently render the app in an unknown state. */
 function SetupUnreachable({ onRetry }: { onRetry: () => void }): ReactNode {
   return (
-    <div className="setup-view">
-      <h1>Can’t reach the Podium backend</h1>
-      <p>The app couldn’t load its setup status. Check that the server is running, then retry.</p>
-      <button type="button" onClick={onRetry}>
-        Retry
-      </button>
-    </div>
+    <AppErrorPage
+      title="Can’t reach the Podium backend"
+      message="The app couldn’t load its setup status. Check that the server is running, then retry."
+      onRetry={onRetry}
+    />
   )
 }
 
