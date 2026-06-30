@@ -1,11 +1,20 @@
-import { ISSUE_STAGES, type IssueStage, type IssueWire } from '@podium/protocol'
+import { ISSUE_STAGES, type IssueStage, IssueType, type IssueWire } from '@podium/protocol'
 import { Plus, Trash2 } from 'lucide-react'
 import type { JSX } from 'react'
 import { useState } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { cn } from '@/lib/utils'
 import { CardBoundary } from './CardBoundary'
+import { type BoardFilter, filterBoardIssues } from './issue-board-filter'
 import { issueCardModel, STAGE_LABELS } from './issue-card'
 import { dropTargetStage } from './kanban-dnd'
 import { NewIssueDialog } from './NewIssueDialog'
@@ -29,10 +38,17 @@ const STATUS_DOT_COLOR: Record<'ready' | 'blocked' | 'deferred' | 'closed' | 'op
 export function IssuesView(): JSX.Element {
   const { issues, setOpenIssueId, trpc } = useStore()
   const [creating, setCreating] = useState(false)
+  // Board-wide filter/search. AND-composed; an empty filter shows everything.
+  const [filter, setFilter] = useState<BoardFilter>({})
   // Surface any drag-drop / delete mutation failure verbatim — the server
   // re-broadcasts the authoritative board, so we only need to show the error.
   const [error, setError] = useState('')
-  const active = issues.filter((i) => !i.archived)
+  // Hide archived, then narrow by the filter bar — both run before the issues
+  // are split into per-stage columns, so each column reflects the same view.
+  const active = filterBoardIssues(
+    issues.filter((i) => !i.archived),
+    filter,
+  )
 
   // Fire a board mutation; on rejection show the message. Success needs no
   // handling — the `issuesChanged` broadcast reconciles the board.
@@ -57,6 +73,7 @@ export function IssuesView(): JSX.Element {
           <Plus size={14} aria-hidden="true" /> New Issue
         </Button>
       </div>
+      <FilterBar filter={filter} onChange={setFilter} />
       <div className="flex min-h-0 flex-1 gap-3 overflow-x-auto p-3 md:p-4">
         {ISSUE_STAGES.map((stage) => (
           <IssueColumn
@@ -80,6 +97,85 @@ export function IssuesView(): JSX.Element {
       )}
       {creating && <NewIssueDialog onClose={() => setCreating(false)} />}
     </section>
+  )
+}
+
+const STATUS_OPTIONS: NonNullable<BoardFilter['status']>[] = [
+  'open',
+  'closed',
+  'ready',
+  'blocked',
+  'deferred',
+]
+
+/**
+ * Compact filter/search bar above the columns. Each control narrows the board
+ * (AND-composed via `filterBoardIssues`); the empty "All …" option clears that
+ * dimension. Selects mirror the New Issue dialog's input/select components.
+ */
+function FilterBar({
+  filter,
+  onChange,
+}: {
+  filter: BoardFilter
+  onChange: (f: BoardFilter) => void
+}): JSX.Element {
+  const set = (patch: Partial<BoardFilter>): void => onChange({ ...filter, ...patch })
+  return (
+    <div className="flex flex-wrap items-center gap-2 border-border border-b px-4 py-2 md:px-[22px]">
+      <Input
+        value={filter.text ?? ''}
+        onChange={(e) => set({ text: e.target.value || undefined })}
+        placeholder="Search issues…"
+        aria-label="Search issues"
+        className="h-8 w-full max-w-[240px] flex-1"
+      />
+      <Select
+        value={filter.priority == null ? '' : String(filter.priority)}
+        onValueChange={(v) => set({ priority: v ? Number(v) : undefined })}
+      >
+        <SelectTrigger size="sm" className="w-[130px]">
+          <SelectValue placeholder="Priority" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="">All priorities</SelectItem>
+          {[0, 1, 2, 3, 4].map((p) => (
+            <SelectItem key={p} value={String(p)}>
+              P{p}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      <Select value={filter.type ?? ''} onValueChange={(v) => set({ type: v || undefined })}>
+        <SelectTrigger size="sm" className="w-[120px]">
+          <SelectValue placeholder="Type" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="">All types</SelectItem>
+          {IssueType.options.map((t) => (
+            <SelectItem key={t} value={t}>
+              {t}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      <Select
+        value={filter.status ?? ''}
+        onValueChange={(v) => set({ status: (v || undefined) as BoardFilter['status'] })}
+      >
+        <SelectTrigger size="sm" className="w-[120px]">
+          <SelectValue placeholder="Status" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="">All statuses</SelectItem>
+          {STATUS_OPTIONS.map((s) => (
+            <SelectItem key={s} value={s}>
+              {s}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
   )
 }
 
