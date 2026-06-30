@@ -5,7 +5,7 @@ import {
   IssueType,
   type IssueWire,
 } from '@podium/protocol'
-import { ExternalLink, RefreshCw, X } from 'lucide-react'
+import { ExternalLink, RefreshCw, Trash2, X } from 'lucide-react'
 import type { JSX } from 'react'
 import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
@@ -104,6 +104,17 @@ export function IssueDetail({
       setToast(r.ok ? `${kind} ok` : `${kind} failed:\n${r.output}`)
     })
 
+  // Delete the issue from the drawer (maintainer-gated server-side). Confirm first,
+  // then close — IssueDetailHost also drops the panel once the `issuesChanged`
+  // broadcast removes the row, so closing here is race-safe either way.
+  const handleDelete = (): void => {
+    if (!window.confirm(`Delete "#${issue.seq} ${issue.title}"? This can't be undone.`)) return
+    void run(async () => {
+      await trpc.issues.delete.mutate({ id: issue.id })
+      onClose()
+    })
+  }
+
   // Open a member session the same way the sidebar does: select its worktree AND
   // bind the specific session into pane A, then switch to the workspace. Setting
   // only the worktree (the old behavior) left the workspace on the worktree with
@@ -135,9 +146,23 @@ export function IssueDetail({
           </h2>
           <p className="text-[12px] text-muted-foreground">{STAGE_LABELS[issue.stage]}</p>
         </div>
-        <Button type="button" variant="ghost" size="icon-sm" title="Close" onClick={onClose}>
-          <X size={16} aria-hidden="true" />
-        </Button>
+        <div className="flex shrink-0 items-center gap-1">
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            title="Delete issue"
+            aria-label="Delete issue"
+            disabled={busy}
+            className="text-muted-foreground hover:text-destructive"
+            onClick={handleDelete}
+          >
+            <Trash2 size={16} aria-hidden="true" />
+          </Button>
+          <Button type="button" variant="ghost" size="icon-sm" title="Close" onClick={onClose}>
+            <X size={16} aria-hidden="true" />
+          </Button>
+        </div>
       </header>
 
       <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 py-3">
