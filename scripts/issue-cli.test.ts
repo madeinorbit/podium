@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { parseIssueArgs, runIssueCli } from './issue-cli'
+import { parseIssueArgs, resolveRepoArg, runIssueCli } from './issue-cli'
 
 describe('parseIssueArgs', () => {
   it('parses the command, positionals, --flag value, --flag=value, and --bool', () => {
@@ -30,5 +30,28 @@ describe('runIssueCli', () => {
   it('unknown command returns a helpful error', async () => {
     const out = await runIssueCli(['nope'], client)
     expect(out.toLowerCase()).toContain('unknown')
+  })
+})
+
+describe('resolveRepoArg', () => {
+  it('injects the inferred repo when --repoPath is absent', async () => {
+    const args = await resolveRepoArg('ready', {}, async () => '/inferred')
+    expect(args.repoPath).toBe('/inferred')
+  })
+
+  it('keeps an explicit --repoPath', async () => {
+    const args = await resolveRepoArg('ready', { repoPath: '/explicit' }, async () => '/inferred')
+    expect(args.repoPath).toBe('/explicit')
+  })
+
+  it('leaves args untouched for a command that takes no repo', async () => {
+    const args = await resolveRepoArg('show', { id: 'pod-1' }, async () => '/inferred')
+    expect(args.repoPath).toBeUndefined()
+    expect(args.id).toBe('pod-1')
+  })
+
+  it('does not inject when inference yields nothing', async () => {
+    const args = await resolveRepoArg('ready', {}, async () => undefined)
+    expect(args.repoPath).toBeUndefined()
   })
 })

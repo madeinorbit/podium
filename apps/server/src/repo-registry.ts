@@ -79,6 +79,15 @@ export class RepoRegistry {
     return this.store.listRepoPaths(machineId)
   }
 
+  /** The longest registered repo root that contains `path` (cwd → repo inference).
+   *  A root `r` contains `path` iff `path === r` or `path` starts with `r + '/'`,
+   *  so `/a` does not match `/ab`. Pure over `list()`. */
+  inferFromPath(path: string, machineId?: string): string | undefined {
+    return this.list(machineId)
+      .filter((r) => path === r || path.startsWith(r.endsWith('/') ? r : `${r}/`))
+      .sort((a, b) => b.length - a.length)[0]
+  }
+
   async add(path: string, machineId?: string): Promise<void> {
     const p = path.trim()
     if (!p) throw new Error('repo path is empty')

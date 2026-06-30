@@ -263,6 +263,10 @@ export const appRouter = t.router({
   }),
   repos: t.router({
     list: t.procedure.query(({ ctx }) => ctx.repos.list()),
+    // cwd → repo inference for the CLI: longest registered root that contains `path`.
+    inferFromPath: t.procedure
+      .input(z.object({ path: z.string() }))
+      .query(({ ctx, input }) => ({ repoPath: ctx.repos.inferFromPath(input.path) ?? null })),
     add: t.procedure
       .input(z.object({ path: z.string(), machineId: z.string().optional() }))
       .mutation(async ({ ctx, input }) => {

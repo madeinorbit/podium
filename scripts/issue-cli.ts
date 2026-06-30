@@ -40,13 +40,43 @@ function helpText(): string {
   ].join('\n')
 }
 
+/** Inject the inferred repo when the command takes a `--repoPath` and none was given.
+ *  A command "needs a repo" iff its zod `args` shape has a `repoPath` key; `infer`
+ *  (cwd → repo) is only consulted in that case and only when `repoPath` is absent. */
+export async function resolveRepoArg(
+  command: string,
+  args: Record<string, unknown>,
+  infer: () => Promise<string | undefined>,
+): Promise<Record<string, unknown>> {
+  const cmd = ISSUE_COMMANDS.find((c) => c.name === command)
+  const shape = (cmd?.args as { shape?: Record<string, unknown> } | undefined)?.shape ?? {}
+  if (cmd && 'repoPath' in shape && args.repoPath == null) {
+    const inferred = await infer()
+    if (inferred) return { ...args, repoPath: inferred }
+  }
+  return args
+}
+
 /** Resolve + run one issue command against the given client; returns the text to print. */
 export async function runIssueCli(argv: string[], client: IssueTrpc): Promise<string> {
   const { command, args } = parseIssueArgs(argv)
   if (!command || command === 'help') return helpText()
   const cmd = ISSUE_COMMANDS.find((c) => c.name === command)
   if (!cmd) return `unknown command: ${command}\n\n${helpText()}`
-  const parsed = cmd.args.safeParse(args)
+  // Fill in --repoPath from the cwd when the command takes one and it was omitted.
+  // The infer call is best-effort: a mock client without `repos` (unit tests) throws
+  // synchronously, which the try/catch swallows so the args pass through unchanged.
+  const resolved = await resolveRepoArg(command, args, async () => {
+    try {
+      const r = (await client.repos.inferFromPath.query({ path: process.cwd() })) as {
+        repoPath: string | null
+      }
+      return r.repoPath ?? undefined
+    } catch {
+      return undefined
+    }
+  })
+  const parsed = cmd.args.safeParse(resolved)
   if (!parsed.success)
     return `invalid args for ${command}: ${parsed.error.issues.map((i) => i.message).join('; ')}`
   const out = await cmd.run(client, parsed.data as Record<string, unknown>)

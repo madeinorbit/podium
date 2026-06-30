@@ -41,6 +41,17 @@ describe('RepoRegistry', () => {
     expect(b.list()).toEqual(['/abs/one'])
   })
 
+  it('inferFromPath returns the longest matching registered root', async () => {
+    const repos = singleMachineRepos(new SessionStore(':memory:'))
+    await repos.add('/a')
+    await repos.add('/a/b')
+    expect(repos.inferFromPath('/a/b/x/y')).toBe('/a/b')
+    expect(repos.inferFromPath('/a/x')).toBe('/a')
+    expect(repos.inferFromPath('/a')).toBe('/a')
+    expect(repos.inferFromPath('/ab')).toBeUndefined()
+    expect(repos.inferFromPath('/elsewhere')).toBeUndefined()
+  })
+
   it('browses server-side directories from HOME by default', async () => {
     const home = await mkdtemp(join(tmpdir(), 'podium-browse-home-'))
     await mkdir(join(home, 'src'), { recursive: true })
