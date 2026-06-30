@@ -43,4 +43,12 @@ describe('setup tRPC', () => {
     expect(loadConfig().publicUrl).toBe('https://box.ts.net')
     expect(loadConfig().mode).toBe('all-in-one')
   })
+  it('reports the update channel (default stable)', async () => {
+    expect(await caller().setup.channel()).toBe('stable')
+  })
+  it('sets the update channel and persists it', async () => {
+    expect(await caller().setup.setChannel({ channel: 'edge' })).toBe('edge')
+    expect(await caller().setup.channel()).toBe('edge')
+    expect(loadConfig().updateChannel).toBe('edge')
+  })
 })

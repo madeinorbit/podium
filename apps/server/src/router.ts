@@ -2,8 +2,10 @@ import { PodiumSettings } from '@podium/core'
 import { loadConfig } from '@podium/core/config'
 import {
   applySetup,
+  getUpdateChannel,
   NETWORK_OPTIONS,
   networkOptionCommand,
+  setUpdateChannel,
   validatePublicUrl,
 } from '@podium/core/setup'
 import { AgentKind, IssueStage, IssueType, ResumeRef, WorkState } from '@podium/protocol'
@@ -404,6 +406,10 @@ export const appRouter = t.router({
       if (!v.ok) throw new TRPCError({ code: 'BAD_REQUEST', message: v.error })
       return applySetup({ publicUrl: v.normalized })
     }),
+    channel: t.procedure.query(() => getUpdateChannel()),
+    setChannel: t.procedure
+      .input(z.object({ channel: z.enum(['stable', 'edge']) }))
+      .mutation(({ input }) => setUpdateChannel(input.channel)),
   }),
   issues: t.router({
     list: issueProc

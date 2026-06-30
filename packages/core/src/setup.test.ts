@@ -3,7 +3,14 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { loadConfig } from './config'
-import { applySetup, networkOptionCommand, validatePublicUrl, wssFrom } from './setup'
+import {
+  applySetup,
+  getUpdateChannel,
+  networkOptionCommand,
+  setUpdateChannel,
+  validatePublicUrl,
+  wssFrom,
+} from './setup'
 
 describe('setup core', () => {
   let dir: string
@@ -41,5 +48,19 @@ describe('setup core', () => {
   it('applySetup persists mode + publicUrl', () => {
     applySetup({ publicUrl: 'https://box.ts.net' })
     expect(loadConfig()).toEqual({ mode: 'all-in-one', publicUrl: 'https://box.ts.net' })
+  })
+  it('getUpdateChannel defaults to stable when unset', () => {
+    expect(getUpdateChannel()).toBe('stable')
+  })
+  it('setUpdateChannel persists and getUpdateChannel reflects it', () => {
+    expect(setUpdateChannel('edge')).toBe('edge')
+    expect(getUpdateChannel()).toBe('edge')
+    expect(loadConfig().updateChannel).toBe('edge')
+  })
+  it('setUpdateChannel round-trips back to stable', () => {
+    setUpdateChannel('edge')
+    setUpdateChannel('stable')
+    expect(getUpdateChannel()).toBe('stable')
+    expect(loadConfig().updateChannel).toBe('stable')
   })
 })
