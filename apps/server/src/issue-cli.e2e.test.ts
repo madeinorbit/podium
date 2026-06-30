@@ -51,4 +51,14 @@ describe('podium issue CLI ↔ live server (e2e)', () => {
     const stats = await runIssueCli(['stats', '--repoPath', '/repo'], client)
     expect(stats).toMatch(/closed: 1/)
   })
+
+  it('a no-credential caller is denied a mutation (gate active over the wire)', async () => {
+    // No token, no cwd ⇒ the server resolves this caller to reader. runIssueCli awaits
+    // cmd.run without catching, so the gate's FORBIDDEN tRPC error surfaces as a thrown
+    // rejection (message: "role 'reader' may not 'create' (needs 'maintainer')").
+    const anon = makeIssueClient(baseUrl)
+    await expect(
+      runIssueCli(['create', '--repoPath', '/repo', '--title', 'x'], anon),
+    ).rejects.toThrow(/forbidden|reader|may not/i)
+  })
 })

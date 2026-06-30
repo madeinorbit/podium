@@ -18,6 +18,8 @@ export const PROC_MIN_ROLE: Record<string, Role> = {
   dismissSuggestion: 'worker',
   refreshAssistant: 'worker',
   depAdd: 'worker',
+  // hits the external Linear API — keep anonymous readers from driving it
+  linearSearch: 'worker',
   // maintainer — structural / destructive / cross-cutting
   create: 'maintainer',
   archive: 'maintainer',

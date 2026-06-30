@@ -24,6 +24,7 @@ describe('PROC_MIN_ROLE', () => {
   it('queries are reader, work ops are worker, structural ops are maintainer', () => {
     expect(PROC_MIN_ROLE.list ?? 'reader').toBe('reader')
     expect(PROC_MIN_ROLE.claim).toBe('worker')
+    expect(PROC_MIN_ROLE.linearSearch).toBe('worker')
     expect(PROC_MIN_ROLE.create).toBe('maintainer')
     expect(PROC_MIN_ROLE.archive).toBe('maintainer')
     expect(ROLE_RANK.maintainer).toBeGreaterThan(ROLE_RANK.worker)
