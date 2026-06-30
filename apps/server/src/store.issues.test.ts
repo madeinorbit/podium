@@ -113,3 +113,19 @@ describe('issue labels (P1)', () => {
     expect(store.getIssueLabels('iss_a')).toEqual(['y', 'z'])
   })
 })
+
+describe('issue deps (P1)', () => {
+  it('adds, lists (both directions), and removes deps', () => {
+    const store = new SessionStore(':memory:')
+    store.addIssueDep('iss_a', 'iss_b')
+    store.addIssueDep('iss_a', 'iss_c', 'related')
+    store.addIssueDep('iss_a', 'iss_b') // idempotent
+    expect(store.listIssueDeps('iss_a')).toEqual([
+      { toId: 'iss_b', type: 'blocks' },
+      { toId: 'iss_c', type: 'related' },
+    ])
+    expect(store.listDependents('iss_b')).toEqual([{ fromId: 'iss_a', type: 'blocks' }])
+    store.removeIssueDep('iss_a', 'iss_b')
+    expect(store.listIssueDeps('iss_a')).toEqual([{ toId: 'iss_c', type: 'related' }])
+  })
+})

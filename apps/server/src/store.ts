@@ -1072,6 +1072,38 @@ export class SessionStore {
     ).map((r) => r.label)
   }
 
+  addIssueDep(fromId: string, toId: string, type = 'blocks'): void {
+    this.db
+      .prepare('INSERT OR IGNORE INTO issue_deps (from_id, to_id, type) VALUES (?, ?, ?)')
+      .run(fromId, toId, type)
+  }
+
+  removeIssueDep(fromId: string, toId: string, type?: string): void {
+    if (type) {
+      this.db
+        .prepare('DELETE FROM issue_deps WHERE from_id = ? AND to_id = ? AND type = ?')
+        .run(fromId, toId, type)
+    } else {
+      this.db.prepare('DELETE FROM issue_deps WHERE from_id = ? AND to_id = ?').run(fromId, toId)
+    }
+  }
+
+  listIssueDeps(fromId: string): { toId: string; type: string }[] {
+    return (
+      this.db
+        .prepare('SELECT to_id, type FROM issue_deps WHERE from_id = ? ORDER BY to_id ASC, type ASC')
+        .all(fromId) as { to_id: string; type: string }[]
+    ).map((r) => ({ toId: r.to_id, type: r.type }))
+  }
+
+  listDependents(toId: string): { fromId: string; type: string }[] {
+    return (
+      this.db
+        .prepare('SELECT from_id, type FROM issue_deps WHERE to_id = ? ORDER BY from_id ASC, type ASC')
+        .all(toId) as { from_id: string; type: string }[]
+    ).map((r) => ({ fromId: r.from_id, type: r.type }))
+  }
+
   deleteIssueChildRows(issueId: string): void {
     this.db.prepare('DELETE FROM issue_labels WHERE issue_id = ?').run(issueId)
     this.db.prepare('DELETE FROM issue_deps WHERE from_id = ? OR to_id = ?').run(issueId, issueId)
