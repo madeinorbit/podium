@@ -1156,6 +1156,11 @@ export class SessionStore {
     const ins = this.db.prepare(
       "INSERT OR IGNORE INTO issue_deps (from_id, to_id, type) VALUES (?, ?, 'blocks')",
     )
+    // blocked_by is populated by the AI assistant with branch names (e.g.
+    // "issue/3-foo"), NOT issue ids. Only mirror an edge when the target resolves
+    // to a real issue id, so phantom branch-name edges never accumulate on
+    // every migrate() at server construction.
+    const exists = this.db.prepare('SELECT 1 FROM issues WHERE id = ?')
     for (const r of rows) {
       let ids: unknown
       try {
@@ -1164,7 +1169,7 @@ export class SessionStore {
         ids = []
       }
       if (Array.isArray(ids)) {
-        for (const to of ids) if (typeof to === 'string' && to) ins.run(r.id, to)
+        for (const to of ids) if (typeof to === 'string' && to && exists.get(to)) ins.run(r.id, to)
       }
     }
   }
