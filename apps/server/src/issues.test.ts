@@ -474,6 +474,7 @@ describe('IssueService supersede/duplicate (P2b)', () => {
     const w = svc.supersede(oldI.id, newI.id)
     expect(w.stage).toBe('done')
     expect(w.closedReason).toBe('superseded')
+    expect(w.supersededBy).toBe(newI.id)
     expect(store.listIssueDeps(oldI.id)).toEqual([{ toId: newI.id, type: 'supersedes' }])
   })
 
@@ -483,6 +484,7 @@ describe('IssueService supersede/duplicate (P2b)', () => {
     const canon = svc.create({ repoPath: '/r', title: 'canon', startNow: false })
     const w = svc.duplicate(dup.id, canon.id)
     expect(w.closedReason).toBe('duplicate')
+    expect(w.duplicateOf).toBe(canon.id)
     expect(store.listIssueDeps(dup.id)).toEqual([{ toId: canon.id, type: 'related' }])
   })
 
@@ -577,7 +579,7 @@ describe('IssueService orphans (P2b)', () => {
     const { svc, deps } = harness()
     const a = svc.create({ repoPath: '/r', title: 'Add login', startNow: false }) // seq 1
     svc.create({ repoPath: '/r', title: 'Other', startNow: false }) // seq 2, not referenced
-    ;(deps.repoOp as any).mockResolvedValueOnce({
+    ;(deps.repoOp as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
       ok: true,
       output: 'abc123 feat: implement login (#1)\ndef456 chore: tidy',
     })
@@ -589,7 +591,7 @@ describe('IssueService orphans (P2b)', () => {
   it('returns [] when repoOp(log) fails', async () => {
     const { svc, deps } = harness()
     svc.create({ repoPath: '/r', title: 'X', startNow: false })
-    ;(deps.repoOp as any).mockResolvedValueOnce({ ok: false, output: '' })
+    ;(deps.repoOp as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ ok: false, output: '' })
     expect(await svc.orphans('/r')).toEqual([])
   })
 })

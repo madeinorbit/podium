@@ -19,6 +19,8 @@ describe('lintIssue', () => {
     expect(lintIssue({ ...base, type: 'task', acceptance: 'done when X' })).toEqual([])
   })
   it('missing title is always flagged', () => {
-    expect(lintIssue({ ...base, title: '  ', type: 'task', acceptance: 'x' })).toEqual(['missing title'])
+    expect(lintIssue({ ...base, title: '  ', type: 'task', acceptance: 'x' })).toEqual([
+      'missing title',
+    ])
   })
 })

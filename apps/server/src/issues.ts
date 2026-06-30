@@ -104,6 +104,8 @@ export class IssueService {
       ...(row.dependencyNote ? { dependencyNote: row.dependencyNote } : {}),
       ...(row.prUrl ? { prUrl: row.prUrl } : {}),
       priority: row.priority, type: row.type as IssueWire['type'], pinned: row.pinned,
+      ...(row.supersededBy ? { supersededBy: row.supersededBy } : {}),
+      ...(row.duplicateOf ? { duplicateOf: row.duplicateOf } : {}),
       ...(row.assignee ? { assignee: row.assignee } : {}),
       ...(row.parentId ? { parentId: row.parentId } : {}),
       ...(row.design ? { design: row.design } : {}),

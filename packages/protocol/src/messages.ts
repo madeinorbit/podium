@@ -630,6 +630,8 @@ export const IssueWire = z.object({
   dueAt: z.string().optional(),
   deferUntil: z.string().optional(),
   closedReason: z.string().optional(),
+  supersededBy: z.string().optional(),
+  duplicateOf: z.string().optional(),
   pinned: z.boolean(),
   estimateMin: z.number().int().optional(),
   labels: z.array(z.string()),

@@ -1,9 +1,11 @@
 import type { IssueRow } from './store'
 
 /** Template-completeness findings for one issue, by type. Empty = clean. */
-export function lintIssue(row: Pick<IssueRow, 'title' | 'description' | 'acceptance' | 'type'>): string[] {
+export function lintIssue(
+  row: Pick<IssueRow, 'title' | 'description' | 'acceptance' | 'type'>,
+): string[] {
   const out: string[] = []
-  if (!row.title || !row.title.trim()) out.push('missing title')
+  if (!row.title?.trim()) out.push('missing title')
   const hasDesc = !!row.description && row.description.trim().length > 0
   const hasAcc = !!row.acceptance && row.acceptance.trim().length > 0
   if (row.type === 'bug') {
