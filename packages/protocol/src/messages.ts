@@ -650,6 +650,16 @@ export const IssueWire = z.object({
 })
 export type IssueWire = z.infer<typeof IssueWire>
 
+export const IssueGraphNode = z.object({
+  id: z.string(), seq: z.number().int(), title: z.string(), stage: IssueStage,
+  priority: z.number().int(), type: IssueType, ready: z.boolean(), blocked: z.boolean(),
+})
+export const IssueGraphEdge = z.object({ from: z.string(), to: z.string(), type: z.string() })
+export const IssueGraph = z.object({
+  nodes: z.array(IssueGraphNode), edges: z.array(IssueGraphEdge),
+})
+export type IssueGraph = z.infer<typeof IssueGraph>
+
 export const IssuesChangedMessage = z.object({
   type: z.literal('issuesChanged'),
   issues: z.array(IssueWire),

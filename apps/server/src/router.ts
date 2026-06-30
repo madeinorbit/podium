@@ -397,6 +397,9 @@ export const appRouter = t.router({
     blocked: t.procedure
       .input(z.object({ repoPath: z.string().optional() }))
       .query(({ ctx, input }) => ctx.registry.issues.blockedList(input.repoPath)),
+    graph: t.procedure
+      .input(z.object({ repoPath: z.string().optional() }))
+      .query(({ ctx, input }) => ctx.registry.issues.graph(input.repoPath)),
     get: t.procedure
       .input(z.object({ id: z.string() }))
       .query(({ ctx, input }) => ctx.registry.issues.get(input.id)),

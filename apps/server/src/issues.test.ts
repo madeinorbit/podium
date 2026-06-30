@@ -412,3 +412,17 @@ describe('IssueService ready/blocked lists (P2a)', () => {
     expect(svc.blockedList('/r').map((w) => w.title)).toEqual(['A'])
   })
 })
+
+describe('IssueService graph (P2a)', () => {
+  it('returns nodes for repo issues and edges from issue_deps', () => {
+    const { svc, store } = harness()
+    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    const b = svc.create({ repoPath: '/r', title: 'B', startNow: false })
+    svc.create({ repoPath: '/other', title: 'X', startNow: false })
+    store.addIssueDep(a.id, b.id, 'blocks')
+    const g = svc.graph('/r')
+    expect(g.nodes.map((n) => n.title).sort()).toEqual(['A', 'B'])
+    expect(g.edges).toEqual([{ from: a.id, to: b.id, type: 'blocks' }])
+    expect(g.nodes.find((n) => n.title === 'A')!.blocked).toBe(true)
+  })
+})

@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import type { PodiumSettings } from '@podium/core'
-import { type IssueWire, type RepoOp, type ServerMessage, type SessionMeta } from '@podium/protocol'
+import { type IssueGraph, type IssueWire, type RepoOp, type ServerMessage, type SessionMeta } from '@podium/protocol'
 import { sessionsForIssue, slugifyBranch, summarizeSessions } from './issue-util'
 import type { IssueRow, SessionStore } from './store'
 import { buildAssistantMessages, parseAssistantJson } from './issueAssistant'
@@ -132,6 +132,22 @@ export class IssueService {
       .map((r) => this.toWire(r))
       .filter((w) => w.blocked)
       .sort((a, b) => (a.priority !== b.priority ? a.priority - b.priority : a.seq - b.seq))
+  }
+
+  graph(repoPath?: string): IssueGraph {
+    const rows = [...this.rows.values()].filter((r) => !repoPath || r.repoPath === repoPath)
+    const nodes = rows.map((r) => {
+      const w = this.toWire(r)
+      return {
+        id: r.id, seq: r.seq, title: r.title, stage: r.stage as IssueGraph['nodes'][number]['stage'],
+        priority: r.priority, type: r.type as IssueGraph['nodes'][number]['type'],
+        ready: w.ready, blocked: w.blocked,
+      }
+    })
+    const edges = rows.flatMap((r) =>
+      this.deps.store.listIssueDeps(r.id).map((d) => ({ from: r.id, to: d.toId, type: d.type })),
+    )
+    return { nodes, edges }
   }
 
   get(id: string): IssueWire | null {
