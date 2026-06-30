@@ -1172,12 +1172,48 @@ export class SessionStore {
          blocked_by TEXT NOT NULL DEFAULT '[]',
          dependency_note TEXT,
          pr_url TEXT,
+         priority INTEGER NOT NULL DEFAULT 2,
+         type TEXT NOT NULL DEFAULT 'task',
+         assignee TEXT,
+         parent_id TEXT,
+         design TEXT,
+         acceptance TEXT,
+         notes TEXT,
+         due_at TEXT,
+         defer_until TEXT,
+         closed_reason TEXT,
+         superseded_by TEXT,
+         duplicate_of TEXT,
+         pinned INTEGER NOT NULL DEFAULT 0,
+         estimate_min INTEGER,
          created_at TEXT NOT NULL,
          updated_at TEXT NOT NULL,
          archived INTEGER NOT NULL DEFAULT 0
        )`,
     )
     this.db.exec('CREATE INDEX IF NOT EXISTS idx_issues_repo ON issues(repo_path)')
+    // Additive rich-tracker columns (structural guard — no version marker bump). Fresh
+    // DBs already have them from the CREATE above; live DBs gain them in place.
+    const issueCols = new Set(
+      (this.db.prepare('PRAGMA table_info(issues)').all() as { name: string }[]).map((c) => c.name),
+    )
+    const addIssueCol = (name: string, ddl: string): void => {
+      if (!issueCols.has(name)) this.db.exec(`ALTER TABLE issues ADD COLUMN ${ddl}`)
+    }
+    addIssueCol('priority', 'priority INTEGER NOT NULL DEFAULT 2')
+    addIssueCol('type', "type TEXT NOT NULL DEFAULT 'task'")
+    addIssueCol('assignee', 'assignee TEXT')
+    addIssueCol('parent_id', 'parent_id TEXT')
+    addIssueCol('design', 'design TEXT')
+    addIssueCol('acceptance', 'acceptance TEXT')
+    addIssueCol('notes', 'notes TEXT')
+    addIssueCol('due_at', 'due_at TEXT')
+    addIssueCol('defer_until', 'defer_until TEXT')
+    addIssueCol('closed_reason', 'closed_reason TEXT')
+    addIssueCol('superseded_by', 'superseded_by TEXT')
+    addIssueCol('duplicate_of', 'duplicate_of TEXT')
+    addIssueCol('pinned', 'pinned INTEGER NOT NULL DEFAULT 0')
+    addIssueCol('estimate_min', 'estimate_min INTEGER')
     // External-content FTS over the searchable text columns. Hybrid search note:
     // keyword now; a vector column joins when an embeddings provider is configured.
     try {
