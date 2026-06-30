@@ -63,6 +63,10 @@ function sha256(s: string): string {
 const LOCAL_PLACEHOLDER = '__local__'
 
 const DEFAULT_GEOMETRY: Geometry = { cols: 80, rows: 24 }
+// Delay between a chat message's bracketed paste and its submitting CR, so the CR
+// lands in a separate PTY read (the new Claude renderer swallows a CR fused to the
+// paste-end marker → the message types in but never submits). See sendText().
+const SUBMIT_CR_DELAY_MS = 90
 const SCAN_TIMEOUT_MS = 10_000
 const FILE_RPC_TIMEOUT_MS = 10_000
 
@@ -928,14 +932,16 @@ export class SessionRegistry {
         sessionId,
         data: Buffer.from(data).toString('base64'),
       })
-    // Bracketed paste so the harness takes the message as one input block, then the
-    // submitting CR as its OWN write. A CR in the same chunk as the text (or right
-    // after the paste-end marker) gets absorbed by some TUIs — the message lands in
-    // the input but never submits. That bit single-line sends too (the plain
-    // `${text}\r` path), which is the "types into native but doesn't submit" bug, so
-    // both line counts now go through the same paste-then-submit sequence.
+    // Bracketed paste so the harness takes the message as one input block (newlines
+    // in a multi-line message don't submit early), then a submitting CR.
     send(`\x1b[200~${text}\x1b[201~`)
-    send('\r')
+    // The CR must land in a SEPARATE PTY read from the paste-end marker. Sending it
+    // on the same tick — even as its own write — lets the new Claude renderer (2.1.x)
+    // swallow it behind the bracketed paste: the message lands in the composer but
+    // the turn never starts ("types in but doesn't submit", esp. on longer input).
+    // A short delay separates the reads so the CR submits; it's imperceptible next to
+    // agent latency. Verified against real claude in the e2e harness.
+    setTimeout(() => send('\r'), SUBMIT_CR_DELAY_MS)
     return { ok: true }
   }
 

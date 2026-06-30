@@ -1409,35 +1409,45 @@ describe('readTranscript (disk read via daemon — no cache short-circuit)', () 
 })
 
 describe('sendText (chat send path)', () => {
-  it('wraps single-line text in bracketed paste, then submits with a separate CR', () => {
-    const reg = new SessionRegistry()
-    const daemon: ControlMessage[] = []
-    reg.attachDaemon('local', (m) => daemon.push(m))
-    const { sessionId } = reg.createSession({ agentKind: 'claude-code', cwd: '/w' })
-    reg.onDaemonMessageFrom('local', bind(sessionId))
-    expect(reg.sendText({ sessionId, text: 'run the tests' })).toEqual({ ok: true })
-    // Single-line goes through the same paste-then-CR path as multi-line: a CR fused
-    // onto the text in one write gets absorbed by some TUIs — the message lands in the
-    // input but never submits, which was the "types into native but doesn't submit" bug.
-    const inputs = daemon
+  const readInputs = (daemon: ControlMessage[]): string[] =>
+    daemon
       .filter((m) => m.type === 'input')
       .map((m) => Buffer.from((m as { data: string }).data, 'base64').toString())
-    expect(inputs).toEqual(['\x1b[200~run the tests\x1b[201~', '\r'])
+
+  it('wraps single-line text in bracketed paste, then submits with a DELAYED CR', () => {
+    vi.useFakeTimers()
+    try {
+      const reg = new SessionRegistry()
+      const daemon: ControlMessage[] = []
+      reg.attachDaemon('local', (m) => daemon.push(m))
+      const { sessionId } = reg.createSession({ agentKind: 'claude-code', cwd: '/w' })
+      reg.onDaemonMessageFrom('local', bind(sessionId))
+      expect(reg.sendText({ sessionId, text: 'run the tests' })).toEqual({ ok: true })
+      // The paste block goes out immediately; the submitting CR is DEFERRED so it
+      // lands in a separate PTY read — a CR fused to the paste-end marker is swallowed
+      // by the new Claude renderer, so the message types in but the turn never starts.
+      expect(readInputs(daemon)).toEqual(['\x1b[200~run the tests\x1b[201~'])
+      vi.advanceTimersByTime(100)
+      expect(readInputs(daemon)).toEqual(['\x1b[200~run the tests\x1b[201~', '\r'])
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
-  it('wraps multi-line text in bracketed paste, then submits with a separate CR', () => {
-    const reg = new SessionRegistry()
-    const daemon: ControlMessage[] = []
-    reg.attachDaemon('local', (m) => daemon.push(m))
-    const { sessionId } = reg.createSession({ agentKind: 'claude-code', cwd: '/w' })
-    reg.onDaemonMessageFrom('local', bind(sessionId))
-    reg.sendText({ sessionId, text: 'a\nb' })
-    // The paste block and the submitting CR are separate writes — a CR fused onto
-    // the paste-end marker gets absorbed by some TUIs and never submits.
-    const inputs = daemon
-      .filter((m) => m.type === 'input')
-      .map((m) => Buffer.from((m as { data: string }).data, 'base64').toString())
-    expect(inputs).toEqual(['\x1b[200~a\nb\x1b[201~', '\r'])
+  it('wraps multi-line text in bracketed paste, then submits with a DELAYED CR', () => {
+    vi.useFakeTimers()
+    try {
+      const reg = new SessionRegistry()
+      const daemon: ControlMessage[] = []
+      reg.attachDaemon('local', (m) => daemon.push(m))
+      const { sessionId } = reg.createSession({ agentKind: 'claude-code', cwd: '/w' })
+      reg.onDaemonMessageFrom('local', bind(sessionId))
+      reg.sendText({ sessionId, text: 'a\nb' })
+      vi.advanceTimersByTime(100)
+      expect(readInputs(daemon)).toEqual(['\x1b[200~a\nb\x1b[201~', '\r'])
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('refuses for exited sessions', () => {

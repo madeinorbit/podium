@@ -86,8 +86,12 @@ writeFileSync(join(stateDir, 'repos.json'), JSON.stringify([REPO_ROOT]))
 writeFileSync(join(stateDir, 'config.json'), JSON.stringify({ mode: 'all-in-one' }))
 
 // shell -> real shell (wide output for reflow tests); everything else -> keyecho jig.
+// PODIUM_E2E_REAL_AGENTS=1 launches the REAL claude/codex CLI instead (opt-in,
+// uses your account/quota) for specs that need genuine agent behaviour (hooks,
+// transcripts, paste handling). Default stays deterministic.
+const REAL_AGENTS = process.env.PODIUM_E2E_REAL_AGENTS === '1'
 const launch = (kind: AgentKind, opts: LaunchOptions): LaunchSpec =>
-  kind === 'shell'
+  kind === 'shell' || REAL_AGENTS
     ? agentLaunchCommand(kind, opts)
     : {
         cmd: process.execPath,
