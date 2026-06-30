@@ -390,6 +390,30 @@ describe('IssueService hierarchy reconciliation (P2a / I2)', () => {
     expect(svc.get(x.id)!.parentId).toBe(old.id)
     expect(svc.get(old.id)!.dependents).toContainEqual({ id: x.id, type: 'parent-child' })
   })
+
+  it('addDep rejects parent-child (reparent owns the hierarchy edge)', () => {
+    const { svc } = harness()
+    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    const b = svc.create({ repoPath: '/r', title: 'B', startNow: false })
+    expect(() => svc.addDep(a.id, b.id, 'parent-child')).toThrow(/parent-child/)
+  })
+
+  it('removeDep rejects explicit parent-child and leaves the edge intact', () => {
+    const { svc, store } = harness()
+    const e = svc.create({ repoPath: '/r', title: 'E', startNow: false })
+    const c = svc.create({ repoPath: '/r', title: 'C', parentId: e.id, startNow: false })
+    expect(() => svc.removeDep(c.id, e.id, 'parent-child')).toThrow(/parent-child/)
+    expect(store.listIssueDeps(c.id)).toEqual([{ toId: e.id, type: 'parent-child' }])
+  })
+
+  it('removeDep with no type removes other dep types but preserves parent-child', () => {
+    const { svc, store } = harness()
+    const e = svc.create({ repoPath: '/r', title: 'E', startNow: false })
+    const c = svc.create({ repoPath: '/r', title: 'C', parentId: e.id, startNow: false })
+    store.addIssueDep(c.id, e.id, 'related') // a second edge on the same pair
+    svc.removeDep(c.id, e.id) // no type → bulk
+    expect(store.listIssueDeps(c.id)).toEqual([{ toId: e.id, type: 'parent-child' }])
+  })
 })
 
 describe('IssueService ready/blocked lists (P2a)', () => {

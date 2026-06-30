@@ -264,10 +264,15 @@ export class IssueService {
   }
 
   addDep(fromId: string, toId: string, type = 'blocks'): IssueWire {
+    // parent-child is owned exclusively by reparent/setParent (the single
+    // cycle-checked path that keeps the parent_id column and the edge in sync).
+    // Block it here BEFORE any store write so an arbitrary-type caller can't add
+    // the hierarchy edge without ever touching the column (column/edge divergence).
+    if (type === 'parent-child') throw new Error('parent-child is managed by reparent, not addDep')
     const row = this.rowOrThrow(fromId)
     this.rowOrThrow(toId)
     if (fromId === toId) throw new Error('an issue cannot depend on itself (self-dep)')
-    if ((type === 'blocks' || type === 'parent-child') && this.wouldCycle(fromId, toId)) {
+    if (type === 'blocks' && this.wouldCycle(fromId, toId)) {
       throw new Error(`dependency ${fromId} -> ${toId} would create a cycle`)
     }
     this.deps.store.addIssueDep(fromId, toId, type)
@@ -275,8 +280,20 @@ export class IssueService {
   }
 
   removeDep(fromId: string, toId: string, type?: string): IssueWire {
+    // parent-child is owned exclusively by reparent/setParent. Reject an explicit
+    // parent-child removal, and on the bulk (no-type) path delete only non-parent-child
+    // edges so the hierarchy edge is never silently dropped out from under the column.
+    if (type === 'parent-child') throw new Error('parent-child is managed by reparent, not removeDep')
     const row = this.rowOrThrow(fromId)
-    this.deps.store.removeIssueDep(fromId, toId, type)
+    if (type) {
+      this.deps.store.removeIssueDep(fromId, toId, type)
+    } else {
+      for (const d of this.deps.store.listIssueDeps(fromId)) {
+        if (d.toId === toId && d.type !== 'parent-child') {
+          this.deps.store.removeIssueDep(fromId, toId, d.type)
+        }
+      }
+    }
     return this.persist(row)
   }
 
