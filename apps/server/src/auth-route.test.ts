@@ -215,12 +215,14 @@ describe('clientAuthGuard (HTTP surface gate)', () => {
     return app
   }
 
-  test('renews a session past its half-life and refreshes the cookie (same token)', async () => {
+  const HOUR = 60 * 60 * 1000
+
+  test('renews a session not renewed in over a day, refreshing the cookie (same token)', async () => {
     await setPassword('hunter2', dir)
     const nowMs = Date.UTC(2026, 0, 1)
     const token = 'rolling-token'
-    // Only ~5 days left — past the 15-day half-life of the 30-day TTL.
-    store.createClientSession(hashToken(token), new Date(nowMs + 5 * DAY).toISOString())
+    // 28 days left of a 30-day TTL ⇒ last renewed ~2 days ago ⇒ due for a daily renewal.
+    store.createClientSession(hashToken(token), new Date(nowMs + 28 * DAY).toISOString())
     const res = await guardedAppAt(nowMs).request('/trpc/ping', {
       headers: { cookie: `podium_session=${token}` },
     })
@@ -229,14 +231,15 @@ describe('clientAuthGuard (HTTP surface gate)', () => {
     expect(setCookie).toMatch(/podium_session=rolling-token/) // same token, not a new one
     // Expiry pushed back out toward now + 30 days.
     const expiry = Date.parse(store.getClientSession(hashToken(token))?.expiresAt ?? '')
-    expect(expiry).toBeGreaterThan(nowMs + 25 * DAY)
+    expect(expiry).toBeGreaterThan(nowMs + 29 * DAY)
   })
 
-  test('does not renew (or re-set the cookie for) a still-fresh session', async () => {
+  test('does not renew a session renewed within the last day (no cookie churn)', async () => {
     await setPassword('hunter2', dir)
     const nowMs = Date.UTC(2026, 0, 1)
     const token = 'fresh-token'
-    store.createClientSession(hashToken(token), new Date(nowMs + 29 * DAY).toISOString())
+    // ~1 hour into the 30-day TTL ⇒ renewed within the day ⇒ no re-issue.
+    store.createClientSession(hashToken(token), new Date(nowMs + 30 * DAY - HOUR).toISOString())
     const res = await guardedAppAt(nowMs).request('/trpc/ping', {
       headers: { cookie: `podium_session=${token}` },
     })

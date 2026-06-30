@@ -17,9 +17,10 @@ export const SESSION_COOKIE = 'podium_session'
 
 /** 30 days — a logged-in device stays logged in across server redeploys. */
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000
-/** Renew a session once it drops past its half-life — keeps an active client logged in
- *  forever while bounding the renewal write to ~once per (TTL/2) per session. */
-const SESSION_RENEW_BELOW_MS = SESSION_TTL_MS / 2
+/** Renew at most once a day: the first authenticated request after a session was last
+ *  renewed >24h ago pushes its expiry back to a full TTL. Keeps an active client logged in
+ *  forever (the idle window resets on any day it's used) while bounding the write to ~1/day. */
+const SESSION_RENEW_AFTER_MS = 24 * 60 * 60 * 1000
 
 const DEFAULT_MAX_FAILURES = 8
 const DEFAULT_LOCKOUT_MS = 5 * 60 * 1000
@@ -94,10 +95,14 @@ export function clientAuthGuard(opts: {
     ) {
       return c.json({ error: 'unauthorized' }, 401)
     }
-    // Sliding renewal: once the session is past its half-life, push the expiry back out and
-    // refresh the cookie so an actively-used client never gets logged out. Same token.
+    // Sliding renewal: if this session was last renewed more than a day ago, push the expiry
+    // back out and refresh the cookie so an actively-used client never gets logged out. Same
+    // token. Bounded to ~one renewal write per session per day.
     const session = store.getClientSession(hashToken(token))
-    if (session && Date.parse(session.expiresAt) - nowMs < SESSION_RENEW_BELOW_MS) {
+    if (
+      session &&
+      SESSION_TTL_MS - (Date.parse(session.expiresAt) - nowMs) >= SESSION_RENEW_AFTER_MS
+    ) {
       store.extendClientSession(hashToken(token), new Date(nowMs + SESSION_TTL_MS).toISOString())
       setSessionCookie(c, token)
     }
