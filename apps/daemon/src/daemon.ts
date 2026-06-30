@@ -1757,9 +1757,11 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
             // First pairing: persist the minted token so future boots send `hello`.
             saveToken(reply.token, opts.identityDir ? { dir: opts.identityDir } : {})
             startBackground()
+            w.on('message', handleControlMessage)
             break
           case 'helloOk':
             startBackground()
+            w.on('message', handleControlMessage)
             break
           case 'helloRejected':
           case 'pairRejected':
@@ -1781,7 +1783,12 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
             break
         }
       })
-      w.on('message', handleControlMessage)
+      // NOTE: handleControlMessage is attached inside the handshake-reply cases above
+      // (after startBackground), NOT here. Attaching it before the reply is consumed
+      // meant the `once` handler flipped `authenticated` true synchronously, then this
+      // persistent listener re-processed the SAME helloOk frame and logged it as a
+      // malformed control frame. Attaching post-handshake means it only ever sees the
+      // control frames the server sends after helloOk.
       // Server rejected the upgrade (426 = wire-protocol mismatch). Surface it loudly;
       // 'close' still drives the backoff reconnect below.
       w.on('unexpected-response', (_req, res) => {
