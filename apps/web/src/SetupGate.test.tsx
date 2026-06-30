@@ -56,6 +56,31 @@ describe('SetupGate', () => {
     expect(await screen.findByText('APP-READY')).toBeTruthy()
   })
 
+  it('treats a 200 that is not JSON (SPA index.html fallback) as ready, not unreachable', async () => {
+    // A relay without the setup route serves the SPA HTML for /setup/config — res.json() throws.
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        status: 200,
+        ok: true,
+        json: async () => {
+          throw new SyntaxError('Unexpected token < in JSON')
+        },
+      }),
+    )
+    render(<SetupGate>{child}</SetupGate>)
+    expect(await screen.findByText('APP-READY')).toBeTruthy()
+  })
+
+  it('treats a 200 with an unexpected JSON shape as ready, not a block', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({ status: 200, ok: true, json: async () => ({ unrelated: 1 }) }),
+    )
+    render(<SetupGate>{child}</SetupGate>)
+    expect(await screen.findByText('APP-READY')).toBeTruthy()
+  })
+
   it('surfaces an error (not the app) when the backend is unreachable', async () => {
     vi.useFakeTimers()
     // Reject every probe — the cross-origin/CORS-blocked case that used to silently skip onboarding.

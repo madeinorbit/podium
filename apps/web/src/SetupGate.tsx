@@ -30,7 +30,17 @@ async function probeSetup(httpOrigin: string): Promise<'setup' | 'ready'> {
   const res = await fetch(`${httpOrigin}/setup/config`) // rejects only when unreachable → caller retries
   if (res.status === 404) return 'ready' // backend without the route → don't block the app
   if (!res.ok) throw new Error(`setup probe failed: ${res.status}`)
-  const data = (await res.json()) as { needsSetup: boolean }
+  // A backend without the setup route serves the SPA's index.html for /setup/config (a 200 whose
+  // body is HTML, not JSON) — e.g. a relay older than the route, or one out of sync with this
+  // client after a partial update. That is the SAME case as a 404: it can't need setup, so proceed
+  // rather than treating the unparseable body as "unreachable" and blocking the app.
+  let data: { needsSetup?: unknown }
+  try {
+    data = (await res.json()) as { needsSetup?: unknown }
+  } catch {
+    return 'ready'
+  }
+  if (typeof data.needsSetup !== 'boolean') return 'ready' // unexpected shape → proceed, don't block
   return data.needsSetup ? 'setup' : 'ready'
 }
 
