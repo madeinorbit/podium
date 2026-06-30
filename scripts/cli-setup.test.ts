@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { loadConfig } from '../packages/core/src/config'
+import { applySetup } from '../packages/core/src/setup'
 import { runCliSetup } from './cli-setup'
 
 describe('runCliSetup', () => {
@@ -69,5 +70,38 @@ describe('runCliSetup', () => {
     expect(loadConfig().publicUrl).toBeUndefined()
     expect(calls).toBeLessThan(50) // bounded, not an infinite spin
     expect(out.join('\n')).toContain('giving up')
+  })
+
+  describe('when already configured (jump-to-step)', () => {
+    const run = (answers: string[], setPw: () => Promise<void>) => {
+      let i = 0
+      return runCliSetup({ prompt: async () => answers[i++] ?? '', print: () => {} }, 18787, {
+        setPassword: setPw,
+      })
+    }
+
+    it('jumps straight to the password step, leaving the URL untouched', async () => {
+      applySetup({ publicUrl: 'https://existing.ts.net' })
+      const setPw = vi.fn(async () => {})
+      await run(['2', 'rotated-pw'], setPw) // menu: password → enter it
+      expect(setPw).toHaveBeenCalledWith('rotated-pw')
+      expect(loadConfig().publicUrl).toBe('https://existing.ts.net')
+    })
+
+    it('jumps straight to the reachability step, leaving the password untouched', async () => {
+      applySetup({ publicUrl: 'https://existing.ts.net' })
+      const setPw = vi.fn(async () => {})
+      await run(['1', '1', 'https://new.ts.net'], setPw) // menu: reachability → option 1 → new URL
+      expect(loadConfig().publicUrl).toBe('https://new.ts.net')
+      expect(setPw).not.toHaveBeenCalled()
+    })
+
+    it('cancels on a blank menu choice, changing nothing', async () => {
+      applySetup({ publicUrl: 'https://existing.ts.net' })
+      const setPw = vi.fn(async () => {})
+      await run([''], setPw)
+      expect(loadConfig().publicUrl).toBe('https://existing.ts.net')
+      expect(setPw).not.toHaveBeenCalled()
+    })
   })
 })
