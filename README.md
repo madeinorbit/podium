@@ -26,6 +26,19 @@ wrapper (`@podium/agent-bridge`) and a browser terminal presentation client
 ★ = published to npm under `@podium/*`. See `ARCHITECTURE.md` for what-goes-where and the
 growth path, and `CONTRIBUTING.md` for setup.
 
+## Install
+
+Install a prebuilt instance (linux-x64) with one line — it downloads the headless bundle,
+verifies its signature, and drops a `podium` binary in `~/.local/bin`:
+
+```bash
+curl -fsSL https://github.com/madeinorbit/podium/releases/latest/download/install.sh | sh
+```
+
+Then run `podium` and finish setup in the browser at the printed URL, or run `podium setup`
+to configure it interactively in the terminal. To make the instance reachable without a
+domain and to pair extra machines, see **[docs/adding-a-machine.md](docs/adding-a-machine.md)**.
+
 ## Quick start
 
 ```bash
