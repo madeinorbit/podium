@@ -10,6 +10,14 @@ import { issueCardModel, STAGE_LABELS } from './issue-card'
 import { NewIssueDialog } from './NewIssueDialog'
 import { useStore } from './store'
 
+const STATUS_DOT_COLOR: Record<'ready' | 'blocked' | 'deferred' | 'closed' | 'open', string> = {
+  ready: 'bg-green-500',
+  blocked: 'bg-red-500',
+  deferred: 'bg-amber-500',
+  closed: 'bg-muted-foreground',
+  open: 'bg-sky-500',
+}
+
 /**
  * The Issues board — a kanban over the issue lifecycle stages. One column per
  * stage in `ISSUE_STAGES` order, each holding the active (non-archived) issues
@@ -95,6 +103,23 @@ function IssueCard({
     >
       <div className="min-w-0 break-words font-medium text-[13px] text-foreground">{m.title}</div>
       <div className="text-[11px] text-muted-foreground">{m.subtitle}</div>
+      <div className="flex flex-wrap items-center gap-1">
+        <span
+          className={cn('size-2 shrink-0 rounded-full', STATUS_DOT_COLOR[m.statusDot])}
+          title={m.statusDot}
+        />
+        <Badge variant="outline" className="font-normal">
+          {m.priorityLabel}
+        </Badge>
+        <Badge variant="outline" className="font-normal">
+          {m.typeLabel}
+        </Badge>
+        {m.labels.map((label) => (
+          <Badge key={label} variant="secondary" className="font-normal">
+            {label}
+          </Badge>
+        ))}
+      </div>
       {(m.phaseBadges.length > 0 || issue.linearIdentifier) && (
         <div className="flex flex-wrap gap-1">
           {m.phaseBadges.map((b) => (
