@@ -80,6 +80,10 @@ const REPO_ROOT = fileURLToPath(new URL('../../', import.meta.url)).replace(/\/$
 reapHarnessSessions(PORT)
 const { stateDir } = applyHarnessEnv(PORT)
 writeFileSync(join(stateDir, 'repos.json'), JSON.stringify([REPO_ROOT]))
+// Pre-pick the deployment mode so the setup gate (SetupGate → /setup/config →
+// needsSetup) doesn't block the workspace: the harness IS an all-in-one server.
+// Without this every browser spec lands on the first-run SetupView.
+writeFileSync(join(stateDir, 'config.json'), JSON.stringify({ mode: 'all-in-one' }))
 
 // shell -> real shell (wide output for reflow tests); everything else -> keyecho jig.
 const launch = (kind: AgentKind, opts: LaunchOptions): LaunchSpec =>

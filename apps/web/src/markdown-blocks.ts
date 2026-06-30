@@ -1,8 +1,9 @@
 import DOMPurify from 'dompurify'
 import { marked } from 'marked'
 // Importing markdown.ts applies the shared marked config (gfm/breaks + diff-aware
-// code renderer) as a module side effect, and gives us the file-path linkifier.
-import { linkifyCodePaths } from './markdown'
+// code renderer) as a module side effect, and gives us the file-path linkifier
+// plus the new-tab link rewriter (shared with the chat render path).
+import { externalizeLinks, linkifyCodePaths } from './markdown'
 
 export interface RenderBlocksOptions {
   /** Map a relative image src to a servable URL; return null to leave it as-is. */
@@ -61,5 +62,5 @@ export function assembleMarkdownBlocksUnsafe(text: string, opts: RenderBlocksOpt
  * data-source-line anchors in a real browser, with no lossy allowlist.
  */
 export function renderMarkdownBlocks(text: string, opts: RenderBlocksOptions = {}): string {
-  return DOMPurify.sanitize(assembleMarkdownBlocksUnsafe(text, opts))
+  return externalizeLinks(DOMPurify.sanitize(assembleMarkdownBlocksUnsafe(text, opts)))
 }
