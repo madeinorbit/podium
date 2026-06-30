@@ -38,4 +38,19 @@ describe('podium config', () => {
   it('saveConfig rejects an invalid mode', () => {
     expect(() => saveConfig({ mode: 'bogus' } as never)).toThrow()
   })
+  it('round-trips updateChannel and publicUrl', () => {
+    saveConfig({ mode: 'all-in-one', updateChannel: 'edge', publicUrl: 'https://b.ts.net' })
+    expect(loadConfig()).toEqual({
+      mode: 'all-in-one',
+      updateChannel: 'edge',
+      publicUrl: 'https://b.ts.net',
+    })
+  })
+  it('loads an old config without the new fields', () => {
+    saveConfig({ mode: 'server' })
+    expect(loadConfig()).toEqual({ mode: 'server' })
+  })
+  it('rejects an invalid updateChannel', () => {
+    expect(() => saveConfig({ updateChannel: 'nightly' } as never)).toThrow()
+  })
 })

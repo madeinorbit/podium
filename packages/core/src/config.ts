@@ -17,6 +17,10 @@ export const PodiumConfig = z.object({
   pairCode: z.string().optional(),
   /** Base URL of the self-update feed (`podium update`). Env PODIUM_UPDATE_FEED wins. */
   updateFeed: z.string().optional(),
+  /** Self-update channel for the headless build (desktop is always stable). Default 'stable'. */
+  updateChannel: z.enum(['stable', 'edge']).optional(),
+  /** Externally-reachable base URL captured at setup; embedded into machine join tokens. */
+  publicUrl: z.string().optional(),
 })
 export type PodiumConfig = z.infer<typeof PodiumConfig>
 
