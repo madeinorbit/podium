@@ -92,7 +92,7 @@ export async function main(): Promise<void> {
 
   // On a TTY, `podium setup`/`--reconfigure` runs the terminal flow (the headless-VPS
   // counterpart to the web networking step); otherwise we fall through to serving the web URL.
-  if (forceSetup && process.stdin.isTTY) {
+  if (forceSetup && process.stdin.isTTY && (needsSetup(config) || plan.mode === 'all-in-one')) {
     const { runCliSetup } = await import('./cli-setup')
     const { createInterface } = await import('node:readline/promises')
     const rl = createInterface({ input: process.stdin, output: process.stdout })

@@ -14,8 +14,8 @@ PUBKEY="${PODIUM_INSTALL_PUBKEY:-MCowBQYDK2VwAyEA2jxohkpxHU7sQQjCjWqeuHomf9TlC3l
 
 while [ $# -gt 0 ]; do
   case "$1" in
-    --join) JOIN="$2"; shift 2 ;;
-    --channel) CHANNEL="$2"; shift 2 ;;
+    --join) JOIN="${2:?--join requires a TOKEN}"; shift 2 ;;
+    --channel) CHANNEL="${2:?--channel requires a value}"; shift 2 ;;
     *) echo "podium install: unknown arg '$1'" >&2; exit 2 ;;
   esac
 done
@@ -62,7 +62,7 @@ BIN="$HOME/.local/bin"; mkdir -p "$BIN" "$(dirname "$DEST")"
 STAGE="$(dirname "$DEST")/.podium-install.$$"
 rm -rf "$STAGE"; mkdir -p "$STAGE"
 tar -xzf "$TMP/$ASSET" -C "$STAGE"
-[ -d "$STAGE/headless" ] || { echo "podium: tarball missing headless/ dir" >&2; exit 1; }
+[ -d "$STAGE/headless" ] || { echo "podium: tarball missing headless/ dir" >&2; rm -rf "$STAGE"; exit 1; }
 rm -rf "$DEST"; mv "$STAGE/headless" "$DEST"; rm -rf "$STAGE"
 ln -sf "$DEST/podium" "$BIN/podium"
 echo "Installed to $DEST"

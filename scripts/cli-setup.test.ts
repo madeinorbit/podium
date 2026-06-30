@@ -31,4 +31,23 @@ describe('runCliSetup', () => {
     await runCliSetup({ prompt: async () => answers[i++], print: () => {} }, 18787)
     expect(loadConfig().publicUrl).toBe('https://box.ts.net')
   })
+
+  it('gives up (does not hang) when prompt only ever returns empty input', async () => {
+    // Simulates stdin EOF/Ctrl-D: prompt always resolves '' → bounded loop must terminate.
+    const out: string[] = []
+    let calls = 0
+    await runCliSetup(
+      {
+        prompt: async () => {
+          calls++
+          return ''
+        },
+        print: (s) => out.push(s),
+      },
+      18787,
+    )
+    expect(loadConfig().publicUrl).toBeUndefined()
+    expect(calls).toBeLessThan(50) // bounded, not an infinite spin
+    expect(out.join('\n')).toContain('giving up')
+  })
 })

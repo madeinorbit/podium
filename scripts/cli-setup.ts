@@ -21,8 +21,10 @@ export async function runCliSetup(io: SetupIO, port: number): Promise<void> {
   const { command, hint } = networkOptionCommand(opt.id, port)
   if (command) io.print(`\nRun this, then come back:\n\n    ${command}\n`)
   io.print(hint)
-  // loop until a valid URL is pasted
-  for (;;) {
+  // loop until a valid URL is pasted, but give up after a bounded number of attempts
+  // (else stdin EOF/Ctrl-D makes `prompt` resolve '' forever → infinite spin).
+  const MAX_ATTEMPTS = 10
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
     const pasted = await io.prompt('\nPaste the resulting URL: ')
     const v = validatePublicUrl(pasted)
     if (v.ok) {
@@ -32,4 +34,5 @@ export async function runCliSetup(io: SetupIO, port: number): Promise<void> {
     }
     io.print(`  ${v.error}`)
   }
+  io.print('\nNo valid URL after several attempts — giving up. Re-run `podium setup` when ready.')
 }
