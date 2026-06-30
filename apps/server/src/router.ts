@@ -9,7 +9,7 @@ import {
 import { AgentKind, IssueStage, ResumeRef, WorkState } from '@podium/protocol'
 import { initTRPC, TRPCError } from '@trpc/server'
 import { z } from 'zod'
-import { setPassword } from './auth-store'
+import { clearPassword, hasPassword, setPassword, verifyPassword } from './auth-store'
 import { buildJoinCommand } from './machines-join'
 import type { SessionRegistry } from './relay'
 import { browseDirectories, type RepoRegistry } from './repo-registry'
@@ -392,6 +392,31 @@ export const appRouter = t.router({
         const cfg = applySetup({ publicUrl: v.normalized })
         if (input.password?.trim()) await setPassword(input.password)
         return cfg
+      }),
+  }),
+  // Manage the human-client login password on an already-configured instance. These run
+  // under the same /trpc guard, so once a password is set you must be logged in to reach
+  // them; we ALSO require the current password for a change/disable (defends against a
+  // hijacked session). In open mode (no password) the current check is skipped — bootstrap.
+  auth: t.router({
+    status: t.procedure.query(() => ({ enabled: hasPassword() })),
+    setPassword: t.procedure
+      .input(z.object({ current: z.string().optional(), next: z.string().min(1) }))
+      .mutation(async ({ input }) => {
+        if (hasPassword() && !(input.current && (await verifyPassword(input.current)))) {
+          throw new TRPCError({ code: 'UNAUTHORIZED', message: 'current password is incorrect' })
+        }
+        await setPassword(input.next)
+        return { enabled: true }
+      }),
+    clearPassword: t.procedure
+      .input(z.object({ current: z.string() }))
+      .mutation(async ({ input }) => {
+        if (hasPassword() && !(await verifyPassword(input.current))) {
+          throw new TRPCError({ code: 'UNAUTHORIZED', message: 'current password is incorrect' })
+        }
+        clearPassword()
+        return { enabled: false }
       }),
   }),
   issues: t.router({

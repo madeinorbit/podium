@@ -23,6 +23,7 @@ import { cn } from '@/lib/utils'
 import { MachinesPanel } from './MachinesPanel'
 import { useStore } from './store'
 import { type ThemeMode, type ThemePreset, useTheme } from './theme'
+import { serverConfig, type Trpc } from './trpc'
 
 export type SettingsTab =
   | 'appearance'
@@ -35,6 +36,7 @@ export type SettingsTab =
   | 'workflow'
   | 'integrations'
   | 'machines'
+  | 'security'
 
 type TelegramSetupState =
   | { status: 'idle' }
@@ -63,6 +65,7 @@ export const SETTINGS_TABS: { key: SettingsTab; label: string }[] = [
   { key: 'workflow', label: 'Workflow' },
   { key: 'integrations', label: 'Integrations' },
   { key: 'machines', label: 'Machines' },
+  { key: 'security', label: 'Security' },
 ]
 
 /**
@@ -206,10 +209,7 @@ export function SettingsView(): JSX.Element {
   const patch = (p: Partial<PodiumSettings>) => setSettings((s) => (s ? { ...s, ...p } : s))
 
   return (
-    <section
-      className="flex min-w-0 flex-1 flex-col overflow-hidden"
-      aria-label="Settings"
-    >
+    <section className="flex min-w-0 flex-1 flex-col overflow-hidden" aria-label="Settings">
       <div className="flex items-center justify-between border-border border-b px-4 py-3 md:px-[22px] md:py-3.5">
         <h2 className="font-medium text-base text-foreground">Settings</h2>
         <Button
@@ -223,9 +223,7 @@ export function SettingsView(): JSX.Element {
         </Button>
       </div>
       {error && (
-        <div className="border-border border-b px-4 py-2 text-destructive text-xs">
-          {error}
-        </div>
+        <div className="border-border border-b px-4 py-2 text-destructive text-xs">{error}</div>
       )}
       {!settings ? (
         <div className="flex-1 overflow-y-auto px-4 py-1 pb-3 md:px-[22px] md:pb-4">
@@ -257,87 +255,89 @@ export function SettingsView(): JSX.Element {
 
             {tab === 'sessions' && (
               <>
-              <Section
-                title="New sessions"
-                hint="Defaults applied when starting agents. “Agent decides” passes no flag — the CLI uses its own configuration."
-              >
-                <Row label="Default agent">
-                  <Select
-                    value={settings.sessionDefaults.agent}
-                    onValueChange={(value) =>
-                      patch({
-                        sessionDefaults: {
-                          ...settings.sessionDefaults,
-                          agent: value as AgentChoice,
-                        },
-                      })
-                    }
-                  >
-                    <SelectTrigger className="w-full flex-1">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="auto">Agent decides (Claude Code)</SelectItem>
-                      <SelectItem value="claude-code">Claude Code</SelectItem>
-                      <SelectItem value="codex">Codex</SelectItem>
-                      <SelectItem value="grok">Grok</SelectItem>
-                      <SelectItem value="opencode">OpenCode</SelectItem>
-                      <SelectItem value="cursor">Cursor</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </Row>
-                <Row label="Model for new sessions">
-                  <ModelInput
-                    value={settings.sessionDefaults.model}
-                    onChange={(model) =>
-                      patch({ sessionDefaults: { ...settings.sessionDefaults, model } })
-                    }
-                  />
-                </Row>
-                <Row label="Model for subagents">
-                  <ModelInput
-                    value={settings.sessionDefaults.subagentModel}
-                    onChange={(subagentModel) =>
-                      patch({ sessionDefaults: { ...settings.sessionDefaults, subagentModel } })
-                    }
-                  />
-                </Row>
-                <Row label="New session opens on">
-                  <Select
-                    value={settings.sessionDefaults.startScreen}
-                    onValueChange={(value) =>
-                      patch({
-                        sessionDefaults: {
-                          ...settings.sessionDefaults,
-                          startScreen: value as 'native' | 'chat' | 'auto',
-                        },
-                      })
-                    }
-                  >
-                    <SelectTrigger className="w-full flex-1">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="native">Native terminal</SelectItem>
-                      <SelectItem value="chat">Chat view</SelectItem>
-                      <SelectItem value="auto">Auto (chat on mobile, terminal on desktop)</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </Row>
-              </Section>
-              <Section
-                title="Auto-continue on errors"
-                hint="When an agent stops on a retryable error (rate limit, server error), keep re-sending “continue” on an increasing delay (up to 5 min) until it recovers. Heads up: this can keep an agent running indefinitely and consuming tokens."
-              >
-                <Row label="Enabled">
-                  <Switch
-                    checked={settings.autoContinue.enabled}
-                    onCheckedChange={(checked) =>
-                      patch({ autoContinue: { ...settings.autoContinue, enabled: checked } })
-                    }
-                  />
-                </Row>
-              </Section>
+                <Section
+                  title="New sessions"
+                  hint="Defaults applied when starting agents. “Agent decides” passes no flag — the CLI uses its own configuration."
+                >
+                  <Row label="Default agent">
+                    <Select
+                      value={settings.sessionDefaults.agent}
+                      onValueChange={(value) =>
+                        patch({
+                          sessionDefaults: {
+                            ...settings.sessionDefaults,
+                            agent: value as AgentChoice,
+                          },
+                        })
+                      }
+                    >
+                      <SelectTrigger className="w-full flex-1">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="auto">Agent decides (Claude Code)</SelectItem>
+                        <SelectItem value="claude-code">Claude Code</SelectItem>
+                        <SelectItem value="codex">Codex</SelectItem>
+                        <SelectItem value="grok">Grok</SelectItem>
+                        <SelectItem value="opencode">OpenCode</SelectItem>
+                        <SelectItem value="cursor">Cursor</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </Row>
+                  <Row label="Model for new sessions">
+                    <ModelInput
+                      value={settings.sessionDefaults.model}
+                      onChange={(model) =>
+                        patch({ sessionDefaults: { ...settings.sessionDefaults, model } })
+                      }
+                    />
+                  </Row>
+                  <Row label="Model for subagents">
+                    <ModelInput
+                      value={settings.sessionDefaults.subagentModel}
+                      onChange={(subagentModel) =>
+                        patch({ sessionDefaults: { ...settings.sessionDefaults, subagentModel } })
+                      }
+                    />
+                  </Row>
+                  <Row label="New session opens on">
+                    <Select
+                      value={settings.sessionDefaults.startScreen}
+                      onValueChange={(value) =>
+                        patch({
+                          sessionDefaults: {
+                            ...settings.sessionDefaults,
+                            startScreen: value as 'native' | 'chat' | 'auto',
+                          },
+                        })
+                      }
+                    >
+                      <SelectTrigger className="w-full flex-1">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="native">Native terminal</SelectItem>
+                        <SelectItem value="chat">Chat view</SelectItem>
+                        <SelectItem value="auto">
+                          Auto (chat on mobile, terminal on desktop)
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </Row>
+                </Section>
+                <Section
+                  title="Auto-continue on errors"
+                  hint="When an agent stops on a retryable error (rate limit, server error), keep re-sending “continue” on an increasing delay (up to 5 min) until it recovers. Heads up: this can keep an agent running indefinitely and consuming tokens."
+                >
+                  <Row label="Enabled">
+                    <Switch
+                      checked={settings.autoContinue.enabled}
+                      onCheckedChange={(checked) =>
+                        patch({ autoContinue: { ...settings.autoContinue, enabled: checked } })
+                      }
+                    />
+                  </Row>
+                </Section>
               </>
             )}
 
@@ -501,7 +501,9 @@ export function SettingsView(): JSX.Element {
                       type="button"
                       size="sm"
                       variant="outline"
-                      disabled={telegramSetup.status === 'starting' || telegramSetup.status === 'polling'}
+                      disabled={
+                        telegramSetup.status === 'starting' || telegramSetup.status === 'polling'
+                      }
                       onClick={() => void startTelegramSetup()}
                     >
                       {telegramSetup.status === 'starting' ? (
@@ -509,7 +511,9 @@ export function SettingsView(): JSX.Element {
                       ) : (
                         <ExternalLink data-icon="inline-start" />
                       )}
-                      {settings.notifications.telegramChatId.trim() ? 'Reconnect Telegram' : 'Connect Telegram'}
+                      {settings.notifications.telegramChatId.trim()
+                        ? 'Reconnect Telegram'
+                        : 'Connect Telegram'}
                     </Button>
                     <TelegramSetupStatus setup={telegramSetup} now={telegramSetupNow} />
                   </div>
@@ -518,17 +522,23 @@ export function SettingsView(): JSX.Element {
                   <div className="mb-1 font-medium text-foreground">Telegram setup</div>
                   <ol className="list-decimal space-y-1 pl-4">
                     <li>
-                      In Telegram, message <code className="text-[11px]">@BotFather</code> and use <code className="text-[11px]">/newbot</code> to create a bot. Paste its bot token here.
+                      In Telegram, message <code className="text-[11px]">@BotFather</code> and use{' '}
+                      <code className="text-[11px]">/newbot</code> to create a bot. Paste its bot
+                      token here.
                     </li>
                     <li>
-                      Click <span className="font-medium text-foreground">Connect Telegram</span>. Podium shows a Telegram link with a setup code and polls for 5 minutes.
+                      Click <span className="font-medium text-foreground">Connect Telegram</span>.
+                      Podium shows a Telegram link with a setup code and polls for 5 minutes.
                     </li>
                     <li>
-                      Send the prefilled start message. When Podium sees the code, it fills the chat ID and sends a confirmation.
+                      Send the prefilled start message. When Podium sees the code, it fills the chat
+                      ID and sends a confirmation.
                     </li>
                   </ol>
                   <p className="mt-1.5">
-                    Public channels can still use <code className="text-[11px]">@channelusername</code>. These settings are global for this Podium server.
+                    Public channels can still use{' '}
+                    <code className="text-[11px]">@channelusername</code>. These settings are global
+                    for this Podium server.
                   </p>
                 </div>
               </Section>
@@ -622,6 +632,7 @@ export function SettingsView(): JSX.Element {
             )}
 
             {tab === 'machines' && <MachinesPanel />}
+            {tab === 'security' && <LoginPasswordSection trpc={trpc} />}
           </div>
         </div>
       )}
@@ -638,12 +649,7 @@ export function SettingsView(): JSX.Element {
         {savedAt > 0 && Date.now() - savedAt < 4000 && (
           <span className="text-success text-xs">Saved.</span>
         )}
-        <Button
-          type="button"
-          size="sm"
-          disabled={!settings || saving}
-          onClick={() => void save()}
-        >
+        <Button type="button" size="sm" disabled={!settings || saving} onClick={() => void save()}>
           {saving ? 'Saving…' : 'Save'}
         </Button>
       </div>
@@ -686,7 +692,9 @@ function TelegramSetupStatus({
     <div className="max-w-[68ch] space-y-1 rounded-md border border-border bg-muted/30 p-2 text-xs">
       <div className="flex flex-wrap items-center gap-2 text-foreground">
         <span>Waiting for Telegram</span>
-        <code className="rounded bg-background px-1.5 py-0.5 font-mono text-[11px]">{setup.code}</code>
+        <code className="rounded bg-background px-1.5 py-0.5 font-mono text-[11px]">
+          {setup.code}
+        </code>
         <span className="text-muted-foreground">
           {formatTelegramSetupRemaining(setup.expiresAt, now)} left
         </span>
@@ -711,8 +719,7 @@ function NotificationPermissionButton(): JSX.Element | null {
   )
   if (perm === 'unsupported')
     return <span className="text-muted-foreground text-xs">not supported here</span>
-  if (perm === 'granted')
-    return <span className="text-success text-xs">permission granted</span>
+  if (perm === 'granted') return <span className="text-success text-xs">permission granted</span>
   if (perm === 'denied')
     return <span className="text-muted-foreground text-xs">blocked in browser settings</span>
   return (
@@ -734,9 +741,7 @@ export function backendWithRunKind(backend: LlmBackend, kind: LlmBackend['kind']
     ...backend,
     kind,
     harnessAgent:
-      kind === 'harness' && backend.harnessAgent === 'codex'
-        ? 'claude-code'
-        : backend.harnessAgent,
+      kind === 'harness' && backend.harnessAgent === 'codex' ? 'claude-code' : backend.harnessAgent,
   }
 }
 
@@ -783,6 +788,155 @@ function Section({
       {hint && <p className="mb-2 max-w-[60ch] text-[12px] text-muted-foreground">{hint}</p>}
       {children}
     </section>
+  )
+}
+
+/**
+ * Set / change / disable the human-client login password from an already-configured
+ * instance (the setup screen only appears on first run). The auth.* tRPC procedures run
+ * behind the /trpc guard and require the current password to change/disable, so this is
+ * safe to expose here. After a successful set/change we immediately POST /auth/login with
+ * the new password so THIS device gets (or refreshes) its session cookie instead of being
+ * locked out by the guard it just enabled.
+ */
+export function LoginPasswordSection({ trpc }: { trpc: Trpc }): JSX.Element {
+  const httpOrigin = serverConfig(window.location).httpOrigin
+  const [enabled, setEnabled] = useState<boolean | null>(null)
+  const [current, setCurrent] = useState('')
+  const [next, setNext] = useState('')
+  const [confirm, setConfirm] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [done, setDone] = useState<string | null>(null)
+
+  useEffect(() => {
+    trpc.auth.status
+      .query()
+      .then((s) => setEnabled(s.enabled))
+      .catch(() => setEnabled(null))
+  }, [trpc])
+
+  const reset = (): void => {
+    setCurrent('')
+    setNext('')
+    setConfirm('')
+  }
+
+  const save = async (): Promise<void> => {
+    setError(null)
+    setDone(null)
+    if (!next) {
+      setError('Enter a password.')
+      return
+    }
+    if (next !== confirm) {
+      setError('Passwords don’t match.')
+      return
+    }
+    setBusy(true)
+    try {
+      await trpc.auth.setPassword.mutate({ current: current || undefined, next })
+      // Obtain/refresh this device's cookie so the guard we just enabled doesn't lock us out.
+      await fetch(`${httpOrigin}/auth/login`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ password: next }),
+      })
+      setEnabled(true)
+      reset()
+      setDone('Password saved.')
+    } catch {
+      setError(
+        enabled
+          ? 'Couldn’t save — is the current password correct?'
+          : 'Couldn’t save the password.',
+      )
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const disable = async (): Promise<void> => {
+    setError(null)
+    setDone(null)
+    setBusy(true)
+    try {
+      await trpc.auth.clearPassword.mutate({ current })
+      setEnabled(false)
+      reset()
+      setDone('Login disabled — anyone who can reach this server can use it.')
+    } catch {
+      setError('Couldn’t disable — is the current password correct?')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  if (enabled === null) {
+    return (
+      <Section title="Login password">
+        <p className="text-[12px] text-muted-foreground">Loading…</p>
+      </Section>
+    )
+  }
+
+  return (
+    <Section
+      title="Login password"
+      hint={
+        enabled
+          ? 'A password is required to use this Podium from a browser or the desktop app.'
+          : 'No password set — anyone who can reach this server can use it. Set one to require login.'
+      }
+    >
+      <div className="flex max-w-sm flex-col gap-2">
+        {enabled && (
+          <Input
+            type="password"
+            autoComplete="current-password"
+            placeholder="Current password"
+            value={current}
+            onChange={(e) => setCurrent(e.target.value)}
+          />
+        )}
+        <Input
+          type="password"
+          autoComplete="new-password"
+          placeholder={enabled ? 'New password' : 'Password'}
+          value={next}
+          onChange={(e) => setNext(e.target.value)}
+        />
+        <Input
+          type="password"
+          autoComplete="new-password"
+          placeholder="Confirm password"
+          value={confirm}
+          onChange={(e) => setConfirm(e.target.value)}
+        />
+        {error && (
+          <p role="alert" className="text-[12px] text-destructive">
+            {error}
+          </p>
+        )}
+        {done && <p className="text-[12px] text-muted-foreground">{done}</p>}
+        <div className="flex items-center gap-2">
+          <Button type="button" disabled={busy || !next} onClick={() => void save()}>
+            {busy ? 'Saving…' : enabled ? 'Change password' : 'Set password'}
+          </Button>
+          {enabled && (
+            <Button
+              type="button"
+              variant="outline"
+              disabled={busy || !current}
+              onClick={() => void disable()}
+            >
+              Disable login
+            </Button>
+          )}
+        </div>
+      </div>
+    </Section>
   )
 }
 
@@ -941,9 +1095,9 @@ function BackendEditor({
           {backend.provider === 'codex' ? (
             <p className="mt-1.5 mb-0.5 max-w-[60ch] text-[12px] text-muted-foreground">
               Uses your local ChatGPT login (<code className="text-[11px]">codex login</code> on the
-              server) — no API key; it uses your plan's included Codex capacity while limits
-              allow. Gets the full orchestrator tool belt and, unlike the old Codex harness, never
-              shells out to a CLI.
+              server) — no API key; it uses your plan's included Codex capacity while limits allow.
+              Gets the full orchestrator tool belt and, unlike the old Codex harness, never shells
+              out to a CLI.
             </p>
           ) : (
             <p className="mt-1.5 mb-0.5 max-w-[60ch] text-[12px] text-muted-foreground">
@@ -990,8 +1144,8 @@ function BackendEditor({
             </p>
           ) : (
             <p className="mt-1.5 mb-0.5 max-w-[60ch] text-[12px] text-muted-foreground">
-              Podium runs a real {backend.harnessAgent} agent with its CLI tool belt,
-              using your local login, and injects this feature's system prompt.
+              Podium runs a real {backend.harnessAgent} agent with its CLI tool belt, using your
+              local login, and injects this feature's system prompt.
             </p>
           )}
         </>
