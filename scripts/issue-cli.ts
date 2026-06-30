@@ -10,7 +10,7 @@ export function parseIssueArgs(argv: string[]): {
   const args: Record<string, unknown> = {}
   for (let i = 0; i < rest.length; i++) {
     const t = rest[i]
-    if (!t.startsWith('--')) continue
+    if (!t?.startsWith('--')) continue
     const eq = t.indexOf('=')
     if (eq >= 0) {
       args[t.slice(2, eq)] = t.slice(eq + 1)
