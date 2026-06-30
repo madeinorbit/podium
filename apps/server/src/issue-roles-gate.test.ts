@@ -41,4 +41,12 @@ describe('issues.* role gate', () => {
     const w = await c.issues.create({ repoPath: '/r', title: 'x', startNow: false })
     expect(w.seq).toBe(1)
   })
+  it('delete is maintainer-only (a reader is denied — destructive op)', async () => {
+    await expect(caller('reader').issues.delete({ id: 'iss_x' })).rejects.toThrow(/FORBIDDEN|role/i)
+    await expect(caller('worker').issues.delete({ id: 'iss_x' })).rejects.toThrow(/FORBIDDEN|role/i)
+    // maintainer passes the gate, then errors on the unknown id (not FORBIDDEN):
+    await expect(caller('maintainer').issues.delete({ id: 'iss_missing' })).rejects.not.toThrow(
+      /FORBIDDEN/i,
+    )
+  })
 })
