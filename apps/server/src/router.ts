@@ -1,4 +1,10 @@
 import { PodiumSettings } from '@podium/core'
+import {
+  applySetup,
+  NETWORK_OPTIONS,
+  networkOptionCommand,
+  validatePublicUrl,
+} from '@podium/core/setup'
 import { AgentKind, IssueStage, ResumeRef, WorkState } from '@podium/protocol'
 import { initTRPC, TRPCError } from '@trpc/server'
 import { z } from 'zod'
@@ -157,12 +163,10 @@ export const appRouter = t.router({
         ctx.registry.setSnooze(input)
         return ctx.registry.listSnoozes()
       }),
-    clear: t.procedure
-      .input(z.object({ sessionId: z.string() }))
-      .mutation(({ ctx, input }) => {
-        ctx.registry.clearSnooze(input.sessionId)
-        return ctx.registry.listSnoozes()
-      }),
+    clear: t.procedure.input(z.object({ sessionId: z.string() })).mutation(({ ctx, input }) => {
+      ctx.registry.clearSnooze(input.sessionId)
+      return ctx.registry.listSnoozes()
+    }),
   }),
   superagent: t.router({
     // The global orchestrator thread plus per-session 'btw' threads.
@@ -355,6 +359,25 @@ export const appRouter = t.router({
     // join it to this server.
     pairingCode: t.procedure.mutation(({ ctx }) => ({ code: ctx.registry.mintPairingCode() })),
   }),
+  // First-run "make this instance reachable" flow (Tailscale-first). The web setup screen
+  // reaches these instead of importing @podium/core/setup directly, which would pull node:fs
+  // (via ./config) into the browser bundle.
+  setup: t.router({
+    options: t.procedure.query(() => NETWORK_OPTIONS),
+    commandFor: t.procedure
+      .input(
+        z.object({
+          option: z.enum(['tailscale-funnel', 'tailscale-serve', 'cloudflare-tunnel', 'manual']),
+          port: z.number(),
+        }),
+      )
+      .query(({ input }) => networkOptionCommand(input.option, input.port)),
+    complete: t.procedure.input(z.object({ publicUrl: z.string() })).mutation(({ input }) => {
+      const v = validatePublicUrl(input.publicUrl)
+      if (!v.ok) throw new TRPCError({ code: 'BAD_REQUEST', message: v.error })
+      return applySetup({ publicUrl: v.normalized })
+    }),
+  }),
   issues: t.router({
     list: t.procedure
       .input(z.object({ repoPath: z.string().optional() }))
@@ -459,7 +482,13 @@ export const appRouter = t.router({
         return ctx.registry.writeFile(input)
       }),
     list: t.procedure
-      .input(z.object({ machineId: z.string().optional(), root: z.string(), path: z.string().optional() }))
+      .input(
+        z.object({
+          machineId: z.string().optional(),
+          root: z.string(),
+          path: z.string().optional(),
+        }),
+      )
       .query(({ ctx, input }) => {
         if (!isAllowedRoot(ctx.repos.list(), input.root)) {
           throw new TRPCError({ code: 'FORBIDDEN', message: 'root is not a known repository path' })

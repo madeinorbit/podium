@@ -1,14 +1,53 @@
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+
+// The all-in-one path runs a reachability step that talks to the `setup` tRPC procedures via
+// the vanilla client from makeTrpc(). Mock the client so the step resolves without network.
+const trpcMock = vi.hoisted(() => ({
+  options: vi.fn(),
+  commandFor: vi.fn(),
+  complete: vi.fn(),
+}))
+
+vi.mock('./trpc', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./trpc')>()
+  return {
+    ...actual,
+    makeTrpc: () => ({
+      setup: {
+        options: { query: trpcMock.options },
+        commandFor: { query: trpcMock.commandFor },
+        complete: { mutate: trpcMock.complete },
+      },
+    }),
+  }
+})
+
 import { SetupView } from './SetupView'
 
 const flush = async (): Promise<void> => {
   for (let i = 0; i < 5; i++) await Promise.resolve()
 }
 
+beforeEach(() => {
+  trpcMock.options.mockResolvedValue([
+    {
+      id: 'tailscale-funnel',
+      label: 'Tailscale Funnel (public, recommended)',
+      note: 'Reachable from anywhere.',
+    },
+    { id: 'manual', label: 'Manual reverse proxy', note: 'Paste the https URL.' },
+  ])
+  trpcMock.commandFor.mockResolvedValue({
+    command: 'tailscale funnel 18787',
+    hint: 'Then paste the https URL it prints.',
+  })
+  trpcMock.complete.mockResolvedValue({ mode: 'all-in-one', publicUrl: 'https://box.ts.net' })
+})
+
 afterEach(() => {
   cleanup()
-  vi.restoreAllMocks()
+  vi.clearAllMocks()
   vi.unstubAllGlobals()
 })
 
@@ -23,25 +62,29 @@ describe('SetupView', () => {
     expect(screen.getByText(/^server only/i)).toBeTruthy()
   })
 
-  it('POSTs the all-in-one mode and calls onSaved', async () => {
-    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ok: true }) })
-    vi.stubGlobal('fetch', fetchMock)
+  it('all-in-one advances to the reachability step and persists the URL via setup.complete', async () => {
     const onSaved = vi.fn()
     const { container } = render(
       <SetupView httpOrigin="http://localhost:18787" onSaved={onSaved} />,
     )
     const view = within(container)
-    // Explicitly select all-in-one to exercise onChange wiring
-    fireEvent.click(view.getByRole('radio', { name: /all-in-one/i }))
-    const btn = view.getByRole('button', { name: /save/i })
+    // all-in-one is the default; advance to the networking step.
     await act(async () => {
-      fireEvent.click(btn)
+      fireEvent.click(view.getByRole('button', { name: /continue/i }))
       await flush()
     })
-    expect(fetchMock).toHaveBeenCalled()
-    const firstCall = fetchMock.mock.calls[0] as [string, RequestInit]
-    expect(firstCall[0]).toBe('http://localhost:18787/setup/config')
-    expect(JSON.parse(firstCall[1].body as string)).toMatchObject({ mode: 'all-in-one' })
+    // Options + funnel command loaded from the mocked tRPC client.
+    expect(trpcMock.options).toHaveBeenCalled()
+    expect(view.getByText('tailscale funnel 18787')).toBeTruthy()
+    // Paste the URL and finish.
+    fireEvent.change(view.getByLabelText(/public url/i), {
+      target: { value: 'https://box.ts.net' },
+    })
+    await act(async () => {
+      fireEvent.click(view.getByRole('button', { name: /finish/i }))
+      await flush()
+    })
+    expect(trpcMock.complete).toHaveBeenCalledWith({ publicUrl: 'https://box.ts.net' })
     expect(onSaved).toHaveBeenCalled()
   })
 
