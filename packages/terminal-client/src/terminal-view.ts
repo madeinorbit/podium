@@ -76,8 +76,8 @@ export class TerminalView {
   private dataSink: ((data: string) => void) | undefined
   private fileLinkConfig: FileLinkConfig | null = null
   // The live WebGL renderer addon (undefined when GPU is off, WebGL is unavailable, or
-  // after a context loss dropped us to the DOM renderer). Kept so reloadWebgl() can
-  // recreate it to recover a discarded canvas.
+  // after a context loss dropped us to the DOM renderer). Kept so repaintRecover() can
+  // clear its atlas to recover a discarded canvas without swapping the renderer.
   private webgl: WebglAddon | undefined
 
   constructor(opts: TerminalViewOptions = {}) {
@@ -174,28 +174,33 @@ export class TerminalView {
   }
 
   /**
-   * Recover the screen after the panel was hidden with `display:none`: the browser
-   * frees the WebGL canvas's backing store, so on reveal only damage-painted cells show
-   * and the rest is black. A plain refresh can't repaint a discarded GL surface — recreate
-   * the renderer instead. Disposing + reloading the WebGL addon gives a fresh GL context +
-   * glyph atlas and a full render of xterm's buffer. Call this AFTER the panel is visible
-   * and laid out (e.g. on the next animation frame) so the new renderer measures the real
-   * canvas size. Falls back to a plain repaint when GPU rendering is off / unavailable.
+   * Recover the screen after the panel was hidden with `display:none` (a tab switch) or the
+   * page was backgrounded: the browser frees the WebGL canvas's backing store, so on reveal
+   * only damage-painted cells show and the rest is black. A plain refresh can't repaint a
+   * discarded GL surface.
+   *
+   * We deliberately do NOT dispose+recreate the WebGL addon to fix this. Swapping the renderer
+   * (RenderService.setRenderer) does NOT re-broadcast dimensions (no onDimensionsChange fires),
+   * so xterm's Viewport keeps a stale cached row-height — and wheel scrolling, which divides the
+   * delta by that cached height, silently dies until the next real resize. Instead clear the
+   * glyph atlas + render model and request a full redraw on the SAME renderer: that repaints the
+   * freed canvas while leaving the Viewport — and mouse/scroll — untouched. Call AFTER the panel
+   * is visible and laid out. Falls back to a plain full repaint on the DOM renderer (GPU off /
+   * unavailable / a lost context that already dropped us to DOM).
    */
-  reloadWebgl(): void {
+  repaintRecover(): void {
     if (this.disposed) return
-    if (!gpuEnabled()) {
-      this.forceRepaint()
-      return
+    if (this.webgl) {
+      try {
+        // Drops the atlas + render model and fires a full-viewport redraw on the live context
+        // — no renderer swap, so the Viewport's scroll/row-height cache stays valid.
+        this.webgl.clearTextureAtlas()
+        return
+      } catch {
+        // GL gone / mid-teardown — fall through to a DOM-level repaint
+      }
     }
-    try {
-      this.webgl?.dispose()
-    } catch {
-      // already disposed / mid-teardown
-    }
-    this.webgl = undefined
-    this.tryLoadWebgl() // creates + loads a fresh WebglAddon (or stays DOM if unavailable)
-    this.forceRepaint() // ensure a full redraw via whichever renderer is now active
+    this.forceRepaint()
   }
 
   write(text: string): void {

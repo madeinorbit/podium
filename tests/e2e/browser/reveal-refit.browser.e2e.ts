@@ -65,3 +65,48 @@ test('revealing a hidden session re-fits its grid to the current viewport', asyn
   console.log(`revealed A fit at 820px: ${JSON.stringify(fit)}`)
   expect(fit.ratio, `revealed terminal fills its box (got ${JSON.stringify(fit)})`).toBeGreaterThan(0.85)
 })
+
+// A same-viewport reveal must repaint the freed canvas WITHOUT swapping the renderer. A swap
+// (dispose+recreate the WebGL addon) replaces the <canvas> element AND silently leaves xterm's
+// Viewport row-height cache stale → wheel scrolling dies until the next real resize. We prove
+// "no swap" by tagging the canvas while visible and asserting the SAME element survives reveal.
+const visibleCanvasProbe = (page: Page): Promise<{ hasCanvas: boolean; probe: string | null }> =>
+  page.evaluate(() => {
+    const term = [...document.querySelectorAll('.term[data-role]')].find(
+      (t) => (t as HTMLElement).clientWidth > 10 && (t as HTMLElement).offsetParent !== null,
+    )
+    const canvas = term?.querySelector('.xterm-screen canvas') as HTMLCanvasElement | undefined
+    return { hasCanvas: !!canvas, probe: canvas?.dataset.revealProbe ?? null }
+  })
+
+test('same-viewport reveal repaints without swapping the WebGL canvas (scroll-safe)', async ({ page }) => {
+  test.setTimeout(120_000)
+  await page.setViewportSize({ width: 1400, height: 900 })
+  await openApp(page)
+
+  const pre = new Set(await tabIds(page))
+  await newSession(page, 'Shell') // A — active; tag its live WebGL canvas
+  const tagged = await page.evaluate(() => {
+    const term = [...document.querySelectorAll('.term[data-role]')].find(
+      (t) => (t as HTMLElement).clientWidth > 10 && (t as HTMLElement).offsetParent !== null,
+    )
+    const canvas = term?.querySelector('.xterm-screen canvas') as HTMLCanvasElement | undefined
+    if (canvas) canvas.dataset.revealProbe = 'A'
+    return !!canvas
+  })
+  expect(tagged, 'A has a WebGL canvas to tag (software WebGL in CI)').toBe(true)
+
+  await newSession(page, 'Shell') // B — A is hidden (display:none frees A's canvas backing store)
+  const mine = (await tabIds(page)).filter((id) => !pre.has(id))
+  const a = mine[0]
+
+  // Reveal A at the SAME viewport → grid unchanged → repaintRecover (clear atlas in place),
+  // NOT a renderer swap. A swap would remove the tagged canvas and append a fresh one.
+  await page.locator(`.overflow-x-auto [data-session="${a}"]`).click({ timeout: 15_000 })
+  await page.waitForTimeout(1200)
+
+  const after = await visibleCanvasProbe(page)
+  console.log(`after same-viewport reveal: ${JSON.stringify(after)}`)
+  expect(after.hasCanvas, 'revealed terminal still has a WebGL canvas').toBe(true)
+  expect(after.probe, 'the SAME canvas survived reveal (no renderer swap → Viewport scroll cache intact)').toBe('A')
+})

@@ -164,43 +164,44 @@ describe('mountSession eligibility-gated sizing', () => {
     mounted.dispose()
   })
 
-  it('recreates the WebGL renderer on reveal when the grid is unchanged (freed canvas)', async () => {
+  it('repaints in place (no renderer swap) on reveal when the grid is unchanged (freed canvas)', async () => {
     withResizeObserver()
     withFittableAddon() // fit → 150×50
-    const reload = vi.spyOn(TerminalView.prototype, 'reloadWebgl')
-    protoPatchRestorers.push(() => reload.mockRestore())
+    const repaintRecover = vi.spyOn(TerminalView.prototype, 'repaintRecover')
+    protoPatchRestorers.push(() => repaintRecover.mockRestore())
     const { hub, calls, state } = fakeHub()
     // Mount INACTIVE (hidden), then bring the term + server grid to the size fit() will
     // propose, so the reveal fit is a no-op — the case where a same-size resize can't repaint
-    // the canvas that display:none freed, so we must recreate the renderer instead.
+    // the canvas that display:none freed, so we repaint it in place (clear atlas) WITHOUT
+    // swapping the renderer (which would leave the Viewport scroll cache stale).
     const mounted = mountSession(fittableHost(), { hub, sessionId: 's1', active: false })
     state(150, 50) // term + serverGrid now match what fit() proposes
-    reload.mockClear()
+    repaintRecover.mockClear()
     calls.resize.length = 0
-    mounted.setActive(true) // reveal: grid unchanged → recreate the GL renderer
+    mounted.setActive(true) // reveal: grid unchanged → repaint in place
     await new Promise((r) => requestAnimationFrame(() => r(null)))
     await new Promise((r) => setTimeout(r, 0))
-    expect(reload, 'unchanged-grid reveal recreates the GL renderer').toHaveBeenCalled()
+    expect(repaintRecover, 'unchanged-grid reveal repaints in place').toHaveBeenCalled()
     expect(calls.resize, 'no PTY resize when the grid is unchanged').toEqual([])
     mounted.dispose()
   })
 
-  it('skips the GL recreate on reveal when the fit changes the grid (resize repaints)', async () => {
+  it('skips the in-place repaint on reveal when the fit changes the grid (resize repaints)', async () => {
     withResizeObserver()
     withFittableAddon() // fit → 150×50, ≠ the 80×24 the panel mounts at
-    const reload = vi.spyOn(TerminalView.prototype, 'reloadWebgl')
-    protoPatchRestorers.push(() => reload.mockRestore())
+    const repaintRecover = vi.spyOn(TerminalView.prototype, 'repaintRecover')
+    protoPatchRestorers.push(() => repaintRecover.mockRestore())
     const { hub, calls } = fakeHub()
     // Mount INACTIVE at the 80×24 default; revealing fits to 150×50 — a real size change, so
     // xterm's resize recomputes geometry and repaints the whole grid, recovering the freed
-    // canvas without a recreate (the same path a browser-window resize takes).
+    // canvas without any extra repaint (the same path a browser-window resize takes).
     const mounted = mountSession(fittableHost(), { hub, sessionId: 's1', active: false })
-    reload.mockClear()
-    mounted.setActive(true) // reveal: grid changes → resize, no recreate
+    repaintRecover.mockClear()
+    mounted.setActive(true) // reveal: grid changes → resize, no in-place repaint
     await new Promise((r) => requestAnimationFrame(() => r(null)))
     await new Promise((r) => setTimeout(r, 0))
     expect(calls.resize.at(-1), 'reveal resizes the PTY to the fitted grid').toEqual([150, 50])
-    expect(reload, 'changed-grid reveal does NOT recreate the GL renderer').not.toHaveBeenCalled()
+    expect(repaintRecover, 'changed-grid reveal does NOT repaint in place').not.toHaveBeenCalled()
     mounted.dispose()
   })
 })

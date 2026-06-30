@@ -150,8 +150,9 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
   //     is exactly what recovers a freed canvas. Nothing more to do (and we inform the server when
   //     our viewport differs from its authoritative grid).
   //   - If the grid is UNCHANGED, a same-size resize is a no-op that won't repaint the freed
-  //     canvas, so recreate the WebGL renderer for a fresh context + full render. This works even
-  //     though the old GL context is gone — we never relied on keeping it warm.
+  //     canvas, so repaint it in place (clear the glyph atlas + request a full redraw). We do
+  //     NOT recreate the renderer: a renderer swap leaves xterm's Viewport row-height cache
+  //     stale, which kills wheel scrolling until the next real resize.
   // Sizing waits for real layout (no fixed-frame guess), so the recompute can't run against a
   // still-hidden/zero-size canvas; whenMeasurable re-checks eligibility each frame.
   function reveal(): void {
@@ -162,7 +163,7 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
       if (grid.cols !== serverGrid.cols || grid.rows !== serverGrid.rows) {
         connection.sendResize(grid.cols, grid.rows)
       }
-      if (!gridChanged) view.reloadWebgl()
+      if (!gridChanged) view.repaintRecover()
     })
   }
 
