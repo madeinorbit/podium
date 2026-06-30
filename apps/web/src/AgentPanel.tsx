@@ -583,10 +583,11 @@ export function AgentPanel({
             <Moon size={13} aria-hidden="true" />
           </Button>
         )}
-        {/* Archive stays available while hibernated — you can read the transcript
-            in chat and decide to file it away without waking the agent first.
-            Exited sessions get Resume/Remove in ExitedPane instead. */}
-        {!exited && (
+        {/* Archive stays available in every read-only state — both hibernated
+            (process paused to free memory) and exited (process gone, transcript
+            read-only). You can read the transcript and file it under Done without
+            waking/resuming first. Only hidden when there's no session at all. */}
+        {session && (
           <Button
             type="button"
             variant="ghost"

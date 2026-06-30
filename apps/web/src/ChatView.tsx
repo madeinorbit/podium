@@ -13,7 +13,7 @@ import {
   X,
 } from 'lucide-react'
 import type { JSX } from 'react'
-import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
@@ -215,6 +215,33 @@ export function ChatView({
   const [dragOver, setDragOver] = useState(false)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
 
+  // Mirror the live sessionId so an in-flight read can bail if the session switched
+  // out from under it (the held window now belongs to a different session).
+  const sessionIdRef = useRef(sessionId)
+  sessionIdRef.current = sessionId
+
+  // Read the newest window off disk and reconcile it into the held window — never a
+  // blind replace. `reconcileReset` keeps any live-tailed in-flight record the disk
+  // re-read dropped, and refuses to wipe a populated view on an empty/failed read,
+  // so the newest messages can't flash in then vanish on a reattach re-seed (e.g.
+  // after a server/daemon redeploy). Stable identity (keyed on session) so other
+  // effects can call it to refresh the window without re-mounting the subscription.
+  const readNewest = useCallback(async () => {
+    const sid = sessionId
+    const r = await trpc.sessions.transcriptRead.query({
+      sessionId: sid,
+      direction: 'before',
+      limit: INITIAL_LIMIT,
+    })
+    if (sessionIdRef.current !== sid) return r // session switched mid-read — drop it
+    setItems((prev) => reconcileReset(prev, r.items, r.tail))
+    setOlder([])
+    setHeadCursor(r.head)
+    setHasMoreOlder(r.hasMore)
+    setInitialLoaded(true)
+    return r
+  }, [trpc, sessionId])
+
   // Read-then-subscribe: the single source of the transcript window for ANY
   // status. (1) Read the newest window off disk via tRPC — this alone populates a
   // LIVE session even if the hub never yields a live delta (the loading-bug fix).
@@ -234,26 +261,6 @@ export function ChatView({
     setInitialLoaded(false)
     pinnedToBottom.current = true
     didInitialScroll.current = false
-
-    // Re-read the newest window (initial load + on a reset delta) and reconcile it
-    // against the held window — never a blind replace. `reconcileReset` keeps any
-    // live-tailed in-flight record the disk re-read dropped, and refuses to wipe a
-    // populated view on an empty/failed read, so the newest messages can't flash in
-    // and then vanish on a reattach re-seed (e.g. after a server/daemon redeploy).
-    const readNewest = async () => {
-      const r = await trpc.sessions.transcriptRead.query({
-        sessionId,
-        direction: 'before',
-        limit: INITIAL_LIMIT,
-      })
-      if (cancelled) return r
-      setItems((prev) => reconcileReset(prev, r.items, r.tail))
-      setOlder([])
-      setHeadCursor(r.head)
-      setHasMoreOlder(r.hasMore)
-      setInitialLoaded(true)
-      return r
-    }
 
     ;(async () => {
       const r = await readNewest()
@@ -281,7 +288,28 @@ export function ChatView({
       cancelled = true
       unsub()
     }
-  }, [hub, sessionId, trpc])
+  }, [hub, sessionId, trpc, readNewest])
+
+  // Re-read the newest window at the two moments the held window can silently go
+  // stale, both of which the sticky read-then-subscribe above can miss:
+  //   (a) the session waking from a parked state into live — a resume may fork to a
+  //       fresh transcript file the existing subscription wasn't watching, so
+  //       without a re-read the chat shows empty right after a resume; and
+  //   (b) this chat becoming the active/foreground view again — a backgrounded view
+  //       can fall behind if a delta was missed.
+  // `readNewest` reconciles (never blind-replaces), so an extra refresh can only
+  // add or correct rows, never wipe the window.
+  const prevLive = useRef(session?.status === 'live' || session?.status === 'starting')
+  const prevActive = useRef(active)
+  useEffect(() => {
+    const nowLive = session?.status === 'live' || session?.status === 'starting'
+    const wokeToLive = nowLive && !prevLive.current
+    const becameActive = active && !prevActive.current
+    prevLive.current = nowLive
+    prevActive.current = active
+    if (!initialLoaded) return // the read-then-subscribe effect owns the first load
+    if (wokeToLive || becameActive) void readNewest()
+  }, [session?.status, active, initialLoaded, readNewest])
 
   // The full loaded list: older pages prepended to the held window. A small
   // cursor-dedupe at the seam guards a one-item paging/live overlap.
