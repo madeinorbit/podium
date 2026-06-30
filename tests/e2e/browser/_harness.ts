@@ -71,8 +71,13 @@ export async function gotoWorkspace(page: Page): Promise<void> {
   // worktree navigation button — identified by having no `title` and no `aria-label`
   // and having non-empty text content (branch name).
   // Strategy: wait for any button with non-empty text and no title in the list,
-  // which is the worktree nav button.
-  const worktreeNavBtn = sidebar.locator('.overflow-y-auto button:not([title]):not([aria-label])').first()
+  // which is the worktree nav button. The Worktrees|Issues tab toggle (shipped with the
+  // Issues sidebar tab) also has no title/aria-label, but DOES carry aria-pressed — so
+  // exclude aria-pressed, or the first match is the "Worktrees" toggle and clicking it
+  // never activates the workspace.
+  const worktreeNavBtn = sidebar
+    .locator('.overflow-y-auto button:not([title]):not([aria-label]):not([aria-pressed])')
+    .first()
 
   try {
     await worktreeNavBtn.waitFor({ state: 'visible', timeout: 15_000 })
