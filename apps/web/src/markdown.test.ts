@@ -34,6 +34,22 @@ describe('renderMarkdown', () => {
     expect(html).toContain('<strong>hi</strong>')
     expect(html).toContain('href="https://e.com"')
   })
+
+  it('opens external links in a new tab with a safe rel', () => {
+    const html = renderMarkdown('[x](https://e.com)')
+    expect(html).toContain('target="_blank"')
+    expect(html).toMatch(/rel="[^"]*noopener[^"]*"/)
+    expect(html).toMatch(/rel="[^"]*noreferrer[^"]*"/)
+  })
+
+  it('does not add a new-tab target to in-app file-link anchors', () => {
+    // file-link anchors carry data-path and no href — they open the file in the
+    // deck via a click handler, so they must stay in the same window.
+    const html = renderMarkdown('see `apps/web/src/derive.ts` now')
+    expect(html).toContain('class="file-link"')
+    const fileAnchor = html.slice(html.indexOf('<a class="file-link'))
+    expect(fileAnchor.slice(0, fileAnchor.indexOf('>'))).not.toContain('target=')
+  })
 })
 
 describe('linkifyCodePaths', () => {

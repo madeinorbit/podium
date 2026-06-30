@@ -218,13 +218,20 @@ function MemoryPanel({ onClose }: { onClose: () => void }): JSX.Element {
       {!error && !data && (
         <div className="text-xs text-muted-foreground/70">Loading the per-process breakdown…</div>
       )}
-      {data && <BreakdownBody data={data} sessionLabel={sessionLabel} />}
-      <HibernationNote
-        hibernation={hibernation}
-        memPct={memPct}
-        idleSessionCount={sessions.filter((s) => s.status === 'hibernated').length}
-        onOpenSettings={openHibernationSettings}
-      />
+      {data && (
+        <BreakdownBody
+          data={data}
+          sessionLabel={sessionLabel}
+          hibernationNote={
+            <HibernationNote
+              hibernation={hibernation}
+              memPct={memPct}
+              idleSessionCount={sessions.filter((s) => s.status === 'hibernated').length}
+              onOpenSettings={openHibernationSettings}
+            />
+          }
+        />
+      )}
     </>
   )
 }
@@ -246,7 +253,7 @@ function HibernationNote({
   if (!hibernation) return null
   const active = memPct !== null && memPct >= hibernation.memoryPct
   return (
-    <div className="flex flex-col gap-1.5 border-t border-border px-3.5 py-3 text-xs text-muted-foreground">
+    <div className="flex flex-col gap-1.5 border-t border-border pt-3 text-xs text-muted-foreground">
       {hibernation.enabled ? (
         <p className="m-0">
           {active ? (
@@ -284,9 +291,11 @@ function HibernationNote({
 function BreakdownBody({
   data,
   sessionLabel,
+  hibernationNote,
 }: {
   data: Breakdown
   sessionLabel: (sessionId: string) => string
+  hibernationNote?: JSX.Element | null
 }): JSX.Element {
   const mem = hostMemoryView({
     hostname: data.hostname,
@@ -310,9 +319,10 @@ function BreakdownBody({
       </div>
       <div className="-mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-muted-foreground">
         <LegendSwatch className="bg-primary" label="Agents" />
-        <LegendSwatch className="bg-success" label="Projects" />
+        <LegendSwatch className="bg-success" label="Project processes" />
         <LegendSwatch className="bg-border" label="Other" />
       </div>
+      {hibernationNote}
       {!data.supported && (
         <div className="text-xs text-muted-foreground/70">
           This host can't attribute memory per process (no /proc) — totals only.

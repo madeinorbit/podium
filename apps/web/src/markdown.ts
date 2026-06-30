@@ -3,6 +3,19 @@ import { marked, type Tokens } from 'marked'
 
 marked.setOptions({ gfm: true, breaks: true })
 
+// External links in a transcript should open in a new tab — clicking one must
+// never navigate away from Podium. file-link anchors (internal file opens) carry
+// data-path and no href, so keying on href leaves them in-window. Runs on the
+// already-sanitized HTML, so any dangerous href scheme has been stripped first;
+// this only appends target/rel and never introduces markup.
+export function externalizeLinks(html: string): string {
+  return html.replace(/<a\b([^>]*)>/g, (full, attrs: string) => {
+    if (!/\bhref=/.test(attrs)) return full // internal file-link (no href)
+    if (/\btarget=/.test(attrs)) return full // already targeted
+    return `<a${attrs} target="_blank" rel="noopener noreferrer">`
+  })
+}
+
 function escapeHtml(s: string): string {
   return s
     .replace(/&/g, '&amp;')
@@ -62,5 +75,5 @@ export function linkifyCodePaths(html: string): string {
 
 /** Markdown → sanitized HTML. The single render path for all chat surfaces. */
 export function renderMarkdown(text: string): string {
-  return DOMPurify.sanitize(linkifyCodePaths(marked.parse(text, { async: false })))
+  return externalizeLinks(DOMPurify.sanitize(linkifyCodePaths(marked.parse(text, { async: false }))))
 }
