@@ -63,6 +63,31 @@ describe('SessionRegistry', () => {
     expect(reg.listSessions()).toMatchObject([{ sessionId, agentKind: 'shell', cwd: '/proj' }])
   })
 
+  it('restamps session cwd when the agent moves into a worktree (hook cwd change)', () => {
+    const reg = new SessionRegistry()
+    reg.attachDaemon('local', () => {})
+    const { sessionId } = reg.createSession({ agentKind: 'claude-code', cwd: '/repo' })
+    reg.onDaemonMessageFrom('local', {
+      type: 'sessionCwd',
+      sessionId,
+      cwd: '/repo/.worktrees/feat',
+    })
+    expect(reg.listSessions().find((s) => s.sessionId === sessionId)?.cwd).toBe(
+      '/repo/.worktrees/feat',
+    )
+  })
+
+  it('ignores a sessionCwd that is empty or unchanged', () => {
+    const reg = new SessionRegistry()
+    reg.attachDaemon('local', () => {})
+    const { sessionId } = reg.createSession({ agentKind: 'claude-code', cwd: '/repo' })
+    const cwdOf = () => reg.listSessions().find((s) => s.sessionId === sessionId)?.cwd
+    reg.onDaemonMessageFrom('local', { type: 'sessionCwd', sessionId, cwd: '' })
+    expect(cwdOf()).toBe('/repo')
+    reg.onDaemonMessageFrom('local', { type: 'sessionCwd', sessionId, cwd: '/repo' })
+    expect(cwdOf()).toBe('/repo')
+  })
+
   it('passes initialPrompt to the daemon spawn for argv-capable agents (claude/codex/grok)', () => {
     const reg = new SessionRegistry()
     const daemon: ControlMessage[] = []

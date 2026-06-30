@@ -664,6 +664,10 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
       hasMore: res.hasMore,
     })
   }
+  // Last cwd we forwarded per session, so an EnterWorktree/cd is reported once
+  // (not on every subsequent hook). The server also dedups against the session's
+  // current cwd; this just keeps the wire quiet.
+  const lastHookCwd = new Map<string, string>()
   const ingest = await startHookIngest({
     ...(opts.hooks?.port !== undefined ? { port: opts.hooks.port } : {}),
     onPayload: (sessionId, payload) => {
@@ -687,6 +691,14 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
           sessionId,
           resume: { kind: 'claude-session', value: harnessSessionId },
         })
+      }
+      // The agent's live working directory — follows EnterWorktree and `cd`. When
+      // it changes, tell the server so the sidebar re-groups the session under the
+      // worktree it moved into (the displayed cwd no longer sticks to launch).
+      const hookCwd = fields?.cwd
+      if (typeof hookCwd === 'string' && hookCwd && lastHookCwd.get(sessionId) !== hookCwd) {
+        lastHookCwd.set(sessionId, hookCwd)
+        send({ type: 'sessionCwd', sessionId, cwd: hookCwd })
       }
       void tracker.provider
         .translate(payload)
@@ -1032,6 +1044,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
       bridges.delete(sessionId)
       outputScheduler.remove(sessionId)
       trackers.delete(sessionId)
+      lastHookCwd.delete(sessionId)
       stopGrokStateObserver(sessionId)
       stopCodexStateObserver(sessionId)
       stopOpencodeStateObserver(sessionId)

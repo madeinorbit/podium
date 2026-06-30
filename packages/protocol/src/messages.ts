@@ -1017,6 +1017,17 @@ export const SessionResumeRefMessage = z.object({
   resume: ResumeRef,
 })
 
+// daemon -> server: the agent's live working directory changed (read from the
+// `cwd` every Claude hook payload carries — it follows EnterWorktree and plain
+// `cd`). The server restamps the session's cwd so the sidebar re-groups it under
+// the worktree it actually moved into, instead of pinning it to the launch dir.
+export const SessionCwdMessage = z.object({
+  type: z.literal('sessionCwd'),
+  sessionId: z.string(),
+  cwd: z.string(),
+})
+export type SessionCwdMessage = z.infer<typeof SessionCwdMessage>
+
 // Reply to a TranscriptReadRequest (daemon -> server): the requested page of
 // items plus the cursors that bound it. `head`/`tail` are the cursors of the
 // first/last item in `items` (omitted when the page is empty), and `hasMore`
@@ -1104,6 +1115,7 @@ export const DaemonMessage = z.discriminatedUnion('type', [
   AgentQuotaResultMessage,
   ImageUploadResultMessage,
   SessionResumeRefMessage,
+  SessionCwdMessage,
   BindMessage,
   AgentFrameMessage,
   AgentFrameBatchMessage,

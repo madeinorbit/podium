@@ -101,7 +101,10 @@ const SCREEN_RESET = /\x1b\[[23]J|\x1bc|\x1b\[\?1049[hl]/
 export class Session {
   readonly sessionId: string
   readonly agentKind: AgentKind
-  readonly cwd: string
+  // Mutable: an agent can move into a worktree mid-session (EnterWorktree / cd),
+  // reported via the hook payload's cwd; the relay restamps this so the sidebar
+  // re-groups the session under the directory it actually moved into.
+  cwd: string
   readonly origin: SessionOrigin
   readonly createdAt: string
   readonly durableLabel: string

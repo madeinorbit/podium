@@ -1897,6 +1897,20 @@ export class SessionRegistry {
         }
         break
       }
+      case 'sessionCwd': {
+        const session = this.sessions.get(msg.sessionId)
+        if (!session) break
+        // The agent moved into a new directory (EnterWorktree / cd). Restamp the
+        // session cwd so the sidebar re-groups it under the worktree it's now in,
+        // and persist + broadcast so the move survives a reload and reaches every
+        // connected client immediately. Ignore empty paths defensively.
+        if (msg.cwd && session.cwd !== msg.cwd) {
+          session.cwd = msg.cwd
+          this.persist(session)
+          this.broadcastSessions()
+        }
+        break
+      }
       case 'transcriptDelta': {
         const session = this.sessions.get(msg.sessionId)
         if (
