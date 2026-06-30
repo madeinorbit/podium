@@ -65,12 +65,17 @@ export function serverConfig(loc: Location): ServerConfig {
   return { wsClientUrl: `${wsProto}//${loc.host}/client`, httpOrigin: loc.origin, override: false }
 }
 
+/** Auth header the web client sends so the role gate (P3b) treats the operator's
+ *  browser as maintainer. Name MUST match the server's createContext header read. */
+export function issueAuthHeaders(): Record<string, string> {
+  const token = (globalThis as { __PODIUM_ISSUE_TOKEN__?: string }).__PODIUM_ISSUE_TOKEN__
+  return token ? { 'x-podium-issue-token': token } : {}
+}
+
 export function makeTrpc(httpOrigin: string): Trpc {
   // The server injects the maintainer token into index.html; present it so the P3b role
   // gate grants maintainer instead of falling back to read-only (see resolveRole).
-  const token = (globalThis as { __PODIUM_ISSUE_TOKEN__?: string }).__PODIUM_ISSUE_TOKEN__
-  const headers = (): Record<string, string> => (token ? { 'x-podium-issue-token': token } : {})
   return createTRPCClient<AppRouter>({
-    links: [httpBatchLink({ url: `${httpOrigin}/trpc`, headers })],
+    links: [httpBatchLink({ url: `${httpOrigin}/trpc`, headers: issueAuthHeaders })],
   })
 }
