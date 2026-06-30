@@ -57,7 +57,11 @@ export async function main(): Promise<void> {
   // `podium update`: self-update the headless bundle from the configured feed, then exit.
   if (argv[0] === 'update') {
     const { runUpdate } = await import('./podium-update')
-    await runUpdate(process.env.PODIUM_UPDATE_FEED ?? config.updateFeed ?? 'http://127.0.0.1:8789')
+    const channel = (process.env.PODIUM_UPDATE_CHANNEL ?? config.updateChannel ?? 'stable') as
+      | 'stable'
+      | 'edge'
+    const feedOverride = process.env.PODIUM_UPDATE_FEED ?? config.updateFeed
+    await runUpdate(feedOverride ? { channel, feedOverride } : { channel })
     return
   }
 

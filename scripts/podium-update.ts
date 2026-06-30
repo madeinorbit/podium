@@ -80,11 +80,36 @@ function currentVersion(dir: string): string {
   return existsSync(f) ? readFileSync(f, 'utf8').trim() : 'dev'
 }
 
-export async function runUpdate(feedBase: string): Promise<void> {
+const RELEASE_BASE = 'https://github.com/madeinorbit/podium/releases'
+
+/**
+ * Resolve the update manifest URL. With no `feedOverride`, this points at the channel's
+ * static GitHub Releases asset (`stable` → the `latest` release, `edge` → the rolling
+ * `edge` prerelease tag). A `feedOverride` keeps the LEGACY templated feed path
+ * (`<feed>/update/<target>/x86_64/<cur>`) so the local fixture feed + E2E updater script
+ * (which exercise the real download/verify/swap path) stay back-compatible.
+ */
+export function manifestUrlFor(
+  channel: 'stable' | 'edge',
+  ctx: { target: string; cur: string; feedOverride?: string },
+): string {
+  if (ctx.feedOverride) {
+    return `${ctx.feedOverride.replace(/\/$/, '')}/update/${ctx.target}/x86_64/${ctx.cur}`
+  }
+  return channel === 'stable'
+    ? `${RELEASE_BASE}/latest/download/podium-update.json`
+    : `${RELEASE_BASE}/download/edge/podium-update.json`
+}
+
+export async function runUpdate(
+  arg: string | { channel: 'stable' | 'edge'; feedOverride?: string },
+): Promise<void> {
+  const { channel, feedOverride } =
+    typeof arg === 'string' ? { channel: 'stable' as const, feedOverride: arg } : arg
   const dir = installDir()
   const cur = currentVersion(dir)
   const target = process.env.PODIUM_UPDATE_TARGET ?? 'linux-x86_64'
-  const manifestUrl = `${feedBase.replace(/\/$/, '')}/update/${target}/x86_64/${cur}`
+  const manifestUrl = manifestUrlFor(channel, { target, cur, feedOverride })
   const res = await fetch(manifestUrl)
   if (!res.ok) {
     console.error(`[podium update] feed returned ${res.status}`)

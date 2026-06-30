@@ -6,7 +6,7 @@ import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { isNewer, parseManifest, runUpdate, verifyTarball } from './podium-update'
+import { isNewer, manifestUrlFor, parseManifest, runUpdate, verifyTarball } from './podium-update'
 import { PODIUM_UPDATE_PUBKEY } from './podium-update-pubkey'
 
 describe('podium update helpers', () => {
@@ -218,5 +218,23 @@ describe('podium update swap crash-safety', () => {
     await expect(runUpdate(feed)).rejects.toThrow(/artifact download returned 404/)
     expect(readFileSync(join(dir, 'VERSION'), 'utf8').trim()).toBe('0.1.0')
     expect(existsSync(`${dir}.old`)).toBe(false)
+  })
+})
+
+describe('manifestUrlFor', () => {
+  it('stable → latest/download static manifest on GitHub', () => {
+    expect(manifestUrlFor('stable', { target: 'linux-x86_64', cur: '0.1.0' })).toBe(
+      'https://github.com/madeinorbit/podium/releases/latest/download/podium-update.json',
+    )
+  })
+  it('edge → the rolling edge prerelease manifest', () => {
+    expect(manifestUrlFor('edge', { target: 'linux-x86_64', cur: '0.1.0' })).toBe(
+      'https://github.com/madeinorbit/podium/releases/download/edge/podium-update.json',
+    )
+  })
+  it('a feedOverride preserves the legacy templated path (for the fixture feed)', () => {
+    expect(
+      manifestUrlFor('stable', { target: 'linux-x86_64', cur: '0.1.0', feedOverride: 'http://127.0.0.1:8789' }),
+    ).toBe('http://127.0.0.1:8789/update/linux-x86_64/x86_64/0.1.0')
   })
 })
