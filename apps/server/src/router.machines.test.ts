@@ -14,7 +14,7 @@ function machineCaller() {
   registry.attachDaemon('local', () => {})
   const repos = new RepoRegistry(registry, registry.sessionStore)
   const superagent = new SuperagentService(registry, repos, registry.sessionStore)
-  return { registry, call: appRouter.createCaller({ registry, repos, superagent }) }
+  return { registry, call: appRouter.createCaller({ registry, repos, superagent, role: 'maintainer' }) }
 }
 
 describe('machines router', () => {
@@ -67,7 +67,7 @@ describe('sessions.create with machineId', () => {
     registry.attachDaemon('m2', () => {})
     const repos = new RepoRegistry(registry, registry.sessionStore)
     const superagent = new SuperagentService(registry, repos, registry.sessionStore)
-    const call = appRouter.createCaller({ registry, repos, superagent })
+    const call = appRouter.createCaller({ registry, repos, superagent, role: 'maintainer' })
 
     const { sessionId } = await call.sessions.create({
       agentKind: 'claude-code',
@@ -87,7 +87,7 @@ describe('sessions.create with machineId', () => {
     registry.attachDaemon('local', () => {})
     const repos = new RepoRegistry(registry, registry.sessionStore)
     const superagent = new SuperagentService(registry, repos, registry.sessionStore)
-    const call = appRouter.createCaller({ registry, repos, superagent })
+    const call = appRouter.createCaller({ registry, repos, superagent, role: 'maintainer' })
 
     const { sessionId } = await call.sessions.create({
       agentKind: 'claude-code',

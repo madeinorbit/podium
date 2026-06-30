@@ -53,6 +53,11 @@ export class IssueService {
     for (const r of this.deps.store.listIssueRows()) this.rows.set(r.id, r)
   }
 
+  /** Worktree paths of all issues (for cwd-based worker-role resolution). */
+  worktreePaths(): string[] {
+    return [...this.rows.values()].map((r) => r.worktreePath).filter((p): p is string => !!p)
+  }
+
   private now(): string {
     return this.deps.now ? this.deps.now() : new Date().toISOString()
   }

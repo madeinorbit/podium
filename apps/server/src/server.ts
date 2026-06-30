@@ -11,7 +11,8 @@ import { cors } from 'hono/cors'
 import { registerAssetRoute } from './file-asset-route'
 import { makeIssueClient } from './issue-client'
 import { CompositeMcpProvider, IssueToolProvider } from './issue-mcp'
-import { readOrCreateDaemonSecret } from './local-machine'
+import { resolveRole } from './issue-roles'
+import { readOrCreateDaemonSecret, readOrCreateMaintainerToken } from './local-machine'
 import { registerMcpRoute } from './mcp-route'
 import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
@@ -53,6 +54,10 @@ export async function startServer(opts: { port?: number } = {}): Promise<ServerH
   // and presents it as its `hello` token — so the local daemon authenticates with no
   // pairing step and no per-boot token race.
   const bootstrapToken = readOrCreateDaemonSecret()
+  // The issue-tracker maintainer capability token (0600 in the state dir). A local
+  // operator who can read this file presents it as `x-podium-issue-token` to act as
+  // maintainer; agents that can't read it fall back to worker/reader (see resolveRole).
+  const maintainerToken = readOrCreateMaintainerToken()
   // Provision the local machine NOW, at startup: register it with the server-owned
   // credential (sha256 of the shared secret) and adopt any pre-existing `'__local__'`
   // rows onto it — so a single-machine install's sessions/repos are attributed and
@@ -82,7 +87,21 @@ export async function startServer(opts: { port?: number } = {}): Promise<ServerH
   app.use('/trpc/*', cors())
   app.use(
     '/trpc/*',
-    trpcServer({ router: appRouter, createContext: () => ({ registry, repos, superagent }) }),
+    trpcServer({
+      router: appRouter,
+      // `c` is the Hono context (2nd arg in @hono/trpc-server v0.3.4). Resolve the
+      // caller's issue-tracker role from the credential headers: maintainer iff the
+      // token matches, worker iff the cwd is inside a live issue worktree, else reader.
+      createContext: (_opts, c) => ({
+        registry,
+        repos,
+        superagent,
+        role: resolveRole(
+          { token: c.req.header('x-podium-issue-token'), cwd: c.req.header('x-podium-issue-cwd') },
+          { maintainerToken, issueWorktrees: registry.issues.worktreePaths() },
+        ),
+      }),
+    }),
   )
 
   // Serve the built web UI for external clients (browser/phone/other desktop). The
