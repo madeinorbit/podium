@@ -63,4 +63,16 @@ describe('setup tRPC', () => {
   it('join rejects a malformed code', async () => {
     await expect(caller().setup.join({ code: 'garbage!' })).rejects.toThrow()
   })
+  it('connect persists client mode + server URL', async () => {
+    await caller().setup.connect({ mode: 'client', serverUrl: 'ws://host:18787' })
+    expect(loadConfig().mode).toBe('client')
+    expect(loadConfig().serverUrl).toBe('ws://host:18787')
+  })
+  it('connect persists server-only mode', async () => {
+    await caller().setup.connect({ mode: 'server' })
+    expect(loadConfig().mode).toBe('server')
+  })
+  it('connect rejects client mode without a server URL', async () => {
+    await expect(caller().setup.connect({ mode: 'client' })).rejects.toThrow()
+  })
 })

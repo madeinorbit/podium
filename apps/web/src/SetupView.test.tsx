@@ -8,6 +8,7 @@ const trpcMock = vi.hoisted(() => ({
   commandFor: vi.fn(),
   complete: vi.fn(),
   join: vi.fn(),
+  connect: vi.fn(),
 }))
 
 vi.mock('./trpc', async (importOriginal) => {
@@ -20,6 +21,7 @@ vi.mock('./trpc', async (importOriginal) => {
         commandFor: { query: trpcMock.commandFor },
         complete: { mutate: trpcMock.complete },
         join: { mutate: trpcMock.join },
+        connect: { mutate: trpcMock.connect },
       },
     }),
   }
@@ -147,5 +149,36 @@ describe('SetupView', () => {
     fireEvent.click(view.getByRole('radio', { name: /client → external server/i }))
     expect(view.getByLabelText(/server url/i)).toBeTruthy()
     expect(view.queryByLabelText(/join code/i)).toBeNull()
+  })
+
+  it('client mode applies via setup.connect (not the legacy POST)', async () => {
+    const onSaved = vi.fn()
+    const { container } = render(
+      <SetupView httpOrigin="http://localhost:18787" onSaved={onSaved} />,
+    )
+    const view = within(container)
+    fireEvent.click(view.getByRole('radio', { name: /client → external server/i }))
+    fireEvent.change(view.getByLabelText(/server url/i), { target: { value: 'ws://host:18787' } })
+    await act(async () => {
+      fireEvent.click(view.getByRole('button', { name: /save/i }))
+      await flush()
+    })
+    expect(trpcMock.connect).toHaveBeenCalledWith({ mode: 'client', serverUrl: 'ws://host:18787' })
+    expect(onSaved).toHaveBeenCalled()
+  })
+
+  it('server-only mode applies via setup.connect', async () => {
+    const onSaved = vi.fn()
+    const { container } = render(
+      <SetupView httpOrigin="http://localhost:18787" onSaved={onSaved} />,
+    )
+    const view = within(container)
+    fireEvent.click(view.getByRole('radio', { name: /server only/i }))
+    await act(async () => {
+      fireEvent.click(view.getByRole('button', { name: /save/i }))
+      await flush()
+    })
+    expect(trpcMock.connect).toHaveBeenCalledWith({ mode: 'server' })
+    expect(onSaved).toHaveBeenCalled()
   })
 })

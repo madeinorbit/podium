@@ -2,6 +2,7 @@ import { PodiumSettings } from '@podium/core'
 import { loadConfig } from '@podium/core/config'
 import {
   applyJoin,
+  applyMode,
   applySetup,
   NETWORK_OPTIONS,
   networkOptionCommand,
@@ -403,6 +404,22 @@ export const appRouter = t.router({
         throw new TRPCError({ code: 'BAD_REQUEST', message: (e as Error).message })
       }
     }),
+    // Modes with no reachability flow: all-in-one ("skip"), client (remote URL), server-only.
+    // Replaces the legacy POST /setup/config — one tRPC surface for every setup write.
+    connect: t.procedure
+      .input(
+        z.object({
+          mode: z.enum(['all-in-one', 'client', 'server']),
+          serverUrl: z.string().optional(),
+        }),
+      )
+      .mutation(({ input }) => {
+        try {
+          return applyMode(input)
+        } catch (e) {
+          throw new TRPCError({ code: 'BAD_REQUEST', message: (e as Error).message })
+        }
+      }),
   }),
   // Manage the human-client login password on an already-configured instance. These run
   // under the same /trpc guard, so once a password is set you must be logged in to reach

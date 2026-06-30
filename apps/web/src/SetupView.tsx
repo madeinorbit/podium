@@ -63,17 +63,10 @@ export function SetupView({
       if (m === 'daemon') {
         // One pasted join code → daemon config, via the same core applyJoin the CLI uses.
         await trpc.setup.join.mutate({ code: joinCode.trim() })
-        onSaved()
-        return
+      } else {
+        // all-in-one ("skip reachability"), client (remote URL), server-only.
+        await trpc.setup.connect.mutate({ mode: m, ...(m === 'client' ? { serverUrl } : {}) })
       }
-      // client/server (and the all-in-one "skip reachability" path) → mode config POST.
-      const body = m === 'client' ? { mode: m, serverUrl } : { mode: m }
-      const res = await fetch(`${httpOrigin}/setup/config`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(body),
-      })
-      if (!res.ok) throw new Error(`setup failed (${res.status})`)
       onSaved()
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))

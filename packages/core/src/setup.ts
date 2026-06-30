@@ -84,3 +84,26 @@ export function applyJoin(token: string): { name: string } {
   saveConfig({ mode: 'daemon', serverUrl: p.serverUrl, pairCode: p.pairCode })
   return { name: p.name ?? 'this machine' }
 }
+
+/**
+ * Set a deployment mode that needs no reachability flow: all-in-one without a public URL
+ * ("skip"), client (connect to a remote server), or server-only. Shared by the web setup's
+ * `setup.connect` tRPC (daemon uses applyJoin; all-in-one with reachability uses applySetup).
+ * Client mode requires a server URL.
+ */
+export function applyMode(input: {
+  mode: 'all-in-one' | 'client' | 'server'
+  serverUrl?: string
+}): PodiumConfig {
+  const serverUrl = input.serverUrl?.trim()
+  if (input.mode === 'client' && !serverUrl) {
+    throw new Error('client mode needs a server URL')
+  }
+  const cfg: PodiumConfig = {
+    ...loadConfig(),
+    mode: input.mode,
+    ...(serverUrl ? { serverUrl } : {}),
+  }
+  saveConfig(cfg)
+  return cfg
+}

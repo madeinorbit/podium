@@ -26,32 +26,12 @@ describe('setup route', () => {
     expect(body.needsSetup).toBe(true)
     expect(body.config).toEqual({})
   })
-  it('POST a valid config persists it and clears needsSetup', async () => {
-    const post = await app.request('/setup/config', {
+  it('is read-only — writes go through the setup.* tRPC, so POST is not handled', async () => {
+    const res = await app.request('/setup/config', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ mode: 'daemon', serverUrl: 'ws://host:18787' }),
     })
-    expect(post.status).toBe(200)
-    const get = await app.request('/setup/config')
-    const body = (await get.json()) as { needsSetup: boolean; config: { mode: string } }
-    expect(body.needsSetup).toBe(false)
-    expect(body.config.mode).toBe('daemon')
-  })
-  it('POST an invalid mode is rejected with 400', async () => {
-    const res = await app.request('/setup/config', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ mode: 'bogus' }),
-    })
-    expect(res.status).toBe(400)
-  })
-  it('POST invalid JSON is rejected with 400', async () => {
-    const res = await app.request('/setup/config', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: '{not json',
-    })
-    expect(res.status).toBe(400)
+    expect(res.status).toBe(404)
   })
 })

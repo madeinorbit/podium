@@ -92,15 +92,14 @@ export async function startServer(
   // The setup UI fetches /setup/config from the desktop webview, whose origin (tauri://localhost)
   // differs from the local server — same cross-origin case as /trpc. Without CORS the fetch is
   // blocked and SetupGate's catch() silently skips onboarding. Must precede the route handler.
-  // Gate the human-client data plane (/trpc, /files) and the mutating setup POST behind
-  // the login session whenever a password is configured; open otherwise (loopback /
-  // all-in-one, or the user opted out). The static SPA shell, /auth/*, GET /setup/config,
-  // /health and /version stay open so the login screen can load. The /daemon link and
-  // /mcp keep their own credentials. Guards are registered BEFORE their handlers so Hono
-  // runs them first.
+  // Gate the human-client data plane (/trpc, /files) behind the login session whenever a
+  // password is configured; open otherwise (loopback / all-in-one, or the user opted out).
+  // The static SPA shell, /auth/*, GET /setup/config, /health and /version stay open so the
+  // login screen can load. Setup WRITES live under /trpc (setup.*), so they're covered by the
+  // /trpc guard below. The /daemon link and /mcp keep their own credentials. Guards are
+  // registered BEFORE their handlers so Hono runs them first.
   const guard = clientAuthGuard({ store })
   app.use('/setup/*', cors())
-  app.on('POST', '/setup/config', guard)
   registerSetupRoute(app)
   // Human-client login (web/desktop UI). Same cross-origin reason as /setup: the desktop
   // webview's origin differs from the server in the all-in-one case. Login itself is

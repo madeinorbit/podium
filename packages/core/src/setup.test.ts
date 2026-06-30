@@ -4,7 +4,14 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { loadConfig } from './config'
 import { encodeJoin } from './join'
-import { applyJoin, applySetup, networkOptionCommand, validatePublicUrl, wssFrom } from './setup'
+import {
+  applyJoin,
+  applyMode,
+  applySetup,
+  networkOptionCommand,
+  validatePublicUrl,
+  wssFrom,
+} from './setup'
 
 describe('setup core', () => {
   let dir: string
@@ -50,5 +57,18 @@ describe('setup core', () => {
   })
   it('applyJoin throws on a malformed token', () => {
     expect(() => applyJoin('garbage!')).toThrow()
+  })
+  it('applyMode persists client mode + server URL', () => {
+    applyMode({ mode: 'client', serverUrl: 'ws://host:18787' })
+    expect(loadConfig().mode).toBe('client')
+    expect(loadConfig().serverUrl).toBe('ws://host:18787')
+  })
+  it('applyMode persists server mode (no URL needed)', () => {
+    applyMode({ mode: 'server' })
+    expect(loadConfig().mode).toBe('server')
+  })
+  it('applyMode requires a server URL for client mode', () => {
+    expect(() => applyMode({ mode: 'client' })).toThrow()
+    expect(loadConfig().mode).toBeUndefined()
   })
 })
