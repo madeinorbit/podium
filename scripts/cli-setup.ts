@@ -1,11 +1,30 @@
 import { setPassword as realSetPassword } from '../apps/server/src/auth-store'
-import { loadConfig } from '../packages/core/src/config'
+import { loadConfig, type PodiumMode } from '../packages/core/src/config'
 import {
   applySetup,
   NETWORK_OPTIONS,
   networkOptionCommand,
   validatePublicUrl,
 } from '../packages/core/src/setup'
+
+/**
+ * Whether `podium setup` / `--reconfigure` should launch the interactive terminal flow.
+ *
+ * That flow configures a RELAY-HOSTING instance (reachability URL + login password), so it
+ * runs for all-in-one and server installs (and any first-run), but:
+ *  - never without a TTY — headless/systemd/piped invocations would hang on prompts; and
+ *  - never for client/daemon installs — those don't host a relay and their password lives on
+ *    the remote server they join, so they configure via `podium join-config <TOKEN>` instead.
+ */
+export function shouldRunCliSetup(opts: {
+  forceSetup: boolean
+  isTTY: boolean
+  needsSetup: boolean
+  mode: PodiumMode
+}): boolean {
+  if (!opts.forceSetup || !opts.isTTY) return false
+  return opts.needsSetup || opts.mode === 'all-in-one' || opts.mode === 'server'
+}
 
 export interface SetupIO {
   prompt(q: string): Promise<string>

@@ -4,7 +4,33 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { loadConfig } from '../packages/core/src/config'
 import { applySetup } from '../packages/core/src/setup'
-import { runCliSetup } from './cli-setup'
+import { runCliSetup, shouldRunCliSetup } from './cli-setup'
+
+describe('shouldRunCliSetup (when does `podium setup` launch the terminal flow)', () => {
+  const base = { forceSetup: true, isTTY: true, needsSetup: false, mode: 'all-in-one' as const }
+
+  it('requires an explicit `podium setup` / --reconfigure', () => {
+    expect(shouldRunCliSetup({ ...base, forceSetup: false })).toBe(false)
+  })
+
+  it('never runs the interactive flow without a TTY (headless/systemd/piped)', () => {
+    expect(shouldRunCliSetup({ ...base, isTTY: false })).toBe(false)
+  })
+
+  it('always runs on first-run (needsSetup), whatever the mode', () => {
+    expect(shouldRunCliSetup({ ...base, needsSetup: true, mode: 'client' })).toBe(true)
+  })
+
+  it('runs for relay-hosting modes even when already configured', () => {
+    expect(shouldRunCliSetup({ ...base, mode: 'all-in-one' })).toBe(true)
+    expect(shouldRunCliSetup({ ...base, mode: 'server' })).toBe(true)
+  })
+
+  it('does NOT run for client/daemon installs (they configure via join-config)', () => {
+    expect(shouldRunCliSetup({ ...base, mode: 'client' })).toBe(false)
+    expect(shouldRunCliSetup({ ...base, mode: 'daemon' })).toBe(false)
+  })
+})
 
 describe('runCliSetup', () => {
   let dir: string

@@ -84,16 +84,23 @@ export async function main(): Promise<void> {
     return
   }
 
-  // Escape hatch: `podium setup` (or --reconfigure) force-serves the setup UI
-  // regardless of the saved mode, so a client/daemon install can be reconfigured.
+  // `podium setup` (or --reconfigure) re-enters the interactive flow. When the instance is
+  // already configured the flow offers a step menu (reachability / password), so re-running
+  // it is non-destructive — hence it's allowed for any relay-hosting install, not just on
+  // first run. See shouldRunCliSetup for the exact gate (TTY-only; not for client/daemon).
   const forceSetup = argv.includes('setup') || argv.includes('--reconfigure')
   const plan = resolvePlan(argv, config)
   const port = Number(process.env.PODIUM_PORT) || config.port || 18787
 
-  // On a TTY, `podium setup`/`--reconfigure` runs the terminal flow (the headless-VPS
-  // counterpart to the web networking step); otherwise we fall through to serving the web URL.
-  if (forceSetup && process.stdin.isTTY && (needsSetup(config) || plan.mode === 'all-in-one')) {
-    const { runCliSetup } = await import('./cli-setup')
+  const { runCliSetup, shouldRunCliSetup } = await import('./cli-setup')
+  if (
+    shouldRunCliSetup({
+      forceSetup,
+      isTTY: Boolean(process.stdin.isTTY),
+      needsSetup: needsSetup(config),
+      mode: plan.mode,
+    })
+  ) {
     const { createInterface } = await import('node:readline/promises')
     const rl = createInterface({ input: process.stdin, output: process.stdout })
     await runCliSetup({ prompt: (q) => rl.question(q), print: (s) => console.log(s) }, port)
@@ -102,7 +109,9 @@ export async function main(): Promise<void> {
   }
 
   if (!forceSetup && plan.mode === 'client') {
-    console.log(`podium client mode — open the web UI pointed at ${plan.serverUrl ?? '(no serverUrl configured)'}`)
+    console.log(
+      `podium client mode — open the web UI pointed at ${plan.serverUrl ?? '(no serverUrl configured)'}`,
+    )
     console.log('(run `podium setup` to reconfigure this install)')
     return
   }
