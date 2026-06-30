@@ -86,3 +86,40 @@ test('real codex: chat send submits and starts a turn', async ({ page }) => {
   await sendChat(page, 'Compute 314 + 159 and reply with only the number, nothing else.')
   await nativeHasAnswer(page, '473', 180_000)
 })
+
+test('real codex: resume-and-send waits for the resumed TUI before delivering (#5b)', async ({
+  page,
+}) => {
+  test.setTimeout(360_000)
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await openApp(page)
+  await newSession(page, 'Codex')
+  await expect
+    .poll(async () => (await podium.screen(page)).replace(/\s/g, '').length, {
+      timeout: 120_000,
+      intervals: [2000],
+    })
+    .toBeGreaterThan(40)
+  await page.waitForTimeout(5000)
+  await page.locator('button[aria-label="Chat view"]').click()
+  await expect(page.getByPlaceholder('Message the agent…')).toBeVisible({ timeout: 30_000 })
+
+  // A first turn establishes codex's rollout thread → the session becomes resumable
+  // (and idle), so it can be hibernated. 61+12=73.
+  await sendChat(page, 'Compute 61 + 12 and reply with only the number, nothing else.')
+  await nativeHasAnswer(page, '73', 180_000)
+
+  // Hibernate the (idle, resumable) session — the process goes away, transcript stays.
+  const hibernate = page.locator('button[title^="Hibernate"]:not([disabled])')
+  await hibernate.click({ timeout: 90_000 })
+  await expect(page.getByPlaceholder(/resumes the agent/i)).toBeVisible({ timeout: 30_000 })
+
+  // Send a message in the read-only/parked state → resumeAndSend: it must resurrect
+  // codex AND wait for its TUI to finish loading before typing, or the message is
+  // lost into a half-built UI. 27+15=42 (absent from the prompt).
+  const ta = page.getByPlaceholder(/resumes the agent/i)
+  await ta.click()
+  await ta.fill('Compute 27 + 15 and reply with only the number, nothing else.')
+  await ta.press('Control+Enter')
+  await nativeHasAnswer(page, '42', 180_000)
+})
