@@ -84,23 +84,16 @@ export async function main(): Promise<void> {
     return
   }
 
-  // `podium setup` (or --reconfigure) re-enters the interactive flow. When the instance is
-  // already configured the flow offers a step menu (reachability / password), so re-running
-  // it is non-destructive — hence it's allowed for any relay-hosting install, not just on
-  // first run. See shouldRunCliSetup for the exact gate (TTY-only; not for client/daemon).
+  // `podium setup` (or --reconfigure) re-enters the interactive flow: a mode-first menu that
+  // can switch this box into all-in-one / server / daemon and edit the URL/password. It's the
+  // interactive command, so the only gate is a TTY (headless falls through to serving the web
+  // UI). Runs for any current mode — switching mode after the fact is the whole point.
   const forceSetup = argv.includes('setup') || argv.includes('--reconfigure')
   const plan = resolvePlan(argv, config)
   const port = Number(process.env.PODIUM_PORT) || config.port || 18787
 
   const { runCliSetup, shouldRunCliSetup } = await import('./cli-setup')
-  if (
-    shouldRunCliSetup({
-      forceSetup,
-      isTTY: Boolean(process.stdin.isTTY),
-      needsSetup: needsSetup(config),
-      mode: plan.mode,
-    })
-  ) {
+  if (shouldRunCliSetup({ forceSetup, isTTY: Boolean(process.stdin.isTTY) })) {
     const { createInterface } = await import('node:readline/promises')
     const rl = createInterface({ input: process.stdin, output: process.stdout })
     await runCliSetup({ prompt: (q) => rl.question(q), print: (s) => console.log(s) }, port)

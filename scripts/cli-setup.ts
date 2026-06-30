@@ -1,30 +1,11 @@
 import { setPassword as realSetPassword } from '../apps/server/src/auth-store'
-import { loadConfig, type PodiumMode } from '../packages/core/src/config'
+import { loadConfig, saveConfig } from '../packages/core/src/config'
 import {
-  applySetup,
   NETWORK_OPTIONS,
   networkOptionCommand,
   validatePublicUrl,
 } from '../packages/core/src/setup'
-
-/**
- * Whether `podium setup` / `--reconfigure` should launch the interactive terminal flow.
- *
- * That flow configures a RELAY-HOSTING instance (reachability URL + login password), so it
- * runs for all-in-one and server installs (and any first-run), but:
- *  - never without a TTY — headless/systemd/piped invocations would hang on prompts; and
- *  - never for client/daemon installs — those don't host a relay and their password lives on
- *    the remote server they join, so they configure via `podium join-config <TOKEN>` instead.
- */
-export function shouldRunCliSetup(opts: {
-  forceSetup: boolean
-  isTTY: boolean
-  needsSetup: boolean
-  mode: PodiumMode
-}): boolean {
-  if (!opts.forceSetup || !opts.isTTY) return false
-  return opts.needsSetup || opts.mode === 'all-in-one' || opts.mode === 'server'
-}
+import { applyJoinToken } from './cli-join'
 
 export interface SetupIO {
   prompt(q: string): Promise<string>
@@ -36,9 +17,21 @@ export interface SetupDeps {
   setPassword?: (password: string) => Promise<void>
 }
 
-/** Reachability step: pick how to expose the relay, run the command, paste the URL.
- *  Returns true once a valid URL was saved. */
-async function reachabilityStep(io: SetupIO, port: number): Promise<boolean> {
+/**
+ * Whether `podium setup` / `--reconfigure` should launch the interactive terminal flow.
+ * It's THE interactive command (nothing invokes it headless), so the only guard is a TTY:
+ * without a terminal the prompts would hang, so we fall through to serving the web UI. The
+ * menu lets you switch into ANY mode, so it's offered regardless of the current mode.
+ */
+export function shouldRunCliSetup(opts: { forceSetup: boolean; isTTY: boolean }): boolean {
+  return opts.forceSetup && opts.isTTY
+}
+
+type HostMode = 'all-in-one' | 'server'
+
+/** Reachability step: pick how to expose the relay, run the command, paste the URL; save it
+ *  under the chosen host mode. Returns true once a valid URL was saved. */
+async function reachabilityStep(io: SetupIO, port: number, mode: HostMode): Promise<boolean> {
   io.print('Make this instance reachable (encrypted, no domain needed):')
   NETWORK_OPTIONS.forEach((o, i) => {
     io.print(`  ${i + 1}) ${o.label} — ${o.note}`)
@@ -56,7 +49,7 @@ async function reachabilityStep(io: SetupIO, port: number): Promise<boolean> {
     const pasted = await io.prompt('\nPaste the resulting URL: ')
     const v = validatePublicUrl(pasted)
     if (v.ok) {
-      applySetup({ publicUrl: v.normalized })
+      saveConfig({ ...loadConfig(), mode, publicUrl: v.normalized })
       io.print(`\nSaved. This instance is reachable at ${v.normalized}. Restart podium to apply.`)
       return true
     }
@@ -82,22 +75,72 @@ async function passwordStep(
   }
 }
 
+/** Choose a host mode → set its URL, then its password. */
+async function hostStep(
+  io: SetupIO,
+  port: number,
+  mode: HostMode,
+  setPassword: (password: string) => Promise<void>,
+): Promise<void> {
+  if (await reachabilityStep(io, port, mode)) await passwordStep(io, setPassword)
+}
+
+/** Daemon mode: paste the one-line join code (it carries the server URL + pairing code). */
+async function joinStep(io: SetupIO): Promise<void> {
+  io.print('\nPaste the join code from the server (its Machines → Add machine screen).')
+  const MAX_ATTEMPTS = 5
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+    const token = ((await io.prompt('Join code (blank to cancel): ')) ?? '').trim()
+    if (!token) {
+      io.print('Cancelled.')
+      return
+    }
+    try {
+      const { name } = applyJoinToken(token)
+      io.print(`\nJoined as "${name}". Restart podium to apply.`)
+      return
+    } catch (e) {
+      io.print(`  ${(e as Error).message}`)
+    }
+  }
+  io.print('\nNo valid join code after several attempts — giving up.')
+}
+
+/**
+ * `podium setup` — the terminal counterpart to the web setup screen. A mode-first menu:
+ * host a server here (all-in-one), host the relay only (server), or join a server as a
+ * worker (daemon, paste a join code). It runs the same first-run and as a reconfigure, so
+ * you can switch mode after the fact; when this box already hosts a server it also offers
+ * quick edits (change the URL / change the password) without re-walking the whole flow.
+ * (`client` mode isn't here — it's a desktop-app convenience; on a server box you just
+ * open the URL in a browser.)
+ */
 export async function runCliSetup(io: SetupIO, port: number, deps: SetupDeps = {}): Promise<void> {
   const setPassword = deps.setPassword ?? realSetPassword
+  const mode = loadConfig().mode
+  const hostsServer = mode === 'all-in-one' || mode === 'server'
 
-  // Already set up once → don't re-walk the whole flow; jump straight to the step the
-  // user wants to change. First run falls through to the full walk below.
-  if (loadConfig().publicUrl) {
-    io.print('Setup is already configured. What do you want to change?')
-    io.print('  1) Reachability / public URL')
-    io.print('  2) Login password')
-    const choice = ((await io.prompt('Choose 1-2 (blank to cancel): ')) ?? '').trim()
-    if (choice === '1') await reachabilityStep(io, port)
-    else if (choice === '2') await passwordStep(io, setPassword)
-    else io.print('Nothing changed.')
-    return
+  io.print('What should this machine do?')
+  io.print('  1) Host a server here (all-in-one)')
+  io.print('  2) Host the relay only (server)')
+  io.print('  3) Join a server as a worker (daemon) — paste a join code')
+  if (hostsServer) {
+    io.print('  4) Change the reachable URL')
+    io.print('  5) Change or disable the login password')
   }
+  const choice = ((await io.prompt('Choose (blank to cancel): ')) ?? '').trim()
 
-  // First run: reachability, then (only if that succeeded) the password.
-  if (await reachabilityStep(io, port)) await passwordStep(io, setPassword)
+  if (choice === '1') {
+    await hostStep(io, port, 'all-in-one', setPassword)
+  } else if (choice === '2') {
+    await hostStep(io, port, 'server', setPassword)
+  } else if (choice === '3') {
+    await joinStep(io)
+  } else if (choice === '4' && hostsServer) {
+    await reachabilityStep(io, port, mode === 'server' ? 'server' : 'all-in-one')
+  } else if (choice === '5' && hostsServer) {
+    await passwordStep(io, setPassword)
+  } else {
+    io.print('Nothing changed.')
+  }
 }
