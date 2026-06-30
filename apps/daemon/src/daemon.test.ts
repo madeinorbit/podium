@@ -225,6 +225,32 @@ describe('daemon multi-bridge', () => {
     expect([...sids].sort()).toEqual(['s1', 's2'])
   })
 
+  it('forwards a changed cwd from the hook payload as sessionCwd (de-duped)', async () => {
+    send({ type: 'spawn', sessionId: 's1', agentKind: 'claude-code', cwd: '/tmp', geometry: G })
+    await waitFor(() => received.some((m) => m.type === 'bind' && m.sessionId === 's1'))
+
+    // Every Claude hook carries cwd; it follows EnterWorktree / cd. Simulate the
+    // agent moving into a worktree by POSTing a hook with the new cwd.
+    const post = (cwd: string): Promise<unknown> =>
+      fetch(`http://127.0.0.1:${daemon.hookPort}/hooks/s1`, {
+        method: 'POST',
+        body: JSON.stringify({ hook_event_name: 'PostToolUse', cwd }),
+      })
+    await post('/repo/.worktrees/feat')
+    await waitFor(() =>
+      received.some(
+        (m) => m.type === 'sessionCwd' && m.sessionId === 's1' && m.cwd === '/repo/.worktrees/feat',
+      ),
+    )
+
+    // A second hook with the SAME cwd forwards nothing further (daemon de-dup).
+    const count = (): number => received.filter((m) => m.type === 'sessionCwd').length
+    const before = count()
+    await post('/repo/.worktrees/feat')
+    await new Promise((r) => setTimeout(r, 100))
+    expect(count()).toBe(before)
+  })
+
   it('routes resize to the right bridge; kill stops only the targeted one', async () => {
     send({ type: 'spawn', sessionId: 's1', agentKind: 'claude-code', cwd: '/tmp', geometry: G })
     send({ type: 'spawn', sessionId: 's2', agentKind: 'claude-code', cwd: '/tmp', geometry: G })
