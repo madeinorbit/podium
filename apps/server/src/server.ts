@@ -103,7 +103,11 @@ export async function startServer(opts: { port?: number } = {}): Promise<ServerH
     const server = serve({ fetch: app.fetch, port: opts.port ?? 0 }, (info) => {
       // The harness agent runs on the same host (single-machine), so loopback
       // reaches this MCP route. Now that the port is known, point it there.
-      superagent.setMcpEndpoint(`http://127.0.0.1:${info.port}/mcp`, mcpToken)
+      superagent.setMcpEndpoint(
+        `http://127.0.0.1:${info.port}/mcp`,
+        mcpToken,
+        mcpProvider.mcpToolSpecs().map((s) => s.name),
+      )
       issueTools.setClient(makeIssueClient(`http://127.0.0.1:${info.port}`))
       const ws = attachWebSockets(server as unknown as Server, registry)
       if (process.env.PODIUM_LOOP_PROFILE) startLoopMetrics({ label: 'server' })

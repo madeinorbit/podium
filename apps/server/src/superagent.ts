@@ -15,6 +15,19 @@ export const MCP_TOKEN_HEADER = 'x-podium-mcp-token'
  *  permission prompt (alongside the Podium MCP tools). */
 const HARNESS_BUILTIN_ALLOWED = ['Read', 'Grep', 'Glob']
 
+/** The harness agent's `--allowedTools` belt: the read-only builtins plus every
+ *  Podium MCP tool. Prefer the full composite tool set (superagent ⊕ issue) the
+ *  server advertised; fall back to the superagent's own tools when unknown. */
+export function harnessAllowedTools(
+  allToolNames: string[] | undefined,
+  ownToolNames: string[],
+): string[] {
+  return [
+    ...HARNESS_BUILTIN_ALLOWED,
+    ...(allToolNames ?? ownToolNames).map((name) => `mcp__${MCP_SERVER_NAME}__${name}`),
+  ]
+}
+
 /**
  * Make a windowed message list valid for both provider adapters. Slicing the
  * persisted thread at a fixed row count can cut through a tool round, leaving an
@@ -231,7 +244,7 @@ export class SuperagentService {
   private readonly busy = new Map<string, Promise<void>>()
   // Where a harness-backed agent reaches Podium's own tools over MCP. Set by the
   // server once it's listening (it knows its own HTTP port + the access token).
-  private mcpEndpoint: { url: string; token: string } | undefined
+  private mcpEndpoint: { url: string; token: string; allToolNames?: string[] } | undefined
 
   constructor(
     private readonly registry: SessionRegistry,
@@ -241,8 +254,8 @@ export class SuperagentService {
 
   /** Point harness agents at the in-process MCP server (Podium's orchestrator
    *  tools). Called by the server after it binds its port. */
-  setMcpEndpoint(url: string, token: string): void {
-    this.mcpEndpoint = { url, token }
+  setMcpEndpoint(url: string, token: string, allToolNames?: string[]): void {
+    this.mcpEndpoint = { url, token, ...(allToolNames ? { allToolNames } : {}) }
   }
 
   /** Tool specs exposed over MCP — the same orchestrator tools the API tool-loop
@@ -405,10 +418,10 @@ export class SuperagentService {
                   },
                 },
               }),
-              allowedTools: [
-                ...HARNESS_BUILTIN_ALLOWED,
-                ...this.mcpToolSpecs().map((t) => `mcp__${MCP_SERVER_NAME}__${t.name}`),
-              ],
+              allowedTools: harnessAllowedTools(
+                this.mcpEndpoint.allToolNames,
+                this.mcpToolSpecs().map((t) => t.name),
+              ),
             }
           : undefined
       const result = await this.registry.harnessExec({
