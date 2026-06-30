@@ -400,6 +400,12 @@ export const appRouter = t.router({
     graph: t.procedure
       .input(z.object({ repoPath: z.string().optional() }))
       .query(({ ctx, input }) => ctx.registry.issues.graph(input.repoPath)),
+    epicStatus: t.procedure
+      .input(z.object({ id: z.string() }))
+      .query(({ ctx, input }) => ctx.registry.issues.epicStatus(input.id)),
+    closeEligibleEpics: t.procedure
+      .input(z.object({ repoPath: z.string().optional() }))
+      .query(({ ctx, input }) => ctx.registry.issues.closeEligibleEpics(input.repoPath)),
     get: t.procedure
       .input(z.object({ id: z.string() }))
       .query(({ ctx, input }) => ctx.registry.issues.get(input.id)),

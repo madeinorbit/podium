@@ -660,6 +660,11 @@ export const IssueGraph = z.object({
 })
 export type IssueGraph = z.infer<typeof IssueGraph>
 
+export const EpicStatus = z.object({
+  id: z.string(), childCount: z.number().int(), childDoneCount: z.number().int(), complete: z.boolean(),
+})
+export type EpicStatus = z.infer<typeof EpicStatus>
+
 export const IssuesChangedMessage = z.object({
   type: z.literal('issuesChanged'),
   issues: z.array(IssueWire),

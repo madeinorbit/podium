@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import type { PodiumSettings } from '@podium/core'
-import { type IssueGraph, type IssueWire, type RepoOp, type ServerMessage, type SessionMeta } from '@podium/protocol'
+import { type EpicStatus, type IssueGraph, type IssueWire, type RepoOp, type ServerMessage, type SessionMeta } from '@podium/protocol'
 import { sessionsForIssue, slugifyBranch, summarizeSessions } from './issue-util'
 import type { IssueRow, SessionStore } from './store'
 import { buildAssistantMessages, parseAssistantJson } from './issueAssistant'
@@ -148,6 +148,23 @@ export class IssueService {
       this.deps.store.listIssueDeps(r.id).map((d) => ({ from: r.id, to: d.toId, type: d.type })),
     )
     return { nodes, edges }
+  }
+
+  epicStatus(id: string): EpicStatus {
+    const row = this.rowOrThrow(id)
+    const children = [...this.rows.values()].filter((r) => r.parentId === row.id)
+    const childDoneCount = children.filter((c) => this.isClosed(c)).length
+    return {
+      id: row.id, childCount: children.length, childDoneCount,
+      complete: children.length > 0 && childDoneCount === children.length,
+    }
+  }
+
+  closeEligibleEpics(repoPath?: string): IssueWire[] {
+    return [...this.rows.values()]
+      .filter((r) => (!repoPath || r.repoPath === repoPath) && r.type === 'epic' && !this.isClosed(r))
+      .filter((r) => this.epicStatus(r.id).complete)
+      .map((r) => this.toWire(r))
   }
 
   get(id: string): IssueWire | null {

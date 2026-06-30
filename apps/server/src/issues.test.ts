@@ -426,3 +426,18 @@ describe('IssueService graph (P2a)', () => {
     expect(g.nodes.find((n) => n.title === 'A')!.blocked).toBe(true)
   })
 })
+
+describe('IssueService epic status (P2a)', () => {
+  it('epicStatus reports child completion; closeEligibleEpics lists fully-done epics', () => {
+    const { svc } = harness()
+    const epic = svc.create({ repoPath: '/r', title: 'E', type: 'epic', startNow: false })
+    const c1 = svc.create({ repoPath: '/r', title: 'c1', parentId: epic.id, startNow: false })
+    const c2 = svc.create({ repoPath: '/r', title: 'c2', parentId: epic.id, startNow: false })
+    expect(svc.epicStatus(epic.id)).toEqual({ id: epic.id, childCount: 2, childDoneCount: 0, complete: false })
+    expect(svc.closeEligibleEpics('/r')).toEqual([])
+    svc.close(c1.id)
+    svc.close(c2.id)
+    expect(svc.epicStatus(epic.id)).toEqual({ id: epic.id, childCount: 2, childDoneCount: 2, complete: true })
+    expect(svc.closeEligibleEpics('/r').map((w) => w.id)).toEqual([epic.id])
+  })
+})
