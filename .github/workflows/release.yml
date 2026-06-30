@@ -1,0 +1,43 @@
+name: release
+on:
+  push:
+    branches: [main]          # → edge (headless only)
+    tags: ['v*']              # → stable (headless + desktop)
+permissions:
+  contents: write
+jobs:
+  release:
+    runs-on: blacksmith-4vcpu-ubuntu-2204
+    steps:
+      - uses: actions/checkout@v4
+      - uses: useblacksmith/setup-bun@v1   # or oven-sh/setup-bun if unavailable
+        with: { bun-version: '1.3' }
+      - uses: useblacksmith/cache@v5
+        with:
+          path: |
+            ~/.bun/install/cache
+            packages/agent-bridge/src/abduco.bin
+          key: build-${{ hashFiles('bun.lock') }}
+      - run: bun install --frozen-lockfile
+      - name: Headless build + publish
+        env:
+          PODIUM_UPDATE_SIGNING_KEY: ${{ secrets.PODIUM_UPDATE_SIGNING_KEY }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            bun scripts/release.ts --channel stable --tag "${{ github.ref_name }}"
+          else
+            bun scripts/release.ts --channel edge
+          fi
+      - name: Desktop build + publish (stable tags only)
+        if: github.ref_type == 'tag'
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          bun run --cwd apps/desktop build
+          # Tauri emits the bundle, its .sig, and latest.json under apps/desktop/src-tauri/target/release/bundle
+          gh release upload "${{ github.ref_name }}" \
+            apps/desktop/src-tauri/target/release/bundle/appimage/*.AppImage* \
+            apps/desktop/src-tauri/target/release/bundle/latest.json --clobber
