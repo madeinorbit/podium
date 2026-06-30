@@ -118,6 +118,11 @@ fn main() {
             let window_injection: String;
             // Whether to block on a local /health before opening the window (only local server).
             let wait_local_port: Option<u16>;
+            // What the window LOADS. All-in-one loads the bundled UI (tauri://localhost) and talks
+            // to the local relay. Remote modes load the relay's own URL directly so the page is
+            // same-origin with it — WKWebView's WebSocket from a tauri://localhost page to a remote
+            // TLS relay fails (1006), but a same-origin load connects, exactly like a browser tab.
+            let webview_url: WebviewUrl;
 
             match action {
                 bootstrap::LaunchAction::LocalAllInOne => {
@@ -171,6 +176,7 @@ fn main() {
 
                     window_injection = bootstrap::injection_script(port);
                     wait_local_port = Some(port);
+                    webview_url = WebviewUrl::default();
                 }
 
                 bootstrap::LaunchAction::LocalDaemon { server_url } => {
@@ -200,14 +206,14 @@ fn main() {
                         "(daemon)".to_string(),
                     );
 
-                    window_injection = bootstrap::remote_injection_script(&server_url);
+                    (webview_url, window_injection) = bootstrap::remote_window_target(&server_url);
                     wait_local_port = None;
                 }
 
                 bootstrap::LaunchAction::ClientOnly { server_url } => {
                     // No backend, no monitor — just point the window at the remote server.
                     eprintln!("[podium-desktop] client mode → {server_url} (no local backend)");
-                    window_injection = bootstrap::remote_injection_script(&server_url);
+                    (webview_url, window_injection) = bootstrap::remote_window_target(&server_url);
                     wait_local_port = None;
                 }
             }
@@ -250,7 +256,7 @@ fn main() {
                     if let Err(e) = WebviewWindowBuilder::new(
                         &handle2,
                         "main",
-                        WebviewUrl::default(),
+                        webview_url,
                     )
                     .title("Podium")
                     .inner_size(1200.0, 800.0)

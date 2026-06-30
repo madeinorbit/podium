@@ -1,5 +1,6 @@
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
+use tauri::{Url, WebviewUrl};
 
 /// Bind an ephemeral loopback port and return it (best-effort; falls back to 18787).
 ///
@@ -98,6 +99,31 @@ pub fn remote_injection_script(server_url: &str) -> String {
         "{}\nwindow.__PODIUM_SKIP_SETUP__ = true;",
         server_injection_script(server_url)
     )
+}
+
+/// Map a ws(s):// relay URL to the http(s):// URL the window should LOAD (ws→http, wss→https);
+/// an http/https URL passes through unchanged.
+pub fn webview_http_url(server_url: &str) -> String {
+    if let Some(rest) = server_url.strip_prefix("wss://") {
+        format!("https://{rest}")
+    } else if let Some(rest) = server_url.strip_prefix("ws://") {
+        format!("http://{rest}")
+    } else {
+        server_url.to_string()
+    }
+}
+
+/// Decide what a remote-mode (client/daemon) window loads. Preferred: load the relay's own URL
+/// directly so the page is SAME-ORIGIN with the relay — WKWebView's WebSocket from a
+/// tauri://localhost page to a remote TLS relay fails (1006), but a same-origin load connects
+/// (a browser tab / Safari already work this way). The page then derives the server from its own
+/// location, so no injection is needed. Fallback (unparseable URL): load the bundled UI and inject
+/// the server global, preserving the old behavior rather than failing to open a window.
+pub fn remote_window_target(server_url: &str) -> (WebviewUrl, String) {
+    match Url::parse(&webview_http_url(server_url)) {
+        Ok(url) => (WebviewUrl::External(url), String::new()),
+        Err(_) => (WebviewUrl::default(), remote_injection_script(server_url)),
+    }
 }
 
 /// Block until http://127.0.0.1:<port>/health accepts a TCP connection or the budget runs
@@ -206,6 +232,29 @@ mod tests {
         assert!(s.contains("https://relay.example:55555"));
         assert!(s.contains("__PODIUM_SERVER__"));
         assert!(s.contains("__PODIUM_SKIP_SETUP__ = true"));
+    }
+
+    #[test]
+    fn webview_http_url_maps_ws_schemes_to_http() {
+        assert_eq!(webview_http_url("wss://h:55555"), "https://h:55555");
+        assert_eq!(webview_http_url("ws://h:18787"), "http://h:18787");
+        assert_eq!(webview_http_url("https://h:55555"), "https://h:55555");
+        assert_eq!(webview_http_url("http://h:1"), "http://h:1");
+    }
+
+    #[test]
+    fn remote_window_target_loads_the_relay_url_directly() {
+        let (url, injection) = remote_window_target("https://relay.example:55555");
+        // Same-origin load: an external relay URL, and NO injected server global.
+        assert!(matches!(url, WebviewUrl::External(u) if u.as_str() == "https://relay.example:55555/"));
+        assert_eq!(injection, "");
+    }
+
+    #[test]
+    fn remote_window_target_falls_back_to_bundled_on_bad_url() {
+        let (url, injection) = remote_window_target("not a url");
+        assert!(!matches!(url, WebviewUrl::External(_)));
+        assert!(injection.contains("__PODIUM_SERVER__"));
     }
 
     #[test]
