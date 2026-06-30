@@ -26,7 +26,7 @@ import { sessionDisplayName } from './WorkerLabel'
 
 type MergeStyle = 'ff-only' | 'pr' | 'ask'
 
-// bd priorities are P0 (highest) … P4; the `update` procedure clamps to 0–4.
+// bd priorities are P0 (highest) … P4; the `update` procedure validates 0–4 by the router.
 const PRIORITY_OPTIONS = [0, 1, 2, 3, 4] as const
 
 /**
@@ -558,11 +558,16 @@ export function IssueDetail({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {ISSUE_DEP_TYPES.map((t) => (
-                    <SelectItem key={t} value={t}>
-                      {t}
-                    </SelectItem>
-                  ))}
+                  {/* `parent-child` is rejected by depAdd (managed by reparent) and
+                      `supersedes` bypasses the supersede lifecycle — exclude both
+                      from the ADD-dep picker. The deps DISPLAY may still show any type. */}
+                  {ISSUE_DEP_TYPES.filter((t) => t !== 'parent-child' && t !== 'supersedes').map(
+                    (t) => (
+                      <SelectItem key={t} value={t}>
+                        {t}
+                      </SelectItem>
+                    ),
+                  )}
                 </SelectContent>
               </Select>
               <Button

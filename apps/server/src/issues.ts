@@ -403,7 +403,10 @@ export class IssueService {
   delete(id: string): void {
     this.rowOrThrow(id)
     this.deps.store.deleteIssue(id)
-    this.rows.delete(id)
+    // Re-hydrate from the store: deleteIssue also clears scalar back-refs
+    // (parent_id / superseded_by / duplicate_of) on OTHER rows, so a plain
+    // map delete would leave those stale pointers in the broadcast.
+    this.reload()
     this.deps.broadcast({ type: 'issuesChanged', issues: this.allWire() })
   }
 

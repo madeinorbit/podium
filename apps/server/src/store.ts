@@ -1053,6 +1053,12 @@ export class SessionStore {
   deleteIssue(id: string): void {
     this.deleteIssueChildRows(id)
     this.db.prepare('DELETE FROM issues WHERE id = ?').run(id)
+    // Clear dangling scalar back-references on OTHER rows so a deleted id never
+    // lingers as a ghost parent/supersede/duplicate pointer (column-vs-edge
+    // divergence P3b fixed). The dep EDGES were already removed above.
+    this.db.prepare('UPDATE issues SET parent_id = NULL WHERE parent_id = ?').run(id)
+    this.db.prepare('UPDATE issues SET superseded_by = NULL WHERE superseded_by = ?').run(id)
+    this.db.prepare('UPDATE issues SET duplicate_of = NULL WHERE duplicate_of = ?').run(id)
   }
 
   setIssueLabels(issueId: string, labels: string[]): void {

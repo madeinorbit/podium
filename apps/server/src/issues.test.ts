@@ -612,4 +612,12 @@ describe('IssueService.delete (P4b)', () => {
     const { svc } = harness()
     expect(() => svc.delete('iss_missing')).toThrow()
   })
+  it('deleting an issue clears scalar back-references on other issues', () => {
+    const { svc, store } = harness()
+    const parent = svc.create({ repoPath: '/r', title: 'P', startNow: false })
+    const child = svc.create({ repoPath: '/r', title: 'C', parentId: parent.id, startNow: false })
+    svc.delete(parent.id)
+    expect(svc.get(child.id)!.parentId).toBeUndefined() // wire omits null parentId
+    expect(store.getIssue(child.id)!.parentId).toBeNull()
+  })
 })
