@@ -84,6 +84,13 @@ export async function main(): Promise<void> {
     return
   }
 
+  // `podium issue <command>`: drive the native issue tracker over the running server's API.
+  if (argv[0] === 'issue') {
+    const { issueCliMain } = await import('./issue-cli')
+    await issueCliMain(argv.slice(1))
+    return
+  }
+
   // Escape hatch: `podium setup` (or --reconfigure) force-serves the setup UI
   // regardless of the saved mode, so a client/daemon install can be reconfigured.
   const forceSetup = argv.includes('setup') || argv.includes('--reconfigure')
