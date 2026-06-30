@@ -2054,6 +2054,9 @@ export class SessionRegistry {
         ...(c.createdAt !== undefined ? { createdAt: c.createdAt } : {}),
         ...(c.updatedAt !== undefined ? { updatedAt: c.updatedAt } : {}),
         ...(c.messageCount !== undefined ? { messageCount: c.messageCount } : {}),
+        ...(c.parentConversationId !== undefined
+          ? { parentConversationId: c.parentConversationId }
+          : {}),
       })),
     )
     if (removed.length) this.store.deleteConversations(removed)

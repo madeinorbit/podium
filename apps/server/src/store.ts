@@ -146,6 +146,9 @@ export interface ConversationIndexRow {
   messageCount?: number
   /** Which machine owns this conversation; '__local__' for pre-multi-machine rows. */
   machineId?: string
+  /** Set when this conversation is a subagent (sidechain) of another — the resume
+   *  picker filters these out so only top-level sessions are offered. */
+  parentConversationId?: string
 }
 
 export interface ToolCallRow {
@@ -527,8 +530,8 @@ export class SessionStore {
     const stmt = this.db.prepare(
       `INSERT INTO conversations
          (id, agent_kind, title, project_path, provider_id, resume_kind, resume_value,
-          created_at, updated_at, message_count, machine_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          created_at, updated_at, message_count, machine_id, parent_conversation_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          agent_kind = excluded.agent_kind,
          provider_id = excluded.provider_id,
@@ -543,7 +546,9 @@ export class SessionStore {
          resume_value = COALESCE(excluded.resume_value, conversations.resume_value),
          created_at = COALESCE(excluded.created_at, conversations.created_at),
          updated_at = COALESCE(excluded.updated_at, conversations.updated_at),
-         message_count = COALESCE(excluded.message_count, conversations.message_count)`,
+         message_count = COALESCE(excluded.message_count, conversations.message_count),
+         parent_conversation_id =
+           COALESCE(excluded.parent_conversation_id, conversations.parent_conversation_id)`,
     )
     // One transaction, not N autocommits: the daemon pushes its full conversation
     // list (potentially thousands) every ~15s, and a commit-per-row turned that
@@ -564,6 +569,7 @@ export class SessionStore {
           r.updatedAt ?? null,
           r.messageCount ?? null,
           r.machineId ?? '__local__',
+          r.parentConversationId ?? null,
         )
       }
       this.db.exec('COMMIT')
@@ -627,12 +633,16 @@ export class SessionStore {
     const limit = Math.min(200, Math.max(1, opts.limit ?? 50))
     const pathFilter = opts.projectPath ? ' AND (c.project_path = ? OR c.project_path LIKE ?)' : ''
     const pathArgs = opts.projectPath ? [opts.projectPath, `${opts.projectPath}/%`] : []
+    // The resume picker offers top-level sessions only — never a subagent
+    // (sidechain) conversation, mirroring `claude --resume`, which lists the
+    // parent conversation, not the Task subagents it spawned.
+    const topLevel = ' AND c.parent_conversation_id IS NULL'
     const q = opts.query?.trim() ?? ''
     let rows: Record<string, unknown>[]
     if (!q) {
       rows = this.db
         .prepare(
-          `SELECT c.* FROM conversations c WHERE 1=1${pathFilter}
+          `SELECT c.* FROM conversations c WHERE 1=1${pathFilter}${topLevel}
            ORDER BY c.updated_at DESC NULLS LAST LIMIT ?`,
         )
         .all(...pathArgs, limit) as Record<string, unknown>[]
@@ -644,10 +654,14 @@ export class SessionStore {
         .join(' ')
       rows = this.db
         .prepare(
+          // Recency-ordered even while searching — the resume picker mirrors
+          // `claude --resume`, which lists newest-active first regardless of the
+          // query. FTS only narrows the set (the MATCH); it does not reorder it,
+          // so a relevant-but-ancient conversation never jumps above a recent one.
           `SELECT c.* FROM conversations_fts f
            JOIN conversations c ON c.rowid = f.rowid
-           WHERE conversations_fts MATCH ?${pathFilter}
-           ORDER BY bm25(conversations_fts), c.updated_at DESC NULLS LAST LIMIT ?`,
+           WHERE conversations_fts MATCH ?${pathFilter}${topLevel}
+           ORDER BY c.updated_at DESC NULLS LAST LIMIT ?`,
         )
         .all(ftsQuery, ...pathArgs, limit) as Record<string, unknown>[]
     } else {
@@ -655,7 +669,7 @@ export class SessionStore {
       rows = this.db
         .prepare(
           `SELECT c.* FROM conversations c
-           WHERE (c.title LIKE ? OR c.name LIKE ? OR c.summary LIKE ? OR c.project_path LIKE ?)${pathFilter}
+           WHERE (c.title LIKE ? OR c.name LIKE ? OR c.summary LIKE ? OR c.project_path LIKE ?)${pathFilter}${topLevel}
            ORDER BY c.updated_at DESC NULLS LAST LIMIT ?`,
         )
         .all(like, like, like, like, ...pathArgs, limit) as Record<string, unknown>[]
@@ -1073,9 +1087,20 @@ export class SessionStore {
          resume_value TEXT,
          created_at TEXT,
          updated_at TEXT,
-         message_count INTEGER
+         message_count INTEGER,
+         parent_conversation_id TEXT
        )`,
     )
+    // v: parent_conversation_id added so the resume picker can exclude subagent
+    // (sidechain) conversations — only top-level sessions are resumable targets.
+    // ALTER for pre-existing DBs (CREATE above no-ops there).
+    if (
+      !(this.db.prepare('PRAGMA table_info(conversations)').all() as { name: string }[]).some(
+        (c) => c.name === 'parent_conversation_id',
+      )
+    ) {
+      this.db.exec('ALTER TABLE conversations ADD COLUMN parent_conversation_id TEXT')
+    }
     // Indices for the two hot conversation queries (audit P1-6): the empty-query
     // browse orders by updated_at, and the project filter / LIKE-fallback search
     // filter by project_path — both were full table scans + filesorts before.

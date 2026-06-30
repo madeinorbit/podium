@@ -532,6 +532,33 @@ describe('conversation index', () => {
     store.close()
   })
 
+  it('excludes subagent (sidechain) conversations from the resume picker', () => {
+    const store = new SessionStore(':memory:')
+    store.upsertConversations([
+      conv('top', { title: 'fix the parser' }),
+      conv('sub', { title: 'fix the parser subagent', parentConversationId: 'top' }),
+    ])
+    // Empty-query browse: only the top-level session.
+    expect(store.searchConversations({}).map((h) => h.id)).toEqual(['top'])
+    // Keyword search: the subagent matches the term but is still filtered out.
+    expect(store.searchConversations({ query: 'parser' }).map((h) => h.id)).toEqual(['top'])
+    store.close()
+  })
+
+  it('orders search results by recency, not relevance (matches claude --resume)', () => {
+    const store = new SessionStore(':memory:')
+    store.upsertConversations([
+      conv('older', { title: 'relay endpoint fix', updatedAt: '2026-06-01T00:00:00.000Z' }),
+      conv('newer', { title: 'relay endpoint retry', updatedAt: '2026-06-12T00:00:00.000Z' }),
+    ])
+    // Both match "relay endpoint"; the more recently-active one comes first.
+    expect(store.searchConversations({ query: 'relay endpoint' }).map((h) => h.id)).toEqual([
+      'newer',
+      'older',
+    ])
+    store.close()
+  })
+
   it('curation (name/summary) survives re-discovery and is searchable', () => {
     const store = new SessionStore(':memory:')
     store.upsertConversations([conv('a')])
