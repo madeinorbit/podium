@@ -690,6 +690,10 @@ export const IssueStats = z.object({
   ready: z.number().int(), blocked: z.number().int(), deferred: z.number().int(),
 })
 export type IssueStats = z.infer<typeof IssueStats>
+export const OrphanIssue = z.object({
+  id: z.string(), seq: z.number().int(), title: z.string(), ref: z.string(),
+})
+export type OrphanIssue = z.infer<typeof OrphanIssue>
 export const IssueSearchFilter = z.object({
   repoPath: z.string().optional(), text: z.string().optional(),
   status: z.enum(['open', 'closed', 'ready', 'blocked', 'deferred']).optional(),

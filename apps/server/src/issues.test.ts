@@ -571,3 +571,25 @@ describe('IssueService doctor/preflight (P2b)', () => {
     expect(svc.preflight('/r').ok).toBe(true)
   })
 })
+
+describe('IssueService orphans (P2b)', () => {
+  it('flags open issues referenced in commit messages', async () => {
+    const { svc, deps } = harness()
+    const a = svc.create({ repoPath: '/r', title: 'Add login', startNow: false }) // seq 1
+    svc.create({ repoPath: '/r', title: 'Other', startNow: false }) // seq 2, not referenced
+    ;(deps.repoOp as any).mockResolvedValueOnce({
+      ok: true,
+      output: 'abc123 feat: implement login (#1)\ndef456 chore: tidy',
+    })
+    const orphans = await svc.orphans('/r')
+    expect(orphans.map((o) => o.seq)).toEqual([1])
+    expect(orphans[0]!.id).toBe(a.id)
+  })
+
+  it('returns [] when repoOp(log) fails', async () => {
+    const { svc, deps } = harness()
+    svc.create({ repoPath: '/r', title: 'X', startNow: false })
+    ;(deps.repoOp as any).mockResolvedValueOnce({ ok: false, output: '' })
+    expect(await svc.orphans('/r')).toEqual([])
+  })
+})

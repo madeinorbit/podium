@@ -436,6 +436,9 @@ export const appRouter = t.router({
     stats: t.procedure
       .input(z.object({ repoPath: z.string().optional() }))
       .query(({ ctx, input }) => ctx.registry.issues.stats(input.repoPath)),
+    orphans: t.procedure
+      .input(z.object({ repoPath: z.string() }))
+      .query(({ ctx, input }) => ctx.registry.issues.orphans(input.repoPath)),
     get: t.procedure
       .input(z.object({ id: z.string() }))
       .query(({ ctx, input }) => ctx.registry.issues.get(input.id)),

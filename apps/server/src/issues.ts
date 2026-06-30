@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import type { PodiumSettings } from '@podium/core'
-import { type DoctorReport, type DuplicateCandidate, type EpicStatus, type IssueCount, type IssueGraph, type IssueSearchFilter, type IssueStats, type IssueWire, type LintFinding, type RepoOp, type ServerMessage, type SessionMeta } from '@podium/protocol'
+import { type DoctorReport, type DuplicateCandidate, type EpicStatus, type IssueCount, type IssueGraph, type IssueSearchFilter, type IssueStats, type IssueWire, type LintFinding, type OrphanIssue, type RepoOp, type ServerMessage, type SessionMeta } from '@podium/protocol'
 import { jaccard, tokenize } from './issue-similarity'
 import { lintIssue } from './issue-lint'
 import { sessionsForIssue, slugifyBranch, summarizeSessions } from './issue-util'
@@ -255,6 +255,22 @@ export class IssueService {
   preflight(repoPath?: string): { ok: boolean; report: DoctorReport } {
     const report = this.doctor(repoPath)
     return { ok: report.cycles.length === 0 && report.danglingDeps.length === 0, report }
+  }
+
+  async orphans(repoPath: string): Promise<OrphanIssue[]> {
+    const res = await this.deps.repoOp('log', repoPath).catch(() => ({ ok: false, output: '' }))
+    if (!res.ok || !res.output) return []
+    const log = res.output
+    const out: OrphanIssue[] = []
+    for (const r of this.rows.values()) {
+      if (r.repoPath !== repoPath || this.isClosed(r)) continue
+      // Reference forms: the branch stem `issue/<seq>-`, or a `#<seq>` token.
+      const hashRef = new RegExp(`#${r.seq}\\b`).exec(log)?.[0]
+      const branchRef = log.includes(`issue/${r.seq}-`) ? `issue/${r.seq}-` : undefined
+      const ref = hashRef ?? branchRef
+      if (ref) out.push({ id: r.id, seq: r.seq, title: r.title, ref })
+    }
+    return out.sort((a, b) => a.seq - b.seq)
   }
 
   search(filter: IssueSearchFilter): IssueWire[] {
