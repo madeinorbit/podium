@@ -42,8 +42,38 @@ export class IssueService {
     return this.deps.now ? this.deps.now() : new Date().toISOString()
   }
 
+  private isClosed(row: IssueRow): boolean {
+    return row.stage === 'done' || row.closedReason != null
+  }
+
+  private isDeferred(row: IssueRow): boolean {
+    return row.deferUntil != null && row.deferUntil > this.now()
+  }
+
+  /** blocked = open AND ≥1 `blocks` dep whose target issue is not closed. */
+  private computeBlocked(row: IssueRow): boolean {
+    if (this.isClosed(row)) return false
+    return this.deps.store
+      .listIssueDeps(row.id)
+      .filter((d) => d.type === 'blocks')
+      .some((d) => {
+        const target = this.rows.get(d.toId)
+        return target ? !this.isClosed(target) : false
+      })
+  }
+
   toWire(row: IssueRow): IssueWire {
     const sessions = sessionsForIssue(row.worktreePath, this.deps.listSessions())
+    const labels = this.deps.store.getIssueLabels(row.id)
+    const deps = this.deps.store.listIssueDeps(row.id).map((d) => ({ id: d.toId, type: d.type }))
+    const dependents = this.deps.store
+      .listDependents(row.id)
+      .map((d) => ({ id: d.fromId, type: d.type }))
+    const comments = this.deps.store.listIssueComments(row.id)
+    const children = [...this.rows.values()].filter((r) => r.parentId === row.id)
+    const blocked = this.computeBlocked(row)
+    const deferred = this.isDeferred(row)
+    const ready = !this.isClosed(row) && !deferred && !blocked
     return {
       id: row.id, repoPath: row.repoPath, seq: row.seq, title: row.title, description: row.description,
       stage: row.stage as IssueWire['stage'], worktreePath: row.worktreePath, branch: row.branch,
@@ -58,6 +88,20 @@ export class IssueService {
       blockedBy: row.blockedBy,
       ...(row.dependencyNote ? { dependencyNote: row.dependencyNote } : {}),
       ...(row.prUrl ? { prUrl: row.prUrl } : {}),
+      priority: row.priority, type: row.type as IssueWire['type'], pinned: row.pinned,
+      ...(row.assignee ? { assignee: row.assignee } : {}),
+      ...(row.parentId ? { parentId: row.parentId } : {}),
+      ...(row.design ? { design: row.design } : {}),
+      ...(row.acceptance ? { acceptance: row.acceptance } : {}),
+      ...(row.notes ? { notes: row.notes } : {}),
+      ...(row.dueAt ? { dueAt: row.dueAt } : {}),
+      ...(row.deferUntil ? { deferUntil: row.deferUntil } : {}),
+      ...(row.closedReason ? { closedReason: row.closedReason } : {}),
+      ...(row.estimateMin != null ? { estimateMin: row.estimateMin } : {}),
+      labels, deps, dependents, comments,
+      ready, blocked, deferred,
+      childCount: children.length,
+      childDoneCount: children.filter((c) => this.isClosed(c)).length,
       createdAt: row.createdAt, updatedAt: row.updatedAt, archived: row.archived,
       sessions, sessionSummary: summarizeSessions(sessions),
     }
@@ -107,7 +151,11 @@ export class IssueService {
     return wire
   }
 
-  update(id: string, patch: Partial<Pick<IssueRow, 'title' | 'description' | 'stage' | 'worktreePath' | 'branch' | 'parentBranch' | 'defaultAgent' | 'archived'>>): IssueWire {
+  update(id: string, patch: Partial<Pick<IssueRow,
+    'title' | 'description' | 'stage' | 'worktreePath' | 'branch' | 'parentBranch' | 'defaultAgent'
+    | 'archived' | 'priority' | 'type' | 'assignee' | 'parentId' | 'design' | 'acceptance'
+    | 'notes' | 'dueAt' | 'deferUntil' | 'closedReason' | 'supersededBy' | 'duplicateOf'
+    | 'pinned' | 'estimateMin'>>): IssueWire {
     const row = this.rows.get(id)
     if (!row) throw new Error(`unknown issue ${id}`)
     Object.assign(row, patch)

@@ -578,6 +578,27 @@ export const IssueSessionSummary = z.object({
 })
 export type IssueSessionSummary = z.infer<typeof IssueSessionSummary>
 
+export const IssueType = z.enum([
+  'task', 'bug', 'feature', 'chore', 'epic', 'decision', 'spike', 'story', 'milestone',
+])
+export type IssueType = z.infer<typeof IssueType>
+
+export const ISSUE_DEP_TYPES = [
+  'blocks', 'related', 'parent-child', 'discovered-from', 'tracks', 'supersedes',
+  'caused-by', 'validates',
+] as const
+
+export const IssueDepWire = z.object({ id: z.string(), type: z.string() })
+export type IssueDepWire = z.infer<typeof IssueDepWire>
+
+export const IssueComment = z.object({
+  id: z.string(),
+  author: z.string(),
+  body: z.string(),
+  createdAt: z.string(),
+})
+export type IssueComment = z.infer<typeof IssueComment>
+
 export const IssueWire = z.object({
   id: z.string(),
   repoPath: z.string(),
@@ -599,6 +620,27 @@ export const IssueWire = z.object({
   blockedBy: z.array(z.string()),
   dependencyNote: z.string().optional(),
   prUrl: z.string().optional(),
+  priority: z.number().int(),
+  type: IssueType,
+  assignee: z.string().optional(),
+  parentId: z.string().optional(),
+  design: z.string().optional(),
+  acceptance: z.string().optional(),
+  notes: z.string().optional(),
+  dueAt: z.string().optional(),
+  deferUntil: z.string().optional(),
+  closedReason: z.string().optional(),
+  pinned: z.boolean(),
+  estimateMin: z.number().int().optional(),
+  labels: z.array(z.string()),
+  deps: z.array(IssueDepWire),
+  dependents: z.array(IssueDepWire),
+  comments: z.array(IssueComment),
+  ready: z.boolean(),
+  blocked: z.boolean(),
+  deferred: z.boolean(),
+  childCount: z.number().int(),
+  childDoneCount: z.number().int(),
   createdAt: z.string(),
   updatedAt: z.string(),
   archived: z.boolean(),

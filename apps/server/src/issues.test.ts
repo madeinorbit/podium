@@ -12,7 +12,7 @@ function harness(sessions: SessionMeta[] = []) {
     spawnSession: vi.fn(() => ({ sessionId: 's1' })),
     repoOp: vi.fn(async () => ({ ok: true, output: '' })),
     broadcast: vi.fn(),
-    now: () => 't0',
+    now: () => '2026-06-30T00:00:00.000Z',
   }
   return { store, deps, svc: new IssueService(deps) }
 }
@@ -201,6 +201,61 @@ describe('IssueService.linearSearch', () => {
   it('returns [] when no key configured', async () => {
     const { svc } = harness()
     expect(await svc.linearSearch('login')).toEqual([])
+  })
+})
+
+describe('IssueService derived status (P1)', () => {
+  it('new issue is ready (open, no blockers) with defaults', () => {
+    const { svc } = harness()
+    const w = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    expect(w.priority).toBe(2)
+    expect(w.type).toBe('task')
+    expect(w.pinned).toBe(false)
+    expect(w.labels).toEqual([])
+    expect(w.deps).toEqual([])
+    expect(w.ready).toBe(true)
+    expect(w.blocked).toBe(false)
+    expect(w.deferred).toBe(false)
+  })
+
+  it('a blocks-dependency on an open issue makes the dependent blocked (not ready)', () => {
+    const { svc, store } = harness()
+    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    const b = svc.create({ repoPath: '/r', title: 'B', startNow: false })
+    store.addIssueDep(a.id, b.id, 'blocks')
+    const reloaded = svc.get(a.id)!
+    expect(reloaded.blocked).toBe(true)
+    expect(reloaded.ready).toBe(false)
+    expect(reloaded.deps).toEqual([{ id: b.id, type: 'blocks' }])
+  })
+
+  it('closing the blocker (stage=done) unblocks the dependent', () => {
+    const { svc, store } = harness()
+    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    const b = svc.create({ repoPath: '/r', title: 'B', startNow: false })
+    store.addIssueDep(a.id, b.id, 'blocks')
+    svc.update(b.id, { stage: 'done' })
+    expect(svc.get(a.id)!.ready).toBe(true)
+  })
+
+  it('a future defer_until marks the issue deferred and not ready', () => {
+    const { svc } = harness()
+    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    const deferred = svc.update(a.id, { deferUntil: '2999-01-01' })
+    expect(deferred.deferred).toBe(true)
+    expect(deferred.ready).toBe(false)
+  })
+
+  it('epic counts reflect children by parentId', () => {
+    const { svc, store } = harness()
+    const epic = svc.create({ repoPath: '/r', title: 'Epic', startNow: false })
+    const c1 = svc.create({ repoPath: '/r', title: 'c1', startNow: false })
+    const c2 = svc.create({ repoPath: '/r', title: 'c2', startNow: false })
+    svc.update(c1.id, { parentId: epic.id })
+    svc.update(c2.id, { parentId: epic.id, stage: 'done' })
+    const e = svc.get(epic.id)!
+    expect(e.childCount).toBe(2)
+    expect(e.childDoneCount).toBe(1)
   })
 })
 
