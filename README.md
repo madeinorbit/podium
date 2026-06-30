@@ -103,3 +103,7 @@ Requires the Rust + Tauri toolchain:
 bun run --cwd apps/desktop dev      # dev: stage the compiled backend + web, open the window
 bun run --cwd apps/desktop build    # release build
 ```
+
+## License
+
+[Apache License 2.0](./LICENSE). © 2026 Michael Wirth and the Podium contributors.
