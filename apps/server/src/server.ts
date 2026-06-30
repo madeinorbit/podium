@@ -116,7 +116,7 @@ export async function startServer(opts: { port?: number } = {}): Promise<ServerH
       webDir = ''
     }
   }
-  if (webDir) registerWebStatic(app, webDir)
+  if (webDir) registerWebStatic(app, webDir, maintainerToken)
 
   return new Promise<ServerHandle>((resolve) => {
     const server = serve({ fetch: app.fetch, port: opts.port ?? 0 }, (info) => {
