@@ -219,9 +219,14 @@ body:has(.mobile-shell) {
 .mobile-shell .key-actions:not(:has(.key-mic)) {
   padding-right: calc(8px + 36px + 4px);
 }
-/* Hidden until the panel has output — no key bar over the "Starting…" overlay. */
+/* Hidden until the panel has output (kb-hidden — no key bar over "Starting…"), or in
+   chat mode (.hidden, applied by AgentPanel): the terminal key rows belong to the
+   NATIVE view, not chat. Named explicitly because the base `.mobile-shell
+   .key-actions{display:flex}` (specificity 0,2,0) outweighs Tailwind's `.hidden`. */
 .mobile-shell .key-actions.kb-hidden,
-.mobile-shell .toolbar.kb-hidden {
+.mobile-shell .key-actions.hidden,
+.mobile-shell .toolbar.kb-hidden,
+.mobile-shell .toolbar.hidden {
   display: none;
 }
 .key-actions .key-act {

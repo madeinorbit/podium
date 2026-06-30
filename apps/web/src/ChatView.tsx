@@ -991,7 +991,11 @@ export function ChatView({
           voice / send actions inside it, Claude-iOS style. Enter inserts a
           newline; the send button (or ⌘/Ctrl+Enter) submits. */}
       <div
-        className="border-t border-border bg-card px-3 pt-2.5 pb-[calc(10px+env(safe-area-inset-bottom,0px))]"
+        // Bottom inset only when the keyboard is CLOSED. With it open (iOS), the home-
+        // indicator safe area sits behind the keyboard, so keeping that padding just
+        // leaves a dead gap above the keyboard under the composer. --kb-open (0/1) is
+        // set from visualViewport in MobileApp; mirrors the native toolbar's handling.
+        className="border-t border-border bg-card px-3 pt-2.5 pb-[calc(10px+(1-var(--kb-open,0))*env(safe-area-inset-bottom,0px))]"
         onDragOver={(e) => {
           e.preventDefault()
           if (e.dataTransfer.items && hasImageItems(e.dataTransfer.items)) setDragOver(true)

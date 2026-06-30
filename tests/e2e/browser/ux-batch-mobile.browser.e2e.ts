@@ -53,3 +53,35 @@ test('#14 a long branch name stays bounded + ellipsized in the mobile header', a
   // ...and the long branch is actually ellipsized, not overflowing.
   expect(m.clipped).toBe(true)
 })
+
+test('mobile chat view: the native key bar / toolbar are NOT shown (chat uses the OS keyboard)', async ({
+  page,
+}) => {
+  await openApp(page)
+  await newSession(page, 'Claude') // claude-code is chatCapable, so the toggle is offered
+  // Switch to the chat view.
+  await page.locator('button[aria-label="Chat view"]').click()
+  await expect(page.getByPlaceholder(/Message/)).toBeVisible({ timeout: 20_000 })
+
+  // The on-screen terminal key rows (Submit/arrows/voice + the Ctrl/Esc toolbar)
+  // belong to the NATIVE terminal. In chat mode they must be hidden — the composer
+  // uses the OS soft keyboard directly.
+  await expect(page.locator('.key-actions:visible')).toHaveCount(0)
+  await expect(page.locator('.toolbar:visible')).toHaveCount(0)
+
+  // The composer footer's bottom inset is wired to --kb-open so the iOS home-indicator
+  // safe area collapses while the keyboard is open (no dead gap under the input).
+  const usesKbOpen = await page.evaluate(() => {
+    const ta = document.querySelector('textarea')
+    let el: HTMLElement | null = ta as HTMLElement | null
+    while (el && !/var\(--kb-open/.test(el.style.paddingBottom || getComputedStyle(el).paddingBottom)) {
+      el = el.parentElement
+    }
+    // Fall back to scanning the footer's inline class for the token (computed style
+    // resolves the calc, so check the source class on the footer ancestor).
+    return [...document.querySelectorAll('div')].some((d) =>
+      /\(--kb-open/.test(d.getAttribute('class') ?? ''),
+    )
+  })
+  expect(usesKbOpen).toBe(true)
+})
