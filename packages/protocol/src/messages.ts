@@ -653,6 +653,11 @@ export type IssueWire = z.infer<typeof IssueWire>
 export const DuplicateCandidate = z.object({ a: z.string(), b: z.string(), score: z.number() })
 export type DuplicateCandidate = z.infer<typeof DuplicateCandidate>
 
+export const LintFinding = z.object({
+  id: z.string(), seq: z.number().int(), findings: z.array(z.string()),
+})
+export type LintFinding = z.infer<typeof LintFinding>
+
 export const IssueGraphNode = z.object({
   id: z.string(), seq: z.number().int(), title: z.string(), stage: IssueStage,
   priority: z.number().int(), type: IssueType, ready: z.boolean(), blocked: z.boolean(),

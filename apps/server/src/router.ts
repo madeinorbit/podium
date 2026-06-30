@@ -409,6 +409,12 @@ export const appRouter = t.router({
     findDuplicates: t.procedure
       .input(z.object({ repoPath: z.string().optional(), threshold: z.number().optional() }))
       .query(({ ctx, input }) => ctx.registry.issues.findDuplicates(input.repoPath, input.threshold)),
+    stale: t.procedure
+      .input(z.object({ repoPath: z.string().optional(), days: z.number().optional() }))
+      .query(({ ctx, input }) => ctx.registry.issues.staleList(input.repoPath, input.days)),
+    lint: t.procedure
+      .input(z.object({ repoPath: z.string().optional() }))
+      .query(({ ctx, input }) => ctx.registry.issues.lint(input.repoPath)),
     get: t.procedure
       .input(z.object({ id: z.string() }))
       .query(({ ctx, input }) => ctx.registry.issues.get(input.id)),

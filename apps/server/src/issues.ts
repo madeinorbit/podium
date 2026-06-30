@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto'
 import type { PodiumSettings } from '@podium/core'
-import { type DuplicateCandidate, type EpicStatus, type IssueGraph, type IssueWire, type RepoOp, type ServerMessage, type SessionMeta } from '@podium/protocol'
+import { type DuplicateCandidate, type EpicStatus, type IssueGraph, type IssueWire, type LintFinding, type RepoOp, type ServerMessage, type SessionMeta } from '@podium/protocol'
 import { jaccard, tokenize } from './issue-similarity'
+import { lintIssue } from './issue-lint'
 import { sessionsForIssue, slugifyBranch, summarizeSessions } from './issue-util'
 import type { IssueRow, SessionStore } from './store'
 import { buildAssistantMessages, parseAssistantJson } from './issueAssistant'
@@ -42,8 +43,16 @@ export interface CreateIssueInput {
 export class IssueService {
   private readonly rows = new Map<string, IssueRow>()
   constructor(private readonly deps: IssueDeps) {
-    for (const r of deps.store.listIssueRows()) this.rows.set(r.id, r)
+    this.reload()
   }
+
+  /** Clear and re-hydrate the in-memory row map from the store. Lets tests (and
+   *  future external mutators) refresh `this.rows` after a direct store write. */
+  reload(): void {
+    this.rows.clear()
+    for (const r of this.deps.store.listIssueRows()) this.rows.set(r.id, r)
+  }
+
   private now(): string {
     return this.deps.now ? this.deps.now() : new Date().toISOString()
   }
@@ -186,6 +195,25 @@ export class IssueService {
       }
     }
     return out.sort((x, y) => y.score - x.score)
+  }
+
+  /** Open issues whose `updatedAt` is older than `days` days before `nowMs`,
+   *  oldest-first. `nowMs` is injectable so tests can pin "now". */
+  staleList(repoPath?: string, days = 30, nowMs = Date.now()): IssueWire[] {
+    const cutoff = nowMs - days * 24 * 60 * 60 * 1000
+    return [...this.rows.values()]
+      .filter((r) => (!repoPath || r.repoPath === repoPath) && !this.isClosed(r))
+      .filter((r) => Date.parse(r.updatedAt) < cutoff)
+      .sort((a, b) => Date.parse(a.updatedAt) - Date.parse(b.updatedAt))
+      .map((r) => this.toWire(r))
+  }
+
+  /** Open issues with ≥1 template-completeness finding (see `lintIssue`). */
+  lint(repoPath?: string): LintFinding[] {
+    return [...this.rows.values()]
+      .filter((r) => (!repoPath || r.repoPath === repoPath) && !this.isClosed(r))
+      .map((r) => ({ id: r.id, seq: r.seq, findings: lintIssue(r) }))
+      .filter((f) => f.findings.length > 0)
   }
 
   get(id: string): IssueWire | null {

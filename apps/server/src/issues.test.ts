@@ -504,3 +504,25 @@ describe('IssueService findDuplicates (P2b)', () => {
     expect(dups[0]!.score).toBe(1)
   })
 })
+
+describe('IssueService stale/lint (P2b)', () => {
+  it('staleList returns issues older than the cutoff (open only)', () => {
+    const { svc, store } = harness()
+    const a = svc.create({ repoPath: '/r', title: 'old', startNow: false })
+    // backdate updatedAt directly in the store, then refresh the in-memory row
+    const row = store.getIssue(a.id)!
+    row.updatedAt = '2000-01-01T00:00:00.000Z'
+    store.upsertIssue(row)
+    svc.reload() // re-hydrate this.rows from the store (see Step 3)
+    const stale = svc.staleList('/r', 30, Date.parse('2026-06-30T00:00:00.000Z'))
+    expect(stale.map((w) => w.title)).toEqual(['old'])
+  })
+
+  it('lint flags a feature with no acceptance', () => {
+    const { svc } = harness()
+    svc.create({ repoPath: '/r', title: 'F', description: 'd', type: 'feature', startNow: false })
+    const findings = svc.lint('/r')
+    expect(findings.length).toBe(1)
+    expect(findings[0]!.findings).toEqual(['missing acceptance criteria'])
+  })
+})
