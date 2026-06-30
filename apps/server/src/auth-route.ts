@@ -6,7 +6,9 @@ import { hasPassword, verifyPassword } from './auth-store'
 /** The subset of the store the auth surface needs (the human-UI login sessions). */
 export interface ClientSessionStore {
   createClientSession(tokenHash: string, expiresAt: string): void
+  getClientSession(tokenHash: string): { expiresAt: string } | undefined
   isClientSessionValid(tokenHash: string, nowIso: string): boolean
+  extendClientSession(tokenHash: string, expiresAt: string): void
   deleteClientSession(tokenHash: string): void
   deleteExpiredClientSessions?(nowIso: string): void
 }
@@ -15,6 +17,9 @@ export const SESSION_COOKIE = 'podium_session'
 
 /** 30 days — a logged-in device stays logged in across server redeploys. */
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000
+/** Renew a session once it drops past its half-life — keeps an active client logged in
+ *  forever while bounding the renewal write to ~once per (TTL/2) per session. */
+const SESSION_RENEW_BELOW_MS = SESSION_TTL_MS / 2
 
 const DEFAULT_MAX_FAILURES = 8
 const DEFAULT_LOCKOUT_MS = 5 * 60 * 1000
@@ -53,6 +58,18 @@ function isHttps(c: Context): boolean {
   }
 }
 
+/** Issue (or refresh) the session cookie with the full TTL. One definition used by login
+ *  and the sliding-renewal path so their cookie attributes can't drift apart. */
+function setSessionCookie(c: Context, token: string): void {
+  setCookie(c, SESSION_COOKIE, token, {
+    httpOnly: true,
+    sameSite: 'Lax',
+    secure: isHttps(c),
+    path: '/',
+    maxAge: Math.floor(SESSION_TTL_MS / 1000),
+  })
+}
+
 /**
  * Hono middleware that gates a client surface (e.g. /trpc, /files) behind the login session.
  * Open (passes through) when no password is configured; otherwise requires a valid session
@@ -67,8 +84,24 @@ export function clientAuthGuard(opts: {
   return async (c, next) => {
     if (c.req.method === 'OPTIONS') return next()
     if (!hasPassword(opts.authDir)) return next()
-    if (opts.store && isRequestAuthed(opts.store, c.req.header('cookie'), now())) return next()
-    return c.json({ error: 'unauthorized' }, 401)
+    const store = opts.store
+    const token = store ? parseSessionCookie(c.req.header('cookie')) : undefined
+    const nowMs = now()
+    if (
+      !store ||
+      !token ||
+      !store.isClientSessionValid(hashToken(token), new Date(nowMs).toISOString())
+    ) {
+      return c.json({ error: 'unauthorized' }, 401)
+    }
+    // Sliding renewal: once the session is past its half-life, push the expiry back out and
+    // refresh the cookie so an actively-used client never gets logged out. Same token.
+    const session = store.getClientSession(hashToken(token))
+    if (session && Date.parse(session.expiresAt) - nowMs < SESSION_RENEW_BELOW_MS) {
+      store.extendClientSession(hashToken(token), new Date(nowMs + SESSION_TTL_MS).toISOString())
+      setSessionCookie(c, token)
+    }
+    return next()
   }
 }
 
@@ -136,13 +169,7 @@ export function registerAuthRoute(app: Hono, opts: AuthRouteOptions = {}): void 
     store?.deleteExpiredClientSessions?.(new Date(at).toISOString())
     store?.createClientSession(hashToken(token), expiresAt)
 
-    setCookie(c, SESSION_COOKIE, token, {
-      httpOnly: true,
-      sameSite: 'Lax',
-      secure: isHttps(c),
-      path: '/',
-      maxAge: Math.floor(SESSION_TTL_MS / 1000),
-    })
+    setSessionCookie(c, token)
     return c.json({ ok: true })
   })
 

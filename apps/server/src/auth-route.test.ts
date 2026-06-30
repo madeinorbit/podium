@@ -206,6 +206,43 @@ describe('clientAuthGuard (HTTP surface gate)', () => {
     const res = await guardedApp().request('/trpc/ping', { method: 'OPTIONS' })
     expect(res.status).not.toBe(401)
   })
+
+  const DAY = 24 * 60 * 60 * 1000
+  function guardedAppAt(nowMs: number) {
+    const app = new Hono()
+    app.use('/trpc/*', clientAuthGuard({ store, authDir: dir, now: () => nowMs }))
+    app.get('/trpc/ping', (c) => c.text('pong'))
+    return app
+  }
+
+  test('renews a session past its half-life and refreshes the cookie (same token)', async () => {
+    await setPassword('hunter2', dir)
+    const nowMs = Date.UTC(2026, 0, 1)
+    const token = 'rolling-token'
+    // Only ~5 days left — past the 15-day half-life of the 30-day TTL.
+    store.createClientSession(hashToken(token), new Date(nowMs + 5 * DAY).toISOString())
+    const res = await guardedAppAt(nowMs).request('/trpc/ping', {
+      headers: { cookie: `podium_session=${token}` },
+    })
+    expect(res.status).toBe(200)
+    const setCookie = res.headers.get('set-cookie') ?? ''
+    expect(setCookie).toMatch(/podium_session=rolling-token/) // same token, not a new one
+    // Expiry pushed back out toward now + 30 days.
+    const expiry = Date.parse(store.getClientSession(hashToken(token))?.expiresAt ?? '')
+    expect(expiry).toBeGreaterThan(nowMs + 25 * DAY)
+  })
+
+  test('does not renew (or re-set the cookie for) a still-fresh session', async () => {
+    await setPassword('hunter2', dir)
+    const nowMs = Date.UTC(2026, 0, 1)
+    const token = 'fresh-token'
+    store.createClientSession(hashToken(token), new Date(nowMs + 29 * DAY).toISOString())
+    const res = await guardedAppAt(nowMs).request('/trpc/ping', {
+      headers: { cookie: `podium_session=${token}` },
+    })
+    expect(res.status).toBe(200)
+    expect(res.headers.get('set-cookie')).toBeNull()
+  })
 })
 
 describe('client session store', () => {
@@ -219,6 +256,14 @@ describe('client session store', () => {
     expect(store.isClientSessionValid('hash-a', now)).toBe(true)
     expect(store.isClientSessionValid('hash-b', now)).toBe(false)
     expect(store.isClientSessionValid('missing', now)).toBe(false)
+  })
+
+  test('extendClientSession pushes out the expiry of an existing session', () => {
+    const t1 = new Date(Date.now() + 1_000).toISOString()
+    const t2 = new Date(Date.now() + 999_000).toISOString()
+    store.createClientSession('ext', t1)
+    store.extendClientSession('ext', t2)
+    expect(store.getClientSession('ext')?.expiresAt).toBe(t2)
   })
 
   test('deleteClientSession revokes one; deleteAllClientSessions revokes every session', () => {

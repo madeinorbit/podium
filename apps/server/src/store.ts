@@ -537,6 +537,13 @@ export class SessionStore {
     return row ? { expiresAt: row.expires_at } : undefined
   }
 
+  /** Push out an existing session's expiry (sliding/rolling renewal). No-op if absent. */
+  extendClientSession(tokenHash: string, expiresAt: string): void {
+    this.db
+      .prepare('UPDATE client_sessions SET expires_at = ? WHERE token_hash = ?')
+      .run(expiresAt, tokenHash)
+  }
+
   /** True iff the session exists and has not expired as of `nowIso`. */
   isClientSessionValid(tokenHash: string, nowIso: string): boolean {
     const session = this.getClientSession(tokenHash)
