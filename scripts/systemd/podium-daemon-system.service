@@ -1,0 +1,21 @@
+# /etc/systemd/system/podium-daemon.service  (system-wide alternative to the --user unit)
+# Install: sudo cp scripts/systemd/podium-daemon-system.service /etc/systemd/system/podium-daemon.service
+#          sudo systemctl enable --now podium-daemon
+# Requires: a `podium` binary on PATH and a $PODIUM_STATE_DIR the User can write.
+[Unit]
+Description=Podium agent daemon
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=notify
+NotifyAccess=all
+WatchdogSec=30
+User=podium
+Environment=PODIUM_STATE_DIR=/var/lib/podium
+ExecStart=/usr/local/bin/podium daemon
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
