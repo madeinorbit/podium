@@ -1,14 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import type { IssueWire } from '@podium/protocol'
 import { issueCardModel } from './issue-card'
-
-const issue = (over: Partial<IssueWire> = {}): IssueWire =>
-  ({ id: 'i', repoPath: '/r', seq: 4, title: 'Fix login', description: '', stage: 'in_progress',
-     worktreePath: '/r/wt', branch: 'issue/4-fix-login', parentBranch: 'main', defaultAgent: 'claude-code',
-     blockedBy: [], createdAt: 't', updatedAt: 't', archived: false,
-     priority: 2, type: 'task', pinned: false, labels: [], deps: [], dependents: [], comments: [],
-     ready: true, blocked: false, deferred: false, childCount: 0, childDoneCount: 0,
-     sessions: [], sessionSummary: { total: 2, byPhase: { working: 1, idle: 1 } }, ...over }) as IssueWire
+import { makeIssue as issue } from './test-issue'
 
 describe('issueCardModel', () => {
   it('shows seq + repo basename subtitle and session count', () => {

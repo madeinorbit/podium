@@ -12,6 +12,7 @@ import {
 } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
 import { STAGE_LABELS } from './issue-card'
+import { issueDetailFields } from './issue-detail-fields'
 import { useStore } from './store'
 import { sessionDisplayName } from './WorkerLabel'
 
@@ -86,6 +87,9 @@ export function IssueDetail({
 
   const mergeLabel = 'FF-only merge'
   const primaryIsPr = mergeStyle === 'pr'
+  // Read-only view-model for the rich bd fields (priority/type/labels, deps,
+  // hierarchy, lifecycle, comments). Editing these is P4b (browser-verified).
+  const fields = issueDetailFields(issue)
 
   return (
     <div className="fixed inset-y-0 right-0 z-40 flex w-full max-w-md flex-col border-border border-l bg-background shadow-xl">
@@ -158,6 +162,89 @@ export function IssueDetail({
             </SelectContent>
           </Select>
         </div>
+
+        <section className="flex flex-col gap-2">
+          <h3 className="font-medium text-[13px] text-foreground">Details</h3>
+          <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+            <span className="rounded border border-border bg-muted px-1.5 py-0.5 font-medium text-muted-foreground">
+              {fields.priorityLabel}
+            </span>
+            <span className="rounded border border-border bg-muted px-1.5 py-0.5 text-muted-foreground">
+              {fields.typeLabel}
+            </span>
+            {fields.assignee && (
+              <span className="rounded border border-border bg-muted px-1.5 py-0.5 text-muted-foreground">
+                {fields.assignee}
+              </span>
+            )}
+            {fields.labels.map((label) => (
+              <span
+                key={label}
+                className="rounded border border-primary/40 bg-primary/5 px-1.5 py-0.5 text-primary"
+              >
+                {label}
+              </span>
+            ))}
+          </div>
+        </section>
+
+        {fields.lifecycle && (
+          <section className="rounded-lg border border-warning/40 bg-warning/5 p-3">
+            <p className="break-words text-[13px] text-foreground">{fields.lifecycle}</p>
+          </section>
+        )}
+
+        {(fields.deps.length > 0 || fields.dependents.length > 0) && (
+          <section className="flex flex-col gap-1">
+            <h3 className="font-medium text-[13px] text-foreground">Dependencies</h3>
+            {fields.deps.map((d) => (
+              <p key={`dep-${d.type}-${d.id}`} className="text-[13px] text-muted-foreground">
+                {d.type} {d.id}
+              </p>
+            ))}
+            {fields.dependents.map((d) => (
+              <p key={`rdep-${d.type}-${d.id}`} className="text-[13px] text-muted-foreground">
+                {d.id} {d.type} this
+              </p>
+            ))}
+          </section>
+        )}
+
+        {(fields.parentId || fields.childSummary) && (
+          <section className="flex flex-col gap-1">
+            <h3 className="font-medium text-[13px] text-foreground">Hierarchy</h3>
+            {fields.parentId && (
+              <p className="text-[13px] text-muted-foreground">Parent: {fields.parentId}</p>
+            )}
+            {fields.childSummary && (
+              <p className="text-[13px] text-muted-foreground">Children: {fields.childSummary}</p>
+            )}
+          </section>
+        )}
+
+        {fields.comments.length > 0 && (
+          <section className="flex flex-col gap-2">
+            <h3 className="font-medium text-[13px] text-foreground">
+              Comments ({fields.comments.length})
+            </h3>
+            <div className="flex flex-col gap-2">
+              {fields.comments.map((c) => (
+                <div
+                  key={`${c.author}|${c.createdAt}|${c.body}`}
+                  className="flex flex-col gap-0.5 rounded-lg border border-border bg-muted/40 p-2"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-medium text-[12px] text-foreground">{c.author}</span>
+                    <span className="text-[11px] text-muted-foreground">{c.createdAt}</span>
+                  </div>
+                  <p className="whitespace-pre-wrap break-words text-[13px] text-muted-foreground">
+                    {c.body}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
 
         <section className="flex flex-col gap-1">
           <h3 className="font-medium text-[13px] text-foreground">Description</h3>
