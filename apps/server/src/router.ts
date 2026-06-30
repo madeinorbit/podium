@@ -1,4 +1,5 @@
 import { PodiumSettings } from '@podium/core'
+import { loadConfig } from '@podium/core/config'
 import {
   applySetup,
   NETWORK_OPTIONS,
@@ -8,6 +9,7 @@ import {
 import { AgentKind, IssueStage, ResumeRef, WorkState } from '@podium/protocol'
 import { initTRPC, TRPCError } from '@trpc/server'
 import { z } from 'zod'
+import { buildJoinCommand } from './machines-join'
 import type { SessionRegistry } from './relay'
 import { browseDirectories, type RepoRegistry } from './repo-registry'
 import { isAllowedRoot } from './root-allowlist'
@@ -357,7 +359,14 @@ export const appRouter = t.router({
     }),
     // Mint a short-lived pairing code the user types into a new machine's daemon to
     // join it to this server.
-    pairingCode: t.procedure.mutation(({ ctx }) => ({ code: ctx.registry.mintPairingCode() })),
+    pairingCode: t.procedure.mutation(({ ctx }) => {
+      const code = ctx.registry.mintPairingCode()
+      const publicUrl = loadConfig().publicUrl
+      return {
+        code,
+        joinCommand: publicUrl ? buildJoinCommand({ publicUrl, pairCode: code }) : null,
+      }
+    }),
   }),
   // First-run "make this instance reachable" flow (Tailscale-first). The web setup screen
   // reaches these instead of importing @podium/core/setup directly, which would pull node:fs

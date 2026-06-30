@@ -10,6 +10,7 @@
     },
     "./sqlite": "./src/sqlite/index.ts",
     "./config": "./src/config.ts",
+    "./join": "./src/join.ts",
     "./setup": "./src/setup.ts",
     "./loop-metrics": "./src/loop-metrics.ts"
   },

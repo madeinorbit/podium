@@ -26,6 +26,7 @@ export function MachinesPanel(): JSX.Element {
   const [now, setNow] = useState(() => Date.now())
   const [addOpen, setAddOpen] = useState(false)
   const [code, setCode] = useState<string | null>(null)
+  const [joinCommand, setJoinCommand] = useState<string | null>(null)
   const [addError, setAddError] = useState<string | null>(null)
   const [addLoading, setAddLoading] = useState(false)
 
@@ -41,14 +42,13 @@ export function MachinesPanel(): JSX.Element {
     try {
       const r = await trpc.machines.pairingCode.mutate()
       setCode(r.code)
+      setJoinCommand(r.joinCommand)
     } catch (e) {
       setAddError(e instanceof Error ? e.message : String(e))
     } finally {
       setAddLoading(false)
     }
   }
-
-  const origin = window.location.origin
 
   return (
     <div className="py-3">
@@ -66,6 +66,7 @@ export function MachinesPanel(): JSX.Element {
             setAddOpen(o)
             if (!o) {
               setCode(null)
+              setJoinCommand(null)
               setAddError(null)
             }
           }}
@@ -88,7 +89,7 @@ export function MachinesPanel(): JSX.Element {
             {addLoading && (
               <p className="text-muted-foreground text-xs">Generating pairing code…</p>
             )}
-            {code && <PairingCodeDisplay origin={origin} code={code} />}
+            {code && <PairingCodeDisplay code={code} joinCommand={joinCommand} />}
             <DialogFooter showCloseButton>
               <Button
                 type="button"
@@ -119,12 +120,18 @@ export function MachinesPanel(): JSX.Element {
   )
 }
 
-function PairingCodeDisplay({ origin, code }: { origin: string; code: string }): JSX.Element {
-  const command = `npx @podium/daemon --server ${origin} --pair ${code}`
+function PairingCodeDisplay({
+  code,
+  joinCommand,
+}: {
+  code: string
+  joinCommand: string | null
+}): JSX.Element {
   const [copied, setCopied] = useState(false)
 
   const copy = () => {
-    void navigator.clipboard.writeText(command).then(() => {
+    if (!joinCommand) return
+    void navigator.clipboard.writeText(joinCommand).then(() => {
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
     })
@@ -132,10 +139,6 @@ function PairingCodeDisplay({ origin, code }: { origin: string; code: string }):
 
   return (
     <div className="space-y-2">
-      <div className="flex flex-col gap-1">
-        <span className="text-[11px] text-muted-foreground uppercase tracking-wide">Server</span>
-        <code className="block rounded bg-muted px-2 py-1 text-[12px] break-all">{origin}</code>
-      </div>
       <div className="flex flex-col gap-1">
         <span className="text-[11px] text-muted-foreground uppercase tracking-wide">
           Pairing code
@@ -148,14 +151,20 @@ function PairingCodeDisplay({ origin, code }: { origin: string; code: string }):
         <span className="text-[11px] text-muted-foreground uppercase tracking-wide">
           Command to run on the other machine
         </span>
-        <div className="flex items-start gap-2">
-          <code className="flex-1 break-all rounded bg-muted px-2 py-1.5 text-[11px] leading-relaxed">
-            {command}
-          </code>
-          <Button type="button" variant="outline" size="sm" className="flex-none" onClick={copy}>
-            {copied ? 'Copied' : 'Copy'}
-          </Button>
-        </div>
+        {joinCommand ? (
+          <div className="flex items-start gap-2">
+            <code className="flex-1 break-all rounded bg-muted px-2 py-1.5 text-[11px] leading-relaxed">
+              {joinCommand}
+            </code>
+            <Button type="button" variant="outline" size="sm" className="flex-none" onClick={copy}>
+              {copied ? 'Copied' : 'Copy'}
+            </Button>
+          </div>
+        ) : (
+          <p className="text-[12px] text-muted-foreground">
+            Finish setup to get a one-line join command.
+          </p>
+        )}
       </div>
       <p className="text-[11px] text-muted-foreground">
         The code expires after one use or 10 minutes.
