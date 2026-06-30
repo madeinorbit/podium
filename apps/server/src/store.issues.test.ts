@@ -129,3 +129,15 @@ describe('issue deps (P1)', () => {
     expect(store.listIssueDeps('iss_a')).toEqual([{ toId: 'iss_c', type: 'related' }])
   })
 })
+
+describe('issue comments (P1)', () => {
+  it('adds and lists comments oldest-first', () => {
+    const store = new SessionStore(':memory:')
+    store.addIssueComment({ id: 'c1', issueId: 'iss_a', author: 'mike', body: 'first', createdAt: 't1' })
+    store.addIssueComment({ id: 'c2', issueId: 'iss_a', author: 'agent', body: 'second', createdAt: 't2' })
+    store.addIssueComment({ id: 'c3', issueId: 'iss_b', author: 'x', body: 'other', createdAt: 't1' })
+    const cs = store.listIssueComments('iss_a')
+    expect(cs.map((c) => c.body)).toEqual(['first', 'second'])
+    expect(cs[0].author).toBe('mike')
+  })
+})

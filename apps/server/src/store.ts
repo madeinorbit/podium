@@ -142,6 +142,14 @@ export interface IssueRow {
   estimateMin: number | null
 }
 
+export interface IssueCommentRow {
+  id: string
+  issueId: string
+  author: string
+  body: string
+  createdAt: string
+}
+
 /** One row of the conversation index (camelCase mirror of `conversations`). */
 export interface ConversationIndexRow {
   id: string
@@ -1102,6 +1110,28 @@ export class SessionStore {
         .prepare('SELECT from_id, type FROM issue_deps WHERE to_id = ? ORDER BY from_id ASC, type ASC')
         .all(toId) as { from_id: string; type: string }[]
     ).map((r) => ({ fromId: r.from_id, type: r.type }))
+  }
+
+  addIssueComment(c: IssueCommentRow): void {
+    this.db
+      .prepare(
+        'INSERT INTO issue_comments (id, issue_id, author, body, created_at) VALUES (?, ?, ?, ?, ?)',
+      )
+      .run(c.id, c.issueId, c.author, c.body, c.createdAt)
+  }
+
+  listIssueComments(issueId: string): IssueCommentRow[] {
+    return (
+      this.db
+        .prepare('SELECT * FROM issue_comments WHERE issue_id = ? ORDER BY created_at ASC, id ASC')
+        .all(issueId) as Record<string, unknown>[]
+    ).map((r) => ({
+      id: r.id as string,
+      issueId: r.issue_id as string,
+      author: r.author as string,
+      body: r.body as string,
+      createdAt: r.created_at as string,
+    }))
   }
 
   deleteIssueChildRows(issueId: string): void {
