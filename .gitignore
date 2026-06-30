@@ -33,3 +33,7 @@ scripts/.podium-update-dev.key
 # Headless update artifacts produced by build-bun.ts
 podium-headless-*.tar.gz
 podium-headless-*.tar.gz.sig
+
+# postgres experiment scratch
+.exp/
+dist-bun/

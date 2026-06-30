@@ -185,9 +185,18 @@ export class SessionStore {
   /** FTS5 is compiled into the bundled SQLite normally; LIKE fallback if not. */
   private ftsAvailable = false
 
-  constructor(private readonly path: string = defaultDbPath()) {
-    if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true })
-    this.db = openDatabase(path)
+  constructor(
+    private readonly path: string = defaultDbPath(),
+    // EXPERIMENT seam: inject a pre-opened SqlDatabase (e.g. the Postgres/libpq
+    // adapter) instead of opening SQLite at `path`. No effect on the default path.
+    injectedDb?: SqlDatabase,
+  ) {
+    if (injectedDb) {
+      this.db = injectedDb
+    } else {
+      if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true })
+      this.db = openDatabase(path)
+    }
     this.migrate()
   }
 
