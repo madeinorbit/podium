@@ -440,13 +440,25 @@ In `mapIssueRow`, add (before `createdAt:`):
       estimateMin: (r.estimate_min as number | null) ?? null,
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+Because `IssueRow` now has these as **required** fields, the one place that builds a fresh
+`IssueRow` literal — `IssueService.create()` in `apps/server/src/issues.ts` — must set them or
+the package won't typecheck. Add the defaults to the `create()` row literal, right after
+`suggestedStage: null, suggestedReason: null, blockedBy: [], dependencyNote: null, prUrl: null,`:
 
-Run: `npx vitest run apps/server/src/store.issues.test.ts`
-Expected: PASS (5 tests). Then run the existing suite to confirm no regression:
-`npx vitest run apps/server/src/issues.test.ts` → the existing IssueService tests will now fail
-to typecheck because `create()` builds an `IssueRow` literal without the new fields — that is
-fixed in Task 7. For now just confirm the store test passes.
+```ts
+      priority: 2, type: 'task', assignee: null, parentId: null, design: null, acceptance: null,
+      notes: null, dueAt: null, deferUntil: null, closedReason: null, supersededBy: null,
+      duplicateOf: null, pinned: false, estimateMin: null,
+```
+
+`toWire` and `IssueWire` are unchanged in this task (they gain the new fields in Task 7), so the
+wire shape stays identical and the existing `issues.test.ts` assertions still hold.
+
+- [ ] **Step 4: Run tests to verify they pass**
+
+Run: `npx vitest run apps/server/src/store.issues.test.ts apps/server/src/issues.test.ts`
+Expected: PASS — new store tests **and** the existing IssueService suite both green. Then
+`bun run typecheck` → clean (the `create()` literal now satisfies the extended `IssueRow`).
 
 - [ ] **Step 5: Commit**
 
@@ -876,15 +888,9 @@ In `IssueWire`, add (before the derived `sessions`):
   childDoneCount: z.number().int(),
 ```
 
-In `issues.ts` `create()`, add the new defaults to the `IssueRow` literal (after `prUrl: null,`):
-
-```ts
-      priority: 2, type: 'task', assignee: null, parentId: null, design: null, acceptance: null,
-      notes: null, dueAt: null, deferUntil: null, closedReason: null, supersededBy: null,
-      duplicateOf: null, pinned: false, estimateMin: null,
-```
-
-Extend the `update` signature's `Pick` to include the new patchable fields:
+The `create()` defaults for the new fields were already added in Task 3, so the row literal
+already satisfies `IssueRow` — no change to `create()` here. Extend the `update` signature's
+`Pick` to include the new patchable fields:
 
 ```ts
   update(id: string, patch: Partial<Pick<IssueRow,
