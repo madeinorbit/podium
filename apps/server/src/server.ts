@@ -8,6 +8,7 @@ import { startLoopMetrics } from '@podium/core/loop-metrics'
 import { WIRE_VERSION } from '@podium/protocol'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
+import { registerAuthRoute } from './auth-route'
 import { registerAssetRoute } from './file-asset-route'
 import { readOrCreateDaemonSecret } from './local-machine'
 import { registerMcpRoute } from './mcp-route'
@@ -68,6 +69,11 @@ export async function startServer(opts: { port?: number } = {}): Promise<ServerH
   // blocked and SetupGate's catch() silently skips onboarding. Must precede the route handler.
   app.use('/setup/*', cors())
   registerSetupRoute(app)
+  // Human-client login (web/desktop UI). Same cross-origin reason as /setup: the desktop
+  // webview's origin differs from the server in the all-in-one case. Login itself is
+  // same-origin in the supported network topologies; the password store gates it.
+  app.use('/auth/*', cors())
+  registerAuthRoute(app, { store })
   registerAssetRoute(app, registry)
   // In-process MCP server exposing the superagent's orchestrator tools to a
   // harness-backed superagent (Claude via --mcp-config). Token-gated.
