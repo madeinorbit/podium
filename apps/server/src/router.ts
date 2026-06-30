@@ -406,6 +406,9 @@ export const appRouter = t.router({
     closeEligibleEpics: t.procedure
       .input(z.object({ repoPath: z.string().optional() }))
       .query(({ ctx, input }) => ctx.registry.issues.closeEligibleEpics(input.repoPath)),
+    findDuplicates: t.procedure
+      .input(z.object({ repoPath: z.string().optional(), threshold: z.number().optional() }))
+      .query(({ ctx, input }) => ctx.registry.issues.findDuplicates(input.repoPath, input.threshold)),
     get: t.procedure
       .input(z.object({ id: z.string() }))
       .query(({ ctx, input }) => ctx.registry.issues.get(input.id)),

@@ -492,3 +492,15 @@ describe('IssueService supersede/duplicate (P2b)', () => {
     expect(() => svc.supersede(a.id, 'iss_missing')).toThrow()
   })
 })
+
+describe('IssueService findDuplicates (P2b)', () => {
+  it('flags near-identical open issues above threshold', () => {
+    const { svc } = harness()
+    svc.create({ repoPath: '/r', title: 'Fix login bug', description: 'cannot sign in', startNow: false })
+    svc.create({ repoPath: '/r', title: 'Fix login bug', description: 'cannot sign in', startNow: false })
+    svc.create({ repoPath: '/r', title: 'Add dark mode', description: 'theme toggle', startNow: false })
+    const dups = svc.findDuplicates('/r', 0.6)
+    expect(dups.length).toBe(1)
+    expect(dups[0]!.score).toBe(1)
+  })
+})

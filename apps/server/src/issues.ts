@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import type { PodiumSettings } from '@podium/core'
-import { type EpicStatus, type IssueGraph, type IssueWire, type RepoOp, type ServerMessage, type SessionMeta } from '@podium/protocol'
+import { type DuplicateCandidate, type EpicStatus, type IssueGraph, type IssueWire, type RepoOp, type ServerMessage, type SessionMeta } from '@podium/protocol'
+import { jaccard, tokenize } from './issue-similarity'
 import { sessionsForIssue, slugifyBranch, summarizeSessions } from './issue-util'
 import type { IssueRow, SessionStore } from './store'
 import { buildAssistantMessages, parseAssistantJson } from './issueAssistant'
@@ -165,6 +166,26 @@ export class IssueService {
       .filter((r) => (!repoPath || r.repoPath === repoPath) && r.type === 'epic' && !this.isClosed(r))
       .filter((r) => this.epicStatus(r.id).complete)
       .map((r) => this.toWire(r))
+  }
+
+  /** Mechanical (Jaccard) duplicate detection over open issues in a repo.
+   *  Returns id pairs (`a.seq < b.seq`) whose token-set similarity over
+   *  `title + ' ' + description` is >= threshold, sorted by score desc. */
+  findDuplicates(repoPath?: string, threshold = 0.6): DuplicateCandidate[] {
+    const open = [...this.rows.values()]
+      .filter((r) => (!repoPath || r.repoPath === repoPath) && !this.isClosed(r))
+      .sort((a, b) => a.seq - b.seq)
+    const toks = new Map(open.map((r) => [r.id, tokenize(`${r.title} ${r.description}`)]))
+    const out: DuplicateCandidate[] = []
+    for (let i = 0; i < open.length; i++) {
+      for (let j = i + 1; j < open.length; j++) {
+        const a = open[i]!
+        const b = open[j]!
+        const score = jaccard(toks.get(a.id)!, toks.get(b.id)!)
+        if (score >= threshold) out.push({ a: a.id, b: b.id, score })
+      }
+    }
+    return out.sort((x, y) => y.score - x.score)
   }
 
   get(id: string): IssueWire | null {
