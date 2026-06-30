@@ -221,3 +221,29 @@ test('#18 archive button is available once a session has exited', async ({ page 
   // ...and Archive STILL shows (the #18 fix — it used to disappear on exit).
   await expect(archive).toBeVisible({ timeout: 10_000 })
 })
+
+test('#11 snooze hover menu opens, with a fixed gap-bridge', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await openApp(page)
+  await newSession(page, 'Shell')
+
+  // An idle session shows the snooze control in the panel header.
+  const snooze = page.locator('button[aria-haspopup="menu"][title="Snooze"]:visible').first()
+  await expect(snooze).toBeVisible({ timeout: 10_000 })
+  await snooze.hover()
+
+  // The "Snooze for" menu opens on hover...
+  await expect(page.getByRole('menu').filter({ hasText: 'Snooze for' })).toBeVisible({
+    timeout: 5_000,
+  })
+
+  // ...and the slim fixed hover-bridge (#11) is present so a slow pointer crossing
+  // the icon→menu gap can't fall onto the row beneath (it's 8px wide by design).
+  const hasBridge = await page.evaluate(() =>
+    [...document.querySelectorAll('div[aria-hidden="true"]')].some((d) => {
+      const s = getComputedStyle(d)
+      return s.position === 'fixed' && Math.round(Number.parseFloat(s.width)) === 8
+    }),
+  )
+  expect(hasBridge).toBe(true)
+})
