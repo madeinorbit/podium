@@ -47,6 +47,7 @@ import { STAGE_LABELS } from './issue-card'
 import { NewPanelMenu } from './NewPanelMenu'
 import { RepoScanFlow } from './RepoScanFlow'
 import { SearchView } from './SearchView'
+import { type ContextMenuAnchor, SessionContextMenu } from './SessionContextMenu'
 import { SnoozeControl } from './SnoozeControl'
 import { useStore } from './store'
 import type { PinKind, WorktreeView } from './types'
@@ -1013,6 +1014,7 @@ function PanelRow({
   const { guardedKill } = useSessionGuard()
   const badge = agentBadge(session)
   const [editing, setEditing] = useState(false)
+  const [menuAnchor, setMenuAnchor] = useState<ContextMenuAnchor | null>(null)
   // Snooze control shows: on attention rows always (to snooze); elsewhere ONLY
   // when already snoozed — so worktree/pinned rows surface an un-snooze affordance
   // for a snoozed session, but never a plain "snooze" icon.
@@ -1049,6 +1051,11 @@ function PanelRow({
           onClick={onSelect}
           // Double-click the row to rename — matches the tab strip.
           onDoubleClick={() => setEditing(true)}
+          // Right-click for the full action menu (rename + every toolbar action).
+          onContextMenu={(e) => {
+            e.preventDefault()
+            setMenuAnchor({ x: e.clientX, y: e.clientY })
+          }}
         >
           <StatusDot session={session} /> <WorkerLabel session={session} />
           {/* Unsent composer draft → DRAFT tag (shown wherever a session is listed,
@@ -1128,6 +1135,18 @@ function PanelRow({
           only when snoozed, so it reads as an un-snooze affordance — never a plain
           "snooze" icon outside NEEDS YOUR ATTENTION. */}
       {(attention || snoozed) && <SnoozeControl session={session} />}
+      {menuAnchor && (
+        <SessionContextMenu
+          session={session}
+          pinned={pinned}
+          anchor={menuAnchor}
+          onClose={() => setMenuAnchor(null)}
+          onRename={() => {
+            setMenuAnchor(null)
+            setEditing(true)
+          }}
+        />
+      )}
     </div>
   )
 }

@@ -33,6 +33,7 @@ import { NewPanelMenu } from './NewPanelMenu'
 import { type FileTab, useStore } from './store'
 import type { WorktreeView } from './types'
 import { useWarmSet } from './use-warm-set'
+import { type ContextMenuAnchor, SessionContextMenu } from './SessionContextMenu'
 import { SessionNameEditor, sessionDisplayName, WorkerLabel } from './WorkerLabel'
 
 const MarkdownFilePanel = lazy(() =>
@@ -308,6 +309,7 @@ function SortableTab({
 }): JSX.Element {
   const { renameSession } = useStore()
   const [editing, setEditing] = useState(false)
+  const [menuAnchor, setMenuAnchor] = useState<ContextMenuAnchor | null>(null)
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: tab.id,
   })
@@ -365,6 +367,14 @@ function SortableTab({
           )}
           onClick={onSelect}
           onDoubleClick={tab.kind === 'session' ? () => setEditing(true) : undefined}
+          onContextMenu={
+            tab.kind === 'session'
+              ? (e) => {
+                  e.preventDefault()
+                  setMenuAnchor({ x: e.clientX, y: e.clientY })
+                }
+              : undefined
+          }
         >
           {tab.kind === 'session' ? (
             <>
@@ -403,6 +413,18 @@ function SortableTab({
       >
         <X size={12} aria-hidden="true" />
       </button>
+      {tab.kind === 'session' && menuAnchor && (
+        <SessionContextMenu
+          session={tab.session}
+          pinned={pinned}
+          anchor={menuAnchor}
+          onClose={() => setMenuAnchor(null)}
+          onRename={() => {
+            setMenuAnchor(null)
+            setEditing(true)
+          }}
+        />
+      )}
     </div>
   )
 }
