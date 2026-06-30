@@ -9,6 +9,8 @@ import { WIRE_VERSION } from '@podium/protocol'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { registerAssetRoute } from './file-asset-route'
+import { makeIssueClient } from './issue-client'
+import { CompositeMcpProvider, IssueToolProvider } from './issue-mcp'
 import { readOrCreateDaemonSecret } from './local-machine'
 import { registerMcpRoute } from './mcp-route'
 import { SessionRegistry } from './relay'
@@ -71,8 +73,12 @@ export async function startServer(opts: { port?: number } = {}): Promise<ServerH
   registerAssetRoute(app, registry)
   // In-process MCP server exposing the superagent's orchestrator tools to a
   // harness-backed superagent (Claude via --mcp-config). Token-gated.
+  // One `podium` MCP surface composes the superagent's tools (first, so they win
+  // name collisions) with the native issue-tracker tools.
   const mcpToken = randomUUID()
-  registerMcpRoute(app, superagent, mcpToken)
+  const issueTools = new IssueToolProvider()
+  const mcpProvider = new CompositeMcpProvider([superagent, issueTools])
+  registerMcpRoute(app, mcpProvider, mcpToken)
   app.use('/trpc/*', cors())
   app.use(
     '/trpc/*',
@@ -98,6 +104,7 @@ export async function startServer(opts: { port?: number } = {}): Promise<ServerH
       // The harness agent runs on the same host (single-machine), so loopback
       // reaches this MCP route. Now that the port is known, point it there.
       superagent.setMcpEndpoint(`http://127.0.0.1:${info.port}/mcp`, mcpToken)
+      issueTools.setClient(makeIssueClient(`http://127.0.0.1:${info.port}`))
       const ws = attachWebSockets(server as unknown as Server, registry)
       if (process.env.PODIUM_LOOP_PROFILE) startLoopMetrics({ label: 'server' })
       resolve({
