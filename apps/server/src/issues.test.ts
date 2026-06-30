@@ -554,3 +554,20 @@ describe('IssueService search/count/stats (P2b)', () => {
     expect(s.open).toBe(1)
   })
 })
+
+describe('IssueService doctor/preflight (P2b)', () => {
+  it('doctor reports dangling deps and clean preflight when none', () => {
+    const { svc, store } = harness()
+    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    store.addIssueDep(a.id, 'iss_ghost', 'blocks') // target does not exist
+    const d = svc.doctor('/r')
+    expect(d.danglingDeps).toEqual([{ from: a.id, to: 'iss_ghost', type: 'blocks' }])
+    expect(svc.preflight('/r').ok).toBe(false)
+  })
+
+  it('preflight ok when no cycles or dangling deps', () => {
+    const { svc } = harness()
+    svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    expect(svc.preflight('/r').ok).toBe(true)
+  })
+})

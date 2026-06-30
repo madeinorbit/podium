@@ -658,6 +658,13 @@ export const LintFinding = z.object({
 })
 export type LintFinding = z.infer<typeof LintFinding>
 
+export const DoctorReport = z.object({
+  cycles: z.array(z.array(z.string())),
+  danglingDeps: z.array(z.object({ from: z.string(), to: z.string(), type: z.string() })),
+  lintCount: z.number().int(), staleCount: z.number().int(),
+})
+export type DoctorReport = z.infer<typeof DoctorReport>
+
 export const IssueGraphNode = z.object({
   id: z.string(), seq: z.number().int(), title: z.string(), stage: IssueStage,
   priority: z.number().int(), type: IssueType, ready: z.boolean(), blocked: z.boolean(),

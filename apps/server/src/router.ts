@@ -415,6 +415,12 @@ export const appRouter = t.router({
     lint: t.procedure
       .input(z.object({ repoPath: z.string().optional() }))
       .query(({ ctx, input }) => ctx.registry.issues.lint(input.repoPath)),
+    doctor: t.procedure
+      .input(z.object({ repoPath: z.string().optional() }))
+      .query(({ ctx, input }) => ctx.registry.issues.doctor(input.repoPath)),
+    preflight: t.procedure
+      .input(z.object({ repoPath: z.string().optional() }))
+      .query(({ ctx, input }) => ctx.registry.issues.preflight(input.repoPath)),
     search: t.procedure
       .input(z.object({
         repoPath: z.string().optional(), text: z.string().optional(),

@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import type { PodiumSettings } from '@podium/core'
-import { type DuplicateCandidate, type EpicStatus, type IssueCount, type IssueGraph, type IssueSearchFilter, type IssueStats, type IssueWire, type LintFinding, type RepoOp, type ServerMessage, type SessionMeta } from '@podium/protocol'
+import { type DoctorReport, type DuplicateCandidate, type EpicStatus, type IssueCount, type IssueGraph, type IssueSearchFilter, type IssueStats, type IssueWire, type LintFinding, type RepoOp, type ServerMessage, type SessionMeta } from '@podium/protocol'
 import { jaccard, tokenize } from './issue-similarity'
 import { lintIssue } from './issue-lint'
 import { sessionsForIssue, slugifyBranch, summarizeSessions } from './issue-util'
@@ -214,6 +214,47 @@ export class IssueService {
       .filter((r) => (!repoPath || r.repoPath === repoPath) && !this.isClosed(r))
       .map((r) => ({ id: r.id, seq: r.seq, findings: lintIssue(r) }))
       .filter((f) => f.findings.length > 0)
+  }
+
+  doctor(repoPath?: string): DoctorReport {
+    const rows = [...this.rows.values()].filter((r) => !repoPath || r.repoPath === repoPath)
+    const ids = new Set(rows.map((r) => r.id))
+    const danglingDeps: DoctorReport['danglingDeps'] = []
+    const adj = new Map<string, string[]>()
+    for (const r of rows) {
+      for (const d of this.deps.store.listIssueDeps(r.id)) {
+        if (!ids.has(d.toId)) danglingDeps.push({ from: r.id, to: d.toId, type: d.type })
+        if (d.type === 'blocks' || d.type === 'parent-child') {
+          adj.set(r.id, [...(adj.get(r.id) ?? []), d.toId])
+        }
+      }
+    }
+    // cycle detection over blocks+parent-child edges (DFS colouring).
+    const cycles: string[][] = []
+    const colour = new Map<string, number>() // 0=white,1=grey,2=black
+    const stack: string[] = []
+    const visit = (u: string): void => {
+      colour.set(u, 1)
+      stack.push(u)
+      for (const v of adj.get(u) ?? []) {
+        if (!ids.has(v)) continue
+        if (colour.get(v) === 1) cycles.push([...stack.slice(stack.indexOf(v)), v])
+        else if (!colour.get(v)) visit(v)
+      }
+      stack.pop()
+      colour.set(u, 2)
+    }
+    for (const r of rows) if (!colour.get(r.id)) visit(r.id)
+    return {
+      cycles, danglingDeps,
+      lintCount: this.lint(repoPath).length,
+      staleCount: this.staleList(repoPath).length,
+    }
+  }
+
+  preflight(repoPath?: string): { ok: boolean; report: DoctorReport } {
+    const report = this.doctor(repoPath)
+    return { ok: report.cycles.length === 0 && report.danglingDeps.length === 0, report }
   }
 
   search(filter: IssueSearchFilter): IssueWire[] {
