@@ -63,3 +63,26 @@ test('real claude: chat send submits both a short and a long (paste-sized) messa
   )
   await nativeHasAnswer(page, '659', 150_000)
 })
+
+test('real codex: chat send submits and starts a turn', async ({ page }) => {
+  test.setTimeout(300_000)
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await openApp(page)
+  await newSession(page, 'Codex')
+  // Codex's TUI takes a moment to draw its composer; wait for a substantial, settled
+  // screen rather than a specific banner (its layout differs from claude's).
+  await expect
+    .poll(async () => (await podium.screen(page)).replace(/\s/g, '').length, {
+      timeout: 120_000,
+      intervals: [2000],
+    })
+    .toBeGreaterThan(40)
+  await page.waitForTimeout(5000)
+  await page.locator('button[aria-label="Chat view"]').click()
+  await expect(page.getByPlaceholder('Message the agent…')).toBeVisible({ timeout: 30_000 })
+
+  // The same chat send path (bracketed paste + delayed CR) must submit for codex.
+  // 314+159=473 (absent from the prompt).
+  await sendChat(page, 'Compute 314 + 159 and reply with only the number, nothing else.')
+  await nativeHasAnswer(page, '473', 180_000)
+})
