@@ -391,3 +391,24 @@ describe('IssueService hierarchy reconciliation (P2a / I2)', () => {
     expect(svc.get(old.id)!.dependents).toContainEqual({ id: x.id, type: 'parent-child' })
   })
 })
+
+describe('IssueService ready/blocked lists (P2a)', () => {
+  it('readyList returns only ready issues, priority then seq ordered', () => {
+    const { svc, store } = harness()
+    const a = svc.create({ repoPath: '/r', title: 'A', priority: 3, startNow: false })
+    const b = svc.create({ repoPath: '/r', title: 'B', priority: 0, startNow: false })
+    const c = svc.create({ repoPath: '/r', title: 'C', startNow: false })
+    store.addIssueDep(a.id, c.id, 'blocks') // a blocked by open c
+    svc.update(c.id, {}) // no-op to ensure persisted
+    const ready = svc.readyList('/r').map((w) => w.title)
+    expect(ready).toEqual(['B', 'C']) // A is blocked; B(p0) before C(p2)
+  })
+
+  it('blockedList returns only blocked issues', () => {
+    const { svc, store } = harness()
+    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    const b = svc.create({ repoPath: '/r', title: 'B', startNow: false })
+    store.addIssueDep(a.id, b.id, 'blocks')
+    expect(svc.blockedList('/r').map((w) => w.title)).toEqual(['A'])
+  })
+})

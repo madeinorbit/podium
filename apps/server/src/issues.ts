@@ -118,6 +118,22 @@ export class IssueService {
       .sort((a, b) => (a.repoPath === b.repoPath ? a.seq - b.seq : a.repoPath.localeCompare(b.repoPath)))
       .map((r) => this.toWire(r))
   }
+  readyList(repoPath?: string): IssueWire[] {
+    return [...this.rows.values()]
+      .filter((r) => !repoPath || r.repoPath === repoPath)
+      .map((r) => this.toWire(r))
+      .filter((w) => w.ready)
+      .sort((a, b) => (a.priority !== b.priority ? a.priority - b.priority : a.seq - b.seq))
+  }
+
+  blockedList(repoPath?: string): IssueWire[] {
+    return [...this.rows.values()]
+      .filter((r) => !repoPath || r.repoPath === repoPath)
+      .map((r) => this.toWire(r))
+      .filter((w) => w.blocked)
+      .sort((a, b) => (a.priority !== b.priority ? a.priority - b.priority : a.seq - b.seq))
+  }
+
   get(id: string): IssueWire | null {
     const r = this.rows.get(id)
     return r ? this.toWire(r) : null

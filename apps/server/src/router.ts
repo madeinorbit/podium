@@ -391,6 +391,12 @@ export const appRouter = t.router({
     list: t.procedure
       .input(z.object({ repoPath: z.string().optional() }))
       .query(({ ctx, input }) => ctx.registry.issues.list(input.repoPath)),
+    ready: t.procedure
+      .input(z.object({ repoPath: z.string().optional() }))
+      .query(({ ctx, input }) => ctx.registry.issues.readyList(input.repoPath)),
+    blocked: t.procedure
+      .input(z.object({ repoPath: z.string().optional() }))
+      .query(({ ctx, input }) => ctx.registry.issues.blockedList(input.repoPath)),
     get: t.procedure
       .input(z.object({ id: z.string() }))
       .query(({ ctx, input }) => ctx.registry.issues.get(input.id)),
