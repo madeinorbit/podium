@@ -112,6 +112,17 @@ export function compareRecency(a: SessionMeta, b: SessionMeta, now: number = Dat
   return a.sessionId.localeCompare(b.sessionId)
 }
 
+/**
+ * The command center triages *agents*, not shells. A shell sitting at its prompt
+ * (or running a one-off command) is not something you steer from the board, so it
+ * never belongs in the list, the kanban lanes, or the archived drawer. Filter it
+ * out at the command-center boundary; the sidebar's worktree tree still lists
+ * shells under their worktree.
+ */
+export function withoutShells(sessions: SessionMeta[]): SessionMeta[] {
+  return sessions.filter((s) => s.agentKind !== 'shell')
+}
+
 export function groupSessions(sessions: SessionMeta[]): HomeGroups {
   const groups: HomeGroups = { needsYou: [], idle: [], working: [] }
   for (const s of sessions) {

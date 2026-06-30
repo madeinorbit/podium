@@ -38,6 +38,8 @@ function useIsActiveMenu(key: string): boolean {
 interface MenuPos {
   top: number
   right: number
+  /** Icon height — the bridge that closes the icon→menu hover gap spans it. */
+  height: number
 }
 
 /** Snooze toggle + hover menu. Direct click (mouse) → snooze until next message
@@ -83,7 +85,7 @@ export function SnoozeControl({
   // positioning + a portal escapes the sidebar's `overflow-y-auto` clip.
   const place = () => {
     const r = triggerRef.current?.getBoundingClientRect()
-    if (r) setPos({ top: r.top, right: Math.max(8, window.innerWidth - r.left + 4) })
+    if (r) setPos({ top: r.top, right: Math.max(8, window.innerWidth - r.left + 4), height: r.height })
   }
   const openMenu = () => {
     if (COARSE_POINTER) return // touch opens on tap, not hover
@@ -180,6 +182,20 @@ export function SnoozeControl({
                 tabIndex={-1}
                 className="fixed inset-0 z-40 cursor-default"
                 onClick={close}
+              />
+            )}
+            {/* Invisible hover bridge spanning the small gap between the icon and the
+                menu's right edge. Without it a slow pointer crossing the gap lands on
+                the row beneath (which would steal hover / close the menu mid-travel).
+                It keeps the menu open AND intercepts the row's pointer events. Mouse
+                only — touch opens via tap and uses the full-screen backdrop above. */}
+            {!COARSE_POINTER && (
+              <div
+                aria-hidden="true"
+                className="fixed z-40"
+                style={{ top: pos.top, height: pos.height, right: pos.right - 4, width: 8 }}
+                onMouseEnter={openMenu}
+                onMouseLeave={scheduleClose}
               />
             )}
             <div

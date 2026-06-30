@@ -11,7 +11,7 @@ import { useSessionGuard } from '@/hooks/use-session-guard'
 import { cn } from '@/lib/utils'
 import { CardBoundary } from './CardBoundary'
 import { agentBadge, panelLabel, sessionDotClass } from './derive'
-import { attentionSummary, groupSessions, kanbanColumns, relativeTime } from './home'
+import { attentionSummary, groupSessions, kanbanColumns, relativeTime, withoutShells } from './home'
 import { useStore } from './store'
 import { sessionDisplayName } from './WorkerLabel'
 
@@ -46,7 +46,7 @@ export function HomeView(): JSX.Element {
     setMode(m)
     localStorage.setItem(MODE_KEY, m)
   }
-  const archived = sessions.filter((s) => s.archived)
+  const archived = withoutShells(sessions).filter((s) => s.archived)
 
   return (
     <section
@@ -107,7 +107,7 @@ export function HomeView(): JSX.Element {
 
 function PriorityList({ now }: { now: number }): JSX.Element {
   const { sessions } = useStore()
-  const groups = groupSessions(sessions)
+  const groups = groupSessions(withoutShells(sessions))
   const empty =
     groups.needsYou.length === 0 && groups.idle.length === 0 && groups.working.length === 0
   return (
@@ -164,7 +164,7 @@ function HomeGroup({
 
 function KanbanBoard({ now }: { now: number }): JSX.Element {
   const { sessions, setWorkState } = useStore()
-  const lanes = kanbanColumns(sessions)
+  const lanes = kanbanColumns(withoutShells(sessions))
   const onDragEnd = (event: DragEndEvent) => {
     const { active, over } = event
     if (!over) return
