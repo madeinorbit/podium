@@ -1089,31 +1089,44 @@ Note: confirm `package.json` has a `package:headless` script (it does, per the s
 
 ---
 
-### Task 10: Setup tRPC router + web GUI wizard
+### Task 10: Setup tRPC procedures + web networking step
+
+> **Reality-checked against the codebase (scout).** The server uses **inline** `t.router(...)` / `t.procedure` in `apps/server/src/router.ts` (there is NO `publicProcedure`/`router` helper module and NO `apps/server/src/routers/` dir). The web client is **vanilla tRPC** obtained from `useStore()` — calls are `.query()` / `.mutate()`, NOT React-Query `.useQuery`. The first-run setup screen is `apps/web/src/SetupView.tsx`, rendered by `apps/web/src/SetupGate.tsx`. Follow these real patterns, not the generic snippets.
 
 **Files:**
-- Create: `apps/server/src/routers/setup.ts` (tRPC `setup` router)
-- Modify: `apps/server/src/router.ts` (mount `setup`)
-- Create: `apps/web/src/setup/SetupWizard.tsx`
-- Modify: the web entry that gates on `needsSetup` (follow the existing setup-hint code path; e.g. `apps/web/src/App.tsx` or the existing SetupGate)
-- Test: `apps/server/src/routers/setup.test.ts`
+- Modify: `apps/server/src/router.ts` — add an inline `setup:` sub-router (sibling to the existing `machines:` group, ~line 340-357).
+- Test: `apps/server/src/router.setup.test.ts` — mirror the `caller()` helper in `apps/server/src/router.test.ts`.
+- Modify: `apps/web/src/SetupView.tsx` — add the networking step (uses the store's vanilla trpc + the shadcn `@/components/ui/*` kit).
 
 **Interfaces:**
-- Consumes: `NETWORK_OPTIONS`, `networkOptionCommand`, `validatePublicUrl`, `applySetup`, `wssFrom` (Task 3).
-- Produces: tRPC procedures `setup.options` (query), `setup.commandFor` (query), `setup.complete` (mutation → persists publicUrl). UI renders the steps.
+- Server consumes from `@podium/core/setup` (Node-only): `NETWORK_OPTIONS`, `networkOptionCommand`, `validatePublicUrl`, `applySetup`.
+- Produces tRPC procedures: `setup.options` (query → `NETWORK_OPTIONS`), `setup.commandFor` (query `{option,port}` → `{command,hint}`), `setup.complete` (mutation `{publicUrl}` → `applySetup`; throws `TRPCError BAD_REQUEST` on an invalid URL).
+- **HARD CONSTRAINT:** `apps/web` must NEVER import `@podium/core/setup` (it transitively pulls `node:fs` via `./config` into the browser bundle). The web step calls the tRPC procedures only.
 
-- [ ] **Step 1: Write the failing test (server router)**
+- [ ] **Step 1: Write the failing test** — copy the `caller()` helper and its imports VERBATIM from `apps/server/src/router.test.ts` (it constructs `SessionRegistry`/`RepoRegistry`/`SuperagentService` and calls `appRouter.createCaller({ registry, repos, superagent })`). Use the exact import paths that file uses (for `@podium/core/config` and the three services).
 
 ```ts
-// apps/server/src/routers/setup.test.ts
+// apps/server/src/router.setup.test.ts
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { loadConfig } from '../../../../packages/core/src/config'
-import { setupRouter } from './setup'
+// >>> copy these import paths from apps/server/src/router.test.ts <<<
+import { loadConfig } from '@podium/core/config'
+import { RepoRegistry } from './repos'
+import { SessionRegistry } from './relay'
+import { SuperagentService } from './superagent'
+import { appRouter } from './router'
 
-describe('setup router', () => {
+function caller() {
+  const registry = new SessionRegistry()
+  registry.attachDaemon('local', () => {})
+  const repos = new RepoRegistry(registry, registry.sessionStore)
+  const superagent = new SuperagentService(registry, repos, registry.sessionStore)
+  return appRouter.createCaller({ registry, repos, superagent })
+}
+
+describe('setup tRPC', () => {
   let dir: string
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), 'podium-setuprtr-'))
@@ -1123,17 +1136,20 @@ describe('setup router', () => {
     delete process.env.PODIUM_STATE_DIR
     rmSync(dir, { recursive: true, force: true })
   })
-  const caller = () => setupRouter.createCaller({} as never)
 
   it('lists network options', async () => {
-    const opts = await caller().options()
-    expect(opts.map((o) => o.id)).toContain('tailscale-funnel')
+    expect((await caller().setup.options()).map((o) => o.id)).toContain('tailscale-funnel')
+  })
+  it('returns the funnel command', async () => {
+    expect((await caller().setup.commandFor({ option: 'tailscale-funnel', port: 18787 })).command).toBe(
+      'tailscale funnel 18787',
+    )
   })
   it('rejects a bad URL on complete', async () => {
-    await expect(caller().complete({ publicUrl: 'nope' })).rejects.toThrow()
+    await expect(caller().setup.complete({ publicUrl: 'nope' })).rejects.toThrow()
   })
-  it('persists a normalized publicUrl on complete', async () => {
-    await caller().complete({ publicUrl: 'https://box.ts.net/' })
+  it('persists a normalized publicUrl + all-in-one mode', async () => {
+    await caller().setup.complete({ publicUrl: 'https://box.ts.net/' })
     expect(loadConfig().publicUrl).toBe('https://box.ts.net')
     expect(loadConfig().mode).toBe('all-in-one')
   })
@@ -1142,93 +1158,101 @@ describe('setup router', () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `bun run vitest run apps/server/src/routers/setup.test.ts`
-Expected: FAIL — `./setup` not found.
+Run: `bun run vitest run apps/server/src/router.setup.test.ts`
+Expected: FAIL — `setup` is not a procedure group on `appRouter`.
 
-- [ ] **Step 3: Write the router** (mirror the existing router/procedure style in `apps/server/src/router.ts`; if procedures use a shared `publicProcedure`/`router` builder, import those instead of re-creating)
+- [ ] **Step 3: Add the inline `setup` group to `apps/server/src/router.ts`**
+
+Add the import near the other `@podium/core` imports (use the same import style the file already uses for `@podium/core/config`):
 
 ```ts
-// apps/server/src/routers/setup.ts
-import { z } from 'zod'
-import { applySetup, NETWORK_OPTIONS, networkOptionCommand, validatePublicUrl } from '../../../../packages/core/src/setup'
-import { publicProcedure, router } from '../trpc' // adjust import to the project's trpc helpers
-
-export const setupRouter = router({
-  options: publicProcedure.query(() => NETWORK_OPTIONS),
-  commandFor: publicProcedure
-    .input(z.object({ option: z.enum(['tailscale-funnel', 'tailscale-serve', 'cloudflare-tunnel', 'manual']), port: z.number() }))
-    .query(({ input }) => networkOptionCommand(input.option, input.port)),
-  complete: publicProcedure
-    .input(z.object({ publicUrl: z.string() }))
-    .mutation(({ input }) => {
-      const v = validatePublicUrl(input.publicUrl)
-      if (!v.ok) throw new Error(v.error)
-      return applySetup({ publicUrl: v.normalized })
-    }),
-})
+import {
+  applySetup,
+  NETWORK_OPTIONS,
+  networkOptionCommand,
+  validatePublicUrl,
+} from '@podium/core/setup'
 ```
 
-Mount it in `apps/server/src/router.ts` (add `setup: setupRouter` to the root router).
+Then add a `setup:` group inside `appRouter = t.router({ ... })`, as a sibling to `machines:` (`z` and `TRPCError` are already imported in this file):
+
+```ts
+  setup: t.router({
+    options: t.procedure.query(() => NETWORK_OPTIONS),
+    commandFor: t.procedure
+      .input(
+        z.object({
+          option: z.enum(['tailscale-funnel', 'tailscale-serve', 'cloudflare-tunnel', 'manual']),
+          port: z.number(),
+        }),
+      )
+      .query(({ input }) => networkOptionCommand(input.option, input.port)),
+    complete: t.procedure
+      .input(z.object({ publicUrl: z.string() }))
+      .mutation(({ input }) => {
+        const v = validatePublicUrl(input.publicUrl)
+        if (!v.ok) throw new TRPCError({ code: 'BAD_REQUEST', message: v.error })
+        return applySetup({ publicUrl: v.normalized })
+      }),
+  }),
+```
+
+Note: `@podium/core/setup` is imported by the SERVER only (Node), which is fine. The subpath export must exist — if `@podium/core/setup` does not resolve, add it to `packages/core/package.json` `exports` mirroring the existing `@podium/core/config` subpath entry (check that file first; the scout confirmed `@podium/core/config` is already a subpath).
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `bun run vitest run apps/server/src/routers/setup.test.ts`
-Expected: PASS (3 tests). (If `createCaller` needs a real context shape, pass the project's minimal test context instead of `{} as never`.)
+Run: `bun run vitest run apps/server/src/router.setup.test.ts`
+Expected: PASS (4 tests).
 
-- [ ] **Step 5: Build the web wizard** (`apps/web/src/setup/SetupWizard.tsx`) — follow the existing panel/dialog styling (mirror `MachinesPanel.tsx` / the settings panels):
+- [ ] **Step 5: Add the networking step to `apps/web/src/SetupView.tsx`**
+
+Read `apps/web/src/SetupView.tsx` and `apps/web/src/MachinesPanel.tsx` first. Use the **vanilla** trpc client from the store and the shadcn ui kit — do NOT use React-Query hooks and do NOT import `@podium/core`. The networking step pattern:
 
 ```tsx
-// Minimal three-step wizard. Uses the project's trpc client hooks (adjust import to match).
-import { useState } from 'react'
-import { trpc } from '../trpc'
+import { useEffect, useState } from 'react'
+import { useStore } from './store'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 
-export function SetupWizard({ port, onDone }: { port: number; onDone: () => void }) {
-  const options = trpc.setup.options.useQuery()
-  const [option, setOption] = useState<'tailscale-funnel' | 'tailscale-serve' | 'cloudflare-tunnel' | 'manual'>('tailscale-funnel')
-  const cmd = trpc.setup.commandFor.useQuery({ option, port })
-  const [url, setUrl] = useState('')
-  const [err, setErr] = useState('')
-  const complete = trpc.setup.complete.useMutation({
-    onSuccess: onDone,
-    onError: (e) => setErr(e.message),
-  })
-  return (
-    <div className="setup-wizard">
-      <h2>Make this instance reachable</h2>
-      <ul>
-        {options.data?.map((o) => (
-          <li key={o.id}>
-            <label>
-              <input type="radio" checked={option === o.id} onChange={() => setOption(o.id as typeof option)} />
-              <strong>{o.label}</strong> — {o.note}
-            </label>
-          </li>
-        ))}
-      </ul>
-      {cmd.data?.command ? (
-        <pre onClick={() => navigator.clipboard.writeText(cmd.data!.command)}>{cmd.data.command}</pre>
-      ) : null}
-      <p>{cmd.data?.hint}</p>
-      <input placeholder="Paste the resulting https:// URL" value={url} onChange={(e) => setUrl(e.target.value)} />
-      {err ? <p className="error">{err}</p> : null}
-      <button onClick={() => complete.mutate({ publicUrl: url })}>Finish</button>
-    </div>
-  )
+// inside the component:
+const { trpc } = useStore()
+const [options, setOptions] = useState<{ id: string; label: string; note: string }[]>([])
+const [option, setOption] = useState('tailscale-funnel')
+const [cmd, setCmd] = useState<{ command: string; hint: string } | null>(null)
+const [url, setUrl] = useState('')
+const [err, setErr] = useState('')
+const [copied, setCopied] = useState(false)
+
+useEffect(() => {
+  trpc.setup.options.query().then(setOptions)
+}, [trpc])
+useEffect(() => {
+  trpc.setup.commandFor.query({ option, port: 18787 }).then(setCmd)
+}, [trpc, option])
+
+async function finish() {
+  setErr('')
+  try {
+    await trpc.setup.complete.mutate({ publicUrl: url })
+    onSaved() // SetupView already receives onSaved; SetupGate reloads on it
+  } catch (e) {
+    setErr((e as Error).message)
+  }
 }
 ```
 
-Render `<SetupWizard>` from the existing setup gate when `needsSetup` is true (replace/augment the current "pick a folder"/setup-hint entry; keep the existing repo-scan step after setup completes).
+Render (mirror `MachinesPanel.tsx`'s `PairingCodeDisplay` styling — `text-[13px]`, `text-muted-foreground`, a `<code className="block rounded bg-muted px-2 py-1 ...">` command block with a `<Button variant="outline" size="sm">` Copy button that does `navigator.clipboard.writeText(cmd.command)` then `setCopied(true)` + reset after 2000ms, an `<Input>` for the pasted URL, and a Finish `<Button>`): a radio list over `options` (each `{label}` + muted `{note}`), the command block + hint, the URL `<Input>`, an error line when `err`, and the Finish button calling `finish()`. Integrate this as the reachability step of `SetupView` for the main-instance path; `SetupGate` already renders `SetupView` and reloads via `onSaved`.
 
 - [ ] **Step 6: Verify build + typecheck**
 
 Run: `bun run typecheck && bun run --filter @podium/web build`
-Expected: both succeed.
+Expected: both succeed. (If `@podium/server`'s `AppRouter` type drives web typings, the new `setup` procedures appear automatically — no web type edits needed.)
 
 - [ ] **Step 7: Commit**
 
 ```bash
-git add apps/server/src/routers/setup.ts apps/server/src/router.ts apps/server/src/routers/setup.test.ts apps/web/src/setup/SetupWizard.tsx apps/web/src/App.tsx
-git commit -m "feat(setup): web GUI setup wizard + setup tRPC router [podium-4ny]"
+git add apps/server/src/router.ts apps/server/src/router.setup.test.ts apps/web/src/SetupView.tsx
+git commit -m "feat(setup): setup tRPC procedures + web networking step [podium-4ny]"
 ```
 
 ---
