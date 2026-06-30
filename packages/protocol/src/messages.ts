@@ -673,6 +673,25 @@ export const EpicStatus = z.object({
 })
 export type EpicStatus = z.infer<typeof EpicStatus>
 
+export const IssueCount = z.object({
+  byStage: z.record(z.number()), byPriority: z.record(z.number()),
+  byType: z.record(z.number()), byAssignee: z.record(z.number()),
+})
+export type IssueCount = z.infer<typeof IssueCount>
+export const IssueStats = z.object({
+  total: z.number().int(), open: z.number().int(), closed: z.number().int(),
+  ready: z.number().int(), blocked: z.number().int(), deferred: z.number().int(),
+})
+export type IssueStats = z.infer<typeof IssueStats>
+export const IssueSearchFilter = z.object({
+  repoPath: z.string().optional(), text: z.string().optional(),
+  status: z.enum(['open', 'closed', 'ready', 'blocked', 'deferred']).optional(),
+  stage: IssueStage.optional(), priority: z.number().int().optional(),
+  type: IssueType.optional(), assignee: z.string().optional(),
+  label: z.string().optional(), parentId: z.string().optional(),
+})
+export type IssueSearchFilter = z.infer<typeof IssueSearchFilter>
+
 export const IssuesChangedMessage = z.object({
   type: z.literal('issuesChanged'),
   issues: z.array(IssueWire),

@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import type { PodiumSettings } from '@podium/core'
-import { type DuplicateCandidate, type EpicStatus, type IssueGraph, type IssueWire, type LintFinding, type RepoOp, type ServerMessage, type SessionMeta } from '@podium/protocol'
+import { type DuplicateCandidate, type EpicStatus, type IssueCount, type IssueGraph, type IssueSearchFilter, type IssueStats, type IssueWire, type LintFinding, type RepoOp, type ServerMessage, type SessionMeta } from '@podium/protocol'
 import { jaccard, tokenize } from './issue-similarity'
 import { lintIssue } from './issue-lint'
 import { sessionsForIssue, slugifyBranch, summarizeSessions } from './issue-util'
@@ -214,6 +214,60 @@ export class IssueService {
       .filter((r) => (!repoPath || r.repoPath === repoPath) && !this.isClosed(r))
       .map((r) => ({ id: r.id, seq: r.seq, findings: lintIssue(r) }))
       .filter((f) => f.findings.length > 0)
+  }
+
+  search(filter: IssueSearchFilter): IssueWire[] {
+    const text = filter.text?.toLowerCase()
+    return [...this.rows.values()]
+      .filter((r) => !filter.repoPath || r.repoPath === filter.repoPath)
+      .map((r) => this.toWire(r))
+      .filter((w) => {
+        if (filter.stage && w.stage !== filter.stage) return false
+        if (filter.priority != null && w.priority !== filter.priority) return false
+        if (filter.type && w.type !== filter.type) return false
+        if (filter.assignee && w.assignee !== filter.assignee) return false
+        if (filter.parentId && w.parentId !== filter.parentId) return false
+        if (filter.label && !w.labels.includes(filter.label)) return false
+        if (filter.status === 'open' && (w.stage === 'done' || w.closedReason)) return false
+        if (filter.status === 'closed' && !(w.stage === 'done' || w.closedReason)) return false
+        if (filter.status === 'ready' && !w.ready) return false
+        if (filter.status === 'blocked' && !w.blocked) return false
+        if (filter.status === 'deferred' && !w.deferred) return false
+        if (text) {
+          const hay = `${w.title} ${w.description} ${w.notes ?? ''}`.toLowerCase()
+          if (!hay.includes(text)) return false
+        }
+        return true
+      })
+      .sort((a, b) => (a.priority !== b.priority ? a.priority - b.priority : a.seq - b.seq))
+  }
+
+  count(repoPath?: string): IssueCount {
+    const rows = [...this.rows.values()].filter((r) => !repoPath || r.repoPath === repoPath)
+    const c: IssueCount = { byStage: {}, byPriority: {}, byType: {}, byAssignee: {} }
+    const bump = (m: Record<string, number>, k: string): void => {
+      m[k] = (m[k] ?? 0) + 1
+    }
+    for (const r of rows) {
+      bump(c.byStage, r.stage)
+      bump(c.byPriority, String(r.priority))
+      bump(c.byType, r.type)
+      bump(c.byAssignee, r.assignee ?? '(unassigned)')
+    }
+    return c
+  }
+
+  stats(repoPath?: string): IssueStats {
+    const wires = [...this.rows.values()]
+      .filter((r) => !repoPath || r.repoPath === repoPath)
+      .map((r) => this.toWire(r))
+    const closed = wires.filter((w) => w.stage === 'done' || w.closedReason).length
+    return {
+      total: wires.length, closed, open: wires.length - closed,
+      ready: wires.filter((w) => w.ready).length,
+      blocked: wires.filter((w) => w.blocked).length,
+      deferred: wires.filter((w) => w.deferred).length,
+    }
   }
 
   get(id: string): IssueWire | null {

@@ -415,6 +415,21 @@ export const appRouter = t.router({
     lint: t.procedure
       .input(z.object({ repoPath: z.string().optional() }))
       .query(({ ctx, input }) => ctx.registry.issues.lint(input.repoPath)),
+    search: t.procedure
+      .input(z.object({
+        repoPath: z.string().optional(), text: z.string().optional(),
+        status: z.enum(['open', 'closed', 'ready', 'blocked', 'deferred']).optional(),
+        stage: IssueStage.optional(), priority: z.number().int().optional(),
+        type: IssueType.optional(), assignee: z.string().optional(),
+        label: z.string().optional(), parentId: z.string().optional(),
+      }))
+      .query(({ ctx, input }) => ctx.registry.issues.search(input)),
+    count: t.procedure
+      .input(z.object({ repoPath: z.string().optional() }))
+      .query(({ ctx, input }) => ctx.registry.issues.count(input.repoPath)),
+    stats: t.procedure
+      .input(z.object({ repoPath: z.string().optional() }))
+      .query(({ ctx, input }) => ctx.registry.issues.stats(input.repoPath)),
     get: t.procedure
       .input(z.object({ id: z.string() }))
       .query(({ ctx, input }) => ctx.registry.issues.get(input.id)),

@@ -526,3 +526,31 @@ describe('IssueService stale/lint (P2b)', () => {
     expect(findings[0]!.findings).toEqual(['missing acceptance criteria'])
   })
 })
+
+describe('IssueService search/count/stats (P2b)', () => {
+  it('search filters by text + priority + status', () => {
+    const { svc } = harness()
+    svc.create({ repoPath: '/r', title: 'Login fails', priority: 0, startNow: false })
+    svc.create({ repoPath: '/r', title: 'Dark mode', priority: 2, startNow: false })
+    const done = svc.create({ repoPath: '/r', title: 'Login done', startNow: false })
+    svc.close(done.id)
+    expect(svc.search({ repoPath: '/r', text: 'login' }).map((w) => w.title).sort())
+      .toEqual(['Login done', 'Login fails'])
+    expect(svc.search({ repoPath: '/r', text: 'login', status: 'open' }).map((w) => w.title))
+      .toEqual(['Login fails'])
+    expect(svc.search({ repoPath: '/r', priority: 0 }).map((w) => w.title)).toEqual(['Login fails'])
+  })
+
+  it('count groups and stats totals', () => {
+    const { svc } = harness()
+    svc.create({ repoPath: '/r', title: 'A', priority: 0, type: 'bug', startNow: false })
+    const b = svc.create({ repoPath: '/r', title: 'B', startNow: false })
+    svc.close(b.id)
+    expect(svc.count('/r').byPriority['0']).toBe(1)
+    expect(svc.count('/r').byType['bug']).toBe(1)
+    const s = svc.stats('/r')
+    expect(s.total).toBe(2)
+    expect(s.closed).toBe(1)
+    expect(s.open).toBe(1)
+  })
+})
