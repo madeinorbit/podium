@@ -37,3 +37,7 @@ podium-headless-*.tar.gz.sig
 # postgres experiment scratch
 .exp/
 dist-bun/
+
+# experiment: staged Postgres blob (60M, regenerated from node_modules) + Rust target
+apps/desktop/src-tauri/resources/postgres/
+apps/desktop/src-tauri/target/

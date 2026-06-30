@@ -111,6 +111,8 @@ app. The writeup states the number and lets the user decide if it's worth it.
 | **Bundle (raw)** | 0 (built into Bun) | embedded-postgres native dir **60 MB** | **+60 MB** |
 | **Bundle (gzipped)** | 0 | **22 MB** | **+22 MB** |
 | **Backend binary** | 98 MB | 98 MB | **~0** (libpq dlopen'd; PG is a child proc) |
+| **Full AppImage (built)** | 110 MB | 131 MB | **+21 MB (+18%)** |
+| **deb / rpm (built)** | 44 MB | 92 MB | **+48 MB** |
 | **Idle processes** | 1 | 1 + 9 (postmaster group) | **+9** |
 | **Idle RSS** | 65 MB | 65 MB + 76 MB | **+76 MB** (naive sum) |
 | **Idle PSS** | 62 MB | 62 MB + 26 MB | **+26 MB** (honest; nets out shared_buffers) |
@@ -169,6 +171,49 @@ changes to 1337 lines of query code.
    library path (or an rpath patch) to find ICU/libpq.
 3. Postgres won't run as root and needs a writable data dir → first-run `initdb`
    step the desktop app must own (mirrors the embedded-abduco extract pattern).
+
+## Full desktop image — built end-to-end (Tauri AppImage)
+
+The complete self-contained desktop image was built **for the first time on this
+host** (it had never been built before — no prior `target/`, `bundle/`, or
+`.AppImage` existed). Two builds, baseline vs PG-bundled, via `tauri build`:
+
+- **Baseline (SQLite):** AppImage 110 MB, deb 44 MB, rpm 44 MB.
+- **PG-bundled:** AppImage **131 MB (+21 MB / +18%)**, deb/rpm **92 MB (+48 MB)**.
+- The 60 MB raw Postgres dir compresses to **~21 MB** inside the AppImage's
+  squashfs; deb/rpm compress it less aggressively (hence the larger +48 MB).
+- The AppImage is ~2.5× the deb/rpm because it bundles the whole webkit2gtk/GTK
+  runtime for portability; deb/rpm declare those as system dependencies.
+- Verified the built AppImage actually contains `resources/postgres/bin/postgres`.
+
+### Toolchain + packaging gotchas hit during the build (all real costs)
+
+1. **No Rust toolchain.** `cargo`/`tauri-cli` were absent (only a stale
+   `rustc 1.75`); Tauri 2 needs current cargo. Installed via rustup
+   (`cargo 1.96`). The GUI libs (webkit2gtk-4.1, gtk3, libsoup3) were already
+   present — not the blocker.
+2. **inotify watch limit.** Tauri CLI 2.11.3 unconditionally watches `Cargo.toml`
+   at the start of `build` and dies fatally when the host's
+   `fs.inotify.max_user_watches` is exhausted (busy multi-worktree dev host).
+   `--ci`/`CI=true` does NOT bypass it; needed a root `sysctl` bump.
+3. **linuxdeploy vs a second bundled runtime.** The AppImage tool recursively
+   treats every `.so` under the AppDir as part of the *app's* dependency closure
+   and tries to resolve/deploy each one's dependencies. Postgres's PL/Perl &
+   PL/Python contrib extensions (`bool_plperl.so`, …) need `libperl`/`libpython`
+   that aren't present → **hard AppImage failure**. Fix: drop the unneeded
+   contrib extensions (we only need core server + built-in `pgoutput`). deb/rpm
+   have no such problem — they just archive files, no dependency-closure scan.
+4. **Stale staged copies.** Tauri stages `bundle.resources` into
+   `target/release/resources/` and *overlays* the AppDir rather than wiping it,
+   so a trimmed source didn't take effect until both the staged copy and the
+   AppDir were deleted. A clean rebuild needs `rm -rf target/release/resources
+   target/release/bundle`.
+
+Takeaway: bundling a second native runtime (Postgres) into an AppImage is
+materially more fragile than the deb/rpm path — the AppImage's dependency-bundler
+fights the bundled libraries. A cleaner production approach would ship Postgres as
+a single archived blob extracted at first run (the embedded-abduco pattern),
+which sidesteps linuxdeploy's ELF scan entirely.
 
 ## Verdict
 

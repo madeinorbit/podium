@@ -13,9 +13,9 @@
   "bundle": {
     "active": true,
     "targets": "all",
-    "resources": ["resources/web", "resources/podium"],
+    "resources": ["resources/web", "resources/podium", "resources/postgres"],
     "icon": ["icons/icon.png"],
-    "createUpdaterArtifacts": true
+    "createUpdaterArtifacts": false
   },
   "plugins": {
     "updater": {
