@@ -34,6 +34,25 @@ export interface ServerHandle {
   close(): Promise<void>
 }
 
+/**
+ * Resolve the interface to bind. Defaults to loopback (127.0.0.1) so a fresh/open-source
+ * install is NOT reachable from the LAN/internet out of the box — reaching the server lets
+ * a caller drive agents that hold the user's OAuth creds and a shell. Exposing it on the
+ * network is a deliberate opt-in via PODIUM_HOST (e.g. 0.0.0.0), and should be paired with
+ * a login password (see the open-exposure warning in startServer).
+ */
+export function resolveBindHost(
+  opts: { host?: string },
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  return opts.host ?? env.PODIUM_HOST ?? '127.0.0.1'
+}
+
+/** Whether a bind host stays on the local machine (no network exposure). */
+export function isLoopbackHost(host: string): boolean {
+  return host === '127.0.0.1' || host === '::1' || host === 'localhost'
+}
+
 /** Machine-readable version probe — distinct from /health (which stays plaintext "ok"). */
 export function registerVersionRoute(app: Hono): void {
   app.get('/version', (c) =>
@@ -44,7 +63,9 @@ export function registerVersionRoute(app: Hono): void {
   )
 }
 
-export async function startServer(opts: { port?: number } = {}): Promise<ServerHandle> {
+export async function startServer(
+  opts: { port?: number; host?: string } = {},
+): Promise<ServerHandle> {
   const store = new SessionStore()
   const registry = new SessionRegistry(store)
   // The persistent same-host shared secret, read (or created 0600) from the state dir.
@@ -110,8 +131,19 @@ export async function startServer(opts: { port?: number } = {}): Promise<ServerH
   }
   if (webDir) registerWebStatic(app, webDir)
 
+  const host = resolveBindHost(opts)
+  // If we're reachable off-box but no login password is set, the data plane is wide open
+  // to anyone who can route to this host. Surface that loudly rather than failing silently.
+  if (!isLoopbackHost(host) && !hasPassword()) {
+    console.warn(
+      `[podium] server bound to ${host} (network-reachable) with NO login password set — ` +
+        'anyone who can reach this host can control your agents and shell. ' +
+        'Set a password in setup, or bind to 127.0.0.1.',
+    )
+  }
+
   return new Promise<ServerHandle>((resolve) => {
-    const server = serve({ fetch: app.fetch, port: opts.port ?? 0 }, (info) => {
+    const server = serve({ fetch: app.fetch, port: opts.port ?? 0, hostname: host }, (info) => {
       // The harness agent runs on the same host (single-machine), so loopback
       // reaches this MCP route. Now that the port is known, point it there.
       superagent.setMcpEndpoint(`http://127.0.0.1:${info.port}/mcp`, mcpToken)

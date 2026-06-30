@@ -65,4 +65,11 @@ describe('/client WS auth gate', () => {
     const url = await start(undefined as never)
     expect(await attempt(url)).toBe('open')
   })
+
+  test('a foreign browser Origin is rejected even when the auth gate would allow it', async () => {
+    const url = await start(() => true)
+    expect(await attempt(url, { origin: 'https://evil.example' })).toBe('rejected')
+    // No Origin (native client) still connects.
+    expect(await attempt(url)).toBe('open')
+  })
 })

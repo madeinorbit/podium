@@ -26,6 +26,29 @@ export interface WsAuthOptions {
   authorizeClient?: (req: IncomingMessage) => boolean
 }
 
+/**
+ * Cross-Site-WebSocket-Hijacking defense for the WS upgrades. A browser sends an `Origin`
+ * header it can't forge; a native client (the daemon, the `ws` lib) sends none. We allow:
+ * no Origin (native), same-origin (Origin host == request Host), the desktop webview
+ * (`tauri:`), and loopback origins (local dev / bundled app). Any other browser origin —
+ * e.g. a page on evil.example trying to open ws://podium — is rejected. (SameSite=Lax on
+ * the session cookie already blocks the credential from riding such a request; this is
+ * defense-in-depth and also covers the token-bearing /daemon upgrade.)
+ */
+export function isAllowedWsOrigin(origin: string | undefined, host: string | undefined): boolean {
+  if (!origin) return true
+  let parsed: URL
+  try {
+    parsed = new URL(origin)
+  } catch {
+    return false
+  }
+  if (parsed.protocol === 'tauri:') return true
+  const loopback = new Set(['localhost', '127.0.0.1', '::1', '[::1]'])
+  if (loopback.has(parsed.hostname)) return true
+  return Boolean(host) && parsed.host === host
+}
+
 // Server-side liveness. The browser answers protocol-level pings with pongs at the
 // network layer (no app code), so this catches a client whose socket died without a
 // close frame — laptop sleep, a dropped proxy hop, a phone that walked out of range
@@ -220,6 +243,12 @@ export function attachWebSockets(
         !isProtocolCompatible(Number(url.searchParams.get('pv')), WIRE_VERSION)
       ) {
         socket.write('HTTP/1.1 426 Upgrade Required\r\n\r\n')
+        socket.destroy()
+        return
+      }
+      // Cross-site WebSocket hijacking guard — reject a browser whose Origin isn't ours.
+      if (!isAllowedWsOrigin(req.headers.origin, req.headers.host)) {
+        socket.write('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n')
         socket.destroy()
         return
       }
