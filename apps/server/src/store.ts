@@ -1043,7 +1043,39 @@ export class SessionStore {
   }
 
   deleteIssue(id: string): void {
+    this.deleteIssueChildRows(id)
     this.db.prepare('DELETE FROM issues WHERE id = ?').run(id)
+  }
+
+  setIssueLabels(issueId: string, labels: string[]): void {
+    const clean = [...new Set(labels.filter((l) => typeof l === 'string' && l.trim()))].map((l) =>
+      l.trim(),
+    )
+    this.db.prepare('DELETE FROM issue_labels WHERE issue_id = ?').run(issueId)
+    const ins = this.db.prepare('INSERT OR IGNORE INTO issue_labels (issue_id, label) VALUES (?, ?)')
+    for (const l of clean) ins.run(issueId, l)
+  }
+
+  getIssueLabels(issueId: string): string[] {
+    return (
+      this.db
+        .prepare('SELECT label FROM issue_labels WHERE issue_id = ? ORDER BY label ASC')
+        .all(issueId) as { label: string }[]
+    ).map((r) => r.label)
+  }
+
+  listAllLabels(): string[] {
+    return (
+      this.db.prepare('SELECT DISTINCT label FROM issue_labels ORDER BY label ASC').all() as {
+        label: string
+      }[]
+    ).map((r) => r.label)
+  }
+
+  deleteIssueChildRows(issueId: string): void {
+    this.db.prepare('DELETE FROM issue_labels WHERE issue_id = ?').run(issueId)
+    this.db.prepare('DELETE FROM issue_deps WHERE from_id = ? OR to_id = ?').run(issueId, issueId)
+    this.db.prepare('DELETE FROM issue_comments WHERE issue_id = ?').run(issueId)
   }
 
   nextIssueSeq(repoPath: string): number {

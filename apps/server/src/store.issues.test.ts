@@ -96,3 +96,20 @@ describe('IssueRow rich fields round-trip (P1)', () => {
     expect(r.pinned).toBe(false)
   })
 })
+
+describe('issue labels (P1)', () => {
+  it('sets, reads (sorted), and lists distinct labels', () => {
+    const store = new SessionStore(':memory:')
+    store.setIssueLabels('iss_a', ['ui', 'backend', 'ui'])
+    store.setIssueLabels('iss_b', ['backend'])
+    expect(store.getIssueLabels('iss_a')).toEqual(['backend', 'ui'])
+    expect(store.listAllLabels()).toEqual(['backend', 'ui'])
+  })
+
+  it('setIssueLabels replaces the prior set', () => {
+    const store = new SessionStore(':memory:')
+    store.setIssueLabels('iss_a', ['x', 'y'])
+    store.setIssueLabels('iss_a', ['y', 'z'])
+    expect(store.getIssueLabels('iss_a')).toEqual(['y', 'z'])
+  })
+})
