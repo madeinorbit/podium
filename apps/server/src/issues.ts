@@ -166,6 +166,76 @@ export class IssueService {
     return this.update(id, { archived: true })
   }
 
+  setLabels(id: string, labels: string[]): IssueWire {
+    const row = this.rowOrThrow(id)
+    this.deps.store.setIssueLabels(id, labels)
+    return this.persist(row)
+  }
+
+  addComment(id: string, author: string, body: string): IssueWire {
+    const row = this.rowOrThrow(id)
+    this.deps.store.addIssueComment({
+      id: `cmt_${randomUUID()}`, issueId: id, author, body, createdAt: this.now(),
+    })
+    return this.persist(row)
+  }
+
+  /** Cycle check over `blocks` + `parent-child` edges, following from->to. */
+  private wouldCycle(fromId: string, toId: string): boolean {
+    const seen = new Set<string>()
+    const stack = [toId]
+    while (stack.length) {
+      const cur = stack.pop() as string
+      if (cur === fromId) return true
+      if (seen.has(cur)) continue
+      seen.add(cur)
+      for (const d of this.deps.store.listIssueDeps(cur)) {
+        if (d.type === 'blocks' || d.type === 'parent-child') stack.push(d.toId)
+      }
+    }
+    return false
+  }
+
+  addDep(fromId: string, toId: string, type = 'blocks'): IssueWire {
+    const row = this.rowOrThrow(fromId)
+    this.rowOrThrow(toId)
+    if (fromId === toId) throw new Error('an issue cannot depend on itself (self-dep)')
+    if ((type === 'blocks' || type === 'parent-child') && this.wouldCycle(fromId, toId)) {
+      throw new Error(`dependency ${fromId} -> ${toId} would create a cycle`)
+    }
+    this.deps.store.addIssueDep(fromId, toId, type)
+    return this.persist(row)
+  }
+
+  removeDep(fromId: string, toId: string, type?: string): IssueWire {
+    const row = this.rowOrThrow(fromId)
+    this.deps.store.removeIssueDep(fromId, toId, type)
+    return this.persist(row)
+  }
+
+  defer(id: string, until: string | null): IssueWire {
+    return this.update(id, { deferUntil: until })
+  }
+
+  reparent(id: string, parentId: string | null): IssueWire {
+    const row = this.rowOrThrow(id)
+    if (row.parentId) this.deps.store.removeIssueDep(id, row.parentId, 'parent-child')
+    if (parentId) {
+      this.rowOrThrow(parentId)
+      if (this.wouldCycle(id, parentId)) throw new Error(`reparent would create a cycle`)
+      this.deps.store.addIssueDep(id, parentId, 'parent-child')
+    }
+    return this.update(id, { parentId })
+  }
+
+  claim(id: string, assignee: string): IssueWire {
+    return this.update(id, { assignee, stage: 'in_progress' })
+  }
+
+  close(id: string, reason = 'done'): IssueWire {
+    return this.update(id, { stage: 'done', closedReason: reason })
+  }
+
   private worktreePathFor(repoPath: string, branch: string): string {
     // branch is `issue/<seq>-<slug>`; flatten to a directory name under <repo>/.worktrees
     const dir = branch.replace(/\//g, '-')

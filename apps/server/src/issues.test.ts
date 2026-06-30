@@ -301,3 +301,49 @@ describe('IssueService assistant', () => {
     expect(d.suggestedStage).toBeUndefined()
   })
 })
+
+describe('IssueService field mutations (P1)', () => {
+  it('setLabels persists and surfaces on the wire', () => {
+    const { svc } = harness()
+    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    expect(svc.setLabels(a.id, ['ui', 'p1']).labels).toEqual(['p1', 'ui'])
+  })
+
+  it('addComment appends a comment', () => {
+    const { svc } = harness()
+    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    const w = svc.addComment(a.id, 'mike', 'looks good')
+    expect(w.comments.map((c) => c.body)).toEqual(['looks good'])
+    expect(w.comments[0]!.author).toBe('mike')
+  })
+
+  it('addDep blocks ready; rejects self-dep and cycles', () => {
+    const { svc } = harness()
+    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    const b = svc.create({ repoPath: '/r', title: 'B', startNow: false })
+    expect(svc.addDep(a.id, b.id).blocked).toBe(true)
+    expect(() => svc.addDep(a.id, a.id)).toThrow(/self/)
+    expect(() => svc.addDep(b.id, a.id)).toThrow(/cycle/) // a->b already; b->a closes the loop
+  })
+
+  it('claim sets assignee + in_progress; close sets done + reason', () => {
+    const { svc } = harness()
+    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    const claimed = svc.claim(a.id, 'agent:claude')
+    expect(claimed.assignee).toBe('agent:claude')
+    expect(claimed.stage).toBe('in_progress')
+    const closed = svc.close(a.id, 'wontfix')
+    expect(closed.stage).toBe('done')
+    expect(closed.closedReason).toBe('wontfix')
+  })
+
+  it('reparent maintains a parent-child edge', () => {
+    const { svc, store } = harness()
+    const epic = svc.create({ repoPath: '/r', title: 'E', startNow: false })
+    const child = svc.create({ repoPath: '/r', title: 'C', startNow: false })
+    svc.reparent(child.id, epic.id)
+    expect(store.listIssueDeps(child.id)).toEqual([{ toId: epic.id, type: 'parent-child' }])
+    svc.reparent(child.id, null)
+    expect(store.listIssueDeps(child.id)).toEqual([])
+  })
+})
