@@ -856,12 +856,14 @@ git commit -m "feat(update): headless self-update reads channel-aware GitHub man
 ### Task 8: Desktop updater repointed to GitHub
 
 **Files:**
-- Modify: `apps/desktop/src-tauri/tauri.conf.json` (`plugins.updater.endpoints`; `updater.pubkey` swapped at release time)
+- Modify: `apps/desktop/src-tauri/tauri.conf.json` (`plugins.updater.endpoints` only)
 - Test: `apps/desktop/src-tauri/tauri-conf.test.ts`
 
 **Interfaces:**
 - Consumes: a `latest.json` Tauri manifest published by Task 9 at `…/releases/latest/download/latest.json`.
 - Produces: a desktop updater that points at GitHub Releases (stable channel).
+
+**Scope note:** This task changes ONLY the `endpoints`. The committed `updater.pubkey` is already a valid **dev** minisign public key (the `dW50cnVzdGVk…` value); swapping it for the **production** minisign key is a release-time operator action — "Swap 2" in `docs/update-release-swaps.md` (set the private half as the `TAURI_SIGNING_PRIVATE_KEY` CI secret, paste the public half here) — not code state, so it is NOT done in this task and is NOT asserted by a test (a dev-vs-prod pubkey is a deploy concern, not a correctness one).
 
 - [ ] **Step 1: Write the failing test**
 
@@ -879,25 +881,21 @@ describe('tauri updater config', () => {
       'https://github.com/madeinorbit/podium/releases/latest/download/latest.json',
     ])
   })
-  it('has a non-placeholder minisign pubkey', () => {
-    expect(conf.plugins.updater.pubkey).not.toMatch(/RWS|placeholder/i)
-    expect(String(conf.plugins.updater.pubkey).length).toBeGreaterThan(40)
-  })
 })
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `bun run vitest run apps/desktop/src-tauri/tauri-conf.test.ts`
-Expected: FAIL — endpoints still the `releases.podium.app` placeholder; pubkey still the dev key.
+Expected: FAIL — endpoints still the `https://releases.podium.app/update/{{target}}/{{arch}}/{{current_version}}` placeholder.
 
 - [ ] **Step 3: Edit `tauri.conf.json`**
 
-Set `plugins.updater.endpoints` to:
+Set `plugins.updater.endpoints` to exactly:
 ```json
 ["https://github.com/madeinorbit/podium/releases/latest/download/latest.json"]
 ```
-Replace `plugins.updater.pubkey` with the **production minisign public key** (`tauri signer generate` → keep the private half as the `TAURI_SIGNING_PRIVATE_KEY` CI secret). The endpoints test passes immediately; the pubkey test passes once the real key is in (in CI/dev, generate one and paste its `pub` value here).
+Leave `plugins.updater.pubkey` UNCHANGED (the committed dev minisign key). Do not generate or swap a key here — that is the release-time operator action documented in `docs/update-release-swaps.md` (Swap 2). Verify the JSON still parses (no trailing-comma/format breakage); run `bunx biome check apps/desktop/src-tauri/tauri.conf.json` if Biome covers JSON here, else confirm `bun -e "JSON.parse(require('node:fs').readFileSync('apps/desktop/src-tauri/tauri.conf.json','utf8'))"` exits 0.
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -908,7 +906,7 @@ Expected: PASS.
 
 ```bash
 git add apps/desktop/src-tauri/tauri.conf.json apps/desktop/src-tauri/tauri-conf.test.ts
-git commit -m "feat(desktop): point Tauri updater at GitHub latest.json + production minisign key [podium-4ny]"
+git commit -m "feat(desktop): point Tauri updater endpoints at GitHub latest.json [podium-4ny]"
 ```
 
 ---
