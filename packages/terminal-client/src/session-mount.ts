@@ -120,16 +120,49 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
     view.forceRepaint()
   }
 
-  // A true REVEAL — the panel was hidden with display:none (a tab switch, or the page
-  // returning to the foreground), which frees the WebGL canvas's backing store. becomeEligible's
-  // forceRepaint can't repaint a discarded GL surface, so additionally recreate the renderer
-  // on the NEXT frame — by then the panel is laid out at its real size, so the fresh GL
-  // context measures correctly and does a full render. Guarded so a panel hidden again before
-  // the frame fires doesn't recreate a still-hidden (and about-to-be-discarded) canvas.
+  // Retry a fit across animation frames until the container is genuinely measurable — a
+  // just-revealed panel (display:none → flex) hasn't laid out yet, so an immediate fit reads
+  // a zero/stale size and view.fit() returns undefined. Reports whether the fit actually
+  // CHANGED the local grid: xterm resizes optimistically inside fit(), and a real size change
+  // recomputes pixel geometry, clears the renderer model and repaints in full — so a changed
+  // grid has already recovered the canvas, while an unchanged one has not. The DomViewportSource
+  // ResizeObserver is the longer-term backstop, so giving up after ~1s is safe.
+  const MAX_REVEAL_FIT_RETRIES = 60
+  function whenMeasurable(onMeasured: (grid: Grid, gridChanged: boolean) => void): void {
+    const tryFit = (attempt: number): void => {
+      if (!eligible()) return // hidden again before layout settled
+      const before = { cols: view.cols(), rows: view.rows() }
+      const grid = view.fit()
+      if (grid) {
+        onMeasured(grid, grid.cols !== before.cols || grid.rows !== before.rows)
+        return
+      }
+      if (attempt < MAX_REVEAL_FIT_RETRIES) requestAnimationFrame(() => tryFit(attempt + 1))
+    }
+    tryFit(0)
+  }
+
+  // A true REVEAL — the panel was hidden with display:none (a tab switch) or the page was
+  // backgrounded, either of which frees the WebGL canvas's backing store so it comes back blank.
+  // Re-claim control, then once the container is laid out, fit it:
+  //   - If the fit CHANGES the grid, xterm's resize has already recomputed geometry, cleared the
+  //     renderer model and repainted in full — the same path a browser-window resize takes, which
+  //     is exactly what recovers a freed canvas. Nothing more to do (and we inform the server when
+  //     our viewport differs from its authoritative grid).
+  //   - If the grid is UNCHANGED, a same-size resize is a no-op that won't repaint the freed
+  //     canvas, so recreate the WebGL renderer for a fresh context + full render. This works even
+  //     though the old GL context is gone — we never relied on keeping it warm.
+  // Sizing waits for real layout (no fixed-frame guess), so the recompute can't run against a
+  // still-hidden/zero-size canvas; whenMeasurable re-checks eligibility each frame.
   function reveal(): void {
-    becomeEligible()
-    requestAnimationFrame(() => {
-      if (eligible()) view.reloadWebgl()
+    if (!eligible()) return
+    connection.requestControl() // last-foregrounded-wins
+    whenMeasurable((grid, gridChanged) => {
+      if (!eligible()) return
+      if (grid.cols !== serverGrid.cols || grid.rows !== serverGrid.rows) {
+        connection.sendResize(grid.cols, grid.rows)
+      }
+      if (!gridChanged) view.reloadWebgl()
     })
   }
 
