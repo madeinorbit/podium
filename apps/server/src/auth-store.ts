@@ -106,6 +106,22 @@ export function clearPassword(dir: string = stateDir()): void {
   if (existsSync(path)) rmSync(path, { force: true })
 }
 
+/**
+ * Headless seam: set the client password from `PODIUM_PASSWORD` when none is configured yet.
+ * Lets a non-interactive deploy (the VPS, a container) enable auth without the setup UI. It
+ * is deliberately one-shot — it never overwrites an already-set password, so leaving the env
+ * var in place across restarts can't clobber a password the user later changed in the UI.
+ */
+export async function applyEnvPassword(
+  env: NodeJS.ProcessEnv = process.env,
+  dir: string = stateDir(),
+): Promise<void> {
+  const pw = env.PODIUM_PASSWORD
+  if (!pw?.trim()) return
+  if (hasPassword(dir)) return
+  await setPassword(pw, dir)
+}
+
 /** Verify a candidate password. False when no password is set or it doesn't match. */
 export async function verifyPassword(password: string, dir: string = stateDir()): Promise<boolean> {
   const stored = readFile(dir).passwordHash

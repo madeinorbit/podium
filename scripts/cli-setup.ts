@@ -1,3 +1,4 @@
+import { setPassword as realSetPassword } from '../apps/server/src/auth-store'
 import {
   applySetup,
   NETWORK_OPTIONS,
@@ -10,7 +11,13 @@ export interface SetupIO {
   print(s: string): void
 }
 
-export async function runCliSetup(io: SetupIO, port: number): Promise<void> {
+export interface SetupDeps {
+  /** Injected for testing; defaults to the real scrypt-backed password store. */
+  setPassword?: (password: string) => Promise<void>
+}
+
+export async function runCliSetup(io: SetupIO, port: number, deps: SetupDeps = {}): Promise<void> {
+  const setPassword = deps.setPassword ?? realSetPassword
   io.print('Make this instance reachable (encrypted, no domain needed):')
   NETWORK_OPTIONS.forEach((o, i) => {
     io.print(`  ${i + 1}) ${o.label} — ${o.note}`)
@@ -29,6 +36,16 @@ export async function runCliSetup(io: SetupIO, port: number): Promise<void> {
     const v = validatePublicUrl(pasted)
     if (v.ok) {
       applySetup({ publicUrl: v.normalized })
+      // This instance is now reachable over the network, so strongly encourage a login
+      // password. Blank = run open (printed plainly so the choice is never silent).
+      io.print('\nSet a password to require login (recommended for a public URL).')
+      const pw = ((await io.prompt('Password (leave blank to run open): ')) ?? '').trim()
+      if (pw) {
+        await setPassword(pw)
+        io.print('Password set — devices must log in to use this instance.')
+      } else {
+        io.print('No password set — anyone who can reach this URL can use this instance.')
+      }
       io.print(`\nSaved. This instance is reachable at ${v.normalized}. Restart podium to apply.`)
       return
     }

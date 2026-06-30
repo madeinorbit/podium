@@ -2,7 +2,13 @@ import { mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
-import { clearPassword, hasPassword, setPassword, verifyPassword } from './auth-store'
+import {
+  applyEnvPassword,
+  clearPassword,
+  hasPassword,
+  setPassword,
+  verifyPassword,
+} from './auth-store'
 
 let dir: string
 
@@ -66,5 +72,27 @@ describe('auth-store', () => {
     await setPassword('durable-pw', dir)
     // A fresh call with no shared state must still verify — proves it reads from disk.
     expect(await verifyPassword('durable-pw', dir)).toBe(true)
+  })
+})
+
+describe('applyEnvPassword (headless seam)', () => {
+  test('sets the password from PODIUM_PASSWORD when none is configured', async () => {
+    await applyEnvPassword({ PODIUM_PASSWORD: 'from-env' }, dir)
+    expect(hasPassword(dir)).toBe(true)
+    expect(await verifyPassword('from-env', dir)).toBe(true)
+  })
+
+  test('does NOT overwrite an already-configured password (idempotent across restarts)', async () => {
+    await setPassword('user-chosen', dir)
+    await applyEnvPassword({ PODIUM_PASSWORD: 'from-env' }, dir)
+    expect(await verifyPassword('user-chosen', dir)).toBe(true)
+    expect(await verifyPassword('from-env', dir)).toBe(false)
+  })
+
+  test('is a no-op when PODIUM_PASSWORD is unset or blank', async () => {
+    await applyEnvPassword({}, dir)
+    expect(hasPassword(dir)).toBe(false)
+    await applyEnvPassword({ PODIUM_PASSWORD: '   ' }, dir)
+    expect(hasPassword(dir)).toBe(false)
   })
 })

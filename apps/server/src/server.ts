@@ -9,7 +9,7 @@ import { WIRE_VERSION } from '@podium/protocol'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { clientAuthGuard, isRequestAuthed, registerAuthRoute } from './auth-route'
-import { hasPassword } from './auth-store'
+import { applyEnvPassword, hasPassword } from './auth-store'
 import { registerAssetRoute } from './file-asset-route'
 import { readOrCreateDaemonSecret } from './local-machine'
 import { registerMcpRoute } from './mcp-route'
@@ -66,6 +66,9 @@ export function registerVersionRoute(app: Hono): void {
 export async function startServer(
   opts: { port?: number; host?: string } = {},
 ): Promise<ServerHandle> {
+  // Headless seam: a non-interactive deploy can set the login password via PODIUM_PASSWORD.
+  // One-shot (won't overwrite an existing one); must run before the open-exposure check below.
+  await applyEnvPassword()
   const store = new SessionStore()
   const registry = new SessionRegistry(store)
   // The persistent same-host shared secret, read (or created 0600) from the state dir.

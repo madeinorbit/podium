@@ -184,6 +184,7 @@ function NetworkStep({
   const [option, setOption] = useState<NetOption>('tailscale-funnel')
   const [cmd, setCmd] = useState<{ command: string; hint: string } | null>(null)
   const [url, setUrl] = useState('')
+  const [password, setPassword] = useState('')
   const [err, setErr] = useState('')
   const [copied, setCopied] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -213,7 +214,8 @@ function NetworkStep({
     setErr('')
     setBusy(true)
     try {
-      await trpc.setup.complete.mutate({ publicUrl: url })
+      // Only send a password when one was entered; blank = run open (opt-out).
+      await trpc.setup.complete.mutate({ publicUrl: url, password: password.trim() || undefined })
       onSaved()
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e))
@@ -281,6 +283,24 @@ function NetworkStep({
           value={url}
           onChange={(e) => setUrl(e.target.value)}
         />
+      </div>
+      <div className="flex flex-col gap-1">
+        <label htmlFor="setup-password" className="text-[12px] text-muted-foreground">
+          Login password (recommended once reachable)
+        </label>
+        <Input
+          id="setup-password"
+          type="password"
+          autoComplete="new-password"
+          placeholder="Leave blank to run open"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+        />
+        <p className="text-[11px] text-muted-foreground">
+          {password.trim()
+            ? 'Devices will need this password to connect.'
+            : 'No password — anyone who can reach the URL can use this instance.'}
+        </p>
       </div>
       {err && (
         <p role="alert" className="text-[12px] text-destructive">

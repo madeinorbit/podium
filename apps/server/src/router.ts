@@ -9,6 +9,7 @@ import {
 import { AgentKind, IssueStage, ResumeRef, WorkState } from '@podium/protocol'
 import { initTRPC, TRPCError } from '@trpc/server'
 import { z } from 'zod'
+import { setPassword } from './auth-store'
 import { buildJoinCommand } from './machines-join'
 import type { SessionRegistry } from './relay'
 import { browseDirectories, type RepoRegistry } from './repo-registry'
@@ -381,11 +382,17 @@ export const appRouter = t.router({
         }),
       )
       .query(({ input }) => networkOptionCommand(input.option, input.port)),
-    complete: t.procedure.input(z.object({ publicUrl: z.string() })).mutation(({ input }) => {
-      const v = validatePublicUrl(input.publicUrl)
-      if (!v.ok) throw new TRPCError({ code: 'BAD_REQUEST', message: v.error })
-      return applySetup({ publicUrl: v.normalized })
-    }),
+    complete: t.procedure
+      // password is optional: making the instance reachable strongly suggests setting one
+      // (the UI defaults to it), but the user can opt out and run open.
+      .input(z.object({ publicUrl: z.string(), password: z.string().optional() }))
+      .mutation(async ({ input }) => {
+        const v = validatePublicUrl(input.publicUrl)
+        if (!v.ok) throw new TRPCError({ code: 'BAD_REQUEST', message: v.error })
+        const cfg = applySetup({ publicUrl: v.normalized })
+        if (input.password?.trim()) await setPassword(input.password)
+        return cfg
+      }),
   }),
   issues: t.router({
     list: t.procedure

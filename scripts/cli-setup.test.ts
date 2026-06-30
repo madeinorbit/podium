@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { loadConfig } from '../packages/core/src/config'
 import { runCliSetup } from './cli-setup'
 
@@ -30,6 +30,26 @@ describe('runCliSetup', () => {
     let i = 0
     await runCliSetup({ prompt: async () => answers[i++], print: () => {} }, 18787)
     expect(loadConfig().publicUrl).toBe('https://box.ts.net')
+  })
+
+  it('prompts for a password after the URL and sets it when one is entered', async () => {
+    const answers = ['1', 'https://box.ts.net', 's3cret'] // option, URL, password
+    let i = 0
+    const setPw = vi.fn(async () => {})
+    await runCliSetup({ prompt: async () => answers[i++] ?? '', print: () => {} }, 18787, {
+      setPassword: setPw,
+    })
+    expect(setPw).toHaveBeenCalledWith('s3cret')
+  })
+
+  it('skips the password (runs open) when the prompt is left blank', async () => {
+    const answers = ['1', 'https://box.ts.net', ''] // blank password = opt out
+    let i = 0
+    const setPw = vi.fn(async () => {})
+    await runCliSetup({ prompt: async () => answers[i++] ?? '', print: () => {} }, 18787, {
+      setPassword: setPw,
+    })
+    expect(setPw).not.toHaveBeenCalled()
   })
 
   it('gives up (does not hang) when prompt only ever returns empty input', async () => {

@@ -88,6 +88,29 @@ describe('SetupView', () => {
     expect(onSaved).toHaveBeenCalled()
   })
 
+  it('sends a login password from the reachability step when one is entered', async () => {
+    const { container } = render(
+      <SetupView httpOrigin="http://localhost:18787" onSaved={() => {}} />,
+    )
+    const view = within(container)
+    await act(async () => {
+      fireEvent.click(view.getByRole('button', { name: /continue/i }))
+      await flush()
+    })
+    fireEvent.change(view.getByLabelText(/public url/i), {
+      target: { value: 'https://box.ts.net' },
+    })
+    fireEvent.change(view.getByLabelText(/password/i), { target: { value: 'launch-code' } })
+    await act(async () => {
+      fireEvent.click(view.getByRole('button', { name: /finish/i }))
+      await flush()
+    })
+    expect(trpcMock.complete).toHaveBeenCalledWith({
+      publicUrl: 'https://box.ts.net',
+      password: 'launch-code',
+    })
+  })
+
   it('shows server-url + pairing-code fields for daemon mode and POSTs both', async () => {
     const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ok: true }) })
     vi.stubGlobal('fetch', fetchMock)

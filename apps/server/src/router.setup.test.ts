@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { loadConfig } from '@podium/core/config'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { hasPassword, verifyPassword } from './auth-store'
 import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
 import { appRouter } from './router'
@@ -42,5 +43,14 @@ describe('setup tRPC', () => {
     await caller().setup.complete({ publicUrl: 'https://box.ts.net/' })
     expect(loadConfig().publicUrl).toBe('https://box.ts.net')
     expect(loadConfig().mode).toBe('all-in-one')
+  })
+  it('sets the login password when one is supplied (network-exposed install)', async () => {
+    await caller().setup.complete({ publicUrl: 'https://box.ts.net', password: 'launch-code' })
+    expect(hasPassword(dir)).toBe(true)
+    expect(await verifyPassword('launch-code', dir)).toBe(true)
+  })
+  it('leaves auth open when no password is supplied (explicit opt-out)', async () => {
+    await caller().setup.complete({ publicUrl: 'https://box.ts.net' })
+    expect(hasPassword(dir)).toBe(false)
   })
 })
