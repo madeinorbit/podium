@@ -465,3 +465,30 @@ describe('IssueService epic status (P2a)', () => {
     expect(svc.closeEligibleEpics('/r').map((w) => w.id)).toEqual([epic.id])
   })
 })
+
+describe('IssueService supersede/duplicate (P2b)', () => {
+  it('supersede closes old with reason + supersededBy + supersedes dep', () => {
+    const { svc, store } = harness()
+    const oldI = svc.create({ repoPath: '/r', title: 'old', startNow: false })
+    const newI = svc.create({ repoPath: '/r', title: 'new', startNow: false })
+    const w = svc.supersede(oldI.id, newI.id)
+    expect(w.stage).toBe('done')
+    expect(w.closedReason).toBe('superseded')
+    expect(store.listIssueDeps(oldI.id)).toEqual([{ toId: newI.id, type: 'supersedes' }])
+  })
+
+  it('duplicate closes id with reason + duplicateOf + related dep', () => {
+    const { svc, store } = harness()
+    const dup = svc.create({ repoPath: '/r', title: 'dup', startNow: false })
+    const canon = svc.create({ repoPath: '/r', title: 'canon', startNow: false })
+    const w = svc.duplicate(dup.id, canon.id)
+    expect(w.closedReason).toBe('duplicate')
+    expect(store.listIssueDeps(dup.id)).toEqual([{ toId: canon.id, type: 'related' }])
+  })
+
+  it('supersede throws on unknown id', () => {
+    const { svc } = harness()
+    const a = svc.create({ repoPath: '/r', title: 'a', startNow: false })
+    expect(() => svc.supersede(a.id, 'iss_missing')).toThrow()
+  })
+})

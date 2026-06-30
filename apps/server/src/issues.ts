@@ -335,6 +335,18 @@ export class IssueService {
     return this.update(id, { stage: 'done', closedReason: reason })
   }
 
+  supersede(oldId: string, newId: string): IssueWire {
+    this.rowOrThrow(newId)
+    this.addDep(oldId, newId, 'supersedes')
+    return this.update(oldId, { stage: 'done', closedReason: 'superseded', supersededBy: newId })
+  }
+
+  duplicate(id: string, canonicalId: string): IssueWire {
+    this.rowOrThrow(canonicalId)
+    this.addDep(id, canonicalId, 'related')
+    return this.update(id, { stage: 'done', closedReason: 'duplicate', duplicateOf: canonicalId })
+  }
+
   private worktreePathFor(repoPath: string, branch: string): string {
     // branch is `issue/<seq>-<slug>`; flatten to a directory name under <repo>/.worktrees
     const dir = branch.replace(/\//g, '-')

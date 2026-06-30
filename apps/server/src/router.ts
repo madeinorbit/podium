@@ -504,6 +504,12 @@ export const appRouter = t.router({
     close: t.procedure
       .input(z.object({ id: z.string(), reason: z.string().optional() }))
       .mutation(({ ctx, input }) => ctx.registry.issues.close(input.id, input.reason)),
+    supersede: t.procedure
+      .input(z.object({ oldId: z.string(), newId: z.string() }))
+      .mutation(({ ctx, input }) => ctx.registry.issues.supersede(input.oldId, input.newId)),
+    duplicate: t.procedure
+      .input(z.object({ id: z.string(), canonicalId: z.string() }))
+      .mutation(({ ctx, input }) => ctx.registry.issues.duplicate(input.id, input.canonicalId)),
     linearSearch: t.procedure
       .input(z.object({ query: z.string() }))
       .query(({ ctx, input }) => ctx.registry.issues.linearSearch(input.query)),
