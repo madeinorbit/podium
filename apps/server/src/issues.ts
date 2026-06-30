@@ -155,9 +155,11 @@ export class IssueService {
     if (input.priority != null) row.priority = input.priority
     if (input.type) row.type = input.type
     if (input.assignee) row.assignee = input.assignee
-    if (input.parentId) row.parentId = input.parentId
-    const wire = this.persist(row)
-    if (input.labels?.length) return this.setLabels(row.id, input.labels)
+    // parentId handled after persist via reparent (edge-maintaining): the row
+    // must be registered in this.rows first so wouldCycle/rowOrThrow work.
+    let wire = this.persist(row)
+    if (input.parentId) wire = this.reparent(row.id, input.parentId)
+    if (input.labels?.length) wire = this.setLabels(row.id, input.labels)
     return wire
   }
 
@@ -168,7 +170,13 @@ export class IssueService {
     | 'pinned' | 'estimateMin'>>): IssueWire {
     const row = this.rows.get(id)
     if (!row) throw new Error(`unknown issue ${id}`)
-    Object.assign(row, patch)
+    if ('parentId' in patch) {
+      this.setParent(row, patch.parentId ?? null)
+      const { parentId: _ignored, ...rest } = patch
+      Object.assign(row, rest)
+    } else {
+      Object.assign(row, patch)
+    }
     return this.persist(row)
   }
 
@@ -227,15 +235,25 @@ export class IssueService {
     return this.update(id, { deferUntil: until })
   }
 
+  /** The single cycle-checked path that keeps the parent_id column and the
+   *  parent-child edge in sync. Mutates row.parentId; caller persists. */
+  private setParent(row: IssueRow, newParentId: string | null): void {
+    if (newParentId === row.parentId) return
+    if (row.parentId) this.deps.store.removeIssueDep(row.id, row.parentId, 'parent-child')
+    if (newParentId) {
+      this.rowOrThrow(newParentId)
+      if (newParentId === row.id || this.wouldCycle(row.id, newParentId)) {
+        throw new Error(`reparent ${row.id} -> ${newParentId} would create a cycle`)
+      }
+      this.deps.store.addIssueDep(row.id, newParentId, 'parent-child')
+    }
+    row.parentId = newParentId
+  }
+
   reparent(id: string, parentId: string | null): IssueWire {
     const row = this.rowOrThrow(id)
-    if (row.parentId) this.deps.store.removeIssueDep(id, row.parentId, 'parent-child')
-    if (parentId) {
-      this.rowOrThrow(parentId)
-      if (this.wouldCycle(id, parentId)) throw new Error(`reparent would create a cycle`)
-      this.deps.store.addIssueDep(id, parentId, 'parent-child')
-    }
-    return this.update(id, { parentId })
+    this.setParent(row, parentId)
+    return this.persist(row)
   }
 
   claim(id: string, assignee: string): IssueWire {

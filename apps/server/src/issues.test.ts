@@ -347,3 +347,35 @@ describe('IssueService field mutations (P1)', () => {
     expect(store.listIssueDeps(child.id)).toEqual([])
   })
 })
+
+describe('IssueService hierarchy reconciliation (P2a / I2)', () => {
+  it('create({parentId}) maintains the parent-child edge AND childCount', () => {
+    const { svc, store } = harness()
+    const epic = svc.create({ repoPath: '/r', title: 'E', startNow: false })
+    const child = svc.create({ repoPath: '/r', title: 'C', parentId: epic.id, startNow: false })
+    expect(store.listIssueDeps(child.id)).toEqual([{ toId: epic.id, type: 'parent-child' }])
+    expect(svc.get(child.id)!.deps).toEqual([{ id: epic.id, type: 'parent-child' }])
+    expect(svc.get(epic.id)!.dependents).toEqual([{ id: child.id, type: 'parent-child' }])
+    expect(svc.get(epic.id)!.childCount).toBe(1)
+  })
+
+  it('update({parentId}) maintains the edge; changing parent moves the edge', () => {
+    const { svc, store } = harness()
+    const e1 = svc.create({ repoPath: '/r', title: 'E1', startNow: false })
+    const e2 = svc.create({ repoPath: '/r', title: 'E2', startNow: false })
+    const c = svc.create({ repoPath: '/r', title: 'C', startNow: false })
+    svc.update(c.id, { parentId: e1.id })
+    expect(store.listIssueDeps(c.id)).toEqual([{ toId: e1.id, type: 'parent-child' }])
+    svc.update(c.id, { parentId: e2.id })
+    expect(store.listIssueDeps(c.id)).toEqual([{ toId: e2.id, type: 'parent-child' }])
+    svc.update(c.id, { parentId: null })
+    expect(store.listIssueDeps(c.id)).toEqual([])
+  })
+
+  it('a parentId change that forms a cycle is rejected via create or update', () => {
+    const { svc } = harness()
+    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    const b = svc.create({ repoPath: '/r', title: 'B', parentId: a.id, startNow: false })
+    expect(() => svc.update(a.id, { parentId: b.id })).toThrow(/cycle/)
+  })
+})
