@@ -239,14 +239,19 @@ export class IssueService {
    *  parent-child edge in sync. Mutates row.parentId; caller persists. */
   private setParent(row: IssueRow, newParentId: string | null): void {
     if (newParentId === row.parentId) return
-    if (row.parentId) this.deps.store.removeIssueDep(row.id, row.parentId, 'parent-child')
+    // Check-then-mutate: no store edge may be touched before the cycle check
+    // passes, or a throw here would leave the edge gone while row.parentId (and
+    // persist) still point at the old parent — a column/edge divergence. wouldCycle
+    // returns true the instant it reaches row.id (before expanding that node), so
+    // the still-present old outgoing edge is never traversed and can't skew it.
     if (newParentId) {
       this.rowOrThrow(newParentId)
       if (newParentId === row.id || this.wouldCycle(row.id, newParentId)) {
         throw new Error(`reparent ${row.id} -> ${newParentId} would create a cycle`)
       }
-      this.deps.store.addIssueDep(row.id, newParentId, 'parent-child')
     }
+    if (row.parentId) this.deps.store.removeIssueDep(row.id, row.parentId, 'parent-child')
+    if (newParentId) this.deps.store.addIssueDep(row.id, newParentId, 'parent-child')
     row.parentId = newParentId
   }
 

@@ -378,4 +378,16 @@ describe('IssueService hierarchy reconciliation (P2a / I2)', () => {
     const b = svc.create({ repoPath: '/r', title: 'B', parentId: a.id, startNow: false })
     expect(() => svc.update(a.id, { parentId: b.id })).toThrow(/cycle/)
   })
+
+  it('a cycle-throw on reparent leaves the old parent edge + column intact (no divergence)', () => {
+    const { svc, store } = harness()
+    const old = svc.create({ repoPath: '/r', title: 'OLD', startNow: false })
+    const x = svc.create({ repoPath: '/r', title: 'X', parentId: old.id, startNow: false })
+    const nw = svc.create({ repoPath: '/r', title: 'NEW', parentId: x.id, startNow: false })
+    // OLD <- X <- NEW. Reparenting X under its descendant NEW must throw AND change nothing.
+    expect(() => svc.update(x.id, { parentId: nw.id })).toThrow(/cycle/)
+    expect(store.listIssueDeps(x.id)).toEqual([{ toId: old.id, type: 'parent-child' }])
+    expect(svc.get(x.id)!.parentId).toBe(old.id)
+    expect(svc.get(old.id)!.dependents).toContainEqual({ id: x.id, type: 'parent-child' })
+  })
 })
