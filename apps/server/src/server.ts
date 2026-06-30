@@ -127,7 +127,11 @@ export async function startServer(opts: { port?: number } = {}): Promise<ServerH
         mcpToken,
         mcpProvider.mcpToolSpecs().map((s) => s.name),
       )
-      issueTools.setClient(makeIssueClient(`http://127.0.0.1:${info.port}`))
+      // The in-process MCP issue surface is driven by the trusted superagent orchestrator,
+      // so it presents the maintainer token to act with full access.
+      issueTools.setClient(
+        makeIssueClient(`http://127.0.0.1:${info.port}`, { token: maintainerToken }),
+      )
       const ws = attachWebSockets(server as unknown as Server, registry)
       if (process.env.PODIUM_LOOP_PROFILE) startLoopMetrics({ label: 'server' })
       resolve({

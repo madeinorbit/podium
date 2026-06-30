@@ -82,3 +82,15 @@ export function readOrCreateMaintainerToken(dir: string = stateDir()): string {
     return readFileSync(path, 'utf8').trim()
   }
 }
+
+/** Read the maintainer token if it exists (does NOT create it — that's the server's job).
+ *  A local operator/orchestrator that can read this file presents it to act as maintainer;
+ *  callers that can't read it simply pass no token and fall back to worker/reader. */
+export function readMaintainerToken(dir: string = stateDir()): string | undefined {
+  try {
+    const t = readFileSync(join(dir, 'issue-maintainer.token'), 'utf8').trim()
+    return t || undefined
+  } catch {
+    return undefined
+  }
+}

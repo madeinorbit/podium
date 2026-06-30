@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { runIssueCli } from '../../../scripts/issue-cli'
 import { makeIssueClient } from './issue-client'
+import { readMaintainerToken } from './local-machine'
 import { startServer } from './server'
 
 describe('podium issue CLI ↔ live server (e2e)', () => {
@@ -24,7 +25,10 @@ describe('podium issue CLI ↔ live server (e2e)', () => {
   })
 
   it('create → ready → claim → close round-trips through the CLI', async () => {
-    const client = makeIssueClient(baseUrl)
+    // The server minted the maintainer token into the isolated state dir at startup; read
+    // it and present it so the role gate admits the create/claim/close mutations.
+    const token = readMaintainerToken(stateDir)
+    const client = makeIssueClient(baseUrl, { token, cwd: '/repo' })
     const created = await runIssueCli(
       ['create', '--repoPath', '/repo', '--title', 'Wire the CLI', '--priority', '1'],
       client,

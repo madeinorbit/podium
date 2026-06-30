@@ -53,7 +53,16 @@ export async function runIssueCli(argv: string[], client: IssueTrpc): Promise<st
 /** Entry used by scripts/cli.ts: build a loopback client and run, printing the result. */
 export async function issueCliMain(argv: string[]): Promise<void> {
   const port = Number(process.env.PODIUM_PORT) || 18787
-  const client = makeIssueClient(`http://localhost:${port}`)
+  // Present the operator's issue-tracker credentials so the server gate admits us: the
+  // maintainer token (env override, else the 0600 state-dir file if readable) makes us
+  // maintainer; our cwd lets the server map us to a worker iff it's inside a live issue
+  // worktree. If neither is present we fall back to reader (read-only).
+  const { readMaintainerToken } = await import('../apps/server/src/local-machine')
+  const token = process.env.PODIUM_ISSUE_TOKEN ?? readMaintainerToken()
+  const client = makeIssueClient(`http://localhost:${port}`, {
+    ...(token ? { token } : {}),
+    cwd: process.cwd(),
+  })
   try {
     console.log(await runIssueCli(argv, client))
   } catch (err) {
