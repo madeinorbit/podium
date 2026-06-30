@@ -166,3 +166,58 @@ test('#3/#4 code-block copy button + external links open in a new tab', async ({
 
   await rm(`${cwd}/e2e_codeblock.md`, { force: true }).catch(() => {})
 })
+
+test('#16/#17 memory view: "Project processes" legend; hibernation note ahead of the process list', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await openApp(page)
+
+  // Open the host memory breakdown from the health strip.
+  await page.locator('button[aria-label*="click for the breakdown"]').first().click()
+  const panel = page.locator('[aria-label="Host info"]')
+  await expect(panel).toBeVisible({ timeout: 10_000 })
+
+  // #17 — the legend says "Project processes", not the old "Projects".
+  await expect(panel.getByText('Project processes', { exact: true })).toBeVisible({
+    timeout: 10_000,
+  })
+
+  // #16 — the auto-hibernation note renders ABOVE the per-process sections.
+  await expect(panel.getByText('AGENTS & SHELLS', { exact: true })).toBeVisible({ timeout: 10_000 })
+  const noteBeforeList = await panel.evaluate((root) => {
+    const note = [...root.querySelectorAll('p')].find((p) =>
+      /Auto-hibernation|hibernate/i.test(p.textContent ?? ''),
+    )
+    const section = [...root.querySelectorAll('*')].find(
+      (el) => el.children.length === 0 && el.textContent?.trim() === 'AGENTS & SHELLS',
+    )
+    if (!note || !section) return null
+    // bit 4 (FOLLOWING) set → section comes after the note in document order.
+    return Boolean(note.compareDocumentPosition(section) & Node.DOCUMENT_POSITION_FOLLOWING)
+  })
+  expect(noteBeforeList).toBe(true)
+})
+
+test('#18 archive button is available once a session has exited', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await openApp(page)
+  await newSession(page, 'Shell')
+  await expect
+    .poll(async () => (await podium.screen(page)).length, { timeout: 20_000 })
+    .toBeGreaterThan(0)
+
+  // Archive is present while the session is live... (the keep-mounted panel deck
+  // can hold a hidden second panel, so scope to the visible header button).
+  const archive = page.locator('button[title^="Archive session"]:visible')
+  await expect(archive).toBeVisible({ timeout: 10_000 })
+
+  // ...end the shell process; the panel flips to its read-only/exited state...
+  await sh(page, 'exit')
+  await expect(page.getByText('no longer running', { exact: false })).toBeVisible({
+    timeout: 15_000,
+  })
+
+  // ...and Archive STILL shows (the #18 fix — it used to disappear on exit).
+  await expect(archive).toBeVisible({ timeout: 10_000 })
+})
