@@ -67,6 +67,16 @@ const DEFAULT_GEOMETRY: Geometry = { cols: 80, rows: 24 }
 // lands in a separate PTY read (the new Claude renderer swallows a CR fused to the
 // paste-end marker → the message types in but never submits). See sendText().
 const SUBMIT_CR_DELAY_MS = 90
+// Resume/spawn readiness (sendTextWhenReady): the PTY binds ('live') BEFORE the
+// agent's TUI has finished drawing / loading the resumed conversation. Typing then
+// lands in a half-built UI and the message is dropped (codex especially). Deliver
+// only once the spawn has SETTLED — live for at least FLOOR, has produced output,
+// and that output burst has gone quiet for QUIET. MAX caps the wait for a spawn
+// that never produces output, so a message is never held indefinitely.
+const READY_FLOOR_MS = 800
+const READY_QUIET_MS = 600
+const READY_MAX_MS = 6_000
+const READY_POLL_MS = 200
 const SCAN_TIMEOUT_MS = 10_000
 const FILE_RPC_TIMEOUT_MS = 10_000
 
@@ -1058,18 +1068,38 @@ export class SessionRegistry {
    */
   sendTextWhenReady(sessionId: string, text: string, timeoutMs = 25_000): void {
     const deadline = Date.now() + timeoutMs
+    // Captured on the first tick that sees the session live: when it went live (for
+    // FLOOR/MAX) and its output baseline (so a STALE pre-hibernate output timestamp
+    // doesn't read as "already settled" and fire the message into a booting TUI).
+    let liveAtMs = 0
+    let baseOutputMs = 0
     const tick = (): void => {
       const session = this.sessions.get(sessionId)
       if (!session || session.status === 'exited') return // gone — drop it
+      const now = Date.now()
       if (session.status === 'live') {
-        this.sendText({ sessionId, text })
-        return
+        if (!liveAtMs) {
+          liveAtMs = now
+          baseOutputMs = session.lastOutputAtMs
+        }
+        const producedOutput = session.lastOutputAtMs > baseOutputMs
+        const settled =
+          producedOutput &&
+          now - liveAtMs >= READY_FLOOR_MS &&
+          now - session.lastOutputAtMs >= READY_QUIET_MS
+        // Fallback: a spawn that never produces output (or streams forever) still
+        // gets its message after MAX rather than waiting out the whole deadline.
+        if (settled || now - liveAtMs >= READY_MAX_MS || now >= deadline) {
+          this.sendText({ sessionId, text })
+          return
+        }
+      } else if (now >= deadline) {
+        return // never came live — drop rather than fire into a dead PTY
       }
-      if (Date.now() >= deadline) return
-      const t = setTimeout(tick, 500)
+      const t = setTimeout(tick, READY_POLL_MS)
       t.unref?.()
     }
-    const t = setTimeout(tick, 500)
+    const t = setTimeout(tick, READY_POLL_MS)
     t.unref?.()
   }
 

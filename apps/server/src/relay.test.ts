@@ -1459,6 +1459,76 @@ describe('sendText (chat send path)', () => {
   })
 })
 
+describe('sendTextWhenReady (resume/spawn readiness — #5b)', () => {
+  const inputsOf = (daemon: ControlMessage[]): string =>
+    daemon
+      .filter((m) => m.type === 'input')
+      .map((m) => Buffer.from((m as { data: string }).data, 'base64').toString())
+      .join('')
+
+  it('waits for the spawned TUI to produce output AND settle before delivering', () => {
+    vi.useFakeTimers()
+    try {
+      const reg = new SessionRegistry()
+      const daemon: ControlMessage[] = []
+      reg.attachDaemon('local', (m) => daemon.push(m))
+      const { sessionId } = reg.createSession({ agentKind: 'codex', cwd: '/w' })
+      reg.onDaemonMessageFrom('local', bind(sessionId)) // -> live
+      reg.sendTextWhenReady(sessionId, 'deferred-msg')
+
+      // The TUI is still drawing: an output frame every poll for ~2s.
+      let seq = 0
+      for (let i = 0; i < 10; i += 1) {
+        reg.onDaemonMessageFrom('local', { type: 'agentFrame', sessionId, seq: seq++, data: 'eA==' })
+        vi.advanceTimersByTime(200)
+      }
+      // Output is still recent → NOT delivered (this is what the fix prevents:
+      // sending on 'live' alone would have fired immediately into the booting TUI).
+      expect(inputsOf(daemon)).not.toContain('deferred-msg')
+
+      // Output goes quiet → after the quiet+floor window it delivers (the bracketed
+      // paste block contains the text).
+      vi.advanceTimersByTime(1200)
+      expect(inputsOf(daemon)).toContain('deferred-msg')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('does not deliver while the session is still starting (not yet live)', () => {
+    vi.useFakeTimers()
+    try {
+      const reg = new SessionRegistry()
+      const daemon: ControlMessage[] = []
+      reg.attachDaemon('local', (m) => daemon.push(m))
+      const { sessionId } = reg.createSession({ agentKind: 'codex', cwd: '/w' }) // 'starting'
+      reg.sendTextWhenReady(sessionId, 'too-early')
+      vi.advanceTimersByTime(5000)
+      expect(inputsOf(daemon)).not.toContain('too-early')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('falls back to delivering a silent spawn after the max settle window', () => {
+    vi.useFakeTimers()
+    try {
+      const reg = new SessionRegistry()
+      const daemon: ControlMessage[] = []
+      reg.attachDaemon('local', (m) => daemon.push(m))
+      const { sessionId } = reg.createSession({ agentKind: 'codex', cwd: '/w' })
+      reg.onDaemonMessageFrom('local', bind(sessionId)) // live, but never emits output
+      reg.sendTextWhenReady(sessionId, 'silent-msg')
+      vi.advanceTimersByTime(5000)
+      expect(inputsOf(daemon)).not.toContain('silent-msg') // still within the max window
+      vi.advanceTimersByTime(2000)
+      expect(inputsOf(daemon)).toContain('silent-msg') // delivered after the fallback
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
+
 describe('hibernation', () => {
   function liveSession(reg: SessionRegistry, daemon: ControlMessage[]) {
     const { sessionId } = reg.createSession({ agentKind: 'claude-code', cwd: '/w' })
