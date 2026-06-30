@@ -138,6 +138,6 @@ describe('issue comments (P1)', () => {
     store.addIssueComment({ id: 'c3', issueId: 'iss_b', author: 'x', body: 'other', createdAt: 't1' })
     const cs = store.listIssueComments('iss_a')
     expect(cs.map((c) => c.body)).toEqual(['first', 'second'])
-    expect(cs[0].author).toBe('mike')
+    expect(cs[0]!.author).toBe('mike')
   })
 })
