@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { SessionStore } from './store'
+import type { IssueRow } from './store'
 
 function issueColumns(store: SessionStore): Set<string> {
   // @ts-expect-error reach the private db for a schema assertion
@@ -49,5 +50,49 @@ describe('issues child tables (P1)', () => {
     // @ts-expect-error private db
     const deps = store.db.prepare('SELECT from_id, to_id, type FROM issue_deps').all()
     expect(deps).toEqual([{ from_id: 'iss_a', to_id: 'iss_b', type: 'blocks' }])
+  })
+})
+
+function baseRow(over: Partial<IssueRow> = {}): IssueRow {
+  return {
+    id: 'iss_x', repoPath: '/r', seq: 1, title: 'X', description: '', stage: 'backlog',
+    worktreePath: null, branch: null, parentBranch: 'main', defaultAgent: 'claude-code',
+    linearId: null, linearIdentifier: null, linearUrl: null, activityNotes: null,
+    notesUpdatedAt: null, suggestedStage: null, suggestedReason: null, blockedBy: [],
+    dependencyNote: null, prUrl: null, createdAt: 't', updatedAt: 't', archived: false,
+    priority: 2, type: 'task', assignee: null, parentId: null, design: null, acceptance: null,
+    notes: null, dueAt: null, deferUntil: null, closedReason: null, supersededBy: null,
+    duplicateOf: null, pinned: false, estimateMin: null,
+    ...over,
+  }
+}
+
+describe('IssueRow rich fields round-trip (P1)', () => {
+  it('persists and reads back new fields', () => {
+    const store = new SessionStore(':memory:')
+    store.upsertIssue(baseRow({
+      priority: 0, type: 'bug', assignee: 'agent:claude', parentId: 'iss_epic',
+      design: 'D', acceptance: 'A', notes: 'N', dueAt: '2026-07-01', deferUntil: '2026-07-05',
+      closedReason: 'duplicate', supersededBy: 'iss_new', duplicateOf: 'iss_canon',
+      pinned: true, estimateMin: 30,
+    }))
+    const r = store.getIssue('iss_x')!
+    expect(r.priority).toBe(0)
+    expect(r.type).toBe('bug')
+    expect(r.assignee).toBe('agent:claude')
+    expect(r.parentId).toBe('iss_epic')
+    expect(r.pinned).toBe(true)
+    expect(r.estimateMin).toBe(30)
+    expect(r.deferUntil).toBe('2026-07-05')
+    expect(r.closedReason).toBe('duplicate')
+  })
+
+  it('defaults are applied for a minimal legacy-style insert', () => {
+    const store = new SessionStore(':memory:')
+    store.upsertIssue(baseRow())
+    const r = store.getIssue('iss_x')!
+    expect(r.priority).toBe(2)
+    expect(r.type).toBe('task')
+    expect(r.pinned).toBe(false)
   })
 })

@@ -126,6 +126,20 @@ export interface IssueRow {
   createdAt: string
   updatedAt: string
   archived: boolean
+  priority: number
+  type: string
+  assignee: string | null
+  parentId: string | null
+  design: string | null
+  acceptance: string | null
+  notes: string | null
+  dueAt: string | null
+  deferUntil: string | null
+  closedReason: string | null
+  supersededBy: string | null
+  duplicateOf: string | null
+  pinned: boolean
+  estimateMin: number | null
 }
 
 /** One row of the conversation index (camelCase mirror of `conversations`). */
@@ -908,8 +922,10 @@ export class SessionStore {
            (id, repo_path, seq, title, description, stage, worktree_path, branch, parent_branch,
             default_agent, linear_id, linear_identifier, linear_url, activity_notes, notes_updated_at,
             suggested_stage, suggested_reason, blocked_by, dependency_note, pr_url,
+            priority, type, assignee, parent_id, design, acceptance, notes, due_at,
+            defer_until, closed_reason, superseded_by, duplicate_of, pinned, estimate_min,
             created_at, updated_at, archived)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            title = excluded.title, description = excluded.description, stage = excluded.stage,
            worktree_path = excluded.worktree_path, branch = excluded.branch,
@@ -919,6 +935,12 @@ export class SessionStore {
            notes_updated_at = excluded.notes_updated_at, suggested_stage = excluded.suggested_stage,
            suggested_reason = excluded.suggested_reason, blocked_by = excluded.blocked_by,
            dependency_note = excluded.dependency_note, pr_url = excluded.pr_url,
+           priority = excluded.priority, type = excluded.type, assignee = excluded.assignee,
+           parent_id = excluded.parent_id, design = excluded.design,
+           acceptance = excluded.acceptance, notes = excluded.notes, due_at = excluded.due_at,
+           defer_until = excluded.defer_until, closed_reason = excluded.closed_reason,
+           superseded_by = excluded.superseded_by, duplicate_of = excluded.duplicate_of,
+           pinned = excluded.pinned, estimate_min = excluded.estimate_min,
            updated_at = excluded.updated_at, archived = excluded.archived`,
       )
       .run(
@@ -942,6 +964,20 @@ export class SessionStore {
         JSON.stringify(blockedBy),
         row.dependencyNote,
         row.prUrl,
+        row.priority,
+        row.type,
+        row.assignee,
+        row.parentId,
+        row.design,
+        row.acceptance,
+        row.notes,
+        row.dueAt,
+        row.deferUntil,
+        row.closedReason,
+        row.supersededBy,
+        row.duplicateOf,
+        row.pinned ? 1 : 0,
+        row.estimateMin,
         row.createdAt,
         row.updatedAt,
         row.archived ? 1 : 0,
@@ -970,6 +1006,20 @@ export class SessionStore {
       blockedBy: parseStringArray(r.blocked_by, `issue ${String(r.id)} blocked_by`),
       dependencyNote: (r.dependency_note as string | null) ?? null,
       prUrl: (r.pr_url as string | null) ?? null,
+      priority: (r.priority as number) ?? 2,
+      type: (r.type as string) ?? 'task',
+      assignee: (r.assignee as string | null) ?? null,
+      parentId: (r.parent_id as string | null) ?? null,
+      design: (r.design as string | null) ?? null,
+      acceptance: (r.acceptance as string | null) ?? null,
+      notes: (r.notes as string | null) ?? null,
+      dueAt: (r.due_at as string | null) ?? null,
+      deferUntil: (r.defer_until as string | null) ?? null,
+      closedReason: (r.closed_reason as string | null) ?? null,
+      supersededBy: (r.superseded_by as string | null) ?? null,
+      duplicateOf: (r.duplicate_of as string | null) ?? null,
+      pinned: r.pinned === 1,
+      estimateMin: (r.estimate_min as number | null) ?? null,
       createdAt: r.created_at as string,
       updatedAt: r.updated_at as string,
       archived: r.archived === 1,

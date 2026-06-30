@@ -98,6 +98,9 @@ export class IssueService {
       linearId: input.linear?.id ?? null, linearIdentifier: input.linear?.identifier ?? null,
       linearUrl: input.linear?.url ?? null, activityNotes: null, notesUpdatedAt: null,
       suggestedStage: null, suggestedReason: null, blockedBy: [], dependencyNote: null, prUrl: null,
+      priority: 2, type: 'task', assignee: null, parentId: null, design: null, acceptance: null,
+      notes: null, dueAt: null, deferUntil: null, closedReason: null, supersededBy: null,
+      duplicateOf: null, pinned: false, estimateMin: null,
       createdAt: ts, updatedAt: ts, archived: false,
     }
     const wire = this.persist(row)
