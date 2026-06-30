@@ -90,6 +90,17 @@ export async function main(): Promise<void> {
   const plan = resolvePlan(argv, config)
   const port = Number(process.env.PODIUM_PORT) || config.port || 18787
 
+  // On a TTY, `podium setup`/`--reconfigure` runs the terminal flow (the headless-VPS
+  // counterpart to the web networking step); otherwise we fall through to serving the web URL.
+  if (forceSetup && process.stdin.isTTY) {
+    const { runCliSetup } = await import('./cli-setup')
+    const { createInterface } = await import('node:readline/promises')
+    const rl = createInterface({ input: process.stdin, output: process.stdout })
+    await runCliSetup({ prompt: (q) => rl.question(q), print: (s) => console.log(s) }, port)
+    rl.close()
+    return
+  }
+
   if (!forceSetup && plan.mode === 'client') {
     console.log(`podium client mode — open the web UI pointed at ${plan.serverUrl ?? '(no serverUrl configured)'}`)
     console.log('(run `podium setup` to reconfigure this install)')
@@ -105,7 +116,10 @@ export async function main(): Promise<void> {
     const server = await startServer({ port })
     serverPort = server.port
     console.log(`podium server up on http://localhost:${serverPort}`)
-    if (forceSetup || plan.showSetupHint) console.log(`\n  → Open setup:  http://localhost:${serverPort}/\n`)
+    if (forceSetup || plan.showSetupHint) {
+      console.log(`\n  → Open setup:  http://localhost:${serverPort}/\n`)
+      console.log('  → …or run: podium setup   (configure here in the terminal)')
+    }
   }
   if (runDaemon) {
     const serverUrl = plan.mode === 'daemon' ? plan.serverUrl : `ws://localhost:${serverPort}`
