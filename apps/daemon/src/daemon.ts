@@ -1191,6 +1191,17 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
         geometry: msg.geometry,
       })
       existing.redraw()
+      // Re-push agent state for the same reason we re-seed the transcript below: a
+      // freshly restarted SERVER (the daemon survived) starts with NO agentState for
+      // this session, and an idle survivor fires no hook to re-establish it — so it
+      // would fall through the home board's `live → working` fallback and read as
+      // WORKING. We still hold the live tracker, so resend its current phase. Skip
+      // 'unknown' (nothing to assert) — a cold tracker is re-seeded by the fresh-bridge
+      // branch below, not here.
+      const tracker = trackers.get(msg.sessionId)
+      if (tracker && tracker.state.phase !== 'unknown') {
+        send({ type: 'agentState', sessionId: msg.sessionId, state: tracker.state })
+      }
       // Re-seed the transcript even though we already hold the bridge: a freshly
       // restarted SERVER (the daemon survived) has an empty per-session buffer, and
       // this already-held branch otherwise does no transcript work, so chat would

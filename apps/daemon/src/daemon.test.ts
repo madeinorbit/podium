@@ -244,6 +244,38 @@ describe('daemon multi-bridge', () => {
     )
   })
 
+  it('re-pushes agentState on reattach when it already holds the bridge (server restart)', async () => {
+    // A server-only restart (the daemon survives) makes the server re-send `reattach`
+    // for every live session. handleReattach's already-held-bridge branch re-seeds the
+    // transcript but must ALSO re-push the surviving tracker's phase — otherwise the
+    // freshly-restarted server holds no agentState for the session and the home board's
+    // `live → working` fallback shows an idle survivor as WORKING.
+    const sessionId = 'srv-restart-repush'
+    send({ type: 'spawn', sessionId, agentKind: 'claude-code', cwd: '/tmp', geometry: G })
+    await waitFor(() => received.some((m) => m.type === 'bind' && m.sessionId === sessionId))
+    const idleStates = () =>
+      received.filter(
+        (m): m is Extract<DaemonMessage, { type: 'agentState' }> =>
+          m.type === 'agentState' && m.sessionId === sessionId && m.state.phase === 'idle',
+      )
+    // The spawn boot-seed pushes idle exactly once (no hooks fire in this fixture).
+    await waitFor(() => idleStates().length >= 1)
+    const before = idleStates().length
+    // Server reconnects and re-sends reattach for the live session; the daemon still
+    // holds the bridge, so this hits the already-held branch.
+    send({
+      type: 'reattach',
+      sessionId,
+      durableLabel: `podium-${sessionId}`,
+      agentKind: 'claude-code',
+      cwd: '/tmp',
+      geometry: G,
+    })
+    // The fix: the already-held branch re-pushes the surviving idle phase.
+    await waitFor(() => idleStates().length > before)
+    expect(idleStates().length).toBeGreaterThan(before)
+  }, 15000)
+
   it('scanRequest forwards the worker delta as a wire-valid scanResult', async () => {
     // The scan now runs on the worker and returns a delta; the on-demand scanResult
     // carries the same delta fields (changed → `conversations`, plus `removed`),
