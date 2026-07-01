@@ -79,6 +79,7 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
       description: z.string().optional(),
       priority: z.coerce.number().int().min(0).max(4).optional(),
       type: z.string().optional(),
+      parentId: z.string().optional(),
     }),
     async run(c, a) {
       const i = (await c.issues.create.mutate({
@@ -88,6 +89,7 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
         ...(a.description ? { description: a.description as string } : {}),
         ...(a.priority != null ? { priority: a.priority as number } : {}),
         ...(a.type ? { type: a.type as never } : {}),
+        ...(a.parentId ? { parentId: a.parentId as string } : {}),
       })) as { seq: number; title: string }
       return `created #${i.seq} ${i.title}`
     },

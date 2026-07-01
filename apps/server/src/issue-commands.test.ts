@@ -99,4 +99,15 @@ describe('ISSUE_COMMANDS registry', () => {
     expect(cmd).toBeTruthy()
     expect(await cmd.run(fake, { repoPath: '/r' })).toBe('PRIME OUTPUT')
   })
+
+  it('create passes --parentId through to the mutation', async () => {
+    const calls: unknown[] = []
+    const fake = {
+      issues: { create: { mutate: async (i: unknown) => { calls.push(i); return { seq: 2, title: 'child' } } } },
+      repos: { inferFromPath: { query: async () => ({ repoPath: '/r' }) } },
+    } as unknown as import('./issue-client').IssueTrpc
+    const cmd = ISSUE_COMMANDS.find((c) => c.name === 'create')!
+    await cmd.run(fake, { repoPath: '/r', title: 'child', parentId: 'iss_parent' })
+    expect(calls[0]).toMatchObject({ parentId: 'iss_parent', title: 'child' })
+  })
 })
