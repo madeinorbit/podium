@@ -1,4 +1,4 @@
-import { WIRE_VERSION } from '@podium/protocol'
+import { MIN_SUPPORTED_VERSION, WIRE_VERSION } from '@podium/protocol'
 import { Hono } from 'hono'
 import { describe, expect, it } from 'vitest'
 import { registerVersionRoute } from './server'
@@ -9,8 +9,13 @@ describe('GET /version', () => {
     registerVersionRoute(app)
     const res = await app.request('/version')
     expect(res.status).toBe(200)
-    const body = (await res.json()) as { wireVersion: number; appVersion: string }
+    const body = (await res.json()) as {
+      wireVersion: number
+      appVersion: string
+      minSupportedVersion: number
+    }
     expect(body.wireVersion).toBe(WIRE_VERSION)
+    expect(body.minSupportedVersion).toBe(MIN_SUPPORTED_VERSION)
     expect(typeof body.appVersion).toBe('string')
   })
 })

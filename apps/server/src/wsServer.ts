@@ -3,11 +3,10 @@ import {
   type DaemonHandshake,
   type DaemonHandshakeReply,
   encode,
-  isProtocolCompatible,
   parseClientMessage,
   parseDaemonHandshake,
   parseDaemonMessage,
-  WIRE_VERSION,
+  versionSupport,
 } from '@podium/protocol'
 import { WebSocketServer } from 'ws'
 import type { SessionRegistry } from './relay'
@@ -256,14 +255,12 @@ export function attachWebSockets(
   server.on('upgrade', (req, socket, head) => {
     const url = new URL(req.url ?? '/', 'http://localhost')
     const pathname = url.pathname
-    // Reject a peer on an incompatible wire protocol with a clear 426 so it can tell the
+    // Reject a peer on an unsupported wire protocol with a clear 426 so it can tell the
     // user to update, rather than failing later on a malformed frame. A peer that sends
-    // no `pv` (older client) is allowed through unchanged.
+    // no `v` (older client) is allowed through unchanged.
     if (pathname === '/daemon' || pathname === '/client') {
-      if (
-        url.searchParams.has('pv') &&
-        !isProtocolCompatible(Number(url.searchParams.get('pv')), WIRE_VERSION)
-      ) {
+      const raw = url.searchParams.get('v') ?? url.searchParams.get('pv') // 'pv' = deprecated alias
+      if (raw !== null && versionSupport(Number(raw)) !== 'ok') {
         socket.write('HTTP/1.1 426 Upgrade Required\r\n\r\n')
         socket.destroy()
         return

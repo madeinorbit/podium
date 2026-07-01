@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url'
 import { serve } from '@hono/node-server'
 import { trpcServer } from '@hono/trpc-server'
 import { startLoopMetrics } from '@podium/core/loop-metrics'
-import { WIRE_VERSION } from '@podium/protocol'
+import { MIN_SUPPORTED_VERSION, WIRE_VERSION } from '@podium/protocol'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { clientAuthGuard, isRequestAuthed, registerAuthRoute } from './auth-route'
@@ -91,6 +91,7 @@ export function registerVersionRoute(app: Hono): void {
   app.get('/version', (c) =>
     c.json({
       wireVersion: WIRE_VERSION,
+      minSupportedVersion: MIN_SUPPORTED_VERSION,
       appVersion: process.env.PODIUM_APP_VERSION ?? 'dev',
     }),
   )
