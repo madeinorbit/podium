@@ -66,10 +66,14 @@ describe('/client WS auth gate', () => {
     expect(await attempt(url)).toBe('open')
   })
 
-  test('a foreign browser Origin is rejected even when the auth gate would allow it', async () => {
+  test('a loopback-bound backend accepts any Origin (proxy owns origin policy)', async () => {
+    // The test server binds 127.0.0.1, so its Host is loopback — the same shape as a backend
+    // behind tailscale/nginx/caddy. A foreign Origin must NOT be rejected here, or every
+    // reverse-proxied client would break; SameSite=Lax on the cookie is the real CSWSH guard.
+    // (Same-origin enforcement only applies when bound to a real network host — unit-tested in
+    // wsServer.origin.test.ts.)
     const url = await start(() => true)
-    expect(await attempt(url, { origin: 'https://evil.example' })).toBe('rejected')
-    // No Origin (native client) still connects.
+    expect(await attempt(url, { origin: 'https://evil.example' })).toBe('open')
     expect(await attempt(url)).toBe('open')
   })
 })

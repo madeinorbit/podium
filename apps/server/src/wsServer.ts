@@ -26,14 +26,30 @@ export interface WsAuthOptions {
   authorizeClient?: (req: IncomingMessage) => boolean
 }
 
+const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '[::1]'])
+
+/** The hostname portion of a `Host` header (drops the port; tolerates IPv6 brackets). */
+function hostHeaderName(host: string | undefined): string | undefined {
+  if (!host) return undefined
+  try {
+    return new URL(`http://${host}`).hostname
+  } catch {
+    return undefined
+  }
+}
+
 /**
  * Cross-Site-WebSocket-Hijacking defense for the WS upgrades. A browser sends an `Origin`
  * header it can't forge; a native client (the daemon, the `ws` lib) sends none. We allow:
- * no Origin (native), same-origin (Origin host == request Host), the desktop webview
- * (`tauri:`), and loopback origins (local dev / bundled app). Any other browser origin —
- * e.g. a page on evil.example trying to open ws://podium — is rejected. (SameSite=Lax on
- * the session cookie already blocks the credential from riding such a request; this is
- * defense-in-depth and also covers the token-bearing /daemon upgrade.)
+ * no Origin (native), the desktop webview (`tauri:`), loopback origins, and same-origin
+ * (Origin host == request Host).
+ *
+ * Crucially, we ALSO allow when the request's own `Host` is loopback. Behind a reverse proxy
+ * (tailscale serve / nginx / caddy, which set `changeOrigin`) the backend's Host is rewritten
+ * to its internal loopback address, so an Origin==Host comparison can never match a real
+ * browser origin — the edge owns origin policy there. We therefore only *enforce* same-origin
+ * when the backend is bound to a real network host (direct exposure). SameSite=Lax on the
+ * session cookie is the primary CSWSH protection regardless; this is defense-in-depth.
  */
 export function isAllowedWsOrigin(origin: string | undefined, host: string | undefined): boolean {
   if (!origin) return true
@@ -44,8 +60,9 @@ export function isAllowedWsOrigin(origin: string | undefined, host: string | und
     return false
   }
   if (parsed.protocol === 'tauri:') return true
-  const loopback = new Set(['localhost', '127.0.0.1', '::1', '[::1]'])
-  if (loopback.has(parsed.hostname)) return true
+  if (LOOPBACK_HOSTS.has(parsed.hostname)) return true
+  // Proxied or local backend → can't/needn't verify the public origin here.
+  if (LOOPBACK_HOSTS.has(hostHeaderName(host) ?? '')) return true
   return Boolean(host) && parsed.host === host
 }
 
