@@ -84,7 +84,7 @@ import { buildHarnessExec } from './harness-exec.js'
 import { startHookIngest } from './hook-ingest'
 import { sampleHostMemory } from './host-metrics'
 import { loadIdentity, saveToken } from './identity'
-import { createIssueRelayHub } from './issue-relay'
+import { createIssueRelayHub, startIssueRelayServer } from './issue-relay'
 import {
   countControl,
   countFrame,
@@ -813,6 +813,11 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
   // scope so BOTH handleControlMessage (the result-dispatch case) and the loopback
   // server can reach the one hub; it captures `send` so requests ride the live WS.
   const issueRelayHub = createIssueRelayHub(send)
+
+  // Loopback HTTP endpoint an agent's `podium issue` CLI posts to. Its port is
+  // injected into the agent env at spawn (Task 3); each request rides the hub
+  // over the live WS and blocks until the server answers.
+  const issueRelay = await startIssueRelayServer({ relay: (req) => issueRelayHub.relay(req) })
 
   // Coalesce + prioritize PTY frame relay (the per-frame stringify+send was the
   // dominant residual loop hitch). flush() sends one agentFrameBatch per session.
@@ -1668,6 +1673,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
       }
       for (const id of [...tails.keys()]) stopTranscriptTail(id)
       await ingest.close()
+      await issueRelay.close()
       return new Promise<void>((resolve) => {
         disposeAll(opts?.reapSessions ?? false)
         const w = currentWs

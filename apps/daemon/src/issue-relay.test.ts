@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { createIssueRelayHub } from './issue-relay'
+import { createIssueRelayHub, startIssueRelayServer } from './issue-relay'
 
 describe('issue relay hub', () => {
   it('sends an issueRelayRequest and resolves on the matching result', async () => {
@@ -41,5 +41,40 @@ describe('issue relay hub', () => {
     expect(r.ok).toBe(false)
     expect(r.error).toMatch(/timed out/)
     vi.useRealTimers()
+  })
+})
+
+describe('issue relay server', () => {
+  it('POST /issue/<sessionId> relays and returns the result', async () => {
+    const seen: any[] = []
+    const srv = await startIssueRelayServer({
+      port: 0,
+      relay: async (req) => {
+        seen.push(req)
+        return { ok: true, result: `ran ${req.proc}` }
+      },
+    })
+    try {
+      const res = await fetch(srv.endpointFor('sX'), {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ proc: 'ready', input: { repoPath: '/r' } }),
+      })
+      const body = await res.json()
+      expect(body).toEqual({ ok: true, result: 'ran ready' })
+      expect(seen[0]).toMatchObject({ sessionId: 'sX', router: 'issues', proc: 'ready' })
+    } finally {
+      await srv.close()
+    }
+  })
+
+  it('rejects a non-POST or bad path with 404', async () => {
+    const srv = await startIssueRelayServer({ port: 0, relay: async () => ({ ok: true }) })
+    try {
+      const res = await fetch(`http://127.0.0.1:${srv.port}/nope`, { method: 'GET' })
+      expect(res.status).toBe(404)
+    } finally {
+      await srv.close()
+    }
   })
 })
