@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { type Capability, OPERATOR } from './issue-authz'
+import { type Capability, OPERATOR, PROC_ACTION } from './issue-authz'
 import { SessionRegistry } from './relay'
-import { appRouter } from './router'
+import { appRouter, SCOPED_TARGET } from './router'
 
 function inputSchema(path: string) {
   // tRPC stores the parsed input parser on the procedure's _def.
@@ -103,5 +103,22 @@ describe('issues.* subtree scope (P1a)', () => {
     const c = callerWith({ role: 'worker', scope: { kind: 'subtree', rootId: A.id } })
     const out = await c.issues.prime({ repoPath: '/r' })
     expect(out).toContain(A.title)
+  })
+})
+
+// Structural guarantee: the scope gate only runs for procs listed in SCOPED_TARGET, so a
+// new write/manage proc that mutates an EXISTING issue must have an extractor or it silently
+// escapes the subtree check. Tie coverage to PROC_ACTION so the omission fails CI, not review.
+describe('scope-gate coverage (P1b)', () => {
+  // Procs that mutate but have NO single existing-issue target (additive / not-an-issue):
+  const NO_TARGET = new Set(['create', 'linearSearch'])
+
+  it('every write/manage proc that targets an existing issue is scope-gated', () => {
+    const need = Object.entries(PROC_ACTION)
+      .filter(([, a]) => a === 'write' || a === 'manage')
+      .map(([p]) => p)
+      .filter((p) => !NO_TARGET.has(p))
+    const missing = need.filter((p) => !(p in SCOPED_TARGET))
+    expect(missing).toEqual([])
   })
 })

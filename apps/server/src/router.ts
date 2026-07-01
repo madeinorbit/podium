@@ -36,9 +36,12 @@ export interface Context {
 const t = initTRPC.context<Context>().create()
 const PinKind = z.enum(['panel', 'worktree', 'repo'])
 
-/** proc name → how to read the target EXISTING issue id from its input. Procs absent here
- *  are additive (create), reads, or role-blocked (manage), so they need no scope check. */
+/** proc name → how to read the target EXISTING issue id from its input. The scope gate runs
+ *  ONLY for procs listed here, so every write/manage proc that mutates an existing issue must
+ *  appear (create/linearSearch are additive / not-an-issue). router.issues.test.ts ties this
+ *  set to PROC_ACTION so a new write/manage proc can't silently escape the subtree check. */
 export const SCOPED_TARGET: Record<string, (i: Record<string, unknown>) => string | undefined> = {
+  // write — target = the issue being worked on
   claim: (i) => i.id as string,
   update: (i) => i.id as string,
   close: (i) => i.id as string,
@@ -52,6 +55,14 @@ export const SCOPED_TARGET: Record<string, (i: Record<string, unknown>) => strin
   addSession: (i) => i.id as string,
   addShell: (i) => i.id as string,
   depAdd: (i) => i.fromId as string,
+  // manage — target = the mutated subject issue (verified against each resolver's input)
+  archive: (i) => i.id as string,
+  delete: (i) => i.id as string,
+  setLabels: (i) => i.id as string,
+  reparent: (i) => i.id as string,
+  depRemove: (i) => i.fromId as string,
+  supersede: (i) => i.oldId as string,
+  duplicate: (i) => i.id as string,
 }
 
 /** Authorize every issues.* call against the caller's capability. The middleware `path`
