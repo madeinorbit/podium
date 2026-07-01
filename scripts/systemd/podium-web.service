@@ -1,25 +1,21 @@
 [Unit]
-Description=Podium web (built PWA via vite preview, app origin :55556; TLS :55555 via tailscale serve)
-After=podium-server.service network-online.target
-Wants=podium-server.service
+# The backend (podium-server, :18787) serves the built PWA bundle itself (registerWebStatic
+# over apps/web/dist), on the same origin as /trpc, /auth and the /client + /daemon WS. So
+# there is NO separate web server / vite hop — the TLS terminator (tailscale serve / caddy /
+# nginx) points straight at :18787. This unit only *builds* the bundle so dist stays fresh.
+Description=Podium web build — rebuilds apps/web/dist (served by the backend). Runs at boot and on every redeploy.
+After=network-online.target
 
 [Service]
-Type=simple
+Type=oneshot
+# Stay "active (exited)" after a successful build so status is legible; the redeploy runs
+# `systemctl restart podium-web` to re-build the content-hashed bundle (drives the in-app
+# PWA update prompt).
+RemainAfterExit=yes
 WorkingDirectory=/home/user/src/other/podium
 Environment=HOME=/home/user
 Environment=PATH=/home/user/.local/bin:/home/user/.opencode/bin:/home/user/.bun/bin:/usr/local/bin:/usr/bin:/bin
-# Must match the backend so the Vite proxy targets the right internal port.
-Environment=PODIUM_PORT=18787
-# Built PWA: `vite build` emits the content-hashed shell + service worker to
-# dist/, then `vite preview` serves it on :55556 (proxy + allowedHosts from
-# vite.config.ts preview block). A redeploy reruns the build, so the new build
-# hash is what drives the in-app update prompt. If the build fails, the unit
-# fails and `Restart=always` retries — the site is briefly down during the
-# build (seconds), the accepted v1 tradeoff.
-ExecStartPre=/home/user/.local/bin/bun run --filter @podium/web build
-ExecStart=/home/user/.local/bin/bun run --filter @podium/web preview
-Restart=always
-RestartSec=2
+ExecStart=/home/user/.local/bin/bun run --filter @podium/web build
 
 [Install]
 WantedBy=default.target

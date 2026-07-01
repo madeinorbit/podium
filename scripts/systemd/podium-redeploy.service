@@ -1,10 +1,9 @@
 [Unit]
 Description=Podium redeploy — restart server + daemon + web to run the latest main (triggered by git HEAD change)
 # Triggered by podium-redeploy.path on .git/logs/HEAD changes. The server + daemon run
-# from source, so a restart picks up newly-merged code. The web Vite dev server must
-# restart too: its long-lived module graph has gone stale across merges twice
-# (stale @podium/protocol 2026-06-11; stale SocketHub/"hub.onAttention is not a
-# function" 2026-06-12) — HMR does not reliably survive large git-driven rewrites.
+# from source, so a restart picks up newly-merged code. podium-web is a build-only oneshot
+# (the backend serves apps/web/dist directly, no vite hop) — restarting it re-builds the
+# bundle so the served dist matches the newly-merged web source.
 After=podium-server.service podium-daemon.service
 
 [Service]
