@@ -17,7 +17,10 @@ import { RELAY } from './_harness'
  * Desktop-only: the "Issues" nav button lives in the <aside> Sidebar, which the
  * mobile layout (MobileApp) does not render.
  */
-test.skip(({ isMobile }) => isMobile, 'desktop test (Issues nav button lives in the <aside> Sidebar)')
+test.skip(
+  ({ isMobile }) => isMobile,
+  'desktop test (Issues nav button lives in the <aside> Sidebar)',
+)
 
 /** Open the Live UI app shell pointed at the harness relay, with the e2e test API
  *  enabled, and wait for the cold-start load to finish. */
@@ -97,7 +100,9 @@ test('issues board: renders the stage columns, creates a Backlog issue, and move
   // ---- Move the issue's stage via the detail panel's Stage selector ----
   await card.click()
   // The detail drawer header shows "#<seq> <title>".
-  await expect(page.getByRole('heading', { name: new RegExp(`#\\d+\\s+${escapeRe(title)}`) })).toBeVisible({
+  await expect(
+    page.getByRole('heading', { name: new RegExp(`#\\d+\\s+${escapeRe(title)}`) }),
+  ).toBeVisible({
     timeout: 10_000,
   })
 
@@ -120,6 +125,70 @@ test('issues board: renders the stage columns, creates a Backlog issue, and move
     backlogColumn.getByText(title, { exact: false }),
     'the card is no longer in Backlog',
   ).toHaveCount(0)
+})
+
+test('issues board: flag an issue for human, badge appears live, then resolve', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await openShell(page)
+
+  await page.getByRole('button', { name: 'Issues' }).click({ timeout: 15_000 })
+  const board = page.getByRole('region', { name: 'Issues' })
+  await expect(board).toBeVisible({ timeout: 10_000 })
+
+  // ---- Create a Backlog issue (startNow=false → no worktree op) ----
+  await page.getByRole('button', { name: 'New Issue' }).click()
+  const dialog = page.getByRole('dialog')
+  await expect(dialog.getByRole('heading', { name: 'New Issue' })).toBeVisible({ timeout: 10_000 })
+  const title = `E2E needs-human ${Date.now()}`
+  await dialog.getByLabel('Title').fill(title)
+  const startNow = dialog.getByRole('checkbox', { name: 'Start work now' })
+  await expect(startNow).toBeChecked()
+  await startNow.uncheck()
+  const createBtn = dialog.getByRole('button', { name: /^Create$/ })
+  await expect(createBtn).toBeEnabled({ timeout: 15_000 })
+  await createBtn.click()
+  await expect(dialog).toBeHidden({ timeout: 15_000 })
+
+  const backlogColumn = board
+    .locator('div.w-\\[280px\\]')
+    .filter({ has: page.getByRole('heading', { name: 'Backlog', exact: true }) })
+    .first()
+  const card = backlogColumn.getByText(title, { exact: false })
+  await expect(card, 'the new issue card appears under Backlog').toBeVisible({ timeout: 15_000 })
+
+  // No needs-human badge yet.
+  await expect(backlogColumn.getByText('needs human', { exact: false })).toHaveCount(0)
+
+  // ---- Open the drawer and flag for human with a question ----
+  await card.click()
+  await expect(
+    page.getByRole('heading', { name: new RegExp(`#\\d+\\s+${escapeRe(title)}`) }),
+  ).toBeVisible({ timeout: 10_000 })
+
+  const question = 'Which API key should we use?'
+  await page.getByLabel('Question for human').fill(question)
+  await page.getByRole('button', { name: 'Flag for human' }).click()
+
+  // The drawer now shows the question prominently (the banner replaces the flag control).
+  await expect(page.getByText(question, { exact: false })).toBeVisible({ timeout: 10_000 })
+  // ...and the card grows a needs-human badge live via the issuesChanged broadcast.
+  await expect(
+    backlogColumn.getByText('needs human', { exact: false }),
+    'the card shows the needs-human badge',
+  ).toBeVisible({ timeout: 15_000 })
+
+  // ---- Resolve → the flag clears and the badge disappears ----
+  await page.getByRole('button', { name: 'Resolve' }).click({ timeout: 10_000 })
+  await expect(
+    backlogColumn.getByText('needs human', { exact: false }),
+    'the needs-human badge disappears after resolve',
+  ).toHaveCount(0, { timeout: 15_000 })
+  // The flag-for-human control is back (banner gone).
+  await expect(page.getByRole('button', { name: 'Flag for human' })).toBeVisible({
+    timeout: 10_000,
+  })
 })
 
 /** Escape a string for safe interpolation into a RegExp (the title contains digits

@@ -18,6 +18,7 @@ export function issueCardModel(issue: IssueWire): {
   typeLabel: string
   statusDot: 'ready' | 'blocked' | 'deferred' | 'closed' | 'open'
   labels: string[]
+  needsHuman: boolean
 } {
   const repo = issue.repoPath.split('/').filter(Boolean).pop() ?? issue.repoPath
   const count = issue.sessionSummary.total
@@ -42,5 +43,6 @@ export function issueCardModel(issue: IssueWire): {
     typeLabel: issue.type,
     statusDot,
     labels: issue.labels,
+    needsHuman: issue.needsHuman,
   }
 }

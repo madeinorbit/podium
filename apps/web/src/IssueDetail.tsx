@@ -57,6 +57,8 @@ export function IssueDetail({
   const [supersedeTarget, setSupersedeTarget] = useState('')
   const [duplicateTarget, setDuplicateTarget] = useState('')
   const [commentBody, setCommentBody] = useState('')
+  // Optional question to attach when flagging the issue for a human decision.
+  const [humanQuestion, setHumanQuestion] = useState('')
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: reset only on issue switch
   useEffect(() => {
@@ -66,6 +68,7 @@ export function IssueDetail({
     setSupersedeTarget('')
     setDuplicateTarget('')
     setCommentBody('')
+    setHumanQuestion('')
   }, [issue.id])
 
   useEffect(() => {
@@ -368,6 +371,60 @@ export function IssueDetail({
 
         <section className="flex flex-col gap-3">
           <h3 className="font-medium text-[13px] text-foreground">Lifecycle</h3>
+
+          {issue.needsHuman ? (
+            <div className="flex flex-col gap-2 rounded-lg border border-amber-500/60 bg-amber-500/10 p-3">
+              <p className="font-medium text-[12px] text-amber-600 uppercase tracking-wide dark:text-amber-400">
+                Needs human
+              </p>
+              <p className="break-words text-[13px] text-foreground">
+                {issue.humanQuestion || 'Needs a human decision'}
+              </p>
+              <Button
+                type="button"
+                size="sm"
+                className="w-fit"
+                disabled={busy}
+                onClick={() =>
+                  void run(() => trpc.issues.clearNeedsHuman.mutate({ id: issue.id }))
+                }
+              >
+                Resolve
+              </Button>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-1">
+              <span className="text-[11px] text-muted-foreground">Flag for human</span>
+              <div className="flex flex-wrap items-center gap-2">
+                <Input
+                  value={humanQuestion}
+                  placeholder="Question (optional)…"
+                  aria-label="Question for human"
+                  disabled={busy}
+                  className="max-w-[240px] flex-1"
+                  onChange={(e) => setHumanQuestion(e.target.value)}
+                />
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  disabled={busy}
+                  onClick={() =>
+                    void run(async () => {
+                      const q = humanQuestion.trim()
+                      await trpc.issues.setNeedsHuman.mutate({
+                        id: issue.id,
+                        question: q || undefined,
+                      })
+                      setHumanQuestion('')
+                    })
+                  }
+                >
+                  Flag for human
+                </Button>
+              </div>
+            </div>
+          )}
 
           {fields.lifecycle && (
             <p className="break-words rounded-lg border border-warning/40 bg-warning/5 p-2 text-[13px] text-foreground">

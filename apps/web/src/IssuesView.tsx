@@ -274,6 +274,14 @@ function IssueCard({
           <Badge variant="outline" className="font-normal">
             {m.typeLabel}
           </Badge>
+          {m.needsHuman && (
+            <Badge
+              variant="outline"
+              className="border-amber-500/60 bg-amber-500/10 font-medium text-amber-600 dark:text-amber-400"
+            >
+              needs human
+            </Badge>
+          )}
           {m.labels.map((label) => (
             <Badge key={label} variant="secondary" className="font-normal">
               {label}

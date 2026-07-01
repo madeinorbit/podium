@@ -27,4 +27,8 @@ describe('issueCardModel rich badges (P4)', () => {
     expect(issueCardModel(issue({ deferred: true })).statusDot).toBe('deferred')
     expect(issueCardModel(issue({ stage: 'done' })).statusDot).toBe('closed')
   })
+  it('surfaces needsHuman on the card model', () => {
+    expect(issueCardModel(issue({ needsHuman: true })).needsHuman).toBe(true)
+    expect(issueCardModel(issue({ needsHuman: false })).needsHuman).toBe(false)
+  })
 })
