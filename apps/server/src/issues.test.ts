@@ -50,6 +50,26 @@ describe('IssueService CRUD', () => {
   })
 })
 
+describe('IssueService toWire needs_human (P4)', () => {
+  it('surfaces needsHuman + humanQuestion set on the row', () => {
+    const { svc, store } = harness()
+    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    const row = store.getIssue(a.id)!
+    const wired = svc.toWire({ ...row, needsHuman: true, humanQuestion: 'which key?' })
+    expect(wired.needsHuman).toBe(true)
+    expect(wired.humanQuestion).toBe('which key?')
+  })
+
+  it('reports needsHuman=false and omits humanQuestion when unset', () => {
+    const { svc, store } = harness()
+    const a = svc.create({ repoPath: '/r', title: 'B', startNow: false })
+    const row = store.getIssue(a.id)!
+    const wired = svc.toWire({ ...row, needsHuman: false, humanQuestion: null })
+    expect(wired.needsHuman).toBe(false)
+    expect(wired.humanQuestion).toBeUndefined()
+  })
+})
+
 describe('IssueService.start', () => {
   it('creates a worktree off parent, spawns the agent with the description as initialPrompt, moves to in_progress', async () => {
     const { svc, deps } = harness()

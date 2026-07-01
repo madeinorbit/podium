@@ -24,6 +24,7 @@ export const makeIssue = (over: Partial<IssueWire> = {}): IssueWire =>
     priority: 2,
     type: 'task',
     pinned: false,
+    needsHuman: false,
     labels: [],
     deps: [],
     dependents: [],

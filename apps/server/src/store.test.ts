@@ -329,12 +329,14 @@ describe('SessionStore schema migration', () => {
     expect(store.listMachines()).toEqual([])
     store.close()
 
-    // And the version marker is now the merged v6.
+    // And the version marker is now at the current schema version (7: needs_human
+    // data layer bumped the coherence marker 6 -> 7; the structural machines
+    // migration above still runs regardless, the number is just at-a-glance).
     const reopened = new (await import('node:sqlite')).DatabaseSync(file)
     const ver = reopened.prepare('SELECT value FROM meta WHERE key = ?').get('schema_version') as
       | { value: string }
       | undefined
-    expect(ver?.value).toBe('6')
+    expect(ver?.value).toBe('7')
     reopened.close()
   })
 })

@@ -109,6 +109,8 @@ export class IssueService {
       ...(row.dependencyNote ? { dependencyNote: row.dependencyNote } : {}),
       ...(row.prUrl ? { prUrl: row.prUrl } : {}),
       priority: row.priority, type: row.type as IssueWire['type'], pinned: row.pinned,
+      needsHuman: row.needsHuman,
+      ...(row.humanQuestion ? { humanQuestion: row.humanQuestion } : {}),
       ...(row.supersededBy ? { supersededBy: row.supersededBy } : {}),
       ...(row.duplicateOf ? { duplicateOf: row.duplicateOf } : {}),
       ...(row.assignee ? { assignee: row.assignee } : {}),
@@ -421,6 +423,7 @@ export class IssueService {
       priority: 2, type: 'task', assignee: null, parentId: null, design: null, acceptance: null,
       notes: null, dueAt: null, deferUntil: null, closedReason: null, supersededBy: null,
       duplicateOf: null, pinned: false, estimateMin: null,
+      needsHuman: false, humanQuestion: null,
       createdAt: ts, updatedAt: ts, archived: false,
     }
     if (input.priority != null) row.priority = input.priority

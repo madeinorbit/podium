@@ -96,6 +96,7 @@ function baseRow(over: Partial<IssueRow> = {}): IssueRow {
     priority: 2, type: 'task', assignee: null, parentId: null, design: null, acceptance: null,
     notes: null, dueAt: null, deferUntil: null, closedReason: null, supersededBy: null,
     duplicateOf: null, pinned: false, estimateMin: null,
+    needsHuman: false, humanQuestion: null,
     ...over,
   }
 }
@@ -127,6 +128,30 @@ describe('IssueRow rich fields round-trip (P1)', () => {
     expect(r.priority).toBe(2)
     expect(r.type).toBe('task')
     expect(r.pinned).toBe(false)
+  })
+})
+
+describe('needs_human data layer (P4)', () => {
+  it('fresh DB has needs_human + human_question columns', () => {
+    const cols = issueColumns(new SessionStore(':memory:'))
+    expect(cols.has('needs_human'), 'missing column needs_human').toBe(true)
+    expect(cols.has('human_question'), 'missing column human_question').toBe(true)
+  })
+
+  it('persists needsHuman + humanQuestion round-trip', () => {
+    const store = new SessionStore(':memory:')
+    store.upsertIssue(baseRow({ id: 'iss_x', needsHuman: true, humanQuestion: 'which API key?' }))
+    const got = store.getIssue('iss_x')!
+    expect(got.needsHuman).toBe(true)
+    expect(got.humanQuestion).toBe('which API key?')
+  })
+
+  it('defaults needsHuman=false / humanQuestion=null when unset', () => {
+    const store = new SessionStore(':memory:')
+    store.upsertIssue(baseRow({ id: 'iss_y', needsHuman: false, humanQuestion: null }))
+    const y = store.getIssue('iss_y')!
+    expect(y.needsHuman).toBe(false)
+    expect(y.humanQuestion).toBeNull()
   })
 })
 

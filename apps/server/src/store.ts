@@ -140,6 +140,8 @@ export interface IssueRow {
   duplicateOf: string | null
   pinned: boolean
   estimateMin: number | null
+  needsHuman: boolean
+  humanQuestion: string | null
 }
 
 export interface IssueCommentRow {
@@ -976,8 +978,9 @@ export class SessionStore {
             suggested_stage, suggested_reason, blocked_by, dependency_note, pr_url,
             priority, type, assignee, parent_id, design, acceptance, notes, due_at,
             defer_until, closed_reason, superseded_by, duplicate_of, pinned, estimate_min,
+            needs_human, human_question,
             created_at, updated_at, archived)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            title = excluded.title, description = excluded.description, stage = excluded.stage,
            worktree_path = excluded.worktree_path, branch = excluded.branch,
@@ -993,6 +996,7 @@ export class SessionStore {
            defer_until = excluded.defer_until, closed_reason = excluded.closed_reason,
            superseded_by = excluded.superseded_by, duplicate_of = excluded.duplicate_of,
            pinned = excluded.pinned, estimate_min = excluded.estimate_min,
+           needs_human = excluded.needs_human, human_question = excluded.human_question,
            updated_at = excluded.updated_at, archived = excluded.archived`,
       )
       .run(
@@ -1030,6 +1034,8 @@ export class SessionStore {
         row.duplicateOf,
         row.pinned ? 1 : 0,
         row.estimateMin,
+        row.needsHuman ? 1 : 0,
+        row.humanQuestion,
         row.createdAt,
         row.updatedAt,
         row.archived ? 1 : 0,
@@ -1072,6 +1078,8 @@ export class SessionStore {
       duplicateOf: (r.duplicate_of as string | null) ?? null,
       pinned: r.pinned === 1,
       estimateMin: (r.estimate_min as number | null) ?? null,
+      needsHuman: r.needs_human === 1,
+      humanQuestion: (r.human_question as string | null) ?? null,
       createdAt: r.created_at as string,
       updatedAt: r.updated_at as string,
       archived: r.archived === 1,
@@ -1417,6 +1425,8 @@ export class SessionStore {
          duplicate_of TEXT,
          pinned INTEGER NOT NULL DEFAULT 0,
          estimate_min INTEGER,
+         needs_human INTEGER NOT NULL DEFAULT 0,
+         human_question TEXT,
          created_at TEXT NOT NULL,
          updated_at TEXT NOT NULL,
          archived INTEGER NOT NULL DEFAULT 0
@@ -1445,6 +1455,8 @@ export class SessionStore {
     addIssueCol('duplicate_of', 'duplicate_of TEXT')
     addIssueCol('pinned', 'pinned INTEGER NOT NULL DEFAULT 0')
     addIssueCol('estimate_min', 'estimate_min INTEGER')
+    addIssueCol('needs_human', 'needs_human INTEGER NOT NULL DEFAULT 0')
+    addIssueCol('human_question', 'human_question TEXT')
     this.db.exec(
       `CREATE TABLE IF NOT EXISTS issue_labels (
          issue_id TEXT NOT NULL,
@@ -1623,10 +1635,10 @@ export class SessionStore {
     const v = this.db.prepare('SELECT value FROM meta WHERE key = ?').get('schema_version') as
       | { value: string }
       | undefined
-    if (!v || Number(v.value) < 6)
+    if (!v || Number(v.value) < 7)
       this.db
         .prepare('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)')
-        .run('schema_version', '6')
+        .run('schema_version', '7')
     this.importReposJson()
   }
 

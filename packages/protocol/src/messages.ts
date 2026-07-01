@@ -634,6 +634,8 @@ export const IssueWire = z.object({
   duplicateOf: z.string().optional(),
   pinned: z.boolean(),
   estimateMin: z.number().int().optional(),
+  needsHuman: z.boolean(),
+  humanQuestion: z.string().optional(),
   labels: z.array(z.string()),
   deps: z.array(IssueDepWire),
   dependents: z.array(IssueDepWire),
