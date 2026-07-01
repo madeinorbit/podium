@@ -548,6 +548,15 @@ export const appRouter = t.router({
     list: issueProc
       .input(z.object({ repoPath: z.string().optional() }))
       .query(({ ctx, input }) => ctx.registry.issues.list(input.repoPath)),
+    prime: issueProc
+      .input(z.object({ repoPath: z.string().optional() }).optional())
+      .query(({ ctx, input }) =>
+        ctx.registry.issues.prime({
+          repoPath: input?.repoPath,
+          boundIssueId:
+            ctx.capability.scope.kind === 'subtree' ? ctx.capability.scope.rootId : null,
+        }),
+      ),
     ready: issueProc
       .input(z.object({ repoPath: z.string().optional() }))
       .query(({ ctx, input }) => ctx.registry.issues.readyList(input.repoPath)),

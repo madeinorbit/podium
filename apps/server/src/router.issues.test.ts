@@ -38,8 +38,8 @@ describe('issues router inputs (P1)', () => {
 describe('issues.* subtree scope (P1a)', () => {
   const registries: SessionRegistry[] = []
   let registry: SessionRegistry
-  let A: { id: string }
-  let B: { id: string }
+  let A: { id: string; title: string }
+  let B: { id: string; title: string }
 
   beforeEach(async () => {
     registry = new SessionRegistry()
@@ -97,5 +97,11 @@ describe('issues.* subtree scope (P1a)', () => {
       capability: OPERATOR,
     })
     await expect(c.issues.update({ id: B.id, patch: { notes: 'x' } })).resolves.toBeTruthy()
+  })
+
+  it('issues.prime binds to the capability subtree root', async () => {
+    const c = callerWith({ role: 'worker', scope: { kind: 'subtree', rootId: A.id } })
+    const out = await c.issues.prime({ repoPath: '/r' })
+    expect(out).toContain(A.title)
   })
 })

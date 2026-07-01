@@ -605,6 +605,26 @@ describe('IssueService orphans (P2b)', () => {
   })
 })
 
+describe('IssueService.prime (P1a)', () => {
+  it('prime renders a bound issue with its children and blockers', () => {
+    const { svc } = harness()
+    const epic = svc.create({ repoPath: '/r', title: 'Epic', startNow: false })
+    const child = svc.create({ repoPath: '/r', title: 'Child', startNow: false, parentId: epic.id })
+    const out = svc.prime({ repoPath: '/r', boundIssueId: epic.id })
+    expect(out).toContain('Epic')
+    expect(out).toContain(child.title)
+    expect(out).toMatch(/discovered-from|Workflow|track work as issues/i)
+  })
+
+  it('prime renders a lobby when unbound', () => {
+    const { svc } = harness()
+    svc.create({ repoPath: '/r', title: 'Ready one', startNow: false })
+    const out = svc.prime({ repoPath: '/r', boundIssueId: null })
+    expect(out).toMatch(/No issue bound|Ready work/i)
+    expect(out).toContain('Ready one')
+  })
+})
+
 describe('IssueService.delete (P4b)', () => {
   it('removes the issue from the list and broadcasts', () => {
     const { svc, store, deps } = harness()
