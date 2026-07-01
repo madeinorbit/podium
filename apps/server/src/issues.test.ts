@@ -624,15 +624,22 @@ describe('IssueService.prime (P1a)', () => {
     expect(out).toContain('Ready one')
   })
 
-  it('prime renders structural blockers and parent as #seq', () => {
+  it('prime renders structural blockers and parent as #seq (open only)', () => {
     const { svc } = harness()
     const epic = svc.create({ repoPath: '/r', title: 'Epic', startNow: false })
     const dep = svc.create({ repoPath: '/r', title: 'Dep', startNow: false })
+    const closedDep = svc.create({ repoPath: '/r', title: 'ClosedDep', startNow: false })
     const me = svc.create({ repoPath: '/r', title: 'Me', startNow: false, parentId: epic.id })
     svc.addDep(me.id, dep.id, 'blocks')
+    svc.addDep(me.id, closedDep.id, 'blocks')
+    // A resolved (closed) blocker no longer blocks — computeBlocked ignores closed
+    // targets, so prime's "Blocked by:" line must match and drop it too.
+    svc.close(closedDep.id)
     const out = svc.prime({ repoPath: '/r', boundIssueId: me.id })
     expect(out).toContain(`Parent epic: #${epic.seq}`)
-    expect(out).toContain(`Blocked by: #${dep.seq}`)
+    const blockedLine = out.split('\n').find((l) => l.startsWith('Blocked by:'))
+    expect(blockedLine).toContain(`#${dep.seq}`)
+    expect(blockedLine).not.toContain(`#${closedDep.seq}`)
   })
 })
 

@@ -2134,6 +2134,14 @@ export class SessionRegistry {
     const reply = (r: { ok: boolean; result?: unknown; error?: string }): void =>
       this.toMachine(machineId, { type: 'issueRelayResult', requestId: msg.requestId, ...r })
     try {
+      // RELAY_ALLOWED is a plain object; index it only for OWN keys so a router of
+      // 'constructor'/'__proto__'/'toString' can't resolve to an inherited value
+      // (which would throw a confusing TypeError on `.has(...)`) — treat any
+      // non-own key as simply not permitted.
+      if (!Object.hasOwn(RELAY_ALLOWED, msg.router)) {
+        reply({ ok: false, error: `${msg.router}.${msg.proc} is not permitted via relay` })
+        return
+      }
       const allowed = RELAY_ALLOWED[msg.router]
       if (allowed === undefined || (allowed !== null && !allowed.has(msg.proc))) {
         reply({ ok: false, error: `${msg.router}.${msg.proc} is not permitted via relay` })

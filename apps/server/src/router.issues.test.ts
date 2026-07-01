@@ -149,7 +149,7 @@ describe('scope-gate coverage (P1b)', () => {
       .filter(([, a]) => a === 'write' || a === 'manage')
       .map(([p]) => p)
       .filter((p) => !NO_TARGET.has(p))
-    const missing = need.filter((p) => !(p in SCOPED_TARGET))
+    const missing = need.filter((p) => !Object.hasOwn(SCOPED_TARGET, p))
     expect(missing).toEqual([])
   })
 })

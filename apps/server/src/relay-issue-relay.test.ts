@@ -103,6 +103,25 @@ describe('server issue relay handler (P1b)', () => {
     expect(r.error).toMatch(/not permitted via relay/)
   })
 
+  it('rejects a prototype-key router without throwing (constructor)', async () => {
+    // RELAY_ALLOWED is a plain object, so a router like 'constructor'/'__proto__'
+    // would index an INHERITED value and blow up on `.has(...)` — the guard must
+    // treat non-own keys as simply not-permitted, not a confusing TypeError.
+    const reply = captureReply(registry, machineId)
+    registry.onDaemonMessageFrom(machineId, {
+      type: 'issueRelayRequest',
+      requestId: 'ir5',
+      sessionId: sA,
+      router: 'constructor',
+      proc: 'x',
+      input: {},
+    })
+    const r = await reply
+    expect(r.ok).toBe(false)
+    expect(r.error).toMatch(/not permitted via relay/)
+    expect(r.error).not.toMatch(/is not a function/)
+  })
+
   it('relays prime bound to the session capability', async () => {
     const reply = captureReply(registry, machineId)
     registry.onDaemonMessageFrom(machineId, {

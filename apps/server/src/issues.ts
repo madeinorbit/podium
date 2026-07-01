@@ -364,12 +364,13 @@ export class IssueService {
         const kids = this.list(me.repoPath).filter(
           (i) => i.parentId === me.id && i.stage !== 'done' && !i.closedReason,
         )
+        // Match computeBlocked: only blocks-deps whose TARGET is open (not closed)
+        // actually block — a resolved blocker must not be listed under "Blocked by:".
         const blockers = (me.deps ?? [])
           .filter((d) => d.type === 'blocks')
-          .map((d) => {
-            const b = this.get(d.id)
-            return b ? `#${b.seq}` : d.id
-          })
+          .map((d) => this.rows.get(d.id))
+          .filter((b): b is IssueRow => b != null && !this.isClosed(b))
+          .map((b) => `#${b.seq}`)
         const parent = me.parentId ? this.get(me.parentId) : null
         return [
           `You are working on #${me.seq}: ${me.title}`,
