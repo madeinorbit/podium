@@ -74,11 +74,17 @@ import {
 } from '@podium/protocol'
 import WebSocket, { type RawData } from 'ws'
 import { type ActiveRefresh, createActiveRefresh } from './active-refresh'
-import { listDirSandboxed, readAssetSandboxed, readFileSandboxed, writeFileSandboxed } from './file-access'
+import {
+  listDirSandboxed,
+  readAssetSandboxed,
+  readFileSandboxed,
+  writeFileSandboxed,
+} from './file-access'
 import { buildHarnessExec } from './harness-exec.js'
 import { startHookIngest } from './hook-ingest'
 import { sampleHostMemory } from './host-metrics'
 import { loadIdentity, saveToken } from './identity'
+import { createIssueRelayHub } from './issue-relay'
 import {
   countControl,
   countFrame,
@@ -802,6 +808,12 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     }
   }
 
+  // Correlates daemon-initiated issue-relay requests (the loopback server in Task 2
+  // originates them) with the server's issueRelayResult. Built here in the startDaemon
+  // scope so BOTH handleControlMessage (the result-dispatch case) and the loopback
+  // server can reach the one hub; it captures `send` so requests ride the live WS.
+  const issueRelayHub = createIssueRelayHub(send)
+
   // Coalesce + prioritize PTY frame relay (the per-frame stringify+send was the
   // dominant residual loop hitch). flush() sends one agentFrameBatch per session.
   const outputScheduler = new OutputScheduler({
@@ -1403,6 +1415,9 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
         break
       case 'repoOpRequest':
         void runRepoOp(msg)
+        break
+      case 'issueRelayResult':
+        issueRelayHub.onResult(msg)
         break
       case 'harnessExecRequest':
         void runHarnessExec(msg)
