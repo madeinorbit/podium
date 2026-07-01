@@ -353,14 +353,22 @@ export class IssueService {
     if (opts.boundIssueId) {
       const me = this.get(opts.boundIssueId)
       if (me) {
-        const kids = this.list(me.repoPath).filter((i) => i.parentId === me.id && i.stage !== 'done')
-        const blockers = (me.blockedBy ?? []).join(', ')
+        const kids = this.list(me.repoPath).filter(
+          (i) => i.parentId === me.id && i.stage !== 'done' && !i.closedReason,
+        )
+        const blockers = (me.deps ?? [])
+          .filter((d) => d.type === 'blocks')
+          .map((d) => {
+            const b = this.get(d.id)
+            return b ? `#${b.seq}` : d.id
+          })
+        const parent = me.parentId ? this.get(me.parentId) : null
         return [
           `You are working on #${me.seq}: ${me.title}`,
           me.acceptance ? `Acceptance: ${me.acceptance}` : null,
-          me.parentId ? `Parent epic: ${me.parentId}` : null,
+          me.parentId ? `Parent epic: #${parent?.seq ?? me.parentId}` : null,
           kids.length ? `Open children:\n${kids.map((k) => `  - #${k.seq} ${k.title}`).join('\n')}` : null,
-          blockers ? `Blocked by: ${blockers}` : null,
+          blockers.length ? `Blocked by: ${blockers.join(', ')}` : null,
           '',
           ...rules,
         ]

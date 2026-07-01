@@ -10,8 +10,8 @@
  *
  * Only the operator is wired today; the agent path (daemon relay + per-agent capability,
  * including per-issue SCOPE) lands with agent integration. The model is built so that turning
- * it on is wiring, not a rewrite — hence Capability carries an extensible `scope`, and `can`
- * already has the scoped-enforcement branch.
+ * it on is wiring, not a rewrite — hence Capability carries an extensible `scope` that both
+ * `authorize` and the router's issueCapabilityGuard already enforce.
  */
 
 export type IssueRole = 'viewer' | 'worker' | 'admin'
@@ -27,9 +27,9 @@ const ROLE_ACTIONS: Record<IssueRole, IssueAction[]> = {
 
 /**
  * The slice of issues a capability applies to. `all` today; `subtree` is the reserved
- * per-issue extension (an agent bound to one issue tree). The enforcement branch for it is
- * already in `can`, so enabling per-issue scope later is wiring (mint a scoped cap + hand the
- * guard the target issue), not a model change.
+ * per-issue extension (an agent bound to one issue tree). `authorize` and the router guard
+ * already enforce it, so enabling per-issue scope later is wiring (mint a scoped cap for the
+ * agent), not a model change.
  */
 export type IssueScope = { kind: 'all' } | { kind: 'none' } | { kind: 'subtree'; rootId: string }
 
@@ -72,24 +72,6 @@ export const PROC_ACTION: Record<string, IssueAction> = {
   reparent: 'manage',
   supersede: 'manage',
   duplicate: 'manage',
-}
-
-/**
- * May `cap` perform `action` (optionally on `issue`)? `issue` — with the ids of its
- * ancestors — is consulted only for a `subtree` scope; an `all` scope ignores it. A scoped
- * capability with no target issue is denied (it can't prove the op is in-scope). Pure.
- */
-export function can(
-  cap: Capability,
-  action: IssueAction,
-  issue?: { id: string; ancestorIds?: string[] },
-): boolean {
-  if (!ROLE_ACTIONS[cap.role].includes(action)) return false
-  if (cap.scope.kind === 'subtree') {
-    if (!issue) return false
-    return issue.id === cap.scope.rootId || (issue.ancestorIds ?? []).includes(cap.scope.rootId)
-  }
-  return true
 }
 
 /** Full authz decision for a caller. Distinguishes a hard role denial ('forbidden')
