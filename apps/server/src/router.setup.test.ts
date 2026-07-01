@@ -41,8 +41,11 @@ describe('setup tRPC', () => {
   it('rejects a bad URL on complete', async () => {
     await expect(caller().setup.complete({ publicUrl: 'nope' })).rejects.toThrow()
   })
-  it('persists a normalized publicUrl + all-in-one mode', async () => {
-    await caller().setup.complete({ publicUrl: 'https://box.ts.net/' })
+  it('persists a normalized publicUrl + all-in-one mode after open mode is acknowledged', async () => {
+    await caller().setup.complete({
+      publicUrl: 'https://box.ts.net/',
+      acknowledgeNoPassword: true,
+    })
     expect(loadConfig().publicUrl).toBe('https://box.ts.net')
     expect(loadConfig().mode).toBe('all-in-one')
   })
@@ -51,8 +54,15 @@ describe('setup tRPC', () => {
     expect(hasPassword(dir)).toBe(true)
     expect(await verifyPassword('launch-code', dir)).toBe(true)
   })
-  it('leaves auth open when no password is supplied (explicit opt-out)', async () => {
-    await caller().setup.complete({ publicUrl: 'https://box.ts.net' })
+  it('rejects a reachable setup without password acknowledgement', async () => {
+    await expect(caller().setup.complete({ publicUrl: 'https://box.ts.net' })).rejects.toThrow()
+    expect(hasPassword(dir)).toBe(false)
+  })
+  it('leaves auth open when no password is explicitly acknowledged', async () => {
+    await caller().setup.complete({
+      publicUrl: 'https://box.ts.net',
+      acknowledgeNoPassword: true,
+    })
     expect(hasPassword(dir)).toBe(false)
   })
   it('join applies a pasted join code as a daemon config', async () => {

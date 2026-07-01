@@ -60,19 +60,31 @@ async function reachabilityStep(io: SetupIO, port: number, mode: HostMode): Prom
 }
 
 /** Password step: a reachable instance should require login, so strongly encourage a
- *  password. Blank = run open (printed plainly so the choice is never silent). */
+ *  password. Blank = run open only after an explicit confirmation word. */
 async function passwordStep(
   io: SetupIO,
   setPassword: (password: string) => Promise<void>,
 ): Promise<void> {
   io.print('\nSet a password to require login (recommended for a public URL).')
-  const pw = ((await io.prompt('Password (leave blank to run open): ')) ?? '').trim()
-  if (pw) {
-    await setPassword(pw)
-    io.print('Password set — devices must log in to use this instance.')
-  } else {
-    io.print('No password set — anyone who can reach this URL can use this instance.')
+  const MAX_ATTEMPTS = 5
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+    const pw = ((await io.prompt('Password (leave blank to run open): ')) ?? '').trim()
+    if (pw) {
+      await setPassword(pw)
+      io.print('Password set — devices must log in to use this instance.')
+      return
+    }
+    io.print('No password means anyone who can reach this URL can use this instance.')
+    const confirm = ((await io.prompt('Type "open" to confirm running without a password: ')) ?? '')
+      .trim()
+      .toLowerCase()
+    if (confirm === 'open') {
+      io.print('No password set — anyone who can reach this URL can use this instance.')
+      return
+    }
+    io.print('No-password mode was not confirmed.')
   }
+  io.print('No password set. Re-run `podium setup` when ready.')
 }
 
 /** Choose a host mode → set its URL, then its password. */

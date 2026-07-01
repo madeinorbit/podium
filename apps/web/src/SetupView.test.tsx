@@ -66,7 +66,7 @@ describe('SetupView', () => {
     expect(screen.getByText(/^server only/i)).toBeTruthy()
   })
 
-  it('all-in-one advances to the reachability step and persists the URL via setup.complete', async () => {
+  it('all-in-one requires acknowledgement before finishing reachable setup without a password', async () => {
     const onSaved = vi.fn()
     const { container } = render(
       <SetupView httpOrigin="http://localhost:18787" onSaved={onSaved} />,
@@ -80,15 +80,23 @@ describe('SetupView', () => {
     // Options + funnel command loaded from the mocked tRPC client.
     expect(trpcMock.options).toHaveBeenCalled()
     expect(view.getByText('tailscale funnel 18787')).toBeTruthy()
-    // Paste the URL and finish.
+    // Paste the URL; no-password finish remains blocked until the warning is acknowledged.
     fireEvent.change(view.getByLabelText(/public url/i), {
       target: { value: 'https://box.ts.net' },
+    })
+    expect((view.getByRole('button', { name: /finish/i }) as HTMLButtonElement).disabled).toBe(true)
+    fireEvent.click(view.getByText(/I understand that anyone who can reach this Podium URL/i))
+    await act(async () => {
+      await flush()
     })
     await act(async () => {
       fireEvent.click(view.getByRole('button', { name: /finish/i }))
       await flush()
     })
-    expect(trpcMock.complete).toHaveBeenCalledWith({ publicUrl: 'https://box.ts.net' })
+    expect(trpcMock.complete).toHaveBeenCalledWith({
+      publicUrl: 'https://box.ts.net',
+      acknowledgeNoPassword: true,
+    })
     expect(onSaved).toHaveBeenCalled()
   })
 

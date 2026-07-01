@@ -1,7 +1,9 @@
 import type { PodiumMode } from '@podium/core'
 import { type ReactNode, useEffect, useMemo, useState } from 'react'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import { makeTrpc, type Trpc } from './trpc'
 
 const MODES: { id: PodiumMode; title: string; blurb: string; needsServer: boolean }[] = [
@@ -188,6 +190,7 @@ function NetworkStep({
   const [cmd, setCmd] = useState<{ command: string; hint: string } | null>(null)
   const [url, setUrl] = useState('')
   const [password, setPassword] = useState('')
+  const [ackNoPassword, setAckNoPassword] = useState(false)
   const [err, setErr] = useState('')
   const [copied, setCopied] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -215,10 +218,17 @@ function NetworkStep({
 
   const finish = async (): Promise<void> => {
     setErr('')
+    const passwordValue = password.trim()
+    if (!passwordValue && !ackNoPassword) {
+      setErr('Confirm running without a login password.')
+      return
+    }
     setBusy(true)
     try {
-      // Only send a password when one was entered; blank = run open (opt-out).
-      await trpc.setup.complete.mutate({ publicUrl: url, password: password.trim() || undefined })
+      await trpc.setup.complete.mutate({
+        publicUrl: url,
+        ...(passwordValue ? { password: passwordValue } : { acknowledgeNoPassword: true }),
+      })
       onSaved()
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e))
@@ -304,6 +314,17 @@ function NetworkStep({
             ? 'Devices will need this password to connect.'
             : 'No password — anyone who can reach the URL can use this instance.'}
         </p>
+        {!password.trim() && (
+          <Label className="mt-1 cursor-pointer items-start rounded-md border border-border px-3 py-2 text-[12px] text-muted-foreground">
+            <Checkbox
+              checked={ackNoPassword}
+              onCheckedChange={(checked) => setAckNoPassword(checked === true)}
+            />
+            <span>
+              I understand that anyone who can reach this Podium URL can control agents and shells.
+            </span>
+          </Label>
+        )}
       </div>
       {err && (
         <p role="alert" className="text-[12px] text-destructive">
@@ -318,7 +339,11 @@ function NetworkStep({
           <Button type="button" variant="outline" size="sm" onClick={onSkip}>
             Skip for now
           </Button>
-          <Button type="button" disabled={busy || !url} onClick={() => void finish()}>
+          <Button
+            type="button"
+            disabled={busy || !url || (!password.trim() && !ackNoPassword)}
+            onClick={() => void finish()}
+          >
             {busy ? 'Saving…' : 'Finish'}
           </Button>
         </div>

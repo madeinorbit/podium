@@ -67,14 +67,24 @@ describe('LoginPasswordSection', () => {
     )
   })
 
-  it('in enabled mode: disable clears the password with the current one', async () => {
+  it('in enabled mode: disable requires acknowledgement and clears the password with the current one', async () => {
     const trpc = fakeTrpc(true)
     render(<LoginPasswordSection trpc={trpc} />)
     await screen.findByRole('button', { name: /change password/i })
     fireEvent.change(screen.getByPlaceholderText(/current password/i), { target: { value: 'old' } })
-    fireEvent.click(screen.getByRole('button', { name: /disable login/i }))
+    const disable = screen.getByRole('button', { name: /disable login/i }) as HTMLButtonElement
+    expect(disable.disabled).toBe(true)
+    fireEvent.click(screen.getByText(/I understand that anyone who can reach this server/i))
+    const confirmedDisable = screen.getByRole('button', {
+      name: /disable login/i,
+    }) as HTMLButtonElement
+    expect(confirmedDisable.disabled).toBe(false)
+    fireEvent.click(confirmedDisable)
     await waitFor(() =>
-      expect(trpc.auth.clearPassword.mutate).toHaveBeenCalledWith({ current: 'old' }),
+      expect(trpc.auth.clearPassword.mutate).toHaveBeenCalledWith({
+        current: 'old',
+        acknowledgeNoPassword: true,
+      }),
     )
   })
 })

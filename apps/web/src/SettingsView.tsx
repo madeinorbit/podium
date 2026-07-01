@@ -10,7 +10,9 @@ import { CheckCircle2, ExternalLink, Loader2 } from 'lucide-react'
 import type { JSX } from 'react'
 import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import {
   Select,
   SelectContent,
@@ -117,21 +119,23 @@ export function SettingsView(): JSX.Element {
   }, [telegramSetup.status])
 
   const activeTelegramSetup = telegramSetup.status === 'polling' ? telegramSetup : null
+  const activeTelegramSetupId = activeTelegramSetup?.setupId
+  const activeTelegramSetupExpiresAt = activeTelegramSetup?.expiresAt
 
   useEffect(() => {
-    if (!activeTelegramSetup) return
+    if (!activeTelegramSetupId || !activeTelegramSetupExpiresAt) return
     let cancelled = false
     let inFlight = false
     const poll = async () => {
       if (inFlight) return
-      if (Date.now() > Date.parse(activeTelegramSetup.expiresAt)) {
+      if (Date.now() > Date.parse(activeTelegramSetupExpiresAt)) {
         setTelegramSetup({ status: 'expired' })
         return
       }
       inFlight = true
       try {
         const result = await trpc.settings.telegramSetupPoll.mutate({
-          setupId: activeTelegramSetup.setupId,
+          setupId: activeTelegramSetupId,
         })
         if (cancelled) return
         if (result.status === 'connected') {
@@ -147,7 +151,7 @@ export function SettingsView(): JSX.Element {
           setTelegramSetup({ status: 'expired' })
         } else {
           setTelegramSetup((current) =>
-            current.status === 'polling' && current.setupId === activeTelegramSetup.setupId
+            current.status === 'polling' && current.setupId === activeTelegramSetupId
               ? { ...current, error: undefined }
               : current,
           )
@@ -156,7 +160,7 @@ export function SettingsView(): JSX.Element {
         if (!cancelled) {
           const message = e instanceof Error ? e.message : String(e)
           setTelegramSetup((current) =>
-            current.status === 'polling' && current.setupId === activeTelegramSetup.setupId
+            current.status === 'polling' && current.setupId === activeTelegramSetupId
               ? { ...current, error: message }
               : current,
           )
@@ -171,7 +175,7 @@ export function SettingsView(): JSX.Element {
       cancelled = true
       window.clearInterval(id)
     }
-  }, [activeTelegramSetup?.setupId, activeTelegramSetup?.expiresAt, trpc])
+  }, [activeTelegramSetupId, activeTelegramSetupExpiresAt, trpc])
 
   const startTelegramSetup = async () => {
     if (!settings) return
@@ -665,7 +669,7 @@ function formatTelegramSetupRemaining(expiresAt: string, now: number): string {
   const seconds = Math.max(0, Math.ceil((Date.parse(expiresAt) - now) / 1000))
   const minutes = Math.floor(seconds / 60)
   const rest = seconds % 60
-  return minutes + ':' + rest.toString().padStart(2, '0')
+  return `${minutes}:${rest.toString().padStart(2, '0')}`
 }
 
 function TelegramSetupStatus({
@@ -808,6 +812,7 @@ export function LoginPasswordSection({ trpc }: { trpc: Trpc }): JSX.Element {
   const [current, setCurrent] = useState('')
   const [next, setNext] = useState('')
   const [confirm, setConfirm] = useState('')
+  const [ackNoPassword, setAckNoPassword] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [done, setDone] = useState<string | null>(null)
@@ -823,6 +828,7 @@ export function LoginPasswordSection({ trpc }: { trpc: Trpc }): JSX.Element {
     setCurrent('')
     setNext('')
     setConfirm('')
+    setAckNoPassword(false)
   }
 
   const save = async (): Promise<void> => {
@@ -863,9 +869,13 @@ export function LoginPasswordSection({ trpc }: { trpc: Trpc }): JSX.Element {
   const disable = async (): Promise<void> => {
     setError(null)
     setDone(null)
+    if (!ackNoPassword) {
+      setError('Confirm running without a login password.')
+      return
+    }
     setBusy(true)
     try {
-      await trpc.auth.clearPassword.mutate({ current })
+      await trpc.auth.clearPassword.mutate({ current, acknowledgeNoPassword: true })
       setEnabled(false)
       reset()
       setDone('Login disabled — anyone who can reach this server can use it.')
@@ -917,6 +927,17 @@ export function LoginPasswordSection({ trpc }: { trpc: Trpc }): JSX.Element {
           value={confirm}
           onChange={(e) => setConfirm(e.target.value)}
         />
+        {enabled && (
+          <Label className="cursor-pointer items-start rounded-md border border-border px-3 py-2 text-[12px] text-muted-foreground">
+            <Checkbox
+              checked={ackNoPassword}
+              onCheckedChange={(checked) => setAckNoPassword(checked === true)}
+            />
+            <span>
+              I understand that anyone who can reach this server can use it if login is disabled.
+            </span>
+          </Label>
+        )}
         {error && (
           <p role="alert" className="text-[12px] text-destructive">
             {error}
@@ -931,7 +952,7 @@ export function LoginPasswordSection({ trpc }: { trpc: Trpc }): JSX.Element {
             <Button
               type="button"
               variant="outline"
-              disabled={busy || !current}
+              disabled={busy || !current || !ackNoPassword}
               onClick={() => void disable()}
             >
               Disable login

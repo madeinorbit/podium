@@ -410,14 +410,27 @@ export const appRouter = t.router({
       )
       .query(({ input }) => networkOptionCommand(input.option, input.port)),
     complete: t.procedure
-      // password is optional: making the instance reachable strongly suggests setting one
-      // (the UI defaults to it), but the user can opt out and run open.
-      .input(z.object({ publicUrl: z.string(), password: z.string().optional() }))
+      // password is optional: making the instance reachable strongly suggests setting one.
+      // Blank password is still supported, but must be an explicit, auditable opt-out.
+      .input(
+        z.object({
+          publicUrl: z.string(),
+          password: z.string().optional(),
+          acknowledgeNoPassword: z.literal(true).optional(),
+        }),
+      )
       .mutation(async ({ input }) => {
         const v = validatePublicUrl(input.publicUrl)
         if (!v.ok) throw new TRPCError({ code: 'BAD_REQUEST', message: v.error })
+        const password = input.password?.trim()
+        if (!password && !input.acknowledgeNoPassword) {
+          throw new TRPCError({
+            code: 'BAD_REQUEST',
+            message: 'Confirm running without a login password.',
+          })
+        }
         const cfg = applySetup({ publicUrl: v.normalized })
-        if (input.password?.trim()) await setPassword(input.password)
+        if (password) await setPassword(password)
         return cfg
       }),
     // Daemon onboarding: one pasted join code (server URL + pairing code) → daemon config.
@@ -466,8 +479,14 @@ export const appRouter = t.router({
         return { enabled: true }
       }),
     clearPassword: t.procedure
-      .input(z.object({ current: z.string() }))
+      .input(z.object({ current: z.string(), acknowledgeNoPassword: z.literal(true).optional() }))
       .mutation(async ({ input }) => {
+        if (!input.acknowledgeNoPassword) {
+          throw new TRPCError({
+            code: 'BAD_REQUEST',
+            message: 'Confirm running without a login password.',
+          })
+        }
         if (hasPassword() && !(await verifyPassword(input.current))) {
           throw new TRPCError({ code: 'UNAUTHORIZED', message: 'current password is incorrect' })
         }

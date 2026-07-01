@@ -46,15 +46,21 @@ describe('runCliSetup', () => {
     })
 
     it('host the relay only (server) persists mode=server', async () => {
-      await run(['2', '1', 'https://relay.ts.net', ''])
+      await run(['2', '1', 'https://relay.ts.net', '', 'open'])
       expect(loadConfig().mode).toBe('server')
       expect(loadConfig().publicUrl).toBe('https://relay.ts.net')
     })
 
-    it('a blank password leaves the host open', async () => {
+    it('a blank password leaves the host open only after explicit confirmation', async () => {
       const setPw = vi.fn(async () => {})
-      await run(['1', '1', 'https://box.ts.net', ''], setPw)
+      await run(['1', '1', 'https://box.ts.net', '', 'open'], setPw)
       expect(setPw).not.toHaveBeenCalled()
+    })
+
+    it('re-prompts for a password when no-password confirmation is not typed', async () => {
+      const setPw = vi.fn(async () => {})
+      await run(['1', '1', 'https://box.ts.net', '', 'no', 's3cret'], setPw)
+      expect(setPw).toHaveBeenCalledWith('s3cret')
     })
 
     it('join a server as a worker (daemon) by pasting a join code', async () => {

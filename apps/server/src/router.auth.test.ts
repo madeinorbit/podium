@@ -52,11 +52,19 @@ describe('auth tRPC (set / change / clear the login password)', () => {
     await expect(caller().auth.setPassword({ next: '' })).rejects.toThrow()
   })
 
-  it('clears (disables) the password when the correct current one is given', async () => {
+  it('requires explicit acknowledgement before clearing the password', async () => {
     await setPassword('hunter2', dir)
-    await expect(caller().auth.clearPassword({ current: 'wrong' })).rejects.toThrow()
+    await expect(caller().auth.clearPassword({ current: 'hunter2' })).rejects.toThrow()
     expect(hasPassword(dir)).toBe(true)
-    await caller().auth.clearPassword({ current: 'hunter2' })
+  })
+
+  it('clears (disables) the password when the correct current one is given and open mode is acknowledged', async () => {
+    await setPassword('hunter2', dir)
+    await expect(
+      caller().auth.clearPassword({ current: 'wrong', acknowledgeNoPassword: true }),
+    ).rejects.toThrow()
+    expect(hasPassword(dir)).toBe(true)
+    await caller().auth.clearPassword({ current: 'hunter2', acknowledgeNoPassword: true })
     expect(hasPassword(dir)).toBe(false)
   })
 })
