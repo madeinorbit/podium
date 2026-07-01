@@ -11,6 +11,12 @@ pub fn feed_endpoint(base: &str) -> String {
     )
 }
 
+/// A release is CRITICAL (forced) when its notes begin with a `CRITICAL:` marker set by
+/// the release process. Leading whitespace is tolerated. Critical updates are non-dismissible.
+pub fn is_critical(body: &str) -> bool {
+    body.trim_start().starts_with("CRITICAL:")
+}
+
 /// On launch: check the feed; if a newer signed version exists, ask the user, then
 /// download+install and restart. Errors are logged, never fatal (no network = no-op).
 ///
@@ -31,20 +37,36 @@ pub async fn check_and_prompt_update(app: AppHandle) {
     };
     match updater.check().await {
         Ok(Some(update)) => {
-            let msg = format!(
-                "Update available ({} → {}). Restart to apply?",
-                update.current_version, update.version
-            );
+            // A CRITICAL release (notes begin with `CRITICAL:`) is non-dismissible: the dialog
+            // offers Ok only (no Cancel) so the user cannot decline, and it always installs.
+            let critical = is_critical(update.body.as_deref().unwrap_or(""));
+            let msg = if critical {
+                format!(
+                    "Critical update ({} → {}). This update is required and will be installed now.",
+                    update.current_version, update.version
+                )
+            } else {
+                format!(
+                    "Update available ({} → {}). Restart to apply?",
+                    update.current_version, update.version
+                )
+            };
 
             // TEST-ONLY autoconfirm: skip the dialog entirely for headless e2e.
             let confirmed = if std::env::var("PODIUM_UPDATE_AUTOCONFIRM").as_deref() == Ok("1") {
                 eprintln!("[podium-desktop] PODIUM_UPDATE_AUTOCONFIRM=1 — skipping dialog (test-only)");
                 true
             } else {
+                // Critical → Ok-only (cannot decline); normal → OkCancel.
+                let buttons = if critical {
+                    MessageDialogButtons::Ok
+                } else {
+                    MessageDialogButtons::OkCancel
+                };
                 app.dialog()
                     .message(msg)
                     .title("Podium update")
-                    .buttons(MessageDialogButtons::OkCancel)
+                    .buttons(buttons)
                     .blocking_show()
             };
 
@@ -79,5 +101,14 @@ mod tests {
             feed_endpoint("http://127.0.0.1:8788"),
             "http://127.0.0.1:8788/update/{{target}}/{{arch}}/{{current_version}}"
         );
+    }
+
+    #[test]
+    fn is_critical_detects_the_marker() {
+        assert!(is_critical("CRITICAL: security fix"));
+        // Leading whitespace is tolerated (release notes may be indented).
+        assert!(is_critical("  CRITICAL: security fix"));
+        assert!(!is_critical("normal notes"));
+        assert!(!is_critical(""));
     }
 }

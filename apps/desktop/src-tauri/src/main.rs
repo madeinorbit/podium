@@ -66,6 +66,36 @@ fn spawn_respawn_monitor<F>(
     });
 }
 
+/// Best-effort, log-only read of the spawned backend's `/version` (local all-in-one only).
+/// Uses a raw `std::net` HTTP/1.0 GET — no HTTP-client dependency — with short timeouts.
+/// Any failure is logged as a warning and never fatal: a single bundled artifact keeps the
+/// shell and backend versions matched, so this is diagnostics, not a gate.
+fn log_backend_version(port: u16) {
+    use std::io::{Read, Write};
+    use std::net::TcpStream;
+    use std::time::Duration;
+
+    let read_version = || -> std::io::Result<String> {
+        let addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
+        let mut stream = TcpStream::connect_timeout(&addr, Duration::from_millis(500))?;
+        stream.set_read_timeout(Some(Duration::from_millis(500)))?;
+        stream.set_write_timeout(Some(Duration::from_millis(500)))?;
+        stream.write_all(b"GET /version HTTP/1.0\r\nHost: 127.0.0.1\r\n\r\n")?;
+        let mut response = String::new();
+        stream.read_to_string(&mut response)?;
+        Ok(response)
+    };
+
+    match read_version() {
+        Ok(response) => {
+            // Body is whatever follows the header/content blank line; log it verbatim.
+            let body = response.split("\r\n\r\n").nth(1).unwrap_or("").trim();
+            eprintln!("[podium-desktop] backend /version: {body}");
+        }
+        Err(e) => eprintln!("[podium-desktop] could not read backend /version: {e}"),
+    }
+}
+
 fn main() {
     let app = tauri::Builder::default()
         // FIX 1: single-instance guard — if a 2nd instance is launched, focus the existing
@@ -247,7 +277,10 @@ fn main() {
             std::thread::spawn(move || {
                 if let Some(port) = wait_local_port {
                     let ready = bootstrap::wait_for_port(port, 200, 150);
-                    if !ready {
+                    if ready {
+                        // Log-only shell↔backend check: read the local backend's /version.
+                        log_backend_version(port);
+                    } else {
                         eprintln!("[podium-desktop] backend did not become ready within timeout");
                     }
                 }
