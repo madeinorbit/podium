@@ -51,6 +51,8 @@ export const PROC_ACTION: Record<string, IssueAction> = {
   update: 'write',
   addComment: 'write',
   defer: 'write',
+  setNeedsHuman: 'write',
+  clearNeedsHuman: 'write',
   close: 'write',
   start: 'write',
   addSession: 'write',

@@ -28,6 +28,8 @@ function mockClient(overrides: Record<string, unknown> = {}): { client: IssueTrp
       addComment: proc('addComment'),
       search: proc('search'),
       stats: proc('stats'),
+      setNeedsHuman: proc('setNeedsHuman'),
+      clearNeedsHuman: proc('clearNeedsHuman'),
     },
   } as unknown as IssueTrpc
   return { client, calls }
@@ -87,6 +89,26 @@ describe('ISSUE_COMMANDS registry', () => {
       path: 'claim',
       kind: 'mutate',
       input: { id: 'iss_1', assignee: 'agent:claude' },
+    })
+  })
+
+  it('needs-human calls issues.setNeedsHuman.mutate with id + question', async () => {
+    const { client, calls } = mockClient()
+    await cmd('needs-human').run(client, { id: 'iss_1', question: 'which key?' })
+    expect(calls).toContainEqual({
+      path: 'setNeedsHuman',
+      kind: 'mutate',
+      input: { id: 'iss_1', question: 'which key?' },
+    })
+  })
+
+  it('clear-needs-human calls issues.clearNeedsHuman.mutate with id', async () => {
+    const { client, calls } = mockClient()
+    await cmd('clear-needs-human').run(client, { id: 'iss_1' })
+    expect(calls).toContainEqual({
+      path: 'clearNeedsHuman',
+      kind: 'mutate',
+      input: { id: 'iss_1' },
     })
   })
 

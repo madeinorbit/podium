@@ -441,7 +441,7 @@ export class IssueService {
     'title' | 'description' | 'stage' | 'worktreePath' | 'branch' | 'parentBranch' | 'defaultAgent'
     | 'archived' | 'priority' | 'type' | 'assignee' | 'parentId' | 'design' | 'acceptance'
     | 'notes' | 'dueAt' | 'deferUntil' | 'closedReason' | 'supersededBy' | 'duplicateOf'
-    | 'pinned' | 'estimateMin'>>): IssueWire {
+    | 'pinned' | 'estimateMin' | 'needsHuman' | 'humanQuestion'>>): IssueWire {
     const row = this.rows.get(id)
     if (!row) throw new Error(`unknown issue ${id}`)
     if ('parentId' in patch) {
@@ -534,6 +534,14 @@ export class IssueService {
 
   defer(id: string, until: string | null): IssueWire {
     return this.update(id, { deferUntil: until })
+  }
+
+  setNeedsHuman(id: string, question?: string | null): IssueWire {
+    return this.update(id, { needsHuman: true, humanQuestion: question ?? null })
+  }
+
+  clearNeedsHuman(id: string): IssueWire {
+    return this.update(id, { needsHuman: false, humanQuestion: null })
   }
 
   /** The single cycle-checked path that keeps the parent_id column and the

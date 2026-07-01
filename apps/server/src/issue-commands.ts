@@ -233,6 +233,24 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
     },
   },
   {
+    name: 'needs-human',
+    summary: 'Flag an issue as needing a human decision (--question optional).',
+    args: z.object({ id: z.string(), question: z.string().optional() }),
+    async run(c, a) {
+      await c.issues.setNeedsHuman.mutate({ id: a.id as string, ...(a.question ? { question: a.question as string } : {}) })
+      return `flagged ${a.id} for human`
+    },
+  },
+  {
+    name: 'clear-needs-human',
+    summary: 'Clear the needs-human flag on an issue.',
+    args: z.object({ id: z.string() }),
+    async run(c, a) {
+      await c.issues.clearNeedsHuman.mutate({ id: a.id as string })
+      return `cleared needs-human on ${a.id}`
+    },
+  },
+  {
     name: 'supersede',
     summary: 'Supersede <old> with <new>: --oldId --newId.',
     args: z.object({ oldId: z.string(), newId: z.string() }),

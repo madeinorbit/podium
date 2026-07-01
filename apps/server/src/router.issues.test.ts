@@ -99,6 +99,14 @@ describe('issues.* subtree scope (P1a)', () => {
     await expect(c.issues.update({ id: B.id, patch: { notes: 'x' } })).resolves.toBeTruthy()
   })
 
+  it('setNeedsHuman is scope-gated like other writes', async () => {
+    const c = callerWith({ role: 'worker', scope: { kind: 'subtree', rootId: A.id } })
+    await expect(c.issues.setNeedsHuman({ id: A.id, question: 'q' })).resolves.toBeTruthy()
+    await expect(c.issues.setNeedsHuman({ id: B.id, question: 'q' })).rejects.toThrow(
+      /outside your subtree/,
+    )
+  })
+
   it('issues.prime binds to the capability subtree root', async () => {
     const c = callerWith({ role: 'worker', scope: { kind: 'subtree', rootId: A.id } })
     const out = await c.issues.prime({ repoPath: '/r' })

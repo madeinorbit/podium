@@ -388,6 +388,17 @@ describe('IssueService field mutations (P1)', () => {
     expect(closed.closedReason).toBe('wontfix')
   })
 
+  it('setNeedsHuman/clearNeedsHuman toggle the flag + question', () => {
+    const { svc } = harness()
+    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    const flagged = svc.setNeedsHuman(a.id, 'which key?')
+    expect(flagged.needsHuman).toBe(true)
+    expect(flagged.humanQuestion).toBe('which key?')
+    const cleared = svc.clearNeedsHuman(a.id)
+    expect(cleared.needsHuman).toBe(false)
+    expect(cleared.humanQuestion).toBeUndefined()
+  })
+
   it('ancestorIds walks the parent chain nearest-first', () => {
     const { svc } = harness()
     const epic = svc.create({ repoPath: '/r', title: 'epic', startNow: false })

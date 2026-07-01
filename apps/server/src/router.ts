@@ -46,6 +46,8 @@ export const SCOPED_TARGET: Record<string, (i: Record<string, unknown>) => strin
   update: (i) => i.id as string,
   close: (i) => i.id as string,
   defer: (i) => i.id as string,
+  setNeedsHuman: (i) => i.id as string,
+  clearNeedsHuman: (i) => i.id as string,
   addComment: (i) => i.id as string,
   action: (i) => i.id as string,
   applySuggestion: (i) => i.id as string,
@@ -722,6 +724,12 @@ export const appRouter = t.router({
     defer: issueProc
       .input(z.object({ id: z.string(), until: z.string().nullable() }))
       .mutation(({ ctx, input }) => ctx.registry.issues.defer(input.id, input.until)),
+    setNeedsHuman: issueProc
+      .input(z.object({ id: z.string(), question: z.string().optional() }))
+      .mutation(({ ctx, input }) => ctx.registry.issues.setNeedsHuman(input.id, input.question ?? null)),
+    clearNeedsHuman: issueProc
+      .input(z.object({ id: z.string() }))
+      .mutation(({ ctx, input }) => ctx.registry.issues.clearNeedsHuman(input.id)),
     reparent: issueProc
       .input(z.object({ id: z.string(), parentId: z.string().nullable() }))
       .mutation(({ ctx, input }) => ctx.registry.issues.reparent(input.id, input.parentId)),
