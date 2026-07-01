@@ -5,6 +5,7 @@ import { loadConfig } from '@podium/core/config'
 import { encodeJoin } from '@podium/core/join'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { hasPassword, verifyPassword } from './auth-store'
+import { OPERATOR } from './issue-authz'
 import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
 import { appRouter } from './router'
@@ -15,7 +16,7 @@ function caller() {
   registry.attachDaemon('local', () => {})
   const repos = new RepoRegistry(registry, registry.sessionStore)
   const superagent = new SuperagentService(registry, repos, registry.sessionStore)
-  return appRouter.createCaller({ registry, repos, superagent, role: 'maintainer' })
+  return appRouter.createCaller({ registry, repos, superagent, capability: OPERATOR })
 }
 
 describe('setup tRPC', () => {

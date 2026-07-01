@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { OPERATOR } from './issue-authz'
 import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
 import { appRouter } from './router'
@@ -9,7 +10,10 @@ function caller() {
   registry.attachDaemon('local', () => {})
   const repos = new RepoRegistry(registry, registry.sessionStore)
   const superagent = new SuperagentService(registry, repos, registry.sessionStore)
-  return { registry, call: appRouter.createCaller({ registry, repos, superagent, role: 'maintainer' }) }
+  return {
+    registry,
+    call: appRouter.createCaller({ registry, repos, superagent, capability: OPERATOR }),
+  }
 }
 
 describe('appRouter', () => {
@@ -36,7 +40,7 @@ describe('appRouter', () => {
       registry,
       repos,
       superagent: new SuperagentService(registry, repos, registry.sessionStore),
-      role: 'maintainer',
+      capability: OPERATOR,
     })
     const p = call.discovery.scan()
     // Yield so the tRPC handler's async body (registry.scan → pendingScans.set) runs before we feed the result.
@@ -62,7 +66,7 @@ describe('appRouter', () => {
       registry,
       repos,
       superagent: new SuperagentService(registry, repos, registry.sessionStore),
-      role: 'maintainer',
+      capability: OPERATOR,
     })
     const { sessionId } = await call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
     const p = call.sessions.transcriptRead({ sessionId, direction: 'before', limit: 100 })
@@ -116,7 +120,7 @@ describe('appRouter', () => {
       registry,
       repos,
       superagent: new SuperagentService(registry, repos, registry.sessionStore),
-      role: 'maintainer',
+      capability: OPERATOR,
     })
 
     await expect(call.settings.telegramSetupStart()).resolves.toMatchObject({
@@ -156,7 +160,7 @@ function repoCaller() {
       registry,
       repos,
       superagent: new SuperagentService(registry, repos, registry.sessionStore),
-      role: 'maintainer',
+      capability: OPERATOR,
     }),
   }
 }

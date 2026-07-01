@@ -50,18 +50,4 @@ describe('registerWebStatic', () => {
     const res = await app2.request('/health')
     expect(res.status).toBe(404)
   })
-  it('injects the issue token into served index.html when provided', async () => {
-    const app2 = new Hono()
-    registerWebStatic(app2, dir, 'TOKEN123')
-    const res = await app2.request('/')
-    const html = await res.text()
-    expect(html).toContain('window.__PODIUM_ISSUE_TOKEN__')
-    expect(html).toContain('TOKEN123')
-  })
-  it('does not inject when no token is given', async () => {
-    const app2 = new Hono()
-    registerWebStatic(app2, dir)
-    const html = await (await app2.request('/')).text()
-    expect(html).not.toContain('__PODIUM_ISSUE_TOKEN__')
-  })
 })

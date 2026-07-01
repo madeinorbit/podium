@@ -11,10 +11,10 @@ import { cors } from 'hono/cors'
 import { clientAuthGuard, isRequestAuthed, registerAuthRoute } from './auth-route'
 import { applyEnvPassword, hasPassword } from './auth-store'
 import { registerAssetRoute } from './file-asset-route'
-import { makeIssueClient } from './issue-client'
+import { OPERATOR } from './issue-authz'
+import type { IssueTrpc } from './issue-client'
 import { CompositeMcpProvider, IssueToolProvider } from './issue-mcp'
-import { resolveRole } from './issue-roles'
-import { readOrCreateDaemonSecret, readOrCreateMaintainerToken } from './local-machine'
+import { readOrCreateDaemonSecret } from './local-machine'
 import { registerMcpRoute } from './mcp-route'
 import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
@@ -24,6 +24,36 @@ import { registerWebStatic } from './static-web'
 import { SessionStore } from './store'
 import { SuperagentService } from './superagent'
 import { attachWebSockets } from './wsServer'
+
+/** Adapt an in-process tRPC `createCaller` caller to the `IssueTrpc` HTTP-client shape the
+ *  shared issue command registry calls (`.<router>.<proc>.mutate|query(input)`). Both `.mutate`
+ *  and `.query` map to a direct caller invocation — no HTTP round-trip, no login-cookie gate. */
+export function callerAsIssueTrpc(caller: ReturnType<typeof appRouter.createCaller>): IssueTrpc {
+  const rec = caller as unknown as Record<
+    string,
+    Record<string, (i: unknown) => Promise<unknown>> | undefined
+  >
+  const invoke = (router: string, proc: string, input: unknown): Promise<unknown> => {
+    const fn = rec[router]?.[proc]
+    if (!fn) throw new Error(`no such issue procedure: ${router}.${proc}`)
+    return fn(input)
+  }
+  const procProxy = (router: string) =>
+    new Proxy(
+      {},
+      {
+        get: (_t, proc) => {
+          if (typeof proc !== 'string') return undefined
+          const call = (input: unknown) => invoke(router, proc, input)
+          return { mutate: call, query: call }
+        },
+      },
+    )
+  return new Proxy(
+    {},
+    { get: (_t, router) => (typeof router === 'string' ? procProxy(router) : undefined) },
+  ) as unknown as IssueTrpc
+}
 
 export interface ServerHandle {
   port: number
@@ -80,10 +110,6 @@ export async function startServer(
   // and presents it as its `hello` token — so the local daemon authenticates with no
   // pairing step and no per-boot token race.
   const bootstrapToken = readOrCreateDaemonSecret()
-  // The issue-tracker maintainer capability token (0600 in the state dir). A local
-  // operator who can read this file presents it as `x-podium-issue-token` to act as
-  // maintainer; agents that can't read it fall back to worker/reader (see resolveRole).
-  const maintainerToken = readOrCreateMaintainerToken()
   // Provision the local machine NOW, at startup: register it with the server-owned
   // credential (sha256 of the shared secret) and adopt any pre-existing `'__local__'`
   // rows onto it — so a single-machine install's sessions/repos are attributed and
@@ -129,18 +155,11 @@ export async function startServer(
     '/trpc/*',
     trpcServer({
       router: appRouter,
-      // `c` is the Hono context (2nd arg in @hono/trpc-server v0.3.4). Resolve the
-      // caller's issue-tracker role from the credential headers: maintainer iff the
-      // token matches, worker iff the cwd is inside a live issue worktree, else reader.
-      createContext: (_opts, c) => ({
-        registry,
-        repos,
-        superagent,
-        role: resolveRole(
-          { token: c.req.header('x-podium-issue-token'), cwd: c.req.header('x-podium-issue-cwd') },
-          { maintainerToken, issueWorktrees: registry.issues.worktreePaths() },
-        ),
-      }),
+      // Everyone who reaches /trpc is the OPERATOR: the login session (clientAuthGuard
+      // above) already authenticated the human, so the tracker grants full authority — no
+      // separate tracker credential. Constrained agents don't come through here; they are
+      // relayed via their daemon and carry their own capability (agent integration).
+      createContext: () => ({ registry, repos, superagent, capability: OPERATOR }),
     }),
   )
 
@@ -156,7 +175,7 @@ export async function startServer(
       webDir = ''
     }
   }
-  if (webDir) registerWebStatic(app, webDir, maintainerToken)
+  if (webDir) registerWebStatic(app, webDir)
 
   const host = resolveBindHost(opts)
   // If we're reachable off-box but no login password is set, the data plane is wide open
@@ -178,11 +197,13 @@ export async function startServer(
         mcpToken,
         mcpProvider.mcpToolSpecs().map((s) => s.name),
       )
-      // The in-process MCP issue surface is driven by the trusted superagent orchestrator,
-      // so it presents the maintainer token to act with full access.
-      issueTools.setClient(
-        makeIssueClient(`http://127.0.0.1:${info.port}`, { token: maintainerToken }),
-      )
+      // The in-process MCP issue surface is the trusted superagent orchestrator. It calls the
+      // router DIRECTLY (not the cookie-gated HTTP /trpc, which would 401 it) as the OPERATOR.
+      // The shared command registry expects an IssueTrpc client (.<router>.<proc>.mutate/query);
+      // adapt a createCaller caller to that shape. This is also the seam for per-agent
+      // capabilities later: pass a constrained capability instead of OPERATOR.
+      const caller = appRouter.createCaller({ registry, repos, superagent, capability: OPERATOR })
+      issueTools.setClient(callerAsIssueTrpc(caller))
       const ws = attachWebSockets(server as unknown as Server, registry, {
         // Same gate as the HTTP guard: open unless a password is set, then require a valid
         // session cookie on the upgrade request.

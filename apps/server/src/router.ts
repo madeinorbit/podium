@@ -14,8 +14,7 @@ import { AgentKind, IssueStage, IssueType, ResumeRef, WorkState } from '@podium/
 import { initTRPC, TRPCError } from '@trpc/server'
 import { z } from 'zod'
 import { clearPassword, hasPassword, setPassword, verifyPassword } from './auth-store'
-import { PROC_MIN_ROLE, ROLE_RANK, type Role } from './issue-roles'
-import { readMaintainerToken } from './local-machine'
+import { type Capability, can, PROC_ACTION } from './issue-authz'
 import { buildJoinCommand } from './machines-join'
 import type { SessionRegistry } from './relay'
 import { browseDirectories, type RepoRegistry } from './repo-registry'
@@ -26,37 +25,30 @@ export interface Context {
   registry: SessionRegistry
   repos: RepoRegistry
   superagent: SuperagentService
-  role: Role
+  /** What this caller may do with issues (authz, distinct from the login authn on /trpc).
+   *  Every HTTP caller is the OPERATOR today; the in-process MCP passes its own. */
+  capability: Capability
 }
 
 const t = initTRPC.context<Context>().create()
 const PinKind = z.enum(['panel', 'worktree', 'repo'])
 
-/** Enforce the per-procedure minimum role for every issues.* call. The middleware `path`
- *  is e.g. "issues.create"; its last segment is the proc name, looked up in PROC_MIN_ROLE
- *  (unlisted ⇒ 'reader'). Insufficient role ⇒ FORBIDDEN. */
-const issueRoleGuard = t.middleware(({ ctx, path, next }) => {
+/** Authorize every issues.* call against the caller's capability. The middleware `path`
+ *  is e.g. "issues.create"; its last segment is the proc name, mapped to the action it needs
+ *  (PROC_ACTION, unlisted ⇒ 'read'). Not allowed ⇒ FORBIDDEN. Per-issue SCOPE enforcement
+ *  (subtree capabilities) needs the target issue and lands with agent integration; today
+ *  every caller is OPERATOR (scope 'all'), which `can` grants without inspecting the issue. */
+const issueCapabilityGuard = t.middleware(({ ctx, path, next }) => {
   const proc = path.split('.').pop() ?? ''
-  const need = PROC_MIN_ROLE[proc] ?? 'reader'
-  if (ROLE_RANK[ctx.role] < ROLE_RANK[need]) {
-    throw new TRPCError({
-      code: 'FORBIDDEN',
-      message: `role '${ctx.role}' may not '${proc}' (needs '${need}')`,
-    })
+  const action = PROC_ACTION[proc] ?? 'read'
+  if (!can(ctx.capability, action)) {
+    throw new TRPCError({ code: 'FORBIDDEN', message: `not allowed to '${proc}' issues` })
   }
   return next()
 })
-const issueProc = t.procedure.use(issueRoleGuard)
+const issueProc = t.procedure.use(issueCapabilityGuard)
 
 export const appRouter = t.router({
-  // Hand the operator's browser its issue-tracker credential at runtime. The server also
-  // injects this same token into index.html (static-web.ts), but the live web is served by
-  // Vite preview + cached by the PWA service worker, so that injection never reaches the
-  // browser — the web fetches it here at boot instead and presents it as x-podium-issue-token
-  // (see web makeTrpc / issueAuthHeaders). Ungated by design: it's the bootstrap that grants
-  // the human UI maintainer, exactly like the HTML injection it backs up. Agent access stays
-  // gated by cwd/worker-token (hardening tracked in bd podium-hi7.6).
-  issueToken: t.procedure.query(() => readMaintainerToken() ?? null),
   sessions: t.router({
     list: t.procedure.query(({ ctx }) => ctx.registry.listSessions()),
     create: t.procedure

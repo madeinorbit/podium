@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { OPERATOR } from './issue-authz'
 import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
 import { appRouter } from './router'
@@ -14,7 +15,10 @@ function machineCaller() {
   registry.attachDaemon('local', () => {})
   const repos = new RepoRegistry(registry, registry.sessionStore)
   const superagent = new SuperagentService(registry, repos, registry.sessionStore)
-  return { registry, call: appRouter.createCaller({ registry, repos, superagent, role: 'maintainer' }) }
+  return {
+    registry,
+    call: appRouter.createCaller({ registry, repos, superagent, capability: OPERATOR }),
+  }
 }
 
 describe('machines router', () => {
@@ -67,7 +71,7 @@ describe('sessions.create with machineId', () => {
     registry.attachDaemon('m2', () => {})
     const repos = new RepoRegistry(registry, registry.sessionStore)
     const superagent = new SuperagentService(registry, repos, registry.sessionStore)
-    const call = appRouter.createCaller({ registry, repos, superagent, role: 'maintainer' })
+    const call = appRouter.createCaller({ registry, repos, superagent, capability: OPERATOR })
 
     const { sessionId } = await call.sessions.create({
       agentKind: 'claude-code',
@@ -87,7 +91,7 @@ describe('sessions.create with machineId', () => {
     registry.attachDaemon('local', () => {})
     const repos = new RepoRegistry(registry, registry.sessionStore)
     const superagent = new SuperagentService(registry, repos, registry.sessionStore)
-    const call = appRouter.createCaller({ registry, repos, superagent, role: 'maintainer' })
+    const call = appRouter.createCaller({ registry, repos, superagent, capability: OPERATOR })
 
     const { sessionId } = await call.sessions.create({
       agentKind: 'claude-code',

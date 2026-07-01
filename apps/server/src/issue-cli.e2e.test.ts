@@ -4,7 +4,6 @@ import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { runIssueCli } from '../../../scripts/issue-cli'
 import { makeIssueClient } from './issue-client'
-import { readMaintainerToken } from './local-machine'
 import { startServer } from './server'
 
 describe('podium issue CLI ↔ live server (e2e)', () => {
@@ -25,10 +24,8 @@ describe('podium issue CLI ↔ live server (e2e)', () => {
   })
 
   it('create → ready → claim → close round-trips through the CLI', async () => {
-    // The server minted the maintainer token into the isolated state dir at startup; read
-    // it and present it so the role gate admits the create/claim/close mutations.
-    const token = readMaintainerToken(stateDir)
-    const client = makeIssueClient(baseUrl, { token, cwd: '/repo' })
+    // Open (no-password) server ⇒ the CLI acts as the operator with full authority.
+    const client = makeIssueClient(baseUrl)
     const created = await runIssueCli(
       ['create', '--repoPath', '/repo', '--title', 'Wire the CLI', '--priority', '1'],
       client,
@@ -50,15 +47,5 @@ describe('podium issue CLI ↔ live server (e2e)', () => {
 
     const stats = await runIssueCli(['stats', '--repoPath', '/repo'], client)
     expect(stats).toMatch(/closed: 1/)
-  })
-
-  it('a no-credential caller is denied a mutation (gate active over the wire)', async () => {
-    // No token, no cwd ⇒ the server resolves this caller to reader. runIssueCli awaits
-    // cmd.run without catching, so the gate's FORBIDDEN tRPC error surfaces as a thrown
-    // rejection (message: "role 'reader' may not 'create' (needs 'maintainer')").
-    const anon = makeIssueClient(baseUrl)
-    await expect(
-      runIssueCli(['create', '--repoPath', '/repo', '--title', 'x'], anon),
-    ).rejects.toThrow(/forbidden|reader|may not/i)
   })
 })

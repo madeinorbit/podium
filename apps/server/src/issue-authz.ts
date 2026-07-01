@@ -1,0 +1,89 @@
+/**
+ * Issue-tracker AUTHORIZATION — what a caller may do with issues.
+ *
+ * Distinct from AUTHENTICATION (auth-store / auth-route gate *who* may reach /trpc at all,
+ * and the daemon secret gates the machine↔server channel). This layer answers *what* a
+ * caller who got in may do. Two principals:
+ *   - the **operator** — the cookie-authed human on /trpc, plus the trusted in-process MCP —
+ *     is unconstrained (OPERATOR);
+ *   - **agents** — relayed to the server via their daemon — carry a constrained capability.
+ *
+ * Only the operator is wired today; the agent path (daemon relay + per-agent capability,
+ * including per-issue SCOPE) lands with agent integration. The model is built so that turning
+ * it on is wiring, not a rewrite — hence Capability carries an extensible `scope`, and `can`
+ * already has the scoped-enforcement branch.
+ */
+
+export type IssueRole = 'viewer' | 'worker' | 'admin'
+
+/** What an issue op requires. viewer=read · worker=+write · admin=+manage (structural/destructive). */
+export type IssueAction = 'read' | 'write' | 'manage'
+
+const ROLE_ACTIONS: Record<IssueRole, IssueAction[]> = {
+  viewer: ['read'],
+  worker: ['read', 'write'],
+  admin: ['read', 'write', 'manage'],
+}
+
+/**
+ * The slice of issues a capability applies to. `all` today; `subtree` is the reserved
+ * per-issue extension (an agent bound to one issue tree). The enforcement branch for it is
+ * already in `can`, so enabling per-issue scope later is wiring (mint a scoped cap + hand the
+ * guard the target issue), not a model change.
+ */
+export type IssueScope = { kind: 'all' } | { kind: 'subtree'; rootId: string }
+
+export interface Capability {
+  role: IssueRole
+  scope: IssueScope
+}
+
+/** The human operator (and, for now, the trusted in-process MCP): unconstrained. */
+export const OPERATOR: Capability = { role: 'admin', scope: { kind: 'all' } }
+
+/** Which action each issues.* procedure requires. Unlisted ⇒ 'read' (queries). */
+export const PROC_ACTION: Record<string, IssueAction> = {
+  // write — do the work on an issue
+  claim: 'write',
+  update: 'write',
+  addComment: 'write',
+  defer: 'write',
+  close: 'write',
+  start: 'write',
+  addSession: 'write',
+  addShell: 'write',
+  action: 'write',
+  applySuggestion: 'write',
+  dismissSuggestion: 'write',
+  refreshAssistant: 'write',
+  depAdd: 'write',
+  // hits the external Linear API — keep read-only callers from driving it
+  linearSearch: 'write',
+  // manage — structural / destructive / cross-cutting
+  create: 'manage',
+  archive: 'manage',
+  delete: 'manage',
+  setLabels: 'manage',
+  depRemove: 'manage',
+  reparent: 'manage',
+  supersede: 'manage',
+  duplicate: 'manage',
+}
+
+/**
+ * May `cap` perform `action` (optionally on `issue`)? `issue` — with the ids of its
+ * ancestors — is consulted only for a `subtree` scope; an `all` scope ignores it. A scoped
+ * capability with no target issue is denied (it can't prove the op is in-scope). Pure.
+ */
+export function can(
+  cap: Capability,
+  action: IssueAction,
+  issue?: { id: string; ancestorIds?: string[] },
+): boolean {
+  if (!ROLE_ACTIONS[cap.role].includes(action)) return false
+  if (cap.scope.kind === 'subtree') {
+    if (!issue) return false
+    return issue.id === cap.scope.rootId || (issue.ancestorIds ?? []).includes(cap.scope.rootId)
+  }
+  return true
+}

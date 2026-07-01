@@ -34,9 +34,6 @@ function helpText(): string {
     'podium issue <command> [--flags]',
     '',
     ...ISSUE_COMMANDS.map((c) => `  ${c.name.padEnd(w)}  ${c.summary}`),
-    '',
-    'Set PODIUM_ISSUE_TOKEN=<contents of <state-dir>/issue-maintainer.token> for maintainer',
-    'access; otherwise you act as worker (inside an issue worktree) or reader.',
   ].join('\n')
 }
 
@@ -86,17 +83,10 @@ export async function runIssueCli(argv: string[], client: IssueTrpc): Promise<st
 /** Entry used by scripts/cli.ts: build a loopback client and run, printing the result. */
 export async function issueCliMain(argv: string[]): Promise<void> {
   const port = Number(process.env.PODIUM_PORT) || 18787
-  // Present the operator's issue-tracker credentials so the server gate admits us. Maintainer
-  // access requires the EXPLICIT PODIUM_ISSUE_TOKEN env var — we deliberately do NOT auto-read
-  // the 0600 maintainer-token file. Agents run as the operator's uid, so they can read that
-  // file; auto-reading it would silently hand every CLI agent maintainer rights and defeat the
-  // gate. The operator opts in by exporting PODIUM_ISSUE_TOKEN=<contents of the token file>.
-  // Without it, our cwd maps us to a worker iff it's inside a live issue worktree, else reader.
-  const token = process.env.PODIUM_ISSUE_TOKEN
-  const client = makeIssueClient(`http://localhost:${port}`, {
-    ...(token ? { token } : {}),
-    cwd: process.cwd(),
-  })
+  // The CLI talks to the local server as the operator. Open/loopback deployments admit it
+  // directly; a password-protected server needs the operator's login session (CLI-auth is the
+  // deferred agent-integration step — agents will be relayed via their daemon, not this path).
+  const client = makeIssueClient(`http://localhost:${port}`)
   try {
     console.log(await runIssueCli(argv, client))
   } catch (err) {

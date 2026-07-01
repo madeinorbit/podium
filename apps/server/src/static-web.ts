@@ -42,23 +42,12 @@ function contentType(p: string): string {
 }
 
 /**
- * Inject the maintainer issue token into the served SPA shell so the web tRPC client
- * can present it as `x-podium-issue-token` (see resolveRole). Inserts a script before
- * `</head>` (or prepends if there is no head). No-op when no token is configured.
- */
-function injectIssueToken(html: string, token?: string): string {
-  if (!token) return html
-  const tag = `<script>window.__PODIUM_ISSUE_TOKEN__=${JSON.stringify(token)}</script>`
-  return html.includes('</head>') ? html.replace('</head>', `${tag}</head>`) : tag + html
-}
-
-/**
  * Serve the built web bundle for EXTERNAL clients (browser / phone / other desktop
  * app connecting to a running machine). The Tauri desktop window uses its own bundled
  * UI, not this route. Returns false (registers nothing) when no build is present, so a
  * source/dev run or an API-only server is unaffected. Call AFTER the API routes.
  */
-export function registerWebStatic(app: Hono, webDir: string, issueToken?: string): boolean {
+export function registerWebStatic(app: Hono, webDir: string): boolean {
   if (!existsSync(join(webDir, 'index.html'))) return false
 
   app.get('/*', (c) => {
@@ -73,25 +62,15 @@ export function registerWebStatic(app: Hono, webDir: string, issueToken?: string
       existsSync(filePath) &&
       statSync(filePath).isFile()
     ) {
-      // The SPA shell can be requested directly (e.g. /index.html); inject the token there too.
-      if (extname(filePath).toLowerCase() === '.html') {
-        return new Response(injectIssueToken(readFileSync(filePath, 'utf8'), issueToken), {
-          status: 200,
-          headers: { 'Content-Type': contentType(filePath) },
-        })
-      }
       return new Response(readFileSync(filePath), {
         status: 200,
         headers: { 'Content-Type': contentType(filePath) },
       })
     }
-    return new Response(
-      injectIssueToken(readFileSync(join(webDir, 'index.html'), 'utf8'), issueToken),
-      {
-        status: 200,
-        headers: { 'Content-Type': 'text/html; charset=utf-8' },
-      },
-    )
+    return new Response(readFileSync(join(webDir, 'index.html'), 'utf8'), {
+      status: 200,
+      headers: { 'Content-Type': 'text/html; charset=utf-8' },
+    })
   })
   return true
 }

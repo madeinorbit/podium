@@ -61,36 +61,3 @@ export function readOrCreateDaemonSecret(dir: string = stateDir()): string {
     return readFileSync(path, 'utf8').trim()
   }
 }
-
-/** The maintainer capability token for the issue tracker — read (or created 0600) from the
- *  state dir. A local operator who can read this file gets maintainer; agents that can't,
- *  don't. Mirrors readOrCreateDaemonSecret (same wx-race handling). */
-export function readOrCreateMaintainerToken(dir: string = stateDir()): string {
-  const path = join(dir, 'issue-maintainer.token')
-  try {
-    const existing = readFileSync(path, 'utf8').trim()
-    if (existing) return existing
-  } catch {
-    // not created yet
-  }
-  const token = randomBytes(32).toString('hex')
-  mkdirSync(dir, { recursive: true })
-  try {
-    writeFileSync(path, token, { mode: 0o600, flag: 'wx' })
-    return token
-  } catch {
-    return readFileSync(path, 'utf8').trim()
-  }
-}
-
-/** Read the maintainer token if it exists (does NOT create it — that's the server's job).
- *  A local operator/orchestrator that can read this file presents it to act as maintainer;
- *  callers that can't read it simply pass no token and fall back to worker/reader. */
-export function readMaintainerToken(dir: string = stateDir()): string | undefined {
-  try {
-    const t = readFileSync(join(dir, 'issue-maintainer.token'), 'utf8').trim()
-    return t || undefined
-  } catch {
-    return undefined
-  }
-}

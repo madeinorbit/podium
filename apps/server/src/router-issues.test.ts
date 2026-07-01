@@ -1,11 +1,17 @@
 import { describe, expect, it } from 'vitest'
-import { appRouter } from './router'
+import { OPERATOR } from './issue-authz'
 import { SessionRegistry } from './relay'
+import { appRouter } from './router'
 
 function caller() {
   const registry = new SessionRegistry() // in-memory store
   // 'maintainer' clears every issues.* gate so these create/update flows aren't blocked.
-  return appRouter.createCaller({ registry, repos: {} as never, superagent: {} as never, role: 'maintainer' })
+  return appRouter.createCaller({
+    registry,
+    repos: {} as never,
+    superagent: {} as never,
+    capability: OPERATOR,
+  })
 }
 
 describe('issues router', () => {
