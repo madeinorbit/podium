@@ -1,0 +1,13 @@
+# ~/.config/systemd/user/podium-update-user.timer  (daily cadence for podium-update-user.service)
+# Install: systemctl --user enable --now podium-update-user.timer
+# Persistent=true runs a missed update on next login (e.g. laptop asleep at the scheduled time).
+[Unit]
+Description=Podium headless self-update (daily)
+
+[Timer]
+OnCalendar=daily
+Persistent=true
+Unit=podium-update-user.service
+
+[Install]
+WantedBy=default.target

@@ -165,6 +165,9 @@ export async function runUpdate(
     }
     rmSync(backup, { recursive: true, force: true })
     console.log(`[podium update] updated to ${version}; restart podium to apply`)
+    // Exit 10 = "actually updated" (distinct from 0 = already current, 1 = failure). The
+    // systemd update timer keys off this code to restart the daemon ONLY on a real swap.
+    process.exitCode = 10
   } finally {
     rmSync(tmp, { recursive: true, force: true })
   }

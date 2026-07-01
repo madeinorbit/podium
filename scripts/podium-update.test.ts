@@ -168,6 +168,18 @@ describe('podium update swap crash-safety', () => {
     expect(existsSync(`${dir}.old`)).toBe(false)
     // No sibling .podium-update-* temp dir is left behind.
     expect(readdirSync(dirname(dir)).filter((n) => n.startsWith('.podium-update-'))).toHaveLength(0)
+    // Signal "actually updated" via exit code 10 so the systemd timer only restarts the
+    // daemon when a real swap happened (0 = already current, 1 = failure).
+    expect(process.exitCode).toBe(10)
+  })
+
+  it('exits 0 (no restart signal) when already up to date', async () => {
+    stageInstall('0.1.1')
+    // Feed advertises the SAME version → not newer → early return before any download/verify,
+    // so this needs no signing key and never swaps. Exit code stays 0 (unset).
+    const feed = await startFeed('0.1.1', null)
+    await runUpdate(feed)
+    expect(process.exitCode ?? 0).toBe(0)
   })
 
   it('REFUSES to swap when signature verification fails (tampered tarball)', async () => {

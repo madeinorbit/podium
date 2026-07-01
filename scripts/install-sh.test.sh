@@ -27,6 +27,28 @@ sh "$ROOT/install.sh"
 test -x "$HOME/.local/bin/podium"            || { echo FAIL: no launcher symlink; exit 1; }
 test -f "$HOME/.local/share/podium/VERSION"  || { echo FAIL: bundle not installed; exit 1; }
 
+# Stub systemctl + loginctl so --join runs write the unit FILES without touching the real
+# user session; we assert on the written files, not on systemctl succeeding.
+STUB="$WORK/bin"; mkdir -p "$STUB"
+printf '#!/bin/sh\nexit 0\n' > "$STUB/systemctl"; chmod +x "$STUB/systemctl"
+printf '#!/bin/sh\nexit 0\n' > "$STUB/loginctl"; chmod +x "$STUB/loginctl"
+export PATH="$STUB:$PATH"
+UNIT="$HOME/.config/systemd/user"
+
+echo "== join enables the auto-update timer =="
+rm -rf "$HOME/.local/share/podium" "$HOME/.local/bin/podium" "$HOME/.config/systemd"
+sh "$ROOT/install.sh" --join TESTTOKEN
+test -f "$UNIT/podium-daemon.service"       || { echo FAIL: join did not write daemon unit; exit 1; }
+test -f "$UNIT/podium-update-user.service"  || { echo FAIL: join did not write update service; exit 1; }
+test -f "$UNIT/podium-update-user.timer"    || { echo FAIL: join did not write update timer; exit 1; }
+
+echo "== --no-auto-update skips the timer =="
+rm -rf "$HOME/.local/share/podium" "$HOME/.local/bin/podium" "$HOME/.config/systemd"
+sh "$ROOT/install.sh" --join TESTTOKEN --no-auto-update
+test -f "$UNIT/podium-daemon.service"       || { echo FAIL: join did not write daemon unit; exit 1; }
+test ! -e "$UNIT/podium-update-user.timer"  || { echo "FAIL: --no-auto-update wrote the timer anyway"; exit 1; }
+test ! -e "$UNIT/podium-update-user.service" || { echo "FAIL: --no-auto-update wrote the update service anyway"; exit 1; }
+
 echo "== tamper rejection =="
 printf 'x' >> "$REL/podium-headless-linux-x64.tar.gz"   # corrupt after signing
 rm -rf "$HOME/.local/share/podium" "$HOME/.local/bin/podium"

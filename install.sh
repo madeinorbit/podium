@@ -7,6 +7,7 @@ set -eu
 REPO="madeinorbit/podium"
 CHANNEL="stable"
 JOIN=""
+AUTO_UPDATE="1"
 # Ed25519 pubkey (SPKI/DER, base64). Commit the SAME value as PODIUM_UPDATE_PUBKEY in
 # scripts/podium-update-pubkey.ts — the lockstep test in Step 5 enforces they match. (A test
 # override is allowed via PODIUM_INSTALL_PUBKEY.) The key is public; committing it is safe.
@@ -16,6 +17,7 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --join) JOIN="${2:?--join requires a TOKEN}"; shift 2 ;;
     --channel) CHANNEL="${2:?--channel requires a value}"; shift 2 ;;
+    --no-auto-update) AUTO_UPDATE=""; shift ;;
     *) echo "podium install: unknown arg '$1'" >&2; exit 2 ;;
   esac
 done
@@ -95,11 +97,42 @@ RestartSec=2
 [Install]
 WantedBy=default.target
 EOF
+# --- auto-update timer: `podium update` on a daily cadence, restart the daemon only when it
+#     actually swapped in a new bundle (exit 10). Opt out with --no-auto-update. ---
+if [ -n "$AUTO_UPDATE" ]; then
+  cat > "$UNIT_DIR/podium-update-user.service" <<EOF
+[Unit]
+Description=Podium headless self-update
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/env sh -c '%h/.local/bin/podium update; ec=\$?; [ "\$ec" = 10 ] && systemctl --user try-restart podium-daemon.service; exit 0'
+EOF
+  cat > "$UNIT_DIR/podium-update-user.timer" <<EOF
+[Unit]
+Description=Podium headless self-update (daily)
+
+[Timer]
+OnCalendar=daily
+Persistent=true
+Unit=podium-update-user.service
+
+[Install]
+WantedBy=default.target
+EOF
+fi
+
 if command -v systemctl >/dev/null 2>&1; then
   systemctl --user daemon-reload || true
   loginctl enable-linger "$(id -un)" 2>/dev/null || true
   systemctl --user enable --now podium-daemon || \
     echo "Could not start the user service automatically; run: systemctl --user enable --now podium-daemon"
+  if [ -n "$AUTO_UPDATE" ]; then
+    systemctl --user enable --now podium-update-user.timer || \
+      echo "Could not enable auto-update; run: systemctl --user enable --now podium-update-user.timer"
+  fi
 else
   echo "No systemd here. Start the daemon with: podium daemon"
 fi

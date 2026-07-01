@@ -1,0 +1,13 @@
+# ~/.config/systemd/user/podium-update-user.service  (oneshot; run by podium-update-user.timer)
+# Install: systemctl --user enable --now podium-update-user.timer
+# Runs `podium update`, which exits 10 ONLY when it actually swapped in a new bundle (0 = already
+# current, 1 = failure). We restart the daemon just on that exit-10 case so the running process
+# picks up the new bundle, and always exit 0 so a "nothing to do" run is not logged as a failure.
+[Unit]
+Description=Podium headless self-update
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/env sh -c '%h/.local/bin/podium update; ec=$?; [ "$ec" = 10 ] && systemctl --user try-restart podium-daemon.service; exit 0'
