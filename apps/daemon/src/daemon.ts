@@ -85,6 +85,7 @@ import { startHookIngest } from './hook-ingest'
 import { sampleHostMemory } from './host-metrics'
 import { loadIdentity, saveToken } from './identity'
 import { createIssueRelayHub, startIssueRelayServer } from './issue-relay'
+import { createPrimeInjector } from './prime-injector'
 import {
   countControl,
   countFrame,
@@ -689,8 +690,40 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
   // (not on every subsequent hook). The server also dedups against the session's
   // current cwd; this just keeps the wire quiet.
   const lastHookCwd = new Map<string, string>()
+  // `currentWs` is the live socket; `send()` always targets it, so frames keep flowing
+  // to a new connection after a reconnect. Declared/defined ahead of startHookIngest
+  // because the issue-relay hub captures `send` at construction, and the prime injector
+  // (which startHookIngest's `respondTo` drives on hook events) is built from that hub —
+  // so all three must exist before the ingest starts.
+  let currentWs: WebSocket | undefined
+  const send = (msg: DaemonMessage): void => {
+    const w = currentWs
+    if (!w || w.readyState !== WebSocket.OPEN) return
+    // Mirror the server's safeSend: a send/encode throw (socket transitioning to
+    // CLOSING between the check and the call, or an unencodable payload) must not
+    // escape a handler and abort the rest of a burst (e.g. a reattach fan-out).
+    try {
+      w.send(encode(msg))
+    } catch (err) {
+      warnDroppedControlFrame(err, 'outbound')
+    }
+  }
+  // Correlates daemon-initiated issue-relay requests (the loopback server originates
+  // them) with the server's issueRelayResult. Built here in the startDaemon scope so
+  // BOTH handleControlMessage (the result-dispatch case) and the loopback server can
+  // reach the one hub; it captures `send` so requests ride the live WS.
+  const issueRelayHub = createIssueRelayHub(send)
+  // Injects the session's capability-scoped `prime` as additionalContext on the first
+  // SessionStart/UserPromptSubmit after (re)start; re-arms on PreCompact. Driven by
+  // startHookIngest's `respondTo`, so it must exist before the ingest starts.
+  const primeInjector = createPrimeInjector((sessionId) =>
+    issueRelayHub.relay({ sessionId, router: 'issues', proc: 'prime', input: {} }),
+  )
   const ingest = await startHookIngest({
     ...(opts.hooks?.port !== undefined ? { port: opts.hooks.port } : {}),
+    // Bounded, timeout-safe: injects the session's `prime` as additionalContext on the
+    // first SessionStart/UserPromptSubmit (re-armed by PreCompact); null otherwise.
+    respondTo: (sessionId, payload) => primeInjector.respondTo(sessionId, payload),
     onPayload: (sessionId, payload) => {
       const tracker = trackers.get(sessionId)
       if (!tracker) return
@@ -729,9 +762,8 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
   })
   // Reconnecting client: the daemon may start before the server (separate
   // processes / `After=` ordering) and must survive a server restart without
-  // dropping its abduco attaches. `currentWs` is the live socket; `send()` always
-  // targets it, so frames keep flowing to the new connection after a reconnect.
-  let currentWs: WebSocket | undefined
+  // dropping its abduco attaches. `currentWs` (declared above alongside `send`) is
+  // the live socket; these vars drive the backoff reconnect that re-points it.
   let reconnectTimer: ReturnType<typeof setTimeout> | undefined
   let reconnectBackoffMs = RECONNECT_MIN_MS
   let closing = false
@@ -808,25 +840,6 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
       // best effort
     }
   }
-
-  const send = (msg: DaemonMessage): void => {
-    const w = currentWs
-    if (!w || w.readyState !== WebSocket.OPEN) return
-    // Mirror the server's safeSend: a send/encode throw (socket transitioning to
-    // CLOSING between the check and the call, or an unencodable payload) must not
-    // escape a handler and abort the rest of a burst (e.g. a reattach fan-out).
-    try {
-      w.send(encode(msg))
-    } catch (err) {
-      warnDroppedControlFrame(err, 'outbound')
-    }
-  }
-
-  // Correlates daemon-initiated issue-relay requests (the loopback server in Task 2
-  // originates them) with the server's issueRelayResult. Built here in the startDaemon
-  // scope so BOTH handleControlMessage (the result-dispatch case) and the loopback
-  // server can reach the one hub; it captures `send` so requests ride the live WS.
-  const issueRelayHub = createIssueRelayHub(send)
 
   // Loopback HTTP endpoint an agent's `podium issue` CLI posts to. Its port is
   // injected into the agent env at spawn (Task 3); each request rides the hub
@@ -1077,6 +1090,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
       outputScheduler.remove(sessionId)
       trackers.delete(sessionId)
       lastHookCwd.delete(sessionId)
+      primeInjector.reset(sessionId)
       stopGrokStateObserver(sessionId)
       stopCodexStateObserver(sessionId)
       stopOpencodeStateObserver(sessionId)
