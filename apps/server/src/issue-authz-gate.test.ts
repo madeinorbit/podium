@@ -30,16 +30,16 @@ describe('issues.* capability gate', () => {
   it('viewer may query but not mutate', async () => {
     const c = caller(viewer)
     await expect(c.issues.list({})).resolves.toBeDefined() // read OK
-    await expect(
-      c.issues.create({ repoPath: '/r', title: 'x', startNow: false }),
-    ).rejects.toThrow(/FORBIDDEN|not allowed/i)
+    await expect(c.issues.create({ repoPath: '/r', title: 'x', startNow: false })).rejects.toThrow(
+      /FORBIDDEN|not allowed/i,
+    )
   })
 
-  it('worker may write (claim/update) but not manage (create/delete)', async () => {
+  it('worker may write (claim/update/create) but not manage (delete)', async () => {
     const c = caller(worker)
-    await expect(
-      c.issues.create({ repoPath: '/r', title: 'x', startNow: false }),
-    ).rejects.toThrow(/FORBIDDEN|not allowed/i)
+    // create is now a write-tier action (filing/decomposing is additive) — worker may create:
+    const w = await c.issues.create({ repoPath: '/r', title: 'x', startNow: false })
+    expect(w.seq).toBe(1)
     await expect(c.issues.delete({ id: 'iss_x' })).rejects.toThrow(/FORBIDDEN|not allowed/i)
     // a write-tier call passes the gate, then errors on the unknown id (not FORBIDDEN):
     await expect(c.issues.claim({ id: 'iss_missing', assignee: 'a' })).rejects.not.toThrow(

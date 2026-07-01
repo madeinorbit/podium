@@ -31,7 +31,10 @@ const ROLE_ACTIONS: Record<IssueRole, IssueAction[]> = {
  * already in `can`, so enabling per-issue scope later is wiring (mint a scoped cap + hand the
  * guard the target issue), not a model change.
  */
-export type IssueScope = { kind: 'all' } | { kind: 'subtree'; rootId: string }
+export type IssueScope = { kind: 'all' } | { kind: 'none' } | { kind: 'subtree'; rootId: string }
+
+/** Full authz outcome: a hard role denial vs. a scope violation the caller may knowingly override. */
+export type AuthDecision = 'allow' | 'forbidden' | 'confirm-required'
 
 export interface Capability {
   role: IssueRole
@@ -59,8 +62,9 @@ export const PROC_ACTION: Record<string, IssueAction> = {
   depAdd: 'write',
   // hits the external Linear API — keep read-only callers from driving it
   linearSearch: 'write',
+  // write — filing/decomposing is additive; scope gates writes to EXISTING issues, not creation
+  create: 'write',
   // manage — structural / destructive / cross-cutting
-  create: 'manage',
   archive: 'manage',
   delete: 'manage',
   setLabels: 'manage',
@@ -86,4 +90,26 @@ export function can(
     return issue.id === cap.scope.rootId || (issue.ancestorIds ?? []).includes(cap.scope.rootId)
   }
   return true
+}
+
+/** Full authz decision for a caller. Distinguishes a hard role denial ('forbidden')
+ *  from a scope violation that the caller may knowingly override ('confirm-required').
+ *  Reads are scope-free (read-all). A write/manage with no `issue` is additive (e.g. create)
+ *  and allowed once the role permits it — scope only gates mutations of an EXISTING issue. */
+export function authorize(
+  cap: Capability,
+  action: IssueAction,
+  issue?: { id: string; ancestorIds?: string[] },
+  opts?: { override?: boolean },
+): AuthDecision {
+  if (!ROLE_ACTIONS[cap.role].includes(action)) return 'forbidden'
+  if (action === 'read') return 'allow'
+  if (cap.scope.kind === 'all') return 'allow'
+  if (!issue) return 'allow'
+  if (cap.scope.kind === 'subtree') {
+    const inSubtree =
+      issue.id === cap.scope.rootId || (issue.ancestorIds ?? []).includes(cap.scope.rootId)
+    if (inSubtree) return 'allow'
+  }
+  return opts?.override ? 'allow' : 'confirm-required'
 }
