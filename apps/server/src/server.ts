@@ -145,6 +145,13 @@ export async function startServer(
   registry.ensureLocalMachine(hostname(), bootstrapToken)
   const repos = new RepoRegistry(registry, store)
   const superagent = new SuperagentService(registry, repos, store)
+  // The daemon issue-relay seam: run a relayed agent op through a capability-scoped tRPC
+  // caller so the issueCapabilityGuard middleware enforces the agent's subtree scope. Injected
+  // here (not in relay.ts) to keep relay.ts free of the appRouter import cycle.
+  registry.makeIssueCaller = (capability, overrideScope) =>
+    appRouter.createCaller({ registry, repos, superagent, capability, overrideScope }) as unknown as {
+      [router: string]: Record<string, (i: unknown) => Promise<unknown>> | undefined
+    }
   const app = new Hono()
   app.get('/health', (c) => c.text('ok'))
   registerVersionRoute(app)

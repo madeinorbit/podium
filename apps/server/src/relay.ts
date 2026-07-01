@@ -63,6 +63,15 @@ function sha256(s: string): string {
  *  them (single-machine boot, pre-provisioning). ensureLocalMachine rewrites these. */
 const LOCAL_PLACEHOLDER = '__local__'
 
+/** Routers/procs a relayed agent may invoke. `issues.*` is capability-gated by the router
+ *  middleware (issueCapabilityGuard); everything else must be explicitly listed so a relay
+ *  can never reach an ungated router (sessions/spawn/kill/etc.). `null` = any proc on that
+ *  router. */
+const RELAY_ALLOWED: Record<string, Set<string> | null> = {
+  issues: null,
+  repos: new Set(['inferFromPath']),
+}
+
 const DEFAULT_GEOMETRY: Geometry = { cols: 80, rows: 24 }
 // Delay between a chat message's bracketed paste and its submitting CR, so the CR
 // lands in a separate PTY read (the new Claude renderer swallows a CR fused to the
@@ -297,6 +306,14 @@ export class SessionRegistry {
   private readonly telegramSetups = new Map<string, PendingTelegramSetup>()
   /** Server-side issue tracker — constructed after loadFromStore() in the constructor. */
   readonly issues: IssueService
+  /** Injected by server.ts: builds a tRPC caller bound to a capability — the scope-gate
+   *  seam. A relayed agent op is run through this so the issueCapabilityGuard middleware
+   *  enforces the subtree scope; it is NOT re-implemented here. Left undefined in tests that
+   *  don't exercise the relay. */
+  makeIssueCaller?: (
+    capability: Capability,
+    overrideScope?: boolean,
+  ) => { [router: string]: Record<string, (i: unknown) => Promise<unknown>> | undefined }
   /** Backend auto-continue loop; constructed in the constructor (see below). */
   private autoContinue!: AutoContinueController
   private readonly pendingScans = new Map<string, (r: ScanResult) => void>()
@@ -1748,6 +1765,10 @@ export class SessionRegistry {
    *  to scope/tag their data. */
   onDaemonMessageFrom(machineId: string, msg: DaemonMessage): void {
     switch (msg.type) {
+      case 'issueRelayRequest': {
+        void this.runIssueRelay(machineId, msg)
+        break
+      }
       case 'bind': {
         this.sessions.get(msg.sessionId)?.markLive(msg.cmd, msg.geometry)
         const s = this.sessions.get(msg.sessionId)
@@ -2093,6 +2114,45 @@ export class SessionRegistry {
         }
         break
       }
+    }
+  }
+
+  /**
+   * Run a relayed agent issue op against the shared tracker and reply to its daemon.
+   *
+   * The op is invoked through the capability-scoped tRPC caller (makeIssueCaller →
+   * appRouter.createCaller), so the P1a issueCapabilityGuard middleware enforces the subtree
+   * scope on every relayed issue write — the gate is NOT re-implemented here. The capability
+   * itself is minted from the requesting session's cwd (capabilityForSession), and the agent's
+   * `--outside-scope` flag rides through as overrideScope. RELAY_ALLOWED restricts which
+   * router/proc a relay may reach so it can never touch an ungated router (sessions/spawn/kill).
+   */
+  private async runIssueRelay(
+    machineId: string,
+    msg: Extract<DaemonMessage, { type: 'issueRelayRequest' }>,
+  ): Promise<void> {
+    const reply = (r: { ok: boolean; result?: unknown; error?: string }): void =>
+      this.toMachine(machineId, { type: 'issueRelayResult', requestId: msg.requestId, ...r })
+    try {
+      const allowed = RELAY_ALLOWED[msg.router]
+      if (allowed === undefined || (allowed !== null && !allowed.has(msg.proc))) {
+        reply({ ok: false, error: `${msg.router}.${msg.proc} is not permitted via relay` })
+        return
+      }
+      const make = this.makeIssueCaller
+      if (!make) {
+        reply({ ok: false, error: 'issue relay is not configured' })
+        return
+      }
+      const caller = make(this.capabilityForSession(msg.sessionId), msg.outsideScope)
+      const fn = caller[msg.router]?.[msg.proc]
+      if (!fn) {
+        reply({ ok: false, error: `no such procedure: ${msg.router}.${msg.proc}` })
+        return
+      }
+      reply({ ok: true, result: await fn(msg.input) })
+    } catch (err) {
+      reply({ ok: false, error: err instanceof Error ? err.message : String(err) })
     }
   }
 
