@@ -664,6 +664,9 @@ export class IssueService {
       }
     }
     const r = await this.d.repoOp('mergeFfOnly', row.repoPath, { branch: row.branch })
+    if (r.ok) {
+      return { ...r, issue: this.close(id, 'done') }
+    }
     return { ...r, issue: this.toWire(row) }
   }
 

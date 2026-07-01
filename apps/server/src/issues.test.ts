@@ -124,6 +124,29 @@ describe('IssueService.action', () => {
     expect(deps.repoOp).toHaveBeenCalledWith('mergeFfOnly', '/r', { branch: 'issue/1-x' })
   })
 
+  it('merge auto-closes the issue on success', async () => {
+    const { svc, deps, id } = await started()
+    ;(deps.repoOp as ReturnType<typeof vi.fn>).mockImplementation(async (op: string) => ({
+      ok: true,
+      output: op === 'status' ? '## main...origin/main' : '',
+    }))
+    const res = await svc.action(id, 'merge')
+    expect(res.ok).toBe(true)
+    expect(res.issue.stage).toBe('done')
+    expect(res.issue.closedReason).toBe('done')
+  })
+
+  it('merge does NOT close the issue when the merge fails', async () => {
+    const { svc, deps, id } = await started()
+    ;(deps.repoOp as ReturnType<typeof vi.fn>).mockImplementation(async (op: string) => ({
+      ok: op !== 'mergeFfOnly', // rebase/status ok, mergeFfOnly fails
+      output: op === 'status' ? '## main...origin/main' : 'merge conflict',
+    }))
+    const res = await svc.action(id, 'merge')
+    expect(res.ok).toBe(false)
+    expect(res.issue.stage).not.toBe('done')
+  })
+
   it('merge short-circuits when the rebase fails and never ff-merges', async () => {
     const { svc, deps, id } = await started()
     const calls: string[] = []
