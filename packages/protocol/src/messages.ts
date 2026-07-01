@@ -980,8 +980,29 @@ export const AgentQuotaResultMessage = z.object({
   agents: z.array(AgentQuotaWire),
 })
 
+// Issue-tracker relay: an agent's daemon forwards an issue op (a tRPC-style
+// router/proc call) up to the server, which runs it against the shared tracker
+// and returns the result. Request is daemon→server; result is server→daemon.
+export const IssueRelayRequestMessage = z.object({
+  type: z.literal('issueRelayRequest'),
+  requestId: z.string(),
+  sessionId: z.string(),
+  router: z.string(),
+  proc: z.string(),
+  input: z.unknown().optional(),
+  outsideScope: z.boolean().optional(),
+})
+export const IssueRelayResultMessage = z.object({
+  type: z.literal('issueRelayResult'),
+  requestId: z.string(),
+  ok: z.boolean(),
+  result: z.unknown().optional(),
+  error: z.string().optional(),
+})
+
 export const ControlMessage = z.discriminatedUnion('type', [
   RepoOpRequestMessage,
+  IssueRelayResultMessage,
   HarnessExecRequestMessage,
   UsageRequestMessage,
   AgentQuotaRequestMessage,
@@ -1207,6 +1228,7 @@ export const HarnessExecResultMessage = z.object({
 
 export const DaemonMessage = z.discriminatedUnion('type', [
   RepoOpResultMessage,
+  IssueRelayRequestMessage,
   HarnessExecResultMessage,
   UsageResultMessage,
   AgentQuotaResultMessage,

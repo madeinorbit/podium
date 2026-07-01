@@ -652,3 +652,22 @@ describe('output-scheduling protocol', () => {
     }
   })
 })
+
+describe('issue relay messages', () => {
+  it('round-trips an issueRelayRequest (daemon→server)', () => {
+    const m = parseDaemonMessage(
+      JSON.stringify({
+        type: 'issueRelayRequest', requestId: 'ir0', sessionId: 's1',
+        router: 'issues', proc: 'ready', input: { repoPath: '/r' },
+      }),
+    )
+    expect(m.type).toBe('issueRelayRequest')
+  })
+
+  it('round-trips an issueRelayResult (server→daemon)', () => {
+    const m = parseControlMessage(
+      JSON.stringify({ type: 'issueRelayResult', requestId: 'ir0', ok: true, result: 'x' }),
+    )
+    expect(m.type).toBe('issueRelayResult')
+  })
+})
