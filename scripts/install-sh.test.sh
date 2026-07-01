@@ -20,7 +20,8 @@ base64 -w0 "$REL/podium-headless-linux-x64.tar.gz.sig.raw" > "$REL/podium-headle
 
 # install.sh reads PODIUM_INSTALL_BASE (file:// or http) + PODIUM_INSTALL_PUBKEY (override) for tests.
 export PODIUM_INSTALL_BASE="file://$REL"
-export PODIUM_INSTALL_PUBKEY="$(cat "$WORK/pub.b64")"
+PODIUM_INSTALL_PUBKEY="$(cat "$WORK/pub.b64")"
+export PODIUM_INSTALL_PUBKEY
 
 echo "== plain install =="
 sh "$ROOT/install.sh"
