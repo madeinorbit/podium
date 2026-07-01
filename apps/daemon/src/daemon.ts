@@ -1,4 +1,4 @@
-import { execFile } from 'node:child_process'
+import { execFile, execFileSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { mkdir, readdir, rm, stat, writeFile } from 'node:fs/promises'
@@ -92,6 +92,7 @@ import type { MemoryAttribution } from './memory-breakdown'
 import { OutputScheduler, type Tier } from './output-scheduler'
 import { makeQuotaFetcher } from './quota-fetch'
 import { repoOpCommand } from './repo-op'
+import { decideOnProtocolMismatch } from './self-update'
 import { uploadFilePath } from './upload'
 import { uploadsToGc } from './uploads-gc'
 import { scanClaudeUsage } from './usage-scan'
@@ -1677,6 +1678,11 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     // token and re-pair on reconnect (the all-in-one → daemon switch leaves a token minted by
     // the local server that the remote has never seen). Guarded so a bad code can't loop.
     let pairFallbackTried = false
+    // How many times in a row the server has refused our upgrade with a 426
+    // (wire-protocol mismatch). Drives the bounded give-up in the 426 handler so
+    // an installed daemon that can't find a newer build stops hot-looping
+    // update→exit→update forever.
+    let consecutiveMismatch = 0
     const resolveStart = (): void => {
       if (!resolved) {
         resolved = true
@@ -1768,11 +1774,12 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     }
     function connect(): void {
       if (closing) return
-      const w = new WebSocket(`${opts.serverUrl}/daemon?pv=${WIRE_VERSION}`)
+      const w = new WebSocket(`${opts.serverUrl}/daemon?v=${WIRE_VERSION}`)
       currentWs = w
       authenticated = false // each connection re-authenticates before the control loop runs
       w.once('open', () => {
         reconnectBackoffMs = RECONNECT_MIN_MS // healthy connect resets the backoff
+        consecutiveMismatch = 0 // the upgrade succeeded → protocol matched; clear the 426 streak
         if (!sendHandshake(w)) {
           disposeAll()
           reject(new Error('daemon has no token and no pair code; pair it first'))
@@ -1833,12 +1840,41 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
       // persistent listener re-processed the SAME helloOk frame and logged it as a
       // malformed control frame. Attaching post-handshake means it only ever sees the
       // control frames the server sends after helloOk.
-      // Server rejected the upgrade (426 = wire-protocol mismatch). Surface it loudly;
-      // 'close' still drives the backoff reconnect below.
+      // Server refused the upgrade with 426 = wire-protocol mismatch: our WIRE_VERSION
+      // no longer matches the server's. Self-heal instead of hot-looping the same
+      // rejected handshake forever. `decideOnProtocolMismatch` is the pure decision:
+      //   - installed binary   → run `podium update` + exit(0); systemd (Restart=always)
+      //                           brings us back on the new binary that matches the server.
+      //   - source/dev run      → back off + reconnect (a `bun`-launched daemon can't
+      //                           self-update; the mismatch is usually a mid-redeploy blip).
+      //   - installed, retried  → give up loudly (stopNoReconnect) rather than loop.
+      // An installed run is: PODIUM_HOME set, or execPath is the `podium` binary itself.
       w.on('unexpected-response', (_req, res) => {
-        if (res.statusCode === 426) {
+        if (res.statusCode !== 426) return
+        consecutiveMismatch += 1
+        const installed = !!process.env.PODIUM_HOME || /(?:^|[\\/])podium$/.test(process.execPath)
+        const { action } = decideOnProtocolMismatch({ installed, consecutive: consecutiveMismatch })
+        if (action === 'self-update') {
           console.error(
-            `[podium:daemon] server rejected this daemon: protocol mismatch (daemon pv=${WIRE_VERSION}). Update the daemon to match the server.`,
+            `[podium:daemon] server rejected this daemon: protocol mismatch (daemon v=${WIRE_VERSION}). Running \`podium update\` and restarting.`,
+          )
+          try {
+            execFileSync(process.execPath, ['update'], { stdio: 'inherit' })
+          } catch (err) {
+            console.error(`[podium:daemon] \`podium update\` failed: ${(err as Error).message}`)
+          }
+          // Exit cleanly so systemd (Restart=always) relaunches into the (hopefully
+          // newer) binary that matches the server's wire version.
+          process.exit(0)
+        } else if (action === 'give-up') {
+          console.error(
+            `[podium:daemon] protocol mismatch persists after ${consecutiveMismatch} attempts (daemon v=${WIRE_VERSION}) and no newer build is available.`,
+          )
+          stopNoReconnect('protocol-mismatch', 'wire version mismatch; manual update required', w)
+        } else {
+          // Source/dev run: log + let 'close' drive the backoff reconnect below.
+          console.error(
+            `[podium:daemon] server rejected this daemon: protocol mismatch (daemon v=${WIRE_VERSION}). Update the daemon to match the server.`,
           )
         }
       })
