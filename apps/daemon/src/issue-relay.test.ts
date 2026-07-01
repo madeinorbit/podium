@@ -77,4 +77,102 @@ describe('issue relay server', () => {
       await srv.close()
     }
   })
+
+  // Regression for the null-body crash: JSON.parse('null') returns null, and the old
+  // `if (!body.proc)` guard dereferenced null → TypeError inside the `req.on('end')`
+  // listener → uncaughtException → the daemon process exits (local crash-loop DoS).
+  it('returns 400 for a null JSON body and stays up (crash regression)', async () => {
+    let relayCalls = 0
+    const srv = await startIssueRelayServer({
+      port: 0,
+      relay: async () => {
+        relayCalls++
+        return { ok: true, result: 'ok' }
+      },
+    })
+    try {
+      const res = await fetch(srv.endpointFor('sX'), {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: 'null',
+      })
+      expect(res.status).toBe(400)
+      expect(await res.json()).toEqual({ ok: false, error: 'missing proc' })
+      expect(relayCalls).toBe(0)
+      // Server must still be alive and serving after the malformed request.
+      const res2 = await fetch(srv.endpointFor('sX'), {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ proc: 'ready' }),
+      })
+      expect(res2.status).toBe(200)
+      expect(await res2.json()).toEqual({ ok: true, result: 'ok' })
+      expect(relayCalls).toBe(1)
+    } finally {
+      await srv.close()
+    }
+  })
+
+  it.each([['[]'], ['42'], ['"str"'], ['true']])(
+    'returns 400 for a non-object JSON body %s',
+    async (payload) => {
+      const srv = await startIssueRelayServer({ port: 0, relay: async () => ({ ok: true }) })
+      try {
+        const res = await fetch(srv.endpointFor('sX'), {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: payload,
+        })
+        expect(res.status).toBe(400)
+        expect(await res.json()).toEqual({ ok: false, error: 'missing proc' })
+      } finally {
+        await srv.close()
+      }
+    },
+  )
+
+  // Contract: a rejected relay is reported as a 200 with {ok:false, error} (not an HTTP 5xx),
+  // so the CLI always parses a structured tracker result rather than a transport failure.
+  it('returns 200 {ok:false,error} when the relay rejects', async () => {
+    const srv = await startIssueRelayServer({
+      port: 0,
+      relay: async () => {
+        throw new Error('boom')
+      },
+    })
+    try {
+      const res = await fetch(srv.endpointFor('sX'), {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ proc: 'ready' }),
+      })
+      expect(res.status).toBe(200)
+      expect(await res.json()).toEqual({ ok: false, error: 'boom' })
+    } finally {
+      await srv.close()
+    }
+  })
+
+  it('rejects an over-cap body with 413', async () => {
+    let relayCalls = 0
+    const srv = await startIssueRelayServer({
+      port: 0,
+      relay: async () => {
+        relayCalls++
+        return { ok: true }
+      },
+    })
+    try {
+      const huge = 'x'.repeat(1024 * 1024 + 1024) // > 1 MB cap
+      const res = await fetch(srv.endpointFor('sX'), {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ proc: 'ready', input: huge }),
+      })
+      expect(res.status).toBe(413)
+      expect(relayCalls).toBe(0)
+    } finally {
+      await srv.close()
+    }
+  })
 })

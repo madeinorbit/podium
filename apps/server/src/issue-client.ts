@@ -32,6 +32,14 @@ export function makeRelayIssueClient(
           ...(opts?.outsideScope ? { outsideScope: true } : {}),
         }),
       })
+      // The daemon answers a rejected relay as 200 {ok:false,error}; non-2xx means a
+      // transport-level failure (e.g. an empty-body 404/413) whose body isn't JSON.
+      // Surface the status rather than letting `res.json()` throw "Unexpected end of
+      // JSON input" and mask the real error.
+      if (!res.ok) {
+        const text = await res.text().catch(() => '')
+        throw new Error(`issue relay HTTP ${res.status}${text ? `: ${text}` : ''}`)
+      }
       const body = (await res.json()) as { ok: boolean; result?: unknown; error?: string }
       if (!body.ok) throw new Error(body.error ?? 'issue relay failed')
       return body.result

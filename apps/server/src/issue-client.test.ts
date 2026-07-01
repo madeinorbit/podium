@@ -46,4 +46,24 @@ describe('makeRelayIssueClient', () => {
       srv.close()
     }
   })
+
+  // The daemon relay answers 404/413 with an EMPTY body; parsing that as JSON yields
+  // "Unexpected end of JSON input", masking the real HTTP failure. The client must
+  // surface the status instead.
+  it('relay client throws the HTTP status on a non-ok empty response', async () => {
+    const srv = createServer((_req, res) => {
+      res.writeHead(404)
+      res.end()
+    })
+    await new Promise<void>((r) => srv.listen(0, '127.0.0.1', r))
+    const port = (srv.address() as any).port
+    try {
+      const client = makeRelayIssueClient(`http://127.0.0.1:${port}/issue/s1`)
+      const p = (client as any).issues.ready.query({ repoPath: '/r' })
+      await expect(p).rejects.toThrow(/HTTP 404/)
+      await expect(p).rejects.not.toThrow(/JSON/)
+    } finally {
+      srv.close()
+    }
+  })
 })

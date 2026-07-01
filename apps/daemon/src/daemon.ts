@@ -121,6 +121,9 @@ const MAX_CONTROL_FRAME_BYTES = 64 * 1024 * 1024
  * Pure so it's unit-testable without standing up the daemon.
  */
 export function issueRelayEnv(sessionId: string, endpoint: string): Record<string, string> {
+  // PODIUM_SESSION_ID is a deliberate informational/identity var: the `podium issue`
+  // CLI reads the session id from PODIUM_ISSUE_RELAY's path, so this isn't consumed
+  // by the relay path today — it's exposed for the agent itself and future consumers.
   return { PODIUM_SESSION_ID: sessionId, PODIUM_ISSUE_RELAY: endpoint }
 }
 

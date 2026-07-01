@@ -92,6 +92,14 @@ const RELAY_BODY_MAX_BYTES = 1 * 1024 * 1024
  * `POST /issue/<sessionId>` with JSON `{ router?, proc, input?, outsideScope? }`
  * → `200 { ok, result?|error? }`. Any other method/path → 404; bad JSON or a
  * missing `proc` → 400; over-cap body → 413. `router` defaults to `'issues'`.
+ *
+ * TRUST MODEL: this endpoint is loopback-only (127.0.0.1) and UNAUTHENTICATED —
+ * `sessionId` is taken from the URL path, so any local process can POST as any
+ * session. The server still confines every relayed op to that session's
+ * worker/subtree capability plus the RELAY_ALLOWED allowlist, but that subtree
+ * scoping is a guardrail against accidental cross-scope edits by a well-behaved
+ * agent, NOT a sandbox against a co-located adversary who can already forge any
+ * sessionId. Hardening here is about not crashing/OOMing on hostile input.
  */
 export function startIssueRelayServer(opts: {
   relay: (req: IssueRelayRequest) => Promise<IssueRelayResult>
@@ -113,7 +121,10 @@ export function startIssueRelayServer(opts: {
       if (aborted) return
       total += c.length
       if (total > RELAY_BODY_MAX_BYTES) {
+        // Over the cap: drop what we've buffered (parity with hook-ingest) and tear
+        // down the request so a hostile sender can't keep streaming into the daemon.
         aborted = true
+        chunks.length = 0
         res.writeHead(413)
         res.end()
         req.destroy()
@@ -121,7 +132,7 @@ export function startIssueRelayServer(opts: {
     })
     req.on('end', () => {
       if (aborted) return
-      let body: { router?: string; proc?: string; input?: unknown; outsideScope?: boolean }
+      let body: unknown
       try {
         body = JSON.parse(Buffer.concat(chunks).toString('utf8'))
       } catch {
@@ -129,7 +140,12 @@ export function startIssueRelayServer(opts: {
         res.end(JSON.stringify({ ok: false, error: 'invalid JSON body' }))
         return
       }
-      if (!body.proc) {
+      // Any non-object body is rejected cleanly. Note `JSON.parse('null')` returns
+      // `null` (and arrays/numbers/strings/booleans parse fine too) — dereferencing
+      // those below would throw a TypeError inside this `end` listener → an
+      // uncaughtException that exits the daemon (local crash-loop DoS). Guard first.
+      const b = body as { router?: string; proc?: string; input?: unknown; outsideScope?: boolean }
+      if (!body || typeof body !== 'object' || Array.isArray(body) || typeof b.proc !== 'string') {
         res.writeHead(400, { 'content-type': 'application/json' })
         res.end(JSON.stringify({ ok: false, error: 'missing proc' }))
         return
@@ -137,10 +153,10 @@ export function startIssueRelayServer(opts: {
       void opts
         .relay({
           sessionId,
-          router: body.router ?? 'issues',
-          proc: body.proc,
-          input: body.input,
-          outsideScope: body.outsideScope,
+          router: b.router ?? 'issues',
+          proc: b.proc,
+          input: b.input,
+          outsideScope: b.outsideScope,
         })
         .then((r) => {
           res.writeHead(200, { 'content-type': 'application/json' })
