@@ -374,6 +374,14 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
     },
   },
   {
+    name: 'prime',
+    summary: "Print this session's issue context (bound issue + children/blockers, or ready-work lobby).",
+    args: z.object(optRepo),
+    async run(c, a) {
+      return (await c.issues.prime.query(a as { repoPath?: string })) as string
+    },
+  },
+  {
     name: 'epic-status',
     summary: 'Epic completion: --id.',
     args: z.object({ id: z.string() }),

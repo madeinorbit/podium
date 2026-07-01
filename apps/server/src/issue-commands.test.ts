@@ -89,4 +89,14 @@ describe('ISSUE_COMMANDS registry', () => {
       input: { id: 'iss_1', assignee: 'agent:claude' },
     })
   })
+
+  it('prime command returns the server prime text', async () => {
+    const fake = {
+      issues: { prime: { query: async () => 'PRIME OUTPUT' } },
+      repos: { inferFromPath: { query: async () => ({ repoPath: '/r' }) } },
+    } as unknown as import('./issue-client').IssueTrpc
+    const cmd = ISSUE_COMMANDS.find((c) => c.name === 'prime')!
+    expect(cmd).toBeTruthy()
+    expect(await cmd.run(fake, { repoPath: '/r' })).toBe('PRIME OUTPUT')
+  })
 })
