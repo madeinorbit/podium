@@ -11,6 +11,7 @@ import {
 import { AgentKind, IssueStage, IssueType, ResumeRef, WorkState } from '@podium/protocol'
 import { initTRPC, TRPCError } from '@trpc/server'
 import { z } from 'zod'
+import { readMaintainerToken } from './local-machine'
 import { buildJoinCommand } from './machines-join'
 import { PROC_MIN_ROLE, ROLE_RANK, type Role } from './issue-roles'
 import type { SessionRegistry } from './relay'
@@ -45,6 +46,14 @@ const issueRoleGuard = t.middleware(({ ctx, path, next }) => {
 const issueProc = t.procedure.use(issueRoleGuard)
 
 export const appRouter = t.router({
+  // Hand the operator's browser its issue-tracker credential at runtime. The server also
+  // injects this same token into index.html (static-web.ts), but the live web is served by
+  // Vite preview + cached by the PWA service worker, so that injection never reaches the
+  // browser — the web fetches it here at boot instead and presents it as x-podium-issue-token
+  // (see web makeTrpc / issueAuthHeaders). Ungated by design: it's the bootstrap that grants
+  // the human UI maintainer, exactly like the HTML injection it backs up. Agent access stays
+  // gated by cwd/worker-token (hardening tracked in bd podium-hi7.6).
+  issueToken: t.procedure.query(() => readMaintainerToken() ?? null),
   sessions: t.router({
     list: t.procedure.query(({ ctx }) => ctx.registry.listSessions()),
     create: t.procedure

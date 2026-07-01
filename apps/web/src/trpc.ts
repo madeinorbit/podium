@@ -73,9 +73,21 @@ export function issueAuthHeaders(): Record<string, string> {
 }
 
 export function makeTrpc(httpOrigin: string): Trpc {
-  // The server injects the maintainer token into index.html; present it so the P3b role
-  // gate grants maintainer instead of falling back to read-only (see resolveRole).
-  return createTRPCClient<AppRouter>({
+  const trpc = createTRPCClient<AppRouter>({
     links: [httpBatchLink({ url: `${httpOrigin}/trpc`, headers: issueAuthHeaders })],
   })
+  // Present the maintainer token so the P3b role gate grants maintainer instead of falling
+  // back to read-only (see resolveRole). The server injects it into index.html, but the live
+  // web is served by Vite preview and cached by the PWA service worker, so that injection
+  // never reaches the browser — fetch it at runtime and stash it in the global that
+  // issueAuthHeaders reads (only when unset, so a fresh server-served injection still wins).
+  // Best-effort: a reader can still browse if this fails.
+  void trpc.issueToken
+    .query()
+    .then((token) => {
+      const g = globalThis as { __PODIUM_ISSUE_TOKEN__?: string }
+      if (token && !g.__PODIUM_ISSUE_TOKEN__) g.__PODIUM_ISSUE_TOKEN__ = token
+    })
+    .catch(() => {})
+  return trpc
 }
