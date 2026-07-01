@@ -100,11 +100,24 @@ export function startHookIngest(opts: {
       const finish = (bodyText: string): void => {
         if (settled) return
         settled = true
-        res.writeHead(200, { 'content-type': 'application/json' })
-        res.end(bodyText)
+        try {
+          res.writeHead(200, { 'content-type': 'application/json' })
+          res.end(bodyText)
+        } catch {
+          // The client (agent) may have disconnected during the respondTo await
+          // window; a late write onto a destroyed socket throws. Nothing to send,
+          // so swallow it — the settled guard still prevents any double-send.
+        }
       }
       const timer = setTimeout(() => finish('{}'), timeoutMs)
       timer.unref?.()
+      // A client disconnect mid-await cancels the pending response so the
+      // timer/promise callback becomes a no-op instead of writing to a closed
+      // socket (which would otherwise throw uncaught out of the timer callback).
+      res.on('close', () => {
+        settled = true
+        clearTimeout(timer)
+      })
       Promise.resolve()
         .then(() => opts.respondTo!(sessionId, payload))
         .then((body) => {

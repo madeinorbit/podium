@@ -135,4 +135,39 @@ describe('hook-ingest respondTo', () => {
       await ing.close()
     }
   })
+
+  it('a client abort mid-respondTo does not crash; the server still serves the next request', async () => {
+    const ing = await startHookIngest({
+      port: 0,
+      onPayload: () => {},
+      respondTimeoutMs: 120,
+      // Never resolves, so the ONLY thing that would write the response is the
+      // fallback timer — firing onto a socket the aborted client already closed.
+      // Without the guard that write throws uncaught out of the timer callback.
+      respondTo: () => new Promise<string>(() => {}),
+    })
+    try {
+      const ac = new AbortController()
+      const inflight = fetch(ing.endpointFor('s1'), {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ hook_event_name: 'SessionStart' }),
+        signal: ac.signal,
+        // Aborted fetch rejects; swallow so it doesn't surface as unhandled.
+      }).catch(() => {})
+      await new Promise((r) => setTimeout(r, 20)) // let the request reach the server
+      ac.abort()
+      await inflight
+      // Wait past the fallback timeout so the timer would have fired onto the
+      // now-closed socket. A regression crashes the process here.
+      await new Promise((r) => setTimeout(r, 250))
+      // Process/server survived: a fresh request is served normally (times out
+      // to the {} fallback since respondTo never resolves).
+      const r = await post(ing.endpointFor('s2'), { hook_event_name: 'SessionStart' })
+      expect(r.status).toBe(200)
+      expect(r.text).toBe('{}')
+    } finally {
+      await ing.close()
+    }
+  })
 })

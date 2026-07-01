@@ -16,8 +16,9 @@ export { agentSupportsInitialPrompt }
 export const ISSUE_SYSTEM_POINTER =
   'This project uses Podium\'s issue tracker. You have a `podium issue` CLI. ' +
   'Run `podium issue prime` for your current issue, workflow, and ready work. ' +
-  'Track durable or discovered work as issues (`podium issue create ...`, link follow-ups with ' +
-  '`--deps discovered-from:<id>`), not markdown TODO files. `podium issue ready` lists unblocked work; ' +
+  'Track durable or discovered work as issues (`podium issue create ...`, link a follow-up with ' +
+  '`podium issue dep-add --fromId <new> --toId <current> --type discovered-from`), not markdown TODO files. ' +
+  '`podium issue ready` lists unblocked work; ' +
   '`podium issue claim`/`close` as you go. Editing an issue outside your assigned one needs `--outside-scope`.'
 
 export interface LaunchOptions {
