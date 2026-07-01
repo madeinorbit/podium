@@ -11,3 +11,44 @@ export function makeIssueClient(baseUrl: string) {
     links: [httpBatchLink({ url: `${baseUrl}/trpc` })],
   })
 }
+
+/** IssueTrpc client that relays each call to the local daemon's issue endpoint (agent path).
+ *  `client.<router>.<proc>.query|mutate(input)` → POST {router, proc, input, outsideScope?}. */
+export function makeRelayIssueClient(
+  endpoint: string,
+  opts?: { outsideScope?: boolean; fetchImpl?: typeof fetch },
+): IssueTrpc {
+  const doFetch = opts?.fetchImpl ?? fetch
+  const call =
+    (router: string, proc: string) =>
+    async (input: unknown): Promise<unknown> => {
+      const res = await doFetch(endpoint, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          router,
+          proc,
+          ...(input !== undefined ? { input } : {}),
+          ...(opts?.outsideScope ? { outsideScope: true } : {}),
+        }),
+      })
+      const body = (await res.json()) as { ok: boolean; result?: unknown; error?: string }
+      if (!body.ok) throw new Error(body.error ?? 'issue relay failed')
+      return body.result
+    }
+  const procProxy = (router: string) =>
+    new Proxy(
+      {},
+      {
+        get: (_t, proc) => {
+          if (typeof proc !== 'string') return undefined
+          const fn = call(router, proc)
+          return { mutate: fn, query: fn }
+        },
+      },
+    )
+  return new Proxy(
+    {},
+    { get: (_t, router) => (typeof router === 'string' ? procProxy(router) : undefined) },
+  ) as unknown as IssueTrpc
+}

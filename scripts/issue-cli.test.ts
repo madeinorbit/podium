@@ -9,6 +9,11 @@ describe('parseIssueArgs', () => {
     expect(r.args.priority).toBe('0')
     expect(r.args.json).toBe(true)
   })
+
+  it('parses --outside-scope', () => {
+    const { args } = parseIssueArgs(['update', '--id=B', '--outside-scope'])
+    expect(args.outsideScope).toBe(true)
+  })
 })
 
 describe('runIssueCli', () => {

@@ -1,5 +1,12 @@
-import { type IssueTrpc, makeIssueClient } from '../apps/server/src/issue-client'
+import {
+  type IssueTrpc,
+  makeIssueClient,
+  makeRelayIssueClient,
+} from '../apps/server/src/issue-client'
 import { ISSUE_COMMANDS } from '../apps/server/src/issue-commands'
+
+/** Kebab-case flag → camelCase key, so `--outside-scope` becomes `outsideScope`. */
+const camelFlag = (s: string): string => s.replace(/-([a-z])/g, (_, c: string) => c.toUpperCase())
 
 /** Pure argv → { command, args }. Positionals are ignored except the command (argv[0]). */
 export function parseIssueArgs(argv: string[]): {
@@ -13,9 +20,9 @@ export function parseIssueArgs(argv: string[]): {
     if (!t?.startsWith('--')) continue
     const eq = t.indexOf('=')
     if (eq >= 0) {
-      args[t.slice(2, eq)] = t.slice(eq + 1)
+      args[camelFlag(t.slice(2, eq))] = t.slice(eq + 1)
     } else {
-      const key = t.slice(2)
+      const key = camelFlag(t.slice(2))
       const next = rest[i + 1]
       if (next == null || next.startsWith('--')) {
         args[key] = true
@@ -80,13 +87,17 @@ export async function runIssueCli(argv: string[], client: IssueTrpc): Promise<st
   return args.json ? JSON.stringify({ command, ok: true }) + '\n' + out : out
 }
 
-/** Entry used by scripts/cli.ts: build a loopback client and run, printing the result. */
+/** Entry used by scripts/cli.ts: build a client and run, printing the result.
+ *  A constrained agent's process gets PODIUM_ISSUE_RELAY (a daemon endpoint bound to its
+ *  session id) — its calls ride the daemon, which applies scope. Otherwise the operator CLI
+ *  talks to the local server directly. `--outside-scope` rides through to the daemon; the
+ *  session id is bound in the relay URL, so there is deliberately no `--session` flag. */
 export async function issueCliMain(argv: string[]): Promise<void> {
-  const port = Number(process.env.PODIUM_PORT) || 18787
-  // The CLI talks to the local server as the operator. Open/loopback deployments admit it
-  // directly; a password-protected server needs the operator's login session (CLI-auth is the
-  // deferred agent-integration step — agents will be relayed via their daemon, not this path).
-  const client = makeIssueClient(`http://localhost:${port}`)
+  const relay = process.env.PODIUM_ISSUE_RELAY
+  const outsideScope = argv.includes('--outside-scope')
+  const client = relay
+    ? makeRelayIssueClient(relay, { outsideScope })
+    : makeIssueClient(`http://localhost:${Number(process.env.PODIUM_PORT) || 18787}`)
   try {
     console.log(await runIssueCli(argv, client))
   } catch (err) {
