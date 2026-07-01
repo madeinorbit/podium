@@ -14,6 +14,7 @@ const BACKEND_PREFIXES = [
   '/health',
   '/version',
   '/setup',
+  '/auth',
   '/files',
   '/client',
   '/daemon',
@@ -67,7 +68,11 @@ export function registerWebStatic(app: Hono, webDir: string, issueToken?: string
     }
     const rel = normalize(decodeURIComponent(pathname)).replace(/^(\.\.[/\\])+/, '')
     const filePath = join(webDir, rel)
-    if ((filePath === webDir || filePath.startsWith(webDir + sep)) && existsSync(filePath) && statSync(filePath).isFile()) {
+    if (
+      (filePath === webDir || filePath.startsWith(webDir + sep)) &&
+      existsSync(filePath) &&
+      statSync(filePath).isFile()
+    ) {
       // The SPA shell can be requested directly (e.g. /index.html); inject the token there too.
       if (extname(filePath).toLowerCase() === '.html') {
         return new Response(injectIssueToken(readFileSync(filePath, 'utf8'), issueToken), {

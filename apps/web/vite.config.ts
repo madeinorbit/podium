@@ -34,6 +34,9 @@ const proxy = {
   // Backend setup/config route the SetupGate probes (GET) and SetupView saves (POST).
   // Same-origin fetch from the browser, so it must reach the backend rather than the SPA.
   '/setup': { target: BACKEND, changeOrigin: true },
+  // Login endpoints: LoginGate probes /auth/status; login/logout set the session cookie.
+  // MUST reach the backend, or a set password locks everyone out (login can't get a cookie).
+  '/auth': { target: BACKEND, changeOrigin: true },
   '/client': { target: BACKEND_WS, ws: true, changeOrigin: true },
   '/daemon': { target: BACKEND_WS, ws: true, changeOrigin: true },
 }
@@ -67,6 +70,7 @@ export default defineConfig({
           /^\/health/,
           /^\/files/,
           /^\/setup/,
+          /^\/auth/,
           /^\/client/,
           /^\/daemon/,
         ],
