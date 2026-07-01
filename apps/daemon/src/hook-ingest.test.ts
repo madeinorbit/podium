@@ -77,3 +77,62 @@ describe('hook ingest', () => {
     await second.close()
   })
 })
+
+async function post(url: string, body: unknown): Promise<{ status: number; text: string }> {
+  const res = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
+  return { status: res.status, text: await res.text() }
+}
+
+describe('hook-ingest respondTo', () => {
+  it('returns respondTo body when provided, still calls onPayload', async () => {
+    const seen: unknown[] = []
+    const ing = await startHookIngest({
+      port: 0,
+      onPayload: (_s, p) => seen.push(p),
+      respondTo: async (_s, p) => ((p as any).hook_event_name === 'SessionStart' ? '{"x":1}' : null),
+    })
+    try {
+      const r = await post(ing.endpointFor('s1'), { hook_event_name: 'SessionStart' })
+      expect(r.status).toBe(200)
+      expect(r.text).toBe('{"x":1}')
+      expect(seen).toHaveLength(1)
+    } finally {
+      await ing.close()
+    }
+  })
+
+  it('falls back to {} when respondTo returns null', async () => {
+    const ing = await startHookIngest({ port: 0, onPayload: () => {}, respondTo: async () => null })
+    try {
+      const r = await post(ing.endpointFor('s1'), { hook_event_name: 'Stop' })
+      expect(r.text).toBe('{}')
+    } finally {
+      await ing.close()
+    }
+  })
+
+  it('falls back to {} when respondTo exceeds the timeout', async () => {
+    const ing = await startHookIngest({
+      port: 0,
+      onPayload: () => {},
+      respondTimeoutMs: 50,
+      respondTo: () => new Promise((r) => setTimeout(() => r('"late"'), 500)),
+    })
+    try {
+      const r = await post(ing.endpointFor('s1'), { hook_event_name: 'SessionStart' })
+      expect(r.text).toBe('{}')
+    } finally {
+      await ing.close()
+    }
+  })
+
+  it('with no respondTo, behaves exactly as before ({} ack)', async () => {
+    const ing = await startHookIngest({ port: 0, onPayload: () => {} })
+    try {
+      const r = await post(ing.endpointFor('s1'), { hook_event_name: 'Stop' })
+      expect(r.text).toBe('{}')
+    } finally {
+      await ing.close()
+    }
+  })
+})
