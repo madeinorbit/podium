@@ -14,7 +14,7 @@ import { AgentKind, IssueStage, IssueType, ResumeRef, WorkState } from '@podium/
 import { initTRPC, TRPCError } from '@trpc/server'
 import { z } from 'zod'
 import { clearPassword, hasPassword, setPassword, verifyPassword } from './auth-store'
-import { type Capability, can, PROC_ACTION } from './issue-authz'
+import { authorize, type Capability, PROC_ACTION } from './issue-authz'
 import { buildJoinCommand } from './machines-join'
 import type { SessionRegistry } from './relay'
 import { browseDirectories, type RepoRegistry } from './repo-registry'
@@ -28,21 +28,71 @@ export interface Context {
   /** What this caller may do with issues (authz, distinct from the login authn on /trpc).
    *  Every HTTP caller is the OPERATOR today; the in-process MCP passes its own. */
   capability: Capability
+  /** Set by the daemon relay when an agent passed --outside-scope, allowing a knowing
+   *  write outside its subtree. Undefined for the operator (/trpc) and the superagent. */
+  overrideScope?: boolean
 }
 
 const t = initTRPC.context<Context>().create()
 const PinKind = z.enum(['panel', 'worktree', 'repo'])
 
+/** proc name → how to read the target EXISTING issue id from its input. Procs absent here
+ *  are additive (create), reads, or role-blocked (manage), so they need no scope check. */
+export const SCOPED_TARGET: Record<string, (i: Record<string, unknown>) => string | undefined> = {
+  claim: (i) => i.id as string,
+  update: (i) => i.id as string,
+  close: (i) => i.id as string,
+  defer: (i) => i.id as string,
+  addComment: (i) => i.id as string,
+  action: (i) => i.id as string,
+  applySuggestion: (i) => i.id as string,
+  dismissSuggestion: (i) => i.id as string,
+  refreshAssistant: (i) => i.id as string,
+  start: (i) => i.id as string,
+  addSession: (i) => i.id as string,
+  addShell: (i) => i.id as string,
+  depAdd: (i) => i.fromId as string,
+}
+
 /** Authorize every issues.* call against the caller's capability. The middleware `path`
  *  is e.g. "issues.create"; its last segment is the proc name, mapped to the action it needs
- *  (PROC_ACTION, unlisted ⇒ 'read'). Not allowed ⇒ FORBIDDEN. Per-issue SCOPE enforcement
- *  (subtree capabilities) needs the target issue and lands with agent integration; today
- *  every caller is OPERATOR (scope 'all'), which `can` grants without inspecting the issue. */
-const issueCapabilityGuard = t.middleware(({ ctx, path, next }) => {
+ *  (PROC_ACTION, unlisted ⇒ 'read'). Two gates: (1) a role gate — `authorize` with no issue
+ *  denies if the role can't perform the action (⇒ FORBIDDEN); (2) a scope gate — for a
+ *  constrained (non-'all') capability writing an EXISTING target issue, resolve the target +
+ *  its ancestors and `authorize` against the subtree. Out-of-subtree ⇒ PRECONDITION_FAILED
+ *  (the caller may knowingly override via --outside-scope → ctx.overrideScope). Reads and
+ *  create (additive, no existing target) are never scope-restricted. */
+const issueCapabilityGuard = t.middleware(async ({ ctx, path, next, getRawInput }) => {
   const proc = path.split('.').pop() ?? ''
   const action = PROC_ACTION[proc] ?? 'read'
-  if (!can(ctx.capability, action)) {
+
+  // Role gate (no input needed): authorize with no issue = role decision.
+  if (authorize(ctx.capability, action) === 'forbidden') {
     throw new TRPCError({ code: 'FORBIDDEN', message: `not allowed to '${proc}' issues` })
+  }
+
+  // Scope gate: only for constrained caps writing an existing target issue.
+  const extract = ctx.capability.scope.kind !== 'all' ? SCOPED_TARGET[proc] : undefined
+  if (extract) {
+    const targetId = extract((await getRawInput()) as Record<string, unknown>)
+    if (targetId && ctx.registry.issues.get(targetId)) {
+      const ancestorIds = ctx.registry.issues.ancestorIds(targetId)
+      const decision = authorize(
+        ctx.capability,
+        action,
+        { id: targetId, ancestorIds },
+        { override: ctx.overrideScope },
+      )
+      if (decision === 'confirm-required') {
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message: `issue ${targetId} is outside your subtree; re-run with --outside-scope to confirm`,
+        })
+      }
+      if (decision === 'forbidden') {
+        throw new TRPCError({ code: 'FORBIDDEN', message: `not allowed to '${proc}' issues` })
+      }
+    }
   }
   return next()
 })
