@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { agentLaunchCommand, agentSupportsInitialPrompt } from './launch'
+import { agentLaunchCommand, agentSupportsInitialPrompt, ISSUE_SYSTEM_POINTER } from './launch'
 import { resolveCursorBin } from './cursor/cli.js'
 import { resolveOpencodeBin } from './opencode/cli.js'
 
@@ -7,7 +7,7 @@ describe('agentLaunchCommand', () => {
   it('spawns claude fresh', () => {
     expect(agentLaunchCommand('claude-code', { cwd: '/proj' })).toEqual({
       cmd: 'claude',
-      args: [],
+      args: ['--append-system-prompt', ISSUE_SYSTEM_POINTER],
       cwd: '/proj',
     })
   })
@@ -18,7 +18,11 @@ describe('agentLaunchCommand', () => {
         cwd: '/proj',
         resume: { kind: 'claude-session', value: 'abc' },
       }),
-    ).toEqual({ cmd: 'claude', args: ['--resume', 'abc'], cwd: '/proj' })
+    ).toEqual({
+      cmd: 'claude',
+      args: ['--resume', 'abc', '--append-system-prompt', ISSUE_SYSTEM_POINTER],
+      cwd: '/proj',
+    })
   })
 
   it('spawns codex fresh', () => {
@@ -114,14 +118,22 @@ describe('agentLaunchCommand', () => {
   describe('initialPrompt (argv injection — the robust, race-free first prompt)', () => {
     it('appends the prompt as a trailing positional arg for claude-code', () => {
       expect(agentLaunchCommand('claude-code', { cwd: '/w', initialPrompt: 'do the thing' })).toEqual(
-        { cmd: 'claude', args: ['do the thing'], cwd: '/w' },
+        {
+          cmd: 'claude',
+          args: ['--append-system-prompt', ISSUE_SYSTEM_POINTER, 'do the thing'],
+          cwd: '/w',
+        },
       )
     })
 
     it('places the prompt LAST, after model/option args (claude-code)', () => {
       expect(
         agentLaunchCommand('claude-code', { cwd: '/w', model: 'opus', initialPrompt: 'fix login' }),
-      ).toEqual({ cmd: 'claude', args: ['--model', 'opus', 'fix login'], cwd: '/w' })
+      ).toEqual({
+        cmd: 'claude',
+        args: ['--model', 'opus', '--append-system-prompt', ISSUE_SYSTEM_POINTER, 'fix login'],
+        cwd: '/w',
+      })
     })
 
     it('appends the prompt as a positional arg for codex and grok', () => {
@@ -140,13 +152,21 @@ describe('agentLaunchCommand', () => {
     it('preserves multi-line prompts as a single argv token', () => {
       const prompt = 'line one\nline two'
       expect(agentLaunchCommand('claude-code', { cwd: '/w', initialPrompt: prompt }).args).toEqual([
+        '--append-system-prompt',
+        ISSUE_SYSTEM_POINTER,
         prompt,
       ])
     })
 
     it('ignores a blank/whitespace-only prompt (no empty arg)', () => {
-      expect(agentLaunchCommand('claude-code', { cwd: '/w', initialPrompt: '   ' }).args).toEqual([])
-      expect(agentLaunchCommand('claude-code', { cwd: '/w', initialPrompt: '' }).args).toEqual([])
+      expect(agentLaunchCommand('claude-code', { cwd: '/w', initialPrompt: '   ' }).args).toEqual([
+        '--append-system-prompt',
+        ISSUE_SYSTEM_POINTER,
+      ])
+      expect(agentLaunchCommand('claude-code', { cwd: '/w', initialPrompt: '' }).args).toEqual([
+        '--append-system-prompt',
+        ISSUE_SYSTEM_POINTER,
+      ])
     })
 
     it('does NOT append a prompt arg for non-argv agents (opencode/cursor/shell)', () => {
@@ -162,6 +182,21 @@ describe('agentLaunchCommand', () => {
       expect(agentSupportsInitialPrompt('opencode')).toBe(false)
       expect(agentSupportsInitialPrompt('cursor')).toBe(false)
       expect(agentSupportsInitialPrompt('shell')).toBe(false)
+    })
+  })
+
+  describe('issue system-prompt pointer (claude-code only)', () => {
+    it('claude-code launch appends the issue system pointer', () => {
+      const spec = agentLaunchCommand('claude-code', { cwd: '/x' })
+      const i = spec.args.indexOf('--append-system-prompt')
+      expect(i).toBeGreaterThanOrEqual(0)
+      expect(spec.args[i + 1]).toBe(ISSUE_SYSTEM_POINTER)
+    })
+
+    it('non-claude agents do not get --append-system-prompt', () => {
+      for (const kind of ['codex', 'grok'] as const) {
+        expect(agentLaunchCommand(kind, { cwd: '/x' }).args).not.toContain('--append-system-prompt')
+      }
     })
   })
 
