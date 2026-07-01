@@ -1,5 +1,13 @@
 # Contributing
 
+## License
+
+Podium is licensed under the [Apache License 2.0](./LICENSE). By submitting a contribution (a pull
+request, patch, or any other content), you agree that your contribution is licensed to the project
+and its users under the Apache License 2.0 — the same license as the project (GitHub's default
+"inbound = outbound"). You keep the copyright to your contribution. There is no CLA to sign and no
+bot: just open a pull request.
+
 ## Prerequisites
 
 - **Bun ≥ 1.3** — package manager, task runner, bundler, **and the runtime**. The backend runs on

@@ -2,7 +2,7 @@
   "name": "@podium/terminal-client",
   "version": "0.0.0",
   "description": "Browser presentation client for Podium agent terminal sessions: xterm.js rendering, mobile key toolbar, touch/scroll policy, reconnect, multi-client, transcript view.",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "type": "module",
   "main": "./dist/index.js",
   "module": "./dist/index.js",

@@ -4,7 +4,8 @@ import { SessionRegistry } from './relay'
 
 function caller() {
   const registry = new SessionRegistry() // in-memory store
-  return appRouter.createCaller({ registry, repos: {} as never, superagent: {} as never })
+  // 'maintainer' clears every issues.* gate so these create/update flows aren't blocked.
+  return appRouter.createCaller({ registry, repos: {} as never, superagent: {} as never, role: 'maintainer' })
 }
 
 describe('issues router', () => {

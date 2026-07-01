@@ -19,7 +19,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEZFQkZCOEMxNzA2REIxClJXU3hiWERCdUwvK0FFS2RRTGRlRGlSVCt5Q2tTUlBFY1I2Mm9DOTZJN2xRa2NUOTRuc0Z3MXZjCg==",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEI5RkE0OUFBNjMwNENDQjcKUldTM3pBUmpxa242dVd6V3FGbi9NRnhlU0lmR0s1RGhqZys2aXpQV0d5VnBXUHVhZ3lGa1Z1d0QK",
       "endpoints": ["https://github.com/madeinorbit/podium/releases/latest/download/latest.json"]
     }
   }

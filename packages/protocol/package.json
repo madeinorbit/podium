@@ -2,7 +2,7 @@
   "name": "@podium/protocol",
   "version": "0.0.0",
   "description": "Wire protocol types for Podium agent/terminal sessions (output frames, input, resize, takeover, transcript).",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "type": "module",
   "main": "./dist/index.js",
   "module": "./dist/index.js",

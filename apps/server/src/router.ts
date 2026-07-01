@@ -4,14 +4,18 @@ import {
   applyJoin,
   applyMode,
   applySetup,
+  getUpdateChannel,
   NETWORK_OPTIONS,
   networkOptionCommand,
+  setUpdateChannel,
   validatePublicUrl,
 } from '@podium/core/setup'
-import { AgentKind, IssueStage, ResumeRef, WorkState } from '@podium/protocol'
+import { AgentKind, IssueStage, IssueType, ResumeRef, WorkState } from '@podium/protocol'
 import { initTRPC, TRPCError } from '@trpc/server'
 import { z } from 'zod'
 import { clearPassword, hasPassword, setPassword, verifyPassword } from './auth-store'
+import { PROC_MIN_ROLE, ROLE_RANK, type Role } from './issue-roles'
+import { readMaintainerToken } from './local-machine'
 import { buildJoinCommand } from './machines-join'
 import type { SessionRegistry } from './relay'
 import { browseDirectories, type RepoRegistry } from './repo-registry'
@@ -22,12 +26,37 @@ export interface Context {
   registry: SessionRegistry
   repos: RepoRegistry
   superagent: SuperagentService
+  role: Role
 }
 
 const t = initTRPC.context<Context>().create()
 const PinKind = z.enum(['panel', 'worktree', 'repo'])
 
+/** Enforce the per-procedure minimum role for every issues.* call. The middleware `path`
+ *  is e.g. "issues.create"; its last segment is the proc name, looked up in PROC_MIN_ROLE
+ *  (unlisted ⇒ 'reader'). Insufficient role ⇒ FORBIDDEN. */
+const issueRoleGuard = t.middleware(({ ctx, path, next }) => {
+  const proc = path.split('.').pop() ?? ''
+  const need = PROC_MIN_ROLE[proc] ?? 'reader'
+  if (ROLE_RANK[ctx.role] < ROLE_RANK[need]) {
+    throw new TRPCError({
+      code: 'FORBIDDEN',
+      message: `role '${ctx.role}' may not '${proc}' (needs '${need}')`,
+    })
+  }
+  return next()
+})
+const issueProc = t.procedure.use(issueRoleGuard)
+
 export const appRouter = t.router({
+  // Hand the operator's browser its issue-tracker credential at runtime. The server also
+  // injects this same token into index.html (static-web.ts), but the live web is served by
+  // Vite preview + cached by the PWA service worker, so that injection never reaches the
+  // browser — the web fetches it here at boot instead and presents it as x-podium-issue-token
+  // (see web makeTrpc / issueAuthHeaders). Ungated by design: it's the bootstrap that grants
+  // the human UI maintainer, exactly like the HTML injection it backs up. Agent access stays
+  // gated by cwd/worker-token (hardening tracked in bd podium-hi7.6).
+  issueToken: t.procedure.query(() => readMaintainerToken() ?? null),
   sessions: t.router({
     list: t.procedure.query(({ ctx }) => ctx.registry.listSessions()),
     create: t.procedure
@@ -246,6 +275,10 @@ export const appRouter = t.router({
   }),
   repos: t.router({
     list: t.procedure.query(({ ctx }) => ctx.repos.list()),
+    // cwd → repo inference for the CLI: longest registered root that contains `path`.
+    inferFromPath: t.procedure
+      .input(z.object({ path: z.string() }))
+      .query(({ ctx, input }) => ({ repoPath: ctx.repos.inferFromPath(input.path) ?? null })),
     add: t.procedure
       .input(z.object({ path: z.string(), machineId: z.string().optional() }))
       .mutation(async ({ ctx, input }) => {
@@ -420,6 +453,10 @@ export const appRouter = t.router({
           throw new TRPCError({ code: 'BAD_REQUEST', message: (e as Error).message })
         }
       }),
+    channel: t.procedure.query(() => getUpdateChannel()),
+    setChannel: t.procedure
+      .input(z.object({ channel: z.enum(['stable', 'edge']) }))
+      .mutation(({ input }) => setUpdateChannel(input.channel)),
   }),
   // Manage the human-client login password on an already-configured instance. These run
   // under the same /trpc guard, so once a password is set you must be logged in to reach
@@ -447,13 +484,69 @@ export const appRouter = t.router({
       }),
   }),
   issues: t.router({
-    list: t.procedure
+    list: issueProc
       .input(z.object({ repoPath: z.string().optional() }))
       .query(({ ctx, input }) => ctx.registry.issues.list(input.repoPath)),
-    get: t.procedure
+    ready: issueProc
+      .input(z.object({ repoPath: z.string().optional() }))
+      .query(({ ctx, input }) => ctx.registry.issues.readyList(input.repoPath)),
+    blocked: issueProc
+      .input(z.object({ repoPath: z.string().optional() }))
+      .query(({ ctx, input }) => ctx.registry.issues.blockedList(input.repoPath)),
+    graph: issueProc
+      .input(z.object({ repoPath: z.string().optional() }))
+      .query(({ ctx, input }) => ctx.registry.issues.graph(input.repoPath)),
+    epicStatus: issueProc
+      .input(z.object({ id: z.string() }))
+      .query(({ ctx, input }) => ctx.registry.issues.epicStatus(input.id)),
+    closeEligibleEpics: issueProc
+      .input(z.object({ repoPath: z.string().optional() }))
+      .query(({ ctx, input }) => ctx.registry.issues.closeEligibleEpics(input.repoPath)),
+    findDuplicates: issueProc
+      .input(z.object({ repoPath: z.string().optional(), threshold: z.number().optional() }))
+      .query(({ ctx, input }) =>
+        ctx.registry.issues.findDuplicates(input.repoPath, input.threshold),
+      ),
+    stale: issueProc
+      .input(z.object({ repoPath: z.string().optional(), days: z.number().optional() }))
+      .query(({ ctx, input }) => ctx.registry.issues.staleList(input.repoPath, input.days)),
+    lint: issueProc
+      .input(z.object({ repoPath: z.string().optional() }))
+      .query(({ ctx, input }) => ctx.registry.issues.lint(input.repoPath)),
+    doctor: issueProc
+      .input(z.object({ repoPath: z.string().optional() }))
+      .query(({ ctx, input }) => ctx.registry.issues.doctor(input.repoPath)),
+    preflight: issueProc
+      .input(z.object({ repoPath: z.string().optional() }))
+      .query(({ ctx, input }) => ctx.registry.issues.preflight(input.repoPath)),
+    search: issueProc
+      .input(
+        z.object({
+          repoPath: z.string().optional(),
+          text: z.string().optional(),
+          status: z.enum(['open', 'closed', 'ready', 'blocked', 'deferred']).optional(),
+          stage: IssueStage.optional(),
+          priority: z.number().int().optional(),
+          type: IssueType.optional(),
+          assignee: z.string().optional(),
+          label: z.string().optional(),
+          parentId: z.string().optional(),
+        }),
+      )
+      .query(({ ctx, input }) => ctx.registry.issues.search(input)),
+    count: issueProc
+      .input(z.object({ repoPath: z.string().optional() }))
+      .query(({ ctx, input }) => ctx.registry.issues.count(input.repoPath)),
+    stats: issueProc
+      .input(z.object({ repoPath: z.string().optional() }))
+      .query(({ ctx, input }) => ctx.registry.issues.stats(input.repoPath)),
+    orphans: issueProc
+      .input(z.object({ repoPath: z.string() }))
+      .query(({ ctx, input }) => ctx.registry.issues.orphans(input.repoPath)),
+    get: issueProc
       .input(z.object({ id: z.string() }))
       .query(({ ctx, input }) => ctx.registry.issues.get(input.id)),
-    create: t.procedure
+    create: issueProc
       .input(
         z.object({
           repoPath: z.string(),
@@ -465,13 +558,18 @@ export const appRouter = t.router({
           linear: z
             .object({ id: z.string().optional(), identifier: z.string(), url: z.string() })
             .optional(),
+          priority: z.number().int().min(0).max(4).optional(),
+          type: IssueType.optional(),
+          assignee: z.string().optional(),
+          labels: z.array(z.string()).optional(),
+          parentId: z.string().optional(),
         }),
       )
       .mutation(({ ctx, input }) => ctx.registry.issues.createAndMaybeStart(input)),
-    start: t.procedure
+    start: issueProc
       .input(z.object({ id: z.string() }))
       .mutation(({ ctx, input }) => ctx.registry.issues.start(input.id)),
-    update: t.procedure
+    update: issueProc
       .input(
         z.object({
           id: z.string(),
@@ -482,32 +580,83 @@ export const appRouter = t.router({
             parentBranch: z.string().optional(),
             defaultAgent: z.string().optional(),
             archived: z.boolean().optional(),
+            priority: z.number().int().min(0).max(4).optional(),
+            type: IssueType.optional(),
+            assignee: z.string().optional(),
+            parentId: z.string().optional(),
+            design: z.string().optional(),
+            acceptance: z.string().optional(),
+            notes: z.string().optional(),
+            dueAt: z.string().optional(),
+            deferUntil: z.string().optional(),
+            closedReason: z.string().optional(),
+            pinned: z.boolean().optional(),
+            estimateMin: z.number().int().optional(),
           }),
         }),
       )
       .mutation(({ ctx, input }) => ctx.registry.issues.update(input.id, input.patch)),
-    archive: t.procedure
+    archive: issueProc
       .input(z.object({ id: z.string() }))
       .mutation(({ ctx, input }) => ctx.registry.issues.archive(input.id)),
-    action: t.procedure
+    delete: issueProc
+      .input(z.object({ id: z.string() }))
+      .mutation(({ ctx, input }) => ctx.registry.issues.delete(input.id)),
+    action: issueProc
       .input(z.object({ id: z.string(), kind: z.enum(['rebase', 'pr', 'merge']) }))
       .mutation(({ ctx, input }) => ctx.registry.issues.action(input.id, input.kind)),
-    addSession: t.procedure
+    addSession: issueProc
       .input(z.object({ id: z.string(), agentKind: z.string().optional() }))
       .mutation(({ ctx, input }) => ctx.registry.issues.addSession(input.id, input.agentKind)),
-    addShell: t.procedure
+    addShell: issueProc
       .input(z.object({ id: z.string() }))
       .mutation(({ ctx, input }) => ctx.registry.issues.addShell(input.id)),
-    applySuggestion: t.procedure
+    applySuggestion: issueProc
       .input(z.object({ id: z.string() }))
       .mutation(({ ctx, input }) => ctx.registry.issues.applySuggestion(input.id)),
-    dismissSuggestion: t.procedure
+    dismissSuggestion: issueProc
       .input(z.object({ id: z.string() }))
       .mutation(({ ctx, input }) => ctx.registry.issues.dismissSuggestion(input.id)),
-    refreshAssistant: t.procedure
+    refreshAssistant: issueProc
       .input(z.object({ id: z.string() }))
       .mutation(({ ctx, input }) => ctx.registry.issues.refreshAssistant(input.id)),
-    linearSearch: t.procedure
+    setLabels: issueProc
+      .input(z.object({ id: z.string(), labels: z.array(z.string()) }))
+      .mutation(({ ctx, input }) => ctx.registry.issues.setLabels(input.id, input.labels)),
+    addComment: issueProc
+      .input(z.object({ id: z.string(), author: z.string(), body: z.string().min(1) }))
+      .mutation(({ ctx, input }) =>
+        ctx.registry.issues.addComment(input.id, input.author, input.body),
+      ),
+    depAdd: issueProc
+      .input(z.object({ fromId: z.string(), toId: z.string(), type: z.string().optional() }))
+      .mutation(({ ctx, input }) =>
+        ctx.registry.issues.addDep(input.fromId, input.toId, input.type),
+      ),
+    depRemove: issueProc
+      .input(z.object({ fromId: z.string(), toId: z.string(), type: z.string().optional() }))
+      .mutation(({ ctx, input }) =>
+        ctx.registry.issues.removeDep(input.fromId, input.toId, input.type),
+      ),
+    defer: issueProc
+      .input(z.object({ id: z.string(), until: z.string().nullable() }))
+      .mutation(({ ctx, input }) => ctx.registry.issues.defer(input.id, input.until)),
+    reparent: issueProc
+      .input(z.object({ id: z.string(), parentId: z.string().nullable() }))
+      .mutation(({ ctx, input }) => ctx.registry.issues.reparent(input.id, input.parentId)),
+    claim: issueProc
+      .input(z.object({ id: z.string(), assignee: z.string() }))
+      .mutation(({ ctx, input }) => ctx.registry.issues.claim(input.id, input.assignee)),
+    close: issueProc
+      .input(z.object({ id: z.string(), reason: z.string().optional() }))
+      .mutation(({ ctx, input }) => ctx.registry.issues.close(input.id, input.reason)),
+    supersede: issueProc
+      .input(z.object({ oldId: z.string(), newId: z.string() }))
+      .mutation(({ ctx, input }) => ctx.registry.issues.supersede(input.oldId, input.newId)),
+    duplicate: issueProc
+      .input(z.object({ id: z.string(), canonicalId: z.string() }))
+      .mutation(({ ctx, input }) => ctx.registry.issues.duplicate(input.id, input.canonicalId)),
+    linearSearch: issueProc
       .input(z.object({ query: z.string() }))
       .query(({ ctx, input }) => ctx.registry.issues.linearSearch(input.query)),
   }),

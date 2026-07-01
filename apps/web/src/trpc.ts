@@ -65,15 +65,37 @@ export function serverConfig(loc: Location): ServerConfig {
   return { wsClientUrl: `${wsProto}//${loc.host}/client`, httpOrigin: loc.origin, override: false }
 }
 
+/** Auth header the web client sends so the role gate (P3b) treats the operator's
+ *  browser as maintainer. Name MUST match the server's createContext header read. */
+export function issueAuthHeaders(): Record<string, string> {
+  const token = (globalThis as { __PODIUM_ISSUE_TOKEN__?: string }).__PODIUM_ISSUE_TOKEN__
+  return token ? { 'x-podium-issue-token': token } : {}
+}
+
 export function makeTrpc(httpOrigin: string): Trpc {
-  return createTRPCClient<AppRouter>({
+  const trpc = createTRPCClient<AppRouter>({
     links: [
       httpBatchLink({
         url: `${httpOrigin}/trpc`,
+        headers: issueAuthHeaders,
         // Send the login session cookie with every tRPC call. Same-origin already does this
         // by default; being explicit keeps it working if the client is ever cross-origin.
         fetch: (url, opts) => fetch(url, { ...opts, credentials: 'include' }),
       }),
     ],
   })
+  // Present the maintainer token so the P3b role gate grants maintainer instead of falling
+  // back to read-only (see resolveRole). The server injects it into index.html, but the live
+  // web is served by Vite preview and cached by the PWA service worker, so that injection
+  // never reaches the browser — fetch it at runtime and stash it in the global that
+  // issueAuthHeaders reads (only when unset, so a fresh server-served injection still wins).
+  // Best-effort: a reader can still browse if this fails.
+  void trpc.issueToken
+    .query()
+    .then((token) => {
+      const g = globalThis as { __PODIUM_ISSUE_TOKEN__?: string }
+      if (token && !g.__PODIUM_ISSUE_TOKEN__) g.__PODIUM_ISSUE_TOKEN__ = token
+    })
+    .catch(() => {})
+  return trpc
 }

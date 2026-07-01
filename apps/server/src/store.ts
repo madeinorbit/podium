@@ -126,6 +126,28 @@ export interface IssueRow {
   createdAt: string
   updatedAt: string
   archived: boolean
+  priority: number
+  type: string
+  assignee: string | null
+  parentId: string | null
+  design: string | null
+  acceptance: string | null
+  notes: string | null
+  dueAt: string | null
+  deferUntil: string | null
+  closedReason: string | null
+  supersededBy: string | null
+  duplicateOf: string | null
+  pinned: boolean
+  estimateMin: number | null
+}
+
+export interface IssueCommentRow {
+  id: string
+  issueId: string
+  author: string
+  body: string
+  createdAt: string
 }
 
 /** One row of the conversation index (camelCase mirror of `conversations`). */
@@ -952,8 +974,10 @@ export class SessionStore {
            (id, repo_path, seq, title, description, stage, worktree_path, branch, parent_branch,
             default_agent, linear_id, linear_identifier, linear_url, activity_notes, notes_updated_at,
             suggested_stage, suggested_reason, blocked_by, dependency_note, pr_url,
+            priority, type, assignee, parent_id, design, acceptance, notes, due_at,
+            defer_until, closed_reason, superseded_by, duplicate_of, pinned, estimate_min,
             created_at, updated_at, archived)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            title = excluded.title, description = excluded.description, stage = excluded.stage,
            worktree_path = excluded.worktree_path, branch = excluded.branch,
@@ -963,6 +987,12 @@ export class SessionStore {
            notes_updated_at = excluded.notes_updated_at, suggested_stage = excluded.suggested_stage,
            suggested_reason = excluded.suggested_reason, blocked_by = excluded.blocked_by,
            dependency_note = excluded.dependency_note, pr_url = excluded.pr_url,
+           priority = excluded.priority, type = excluded.type, assignee = excluded.assignee,
+           parent_id = excluded.parent_id, design = excluded.design,
+           acceptance = excluded.acceptance, notes = excluded.notes, due_at = excluded.due_at,
+           defer_until = excluded.defer_until, closed_reason = excluded.closed_reason,
+           superseded_by = excluded.superseded_by, duplicate_of = excluded.duplicate_of,
+           pinned = excluded.pinned, estimate_min = excluded.estimate_min,
            updated_at = excluded.updated_at, archived = excluded.archived`,
       )
       .run(
@@ -986,6 +1016,20 @@ export class SessionStore {
         JSON.stringify(blockedBy),
         row.dependencyNote,
         row.prUrl,
+        row.priority,
+        row.type,
+        row.assignee,
+        row.parentId,
+        row.design,
+        row.acceptance,
+        row.notes,
+        row.dueAt,
+        row.deferUntil,
+        row.closedReason,
+        row.supersededBy,
+        row.duplicateOf,
+        row.pinned ? 1 : 0,
+        row.estimateMin,
         row.createdAt,
         row.updatedAt,
         row.archived ? 1 : 0,
@@ -1014,6 +1058,20 @@ export class SessionStore {
       blockedBy: parseStringArray(r.blocked_by, `issue ${String(r.id)} blocked_by`),
       dependencyNote: (r.dependency_note as string | null) ?? null,
       prUrl: (r.pr_url as string | null) ?? null,
+      priority: (r.priority as number) ?? 2,
+      type: (r.type as string) ?? 'task',
+      assignee: (r.assignee as string | null) ?? null,
+      parentId: (r.parent_id as string | null) ?? null,
+      design: (r.design as string | null) ?? null,
+      acceptance: (r.acceptance as string | null) ?? null,
+      notes: (r.notes as string | null) ?? null,
+      dueAt: (r.due_at as string | null) ?? null,
+      deferUntil: (r.defer_until as string | null) ?? null,
+      closedReason: (r.closed_reason as string | null) ?? null,
+      supersededBy: (r.superseded_by as string | null) ?? null,
+      duplicateOf: (r.duplicate_of as string | null) ?? null,
+      pinned: r.pinned === 1,
+      estimateMin: (r.estimate_min as number | null) ?? null,
       createdAt: r.created_at as string,
       updatedAt: r.updated_at as string,
       archived: r.archived === 1,
@@ -1037,7 +1095,99 @@ export class SessionStore {
   }
 
   deleteIssue(id: string): void {
+    this.deleteIssueChildRows(id)
     this.db.prepare('DELETE FROM issues WHERE id = ?').run(id)
+    // Clear dangling scalar back-references on OTHER rows so a deleted id never
+    // lingers as a ghost parent/supersede/duplicate pointer (column-vs-edge
+    // divergence P3b fixed). The dep EDGES were already removed above.
+    this.db.prepare('UPDATE issues SET parent_id = NULL WHERE parent_id = ?').run(id)
+    this.db.prepare('UPDATE issues SET superseded_by = NULL WHERE superseded_by = ?').run(id)
+    this.db.prepare('UPDATE issues SET duplicate_of = NULL WHERE duplicate_of = ?').run(id)
+  }
+
+  setIssueLabels(issueId: string, labels: string[]): void {
+    const clean = [...new Set(labels.filter((l) => typeof l === 'string' && l.trim()))].map((l) =>
+      l.trim(),
+    )
+    this.db.prepare('DELETE FROM issue_labels WHERE issue_id = ?').run(issueId)
+    const ins = this.db.prepare('INSERT OR IGNORE INTO issue_labels (issue_id, label) VALUES (?, ?)')
+    for (const l of clean) ins.run(issueId, l)
+  }
+
+  getIssueLabels(issueId: string): string[] {
+    return (
+      this.db
+        .prepare('SELECT label FROM issue_labels WHERE issue_id = ? ORDER BY label ASC')
+        .all(issueId) as { label: string }[]
+    ).map((r) => r.label)
+  }
+
+  listAllLabels(): string[] {
+    return (
+      this.db.prepare('SELECT DISTINCT label FROM issue_labels ORDER BY label ASC').all() as {
+        label: string
+      }[]
+    ).map((r) => r.label)
+  }
+
+  addIssueDep(fromId: string, toId: string, type = 'blocks'): void {
+    this.db
+      .prepare('INSERT OR IGNORE INTO issue_deps (from_id, to_id, type) VALUES (?, ?, ?)')
+      .run(fromId, toId, type)
+  }
+
+  removeIssueDep(fromId: string, toId: string, type?: string): void {
+    if (type) {
+      this.db
+        .prepare('DELETE FROM issue_deps WHERE from_id = ? AND to_id = ? AND type = ?')
+        .run(fromId, toId, type)
+    } else {
+      this.db.prepare('DELETE FROM issue_deps WHERE from_id = ? AND to_id = ?').run(fromId, toId)
+    }
+  }
+
+  listIssueDeps(fromId: string): { toId: string; type: string }[] {
+    return (
+      this.db
+        .prepare('SELECT to_id, type FROM issue_deps WHERE from_id = ? ORDER BY to_id ASC, type ASC')
+        .all(fromId) as { to_id: string; type: string }[]
+    ).map((r) => ({ toId: r.to_id, type: r.type }))
+  }
+
+  listDependents(toId: string): { fromId: string; type: string }[] {
+    return (
+      this.db
+        .prepare('SELECT from_id, type FROM issue_deps WHERE to_id = ? ORDER BY from_id ASC, type ASC')
+        .all(toId) as { from_id: string; type: string }[]
+    ).map((r) => ({ fromId: r.from_id, type: r.type }))
+  }
+
+  addIssueComment(c: IssueCommentRow): void {
+    this.db
+      .prepare(
+        'INSERT INTO issue_comments (id, issue_id, author, body, created_at) VALUES (?, ?, ?, ?, ?)',
+      )
+      .run(c.id, c.issueId, c.author, c.body, c.createdAt)
+  }
+
+  listIssueComments(issueId: string): IssueCommentRow[] {
+    return (
+      this.db
+        .prepare('SELECT * FROM issue_comments WHERE issue_id = ? ORDER BY created_at ASC, id ASC')
+        .all(issueId) as Record<string, unknown>[]
+    ).map((r) => ({
+      id: r.id as string,
+      issueId: r.issue_id as string,
+      author: r.author as string,
+      body: r.body as string,
+      createdAt: r.created_at as string,
+    }))
+  }
+
+  deleteIssueChildRows(issueId: string): void {
+    this.db.prepare('DELETE FROM issue_labels WHERE issue_id = ?').run(issueId)
+    this.db.prepare('DELETE FROM issue_deps WHERE from_id = ? OR to_id = ?').run(issueId, issueId)
+    this.db.prepare('DELETE FROM issue_comments WHERE issue_id = ?').run(issueId)
   }
 
   nextIssueSeq(repoPath: string): number {
@@ -1045,6 +1195,33 @@ export class SessionStore {
       .prepare('SELECT MAX(seq) AS m FROM issues WHERE repo_path = ?')
       .get(repoPath) as { m: number | null }
     return (r.m ?? 0) + 1
+  }
+
+  /** One-time, idempotent: mirror legacy issues.blocked_by arrays into issue_deps. */
+  private backfillIssueDeps(): void {
+    const rows = this.db.prepare("SELECT id, blocked_by FROM issues WHERE blocked_by != '[]'").all() as {
+      id: string
+      blocked_by: string
+    }[]
+    const ins = this.db.prepare(
+      "INSERT OR IGNORE INTO issue_deps (from_id, to_id, type) VALUES (?, ?, 'blocks')",
+    )
+    // blocked_by is populated by the AI assistant with branch names (e.g.
+    // "issue/3-foo"), NOT issue ids. Only mirror an edge when the target resolves
+    // to a real issue id, so phantom branch-name edges never accumulate on
+    // every migrate() at server construction.
+    const exists = this.db.prepare('SELECT 1 FROM issues WHERE id = ?')
+    for (const r of rows) {
+      let ids: unknown
+      try {
+        ids = JSON.parse(r.blocked_by)
+      } catch {
+        ids = []
+      }
+      if (Array.isArray(ids)) {
+        for (const to of ids) if (typeof to === 'string' && to && exists.get(to)) ins.run(r.id, to)
+      }
+    }
   }
 
   close(): void {
@@ -1226,12 +1403,77 @@ export class SessionStore {
          blocked_by TEXT NOT NULL DEFAULT '[]',
          dependency_note TEXT,
          pr_url TEXT,
+         priority INTEGER NOT NULL DEFAULT 2,
+         type TEXT NOT NULL DEFAULT 'task',
+         assignee TEXT,
+         parent_id TEXT,
+         design TEXT,
+         acceptance TEXT,
+         notes TEXT,
+         due_at TEXT,
+         defer_until TEXT,
+         closed_reason TEXT,
+         superseded_by TEXT,
+         duplicate_of TEXT,
+         pinned INTEGER NOT NULL DEFAULT 0,
+         estimate_min INTEGER,
          created_at TEXT NOT NULL,
          updated_at TEXT NOT NULL,
          archived INTEGER NOT NULL DEFAULT 0
        )`,
     )
     this.db.exec('CREATE INDEX IF NOT EXISTS idx_issues_repo ON issues(repo_path)')
+    // Additive rich-tracker columns (structural guard — no version marker bump). Fresh
+    // DBs already have them from the CREATE above; live DBs gain them in place.
+    const issueCols = new Set(
+      (this.db.prepare('PRAGMA table_info(issues)').all() as { name: string }[]).map((c) => c.name),
+    )
+    const addIssueCol = (name: string, ddl: string): void => {
+      if (!issueCols.has(name)) this.db.exec(`ALTER TABLE issues ADD COLUMN ${ddl}`)
+    }
+    addIssueCol('priority', 'priority INTEGER NOT NULL DEFAULT 2')
+    addIssueCol('type', "type TEXT NOT NULL DEFAULT 'task'")
+    addIssueCol('assignee', 'assignee TEXT')
+    addIssueCol('parent_id', 'parent_id TEXT')
+    addIssueCol('design', 'design TEXT')
+    addIssueCol('acceptance', 'acceptance TEXT')
+    addIssueCol('notes', 'notes TEXT')
+    addIssueCol('due_at', 'due_at TEXT')
+    addIssueCol('defer_until', 'defer_until TEXT')
+    addIssueCol('closed_reason', 'closed_reason TEXT')
+    addIssueCol('superseded_by', 'superseded_by TEXT')
+    addIssueCol('duplicate_of', 'duplicate_of TEXT')
+    addIssueCol('pinned', 'pinned INTEGER NOT NULL DEFAULT 0')
+    addIssueCol('estimate_min', 'estimate_min INTEGER')
+    this.db.exec(
+      `CREATE TABLE IF NOT EXISTS issue_labels (
+         issue_id TEXT NOT NULL,
+         label    TEXT NOT NULL,
+         PRIMARY KEY (issue_id, label)
+       )`,
+    )
+    this.db.exec('CREATE INDEX IF NOT EXISTS idx_issue_labels_label ON issue_labels(label)')
+    this.db.exec(
+      `CREATE TABLE IF NOT EXISTS issue_deps (
+         from_id TEXT NOT NULL,
+         to_id   TEXT NOT NULL,
+         type    TEXT NOT NULL DEFAULT 'blocks',
+         PRIMARY KEY (from_id, to_id, type)
+       )`,
+    )
+    this.db.exec('CREATE INDEX IF NOT EXISTS idx_issue_deps_from ON issue_deps(from_id)')
+    this.db.exec('CREATE INDEX IF NOT EXISTS idx_issue_deps_to ON issue_deps(to_id)')
+    this.db.exec(
+      `CREATE TABLE IF NOT EXISTS issue_comments (
+         id         TEXT PRIMARY KEY,
+         issue_id   TEXT NOT NULL,
+         author     TEXT NOT NULL,
+         body       TEXT NOT NULL,
+         created_at TEXT NOT NULL
+       )`,
+    )
+    this.db.exec('CREATE INDEX IF NOT EXISTS idx_issue_comments_issue ON issue_comments(issue_id)')
+    this.backfillIssueDeps()
     // External-content FTS over the searchable text columns. Hybrid search note:
     // keyword now; a vector column joins when an embeddings provider is configured.
     try {

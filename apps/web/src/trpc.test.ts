@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { serverConfig } from './trpc'
+import { issueAuthHeaders, makeTrpc, serverConfig } from './trpc'
 
 const loc = (over: Partial<Location>): Location =>
   ({
@@ -55,5 +55,21 @@ describe('serverConfig backend resolution', () => {
     ;(globalThis as { __PODIUM_SERVER__?: string }).__PODIUM_SERVER__ = 'not-a-url'
     const cfg = serverConfig(loc({}))
     expect(cfg.override).toBe(false)
+  })
+})
+
+describe('makeTrpc credential', () => {
+  afterEach(() => {
+    delete (globalThis as { __PODIUM_ISSUE_TOKEN__?: string }).__PODIUM_ISSUE_TOKEN__
+  })
+  it('issueAuthHeaders sends x-podium-issue-token only when the global is set', () => {
+    expect(issueAuthHeaders()).toEqual({})
+    ;(globalThis as { __PODIUM_ISSUE_TOKEN__?: string }).__PODIUM_ISSUE_TOKEN__ = 'T'
+    expect(issueAuthHeaders()).toEqual({ 'x-podium-issue-token': 'T' })
+  })
+  it('constructs a client with and without an injected token', () => {
+    expect(makeTrpc('http://localhost:1')).toBeDefined()
+    ;(globalThis as { __PODIUM_ISSUE_TOKEN__?: string }).__PODIUM_ISSUE_TOKEN__ = 'T'
+    expect(makeTrpc('http://localhost:1')).toBeDefined()
   })
 })

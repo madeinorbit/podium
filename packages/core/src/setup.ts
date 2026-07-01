@@ -107,3 +107,14 @@ export function applyMode(input: {
   saveConfig(cfg)
   return cfg
 }
+
+/** Current self-update channel for the headless build; defaults to 'stable' when unset. */
+export function getUpdateChannel(): 'stable' | 'edge' {
+  return loadConfig().updateChannel ?? 'stable'
+}
+
+/** Persist the self-update channel and return the resulting value. */
+export function setUpdateChannel(channel: 'stable' | 'edge'): 'stable' | 'edge' {
+  saveConfig({ ...loadConfig(), updateChannel: channel })
+  return channel
+}

@@ -13,7 +13,7 @@ function caller() {
   registry.attachDaemon('local', () => {})
   const repos = new RepoRegistry(registry, registry.sessionStore)
   const superagent = new SuperagentService(registry, repos, registry.sessionStore)
-  return appRouter.createCaller({ registry, repos, superagent })
+  return appRouter.createCaller({ registry, repos, superagent, role: 'maintainer' })
 }
 
 describe('auth tRPC (set / change / clear the login password)', () => {

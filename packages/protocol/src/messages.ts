@@ -578,6 +578,27 @@ export const IssueSessionSummary = z.object({
 })
 export type IssueSessionSummary = z.infer<typeof IssueSessionSummary>
 
+export const IssueType = z.enum([
+  'task', 'bug', 'feature', 'chore', 'epic', 'decision', 'spike', 'story', 'milestone',
+])
+export type IssueType = z.infer<typeof IssueType>
+
+export const ISSUE_DEP_TYPES = [
+  'blocks', 'related', 'parent-child', 'discovered-from', 'tracks', 'supersedes',
+  'caused-by', 'validates',
+] as const
+
+export const IssueDepWire = z.object({ id: z.string(), type: z.string() })
+export type IssueDepWire = z.infer<typeof IssueDepWire>
+
+export const IssueComment = z.object({
+  id: z.string(),
+  author: z.string(),
+  body: z.string(),
+  createdAt: z.string(),
+})
+export type IssueComment = z.infer<typeof IssueComment>
+
 export const IssueWire = z.object({
   id: z.string(),
   repoPath: z.string(),
@@ -599,6 +620,29 @@ export const IssueWire = z.object({
   blockedBy: z.array(z.string()),
   dependencyNote: z.string().optional(),
   prUrl: z.string().optional(),
+  priority: z.number().int(),
+  type: IssueType,
+  assignee: z.string().optional(),
+  parentId: z.string().optional(),
+  design: z.string().optional(),
+  acceptance: z.string().optional(),
+  notes: z.string().optional(),
+  dueAt: z.string().optional(),
+  deferUntil: z.string().optional(),
+  closedReason: z.string().optional(),
+  supersededBy: z.string().optional(),
+  duplicateOf: z.string().optional(),
+  pinned: z.boolean(),
+  estimateMin: z.number().int().optional(),
+  labels: z.array(z.string()),
+  deps: z.array(IssueDepWire),
+  dependents: z.array(IssueDepWire),
+  comments: z.array(IssueComment),
+  ready: z.boolean(),
+  blocked: z.boolean(),
+  deferred: z.boolean(),
+  childCount: z.number().int(),
+  childDoneCount: z.number().int(),
   createdAt: z.string(),
   updatedAt: z.string(),
   archived: z.boolean(),
@@ -607,6 +651,59 @@ export const IssueWire = z.object({
   sessionSummary: IssueSessionSummary,
 })
 export type IssueWire = z.infer<typeof IssueWire>
+
+export const DuplicateCandidate = z.object({ a: z.string(), b: z.string(), score: z.number() })
+export type DuplicateCandidate = z.infer<typeof DuplicateCandidate>
+
+export const LintFinding = z.object({
+  id: z.string(), seq: z.number().int(), findings: z.array(z.string()),
+})
+export type LintFinding = z.infer<typeof LintFinding>
+
+export const DoctorReport = z.object({
+  cycles: z.array(z.array(z.string())),
+  danglingDeps: z.array(z.object({ from: z.string(), to: z.string(), type: z.string() })),
+  lintCount: z.number().int(), staleCount: z.number().int(),
+})
+export type DoctorReport = z.infer<typeof DoctorReport>
+
+export const IssueGraphNode = z.object({
+  id: z.string(), seq: z.number().int(), title: z.string(), stage: IssueStage,
+  priority: z.number().int(), type: IssueType, ready: z.boolean(), blocked: z.boolean(),
+})
+export const IssueGraphEdge = z.object({ from: z.string(), to: z.string(), type: z.string() })
+export const IssueGraph = z.object({
+  nodes: z.array(IssueGraphNode), edges: z.array(IssueGraphEdge),
+})
+export type IssueGraph = z.infer<typeof IssueGraph>
+
+export const EpicStatus = z.object({
+  id: z.string(), childCount: z.number().int(), childDoneCount: z.number().int(), complete: z.boolean(),
+})
+export type EpicStatus = z.infer<typeof EpicStatus>
+
+export const IssueCount = z.object({
+  byStage: z.record(z.number()), byPriority: z.record(z.number()),
+  byType: z.record(z.number()), byAssignee: z.record(z.number()),
+})
+export type IssueCount = z.infer<typeof IssueCount>
+export const IssueStats = z.object({
+  total: z.number().int(), open: z.number().int(), closed: z.number().int(),
+  ready: z.number().int(), blocked: z.number().int(), deferred: z.number().int(),
+})
+export type IssueStats = z.infer<typeof IssueStats>
+export const OrphanIssue = z.object({
+  id: z.string(), seq: z.number().int(), title: z.string(), ref: z.string(),
+})
+export type OrphanIssue = z.infer<typeof OrphanIssue>
+export const IssueSearchFilter = z.object({
+  repoPath: z.string().optional(), text: z.string().optional(),
+  status: z.enum(['open', 'closed', 'ready', 'blocked', 'deferred']).optional(),
+  stage: IssueStage.optional(), priority: z.number().int().optional(),
+  type: IssueType.optional(), assignee: z.string().optional(),
+  label: z.string().optional(), parentId: z.string().optional(),
+})
+export type IssueSearchFilter = z.infer<typeof IssueSearchFilter>
 
 export const IssuesChangedMessage = z.object({
   type: z.literal('issuesChanged'),

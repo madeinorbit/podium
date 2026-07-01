@@ -12,7 +12,7 @@ function harness(sessions: SessionMeta[] = []) {
     spawnSession: vi.fn(() => ({ sessionId: 's1' })),
     repoOp: vi.fn(async () => ({ ok: true, output: '' })),
     broadcast: vi.fn(),
-    now: () => 't0',
+    now: () => '2026-06-30T00:00:00.000Z',
   }
   return { store, deps, svc: new IssueService(deps) }
 }
@@ -204,6 +204,61 @@ describe('IssueService.linearSearch', () => {
   })
 })
 
+describe('IssueService derived status (P1)', () => {
+  it('new issue is ready (open, no blockers) with defaults', () => {
+    const { svc } = harness()
+    const w = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    expect(w.priority).toBe(2)
+    expect(w.type).toBe('task')
+    expect(w.pinned).toBe(false)
+    expect(w.labels).toEqual([])
+    expect(w.deps).toEqual([])
+    expect(w.ready).toBe(true)
+    expect(w.blocked).toBe(false)
+    expect(w.deferred).toBe(false)
+  })
+
+  it('a blocks-dependency on an open issue makes the dependent blocked (not ready)', () => {
+    const { svc, store } = harness()
+    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    const b = svc.create({ repoPath: '/r', title: 'B', startNow: false })
+    store.addIssueDep(a.id, b.id, 'blocks')
+    const reloaded = svc.get(a.id)!
+    expect(reloaded.blocked).toBe(true)
+    expect(reloaded.ready).toBe(false)
+    expect(reloaded.deps).toEqual([{ id: b.id, type: 'blocks' }])
+  })
+
+  it('closing the blocker (stage=done) unblocks the dependent', () => {
+    const { svc, store } = harness()
+    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    const b = svc.create({ repoPath: '/r', title: 'B', startNow: false })
+    store.addIssueDep(a.id, b.id, 'blocks')
+    svc.update(b.id, { stage: 'done' })
+    expect(svc.get(a.id)!.ready).toBe(true)
+  })
+
+  it('a future defer_until marks the issue deferred and not ready', () => {
+    const { svc } = harness()
+    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    const deferred = svc.update(a.id, { deferUntil: '2999-01-01' })
+    expect(deferred.deferred).toBe(true)
+    expect(deferred.ready).toBe(false)
+  })
+
+  it('epic counts reflect children by parentId', () => {
+    const { svc, store } = harness()
+    const epic = svc.create({ repoPath: '/r', title: 'Epic', startNow: false })
+    const c1 = svc.create({ repoPath: '/r', title: 'c1', startNow: false })
+    const c2 = svc.create({ repoPath: '/r', title: 'c2', startNow: false })
+    svc.update(c1.id, { parentId: epic.id })
+    svc.update(c2.id, { parentId: epic.id, stage: 'done' })
+    const e = svc.get(epic.id)!
+    expect(e.childCount).toBe(2)
+    expect(e.childDoneCount).toBe(1)
+  })
+})
+
 describe('IssueService assistant', () => {
   function harnessWithLlm(json: string) {
     const { deps } = harness([])
@@ -244,5 +299,325 @@ describe('IssueService assistant', () => {
     const d = svc.dismissSuggestion(c.id)
     expect(d.stage).toBe('planning')
     expect(d.suggestedStage).toBeUndefined()
+  })
+})
+
+describe('IssueService field mutations (P1)', () => {
+  it('setLabels persists and surfaces on the wire', () => {
+    const { svc } = harness()
+    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    expect(svc.setLabels(a.id, ['ui', 'p1']).labels).toEqual(['p1', 'ui'])
+  })
+
+  it('addComment appends a comment', () => {
+    const { svc } = harness()
+    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    const w = svc.addComment(a.id, 'mike', 'looks good')
+    expect(w.comments.map((c) => c.body)).toEqual(['looks good'])
+    expect(w.comments[0]!.author).toBe('mike')
+  })
+
+  it('addDep blocks ready; rejects self-dep and cycles', () => {
+    const { svc } = harness()
+    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    const b = svc.create({ repoPath: '/r', title: 'B', startNow: false })
+    expect(svc.addDep(a.id, b.id).blocked).toBe(true)
+    expect(() => svc.addDep(a.id, a.id)).toThrow(/self/)
+    expect(() => svc.addDep(b.id, a.id)).toThrow(/cycle/) // a->b already; b->a closes the loop
+  })
+
+  it('claim sets assignee + in_progress; close sets done + reason', () => {
+    const { svc } = harness()
+    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    const claimed = svc.claim(a.id, 'agent:claude')
+    expect(claimed.assignee).toBe('agent:claude')
+    expect(claimed.stage).toBe('in_progress')
+    const closed = svc.close(a.id, 'wontfix')
+    expect(closed.stage).toBe('done')
+    expect(closed.closedReason).toBe('wontfix')
+  })
+
+  it('reparent maintains a parent-child edge', () => {
+    const { svc, store } = harness()
+    const epic = svc.create({ repoPath: '/r', title: 'E', startNow: false })
+    const child = svc.create({ repoPath: '/r', title: 'C', startNow: false })
+    svc.reparent(child.id, epic.id)
+    expect(store.listIssueDeps(child.id)).toEqual([{ toId: epic.id, type: 'parent-child' }])
+    svc.reparent(child.id, null)
+    expect(store.listIssueDeps(child.id)).toEqual([])
+  })
+})
+
+describe('IssueService hierarchy reconciliation (P2a / I2)', () => {
+  it('create({parentId}) maintains the parent-child edge AND childCount', () => {
+    const { svc, store } = harness()
+    const epic = svc.create({ repoPath: '/r', title: 'E', startNow: false })
+    const child = svc.create({ repoPath: '/r', title: 'C', parentId: epic.id, startNow: false })
+    expect(store.listIssueDeps(child.id)).toEqual([{ toId: epic.id, type: 'parent-child' }])
+    expect(svc.get(child.id)!.deps).toEqual([{ id: epic.id, type: 'parent-child' }])
+    expect(svc.get(epic.id)!.dependents).toEqual([{ id: child.id, type: 'parent-child' }])
+    expect(svc.get(epic.id)!.childCount).toBe(1)
+  })
+
+  it('update({parentId}) maintains the edge; changing parent moves the edge', () => {
+    const { svc, store } = harness()
+    const e1 = svc.create({ repoPath: '/r', title: 'E1', startNow: false })
+    const e2 = svc.create({ repoPath: '/r', title: 'E2', startNow: false })
+    const c = svc.create({ repoPath: '/r', title: 'C', startNow: false })
+    svc.update(c.id, { parentId: e1.id })
+    expect(store.listIssueDeps(c.id)).toEqual([{ toId: e1.id, type: 'parent-child' }])
+    svc.update(c.id, { parentId: e2.id })
+    expect(store.listIssueDeps(c.id)).toEqual([{ toId: e2.id, type: 'parent-child' }])
+    svc.update(c.id, { parentId: null })
+    expect(store.listIssueDeps(c.id)).toEqual([])
+  })
+
+  it('a parentId change that forms a cycle is rejected via create or update', () => {
+    const { svc } = harness()
+    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    const b = svc.create({ repoPath: '/r', title: 'B', parentId: a.id, startNow: false })
+    expect(() => svc.update(a.id, { parentId: b.id })).toThrow(/cycle/)
+  })
+
+  it('a cycle-throw on reparent leaves the old parent edge + column intact (no divergence)', () => {
+    const { svc, store } = harness()
+    const old = svc.create({ repoPath: '/r', title: 'OLD', startNow: false })
+    const x = svc.create({ repoPath: '/r', title: 'X', parentId: old.id, startNow: false })
+    const nw = svc.create({ repoPath: '/r', title: 'NEW', parentId: x.id, startNow: false })
+    // OLD <- X <- NEW. Reparenting X under its descendant NEW must throw AND change nothing.
+    expect(() => svc.update(x.id, { parentId: nw.id })).toThrow(/cycle/)
+    expect(store.listIssueDeps(x.id)).toEqual([{ toId: old.id, type: 'parent-child' }])
+    expect(svc.get(x.id)!.parentId).toBe(old.id)
+    expect(svc.get(old.id)!.dependents).toContainEqual({ id: x.id, type: 'parent-child' })
+  })
+
+  it('addDep rejects parent-child (reparent owns the hierarchy edge)', () => {
+    const { svc } = harness()
+    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    const b = svc.create({ repoPath: '/r', title: 'B', startNow: false })
+    expect(() => svc.addDep(a.id, b.id, 'parent-child')).toThrow(/parent-child/)
+  })
+
+  it('removeDep rejects explicit parent-child and leaves the edge intact', () => {
+    const { svc, store } = harness()
+    const e = svc.create({ repoPath: '/r', title: 'E', startNow: false })
+    const c = svc.create({ repoPath: '/r', title: 'C', parentId: e.id, startNow: false })
+    expect(() => svc.removeDep(c.id, e.id, 'parent-child')).toThrow(/parent-child/)
+    expect(store.listIssueDeps(c.id)).toEqual([{ toId: e.id, type: 'parent-child' }])
+  })
+
+  it('removeDep with no type removes other dep types but preserves parent-child', () => {
+    const { svc, store } = harness()
+    const e = svc.create({ repoPath: '/r', title: 'E', startNow: false })
+    const c = svc.create({ repoPath: '/r', title: 'C', parentId: e.id, startNow: false })
+    store.addIssueDep(c.id, e.id, 'related') // a second edge on the same pair
+    svc.removeDep(c.id, e.id) // no type → bulk
+    expect(store.listIssueDeps(c.id)).toEqual([{ toId: e.id, type: 'parent-child' }])
+  })
+})
+
+describe('IssueService ready/blocked lists (P2a)', () => {
+  it('readyList returns only ready issues, priority then seq ordered', () => {
+    const { svc, store } = harness()
+    const a = svc.create({ repoPath: '/r', title: 'A', priority: 3, startNow: false })
+    const b = svc.create({ repoPath: '/r', title: 'B', priority: 0, startNow: false })
+    const c = svc.create({ repoPath: '/r', title: 'C', startNow: false })
+    store.addIssueDep(a.id, c.id, 'blocks') // a blocked by open c
+    svc.update(c.id, {}) // no-op to ensure persisted
+    const ready = svc.readyList('/r').map((w) => w.title)
+    expect(ready).toEqual(['B', 'C']) // A is blocked; B(p0) before C(p2)
+  })
+
+  it('blockedList returns only blocked issues', () => {
+    const { svc, store } = harness()
+    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    const b = svc.create({ repoPath: '/r', title: 'B', startNow: false })
+    store.addIssueDep(a.id, b.id, 'blocks')
+    expect(svc.blockedList('/r').map((w) => w.title)).toEqual(['A'])
+  })
+})
+
+describe('IssueService graph (P2a)', () => {
+  it('returns nodes for repo issues and edges from issue_deps', () => {
+    const { svc, store } = harness()
+    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    const b = svc.create({ repoPath: '/r', title: 'B', startNow: false })
+    svc.create({ repoPath: '/other', title: 'X', startNow: false })
+    store.addIssueDep(a.id, b.id, 'blocks')
+    const g = svc.graph('/r')
+    expect(g.nodes.map((n) => n.title).sort()).toEqual(['A', 'B'])
+    expect(g.edges).toEqual([{ from: a.id, to: b.id, type: 'blocks' }])
+    expect(g.nodes.find((n) => n.title === 'A')!.blocked).toBe(true)
+  })
+})
+
+describe('IssueService epic status (P2a)', () => {
+  it('epicStatus reports child completion; closeEligibleEpics lists fully-done epics', () => {
+    const { svc } = harness()
+    const epic = svc.create({ repoPath: '/r', title: 'E', type: 'epic', startNow: false })
+    const c1 = svc.create({ repoPath: '/r', title: 'c1', parentId: epic.id, startNow: false })
+    const c2 = svc.create({ repoPath: '/r', title: 'c2', parentId: epic.id, startNow: false })
+    expect(svc.epicStatus(epic.id)).toEqual({ id: epic.id, childCount: 2, childDoneCount: 0, complete: false })
+    expect(svc.closeEligibleEpics('/r')).toEqual([])
+    svc.close(c1.id)
+    svc.close(c2.id)
+    expect(svc.epicStatus(epic.id)).toEqual({ id: epic.id, childCount: 2, childDoneCount: 2, complete: true })
+    expect(svc.closeEligibleEpics('/r').map((w) => w.id)).toEqual([epic.id])
+  })
+})
+
+describe('IssueService supersede/duplicate (P2b)', () => {
+  it('supersede closes old with reason + supersededBy + supersedes dep', () => {
+    const { svc, store } = harness()
+    const oldI = svc.create({ repoPath: '/r', title: 'old', startNow: false })
+    const newI = svc.create({ repoPath: '/r', title: 'new', startNow: false })
+    const w = svc.supersede(oldI.id, newI.id)
+    expect(w.stage).toBe('done')
+    expect(w.closedReason).toBe('superseded')
+    expect(w.supersededBy).toBe(newI.id)
+    expect(store.listIssueDeps(oldI.id)).toEqual([{ toId: newI.id, type: 'supersedes' }])
+  })
+
+  it('duplicate closes id with reason + duplicateOf + related dep', () => {
+    const { svc, store } = harness()
+    const dup = svc.create({ repoPath: '/r', title: 'dup', startNow: false })
+    const canon = svc.create({ repoPath: '/r', title: 'canon', startNow: false })
+    const w = svc.duplicate(dup.id, canon.id)
+    expect(w.closedReason).toBe('duplicate')
+    expect(w.duplicateOf).toBe(canon.id)
+    expect(store.listIssueDeps(dup.id)).toEqual([{ toId: canon.id, type: 'related' }])
+  })
+
+  it('supersede throws on unknown id', () => {
+    const { svc } = harness()
+    const a = svc.create({ repoPath: '/r', title: 'a', startNow: false })
+    expect(() => svc.supersede(a.id, 'iss_missing')).toThrow()
+  })
+})
+
+describe('IssueService findDuplicates (P2b)', () => {
+  it('flags near-identical open issues above threshold', () => {
+    const { svc } = harness()
+    svc.create({ repoPath: '/r', title: 'Fix login bug', description: 'cannot sign in', startNow: false })
+    svc.create({ repoPath: '/r', title: 'Fix login bug', description: 'cannot sign in', startNow: false })
+    svc.create({ repoPath: '/r', title: 'Add dark mode', description: 'theme toggle', startNow: false })
+    const dups = svc.findDuplicates('/r', 0.6)
+    expect(dups.length).toBe(1)
+    expect(dups[0]!.score).toBe(1)
+  })
+})
+
+describe('IssueService stale/lint (P2b)', () => {
+  it('staleList returns issues older than the cutoff (open only)', () => {
+    const { svc, store } = harness()
+    const a = svc.create({ repoPath: '/r', title: 'old', startNow: false })
+    // backdate updatedAt directly in the store, then refresh the in-memory row
+    const row = store.getIssue(a.id)!
+    row.updatedAt = '2000-01-01T00:00:00.000Z'
+    store.upsertIssue(row)
+    svc.reload() // re-hydrate this.rows from the store (see Step 3)
+    const stale = svc.staleList('/r', 30, Date.parse('2026-06-30T00:00:00.000Z'))
+    expect(stale.map((w) => w.title)).toEqual(['old'])
+  })
+
+  it('lint flags a feature with no acceptance', () => {
+    const { svc } = harness()
+    svc.create({ repoPath: '/r', title: 'F', description: 'd', type: 'feature', startNow: false })
+    const findings = svc.lint('/r')
+    expect(findings.length).toBe(1)
+    expect(findings[0]!.findings).toEqual(['missing acceptance criteria'])
+  })
+})
+
+describe('IssueService search/count/stats (P2b)', () => {
+  it('search filters by text + priority + status', () => {
+    const { svc } = harness()
+    svc.create({ repoPath: '/r', title: 'Login fails', priority: 0, startNow: false })
+    svc.create({ repoPath: '/r', title: 'Dark mode', priority: 2, startNow: false })
+    const done = svc.create({ repoPath: '/r', title: 'Login done', startNow: false })
+    svc.close(done.id)
+    expect(svc.search({ repoPath: '/r', text: 'login' }).map((w) => w.title).sort())
+      .toEqual(['Login done', 'Login fails'])
+    expect(svc.search({ repoPath: '/r', text: 'login', status: 'open' }).map((w) => w.title))
+      .toEqual(['Login fails'])
+    expect(svc.search({ repoPath: '/r', priority: 0 }).map((w) => w.title)).toEqual(['Login fails'])
+  })
+
+  it('count groups and stats totals', () => {
+    const { svc } = harness()
+    svc.create({ repoPath: '/r', title: 'A', priority: 0, type: 'bug', startNow: false })
+    const b = svc.create({ repoPath: '/r', title: 'B', startNow: false })
+    svc.close(b.id)
+    expect(svc.count('/r').byPriority['0']).toBe(1)
+    expect(svc.count('/r').byType['bug']).toBe(1)
+    const s = svc.stats('/r')
+    expect(s.total).toBe(2)
+    expect(s.closed).toBe(1)
+    expect(s.open).toBe(1)
+  })
+})
+
+describe('IssueService doctor/preflight (P2b)', () => {
+  it('doctor reports dangling deps and clean preflight when none', () => {
+    const { svc, store } = harness()
+    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    store.addIssueDep(a.id, 'iss_ghost', 'blocks') // target does not exist
+    const d = svc.doctor('/r')
+    expect(d.danglingDeps).toEqual([{ from: a.id, to: 'iss_ghost', type: 'blocks' }])
+    expect(svc.preflight('/r').ok).toBe(false)
+  })
+
+  it('preflight ok when no cycles or dangling deps', () => {
+    const { svc } = harness()
+    svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    expect(svc.preflight('/r').ok).toBe(true)
+  })
+})
+
+describe('IssueService orphans (P2b)', () => {
+  it('flags open issues referenced in commit messages', async () => {
+    const { svc, deps } = harness()
+    const a = svc.create({ repoPath: '/r', title: 'Add login', startNow: false }) // seq 1
+    svc.create({ repoPath: '/r', title: 'Other', startNow: false }) // seq 2, not referenced
+    ;(deps.repoOp as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      ok: true,
+      output: 'abc123 feat: implement login (#1)\ndef456 chore: tidy',
+    })
+    const orphans = await svc.orphans('/r')
+    expect(orphans.map((o) => o.seq)).toEqual([1])
+    expect(orphans[0]!.id).toBe(a.id)
+  })
+
+  it('returns [] when repoOp(log) fails', async () => {
+    const { svc, deps } = harness()
+    svc.create({ repoPath: '/r', title: 'X', startNow: false })
+    ;(deps.repoOp as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ ok: false, output: '' })
+    expect(await svc.orphans('/r')).toEqual([])
+  })
+})
+
+describe('IssueService.delete (P4b)', () => {
+  it('removes the issue from the list and broadcasts', () => {
+    const { svc, store, deps } = harness()
+    const a = svc.create({ repoPath: '/r', title: 'gone', startNow: false })
+    svc.create({ repoPath: '/r', title: 'stays', startNow: false })
+    ;(deps.broadcast as ReturnType<typeof vi.fn>).mockClear()
+    svc.delete(a.id)
+    expect(svc.get(a.id)).toBeNull()
+    expect(svc.list('/r').map((w) => w.title)).toEqual(['stays'])
+    expect(store.getIssue(a.id)).toBeNull()
+    expect(deps.broadcast).toHaveBeenCalled()
+  })
+  it('throws on unknown id', () => {
+    const { svc } = harness()
+    expect(() => svc.delete('iss_missing')).toThrow()
+  })
+  it('deleting an issue clears scalar back-references on other issues', () => {
+    const { svc, store } = harness()
+    const parent = svc.create({ repoPath: '/r', title: 'P', startNow: false })
+    const child = svc.create({ repoPath: '/r', title: 'C', parentId: parent.id, startNow: false })
+    svc.delete(parent.id)
+    expect(svc.get(child.id)!.parentId).toBeUndefined() // wire omits null parentId
+    expect(store.getIssue(child.id)!.parentId).toBeNull()
   })
 })

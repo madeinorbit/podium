@@ -65,6 +65,19 @@ export async function main(): Promise<void> {
     return
   }
 
+  // `podium channel [stable|edge]`: show or switch the self-update channel `podium update` reads.
+  if (argv[0] === 'channel') {
+    const { applyChannel } = await import('./cli-channel')
+    try {
+      const { channel } = applyChannel(argv[1])
+      console.log(`podium update channel: ${channel}`)
+    } catch (e) {
+      console.error((e as Error).message)
+      process.exit(2)
+    }
+    return
+  }
+
   // `podium join-config <TOKEN>`: non-interactive daemon configuration from a join token
   // (used by `install.sh --join`). Writes config + exits; the daemon is started separately.
   if (argv[0] === 'join-config') {
@@ -81,6 +94,13 @@ export async function main(): Promise<void> {
       console.error(`invalid join token: ${(e as Error).message}`)
       process.exit(2)
     }
+    return
+  }
+
+  // `podium issue <command>`: drive the native issue tracker over the running server's API.
+  if (argv[0] === 'issue') {
+    const { issueCliMain } = await import('./issue-cli')
+    await issueCliMain(argv.slice(1))
     return
   }
 

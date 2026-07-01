@@ -15,7 +15,7 @@ function caller() {
   registry.attachDaemon('local', () => {})
   const repos = new RepoRegistry(registry, registry.sessionStore)
   const superagent = new SuperagentService(registry, repos, registry.sessionStore)
-  return appRouter.createCaller({ registry, repos, superagent })
+  return appRouter.createCaller({ registry, repos, superagent, role: 'maintainer' })
 }
 
 describe('setup tRPC', () => {
@@ -74,5 +74,13 @@ describe('setup tRPC', () => {
   })
   it('connect rejects client mode without a server URL', async () => {
     await expect(caller().setup.connect({ mode: 'client' })).rejects.toThrow()
+  })
+  it('reports the update channel (default stable)', async () => {
+    expect(await caller().setup.channel()).toBe('stable')
+  })
+  it('sets the update channel and persists it', async () => {
+    expect(await caller().setup.setChannel({ channel: 'edge' })).toBe('edge')
+    expect(await caller().setup.channel()).toBe('edge')
+    expect(loadConfig().updateChannel).toBe('edge')
   })
 })

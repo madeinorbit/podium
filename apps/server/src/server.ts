@@ -11,7 +11,10 @@ import { cors } from 'hono/cors'
 import { clientAuthGuard, isRequestAuthed, registerAuthRoute } from './auth-route'
 import { applyEnvPassword, hasPassword } from './auth-store'
 import { registerAssetRoute } from './file-asset-route'
-import { readOrCreateDaemonSecret } from './local-machine'
+import { makeIssueClient } from './issue-client'
+import { CompositeMcpProvider, IssueToolProvider } from './issue-mcp'
+import { resolveRole } from './issue-roles'
+import { readOrCreateDaemonSecret, readOrCreateMaintainerToken } from './local-machine'
 import { registerMcpRoute } from './mcp-route'
 import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
@@ -77,6 +80,10 @@ export async function startServer(
   // and presents it as its `hello` token — so the local daemon authenticates with no
   // pairing step and no per-boot token race.
   const bootstrapToken = readOrCreateDaemonSecret()
+  // The issue-tracker maintainer capability token (0600 in the state dir). A local
+  // operator who can read this file presents it as `x-podium-issue-token` to act as
+  // maintainer; agents that can't read it fall back to worker/reader (see resolveRole).
+  const maintainerToken = readOrCreateMaintainerToken()
   // Provision the local machine NOW, at startup: register it with the server-owned
   // credential (sha256 of the shared secret) and adopt any pre-existing `'__local__'`
   // rows onto it — so a single-machine install's sessions/repos are attributed and
@@ -110,13 +117,31 @@ export async function startServer(
   registerAssetRoute(app, registry)
   // In-process MCP server exposing the superagent's orchestrator tools to a
   // harness-backed superagent (Claude via --mcp-config). Token-gated.
+  // One `podium` MCP surface composes the superagent's tools (first, so they win
+  // name collisions) with the native issue-tracker tools.
   const mcpToken = randomUUID()
-  registerMcpRoute(app, superagent, mcpToken)
+  const issueTools = new IssueToolProvider()
+  const mcpProvider = new CompositeMcpProvider([superagent, issueTools])
+  registerMcpRoute(app, mcpProvider, mcpToken)
   app.use('/trpc/*', cors())
   app.use('/trpc/*', guard)
   app.use(
     '/trpc/*',
-    trpcServer({ router: appRouter, createContext: () => ({ registry, repos, superagent }) }),
+    trpcServer({
+      router: appRouter,
+      // `c` is the Hono context (2nd arg in @hono/trpc-server v0.3.4). Resolve the
+      // caller's issue-tracker role from the credential headers: maintainer iff the
+      // token matches, worker iff the cwd is inside a live issue worktree, else reader.
+      createContext: (_opts, c) => ({
+        registry,
+        repos,
+        superagent,
+        role: resolveRole(
+          { token: c.req.header('x-podium-issue-token'), cwd: c.req.header('x-podium-issue-cwd') },
+          { maintainerToken, issueWorktrees: registry.issues.worktreePaths() },
+        ),
+      }),
+    }),
   )
 
   // Serve the built web UI for external clients (browser/phone/other desktop). The
@@ -131,7 +156,7 @@ export async function startServer(
       webDir = ''
     }
   }
-  if (webDir) registerWebStatic(app, webDir)
+  if (webDir) registerWebStatic(app, webDir, maintainerToken)
 
   const host = resolveBindHost(opts)
   // If we're reachable off-box but no login password is set, the data plane is wide open
@@ -148,7 +173,16 @@ export async function startServer(
     const server = serve({ fetch: app.fetch, port: opts.port ?? 0, hostname: host }, (info) => {
       // The harness agent runs on the same host (single-machine), so loopback
       // reaches this MCP route. Now that the port is known, point it there.
-      superagent.setMcpEndpoint(`http://127.0.0.1:${info.port}/mcp`, mcpToken)
+      superagent.setMcpEndpoint(
+        `http://127.0.0.1:${info.port}/mcp`,
+        mcpToken,
+        mcpProvider.mcpToolSpecs().map((s) => s.name),
+      )
+      // The in-process MCP issue surface is driven by the trusted superagent orchestrator,
+      // so it presents the maintainer token to act with full access.
+      issueTools.setClient(
+        makeIssueClient(`http://127.0.0.1:${info.port}`, { token: maintainerToken }),
+      )
       const ws = attachWebSockets(server as unknown as Server, registry, {
         // Same gate as the HTTP guard: open unless a password is set, then require a valid
         // session cookie on the upgrade request.

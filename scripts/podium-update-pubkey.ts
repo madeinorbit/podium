@@ -5,15 +5,11 @@
  * `podium-headless-<v>.tar.gz` at build time (build-bun.ts) and which `podium update`
  * (podium-update.ts) verifies the downloaded bytes against BEFORE swapping the install.
  *
- * DEV KEY — the committed value below is the throwaway development key whose private
- * half lives in scripts/.podium-update-dev.key (gitignored). It lets the local feed +
- * `podium update` round-trip end to end in development.
- *
- * ⚠️ RELEASE SWAP: before shipping to a real (non-localhost) feed, generate a production
- * Ed25519 keypair, keep the private key in the operator's secret store (passed to the
- * build via env PODIUM_UPDATE_SIGNING_KEY), and REPLACE the constant below with the
- * matching production public key. This is the headless analogue of the Tauri minisign
- * `pubkey` in apps/desktop/src-tauri/tauri.conf.json (which stays separate + untouched).
+ * PRODUCTION KEY — the committed value below is the production public key. Its matching
+ * private half is the operator secret PODIUM_UPDATE_SIGNING_KEY (set in CI / the build
+ * env), used to sign `podium-headless-<v>.tar.gz` at release time. Keep this value in
+ * lockstep with install.sh's PUBKEY default (scripts/install-pubkey.test.ts enforces it).
+ * The Tauri minisign `pubkey` in apps/desktop/src-tauri/tauri.conf.json is a separate key.
  */
 export const PODIUM_UPDATE_PUBKEY =
-  'MCowBQYDK2VwAyEA2jxohkpxHU7sQQjCjWqeuHomf9TlC3lwmS5lmN3ICYM='
+  'MCowBQYDK2VwAyEAvToQHbEK4FSYyY0OJEyacn+zp5r8n5QEE+Y2OIL+onY='

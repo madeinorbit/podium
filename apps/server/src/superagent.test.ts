@@ -1,6 +1,12 @@
 import type { TranscriptItem } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
-import { buildBtwDelta, buildBtwRecap, buildBtwSeed, transcriptDelta } from './superagent'
+import {
+  buildBtwDelta,
+  buildBtwRecap,
+  buildBtwSeed,
+  harnessAllowedTools,
+  transcriptDelta,
+} from './superagent'
 
 const item = (o: Partial<TranscriptItem>): TranscriptItem => ({
   id: 'i',
@@ -94,5 +100,22 @@ describe('buildBtwDelta', () => {
     expect(msg).toContain('u2') // previous watermark
     expect(msg).toContain('more')
     expect(msg).toContain('n1') // new watermark
+  })
+})
+
+describe('harnessAllowedTools', () => {
+  const own = ['superagent_search']
+  it('allow-lists the full composite tool set (superagent + issue) when known', () => {
+    const allowed = harnessAllowedTools(['superagent_search', 'issue_create', 'issue_list'], own)
+    expect(allowed).toContain('mcp__podium__issue_create')
+    expect(allowed).toContain('mcp__podium__issue_list')
+    expect(allowed).toContain('mcp__podium__superagent_search')
+    // The read-only builtins are always present alongside the MCP tools.
+    expect(allowed).toEqual(expect.arrayContaining(['Read', 'Grep', 'Glob']))
+  })
+  it('falls back to the superagent own tools when the full set is unknown', () => {
+    const allowed = harnessAllowedTools(undefined, own)
+    expect(allowed).toContain('mcp__podium__superagent_search')
+    expect(allowed).not.toContain('mcp__podium__issue_create')
   })
 })

@@ -10,7 +10,7 @@ JOIN=""
 # Ed25519 pubkey (SPKI/DER, base64). Commit the SAME value as PODIUM_UPDATE_PUBKEY in
 # scripts/podium-update-pubkey.ts — the lockstep test in Step 5 enforces they match. (A test
 # override is allowed via PODIUM_INSTALL_PUBKEY.) The key is public; committing it is safe.
-PUBKEY="${PODIUM_INSTALL_PUBKEY:-MCowBQYDK2VwAyEA2jxohkpxHU7sQQjCjWqeuHomf9TlC3lwmS5lmN3ICYM=}"
+PUBKEY="${PODIUM_INSTALL_PUBKEY:-MCowBQYDK2VwAyEAvToQHbEK4FSYyY0OJEyacn+zp5r8n5QEE+Y2OIL+onY=}"
 
 while [ $# -gt 0 ]; do
   case "$1" in

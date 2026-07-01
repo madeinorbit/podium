@@ -8,7 +8,9 @@ import {
   applyJoin,
   applyMode,
   applySetup,
+  getUpdateChannel,
   networkOptionCommand,
+  setUpdateChannel,
   validatePublicUrl,
   wssFrom,
 } from './setup'
@@ -70,5 +72,19 @@ describe('setup core', () => {
   it('applyMode requires a server URL for client mode', () => {
     expect(() => applyMode({ mode: 'client' })).toThrow()
     expect(loadConfig().mode).toBeUndefined()
+  })
+  it('getUpdateChannel defaults to stable when unset', () => {
+    expect(getUpdateChannel()).toBe('stable')
+  })
+  it('setUpdateChannel persists and getUpdateChannel reflects it', () => {
+    expect(setUpdateChannel('edge')).toBe('edge')
+    expect(getUpdateChannel()).toBe('edge')
+    expect(loadConfig().updateChannel).toBe('edge')
+  })
+  it('setUpdateChannel round-trips back to stable', () => {
+    setUpdateChannel('edge')
+    setUpdateChannel('stable')
+    expect(getUpdateChannel()).toBe('stable')
+    expect(loadConfig().updateChannel).toBe('stable')
   })
 })
