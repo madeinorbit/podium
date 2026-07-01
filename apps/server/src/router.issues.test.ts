@@ -106,6 +106,37 @@ describe('issues.* subtree scope (P1a)', () => {
   })
 })
 
+// Per-session capability minting (P1b): the registry derives an agent's capability from the
+// cwd its session runs in. A session inside an issue worktree gets a subtree cap rooted at
+// that issue; anything else (or an unknown session) gets the most-restricted worker/none.
+describe('SessionRegistry.capabilityForSession (P1b)', () => {
+  const registries: SessionRegistry[] = []
+  afterEach(() => {
+    for (const r of registries.splice(0)) r.dispose()
+  })
+
+  it('capabilityForSession returns subtree cap for a session in an issue worktree, else none', () => {
+    const registry = new SessionRegistry()
+    registries.push(registry)
+    // create + set worktreePath directly (start() needs a daemon repoOp round-trip).
+    const i = registry.issues.create({ repoPath: '/r', title: 'W', startNow: false })
+    registry.issues.update(i.id, { worktreePath: '/r/.worktrees/issue-1-w' })
+    const wt = registry.issues.get(i.id)!.worktreePath as string
+
+    const { sessionId: sid } = registry.createSession({ cwd: wt, agentKind: 'shell' })
+    const cap = registry.capabilityForSession(sid)
+    expect(cap).toEqual({ role: 'worker', scope: { kind: 'subtree', rootId: i.id } })
+
+    const { sessionId: sid2 } = registry.createSession({ cwd: '/unowned', agentKind: 'shell' })
+    expect(registry.capabilityForSession(sid2)).toEqual({ role: 'worker', scope: { kind: 'none' } })
+
+    expect(registry.capabilityForSession('no-such-session')).toEqual({
+      role: 'worker',
+      scope: { kind: 'none' },
+    })
+  })
+})
+
 // Structural guarantee: the scope gate only runs for procs listed in SCOPED_TARGET, so a
 // new write/manage proc that mutates an EXISTING issue must have an extractor or it silently
 // escapes the subtree check. Tie coverage to PROC_ACTION so the omission fails CI, not review.

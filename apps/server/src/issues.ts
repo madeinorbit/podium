@@ -3,7 +3,7 @@ import type { PodiumSettings } from '@podium/core'
 import { type DoctorReport, type DuplicateCandidate, type EpicStatus, type IssueCount, type IssueGraph, type IssueSearchFilter, type IssueStats, type IssueWire, type LintFinding, type OrphanIssue, type RepoOp, type ServerMessage, type SessionMeta } from '@podium/protocol'
 import { jaccard, tokenize } from './issue-similarity'
 import { lintIssue } from './issue-lint'
-import { sessionsForIssue, slugifyBranch, summarizeSessions } from './issue-util'
+import { isMemberCwd, sessionsForIssue, slugifyBranch, summarizeSessions } from './issue-util'
 import type { IssueRow, SessionStore } from './store'
 import { buildAssistantMessages, parseAssistantJson } from './issueAssistant'
 import { llmClient } from './llm'
@@ -337,6 +337,14 @@ export class IssueService {
   get(id: string): IssueWire | null {
     const r = this.rows.get(id)
     return r ? this.toWire(r) : null
+  }
+
+  /** The id of the issue whose worktree contains `cwd`, or null. Used to mint per-agent scope. */
+  issueForCwd(cwd: string): string | null {
+    for (const r of this.rows.values()) {
+      if (isMemberCwd(r.worktreePath, cwd)) return r.id
+    }
+    return null
   }
   allWire(): IssueWire[] {
     return this.list()

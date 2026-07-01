@@ -661,3 +661,15 @@ describe('IssueService.delete (P4b)', () => {
     expect(store.getIssue(child.id)!.parentId).toBeNull()
   })
 })
+
+describe('IssueService.issueForCwd (P1b)', () => {
+  it('issueForCwd resolves a cwd inside an issue worktree', async () => {
+    const { svc } = harness()
+    const i = svc.create({ repoPath: '/r', title: 'W', startNow: false })
+    await svc.start(i.id) // sets worktreePath
+    const wt = svc.get(i.id)!.worktreePath as string
+    expect(svc.issueForCwd(wt)).toBe(i.id)
+    expect(svc.issueForCwd(`${wt}/sub/dir`)).toBe(i.id)
+    expect(svc.issueForCwd('/somewhere/else')).toBeNull()
+  })
+})

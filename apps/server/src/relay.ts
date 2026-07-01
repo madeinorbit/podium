@@ -33,6 +33,7 @@ import {
 } from '@podium/protocol'
 import { AutoContinueController } from './auto-continue'
 import { knownPathsFor } from './file-relay-policy'
+import type { Capability } from './issue-authz'
 import { IssueService } from './issues'
 import { LOCAL_MACHINE_ID } from './local-machine'
 import {
@@ -844,6 +845,18 @@ export class SessionRegistry {
       this.setSessionDraft({ sessionId: spawned.sessionId, text: prompt })
     }
     return spawned
+  }
+
+  /** The capability a relayed agent session presents: worker, scoped to the issue whose
+   *  worktree it runs in (subtree), else 'none' (may read + create, but writing an existing
+   *  issue needs --outside-scope). Unknown session → most-restricted. */
+  capabilityForSession(sessionId: string): Capability {
+    const s = this.sessions.get(sessionId)
+    if (!s) return { role: 'worker', scope: { kind: 'none' } }
+    const issueId = this.issues.issueForCwd(s.cwd)
+    return issueId
+      ? { role: 'worker', scope: { kind: 'subtree', rootId: issueId } }
+      : { role: 'worker', scope: { kind: 'none' } }
   }
 
   resumeSession(input: {
