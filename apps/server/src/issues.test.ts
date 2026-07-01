@@ -51,11 +51,11 @@ describe('IssueService CRUD', () => {
 })
 
 describe('IssueService.start', () => {
-  it('creates a worktree off parent, spawns the agent with the description as initialPrompt, moves to planning', async () => {
+  it('creates a worktree off parent, spawns the agent with the description as initialPrompt, moves to in_progress', async () => {
     const { svc, deps } = harness()
     const created = svc.create({ repoPath: '/r', title: 'Fix login', description: 'do the thing', startNow: false })
     const started = await svc.start(created.id)
-    expect(started.stage).toBe('planning')
+    expect(started.stage).toBe('in_progress')
     expect(started.branch).toBe('issue/1-fix-login')
     expect(started.worktreePath).toBe('/r/.worktrees/issue-1-fix-login')
     expect(deps.repoOp).toHaveBeenCalledWith('worktreeAdd', '/r',
@@ -70,7 +70,7 @@ describe('IssueService.start', () => {
   it('create(startNow=true) starts immediately', async () => {
     const { svc } = harness()
     const wire = await svc.createAndMaybeStart({ repoPath: '/r', title: 'X', startNow: true })
-    expect(wire.stage).toBe('planning')
+    expect(wire.stage).toBe('in_progress')
     expect(wire.worktreePath).not.toBeNull()
   })
 
@@ -79,6 +79,14 @@ describe('IssueService.start', () => {
     ;(deps.repoOp as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ ok: false, output: 'fatal: branch exists' })
     const created = svc.create({ repoPath: '/r', title: 'X', startNow: false })
     await expect(svc.start(created.id)).rejects.toThrow(/fatal: branch exists/)
+  })
+
+  it('start auto-claims the issue (assignee = agent, stage = in_progress)', async () => {
+    const { svc } = harness()
+    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    const started = await svc.start(a.id)
+    expect(started.assignee).toBe('agent:claude-code')
+    expect(started.stage).toBe('in_progress')
   })
 })
 

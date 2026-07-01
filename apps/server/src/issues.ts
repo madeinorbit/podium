@@ -608,7 +608,8 @@ export class IssueService {
     if (!res.ok) throw new Error(`worktree add failed: ${res.output}`)
     row.branch = branch
     row.worktreePath = path
-    row.stage = 'planning'
+    row.stage = 'in_progress'
+    row.assignee = `agent:${row.defaultAgent}`
     const wire = this.persistRow(row)
     // Hand the agent the description as its first prompt AT SPAWN. createSession
     // delivers it via argv for claude/codex/grok (`claude "<prompt>"` — consumed at
