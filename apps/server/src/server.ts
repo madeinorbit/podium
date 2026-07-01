@@ -55,6 +55,31 @@ export function callerAsIssueTrpc(caller: ReturnType<typeof appRouter.createCall
   ) as unknown as IssueTrpc
 }
 
+/**
+ * Thrown (as a rejection) by {@link startServer} when the chosen port is already
+ * bound — typically a second `podium` fighting the systemd podium-server for :18787.
+ * A typed, port-carrying error lets the CLI print friendly guidance instead of leaking
+ * a raw EADDRINUSE stack trace.
+ */
+export class PortInUseError extends Error {
+  readonly code = 'EADDRINUSE' as const
+  constructor(
+    readonly port: number,
+    options?: { cause?: unknown },
+  ) {
+    super(`port ${port} is already in use`, options)
+    this.name = 'PortInUseError'
+  }
+}
+
+/** True for a failed-listen "address in use" error, whether ours or a raw runtime errno. */
+export function isAddressInUseError(err: unknown): boolean {
+  if (err instanceof PortInUseError) return true
+  return (
+    typeof err === 'object' && err !== null && (err as { code?: unknown }).code === 'EADDRINUSE'
+  )
+}
+
 export interface ServerHandle {
   port: number
   registry: SessionRegistry
@@ -189,48 +214,79 @@ export async function startServer(
     )
   }
 
-  return new Promise<ServerHandle>((resolve) => {
-    const server = serve({ fetch: app.fetch, port: opts.port ?? 0, hostname: host }, (info) => {
-      // The harness agent runs on the same host (single-machine), so loopback
-      // reaches this MCP route. Now that the port is known, point it there.
-      superagent.setMcpEndpoint(
-        `http://127.0.0.1:${info.port}/mcp`,
-        mcpToken,
-        mcpProvider.mcpToolSpecs().map((s) => s.name),
+  const requestedPort = opts.port ?? 0
+  return new Promise<ServerHandle>((resolve, reject) => {
+    // serve() from @hono/node-server registers no 'error' handler of its own. A failed
+    // listen() (e.g. the port is already held by the systemd podium-server) then surfaces
+    // differently per runtime: Bun throws synchronously out of serve(); Node emits an
+    // async 'error' event on the underlying server. Left unhandled, either becomes a
+    // swallowed uncaughtException while this promise hangs forever. Catch BOTH and turn
+    // them into a clean rejection, disposing the half-built store so we don't leak a DB
+    // handle or its flush timer. `settled` guards against a post-listen socket 'error'
+    // being mistaken for a bind failure (and against double-settling).
+    let settled = false
+    const failListen = (err: unknown): void => {
+      if (settled) return
+      settled = true
+      registry.dispose()
+      store.close()
+      reject(
+        isAddressInUseError(err)
+          ? new PortInUseError(requestedPort, { cause: err })
+          : (err as Error),
       )
-      // The in-process MCP issue surface is the trusted superagent orchestrator. It calls the
-      // router DIRECTLY (not the cookie-gated HTTP /trpc, which would 401 it) as the OPERATOR.
-      // The shared command registry expects an IssueTrpc client (.<router>.<proc>.mutate/query);
-      // adapt a createCaller caller to that shape. This is also the seam for per-agent
-      // capabilities later: pass a constrained capability instead of OPERATOR.
-      const caller = appRouter.createCaller({ registry, repos, superagent, capability: OPERATOR })
-      issueTools.setClient(callerAsIssueTrpc(caller))
-      const ws = attachWebSockets(server as unknown as Server, registry, {
-        // Same gate as the HTTP guard: open unless a password is set, then require a valid
-        // session cookie on the upgrade request.
-        authorizeClient: (req) => !hasPassword() || isRequestAuthed(store, req.headers.cookie),
+    }
+
+    let server: ReturnType<typeof serve>
+    try {
+      server = serve({ fetch: app.fetch, port: requestedPort, hostname: host }, (info) => {
+        if (settled) return
+        settled = true
+        // The harness agent runs on the same host (single-machine), so loopback
+        // reaches this MCP route. Now that the port is known, point it there.
+        superagent.setMcpEndpoint(
+          `http://127.0.0.1:${info.port}/mcp`,
+          mcpToken,
+          mcpProvider.mcpToolSpecs().map((s) => s.name),
+        )
+        // The in-process MCP issue surface is the trusted superagent orchestrator. It calls the
+        // router DIRECTLY (not the cookie-gated HTTP /trpc, which would 401 it) as the OPERATOR.
+        // The shared command registry expects an IssueTrpc client (.<router>.<proc>.mutate/query);
+        // adapt a createCaller caller to that shape. This is also the seam for per-agent
+        // capabilities later: pass a constrained capability instead of OPERATOR.
+        const caller = appRouter.createCaller({ registry, repos, superagent, capability: OPERATOR })
+        issueTools.setClient(callerAsIssueTrpc(caller))
+        const ws = attachWebSockets(server as unknown as Server, registry, {
+          // Same gate as the HTTP guard: open unless a password is set, then require a valid
+          // session cookie on the upgrade request.
+          authorizeClient: (req) => !hasPassword() || isRequestAuthed(store, req.headers.cookie),
+        })
+        if (process.env.PODIUM_LOOP_PROFILE) startLoopMetrics({ label: 'server' })
+        resolve({
+          port: info.port,
+          registry,
+          bootstrapToken,
+          close: () =>
+            ws.close().then(
+              () =>
+                new Promise<void>((res) => {
+                  ;(server as unknown as Server).close(() => {
+                    // Persist the last dirty activity timestamps while the DB is still
+                    // open, then stop the periodic flush timer (so a tick can't fire an
+                    // upsertSession against a closed DB), and only then close the store.
+                    registry.flushActivity()
+                    registry.dispose()
+                    store.close()
+                    res()
+                  })
+                }),
+            ),
+        })
       })
-      if (process.env.PODIUM_LOOP_PROFILE) startLoopMetrics({ label: 'server' })
-      resolve({
-        port: info.port,
-        registry,
-        bootstrapToken,
-        close: () =>
-          ws.close().then(
-            () =>
-              new Promise<void>((res) => {
-                ;(server as unknown as Server).close(() => {
-                  // Persist the last dirty activity timestamps while the DB is still
-                  // open, then stop the periodic flush timer (so a tick can't fire an
-                  // upsertSession against a closed DB), and only then close the store.
-                  registry.flushActivity()
-                  registry.dispose()
-                  store.close()
-                  res()
-                })
-              }),
-          ),
-      })
-    })
+      // Node surfaces a failed listen() as an async 'error' event (Bun throws above).
+      ;(server as unknown as Server).on('error', failListen)
+    } catch (err) {
+      failListen(err)
+    }
   })
 }

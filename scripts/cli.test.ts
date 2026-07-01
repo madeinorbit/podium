@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { resolvePlan } from './cli'
+import { portInUseMessage, resolvePlan } from './cli'
 
 describe('resolvePlan', () => {
   it('defaults to all-in-one + setup hint when nothing is configured', () => {
@@ -18,10 +18,14 @@ describe('resolvePlan', () => {
     })
   })
   it('config.serverUrl is used when no flag', () => {
-    expect(resolvePlan(['daemon'], { serverUrl: 'ws://cfg:1' })).toMatchObject({ serverUrl: 'ws://cfg:1' })
+    expect(resolvePlan(['daemon'], { serverUrl: 'ws://cfg:1' })).toMatchObject({
+      serverUrl: 'ws://cfg:1',
+    })
   })
   it('--pair and --name are carried into the plan for a fresh remote daemon', () => {
-    expect(resolvePlan(['daemon', '--server', 'ws://h:1', '--pair', 'ABC123', '--name', 'laptop'], {})).toEqual({
+    expect(
+      resolvePlan(['daemon', '--server', 'ws://h:1', '--pair', 'ABC123', '--name', 'laptop'], {}),
+    ).toEqual({
       mode: 'daemon',
       serverUrl: 'ws://h:1',
       pairCode: 'ABC123',
@@ -45,5 +49,14 @@ describe('resolvePlan', () => {
     expect(
       resolvePlan(['daemon', '--pair', 'FLAG1'], { serverUrl: 'ws://cfg:1', pairCode: 'CFG999' }),
     ).toMatchObject({ pairCode: 'FLAG1' })
+  })
+})
+
+describe('portInUseMessage', () => {
+  it('names the port and points at the already-running server instead of a stack trace', () => {
+    const msg = portInUseMessage(18787)
+    expect(msg).toContain('18787')
+    expect(msg.toLowerCase()).toContain('already')
+    expect(msg).toContain('http://localhost:18787')
   })
 })

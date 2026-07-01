@@ -46,6 +46,20 @@ export function resolvePlan(argv: string[], config: PodiumConfig): LaunchPlan {
   }
 }
 
+/**
+ * Friendly guidance when the server port is already held — almost always because a
+ * podium server is already running here (e.g. the systemd podium-server on :18787).
+ * Printed instead of the raw EADDRINUSE stack trace that used to crash the CLI (issue #8).
+ */
+export function portInUseMessage(port: number): string {
+  return [
+    `podium: port ${port} is already in use — a podium server is probably already running here.`,
+    `  → Open it:               http://localhost:${port}/`,
+    '  → Reconfigure this box:  podium setup',
+    `  → Or use another port:   PODIUM_PORT=<port> podium`,
+  ].join('\n')
+}
+
 export async function main(): Promise<void> {
   const argv = process.argv.slice(2)
   const config = loadConfig()
@@ -134,8 +148,20 @@ export async function main(): Promise<void> {
 
   let serverPort = port
   if (runServer) {
-    const { startServer } = await import('../apps/server/src/server')
-    const server = await startServer({ port })
+    const { startServer, isAddressInUseError } = await import('../apps/server/src/server')
+    let server: Awaited<ReturnType<typeof startServer>>
+    try {
+      server = await startServer({ port })
+    } catch (err) {
+      // The port is taken (the common case on podium-host: the systemd podium-server already
+      // owns :18787). Print actionable guidance and exit cleanly rather than dumping a raw
+      // EADDRINUSE stack trace through the crash net (issue #8).
+      if (isAddressInUseError(err)) {
+        console.error(portInUseMessage(port))
+        process.exit(1)
+      }
+      throw err
+    }
     serverPort = server.port
     console.log(`podium server up on http://localhost:${serverPort}`)
     if (forceSetup || plan.showSetupHint) {
