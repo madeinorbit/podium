@@ -47,8 +47,10 @@ function hostHeaderName(host: string | undefined): string | undefined {
  * Crucially, we ALSO allow when the request's own `Host` is loopback. Behind a reverse proxy
  * (tailscale serve / nginx / caddy, which set `changeOrigin`) the backend's Host is rewritten
  * to its internal loopback address, so an Origin==Host comparison can never match a real
- * browser origin — the edge owns origin policy there. We therefore only *enforce* same-origin
- * when the backend is bound to a real network host (direct exposure). SameSite=Lax on the
+ * browser origin — the edge owns origin policy there. We therefore only *enforce* same-host
+ * when the backend is bound to a real network host (direct exposure). The comparison is
+ * hostname-only (port-insensitive): a TLS terminator forwards on a different port than the
+ * public one, and same-host/different-port isn't the CSWSH threat. SameSite=Lax on the
  * session cookie is the primary CSWSH protection regardless; this is defense-in-depth.
  */
 export function isAllowedWsOrigin(origin: string | undefined, host: string | undefined): boolean {
@@ -62,8 +64,11 @@ export function isAllowedWsOrigin(origin: string | undefined, host: string | und
   if (parsed.protocol === 'tauri:') return true
   if (LOOPBACK_HOSTS.has(parsed.hostname)) return true
   // Proxied or local backend → can't/needn't verify the public origin here.
-  if (LOOPBACK_HOSTS.has(hostHeaderName(host) ?? '')) return true
-  return Boolean(host) && parsed.host === host
+  const reqHost = hostHeaderName(host)
+  if (LOOPBACK_HOSTS.has(reqHost ?? '')) return true
+  // Direct network exposure: require the Origin's hostname to match the request's, so a
+  // foreign site (evil.example) is rejected while any port on our own host is allowed.
+  return Boolean(reqHost) && parsed.hostname === reqHost
 }
 
 // Server-side liveness. The browser answers protocol-level pings with pongs at the

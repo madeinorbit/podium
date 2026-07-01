@@ -24,6 +24,12 @@ describe('isAllowedWsOrigin', () => {
     expect(isAllowedWsOrigin('https://evil.example', 'podium.example.com')).toBe(false)
   })
 
+  test('same hostname on a different port is allowed (TLS terminator forwards a diff port)', () => {
+    expect(isAllowedWsOrigin('https://box.tailnet.ts.net:55555', 'box.tailnet.ts.net:18787')).toBe(
+      true,
+    )
+  })
+
   test('any origin is allowed when the backend Host is loopback (behind a reverse proxy)', () => {
     // tailscale serve / nginx / caddy proxy with changeOrigin rewrites Host to localhost, so
     // Origin can never equal Host — the edge owns origin policy. Must NOT reject the real client.
