@@ -337,6 +337,15 @@ describe('IssueService field mutations (P1)', () => {
     expect(closed.closedReason).toBe('wontfix')
   })
 
+  it('ancestorIds walks the parent chain nearest-first', () => {
+    const { svc } = harness()
+    const epic = svc.create({ repoPath: '/r', title: 'epic', startNow: false })
+    const mid = svc.create({ repoPath: '/r', title: 'mid', startNow: false, parentId: epic.id })
+    const leaf = svc.create({ repoPath: '/r', title: 'leaf', startNow: false, parentId: mid.id })
+    expect(svc.ancestorIds(leaf.id)).toEqual([mid.id, epic.id])
+    expect(svc.ancestorIds(epic.id)).toEqual([])
+  })
+
   it('reparent maintains a parent-child edge', () => {
     const { svc, store } = harness()
     const epic = svc.create({ repoPath: '/r', title: 'E', startNow: false })

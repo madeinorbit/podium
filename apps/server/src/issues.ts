@@ -504,6 +504,20 @@ export class IssueService {
     return this.persist(row)
   }
 
+  /** The issue's parent chain, nearest first. Cycle-safe (parent graph is invariant, but
+   *  guard anyway). Used by the authz middleware to test subtree membership. */
+  ancestorIds(id: string): string[] {
+    const out: string[] = []
+    const seen = new Set<string>()
+    let cur = this.rows.get(id)?.parentId ?? null
+    while (cur && !seen.has(cur)) {
+      seen.add(cur)
+      out.push(cur)
+      cur = this.rows.get(cur)?.parentId ?? null
+    }
+    return out
+  }
+
   claim(id: string, assignee: string): IssueWire {
     return this.update(id, { assignee, stage: 'in_progress' })
   }
