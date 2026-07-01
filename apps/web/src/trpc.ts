@@ -1,3 +1,4 @@
+import { WIRE_VERSION } from '@podium/protocol'
 import type { AppRouter } from '@podium/server'
 import { createTRPCClient, httpBatchLink } from '@trpc/client'
 
@@ -44,7 +45,9 @@ export function parseServerOrigin(server: string): ServerOrigin | null {
   const httpProto = secure ? 'https:' : 'http:'
   const wsBase = `${wsProto}//${hostWithPort}`
   const httpOrigin = `${httpProto}//${hostWithPort}`
-  return { wsClientUrl: `${wsBase}/client`, httpOrigin }
+  // `?v=` lets the server reject a wire-incompatible client at handshake; the client
+  // independently hard-reloads on a `/version` mismatch (see version-guard.ts).
+  return { wsClientUrl: `${wsBase}/client?v=${WIRE_VERSION}`, httpOrigin }
 }
 
 /**
@@ -62,7 +65,11 @@ export function serverConfig(loc: Location): ServerConfig {
   if (parsed) return { ...parsed, override: true }
   // 3. Same-origin derived from window.location.
   const wsProto = loc.protocol === 'https:' ? 'wss:' : 'ws:'
-  return { wsClientUrl: `${wsProto}//${loc.host}/client`, httpOrigin: loc.origin, override: false }
+  return {
+    wsClientUrl: `${wsProto}//${loc.host}/client?v=${WIRE_VERSION}`,
+    httpOrigin: loc.origin,
+    override: false,
+  }
 }
 
 export function makeTrpc(httpOrigin: string): Trpc {

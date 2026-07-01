@@ -2,6 +2,7 @@ import { type ReactNode, useEffect, useState } from 'react'
 import { AppErrorPage } from './AppErrorPage'
 import { SetupView } from './SetupView'
 import { serverConfig } from './trpc'
+import { checkServerVersion } from './version-guard'
 
 type Phase = 'loading' | 'setup' | 'ready' | 'unreachable'
 
@@ -98,7 +99,14 @@ export function SetupGate({ children }: { children: ReactNode }): ReactNode {
           }
         })
     }
-    run(0)
+
+    // Wire-version handshake first: a stale cached PWA shell talking to a bumped server must
+    // hard-reload (evicting the SW cache) before we render anything. On a match / flaky
+    // /version it resolves 'ok'; on a mismatch it triggers a reload and we stay on 'loading'
+    // (the page is already reloading). 'blocked' (loop guard tripped) falls through to render.
+    checkServerVersion(httpOrigin).then((result) => {
+      if (alive && result !== 'reloaded') run(0)
+    })
 
     return () => {
       alive = false
