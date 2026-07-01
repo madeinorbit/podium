@@ -1,4 +1,16 @@
-import { type ReactNode, useEffect, useState } from 'react'
+import { Loader2, LockKeyhole } from 'lucide-react'
+import { type ReactNode, useEffect, useRef, useState } from 'react'
+import { Button } from '@/components/ui/button'
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import { serverConfig } from './trpc'
 
 type Phase = 'loading' | 'login' | 'ready'
@@ -21,6 +33,15 @@ async function probeAuth(httpOrigin: string): Promise<'login' | 'ready'> {
   return data.needsAuth === true && data.authed !== true ? 'login' : 'ready'
 }
 
+/** The host you're signing in to, shown for reassurance on a self-hosted install. */
+function originHost(httpOrigin: string): string {
+  try {
+    return new URL(httpOrigin).host
+  } catch {
+    return ''
+  }
+}
+
 /** Single-user password prompt. On success the session cookie is set and `onLoggedIn` fires. */
 export function LoginView({
   httpOrigin,
@@ -32,6 +53,12 @@ export function LoginView({
   const [password, setPassword] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  // Focus the field on mount (login is the only thing on screen), lint-cleanly (no autoFocus).
+  useEffect(() => {
+    inputRef.current?.focus()
+  }, [])
 
   const submit = async (): Promise<void> => {
     setBusy(true)
@@ -59,29 +86,92 @@ export function LoginView({
     }
   }
 
+  const host = originHost(httpOrigin)
+
   return (
-    <div className="setup-view">
-      <h1>Podium</h1>
-      <p>Enter your password to continue.</p>
-      <form
-        onSubmit={(e) => {
-          e.preventDefault()
-          void submit()
-        }}
-      >
-        <label htmlFor="podium-password">Password</label>
-        <input
-          id="podium-password"
-          type="password"
-          autoComplete="current-password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
+    <div className="relative flex min-h-svh w-full items-center justify-center overflow-hidden bg-background p-6">
+      {/* Atmosphere: a single soft focused glow behind the card + a faint top wash. */}
+      <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
+        <div className="-translate-x-1/2 -translate-y-[58%] absolute top-1/2 left-1/2 size-[34rem] rounded-full bg-primary/[0.06] blur-[110px]" />
+        <div className="absolute inset-x-0 top-0 h-40 bg-gradient-to-b from-muted/40 to-transparent" />
+      </div>
+
+      <Card className="fade-in-0 slide-in-from-bottom-2 relative w-full max-w-sm animate-in overflow-hidden border-border/70 pt-8 shadow-2xl shadow-black/20 duration-500">
+        {/* Hairline highlight along the top edge for a bit of depth. */}
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-border to-transparent"
         />
-        {error && <p role="alert">{error}</p>}
-        <button type="submit" disabled={busy || !password}>
-          {busy ? 'Logging in…' : 'Log in'}
-        </button>
-      </form>
+        <CardHeader className="justify-items-center gap-3 text-center">
+          <div className="flex size-11 items-center justify-center rounded-xl border border-border bg-muted/40 text-foreground shadow-sm">
+            <LockKeyhole className="size-5" strokeWidth={1.75} />
+          </div>
+          <div className="grid gap-1.5">
+            <CardTitle className="font-heading text-lg tracking-tight">Welcome back</CardTitle>
+            <CardDescription>Enter your password to continue.</CardDescription>
+          </div>
+        </CardHeader>
+
+        <CardContent>
+          <form
+            className="grid gap-4"
+            onSubmit={(e) => {
+              e.preventDefault()
+              void submit()
+            }}
+          >
+            <div className="grid gap-2">
+              <Label htmlFor="podium-password" className="text-muted-foreground text-xs">
+                Password
+              </Label>
+              <Input
+                ref={inputRef}
+                id="podium-password"
+                type="password"
+                autoComplete="current-password"
+                className="h-10"
+                aria-invalid={error ? true : undefined}
+                value={password}
+                onChange={(e) => {
+                  setPassword(e.target.value)
+                  if (error) setError(null)
+                }}
+              />
+            </div>
+            {error && (
+              <p
+                role="alert"
+                className="fade-in-0 slide-in-from-top-1 animate-in text-[13px] text-destructive duration-200"
+              >
+                {error}
+              </p>
+            )}
+            <Button
+              type="submit"
+              size="lg"
+              className="mt-1 h-10 w-full"
+              disabled={busy || !password}
+            >
+              {busy ? (
+                <>
+                  <Loader2 className="size-4 animate-spin" />
+                  Signing in…
+                </>
+              ) : (
+                'Log in'
+              )}
+            </Button>
+          </form>
+        </CardContent>
+
+        {host && (
+          <CardFooter className="justify-center border-border/60 border-t bg-muted/20 py-3.5">
+            <p className="text-[11px] text-muted-foreground">
+              Signing in to <span className="font-medium text-foreground/80">{host}</span>
+            </p>
+          </CardFooter>
+        )}
+      </Card>
     </div>
   )
 }
