@@ -113,6 +113,17 @@ const DEFAULT_HOST_METRICS_INTERVAL_MS = 5_000
 // 64 MB leaves generous headroom over real uploads/pastes/file writes.
 const MAX_CONTROL_FRAME_BYTES = 64 * 1024 * 1024
 
+/**
+ * Env vars bound into EVERY spawned agent so its `podium issue` CLI can reach the
+ * daemon's loopback relay for this exact session. PODIUM_SESSION_ID is bound at
+ * spawn (never a CLI arg the agent could spoof); PODIUM_ISSUE_RELAY is the relay
+ * URL with the session id baked into the path (issueRelay.endpointFor(sessionId)).
+ * Pure so it's unit-testable without standing up the daemon.
+ */
+export function issueRelayEnv(sessionId: string, endpoint: string): Record<string, string> {
+  return { PODIUM_SESSION_ID: sessionId, PODIUM_ISSUE_RELAY: endpoint }
+}
+
 // Malformed inbound frames and failed outbound sends are dropped so they can't wedge
 // the daemon's control loop — but the drop is logged (never silent), throttled so a
 // flapping socket or a poison-frame storm can't flood the journal.
@@ -1121,8 +1132,13 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
         cwd: cmd.cwd,
         cols: msg.geometry.cols,
         rows: msg.geometry.rows,
-        // Subagent model rides as env — Claude Code reads it; harmless elsewhere.
-        ...(msg.subagentModel ? { env: { CLAUDE_CODE_SUBAGENT_MODEL: msg.subagentModel } } : {}),
+        env: {
+          // Bind the loopback issue-relay + session id into every agent's env so its
+          // `podium issue` CLI can reach the daemon for this exact session.
+          ...issueRelayEnv(msg.sessionId, issueRelay.endpointFor(msg.sessionId)),
+          // Subagent model rides as env — Claude Code reads it; harmless elsewhere.
+          ...(msg.subagentModel ? { CLAUDE_CODE_SUBAGENT_MODEL: msg.subagentModel } : {}),
+        },
       }
       const session =
         backend === 'abduco'
