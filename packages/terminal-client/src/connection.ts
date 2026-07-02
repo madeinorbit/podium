@@ -1,12 +1,16 @@
 import {
+  CAP_METADATA_DELTA,
   type ConversationSummaryWire,
   encode,
   type HostMetricsWire,
   type IssueWire,
   type MachineWire,
+  type MetadataChange,
+  type MetadataDeltaMessage,
   parseServerMessageLenient,
   type ServerMessage,
   type SessionMeta,
+  type SyncChangesSinceResult,
   type TranscriptItem,
 } from '@podium/protocol'
 
@@ -61,6 +65,15 @@ export interface SocketHubOptions {
   viewport: ConnectionViewport
   makeSocket?: (url: string) => WebSocketLike
   onError?: (message: string, event?: unknown) => void
+  /**
+   * Metadata-oplog catch-up (docs/spec/oplog-read-path.md), typically wired to the
+   * `sync.changesSince` tRPC query. PROVIDING THIS OPTS THE HUB INTO DELTA MODE:
+   * the hello advertises CAP_METADATA_DELTA, the server stops sending this client
+   * full-list snapshot rebroadcasts, and the hub applies `metadataDelta` batches —
+   * healing every (re)connect and any detected seq gap through this callback.
+   * Omitted (tests, embedders): legacy snapshot behavior, byte-for-byte unchanged.
+   */
+  fetchChangesSince?: (cursor: number | null) => Promise<SyncChangesSinceResult>
 }
 
 function utf8ToBase64(text: string): string {
@@ -104,6 +117,29 @@ const PING_QUEUE_CAP = 8
 // reconnect, so a blip doesn't silently swallow input. Capped so a long outage
 // can't replay an unbounded burst of stale typing into the agent on return.
 const INPUT_QUEUE_CAP = 1_000
+// Flat retry for a failed changesSince heal while the socket is up (tRPC blips are
+// rare when the WS is healthy; a reconnect re-enters the heal path anyway).
+const HEAL_RETRY_MS = 3_000
+
+/** Fold one oplog change into an entity list (upsert replaces by id or appends;
+ *  an upsert with no value is a producer bug the protocol says to drop). */
+function applyChange<T>(
+  list: T[],
+  op: 'upsert' | 'remove',
+  value: T | undefined,
+  match: (el: T) => boolean,
+): T[] {
+  if (op === 'remove') return list.filter((el) => !match(el))
+  if (value === undefined) return list
+  let replaced = false
+  const next = list.map((el) => {
+    if (!match(el)) return el
+    replaced = true
+    return value
+  })
+  if (!replaced) next.push(value)
+  return next
+}
 
 export interface AttentionEvent {
   sessionId: string
@@ -133,6 +169,13 @@ export class SocketHub {
   private hostMetricsList: HostMetricsWire[] = []
   private machinesList: MachineWire[] = []
   private issueList: IssueWire[] = []
+  // ---- metadata-oplog cursor state (delta mode only; see SocketHubOptions) ----
+  /** Last applied oplog seq; null until the first changesSince completes. */
+  private metadataCursor: number | null = null
+  /** Deltas that arrived while a heal/bootstrap was in flight — replayed after. */
+  private pendingDeltas: MetadataDeltaMessage[] = []
+  private healInFlight = false
+  private healRetryTimer: ReturnType<typeof setTimeout> | undefined
   private intentionalClose = false
   private everConnected = false
   private reconnectDelay = RECONNECT_MIN_MS
@@ -222,7 +265,14 @@ export class SocketHub {
         type: 'hello',
         clientId: this.clientIdValue,
         viewport: { ...this.opts.viewport },
+        // Delta mode is negotiated per connection — advertise it only when the
+        // embedder wired a changesSince fetcher (see SocketHubOptions).
+        ...(this.opts.fetchChangesSince ? { caps: [CAP_METADATA_DELTA] } : {}),
       })
+      // Catch up on whatever the metadata stream did while we were away (or take
+      // the bootstrap snapshot on a first connect). The attach-time snapshots the
+      // server sends pre-hello already painted the UI; this establishes the cursor.
+      this.healMetadata()
       // Re-attach with a resume cursor: the view survived the drop, so ask the
       // server to catch us up from the last seq we rendered instead of wiping and
       // replaying the whole buffer. A connection that has rendered nothing yet
@@ -280,6 +330,13 @@ export class SocketHub {
     this.stopHeartbeat()
     this.connectedFlag = false
     this.socket = undefined
+    // A heal retry is pointless with the socket down (and deltas queued during an
+    // outage are superseded by the reconnect heal) — the onopen path re-enters.
+    if (this.healRetryTimer !== undefined) {
+      clearTimeout(this.healRetryTimer)
+      this.healRetryTimer = undefined
+    }
+    this.pendingDeltas = []
     this.notifyConnections()
     if (!this.intentionalClose) this.evaluateHealth()
     if (!this.intentionalClose && this.everConnected) this.scheduleReconnect()
@@ -609,7 +666,16 @@ export class SocketHub {
       if (result.dropped > 0) {
         // Never silent: a swallowed drop here was what turned a one-row data bug into
         // an invisible, blank-UI outage. Make every quarantine observable.
-        console.warn(`[podium] quarantined ${result.dropped} invalid item(s) in a ${msg?.type ?? '?'} message`)
+        console.warn(
+          `[podium] quarantined ${result.dropped} invalid item(s) in a ${msg?.type ?? '?'} message`,
+        )
+        // A quarantined element in a DELTA batch is an invisible cursor gap (list
+        // messages self-heal on the next snapshot; a delta stream does not) — treat
+        // it like any other gap and resync through changesSince.
+        if (msg?.type === 'metadataDelta') {
+          this.healMetadata()
+          return
+        }
       }
     } catch (err) {
       console.warn('[podium] dropped an unparseable server message', err)
@@ -630,6 +696,10 @@ export class SocketHub {
     if (msg.type === 'welcome') {
       this.clientIdValue = msg.clientId
       this.notifyConnections()
+      return
+    }
+    if (msg.type === 'metadataDelta') {
+      this.ingestDelta(msg)
       return
     }
     if (msg.type === 'sessionsChanged') {
@@ -704,6 +774,117 @@ export class SocketHub {
       return
     }
     this.connections.get(msg.sessionId)?._ingest(msg)
+  }
+
+  // ---- metadata oplog: delta application + cursor healing (spec §2.4) ----
+
+  /** Live `metadataDelta` intake. Queued while a heal is in flight (the heal's
+   *  cursor decides what still applies); a seq gap aborts into a heal. */
+  private ingestDelta(msg: MetadataDeltaMessage): void {
+    if (this.healInFlight || this.metadataCursor == null) {
+      this.pendingDeltas.push(msg)
+      // No cursor yet and no heal running (changesSince rejected and is waiting on
+      // its retry timer): the queue alone would grow unboundedly — nudge the heal.
+      if (!this.healInFlight && this.healRetryTimer === undefined) this.healMetadata()
+      return
+    }
+    if (!this.applyDelta(msg)) this.healMetadata()
+  }
+
+  /**
+   * Apply one batch against the cursor. Returns false on a gap (batch starts past
+   * cursor + 1) — the caller must heal. Changes at or below the cursor are skipped
+   * (a heal may have already covered them); upserts are idempotent by id.
+   */
+  private applyDelta(msg: MetadataDeltaMessage): boolean {
+    const cursor = this.metadataCursor as number
+    if (msg.seq <= cursor) return true // entirely stale — already healed past it
+    const fresh = msg.changes.filter((c) => c.seq > cursor)
+    if (fresh.length === 0) return true
+    if ((fresh[0] as MetadataChange).seq !== cursor + 1) return false
+    this.applyChanges(fresh)
+    this.metadataCursor = msg.seq
+    return true
+  }
+
+  /** Fold wire changes into the entity lists and notify only touched observers. */
+  private applyChanges(changes: MetadataChange[]): void {
+    const touched = new Set<MetadataChange['entity']>()
+    for (const c of changes) {
+      touched.add(c.entity)
+      if (c.entity === 'session') {
+        this.sessionList = applyChange(this.sessionList, c.op, c.value, (s) => s.sessionId === c.id)
+      } else if (c.entity === 'issue') {
+        this.issueList = applyChange(this.issueList, c.op, c.value, (i) => i.id === c.id)
+      } else {
+        this.conversationList = applyChange(
+          this.conversationList,
+          c.op,
+          c.value,
+          (x) => x.id === c.id,
+        )
+      }
+    }
+    if (touched.has('session')) for (const o of this.sessionObservers) o(this.sessionList)
+    if (touched.has('issue')) for (const o of this.issueObservers) o(this.issueList)
+    if (touched.has('conversation'))
+      for (const o of this.conversationObservers) o(this.conversationList)
+  }
+
+  /**
+   * Establish or repair the cursor via changesSince: bootstrap (null cursor) and
+   * compaction both come back as a snapshot (full replace — same source of truth
+   * as any delta in flight, so a replace is always safe); otherwise the missed
+   * changes are applied as a delta. Single-flight; deltas arriving meanwhile queue
+   * and are drained after, re-healing if they still don't line up. Fetch failures
+   * retry on a flat 3s timer while the socket is up — a reconnect also re-enters.
+   */
+  private healMetadata(): void {
+    const fetch = this.opts.fetchChangesSince
+    if (!fetch || this.healInFlight) return
+    if (this.healRetryTimer !== undefined) {
+      clearTimeout(this.healRetryTimer)
+      this.healRetryTimer = undefined
+    }
+    this.healInFlight = true
+    fetch(this.metadataCursor).then(
+      (result) => {
+        this.healInFlight = false
+        if (result.kind === 'snapshot') {
+          this.sessionList = result.sessions
+          this.issueList = result.issues
+          this.conversationList = result.conversations
+          for (const o of this.sessionObservers) o(this.sessionList)
+          for (const o of this.issueObservers) o(this.issueList)
+          for (const o of this.conversationObservers) o(this.conversationList)
+        } else if (result.changes.length > 0) {
+          this.applyChanges(result.changes.filter((c) => c.seq > (this.metadataCursor ?? 0)))
+        }
+        this.metadataCursor = result.cursor
+        const queued = this.pendingDeltas.splice(0)
+        for (let i = 0; i < queued.length; i++) {
+          if (!this.applyDelta(queued[i] as MetadataDeltaMessage)) {
+            // Still gapped (changes raced past between the fetch and now): requeue
+            // the rest and go around again.
+            this.pendingDeltas = queued.slice(i)
+            this.healMetadata()
+            return
+          }
+        }
+      },
+      () => {
+        this.healInFlight = false
+        // Bound the offline queue: after a failed heal these are all stale-or-future;
+        // the eventual successful heal supersedes them.
+        this.pendingDeltas = []
+        if (this.connectedFlag && this.healRetryTimer === undefined) {
+          this.healRetryTimer = setTimeout(() => {
+            this.healRetryTimer = undefined
+            this.healMetadata()
+          }, HEAL_RETRY_MS)
+        }
+      },
+    )
   }
 
   private notifyConnections(): void {

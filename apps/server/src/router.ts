@@ -227,6 +227,14 @@ export const appRouter = t.router({
         return result
       }),
   }),
+  sync: t.router({
+    // Metadata-oplog catch-up (docs/spec/oplog-read-path.md): null cursor = bootstrap
+    // snapshot; a valid cursor = the changes after it; a compacted/future cursor
+    // falls back to snapshot. The client heals every WS (re)connect through this.
+    changesSince: t.procedure
+      .input(z.object({ cursor: z.number().int().nonnegative().nullable() }))
+      .query(({ ctx, input }) => ctx.registry.syncChangesSince(input.cursor)),
+  }),
   pins: t.router({
     list: t.procedure.query(({ ctx }) => ctx.registry.listPins()),
     set: t.procedure
@@ -726,7 +734,9 @@ export const appRouter = t.router({
       .mutation(({ ctx, input }) => ctx.registry.issues.defer(input.id, input.until)),
     setNeedsHuman: issueProc
       .input(z.object({ id: z.string(), question: z.string().optional() }))
-      .mutation(({ ctx, input }) => ctx.registry.issues.setNeedsHuman(input.id, input.question ?? null)),
+      .mutation(({ ctx, input }) =>
+        ctx.registry.issues.setNeedsHuman(input.id, input.question ?? null),
+      ),
     clearNeedsHuman: issueProc
       .input(z.object({ id: z.string() }))
       .mutation(({ ctx, input }) => ctx.registry.issues.clearNeedsHuman(input.id)),

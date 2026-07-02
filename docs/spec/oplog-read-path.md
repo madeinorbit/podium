@@ -35,14 +35,28 @@ CREATE INDEX changes_entity ON changes(entity, entity_id, seq);
 - **Retention**: prune from the head by count/age (default: keep 20 000 rows or 14 days, whichever is larger). `minAvailableSeq` = lowest retained seq. Pruning only from the head keeps the retained range contiguous; catch-up replays are idempotent upserts, so redundancy is harmless.
 - Payloads are the existing **wire shapes** (`SessionMeta`, `IssueWire`, `ConversationSummaryWire`) — the oplog speaks protocol, not DB rows.
 
-### 2.2 Two feed seams (why not one)
+### 2.2 One feed seam: diff-at-broadcast
 
-Entities differ in where their truth is assembled:
+*(Amended during implementation.)* The original draft planned a second, store-funneled
+seam for issues, but `IssueWire` turns out to be a **broadcast-time composite** too:
+`allWire()` embeds derived member-session data, which is why session changes
+rebroadcast issues. So ALL THREE entities feed the oplog at the broadcast seam:
 
-1. **Store-funneled entities** (issues; later pins/drafts/snoozes/tab-orders): the store's write methods are the single funnel → they call `recordChange()` inside the same transaction. Precise, no diffing.
-2. **Registry-composite entities** (`session`, `conversation`): `SessionMeta` is composed from live in-memory session objects and rebroadcast from ~25 call sites in `relay.ts`; there is no single write funnel. Feeding the oplog here happens at the **existing broadcast seam**: `broadcastSessions()` already caches the last-sent payload for dedup — extend it to **diff previous vs. current list by id** (deep-equal per element) and append only actually-changed rows (`upsert`) and disappeared ids (`remove`). Same for conversations.
+- `SessionMeta` is composed from live in-memory session objects and rebroadcast from
+  ~25 call sites in `relay.ts`; `broadcastSessions()` already caches the last-sent
+  payload for dedup — the oplog extends that idea to a **per-id diff** (serialized
+  deep-equal per element), appending only actually-changed rows (`upsert`) and
+  disappeared ids (`remove`).
+- Issues funnel through the same diff via `publishIssues()` (both the
+  `IssueService.broadcast` seam and the derived rebroadcast in `broadcastSessions`).
+- Conversations diff inside `broadcastConversations()`.
 
-Both seams append to the same log and emit the same delta message. This captures every change source without refactoring 25 call sites, and the diff cost is trivial (dozens of sessions, in-memory).
+This captures every change source without refactoring the call sites; the diff cost
+is trivial (dozens of rows, in-memory, serialize-once). A store-funneled precise
+`recordChange()` becomes relevant with P3 arbitration, not before. Boot
+reconciliation (constructor) records the cross-restart diff for sessions and issues;
+**conversations are deliberately excluded** — they are daemon-fed, and an empty list
+at boot means "not scanned yet", not "all gone".
 
 `hostMetricsChanged` / `machinesChanged` are **live-only** (architecture §5) — they stay full-snapshot broadcasts, no oplog rows.
 
@@ -74,8 +88,17 @@ Catch-up is a tRPC query (not WS), mirroring how imperative loads already work:
 sync.changesSince({ cursor: number | null }) →
   | { kind: 'delta', changes: Change[], cursor: number }
   | { kind: 'snapshot', sessions: SessionMeta[], issues: IssueWire[],
-      conversations: ConversationSummaryWire[], cursor: number }   // cursor was null or < minAvailableSeq
+      conversations: ConversationSummaryWire[],
+      diagnostics: ConversationDiagnosticWire[],   // scan-level, not per-entity
+      cursor: number }                             // cursor was null or < minAvailableSeq
 ```
+
+*(Amended during implementation.)* Conversation **diagnostics** are scan-level, not
+per-entity, so they don't ride the delta stream: they come with the snapshot, and
+when only diagnostics change, cap clients additionally receive the full
+`conversationsChanged` snapshot message (rare; a full replace is safe because it is
+built from the same state as any delta in flight, and later deltas re-apply
+idempotently by id).
 
 ### 2.4 Client behavior (web store)
 

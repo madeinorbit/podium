@@ -20,6 +20,10 @@ export interface ClientConn {
   send: Send<ServerMessage>
   viewport: Geometry
   attached: Set<string>
+  /** Feature caps from the client's `hello` (e.g. CAP_METADATA_DELTA). Empty until
+   *  hello arrives, so a pre-hello client is treated as legacy — it receives
+   *  snapshot broadcasts, never deltas it hasn't asked for. */
+  caps: Set<string>
   /** Session ids this client subscribed to the structured transcript of. Lets
    *  detachClient sweep just this client's subscriptions instead of scanning every
    *  session on the host (audit P2-18). */

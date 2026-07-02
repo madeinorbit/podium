@@ -1118,7 +1118,9 @@ export class SessionStore {
       l.trim(),
     )
     this.db.prepare('DELETE FROM issue_labels WHERE issue_id = ?').run(issueId)
-    const ins = this.db.prepare('INSERT OR IGNORE INTO issue_labels (issue_id, label) VALUES (?, ?)')
+    const ins = this.db.prepare(
+      'INSERT OR IGNORE INTO issue_labels (issue_id, label) VALUES (?, ?)',
+    )
     for (const l of clean) ins.run(issueId, l)
   }
 
@@ -1157,7 +1159,9 @@ export class SessionStore {
   listIssueDeps(fromId: string): { toId: string; type: string }[] {
     return (
       this.db
-        .prepare('SELECT to_id, type FROM issue_deps WHERE from_id = ? ORDER BY to_id ASC, type ASC')
+        .prepare(
+          'SELECT to_id, type FROM issue_deps WHERE from_id = ? ORDER BY to_id ASC, type ASC',
+        )
         .all(fromId) as { to_id: string; type: string }[]
     ).map((r) => ({ toId: r.to_id, type: r.type }))
   }
@@ -1165,7 +1169,9 @@ export class SessionStore {
   listDependents(toId: string): { fromId: string; type: string }[] {
     return (
       this.db
-        .prepare('SELECT from_id, type FROM issue_deps WHERE to_id = ? ORDER BY from_id ASC, type ASC')
+        .prepare(
+          'SELECT from_id, type FROM issue_deps WHERE to_id = ? ORDER BY from_id ASC, type ASC',
+        )
         .all(toId) as { from_id: string; type: string }[]
     ).map((r) => ({ fromId: r.from_id, type: r.type }))
   }
@@ -1207,7 +1213,9 @@ export class SessionStore {
 
   /** One-time, idempotent: mirror legacy issues.blocked_by arrays into issue_deps. */
   private backfillIssueDeps(): void {
-    const rows = this.db.prepare("SELECT id, blocked_by FROM issues WHERE blocked_by != '[]'").all() as {
+    const rows = this.db
+      .prepare("SELECT id, blocked_by FROM issues WHERE blocked_by != '[]'")
+      .all() as {
       id: string
       blocked_by: string
     }[]
@@ -1230,6 +1238,113 @@ export class SessionStore {
         for (const to of ids) if (typeof to === 'string' && to && exists.get(to)) ins.run(r.id, to)
       }
     }
+  }
+
+  // ---- metadata oplog (docs/spec/oplog-read-path.md) ----
+
+  /**
+   * Append a batch of change rows in one transaction and return their assigned seqs
+   * (contiguous — the whole batch commits inside BEGIN IMMEDIATE, so no interleaving).
+   * The caller (MetadataOplog) has already diffed; rows arrive only for real changes.
+   */
+  appendChanges(
+    rows: { entity: string; entityId: string; op: 'upsert' | 'remove'; payload: string | null }[],
+    eventTime: number,
+  ): number[] {
+    if (rows.length === 0) return []
+    const insert = this.db.prepare(
+      'INSERT INTO changes (entity, entity_id, op, payload, event_time) VALUES (?, ?, ?, ?, ?)',
+    )
+    const seqs: number[] = []
+    this.db.exec('BEGIN IMMEDIATE')
+    try {
+      for (const r of rows) {
+        insert.run(r.entity, r.entityId, r.op, r.payload, eventTime)
+        seqs.push(this.lastInsertSeq())
+      }
+      this.db.exec('COMMIT')
+    } catch (err) {
+      this.db.exec('ROLLBACK')
+      throw err
+    }
+    return seqs
+  }
+
+  private lastInsertSeq(): number {
+    return (this.db.prepare('SELECT last_insert_rowid() AS seq').get() as { seq: number }).seq
+  }
+
+  /** Highest assigned seq ever (survives head-pruning via sqlite_sequence). 0 = none. */
+  maxChangeSeq(): number {
+    const row = this.db.prepare("SELECT seq FROM sqlite_sequence WHERE name = 'changes'").get() as
+      | { seq: number }
+      | undefined
+    return row?.seq ?? 0
+  }
+
+  /** Lowest RETAINED seq, or null when the log is empty. */
+  minChangeSeq(): number | null {
+    const row = this.db.prepare('SELECT MIN(seq) AS seq FROM changes').get() as {
+      seq: number | null
+    }
+    return row.seq
+  }
+
+  /**
+   * Change rows with seq > cursor, in seq order. The CALLER decides whether the
+   * cursor is still within the retained range (see MetadataOplog.changesSince) —
+   * this is a plain range read.
+   */
+  changesSince(
+    cursor: number,
+    limit = 10_000,
+  ): { seq: number; entity: string; entityId: string; op: string; payload: string | null }[] {
+    const rows = this.db
+      .prepare(
+        'SELECT seq, entity, entity_id, op, payload FROM changes WHERE seq > ? ORDER BY seq ASC LIMIT ?',
+      )
+      .all(cursor, limit) as Record<string, unknown>[]
+    return rows.map((r) => ({
+      seq: r.seq as number,
+      entity: r.entity as string,
+      entityId: r.entity_id as string,
+      op: r.op as string,
+      payload: (r.payload as string | null) ?? null,
+    }))
+  }
+
+  /**
+   * Head-only retention: drop rows that are BOTH beyond the row budget AND older
+   * than the age budget (keep whichever window is larger — spec §2.1). Pruning only
+   * from the head keeps the retained seq range contiguous.
+   */
+  pruneChanges(opts: { keepRows: number; maxAgeMs: number; now: number }): void {
+    const thresholdSeq = this.maxChangeSeq() - opts.keepRows
+    if (thresholdSeq <= 0) return
+    this.db
+      .prepare('DELETE FROM changes WHERE seq <= ? AND event_time < ?')
+      .run(thresholdSeq, opts.now - opts.maxAgeMs)
+  }
+
+  /**
+   * Fold the retained log to the latest state per (entity, id) — the boot seed for
+   * MetadataOplog's diff baseline, so a restart emits deltas for anything that
+   * changed while the server was down instead of silently rebasing.
+   */
+  latestChangeStates(): { entity: string; entityId: string; op: string; payload: string | null }[] {
+    const rows = this.db
+      .prepare(
+        `SELECT c.entity, c.entity_id, c.op, c.payload FROM changes c
+         JOIN (SELECT entity, entity_id, MAX(seq) AS seq FROM changes GROUP BY entity, entity_id) m
+           ON m.entity = c.entity AND m.entity_id = c.entity_id AND m.seq = c.seq`,
+      )
+      .all() as Record<string, unknown>[]
+    return rows.map((r) => ({
+      entity: r.entity as string,
+      entityId: r.entity_id as string,
+      op: r.op as string,
+      payload: (r.payload as string | null) ?? null,
+    }))
   }
 
   close(): void {
@@ -1303,6 +1418,22 @@ export class SessionStore {
        )`,
     )
     this.db.exec('CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)')
+    // Metadata oplog (docs/spec/oplog-read-path.md). AUTOINCREMENT is deliberate:
+    // seq must stay monotonic across restarts even if the whole table was pruned
+    // (a plain INTEGER PRIMARY KEY would reuse max(rowid)+1 and rewind cursors).
+    // payload is the entity's WIRE-shape JSON (NULL for removes) — the oplog speaks
+    // protocol, so replaying it needs no join back to entity tables.
+    this.db.exec(
+      `CREATE TABLE IF NOT EXISTS changes (
+         seq        INTEGER PRIMARY KEY AUTOINCREMENT,
+         entity     TEXT NOT NULL,
+         entity_id  TEXT NOT NULL,
+         op         TEXT NOT NULL,
+         payload    TEXT,
+         event_time INTEGER NOT NULL
+       )`,
+    )
+    this.db.exec('CREATE INDEX IF NOT EXISTS changes_entity ON changes(entity, entity_id, seq)')
     // Persistent human-client login sessions (web/desktop UI). We store only the SHA-256
     // of the cookie token, never the token itself, so a DB read can't mint a valid cookie.
     // Persisted (not in-memory) so a server redeploy doesn't force every device to re-login.

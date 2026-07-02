@@ -28,6 +28,7 @@ function makeClient(id: string): ClientConn & { sent: ServerMessage[] } {
     send: (m) => sent.push(m),
     viewport: { ...geo },
     attached: new Set(),
+    caps: new Set(),
     transcriptSubs: new Set(),
     visible: true,
     viewVisible: new Set(),

@@ -306,10 +306,17 @@ export const TranscriptUnsubscribeMessage = z.object({
 export type TranscriptUnsubscribeMessage = z.infer<typeof TranscriptUnsubscribeMessage>
 
 // ---- Browser client -> server ----
+/** Client capability: the client consumes `metadataDelta` streams, so the server
+ *  must stop sending it the full-list snapshot rebroadcasts (it still gets the
+ *  attach-time bootstrap snapshots — those are its initial paint). */
+export const CAP_METADATA_DELTA = 'metadataDelta'
 export const HelloMessage = z.object({
   type: z.literal('hello'),
   clientId: z.string(),
   viewport: Viewport,
+  // Optional feature negotiation. Absent (older clients) = no capabilities: the
+  // server keeps its legacy behavior for this client, so this field is additive.
+  caps: z.array(z.string()).optional(),
 })
 export const AttachMessage = z.object({
   type: z.literal('attach'),
@@ -568,9 +575,23 @@ export const AttentionEventMessage = z.object({
 // ---------------------------------------------------------------------------
 
 // Ordered lifecycle stages an issue moves through.
-export const IssueStage = z.enum(['backlog', 'planning', 'in_progress', 'review', 'verifying', 'done'])
+export const IssueStage = z.enum([
+  'backlog',
+  'planning',
+  'in_progress',
+  'review',
+  'verifying',
+  'done',
+])
 export type IssueStage = z.infer<typeof IssueStage>
-export const ISSUE_STAGES: IssueStage[] = ['backlog', 'planning', 'in_progress', 'review', 'verifying', 'done']
+export const ISSUE_STAGES: IssueStage[] = [
+  'backlog',
+  'planning',
+  'in_progress',
+  'review',
+  'verifying',
+  'done',
+]
 
 export const IssueSessionSummary = z.object({
   total: z.number().int().nonnegative(),
@@ -579,13 +600,27 @@ export const IssueSessionSummary = z.object({
 export type IssueSessionSummary = z.infer<typeof IssueSessionSummary>
 
 export const IssueType = z.enum([
-  'task', 'bug', 'feature', 'chore', 'epic', 'decision', 'spike', 'story', 'milestone',
+  'task',
+  'bug',
+  'feature',
+  'chore',
+  'epic',
+  'decision',
+  'spike',
+  'story',
+  'milestone',
 ])
 export type IssueType = z.infer<typeof IssueType>
 
 export const ISSUE_DEP_TYPES = [
-  'blocks', 'related', 'parent-child', 'discovered-from', 'tracks', 'supersedes',
-  'caused-by', 'validates',
+  'blocks',
+  'related',
+  'parent-child',
+  'discovered-from',
+  'tracks',
+  'supersedes',
+  'caused-by',
+  'validates',
 ] as const
 
 export const IssueDepWire = z.object({ id: z.string(), type: z.string() })
@@ -658,52 +693,78 @@ export const DuplicateCandidate = z.object({ a: z.string(), b: z.string(), score
 export type DuplicateCandidate = z.infer<typeof DuplicateCandidate>
 
 export const LintFinding = z.object({
-  id: z.string(), seq: z.number().int(), findings: z.array(z.string()),
+  id: z.string(),
+  seq: z.number().int(),
+  findings: z.array(z.string()),
 })
 export type LintFinding = z.infer<typeof LintFinding>
 
 export const DoctorReport = z.object({
   cycles: z.array(z.array(z.string())),
   danglingDeps: z.array(z.object({ from: z.string(), to: z.string(), type: z.string() })),
-  lintCount: z.number().int(), staleCount: z.number().int(),
+  lintCount: z.number().int(),
+  staleCount: z.number().int(),
 })
 export type DoctorReport = z.infer<typeof DoctorReport>
 
 export const IssueGraphNode = z.object({
-  id: z.string(), seq: z.number().int(), title: z.string(), stage: IssueStage,
-  priority: z.number().int(), type: IssueType, ready: z.boolean(), blocked: z.boolean(),
+  id: z.string(),
+  seq: z.number().int(),
+  title: z.string(),
+  stage: IssueStage,
+  priority: z.number().int(),
+  type: IssueType,
+  ready: z.boolean(),
+  blocked: z.boolean(),
 })
 export const IssueGraphEdge = z.object({ from: z.string(), to: z.string(), type: z.string() })
 export const IssueGraph = z.object({
-  nodes: z.array(IssueGraphNode), edges: z.array(IssueGraphEdge),
+  nodes: z.array(IssueGraphNode),
+  edges: z.array(IssueGraphEdge),
 })
 export type IssueGraph = z.infer<typeof IssueGraph>
 
 export const EpicStatus = z.object({
-  id: z.string(), childCount: z.number().int(), childDoneCount: z.number().int(), complete: z.boolean(),
+  id: z.string(),
+  childCount: z.number().int(),
+  childDoneCount: z.number().int(),
+  complete: z.boolean(),
 })
 export type EpicStatus = z.infer<typeof EpicStatus>
 
 export const IssueCount = z.object({
-  byStage: z.record(z.number()), byPriority: z.record(z.number()),
-  byType: z.record(z.number()), byAssignee: z.record(z.number()),
+  byStage: z.record(z.number()),
+  byPriority: z.record(z.number()),
+  byType: z.record(z.number()),
+  byAssignee: z.record(z.number()),
 })
 export type IssueCount = z.infer<typeof IssueCount>
 export const IssueStats = z.object({
-  total: z.number().int(), open: z.number().int(), closed: z.number().int(),
-  ready: z.number().int(), blocked: z.number().int(), deferred: z.number().int(),
+  total: z.number().int(),
+  open: z.number().int(),
+  closed: z.number().int(),
+  ready: z.number().int(),
+  blocked: z.number().int(),
+  deferred: z.number().int(),
 })
 export type IssueStats = z.infer<typeof IssueStats>
 export const OrphanIssue = z.object({
-  id: z.string(), seq: z.number().int(), title: z.string(), ref: z.string(),
+  id: z.string(),
+  seq: z.number().int(),
+  title: z.string(),
+  ref: z.string(),
 })
 export type OrphanIssue = z.infer<typeof OrphanIssue>
 export const IssueSearchFilter = z.object({
-  repoPath: z.string().optional(), text: z.string().optional(),
+  repoPath: z.string().optional(),
+  text: z.string().optional(),
   status: z.enum(['open', 'closed', 'ready', 'blocked', 'deferred']).optional(),
-  stage: IssueStage.optional(), priority: z.number().int().optional(),
-  type: IssueType.optional(), assignee: z.string().optional(),
-  label: z.string().optional(), parentId: z.string().optional(),
+  stage: IssueStage.optional(),
+  priority: z.number().int().optional(),
+  type: IssueType.optional(),
+  assignee: z.string().optional(),
+  label: z.string().optional(),
+  parentId: z.string().optional(),
 })
 export type IssueSearchFilter = z.infer<typeof IssueSearchFilter>
 
@@ -715,6 +776,75 @@ export const IssueUpdatedMessage = z.object({
   type: z.literal('issueUpdated'),
   issue: IssueWire,
 })
+
+// ---- Metadata oplog (docs/spec/oplog-read-path.md) ----
+// One row of the server's metadata change log. `seq` is server-assigned and
+// globally monotonic across all entities (one stream, one cursor). `value` is the
+// entity's WIRE shape — the oplog speaks protocol, not DB rows. Present iff
+// op === 'upsert' (zod can't express that cross-field rule; producers guarantee it,
+// consumers treat a missing value on upsert as a drop-this-change).
+export const MetadataChangeOp = z.enum(['upsert', 'remove'])
+export type MetadataChangeOp = z.infer<typeof MetadataChangeOp>
+export const MetadataChange = z.discriminatedUnion('entity', [
+  z.object({
+    seq: z.number().int().positive(),
+    entity: z.literal('session'),
+    id: z.string(),
+    op: MetadataChangeOp,
+    value: SessionMeta.optional(),
+  }),
+  z.object({
+    seq: z.number().int().positive(),
+    entity: z.literal('issue'),
+    id: z.string(),
+    op: MetadataChangeOp,
+    value: IssueWire.optional(),
+  }),
+  z.object({
+    seq: z.number().int().positive(),
+    entity: z.literal('conversation'),
+    id: z.string(),
+    op: MetadataChangeOp,
+    value: ConversationSummaryWire.optional(),
+  }),
+])
+export type MetadataChange = z.infer<typeof MetadataChange>
+export const MetadataEntityKind = z.enum(['session', 'issue', 'conversation'])
+export type MetadataEntityKind = z.infer<typeof MetadataEntityKind>
+
+// A batch of oplog changes, sent only to clients that sent `caps: ['metadataDelta']`
+// in their hello. Changes are in seq order; `seq` mirrors the LAST change's seq so a
+// client can advance its cursor without scanning. Gap rule: if the first change's
+// seq !== cursor + 1, the client must NOT apply and instead heal via the
+// `sync.changesSince` tRPC query.
+export const MetadataDeltaMessage = z.object({
+  type: z.literal('metadataDelta'),
+  seq: z.number().int().positive(),
+  changes: z.array(MetadataChange),
+})
+export type MetadataDeltaMessage = z.infer<typeof MetadataDeltaMessage>
+
+// Result of the `sync.changesSince` catch-up query (defined here so the web app and
+// SocketHub share one type without importing server internals). `snapshot` is
+// returned for a null cursor (bootstrap) or a cursor older than the retained log
+// (compaction) — it carries the full durable-entity state plus the cursor AS OF the
+// read, taken in the same tick, so no change falls between snapshot and stream.
+export const SyncChangesSinceResult = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('delta'),
+    changes: z.array(MetadataChange),
+    cursor: z.number().int().nonnegative(),
+  }),
+  z.object({
+    kind: z.literal('snapshot'),
+    sessions: z.array(SessionMeta),
+    issues: z.array(IssueWire),
+    conversations: z.array(ConversationSummaryWire),
+    diagnostics: z.array(ConversationDiagnosticWire),
+    cursor: z.number().int().nonnegative(),
+  }),
+])
+export type SyncChangesSinceResult = z.infer<typeof SyncChangesSinceResult>
 
 export const ServerMessage = z.discriminatedUnion('type', [
   WelcomeMessage,
@@ -735,6 +865,7 @@ export const ServerMessage = z.discriminatedUnion('type', [
   TranscriptDeltaMessage,
   IssuesChangedMessage,
   IssueUpdatedMessage,
+  MetadataDeltaMessage,
 ])
 export type ServerMessage = z.infer<typeof ServerMessage>
 
@@ -891,7 +1022,15 @@ export const ImageUploadResultMessage = z.object({
 // Constrained git operations the superagent may run on a dev machine. An
 // allowlisted enum (not a shell string) — the daemon maps each op to a fixed
 // git invocation.
-export const RepoOp = z.enum(['status', 'log', 'branches', 'worktreeAdd', 'rebase', 'mergeFfOnly', 'prCreate'])
+export const RepoOp = z.enum([
+  'status',
+  'log',
+  'branches',
+  'worktreeAdd',
+  'rebase',
+  'mergeFfOnly',
+  'prCreate',
+])
 export type RepoOp = z.infer<typeof RepoOp>
 export const RepoOpRequestMessage = z.object({
   type: z.literal('repoOpRequest'),
@@ -1291,6 +1430,10 @@ const COLLECTION_MESSAGE_ELEMENTS: Record<string, { key: string; element: z.ZodT
   issuesChanged: { key: 'issues', element: IssueWire },
   conversationsChanged: { key: 'conversations', element: ConversationSummaryWire },
   hostMetricsChanged: { key: 'hosts', element: HostMetricsWire },
+  // One poisoned change row must not blank the stream — but unlike list messages,
+  // a DROPPED change is a cursor gap the client can't see, so the SocketHub treats
+  // any quarantined metadataDelta element as a gap and heals via changesSince.
+  metadataDelta: { key: 'changes', element: MetadataChange },
 }
 
 export interface LenientServerMessage {

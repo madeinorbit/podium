@@ -12,6 +12,7 @@ import {
   type AgentQuotaWire,
   type AgentRuntimeState,
   agentSupportsInitialPrompt,
+  CAP_METADATA_DELTA,
   type ClientMessage,
   type ControlMessage,
   type ConversationDiagnosticWire,
@@ -22,11 +23,14 @@ import {
   type GitDiscoveryDiagnosticWire,
   type GitRepositoryWire,
   type HostMetricsWire,
+  type IssueWire,
   type MachineWire,
+  type MetadataChange,
   type RepoOp,
   type ResumeRef,
   type ServerMessage,
   type SessionMeta,
+  type SyncChangesSinceResult,
   type TranscriptItem,
   type UsageBucketWire,
   type WorkState,
@@ -43,6 +47,7 @@ import {
   pushTelegram,
   type TelegramConfig,
 } from './notify'
+import { MetadataOplog } from './oplog'
 import { PairingManager } from './pairing'
 import { type ClientConn, type Send, Session } from './session'
 import { computePriorities } from './session-priority'
@@ -372,6 +377,13 @@ export class SessionRegistry {
   // clients already hold this state; a NEW client gets the current list via
   // attachClient, so the dedup can never leave a client stale.
   private lastSessionsBroadcast = ''
+  // Durable metadata change log fed at the broadcast seam (docs/spec/oplog-read-path.md).
+  // Assigned in the constructor before loadFromStore (which can trigger broadcasts).
+  private readonly oplog: MetadataOplog
+  // Diagnostics ride the conversationsChanged snapshot, not the delta stream — track
+  // their last serialization so cap clients still get a snapshot when ONLY diagnostics
+  // changed (rare: scan problems), without re-sending the list on every conversation delta.
+  private lastDiagnosticsBroadcast = ''
   // Latest health sample per daemon host, keyed by machineId — each connected
   // machine reports its own sample, scoped to it so a detach drops only its row.
   private readonly latestHostMetrics = new Map<string, HostMetricsWire>()
@@ -401,6 +413,7 @@ export class SessionRegistry {
     this.generateTelegramSetupCode = options.generateTelegramSetupCode ?? defaultTelegramSetupCode
     this.now = options.now ?? Date.now
     this.activityFlushTimer.unref?.()
+    this.oplog = new MetadataOplog(this.store, this.now)
     this.loadFromStore()
     this.issues = new IssueService({
       store: this.store,
@@ -414,7 +427,10 @@ export class SessionRegistry {
         }),
       repoOp: (op, cwd, args) => this.repoOp(op, cwd, args),
       broadcast: (msg) => {
-        for (const c of this.clients.values()) c.send(msg)
+        // Full issue-list fan-outs funnel through the oplog so delta-cap clients get
+        // per-issue changes; everything else (issueUpdated etc.) stays a raw fan-out.
+        if (msg.type === 'issuesChanged') this.publishIssues(msg.issues)
+        else for (const c of this.clients.values()) c.send(msg)
       },
     })
     this.autoContinue = new AutoContinueController({
@@ -430,6 +446,20 @@ export class SessionRegistry {
         return { live: s.status === 'live' || s.status === 'starting', state: s.agentState }
       },
     })
+    // Boot reconciliation: record what changed across the restart (sessions restored
+    // by loadFromStore, issues from the store) so a cursor-holding client that
+    // reconnects can heal via changesSince instead of silently missing the gap.
+    // Conversations are deliberately NOT reconciled here: they are daemon-fed, and
+    // an empty list at boot means "not scanned yet", not "all gone" — recording it
+    // would spam remove-all/re-upsert pairs around every restart.
+    this.oplog.record(
+      'session',
+      this.listSessions().map((s) => ({ id: s.sessionId, value: s })),
+    )
+    this.oplog.record(
+      'issue',
+      this.safeIssuesList().map((i) => ({ id: i.id, value: i })),
+    )
   }
 
   /** The backing store — shared with services that persist their own tables (superagent). */
@@ -1614,6 +1644,10 @@ export class SessionRegistry {
       send,
       viewport: { ...DEFAULT_GEOMETRY },
       attached: new Set(),
+      // No caps until hello — the bootstrap snapshots below are sent to everyone
+      // (a delta client uses them as its initial paint, then takes a cursor via
+      // sync.changesSince and rides the metadataDelta stream).
+      caps: new Set(),
       transcriptSubs: new Set(),
       // Fail-safe toward notifying: a client counts as NOT watching until it
       // tells us otherwise (every browser client sends `presence` right after
@@ -1630,7 +1664,7 @@ export class SessionRegistry {
     })
     send({ type: 'welcome', clientId: id })
     send({ type: 'sessionsChanged', sessions: this.listSessions() })
-    send(this.safeIssuesMessage())
+    send({ type: 'issuesChanged', issues: this.safeIssuesList() })
     for (const [sessionId, text] of this.draftBySession) {
       send({ type: 'sessionDraftChanged', sessionId, text })
     }
@@ -1685,6 +1719,9 @@ export class SessionRegistry {
     switch (msg.type) {
       case 'hello':
         client.viewport = { cols: msg.viewport.cols, rows: msg.viewport.rows }
+        // Feature negotiation (spec §2.3): from here on this client gets metadata
+        // deltas instead of full-list snapshot rebroadcasts.
+        if (msg.caps) client.caps = new Set(msg.caps)
         // Reconnect identity. A client re-presents the id it was given on its
         // previous socket. Hand that now-stale client's controller roles to this
         // one and evict it, so a dropped or half-open socket doesn't strand the
@@ -2544,31 +2581,45 @@ export class SessionRegistry {
     const key = JSON.stringify(sessions)
     if (key === this.lastSessionsBroadcast) return
     this.lastSessionsBroadcast = key
-    const msg: ServerMessage = { type: 'sessionsChanged', sessions }
-    for (const c of this.clients.values()) c.send(msg)
+    // Record the change into the oplog FIRST (durable before fan-out, spec §2.5),
+    // then split the fan-out: delta-cap clients get only the rows that changed,
+    // legacy clients get the full list exactly as before.
+    const changes = this.oplog.record(
+      'session',
+      sessions.map((s) => ({ id: s.sessionId, value: s })),
+    )
+    this.fanOutMetadata({ type: 'sessionsChanged', sessions }, changes)
     // Session changes also change issues' DERIVED member data (sessions/summary),
     // so keep issue clients live. Build the payload ONCE: allWire() is
     // O(issues × sessions), so calling it per-client would be a hot-path perf bug
     // (mirrors the sessionsMsg hoist above). sessionsChanged was already sent above,
     // so even if the issues build fails it can't take the session list down with it.
-    const issuesMsg = this.safeIssuesMessage()
-    for (const c of this.clients.values()) c.send(issuesMsg)
+    this.publishIssues(this.safeIssuesList())
   }
 
   /**
-   * Build the `issuesChanged` payload, degrading to an empty list if the DERIVED
-   * build throws (e.g. a poison issue row whose member sessions fail to serialize).
+   * Build the issue-list payload, degrading to an empty list if the DERIVED build
+   * throws (e.g. a poison issue row whose member sessions fail to serialize).
    * An issues-layer throw must never abort an attach, a broadcast, or the daemon
    * handler that triggered it. `this.issues?` also guards construction-time calls
    * (broadcastSessions can run via loadFromStore before `this.issues` is set).
    */
-  private safeIssuesMessage(): ServerMessage {
+  private safeIssuesList(): IssueWire[] {
     try {
-      return { type: 'issuesChanged', issues: this.issues?.allWire() ?? [] }
+      return this.issues?.allWire() ?? []
     } catch (err) {
       console.warn('[podium] issues payload build failed — broadcasting empty issues list', err)
-      return { type: 'issuesChanged', issues: [] }
+      return []
     }
+  }
+
+  /** Oplog-record + split fan-out for a full issue list (every issuesChanged path). */
+  private publishIssues(issues: IssueWire[]): void {
+    const changes = this.oplog.record(
+      'issue',
+      issues.map((i) => ({ id: i.id, value: i })),
+    )
+    this.fanOutMetadata({ type: 'issuesChanged', issues }, changes)
   }
 
   private broadcastConversations(): void {
@@ -2577,7 +2628,61 @@ export class SessionRegistry {
       conversations: this.latestConversations,
       diagnostics: this.latestConversationDiagnostics,
     }
-    for (const c of this.clients.values()) c.send(msg)
+    const changes = this.oplog.record(
+      'conversation',
+      this.latestConversations.map((c) => ({ id: c.id, value: c })),
+    )
+    // Diagnostics don't ride the delta stream (they're scan-level, not per-entity):
+    // when they changed, cap clients need the snapshot too. Applying it as a full
+    // replace on the client is safe — it's built from the same state as any delta
+    // in flight, and later deltas re-apply idempotently by id.
+    const diagKey = JSON.stringify(this.latestConversationDiagnostics)
+    const diagnosticsChanged = diagKey !== this.lastDiagnosticsBroadcast
+    this.lastDiagnosticsBroadcast = diagKey
+    this.fanOutMetadata(msg, changes, { snapshotToCapClients: diagnosticsChanged })
+  }
+
+  /**
+   * The split fan-out (spec §2.3): legacy clients always get the full-list snapshot
+   * (exactly the pre-oplog behavior); delta-cap clients get a `metadataDelta` batch,
+   * and only when something actually changed.
+   */
+  private fanOutMetadata(
+    snapshot: ServerMessage,
+    changes: MetadataChange[],
+    opts: { snapshotToCapClients?: boolean } = {},
+  ): void {
+    const last = changes[changes.length - 1]
+    const delta: ServerMessage | null = last
+      ? { type: 'metadataDelta', seq: last.seq, changes }
+      : null
+    for (const c of this.clients.values()) {
+      if (c.caps.has(CAP_METADATA_DELTA)) {
+        if (delta) c.send(delta)
+        if (opts.snapshotToCapClients) c.send(snapshot)
+      } else {
+        c.send(snapshot)
+      }
+    }
+  }
+
+  /**
+   * Cursor catch-up for `sync.changesSince` (spec §2.3). Bootstrap (null cursor),
+   * a compacted-away cursor, or a future cursor (server DB reset) falls back to a
+   * full snapshot; the cursor is read in the same synchronous pass as the entity
+   * lists, so nothing falls between the snapshot and the subsequent delta stream.
+   */
+  syncChangesSince(cursor: number | null): SyncChangesSinceResult {
+    const changes = this.oplog.changesSince(cursor)
+    if (changes) return { kind: 'delta', changes, cursor: this.oplog.cursor() }
+    return {
+      kind: 'snapshot',
+      sessions: this.listSessions(),
+      issues: this.safeIssuesList(),
+      conversations: this.latestConversations,
+      diagnostics: this.latestConversationDiagnostics,
+      cursor: this.oplog.cursor(),
+    }
   }
 
   private hostMetricsMessage(): ServerMessage {

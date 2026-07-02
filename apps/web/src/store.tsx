@@ -19,8 +19,8 @@ import {
   useRef,
   useState,
 } from 'react'
-import { formatAppError } from './AppErrorPage'
 import { toast } from 'sonner'
+import { formatAppError } from './AppErrorPage'
 import { dedupeSessionsByResume, EMPTY_PINS, planWorktreeMoves, reposToViews } from './derive'
 import { type FileScope, scopeKey, tabIdFor } from './file-scope'
 import { makeTrpc, type ServerOrigin, type Trpc } from './trpc'
@@ -231,16 +231,20 @@ export function StoreProvider({
   onFatalError: (message: string) => void
   children: ReactNode
 }): JSX.Element {
+  const trpc = useMemo(() => makeTrpc(config.httpOrigin), [config.httpOrigin])
   const hub = useMemo(
     () =>
       new SocketHub({
         url: config.wsClientUrl,
         viewport: { cols: 80, rows: 24, dpr: globalThis.devicePixelRatio ?? 1 },
         onError: (message) => onFatalError(message),
+        // Opts the hub into metadata delta mode (docs/spec/oplog-read-path.md):
+        // session/issue/conversation updates arrive as per-entity oplog changes,
+        // with (re)connect catch-up healed through this query.
+        fetchChangesSince: (cursor) => trpc.sync.changesSince.query({ cursor }),
       }),
-    [config.wsClientUrl, onFatalError],
+    [config.wsClientUrl, onFatalError, trpc],
   )
-  const trpc = useMemo(() => makeTrpc(config.httpOrigin), [config.httpOrigin])
 
   const [repos, setRepos] = useState<GitRepositoryWire[]>([])
   const [reposLoading, setReposLoading] = useState(false)
@@ -356,11 +360,21 @@ export function StoreProvider({
     [trpc],
   )
   const writeFileScoped = useMemo(
-    () =>
-      (args: { scope: FileScope; path: string; content: string; baseHash?: string }) =>
-        args.scope.kind === 'session'
-          ? trpc.files.write.mutate({ sessionId: args.scope.sessionId, path: args.path, content: args.content, baseHash: args.baseHash })
-          : trpc.files.write.mutate({ machineId: args.scope.machineId, root: args.scope.root, path: args.path, content: args.content, baseHash: args.baseHash }),
+    () => (args: { scope: FileScope; path: string; content: string; baseHash?: string }) =>
+      args.scope.kind === 'session'
+        ? trpc.files.write.mutate({
+            sessionId: args.scope.sessionId,
+            path: args.path,
+            content: args.content,
+            baseHash: args.baseHash,
+          })
+        : trpc.files.write.mutate({
+            machineId: args.scope.machineId,
+            root: args.scope.root,
+            path: args.path,
+            content: args.content,
+            baseHash: args.baseHash,
+          }),
     [trpc],
   )
   const listDir = useMemo(
@@ -414,10 +428,7 @@ export function StoreProvider({
     },
     [trpc],
   )
-  const closeAutoContinuePrompt = useMemo(
-    () => () => setAutoContinuePromptSessionId(null),
-    [],
-  )
+  const closeAutoContinuePrompt = useMemo(() => () => setAutoContinuePromptSessionId(null), [])
   const hibernateSession = useMemo(
     () => async (sessionId: string) => {
       await trpc.sessions.hibernate.mutate({ sessionId }).catch(() => {})
