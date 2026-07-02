@@ -62,6 +62,21 @@ daemon → server: transcriptMirrorResult {
   conversations — enqueue every segment whose evidence path is known), and a
   low-frequency sweep on daemon attach (catch-up after server downtime). Dedup:
   a segment already queued/in-flight is not re-enqueued.
+- **Pacing (incident amendment, 2026-07)**: the first live deploy enqueued a
+  months-deep lake on daemon attach and drained it back-to-back — continuous
+  256 KB chunks pumped through the daemon WS, decoded and written with zero idle.
+  The server sat at ~80% CPU, starved its own daemon-reply handling
+  (`transcript mirror failed: timeout`), missed the systemd watchdog's 30 s
+  sd_notify deadline and was SIGABRT'd into a restart→re-bootstrap crash loop.
+  Two constructor-injectable knobs (`MirrorServiceOptions`) now bound the duty
+  cycle: an **inter-chunk delay** (default 25 ms, unref'd setTimeout after every
+  chunk write) so the loop breathes between chunks, and a **per-pass byte
+  budget** (default 16 MB per machine per drain pass) — when spent, the pass
+  stops and clears the remaining queue's queued-state; the next trigger (~15 s
+  scan / attach sweep) re-enqueues and resumes from the persisted cursors.
+  Design stance: a big-lake bootstrap deliberately spreads over
+  minutes-to-hours — transcripts are cold data (invariant 4), and watchdog
+  compatibility is a hard requirement, so the mirror must never own the loop.
 
 ### 2.4 Wire/read integration (backup becomes useful immediately)
 
