@@ -44,7 +44,9 @@ test('issues board: renders the stage columns, creates a Backlog issue, and move
 
   // ---- Navigate to the Issues board via the Sidebar nav button ----
   // The button is an icon button whose accessible name derives from title="Issues".
-  await page.getByRole('button', { name: 'Issues' }).click({ timeout: 15_000 })
+  // Target the app-tools icon button by its title attribute — the accessible-name
+  // selector now collides with the "Issues" sidebar tab and any worktree named "…issues…".
+  await page.locator('button[title="Issues"]').click({ timeout: 15_000 })
 
   // The board is a <section aria-label="Issues"> with a header and six stage columns.
   const board = page.getByRole('region', { name: 'Issues' })
@@ -114,7 +116,9 @@ test('issues board: renders the stage columns, creates a Backlog issue, and move
 
   // Close the drawer so the board is unobstructed, then assert the card has left
   // Backlog and now lives under Planning (live via the issueUpdated broadcast).
-  await page.getByRole('button', { name: 'Close' }).click({ timeout: 10_000 })
+  // The drawer's close button is title="Close"; scope by title so it doesn't collide with
+  // the lifecycle "Close: done"/"Close: wontfix" buttons in the same drawer.
+  await page.locator('button[title="Close"]').click({ timeout: 10_000 })
 
   const planningColumn = column('Planning')
   await expect(
@@ -133,7 +137,9 @@ test('issues board: flag an issue for human, badge appears live, then resolve', 
   await page.setViewportSize({ width: 1280, height: 900 })
   await openShell(page)
 
-  await page.getByRole('button', { name: 'Issues' }).click({ timeout: 15_000 })
+  // Target the app-tools icon button by its title attribute — the accessible-name
+  // selector now collides with the "Issues" sidebar tab and any worktree named "…issues…".
+  await page.locator('button[title="Issues"]').click({ timeout: 15_000 })
   const board = page.getByRole('region', { name: 'Issues' })
   await expect(board).toBeVisible({ timeout: 10_000 })
 
