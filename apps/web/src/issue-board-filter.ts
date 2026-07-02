@@ -1,4 +1,5 @@
-import type { IssueWire } from '@podium/protocol'
+import type { IssueStage, IssueWire } from '@podium/protocol'
+import { STAGE_LABELS } from './issue-card'
 
 export interface BoardFilter {
   text?: string
@@ -7,6 +8,7 @@ export interface BoardFilter {
   assignee?: string
   label?: string
   status?: 'open' | 'closed' | 'ready' | 'blocked' | 'deferred'
+  stage?: IssueStage
 }
 
 /**
@@ -22,6 +24,7 @@ export function filterBoardIssues(issues: IssueWire[], f: BoardFilter): IssueWir
     if (f.type && i.type !== f.type) return false
     if (f.assignee && i.assignee !== f.assignee) return false
     if (f.label && !i.labels.includes(f.label)) return false
+    if (f.stage && i.stage !== f.stage) return false
     const closed = i.stage === 'done' || !!i.closedReason
     if (f.status === 'open' && closed) return false
     if (f.status === 'closed' && !closed) return false
@@ -31,4 +34,22 @@ export function filterBoardIssues(issues: IssueWire[], f: BoardFilter): IssueWir
     if (text && !`${i.title} ${i.description}`.toLowerCase().includes(text)) return false
     return true
   })
+}
+
+/** Chip descriptors for every set dimension except free-text search. */
+export function filterChips(f: BoardFilter): { key: keyof BoardFilter; label: string }[] {
+  const chips: { key: keyof BoardFilter; label: string }[] = []
+  if (f.priority != null) chips.push({ key: 'priority', label: `Priority: P${f.priority}` })
+  if (f.type) chips.push({ key: 'type', label: `Type: ${f.type}` })
+  if (f.assignee) chips.push({ key: 'assignee', label: `Assignee: ${f.assignee}` })
+  if (f.label) chips.push({ key: 'label', label: `Label: ${f.label}` })
+  if (f.status) chips.push({ key: 'status', label: `Status: ${f.status}` })
+  if (f.stage) chips.push({ key: 'stage', label: `Stage: ${STAGE_LABELS[f.stage]}` })
+  return chips
+}
+
+export function clearChip(f: BoardFilter, key: keyof BoardFilter): BoardFilter {
+  const next = { ...f }
+  delete next[key]
+  return next
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { filterBoardIssues } from './issue-board-filter'
+import { clearChip, filterBoardIssues, filterChips } from './issue-board-filter'
 import { makeIssue } from './test-issue'
 
 describe('filterBoardIssues', () => {
@@ -10,6 +10,7 @@ describe('filterBoardIssues', () => {
       title: 'Dark mode',
       priority: 2,
       type: 'feature',
+      stage: 'review',
       blocked: true,
       ready: false,
     }),
@@ -20,5 +21,29 @@ describe('filterBoardIssues', () => {
     expect(filterBoardIssues(xs, { type: 'feature' }).map((i) => i.id)).toEqual(['b'])
     expect(filterBoardIssues(xs, { label: 'ui' }).map((i) => i.id)).toEqual(['a'])
     expect(filterBoardIssues(xs, { status: 'blocked' }).map((i) => i.id)).toEqual(['b'])
+  })
+  it('filters by stage', () => {
+    expect(filterBoardIssues(xs, { stage: 'review' }).map((i) => i.id)).toEqual(['b'])
+  })
+})
+
+describe('filter chips', () => {
+  it('one chip per set dimension, text excluded', () => {
+    const chips = filterChips({
+      text: 'x',
+      priority: 1,
+      type: 'bug',
+      status: 'open',
+      label: 'ui',
+      stage: 'review',
+    })
+    expect(chips.map((c) => c.key).sort()).toEqual(['label', 'priority', 'stage', 'status', 'type'])
+    expect(chips.find((c) => c.key === 'priority')?.label).toBe('Priority: P1')
+    expect(chips.find((c) => c.key === 'stage')?.label).toBe('Stage: Review')
+  })
+  it('clearChip removes exactly that dimension', () => {
+    const f = clearChip({ priority: 1, type: 'bug' }, 'priority')
+    expect(f.priority).toBeUndefined()
+    expect(f.type).toBe('bug')
   })
 })
