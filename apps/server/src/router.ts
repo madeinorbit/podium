@@ -727,8 +727,8 @@ export const appRouter = t.router({
         ),
       ),
     start: issueProc
-      .input(z.object({ id: z.string() }))
-      .mutation(({ ctx, input }) => ctx.registry.issues.start(input.id)),
+      .input(z.object({ id: z.string(), agentKind: z.string().optional() }))
+      .mutation(({ ctx, input }) => ctx.registry.issues.start(input.id, input.agentKind)),
     update: issueProc
       .input(
         z.object({

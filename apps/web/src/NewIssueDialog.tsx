@@ -1,6 +1,7 @@
-import { type IssueStage, IssueType, ISSUE_STAGES } from '@podium/protocol'
-import type { ComponentProps, JSX } from 'react'
-import { forwardRef, useRef, useState } from 'react'
+import { ISSUE_STAGES, type IssueStage, IssueType } from '@podium/protocol'
+import { FolderGit2, GitBranch, Plus } from 'lucide-react'
+import type { ComponentProps, JSX, ReactNode } from 'react'
+import { forwardRef, useEffect, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import {
@@ -15,6 +16,12 @@ import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 import { useIsMobile } from '@/hooks/use-is-mobile'
+import {
+  issueAgentDefaultLabel,
+  issueAgentIcon,
+  issueAgentLabel,
+  issueAgentOptions,
+} from './issue-agents'
 import { STAGE_LABELS } from './issue-card'
 import { PriorityGlyph, StageGlyph } from './issue-glyphs'
 import { PropertyMenu, type PropertyOption } from './PropertyMenu'
@@ -28,9 +35,28 @@ interface LinearHit {
   url: string
 }
 
+const NEW_BRANCH_VALUE = '__new__'
+
 /** The repo basename, falling back to the full path — repos are shown by name. */
 function repoLabel(path: string): string {
   return path.split('/').filter(Boolean).pop() ?? path
+}
+
+function branchPillLabel(branch: string, primaryBranch: string): string {
+  if (branch === NEW_BRANCH_VALUE) return 'New'
+  return branch === primaryBranch ? `${branch} (default)` : branch
+}
+
+function uniqueBranches(branches: string[]): string[] {
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const branch of branches) {
+    const trimmed = branch.trim()
+    if (!trimmed || seen.has(trimmed)) continue
+    seen.add(trimmed)
+    out.push(trimmed)
+  }
+  return out
 }
 
 /** Small outlined pill used as a `PropertyMenu` trigger in the composer's property
@@ -38,7 +64,7 @@ function repoLabel(path: string): string {
  *  handler onto the button. */
 const PillButton = forwardRef<
   HTMLButtonElement,
-  ComponentProps<typeof Button> & { icon?: JSX.Element; label: string }
+  ComponentProps<typeof Button> & { icon?: ReactNode; label: string }
 >(({ icon, label, ...props }, ref) => (
   <Button
     ref={ref}
@@ -74,8 +100,12 @@ export function NewIssueDialog({
   const [type, setType] = useState<IssueType>('task')
   const [assignee, setAssignee] = useState('')
   const [labels, setLabels] = useState<string[]>([])
-  const [repoPath, setRepoPath] = useState(repos[0]?.path ?? '')
-  const [parentBranch, setParentBranch] = useState('')
+  const [repoPath, setRepoPath] = useState(
+    repos.find((r) => r.kind !== 'worktree')?.path ?? repos[0]?.path ?? '',
+  )
+  const [branchChoice, setBranchChoice] = useState('')
+  const [defaultAgent, setDefaultAgent] = useState('claude-code')
+  const [settingsParentBranch, setSettingsParentBranch] = useState('main')
   // '' = use the configured default agent (no flag).
   const [agent, setAgent] = useState('')
   const [startNow, setStartNow] = useState(true)
@@ -87,6 +117,23 @@ export function NewIssueDialog({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
 
+  useEffect(() => {
+    let cancelled = false
+    trpc.settings.get
+      .query()
+      .then((settings) => {
+        if (cancelled) return
+        setDefaultAgent(settings.sessionDefaults.agent || 'claude-code')
+        setSettingsParentBranch(settings.gitWorkflow.defaultParentBranch || 'main')
+      })
+      .catch(() => {
+        // Best-effort: creation still works with the server defaults.
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [trpc])
+
   // Suggestion pools drawn from the issues already in play.
   const assigneeOptions: PropertyOption[] = [
     ...new Set(issues.map((i) => i.assignee).filter((a): a is string => !!a)),
@@ -96,9 +143,29 @@ export function NewIssueDialog({
   const labelOptions: PropertyOption[] = [...new Set(issues.flatMap((i) => i.labels))]
     .sort()
     .map((l) => ({ value: l, label: l }))
-  const repoOptions: PropertyOption[] = repos.map((r) => ({
+  const repoChoices = repos.filter((r) => r.kind !== 'worktree')
+  const selectedRepo = repos.find((r) => r.path === repoPath)
+  const primaryBranch = selectedRepo?.branch?.trim() || settingsParentBranch || 'main'
+  const selectedBranch = branchChoice || primaryBranch
+  const branchOptions: PropertyOption[] = [
+    ...uniqueBranches([
+      primaryBranch,
+      ...(selectedRepo?.worktrees ?? []).map((w) => w.branch ?? ''),
+    ]).map((branch) => ({
+      value: branch,
+      label: branchPillLabel(branch, primaryBranch),
+      icon: <GitBranch size={13} aria-hidden="true" className="text-muted-foreground" />,
+    })),
+    {
+      value: NEW_BRANCH_VALUE,
+      label: 'New',
+      icon: <Plus size={13} aria-hidden="true" className="text-muted-foreground" />,
+    },
+  ]
+  const repoOptions: PropertyOption[] = repoChoices.map((r) => ({
     value: r.path,
     label: repoLabel(r.path),
+    icon: <FolderGit2 size={13} aria-hidden="true" className="text-muted-foreground" />,
   }))
   const stageOptions: PropertyOption[] = ISSUE_STAGES.map((s) => ({
     value: s,
@@ -111,12 +178,7 @@ export function NewIssueDialog({
     icon: <PriorityGlyph priority={p} />,
   }))
   const typeOptions: PropertyOption[] = [...IssueType.options].map((t) => ({ value: t, label: t }))
-  const agentOptions: PropertyOption[] = [
-    { value: '', label: 'Default' },
-    { value: 'claude-code', label: 'Claude Code' },
-    { value: 'codex', label: 'Codex' },
-    { value: 'grok', label: 'Grok' },
-  ]
+  const agentOptions: PropertyOption[] = issueAgentOptions(defaultAgent)
 
   const canSubmit = Boolean(title.trim()) && Boolean(repoPath) && !busy
 
@@ -149,7 +211,10 @@ export function NewIssueDialog({
         repoPath,
         title: title.trim(),
         description: description.trim() || undefined,
-        parentBranch: parentBranch.trim() || undefined,
+        parentBranch:
+          selectedBranch === NEW_BRANCH_VALUE
+            ? primaryBranch || undefined
+            : selectedBranch || undefined,
         defaultAgent: agent || undefined,
         startNow,
         linear,
@@ -223,13 +288,17 @@ export function NewIssueDialog({
 
           <div className="flex flex-wrap items-center gap-1.5">
             <PropertyMenu
-              trigger={<PillButton icon={<StageGlyph stage={stage} />} label={STAGE_LABELS[stage]} />}
+              trigger={
+                <PillButton icon={<StageGlyph stage={stage} />} label={STAGE_LABELS[stage]} />
+              }
               options={stageOptions}
               selectedValue={stage}
               onSelect={(v) => setStage(v as IssueStage)}
             />
             <PropertyMenu
-              trigger={<PillButton icon={<PriorityGlyph priority={priority} />} label={`P${priority}`} />}
+              trigger={
+                <PillButton icon={<PriorityGlyph priority={priority} />} label={`P${priority}`} />
+              }
               options={priorityOptions}
               selectedValue={String(priority)}
               onSelect={(v) => setPriority(Number(v))}
@@ -258,14 +327,39 @@ export function NewIssueDialog({
               onSelect={setAssignee}
             />
             <PropertyMenu
-              trigger={<PillButton label={repoLabel(repoPath) || 'Repo'} />}
+              trigger={
+                <PillButton
+                  icon={<FolderGit2 size={13} aria-hidden="true" />}
+                  label={repoLabel(repoPath) || 'Repo'}
+                />
+              }
               options={repoOptions}
               selectedValue={repoPath}
               placeholder="Select a repo…"
-              onSelect={setRepoPath}
+              onSelect={(v) => {
+                setRepoPath(v)
+                setBranchChoice('')
+              }}
             />
             <PropertyMenu
-              trigger={<PillButton label={agent ? agentOptions.find((o) => o.value === agent)?.label ?? agent : 'Agent'} />}
+              trigger={
+                <PillButton
+                  icon={<GitBranch size={13} aria-hidden="true" />}
+                  label={branchPillLabel(selectedBranch, primaryBranch)}
+                />
+              }
+              options={branchOptions}
+              selectedValue={selectedBranch}
+              placeholder="Select a branch…"
+              onSelect={setBranchChoice}
+            />
+            <PropertyMenu
+              trigger={
+                <PillButton
+                  icon={issueAgentIcon(agent || defaultAgent, 13)}
+                  label={agent ? issueAgentLabel(agent) : issueAgentDefaultLabel(defaultAgent)}
+                />
+              }
               options={agentOptions}
               selectedValue={agent}
               onSelect={setAgent}
@@ -280,16 +374,6 @@ export function NewIssueDialog({
           <details className="rounded-lg border border-border px-3 py-2 text-[13px]">
             <summary className="cursor-pointer select-none text-foreground">Advanced</summary>
             <div className="mt-2 flex flex-col gap-3">
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor="issue-parent">Parent branch</Label>
-                <Input
-                  id="issue-parent"
-                  value={parentBranch}
-                  onChange={(e) => setParentBranch(e.target.value)}
-                  placeholder="main"
-                />
-              </div>
-
               <div className="flex flex-col gap-2">
                 <Label>Import from Linear</Label>
                 <div className="flex gap-2">

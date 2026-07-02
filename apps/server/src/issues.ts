@@ -611,9 +611,10 @@ export class IssueService {
     return `${repoPath}/.worktrees/${dir}`
   }
 
-  async start(id: string): Promise<IssueWire> {
+  async start(id: string, agentKind?: string): Promise<IssueWire> {
     const row = this.rowOrThrow(id)
     if (row.worktreePath) return this.toWire(row) // already started
+    if (agentKind) row.defaultAgent = agentKind
     const branch = this.slug(row.seq, row.title)
     const path = this.worktreePathFor(row.repoPath, branch)
     const res = await this.d.repoOp('worktreeAdd', row.repoPath, { path, branch, startPoint: row.parentBranch })

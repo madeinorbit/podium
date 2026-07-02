@@ -35,6 +35,14 @@ import {
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { cn } from '@/lib/utils'
+import {
+  ISSUE_AGENT_KINDS,
+  type IssueAgentKind,
+  issueAgentDefaultLabel,
+  issueDefaultAgentKind,
+  issueAgentIcon,
+  issueAgentLabel,
+} from './issue-agents'
 import { STAGE_LABELS } from './issue-card'
 import { issueDetailFields } from './issue-detail-fields'
 import { AssigneeAvatar, PriorityGlyph, StageGlyph } from './issue-glyphs'
@@ -639,6 +647,72 @@ const TriggerButton = forwardRef<
 ))
 TriggerButton.displayName = 'TriggerButton'
 
+function IssueAgentAction({
+  mode,
+  defaultAgent,
+  busy,
+  onDefault,
+  onAgent,
+}: {
+  mode: 'start' | 'session'
+  defaultAgent: string
+  busy: boolean
+  onDefault: () => void
+  onAgent: (agentKind: IssueAgentKind) => void
+}): JSX.Element {
+  const primaryLabel = mode === 'start' ? 'Start work' : '+ Session'
+  const chooseTitle = mode === 'start' ? 'Choose start agent' : 'Choose session agent'
+  const variant = mode === 'start' ? undefined : 'secondary'
+  const defaultKind = issueDefaultAgentKind(defaultAgent)
+  const defaultLabel = issueAgentDefaultLabel(defaultAgent)
+  return (
+    <div className="inline-flex">
+      <Button
+        type="button"
+        variant={variant}
+        size="sm"
+        className="rounded-r-none"
+        disabled={busy}
+        onClick={onDefault}
+      >
+        {primaryLabel}
+      </Button>
+      <DropdownMenu modal={false}>
+        <DropdownMenuTrigger
+          render={
+            <Button
+              type="button"
+              variant={variant}
+              size="sm"
+              className="rounded-l-none border-l-0 px-2"
+              disabled={busy}
+              title={chooseTitle}
+              aria-label={chooseTitle}
+            >
+              <ChevronDown size={13} aria-hidden="true" />
+            </Button>
+          }
+        />
+        <DropdownMenuContent align="start">
+          <DropdownMenuItem onClick={onDefault}>
+            {issueAgentIcon(defaultAgent)}
+            {mode === 'start' ? `Start with ${defaultLabel}` : `New ${defaultLabel} session`}
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          {ISSUE_AGENT_KINDS.filter((kind) => kind !== defaultKind).map((kind) => (
+            <DropdownMenuItem key={kind} onClick={() => onAgent(kind)}>
+              {issueAgentIcon(kind)}
+              {mode === 'start'
+                ? `Start with ${issueAgentLabel(kind)}`
+                : `New ${issueAgentLabel(kind)} session`}
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
+  )
+}
+
 /**
  * The Linear-style properties sidebar for the issue page — a stack of labeled
  * `PropertyMenu`/inline rows driving the same mutations the detail drawer used,
@@ -1118,15 +1192,15 @@ function IssueProperties({
         )}
         {issue.worktreePath ? (
           <div className="flex gap-2">
-            <Button
-              type="button"
-              variant="secondary"
-              size="sm"
-              disabled={busy}
-              onClick={() => void run(() => trpc.issues.addSession.mutate({ id: issue.id }))}
-            >
-              + Session
-            </Button>
+            <IssueAgentAction
+              mode="session"
+              defaultAgent={issue.defaultAgent}
+              busy={busy}
+              onDefault={() => void run(() => trpc.issues.addSession.mutate({ id: issue.id }))}
+              onAgent={(agentKind) =>
+                void run(() => trpc.issues.addSession.mutate({ id: issue.id, agentKind }))
+              }
+            />
             <Button
               type="button"
               variant="secondary"
@@ -1138,15 +1212,15 @@ function IssueProperties({
             </Button>
           </div>
         ) : (
-          <Button
-            type="button"
-            size="sm"
-            className="w-fit"
-            disabled={busy}
-            onClick={() => void run(() => trpc.issues.start.mutate({ id: issue.id }))}
-          >
-            Start work
-          </Button>
+          <IssueAgentAction
+            mode="start"
+            defaultAgent={issue.defaultAgent}
+            busy={busy}
+            onDefault={() => void run(() => trpc.issues.start.mutate({ id: issue.id }))}
+            onAgent={(agentKind) =>
+              void run(() => trpc.issues.start.mutate({ id: issue.id, agentKind }))
+            }
+          />
         )}
       </section>
 

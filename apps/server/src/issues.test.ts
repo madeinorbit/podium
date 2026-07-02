@@ -108,6 +108,18 @@ describe('IssueService.start', () => {
     expect(started.assignee).toBe('agent:claude-code')
     expect(started.stage).toBe('in_progress')
   })
+
+  it('uses an explicitly selected agent when starting an unstarted issue', async () => {
+    const { svc, deps } = harness()
+    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    const started = await svc.start(a.id, 'codex')
+    expect(started.defaultAgent).toBe('codex')
+    expect(started.assignee).toBe('agent:codex')
+    expect(deps.spawnSession).toHaveBeenCalledWith({
+      cwd: '/r/.worktrees/issue-1-a',
+      agentKind: 'codex',
+    })
+  })
 })
 
 describe('IssueService.action', () => {

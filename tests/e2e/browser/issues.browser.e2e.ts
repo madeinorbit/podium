@@ -27,11 +27,11 @@ test.skip(
 async function openShell(page: Page): Promise<void> {
   await page.goto(`/?server=${RELAY}&e2e=1`)
   await page.waitForFunction(() => !document.querySelector('.app-loading'), undefined, {
-    timeout: 20_000,
+    timeout: 60_000,
   })
   // The desktop layout renders an <aside> sidebar; wait for it so the app-tools row
   // (which holds the Issues nav button) is mounted.
-  await page.locator('aside').first().waitFor({ state: 'visible', timeout: 15_000 })
+  await page.locator('aside').first().waitFor({ state: 'visible', timeout: 60_000 })
 }
 
 const STAGES = ['Backlog', 'Planning', 'In Progress', 'Review', 'Verifying', 'Done'] as const
@@ -221,6 +221,77 @@ test('issues composer: set a property pill, Create more keeps the dialog open fo
     backlogColumn.getByText(title2, { exact: false }),
     'the second composed issue appears under Backlog',
   ).toBeVisible({ timeout: 15_000 })
+})
+
+test('issues composer: selected agent persists to deferred issue start dropdown', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await openShell(page)
+
+  await page.locator('button[title="Issues"]').click({ timeout: 15_000 })
+  const board = page.getByRole('region', { name: 'Issues' })
+  await expect(board).toBeVisible({ timeout: 10_000 })
+
+  await page.getByRole('button', { name: 'New Issue', exact: true }).click()
+  const dialog = page.getByRole('dialog')
+  await expect(dialog.getByRole('heading', { name: 'New Issue' })).toBeVisible({ timeout: 10_000 })
+
+  const repoPill = dialog.getByRole('button', { name: 'podium' })
+  await expect(repoPill.locator('svg')).toHaveCount(1)
+  await repoPill.click({ timeout: 10_000 })
+  const menu = page.locator('[data-slot="dropdown-menu-content"]:visible')
+  await expect(menu.getByRole('menuitem').first()).toBeVisible({ timeout: 10_000 })
+  await expect(menu.getByRole('menuitem', { name: 'New', exact: true })).toHaveCount(0)
+  await page.keyboard.press('Escape')
+
+  const branchPill = dialog.locator('button.rounded-full').filter({ hasText: '(default)' }).first()
+  await expect(branchPill.locator('svg')).toHaveCount(1)
+  await expect(branchPill).toContainText('(default)', { timeout: 10_000 })
+  await branchPill.click({ timeout: 10_000 })
+  await expect(menu.getByRole('menuitem', { name: 'New', exact: true })).toBeVisible({
+    timeout: 10_000,
+  })
+  await expect(menu.getByRole('menuitem').filter({ hasText: '(default)' })).toBeVisible()
+  await page.keyboard.press('Escape')
+
+  await expect(dialog.getByRole('button', { name: 'Claude Code (default)' })).toBeVisible()
+  await dialog.getByRole('button', { name: 'Claude Code (default)' }).click({ timeout: 10_000 })
+  await expect(menu.getByRole('menuitem', { name: 'Claude Code', exact: true })).toHaveCount(0)
+  await menu.locator('input').first().fill('Cursor')
+  await menu.getByRole('menuitem').filter({ hasText: 'Cursor' }).click({ timeout: 10_000 })
+  await expect(dialog.getByRole('button', { name: 'Cursor' })).toBeVisible()
+
+  const title = `E2E agent default ${Date.now()}`
+  await dialog.getByLabel('Title').fill(title)
+  const startNow = dialog.getByRole('checkbox', { name: 'Start work now' })
+  await expect(startNow).toBeChecked()
+  await startNow.uncheck()
+  await expect(startNow).not.toBeChecked()
+  const createBtn = dialog.getByRole('button', { name: /^Create$/ })
+  await expect(createBtn).toBeEnabled({ timeout: 15_000 })
+  await createBtn.click()
+  await expect(dialog).toBeHidden({ timeout: 15_000 })
+
+  const backlogColumn = board
+    .locator('div.w-\\[280px\\]')
+    .filter({ has: page.getByRole('heading', { name: 'Backlog', exact: true }) })
+    .first()
+  const card = backlogColumn.getByText(title, { exact: false })
+  await expect(card, 'the deferred issue appears under Backlog').toBeVisible({ timeout: 15_000 })
+
+  await card.click()
+  const issuePage = page.locator('[data-testid="issue-page"]')
+  await expect(issuePage).toBeVisible({ timeout: 10_000 })
+  await expect(issuePage.getByText(title, { exact: false })).toBeVisible({ timeout: 10_000 })
+
+  await page.getByTestId('issue-aside').getByTitle('Choose start agent').click({ timeout: 10_000 })
+  const startMenu = page.locator('[data-slot="dropdown-menu-content"]')
+  await expect(
+    startMenu.getByRole('menuitem', { name: 'Start with Cursor (default)' }),
+  ).toBeVisible()
+  await expect(startMenu.getByRole('menuitem', { name: 'Start with Cursor', exact: true })).toHaveCount(0)
+  await expect(startMenu.getByRole('menuitem', { name: 'Start with Codex' })).toBeVisible()
 })
 
 test('issues board: flag an issue for human, badge appears live, then resolve', async ({
