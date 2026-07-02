@@ -19,6 +19,14 @@ export function issueCardModel(issue: IssueWire): {
   statusDot: 'ready' | 'blocked' | 'deferred' | 'closed' | 'open'
   labels: string[]
   needsHuman: boolean
+  seqLabel: string
+  assignee?: string
+  subProgress?: { done: number; total: number }
+  isBlocked: boolean
+  isBlocking: boolean
+  sessionCount: number
+  dueLabel?: string
+  estimateLabel?: string
 } {
   const repo = issue.repoPath.split('/').filter(Boolean).pop() ?? issue.repoPath
   const count = issue.sessionSummary.total
@@ -34,6 +42,9 @@ export function issueCardModel(issue: IssueWire): {
           : issue.ready
             ? 'ready'
             : 'open'
+  const dueLabel = issue.dueAt
+    ? new Date(issue.dueAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+    : undefined
   return {
     title: issue.title,
     subtitle,
@@ -44,5 +55,13 @@ export function issueCardModel(issue: IssueWire): {
     statusDot,
     labels: issue.labels,
     needsHuman: issue.needsHuman,
+    seqLabel: `#${issue.seq}`,
+    ...(issue.assignee ? { assignee: issue.assignee } : {}),
+    ...(issue.childCount > 0 ? { subProgress: { done: issue.childDoneCount, total: issue.childCount } } : {}),
+    isBlocked: issue.blocked,
+    isBlocking: issue.dependents.some((d) => d.type === 'blocks'),
+    sessionCount: issue.sessionSummary.total,
+    ...(dueLabel ? { dueLabel } : {}),
+    ...(issue.estimateMin != null ? { estimateLabel: `${issue.estimateMin}m` } : {}),
   }
 }

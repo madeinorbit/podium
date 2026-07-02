@@ -32,3 +32,28 @@ describe('issueCardModel rich badges (P4)', () => {
     expect(issueCardModel(issue({ needsHuman: false })).needsHuman).toBe(false)
   })
 })
+
+describe('issueCardModel Linear anatomy', () => {
+  it('derives seq label, assignee, session count', () => {
+    const m = issueCardModel(issue({ seq: 12, assignee: 'mike' }))
+    expect(m.seqLabel).toBe('#12')
+    expect(m.assignee).toBe('mike')
+    expect(m.sessionCount).toBe(2)
+  })
+  it('sub-issue progress only when children exist', () => {
+    expect(issueCardModel(issue()).subProgress).toBeUndefined()
+    expect(issueCardModel(issue({ childCount: 3, childDoneCount: 1 })).subProgress).toEqual({ done: 1, total: 3 })
+  })
+  it('blocked/blocking flags from wire state + dependents', () => {
+    const m = issueCardModel(issue({ blocked: true, dependents: [{ id: 'x', type: 'blocks' }] }))
+    expect(m.isBlocked).toBe(true)
+    expect(m.isBlocking).toBe(true)
+    expect(issueCardModel(issue()).isBlocking).toBe(false)
+  })
+  it('formats due date and estimate when present', () => {
+    const m = issueCardModel(issue({ dueAt: '2026-07-12T12:00:00Z', estimateMin: 90 }))
+    expect(m.dueLabel).toBe('Jul 12')
+    expect(m.estimateLabel).toBe('90m')
+    expect(issueCardModel(issue()).dueLabel).toBeUndefined()
+  })
+})
