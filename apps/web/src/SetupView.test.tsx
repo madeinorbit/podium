@@ -66,33 +66,35 @@ describe('SetupView', () => {
     expect(screen.getByText(/^server only/i)).toBeTruthy()
   })
 
-  it('all-in-one requires acknowledgement before finishing reachable setup without a password', async () => {
+  it('all-in-one requires choosing open mode before showing no-password acknowledgement', async () => {
     const onSaved = vi.fn()
     const { container } = render(
       <SetupView httpOrigin="http://localhost:18787" onSaved={onSaved} />,
     )
     const view = within(container)
-    // all-in-one is the default; advance to the networking step.
     await act(async () => {
       fireEvent.click(view.getByRole('button', { name: /continue/i }))
       await flush()
     })
-    // Options + funnel command loaded from the mocked tRPC client.
+
     expect(trpcMock.options).toHaveBeenCalled()
     expect(view.getByText('tailscale funnel 18787')).toBeTruthy()
-    // Paste the URL; no-password finish remains blocked until the warning is acknowledged.
+    expect(
+      (view.getByRole('radio', { name: /require a login password/i }) as HTMLInputElement).checked,
+    ).toBe(true)
+    expect(view.queryByText(/I understand that anyone who can reach this Podium URL/i)).toBeNull()
+
     fireEvent.change(view.getByLabelText(/public url/i), {
       target: { value: 'https://box.ts.net' },
     })
+    fireEvent.click(view.getByRole('radio', { name: /run without a podium password/i }))
     expect((view.getByRole('button', { name: /finish/i }) as HTMLButtonElement).disabled).toBe(true)
     fireEvent.click(view.getByText(/I understand that anyone who can reach this Podium URL/i))
-    await act(async () => {
-      await flush()
-    })
     await act(async () => {
       fireEvent.click(view.getByRole('button', { name: /finish/i }))
       await flush()
     })
+
     expect(trpcMock.complete).toHaveBeenCalledWith({
       publicUrl: 'https://box.ts.net',
       acknowledgeNoPassword: true,
@@ -112,7 +114,9 @@ describe('SetupView', () => {
     fireEvent.change(view.getByLabelText(/public url/i), {
       target: { value: 'https://box.ts.net' },
     })
-    fireEvent.change(view.getByLabelText(/password/i), { target: { value: 'launch-code' } })
+    fireEvent.change(view.getByLabelText(/^login password$/i), {
+      target: { value: 'launch-code' },
+    })
     await act(async () => {
       fireEvent.click(view.getByRole('button', { name: /finish/i }))
       await flush()

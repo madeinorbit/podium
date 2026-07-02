@@ -67,19 +67,27 @@ describe('LoginPasswordSection', () => {
     )
   })
 
-  it('in enabled mode: disable requires acknowledgement and clears the password with the current one', async () => {
+  it('in enabled mode: disable acknowledgement is scoped to the disable flow', async () => {
     const trpc = fakeTrpc(true)
     render(<LoginPasswordSection trpc={trpc} />)
     await screen.findByRole('button', { name: /change password/i })
-    fireEvent.change(screen.getByPlaceholderText(/current password/i), { target: { value: 'old' } })
-    const disable = screen.getByRole('button', { name: /disable login/i }) as HTMLButtonElement
-    expect(disable.disabled).toBe(true)
-    fireEvent.click(screen.getByText(/I understand that anyone who can reach this server/i))
-    const confirmedDisable = screen.getByRole('button', {
-      name: /disable login/i,
+
+    expect(screen.queryByText(/I understand that anyone who can reach this server/i)).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: /disable login/i }))
+    expect(screen.getByText(/I understand that anyone who can reach this server/i)).toBeTruthy()
+
+    fireEvent.change(screen.getByPlaceholderText(/current password to disable login/i), {
+      target: { value: 'old' },
+    })
+    const finalDisable = screen.getByRole('button', {
+      name: /^disable login$/i,
     }) as HTMLButtonElement
-    expect(confirmedDisable.disabled).toBe(false)
-    fireEvent.click(confirmedDisable)
+    expect(finalDisable.disabled).toBe(true)
+    fireEvent.click(screen.getByText(/I understand that anyone who can reach this server/i))
+    expect(finalDisable.disabled).toBe(false)
+    fireEvent.click(finalDisable)
+
     await waitFor(() =>
       expect(trpc.auth.clearPassword.mutate).toHaveBeenCalledWith({
         current: 'old',

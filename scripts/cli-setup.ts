@@ -68,14 +68,16 @@ async function passwordStep(
   io.print('\nSet a password to require login (recommended for a public URL).')
   const MAX_ATTEMPTS = 5
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
-    const pw = ((await io.prompt('Password (leave blank to run open): ')) ?? '').trim()
+    const pw = (
+      (await io.prompt('Password (recommended; blank starts no-password confirmation): ')) ?? ''
+    ).trim()
     if (pw) {
       await setPassword(pw)
       io.print('Password set — devices must log in to use this instance.')
       return
     }
     io.print('No password means anyone who can reach this URL can use this instance.')
-    const confirm = ((await io.prompt('Type "open" to confirm running without a password: ')) ?? '')
+    const confirm = ((await io.prompt('Type "open" to run without a password: ')) ?? '')
       .trim()
       .toLowerCase()
     if (confirm === 'open') {

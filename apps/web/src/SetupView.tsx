@@ -189,6 +189,7 @@ function NetworkStep({
   const [option, setOption] = useState<NetOption>('tailscale-funnel')
   const [cmd, setCmd] = useState<{ command: string; hint: string } | null>(null)
   const [url, setUrl] = useState('')
+  const [authMode, setAuthMode] = useState<'password' | 'open'>('password')
   const [password, setPassword] = useState('')
   const [ackNoPassword, setAckNoPassword] = useState(false)
   const [err, setErr] = useState('')
@@ -219,7 +220,11 @@ function NetworkStep({
   const finish = async (): Promise<void> => {
     setErr('')
     const passwordValue = password.trim()
-    if (!passwordValue && !ackNoPassword) {
+    if (authMode === 'password' && !passwordValue) {
+      setErr('Enter a login password or choose no-password mode.')
+      return
+    }
+    if (authMode === 'open' && !ackNoPassword) {
       setErr('Confirm running without a login password.')
       return
     }
@@ -227,7 +232,9 @@ function NetworkStep({
     try {
       await trpc.setup.complete.mutate({
         publicUrl: url,
-        ...(passwordValue ? { password: passwordValue } : { acknowledgeNoPassword: true }),
+        ...(authMode === 'password'
+          ? { password: passwordValue }
+          : { acknowledgeNoPassword: true }),
       })
       onSaved()
     } catch (e) {
@@ -297,25 +304,71 @@ function NetworkStep({
           onChange={(e) => setUrl(e.target.value)}
         />
       </div>
-      <div className="flex flex-col gap-1">
-        <label htmlFor="setup-password" className="text-[12px] text-muted-foreground">
-          Login password (recommended once reachable)
+      <fieldset className="flex flex-col gap-2">
+        <legend className="text-[12px] text-muted-foreground">Login</legend>
+        <label
+          htmlFor="setup-auth-password"
+          className="flex cursor-pointer items-start gap-2 rounded-md border border-border px-3 py-2"
+        >
+          <input
+            id="setup-auth-password"
+            type="radio"
+            name="setup-auth"
+            value="password"
+            checked={authMode === 'password'}
+            onChange={() => {
+              setAuthMode('password')
+              setAckNoPassword(false)
+            }}
+            className="mt-1"
+          />
+          <span className="flex flex-col">
+            <strong className="text-[13px] text-foreground">Require a login password</strong>
+            <span className="text-[12px] text-muted-foreground">
+              Recommended for reachable instances.
+            </span>
+          </span>
         </label>
-        <Input
-          id="setup-password"
-          type="password"
-          autoComplete="new-password"
-          placeholder="Leave blank to run open"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-        />
-        <p className="text-[11px] text-muted-foreground">
-          {password.trim()
-            ? 'Devices will need this password to connect.'
-            : 'No password — anyone who can reach the URL can use this instance.'}
-        </p>
-        {!password.trim() && (
-          <Label className="mt-1 cursor-pointer items-start rounded-md border border-border px-3 py-2 text-[12px] text-muted-foreground">
+        {authMode === 'password' && (
+          <div className="ml-6 flex flex-col gap-1">
+            <label htmlFor="setup-password" className="text-[12px] text-muted-foreground">
+              Login password
+            </label>
+            <Input
+              id="setup-password"
+              type="password"
+              autoComplete="new-password"
+              placeholder="Password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+            />
+            <p className="text-[11px] text-muted-foreground">
+              Devices will need this password to connect.
+            </p>
+          </div>
+        )}
+        <label
+          htmlFor="setup-auth-open"
+          className="flex cursor-pointer items-start gap-2 rounded-md border border-border px-3 py-2"
+        >
+          <input
+            id="setup-auth-open"
+            type="radio"
+            name="setup-auth"
+            value="open"
+            checked={authMode === 'open'}
+            onChange={() => setAuthMode('open')}
+            className="mt-1"
+          />
+          <span className="flex flex-col">
+            <strong className="text-[13px] text-foreground">Run without a Podium password</strong>
+            <span className="text-[12px] text-muted-foreground">
+              Use only when access is already restricted, for example by your private network.
+            </span>
+          </span>
+        </label>
+        {authMode === 'open' && (
+          <Label className="ml-6 cursor-pointer items-start rounded-md border border-border px-3 py-2 text-[12px] text-muted-foreground">
             <Checkbox
               checked={ackNoPassword}
               onCheckedChange={(checked) => setAckNoPassword(checked === true)}
@@ -325,7 +378,7 @@ function NetworkStep({
             </span>
           </Label>
         )}
-      </div>
+      </fieldset>
       {err && (
         <p role="alert" className="text-[12px] text-destructive">
           {err}
@@ -341,7 +394,9 @@ function NetworkStep({
           </Button>
           <Button
             type="button"
-            disabled={busy || !url || (!password.trim() && !ackNoPassword)}
+            disabled={
+              busy || !url.trim() || (authMode === 'password' ? !password.trim() : !ackNoPassword)
+            }
             onClick={() => void finish()}
           >
             {busy ? 'Saving…' : 'Finish'}

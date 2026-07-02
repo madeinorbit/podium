@@ -812,7 +812,9 @@ export function LoginPasswordSection({ trpc }: { trpc: Trpc }): JSX.Element {
   const [current, setCurrent] = useState('')
   const [next, setNext] = useState('')
   const [confirm, setConfirm] = useState('')
-  const [ackNoPassword, setAckNoPassword] = useState(false)
+  const [disableOpen, setDisableOpen] = useState(false)
+  const [disableCurrent, setDisableCurrent] = useState('')
+  const [disableAck, setDisableAck] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [done, setDone] = useState<string | null>(null)
@@ -824,11 +826,17 @@ export function LoginPasswordSection({ trpc }: { trpc: Trpc }): JSX.Element {
       .catch(() => setEnabled(null))
   }, [trpc])
 
+  const resetDisable = (): void => {
+    setDisableOpen(false)
+    setDisableCurrent('')
+    setDisableAck(false)
+  }
+
   const reset = (): void => {
     setCurrent('')
     setNext('')
     setConfirm('')
-    setAckNoPassword(false)
+    resetDisable()
   }
 
   const save = async (): Promise<void> => {
@@ -869,13 +877,20 @@ export function LoginPasswordSection({ trpc }: { trpc: Trpc }): JSX.Element {
   const disable = async (): Promise<void> => {
     setError(null)
     setDone(null)
-    if (!ackNoPassword) {
+    if (!disableCurrent) {
+      setError('Enter the current password.')
+      return
+    }
+    if (!disableAck) {
       setError('Confirm running without a login password.')
       return
     }
     setBusy(true)
     try {
-      await trpc.auth.clearPassword.mutate({ current, acknowledgeNoPassword: true })
+      await trpc.auth.clearPassword.mutate({
+        current: disableCurrent,
+        acknowledgeNoPassword: true,
+      })
       setEnabled(false)
       reset()
       setDone('Login disabled — anyone who can reach this server can use it.')
@@ -927,17 +942,6 @@ export function LoginPasswordSection({ trpc }: { trpc: Trpc }): JSX.Element {
           value={confirm}
           onChange={(e) => setConfirm(e.target.value)}
         />
-        {enabled && (
-          <Label className="cursor-pointer items-start rounded-md border border-border px-3 py-2 text-[12px] text-muted-foreground">
-            <Checkbox
-              checked={ackNoPassword}
-              onCheckedChange={(checked) => setAckNoPassword(checked === true)}
-            />
-            <span>
-              I understand that anyone who can reach this server can use it if login is disabled.
-            </span>
-          </Label>
-        )}
         {error && (
           <p role="alert" className="text-[12px] text-destructive">
             {error}
@@ -952,13 +956,64 @@ export function LoginPasswordSection({ trpc }: { trpc: Trpc }): JSX.Element {
             <Button
               type="button"
               variant="outline"
-              disabled={busy || !current || !ackNoPassword}
-              onClick={() => void disable()}
+              disabled={busy}
+              onClick={() => {
+                setError(null)
+                setDone(null)
+                setDisableOpen(true)
+              }}
             >
-              Disable login
+              Disable login...
             </Button>
           )}
         </div>
+        {enabled && disableOpen && (
+          <div className="mt-1 flex flex-col gap-2 rounded-md border border-border bg-muted/25 p-3">
+            <div>
+              <h4 className="font-medium text-[13px] text-foreground">Disable login</h4>
+              <p className="text-[12px] text-muted-foreground">
+                This removes the password requirement for browsers and desktop apps.
+              </p>
+            </div>
+            <Input
+              type="password"
+              autoComplete="current-password"
+              placeholder="Current password to disable login"
+              value={disableCurrent}
+              onChange={(e) => setDisableCurrent(e.target.value)}
+            />
+            <Label className="cursor-pointer items-start rounded-md border border-border bg-background px-3 py-2 text-[12px] text-muted-foreground">
+              <Checkbox
+                checked={disableAck}
+                onCheckedChange={(checked) => setDisableAck(checked === true)}
+              />
+              <span>
+                I understand that anyone who can reach this server can use it if login is disabled.
+              </span>
+            </Label>
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="destructive"
+                disabled={busy || !disableCurrent || !disableAck}
+                onClick={() => void disable()}
+              >
+                {busy ? 'Disabling...' : 'Disable login'}
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                disabled={busy}
+                onClick={() => {
+                  resetDisable()
+                  setError(null)
+                }}
+              >
+                Cancel
+              </Button>
+            </div>
+          </div>
+        )}
       </div>
     </Section>
   )

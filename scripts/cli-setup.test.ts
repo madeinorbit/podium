@@ -57,6 +57,25 @@ describe('runCliSetup', () => {
       expect(setPw).not.toHaveBeenCalled()
     })
 
+    it('labels blank password as the no-password confirmation path', async () => {
+      const prompts: string[] = []
+      let i = 0
+      const answers = ['1', '1', 'https://box.ts.net', '', 'open']
+      await runCliSetup(
+        {
+          prompt: async (q) => {
+            prompts.push(q)
+            return answers[i++] ?? ''
+          },
+          print: () => {},
+        },
+        18787,
+        { setPassword: vi.fn(async () => {}) },
+      )
+      expect(prompts).toContain('Password (recommended; blank starts no-password confirmation): ')
+      expect(prompts).toContain('Type "open" to run without a password: ')
+    })
+
     it('re-prompts for a password when no-password confirmation is not typed', async () => {
       const setPw = vi.fn(async () => {})
       await run(['1', '1', 'https://box.ts.net', '', 'no', 's3cret'], setPw)
