@@ -562,6 +562,38 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
     },
   },
   {
+    name: 'events',
+    summary: 'Event log since a cursor: events --since <id> [--kind a,b] [--limit n].',
+    args: z.object({
+      since: z.coerce.number().int().min(0).default(0),
+      kind: z.string().optional(),
+      repoPath: z.string().optional(),
+      limit: z.coerce.number().int().optional(),
+    }),
+    async run(c, a) {
+      const kinds = a.kind
+        ? String(a.kind)
+            .split(',')
+            .map((s) => s.trim())
+            .filter(Boolean)
+        : undefined
+      const rows = (await c.issues.events.query({
+        since: a.since as number,
+        ...(kinds?.length ? { kinds } : {}),
+        ...(a.repoPath ? { repoPath: a.repoPath as string } : {}),
+        ...(a.limit != null ? { limit: a.limit as number } : {}),
+      })) as { id: number; ts: string; kind: string; subject: string; payload: unknown }[]
+      return {
+        text: rows.length
+          ? rows
+              .map((e) => `[${e.id}] ${e.ts} ${e.kind} ${e.subject} ${JSON.stringify(e.payload)}`)
+              .join('\n')
+          : '(no events)',
+        data: rows,
+      }
+    },
+  },
+  {
     name: 'epic-status',
     summary: 'Epic completion: epic-status <id>.',
     args: z.object({ id: idArg }),

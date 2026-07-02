@@ -380,6 +380,14 @@ export class IssueService {
     return this.list()
   }
 
+  /** Durable event-log read; cursor = the last event id the caller has seen. */
+  listEvents(
+    sinceId: number,
+    opts?: { kinds?: string[]; repoPath?: string; limit?: number },
+  ): ReturnType<SessionStore['listEventsSince']> {
+    return this.deps.store.listEventsSince(sinceId, opts)
+  }
+
   /** The agent-facing context string injected at session start / on demand. Bound = the agent's
    *  issue + its open children + blockers; unbound = a lobby of ready work. Ends with the rules. */
   prime(opts: { repoPath?: string; boundIssueId?: string | null }): string {
@@ -428,6 +436,35 @@ export class IssueService {
     ].join('\n')
   }
 
+  /** Append to the durable event log. Best-effort: a log failure must never
+   *  break the mutation that triggered it. repoPath comes from the subject row. */
+  private emitEvent(kind: string, subject: string, payload: Record<string, unknown>): void {
+    try {
+      this.deps.store.appendEvent({
+        ts: this.now(),
+        kind,
+        subject,
+        repoPath: this.rows.get(subject)?.repoPath ?? null,
+        payload,
+      })
+    } catch {}
+  }
+
+  /** Dependents of `closed` that its close just unblocked (their ONLY open blocker
+   *  was `closed`): open rows in the same repo with a `blocks` dep on it whose wire
+   *  `ready` is now true. */
+  private emitReadyAfterClose(closed: IssueRow): void {
+    for (const r of this.rows.values()) {
+      if (r.id === closed.id || r.repoPath !== closed.repoPath || this.isClosed(r)) continue
+      const blocksClosed = this.deps.store
+        .listIssueDeps(r.id)
+        .some((d) => d.type === 'blocks' && d.toId === closed.id)
+      if (blocksClosed && this.toWire(r).ready) {
+        this.emitEvent('issue.ready', r.id, { seq: r.seq, unblockedBy: closed.seq })
+      }
+    }
+  }
+
   private persist(row: IssueRow): IssueWire {
     row.updatedAt = this.now()
     this.rows.set(row.id, row)
@@ -463,6 +500,7 @@ export class IssueService {
     // parentId handled after persist via reparent (edge-maintaining): the row
     // must be registered in this.rows first so wouldCycle/rowOrThrow work.
     let wire = this.persist(row)
+    this.emitEvent('issue.created', row.id, { seq: row.seq, title: row.title })
     if (input.parentId) wire = this.reparent(row.id, input.parentId)
     if (input.labels?.length) wire = this.setLabels(row.id, input.labels)
     return wire
@@ -476,6 +514,7 @@ export class IssueService {
     | 'pinned' | 'estimateMin' | 'needsHuman' | 'humanQuestion'>>): IssueWire {
     const row = this.rows.get(this.resolveRef(id))
     if (!row) throw new Error(`unknown issue ${id}`)
+    const prevStage = row.stage
     if ('parentId' in patch) {
       this.setParent(row, patch.parentId == null ? null : this.resolveRef(patch.parentId))
       const { parentId: _ignored, ...rest } = patch
@@ -483,7 +522,16 @@ export class IssueService {
     } else {
       Object.assign(row, patch)
     }
-    return this.persist(row)
+    const wire = this.persist(row)
+    // stage→done is close()'s territory (issue.closed) — don't double-log it here.
+    if (patch.stage != null && patch.stage !== prevStage && patch.stage !== 'done') {
+      this.emitEvent('issue.stage_changed', row.id, {
+        seq: row.seq,
+        from: prevStage,
+        to: patch.stage,
+      })
+    }
+    return wire
   }
 
   archive(id: string): IssueWire {
@@ -576,11 +624,15 @@ export class IssueService {
   }
 
   setNeedsHuman(id: string, question?: string | null): IssueWire {
-    return this.update(id, { needsHuman: true, humanQuestion: question ?? null })
+    const wire = this.update(id, { needsHuman: true, humanQuestion: question ?? null })
+    this.emitEvent('issue.needs_human', wire.id, { seq: wire.seq, question: question ?? null })
+    return wire
   }
 
   clearNeedsHuman(id: string): IssueWire {
-    return this.update(id, { needsHuman: false, humanQuestion: null })
+    const wire = this.update(id, { needsHuman: false, humanQuestion: null })
+    this.emitEvent('issue.needs_human_cleared', wire.id, { seq: wire.seq })
+    return wire
   }
 
   /** The single cycle-checked path that keeps the parent_id column and the
@@ -628,7 +680,13 @@ export class IssueService {
   }
 
   close(id: string, reason = 'done'): IssueWire {
-    return this.update(id, { stage: 'done', closedReason: reason })
+    const wire = this.update(id, { stage: 'done', closedReason: reason })
+    const row = this.rows.get(wire.id)
+    if (row) {
+      this.emitEvent('issue.closed', row.id, { seq: row.seq, reason })
+      this.emitReadyAfterClose(row)
+    }
+    return wire
   }
 
   supersede(oldId: string, newId: string): IssueWire {
@@ -666,6 +724,11 @@ export class IssueService {
     row.stage = 'in_progress'
     row.assignee = `agent:${row.defaultAgent}`
     const wire = this.persistRow(row)
+    this.emitEvent('issue.started', row.id, {
+      seq: row.seq,
+      branch: row.branch,
+      worktreePath: row.worktreePath,
+    })
     // Hand the agent the description as its first prompt AT SPAWN. createSession
     // delivers it via argv for claude/codex/grok (`claude "<prompt>"` — consumed at
     // startup, no TUI-readiness race) or seeds the composer draft for other agents.

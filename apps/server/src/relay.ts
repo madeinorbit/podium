@@ -2805,6 +2805,23 @@ export class SessionRegistry {
     prev: AgentRuntimeState | undefined,
     next: AgentRuntimeState,
   ): void {
+    // Durable event log: one row per REAL phase transition (the caller fires on
+    // every agentState message, including same-phase refreshes). Best-effort.
+    if (prev?.phase !== next.phase) {
+      try {
+        this.store.appendEvent({
+          ts: new Date(this.now()).toISOString(),
+          kind: 'session.phase',
+          subject: session.sessionId,
+          payload: {
+            phase: next.phase,
+            ...(next.idle?.kind ? { verdict: next.idle.kind } : {}),
+            agentKind: session.agentKind,
+            cwd: session.cwd,
+          },
+        })
+      } catch {}
+    }
     const settings = this.store.getSettings().notifications
     const name = this.attentionNoticeName(session)
     const notice = attentionNotice(name, prev, next)

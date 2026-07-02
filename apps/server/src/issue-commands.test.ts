@@ -35,6 +35,7 @@ function mockClient(overrides: Record<string, unknown> = {}): { client: IssueTrp
       action: proc('action'),
       addSession: proc('addSession'),
       addShell: proc('addShell'),
+      events: proc('events'),
     },
   } as unknown as IssueTrpc
   return { client, calls }
@@ -180,5 +181,31 @@ describe('ISSUE_COMMANDS registry', () => {
     const cmd = ISSUE_COMMANDS.find((c) => c.name === 'create')!
     await cmd.run(fake, { repoPath: '/r', title: 'child', parentId: 'iss_parent' })
     expect(calls[0]).toMatchObject({ parentId: 'iss_parent', title: 'child' })
+  })
+
+  it('events queries issues.events with the cursor, comma-split kinds, and renders one line per event', async () => {
+    const rows = [
+      { id: 3, ts: 't1', kind: 'issue.closed', subject: 'iss_a', payload: { seq: 1, reason: 'done' } },
+      { id: 4, ts: 't2', kind: 'issue.ready', subject: 'iss_b', payload: { seq: 2, unblockedBy: 1 } },
+    ]
+    const { client, calls } = mockClient({ events: rows })
+    const out = await cmd('events').run(client, { since: 2, kind: 'issue.closed,issue.ready', limit: 10 })
+    expect(calls).toContainEqual({
+      path: 'events',
+      kind: 'query',
+      input: { since: 2, kinds: ['issue.closed', 'issue.ready'], limit: 10 },
+    })
+    expect(out.text.split('\n')).toEqual([
+      '[3] t1 issue.closed iss_a {"seq":1,"reason":"done"}',
+      '[4] t2 issue.ready iss_b {"seq":2,"unblockedBy":1}',
+    ])
+    expect(out.data).toEqual(rows)
+  })
+
+  it('events renders (no events) when the log is empty past the cursor', async () => {
+    const { client } = mockClient({ events: [] })
+    const out = await cmd('events').run(client, { since: 0 })
+    expect(out.text).toBe('(no events)')
+    expect(out.data).toEqual([])
   })
 })

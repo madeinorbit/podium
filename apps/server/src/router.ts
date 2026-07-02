@@ -705,6 +705,22 @@ export const appRouter = t.router({
     get: issueProc
       .input(z.object({ id: z.string() }))
       .query(({ ctx, input }) => ctx.registry.issues.get(input.id)),
+    events: issueProc
+      .input(
+        z.object({
+          since: z.number().int().min(0).default(0),
+          kinds: z.array(z.string()).optional(),
+          repoPath: z.string().optional(),
+          limit: z.number().int().min(1).max(1000).optional(),
+        }),
+      )
+      .query(({ ctx, input }) =>
+        ctx.registry.issues.listEvents(input.since, {
+          ...(input.kinds ? { kinds: input.kinds } : {}),
+          ...(input.repoPath ? { repoPath: input.repoPath } : {}),
+          ...(input.limit != null ? { limit: input.limit } : {}),
+        }),
+      ),
     create: issueProc
       .input(
         z.object({

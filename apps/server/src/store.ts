@@ -1219,6 +1219,66 @@ export class SessionStore {
     return (r.m ?? 0) + 1
   }
 
+  // ---- event log ----
+
+  appendEvent(e: {
+    ts: string
+    kind: string
+    subject: string
+    repoPath?: string | null
+    payload?: unknown
+  }): number {
+    const r = this.db
+      .prepare(
+        'INSERT INTO podium_events (ts, kind, subject, repo_path, payload) VALUES (?, ?, ?, ?, ?)',
+      )
+      .run(e.ts, e.kind, e.subject, e.repoPath ?? null, JSON.stringify(e.payload ?? {}))
+    return Number(r.lastInsertRowid)
+  }
+
+  listEventsSince(
+    sinceId: number,
+    opts?: { kinds?: string[]; repoPath?: string; limit?: number },
+  ): Array<{
+    id: number
+    ts: string
+    kind: string
+    subject: string
+    repoPath: string | null
+    payload: unknown
+  }> {
+    const where = ['id > ?']
+    const params: unknown[] = [sinceId]
+    if (opts?.kinds?.length) {
+      where.push(`kind IN (${opts.kinds.map(() => '?').join(', ')})`)
+      params.push(...opts.kinds)
+    }
+    if (opts?.repoPath) {
+      where.push('repo_path = ?')
+      params.push(opts.repoPath)
+    }
+    params.push(opts?.limit ?? 200)
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM podium_events WHERE ${where.join(' AND ')} ORDER BY id ASC LIMIT ?`,
+      )
+      .all(...(params as never[])) as Record<string, unknown>[]
+    return rows.map((r) => {
+      let payload: unknown = {}
+      try {
+        payload = JSON.parse(r.payload as string)
+      } catch {}
+      return {
+        id: Number(r.id),
+        ts: r.ts as string,
+        kind: r.kind as string,
+        subject: r.subject as string,
+        repoPath: (r.repo_path as string | null) ?? null,
+        payload,
+      }
+    })
+  }
+
   /** One-time, idempotent: mirror legacy issues.blocked_by arrays into issue_deps. */
   private backfillIssueDeps(): void {
     const rows = this.db
@@ -1931,6 +1991,18 @@ export class SessionStore {
        )`,
     )
     this.db.exec('CREATE INDEX IF NOT EXISTS idx_issue_comments_issue ON issue_comments(issue_id)')
+    // Durable orchestrator event log — append-only, cursor = the AUTOINCREMENT id.
+    this.db.exec(
+      `CREATE TABLE IF NOT EXISTS podium_events (
+         id        INTEGER PRIMARY KEY AUTOINCREMENT,
+         ts        TEXT NOT NULL,
+         kind      TEXT NOT NULL,
+         subject   TEXT NOT NULL,
+         repo_path TEXT,
+         payload   TEXT NOT NULL DEFAULT '{}'
+       )`,
+    )
+    this.db.exec('CREATE INDEX IF NOT EXISTS idx_podium_events_kind ON podium_events(kind)')
     this.backfillIssueDeps()
     // External-content FTS over the searchable text columns. Hybrid search note:
     // keyword now; a vector column joins when an embeddings provider is configured.
