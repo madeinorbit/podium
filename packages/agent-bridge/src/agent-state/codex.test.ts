@@ -121,6 +121,44 @@ describe('findLiveCodexRollout', () => {
     expect((await findLiveCodexRollout(sessions, '/repo/x', 0))?.id).toBe('idle')
   })
 
+  it('does not latch a fresh spawn onto a sibling whose rollout mtime is fresh but session is old', async () => {
+    // The sidebar-collapse bug: several Codex panes share a repo cwd. An ACTIVE
+    // sibling keeps appending to its rollout, so file mtime stays recent. A new
+    // spawn used mtime for discovery → every pane inherited the sibling's
+    // codex-thread id → dedupeSessionsByResume hid the rest in the sidebar.
+    const sessions = await mkdtemp(join(tmpdir(), 'podium-codex-sibling-'))
+    const dir = join(sessions, '2026', '06', '25')
+    await mkdir(dir, { recursive: true })
+    const cwd = '/repo/podium'
+    const spawnAt = Date.parse('2026-06-25T12:00:00.000Z')
+
+    const sibling = join(dir, 'rollout-2026-06-25T10-00-00-sessA.jsonl')
+    await writeFile(
+      sibling,
+      `${JSON.stringify({
+        timestamp: '2026-06-25T10:00:00.000Z',
+        type: 'session_meta',
+        payload: { id: 'sessA', cwd, source: 'cli', timestamp: '2026-06-25T10:00:00.000Z' },
+      })}\n`,
+    )
+    const fresh = join(dir, 'rollout-2026-06-25T12-00-01-sessB.jsonl')
+    await writeFile(
+      fresh,
+      `${JSON.stringify({
+        timestamp: '2026-06-25T12:00:01.000Z',
+        type: 'session_meta',
+        payload: { id: 'sessB', cwd, source: 'cli', timestamp: '2026-06-25T12:00:01.000Z' },
+      })}\n`,
+    )
+    // Sibling is actively writing — mtime is NEWER than the fresh session's file.
+    await utimes(sibling, new Date(spawnAt + 5000), new Date(spawnAt + 5000))
+    await utimes(fresh, new Date(spawnAt + 1000), new Date(spawnAt + 1000))
+
+    const found = await findLiveCodexRollout(sessions, cwd, spawnAt)
+    expect(found?.id).toBe('sessB')
+    expect(found?.path).toBe(fresh)
+  })
+
   it('ignores the newer guardian subagent rollout and returns the interactive cli session', async () => {
     // Codex ≥0.142 writes a SECOND rollout per interactive session for its internal
     // "guardian" risk-judging subagent: same cwd, NEWER mtime, its own thread id, but

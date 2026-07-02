@@ -334,10 +334,25 @@ export function observeCodexState(opts: {
   }
 }
 
+/** When the interactive session started, from `session_meta` (record or payload
+ *  timestamp). Undefined when the header carries no parseable time. */
+function sessionMetaStartedAtMs(
+  meta: Record<string, unknown>,
+  payload: Record<string, unknown>,
+): number | undefined {
+  const raw = strField(payload, 'timestamp') ?? strField(meta, 'timestamp')
+  if (!raw) return undefined
+  const ms = Date.parse(raw)
+  return Number.isFinite(ms) ? ms : undefined
+}
+
 /**
  * Newest INTERACTIVE `*.jsonl` under `~/.codex/sessions` whose `session_meta.cwd`
- * matches and whose mtime is at/after the spawn (with a small grace window).
- * Returns its path plus the `session_meta.id` (used as the resume value).
+ * matches. For a fresh spawn (`startedAtMs > 0`), only rollouts whose
+ * `session_meta` timestamp (fallback: file birthtime) is at/after the spawn —
+ * NOT file mtime, which keeps advancing on an active sibling and would collapse
+ * every new Codex pane in the same repo onto that sibling's thread. Returns its
+ * path plus the `session_meta.id` (used as the resume value).
  *
  * "Interactive" (`isInteractiveCodexSource`) is load-bearing: Codex ≥0.142 writes
  * a second, newer rollout per session for its internal "guardian" subagent. Sorting
@@ -349,7 +364,7 @@ export async function findLiveCodexRollout(
   cwd: string,
   startedAtMs: number,
 ): Promise<{ path: string; id: string | undefined } | undefined> {
-  const candidates: { path: string; mtimeMs: number }[] = []
+  const candidates: { path: string; sortMs: number; id: string | undefined }[] = []
   const walk = async (dir: string): Promise<void> => {
     let entries: Dirent<string>[]
     try {
@@ -362,34 +377,35 @@ export async function findLiveCodexRollout(
       if (e.isDirectory()) await walk(full)
       else if (e.name.endsWith('.jsonl')) {
         try {
+          const head = await readFirstLine(full)
+          const meta = head ? JSON.parse(head) : undefined
+          const payload = isRecord(meta) && isRecord(meta.payload) ? meta.payload : undefined
+          if (
+            !payload ||
+            strField(meta, 'type') !== 'session_meta' ||
+            strField(payload, 'cwd') !== cwd ||
+            !isInteractiveCodexSource(payload.source)
+          ) {
+            continue
+          }
           const s = await stat(full)
-          if (s.mtimeMs >= startedAtMs - 2000) candidates.push({ path: full, mtimeMs: s.mtimeMs })
+          const createdMs = sessionMetaStartedAtMs(meta, payload) ?? s.birthtimeMs
+          if (startedAtMs > 0 && createdMs < startedAtMs - 2000) continue
+          candidates.push({
+            path: full,
+            sortMs: createdMs,
+            id: strField(payload, 'id'),
+          })
         } catch {
-          // skip unreadable entry
+          // skip unreadable / non-matching candidate
         }
       }
     }
   }
   await walk(sessionsRoot)
-  candidates.sort((a, b) => b.mtimeMs - a.mtimeMs)
-  for (const c of candidates) {
-    try {
-      const head = await readFirstLine(c.path)
-      const meta = head ? JSON.parse(head) : undefined
-      const payload = isRecord(meta) && isRecord(meta.payload) ? meta.payload : undefined
-      if (
-        payload &&
-        strField(meta, 'type') === 'session_meta' &&
-        strField(payload, 'cwd') === cwd &&
-        isInteractiveCodexSource(payload.source)
-      ) {
-        return { path: c.path, id: strField(payload, 'id') }
-      }
-    } catch {
-      // skip unreadable / non-matching candidate
-    }
-  }
-  return undefined
+  candidates.sort((a, b) => b.sortMs - a.sortMs)
+  const best = candidates[0]
+  return best ? { path: best.path, id: best.id } : undefined
 }
 
 /**
