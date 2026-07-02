@@ -43,7 +43,6 @@ import {
   type IssuesDisplay,
   type IssuesLayout,
   type IssuesOrdering,
-  orderIssues,
   readIssuesDisplay,
   writeIssuesDisplay,
 } from './issues-display'
@@ -147,14 +146,8 @@ export function IssuesView(): JSX.Element {
   // The per-stage ordered lanes — computed once so the board render, the list
   // render, and the keyboard nav all agree on order. `listIds` flattens them
   // top-to-bottom for the single-column list layout.
-  const orderedByStage = ISSUE_STAGES.map((stage) => ({
-    stage,
-    issues: orderIssues(
-      active.filter((i) => i.stage === stage),
-      display.ordering,
-    ),
-  }))
-  const listIds = orderedByStage.flatMap((c) => c.issues.map((i) => i.id))
+  const orderedByStage = groupIssuesByStage(active, display.ordering)
+  const listIds = flattenGroups(orderedByStage)
   const nav: IssuesNav =
     layout === 'list'
       ? { kind: 'rows', ids: listIds }
