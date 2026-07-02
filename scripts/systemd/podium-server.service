@@ -13,9 +13,10 @@ Wants=network-online.target
 Type=notify
 NotifyAccess=all
 WatchdogSec=30
-WorkingDirectory=/home/user/src/other/podium
-Environment=HOME=/home/user
-Environment=PATH=/home/user/.local/bin:/home/user/.opencode/bin:/home/user/.bun/bin:/usr/local/bin:/usr/bin:/bin
+WorkingDirectory=@PODIUM_DIR@
+Environment=HOME=%h
+# Home-relative dirs cover common agent-CLI install locations; extend for your setup.
+Environment=PATH=%h/.local/bin:%h/.opencode/bin:%h/.bun/bin:/usr/local/bin:/usr/bin:/bin
 Environment=PODIUM_PORT=18787
 # Run @podium/* from TypeScript SOURCE (--conditions=@podium/source), like Vite —
 # no build, no dist, no stale-dist trap. Bun runtime (runs TS natively); @podium/agent-bridge
@@ -24,7 +25,7 @@ Environment=PODIUM_PORT=18787
 # Persistence resolves to bun:sqlite (@podium/core/sqlite). Running from SOURCE (not the
 # `bun build --compile` binary) preserves redeploy-on-main-change: a restart re-reads the
 # updated source, exactly like tsx did.
-ExecStart=/home/user/.local/bin/bun --conditions=@podium/source scripts/server.ts
+ExecStart=/usr/bin/env bun --conditions=@podium/source scripts/server.ts
 Restart=always
 RestartSec=2
 

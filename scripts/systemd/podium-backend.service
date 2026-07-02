@@ -5,9 +5,10 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-WorkingDirectory=/home/user/src/other/podium
-Environment=HOME=/home/user
-Environment=PATH=/home/user/.local/bin:/home/user/.opencode/bin:/home/user/.bun/bin:/usr/local/bin:/usr/bin:/bin
+WorkingDirectory=@PODIUM_DIR@
+Environment=HOME=%h
+# Home-relative dirs cover common agent-CLI install locations; extend for your setup.
+Environment=PATH=%h/.local/bin:%h/.opencode/bin:%h/.bun/bin:/usr/local/bin:/usr/bin:/bin
 Environment=PODIUM_PORT=18787
 # Run @podium/* from TypeScript SOURCE (--conditions=@podium/source), exactly like
 # Vite does (apps/web/vite.config.ts) — no build step, no dist, no stale-dist trap.
@@ -15,7 +16,7 @@ Environment=PODIUM_PORT=18787
 # No `watch`: a crash now EXITS so Restart=always actually recovers it (tsx watch
 # would wedge a dead child while systemd still reported "active"). New main is picked
 # up by podium-redeploy.path, which restarts this unit when .git/logs/HEAD moves.
-ExecStart=/home/user/src/other/podium/node_modules/.bin/tsx --conditions=@podium/source scripts/host.ts
+ExecStart=@PODIUM_DIR@/node_modules/.bin/tsx --conditions=@podium/source scripts/host.ts
 Restart=always
 RestartSec=2
 

@@ -13,16 +13,17 @@ Wants=network-online.target
 Type=notify
 NotifyAccess=all
 WatchdogSec=30
-WorkingDirectory=/home/user/src/other/podium
-Environment=HOME=/home/user
-Environment=PATH=/home/user/.local/bin:/home/user/.opencode/bin:/home/user/.bun/bin:/usr/local/bin:/usr/bin:/bin
+WorkingDirectory=@PODIUM_DIR@
+Environment=HOME=%h
+# Home-relative dirs cover common agent-CLI install locations; extend for your setup.
+Environment=PATH=%h/.local/bin:%h/.opencode/bin:%h/.bun/bin:/usr/local/bin:/usr/bin:/bin
 Environment=PODIUM_PORT=18787
 # Bun runtime: the PTY backend is selected at runtime (@podium/agent-bridge) — Bun.Terminal
 # under Bun, node-pty under Node — so no native addon is loaded here on Bun. Run from SOURCE
 # (not the bun build --compile binary) so redeploy-on-main-change re-reads it like tsx did.
 # The abduco/tmux masters live in their own systemd --user scopes (spawnAbducoAgent), so they
 # survive this unit restarting — that's how live agents outlast a daemon redeploy.
-ExecStart=/home/user/.local/bin/bun --conditions=@podium/source scripts/daemon.ts
+ExecStart=/usr/bin/env bun --conditions=@podium/source scripts/daemon.ts
 Restart=always
 RestartSec=2
 

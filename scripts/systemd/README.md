@@ -1,10 +1,15 @@
-# Podium dev-host systemd units (podium-host)
+# Podium dev-host systemd units
 
 The canonical copies of the user-level units that run Podium on the dev host.
 Install with:
 
 ```sh
-cp scripts/systemd/podium-*.{service,path} ~/.config/systemd/user/
+PODIUM_DIR="$(git rev-parse --show-toplevel)"   # the main checkout the services should run from
+mkdir -p ~/.config/systemd/user
+for f in scripts/systemd/podium-*.{service,path,timer}; do
+  [ "$(basename "$f")" = podium-daemon-system.service ] && continue  # system unit, installed separately
+  sed "s|@PODIUM_DIR@|$PODIUM_DIR|g" "$f" > ~/.config/systemd/user/"$(basename "$f")"
+done
 systemctl --user daemon-reload
 systemctl --user enable --now podium-server podium-daemon podium-web podium-redeploy.path
 # verify the watchdog took: both should read "active (running)" with a Watchdog line
@@ -54,4 +59,8 @@ produces a new build (and the new build hash the in-app update prompt detects).
 Note: the running app's service worker is the source of truth for installed
 clients — they pick up the new build via the "New version — Reload" prompt.
 
-The unit files hard-code `/home/user` paths — adjust when installing elsewhere.
+The unit files are templated: they use the systemd `%h` specifier for the user's
+home directory (expanded by systemd at load time) and the `@PODIUM_DIR@` placeholder
+for the checkout path, which the install loop above substitutes with sed.
+`podium-daemon-system.service` is the system-wide variant with its own install
+instructions in its header comment.

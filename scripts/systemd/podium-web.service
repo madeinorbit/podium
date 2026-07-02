@@ -12,10 +12,11 @@ Type=oneshot
 # `systemctl restart podium-web` to re-build the content-hashed bundle (drives the in-app
 # PWA update prompt).
 RemainAfterExit=yes
-WorkingDirectory=/home/user/src/other/podium
-Environment=HOME=/home/user
-Environment=PATH=/home/user/.local/bin:/home/user/.opencode/bin:/home/user/.bun/bin:/usr/local/bin:/usr/bin:/bin
-ExecStart=/home/user/.local/bin/bun run --filter @podium/web build
+WorkingDirectory=@PODIUM_DIR@
+Environment=HOME=%h
+# Home-relative dirs cover common agent-CLI install locations; extend for your setup.
+Environment=PATH=%h/.local/bin:%h/.opencode/bin:%h/.bun/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/usr/bin/env bun run --filter @podium/web build
 
 [Install]
 WantedBy=default.target

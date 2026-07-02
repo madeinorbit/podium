@@ -12,7 +12,7 @@ Type=oneshot
 # git finishes the working-tree checkout, so wait for git to release .git/index.lock
 # (the working tree is fully written then) before restarting. Bounded so a stuck lock
 # can't wedge the redeploy.
-ExecStartPre=/usr/bin/env bash /home/user/src/other/podium/scripts/redeploy-wait.sh /home/user/src/other/podium
+ExecStartPre=/usr/bin/env bash @PODIUM_DIR@/scripts/redeploy-wait.sh @PODIUM_DIR@
 # server first (the daemon reconnects to it with backoff); durable abduco/tmux masters
 # survive the daemon restart in their own scopes, so live agents are not dropped.
 ExecStart=/usr/bin/systemctl --user restart podium-server.service podium-daemon.service podium-web.service

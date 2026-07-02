@@ -6,7 +6,7 @@ Description=Watch git HEAD on the Podium main checkout; redeploy backend when ma
 # merge/pull/reset that moves HEAD. The checkout is always on main, so every update
 # to main appends here. inotify IN_MODIFY (PathModified) fires reliably on append —
 # more robust than watching .git/refs/heads/main, which git rewrites via rename.
-PathModified=/home/user/src/other/podium/.git/logs/HEAD
+PathModified=@PODIUM_DIR@/.git/logs/HEAD
 Unit=podium-redeploy.service
 
 [Install]
