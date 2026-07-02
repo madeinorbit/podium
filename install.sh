@@ -67,6 +67,9 @@ tar -xzf "$TMP/$ASSET" -C "$STAGE"
 [ -d "$STAGE/headless" ] || { echo "podium: tarball missing headless/ dir" >&2; rm -rf "$STAGE"; exit 1; }
 rm -rf "$DEST"; mv "$STAGE/headless" "$DEST"; rm -rf "$STAGE"
 ln -sf "$DEST/podium" "$BIN/podium"
+if ! "$BIN/podium" channel "$CHANNEL" >/dev/null; then
+  echo "podium: installed, but could not persist update channel '$CHANNEL'; run: podium channel $CHANNEL" >&2
+fi
 echo "Installed to $DEST"
 
 # --- PATH hint ---

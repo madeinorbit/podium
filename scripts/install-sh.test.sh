@@ -8,7 +8,7 @@ export PODIUM_STATE_DIR="$HOME/.podium"
 
 # --- build a fake signed release into $WORK/release ---
 REL="$WORK/release"; mkdir -p "$REL/headless"
-printf '#!/bin/sh\necho podium-stub "$@"\n' > "$REL/headless/podium"; chmod +x "$REL/headless/podium"
+printf '#!/bin/sh\nif [ "$1" = "channel" ]; then mkdir -p "$PODIUM_STATE_DIR"; printf "%%s\\n" "$2" > "$PODIUM_STATE_DIR/update-channel"; fi\necho podium-stub "$@"\n' > "$REL/headless/podium"; chmod +x "$REL/headless/podium"
 echo "9.9.9" > "$REL/headless/VERSION"
 ( cd "$REL" && tar -czf podium-headless-linux-x64.tar.gz headless )
 # sign with a throwaway ed25519 key; write its pubkey where install.sh expects an override
@@ -27,6 +27,11 @@ echo "== plain install =="
 sh "$ROOT/install.sh"
 test -x "$HOME/.local/bin/podium"            || { echo FAIL: no launcher symlink; exit 1; }
 test -f "$HOME/.local/share/podium/VERSION"  || { echo FAIL: bundle not installed; exit 1; }
+
+echo "== edge install persists update channel =="
+rm -rf "$HOME/.local/share/podium" "$HOME/.local/bin/podium" "$PODIUM_STATE_DIR"
+sh "$ROOT/install.sh" --channel edge
+test "$(cat "$PODIUM_STATE_DIR/update-channel" 2>/dev/null || true)" = "edge" || { echo "FAIL: edge install did not persist update channel"; exit 1; }
 
 # Stub systemctl + loginctl so --join runs write the unit FILES without touching the real
 # user session; we assert on the written files, not on systemctl succeeding.
