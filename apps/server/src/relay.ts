@@ -640,6 +640,7 @@ export class SessionRegistry {
         cwd: s.cwd,
         geometry: s.geometry,
         ...(s.resume ? { resume: s.resume } : {}),
+        ...(this.transcriptPathHint(s) ?? {}),
       })
     }
     this.broadcastMachines()
@@ -2450,6 +2451,7 @@ export class SessionRegistry {
           machineId,
           nativeId: c.id,
           providerId: c.providerId,
+          ...(c.path ? { path: c.path } : {}),
         }),
       )
     }
@@ -2469,6 +2471,7 @@ export class SessionRegistry {
           nativeId: c.id,
           providerId: c.providerId,
           parentPodiumId,
+          ...(c.path ? { path: c.path } : {}),
         }),
       )
     }
@@ -2515,6 +2518,18 @@ export class SessionRegistry {
    * buffer. Resolves an empty, hasMore:false page when the session is unknown or no
    * daemon answers.
    */
+  /** The recorded segment path for a session's conversation, shaped for message
+   *  spreads (`{pathHint}` or undefined). Lookup only — never derives. */
+  private transcriptPathHint(session: {
+    machineId: string
+    resume?: { value: string }
+  }): { pathHint: string } | undefined {
+    const nativeId = session.resume?.value
+    if (!nativeId) return undefined
+    const path = this.store.conversationSegmentPath(session.machineId, nativeId)
+    return path ? { pathHint: path } : undefined
+  }
+
   readTranscript(input: {
     sessionId: string
     anchor?: string
@@ -2540,6 +2555,10 @@ export class SessionRegistry {
         agentKind: session.agentKind,
         cwd: session.cwd,
         ...(session.resume ? { resume: session.resume } : {}),
+        // Segment evidence beats cwd derivation: the recorded absolute path (from
+        // discovery scans) survives worktree moves; the daemon still falls back to
+        // derivation + sweep when absent/stale (conversation registry §3.3).
+        ...(this.transcriptPathHint(session) ?? {}),
         ...(input.anchor ? { anchor: input.anchor } : {}),
         direction: input.direction,
         limit: input.limit,

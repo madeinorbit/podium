@@ -61,6 +61,29 @@ describe('locateClaudeSessionFile', () => {
     ).toBe(newer)
   })
 
+  it('a recorded pathHint short-circuits everything; a stale one falls through', async () => {
+    const home = await seedHome()
+    const real = await seedTranscript(home, '/origin', 'sess-hint')
+    // Valid hint: used directly — even though cwd derivation would also miss.
+    expect(
+      await locateClaudeSessionFile({
+        cwd: '/elsewhere',
+        resumeValue: 'sess-hint',
+        pathHint: real,
+        homeDir: home,
+      }),
+    ).toBe(real)
+    // Stale hint (file gone): fall through to the sweep, which still finds it.
+    expect(
+      await locateClaudeSessionFile({
+        cwd: '/elsewhere',
+        resumeValue: 'sess-hint',
+        pathHint: join(home, 'no', 'longer', 'there.jsonl'),
+        homeDir: home,
+      }),
+    ).toBe(real)
+  })
+
   it('returns null when the session exists nowhere (and when projects/ is absent)', async () => {
     const home = await seedHome()
     expect(

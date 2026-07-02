@@ -76,6 +76,30 @@ describe('conversation registry store', () => {
     expect(store.conversationPodiumId('m1', 'roll-b')).toBe(podium)
   })
 
+  it('records and refreshes transcript-path evidence on the segment', () => {
+    const store = new SessionStore(':memory:')
+    store.ensureConversationIdentity({
+      machineId: 'm1',
+      nativeId: 'n1',
+      providerId: 'p',
+      path: '/home/u/.claude/projects/-old-spot/n1.jsonl',
+    })
+    expect(store.conversationSegmentPath('m1', 'n1')).toBe(
+      '/home/u/.claude/projects/-old-spot/n1.jsonl',
+    )
+    // A later scan re-observes the same conversation: evidence refreshes in place.
+    store.ensureConversationIdentity({
+      machineId: 'm1',
+      nativeId: 'n1',
+      providerId: 'p',
+      path: '/home/u/.claude/projects/-new-spot/n1.jsonl',
+    })
+    expect(store.conversationSegmentPath('m1', 'n1')).toBe(
+      '/home/u/.claude/projects/-new-spot/n1.jsonl',
+    )
+    expect(store.conversationSegmentPath('m1', 'unseen')).toBeUndefined()
+  })
+
   it('fills a null parent later but never overwrites a set one', () => {
     const store = new SessionStore(':memory:')
     const child = store.ensureConversationIdentity({

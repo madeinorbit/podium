@@ -19,6 +19,9 @@ export function summaryToWire(s: AgentConversationSummary): ConversationSummaryW
     ...(s.messageCount !== undefined ? { messageCount: s.messageCount } : {}),
     ...(s.git ? { git: s.git } : {}),
     ...(s.resume ? { resume: s.resume } : {}),
+    // Registry evidence: the absolute file this summary came from, recorded on the
+    // conversation's segment server-side so reads can skip cwd derivation entirely.
+    ...(s.source.path ? { path: s.source.path } : {}),
     providerId: s.source.providerId,
   }
 }

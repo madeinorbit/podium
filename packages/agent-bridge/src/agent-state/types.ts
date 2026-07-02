@@ -56,6 +56,9 @@ export interface AgentStateProvider {
   bootEvents?(opts: {
     cwd: string
     resumeValue?: string
+    /** Recorded segment evidence: absolute transcript path, tried before any
+     *  cwd-derived location (conversation registry §3.3). */
+    pathHint?: string
     /** Test hook; defaults to os.homedir(). */
     homeDir?: string
   }): Promise<AgentStateEvent[]>

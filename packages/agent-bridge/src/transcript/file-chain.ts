@@ -21,6 +21,7 @@ export async function resolveFileChain(input: {
   agentKind: string
   cwd: string
   resumeValue?: string
+  pathHint?: string
   homeDir?: string
 }): Promise<ChainEntry[]> {
   const paths = await resolvePaths(input)
@@ -31,6 +32,7 @@ async function resolvePaths(input: {
   agentKind: string
   cwd: string
   resumeValue?: string
+  pathHint?: string
   homeDir?: string
 }): Promise<string[]> {
   const home = input.homeDir ?? homedir()
@@ -49,6 +51,7 @@ async function resolvePaths(input: {
     const path = await locateClaudeSessionFile({
       cwd: input.cwd,
       resumeValue: input.resumeValue,
+      ...(input.pathHint ? { pathHint: input.pathHint } : {}),
       homeDir: home,
     })
     return path ? [path] : []

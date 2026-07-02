@@ -70,6 +70,7 @@ export const claudeCodeStateProvider: AgentStateProvider = {
 export async function claudeBootEvents(opts: {
   cwd: string
   resumeValue?: string
+  pathHint?: string
   homeDir?: string
 }): Promise<AgentStateEvent[]> {
   if (opts.resumeValue) {
@@ -79,6 +80,7 @@ export async function claudeBootEvents(opts: {
     const transcript = await locateClaudeSessionFile({
       cwd: opts.cwd,
       resumeValue: opts.resumeValue,
+      ...(opts.pathHint ? { pathHint: opts.pathHint } : {}),
       ...(opts.homeDir ? { homeDir: opts.homeDir } : {}),
     })
     if (!transcript) return [{ kind: 'session_started' }]

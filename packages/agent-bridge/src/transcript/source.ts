@@ -217,6 +217,9 @@ export async function transcriptSourceFor(input: {
   agentKind: string
   cwd: string
   resumeValue?: string
+  /** Recorded segment evidence: absolute transcript path, checked before any
+   *  cwd-derived location (conversation registry §3.3). */
+  pathHint?: string
   homeDir?: string
 }): Promise<TranscriptSource> {
   if (input.agentKind === 'opencode') {

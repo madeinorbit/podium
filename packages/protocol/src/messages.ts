@@ -163,6 +163,10 @@ export const ConversationGit = z.object({
 export type ConversationGit = z.infer<typeof ConversationGit>
 export const ConversationSummaryWire = z.object({
   id: z.string(),
+  /** Absolute transcript path on the owning machine (discovery evidence). The
+   *  registry records it on the conversation's segment so later reads locate the
+   *  file without deriving from a mutable cwd. Machine-local; optional. */
+  path: z.string().optional(),
   /** Podium-generated stable identity (docs/spec/conversation-registry.md). `id`
    *  above is the NATIVE agent session id — evidence, not identity: a resume that
    *  rolls into a new file gets a new `id` but keeps this `podiumId`. Server-
@@ -909,6 +913,9 @@ export const ReattachMessage = z.object({
   // Lets the daemon classify the live transcript when seeding a survivor's state
   // on reattach, so a session parked on a question keeps its 'needs answer' signal.
   resume: ResumeRef.optional(),
+  // Recorded segment evidence — same contract as transcriptRead.pathHint: the
+  // reattach tail re-binds to this file without deriving from the (mutable) cwd.
+  pathHint: z.string().optional(),
 })
 export const KillMessage = z.object({ type: z.literal('kill'), sessionId: z.string() })
 // Server→daemon: relay priority for one session (0=focused,1=visible,2=attached,
@@ -952,6 +959,10 @@ export const TranscriptReadRequestMessage = z.object({
   agentKind: AgentKind,
   cwd: z.string(),
   resume: ResumeRef.optional(),
+  // Recorded segment evidence (conversation registry): the absolute transcript
+  // path last observed for this conversation. Checked FIRST by the daemon's
+  // locator — the cwd-derived bucket and the all-buckets sweep are fallbacks.
+  pathHint: z.string().optional(),
   anchor: z.string().optional(),
   direction: z.enum(['before', 'after']),
   // Wire-level guard: the daemon reads `limit` items off disk, so bound it at the

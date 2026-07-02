@@ -50,6 +50,32 @@ describe('SessionRegistry conversation registry', () => {
     expect(again.conversations[0]?.podiumId).toBe(parent?.podiumId)
   })
 
+  it('transcriptRead carries the recorded segment path as pathHint', () => {
+    const registry = makeRegistry()
+    const daemon: unknown[] = []
+    registry.attachDaemon('local', (m) => daemon.push(m))
+    const { sessionId } = registry.createSession({ agentKind: 'claude-code', cwd: '/moved/to' })
+    registry.onDaemonMessageFrom('local', {
+      type: 'sessionResumeRef',
+      sessionId,
+      resume: { kind: 'claude-session', value: 'native-x' },
+    })
+    // A discovery scan recorded where the file actually lives (original bucket).
+    registry.onDaemonMessageFrom('local', {
+      type: 'conversationsChanged',
+      conversations: [
+        conv('native-x', { path: '/home/u/.claude/projects/-original-spot/native-x.jsonl' }),
+      ],
+      diagnostics: [],
+    })
+    void registry.readTranscript({ sessionId, direction: 'before', limit: 10 })
+    const read = daemon.find(
+      (m) => (m as { type: string }).type === 'transcriptRead',
+    ) as { pathHint?: string; cwd: string }
+    expect(read.cwd).toBe('/moved/to') // restamped cwd still sent (fallback input)
+    expect(read.pathHint).toBe('/home/u/.claude/projects/-original-spot/native-x.jsonl')
+  })
+
   it('sessionResumeRef stamps the session and a roll keeps the same identity', () => {
     const registry = makeRegistry()
     registry.attachDaemon('local', () => {})

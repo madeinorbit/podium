@@ -26,8 +26,12 @@ export function claudeProjectSlug(cwd: string): string {
 export async function locateClaudeSessionFile(opts: {
   cwd: string
   resumeValue: string
+  /** Recorded segment evidence (server-known absolute path) — checked FIRST, so
+   *  the common moved-worktree read costs one stat instead of a bucket sweep. */
+  pathHint?: string
   homeDir?: string
 }): Promise<string | null> {
+  if (opts.pathHint && (await isFile(opts.pathHint))) return opts.pathHint
   const home = opts.homeDir ?? homedir()
   const projects = join(home, '.claude', 'projects')
   const exact = join(projects, claudeProjectSlug(opts.cwd), `${opts.resumeValue}.jsonl`)

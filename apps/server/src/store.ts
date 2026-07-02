@@ -1427,6 +1427,16 @@ export class SessionStore {
     return row?.podium_id
   }
 
+  /** Recorded transcript-path evidence for a native conversation (absolute path on
+   *  its machine), or undefined when never observed. Consumed as the read-path
+   *  hint so lookups skip cwd derivation AND the bucket sweep. */
+  conversationSegmentPath(machineId: string, nativeId: string): string | undefined {
+    const row = this.db
+      .prepare('SELECT path FROM conversation_segments WHERE machine_id = ? AND native_id = ?')
+      .get(machineId, nativeId) as { path: string | null } | undefined
+    return row?.path ?? undefined
+  }
+
   /**
    * Ensure a native conversation has an identity, minting one when it was never
    * seen (`linked_by: 'discovery'`). Idempotent: an existing segment never re-mints

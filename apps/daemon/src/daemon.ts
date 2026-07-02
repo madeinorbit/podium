@@ -474,7 +474,12 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
   // Essential on reattach: a fresh daemon's tails map is empty and an idle survivor
   // fires no hook to register one, so chat would stay blank while the PTY scrollback
   // (native view) still shows the whole conversation.
-  const tailResumeTranscript = (sessionId: string, cwd: string, resumeValue: string): void => {
+  const tailResumeTranscript = (
+    sessionId: string,
+    cwd: string,
+    resumeValue: string,
+    pathHint?: string,
+  ): void => {
     // Honor a discovery homeDir override (tests / isolated HOME) so the live tail
     // reads the SAME location the on-demand read source does — otherwise a daemon
     // run against an isolated home would tail the real ~/.claude and find nothing.
@@ -484,7 +489,12 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
       // cwd's bucket (docs/spec/conversation-registry.md §3.3). Fall back to the
       // derived path when nothing exists yet — a fresh resume creates the file a
       // moment later and the tailer waits on it.
-      const located = await locateClaudeSessionFile({ cwd, resumeValue, homeDir: home })
+      const located = await locateClaudeSessionFile({
+        cwd,
+        resumeValue,
+        ...(pathHint ? { pathHint } : {}),
+        homeDir: home,
+      })
       ensureTranscriptTail(
         sessionId,
         located ??
@@ -504,9 +514,10 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     sessionId: string,
     cwd: string,
     resumeValue?: string,
+    pathHint?: string,
   ): void => {
     if (resumeValue) {
-      tailResumeTranscript(sessionId, cwd, resumeValue)
+      tailResumeTranscript(sessionId, cwd, resumeValue, pathHint)
       return
     }
     void (async () => {
@@ -660,12 +671,14 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     agentKind: AgentKind
     cwd: string
     resume?: { kind: string; value: string }
+    pathHint?: string
   }): Promise<TranscriptSource> => {
     const agentKind = normalizeAgentKind(msg.agentKind, msg.resume?.kind)
     return transcriptSourceFor({
       agentKind,
       cwd: msg.cwd,
       ...(msg.resume?.value ? { resumeValue: msg.resume.value } : {}),
+      ...(msg.pathHint ? { pathHint: msg.pathHint } : {}),
       ...(opts.discovery?.homeDir ? { homeDir: opts.discovery.homeDir } : {}),
     })
   }
@@ -904,11 +917,16 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     provider: AgentStateProvider,
     cwd: string,
     resumeValue?: string,
+    pathHint?: string,
   ): Promise<void> => {
     if (!provider.bootEvents) return
     let events: AgentStateEvent[]
     try {
-      events = await provider.bootEvents({ cwd, ...(resumeValue ? { resumeValue } : {}) })
+      events = await provider.bootEvents({
+        cwd,
+        ...(resumeValue ? { resumeValue } : {}),
+        ...(pathHint ? { pathHint } : {}),
+      })
     } catch {
       return
     }
@@ -933,6 +951,10 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
   // survivor is already at its prompt). `grokStartedAt` scopes Grok's session
   // search (a fresh spawn's start time; omitted on reattach → watermarkMs:0,
   // so discovery binds the latest-by-activity session regardless of its age).
+  /** The reattach message's recorded-path evidence; spawns don't carry one. */
+  const pathHintOf = (msg: SpawnControl | ReattachControl): string | undefined =>
+    'pathHint' in msg ? msg.pathHint : undefined
+
   const initSessionObservers = (
     msg: SpawnControl | ReattachControl,
     session: AgentSession,
@@ -957,13 +979,15 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     } else if (msg.agentKind === 'claude-code') {
       // Ungated: start the tail even without a resume ref (discover the newest
       // file in the cwd bucket). A hook later re-points the tail if needed.
-      startClaudeTranscriptTail(msg.sessionId, msg.cwd, msg.resume?.value)
+      // Reattach carries the server's recorded segment path — evidence beats
+      // cwd derivation after a worktree move (conversation registry §3.3).
+      startClaudeTranscriptTail(msg.sessionId, msg.cwd, msg.resume?.value, pathHintOf(msg))
     }
     if (provider?.bootEvents) {
       // const capture so the narrowing survives into the onFrame closure.
       const bootProvider = provider
       const seed = (): void => {
-        void seedBootState(msg.sessionId, bootProvider, msg.cwd, msg.resume?.value)
+        void seedBootState(msg.sessionId, bootProvider, msg.cwd, msg.resume?.value, pathHintOf(msg))
       }
       if (init.seedOnFrame) {
         const offFirstFrame = session.onFrame(() => {
