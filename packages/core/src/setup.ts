@@ -39,7 +39,7 @@ export function networkOptionCommand(
       }
     case 'cloudflare-tunnel':
       return {
-        command: `cloudflared tunnel --url http://localhost:${port}`,
+        command: `cloudflared tunnel --url http://127.0.0.1:${port}`,
         hint: 'Then paste the https://<random>.trycloudflare.com URL it prints.',
       }
     case 'manual':

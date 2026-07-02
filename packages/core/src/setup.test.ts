@@ -29,9 +29,9 @@ describe('setup core', () => {
   it('funnel command includes the port', () => {
     expect(networkOptionCommand('tailscale-funnel', 18787).command).toBe('tailscale funnel 18787')
   })
-  it('cloudflare command targets localhost:port', () => {
+  it('cloudflare command targets the IPv4 loopback address', () => {
     expect(networkOptionCommand('cloudflare-tunnel', 18787).command).toBe(
-      'cloudflared tunnel --url http://localhost:18787',
+      'cloudflared tunnel --url http://127.0.0.1:18787',
     )
   })
   it('validatePublicUrl accepts https and strips a trailing slash', () => {
