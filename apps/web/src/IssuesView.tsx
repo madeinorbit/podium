@@ -26,6 +26,8 @@ import { IssueListView } from './IssueListView'
 import { type BoardFilter, clearChip, filterBoardIssues, filterChips } from './issue-board-filter'
 import { issueCardModel, STAGE_LABELS } from './issue-card'
 import { AssigneeAvatar, PriorityGlyph, StageGlyph } from './issue-glyphs'
+import { flattenGroups, groupIssuesByStage } from './issue-list'
+import { IssuePage } from './IssuePage'
 import {
   DISPLAY_KEY,
   type IssuesDisplay,
@@ -54,7 +56,7 @@ type DisplayPatch = Partial<Omit<IssuesDisplay, 'badges'>> & {
  * `issuesChanged`, so the board reconciles itself with no manual refetch.
  */
 export function IssuesView(): JSX.Element {
-  const { issues, setOpenIssueId, trpc } = useStore()
+  const { issues, openIssueId, setOpenIssueId, trpc } = useStore()
   // On phones the board's horizontal lanes don't fit — force the list layout.
   const isMobile = useIsMobile()
   // Display options (layout / ordering / badge visibility), persisted so the
@@ -103,6 +105,20 @@ export function IssuesView(): JSX.Element {
 
   const chips = filterChips(filter)
   const layout = isMobile ? 'list' : display.layout
+
+  // When an issue is open (and still exists), the board is replaced in-view by the
+  // full issue page. Prev/next navigate the same flattened, grouped visual order.
+  const open = openIssueId ? issues.find((i) => i.id === openIssueId) : undefined
+  if (open) {
+    return (
+      <IssuePage
+        issue={open}
+        orderedIds={flattenGroups(groupIssuesByStage(active, display.ordering))}
+        onBack={() => setOpenIssueId(null)}
+        onNavigate={setOpenIssueId}
+      />
+    )
+  }
 
   return (
     <section className="flex min-w-0 flex-1 flex-col overflow-hidden" aria-label="Issues">

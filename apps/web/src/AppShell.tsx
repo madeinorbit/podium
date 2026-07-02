@@ -8,7 +8,6 @@ import { AppErrorPage } from './AppErrorPage'
 import { AutoContinueDialog } from './AutoContinueDialog'
 import { ErrorBoundary } from './ErrorBoundary'
 import { HomeView } from './HomeView'
-import { IssueDetailHost } from './IssueDetailHost'
 import { IssuesView } from './IssuesView'
 import { MobileApp } from './MobileApp'
 import { OnboardingWizard } from './OnboardingWizard'
@@ -120,7 +119,6 @@ function AppBody({ isMobile }: { isMobile: boolean }): JSX.Element {
         </div>
       )}
       <AutoContinueDialog />
-      <IssueDetailHost />
     </>
   )
 }

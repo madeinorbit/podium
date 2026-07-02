@@ -99,26 +99,23 @@ test('issues board: renders the stage columns, creates a Backlog issue, and move
   const card = backlogColumn.getByText(title, { exact: false })
   await expect(card, 'the new issue card appears under Backlog').toBeVisible({ timeout: 15_000 })
 
-  // ---- Move the issue's stage via the detail panel's Stage selector ----
+  // ---- Move the issue's stage via the issue page's Stage selector ----
   await card.click()
-  // The detail drawer header shows "#<seq> <title>".
-  await expect(
-    page.getByRole('heading', { name: new RegExp(`#\\d+\\s+${escapeRe(title)}`) }),
-  ).toBeVisible({
-    timeout: 10_000,
-  })
+  // Opening a card now renders the full issue page in-view (data-testid="issue-page"),
+  // not an overlay drawer. Its main column shows the title as an editable button.
+  const issuePage = page.locator('[data-testid="issue-page"]')
+  await expect(issuePage).toBeVisible({ timeout: 10_000 })
+  await expect(issuePage.getByText(title, { exact: false })).toBeVisible({ timeout: 10_000 })
 
-  // The Stage selector is a Base UI <Select> (combobox trigger + option list). It
-  // currently reads "Backlog"; switch it to "Planning".
+  // The Stage selector is a Base UI <Select> (combobox trigger + option list) in the
+  // desktop properties aside. It currently reads "Backlog"; switch it to "Planning".
   const stageTrigger = page.getByRole('combobox').filter({ hasText: 'Backlog' }).first()
   await stageTrigger.click()
   await page.getByRole('option', { name: 'Planning', exact: true }).click({ timeout: 10_000 })
 
-  // Close the drawer so the board is unobstructed, then assert the card has left
-  // Backlog and now lives under Planning (live via the issueUpdated broadcast).
-  // The drawer's close button is title="Close"; scope by title so it doesn't collide with
-  // the lifecycle "Close: done"/"Close: wontfix" buttons in the same drawer.
-  await page.locator('button[title="Close"]').click({ timeout: 10_000 })
+  // Return to the board via the header Back button (title="Back"), then assert the
+  // card has left Backlog and now lives under Planning (live via the broadcast).
+  await page.locator('button[title="Back"]').click({ timeout: 10_000 })
 
   const planningColumn = column('Planning')
   await expect(
@@ -169,38 +166,42 @@ test('issues board: flag an issue for human, badge appears live, then resolve', 
   const needsHuman = backlogColumn.locator('[aria-label="Needs human"]')
   await expect(needsHuman).toHaveCount(0)
 
-  // ---- Open the drawer and flag for human with a question ----
+  // ---- Open the issue page and flag for human via the overflow menu ----
   await card.click()
-  await expect(
-    page.getByRole('heading', { name: new RegExp(`#\\d+\\s+${escapeRe(title)}`) }),
-  ).toBeVisible({ timeout: 10_000 })
+  const issuePage = page.locator('[data-testid="issue-page"]')
+  await expect(issuePage).toBeVisible({ timeout: 10_000 })
+  await expect(issuePage.getByText(title, { exact: false })).toBeVisible({ timeout: 10_000 })
 
+  // "Flag for human…" moved to the header overflow (…) menu and asks for the question
+  // via window.prompt — answer the prompt in the dialog handler.
   const question = 'Which API key should we use?'
-  await page.getByLabel('Question for human').fill(question)
-  await page.getByRole('button', { name: 'Flag for human' }).click()
+  page.once('dialog', (d) => void d.accept(question))
+  await page.locator('button[title="More actions"]').click({ timeout: 10_000 })
+  await page.getByRole('menuitem', { name: /Flag for human/ }).click({ timeout: 10_000 })
 
-  // The drawer now shows the question prominently (the banner replaces the flag control).
+  // The page now shows the needs-human banner with the question prominently.
   await expect(page.getByText(question, { exact: false })).toBeVisible({ timeout: 10_000 })
-  // ...and the card grows a needs-human icon live via the issuesChanged broadcast.
+
+  // Return to the board (the issue page REPLACES it in-view, so the card is only in
+  // the DOM once we're back) — the card now grows a needs-human icon live.
+  await page.locator('button[title="Back"]').click({ timeout: 10_000 })
   await expect(
     backlogColumn.locator('[aria-label="Needs human"]'),
     'the card shows the needs-human indicator',
   ).toBeVisible({ timeout: 15_000 })
 
-  // ---- Resolve → the flag clears and the indicator disappears ----
+  // ---- Reopen the page and Resolve → the flag clears ----
+  await card.click()
+  await expect(issuePage).toBeVisible({ timeout: 10_000 })
+  await expect(page.getByText(question, { exact: false })).toBeVisible({ timeout: 10_000 })
   await page.getByRole('button', { name: 'Resolve' }).click({ timeout: 10_000 })
+  // The banner (with its question) is gone from the page.
+  await expect(page.getByText(question, { exact: false })).toBeHidden({ timeout: 10_000 })
+
+  // Back on the board, the card's needs-human indicator has disappeared.
+  await page.locator('button[title="Back"]').click({ timeout: 10_000 })
   await expect(
     backlogColumn.locator('[aria-label="Needs human"]'),
     'the needs-human indicator disappears after resolve',
   ).toHaveCount(0, { timeout: 15_000 })
-  // The flag-for-human control is back (banner gone).
-  await expect(page.getByRole('button', { name: 'Flag for human' })).toBeVisible({
-    timeout: 10_000,
-  })
 })
-
-/** Escape a string for safe interpolation into a RegExp (the title contains digits
- *  and spaces, which are RegExp-safe, but guard against future markers). */
-function escapeRe(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-}

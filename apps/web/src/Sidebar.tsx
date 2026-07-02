@@ -194,8 +194,9 @@ export function Sidebar(): JSX.Element {
       setSelectedWorktree(issue.worktreePath)
       setView('workspace')
     } else {
-      // Not started yet — open the detail drawer so the user can "Start work".
+      // Not started yet — open the full issue page in the Issues view.
       setOpenIssueId(issue.id)
+      setView('issues')
     }
   }
 
