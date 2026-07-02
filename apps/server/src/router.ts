@@ -713,6 +713,8 @@ export const appRouter = t.router({
           description: z.string().optional(),
           parentBranch: z.string().optional(),
           defaultAgent: z.string().optional(),
+          defaultModel: z.string().optional(),
+          defaultEffort: z.string().optional(),
           startNow: z.boolean(),
           linear: z
             .object({ id: z.string().optional(), identifier: z.string(), url: z.string() })
@@ -743,6 +745,8 @@ export const appRouter = t.router({
             stage: IssueStage.optional(),
             parentBranch: z.string().optional(),
             defaultAgent: z.string().optional(),
+            defaultModel: z.string().optional(),
+            defaultEffort: z.string().optional(),
             archived: z.boolean().optional(),
             priority: z.number().int().min(0).max(4).optional(),
             type: IssueType.optional(),

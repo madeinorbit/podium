@@ -42,6 +42,8 @@ const issue = (id: string, title: string): IssueWire => ({
   branch: null,
   parentBranch: 'main',
   defaultAgent: 'claude-code',
+  defaultModel: 'auto',
+  defaultEffort: 'auto',
   blockedBy: [],
   priority: 2,
   type: 'task',

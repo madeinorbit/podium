@@ -4,7 +4,8 @@ import { SessionStore } from './store'
 const base = () => ({
   id: 'iss_1', repoPath: '/r', seq: 1, title: 'Fix login', description: 'desc',
   stage: 'backlog', worktreePath: null, branch: null, parentBranch: 'main',
-  defaultAgent: 'claude-code', linearId: null, linearIdentifier: null, linearUrl: null,
+  defaultAgent: 'claude-code', defaultModel: 'auto', defaultEffort: 'auto',
+  linearId: null, linearIdentifier: null, linearUrl: null,
   activityNotes: null, notesUpdatedAt: null, suggestedStage: null, suggestedReason: null,
   blockedBy: [] as string[], dependencyNote: null, prUrl: null,
   priority: 2, type: 'task', assignee: null, parentId: null, design: null, acceptance: null,

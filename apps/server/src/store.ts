@@ -113,6 +113,8 @@ export interface IssueRow {
   branch: string | null
   parentBranch: string
   defaultAgent: string
+  defaultModel: string
+  defaultEffort: string
   linearId: string | null
   linearIdentifier: string | null
   linearUrl: string | null
@@ -974,17 +976,19 @@ export class SessionStore {
       .prepare(
         `INSERT INTO issues
            (id, repo_path, seq, title, description, stage, worktree_path, branch, parent_branch,
-            default_agent, linear_id, linear_identifier, linear_url, activity_notes, notes_updated_at,
+            default_agent, default_model, default_effort,
+            linear_id, linear_identifier, linear_url, activity_notes, notes_updated_at,
             suggested_stage, suggested_reason, blocked_by, dependency_note, pr_url,
             priority, type, assignee, parent_id, design, acceptance, notes, due_at,
             defer_until, closed_reason, superseded_by, duplicate_of, pinned, estimate_min,
             needs_human, human_question,
             created_at, updated_at, archived)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            title = excluded.title, description = excluded.description, stage = excluded.stage,
            worktree_path = excluded.worktree_path, branch = excluded.branch,
            parent_branch = excluded.parent_branch, default_agent = excluded.default_agent,
+           default_model = excluded.default_model, default_effort = excluded.default_effort,
            linear_id = excluded.linear_id, linear_identifier = excluded.linear_identifier,
            linear_url = excluded.linear_url, activity_notes = excluded.activity_notes,
            notes_updated_at = excluded.notes_updated_at, suggested_stage = excluded.suggested_stage,
@@ -1010,6 +1014,8 @@ export class SessionStore {
         row.branch,
         row.parentBranch,
         row.defaultAgent,
+        row.defaultModel,
+        row.defaultEffort,
         row.linearId,
         row.linearIdentifier,
         row.linearUrl,
@@ -1054,6 +1060,8 @@ export class SessionStore {
       branch: (r.branch as string | null) ?? null,
       parentBranch: r.parent_branch as string,
       defaultAgent: r.default_agent as string,
+      defaultModel: (r.default_model as string | null) ?? 'auto',
+      defaultEffort: (r.default_effort as string | null) ?? 'auto',
       linearId: (r.linear_id as string | null) ?? null,
       linearIdentifier: (r.linear_identifier as string | null) ?? null,
       linearUrl: (r.linear_url as string | null) ?? null,
@@ -1835,6 +1843,8 @@ export class SessionStore {
          branch TEXT,
          parent_branch TEXT NOT NULL DEFAULT 'main',
          default_agent TEXT NOT NULL,
+         default_model TEXT NOT NULL DEFAULT 'auto',
+         default_effort TEXT NOT NULL DEFAULT 'auto',
          linear_id TEXT,
          linear_identifier TEXT,
          linear_url TEXT,
@@ -1875,6 +1885,8 @@ export class SessionStore {
     const addIssueCol = (name: string, ddl: string): void => {
       if (!issueCols.has(name)) this.db.exec(`ALTER TABLE issues ADD COLUMN ${ddl}`)
     }
+    addIssueCol('default_model', "default_model TEXT NOT NULL DEFAULT 'auto'")
+    addIssueCol('default_effort', "default_effort TEXT NOT NULL DEFAULT 'auto'")
     addIssueCol('priority', 'priority INTEGER NOT NULL DEFAULT 2')
     addIssueCol('type', "type TEXT NOT NULL DEFAULT 'task'")
     addIssueCol('assignee', 'assignee TEXT')

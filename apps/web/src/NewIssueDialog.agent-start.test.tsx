@@ -91,6 +91,49 @@ describe('NewIssueDialog agent start selection', () => {
     )
   })
 
+  it('lets you pick a model + effort and passes them to create', async () => {
+    render(<NewIssueDialog onClose={vi.fn()} />)
+
+    // Default agent is Claude Code → its model list (Opus/Sonnet/Haiku) + full effort ladder.
+    fireEvent.click(screen.getByRole('button', { name: 'Model' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Opus' }))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Effort' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'High' }))
+
+    fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'Tune the model' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Create' }))
+
+    await waitFor(() =>
+      expect(create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: 'Tune the model',
+          defaultModel: 'opus',
+          defaultEffort: 'high',
+        }),
+      ),
+    )
+  })
+
+  it('resets a chosen model when the agent changes (model is agent-scoped)', async () => {
+    render(<NewIssueDialog onClose={vi.fn()} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Model' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Opus' }))
+    // Switch agent → the model pill falls back to Auto (Opus is a Claude alias).
+    fireEvent.click(screen.getByRole('button', { name: 'Claude Code (default)' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Cursor' }))
+
+    fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'Switched agent' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Create' }))
+
+    await waitFor(() =>
+      expect(create).toHaveBeenCalledWith(
+        expect.objectContaining({ defaultAgent: 'cursor', defaultModel: undefined }),
+      ),
+    )
+  })
+
   it('splits repo and branch selection into scoped menus with icons', async () => {
     render(<NewIssueDialog onClose={vi.fn()} />)
 

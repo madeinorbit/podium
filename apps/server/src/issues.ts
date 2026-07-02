@@ -16,7 +16,13 @@ export interface IssueDeps {
   /** Spawn a session in the issue's worktree. `initialPrompt` hands the agent its
    *  first prompt at spawn (argv for capable agents, draft-seed fallback otherwise —
    *  resolved inside createSession), which is the race-free way to start the work. */
-  spawnSession(o: { cwd: string; agentKind?: string; initialPrompt?: string }): { sessionId: string }
+  spawnSession(o: {
+    cwd: string
+    agentKind?: string
+    model?: string
+    effort?: string
+    initialPrompt?: string
+  }): { sessionId: string }
   repoOp(op: RepoOp, cwd: string, args?: Record<string, string>): Promise<{ ok: boolean; output: string }>
   broadcast(msg: ServerMessage): void
   now?(): string
@@ -31,6 +37,8 @@ export interface CreateIssueInput {
   description?: string
   parentBranch?: string
   defaultAgent?: string
+  defaultModel?: string
+  defaultEffort?: string
   startNow: boolean
   linear?: { id?: string; identifier: string; url: string }
   priority?: number
@@ -98,6 +106,7 @@ export class IssueService {
       id: row.id, repoPath: row.repoPath, seq: row.seq, title: row.title, description: row.description,
       stage: row.stage as IssueWire['stage'], worktreePath: row.worktreePath, branch: row.branch,
       parentBranch: row.parentBranch, defaultAgent: row.defaultAgent,
+      defaultModel: row.defaultModel, defaultEffort: row.defaultEffort,
       ...(row.linearId ? { linearId: row.linearId } : {}),
       ...(row.linearIdentifier ? { linearIdentifier: row.linearIdentifier } : {}),
       ...(row.linearUrl ? { linearUrl: row.linearUrl } : {}),
@@ -437,6 +446,8 @@ export class IssueService {
       description: input.description ?? '', stage: 'backlog', worktreePath: null, branch: null,
       parentBranch: input.parentBranch || this.deps.getSettings().gitWorkflow.defaultParentBranch || 'main',
       defaultAgent: input.defaultAgent || this.deps.getSettings().sessionDefaults.agent || 'claude-code',
+      defaultModel: input.defaultModel || this.deps.getSettings().sessionDefaults.model || 'auto',
+      defaultEffort: input.defaultEffort || this.deps.getSettings().sessionDefaults.effort || 'auto',
       linearId: input.linear?.id ?? null, linearIdentifier: input.linear?.identifier ?? null,
       linearUrl: input.linear?.url ?? null, activityNotes: null, notesUpdatedAt: null,
       suggestedStage: null, suggestedReason: null, blockedBy: [], dependencyNote: null, prUrl: null,
@@ -459,6 +470,7 @@ export class IssueService {
 
   update(id: string, patch: Partial<Pick<IssueRow,
     'title' | 'description' | 'stage' | 'worktreePath' | 'branch' | 'parentBranch' | 'defaultAgent'
+    | 'defaultModel' | 'defaultEffort'
     | 'archived' | 'priority' | 'type' | 'assignee' | 'parentId' | 'design' | 'acceptance'
     | 'notes' | 'dueAt' | 'deferUntil' | 'closedReason' | 'supersededBy' | 'duplicateOf'
     | 'pinned' | 'estimateMin' | 'needsHuman' | 'humanQuestion'>>): IssueWire {
@@ -660,6 +672,8 @@ export class IssueService {
     this.d.spawnSession({
       cwd: path,
       agentKind: row.defaultAgent,
+      model: row.defaultModel,
+      effort: row.defaultEffort,
       ...(row.description.trim() ? { initialPrompt: row.description } : {}),
     })
     return wire
@@ -732,7 +746,12 @@ export class IssueService {
   addSession(id: string, agentKind?: string): IssueWire {
     const row = this.rowOrThrow(id)
     if (!row.worktreePath) throw new Error('issue not started')
-    this.d.spawnSession({ cwd: row.worktreePath, agentKind: agentKind ?? row.defaultAgent })
+    this.d.spawnSession({
+      cwd: row.worktreePath,
+      agentKind: agentKind ?? row.defaultAgent,
+      model: row.defaultModel,
+      effort: row.defaultEffort,
+    })
     return this.toWire(row)
   }
   addShell(id: string): IssueWire {

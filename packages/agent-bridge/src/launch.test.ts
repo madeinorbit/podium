@@ -200,6 +200,47 @@ describe('agentLaunchCommand', () => {
     })
   })
 
+  describe('effort (reasoning-effort flag, mapped per CLI)', () => {
+    it('claude-code takes --effort, after --model', () => {
+      expect(
+        agentLaunchCommand('claude-code', { cwd: '/w', model: 'opus', effort: 'high' }).args,
+      ).toEqual(['--model', 'opus', '--effort', 'high', '--append-system-prompt', ISSUE_SYSTEM_POINTER])
+    })
+
+    it('grok takes --effort', () => {
+      expect(agentLaunchCommand('grok', { cwd: '/w', effort: 'xhigh' }).args).toEqual([
+        '--effort',
+        'xhigh',
+      ])
+    })
+
+    it('codex maps effort to a reasoning-effort config override', () => {
+      expect(agentLaunchCommand('codex', { cwd: '/w', effort: 'high' }).args).toEqual([
+        '-c',
+        'model_reasoning_effort=high',
+      ])
+    })
+
+    it('opencode maps effort to --variant', () => {
+      expect(agentLaunchCommand('opencode', { cwd: '/w', effort: 'high' }).args).toEqual([
+        '--variant',
+        'high',
+      ])
+    })
+
+    it('cursor has no effort flag — effort is dropped', () => {
+      expect(agentLaunchCommand('cursor', { cwd: '/w', effort: 'high' }).args).toEqual([])
+    })
+
+    it("'auto' (the sentinel) emits no model or effort flag", () => {
+      expect(agentLaunchCommand('claude-code', { cwd: '/w', model: 'auto', effort: 'auto' }).args)
+        .toEqual(['--append-system-prompt', ISSUE_SYSTEM_POINTER])
+      expect(agentLaunchCommand('codex', { cwd: '/w', model: 'auto', effort: 'auto' }).args).toEqual(
+        [],
+      )
+    })
+  })
+
   it('spawns an interactive shell in the worktree cwd', () => {
     const prev = process.env.SHELL
     process.env.SHELL = '/bin/zsh'

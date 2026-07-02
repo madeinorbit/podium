@@ -6,6 +6,7 @@ import { makeIssue } from './test-issue'
 const addSession = vi.fn(async () => ({}))
 const addShell = vi.fn(async () => ({}))
 const start = vi.fn(async () => ({}))
+const update = vi.fn(async () => ({}))
 
 vi.mock('./store', () => ({
   useStore: () => ({
@@ -15,6 +16,7 @@ vi.mock('./store', () => ({
         addSession: { mutate: addSession },
         addShell: { mutate: addShell },
         start: { mutate: start },
+        update: { mutate: update },
       },
     },
     issues: [],
@@ -29,6 +31,7 @@ afterEach(() => {
   addSession.mockClear()
   addShell.mockClear()
   start.mockClear()
+  update.mockClear()
 })
 
 describe('IssuePage agent start controls', () => {
@@ -51,5 +54,21 @@ describe('IssuePage agent start controls', () => {
     fireEvent.click(codexItem)
 
     await waitFor(() => expect(addSession).toHaveBeenCalledWith({ id: 'i-1', agentKind: 'codex' }))
+  })
+
+  it('picks a model for the ticket and persists it via issues.update', async () => {
+    const issue = makeIssue({ id: 'i-1', defaultAgent: 'claude-code', worktreePath: '/r/wt' })
+    render(
+      <IssuePage issue={issue} orderedIds={[issue.id]} onBack={vi.fn()} onNavigate={vi.fn()} />,
+    )
+
+    const modelButton = screen.getAllByRole('button', { name: 'Model' }).at(0)
+    if (!modelButton) throw new Error('missing model picker')
+    fireEvent.click(modelButton)
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Sonnet' }))
+
+    await waitFor(() =>
+      expect(update).toHaveBeenCalledWith({ id: 'i-1', patch: { defaultModel: 'sonnet' } }),
+    )
   })
 })

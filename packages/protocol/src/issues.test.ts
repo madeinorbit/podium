@@ -10,7 +10,7 @@ describe('issue protocol types', () => {
   it('parses an IssueWire with derived members', () => {
     const wire = IssueWire.parse({
       id: 'iss_1', repoPath: '/r', seq: 1, title: 'X', description: '', stage: 'backlog',
-      worktreePath: null, branch: null, parentBranch: 'main', defaultAgent: 'claude-code',
+      worktreePath: null, branch: null, parentBranch: 'main', defaultAgent: 'claude-code', defaultModel: 'auto', defaultEffort: 'auto',
       blockedBy: [], priority: 2, type: 'task', pinned: false, needsHuman: false,
       labels: [], deps: [], dependents: [], comments: [],
       ready: true, blocked: false, deferred: false, childCount: 0, childDoneCount: 0,
@@ -30,7 +30,7 @@ describe('issue protocol types', () => {
   it('round-trips issue broadcast messages', () => {
     const issue = IssueWire.parse({
       id: 'iss_1', repoPath: '/r', seq: 1, title: 'X', description: '', stage: 'planning',
-      worktreePath: '/r/wt', branch: 'issue/1-x', parentBranch: 'main', defaultAgent: 'claude-code',
+      worktreePath: '/r/wt', branch: 'issue/1-x', parentBranch: 'main', defaultAgent: 'claude-code', defaultModel: 'auto', defaultEffort: 'auto',
       blockedBy: [], priority: 2, type: 'task', pinned: false, needsHuman: false,
       labels: [], deps: [], dependents: [], comments: [],
       ready: true, blocked: false, deferred: false, childCount: 0, childDoneCount: 0,

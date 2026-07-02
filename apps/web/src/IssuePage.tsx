@@ -48,6 +48,7 @@ import { issueDetailFields } from './issue-detail-fields'
 import { AssigneeAvatar, PriorityGlyph, StageGlyph } from './issue-glyphs'
 import { issueNeighbors } from './issue-page'
 import { groupRelations } from './issue-relations'
+import { EffortPicker, ModelPicker } from './ModelEffortPicker'
 import { PropertyMenu, type PropertyOption } from './PropertyMenu'
 import { useStore } from './store'
 import { sessionDisplayName } from './WorkerLabel'
@@ -1174,6 +1175,23 @@ function IssueProperties({
         <h3 className="font-medium text-[12px] text-muted-foreground">
           Sessions ({issue.sessionSummary.total})
         </h3>
+        {/* Model + effort the issue's sessions launch with (scoped to its agent). */}
+        <div className="flex flex-wrap items-center gap-1.5">
+          <ModelPicker
+            agentKind={issueDefaultAgentKind(issue.defaultAgent)}
+            value={issue.defaultModel}
+            onChange={(defaultModel) =>
+              void run(() => trpc.issues.update.mutate({ id: issue.id, patch: { defaultModel } }))
+            }
+          />
+          <EffortPicker
+            agentKind={issueDefaultAgentKind(issue.defaultAgent)}
+            value={issue.defaultEffort}
+            onChange={(defaultEffort) =>
+              void run(() => trpc.issues.update.mutate({ id: issue.id, patch: { defaultEffort } }))
+            }
+          />
+        </div>
         {issue.sessions.length > 0 && (
           <div className="flex flex-col gap-1">
             {issue.sessions.map((s) => (

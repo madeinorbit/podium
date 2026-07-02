@@ -16,14 +16,17 @@ import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 import { useIsMobile } from '@/hooks/use-is-mobile'
+import { AUTO } from './agent-models'
 import {
   issueAgentDefaultLabel,
   issueAgentIcon,
   issueAgentLabel,
   issueAgentOptions,
+  issueDefaultAgentKind,
 } from './issue-agents'
 import { STAGE_LABELS } from './issue-card'
 import { PriorityGlyph, StageGlyph } from './issue-glyphs'
+import { EffortPicker, ModelPicker } from './ModelEffortPicker'
 import { PropertyMenu, type PropertyOption } from './PropertyMenu'
 import { useStore } from './store'
 
@@ -108,6 +111,9 @@ export function NewIssueDialog({
   const [settingsParentBranch, setSettingsParentBranch] = useState('main')
   // '' = use the configured default agent (no flag).
   const [agent, setAgent] = useState('')
+  // 'auto' = inherit the settings default model/effort (no per-issue override).
+  const [model, setModel] = useState(AUTO)
+  const [effort, setEffort] = useState(AUTO)
   const [startNow, setStartNow] = useState(true)
   const [createMore, setCreateMore] = useState(false)
   const [linear, setLinear] = useState<{ identifier: string; url: string } | undefined>()
@@ -179,6 +185,14 @@ export function NewIssueDialog({
   }))
   const typeOptions: PropertyOption[] = [...IssueType.options].map((t) => ({ value: t, label: t }))
   const agentOptions: PropertyOption[] = issueAgentOptions(defaultAgent)
+  // Model + effort are scoped to the effective agent; changing agent resets both
+  // (a model/effort valid for one CLI is usually meaningless for another).
+  const agentKind = issueDefaultAgentKind(agent || defaultAgent)
+  const selectAgent = (value: string) => {
+    setAgent(value)
+    setModel(AUTO)
+    setEffort(AUTO)
+  }
 
   const canSubmit = Boolean(title.trim()) && Boolean(repoPath) && !busy
 
@@ -216,6 +230,8 @@ export function NewIssueDialog({
             ? primaryBranch || undefined
             : selectedBranch || undefined,
         defaultAgent: agent || undefined,
+        defaultModel: model !== AUTO ? model : undefined,
+        defaultEffort: effort !== AUTO ? effort : undefined,
         startNow,
         linear,
         // Omit fields at their defaults so a bare issue stays bare.
@@ -362,8 +378,10 @@ export function NewIssueDialog({
               }
               options={agentOptions}
               selectedValue={agent}
-              onSelect={setAgent}
+              onSelect={selectAgent}
             />
+            <ModelPicker agentKind={agentKind} value={model} onChange={setModel} />
+            <EffortPicker agentKind={agentKind} value={effort} onChange={setEffort} />
           </div>
 
           <Label className="cursor-pointer">

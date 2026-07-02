@@ -451,6 +451,8 @@ export class SessionRegistry {
         this.createSession({
           cwd: o.cwd,
           agentKind: o.agentKind as AgentKind,
+          ...(o.model !== undefined ? { model: o.model } : {}),
+          ...(o.effort !== undefined ? { effort: o.effort } : {}),
           ...(o.initialPrompt ? { initialPrompt: o.initialPrompt } : {}),
         }),
       repoOp: (op, cwd, args) => this.repoOp(op, cwd, args),
@@ -916,6 +918,9 @@ export class SessionRegistry {
     title?: string
     machineId?: string
     initialPrompt?: string
+    /** Per-ticket model/effort override; absent = use the settings defaults. */
+    model?: string
+    effort?: string
   }): {
     sessionId: string
   } {
@@ -944,6 +949,8 @@ export class SessionRegistry {
       origin: { kind: 'spawn' },
       machineId: this.resolveMachine(input.machineId, input.cwd),
       ...(useArgv ? { initialPrompt: prompt } : {}),
+      ...(input.model !== undefined ? { model: input.model } : {}),
+      ...(input.effort !== undefined ? { effort: input.effort } : {}),
     })
     if (prompt !== undefined && !useArgv) {
       this.setSessionDraft({ sessionId: spawned.sessionId, text: prompt })
@@ -1797,6 +1804,9 @@ export class SessionRegistry {
     resume?: ResumeRef
     machineId?: string
     initialPrompt?: string
+    /** Per-ticket model/effort override; absent = use the settings defaults. */
+    model?: string
+    effort?: string
   }): { sessionId: string } {
     const sessionId = randomUUID()
     const machineId = input.machineId ?? LOCAL_PLACEHOLDER
@@ -1830,24 +1840,39 @@ export class SessionRegistry {
       ...(input.resume ? { resume: input.resume } : {}),
       ...(input.initialPrompt ? { initialPrompt: input.initialPrompt } : {}),
       geometry: { ...DEFAULT_GEOMETRY },
-      ...this.modelDefaults(input.agentKind),
+      ...this.modelDefaults(
+        input.agentKind,
+        input.model !== undefined || input.effort !== undefined
+          ? { model: input.model, effort: input.effort }
+          : undefined,
+      ),
     })
     this.broadcastSessions()
     return { sessionId }
   }
 
   /**
-   * Settings-driven model flags for a spawn message; 'auto' means no override.
+   * Model + effort flags for a spawn message; 'auto' means no override.
    * Shared by every spawn path (fresh spawn AND resurrect) so a resumed session
    * keeps the configured model instead of silently dropping to the CLI default.
+   * `override` (from an issue's per-ticket model/effort) wins over the settings
+   * defaults — an explicit 'auto' override still means "no flag" (not "fall back
+   * to settings"), so an issue snapshots its own choice at create time.
    */
-  private modelDefaults(agentKind: AgentKind): { model?: string; subagentModel?: string } {
+  private modelDefaults(
+    agentKind: AgentKind,
+    override?: { model?: string; effort?: string },
+  ): { model?: string; subagentModel?: string; effort?: string } {
     const defaults = this.store.getSettings().sessionDefaults
-    const model = defaults.model !== 'auto' ? defaults.model : undefined
-    const subagentModel = defaults.subagentModel !== 'auto' ? defaults.subagentModel : undefined
+    const model = override?.model ?? defaults.model
+    const effort = override?.effort ?? defaults.effort
+    const subagentModel = defaults.subagentModel
     return {
-      ...(model !== undefined && agentKind !== 'shell' ? { model } : {}),
-      ...(subagentModel !== undefined && agentKind === 'claude-code' ? { subagentModel } : {}),
+      ...(model !== 'auto' && agentKind !== 'shell' ? { model } : {}),
+      ...(subagentModel !== 'auto' && agentKind === 'claude-code' ? { subagentModel } : {}),
+      // Cursor + shell have no effort flag; agentLaunchCommand also drops it, but
+      // gating here keeps the spawn message clean.
+      ...(effort !== 'auto' && agentKind !== 'shell' && agentKind !== 'cursor' ? { effort } : {}),
     }
   }
 

@@ -22,7 +22,10 @@ import {
 } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import { cn } from '@/lib/utils'
+import { agentSupportsEffort } from './agent-models'
+import { issueDefaultAgentKind } from './issue-agents'
 import { MachinesPanel } from './MachinesPanel'
+import { EffortPicker, ModelPicker } from './ModelEffortPicker'
 import { useStore } from './store'
 import { type ThemeMode, type ThemePreset, useTheme } from './theme'
 import { serverConfig, type Trpc } from './trpc'
@@ -291,15 +294,31 @@ export function SettingsView(): JSX.Element {
                     </Select>
                   </Row>
                   <Row label="Model for new sessions">
-                    <ModelInput
+                    <ModelPicker
+                      variant="field"
+                      agentKind={issueDefaultAgentKind(settings.sessionDefaults.agent)}
                       value={settings.sessionDefaults.model}
                       onChange={(model) =>
                         patch({ sessionDefaults: { ...settings.sessionDefaults, model } })
                       }
                     />
                   </Row>
+                  {agentSupportsEffort(issueDefaultAgentKind(settings.sessionDefaults.agent)) && (
+                    <Row label="Effort for new sessions">
+                      <EffortPicker
+                        variant="field"
+                        agentKind={issueDefaultAgentKind(settings.sessionDefaults.agent)}
+                        value={settings.sessionDefaults.effort}
+                        onChange={(effort) =>
+                          patch({ sessionDefaults: { ...settings.sessionDefaults, effort } })
+                        }
+                      />
+                    </Row>
+                  )}
                   <Row label="Model for subagents">
-                    <ModelInput
+                    <ModelPicker
+                      variant="field"
+                      agentKind="claude-code"
                       value={settings.sessionDefaults.subagentModel}
                       onChange={(subagentModel) =>
                         patch({ sessionDefaults: { ...settings.sessionDefaults, subagentModel } })
@@ -1155,24 +1174,6 @@ function Row({ label, children }: { label: string; children: React.ReactNode }):
   )
 }
 
-function ModelInput({
-  value,
-  onChange,
-}: {
-  value: string
-  onChange: (v: string) => void
-}): JSX.Element {
-  return (
-    <Input
-      type="text"
-      // 'auto' is the stored sentinel; the empty input *means* auto.
-      value={value === 'auto' ? '' : value}
-      placeholder="auto — agent decides"
-      onChange={(e) => onChange(e.target.value.trim() === '' ? 'auto' : e.target.value)}
-    />
-  )
-}
-
 /**
  * Shared editor for the superagent / work-LLM execution backends, including the
  * billing explainer the spec demands when picking a harness.
@@ -1279,7 +1280,9 @@ function BackendEditor({
             </Select>
           </Row>
           <Row label="Model">
-            <ModelInput
+            <ModelPicker
+              variant="field"
+              agentKind={issueDefaultAgentKind(backend.harnessAgent)}
               value={backend.harnessModel}
               onChange={(harnessModel) => onChange({ ...backend, harnessModel })}
             />

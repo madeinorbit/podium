@@ -90,6 +90,7 @@ function baseRow(over: Partial<IssueRow> = {}): IssueRow {
   return {
     id: 'iss_x', repoPath: '/r', seq: 1, title: 'X', description: '', stage: 'backlog',
     worktreePath: null, branch: null, parentBranch: 'main', defaultAgent: 'claude-code',
+    defaultModel: 'auto', defaultEffort: 'auto',
     linearId: null, linearIdentifier: null, linearUrl: null, activityNotes: null,
     notesUpdatedAt: null, suggestedStage: null, suggestedReason: null, blockedBy: [],
     dependencyNote: null, prUrl: null, createdAt: 't', updatedAt: 't', archived: false,

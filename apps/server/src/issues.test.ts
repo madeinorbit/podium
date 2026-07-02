@@ -83,6 +83,8 @@ describe('IssueService.start', () => {
     expect(deps.spawnSession).toHaveBeenCalledWith({
       cwd: '/r/.worktrees/issue-1-fix-login',
       agentKind: 'claude-code',
+      model: 'auto',
+      effort: 'auto',
       initialPrompt: 'do the thing',
     })
   })
@@ -118,6 +120,29 @@ describe('IssueService.start', () => {
     expect(deps.spawnSession).toHaveBeenCalledWith({
       cwd: '/r/.worktrees/issue-1-a',
       agentKind: 'codex',
+      model: 'auto',
+      effort: 'auto',
+    })
+  })
+
+  it('captures a chosen model + effort on the issue and spawns with them', async () => {
+    const { svc, deps } = harness()
+    const a = svc.create({
+      repoPath: '/r',
+      title: 'A',
+      startNow: false,
+      defaultModel: 'opus',
+      defaultEffort: 'high',
+    })
+    expect(a.defaultModel).toBe('opus')
+    expect(a.defaultEffort).toBe('high')
+    const started = await svc.start(a.id)
+    expect(started.defaultModel).toBe('opus')
+    expect(deps.spawnSession).toHaveBeenCalledWith({
+      cwd: '/r/.worktrees/issue-1-a',
+      agentKind: 'claude-code',
+      model: 'opus',
+      effort: 'high',
     })
   })
 })

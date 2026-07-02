@@ -663,6 +663,9 @@ export const IssueWire = z.object({
   branch: z.string().nullable(),
   parentBranch: z.string(),
   defaultAgent: z.string(),
+  // Model + reasoning-effort the issue's sessions launch with ('auto' = agent decides).
+  defaultModel: z.string(),
+  defaultEffort: z.string(),
   linearId: z.string().optional(),
   linearIdentifier: z.string().optional(),
   linearUrl: z.string().optional(),
@@ -899,6 +902,9 @@ export const SpawnMessage = z.object({
   // Settings-driven model defaults. Absent = the harness decides (no flag/env).
   model: z.string().optional(),
   subagentModel: z.string().optional(),
+  // Reasoning-effort flag. Absent = the harness decides (no flag). Mapped to each
+  // agent CLI's effort option in agentLaunchCommand.
+  effort: z.string().optional(),
   // A first prompt handed to the agent at launch as a positional argv token
   // (race-free; e.g. an issue's description). Only set for argv-capable agents.
   initialPrompt: z.string().optional(),

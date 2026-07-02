@@ -28,6 +28,10 @@ export const SessionDefaults = z.object({
   model: z.string().default('auto'),
   /** Model for subagents spawned inside a session ('auto' = no override). */
   subagentModel: z.string().default('auto'),
+  /** Reasoning effort flag for new sessions ('auto' = no flag). Mapped to each
+   *  agent CLI's effort flag at spawn (claude/grok `--effort`, codex reasoning
+   *  config, opencode `--variant`); ignored for agents without one (cursor). */
+  effort: z.string().default('auto'),
   /** Which panel screen a new session opens on.
    *  - 'native': always start on the terminal (default)
    *  - 'chat': always start on the chat view (when capable)

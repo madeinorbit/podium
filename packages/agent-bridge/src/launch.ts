@@ -26,8 +26,11 @@ export interface LaunchOptions {
   cwd: string
   /** Present to resume an existing on-disk conversation; absent to start fresh. */
   resume?: ResumeRef
-  /** Model override from settings; absent = the CLI's own default. */
+  /** Model override from settings; absent (or 'auto') = the CLI's own default. */
   model?: string
+  /** Reasoning-effort override; absent (or 'auto') = the CLI's own default.
+   *  Mapped per agent to its effort flag; agents without one (cursor) ignore it. */
+  effort?: string
   /**
    * A first prompt to hand the agent at launch (e.g. an issue's description).
    * Delivered as a trailing positional argv token (`claude "<prompt>"`) for the
@@ -47,14 +50,41 @@ export interface LaunchSpec {
   cwd: string
 }
 
+/** 'auto' (or empty) is the sentinel for "no override" — the CLI decides. */
+function isSet(value: string | undefined): value is string {
+  return !!value && value !== 'auto'
+}
+
+/**
+ * Map a reasoning-effort level to the CLI flag each agent understands. Verified
+ * against each binary's `--help`: claude/grok take `--effort <level>`, codex takes
+ * a reasoning-effort config override, opencode takes `--variant`. Cursor + shell
+ * have no effort flag, so the effort is silently dropped there.
+ */
+function effortLaunchArgs(kind: AgentKind, effort: string | undefined): string[] {
+  if (!isSet(effort)) return []
+  switch (kind) {
+    case 'claude-code':
+    case 'grok':
+      return ['--effort', effort]
+    case 'codex':
+      return ['-c', `model_reasoning_effort=${effort}`]
+    case 'opencode':
+      return ['--variant', effort]
+    default:
+      return []
+  }
+}
+
 /**
  * Build the spawn command for an agent kind. Fresh vs resume is the only
  * difference; this is the single place that knows each CLI's resume flag, so the
  * daemon stays agent-agnostic. The result feeds straight into `spawnAgent`.
  */
 export function agentLaunchCommand(kind: AgentKind, opts: LaunchOptions): LaunchSpec {
-  const { cwd, resume, model } = opts
-  const modelArgs = model ? ['--model', model] : []
+  const { cwd, resume, model, effort } = opts
+  const modelArgs = isSet(model) ? ['--model', model] : []
+  const effortArgs = effortLaunchArgs(kind, effort)
   // Trailing positional prompt for argv-capable agents (last, after all options).
   const promptArgs =
     agentSupportsInitialPrompt(kind) && opts.initialPrompt?.trim() ? [opts.initialPrompt] : []
@@ -65,6 +95,7 @@ export function agentLaunchCommand(kind: AgentKind, opts: LaunchOptions): Launch
         args: [
           ...(resume ? ['--resume', resume.value] : []),
           ...modelArgs,
+          ...effortArgs,
           '--append-system-prompt',
           ISSUE_SYSTEM_POINTER,
           ...promptArgs,
@@ -74,25 +105,35 @@ export function agentLaunchCommand(kind: AgentKind, opts: LaunchOptions): Launch
     case 'codex':
       return {
         cmd: 'codex',
-        args: [...(resume ? ['resume', resume.value] : []), ...modelArgs, ...promptArgs],
+        args: [
+          ...(resume ? ['resume', resume.value] : []),
+          ...modelArgs,
+          ...effortArgs,
+          ...promptArgs,
+        ],
         cwd,
       }
     case 'grok':
       return {
         cmd: 'grok',
-        args: [...(resume ? ['--resume', resume.value] : []), ...modelArgs, ...promptArgs],
+        args: [
+          ...(resume ? ['--resume', resume.value] : []),
+          ...modelArgs,
+          ...effortArgs,
+          ...promptArgs,
+        ],
         cwd,
       }
     case 'opencode': {
-      const modelFlag = model ? ['-m', model] : []
+      const modelFlag = isSet(model) ? ['-m', model] : []
       return {
         cmd: resolveOpencodeBin(),
-        args: [...(resume ? ['--session', resume.value] : []), ...modelFlag],
+        args: [...(resume ? ['--session', resume.value] : []), ...modelFlag, ...effortArgs],
         cwd,
       }
     }
     case 'cursor': {
-      const modelArgs = model ? ['--model', model] : []
+      const modelArgs = isSet(model) ? ['--model', model] : []
       return {
         cmd: resolveCursorBin(),
         args: [...(resume ? ['--resume', resume.value] : []), ...modelArgs],

@@ -17,6 +17,8 @@ export const makeIssue = (over: Partial<IssueWire> = {}): IssueWire =>
     branch: 'issue/4-fix-login',
     parentBranch: 'main',
     defaultAgent: 'claude-code',
+    defaultModel: 'auto',
+    defaultEffort: 'auto',
     blockedBy: [],
     createdAt: 't',
     updatedAt: 't',
