@@ -2,7 +2,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
-import { type MirrorReadResult, MirrorService } from './mirror'
+import { type MirrorReadResult, MirrorService, type MirrorServiceOptions } from './mirror'
 import { SessionStore } from './store'
 
 // MirrorService (docs/spec/transcript-mirror.md §2.3/§3) against a fake daemon:
@@ -22,8 +22,13 @@ interface ReadLog {
 class FakeDaemonFs {
   private readonly files = new Map<string, Buffer>()
   readonly log: ReadLog[] = []
+  /** performance.now() at each read — lets tests assert inter-chunk spacing. */
+  readonly readTimes: number[] = []
   readonly errors = new Map<string, string>()
   delayMs = 0
+  /** Synchronous spin per read — models the wire decode/encode CPU a real chunk
+   *  costs the server (JSON + zod + base64), for the loop-lag regression test. */
+  busyMs = 0
   private inFlight = 0
   maxInFlight = 0
 
@@ -36,9 +41,16 @@ class FakeDaemonFs {
     req: { path: string; offset: number; maxBytes: number },
   ): Promise<MirrorReadResult> => {
     this.log.push({ ...req })
+    this.readTimes.push(performance.now())
     this.inFlight += 1
     this.maxInFlight = Math.max(this.maxInFlight, this.inFlight)
     if (this.delayMs > 0) await new Promise((r) => setTimeout(r, this.delayMs))
+    if (this.busyMs > 0) {
+      const until = performance.now() + this.busyMs
+      while (performance.now() < until) {
+        // spin: synchronous CPU, exactly what the loop pays per inbound frame
+      }
+    }
     this.inFlight -= 1 // decrement BEFORE resolve: serialized callers never overlap
     const error = this.errors.get(req.path)
     if (error) return { data: '', fileSize: 0, eof: true, error }
@@ -56,11 +68,17 @@ function patternBytes(size: number, seed = 0): Buffer {
   return b
 }
 
-function setup() {
+/** 0-delay + unlimited budget by default so the pre-pacing tests stay fast and
+ *  byte-exact; pacing tests inject their own knobs. */
+function setup(options?: MirrorServiceOptions) {
   const store = new SessionStore(':memory:')
   const lakeDir = mkdtempSync(join(tmpdir(), 'podium-lake-'))
   const fs = new FakeDaemonFs()
-  const mirror = new MirrorService(store, lakeDir, fs.read)
+  const mirror = new MirrorService(store, lakeDir, fs.read, Date.now, {
+    chunkDelayMs: 0,
+    passBudgetBytes: Number.MAX_SAFE_INTEGER,
+    ...options,
+  })
   return { store, lakeDir, fs, mirror }
 }
 
@@ -268,6 +286,115 @@ describe('MirrorService', () => {
     expect(fs.log).toEqual([{ path, offset: content.length, maxBytes: MirrorService.CHUNK_BYTES }])
     expect(readFileSync(mirror2.lakePath('m1', 'resume')).equals(content)).toBe(true)
     expect(store.mirrorCursor('m1', 'resume')).toBe(content.length)
+    store.close()
+  })
+
+  // ---- Pacing (incident amendment, spec §2.3): the 2026-07 deploy pumped an
+  // entire multi-GB lake back-to-back on daemon attach, pegged the server CPU
+  // and got SIGABRT'd by the systemd watchdog. These tests pin the two knobs.
+
+  it('stops a drain pass at the byte budget and resumes from cursors to completion', async () => {
+    const budget = 200_000
+    const { store, fs, mirror } = setup({ passBudgetBytes: budget })
+    const size = 300_000
+    const segs = ['pace-a', 'pace-b', 'pace-c']
+    for (const [i, nativeId] of segs.entries()) {
+      fs.set(seed(store, 'm1', nativeId), patternBytes(size, 10 + i))
+    }
+    const total = () => segs.reduce((sum, id) => sum + store.mirrorCursor('m1', id), 0)
+
+    mirror.enqueueMachine('m1')
+    await settle(mirror, 'm1')
+
+    // Pass 1 stopped at the budget (may overshoot by at most one chunk) and left
+    // at least one segment completely untouched — its queued-state was cleared,
+    // NOT stranded, so the next trigger can pick it up.
+    const afterPass1 = total()
+    expect(afterPass1).toBeGreaterThan(0)
+    expect(afterPass1).toBeLessThanOrEqual(budget + MirrorService.CHUNK_BYTES)
+    expect(afterPass1).toBeLessThan(segs.length * size)
+    expect(segs.some((id) => store.mirrorCursor('m1', id) === 0)).toBe(true)
+
+    // Re-triggering (the ~15s scan / attach sweep) resumes from the persisted
+    // cursors — no head re-pull — and completes the whole lake within a few passes.
+    let passes = 1
+    while (total() < segs.length * size) {
+      passes++
+      expect(passes).toBeLessThanOrEqual(10)
+      mirror.enqueueMachine('m1')
+      await settle(mirror, 'm1')
+    }
+    for (const [i, nativeId] of segs.entries()) {
+      expect(readFileSync(mirror.lakePath('m1', nativeId)).equals(patternBytes(size, 10 + i))).toBe(
+        true,
+      )
+      expect(store.mirrorCursor('m1', nativeId)).toBe(size)
+    }
+    // Offsets never regress, and below eof never repeat: resume, not restart.
+    // (Repeats AT size are the eof-checks later sweeps pay for a done segment.)
+    for (const nativeId of segs) {
+      const offsets = fs.log.filter((r) => r.path.includes(nativeId)).map((r) => r.offset)
+      expect(offsets).toEqual([...offsets].sort((a, b) => a - b))
+      const belowEof = offsets.filter((o) => o < size)
+      expect(new Set(belowEof).size).toBe(belowEof.length)
+    }
+    expect(passes).toBeGreaterThan(1) // the budget actually split the work
+    store.close()
+  })
+
+  it('honors the injected inter-chunk delay between ranged reads', async () => {
+    const delay = 30
+    const { store, fs, mirror } = setup({ chunkDelayMs: delay })
+    const path = seed(store, 'm1', 'breathe')
+    fs.set(path, patternBytes(MirrorService.CHUNK_BYTES * 2 + 100, 20)) // 3 chunks
+
+    mirror.enqueueMachine('m1')
+    await settle(mirror, 'm1')
+
+    expect(store.mirrorCursor('m1', 'breathe')).toBe(MirrorService.CHUNK_BYTES * 2 + 100)
+    expect(fs.readTimes.length).toBe(3)
+    for (let i = 1; i < fs.readTimes.length; i++) {
+      const gap = (fs.readTimes[i] as number) - (fs.readTimes[i - 1] as number)
+      expect(gap).toBeGreaterThanOrEqual(delay - 5) // timer slack, but clearly paced
+    }
+    store.close()
+  })
+
+  it('keeps event-loop lag bounded while draining many sizeable segments (incident regression)', async () => {
+    // Incident shape: many segments x sizeable buffers, each chunk costing real
+    // synchronous CPU on the loop (wire decode). With pacing the drain must leave
+    // the loop responsive; the same setup with delay 0 / unlimited budget is
+    // ALLOWED to be worse — we only pin the good case.
+    const { store, fs, mirror } = setup({
+      chunkDelayMs: 5,
+      passBudgetBytes: Number.MAX_SAFE_INTEGER,
+    })
+    fs.busyMs = 2
+    const size = 2 * MirrorService.CHUNK_BYTES // 2 chunks per segment
+    const segs = Array.from({ length: 24 }, (_, i) => `lag-${String(i).padStart(2, '0')}`)
+    for (const [i, nativeId] of segs.entries()) {
+      fs.set(seed(store, 'm1', nativeId), patternBytes(size, 30 + i))
+    }
+
+    const sampleMs = 10
+    let maxLag = 0
+    let lastTick = performance.now()
+    const sampler = setInterval(() => {
+      const now = performance.now()
+      maxLag = Math.max(maxLag, now - lastTick - sampleMs)
+      lastTick = now
+    }, sampleMs)
+    try {
+      mirror.enqueueMachine('m1')
+      await settle(mirror, 'm1')
+    } finally {
+      clearInterval(sampler)
+    }
+
+    for (const nativeId of segs) {
+      expect(store.mirrorCursor('m1', nativeId)).toBe(size)
+    }
+    expect(maxLag).toBeLessThan(250)
     store.close()
   })
 })
