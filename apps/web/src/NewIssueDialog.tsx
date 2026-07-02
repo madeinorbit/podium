@@ -1,6 +1,6 @@
-import type { IssueStage } from '@podium/protocol'
-import type { JSX } from 'react'
-import { useState } from 'react'
+import { type IssueStage, IssueType, ISSUE_STAGES } from '@podium/protocol'
+import type { ComponentProps, JSX } from 'react'
+import { forwardRef, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import {
@@ -12,15 +12,12 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
+import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 import { useIsMobile } from '@/hooks/use-is-mobile'
+import { STAGE_LABELS } from './issue-card'
+import { PriorityGlyph, StageGlyph } from './issue-glyphs'
+import { PropertyMenu, type PropertyOption } from './PropertyMenu'
 import { useStore } from './store'
 
 /** A Linear search hit. Not exported from the protocol — the server returns this
@@ -36,30 +33,92 @@ function repoLabel(path: string): string {
   return path.split('/').filter(Boolean).pop() ?? path
 }
 
+/** Small outlined pill used as a `PropertyMenu` trigger in the composer's property
+ *  row. Forwards ref + injected props so Base UI's `render={…}` wires the open
+ *  handler onto the button. */
+const PillButton = forwardRef<
+  HTMLButtonElement,
+  ComponentProps<typeof Button> & { icon?: JSX.Element; label: string }
+>(({ icon, label, ...props }, ref) => (
+  <Button
+    ref={ref}
+    type="button"
+    variant="outline"
+    size="sm"
+    className="h-6 gap-1 rounded-full px-2 text-[12px] font-normal"
+    {...props}
+  >
+    {icon}
+    {label}
+  </Button>
+))
+PillButton.displayName = 'PillButton'
+
 export function NewIssueDialog({
   onClose,
   initialStage,
 }: {
   onClose: () => void
-  /** Lane the composer was opened from. Until Task 12's full composer, this is
-   *  applied as a post-create `stage` patch (creation itself is always Backlog). */
+  /** Lane the composer was opened from. Presets the Stage pill; creation itself is
+   *  always Backlog server-side, so a non-backlog stage is applied as a post-create
+   *  patch. */
   initialStage?: IssueStage
 }): JSX.Element {
-  const { trpc, repos } = useStore()
+  const { trpc, repos, issues } = useStore()
   const isMobile = useIsMobile()
+  const titleRef = useRef<HTMLInputElement>(null)
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
+  const [stage, setStage] = useState<IssueStage>(initialStage ?? 'backlog')
+  const [priority, setPriority] = useState(2)
+  const [type, setType] = useState<IssueType>('task')
+  const [assignee, setAssignee] = useState('')
+  const [labels, setLabels] = useState<string[]>([])
   const [repoPath, setRepoPath] = useState(repos[0]?.path ?? '')
   const [parentBranch, setParentBranch] = useState('')
   // '' = use the configured default agent (no flag).
   const [agent, setAgent] = useState('')
   const [startNow, setStartNow] = useState(true)
+  const [createMore, setCreateMore] = useState(false)
   const [linear, setLinear] = useState<{ identifier: string; url: string } | undefined>()
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<LinearHit[]>([])
   const [searching, setSearching] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+
+  // Suggestion pools drawn from the issues already in play.
+  const assigneeOptions: PropertyOption[] = [
+    ...new Set(issues.map((i) => i.assignee).filter((a): a is string => !!a)),
+  ]
+    .sort()
+    .map((a) => ({ value: a, label: a }))
+  const labelOptions: PropertyOption[] = [...new Set(issues.flatMap((i) => i.labels))]
+    .sort()
+    .map((l) => ({ value: l, label: l }))
+  const repoOptions: PropertyOption[] = repos.map((r) => ({
+    value: r.path,
+    label: repoLabel(r.path),
+  }))
+  const stageOptions: PropertyOption[] = ISSUE_STAGES.map((s) => ({
+    value: s,
+    label: STAGE_LABELS[s],
+    icon: <StageGlyph stage={s} />,
+  }))
+  const priorityOptions: PropertyOption[] = [0, 1, 2, 3, 4].map((p) => ({
+    value: String(p),
+    label: `P${p}`,
+    icon: <PriorityGlyph priority={p} />,
+  }))
+  const typeOptions: PropertyOption[] = [...IssueType.options].map((t) => ({ value: t, label: t }))
+  const agentOptions: PropertyOption[] = [
+    { value: '', label: 'Default' },
+    { value: 'claude-code', label: 'Claude Code' },
+    { value: 'codex', label: 'Codex' },
+    { value: 'grok', label: 'Grok' },
+  ]
+
+  const canSubmit = Boolean(title.trim()) && Boolean(repoPath) && !busy
 
   const searchLinear = async () => {
     const q = query.trim()
@@ -82,6 +141,7 @@ export function NewIssueDialog({
   }
 
   const submit = async () => {
+    if (!canSubmit) return
     setBusy(true)
     setError('')
     try {
@@ -93,13 +153,29 @@ export function NewIssueDialog({
         defaultAgent: agent || undefined,
         startNow,
         linear,
+        // Omit fields at their defaults so a bare issue stays bare.
+        ...(priority !== 2 ? { priority } : {}),
+        ...(type !== 'task' ? { type } : {}),
+        ...(assignee.trim() ? { assignee: assignee.trim() } : {}),
+        ...(labels.length ? { labels } : {}),
       })
-      // `create` has no stage input, so honor the lane the composer opened from
-      // with a follow-up patch. Backlog is the default — no patch needed.
-      if (initialStage && initialStage !== 'backlog') {
-        await trpc.issues.update.mutate({ id: created.id, patch: { stage: initialStage } })
+      // `create` always lands in Backlog, so honor the chosen stage with a follow-up
+      // patch. Backlog is the default — no patch needed.
+      if (stage !== 'backlog') {
+        await trpc.issues.update.mutate({ id: created.id, patch: { stage } })
       }
-      onClose()
+      if (createMore) {
+        // Keep the chosen properties; clear only the per-issue text and refocus.
+        setTitle('')
+        setDescription('')
+        setLinear(undefined)
+        setQuery('')
+        setResults([])
+        setBusy(false)
+        titleRef.current?.focus()
+      } else {
+        onClose()
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
       setBusy(false)
@@ -114,122 +190,86 @@ export function NewIssueDialog({
         if (!o) onClose()
       }}
     >
-      <DialogContent className="flex max-h-[min(720px,calc(100dvh-2rem))] w-full max-w-md flex-col gap-3 overflow-y-auto">
+      <DialogContent
+        className="flex max-h-[min(720px,calc(100dvh-2rem))] w-full max-w-md flex-col gap-3 overflow-y-auto"
+        onKeyDown={(e) => {
+          if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+            e.preventDefault()
+            void submit()
+          }
+        }}
+      >
         <DialogHeader>
           <DialogTitle>New Issue</DialogTitle>
         </DialogHeader>
 
         <div className="flex flex-col gap-3">
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="issue-title">Title</Label>
-            <Input
-              id="issue-title"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="What needs doing?"
+          <Input
+            ref={titleRef}
+            aria-label="Title"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder="Issue title"
+            className="border-none px-0 font-medium text-[15px] shadow-none focus-visible:ring-0"
+          />
+
+          <Textarea
+            aria-label="Description"
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="Add description…"
+            className="min-h-16 border-none px-0 shadow-none focus-visible:ring-0"
+          />
+
+          <div className="flex flex-wrap items-center gap-1.5">
+            <PropertyMenu
+              trigger={<PillButton icon={<StageGlyph stage={stage} />} label={STAGE_LABELS[stage]} />}
+              options={stageOptions}
+              selectedValue={stage}
+              onSelect={(v) => setStage(v as IssueStage)}
             />
-          </div>
-
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="issue-desc">Description</Label>
-            <Textarea
-              id="issue-desc"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder="Context, acceptance criteria…"
+            <PropertyMenu
+              trigger={<PillButton icon={<PriorityGlyph priority={priority} />} label={`P${priority}`} />}
+              options={priorityOptions}
+              selectedValue={String(priority)}
+              onSelect={(v) => setPriority(Number(v))}
             />
-          </div>
-
-          <details className="rounded-lg border border-border px-3 py-2 text-[13px]">
-            <summary className="cursor-pointer select-none text-foreground">
-              Import from Linear
-            </summary>
-            <div className="mt-2 flex flex-col gap-2">
-              <div className="flex gap-2">
-                <Input
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      e.preventDefault()
-                      void searchLinear()
-                    }
-                  }}
-                  placeholder="Search Linear issues…"
-                />
-                <Button
-                  type="button"
-                  variant="secondary"
-                  size="sm"
-                  disabled={searching || !query.trim()}
-                  onClick={() => void searchLinear()}
-                >
-                  {searching ? 'Searching…' : 'Search'}
-                </Button>
-              </div>
-              {results.length > 0 && (
-                <ul className="flex flex-col gap-1">
-                  {results.map((r) => (
-                    <li key={r.identifier}>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className="h-auto w-full justify-start whitespace-normal px-2 py-1.5 text-left font-normal"
-                        onClick={() => importHit(r)}
-                      >
-                        <span className="font-mono text-muted-foreground">{r.identifier}</span>{' '}
-                        {r.title}
-                      </Button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-              {linear && (
-                <p className="text-[12px] text-muted-foreground">Linked to {linear.identifier}</p>
-              )}
-            </div>
-          </details>
-
-          <div className="flex flex-col gap-1.5">
-            <Label>Repo</Label>
-            <Select value={repoPath} onValueChange={(v) => setRepoPath(v ?? '')}>
-              <SelectTrigger className="w-full">
-                <SelectValue placeholder="Select a repo" />
-              </SelectTrigger>
-              <SelectContent>
-                {repos.map((r) => (
-                  <SelectItem key={r.path} value={r.path}>
-                    {repoLabel(r.path)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="issue-parent">Parent branch</Label>
-            <Input
-              id="issue-parent"
-              value={parentBranch}
-              onChange={(e) => setParentBranch(e.target.value)}
-              placeholder="main"
+            <PropertyMenu
+              trigger={<PillButton label={type} />}
+              options={typeOptions}
+              selectedValue={type}
+              onSelect={(v) => setType(v as IssueType)}
             />
-          </div>
-
-          <div className="flex flex-col gap-1.5">
-            <Label>Agent</Label>
-            <Select value={agent} onValueChange={(v) => setAgent(v ?? '')}>
-              <SelectTrigger className="w-full">
-                <SelectValue placeholder="Default" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="">Default</SelectItem>
-                <SelectItem value="claude-code">Claude Code</SelectItem>
-                <SelectItem value="codex">Codex</SelectItem>
-                <SelectItem value="grok">Grok</SelectItem>
-              </SelectContent>
-            </Select>
+            <PropertyMenu
+              trigger={<PillButton label={labels.length ? labels.join(', ') : 'Labels'} />}
+              options={labelOptions}
+              allowFreeText
+              placeholder="Add label…"
+              onSelect={(v) =>
+                setLabels((ls) => (ls.includes(v) ? ls.filter((x) => x !== v) : [...ls, v]))
+              }
+            />
+            <PropertyMenu
+              trigger={<PillButton label={assignee || 'Assignee'} />}
+              options={assigneeOptions}
+              allowFreeText
+              selectedValue={assignee}
+              placeholder="Assign to…"
+              onSelect={setAssignee}
+            />
+            <PropertyMenu
+              trigger={<PillButton label={repoLabel(repoPath) || 'Repo'} />}
+              options={repoOptions}
+              selectedValue={repoPath}
+              placeholder="Select a repo…"
+              onSelect={setRepoPath}
+            />
+            <PropertyMenu
+              trigger={<PillButton label={agent ? agentOptions.find((o) => o.value === agent)?.label ?? agent : 'Agent'} />}
+              options={agentOptions}
+              selectedValue={agent}
+              onSelect={setAgent}
+            />
           </div>
 
           <Label className="cursor-pointer">
@@ -237,20 +277,84 @@ export function NewIssueDialog({
             Start work now
           </Label>
 
+          <details className="rounded-lg border border-border px-3 py-2 text-[13px]">
+            <summary className="cursor-pointer select-none text-foreground">Advanced</summary>
+            <div className="mt-2 flex flex-col gap-3">
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="issue-parent">Parent branch</Label>
+                <Input
+                  id="issue-parent"
+                  value={parentBranch}
+                  onChange={(e) => setParentBranch(e.target.value)}
+                  placeholder="main"
+                />
+              </div>
+
+              <div className="flex flex-col gap-2">
+                <Label>Import from Linear</Label>
+                <div className="flex gap-2">
+                  <Input
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault()
+                        void searchLinear()
+                      }
+                    }}
+                    placeholder="Search Linear issues…"
+                  />
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    disabled={searching || !query.trim()}
+                    onClick={() => void searchLinear()}
+                  >
+                    {searching ? 'Searching…' : 'Search'}
+                  </Button>
+                </div>
+                {results.length > 0 && (
+                  <ul className="flex flex-col gap-1">
+                    {results.map((r) => (
+                      <li key={r.identifier}>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-auto w-full justify-start whitespace-normal px-2 py-1.5 text-left font-normal"
+                          onClick={() => importHit(r)}
+                        >
+                          <span className="font-mono text-muted-foreground">{r.identifier}</span>{' '}
+                          {r.title}
+                        </Button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {linear && (
+                  <p className="text-[12px] text-muted-foreground">Linked to {linear.identifier}</p>
+                )}
+              </div>
+            </div>
+          </details>
+
           {error && <p className="text-[12px] text-destructive">{error}</p>}
         </div>
 
-        <DialogFooter>
-          <Button type="button" variant="outline" onClick={onClose} disabled={busy}>
-            Cancel
-          </Button>
-          <Button
-            type="button"
-            disabled={!title.trim() || !repoPath || busy}
-            onClick={() => void submit()}
-          >
-            {busy ? 'Creating…' : 'Create'}
-          </Button>
+        <DialogFooter className="items-center sm:justify-between">
+          <Label className="cursor-pointer gap-2 font-normal text-[13px] text-muted-foreground">
+            <Switch checked={createMore} onCheckedChange={(c) => setCreateMore(c === true)} />
+            Create more
+          </Label>
+          <div className="flex gap-2">
+            <Button type="button" variant="outline" onClick={onClose} disabled={busy}>
+              Cancel
+            </Button>
+            <Button type="button" disabled={!canSubmit} onClick={() => void submit()}>
+              {busy ? 'Creating…' : 'Create'}
+            </Button>
+          </div>
         </DialogFooter>
       </DialogContent>
     </Dialog>

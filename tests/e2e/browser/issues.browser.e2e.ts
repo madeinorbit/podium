@@ -154,6 +154,75 @@ test('issues board: renders the stage columns, creates a Backlog issue, and move
   ).toHaveCount(0)
 })
 
+test('issues composer: set a property pill, Create more keeps the dialog open for two issues', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await openShell(page)
+
+  await page.locator('button[title="Issues"]').click({ timeout: 15_000 })
+  const board = page.getByRole('region', { name: 'Issues' })
+  await expect(board).toBeVisible({ timeout: 10_000 })
+
+  const backlogColumn = board
+    .locator('div.w-\\[280px\\]')
+    .filter({ has: page.getByRole('heading', { name: 'Backlog', exact: true }) })
+    .first()
+
+  // ---- Open the Linear-style composer ----
+  await page.getByRole('button', { name: 'New Issue', exact: true }).click()
+  const dialog = page.getByRole('dialog')
+  await expect(dialog.getByRole('heading', { name: 'New Issue' })).toBeVisible({ timeout: 10_000 })
+
+  // Keep the issues worktree-less so no git op runs (harness parity).
+  const startNow = dialog.getByRole('checkbox', { name: 'Start work now' })
+  await expect(startNow).toBeChecked()
+  await startNow.uncheck()
+
+  // ---- Set a property via a pill: bump priority P2 → P1 ----
+  const priorityPill = dialog.locator('button.rounded-full').filter({ hasText: 'P2' })
+  await priorityPill.click({ timeout: 10_000 })
+  const menu = page.locator('[data-slot="dropdown-menu-content"]')
+  await menu.locator('input').first().fill('P1')
+  await menu.getByRole('menuitem').filter({ hasText: 'P1' }).click({ timeout: 10_000 })
+  // The pill now reflects the choice, and the menu closed.
+  await expect(dialog.locator('button.rounded-full').filter({ hasText: 'P1' })).toBeVisible()
+
+  // ---- Toggle "Create more" ON ----
+  await dialog.getByRole('switch', { name: 'Create more' }).click({ timeout: 10_000 })
+
+  // ---- Create the first issue: dialog STAYS open, title clears, property kept ----
+  const stamp = Date.now()
+  const title1 = `E2E composer one ${stamp}`
+  await dialog.getByLabel('Title').fill(title1)
+  const createBtn = dialog.getByRole('button', { name: /^Create$/ })
+  await expect(createBtn).toBeEnabled({ timeout: 15_000 })
+  await createBtn.click()
+
+  // Dialog is still open (Create more), the title reset, and the P1 pill persisted.
+  await expect(dialog.getByRole('heading', { name: 'New Issue' })).toBeVisible({ timeout: 10_000 })
+  await expect(dialog.getByLabel('Title')).toHaveValue('', { timeout: 10_000 })
+  await expect(dialog.locator('button.rounded-full').filter({ hasText: 'P1' })).toBeVisible()
+
+  // ---- Create the second issue with Create more OFF → the OFF path closes ----
+  await dialog.getByRole('switch', { name: 'Create more' }).click({ timeout: 10_000 })
+  const title2 = `E2E composer two ${stamp}`
+  await dialog.getByLabel('Title').fill(title2)
+  await expect(createBtn).toBeEnabled({ timeout: 15_000 })
+  await createBtn.click()
+  await expect(dialog).toBeHidden({ timeout: 15_000 })
+
+  // Both issues landed on the board under Backlog (live via the broadcast).
+  await expect(
+    backlogColumn.getByText(title1, { exact: false }),
+    'the first composed issue appears under Backlog',
+  ).toBeVisible({ timeout: 15_000 })
+  await expect(
+    backlogColumn.getByText(title2, { exact: false }),
+    'the second composed issue appears under Backlog',
+  ).toBeVisible({ timeout: 15_000 })
+})
+
 test('issues board: flag an issue for human, badge appears live, then resolve', async ({
   page,
 }) => {
