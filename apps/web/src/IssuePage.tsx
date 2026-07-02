@@ -1,4 +1,10 @@
-import { ISSUE_STAGES, type IssueStage, type IssueWire } from '@podium/protocol'
+import {
+  ISSUE_DEP_TYPES,
+  ISSUE_STAGES,
+  type IssueStage,
+  IssueType,
+  type IssueWire,
+} from '@podium/protocol'
 import {
   ArrowLeft,
   ChevronDown,
@@ -8,11 +14,13 @@ import {
   Flag,
   GitBranch,
   MoreHorizontal,
+  Plus,
   RefreshCw,
   Trash2,
+  X,
 } from 'lucide-react'
-import type { JSX } from 'react'
-import { useEffect, useState } from 'react'
+import type { ComponentProps, JSX, ReactNode } from 'react'
+import { forwardRef, useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -25,19 +33,18 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 import { cn } from '@/lib/utils'
 import { STAGE_LABELS } from './issue-card'
 import { issueDetailFields } from './issue-detail-fields'
+import { PriorityGlyph, StageGlyph } from './issue-glyphs'
 import { issueNeighbors } from './issue-page'
+import { groupRelations } from './issue-relations'
+import { PropertyMenu, type PropertyOption } from './PropertyMenu'
 import { useStore } from './store'
+import { sessionDisplayName } from './WorkerLabel'
+
+type MergeStyle = 'ff-only' | 'pr' | 'ask'
 
 /**
  * The full issue page — an in-view (not overlay) replacement for the detail
@@ -289,6 +296,17 @@ export function IssuePage({
             )}
           </section>
 
+          {/* ---- Properties (mobile) — the desktop aside is hidden <md, so mirror
+                its rows in a collapsible disclosure above the activity feed. ---- */}
+          <details className="mb-4 rounded-lg border border-border md:hidden" data-testid="issue-details-mobile">
+            <summary className="cursor-pointer select-none px-3 py-2 font-medium text-[13px] text-foreground">
+              Details
+            </summary>
+            <div className="border-border border-t px-3 py-2">
+              <IssueProperties issue={issue} busy={busy} run={run} onNavigate={onNavigate} />
+            </div>
+          </details>
+
           {/* ---- Activity ---- */}
           <section className="flex flex-col gap-2">
             <div className="flex items-center justify-between">
@@ -381,34 +399,11 @@ export function IssuePage({
           </section>
         </div>
 
-        <aside className="hidden w-[280px] shrink-0 overflow-y-auto border-border border-l px-4 py-4 md:block">
-          {/* Properties sidebar — Task 9; until then keep the interim Stage select. */}
-          <div className="flex flex-col gap-1.5">
-            <h3 className="font-medium text-[13px] text-foreground">Stage</h3>
-            <Select
-              value={issue.stage}
-              onValueChange={(value) => {
-                if (!value) return
-                void run(() =>
-                  trpc.issues.update.mutate({
-                    id: issue.id,
-                    patch: { stage: value as IssueStage },
-                  }),
-                )
-              }}
-            >
-              <SelectTrigger className="w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {ISSUE_STAGES.map((s) => (
-                  <SelectItem key={s} value={s}>
-                    {STAGE_LABELS[s]}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+        <aside
+          data-testid="issue-aside"
+          className="hidden w-[280px] shrink-0 overflow-y-auto border-border border-l px-4 py-4 md:block"
+        >
+          <IssueProperties issue={issue} busy={busy} run={run} onNavigate={onNavigate} />
         </aside>
       </div>
 
@@ -538,5 +533,608 @@ function IssueOverflowMenu({
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
+  )
+}
+
+/** One labeled row in the properties sidebar: a fixed-width label + a value cell. */
+function PropertyRow({ label, children }: { label: string; children: ReactNode }): JSX.Element {
+  return (
+    <div className="flex items-start gap-2 py-1">
+      <span className="w-20 shrink-0 pt-1 text-[12px] text-muted-foreground">{label}</span>
+      <div className="min-w-0 flex-1">{children}</div>
+    </div>
+  )
+}
+
+/** The full-width ghost button used as a PropertyMenu trigger (shows the current
+ *  value; the whole cell is clickable). Forwards ref + injected props so Base UI's
+ *  `DropdownMenuTrigger render={…}` can wire the open handler onto the button. */
+const TriggerButton = forwardRef<
+  HTMLButtonElement,
+  ComponentProps<typeof Button> & { testId?: string }
+>(({ children, testId, ...props }, ref) => (
+  <Button
+    ref={ref}
+    type="button"
+    variant="ghost"
+    size="sm"
+    data-testid={testId}
+    className="h-7 w-full justify-start gap-1.5 px-2 font-normal text-[13px]"
+    {...props}
+  >
+    {children}
+  </Button>
+))
+TriggerButton.displayName = 'TriggerButton'
+
+/**
+ * The Linear-style properties sidebar for the issue page — a stack of labeled
+ * `PropertyMenu`/inline rows driving the same mutations the detail drawer used,
+ * plus the ported Sessions and Git action blocks. Rendered in the desktop `<aside>`
+ * and (mirrored) inside the mobile `Details` disclosure. `run` is the page's
+ * toast-wrapping mutation runner; `onNavigate` re-points the open issue (parent /
+ * relation click-through).
+ */
+function IssueProperties({
+  issue,
+  busy,
+  run,
+  onNavigate,
+}: {
+  issue: IssueWire
+  busy: boolean
+  run: (fn: () => Promise<unknown>) => Promise<void>
+  onNavigate: (id: string) => void
+}): JSX.Element {
+  const { trpc, issues, setSelectedWorktree, setPane, setView } = useStore()
+  const [mergeStyle, setMergeStyle] = useState<MergeStyle>('ff-only')
+  const [deferDate, setDeferDate] = useState('')
+  // Relation add is two steps: pick a dep type, then a target issue.
+  const [addRelType, setAddRelType] = useState('blocks')
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reset only on issue switch
+  useEffect(() => {
+    setDeferDate('')
+    setAddRelType('blocks')
+  }, [issue.id])
+
+  useEffect(() => {
+    let cancelled = false
+    trpc.settings.get
+      .query()
+      .then((s) => {
+        if (!cancelled) setMergeStyle(s.gitWorkflow.mergeStyle)
+      })
+      .catch(() => {
+        // best-effort — ff-only is a safe default primary
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [trpc])
+
+  const update = (patch: Record<string, unknown>): void => {
+    void run(() => trpc.issues.update.mutate({ id: issue.id, patch }))
+  }
+
+  // Repo-mates: the pool for relations + parent, excluding self, seq-ordered.
+  const repoMates = issues
+    .filter((i) => i.repoPath === issue.repoPath && i.id !== issue.id)
+    .sort((a, b) => a.seq - b.seq)
+  const byId = new Map(issues.map((i) => [i.id, i]))
+  const issueLabel = (id: string): string => {
+    const m = byId.get(id)
+    return m ? `#${m.seq} ${m.title}` : id
+  }
+  const mateOptions: PropertyOption[] = repoMates.map((i) => ({
+    value: i.id,
+    label: `#${i.seq} ${i.title}`,
+  }))
+
+  // Distinct assignees / labels across all issues — the suggestion pool.
+  const assigneeOptions: PropertyOption[] = [
+    { value: '__unassigned__', label: 'Unassigned' },
+    ...[...new Set(issues.map((i) => i.assignee).filter((a): a is string => !!a))]
+      .sort()
+      .map((a) => ({ value: a, label: a })),
+  ]
+  const labelPool = [...new Set(issues.flatMap((i) => i.labels))]
+    .filter((l) => !issue.labels.includes(l))
+    .sort()
+
+  const openSession = (session: { sessionId: string; cwd: string }): void => {
+    setSelectedWorktree(session.cwd)
+    setPane('A', session.sessionId)
+    setView('workspace')
+  }
+  const action = (kind: 'rebase' | 'pr' | 'merge'): Promise<void> =>
+    run(async () => {
+      await trpc.issues.action.mutate({ id: issue.id, kind })
+    })
+  const primaryIsPr = mergeStyle === 'pr'
+  const mergeLabel = 'FF-only merge'
+
+  const relations = groupRelations(issue)
+  const parent = issue.parentId ? byId.get(issue.parentId) : undefined
+
+  // ---- Status: 6 stages + Close done/wontfix. Reopen is intentionally omitted:
+  // the `update` router can't clear `closedReason` (string, no null), and an empty
+  // string still reads as closed server-side (isClosed: closedReason != null). ----
+  const statusOptions: PropertyOption[] = [
+    ...ISSUE_STAGES.map((s) => ({
+      value: `stage:${s}`,
+      label: STAGE_LABELS[s],
+      icon: <StageGlyph stage={s} />,
+    })),
+    { value: 'close:done', label: 'Close: done' },
+    { value: 'close:wontfix', label: 'Close: wontfix' },
+  ]
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex flex-col">
+        {/* Status */}
+        <PropertyRow label="Status">
+          <PropertyMenu
+            selectedValue={`stage:${issue.stage}`}
+            options={statusOptions}
+            onSelect={(v) => {
+              if (v.startsWith('stage:')) update({ stage: v.slice('stage:'.length) as IssueStage })
+              else if (v === 'close:done')
+                void run(() => trpc.issues.close.mutate({ id: issue.id, reason: 'done' }))
+              else if (v === 'close:wontfix')
+                void run(() => trpc.issues.close.mutate({ id: issue.id, reason: 'wontfix' }))
+            }}
+            trigger={
+              <TriggerButton disabled={busy} testId="status-trigger">
+                <StageGlyph stage={issue.stage} />
+                {STAGE_LABELS[issue.stage]}
+              </TriggerButton>
+            }
+          />
+        </PropertyRow>
+
+        {/* Priority */}
+        <PropertyRow label="Priority">
+          <PropertyMenu
+            selectedValue={String(issue.priority)}
+            options={[0, 1, 2, 3, 4].map((p) => ({
+              value: String(p),
+              label: `P${p}`,
+              icon: <PriorityGlyph priority={p} />,
+            }))}
+            onSelect={(v) => update({ priority: Number(v) })}
+            trigger={
+              <TriggerButton disabled={busy}>
+                <PriorityGlyph priority={issue.priority} />P{issue.priority}
+              </TriggerButton>
+            }
+          />
+        </PropertyRow>
+
+        {/* Assignee */}
+        <PropertyRow label="Assignee">
+          <PropertyMenu
+            allowFreeText
+            selectedValue={issue.assignee ?? '__unassigned__'}
+            options={assigneeOptions}
+            placeholder="Assign to…"
+            onSelect={(v) => update({ assignee: v === '__unassigned__' ? '' : v })}
+            trigger={
+              <TriggerButton disabled={busy}>
+                {issue.assignee || <span className="text-muted-foreground">Unassigned</span>}
+              </TriggerButton>
+            }
+          />
+        </PropertyRow>
+
+        {/* Type */}
+        <PropertyRow label="Type">
+          <PropertyMenu
+            selectedValue={issue.type}
+            options={IssueType.options.map((t) => ({ value: t, label: t }))}
+            onSelect={(v) => update({ type: v as IssueType })}
+            trigger={<TriggerButton disabled={busy}>{issue.type}</TriggerButton>}
+          />
+        </PropertyRow>
+
+        {/* Labels */}
+        <PropertyRow label="Labels">
+          <div className="flex flex-wrap items-center gap-1.5">
+            {issue.labels.map((label) => (
+              <span
+                key={label}
+                className="inline-flex items-center gap-1 rounded border border-primary/40 bg-primary/5 py-0.5 pr-1 pl-1.5 text-[11px] text-primary"
+              >
+                {label}
+                <button
+                  type="button"
+                  aria-label={`Remove label ${label}`}
+                  title={`Remove ${label}`}
+                  disabled={busy}
+                  className="rounded-sm text-primary/70 hover:text-primary disabled:opacity-50"
+                  onClick={() =>
+                    void run(() =>
+                      trpc.issues.setLabels.mutate({
+                        id: issue.id,
+                        labels: issue.labels.filter((l) => l !== label),
+                      }),
+                    )
+                  }
+                >
+                  <X size={11} aria-hidden="true" />
+                </button>
+              </span>
+            ))}
+            <PropertyMenu
+              allowFreeText
+              options={labelPool.map((l) => ({ value: l, label: l }))}
+              placeholder="Add label…"
+              onSelect={(v) => {
+                const label = v.trim()
+                if (!label || issue.labels.includes(label)) return
+                void run(() =>
+                  trpc.issues.setLabels.mutate({ id: issue.id, labels: [...issue.labels, label] }),
+                )
+              }}
+              trigger={
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  disabled={busy}
+                  className="h-6 gap-1 px-1.5 text-[12px] text-muted-foreground"
+                >
+                  <Plus size={12} aria-hidden="true" /> Add
+                </Button>
+              }
+            />
+          </div>
+        </PropertyRow>
+
+        {/* Estimate (minutes) */}
+        <PropertyRow label="Estimate">
+          <Input
+            key={`estimate-${issue.id}`}
+            type="number"
+            min={0}
+            defaultValue={issue.estimateMin ?? ''}
+            placeholder="minutes"
+            aria-label="Estimate (minutes)"
+            disabled={busy}
+            className="h-7 max-w-[120px]"
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault()
+                e.currentTarget.blur()
+              }
+            }}
+            onBlur={(e) => {
+              const raw = e.currentTarget.value.trim()
+              if (raw === '') return
+              const n = Number(raw)
+              if (!Number.isInteger(n) || n === (issue.estimateMin ?? null)) return
+              update({ estimateMin: n })
+            }}
+          />
+        </PropertyRow>
+
+        {/* Due date */}
+        <PropertyRow label="Due">
+          <div className="flex items-center gap-1.5">
+            <Input
+              key={`due-${issue.id}`}
+              type="date"
+              defaultValue={issue.dueAt ? issue.dueAt.slice(0, 10) : ''}
+              aria-label="Due date"
+              disabled={busy}
+              className="h-7 max-w-[150px]"
+              onChange={(e) => {
+                const v = e.currentTarget.value
+                update({ dueAt: v ? new Date(`${v}T00:00:00`).toISOString() : '' })
+              }}
+            />
+            {issue.dueAt && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                title="Clear due date"
+                aria-label="Clear due date"
+                disabled={busy}
+                onClick={() => update({ dueAt: '' })}
+              >
+                <X size={13} aria-hidden="true" />
+              </Button>
+            )}
+          </div>
+        </PropertyRow>
+
+        {/* Defer */}
+        <PropertyRow label="Defer">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <Input
+              type="date"
+              value={deferDate}
+              aria-label="Defer until"
+              disabled={busy}
+              className="h-7 max-w-[150px]"
+              onChange={(e) => setDeferDate(e.target.value)}
+            />
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              className="h-7"
+              disabled={busy || !deferDate}
+              onClick={() =>
+                void run(async () => {
+                  await trpc.issues.defer.mutate({ id: issue.id, until: deferDate })
+                  setDeferDate('')
+                })
+              }
+            >
+              Defer
+            </Button>
+            {issue.deferUntil && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-7"
+                disabled={busy}
+                onClick={() => void run(() => trpc.issues.defer.mutate({ id: issue.id, until: null }))}
+              >
+                Undefer
+              </Button>
+            )}
+          </div>
+        </PropertyRow>
+
+        {/* Parent */}
+        <PropertyRow label="Parent">
+          <div className="flex items-center gap-1">
+            {parent && (
+              <button
+                type="button"
+                className="min-w-0 flex-1 truncate text-left text-[13px] text-primary hover:underline"
+                onClick={() => onNavigate(parent.id)}
+                title={`#${parent.seq} ${parent.title}`}
+              >
+                #{parent.seq} {parent.title}
+              </button>
+            )}
+            <PropertyMenu
+              selectedValue={issue.parentId ?? '__none__'}
+              options={[{ value: '__none__', label: 'No parent' }, ...mateOptions]}
+              placeholder="Set parent…"
+              onSelect={(v) =>
+                void run(() =>
+                  trpc.issues.reparent.mutate({
+                    id: issue.id,
+                    parentId: v === '__none__' ? null : v,
+                  }),
+                )
+              }
+              trigger={
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  disabled={busy}
+                  className={cn('h-7 gap-1 px-2 text-[13px]', parent ? '' : 'w-full justify-start')}
+                >
+                  {parent ? (
+                    'Change'
+                  ) : (
+                    <span className="text-muted-foreground">No parent</span>
+                  )}
+                </Button>
+              }
+            />
+          </div>
+        </PropertyRow>
+      </div>
+
+      {/* Relations */}
+      <section className="flex flex-col gap-1.5">
+        <h3 className="font-medium text-[12px] text-muted-foreground">Relations</h3>
+        {relations.map((group) => (
+          <div key={group.section} className="flex flex-col gap-0.5">
+            <span className="text-[11px] text-muted-foreground uppercase tracking-wide">
+              {group.section}
+            </span>
+            {group.entries.map((entry) => (
+              <div
+                key={`${group.section}-${entry.direction}-${entry.id}`}
+                className="group flex items-center justify-between gap-2"
+              >
+                <button
+                  type="button"
+                  className="min-w-0 flex-1 truncate text-left text-[13px] text-foreground hover:text-primary hover:underline"
+                  onClick={() => byId.has(entry.id) && onNavigate(entry.id)}
+                  title={issueLabel(entry.id)}
+                >
+                  {issueLabel(entry.id)}
+                </button>
+                <button
+                  type="button"
+                  aria-label={`Remove relation ${entry.type} ${entry.id}`}
+                  title="Remove relation"
+                  disabled={busy}
+                  className="shrink-0 rounded-sm text-muted-foreground/60 opacity-0 hover:text-foreground disabled:opacity-50 group-hover:opacity-100"
+                  onClick={() =>
+                    void run(() =>
+                      trpc.issues.depRemove.mutate(
+                        entry.direction === 'dep'
+                          ? { fromId: issue.id, toId: entry.id, type: entry.type }
+                          : { fromId: entry.id, toId: issue.id, type: entry.type },
+                      ),
+                    )
+                  }
+                >
+                  <X size={12} aria-hidden="true" />
+                </button>
+              </div>
+            ))}
+          </div>
+        ))}
+        {repoMates.length > 0 && (
+          <div className="flex items-center gap-1.5">
+            <PropertyMenu
+              selectedValue={addRelType}
+              options={ISSUE_DEP_TYPES.filter(
+                (t) => t !== 'parent-child' && t !== 'supersedes',
+              ).map((t) => ({ value: t, label: t }))}
+              onSelect={(v) => setAddRelType(v)}
+              trigger={
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={busy}
+                  className="h-7 gap-1 px-2 text-[12px]"
+                >
+                  {addRelType}
+                </Button>
+              }
+            />
+            <PropertyMenu
+              options={mateOptions}
+              placeholder="Add relation…"
+              onSelect={(v) =>
+                void run(() =>
+                  trpc.issues.depAdd.mutate({ fromId: issue.id, toId: v, type: addRelType }),
+                )
+              }
+              trigger={
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  disabled={busy}
+                  className="h-7 gap-1 px-2 text-[12px] text-muted-foreground"
+                >
+                  <Plus size={12} aria-hidden="true" /> Add relation
+                </Button>
+              }
+            />
+          </div>
+        )}
+      </section>
+
+      {/* Sessions — ported from the detail drawer. */}
+      <section className="flex flex-col gap-2">
+        <h3 className="font-medium text-[12px] text-muted-foreground">
+          Sessions ({issue.sessionSummary.total})
+        </h3>
+        {issue.sessions.length > 0 && (
+          <div className="flex flex-col gap-1">
+            {issue.sessions.map((s) => (
+              <Button
+                key={s.sessionId}
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-auto w-full justify-start whitespace-normal px-2 py-1.5 text-left font-normal"
+                onClick={() => openSession(s)}
+              >
+                {sessionDisplayName(s)}
+              </Button>
+            ))}
+          </div>
+        )}
+        {issue.worktreePath ? (
+          <div className="flex gap-2">
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              disabled={busy}
+              onClick={() => void run(() => trpc.issues.addSession.mutate({ id: issue.id }))}
+            >
+              + Session
+            </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              disabled={busy}
+              onClick={() => void run(() => trpc.issues.addShell.mutate({ id: issue.id }))}
+            >
+              + Shell
+            </Button>
+          </div>
+        ) : (
+          <Button
+            type="button"
+            size="sm"
+            className="w-fit"
+            disabled={busy}
+            onClick={() => void run(() => trpc.issues.start.mutate({ id: issue.id }))}
+          >
+            Start work
+          </Button>
+        )}
+      </section>
+
+      {/* Git — ported from the detail drawer. */}
+      {issue.worktreePath && (
+        <section className="flex flex-col gap-2">
+          <h3 className="font-medium text-[12px] text-muted-foreground">Git</h3>
+          <div className="flex flex-wrap gap-2">
+            {primaryIsPr ? (
+              <Button type="button" size="sm" disabled={busy} onClick={() => void action('pr')}>
+                Open PR
+              </Button>
+            ) : (
+              <Button type="button" size="sm" disabled={busy} onClick={() => void action('merge')}>
+                {mergeLabel}
+              </Button>
+            )}
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={busy}
+              onClick={() => void action('rebase')}
+            >
+              Rebase on {issue.parentBranch}
+            </Button>
+            {primaryIsPr ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={busy}
+                onClick={() => void action('merge')}
+              >
+                {mergeLabel}
+              </Button>
+            ) : (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={busy}
+                onClick={() => void action('pr')}
+              >
+                Open PR
+              </Button>
+            )}
+          </div>
+          {issue.prUrl && (
+            <a
+              href={issue.prUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1 text-[13px] text-primary hover:underline"
+            >
+              View PR <ExternalLink size={13} aria-hidden="true" />
+            </a>
+          )}
+        </section>
+      )}
+    </div>
   )
 }

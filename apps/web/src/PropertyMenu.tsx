@@ -37,6 +37,9 @@ export function PropertyMenu({
   const exact = options.some((o) => o.label.toLowerCase() === query.trim().toLowerCase())
   return (
     <DropdownMenu
+      // Non-modal so the menu doesn't lock body scroll — on mobile the scroll
+      // lock otherwise fought the type-ahead input's focus (Task 7 review).
+      modal={false}
       onOpenChange={(open) => {
         if (!open) setQuery('')
       }}

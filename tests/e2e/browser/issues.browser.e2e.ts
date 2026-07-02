@@ -99,7 +99,7 @@ test('issues board: renders the stage columns, creates a Backlog issue, and move
   const card = backlogColumn.getByText(title, { exact: false })
   await expect(card, 'the new issue card appears under Backlog').toBeVisible({ timeout: 15_000 })
 
-  // ---- Move the issue's stage via the issue page's Stage selector ----
+  // ---- Move the issue's stage via the issue page's Status PropertyMenu ----
   await card.click()
   // Opening a card now renders the full issue page in-view (data-testid="issue-page"),
   // not an overlay drawer. Its main column shows the title as an editable button.
@@ -107,11 +107,37 @@ test('issues board: renders the stage columns, creates a Backlog issue, and move
   await expect(issuePage).toBeVisible({ timeout: 10_000 })
   await expect(issuePage.getByText(title, { exact: false })).toBeVisible({ timeout: 10_000 })
 
-  // The Stage selector is a Base UI <Select> (combobox trigger + option list) in the
-  // desktop properties aside. It currently reads "Backlog"; switch it to "Planning".
-  const stageTrigger = page.getByRole('combobox').filter({ hasText: 'Backlog' }).first()
-  await stageTrigger.click()
-  await page.getByRole('option', { name: 'Planning', exact: true }).click({ timeout: 10_000 })
+  // The Status row is a Linear-style PropertyMenu (Task 9) in the desktop aside —
+  // scope to the aside so the mirrored mobile Details rows don't double-match. It
+  // currently reads "Backlog".
+  const statusTrigger = page.getByTestId('issue-aside').getByTestId('status-trigger')
+  await expect(statusTrigger).toContainText('Backlog')
+
+  // --- Menu behavior (deferred Task 7 runtime verification) ---
+  // (a) opening the menu focuses its type-ahead filter input.
+  await statusTrigger.click()
+  const menu = page.locator('[data-slot="dropdown-menu-content"]')
+  const filterInput = menu.locator('input').first()
+  await expect(filterInput).toBeFocused({ timeout: 10_000 })
+  // (b) typing filters the options — "Planning" survives, "Backlog" is filtered out.
+  // (Option accessible names double up the StageGlyph aria-label, so match by text.)
+  await filterInput.fill('Planning')
+  await expect(menu.getByRole('menuitem').filter({ hasText: 'Planning' })).toBeVisible()
+  await expect(menu.getByRole('menuitem').filter({ hasText: 'Backlog' })).toHaveCount(0)
+  // (c) Escape closes the menu WITHOUT navigating Back — the issue page stays open.
+  await filterInput.press('Escape')
+  await expect(menu).toHaveCount(0, { timeout: 10_000 })
+  await expect(issuePage).toBeVisible()
+
+  // Now actually change the stage: reopen, filter, and click "Planning".
+  await statusTrigger.click()
+  await page.locator('[data-slot="dropdown-menu-content"] input').first().fill('Planning')
+  await page
+    .locator('[data-slot="dropdown-menu-content"]')
+    .getByRole('menuitem')
+    .filter({ hasText: 'Planning' })
+    .click({ timeout: 10_000 })
+  await expect(statusTrigger).toContainText('Planning', { timeout: 10_000 })
 
   // Return to the board via the header Back button (title="Back"), then assert the
   // card has left Backlog and now lives under Planning (live via the broadcast).
@@ -204,4 +230,48 @@ test('issues board: flag an issue for human, badge appears live, then resolve', 
     backlogColumn.locator('[aria-label="Needs human"]'),
     'the needs-human indicator disappears after resolve',
   ).toHaveCount(0, { timeout: 15_000 })
+})
+
+test('issue page: add a comment and it appears in the activity feed', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await openShell(page)
+
+  await page.locator('button[title="Issues"]').click({ timeout: 15_000 })
+  const board = page.getByRole('region', { name: 'Issues' })
+  await expect(board).toBeVisible({ timeout: 10_000 })
+
+  // ---- Create a Backlog issue (startNow=false → no worktree op) ----
+  await page.getByRole('button', { name: 'New Issue', exact: true }).click()
+  const dialog = page.getByRole('dialog')
+  await expect(dialog.getByRole('heading', { name: 'New Issue' })).toBeVisible({ timeout: 10_000 })
+  const title = `E2E comment ${Date.now()}`
+  await dialog.getByLabel('Title').fill(title)
+  const startNow = dialog.getByRole('checkbox', { name: 'Start work now' })
+  await expect(startNow).toBeChecked()
+  await startNow.uncheck()
+  const createBtn = dialog.getByRole('button', { name: /^Create$/ })
+  await expect(createBtn).toBeEnabled({ timeout: 15_000 })
+  await createBtn.click()
+  await expect(dialog).toBeHidden({ timeout: 15_000 })
+
+  const backlogColumn = board
+    .locator('div.w-\\[280px\\]')
+    .filter({ has: page.getByRole('heading', { name: 'Backlog', exact: true }) })
+    .first()
+  const card = backlogColumn.getByText(title, { exact: false })
+  await expect(card, 'the new issue card appears under Backlog').toBeVisible({ timeout: 15_000 })
+
+  // ---- Open the issue page and post a comment ----
+  await card.click()
+  const issuePage = page.locator('[data-testid="issue-page"]')
+  await expect(issuePage).toBeVisible({ timeout: 10_000 })
+
+  const body = `Hello from e2e ${Date.now()}`
+  await issuePage.getByLabel('Add a comment').fill(body)
+  await issuePage.getByRole('button', { name: 'Post', exact: true }).click({ timeout: 10_000 })
+
+  // The comment lands in the activity feed live (via the issuesChanged broadcast)
+  // and the compose box clears.
+  await expect(issuePage.getByText(body, { exact: false })).toBeVisible({ timeout: 15_000 })
+  await expect(issuePage.getByLabel('Add a comment')).toHaveValue('')
 })
