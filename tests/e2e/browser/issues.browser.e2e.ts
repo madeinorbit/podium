@@ -275,3 +275,60 @@ test('issue page: add a comment and it appears in the activity feed', async ({ p
   await expect(issuePage.getByText(body, { exact: false })).toBeVisible({ timeout: 15_000 })
   await expect(issuePage.getByLabel('Add a comment')).toHaveValue('')
 })
+
+test('issue page: add a sub-issue inline and the child row appears with a 0/1 count', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await openShell(page)
+
+  await page.locator('button[title="Issues"]').click({ timeout: 15_000 })
+  const board = page.getByRole('region', { name: 'Issues' })
+  await expect(board).toBeVisible({ timeout: 10_000 })
+
+  // ---- Create a parent Backlog issue (startNow=false → no worktree op) ----
+  await page.getByRole('button', { name: 'New Issue', exact: true }).click()
+  const dialog = page.getByRole('dialog')
+  await expect(dialog.getByRole('heading', { name: 'New Issue' })).toBeVisible({ timeout: 10_000 })
+  const parentTitle = `E2E parent ${Date.now()}`
+  await dialog.getByLabel('Title').fill(parentTitle)
+  const startNow = dialog.getByRole('checkbox', { name: 'Start work now' })
+  await expect(startNow).toBeChecked()
+  await startNow.uncheck()
+  const createBtn = dialog.getByRole('button', { name: /^Create$/ })
+  await expect(createBtn).toBeEnabled({ timeout: 15_000 })
+  await createBtn.click()
+  await expect(dialog).toBeHidden({ timeout: 15_000 })
+
+  const backlogColumn = board
+    .locator('div.w-\\[280px\\]')
+    .filter({ has: page.getByRole('heading', { name: 'Backlog', exact: true }) })
+    .first()
+  const card = backlogColumn.getByText(parentTitle, { exact: false })
+  await expect(card, 'the parent issue card appears under Backlog').toBeVisible({ timeout: 15_000 })
+
+  // ---- Open the parent's issue page and add a sub-issue inline ----
+  await card.click()
+  const issuePage = page.locator('[data-testid="issue-page"]')
+  await expect(issuePage).toBeVisible({ timeout: 10_000 })
+
+  const subIssues = issuePage.getByTestId('sub-issues')
+  await expect(subIssues.getByRole('heading', { name: 'Sub-issues' })).toBeVisible()
+
+  // Reveal the inline input, type a child title, press Enter to create it.
+  await subIssues.getByRole('button', { name: /Add sub-issue/ }).click({ timeout: 10_000 })
+  const childTitle = `E2E child ${Date.now()}`
+  const input = subIssues.getByLabel('Sub-issue title')
+  await expect(input).toBeFocused({ timeout: 10_000 })
+  await input.fill(childTitle)
+  await input.press('Enter')
+
+  // The child row appears live (via the issuesChanged broadcast), the input clears
+  // but stays open for rapid entry, and the section header shows the 0/1 count.
+  await expect(
+    subIssues.getByRole('button', { name: new RegExp(childTitle) }),
+    'the child row appears in the sub-issues section',
+  ).toBeVisible({ timeout: 15_000 })
+  await expect(input, 'the input clears but stays open for rapid entry').toHaveValue('')
+  await expect(subIssues.getByText('0/1', { exact: true })).toBeVisible({ timeout: 15_000 })
+})

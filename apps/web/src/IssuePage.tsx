@@ -37,7 +37,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { cn } from '@/lib/utils'
 import { STAGE_LABELS } from './issue-card'
 import { issueDetailFields } from './issue-detail-fields'
-import { PriorityGlyph, StageGlyph } from './issue-glyphs'
+import { AssigneeAvatar, PriorityGlyph, StageGlyph } from './issue-glyphs'
 import { issueNeighbors } from './issue-page'
 import { groupRelations } from './issue-relations'
 import { PropertyMenu, type PropertyOption } from './PropertyMenu'
@@ -66,12 +66,14 @@ export function IssuePage({
   onBack: () => void
   onNavigate: (id: string) => void
 }): JSX.Element {
-  const { trpc } = useStore()
+  const { trpc, issues } = useStore()
   const [toast, setToast] = useState('')
   const [busy, setBusy] = useState(false)
   const [commentBody, setCommentBody] = useState('')
   const [editingTitle, setEditingTitle] = useState(false)
   const [editingDesc, setEditingDesc] = useState(false)
+  const [addingChild, setAddingChild] = useState(false)
+  const [childTitle, setChildTitle] = useState('')
 
   // Reset transient compose/edit state on issue switch so a half-typed comment or
   // an open editor never carries across to the next issue.
@@ -80,6 +82,8 @@ export function IssuePage({
     setCommentBody('')
     setEditingTitle(false)
     setEditingDesc(false)
+    setAddingChild(false)
+    setChildTitle('')
     setToast('')
   }, [issue.id])
 
@@ -99,6 +103,9 @@ export function IssuePage({
   const { prev, next } = issueNeighbors(orderedIds, issue.id)
   const repo = issue.repoPath.split('/').filter(Boolean).pop() ?? issue.repoPath
   const fields = issueDetailFields(issue)
+  const children = issues
+    .filter((i) => i.parentId === issue.id && !i.archived)
+    .sort((a, b) => a.seq - b.seq)
 
   // Escape returns to the board — but not while an editor/menu is open (Esc there
   // cancels the local edit), nor while a form field is focused.
@@ -293,6 +300,69 @@ export function IssuePage({
               >
                 {issue.description || 'Add a description…'}
               </button>
+            )}
+          </section>
+
+          {/* ---- Sub-issues ---- */}
+          <section className="mb-6 flex flex-col gap-1" data-testid="sub-issues">
+            <div className="flex items-center gap-2">
+              <h3 className="font-medium text-[13px] text-foreground">Sub-issues</h3>
+              {issue.childCount > 0 && (
+                <span className="text-[11px] text-muted-foreground tabular-nums">
+                  {issue.childDoneCount}/{issue.childCount}
+                </span>
+              )}
+            </div>
+            {children.map((c) => (
+              <button
+                key={c.id}
+                type="button"
+                className="flex items-center gap-2 rounded px-1.5 py-1 text-left text-[13px] hover:bg-muted/50"
+                onClick={() => onNavigate(c.id)}
+              >
+                <StageGlyph stage={c.stage} />
+                <span className="text-[11px] text-muted-foreground">#{c.seq}</span>
+                <span className="min-w-0 flex-1 truncate">{c.title}</span>
+                <AssigneeAvatar assignee={c.assignee || undefined} size={16} />
+              </button>
+            ))}
+            {addingChild ? (
+              <Input
+                autoFocus
+                placeholder="Sub-issue title…"
+                aria-label="Sub-issue title"
+                disabled={busy}
+                value={childTitle}
+                onChange={(e) => setChildTitle(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && childTitle.trim()) {
+                    e.preventDefault()
+                    void run(() =>
+                      trpc.issues.create.mutate({
+                        repoPath: issue.repoPath,
+                        title: childTitle.trim(),
+                        parentId: issue.id,
+                        startNow: false,
+                      }),
+                    )
+                    setChildTitle('')
+                  } else if (e.key === 'Escape') {
+                    e.preventDefault()
+                    setAddingChild(false)
+                    setChildTitle('')
+                  }
+                }}
+              />
+            ) : (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="w-fit justify-start text-muted-foreground"
+                onClick={() => setAddingChild(true)}
+              >
+                <Plus size={13} aria-hidden="true" /> Add sub-issue
+              </Button>
             )}
           </section>
 
