@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { portInUseMessage, resolvePlan } from './cli'
+import { daemonOptionsForPlan, portInUseMessage, resolvePlan } from './cli'
 
 describe('resolvePlan', () => {
   it('defaults to all-in-one + setup hint when nothing is configured', () => {
@@ -49,6 +49,36 @@ describe('resolvePlan', () => {
     expect(
       resolvePlan(['daemon', '--pair', 'FLAG1'], { serverUrl: 'ws://cfg:1', pairCode: 'CFG999' }),
     ).toMatchObject({ pairCode: 'FLAG1' })
+  })
+})
+
+describe('daemonOptionsForPlan', () => {
+  it('authenticates all-in-one daemon as the local machine', () => {
+    expect(
+      daemonOptionsForPlan({ mode: 'all-in-one', showSetupHint: false }, 18787, 'local-secret'),
+    ).toEqual({
+      serverUrl: 'ws://localhost:18787',
+      bootstrapToken: 'local-secret',
+      machineId: 'local',
+    })
+  })
+
+  it('keeps remote daemon auth based on serverUrl and pair code', () => {
+    expect(
+      daemonOptionsForPlan(
+        {
+          mode: 'daemon',
+          serverUrl: 'wss://relay.example',
+          pairCode: 'PAIR1',
+          showSetupHint: false,
+        },
+        18787,
+        'local-secret',
+      ),
+    ).toEqual({
+      serverUrl: 'wss://relay.example',
+      pairCode: 'PAIR1',
+    })
   })
 })
 

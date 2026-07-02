@@ -11,6 +11,7 @@ import {
   type PodiumConfig,
   type PodiumMode,
 } from '../packages/core/src/config'
+import { LOCAL_MACHINE_ID } from '../apps/server/src/local-machine'
 
 export interface LaunchPlan {
   mode: PodiumMode
@@ -43,6 +44,39 @@ export function resolvePlan(argv: string[], config: PodiumConfig): LaunchPlan {
     ...(serverUrl ? { serverUrl } : {}),
     ...(pairCode ? { pairCode } : {}),
     ...(name ? { name } : {}),
+  }
+}
+
+export interface DaemonStartOptions {
+  serverUrl: string
+  bootstrapToken?: string
+  machineId?: string
+  pairCode?: string
+  name?: string
+}
+
+/** Build the daemon auth/options for modes that actually run a daemon. */
+export function daemonOptionsForPlan(
+  plan: LaunchPlan,
+  serverPort: number,
+  localBootstrapToken?: string,
+): DaemonStartOptions {
+  const serverUrl = plan.mode === 'daemon' ? plan.serverUrl : `ws://localhost:${serverPort}`
+  if (!serverUrl)
+    throw new Error('podium daemon mode needs a serverUrl (config.serverUrl or --server)')
+
+  const localAuth = (() => {
+    if (plan.mode !== 'all-in-one') return {}
+    if (!localBootstrapToken)
+      throw new Error('podium all-in-one daemon needs local bootstrap token')
+    return { bootstrapToken: localBootstrapToken, machineId: LOCAL_MACHINE_ID }
+  })()
+
+  return {
+    serverUrl,
+    ...localAuth,
+    ...(plan.mode === 'daemon' && plan.pairCode ? { pairCode: plan.pairCode } : {}),
+    ...(plan.mode === 'daemon' && plan.name ? { name: plan.name } : {}),
   }
 }
 
@@ -155,6 +189,7 @@ export async function main(): Promise<void> {
   const runDaemon = !forceSetup && (plan.mode === 'all-in-one' || plan.mode === 'daemon')
 
   let serverPort = port
+  let localBootstrapToken: string | undefined
   if (runServer) {
     const { startServer, isAddressInUseError } = await import('../apps/server/src/server')
     let server: Awaited<ReturnType<typeof startServer>>
@@ -171,6 +206,7 @@ export async function main(): Promise<void> {
       throw err
     }
     serverPort = server.port
+    localBootstrapToken = server.bootstrapToken
     console.log(`podium server up on http://localhost:${serverPort}`)
     if (forceSetup || plan.showSetupHint) {
       console.log(`\n  → Open setup:  http://localhost:${serverPort}/\n`)
@@ -178,18 +214,16 @@ export async function main(): Promise<void> {
     }
   }
   if (runDaemon) {
-    const serverUrl = plan.mode === 'daemon' ? plan.serverUrl : `ws://localhost:${serverPort}`
-    if (!serverUrl) {
-      console.error('podium daemon mode needs a serverUrl (config.serverUrl or --server)')
+    let daemonOptions: DaemonStartOptions
+    try {
+      daemonOptions = daemonOptionsForPlan(plan, serverPort, localBootstrapToken)
+    } catch (e) {
+      console.error((e as Error).message)
       process.exit(2)
     }
     const { startDaemon } = await import('../apps/daemon/src/daemon')
-    await startDaemon({
-      serverUrl,
-      ...(plan.pairCode ? { pairCode: plan.pairCode } : {}),
-      ...(plan.name ? { name: plan.name } : {}),
-    })
-    console.log(`podium daemon up → ${serverUrl}`)
+    await startDaemon(daemonOptions)
+    console.log(`podium daemon up → ${daemonOptions.serverUrl}`)
   }
 
   // Watchdog pet (no-op off a Type=notify unit) — mirror scripts/daemon.ts.
