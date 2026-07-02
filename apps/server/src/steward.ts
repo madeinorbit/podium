@@ -35,7 +35,7 @@ export const TRIGGER_RULES: Record<string, (e: StewardEvent) => string> = {
 export interface StewardDeps {
   store: Pick<
     SessionStore,
-    'listEventsSince' | 'getStewardState' | 'setStewardState' | 'appendEvent'
+    'listEventsSince' | 'getStewardState' | 'setStewardState' | 'appendEvent' | 'maxEventId'
   >
   issues: Pick<IssueService, 'get' | 'list' | 'addComment'>
   listSessions: () => SessionMeta[]
@@ -94,11 +94,30 @@ export class StewardService {
     this.timer = undefined
   }
 
+  /** The cursor to read past, seeding/healing the persisted row when needed:
+   *  - absent (first enable): seed to MAX(id) — the log accumulated while the
+   *    steward ran dark, and weeks of stale events must never replay as fresh
+   *    unblock comments/nudges. Persisted immediately so a crash right after
+   *    doesn't re-open history.
+   *  - corrupt (non-numeric): a NaN cursor would match nothing and never be
+   *    rewritten (permanent silent wedge) — log and re-seed to MAX(id). */
+  private resolveCursor(): number {
+    const raw = this.deps.store.getStewardState(CURSOR_KEY)
+    if (raw !== undefined) {
+      const cursor = Number(raw)
+      if (Number.isFinite(cursor)) return cursor
+      console.warn(`[podium:steward] corrupt cursor ${JSON.stringify(raw)} — re-seeding to now`)
+    }
+    const seeded = this.deps.store.maxEventId()
+    this.deps.store.setStewardState(CURSOR_KEY, String(seeded))
+    return seeded
+  }
+
   /** One poll: read past the cursor, coalesce, handle, then advance. Public so
    *  tests drive it directly instead of waiting on real timers. */
   async tick(): Promise<void> {
     if (!this.deps.getSettings().steward?.enabled) return
-    const cursor = Number(this.deps.store.getStewardState(CURSOR_KEY) ?? '0')
+    const cursor = this.resolveCursor()
     const events = this.deps.store.listEventsSince(cursor)
     if (events.length === 0) return
     // Coalesce: all events for the same key form one batch this poll.
@@ -132,7 +151,10 @@ export class StewardService {
       if (closedSeq == null) continue
       const dependent = this.deps.issues.get(e.subject)
       if (!dependent) continue
-      const marker = `Unblocked by #${closedSeq}`
+      // Colon-anchored so '#5' never matches a prior '#55' comment. Single-server
+      // assumption: this read-then-write dedup is a cross-process race — fine
+      // while live is one server; revisit for multi-server.
+      const marker = `Unblocked by #${closedSeq}:`
       const already = dependent.comments.some(
         (c) => c.author === 'steward' && c.body.includes(marker),
       )
@@ -140,12 +162,19 @@ export class StewardService {
       const closed = this.deps.issues
         .list(e.repoPath ?? dependent.repoPath)
         .find((w) => w.seq === closedSeq)
-      const note = completionNote(closed)
-      this.deps.issues.addComment(dependent.id, 'steward', `${marker}: ${note}`)
-      for (const s of sessionsForIssue(dependent.worktreePath, this.deps.listSessions())) {
+      this.deps.issues.addComment(dependent.id, 'steward', `${marker} ${completionNote(closed)}`)
+      // Nudge only live/starting agent sessions: queueText would RESURRECT a
+      // parked session with a resume ref (the steward must never respawn agents),
+      // and a shell would have the text typed into bash. The nudge itself stays
+      // single-line with no backticks and no agent-authored note interpolated —
+      // the note lives in the issue comment only.
+      const targets = sessionsForIssue(dependent.worktreePath, this.deps.listSessions()).filter(
+        (s) => (s.status === 'live' || s.status === 'starting') && s.agentKind !== 'shell',
+      )
+      for (const s of targets) {
         this.deps.sendTextWhenReady(
           s.sessionId,
-          `Blocker #${closedSeq} closed. ${note}. You are unblocked — check \`podium issue prime\`.`,
+          `Blocker #${closedSeq} closed — you are unblocked. See the steward comment on your issue, or run: podium issue prime`,
         )
       }
     }

@@ -1279,6 +1279,15 @@ export class SessionStore {
     })
   }
 
+  /** The highest event id in the log (0 when empty) — the "now" mark for
+   *  seeding a consumer cursor that must not replay history. */
+  maxEventId(): number {
+    const r = this.db.prepare('SELECT MAX(id) AS m FROM podium_events').get() as {
+      m: number | null
+    }
+    return r.m ?? 0
+  }
+
   // ---- steward state ----
 
   getStewardState(key: string): string | undefined {

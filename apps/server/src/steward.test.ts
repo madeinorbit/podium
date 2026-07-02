@@ -4,8 +4,12 @@ import { SessionStore } from './store'
 import { IssueService, type IssueDeps } from './issues'
 import { StewardService, TRIGGER_RULES, type StewardDeps } from './steward'
 
-function harness(opts: { enabled?: boolean; sessions?: SessionMeta[] } = {}) {
+function harness(opts: { enabled?: boolean; sessions?: SessionMeta[]; seedCursor?: boolean } = {}) {
   const store = new SessionStore(':memory:')
+  // Most tests want the events they emit consumed — pin the cursor to the log
+  // start, as if the steward had been enabled since boot. First-enable seeding
+  // tests pass seedCursor: false to exercise the absent-row path.
+  if (opts.seedCursor !== false) store.setStewardState('cursor', '0')
   const sessions = opts.sessions ?? []
   const settings = {
     steward: { enabled: opts.enabled ?? true },
@@ -33,6 +37,9 @@ function harness(opts: { enabled?: boolean; sessions?: SessionMeta[] } = {}) {
   }
   return { store, issues, sendTextWhenReady, deps, steward: new StewardService(deps) }
 }
+
+const fakeSession = (s: Partial<SessionMeta>): SessionMeta =>
+  ({ sessionId: 's?', agentKind: 'claude-code', cwd: '/', status: 'live', ...s }) as never
 
 const stewardComments = (issues: IssueService, id: string) =>
   issues.get(id)!.comments.filter((c) => c.author === 'steward')
@@ -69,20 +76,50 @@ describe('StewardService cursor', () => {
     const b = issues.create({ repoPath: '/r', title: 'B', startNow: false })
     issues.addDep(b.id, a.id, 'blocks')
     issues.close(a.id)
-    let cursorDuringHandler: string | undefined = 'unset'
+    let cursorDuringHandler: string | undefined
     const orig = issues.addComment.bind(issues)
     vi.spyOn(issues, 'addComment').mockImplementation((id, author, body) => {
       cursorDuringHandler = store.getStewardState('cursor')
       return orig(id, author, body)
     })
     await steward.tick()
-    expect(cursorDuringHandler).toBeUndefined() // still pre-batch while handling
+    expect(cursorDuringHandler).toBe('0') // still pre-batch while handling
     expect(Number(store.getStewardState('cursor'))).toBeGreaterThan(0)
+  })
+
+  it('first enable seeds the cursor to the log head — dark-run history never replays', async () => {
+    const { store, issues, steward, sendTextWhenReady } = harness({ seedCursor: false })
+    // Events accumulated while the steward ran dark (no cursor row yet).
+    const a = issues.create({ repoPath: '/r', title: 'A', startNow: false })
+    const b = issues.create({ repoPath: '/r', title: 'B', startNow: false })
+    issues.addDep(b.id, a.id, 'blocks')
+    issues.close(a.id)
+    const max = store.maxEventId()
+    expect(max).toBeGreaterThan(0)
+    await steward.tick()
+    expect(store.getStewardState('cursor')).toBe(String(max))
+    expect(stewardComments(issues, b.id)).toEqual([])
+    expect(sendTextWhenReady).not.toHaveBeenCalled()
+  })
+
+  it('a corrupt cursor re-seeds to the log head instead of wedging', async () => {
+    const { store, issues, steward } = harness()
+    store.setStewardState('cursor', 'garbage')
+    const a = issues.create({ repoPath: '/r', title: 'A', startNow: false })
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    await expect(steward.tick()).resolves.toBeUndefined()
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('[podium:steward] corrupt cursor'))
+    expect(store.getStewardState('cursor')).toBe(String(store.maxEventId()))
+    warn.mockRestore()
+    // Recovered: the next event past the re-seed is consumed normally.
+    issues.setNeedsHuman(a.id, 'q')
+    await steward.tick()
+    expect(store.listEventsSince(0, { kinds: ['steward.observed'] }).length).toBe(1)
   })
 })
 
 describe('StewardService unblock handler', () => {
-  it('posting the unblock comment carries the closed issue completion note; no duplicate on re-tick', async () => {
+  it('posting the unblock comment carries the closed issue completion note', async () => {
     const { issues, steward } = harness()
     const a = issues.create({ repoPath: '/r', title: 'A', startNow: false })
     const b = issues.create({ repoPath: '/r', title: 'B', startNow: false })
@@ -90,14 +127,44 @@ describe('StewardService unblock handler', () => {
     issues.addComment(a.id, 'agent', '[completion-note] shipped X')
     issues.close(a.id)
     await steward.tick()
-    const first = stewardComments(issues, b.id)
-    expect(first.length).toBe(1)
-    expect(first[0]!.body).toContain(`Unblocked by #${a.seq}`)
-    expect(first[0]!.body).toContain('shipped X')
-    // Idempotence: replaying the events (fresh cursor) or a later ready event
-    // for the same closer must not re-comment.
+    const posted = stewardComments(issues, b.id)
+    expect(posted.length).toBe(1)
+    expect(posted[0]!.body).toContain(`Unblocked by #${a.seq}:`)
+    expect(posted[0]!.body).toContain('shipped X')
+  })
+
+  it('replayed events do not duplicate the comment or nudge (reset-cursor idempotence)', async () => {
+    const sessions = [fakeSession({ sessionId: 's1', cwd: '/r/.worktrees/issue-2-b' })]
+    const { store, issues, steward, sendTextWhenReady } = harness({ sessions })
+    const a = issues.create({ repoPath: '/r', title: 'A', startNow: false })
+    const b = issues.create({ repoPath: '/r', title: 'B', startNow: false })
+    issues.update(b.id, { worktreePath: '/r/.worktrees/issue-2-b' })
+    issues.addDep(b.id, a.id, 'blocks')
+    issues.close(a.id)
     await steward.tick()
     expect(stewardComments(issues, b.id).length).toBe(1)
+    expect(sendTextWhenReady).toHaveBeenCalledTimes(1)
+    // Crash-replay: rewind the cursor so the SAME events are read again.
+    store.setStewardState('cursor', '0')
+    await steward.tick()
+    expect(stewardComments(issues, b.id).length).toBe(1)
+    expect(sendTextWhenReady).toHaveBeenCalledTimes(1)
+  })
+
+  it('dedup is colon-anchored: a prior #<seq><digit> comment does not swallow #<seq>', async () => {
+    const { issues, steward } = harness()
+    const a = issues.create({ repoPath: '/r', title: 'A', startNow: false }) // seq 1
+    const b = issues.create({ repoPath: '/r', title: 'B', startNow: false })
+    // A steward comment for a DIFFERENT closer whose seq starts with a's seq
+    // ('#15' contains '#1') — must not match a's marker 'Unblocked by #1:'.
+    issues.addComment(b.id, 'steward', 'Unblocked by #15: earlier thing')
+    issues.addDep(b.id, a.id, 'blocks')
+    issues.close(a.id)
+    await steward.tick()
+    const posted = stewardComments(issues, b.id).filter((c) =>
+      c.body.startsWith(`Unblocked by #${a.seq}:`),
+    )
+    expect(posted.length).toBe(1)
   })
 
   it('falls back to the closed issue title when it has no completion note', async () => {
@@ -112,24 +179,34 @@ describe('StewardService unblock handler', () => {
     )
   })
 
-  it('nudges each live session in the dependent worktree exactly once', async () => {
+  it('nudges only live/starting agent sessions — never shells, never parked sessions', async () => {
     const sessions = [
-      { sessionId: 's1', cwd: '/r/.worktrees/issue-2-b' },
-      { sessionId: 's2', cwd: '/elsewhere' },
-    ] as never as SessionMeta[]
+      // queueText would resurrect this via its resume ref — must be skipped.
+      fakeSession({ sessionId: 'parked', cwd: '/r/.worktrees/issue-2-b', status: 'exited' }),
+      fakeSession({ sessionId: 'hib', cwd: '/r/.worktrees/issue-2-b', status: 'hibernated' }),
+      // a shell would have the nudge typed into bash — must be skipped.
+      fakeSession({ sessionId: 'sh', cwd: '/r/.worktrees/issue-2-b', agentKind: 'shell' }),
+      fakeSession({ sessionId: 'live1', cwd: '/r/.worktrees/issue-2-b' }),
+      fakeSession({ sessionId: 'elsewhere', cwd: '/other' }),
+    ]
     const { issues, steward, sendTextWhenReady } = harness({ sessions })
     const a = issues.create({ repoPath: '/r', title: 'A', startNow: false })
     const b = issues.create({ repoPath: '/r', title: 'B', startNow: false })
     issues.update(b.id, { worktreePath: '/r/.worktrees/issue-2-b' })
     issues.addDep(b.id, a.id, 'blocks')
-    issues.addComment(a.id, 'agent', '[completion-note] shipped X')
+    issues.addComment(a.id, 'agent', '[completion-note] shipped $(dangerous) X')
     issues.close(a.id)
     await steward.tick()
     expect(sendTextWhenReady).toHaveBeenCalledTimes(1)
-    expect(sendTextWhenReady).toHaveBeenCalledWith(
-      's1',
-      `Blocker #${a.seq} closed. shipped X. You are unblocked — check \`podium issue prime\`.`,
+    const [target, text] = sendTextWhenReady.mock.calls[0] as [string, string]
+    expect(target).toBe('live1')
+    // Defense in depth: single line, no backticks, no agent-authored note text.
+    expect(text).toBe(
+      `Blocker #${a.seq} closed — you are unblocked. See the steward comment on your issue, or run: podium issue prime`,
     )
+    expect(text).not.toContain('`')
+    expect(text).not.toContain('shipped')
+    expect(text).not.toContain('\n')
   })
 
   it('no live session → no nudge, but the comment still lands', async () => {
@@ -160,8 +237,11 @@ describe('StewardService needs-human handler', () => {
 })
 
 describe('StewardService gating and resilience', () => {
-  it('disabled → tick consumes nothing', async () => {
-    const { store, issues, steward, sendTextWhenReady } = harness({ enabled: false })
+  it('disabled → tick consumes nothing, not even the cursor seed', async () => {
+    const { store, issues, steward, sendTextWhenReady } = harness({
+      enabled: false,
+      seedCursor: false,
+    })
     const a = issues.create({ repoPath: '/r', title: 'A', startNow: false })
     const b = issues.create({ repoPath: '/r', title: 'B', startNow: false })
     issues.addDep(b.id, a.id, 'blocks')
