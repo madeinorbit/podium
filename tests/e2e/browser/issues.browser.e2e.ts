@@ -61,7 +61,7 @@ test('issues board: renders the stage columns, creates a Backlog issue, and move
   }
 
   // ---- Open the New Issue dialog ----
-  await page.getByRole('button', { name: 'New Issue' }).click()
+  await page.getByRole('button', { name: 'New Issue', exact: true }).click()
   const dialog = page.getByRole('dialog')
   await expect(dialog.getByRole('heading', { name: 'New Issue' })).toBeVisible({ timeout: 10_000 })
 
@@ -144,7 +144,7 @@ test('issues board: flag an issue for human, badge appears live, then resolve', 
   await expect(board).toBeVisible({ timeout: 10_000 })
 
   // ---- Create a Backlog issue (startNow=false → no worktree op) ----
-  await page.getByRole('button', { name: 'New Issue' }).click()
+  await page.getByRole('button', { name: 'New Issue', exact: true }).click()
   const dialog = page.getByRole('dialog')
   await expect(dialog.getByRole('heading', { name: 'New Issue' })).toBeVisible({ timeout: 10_000 })
   const title = `E2E needs-human ${Date.now()}`
@@ -164,8 +164,10 @@ test('issues board: flag an issue for human, badge appears live, then resolve', 
   const card = backlogColumn.getByText(title, { exact: false })
   await expect(card, 'the new issue card appears under Backlog').toBeVisible({ timeout: 15_000 })
 
-  // No needs-human badge yet.
-  await expect(backlogColumn.getByText('needs human', { exact: false })).toHaveCount(0)
+  // No needs-human indicator yet. The Linear card shows this as an icon with
+  // aria-label="Needs human" (the old "needs human" text badge is gone).
+  const needsHuman = backlogColumn.locator('[aria-label="Needs human"]')
+  await expect(needsHuman).toHaveCount(0)
 
   // ---- Open the drawer and flag for human with a question ----
   await card.click()
@@ -179,17 +181,17 @@ test('issues board: flag an issue for human, badge appears live, then resolve', 
 
   // The drawer now shows the question prominently (the banner replaces the flag control).
   await expect(page.getByText(question, { exact: false })).toBeVisible({ timeout: 10_000 })
-  // ...and the card grows a needs-human badge live via the issuesChanged broadcast.
+  // ...and the card grows a needs-human icon live via the issuesChanged broadcast.
   await expect(
-    backlogColumn.getByText('needs human', { exact: false }),
-    'the card shows the needs-human badge',
+    backlogColumn.locator('[aria-label="Needs human"]'),
+    'the card shows the needs-human indicator',
   ).toBeVisible({ timeout: 15_000 })
 
-  // ---- Resolve → the flag clears and the badge disappears ----
+  // ---- Resolve → the flag clears and the indicator disappears ----
   await page.getByRole('button', { name: 'Resolve' }).click({ timeout: 10_000 })
   await expect(
-    backlogColumn.getByText('needs human', { exact: false }),
-    'the needs-human badge disappears after resolve',
+    backlogColumn.locator('[aria-label="Needs human"]'),
+    'the needs-human indicator disappears after resolve',
   ).toHaveCount(0, { timeout: 15_000 })
   // The flag-for-human control is back (banner gone).
   await expect(page.getByRole('button', { name: 'Flag for human' })).toBeVisible({

@@ -1,54 +1,86 @@
 import { ISSUE_STAGES, type IssueStage, IssueType, type IssueWire } from '@podium/protocol'
-import { Plus, Trash2 } from 'lucide-react'
+import { CircleUser, Flag, ListFilter, Plus, SlidersHorizontal, X } from 'lucide-react'
 import type { JSX } from 'react'
 import { useState } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
 import { CardBoundary } from './CardBoundary'
-import { type BoardFilter, filterBoardIssues } from './issue-board-filter'
+import { AssigneeAvatar, PriorityGlyph, StageGlyph } from './issue-glyphs'
+import { type BoardFilter, clearChip, filterBoardIssues, filterChips } from './issue-board-filter'
 import { issueCardModel, STAGE_LABELS } from './issue-card'
+import {
+  DISPLAY_KEY,
+  type IssuesDisplay,
+  type IssuesLayout,
+  type IssuesOrdering,
+  orderIssues,
+  readIssuesDisplay,
+  writeIssuesDisplay,
+} from './issues-display'
 import { dropTargetStage } from './kanban-dnd'
 import { NewIssueDialog } from './NewIssueDialog'
 import { useStore } from './store'
 
-const STATUS_DOT_COLOR: Record<'ready' | 'blocked' | 'deferred' | 'closed' | 'open', string> = {
-  ready: 'bg-green-500',
-  blocked: 'bg-red-500',
-  deferred: 'bg-amber-500',
-  closed: 'bg-muted-foreground',
-  open: 'bg-sky-500',
+/** A display-options change — badges may be patched field-by-field. */
+type DisplayPatch = Partial<Omit<IssuesDisplay, 'badges'>> & {
+  badges?: Partial<IssuesDisplay['badges']>
 }
 
 /**
- * The Issues board — a kanban over the issue lifecycle stages. One column per
- * stage in `ISSUE_STAGES` order, each holding the active (non-archived) issues
- * in that stage. Cards open a detail panel; the header opens the new-issue
- * dialog. Issues come live from the store (hub-subscribed) — mutations broadcast
+ * The Issues board — a Linear-style kanban over the issue lifecycle stages. One
+ * lane per stage in `ISSUE_STAGES` order, each holding the active (non-archived)
+ * issues in that stage, sorted by the display ordering. Cards open a detail
+ * panel; the header's Filter/Display menus narrow and shape the view (display
+ * options persist to localStorage), and lane `+`/`New Issue` open the composer.
+ * Issues come live from the store (hub-subscribed) — mutations broadcast
  * `issuesChanged`, so the board reconciles itself with no manual refetch.
  */
 export function IssuesView(): JSX.Element {
   const { issues, setOpenIssueId, trpc } = useStore()
-  const [creating, setCreating] = useState(false)
+  // Display options (layout / ordering / badge visibility), persisted so the
+  // board looks the same across reloads. Field-by-field fallback on read.
+  const [display, setDisplay] = useState<IssuesDisplay>(() =>
+    readIssuesDisplay(localStorage.getItem(DISPLAY_KEY)),
+  )
+  const updateDisplay = (patch: DisplayPatch): void => {
+    const next = { ...display, ...patch, badges: { ...display.badges, ...(patch.badges ?? {}) } }
+    setDisplay(next)
+    localStorage.setItem(DISPLAY_KEY, writeIssuesDisplay(next))
+  }
+  // `null` = composer closed; an object opens it, optionally pre-setting the lane.
+  const [creating, setCreating] = useState<null | { stage?: IssueStage }>(null)
   // Board-wide filter/search. AND-composed; an empty filter shows everything.
   const [filter, setFilter] = useState<BoardFilter>({})
-  // Surface any drag-drop / delete mutation failure verbatim — the server
-  // re-broadcasts the authoritative board, so we only need to show the error.
+  // Surface any drag-drop / mutation failure verbatim — the server re-broadcasts
+  // the authoritative board, so we only need to show the error.
   const [error, setError] = useState('')
-  // Hide archived, then narrow by the filter bar — both run before the issues
-  // are split into per-stage columns, so each column reflects the same view.
+  // Hide archived, then narrow by the filter — both run before the issues are
+  // split into per-stage lanes, so each lane reflects the same view.
   const active = filterBoardIssues(
     issues.filter((i) => !i.archived),
     filter,
   )
+  // Distinct assignees / labels across the (unfiltered, non-archived) board —
+  // the Filter and Assignee menus offer whatever is actually in use.
+  const scope = issues.filter((i) => !i.archived)
+  const assignees = [...new Set(scope.map((i) => i.assignee).filter(Boolean))].sort() as string[]
+  const labels = [...new Set(scope.flatMap((i) => i.labels))].sort()
 
   // Fire a board mutation; on rejection show the message. Success needs no
   // handling — the `issuesChanged` broadcast reconciles the board.
@@ -61,32 +93,71 @@ export function IssuesView(): JSX.Element {
     runMut(trpc.issues.update.mutate({ id, patch: { stage } }))
   }
 
-  const deleteIssue = (id: string): void => {
-    runMut(trpc.issues.delete.mutate({ id }))
+  const setAssignee = (id: string, assignee: string): void => {
+    runMut(trpc.issues.update.mutate({ id, patch: { assignee } }))
   }
+
+  const chips = filterChips(filter)
 
   return (
     <section className="flex min-w-0 flex-1 flex-col overflow-hidden" aria-label="Issues">
       <div className="flex items-center justify-between border-border border-b px-4 py-3 md:px-[22px] md:py-3.5">
         <h2 className="font-medium text-base text-foreground">Issues</h2>
-        <Button type="button" size="sm" onClick={() => setCreating(true)}>
-          <Plus size={14} aria-hidden="true" /> New Issue
-        </Button>
+        <div className="flex items-center gap-2">
+          <FilterMenu filter={filter} onChange={setFilter} labels={labels} assignees={assignees} />
+          <DisplayMenu display={display} onChange={updateDisplay} />
+          <Button type="button" size="sm" onClick={() => setCreating({})}>
+            <Plus size={14} aria-hidden="true" /> New Issue
+          </Button>
+        </div>
       </div>
-      <FilterBar filter={filter} onChange={setFilter} />
-      <div className="flex min-h-0 flex-1 gap-3 overflow-x-auto p-3 md:p-4">
-        {ISSUE_STAGES.map((stage) => (
-          <IssueColumn
-            key={stage}
-            stage={stage}
-            label={STAGE_LABELS[stage]}
-            issues={active.filter((i) => i.stage === stage)}
-            onOpen={setOpenIssueId}
-            onMoveIssue={moveIssue}
-            onDeleteIssue={deleteIssue}
-          />
+
+      <div className="flex flex-wrap items-center gap-2 border-border border-b px-4 py-2 md:px-[22px]">
+        <Input
+          value={filter.text ?? ''}
+          onChange={(e) => setFilter({ ...filter, text: e.target.value || undefined })}
+          placeholder="Search issues…"
+          aria-label="Search issues"
+          className="h-8 w-full max-w-[240px] flex-1"
+        />
+        {chips.map((c) => (
+          <button
+            key={c.key}
+            type="button"
+            className="inline-flex items-center gap-1 rounded-full border border-border bg-muted/50 px-2 py-0.5 text-[12px]"
+            onClick={() => setFilter(clearChip(filter, c.key))}
+            title="Remove filter"
+          >
+            {c.label} <X size={11} aria-hidden="true" />
+          </button>
         ))}
       </div>
+
+      {display.layout === 'list' ? (
+        // List layout lands in Task 6 — keep the seam so the board branch is stable.
+        <div className="min-h-0 flex-1 overflow-y-auto" aria-label="Issues list" />
+      ) : (
+        <div className="flex min-h-0 flex-1 gap-3 overflow-x-auto p-3 md:p-4">
+          {ISSUE_STAGES.map((stage) => (
+            <IssueColumn
+              key={stage}
+              stage={stage}
+              label={STAGE_LABELS[stage]}
+              issues={orderIssues(
+                active.filter((i) => i.stage === stage),
+                display.ordering,
+              )}
+              badges={display.badges}
+              onOpen={setOpenIssueId}
+              onMoveIssue={moveIssue}
+              onCreateIn={(s) => setCreating({ stage: s })}
+              onSetAssignee={setAssignee}
+              assignees={assignees}
+            />
+          ))}
+        </div>
+      )}
+
       {error && (
         <div
           className="border-border border-t px-4 py-2 text-[12px] text-destructive"
@@ -95,7 +166,9 @@ export function IssuesView(): JSX.Element {
           {error}
         </div>
       )}
-      {creating && <NewIssueDialog onClose={() => setCreating(false)} />}
+      {creating && (
+        <NewIssueDialog initialStage={creating.stage} onClose={() => setCreating(null)} />
+      )}
     </section>
   )
 }
@@ -109,73 +182,172 @@ const STATUS_OPTIONS: NonNullable<BoardFilter['status']>[] = [
 ]
 
 /**
- * Compact filter/search bar above the columns. Each control narrows the board
- * (AND-composed via `filterBoardIssues`); the empty "All …" option clears that
- * dimension. Selects mirror the New Issue dialog's input/select components.
+ * Header Filter menu. One submenu per dimension (Priority / Type / Status /
+ * Stage / Label); selecting an option sets that `BoardFilter` field (chips
+ * below the header clear them). Label options are whatever labels are in use.
  */
-function FilterBar({
+function FilterMenu({
   filter,
   onChange,
+  labels,
+  assignees,
 }: {
   filter: BoardFilter
   onChange: (f: BoardFilter) => void
+  labels: string[]
+  assignees: string[]
 }): JSX.Element {
   const set = (patch: Partial<BoardFilter>): void => onChange({ ...filter, ...patch })
   return (
-    <div className="flex flex-wrap items-center gap-2 border-border border-b px-4 py-2 md:px-[22px]">
-      <Input
-        value={filter.text ?? ''}
-        onChange={(e) => set({ text: e.target.value || undefined })}
-        placeholder="Search issues…"
-        aria-label="Search issues"
-        className="h-8 w-full max-w-[240px] flex-1"
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={
+          <Button type="button" variant="outline" size="sm">
+            <ListFilter size={14} aria-hidden="true" /> Filter
+          </Button>
+        }
       />
-      <Select
-        value={filter.priority == null ? '' : String(filter.priority)}
-        onValueChange={(v) => set({ priority: v ? Number(v) : undefined })}
-      >
-        <SelectTrigger size="sm" className="w-[130px]">
-          <SelectValue placeholder="Priority" />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value="">All priorities</SelectItem>
-          {[0, 1, 2, 3, 4].map((p) => (
-            <SelectItem key={p} value={String(p)}>
-              P{p}
-            </SelectItem>
+      <DropdownMenuContent align="end" className="w-44">
+        <DropdownMenuSub>
+          <DropdownMenuSubTrigger>Priority</DropdownMenuSubTrigger>
+          <DropdownMenuSubContent>
+            {[0, 1, 2, 3, 4].map((p) => (
+              <DropdownMenuItem key={p} onClick={() => set({ priority: p })}>
+                P{p}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuSubContent>
+        </DropdownMenuSub>
+        <DropdownMenuSub>
+          <DropdownMenuSubTrigger>Type</DropdownMenuSubTrigger>
+          <DropdownMenuSubContent>
+            {IssueType.options.map((t) => (
+              <DropdownMenuItem key={t} onClick={() => set({ type: t })}>
+                {t}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuSubContent>
+        </DropdownMenuSub>
+        <DropdownMenuSub>
+          <DropdownMenuSubTrigger>Status</DropdownMenuSubTrigger>
+          <DropdownMenuSubContent>
+            {STATUS_OPTIONS.map((s) => (
+              <DropdownMenuItem key={s} onClick={() => set({ status: s })}>
+                {s}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuSubContent>
+        </DropdownMenuSub>
+        <DropdownMenuSub>
+          <DropdownMenuSubTrigger>Stage</DropdownMenuSubTrigger>
+          <DropdownMenuSubContent>
+            {ISSUE_STAGES.map((s) => (
+              <DropdownMenuItem key={s} onClick={() => set({ stage: s })}>
+                {STAGE_LABELS[s]}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuSubContent>
+        </DropdownMenuSub>
+        <DropdownMenuSub>
+          <DropdownMenuSubTrigger>Assignee</DropdownMenuSubTrigger>
+          <DropdownMenuSubContent>
+            {assignees.length === 0 ? (
+              <DropdownMenuItem disabled>No assignees</DropdownMenuItem>
+            ) : (
+              assignees.map((a) => (
+                <DropdownMenuItem key={a} onClick={() => set({ assignee: a })}>
+                  {a}
+                </DropdownMenuItem>
+              ))
+            )}
+          </DropdownMenuSubContent>
+        </DropdownMenuSub>
+        <DropdownMenuSub>
+          <DropdownMenuSubTrigger>Label</DropdownMenuSubTrigger>
+          <DropdownMenuSubContent>
+            {labels.length === 0 ? (
+              <DropdownMenuItem disabled>No labels</DropdownMenuItem>
+            ) : (
+              labels.map((l) => (
+                <DropdownMenuItem key={l} onClick={() => set({ label: l })}>
+                  {l}
+                </DropdownMenuItem>
+              ))
+            )}
+          </DropdownMenuSubContent>
+        </DropdownMenuSub>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
+const ORDERING_LABELS: Record<IssuesOrdering, string> = {
+  priority: 'Priority',
+  updated: 'Last updated',
+  created: 'Created',
+}
+const BADGE_LABELS: { key: keyof IssuesDisplay['badges']; label: string }[] = [
+  { key: 'labels', label: 'Labels' },
+  { key: 'type', label: 'Type' },
+  { key: 'estimate', label: 'Estimate' },
+  { key: 'due', label: 'Due date' },
+  { key: 'sessions', label: 'Sessions' },
+]
+
+/**
+ * Header Display menu — layout (Board / List) and ordering radio groups plus
+ * per-badge visibility checkboxes. Every change persists via `updateDisplay`.
+ */
+function DisplayMenu({
+  display,
+  onChange,
+}: {
+  display: IssuesDisplay
+  onChange: (patch: DisplayPatch) => void
+}): JSX.Element {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={
+          <Button type="button" variant="outline" size="sm">
+            <SlidersHorizontal size={14} aria-hidden="true" /> Display
+          </Button>
+        }
+      />
+      <DropdownMenuContent align="end" className="w-48">
+        <DropdownMenuLabel>Layout</DropdownMenuLabel>
+        <DropdownMenuRadioGroup
+          value={display.layout}
+          onValueChange={(v) => onChange({ layout: v as IssuesLayout })}
+        >
+          <DropdownMenuRadioItem value="board">Board</DropdownMenuRadioItem>
+          <DropdownMenuRadioItem value="list">List</DropdownMenuRadioItem>
+        </DropdownMenuRadioGroup>
+        <DropdownMenuSeparator />
+        <DropdownMenuLabel>Ordering</DropdownMenuLabel>
+        <DropdownMenuRadioGroup
+          value={display.ordering}
+          onValueChange={(v) => onChange({ ordering: v as IssuesOrdering })}
+        >
+          {(Object.keys(ORDERING_LABELS) as IssuesOrdering[]).map((o) => (
+            <DropdownMenuRadioItem key={o} value={o}>
+              {ORDERING_LABELS[o]}
+            </DropdownMenuRadioItem>
           ))}
-        </SelectContent>
-      </Select>
-      <Select value={filter.type ?? ''} onValueChange={(v) => set({ type: v || undefined })}>
-        <SelectTrigger size="sm" className="w-[120px]">
-          <SelectValue placeholder="Type" />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value="">All types</SelectItem>
-          {IssueType.options.map((t) => (
-            <SelectItem key={t} value={t}>
-              {t}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-      <Select
-        value={filter.status ?? ''}
-        onValueChange={(v) => set({ status: (v || undefined) as BoardFilter['status'] })}
-      >
-        <SelectTrigger size="sm" className="w-[120px]">
-          <SelectValue placeholder="Status" />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value="">All statuses</SelectItem>
-          {STATUS_OPTIONS.map((s) => (
-            <SelectItem key={s} value={s}>
-              {s}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-    </div>
+        </DropdownMenuRadioGroup>
+        <DropdownMenuSeparator />
+        <DropdownMenuLabel>Badges</DropdownMenuLabel>
+        {BADGE_LABELS.map(({ key, label }) => (
+          <DropdownMenuCheckboxItem
+            key={key}
+            checked={display.badges[key]}
+            onCheckedChange={(c) => onChange({ badges: { [key]: c === true } })}
+          >
+            {label}
+          </DropdownMenuCheckboxItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
   )
 }
 
@@ -183,16 +355,22 @@ function IssueColumn({
   stage,
   label,
   issues,
+  badges,
   onOpen,
   onMoveIssue,
-  onDeleteIssue,
+  onCreateIn,
+  onSetAssignee,
+  assignees,
 }: {
   stage: IssueStage
   label: string
   issues: IssueWire[]
+  badges: IssuesDisplay['badges']
   onOpen: (id: string) => void
   onMoveIssue: (id: string, stage: IssueStage) => void
-  onDeleteIssue: (id: string) => void
+  onCreateIn: (stage: IssueStage) => void
+  onSetAssignee: (id: string, assignee: string) => void
+  assignees: string[]
 }): JSX.Element {
   // Highlight the column while a card is dragged over it. Native DnD fires
   // enter/leave on descendants too, so this can flicker — it's cosmetic only.
@@ -214,11 +392,21 @@ function IssueColumn({
         if (id && s) onMoveIssue(id, s)
       }}
     >
-      <div className="flex items-center justify-between px-1 py-0.5">
+      <div className="flex items-center gap-1.5 px-1 py-0.5">
+        <StageGlyph stage={stage} />
         <h3 className="font-medium text-[13px] text-foreground">{label}</h3>
-        <span className="rounded-full bg-muted px-1.5 text-[11px] text-muted-foreground tabular-nums">
-          {issues.length}
-        </span>
+        <span className="text-[11px] text-muted-foreground tabular-nums">{issues.length}</span>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          className="ml-auto size-5"
+          title={`New issue in ${label}`}
+          aria-label={`New issue in ${label}`}
+          onClick={() => onCreateIn(stage)}
+        >
+          <Plus size={13} aria-hidden="true" />
+        </Button>
       </div>
       <div className="flex flex-col gap-2 overflow-y-auto">
         {issues.length === 0 ? (
@@ -226,7 +414,13 @@ function IssueColumn({
         ) : (
           issues.map((issue) => (
             <CardBoundary key={issue.id} resetKey={issue.id} label="issue card">
-              <IssueCard issue={issue} onOpen={onOpen} onDelete={() => onDeleteIssue(issue.id)} />
+              <IssueCard
+                issue={issue}
+                badges={badges}
+                onOpen={onOpen}
+                onSetAssignee={onSetAssignee}
+                assignees={assignees}
+              />
             </CardBoundary>
           ))
         )}
@@ -235,16 +429,68 @@ function IssueColumn({
   )
 }
 
-function IssueCard({
+/**
+ * Assignee picker — a thin dropdown of the distinct assignees in play plus an
+ * "Unassigned" option; selecting fires an `assignee` patch ('' unassigns).
+ * (Task 9 will swap this for the shared PropertyMenu with free-text entry.)
+ */
+function AssigneeMenu({
   issue,
-  onOpen,
-  onDelete,
+  assignees,
+  onSetAssignee,
+  trigger,
 }: {
   issue: IssueWire
+  assignees: string[]
+  onSetAssignee: (id: string, assignee: string) => void
+  trigger: JSX.Element
+}): JSX.Element {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={
+          // A span (not a button): this trigger is nested inside the card's own
+          // button, so Base UI adds the menu-trigger semantics without producing
+          // invalid nested-<button> markup.
+          <span
+            role="button"
+            tabIndex={0}
+            title="Set assignee"
+            aria-label="Set assignee"
+            className="inline-flex cursor-pointer"
+          >
+            {trigger}
+          </span>
+        }
+      />
+      <DropdownMenuContent align="end" className="w-40">
+        <DropdownMenuItem onClick={() => onSetAssignee(issue.id, '')}>Unassigned</DropdownMenuItem>
+        {assignees.length > 0 && <DropdownMenuSeparator />}
+        {assignees.map((a) => (
+          <DropdownMenuItem key={a} onClick={() => onSetAssignee(issue.id, a)}>
+            {a}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
+function IssueCard({
+  issue,
+  badges,
+  onOpen,
+  onSetAssignee,
+  assignees,
+}: {
+  issue: IssueWire
+  badges: IssuesDisplay['badges']
   onOpen: (id: string) => void
-  onDelete: () => void
+  onSetAssignee: (id: string, assignee: string) => void
+  assignees: string[]
 }): JSX.Element {
   const m = issueCardModel(issue)
+  const show = badges
   return (
     // biome-ignore lint/a11y/noStaticElementInteractions: card is a native-DnD drag source
     <div
@@ -254,76 +500,65 @@ function IssueCard({
     >
       <button
         type="button"
-        className={cn(
-          'flex w-full flex-col gap-1.5 rounded-md border border-border bg-card px-3 py-2.5 text-left transition-colors hover:border-primary/60',
-        )}
+        className="flex w-full flex-col gap-1.5 rounded-md border border-border bg-card px-3 py-2.5 text-left transition-colors hover:border-primary/60"
         onClick={() => onOpen(issue.id)}
       >
-        <div className="min-w-0 break-words pr-5 font-medium text-[13px] text-foreground">
+        <div className="flex items-center justify-between">
+          <span className="text-[11px] text-muted-foreground tabular-nums">{m.seqLabel}</span>
+          {/* biome-ignore lint/a11y/noStaticElementInteractions: stops card-open when picking assignee */}
+          {/* biome-ignore lint/a11y/useKeyWithClickEvents: the inner menu trigger handles keyboard */}
+          <span onClick={(e) => e.stopPropagation()}>
+            <AssigneeMenu
+              issue={issue}
+              assignees={assignees}
+              onSetAssignee={onSetAssignee}
+              trigger={<AssigneeAvatar assignee={m.assignee} />}
+            />
+          </span>
+        </div>
+        <div className="line-clamp-2 min-w-0 break-words font-medium text-[13px] text-foreground">
           {m.title}
         </div>
-        <div className="text-[11px] text-muted-foreground">{m.subtitle}</div>
-        <div className="flex flex-wrap items-center gap-1">
-          <span
-            className={cn('size-2 shrink-0 rounded-full', STATUS_DOT_COLOR[m.statusDot])}
-            title={m.statusDot}
-          />
-          <Badge variant="outline" className="font-normal">
-            {m.priorityLabel}
-          </Badge>
-          <Badge variant="outline" className="font-normal">
-            {m.typeLabel}
-          </Badge>
-          {m.needsHuman && (
-            <Badge
-              variant="outline"
-              className="border-amber-500/60 bg-amber-500/10 font-medium text-amber-600 dark:text-amber-400"
-            >
-              needs human
+        <div className="flex flex-wrap items-center gap-1.5">
+          <PriorityGlyph priority={issue.priority} />
+          {show.type && (
+            <Badge variant="outline" className="font-normal">
+              {m.typeLabel}
             </Badge>
           )}
-          {m.labels.map((label) => (
-            <Badge key={label} variant="secondary" className="font-normal">
-              {label}
-            </Badge>
-          ))}
-        </div>
-        {(m.phaseBadges.length > 0 || issue.linearIdentifier) && (
-          <div className="flex flex-wrap gap-1">
-            {m.phaseBadges.map((b) => (
-              <Badge key={b.label} variant="secondary" className="font-normal">
-                {b.label}
+          {show.labels &&
+            m.labels.slice(0, 3).map((l) => (
+              <Badge key={l} variant="secondary" className="font-normal">
+                {l}
               </Badge>
             ))}
-            {issue.linearIdentifier && (
-              <Badge variant="outline" className="font-normal">
-                {issue.linearIdentifier}
-              </Badge>
-            )}
-          </div>
-        )}
-        {m.hasSuggestion && issue.suggestedStage && (
-          <div className="text-[11px] text-primary">
-            Suggested: move to {STAGE_LABELS[issue.suggestedStage]}
-          </div>
-        )}
-        {issue.activityNotes && (
-          <div className="line-clamp-2 text-[11px] text-muted-foreground/80">
-            {issue.activityNotes}
-          </div>
-        )}
-      </button>
-      <button
-        type="button"
-        title="Delete issue"
-        aria-label="Delete issue"
-        className="absolute top-1.5 right-1.5 rounded p-1 text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-destructive focus-visible:opacity-100 group-hover:opacity-100"
-        onClick={(e) => {
-          e.stopPropagation()
-          if (window.confirm(`Delete "${m.title}"? This can't be undone.`)) onDelete()
-        }}
-      >
-        <Trash2 size={13} aria-hidden="true" />
+          {show.labels && m.labels.length > 3 && (
+            <Badge variant="secondary" className="font-normal">
+              +{m.labels.length - 3}
+            </Badge>
+          )}
+          {m.subProgress && (
+            <span className="text-[11px] text-muted-foreground tabular-nums">
+              {m.subProgress.done}/{m.subProgress.total}
+            </span>
+          )}
+          {m.isBlocked && <Flag size={12} className="text-orange-500" aria-label="Blocked" />}
+          {m.isBlocking && <Flag size={12} className="text-red-500" aria-label="Blocking" />}
+          {m.needsHuman && (
+            <CircleUser size={12} className="text-amber-500" aria-label="Needs human" />
+          )}
+          {show.due && m.dueLabel && (
+            <span className="text-[11px] text-muted-foreground">{m.dueLabel}</span>
+          )}
+          {show.estimate && m.estimateLabel && (
+            <span className="text-[11px] text-muted-foreground">{m.estimateLabel}</span>
+          )}
+          {show.sessions && m.sessionCount > 0 && (
+            <span className="text-[11px] text-muted-foreground tabular-nums">
+              ▣ {m.sessionCount}
+            </span>
+          )}
+        </div>
       </button>
     </div>
   )

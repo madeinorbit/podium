@@ -1,3 +1,4 @@
+import type { IssueStage } from '@podium/protocol'
 import type { JSX } from 'react'
 import { useState } from 'react'
 import { Button } from '@/components/ui/button'
@@ -35,7 +36,15 @@ function repoLabel(path: string): string {
   return path.split('/').filter(Boolean).pop() ?? path
 }
 
-export function NewIssueDialog({ onClose }: { onClose: () => void }): JSX.Element {
+export function NewIssueDialog({
+  onClose,
+  initialStage,
+}: {
+  onClose: () => void
+  /** Lane the composer was opened from. Until Task 12's full composer, this is
+   *  applied as a post-create `stage` patch (creation itself is always Backlog). */
+  initialStage?: IssueStage
+}): JSX.Element {
   const { trpc, repos } = useStore()
   const isMobile = useIsMobile()
   const [title, setTitle] = useState('')
@@ -76,7 +85,7 @@ export function NewIssueDialog({ onClose }: { onClose: () => void }): JSX.Elemen
     setBusy(true)
     setError('')
     try {
-      await trpc.issues.create.mutate({
+      const created = await trpc.issues.create.mutate({
         repoPath,
         title: title.trim(),
         description: description.trim() || undefined,
@@ -85,6 +94,11 @@ export function NewIssueDialog({ onClose }: { onClose: () => void }): JSX.Elemen
         startNow,
         linear,
       })
+      // `create` has no stage input, so honor the lane the composer opened from
+      // with a follow-up patch. Backlog is the default — no patch needed.
+      if (initialStage && initialStage !== 'backlog') {
+        await trpc.issues.update.mutate({ id: created.id, patch: { stage: initialStage } })
+      }
       onClose()
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
