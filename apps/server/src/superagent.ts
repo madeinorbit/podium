@@ -602,7 +602,9 @@ export class SuperagentService {
         spec: {
           name: 'start_agent',
           description:
-            'Start a new interactive agent (or shell) session in a directory. Runs on the user subscription.',
+            'Start a new interactive agent (or shell) session in a directory. Runs on the ' +
+            'user subscription. Pass cwd OR issueId (with issueId the cwd is derived from ' +
+            'the issue and need not be given).',
           parameters: {
             type: 'object',
             properties: {
@@ -610,28 +612,31 @@ export class SuperagentService {
                 type: 'string',
                 enum: ['claude-code', 'codex', 'grok', 'opencode', 'cursor', 'shell'],
               },
-              cwd: { type: 'string', description: 'absolute worktree/repo path' },
+              cwd: {
+                type: 'string',
+                description: 'absolute worktree/repo path (omit when issueId is given)',
+              },
               name: { type: 'string', description: 'optional display name' },
               title: { type: 'string', description: 'optional session title (shown in the UI)' },
               issueId: {
                 type: 'string',
                 description:
-                  'optional issue ref (id or display seq). Started issue: spawn in its ' +
-                  'worktree. Unstarted: start the issue (worktree + agent) instead.',
+                  'optional issue ref (id or display seq); replaces cwd. Started issue: ' +
+                  'spawn in its worktree. Unstarted: start the issue (worktree + agent) instead.',
               },
               firstMessage: {
                 type: 'string',
                 description: 'optional prompt typed into the agent once it starts',
               },
             },
-            required: ['agentKind', 'cwd'],
+            required: ['agentKind'],
           },
         },
         run: async (args) => {
           const agentKind = str(args.agentKind)
           let cwd = str(args.cwd)
-          if (!cwd || !isAgentKind(agentKind)) return 'invalid agentKind/cwd'
           const issueRef = str(args.issueId)
+          if (!isAgentKind(agentKind)) return 'invalid agentKind'
           if (issueRef) {
             const issue = registry.issues.get(issueRef)
             if (!issue) return `unknown issue: ${issueRef}`
@@ -654,6 +659,9 @@ export class SuperagentService {
               })
             }
           }
+          // Reached only on the direct-cwd path (a started issue rewrote cwd above;
+          // an unstarted one returned). cwd is required exactly when issueId is absent.
+          if (!cwd) return 'pass cwd or issueId (with issueId the cwd is derived from the issue)'
           const title = str(args.title)
           const { sessionId } = registry.createSession({
             agentKind,

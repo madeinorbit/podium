@@ -260,6 +260,44 @@ describe('SessionRegistry', () => {
     expect(reg.listSessions()[0]?.status).toBe('starting')
   })
 
+  it('resume keeps the original provenance on an existing row, stamps its own only on the fresh-spawn fallback (issue #60)', () => {
+    const reg = new SessionRegistry()
+    reg.attachDaemon('local', () => {})
+    // An issue-spawned session that later learned its resume ref.
+    const { sessionId } = reg.createSession({
+      agentKind: 'claude-code',
+      cwd: '/w',
+      spawnedBy: 'issue:iss_1',
+    })
+    reg.onDaemonMessageFrom('local', bind(sessionId))
+    reg.onDaemonMessageFrom('local', {
+      type: 'sessionResumeRef',
+      sessionId,
+      resume: { kind: 'claude-session', value: 'r1' },
+    })
+    // Resuming that conversation reuses the row — the resume's own tag must NOT win.
+    const reused = reg.resumeSession({
+      agentKind: 'claude-code',
+      cwd: '/w',
+      resume: { kind: 'claude-session', value: 'r1' },
+      conversationId: 'c1',
+      spawnedBy: 'user',
+    })
+    expect(reused.sessionId).toBe(sessionId)
+    const metaOf = (id: string) => reg.listSessions().find((s) => s.sessionId === id)
+    expect(metaOf(sessionId)?.spawnedBy).toBe('issue:iss_1')
+    // No existing row for this ref → fresh spawn carries the caller's tag.
+    const fresh = reg.resumeSession({
+      agentKind: 'claude-code',
+      cwd: '/w',
+      resume: { kind: 'claude-session', value: 'r2' },
+      conversationId: 'c2',
+      spawnedBy: 'user',
+    })
+    expect(fresh.sessionId).not.toBe(sessionId)
+    expect(metaOf(fresh.sessionId)?.spawnedBy).toBe('user')
+  })
+
   it('resume still spawns a fresh row when no session exists for that conversation', () => {
     const reg = new SessionRegistry()
     reg.attachDaemon('local', () => {})

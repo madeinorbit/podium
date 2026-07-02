@@ -145,7 +145,10 @@ export const appRouter = t.router({
           machineId: z.string().optional(),
         }),
       )
-      .mutation(({ ctx, input }) => ctx.registry.resumeSession(input)),
+      // Same human seam as create (issue #60): a tRPC resume is an operator action.
+      // Only the fresh-spawn fallback uses this — a resume that lands on an existing
+      // row keeps that row's original provenance (see resumeSession).
+      .mutation(({ ctx, input }) => ctx.registry.resumeSession({ ...input, spawnedBy: 'user' })),
     kill: t.procedure
       .input(z.object({ sessionId: z.string() }))
       .mutation(({ ctx, input }) => ctx.registry.killSession(input)),

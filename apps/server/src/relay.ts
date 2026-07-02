@@ -997,6 +997,10 @@ export class SessionRegistry {
     conversationId: string
     title?: string
     machineId?: string
+    /** Provenance for the FRESH-SPAWN fallback only (issue #60). When the resume
+     *  lands on an existing row (reuse/resurrect below), that row's original
+     *  spawnedBy is kept — a resume never rewrites who created the session. */
+    spawnedBy?: string
   }): { sessionId: string } {
     // One row per conversation. A conversation is identified by its durable
     // resume ref (kind+value); resuming one that already has a row must REUSE
@@ -1006,9 +1010,6 @@ export class SessionRegistry {
     // masked duplicate with its own title/transcript/stage. Reuse kills that at
     // the source: a running row is focused as-is; a parked (hibernated/exited)
     // row is resurrected under its same id.
-    // Provenance note (issue #60): a resume never rewrites spawnedBy — the reuse/
-    // resurrect paths below keep the original Session (and its row) intact, and the
-    // fresh-spawn fallback leaves it unset (the original creator is unknown here).
     const existing = this.findLiveByResume(input.resume)
     if (existing) {
       if (existing.status === 'hibernated' || existing.status === 'exited') {
@@ -1028,6 +1029,7 @@ export class SessionRegistry {
       origin: { kind: 'resume', conversationId: input.conversationId },
       resume: input.resume,
       machineId: this.resolveMachine(input.machineId, input.cwd),
+      ...(input.spawnedBy ? { spawnedBy: input.spawnedBy } : {}),
     })
   }
 

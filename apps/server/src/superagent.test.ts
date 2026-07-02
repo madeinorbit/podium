@@ -206,6 +206,26 @@ describe('start_agent tool wiring (issue #60)', () => {
     expect(registry.issues.get(issue.id)?.stage).toBe('in_progress')
   })
 
+  it('works with issueId alone — cwd is optional when the issue provides it', async () => {
+    const { registry, sa } = harness()
+    const issue = registry.issues.create({ repoPath: '/r', title: 'X', startNow: false })
+    registry.issues.update(issue.id, { worktreePath: '/r/.worktrees/issue-1-x', stage: 'planning' })
+    const out = JSON.parse(
+      await sa.callMcpTool('start_agent', { agentKind: 'claude-code', issueId: issue.id }),
+    ) as { sessionId: string; cwd: string }
+    expect(out.cwd).toBe('/r/.worktrees/issue-1-x')
+    expect(registry.listSessions().find((s) => s.sessionId === out.sessionId)?.cwd).toBe(
+      '/r/.worktrees/issue-1-x',
+    )
+  })
+
+  it('rejects a call with neither cwd nor issueId, spawning nothing', async () => {
+    const { registry, sa } = harness()
+    const out = await sa.callMcpTool('start_agent', { agentKind: 'claude-code' })
+    expect(out).toMatch(/pass cwd or issueId/)
+    expect(registry.listSessions()).toHaveLength(0)
+  })
+
   it('rejects an unknown issue ref without spawning anything', async () => {
     const { registry, sa } = harness()
     const out = await sa.callMcpTool('start_agent', {

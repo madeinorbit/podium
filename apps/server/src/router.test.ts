@@ -31,6 +31,18 @@ describe('appRouter', () => {
     expect(list.find((s) => s.sessionId === sessionId)?.spawnedBy).toBe('user')
   })
 
+  it("sessions.resume stamps spawnedBy 'user' on its fresh-spawn fallback (issue #60)", async () => {
+    const { call } = caller()
+    const { sessionId } = await call.sessions.resume({
+      agentKind: 'claude-code',
+      cwd: '/p',
+      resume: { kind: 'claude-session', value: 'r9' },
+      conversationId: 'c9',
+    })
+    const list = await call.sessions.list()
+    expect(list.find((s) => s.sessionId === sessionId)?.spawnedBy).toBe('user')
+  })
+
   it('sessions.kill removes the session', async () => {
     const { call } = caller()
     const { sessionId } = await call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
