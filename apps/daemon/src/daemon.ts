@@ -86,6 +86,7 @@ import { sampleHostMemory } from './host-metrics'
 import { loadIdentity, saveToken } from './identity'
 import { createIssueRelayHub, startIssueRelayServer } from './issue-relay'
 import { createPrimeInjector } from './prime-injector'
+import { createCwdResolver, createSessionCwdTracker } from './worktree-resolve'
 import {
   countControl,
   countFrame,
@@ -196,6 +197,9 @@ export interface DaemonOptions {
   discovery?: DaemonDiscoveryOptions
   metrics?: DaemonMetricsOptions
   hooks?: DaemonHooksOptions
+  /** Issue-relay loopback server. Tests pass `port: 0` for an ephemeral port so
+   *  parallel daemons don't contend for DEFAULT_ISSUE_RELAY_PORT. */
+  issueRelay?: { port?: number }
   /**
    * The worker client that runs the /proc memory walk off the interactive loop.
    * Defaults to a real `DiscoveryWorkerClient` (spawns ./discovery-worker.ts).
@@ -291,6 +295,8 @@ export function normalizeAgentKind(agentKind: AgentKind, resumeKind?: string): A
 export interface DaemonHandle {
   /** Where the hook ingest is actually listening (fixed port unless it was taken). */
   readonly hookPort: number
+  /** Where the issue-relay loopback is actually listening (fixed port unless taken). */
+  readonly issueRelayPort: number
   /**
    * Detach from all sessions and close the server connection. Durable sessions
    * (abduco/tmux) keep running — that's the feature. Pass `reapSessions: true` to
@@ -686,10 +692,16 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
       hasMore: res.hasMore,
     })
   }
-  // Last cwd we forwarded per session, so an EnterWorktree/cd is reported once
-  // (not on every subsequent hook). The server also dedups against the session's
-  // current cwd; this just keeps the wire quiet.
-  const lastHookCwd = new Map<string, string>()
+  // Hook cwds are the agent's LIVE shell directory (they follow every `cd`), but
+  // the server groups sessions by this value — forwarding raw cwds makes a session
+  // vanish from its worktree the moment the agent cds into a subdirectory. The
+  // tracker resolves each cwd to its git worktree root and forwards only genuine
+  // worktree moves (EnterWorktree, cd into another checkout). Defined before
+  // startHookIngest (whose onPayload feeds it) via the same `send` closure.
+  const sessionCwdTracker = createSessionCwdTracker({
+    resolver: createCwdResolver(),
+    send: (sessionId, cwd) => send({ type: 'sessionCwd', sessionId, cwd }),
+  })
   // `currentWs` is the live socket; `send()` always targets it, so frames keep flowing
   // to a new connection after a reconnect. Declared/defined ahead of startHookIngest
   // because the issue-relay hub captures `send` at construction, and the prime injector
@@ -746,13 +758,13 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
           resume: { kind: 'claude-session', value: harnessSessionId },
         })
       }
-      // The agent's live working directory — follows EnterWorktree and `cd`. When
-      // it changes, tell the server so the sidebar re-groups the session under the
-      // worktree it moved into (the displayed cwd no longer sticks to launch).
+      // The agent's live working directory — follows EnterWorktree and `cd`. The
+      // tracker resolves it to the containing worktree root and tells the server
+      // only when THAT changes, so the sidebar re-groups on real worktree moves
+      // but not on subdirectory cds within the same checkout.
       const hookCwd = fields?.cwd
-      if (typeof hookCwd === 'string' && hookCwd && lastHookCwd.get(sessionId) !== hookCwd) {
-        lastHookCwd.set(sessionId, hookCwd)
-        send({ type: 'sessionCwd', sessionId, cwd: hookCwd })
+      if (typeof hookCwd === 'string' && hookCwd) {
+        void sessionCwdTracker.onHookCwd(sessionId, hookCwd)
       }
       void tracker.provider
         .translate(payload)
@@ -844,7 +856,26 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
   // Loopback HTTP endpoint an agent's `podium issue` CLI posts to. Its port is
   // injected into the agent env at spawn (Task 3); each request rides the hub
   // over the live WS and blocks until the server answers.
-  const issueRelay = await startIssueRelayServer({ relay: (req) => issueRelayHub.relay(req) })
+  const issueRelay = await startIssueRelayServer({
+    ...(opts.issueRelay?.port !== undefined ? { port: opts.issueRelay.port } : {}),
+    relay: async (req) => {
+      // `session.setWorktree` is the agent-initiated worktree report (`podium
+      // worktree <path>`). The daemon owns cwd truth, so it's handled here —
+      // validated, resolved to its git toplevel, and sent as sessionCwd — never
+      // forwarded to the server's capability relay (RELAY_ALLOWED would reject it).
+      if (req.router === 'session' && req.proc === 'setWorktree') {
+        const path = (req.input as { path?: unknown } | null | undefined)?.path
+        if (typeof path !== 'string' || !path.startsWith('/')) {
+          return { ok: false, error: 'path must be an absolute directory path' }
+        }
+        const st = await stat(path).catch(() => null)
+        if (!st?.isDirectory()) return { ok: false, error: `no such directory: ${path}` }
+        const worktree = await sessionCwdTracker.setExplicit(req.sessionId, path)
+        return { ok: true, result: { worktree } }
+      }
+      return issueRelayHub.relay(req)
+    },
+  })
 
   // Coalesce + prioritize PTY frame relay (the per-frame stringify+send was the
   // dominant residual loop hitch). flush() sends one agentFrameBatch per session.
@@ -1089,7 +1120,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
       bridges.delete(sessionId)
       outputScheduler.remove(sessionId)
       trackers.delete(sessionId)
-      lastHookCwd.delete(sessionId)
+      sessionCwdTracker.clear(sessionId)
       primeInjector.reset(sessionId)
       stopGrokStateObserver(sessionId)
       stopCodexStateObserver(sessionId)
@@ -1698,6 +1729,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
 
   const handle: DaemonHandle = {
     hookPort: ingest.port,
+    issueRelayPort: issueRelay.port,
     async close(opts) {
       closing = true // stop the reconnect loop from resurrecting the socket
       if (reconnectTimer) {

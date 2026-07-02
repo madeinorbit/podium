@@ -1,4 +1,4 @@
-import { execSync } from 'node:child_process'
+import { execFileSync, execSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -249,6 +249,60 @@ describe('daemon multi-bridge', () => {
     await post('/repo/.worktrees/feat')
     await new Promise((r) => setTimeout(r, 100))
     expect(count()).toBe(before)
+  })
+
+  it('resolves a hook cwd inside a git checkout to the worktree root before forwarding', async () => {
+    // A cd into a SUBDIRECTORY of the same checkout must not regroup the session:
+    // the daemon resolves the hook cwd to its git toplevel and forwards that.
+    const repo = join(mkdtempSync(join(tmpdir(), 'podium-cwd-git-')), 'repo')
+    mkdirSync(join(repo, 'packages', 'web'), { recursive: true })
+    execFileSync('git', ['-C', repo, 'init', '-q'])
+
+    send({ type: 'spawn', sessionId: 'sGit', agentKind: 'claude-code', cwd: '/tmp', geometry: G })
+    await waitFor(() => received.some((m) => m.type === 'bind' && m.sessionId === 'sGit'))
+    await fetch(`http://127.0.0.1:${daemon.hookPort}/hooks/sGit`, {
+      method: 'POST',
+      body: JSON.stringify({ hook_event_name: 'PostToolUse', cwd: join(repo, 'packages', 'web') }),
+    })
+    await waitFor(() =>
+      received.some((m) => m.type === 'sessionCwd' && m.sessionId === 'sGit' && m.cwd === repo),
+    )
+    // The raw subdirectory path never went over the wire.
+    expect(
+      received.some((m) => m.type === 'sessionCwd' && m.cwd === join(repo, 'packages', 'web')),
+    ).toBe(false)
+  })
+
+  it('session.setWorktree on the loopback relay restamps the session worktree locally', async () => {
+    // The agent-initiated channel: `podium worktree <path>` POSTs to the issue-relay
+    // loopback; the daemon handles session.setWorktree itself (never forwarded to
+    // the server's tracker relay) — validate, resolve to git toplevel, sessionCwd.
+    const repo = join(mkdtempSync(join(tmpdir(), 'podium-setwt-')), 'repo')
+    mkdirSync(join(repo, 'sub'), { recursive: true })
+    execFileSync('git', ['-C', repo, 'init', '-q'])
+
+    send({ type: 'spawn', sessionId: 'sWt', agentKind: 'claude-code', cwd: '/tmp', geometry: G })
+    await waitFor(() => received.some((m) => m.type === 'bind' && m.sessionId === 'sWt'))
+    const post = (input: unknown): Promise<Response> =>
+      fetch(`http://127.0.0.1:${daemon.issueRelayPort}/issue/sWt`, {
+        method: 'POST',
+        body: JSON.stringify({ router: 'session', proc: 'setWorktree', input }),
+      })
+
+    const ok = (await (await post({ path: join(repo, 'sub') })).json()) as {
+      ok: boolean
+      result?: { worktree: string }
+    }
+    expect(ok).toEqual({ ok: true, result: { worktree: repo } })
+    await waitFor(() =>
+      received.some((m) => m.type === 'sessionCwd' && m.sessionId === 'sWt' && m.cwd === repo),
+    )
+
+    // Relative and nonexistent paths are rejected without a sessionCwd send.
+    const rel = (await (await post({ path: 'sub' })).json()) as { ok: boolean }
+    expect(rel.ok).toBe(false)
+    const gone = (await (await post({ path: join(repo, 'nope') })).json()) as { ok: boolean }
+    expect(gone.ok).toBe(false)
   })
 
   it('routes resize to the right bridge; kill stops only the targeted one', async () => {
