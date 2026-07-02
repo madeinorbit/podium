@@ -182,6 +182,9 @@ export function IssuesView(): JSX.Element {
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       if (openIssueId) return
+      // Ignore modifier chords (Cmd/Ctrl/Alt) so browser/OS shortcuts —
+      // copy, select-all, print, etc. — pass through untouched.
+      if (e.metaKey || e.ctrlKey || e.altKey) return
       const el = document.activeElement as HTMLElement | null
       if (
         el &&

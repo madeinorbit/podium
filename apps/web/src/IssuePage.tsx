@@ -331,12 +331,14 @@ export function IssuePage({
                 autoFocus
                 placeholder="Sub-issue title…"
                 aria-label="Sub-issue title"
-                disabled={busy}
                 value={childTitle}
                 onChange={(e) => setChildTitle(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && childTitle.trim()) {
                     e.preventDefault()
+                    // Guard double-submit ourselves — the input stays enabled
+                    // across creates so rapid Enter-driven entry keeps flowing.
+                    if (busy) return
                     void run(() =>
                       trpc.issues.create.mutate({
                         repoPath: issue.repoPath,

@@ -441,6 +441,15 @@ test('issues keyboard: j / j / Enter opens the second issue in board order', asy
   await page.keyboard.press('j')
   await expect(cards.nth(1)).toHaveClass(/ring-2/, { timeout: 10_000 })
 
+  // Modifier-guard regression check: a modifier chord (Cmd/Ctrl+P) must be ignored
+  // by the board key handler — it must NOT open any anchored property menu/dialog.
+  await page.keyboard.press('Meta+p')
+  await page.keyboard.press('Control+p')
+  await expect(
+    page.locator('[role="menu"], [role="dialog"]'),
+    'a modifier chord opens no menu/dialog',
+  ).toHaveCount(0)
+
   // The second card's title — Enter should open THIS issue's page.
   const secondTitle = (await cards.nth(1).locator('.line-clamp-2').first().textContent())?.trim()
   expect(secondTitle && secondTitle.length > 0).toBeTruthy()
