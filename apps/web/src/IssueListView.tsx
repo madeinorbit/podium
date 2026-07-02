@@ -3,6 +3,7 @@ import { Plus } from 'lucide-react'
 import type { JSX } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { cn } from '@/lib/utils'
 import { issueCardModel, STAGE_LABELS } from './issue-card'
 import { AssigneeAvatar, PriorityGlyph, StageGlyph } from './issue-glyphs'
 import { groupIssuesByStage } from './issue-list'
@@ -14,11 +15,17 @@ export function IssueListView({
   display,
   onOpen,
   onCreateIn,
+  focusId,
+  selected,
+  onToggleSelect,
 }: {
   issues: IssueWire[]
   display: IssuesDisplay
   onOpen: (id: string) => void
   onCreateIn: (stage: IssueStage) => void
+  focusId: string | null
+  selected: string[]
+  onToggleSelect: (id: string) => void
 }): JSX.Element {
   const groups = groupIssuesByStage(issues, display.ordering)
   return (
@@ -50,8 +57,13 @@ export function IssueListView({
                 <button
                   key={issue.id}
                   type="button"
-                  className="flex w-full items-center gap-2 border-border/50 border-b px-4 py-2 text-left hover:bg-muted/40"
-                  onClick={() => onOpen(issue.id)}
+                  data-issue-id={issue.id}
+                  className={cn(
+                    'flex w-full items-center gap-2 border-border/50 border-b px-4 py-2 text-left hover:bg-muted/40',
+                    focusId === issue.id && 'ring-2 ring-primary/60 ring-inset',
+                    selected.includes(issue.id) && 'bg-primary/10',
+                  )}
+                  onClick={(e) => (e.shiftKey ? onToggleSelect(issue.id) : onOpen(issue.id))}
                 >
                   <PriorityGlyph priority={issue.priority} />
                   <span className="w-10 shrink-0 text-[11px] text-muted-foreground tabular-nums">

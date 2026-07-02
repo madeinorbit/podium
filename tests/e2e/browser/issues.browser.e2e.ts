@@ -401,3 +401,107 @@ test('issue page: add a sub-issue inline and the child row appears with a 0/1 co
   await expect(input, 'the input clears but stays open for rapid entry').toHaveValue('')
   await expect(subIssues.getByText('0/1', { exact: true })).toBeVisible({ timeout: 15_000 })
 })
+
+/** Create a worktree-less Backlog issue via the composer and wait for its card. */
+async function createBacklogIssue(page: Page, title: string): Promise<void> {
+  await page.getByRole('button', { name: 'New Issue', exact: true }).click()
+  const dialog = page.getByRole('dialog')
+  await expect(dialog.getByRole('heading', { name: 'New Issue' })).toBeVisible({ timeout: 10_000 })
+  await dialog.getByLabel('Title').fill(title)
+  const startNow = dialog.getByRole('checkbox', { name: 'Start work now' })
+  await expect(startNow).toBeChecked()
+  await startNow.uncheck()
+  const createBtn = dialog.getByRole('button', { name: /^Create$/ })
+  await expect(createBtn).toBeEnabled({ timeout: 15_000 })
+  await createBtn.click()
+  await expect(dialog).toBeHidden({ timeout: 15_000 })
+}
+
+test('issues keyboard: j / j / Enter opens the second issue in board order', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await openShell(page)
+  await page.locator('button[title="Issues"]').click({ timeout: 15_000 })
+  const board = page.getByRole('region', { name: 'Issues' })
+  await expect(board).toBeVisible({ timeout: 10_000 })
+
+  // Guarantee at least two focusable cards on the board.
+  const stamp = Date.now()
+  await createBacklogIssue(page, `E2E keynav one ${stamp}`)
+  await createBacklogIssue(page, `E2E keynav two ${stamp}`)
+
+  const cards = board.locator('[data-issue-id]')
+  await expect.poll(async () => cards.count(), { timeout: 15_000 }).toBeGreaterThanOrEqual(2)
+
+  // Blur any focused control so the window key handler is active (guard skips inputs).
+  await board.getByRole('heading', { name: 'Issues', exact: true }).click()
+
+  // First `j` focuses the first card, the second `j` the second (ring-2 class).
+  await page.keyboard.press('j')
+  await expect(cards.nth(0)).toHaveClass(/ring-2/, { timeout: 10_000 })
+  await page.keyboard.press('j')
+  await expect(cards.nth(1)).toHaveClass(/ring-2/, { timeout: 10_000 })
+
+  // The second card's title — Enter should open THIS issue's page.
+  const secondTitle = (await cards.nth(1).locator('.line-clamp-2').first().textContent())?.trim()
+  expect(secondTitle && secondTitle.length > 0).toBeTruthy()
+
+  await page.keyboard.press('Enter')
+  const issuePage = page.locator('[data-testid="issue-page"]')
+  await expect(issuePage).toBeVisible({ timeout: 10_000 })
+  await expect(
+    issuePage.getByText(secondTitle as string, { exact: false }),
+    'Enter opened the second (focused) issue',
+  ).toBeVisible({ timeout: 10_000 })
+})
+
+test('issues keyboard: x / x selects two issues, bulk stage change moves both', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await openShell(page)
+  await page.locator('button[title="Issues"]').click({ timeout: 15_000 })
+  const board = page.getByRole('region', { name: 'Issues' })
+  await expect(board).toBeVisible({ timeout: 10_000 })
+
+  const stamp = Date.now()
+  await createBacklogIssue(page, `E2E bulk one ${stamp}`)
+  await createBacklogIssue(page, `E2E bulk two ${stamp}`)
+
+  const cards = board.locator('[data-issue-id]')
+  await expect.poll(async () => cards.count(), { timeout: 15_000 }).toBeGreaterThanOrEqual(2)
+
+  // Capture the two ids that j/j will focus (board/nav order = DOM order).
+  const id0 = await cards.nth(0).getAttribute('data-issue-id')
+  const id1 = await cards.nth(1).getAttribute('data-issue-id')
+  expect(id0 && id1 && id0 !== id1).toBeTruthy()
+
+  await board.getByRole('heading', { name: 'Issues', exact: true }).click()
+
+  // Focus + select the first two cards: j x j x.
+  await page.keyboard.press('j')
+  await page.keyboard.press('x')
+  await page.keyboard.press('j')
+  await page.keyboard.press('x')
+
+  // The bulk bar appears with the count.
+  const bulkBar = page.getByText('2 selected')
+  await expect(bulkBar, 'the bulk bar shows two selected').toBeVisible({ timeout: 10_000 })
+
+  // Bulk stage change → Done via the bar's Stage PropertyMenu.
+  await page.getByRole('button', { name: 'Stage', exact: true }).click({ timeout: 10_000 })
+  const menu = page.locator('[data-slot="dropdown-menu-content"]')
+  await menu.locator('input').first().fill('Done')
+  await menu.getByRole('menuitem').filter({ hasText: 'Done' }).click({ timeout: 10_000 })
+
+  // Both selected issues now live under the Done column (live via the broadcast).
+  const doneColumn = board
+    .locator('div.w-\\[280px\\]')
+    .filter({ has: page.getByRole('heading', { name: 'Done', exact: true }) })
+    .first()
+  await expect(
+    doneColumn.locator(`[data-issue-id="${id0}"]`),
+    'the first selected issue moved to Done',
+  ).toBeVisible({ timeout: 15_000 })
+  await expect(
+    doneColumn.locator(`[data-issue-id="${id1}"]`),
+    'the second selected issue moved to Done',
+  ).toBeVisible({ timeout: 15_000 })
+})

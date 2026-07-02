@@ -1,7 +1,16 @@
 import { ISSUE_STAGES, type IssueStage, IssueType, type IssueWire } from '@podium/protocol'
-import { CircleUser, Flag, ListFilter, Plus, SlidersHorizontal, X } from 'lucide-react'
+import {
+  Check,
+  CircleUser,
+  Flag,
+  ListFilter,
+  Plus,
+  SlidersHorizontal,
+  Trash2,
+  X,
+} from 'lucide-react'
 import type { JSX } from 'react'
-import { useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -23,11 +32,11 @@ import { cn } from '@/lib/utils'
 import { CardBoundary } from './CardBoundary'
 import { useIsMobile } from './hooks/use-is-mobile'
 import { IssueListView } from './IssueListView'
+import { IssuePage } from './IssuePage'
 import { type BoardFilter, clearChip, filterBoardIssues, filterChips } from './issue-board-filter'
 import { issueCardModel, STAGE_LABELS } from './issue-card'
 import { AssigneeAvatar, PriorityGlyph, StageGlyph } from './issue-glyphs'
 import { flattenGroups, groupIssuesByStage } from './issue-list'
-import { IssuePage } from './IssuePage'
 import {
   DISPLAY_KEY,
   type IssuesDisplay,
@@ -37,9 +46,20 @@ import {
   readIssuesDisplay,
   writeIssuesDisplay,
 } from './issues-display'
+import {
+  type IssuesKeyAction,
+  type IssuesKeyState,
+  type IssuesNav,
+  issuesKeyReduce,
+} from './issues-keys'
 import { dropTargetStage } from './kanban-dnd'
 import { NewIssueDialog } from './NewIssueDialog'
+import { PropertyMenu } from './PropertyMenu'
 import { useStore } from './store'
+
+/** Which anchored property menu the keyboard opened, and for which issue. */
+type PropMenuKind = 's' | 'p' | 'a' | 'l'
+type PropMenuState = { kind: PropMenuKind; id: string }
 
 /** A display-options change — badges may be patched field-by-field. */
 type DisplayPatch = Partial<Omit<IssuesDisplay, 'badges'>> & {
@@ -76,6 +96,11 @@ export function IssuesView(): JSX.Element {
   // Surface any drag-drop / mutation failure verbatim — the server re-broadcasts
   // the authoritative board, so we only need to show the error.
   const [error, setError] = useState('')
+  // Keyboard focus (single) + multi-select set. The reducer keeps these in sync
+  // with the visible nav; ids that vanish (moved/deleted/filtered) drop out.
+  const [keyState, setKeyState] = useState<IssuesKeyState>({ focusId: null, selected: [] })
+  // Which keyboard-anchored property menu (s/p/a/l) is open, and over which issue.
+  const [propMenu, setPropMenu] = useState<PropMenuState | null>(null)
   // Hide archived, then narrow by the filter — both run before the issues are
   // split into per-stage lanes, so each lane reflects the same view.
   const active = filterBoardIssues(
@@ -103,8 +128,151 @@ export function IssuesView(): JSX.Element {
     runMut(trpc.issues.update.mutate({ id, patch: { assignee } }))
   }
 
+  const setPriority = (id: string, priority: number): void => {
+    runMut(trpc.issues.update.mutate({ id, patch: { priority } }))
+  }
+
+  // Add or remove a single label from an issue (keyboard `l` menu toggles).
+  const toggleLabel = (issue: IssueWire, label: string): void => {
+    const labels = issue.labels.includes(label)
+      ? issue.labels.filter((l) => l !== label)
+      : [...issue.labels, label]
+    runMut(trpc.issues.setLabels.mutate({ id: issue.id, labels }))
+  }
+
   const chips = filterChips(filter)
   const layout = isMobile ? 'list' : display.layout
+
+  // The per-stage ordered lanes — computed once so the board render, the list
+  // render, and the keyboard nav all agree on order. `listIds` flattens them
+  // top-to-bottom for the single-column list layout.
+  const orderedByStage = ISSUE_STAGES.map((stage) => ({
+    stage,
+    issues: orderIssues(
+      active.filter((i) => i.stage === stage),
+      display.ordering,
+    ),
+  }))
+  const listIds = orderedByStage.flatMap((c) => c.issues.map((i) => i.id))
+  const nav: IssuesNav =
+    layout === 'list'
+      ? { kind: 'rows', ids: listIds }
+      : { kind: 'columns', columns: orderedByStage.map((c) => c.issues.map((i) => i.id)) }
+
+  // Selection filtered to ids still on the board (deleted/filtered-out drop off),
+  // so the bulk bar and highlights never reference stale issues.
+  const presentIds = new Set(listIds)
+  const selectedIds = keyState.selected.filter((id) => presentIds.has(id))
+  const focusId = keyState.focusId
+
+  // Latest nav / focus for the window key handler, which is attached once.
+  const navRef = useRef(nav)
+  navRef.current = nav
+  const focusRef = useRef(focusId)
+  focusRef.current = focusId
+
+  const dispatchKey = useCallback((a: IssuesKeyAction): void => {
+    setKeyState((s) => issuesKeyReduce(s, a, navRef.current))
+  }, [])
+
+  // Global keyboard nav for the board/list. Inactive while the issue page is open
+  // (its own Esc handler owns keys), while any dialog/menu is open, or while a
+  // form field is focused — so typing in the search box or composer is untouched.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if (openIssueId) return
+      const el = document.activeElement as HTMLElement | null
+      if (
+        el &&
+        (el.tagName === 'INPUT' ||
+          el.tagName === 'TEXTAREA' ||
+          el.tagName === 'SELECT' ||
+          el.isContentEditable)
+      )
+        return
+      if (document.querySelector('[role="dialog"], [role="menu"]')) return
+      switch (e.key) {
+        case 'c':
+          e.preventDefault()
+          setCreating({})
+          break
+        case 'Escape':
+          dispatchKey({ kind: 'clear' })
+          break
+        case 'j':
+        case 'ArrowDown':
+          e.preventDefault()
+          dispatchKey({ kind: 'next' })
+          break
+        case 'k':
+        case 'ArrowUp':
+          e.preventDefault()
+          dispatchKey({ kind: 'prev' })
+          break
+        case 'ArrowLeft':
+          e.preventDefault()
+          dispatchKey({ kind: 'left' })
+          break
+        case 'ArrowRight':
+          e.preventDefault()
+          dispatchKey({ kind: 'right' })
+          break
+        case 'Enter': {
+          const f = focusRef.current
+          if (f) {
+            e.preventDefault()
+            setOpenIssueId(f)
+          }
+          break
+        }
+        case 'x':
+          if (focusRef.current) {
+            e.preventDefault()
+            dispatchKey({ kind: 'toggleSelect' })
+          }
+          break
+        case 's':
+        case 'p':
+        case 'a':
+        case 'l': {
+          const f = focusRef.current
+          if (f) {
+            e.preventDefault()
+            setPropMenu({ kind: e.key, id: f })
+            document.querySelector(`[data-issue-id="${f}"]`)?.scrollIntoView({ block: 'nearest' })
+          }
+          break
+        }
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [openIssueId, dispatchKey, setOpenIssueId])
+
+  // Shift+click toggles the clicked issue in/out of the selection (focusing it too).
+  const toggleSelectId = (id: string): void =>
+    setKeyState((s) =>
+      issuesKeyReduce({ ...s, focusId: id }, { kind: 'toggleSelect' }, navRef.current),
+    )
+
+  // Bulk-bar actions loop the mutation over the whole selection; the server
+  // re-broadcasts the board so the view reconciles. Delete confirms once, then
+  // clears the (now-gone) selection.
+  const bulkStage = (stage: IssueStage): void =>
+    runMut(
+      Promise.all(selectedIds.map((id) => trpc.issues.update.mutate({ id, patch: { stage } }))),
+    )
+  const bulkPriority = (priority: number): void =>
+    runMut(
+      Promise.all(selectedIds.map((id) => trpc.issues.update.mutate({ id, patch: { priority } }))),
+    )
+  const bulkDelete = (): void => {
+    if (selectedIds.length === 0) return
+    const n = selectedIds.length
+    if (!window.confirm(`Delete ${n} issue${n > 1 ? 's' : ''}? This can't be undone.`)) return
+    runMut(Promise.all(selectedIds.map((id) => trpc.issues.delete.mutate({ id }))))
+    setKeyState((s) => ({ ...s, selected: [] }))
+  }
 
   // When an issue is open (and still exists), the board is replaced in-view by the
   // full issue page. Prev/next navigate the same flattened, grouped visual order.
@@ -160,24 +328,27 @@ export function IssuesView(): JSX.Element {
           display={display}
           onOpen={setOpenIssueId}
           onCreateIn={(stage) => setCreating({ stage })}
+          focusId={focusId}
+          selected={selectedIds}
+          onToggleSelect={toggleSelectId}
         />
       ) : (
         <div className="flex min-h-0 flex-1 gap-3 overflow-x-auto p-3 md:p-4">
-          {ISSUE_STAGES.map((stage) => (
+          {orderedByStage.map(({ stage, issues: laneIssues }) => (
             <IssueColumn
               key={stage}
               stage={stage}
               label={STAGE_LABELS[stage]}
-              issues={orderIssues(
-                active.filter((i) => i.stage === stage),
-                display.ordering,
-              )}
+              issues={laneIssues}
               badges={display.badges}
               onOpen={setOpenIssueId}
               onMoveIssue={moveIssue}
               onCreateIn={(s) => setCreating({ stage: s })}
               onSetAssignee={setAssignee}
               assignees={assignees}
+              focusId={focusId}
+              selected={selectedIds}
+              onToggleSelect={toggleSelectId}
             />
           ))}
         </div>
@@ -194,7 +365,196 @@ export function IssuesView(): JSX.Element {
       {creating && (
         <NewIssueDialog initialStage={creating.stage} onClose={() => setCreating(null)} />
       )}
+      {selectedIds.length > 0 && (
+        <BulkBar
+          count={selectedIds.length}
+          onStage={bulkStage}
+          onPriority={bulkPriority}
+          onDelete={bulkDelete}
+          onClear={() => dispatchKey({ kind: 'clear' })}
+        />
+      )}
+      {propMenu &&
+        (() => {
+          const target = active.find((i) => i.id === propMenu.id)
+          return target ? (
+            <AnchoredIssueMenu
+              issue={target}
+              kind={propMenu.kind}
+              assignees={assignees}
+              labelPool={labels}
+              onMoveIssue={moveIssue}
+              onSetPriority={setPriority}
+              onSetAssignee={setAssignee}
+              onToggleLabel={toggleLabel}
+              onClose={() => setPropMenu(null)}
+            />
+          ) : null
+        })()}
     </section>
+  )
+}
+
+/**
+ * A keyboard-anchored property menu (opened by `s`/`p`/`a`/`l`). It positions a
+ * zero-size fixed trigger at the focused card/row's on-screen rect and opens the
+ * matching options over it — Stage, Priority, Assignee, or Labels. Selecting an
+ * option fires the corresponding mutation; any close (select / Esc / outside
+ * click) calls `onClose`.
+ */
+function AnchoredIssueMenu({
+  issue,
+  kind,
+  assignees,
+  labelPool,
+  onMoveIssue,
+  onSetPriority,
+  onSetAssignee,
+  onToggleLabel,
+  onClose,
+}: {
+  issue: IssueWire
+  kind: PropMenuKind
+  assignees: string[]
+  labelPool: string[]
+  onMoveIssue: (id: string, stage: IssueStage) => void
+  onSetPriority: (id: string, priority: number) => void
+  onSetAssignee: (id: string, assignee: string) => void
+  onToggleLabel: (issue: IssueWire, label: string) => void
+  onClose: () => void
+}): JSX.Element {
+  const el =
+    typeof document !== 'undefined' ? document.querySelector(`[data-issue-id="${issue.id}"]`) : null
+  const r = el?.getBoundingClientRect()
+  const addable = labelPool.filter((l) => !issue.labels.includes(l))
+  return (
+    <DropdownMenu open modal={false} onOpenChange={(o) => !o && onClose()}>
+      <DropdownMenuTrigger
+        render={
+          <span
+            aria-hidden="true"
+            style={{
+              position: 'fixed',
+              left: r?.left ?? 0,
+              top: r?.bottom ?? 0,
+              width: 0,
+              height: 0,
+              pointerEvents: 'none',
+            }}
+          />
+        }
+      />
+      <DropdownMenuContent align="start" className="w-52">
+        {kind === 's' &&
+          ISSUE_STAGES.map((s) => (
+            <DropdownMenuItem key={s} onClick={() => onMoveIssue(issue.id, s)}>
+              <StageGlyph stage={s} />
+              {STAGE_LABELS[s]}
+            </DropdownMenuItem>
+          ))}
+        {kind === 'p' &&
+          [0, 1, 2, 3, 4].map((p) => (
+            <DropdownMenuItem key={p} onClick={() => onSetPriority(issue.id, p)}>
+              <PriorityGlyph priority={p} />P{p}
+            </DropdownMenuItem>
+          ))}
+        {kind === 'a' && (
+          <>
+            <DropdownMenuItem onClick={() => onSetAssignee(issue.id, '')}>
+              Unassigned
+            </DropdownMenuItem>
+            {assignees.map((a) => (
+              <DropdownMenuItem key={a} onClick={() => onSetAssignee(issue.id, a)}>
+                {a}
+              </DropdownMenuItem>
+            ))}
+          </>
+        )}
+        {kind === 'l' && (
+          <>
+            {issue.labels.map((l) => (
+              <DropdownMenuItem key={l} onClick={() => onToggleLabel(issue, l)}>
+                <Check size={13} aria-hidden="true" />
+                {l}
+              </DropdownMenuItem>
+            ))}
+            {addable.map((l) => (
+              <DropdownMenuItem key={l} onClick={() => onToggleLabel(issue, l)}>
+                {l}
+              </DropdownMenuItem>
+            ))}
+            {issue.labels.length === 0 && addable.length === 0 && (
+              <DropdownMenuItem disabled>No labels</DropdownMenuItem>
+            )}
+          </>
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
+/**
+ * The multi-select action bar — a fixed bottom-center panel shown while any
+ * issues are selected. Bulk Stage / Priority pickers loop their mutation over
+ * the selection, Delete confirms once then removes them, and Clear drops the
+ * selection.
+ */
+function BulkBar({
+  count,
+  onStage,
+  onPriority,
+  onDelete,
+  onClear,
+}: {
+  count: number
+  onStage: (stage: IssueStage) => void
+  onPriority: (priority: number) => void
+  onDelete: () => void
+  onClear: () => void
+}): JSX.Element {
+  return (
+    <div className="-translate-x-1/2 fixed bottom-4 left-1/2 z-40 flex items-center gap-2 rounded-lg border border-border bg-popover px-3 py-2 shadow-lg">
+      <span className="text-[13px] text-foreground tabular-nums">{count} selected</span>
+      <div className="mx-1 h-4 w-px bg-border" />
+      <PropertyMenu
+        options={ISSUE_STAGES.map((s) => ({
+          value: s,
+          label: STAGE_LABELS[s],
+          icon: <StageGlyph stage={s} />,
+        }))}
+        onSelect={(v) => onStage(v as IssueStage)}
+        trigger={
+          <Button type="button" variant="outline" size="sm">
+            Stage
+          </Button>
+        }
+      />
+      <PropertyMenu
+        options={[0, 1, 2, 3, 4].map((p) => ({
+          value: String(p),
+          label: `P${p}`,
+          icon: <PriorityGlyph priority={p} />,
+        }))}
+        onSelect={(v) => onPriority(Number(v))}
+        trigger={
+          <Button type="button" variant="outline" size="sm">
+            Priority
+          </Button>
+        }
+      />
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        className="text-destructive hover:text-destructive"
+        onClick={onDelete}
+      >
+        <Trash2 size={14} aria-hidden="true" /> Delete
+      </Button>
+      <Button type="button" variant="ghost" size="sm" onClick={onClear}>
+        Clear
+      </Button>
+    </div>
   )
 }
 
@@ -392,6 +752,9 @@ function IssueColumn({
   onCreateIn,
   onSetAssignee,
   assignees,
+  focusId,
+  selected,
+  onToggleSelect,
 }: {
   stage: IssueStage
   label: string
@@ -402,6 +765,9 @@ function IssueColumn({
   onCreateIn: (stage: IssueStage) => void
   onSetAssignee: (id: string, assignee: string) => void
   assignees: string[]
+  focusId: string | null
+  selected: string[]
+  onToggleSelect: (id: string) => void
 }): JSX.Element {
   // Highlight the column while a card is dragged over it. Native DnD fires
   // enter/leave on descendants too, so this can flicker — it's cosmetic only.
@@ -451,6 +817,9 @@ function IssueColumn({
                 onOpen={onOpen}
                 onSetAssignee={onSetAssignee}
                 assignees={assignees}
+                focused={focusId === issue.id}
+                selected={selected.includes(issue.id)}
+                onToggleSelect={onToggleSelect}
               />
             </CardBoundary>
           ))
@@ -513,12 +882,18 @@ function IssueCard({
   onOpen,
   onSetAssignee,
   assignees,
+  focused,
+  selected,
+  onToggleSelect,
 }: {
   issue: IssueWire
   badges: IssuesDisplay['badges']
   onOpen: (id: string) => void
   onSetAssignee: (id: string, assignee: string) => void
   assignees: string[]
+  focused: boolean
+  selected: boolean
+  onToggleSelect: (id: string) => void
 }): JSX.Element {
   const m = issueCardModel(issue)
   const show = badges
@@ -531,8 +906,13 @@ function IssueCard({
     >
       <button
         type="button"
-        className="flex w-full flex-col gap-1.5 rounded-md border border-border bg-card px-3 py-2.5 text-left transition-colors hover:border-primary/60"
-        onClick={() => onOpen(issue.id)}
+        data-issue-id={issue.id}
+        className={cn(
+          'flex w-full flex-col gap-1.5 rounded-md border border-border bg-card px-3 py-2.5 text-left transition-colors hover:border-primary/60',
+          focused && 'ring-2 ring-primary/60',
+          selected && 'bg-primary/10',
+        )}
+        onClick={(e) => (e.shiftKey ? onToggleSelect(issue.id) : onOpen(issue.id))}
       >
         <div className="flex items-center justify-between">
           <span className="text-[11px] text-muted-foreground tabular-nums">{m.seqLabel}</span>
