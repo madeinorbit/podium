@@ -82,14 +82,19 @@ export function Workspace(): JSX.Element {
   // drag only starts once the pointer has actually moved.
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
 
-  const worktree: WorktreeView | undefined = reposToViews(store.repos)
-    .flatMap((r) => r.worktrees)
-    .find((w) => w.path === selectedWorktree)
+  const allWorktrees = reposToViews(store.repos).flatMap((r) => r.worktrees)
+  const worktree: WorktreeView | undefined = allWorktrees.find((w) => w.path === selectedWorktree)
 
   // Unified, ordered tab list (sessions + open files). Default order is pin-aware
   // sessions then files; a manual drag order (persisted per worktree, may include file
   // ids) is applied on top. File ids that no longer exist (after reload) are dropped.
-  const sessionList = worktree ? sessionsForWorktree(sessions, worktree.path) : []
+  const sessionList = worktree
+    ? sessionsForWorktree(
+        sessions,
+        worktree.path,
+        allWorktrees.map((w) => w.path),
+      )
+    : []
   const fileList = worktree ? fileTabs.filter((f) => f.worktreePath === worktree.path) : []
   const byId = new Map<string, WTab>()
   for (const s of sessionList) byId.set(s.sessionId, { id: s.sessionId, kind: 'session', session: s })

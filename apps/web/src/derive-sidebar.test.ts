@@ -1,9 +1,13 @@
-import type { SessionMeta } from '@podium/protocol'
+import type { GitRepositoryWire, SessionMeta } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import {
   dedupeSessionsByResume,
+  EMPTY_PINS,
   partitionStaleSessions,
+  sessionsForWorktree,
+  sidebarSections,
   sortWorktrees,
+  worktreeForCwd,
   type WorktreeNavView,
 } from './derive'
 
@@ -28,6 +32,68 @@ const working = (id: string, hoursAgo: number): SessionMeta =>
     status: 'live',
     agentState: { phase: 'working', since: '', openTaskCount: 0 },
   } as Partial<SessionMeta>)
+
+describe('worktreeForCwd', () => {
+  const roots = ['/repo', '/repo/.worktrees/feat', '/other']
+
+  it('picks the LONGEST containing root, so a worktree beats its parent repo', () => {
+    expect(worktreeForCwd('/repo/.worktrees/feat/apps/web', roots)).toBe('/repo/.worktrees/feat')
+    expect(worktreeForCwd('/repo/packages/web', roots)).toBe('/repo')
+    expect(worktreeForCwd('/repo', roots)).toBe('/repo')
+  })
+
+  it('does not match sibling prefixes without a path boundary', () => {
+    expect(worktreeForCwd('/repo-two/src', roots)).toBeNull()
+  })
+
+  it('returns null when no root contains the cwd', () => {
+    expect(worktreeForCwd('/tmp/scratch', roots)).toBeNull()
+  })
+})
+
+describe('sessionsForWorktree (containment grouping)', () => {
+  const roots = ['/repo', '/repo/.worktrees/feat']
+  const at = (id: string, cwd: string): SessionMeta => sess(id, 1, { cwd } as Partial<SessionMeta>)
+
+  it('a session whose cwd is a SUBDIRECTORY of the worktree still shows in it', () => {
+    const list = [at('a', '/repo/packages/web'), at('b', '/repo')]
+    expect(sessionsForWorktree(list, '/repo', roots).map((s) => s.sessionId)).toEqual(['a', 'b'])
+  })
+
+  it('a session inside a nested worktree does NOT show in the parent repo group', () => {
+    const list = [at('a', '/repo/.worktrees/feat/sub'), at('b', '/repo')]
+    expect(sessionsForWorktree(list, '/repo', roots).map((s) => s.sessionId)).toEqual(['b'])
+    expect(sessionsForWorktree(list, '/repo/.worktrees/feat', roots).map((s) => s.sessionId)).toEqual(['a'])
+  })
+
+  it('falls back to exact-match when no root list is given (legacy callers)', () => {
+    const list = [at('a', '/repo/packages/web'), at('b', '/repo')]
+    expect(sessionsForWorktree(list, '/repo').map((s) => s.sessionId)).toEqual(['b'])
+  })
+})
+
+describe('sidebarSections (containment grouping)', () => {
+  it('a session stamped with a subdirectory cwd shows under its containing worktree', () => {
+    const repos: GitRepositoryWire[] = [
+      {
+        path: '/repo',
+        kind: 'repository',
+        branch: 'main',
+        worktrees: [{ path: '/repo/.worktrees/feat', branch: 'feat' }],
+      },
+    ]
+    const sessions = [
+      sess('inMain', 1, { cwd: '/repo/packages/web' } as Partial<SessionMeta>),
+      sess('inFeat', 1, { cwd: '/repo/.worktrees/feat/apps' } as Partial<SessionMeta>),
+    ]
+    const sections = sidebarSections(repos, sessions, EMPTY_PINS, NOW)
+    const worktrees = sections.repos.flatMap((r) => r.worktrees)
+    const byPath = (p: string) =>
+      worktrees.find((w) => w.path === p)?.sessions.map((s) => s.sessionId) ?? []
+    expect(byPath('/repo')).toEqual(['inMain'])
+    expect(byPath('/repo/.worktrees/feat')).toEqual(['inFeat'])
+  })
+})
 
 describe('partitionStaleSessions', () => {
   it('keeps everything visible when 5 or fewer sessions', () => {

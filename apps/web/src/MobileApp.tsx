@@ -119,7 +119,15 @@ export function MobileApp(): JSX.Element {
       worktree.repoPath.split('/').pop())
     : null
   const tabs = worktree
-    ? orderTabs(sessionsForWorktree(sessions, worktree.path), store.tabOrders[worktree.path], pins)
+    ? orderTabs(
+        sessionsForWorktree(
+          sessions,
+          worktree.path,
+          repoViews.flatMap((r) => r.worktrees.map((w) => w.path)),
+        ),
+        store.tabOrders[worktree.path],
+        pins,
+      )
     : []
   const [pickerOpen, setPickerOpen] = useState(false)
   const [repoPickerOpen, setRepoPickerOpen] = useState(false)

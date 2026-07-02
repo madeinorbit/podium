@@ -20,7 +20,8 @@ import {
   useState,
 } from 'react'
 import { formatAppError } from './AppErrorPage'
-import { dedupeSessionsByResume, EMPTY_PINS, reposToViews } from './derive'
+import { toast } from 'sonner'
+import { dedupeSessionsByResume, EMPTY_PINS, planWorktreeMoves, reposToViews } from './derive'
 import { type FileScope, scopeKey, tabIdFor } from './file-scope'
 import { makeTrpc, type ServerOrigin, type Trpc } from './trpc'
 import type { PinKind, PinState } from './types'
@@ -609,10 +610,44 @@ export function StoreProvider({
     // sit in a path the web's repo list doesn't know yet, and reverting it to
     // worktrees[0] made "Open" on that session show an unrelated one.
     const known = worktrees.some((w) => w.path === selectedWorktree)
-    const hasSession = sessions.some((s) => s.cwd === selectedWorktree)
+    // Containment, not equality: a session stamped with a subdirectory of the
+    // selected path still anchors the selection.
+    const hasSession = sessions.some(
+      (s) => s.cwd === selectedWorktree || s.cwd.startsWith(`${selectedWorktree}/`),
+    )
     if (known || hasSession) return
     setSelectedWorktree(worktrees[0]?.path ?? null)
   }, [repos, reposLoaded, selectedWorktree, sessions])
+
+  // Session-follows-view policy: when a session the user is LOOKING AT (in a
+  // visible pane) moves out of the selected worktree, switch the whole view to
+  // where it went — otherwise it silently disappears from the tab strip mid-
+  // conversation. A background session's move never yanks the view; it gets a
+  // toast so the user knows where it now lives in the sidebar.
+  const prevCwdsRef = useRef<Record<string, string>>({})
+  useEffect(() => {
+    const prevCwds = prevCwdsRef.current
+    prevCwdsRef.current = Object.fromEntries(sessions.map((s) => [s.sessionId, s.cwd]))
+    const tabVisible = document.visibilityState === 'visible'
+    const plan = planWorktreeMoves({
+      prevCwds,
+      sessions,
+      worktreePaths: reposToViews(repos).flatMap((r) => r.worktrees.map((w) => w.path)),
+      selectedWorktree,
+      visiblePanes: tabVisible ? [paneA, split ? paneB : null].filter((x) => x != null) : [],
+    })
+    if (plan.follow) setSelectedWorktree(plan.follow)
+    for (const move of plan.moved) {
+      const s = sessions.find((x) => x.sessionId === move.sessionId)
+      const dest = move.to ?? s?.cwd
+      toast(`${s?.name || s?.title || 'A session'} moved to ${dest?.split('/').pop() ?? '?'}`, {
+        description: dest,
+      })
+    }
+    // Moves are diffs between consecutive `sessions` snapshots; the other inputs
+    // only parameterize how a detected move is handled, and re-running on their
+    // changes is a no-op (prev === current cwd for every session).
+  }, [sessions, repos, selectedWorktree, paneA, paneB, split])
 
   // Persist the "where am I" state for next load.
   useEffect(() => lsSet(VIEW_KEY, view), [view])

@@ -208,9 +208,83 @@ export function resolveTargetMachine(
   return eligible[0]?.id
 }
 
-/** Sessions shown in a worktree's tab strip / sidebar — archived ones stay out. */
-export function sessionsForWorktree(sessions: SessionMeta[], worktreePath: string): SessionMeta[] {
-  return sessions.filter((s) => s.cwd === worktreePath && !s.archived)
+/** The worktree that CONTAINS `cwd`: the longest root with `cwd === root` or
+ *  `cwd` under `root/`. Longest-match matters because a repo root contains its
+ *  own `.worktrees/*` checkouts — a session in one belongs to the worktree, not
+ *  the parent repo. Null when no root contains the cwd. */
+export function worktreeForCwd(cwd: string, worktreePaths: string[]): string | null {
+  let best: string | null = null
+  for (const root of worktreePaths) {
+    if (cwd !== root && !cwd.startsWith(root.endsWith('/') ? root : `${root}/`)) continue
+    if (best === null || root.length > best.length) best = root
+  }
+  return best
+}
+
+/** Sessions shown in a worktree's tab strip / sidebar — archived ones stay out.
+ *  With `allWorktreePaths`, membership is by CONTAINMENT (worktreeForCwd), so a
+ *  session whose stamped cwd is a subdirectory of the worktree still shows in it
+ *  instead of vanishing from every group. Without it, legacy exact-match. */
+export function sessionsForWorktree(
+  sessions: SessionMeta[],
+  worktreePath: string,
+  allWorktreePaths?: string[],
+): SessionMeta[] {
+  return sessions.filter(
+    (s) =>
+      !s.archived &&
+      (allWorktreePaths
+        ? worktreeForCwd(s.cwd, allWorktreePaths) === worktreePath
+        : s.cwd === worktreePath),
+  )
+}
+
+/** One session's worktree change, as seen between two `sessions` snapshots. */
+export interface WorktreeMove {
+  sessionId: string
+  from: string | null
+  to: string | null
+}
+
+/**
+ * View policy for sessions whose worktree changed: the session the user is
+ * looking at FOLLOWS (switch the whole view to its new worktree so it doesn't
+ * vanish out of the tab strip mid-conversation); a background session's move
+ * never yanks the view — it's reported (`moved`) for a toast instead.
+ *
+ * `follow` is non-null only when a visible-pane session moved OUT of the
+ * currently-selected worktree into another known worktree. Moves are computed
+ * on resolved worktree roots (worktreeForCwd), so a subdirectory cd is a no-op,
+ * and first-sight sessions (no previous cwd) are never moves.
+ */
+export function planWorktreeMoves(opts: {
+  prevCwds: Record<string, string>
+  sessions: SessionMeta[]
+  worktreePaths: string[]
+  selectedWorktree: string | null
+  visiblePanes: string[]
+}): { follow: string | null; moved: WorktreeMove[] } {
+  let follow: string | null = null
+  const moved: WorktreeMove[] = []
+  for (const s of opts.sessions) {
+    const prev = opts.prevCwds[s.sessionId]
+    if (prev === undefined || prev === s.cwd) continue
+    const from = worktreeForCwd(prev, opts.worktreePaths)
+    const to = worktreeForCwd(s.cwd, opts.worktreePaths)
+    if (from === to) continue // subdirectory cd / unresolvable churn — not a move
+    if (
+      follow === null &&
+      to !== null &&
+      from !== null &&
+      from === opts.selectedWorktree &&
+      opts.visiblePanes.includes(s.sessionId)
+    ) {
+      follow = to
+    } else {
+      moved.push({ sessionId: s.sessionId, from, to })
+    }
+  }
+  return { follow, moved }
 }
 
 /** Resolve a session's cwd to its repo name + branch, for the pinned-panel
@@ -254,7 +328,12 @@ export function orphanSessionFor(opts: {
   paneA: string | null
 }): SessionMeta | null {
   if (!opts.selectedWorktree) return null
-  const orphans = sessionsForWorktree(opts.sessions, opts.selectedWorktree)
+  // Containment against just the selected path: the worktree is gone from the
+  // scan, so there's no root list to resolve against — but a session stamped
+  // with a subdirectory of the removed worktree is still its orphan.
+  const orphans = sessionsForWorktree(opts.sessions, opts.selectedWorktree, [
+    opts.selectedWorktree,
+  ])
   return orphans.find((s) => s.sessionId === opts.paneA) ?? orphans[0] ?? null
 }
 
@@ -420,10 +499,14 @@ export function sidebarSections(
   // A pinned panel still appears in its own repo/worktree list (it's not removed
   // from there) — pinning lifts a copy into PINNED PANELS for quick reach without
   // hiding it from its home. The selected highlight lights up in both places.
+  const allWorktreePaths = allWorktrees.map(({ worktree }) => worktree.path)
   const navWorktree = (repo: RepoView, worktree: WorktreeView): WorktreeNavView => ({
     ...worktree,
     repoName: repo.name,
-    sessions: sortSessionsForSidebar(sessionsForWorktree(sessions, worktree.path), now),
+    sessions: sortSessionsForSidebar(
+      sessionsForWorktree(sessions, worktree.path, allWorktreePaths),
+      now,
+    ),
   })
 
   const navRepo = (repo: RepoView): RepoNavView => ({
