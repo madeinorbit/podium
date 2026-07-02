@@ -2,6 +2,7 @@
 # Podium installer. Usage:
 #   curl -fsSL .../install.sh | sh
 #   curl -fsSL .../install.sh | sh -s -- --join <TOKEN> [--channel edge]
+#   GH_TOKEN=<token> curl -fsSL -H "Authorization: Bearer $GH_TOKEN" .../install.sh | GH_TOKEN=$GH_TOKEN sh -s -- --channel edge
 set -eu
 
 REPO="madeinorbit/podium"
@@ -12,6 +13,7 @@ AUTO_UPDATE="1"
 # scripts/podium-update-pubkey.ts — the lockstep test in Step 5 enforces they match. (A test
 # override is allowed via PODIUM_INSTALL_PUBKEY.) The key is public; committing it is safe.
 PUBKEY="${PODIUM_INSTALL_PUBKEY:-MCowBQYDK2VwAyEAvToQHbEK4FSYyY0OJEyacn+zp5r8n5QEE+Y2OIL+onY=}"
+GITHUB_AUTH_TOKEN="${GITHUB_TOKEN:-${GH_TOKEN:-}}"
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -41,8 +43,25 @@ fi
 
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 fetch() { # fetch <url> <out>
-  if command -v curl >/dev/null 2>&1; then curl -fsSL "$1" -o "$2"
-  elif command -v wget >/dev/null 2>&1; then wget -qO "$2" "$1"
+  if command -v curl >/dev/null 2>&1; then
+    if [ -n "$GITHUB_AUTH_TOKEN" ]; then
+      CURL_AUTH_CONFIG="$TMP/curl-auth.conf"
+      if [ ! -f "$CURL_AUTH_CONFIG" ]; then
+        ( umask 077
+          printf 'header = "Authorization: Bearer %s"\n' "$GITHUB_AUTH_TOKEN"
+          printf 'header = "Accept: application/octet-stream"\n'
+        ) > "$CURL_AUTH_CONFIG"
+      fi
+      curl -fsSL --config "$CURL_AUTH_CONFIG" "$1" -o "$2"
+    else
+      curl -fsSL "$1" -o "$2"
+    fi
+  elif command -v wget >/dev/null 2>&1; then
+    if [ -n "$GITHUB_AUTH_TOKEN" ]; then
+      echo "podium: authenticated GitHub downloads require curl" >&2
+      exit 1
+    fi
+    wget -qO "$2" "$1"
   else echo "podium: need curl or wget" >&2; exit 1; fi
 }
 echo "Downloading $ASSET ($CHANNEL)…"
