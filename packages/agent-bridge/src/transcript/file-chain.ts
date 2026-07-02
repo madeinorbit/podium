@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto'
 import { stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import { claudeProjectSlug } from '../agent-state/claude-code.js'
+import { locateClaudeSessionFile } from '../agent-state/claude-locate.js'
 import { findCodexRolloutPath } from '../agent-state/codex.js'
 import { grokSessionPaths } from '../agent-state/grok.js'
 import { cursorSessionPaths } from '../cursor/paths.js'
@@ -42,16 +42,16 @@ async function resolvePaths(input: {
   // instead of guessing a sibling. opencode is SQLite-backed (separate DB adapter).
   if (!input.resumeValue) return []
   if (input.agentKind === 'claude-code') {
-    // The claude session_id (resume value) IS the JSONL basename in the cwd bucket;
-    // resolve exactly that file (matching the daemon's tailResumeTranscript path).
-    const path = join(
-      home,
-      '.claude',
-      'projects',
-      claudeProjectSlug(input.cwd),
-      `${input.resumeValue}.jsonl`,
-    )
-    return (await fileExists(path)) ? [path] : []
+    // The claude session_id (resume value) IS the JSONL basename. The locator
+    // tries the current-cwd bucket first, then sweeps all buckets — session.cwd is
+    // mutable (worktree moves restamp it) while the file stays in the bucket of
+    // the cwd it was CREATED under (docs/spec/conversation-registry.md §3.3).
+    const path = await locateClaudeSessionFile({
+      cwd: input.cwd,
+      resumeValue: input.resumeValue,
+      homeDir: home,
+    })
+    return path ? [path] : []
   }
   if (input.agentKind === 'codex') {
     // Codex stores no derivable per-cwd path; resolve the rollout from the resume

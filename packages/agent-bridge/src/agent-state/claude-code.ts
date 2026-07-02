@@ -3,6 +3,7 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import type { AgentKind } from '@podium/protocol'
 import { lastTimestampedRecordIso } from './boot-time.js'
+import { locateClaudeSessionFile } from './claude-locate.js'
 import {
   type ClaudeTranscriptFeatures,
   classifyClaudeTranscriptDeterministically,
@@ -63,11 +64,8 @@ export const claudeCodeStateProvider: AgentStateProvider = {
   bootEvents: claudeBootEvents,
 }
 
-/** Claude's per-project transcript dir name: the cwd with every non-alphanumeric
- *  character flattened to '-' (verified against real hook payloads, CLI 2.1.173). */
-export function claudeProjectSlug(cwd: string): string {
-  return cwd.replace(/[^a-zA-Z0-9]/g, '-')
-}
+// claudeProjectSlug moved beside the locator (claude-locate.ts); the package
+// index re-exports both, so external importers are unaffected.
 
 export async function claudeBootEvents(opts: {
   cwd: string
@@ -75,13 +73,15 @@ export async function claudeBootEvents(opts: {
   homeDir?: string
 }): Promise<AgentStateEvent[]> {
   if (opts.resumeValue) {
-    const transcript = join(
-      opts.homeDir ?? homedir(),
-      '.claude',
-      'projects',
-      claudeProjectSlug(opts.cwd),
-      `${opts.resumeValue}.jsonl`,
-    )
+    // Locator, not derivation: after a worktree move the transcript lives in the
+    // ORIGINAL cwd's bucket — deriving from the current cwd silently misclassified
+    // moved sessions as bare session_started (restamping recency on reattach).
+    const transcript = await locateClaudeSessionFile({
+      cwd: opts.cwd,
+      resumeValue: opts.resumeValue,
+      ...(opts.homeDir ? { homeDir: opts.homeDir } : {}),
+    })
+    if (!transcript) return [{ kind: 'session_started' }]
     try {
       const verdict = classifyIdleTranscript(await readTranscriptTail(transcript), 'default')
       // Stamp the last DATED record's time, NOT the file mtime: Claude appends

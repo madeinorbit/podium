@@ -21,6 +21,7 @@ import {
   type CursorStateObserver,
   claudeProjectSlug,
   codexRecordToItems,
+  locateClaudeSessionFile,
   cursorRecordToItems,
   cursorSessionPaths,
   type GitDiscoveryDiagnostic,
@@ -478,10 +479,18 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     // reads the SAME location the on-demand read source does — otherwise a daemon
     // run against an isolated home would tail the real ~/.claude and find nothing.
     const home = opts.discovery?.homeDir ?? homedir()
-    ensureTranscriptTail(
-      sessionId,
-      join(home, '.claude', 'projects', claudeProjectSlug(cwd), `${resumeValue}.jsonl`),
-    )
+    void (async () => {
+      // Locate, don't derive: after a worktree move the file lives in the ORIGINAL
+      // cwd's bucket (docs/spec/conversation-registry.md §3.3). Fall back to the
+      // derived path when nothing exists yet — a fresh resume creates the file a
+      // moment later and the tailer waits on it.
+      const located = await locateClaudeSessionFile({ cwd, resumeValue, homeDir: home })
+      ensureTranscriptTail(
+        sessionId,
+        located ??
+          join(home, '.claude', 'projects', claudeProjectSlug(cwd), `${resumeValue}.jsonl`),
+      )
+    })()
   }
   // Start a claude-code session's transcript tail. With a resume ref we know the
   // exact file (derivable path). WITHOUT one — a fresh spawn that hasn't yet

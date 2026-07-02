@@ -1,4 +1,4 @@
-import { createHash, timingSafeEqual } from 'node:crypto'
+import { createHash, randomUUID, timingSafeEqual } from 'node:crypto'
 import { mkdirSync, readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -1417,6 +1417,123 @@ export class SessionStore {
     this.db.prepare('DELETE FROM queued_messages WHERE session_id = ?').run(sessionId)
   }
 
+  // ---- conversation registry (docs/spec/conversation-registry.md) ----
+
+  /** The Podium identity a native conversation maps to, or undefined if unseen. */
+  conversationPodiumId(machineId: string, nativeId: string): string | undefined {
+    const row = this.db
+      .prepare('SELECT podium_id FROM conversation_segments WHERE machine_id = ? AND native_id = ?')
+      .get(machineId, nativeId) as { podium_id: string } | undefined
+    return row?.podium_id
+  }
+
+  /**
+   * Ensure a native conversation has an identity, minting one when it was never
+   * seen (`linked_by: 'discovery'`). Idempotent: an existing segment never re-mints
+   * (spec: same native id maps to the same identity forever). A parent provided
+   * later fills a NULL parent_podium_id but never overwrites a non-null one —
+   * mis-parenting is the failure mode to avoid.
+   */
+  ensureConversationIdentity(opts: {
+    machineId: string
+    nativeId: string
+    providerId: string
+    parentPodiumId?: string
+    path?: string
+  }): string {
+    const existing = this.conversationPodiumId(opts.machineId, opts.nativeId)
+    if (existing !== undefined) {
+      if (opts.parentPodiumId) {
+        this.db
+          .prepare(
+            'UPDATE conversation_identities SET parent_podium_id = ? WHERE podium_id = ? AND parent_podium_id IS NULL',
+          )
+          .run(opts.parentPodiumId, existing)
+      }
+      if (opts.path) {
+        this.db
+          .prepare(
+            'UPDATE conversation_segments SET path = ? WHERE machine_id = ? AND native_id = ?',
+          )
+          .run(opts.path, opts.machineId, opts.nativeId)
+      }
+      return existing
+    }
+    const podiumId = `conv_${randomUUID()}`
+    const now = new Date().toISOString()
+    this.db
+      .prepare(
+        'INSERT INTO conversation_identities (podium_id, parent_podium_id, created_at) VALUES (?, ?, ?)',
+      )
+      .run(podiumId, opts.parentPodiumId ?? null, now)
+    this.db
+      .prepare(
+        `INSERT INTO conversation_segments
+           (machine_id, native_id, provider_id, podium_id, path, seq_in_conv, linked_by, created_at)
+         VALUES (?, ?, ?, ?, ?, 1, 'discovery', ?)`,
+      )
+      .run(opts.machineId, opts.nativeId, opts.providerId, podiumId, opts.path ?? null, now)
+    return podiumId
+  }
+
+  /**
+   * Live-roll lineage (spec §3.1): the server observed a session's resume ref roll
+   * from `priorNativeId` to `newNativeId` — attach the new native file as the NEXT
+   * SEGMENT of the prior identity (minting the prior's identity if this is the
+   * first time we see it). Returns the shared podium id. If the new id was already
+   * linked (e.g. re-observed after a restart) this is a no-op returning its id.
+   */
+  linkConversationSegment(opts: {
+    machineId: string
+    newNativeId: string
+    priorNativeId: string
+    providerId: string
+  }): string {
+    const already = this.conversationPodiumId(opts.machineId, opts.newNativeId)
+    if (already !== undefined) return already
+    const podiumId = this.ensureConversationIdentity({
+      machineId: opts.machineId,
+      nativeId: opts.priorNativeId,
+      providerId: opts.providerId,
+    })
+    const nextSeq =
+      ((
+        this.db
+          .prepare(
+            'SELECT MAX(seq_in_conv) AS m FROM conversation_segments WHERE podium_id = ?',
+          )
+          .get(podiumId) as { m: number | null }
+      ).m ?? 0) + 1
+    this.db
+      .prepare(
+        `INSERT INTO conversation_segments
+           (machine_id, native_id, provider_id, podium_id, path, seq_in_conv, linked_by, created_at)
+         VALUES (?, ?, ?, ?, NULL, ?, 'live-roll', ?)`,
+      )
+      .run(
+        opts.machineId,
+        opts.newNativeId,
+        opts.providerId,
+        podiumId,
+        nextSeq,
+        new Date().toISOString(),
+      )
+    return podiumId
+  }
+
+  /** Batch lookup for wire enrichment: native id → podium id (per machine). */
+  conversationPodiumIds(machineId: string, nativeIds: string[]): Map<string, string> {
+    const out = new Map<string, string>()
+    const q = this.db.prepare(
+      'SELECT podium_id FROM conversation_segments WHERE machine_id = ? AND native_id = ?',
+    )
+    for (const id of nativeIds) {
+      const row = q.get(machineId, id) as { podium_id: string } | undefined
+      if (row) out.set(id, row.podium_id)
+    }
+    return out
+  }
+
   close(): void {
     this.db.close()
   }
@@ -1527,6 +1644,33 @@ export class SessionStore {
     )
     this.db.exec(
       'CREATE INDEX IF NOT EXISTS queued_messages_session ON queued_messages(session_id, queued_at)',
+    )
+    // Conversation registry (docs/spec/conversation-registry.md §3.1): identity is
+    // Podium-generated and immutable; native session ids / file paths are EVIDENCE
+    // attached as segments. A resume that rolls into a new native file adds a
+    // segment to the same identity instead of becoming a brand-new conversation.
+    this.db.exec(
+      `CREATE TABLE IF NOT EXISTS conversation_identities (
+         podium_id        TEXT PRIMARY KEY,
+         parent_podium_id TEXT,
+         created_at       TEXT NOT NULL
+       )`,
+    )
+    this.db.exec(
+      `CREATE TABLE IF NOT EXISTS conversation_segments (
+         machine_id  TEXT NOT NULL,
+         native_id   TEXT NOT NULL,
+         provider_id TEXT NOT NULL,
+         podium_id   TEXT NOT NULL,
+         path        TEXT,
+         seq_in_conv INTEGER NOT NULL,
+         linked_by   TEXT NOT NULL,
+         created_at  TEXT NOT NULL,
+         PRIMARY KEY (machine_id, native_id)
+       )`,
+    )
+    this.db.exec(
+      'CREATE INDEX IF NOT EXISTS conversation_segments_podium ON conversation_segments(podium_id, seq_in_conv)',
     )
     // Persistent human-client login sessions (web/desktop UI). We store only the SHA-256
     // of the cookie token, never the token itself, so a DB read can't mint a valid cookie.

@@ -147,6 +147,10 @@ export const SessionMeta = z.object({
    *  snoozedUntil/draftUpdatedAt this is pending USER intent, orthogonal to the
    *  agent's phase; it drives the chat "queued" state on every client. */
   queuedMessageCount: z.number().int().positive().optional(),
+  /** The stable Podium conversation identity this session is working in
+   *  (docs/spec/conversation-registry.md) — survives resume-rolls and worktree
+   *  moves, unlike the native resume ref. Absent until first known. */
+  conversationPodiumId: z.string().optional(),
 })
 export type SessionMeta = z.infer<typeof SessionMeta>
 
@@ -159,6 +163,11 @@ export const ConversationGit = z.object({
 export type ConversationGit = z.infer<typeof ConversationGit>
 export const ConversationSummaryWire = z.object({
   id: z.string(),
+  /** Podium-generated stable identity (docs/spec/conversation-registry.md). `id`
+   *  above is the NATIVE agent session id — evidence, not identity: a resume that
+   *  rolls into a new file gets a new `id` but keeps this `podiumId`. Server-
+   *  enriched; absent on daemon-originated payloads and for un-indexed rows. */
+  podiumId: z.string().optional(),
   agentKind: AgentKind,
   title: z.string().optional(),
   projectPath: z.string().optional(),

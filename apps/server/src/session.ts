@@ -144,6 +144,10 @@ export class Session {
    *  Transient mirror maintained by the registry (enqueue/deliver/boot) — the
    *  table is the truth; this exists so toMeta() stays synchronous. */
   queuedMessageCount = 0
+  /** Stable Podium conversation identity (conversation registry). Stamped by the
+   *  registry when the linkage is learned (resume ref observed/rolled, boot
+   *  lookup); transient here — the conversation_segments table is the truth. */
+  conversationPodiumId: string | undefined = undefined
   /** Last-edit time of a non-empty unsent composer draft (undefined = no draft).
    *  Lives in its own `session_drafts` table (not toRow()); the registry seeds it
    *  at load and on every setSessionDraft. Surfaced so the client can show DRAFT
@@ -718,6 +722,7 @@ export class Session {
       ...(this.snoozedUntil !== undefined ? { snoozedUntil: this.snoozedUntil } : {}),
       ...(this.draftUpdatedAt !== undefined ? { draftUpdatedAt: this.draftUpdatedAt } : {}),
       ...(this.queuedMessageCount > 0 ? { queuedMessageCount: this.queuedMessageCount } : {}),
+      ...(this.conversationPodiumId ? { conversationPodiumId: this.conversationPodiumId } : {}),
     }
   }
 

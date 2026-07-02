@@ -565,6 +565,14 @@ export class SessionRegistry {
       if (r.id in draftTimes) session.draftUpdatedAt = draftTimes[r.id]
       if (r.status !== reloadStatus) this.persist(session)
     }
+    // Re-stamp conversation identities from the registry (lookup only — minting
+    // happens at the observation seams, never speculatively at boot).
+    for (const s of this.sessions.values()) {
+      if (s.resume?.value) {
+        const podiumId = this.store.conversationPodiumId(s.machineId, s.resume.value)
+        if (podiumId) s.conversationPodiumId = podiumId
+      }
+    }
     // Re-seed the transient queued-send counts from the durable queue — the rows
     // survived the restart (that's their point); delivery re-arms when the daemon
     // reattaches and the sessions bind.
@@ -2142,9 +2150,13 @@ export class SessionRegistry {
         break
       }
       case 'scanResult': {
-        this.latestConversations = msg.conversations
+        // Index FIRST so latestConversations (and the broadcast) carry podiumId.
+        this.latestConversations = this.indexConversations(
+          msg.conversations,
+          machineId,
+          msg.removed ?? [],
+        )
         this.latestConversationDiagnostics = msg.diagnostics
-        this.indexConversations(msg.conversations, machineId, msg.removed ?? [])
         this.broadcastConversations()
         const resolve = this.pendingScans.get(msg.requestId)
         if (resolve) {
@@ -2154,9 +2166,12 @@ export class SessionRegistry {
         break
       }
       case 'conversationsChanged': {
-        this.latestConversations = msg.conversations
+        this.latestConversations = this.indexConversations(
+          msg.conversations,
+          machineId,
+          msg.removed ?? [],
+        )
         this.latestConversationDiagnostics = msg.diagnostics
-        this.indexConversations(msg.conversations, machineId, msg.removed ?? [])
         this.broadcastConversations()
         break
       }
@@ -2183,7 +2198,25 @@ export class SessionRegistry {
         const session = this.sessions.get(msg.sessionId)
         if (!session) break
         if (session.resume?.value !== msg.resume.value) {
+          const prior = session.resume?.value
           session.resume = msg.resume
+          // Conversation registry: this seam is where lineage is OBSERVED. A prior
+          // ref rolling to a new one on the same session = same conversation, new
+          // native file → link as a segment ('live-roll'). First-ever ref = the
+          // session's conversation becomes known → ensure an identity exists.
+          // (docs/spec/conversation-registry.md §3.1)
+          session.conversationPodiumId = prior
+            ? this.store.linkConversationSegment({
+                machineId: session.machineId,
+                newNativeId: msg.resume.value,
+                priorNativeId: prior,
+                providerId: session.agentKind,
+              })
+            : this.store.ensureConversationIdentity({
+                machineId: session.machineId,
+                nativeId: msg.resume.value,
+                providerId: session.agentKind,
+              })
           this.persist(session)
           // A resume ref makes the session resumable (→ hibernate button). Push the
           // updated meta so already-connected clients see it live, rather than only
@@ -2393,11 +2426,52 @@ export class SessionRegistry {
    *  history. Tagged with the reporting machineId so a conversation is attributable
    *  to (and resumable on) the machine that owns its on-disk transcript. `removed`
    *  drops conversations the daemon reports as deleted (incremental delta indexing). */
+  /**
+   * Persist scanned conversations and attach registry identities (docs/spec/
+   * conversation-registry.md §3.1): every native conversation maps to a stable
+   * podium id — minted on first sight, resolved thereafter — and subagent parents
+   * resolve to parent PODIUM ids. Returns the wire list enriched with `podiumId`
+   * so broadcasts carry stable identity alongside the native id.
+   */
   private indexConversations(
     conversations: ConversationSummaryWire[],
     machineId: string,
     removed: string[] = [],
-  ): void {
+  ): ConversationSummaryWire[] {
+    // Parents first, so a child's mint can point at its parent's identity. A
+    // parent that is itself in this batch resolves in the first loop; one that
+    // isn't (child-only rescan) is ensured on demand in the second.
+    const podiumIds = new Map<string, string>()
+    for (const c of conversations) {
+      if (c.parentConversationId) continue
+      podiumIds.set(
+        c.id,
+        this.store.ensureConversationIdentity({
+          machineId,
+          nativeId: c.id,
+          providerId: c.providerId,
+        }),
+      )
+    }
+    for (const c of conversations) {
+      if (!c.parentConversationId) continue
+      const parentPodiumId =
+        podiumIds.get(c.parentConversationId) ??
+        this.store.ensureConversationIdentity({
+          machineId,
+          nativeId: c.parentConversationId,
+          providerId: c.providerId,
+        })
+      podiumIds.set(
+        c.id,
+        this.store.ensureConversationIdentity({
+          machineId,
+          nativeId: c.id,
+          providerId: c.providerId,
+          parentPodiumId,
+        }),
+      )
+    }
     this.store.upsertConversations(
       conversations.map((c) => ({
         id: c.id,
@@ -2416,6 +2490,10 @@ export class SessionRegistry {
       })),
     )
     if (removed.length) this.store.deleteConversations(removed)
+    return conversations.map((c) => {
+      const podiumId = podiumIds.get(c.id)
+      return podiumId ? { ...c, podiumId } : c
+    })
   }
 
   searchConversations(opts: { query?: string; projectPath?: string; limit?: number }) {

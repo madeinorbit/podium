@@ -506,7 +506,15 @@ describe('SessionRegistry', () => {
     expect(c.sent.some((m) => m.type === 'sessionsChanged')).toBe(true)
     expect(c.sent).toContainEqual({
       type: 'conversationsChanged',
-      conversations: [{ id: 'conv-1', agentKind: 'codex', providerId: 'codex-jsonl' }],
+      // The registry enriches broadcasts with the stable podium identity.
+      conversations: [
+        {
+          id: 'conv-1',
+          agentKind: 'codex',
+          providerId: 'codex-jsonl',
+          podiumId: expect.stringMatching(/^conv_/),
+        },
+      ],
       diagnostics: [],
     })
   })
@@ -549,7 +557,12 @@ describe('SessionRegistry', () => {
       {
         type: 'conversationsChanged',
         conversations: [
-          { id: 'conv-2', agentKind: 'claude-code', providerId: 'claude-code-jsonl' },
+          {
+            id: 'conv-2',
+            agentKind: 'claude-code',
+            providerId: 'claude-code-jsonl',
+            podiumId: expect.stringMatching(/^conv_/),
+          },
         ],
         diagnostics: [],
       },
@@ -578,7 +591,14 @@ describe('SessionRegistry', () => {
     await expect(p).resolves.toMatchObject({ conversations: [{ id: 'conv-3' }] })
     expect(c.sent).toContainEqual({
       type: 'conversationsChanged',
-      conversations: [{ id: 'conv-3', agentKind: 'codex', providerId: 'codex-jsonl' }],
+      conversations: [
+        {
+          id: 'conv-3',
+          agentKind: 'codex',
+          providerId: 'codex-jsonl',
+          podiumId: expect.stringMatching(/^conv_/),
+        },
+      ],
       diagnostics: [],
     })
   })
