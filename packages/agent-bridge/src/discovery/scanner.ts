@@ -1,11 +1,10 @@
-import { realpath as realpathFs, stat } from 'node:fs/promises'
-import { sep } from 'node:path'
+import { stat } from 'node:fs/promises'
 import type { ConversationDiscoveryCache } from './cache.js'
 import { canonicalPath, expandHome, isDirectory } from './paths.js'
 import { createClaudeCodeConversationProvider } from './providers/claude-code.js'
 import { createCodexConversationProvider } from './providers/codex.js'
-import { createCursorConversationProvider } from './providers/cursor.js'
 import { createGrokConversationProvider } from './providers/grok.js'
+import { createCursorConversationProvider } from './providers/cursor.js'
 import { createOpencodeConversationProvider } from './providers/opencode.js'
 import {
   type AgentConversation,
@@ -29,20 +28,6 @@ const builtInProviders: readonly ConversationProvider[] = [
 ]
 
 const providersById = new Map(builtInProviders.map((provider) => [provider.id, provider]))
-
-/**
- * Every built-in provider's default discovery roots for `homeDir` (deduped, not
- * existence-checked). The daemon's transcript-mirror path guard uses this as its
- * allowlist: a mirror read may only touch files under a discovery root, so the
- * mirror can never be used as an arbitrary file reader (transcript-mirror spec §2.3).
- */
-export function discoveryRoots(homeDir: string): string[] {
-  const roots = new Set<string>()
-  for (const provider of builtInProviders) {
-    for (const root of provider.defaultRoots({ homeDir })) roots.add(root)
-  }
-  return [...roots]
-}
 
 export type ScanAgentConversationsCachedOptions = ScanAgentConversationsOptions & {
   cache: ConversationDiscoveryCache
@@ -366,29 +351,4 @@ function memoizeCanonicalPath(): (path: string) => Promise<string> {
     }
     return cached
   }
-}
-
-/**
- * Mirror-read path guard (docs/spec/transcript-mirror.md §2.3): resolve `path`
- * and admit it only when its REAL location sits inside one of the given roots
- * (realpathed, trailing-separator prefix — `<root>-evil` and symlinks escaping a
- * root are refused). Returns the realpath to read, or null when refused/missing.
- */
-export async function resolveWithinRoots(path: string, roots: string[]): Promise<string | null> {
-  let real: string
-  try {
-    real = await realpathFs(path)
-  } catch {
-    return null // vanished between discovery and this read
-  }
-  for (const root of roots) {
-    let realRoot: string
-    try {
-      realRoot = await realpathFs(root)
-    } catch {
-      continue // a provider dir absent on this host can't allow anything
-    }
-    if (real.startsWith(realRoot + sep)) return real
-  }
-  return null
 }

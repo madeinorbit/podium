@@ -972,33 +972,6 @@ export const TranscriptReadRequestMessage = z.object({
 })
 export type TranscriptReadRequestMessage = z.infer<typeof TranscriptReadRequestMessage>
 
-// Transcript mirror (docs/spec/transcript-mirror.md): server-driven ranged pull of
-// a native transcript file into the server's lake. `path` MUST come from recorded
-// discovery evidence — the daemon refuses anything outside its discovery roots, so
-// this can never act as an arbitrary file reader.
-export const TranscriptMirrorReadMessage = z.object({
-  type: z.literal('transcriptMirrorRead'),
-  requestId: z.string(),
-  path: z.string(),
-  offset: z.number().int().nonnegative(),
-  maxBytes: z.number().int().positive().max(1024 * 1024),
-})
-export type TranscriptMirrorReadMessage = z.infer<typeof TranscriptMirrorReadMessage>
-
-export const TranscriptMirrorResultMessage = z.object({
-  type: z.literal('transcriptMirrorResult'),
-  requestId: z.string(),
-  /** Base64 chunk read at `offset` (empty when offset >= fileSize). */
-  data: z.string(),
-  /** Total file size at read time — lets the server detect rewrites (shrinks). */
-  fileSize: z.number().int().nonnegative(),
-  /** True when offset + chunk reaches fileSize (nothing further to pull now). */
-  eof: z.boolean(),
-  /** Refused (outside roots) or unreadable — the server backs off, cursor untouched. */
-  error: z.string().optional(),
-})
-export type TranscriptMirrorResultMessage = z.infer<typeof TranscriptMirrorResultMessage>
-
 export const FileReadRequestMessage = z.object({
   type: z.literal('fileReadRequest'),
   requestId: z.string(),
@@ -1203,7 +1176,6 @@ export const ControlMessage = z.discriminatedUnion('type', [
   SpawnMessage,
   ReattachMessage,
   KillMessage,
-  TranscriptMirrorReadMessage,
   SessionPriorityMessage,
   ScanRequestMessage,
   ScanReposRequestMessage,
@@ -1441,7 +1413,6 @@ export const DaemonMessage = z.discriminatedUnion('type', [
   ScanResultMessage,
   ConversationsChangedMessage,
   ScanReposResultMessage,
-  TranscriptMirrorResultMessage,
   HostMetricsMessage,
   MemoryBreakdownResultMessage,
   TranscriptDeltaMessage,

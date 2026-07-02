@@ -3,9 +3,7 @@ export * from './git/index.js'
 export {
   compareConversationSummaries,
   dedupeConversations,
-  discoveryRoots,
   loadAgentConversation,
-  resolveWithinRoots,
   scanAgentConversations,
   scanAgentConversationsCached,
   summarizePaths,

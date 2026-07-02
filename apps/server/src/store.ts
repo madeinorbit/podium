@@ -1531,44 +1531,6 @@ export class SessionStore {
     return podiumId
   }
 
-  // ---- transcript mirror (docs/spec/transcript-mirror.md) ----
-
-  /** Segments with known path evidence for one machine — the mirror work list.
-   *  Cheap to call per scan: the caller diffs against in-flight state. */
-  segmentsToMirror(
-    machineId: string,
-  ): { nativeId: string; path: string; mirroredBytes: number }[] {
-    const rows = this.db
-      .prepare(
-        'SELECT native_id, path, mirrored_bytes FROM conversation_segments WHERE machine_id = ? AND path IS NOT NULL',
-      )
-      .all(machineId) as Record<string, unknown>[]
-    return rows.map((r) => ({
-      nativeId: r.native_id as string,
-      path: r.path as string,
-      mirroredBytes: r.mirrored_bytes as number,
-    }))
-  }
-
-  mirrorCursor(machineId: string, nativeId: string): number {
-    const row = this.db
-      .prepare(
-        'SELECT mirrored_bytes FROM conversation_segments WHERE machine_id = ? AND native_id = ?',
-      )
-      .get(machineId, nativeId) as { mirrored_bytes: number } | undefined
-    return row?.mirrored_bytes ?? 0
-  }
-
-  /** Advance (or, on rewrite, reset) the mirror cursor AFTER the lake write landed
-   *  (spec invariant 2 — the cursor may lag the lake, never lead it). */
-  setMirrorCursor(machineId: string, nativeId: string, bytes: number, at: string): void {
-    this.db
-      .prepare(
-        'UPDATE conversation_segments SET mirrored_bytes = ?, mirrored_at = ? WHERE machine_id = ? AND native_id = ?',
-      )
-      .run(bytes, at, machineId, nativeId)
-  }
-
   /** Batch lookup for wire enrichment: native id → podium id (per machine). */
   conversationPodiumIds(machineId: string, nativeIds: string[]): Map<string, string> {
     const out = new Map<string, string>()
@@ -1714,26 +1676,9 @@ export class SessionStore {
          seq_in_conv INTEGER NOT NULL,
          linked_by   TEXT NOT NULL,
          created_at  TEXT NOT NULL,
-         mirrored_bytes INTEGER NOT NULL DEFAULT 0,
-         mirrored_at TEXT,
          PRIMARY KEY (machine_id, native_id)
        )`,
     )
-    // Mirror-cursor columns (docs/spec/transcript-mirror.md §2.2) — ALTER for DBs
-    // created by the pre-mirror registry (the CREATE above no-ops there).
-    {
-      const segCols = new Set(
-        (this.db.prepare('PRAGMA table_info(conversation_segments)').all() as { name: string }[]).map(
-          (c) => c.name,
-        ),
-      )
-      if (!segCols.has('mirrored_bytes'))
-        this.db.exec(
-          'ALTER TABLE conversation_segments ADD COLUMN mirrored_bytes INTEGER NOT NULL DEFAULT 0',
-        )
-      if (!segCols.has('mirrored_at'))
-        this.db.exec('ALTER TABLE conversation_segments ADD COLUMN mirrored_at TEXT')
-    }
     this.db.exec(
       'CREATE INDEX IF NOT EXISTS conversation_segments_podium ON conversation_segments(podium_id, seq_in_conv)',
     )
