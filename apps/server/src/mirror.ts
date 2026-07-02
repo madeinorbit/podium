@@ -19,6 +19,12 @@ export interface MirrorServiceOptions {
   /** Max bytes copied per machine per drain pass; leftover work waits for the next
    *  scan/attach trigger and resumes from the persisted cursors. */
   passBudgetBytes?: number
+  /** Fires after each chunk write + cursor advance — the transcript indexer's feed
+   *  (docs/spec/search-v1.md §2.3). MirrorService itself stays indexing-free. */
+  onBytes?: (machineId: string, nativeId: string, lakePath: string) => void
+  /** Fires when a rewrite (source shrank) truncated the lake copy — the indexed
+   *  content for the segment is invalid and must be dropped before the re-mirror. */
+  onTruncate?: (machineId: string, nativeId: string) => void
 }
 
 /**
@@ -59,6 +65,8 @@ export class MirrorService {
 
   private readonly chunkDelayMs: number
   private readonly passBudgetBytes: number
+  private readonly onBytes: (machineId: string, nativeId: string, lakePath: string) => void
+  private readonly onTruncate: (machineId: string, nativeId: string) => void
 
   constructor(
     private readonly store: SessionStore,
@@ -72,6 +80,8 @@ export class MirrorService {
   ) {
     this.chunkDelayMs = options.chunkDelayMs ?? MirrorService.CHUNK_DELAY_MS
     this.passBudgetBytes = options.passBudgetBytes ?? MirrorService.PASS_BUDGET_BYTES
+    this.onBytes = options.onBytes ?? (() => {})
+    this.onTruncate = options.onTruncate ?? (() => {})
   }
 
   lakePath(machineId: string, nativeId: string): string {
@@ -175,7 +185,10 @@ export class MirrorService {
       if (res.error) throw new Error(res.error)
       if (res.fileSize < cursor) {
         // The native file SHRANK — it was rewritten, not appended. Verbatim-mirror
-        // correctness: drop our copy and re-pull from zero (spec §2.3).
+        // correctness: drop our copy and re-pull from zero (spec §2.3). Everything
+        // indexed off the old copy is invalid too — signal BEFORE the re-pull so
+        // the reindex starts from a clean slate as chunks arrive.
+        this.onTruncate(machineId, nativeId)
         await this.writeAt(machineId, nativeId, 0, Buffer.alloc(0))
         this.store.setMirrorCursor(machineId, nativeId, 0, this.nowIso())
         cursor = 0
@@ -188,6 +201,7 @@ export class MirrorService {
         await this.writeAt(machineId, nativeId, cursor, bytes)
         cursor += bytes.length
         this.store.setMirrorCursor(machineId, nativeId, cursor, this.nowIso())
+        this.onBytes(machineId, nativeId, this.lakePath(machineId, nativeId))
         pass.remainingBytes -= bytes.length
         // Inter-chunk breather (incident amendment): never pump chunks
         // back-to-back — the 2026-07 bootstrap starved the event loop doing so.

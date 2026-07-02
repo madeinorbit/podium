@@ -217,6 +217,10 @@ export class SessionStore {
   private readonly db: SqlDatabase
   /** FTS5 is compiled into the bundled SQLite normally; LIKE fallback if not. */
   private ftsAvailable = false
+  /** transcript_fts created (docs/spec/search-v1.md §2.3). When FTS5 is missing the
+   *  transcript index is skipped entirely — transcripts are too big for a LIKE
+   *  fallback, and search simply omits the source. */
+  private transcriptFtsAvailable = false
 
   constructor(private readonly path: string = defaultDbPath()) {
     if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true })
@@ -1725,6 +1729,186 @@ export class SessionStore {
       .run(bytes, at, machineId, nativeId)
   }
 
+  // ---- transcript FTS index (docs/spec/search-v1.md §2.3) ----
+
+  /** False when the runtime SQLite lacks FTS5 — the indexer then no-ops and search
+   *  omits the transcript source (no LIKE degradation for transcript bodies). */
+  get transcriptIndexAvailable(): boolean {
+    return this.transcriptFtsAvailable
+  }
+
+  /** Segments whose lake copy holds bytes the FTS index hasn't consumed — the
+   *  backfill work list (segmentsToMirror's shape; covers lakes mirrored before
+   *  the indexer existed AND passes a budget stopped early). Cheap per trigger. */
+  segmentsToIndex(
+    machineId: string,
+  ): { nativeId: string; mirroredBytes: number; indexedBytes: number }[] {
+    const rows = this.db
+      .prepare(
+        `SELECT native_id, mirrored_bytes, indexed_bytes FROM conversation_segments
+         WHERE machine_id = ? AND mirrored_bytes > indexed_bytes`,
+      )
+      .all(machineId) as Record<string, unknown>[]
+    return rows.map((r) => ({
+      nativeId: r.native_id as string,
+      mirroredBytes: r.mirrored_bytes as number,
+      indexedBytes: r.indexed_bytes as number,
+    }))
+  }
+
+  /** Bytes of the lake file already parsed into transcript_fts (≤ mirrored_bytes;
+   *  the gap is the indexer's work list). */
+  indexedCursor(machineId: string, nativeId: string): number {
+    const row = this.db
+      .prepare(
+        'SELECT indexed_bytes FROM conversation_segments WHERE machine_id = ? AND native_id = ?',
+      )
+      .get(machineId, nativeId) as { indexed_bytes: number } | undefined
+    return row?.indexed_bytes ?? 0
+  }
+
+  /** Insert extracted message rows and advance the index cursor in ONE transaction —
+   *  a crash can never leave rows indexed without the cursor (double-index on retry)
+   *  or the cursor advanced without the rows (a silent gap). */
+  appendTranscriptIndex(
+    machineId: string,
+    nativeId: string,
+    rows: { content: string; itemUuid?: string; ts?: string }[],
+    indexedBytes: number,
+  ): void {
+    if (!this.transcriptFtsAvailable) return
+    const insert = this.db.prepare(
+      'INSERT INTO transcript_fts (content, machine_id, native_id, item_uuid, ts) VALUES (?, ?, ?, ?, ?)',
+    )
+    this.db.exec('BEGIN IMMEDIATE')
+    try {
+      for (const r of rows) {
+        insert.run(r.content, machineId, nativeId, r.itemUuid ?? null, r.ts ?? null)
+      }
+      this.db
+        .prepare(
+          'UPDATE conversation_segments SET indexed_bytes = ? WHERE machine_id = ? AND native_id = ?',
+        )
+        .run(indexedBytes, machineId, nativeId)
+      this.db.exec('COMMIT')
+    } catch (e) {
+      this.db.exec('ROLLBACK')
+      throw e
+    }
+  }
+
+  /** One segment's indexed rows in insertion (= transcript) order — a diagnostic /
+   *  test seam; search goes through the MATCH path, never this scan. */
+  transcriptIndexRows(
+    machineId: string,
+    nativeId: string,
+  ): { content: string; itemUuid?: string; ts?: string }[] {
+    if (!this.transcriptFtsAvailable) return []
+    const rows = this.db
+      .prepare(
+        'SELECT content, item_uuid, ts FROM transcript_fts WHERE machine_id = ? AND native_id = ? ORDER BY rowid ASC',
+      )
+      .all(machineId, nativeId) as Record<string, unknown>[]
+    return rows.map((r) => ({
+      content: r.content as string,
+      itemUuid: (r.item_uuid as string | null) ?? undefined,
+      ts: (r.ts as string | null) ?? undefined,
+    }))
+  }
+
+  /** BM25-ranked matches over the transcript index, one row per matched message,
+   *  with a snippet() (matches wrapped in `**`) and the joins the search service
+   *  needs: segments → podium id, conversations → display title + recency. `rank`
+   *  is raw SQLite bm25 — smaller (more negative) = better; the caller normalizes.
+   *  Empty when FTS5 is unavailable (the transcript source just goes dark). */
+  searchTranscripts(
+    query: string,
+    limit = 30,
+  ): {
+    machineId: string
+    nativeId: string
+    itemUuid?: string
+    ts?: string
+    snippet: string
+    rank: number
+    podiumId?: string
+    title?: string
+    updatedAt?: string
+  }[] {
+    const q = query.trim()
+    if (!q || !this.transcriptFtsAvailable) return []
+    const ftsQuery = q
+      .split(/\s+/)
+      .filter(Boolean)
+      .map((t) => `"${t.replace(/"/g, '""')}"*`)
+      .join(' ')
+    const rows = this.db
+      .prepare(
+        `SELECT f.machine_id, f.native_id, f.item_uuid, f.ts,
+                snippet(transcript_fts, 0, '**', '**', '…', 12) AS snip,
+                bm25(transcript_fts) AS rank,
+                s.podium_id, c.title, c.name, c.updated_at
+         FROM transcript_fts f
+         LEFT JOIN conversation_segments s
+           ON s.machine_id = f.machine_id AND s.native_id = f.native_id
+         LEFT JOIN conversations c ON c.id = f.native_id
+         WHERE transcript_fts MATCH ?
+         ORDER BY rank LIMIT ?`,
+      )
+      .all(ftsQuery, Math.min(200, Math.max(1, limit))) as Record<string, unknown>[]
+    return rows.map((r) => ({
+      machineId: r.machine_id as string,
+      nativeId: r.native_id as string,
+      itemUuid: (r.item_uuid as string | null) ?? undefined,
+      ts: (r.ts as string | null) ?? undefined,
+      snippet: r.snip as string,
+      rank: r.rank as number,
+      podiumId: (r.podium_id as string | null) ?? undefined,
+      // User-set name wins over the harness title, matching every other surface.
+      title: (r.name as string | null) ?? (r.title as string | null) ?? undefined,
+      updatedAt: (r.updated_at as string | null) ?? undefined,
+    }))
+  }
+
+  /** Substring match over issue comment bodies — comments have no FTS (bounded
+   *  volume), so LIKE is enough for the omni-search's comment source. */
+  searchIssueComments(
+    query: string,
+    limit = 30,
+  ): { issueId: string; body: string; createdAt: string }[] {
+    const q = query.trim()
+    if (!q) return []
+    const rows = this.db
+      .prepare(
+        `SELECT issue_id, body, created_at FROM issue_comments
+         WHERE body LIKE ? ESCAPE '\\' ORDER BY created_at DESC LIMIT ?`,
+      )
+      .all(
+        `%${q.replace(/[\\%_]/g, (c) => `\\${c}`)}%`,
+        Math.min(200, Math.max(1, limit)),
+      ) as Record<string, unknown>[]
+    return rows.map((r) => ({
+      issueId: r.issue_id as string,
+      body: r.body as string,
+      createdAt: r.created_at as string,
+    }))
+  }
+
+  /** Re-mirror (truncate) invalidates the segment's indexed content: drop its FTS
+   *  rows and reset the cursor so the reindex starts from byte 0 as chunks arrive. */
+  dropTranscriptIndex(machineId: string, nativeId: string): void {
+    if (this.transcriptFtsAvailable) {
+      this.db
+        .prepare('DELETE FROM transcript_fts WHERE machine_id = ? AND native_id = ?')
+        .run(machineId, nativeId)
+    }
+    this.db
+      .prepare(
+        'UPDATE conversation_segments SET indexed_bytes = 0 WHERE machine_id = ? AND native_id = ?',
+      )
+      .run(machineId, nativeId)
+  }
+
   /** Batch lookup for wire enrichment: native id → podium id (per machine). */
   conversationPodiumIds(machineId: string, nativeIds: string[]): Map<string, string> {
     const out = new Map<string, string>()
@@ -1873,11 +2057,13 @@ export class SessionStore {
          created_at  TEXT NOT NULL,
          mirrored_bytes INTEGER NOT NULL DEFAULT 0,
          mirrored_at TEXT,
+         indexed_bytes INTEGER NOT NULL DEFAULT 0,
          PRIMARY KEY (machine_id, native_id)
        )`,
     )
-    // Mirror-cursor columns (docs/spec/transcript-mirror.md §2.2) — ALTER for DBs
-    // created by the pre-mirror registry (the CREATE above no-ops there).
+    // Mirror-cursor columns (docs/spec/transcript-mirror.md §2.2) and the FTS-index
+    // cursor (docs/spec/search-v1.md §2.3) — ALTER for DBs created by earlier
+    // registry versions (the CREATE above no-ops there).
     {
       const segCols = new Set(
         (
@@ -1890,6 +2076,10 @@ export class SessionStore {
         )
       if (!segCols.has('mirrored_at'))
         this.db.exec('ALTER TABLE conversation_segments ADD COLUMN mirrored_at TEXT')
+      if (!segCols.has('indexed_bytes'))
+        this.db.exec(
+          'ALTER TABLE conversation_segments ADD COLUMN indexed_bytes INTEGER NOT NULL DEFAULT 0',
+        )
     }
     this.db.exec(
       'CREATE INDEX IF NOT EXISTS conversation_segments_podium ON conversation_segments(podium_id, seq_in_conv)',
@@ -2136,6 +2326,22 @@ export class SessionStore {
       this.ftsAvailable = true
     } catch {
       this.ftsAvailable = false // LIKE fallback handles search
+    }
+    // Transcript FTS (docs/spec/search-v1.md §2.3): one row per user/assistant
+    // message, fed incrementally by the mirror-driven indexer. Contentful (not
+    // external-content) — the source of truth is the lake file, and snippet()
+    // needs the text stored. No LIKE fallback: without FTS5 the transcript source
+    // is simply absent from search (transcripts are far too big to LIKE-scan).
+    try {
+      this.db.exec(
+        `CREATE VIRTUAL TABLE IF NOT EXISTS transcript_fts USING fts5(
+           content, machine_id UNINDEXED, native_id UNINDEXED,
+           item_uuid UNINDEXED, ts UNINDEXED
+         )`,
+      )
+      this.transcriptFtsAvailable = true
+    } catch {
+      this.transcriptFtsAvailable = false
     }
     // v1 -> v2: tmux_label -> durable_label (the label now names an abduco OR tmux
     // session; see the durable-backend selection in the daemon). For a pre-rename db

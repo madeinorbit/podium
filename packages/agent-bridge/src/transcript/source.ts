@@ -199,8 +199,10 @@ function findOpencodeAnchorIndex(items: TranscriptItem[], anchor: string): numbe
 // Factory.
 // ---------------------------------------------------------------------------
 
-/** Per-harness record→items mapper, mirroring the daemon's `resolveTranscriptSource`. */
-function recordToItemsForKind(agentKind: string): (r: unknown) => TranscriptItem[] {
+/** Per-harness record→items mapper, mirroring the daemon's `resolveTranscriptSource`.
+ *  Exported for the server's lake-fallback read (docs/spec/search-v1.md §2.2): the
+ *  lake file is the native JSONL byte-verbatim, so the same mapper applies. */
+export function recordToItemsForKind(agentKind: string): (r: unknown) => TranscriptItem[] {
   if (agentKind === 'codex') return codexRecordToItems
   if (agentKind === 'cursor') return cursorRecordToItems
   if (agentKind === 'grok') return grokRecordToItems

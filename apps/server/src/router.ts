@@ -19,6 +19,7 @@ import { buildJoinCommand } from './machines-join'
 import type { SessionRegistry } from './relay'
 import { browseDirectories, type RepoRegistry } from './repo-registry'
 import { isAllowedRoot } from './root-allowlist'
+import { searchAll } from './search'
 import type { SuperagentService } from './superagent'
 
 export interface Context {
@@ -381,6 +382,19 @@ export const appRouter = t.router({
         }),
       )
       .mutation(({ ctx, input }) => ctx.registry.setConversationMeta(input)),
+  }),
+  search: t.router({
+    // Omni-search (docs/spec/search-v1.md §2.4): one ranked, typed result list
+    // across transcripts/issues/conversations/sessions/settings. Wire shape:
+    // SearchResultWire (@podium/protocol).
+    query: t.procedure
+      .input(
+        z.object({
+          text: z.string().min(1).max(256),
+          limit: z.number().int().positive().max(100).optional(),
+        }),
+      )
+      .query(({ ctx, input }) => searchAll(ctx.registry.sessionStore, ctx.registry, input)),
   }),
   settings: t.router({
     get: t.procedure.query(({ ctx }) => ctx.registry.getSettings()),

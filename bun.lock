@@ -47,6 +47,7 @@
       "dependencies": {
         "@hono/node-server": "^1.13.7",
         "@hono/trpc-server": "^0.3.4",
+        "@podium/agent-bridge": "workspace:*",
         "@podium/core": "workspace:*",
         "@podium/protocol": "workspace:*",
         "@trpc/client": "^11.0.0",

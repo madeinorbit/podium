@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { basename } from 'node:path'
+import { fileChainSource, fileIdFor, recordToItemsForKind } from '@podium/agent-bridge'
 import type { PodiumSettings } from '@podium/core'
 import type {
   DirListResultMessage,
@@ -61,6 +62,7 @@ import {
   makeTitleDebouncer,
   titleFromPrompt,
 } from './title-filter'
+import { TranscriptIndexer } from './transcript-indexer'
 
 /** sha-256 hex of a secret — matches the store's token-hash scheme. */
 function sha256(s: string): string {
@@ -417,6 +419,8 @@ export class SessionRegistry {
   // Transcript lake mirror (docs/spec/transcript-mirror.md) — constructed only when
   // options.mirrorLakeDir is set; undefined means zero mirror traffic (tests default).
   private readonly mirror: MirrorService | undefined
+  // Mirror-fed FTS indexer (docs/spec/search-v1.md §2.3) — exists iff the mirror does.
+  private readonly transcriptIndexer: TranscriptIndexer | undefined
   // Diagnostics ride the conversationsChanged snapshot, not the delta stream — track
   // their last serialization so cap clients still get a snapshot when ONLY diagnostics
   // changed (rare: scan problems), without re-sending the list on every conversation delta.
@@ -463,14 +467,26 @@ export class SessionRegistry {
     })
     this.oplog = new MetadataOplog(this.store, this.now)
     this.loadFromStore()
-    this.mirror = options.mirrorLakeDir
-      ? new MirrorService(
-          this.store,
-          options.mirrorLakeDir,
-          (machineId, req) => this.mirrorRead(machineId, req),
-          this.now,
-        )
-      : undefined
+    if (options.mirrorLakeDir) {
+      // The FTS indexer feeds off the mirror's chunk hooks (search-v1 §2.3) — it
+      // exists only alongside the lake, and MirrorService stays indexing-free.
+      const indexer = new TranscriptIndexer(this.store)
+      this.transcriptIndexer = indexer
+      this.mirror = new MirrorService(
+        this.store,
+        options.mirrorLakeDir,
+        (machineId, req) => this.mirrorRead(machineId, req),
+        this.now,
+        {
+          onBytes: (machineId, nativeId, lakePath) =>
+            indexer.onBytes(machineId, nativeId, lakePath),
+          onTruncate: (machineId, nativeId) => indexer.onTruncate(machineId, nativeId),
+        },
+      )
+    } else {
+      this.mirror = undefined
+      this.transcriptIndexer = undefined
+    }
     this.issues = new IssueService({
       store: this.store,
       listSessions: () => this.listSessions(),
@@ -700,7 +716,7 @@ export class SessionRegistry {
     }
     // Attach trigger (transcript-mirror spec §2.3): catch-up sweep after server/daemon
     // downtime — re-enqueue this machine's unmirrored segments. No-op without a lake dir.
-    this.mirror?.enqueueMachine(machineId)
+    this.triggerLakeSweep(machineId)
     // A freshly-(re)connected daemon knows no session's relay priority. Clear the
     // delta cache so every current session re-sends as a change, then push the full
     // map — otherwise a daemon restart would leave the scheduler at its default
@@ -2675,7 +2691,7 @@ export class SessionRegistry {
     if (removed.length) this.store.deleteConversations(removed)
     // Scan trigger (transcript-mirror spec §2.3): the segments just upserted may have
     // grown/appeared — pull their new bytes into the lake. No-op without a lake dir.
-    this.mirror?.enqueueMachine(machineId)
+    this.triggerLakeSweep(machineId)
     return conversations.map((c) => {
       const podiumId = podiumIds.get(c.id)
       return podiumId ? { ...c, podiumId } : c
@@ -2713,40 +2729,93 @@ export class SessionRegistry {
     return path ? { pathHint: path } : undefined
   }
 
-  readTranscript(input: {
+  async readTranscript(input: {
     sessionId: string
     anchor?: string
     direction: 'before' | 'after'
     limit: number
   }): Promise<{ items: TranscriptItem[]; head?: string; tail?: string; hasMore: boolean }> {
     const session = this.sessions.get(input.sessionId)
-    if (!session) return Promise.resolve({ items: [], hasMore: false })
-    return this.daemonRequest<{
-      items: TranscriptItem[]
-      head?: string
-      tail?: string
-      hasMore: boolean
-    }>(
-      this.pendingTranscriptReads,
-      'tr',
-      SCAN_TIMEOUT_MS,
-      () => ({ items: [], hasMore: false }),
-      (requestId) => ({
-        type: 'transcriptRead',
-        requestId,
-        sessionId: input.sessionId,
-        agentKind: session.agentKind,
-        cwd: session.cwd,
-        ...(session.resume ? { resume: session.resume } : {}),
-        // Segment evidence beats cwd derivation: the recorded absolute path (from
-        // discovery scans) survives worktree moves; the daemon still falls back to
-        // derivation + sweep when absent/stale (conversation registry §3.3).
-        ...(this.transcriptPathHint(session) ?? {}),
-        ...(input.anchor ? { anchor: input.anchor } : {}),
-        direction: input.direction,
-        limit: input.limit,
-      }),
-      session.machineId, // the transcript file lives on the session's machine
+    if (!session) return { items: [], hasMore: false }
+    // Daemon-first (docs/spec/search-v1.md §2.2): the native file is fresher than
+    // the mirror. But a machine with no live daemon socket can't answer at all —
+    // skip straight to the lake rather than stalling the chat view for the full
+    // request timeout to learn that.
+    const fromDaemon = this.daemons.has(session.machineId)
+      ? await this.daemonRequest<{
+          items: TranscriptItem[]
+          head?: string
+          tail?: string
+          hasMore: boolean
+        }>(
+          this.pendingTranscriptReads,
+          'tr',
+          SCAN_TIMEOUT_MS,
+          () => ({ items: [], hasMore: false }),
+          (requestId) => ({
+            type: 'transcriptRead',
+            requestId,
+            sessionId: input.sessionId,
+            agentKind: session.agentKind,
+            cwd: session.cwd,
+            ...(session.resume ? { resume: session.resume } : {}),
+            // Segment evidence beats cwd derivation: the recorded absolute path (from
+            // discovery scans) survives worktree moves; the daemon still falls back to
+            // derivation + sweep when absent/stale (conversation registry §3.3).
+            ...(this.transcriptPathHint(session) ?? {}),
+            ...(input.anchor ? { anchor: input.anchor } : {}),
+            direction: input.direction,
+            limit: input.limit,
+          }),
+          session.machineId, // the transcript file lives on the session's machine
+        )
+      : undefined
+    if (fromDaemon && fromDaemon.items.length > 0) return fromDaemon
+    // Empty/timeout daemon answer (or no daemon): serve from the mirrored copy.
+    const fromLake = await this.readTranscriptFromLake(session, input)
+    return fromLake ?? fromDaemon ?? { items: [], hasMore: false }
+  }
+
+  /** Lake-fallback transcript read (docs/spec/search-v1.md §2.2): serve the window
+   *  from the server's mirrored copy when the daemon couldn't (detached machine,
+   *  pruned native file, timeout). The lake file IS the native JSONL byte-verbatim,
+   *  so the harness's own record→items mapper applies unchanged. Cursors are
+   *  stamped against the LAKE path's fileId, so an anchor minted by a daemon read
+   *  won't match here — the slice then serves its default window, the standard
+   *  drifted-anchor degradation. Resolves undefined when there is nothing mirrored
+   *  (no lake, no resume value, cursor at 0, or an unparseable/empty file). */
+  private async readTranscriptFromLake(
+    session: { machineId: string; agentKind: AgentKind; resume?: { value: string } },
+    input: { anchor?: string; direction: 'before' | 'after'; limit: number },
+  ): Promise<
+    { items: TranscriptItem[]; head?: string; tail?: string; hasMore: boolean } | undefined
+  > {
+    const nativeId = session.resume?.value
+    if (!this.mirror || !nativeId) return undefined
+    if (this.store.mirrorCursor(session.machineId, nativeId) <= 0) return undefined
+    const path = this.mirror.lakePath(session.machineId, nativeId)
+    const source = fileChainSource(
+      [{ path, fileId: fileIdFor(path) }],
+      recordToItemsForKind(session.agentKind),
+    )
+    const slice = await source.readSlice({
+      ...(input.anchor ? { anchor: input.anchor } : {}),
+      direction: input.direction,
+      limit: input.limit,
+    })
+    return slice.items.length > 0 ? slice : undefined
+  }
+
+  /** The lake maintenance pass behind every scan/attach trigger: mirror-pull the
+   *  machine's unmirrored segments AND FTS-backfill segments whose lake copy is
+   *  ahead of the index cursor (lakes mirrored before the indexer deployed, or a
+   *  budget-stopped earlier pass). Both self-noop cheaply when caught up. */
+  private triggerLakeSweep(machineId: string): void {
+    const mirror = this.mirror
+    if (!mirror) return
+    mirror.enqueueMachine(machineId)
+    this.transcriptIndexer?.backfillMachine(machineId, (nativeId) =>
+      mirror.lakePath(machineId, nativeId),
     )
   }
 
