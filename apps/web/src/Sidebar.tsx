@@ -44,6 +44,7 @@ import {
 import { FileBrowserModal } from './FileBrowserModal'
 import { HostIndicators } from './HostIndicators'
 import { STAGE_LABELS } from './issue-card'
+import { StageGlyph } from './issue-glyphs'
 import { NewPanelMenu } from './NewPanelMenu'
 import { RepoScanFlow } from './RepoScanFlow'
 import { SearchView } from './SearchView'
@@ -771,8 +772,8 @@ function RepoBlock({
 
 /** One issue row in the sidebar Issues tab. Default-collapsed (chevron toggles the
  *  attached sessions); the header shows the title, a session count, a muted repo
- *  name, and a stage pill. Clicking the header selects the issue's worktree (or
- *  opens the detail drawer for an unstarted issue). Mirrors WorktreeBlock. */
+ *  name, and a stage glyph + label. Clicking the header selects the issue's
+ *  worktree (or opens the issue page for an unstarted issue). Mirrors WorktreeBlock. */
 function IssueBlock({
   nav,
   active,
@@ -848,7 +849,8 @@ function IssueBlock({
           <span className="max-w-[80px] flex-none overflow-hidden text-ellipsis whitespace-nowrap text-[10px] text-muted-foreground/70">
             {repoName}
           </span>
-          <span className="flex-none rounded border border-input px-1 text-[10px] uppercase text-muted-foreground">
+          <span className="flex flex-none items-center gap-1 text-[10px] text-muted-foreground">
+            <StageGlyph stage={issue.stage} size={12} />
             {STAGE_LABELS[issue.stage]}
           </span>
         </button>
