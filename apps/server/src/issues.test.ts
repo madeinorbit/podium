@@ -86,6 +86,7 @@ describe('IssueService.start', () => {
       model: 'auto',
       effort: 'auto',
       initialPrompt: 'do the thing',
+      spawnedBy: `issue:${created.id}`,
     })
   })
 
@@ -122,6 +123,7 @@ describe('IssueService.start', () => {
       agentKind: 'codex',
       model: 'auto',
       effort: 'auto',
+      spawnedBy: `issue:${a.id}`,
     })
   })
 
@@ -143,7 +145,26 @@ describe('IssueService.start', () => {
       agentKind: 'claude-code',
       model: 'opus',
       effort: 'high',
+      spawnedBy: `issue:${a.id}`,
     })
+  })
+
+  it("addSession/addShell tag the spawn with the issue's provenance (issue #60)", async () => {
+    const { svc, deps } = harness()
+    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    await svc.start(a.id)
+    svc.addSession(a.id, 'codex')
+    expect(deps.spawnSession).toHaveBeenLastCalledWith({
+      cwd: '/r/.worktrees/issue-1-a',
+      agentKind: 'codex',
+      model: 'auto',
+      effort: 'auto',
+      spawnedBy: `issue:${a.id}`,
+    })
+    svc.addShell(a.id)
+    expect(deps.spawnSession).toHaveBeenLastCalledWith(
+      expect.objectContaining({ agentKind: 'shell', spawnedBy: `issue:${a.id}` }),
+    )
   })
 })
 

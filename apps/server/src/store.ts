@@ -85,6 +85,10 @@ export interface SessionRow {
   lastInputAt: string | null
   /** Last resume/resurrect (ISO); null = never. Hibernation signal only. */
   lastResumedAt: string | null
+  /** WHO created the session (issue #60): 'user', 'issue:<id>', 'superagent:<threadId>', …
+   *  null/absent = legacy row from before the field existed. Optional (like machineId)
+   *  so pre-#60 row literals stay valid. */
+  spawnedBy?: string | null
   archived: boolean
   /** Kanban column on the home board; null = unsorted. */
   workState: string | null
@@ -382,7 +386,8 @@ export class SessionStore {
       .prepare(
         `SELECT id, agent_kind, cwd, title, name, origin_kind, conversation_id, resume_kind,
                 resume_value, status, exit_code, durable_label, created_at, last_active_at,
-                archived, work_state, machine_id, last_output_at, last_input_at, last_resumed_at
+                archived, work_state, machine_id, last_output_at, last_input_at, last_resumed_at,
+                spawned_by
          FROM sessions ORDER BY created_at ASC, rowid ASC`,
       )
       .all() as Record<string, unknown>[]
@@ -407,6 +412,7 @@ export class SessionStore {
       lastOutputAt: (r.last_output_at as string | null) ?? null,
       lastInputAt: (r.last_input_at as string | null) ?? null,
       lastResumedAt: (r.last_resumed_at as string | null) ?? null,
+      spawnedBy: (r.spawned_by as string | null) ?? null,
     }))
   }
 
@@ -424,8 +430,9 @@ export class SessionStore {
         `INSERT INTO sessions
            (id, agent_kind, cwd, title, name, origin_kind, conversation_id, resume_kind,
             resume_value, status, exit_code, durable_label, created_at, last_active_at,
-            archived, work_state, machine_id, last_output_at, last_input_at, last_resumed_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            archived, work_state, machine_id, last_output_at, last_input_at, last_resumed_at,
+            spawned_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            title = excluded.title,
            name = excluded.name,
@@ -442,7 +449,8 @@ export class SessionStore {
            machine_id = excluded.machine_id,
            last_output_at = excluded.last_output_at,
            last_input_at = excluded.last_input_at,
-           last_resumed_at = excluded.last_resumed_at`,
+           last_resumed_at = excluded.last_resumed_at,
+           spawned_by = excluded.spawned_by`,
       )
       .run(
         row.id,
@@ -465,6 +473,7 @@ export class SessionStore {
         row.lastOutputAt ?? null,
         row.lastInputAt ?? null,
         row.lastResumedAt ?? null,
+        row.spawnedBy ?? null,
       )
   }
 
@@ -1727,7 +1736,8 @@ export class SessionStore {
          work_state TEXT,
          last_output_at TEXT,
          last_input_at TEXT,
-         last_resumed_at TEXT
+         last_resumed_at TEXT,
+         spawned_by TEXT
        )`,
     )
     this.db.exec(
@@ -2095,6 +2105,10 @@ export class SessionStore {
       this.db.exec('ALTER TABLE sessions ADD COLUMN last_input_at TEXT')
     if (!colNames.has('last_resumed_at'))
       this.db.exec('ALTER TABLE sessions ADD COLUMN last_resumed_at TEXT')
+    // Additive provenance column (issue #60): WHO created the session. Legacy rows
+    // read NULL (creator unknown). Structural guard, no version marker change.
+    if (!colNames.has('spawned_by'))
+      this.db.exec('ALTER TABLE sessions ADD COLUMN spawned_by TEXT')
     // v3 -> v4: per-session composer drafts (issue #34). A brand-new standalone
     // table created by the CREATE IF NOT EXISTS above — pre-v4 DBs gain it with no
     // ALTER, so the bump is just the recorded version marker.

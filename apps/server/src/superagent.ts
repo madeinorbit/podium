@@ -268,9 +268,11 @@ export class SuperagentService {
     }))
   }
 
-  /** Run one MCP tool call, returning its text output. */
-  async callMcpTool(name: string, args: Record<string, unknown>): Promise<string> {
-    const tool = this.tools(this.store.getSettings().integrations.linearApiKey).find(
+  /** Run one MCP tool call, returning its text output. `threadId` (when the caller
+   *  knows it) sharpens session provenance to 'superagent:<threadId>'; the HTTP MCP
+   *  route has no thread context, so it falls back to the bare 'superagent' tag. */
+  async callMcpTool(name: string, args: Record<string, unknown>, threadId?: string): Promise<string> {
+    const tool = this.tools(this.store.getSettings().integrations.linearApiKey, threadId).find(
       (t) => t.spec.name === name,
     )
     if (!tool) throw new Error(`unknown tool: ${name}`)
@@ -454,7 +456,7 @@ export class SuperagentService {
       return { messages: newMessages, backendLabel: 'unconfigured' }
     }
 
-    const tools = this.tools(settings.integrations.linearApiKey)
+    const tools = this.tools(settings.integrations.linearApiKey, threadId)
     const messages: LlmMessage[] = [
       { role: 'system', content: SYSTEM_PROMPT },
       ...this.historyAsLlm(threadId),
@@ -549,9 +551,14 @@ export class SuperagentService {
     return `${history ? `Conversation so far:\n${history}\n\n` : ''}User: ${latest}`
   }
 
-  private tools(linearKey: string): { spec: LlmTool; run: (args: Args) => Promise<string> }[] {
+  private tools(
+    linearKey: string,
+    threadId?: string,
+  ): { spec: LlmTool; run: (args: Args) => Promise<string> }[] {
     const registry = this.registry
     const repos = this.repos
+    // Session provenance (issue #60): thread-scoped when the executing thread is known.
+    const spawnedBy = threadId ? `superagent:${threadId}` : 'superagent'
     const tools: { spec: LlmTool; run: (args: Args) => Promise<string> }[] = [
       {
         spec: {
@@ -605,6 +612,13 @@ export class SuperagentService {
               },
               cwd: { type: 'string', description: 'absolute worktree/repo path' },
               name: { type: 'string', description: 'optional display name' },
+              title: { type: 'string', description: 'optional session title (shown in the UI)' },
+              issueId: {
+                type: 'string',
+                description:
+                  'optional issue ref (id or display seq). Started issue: spawn in its ' +
+                  'worktree. Unstarted: start the issue (worktree + agent) instead.',
+              },
               firstMessage: {
                 type: 'string',
                 description: 'optional prompt typed into the agent once it starts',
@@ -615,9 +629,38 @@ export class SuperagentService {
         },
         run: async (args) => {
           const agentKind = str(args.agentKind)
-          const cwd = str(args.cwd)
+          let cwd = str(args.cwd)
           if (!cwd || !isAgentKind(agentKind)) return 'invalid agentKind/cwd'
-          const { sessionId } = registry.createSession({ agentKind, cwd })
+          const issueRef = str(args.issueId)
+          if (issueRef) {
+            const issue = registry.issues.get(issueRef)
+            if (!issue) return `unknown issue: ${issueRef}`
+            if (issue.worktreePath) {
+              cwd = issue.worktreePath // spawn alongside the issue's work
+            } else {
+              // Not started yet — issues.start owns the whole flow (worktree, branch,
+              // agent spawn with the description as first prompt, provenance issue:<id>).
+              const started = await registry.issues.start(issue.id, agentKind)
+              const spawned = registry
+                .listSessions()
+                .find((s) => s.cwd === started.worktreePath && s.status !== 'exited')
+              return JSON.stringify({
+                ...(spawned ? { sessionId: spawned.sessionId } : {}),
+                cwd: started.worktreePath,
+                agentKind,
+                ...(spawned
+                  ? {}
+                  : { note: 'issue started; its session is still registering — list_sessions to find it' }),
+              })
+            }
+          }
+          const title = str(args.title)
+          const { sessionId } = registry.createSession({
+            agentKind,
+            cwd,
+            ...(title ? { title } : {}),
+            spawnedBy,
+          })
           if (str(args.name)) registry.renameSession({ sessionId, name: str(args.name) ?? '' })
           const first = str(args.firstMessage)
           if (first) {

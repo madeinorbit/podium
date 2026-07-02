@@ -63,6 +63,29 @@ describe('SessionRegistry', () => {
     expect(reg.listSessions()).toMatchObject([{ sessionId, agentKind: 'shell', cwd: '/proj' }])
   })
 
+  it('createSession records spawnedBy provenance, persists it, and omits it when unset (issue #60)', () => {
+    const file = join(mkdtempSync(join(tmpdir(), 'podium-relay-')), 'podium.db')
+    const store = new SessionStore(file)
+    const reg = new SessionRegistry(store)
+    reg.attachDaemon('local', () => {})
+    const { sessionId } = reg.createSession({
+      agentKind: 'claude-code',
+      cwd: '/proj',
+      spawnedBy: 'issue:iss_1',
+    })
+    const anon = reg.createSession({ agentKind: 'claude-code', cwd: '/other' }).sessionId
+    const metaOf = (id: string, r: SessionRegistry = reg) =>
+      r.listSessions().find((s) => s.sessionId === id)
+    expect(metaOf(sessionId)?.spawnedBy).toBe('issue:iss_1')
+    // No default at the registry layer: an untagged programmatic create stays unknown.
+    expect(metaOf(anon)?.spawnedBy).toBeUndefined()
+    store.close()
+    // Survives a restart (round-trips through the sessions table).
+    const reg2 = new SessionRegistry(new SessionStore(file))
+    expect(metaOf(sessionId, reg2)?.spawnedBy).toBe('issue:iss_1')
+    expect(metaOf(anon, reg2)?.spawnedBy).toBeUndefined()
+  })
+
   it('restamps session cwd when the agent moves into a worktree (hook cwd change)', () => {
     const reg = new SessionRegistry()
     reg.attachDaemon('local', () => {})

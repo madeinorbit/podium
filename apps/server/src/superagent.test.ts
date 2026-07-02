@@ -1,10 +1,13 @@
 import type { TranscriptItem } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
+import { SessionRegistry } from './relay'
+import { RepoRegistry } from './repo-registry'
 import {
   buildBtwDelta,
   buildBtwRecap,
   buildBtwSeed,
   harnessAllowedTools,
+  SuperagentService,
   transcriptDelta,
 } from './superagent'
 
@@ -117,5 +120,100 @@ describe('harnessAllowedTools', () => {
     const allowed = harnessAllowedTools(undefined, own)
     expect(allowed).toContain('mcp__podium__superagent_search')
     expect(allowed).not.toContain('mcp__podium__issue_create')
+  })
+})
+
+// Tool-arg wiring for start_agent (issue #60) — a real in-memory registry, driven
+// through callMcpTool (the same tools() the API loop uses). The daemon fake
+// auto-answers git ops so issues.start can complete.
+describe('start_agent tool wiring (issue #60)', () => {
+  function harness() {
+    const registry = new SessionRegistry()
+    registry.attachDaemon('local', (m) => {
+      if (m.type === 'repoOpRequest') {
+        queueMicrotask(() =>
+          registry.onDaemonMessageFrom('local', {
+            type: 'repoOpResult',
+            requestId: m.requestId,
+            ok: true,
+            output: '',
+          }),
+        )
+      }
+    })
+    const repos = new RepoRegistry(registry, registry.sessionStore)
+    const sa = new SuperagentService(registry, repos, registry.sessionStore)
+    return { registry, sa }
+  }
+
+  it("passes title through and tags spawnedBy 'superagent' when no thread is known (MCP path)", async () => {
+    const { registry, sa } = harness()
+    const out = JSON.parse(
+      await sa.callMcpTool('start_agent', {
+        agentKind: 'claude-code',
+        cwd: '/w',
+        title: 'Investigate flake',
+      }),
+    ) as { sessionId: string; cwd: string; agentKind: string }
+    expect(out).toMatchObject({ cwd: '/w', agentKind: 'claude-code' })
+    const meta = registry.listSessions().find((s) => s.sessionId === out.sessionId)
+    expect(meta?.title).toBe('Investigate flake')
+    expect(meta?.spawnedBy).toBe('superagent')
+  })
+
+  it('tags spawnedBy with the executing thread when known', async () => {
+    const { registry, sa } = harness()
+    const out = JSON.parse(
+      await sa.callMcpTool('start_agent', { agentKind: 'shell', cwd: '/w' }, 'btw_s1'),
+    ) as { sessionId: string }
+    expect(registry.listSessions().find((s) => s.sessionId === out.sessionId)?.spawnedBy).toBe(
+      'superagent:btw_s1',
+    )
+  })
+
+  it("issueId on a started issue spawns in the issue's worktree", async () => {
+    const { registry, sa } = harness()
+    const issue = registry.issues.create({ repoPath: '/r', title: 'X', startNow: false })
+    registry.issues.update(issue.id, { worktreePath: '/r/.worktrees/issue-1-x', stage: 'planning' })
+    const out = JSON.parse(
+      await sa.callMcpTool('start_agent', {
+        agentKind: 'claude-code',
+        cwd: '/ignored',
+        issueId: issue.id,
+      }),
+    ) as { sessionId: string; cwd: string }
+    expect(out.cwd).toBe('/r/.worktrees/issue-1-x')
+    const meta = registry.listSessions().find((s) => s.sessionId === out.sessionId)
+    expect(meta?.cwd).toBe('/r/.worktrees/issue-1-x')
+    expect(meta?.spawnedBy).toBe('superagent')
+  })
+
+  it('issueId on an unstarted issue starts the issue instead and reports its session', async () => {
+    const { registry, sa } = harness()
+    const issue = registry.issues.create({ repoPath: '/r', title: 'Fix login', startNow: false })
+    const out = JSON.parse(
+      await sa.callMcpTool('start_agent', {
+        agentKind: 'claude-code',
+        cwd: '/ignored',
+        issueId: issue.id,
+      }),
+    ) as { sessionId?: string; cwd: string }
+    expect(out.cwd).toBe('/r/.worktrees/issue-1-fix-login')
+    expect(out.sessionId).toBeDefined()
+    const meta = registry.listSessions().find((s) => s.sessionId === out.sessionId)
+    // The spawn is owned by issues.start, so provenance is the issue's, not the superagent's.
+    expect(meta?.spawnedBy).toBe(`issue:${issue.id}`)
+    expect(registry.issues.get(issue.id)?.stage).toBe('in_progress')
+  })
+
+  it('rejects an unknown issue ref without spawning anything', async () => {
+    const { registry, sa } = harness()
+    const out = await sa.callMcpTool('start_agent', {
+      agentKind: 'claude-code',
+      cwd: '/w',
+      issueId: 'iss_nope',
+    })
+    expect(out).toMatch(/unknown issue/)
+    expect(registry.listSessions()).toHaveLength(0)
   })
 })

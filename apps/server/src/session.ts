@@ -64,6 +64,9 @@ export interface SessionInit {
   name?: string
   archived?: boolean
   workState?: WorkState
+  /** WHO created this session (provenance, issue #60): 'user', 'issue:<id>',
+   *  'superagent:<threadId>', … Absent = unknown (legacy row). */
+  spawnedBy?: string
   /** Called when a meta field changes outside the normal control flow (the
    *  debounced shell `busy` flag) so the registry can rebroadcast the session list. */
   onActivity?: () => void
@@ -112,6 +115,8 @@ export class Session {
   readonly origin: SessionOrigin
   readonly createdAt: string
   readonly durableLabel: string
+  /** Creation provenance (issue #60) — immutable for the life of the row. */
+  readonly spawnedBy: string | undefined
   /** The machine (daemon) this session runs on. The registry routes this
    *  session's control messages to it; '__local__' until a real machine adopts
    *  it (see SessionRegistry.ensureLocalMachine), so it is reassignable, not readonly. */
@@ -202,6 +207,7 @@ export class Session {
     this.title = init.title
     this.origin = init.origin
     this.createdAt = init.createdAt
+    this.spawnedBy = init.spawnedBy
     this.geometry = { ...init.geometry }
     this.toDaemon = init.toDaemon
     this.machineId = init.machineId ?? '__local__'
@@ -683,6 +689,7 @@ export class Session {
       lastOutputAt: Session.msToIso(this.outputAtMs),
       lastInputAt: Session.msToIso(this.inputAtMs),
       lastResumedAt: Session.msToIso(this.resumedAtMs),
+      spawnedBy: this.spawnedBy ?? null,
       machineId: this.machineId,
     }
   }
@@ -723,6 +730,7 @@ export class Session {
       ...(this.draftUpdatedAt !== undefined ? { draftUpdatedAt: this.draftUpdatedAt } : {}),
       ...(this.queuedMessageCount > 0 ? { queuedMessageCount: this.queuedMessageCount } : {}),
       ...(this.conversationPodiumId ? { conversationPodiumId: this.conversationPodiumId } : {}),
+      ...(this.spawnedBy ? { spawnedBy: this.spawnedBy } : {}),
     }
   }
 

@@ -151,6 +151,10 @@ export const SessionMeta = z.object({
    *  (docs/spec/conversation-registry.md) — survives resume-rolls and worktree
    *  moves, unlike the native resume ref. Absent until first known. */
   conversationPodiumId: z.string().optional(),
+  /** WHO created this session (provenance, issue #60). Freeform; documented values:
+   *  'user' | 'superagent:<threadId>' | 'steward' | 'issue:<issueId>' |
+   *  'session:<sessionId>'. Absent = created before this field existed (unknown). */
+  spawnedBy: z.string().optional(),
 })
 export type SessionMeta = z.infer<typeof SessionMeta>
 

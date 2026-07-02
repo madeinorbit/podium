@@ -64,6 +64,8 @@ function row(overrides: Partial<SessionRow> = {}): SessionRow {
     // loadSessions() always returns the attribution column ('__local__' pre-multi-machine),
     // so the round-trip fixture carries it too.
     machineId: '__local__',
+    // Same for provenance (issue #60): loadSessions always returns it (null = legacy).
+    spawnedBy: null,
     ...overrides,
   }
 }
@@ -136,6 +138,22 @@ describe('SessionStore sessions', () => {
     expect(r?.lastOutputAt).toBeNull()
     expect(r?.lastInputAt).toBeNull()
     expect(r?.lastResumedAt).toBeNull()
+    store.close()
+  })
+
+  it('round-trips spawnedBy provenance (issue #60)', () => {
+    const store = new SessionStore(':memory:')
+    store.upsertSession(row({ id: 's1', durableLabel: 'podium-s1', spawnedBy: 'issue:iss_9' }))
+    expect(store.loadSessions()[0]?.spawnedBy).toBe('issue:iss_9')
+    store.close()
+  })
+
+  it('reads spawnedBy as null on a legacy row that never had it', () => {
+    const store = new SessionStore(':memory:')
+    // A row written without the field (the pre-#60 write shape) reads back null.
+    const { spawnedBy: _omit, ...legacy } = row({ id: 's2', durableLabel: 'podium-s2' })
+    store.upsertSession(legacy)
+    expect(store.loadSessions()[0]?.spawnedBy).toBeNull()
     store.close()
   })
 })

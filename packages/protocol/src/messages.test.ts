@@ -42,6 +42,30 @@ describe('shared schemas', () => {
     expect(SessionMeta.parse(meta)).toEqual(meta)
   })
 
+  // Provenance (issue #60): spawnedBy is optional/additive — the payload above
+  // (no spawnedBy, as every pre-#60 server emits) already parses; here the tagged
+  // form round-trips too.
+  it('round-trips a SessionMeta carrying spawnedBy', () => {
+    const meta = {
+      sessionId: 's1',
+      agentKind: 'claude-code' as const,
+      title: 't',
+      cwd: '/w',
+      status: 'live' as const,
+      controllerId: null,
+      geometry: { cols: 80, rows: 24 },
+      epoch: 0,
+      clientCount: 0,
+      createdAt: '2026-06-03T00:00:00.000Z',
+      lastActiveAt: '2026-06-03T00:00:00.000Z',
+      origin: { kind: 'spawn' as const },
+      archived: false,
+      spawnedBy: 'issue:iss_abc',
+    }
+    expect(SessionMeta.parse(meta)).toEqual(meta)
+    expect(SessionMeta.parse(meta).spawnedBy).toBe('issue:iss_abc')
+  })
+
   it('round-trips a SessionMeta (resume origin, exited)', () => {
     const meta = {
       sessionId: 's2',

@@ -457,6 +457,7 @@ export class SessionRegistry {
           ...(o.model !== undefined ? { model: o.model } : {}),
           ...(o.effort !== undefined ? { effort: o.effort } : {}),
           ...(o.initialPrompt ? { initialPrompt: o.initialPrompt } : {}),
+          ...(o.spawnedBy ? { spawnedBy: o.spawnedBy } : {}),
         }),
       repoOp: (op, cwd, args) => this.repoOp(op, cwd, args),
       broadcast: (msg) => {
@@ -586,6 +587,7 @@ export class SessionRegistry {
         status: reloadStatus,
         exitCode: exitCode ?? undefined,
         ...(r.name ? { name: r.name } : {}),
+        ...(r.spawnedBy ? { spawnedBy: r.spawnedBy } : {}),
         archived: r.archived,
         ...(Session.parseWorkState(r.workState)
           ? { workState: Session.parseWorkState(r.workState) }
@@ -934,6 +936,10 @@ export class SessionRegistry {
     /** Per-ticket model/effort override; absent = use the settings defaults. */
     model?: string
     effort?: string
+    /** Creation provenance (issue #60). Deliberately NOT defaulted here — the tRPC
+     *  router stamps 'user' (its callers are the human seams); programmatic callers
+     *  (issues, superagent) pass their own value. Absent = unknown. */
+    spawnedBy?: string
   }): {
     sessionId: string
   } {
@@ -964,6 +970,7 @@ export class SessionRegistry {
       ...(useArgv ? { initialPrompt: prompt } : {}),
       ...(input.model !== undefined ? { model: input.model } : {}),
       ...(input.effort !== undefined ? { effort: input.effort } : {}),
+      ...(input.spawnedBy ? { spawnedBy: input.spawnedBy } : {}),
     })
     if (prompt !== undefined && !useArgv) {
       this.setSessionDraft({ sessionId: spawned.sessionId, text: prompt })
@@ -999,6 +1006,9 @@ export class SessionRegistry {
     // masked duplicate with its own title/transcript/stage. Reuse kills that at
     // the source: a running row is focused as-is; a parked (hibernated/exited)
     // row is resurrected under its same id.
+    // Provenance note (issue #60): a resume never rewrites spawnedBy — the reuse/
+    // resurrect paths below keep the original Session (and its row) intact, and the
+    // fresh-spawn fallback leaves it unset (the original creator is unknown here).
     const existing = this.findLiveByResume(input.resume)
     if (existing) {
       if (existing.status === 'hibernated' || existing.status === 'exited') {
@@ -1820,6 +1830,7 @@ export class SessionRegistry {
     /** Per-ticket model/effort override; absent = use the settings defaults. */
     model?: string
     effort?: string
+    spawnedBy?: string
   }): { sessionId: string } {
     const sessionId = randomUUID()
     const machineId = input.machineId ?? LOCAL_PLACEHOLDER
@@ -1842,6 +1853,7 @@ export class SessionRegistry {
       },
       durableLabel: `podium-${sessionId}`,
       ...(input.resume ? { resume: input.resume } : {}),
+      ...(input.spawnedBy ? { spawnedBy: input.spawnedBy } : {}),
     })
     this.sessions.set(sessionId, session)
     this.persist(session)

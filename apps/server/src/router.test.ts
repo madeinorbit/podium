@@ -24,6 +24,13 @@ describe('appRouter', () => {
     expect(list).toMatchObject([{ sessionId, agentKind: 'claude-code', cwd: '/p' }])
   })
 
+  it("sessions.create stamps spawnedBy 'user' (the tRPC seam is the human seam, issue #60)", async () => {
+    const { call } = caller()
+    const { sessionId } = await call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
+    const list = await call.sessions.list()
+    expect(list.find((s) => s.sessionId === sessionId)?.spawnedBy).toBe('user')
+  })
+
   it('sessions.kill removes the session', async () => {
     const { call } = caller()
     const { sessionId } = await call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })

@@ -130,7 +130,10 @@ export const appRouter = t.router({
           machineId: z.string().optional(),
         }),
       )
-      .mutation(({ ctx, input }) => ctx.registry.createSession(input)),
+      // Provenance (issue #60) is stamped HERE, the one human seam: every tRPC
+      // sessions.create is an operator action (web UI / CLI). Programmatic creators
+      // (issues, superagent) call registry.createSession directly with their own tag.
+      .mutation(({ ctx, input }) => ctx.registry.createSession({ ...input, spawnedBy: 'user' })),
     resume: t.procedure
       .input(
         z.object({

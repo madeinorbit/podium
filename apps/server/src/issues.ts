@@ -15,13 +15,15 @@ export interface IssueDeps {
   getSettings(): PodiumSettings
   /** Spawn a session in the issue's worktree. `initialPrompt` hands the agent its
    *  first prompt at spawn (argv for capable agents, draft-seed fallback otherwise —
-   *  resolved inside createSession), which is the race-free way to start the work. */
+   *  resolved inside createSession), which is the race-free way to start the work.
+   *  `spawnedBy` records provenance (issue #60) — always `issue:<id>` from here. */
   spawnSession(o: {
     cwd: string
     agentKind?: string
     model?: string
     effort?: string
     initialPrompt?: string
+    spawnedBy?: string
   }): { sessionId: string }
   repoOp(op: RepoOp, cwd: string, args?: Record<string, string>): Promise<{ ok: boolean; output: string }>
   broadcast(msg: ServerMessage): void
@@ -748,6 +750,7 @@ export class IssueService {
       model: row.defaultModel,
       effort: row.defaultEffort,
       ...(row.description.trim() ? { initialPrompt: row.description } : {}),
+      spawnedBy: `issue:${row.id}`,
     })
     return wire
   }
@@ -824,6 +827,7 @@ export class IssueService {
       agentKind: agentKind ?? row.defaultAgent,
       model: row.defaultModel,
       effort: row.defaultEffort,
+      spawnedBy: `issue:${row.id}`,
     })
     return this.toWire(row)
   }
