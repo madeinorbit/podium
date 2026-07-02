@@ -1,9 +1,9 @@
 import { execFile, spawnSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
-import { mkdir, readdir, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdir, open, readdir, realpath, rm, stat, writeFile } from 'node:fs/promises'
 import { homedir, hostname, tmpdir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { dirname, join, sep } from 'node:path'
 import { promisify } from 'node:util'
 
 const execFileAsync = promisify(execFile)
@@ -21,9 +21,9 @@ import {
   type CursorStateObserver,
   claudeProjectSlug,
   codexRecordToItems,
-  locateClaudeSessionFile,
   cursorRecordToItems,
   cursorSessionPaths,
+  discoveryRoots,
   type GitDiscoveryDiagnostic,
   type GitRepositorySummary,
   type GrokStateObserver,
@@ -36,6 +36,7 @@ import {
   killAbducoSessionAsync,
   killTmuxServer,
   killTmuxServerAsync,
+  locateClaudeSessionFile,
   type OpencodeStateObserver,
   observeCodexState,
   observeCursorState,
@@ -45,6 +46,7 @@ import {
   resolveCursorBin,
   resolveFileChain,
   resolveOpencodeBin,
+  resolveWithinRoots,
   type SliceResult,
   scanGitRepositories,
   spawnAbducoAgent,
@@ -86,8 +88,6 @@ import { startHookIngest } from './hook-ingest'
 import { sampleHostMemory } from './host-metrics'
 import { loadIdentity, saveToken } from './identity'
 import { createIssueRelayHub, startIssueRelayServer } from './issue-relay'
-import { createPrimeInjector } from './prime-injector'
-import { createCwdResolver, createSessionCwdTracker } from './worktree-resolve'
 import {
   countControl,
   countFrame,
@@ -99,6 +99,7 @@ import {
 } from './loop-attribution'
 import type { MemoryAttribution } from './memory-breakdown'
 import { OutputScheduler, type Tier } from './output-scheduler'
+import { createPrimeInjector } from './prime-injector'
 import { makeQuotaFetcher } from './quota-fetch'
 import { repoOpCommand } from './repo-op'
 import { decideOnProtocolMismatch, decidePostUpdate } from './self-update'
@@ -106,6 +107,7 @@ import { uploadFilePath } from './upload'
 import { uploadsToGc } from './uploads-gc'
 import { scanClaudeUsage } from './usage-scan'
 import { DiscoveryWorkerClient } from './worker-client'
+import { createCwdResolver, createSessionCwdTracker } from './worktree-resolve'
 
 const DEFAULT_DISCOVERY_SCAN_INTERVAL_MS = 15_000
 const DEFAULT_HOST_METRICS_INTERVAL_MS = 5_000
@@ -713,6 +715,47 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
       ...(res.tail ? { tail: res.tail } : {}),
       hasMore: res.hasMore,
     })
+  }
+  // Transcript-mirror ranged read (docs/spec/transcript-mirror.md §2.3): serve a byte
+  // range of a native transcript so the server can keep a verbatim lake copy. Guarded
+  // to discovery-provider roots via realpath prefix check — the mirror can never be
+  // used as an arbitrary file reader (spec invariant 3). Must-answer posture (like
+  // readTranscript): every requestId gets a reply, an error one rather than a hang.
+  const readTranscriptMirror = async (
+    msg: Extract<ControlMessage, { type: 'transcriptMirrorRead' }>,
+  ): Promise<void> => {
+    const reply = (r: { data: string; fileSize: number; eof: boolean; error?: string }): void =>
+      send({ type: 'transcriptMirrorResult', requestId: msg.requestId, ...r })
+    const refuse = (error: string): void => reply({ data: '', fileSize: 0, eof: false, error })
+    try {
+      const real = await resolveWithinRoots(
+        msg.path,
+        discoveryRoots(opts.discovery?.homeDir ?? homedir()),
+      )
+      if (!real) {
+        refuse('denied') // outside every discovery root, or vanished — never read
+        return
+      }
+      const handle = await open(real, 'r')
+      try {
+        const fileSize = (await handle.stat()).size
+        if (msg.offset >= fileSize) {
+          reply({ data: '', fileSize, eof: true })
+          return
+        }
+        const buf = Buffer.alloc(Math.min(msg.maxBytes, fileSize - msg.offset))
+        const { bytesRead } = await handle.read(buf, 0, buf.length, msg.offset)
+        reply({
+          data: buf.subarray(0, bytesRead).toString('base64'),
+          fileSize,
+          eof: msg.offset + bytesRead >= fileSize,
+        })
+      } finally {
+        await handle.close()
+      }
+    } catch (err) {
+      refuse(String(err))
+    }
   }
   // Hook cwds are the agent's LIVE shell directory (they follow every `cd`), but
   // the server groups sessions by this value — forwarding raw cwds makes a session
@@ -1532,6 +1575,9 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
         break
       case 'transcriptRead':
         void readTranscript(msg)
+        break
+      case 'transcriptMirrorRead':
+        void readTranscriptMirror(msg)
         break
       case 'imageUploadRequest':
         void handleImageUpload(msg)

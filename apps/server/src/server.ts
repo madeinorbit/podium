@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import type { Server } from 'node:http'
 import { hostname } from 'node:os'
+import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { serve } from '@hono/node-server'
 import { trpcServer } from '@hono/trpc-server'
@@ -14,7 +15,7 @@ import { registerAssetRoute } from './file-asset-route'
 import { OPERATOR } from './issue-authz'
 import type { IssueTrpc } from './issue-client'
 import { CompositeMcpProvider, IssueToolProvider } from './issue-mcp'
-import { readOrCreateDaemonSecret } from './local-machine'
+import { readOrCreateDaemonSecret, stateDir } from './local-machine'
 import { registerMcpRoute } from './mcp-route'
 import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
@@ -129,7 +130,12 @@ export async function startServer(
   // One-shot (won't overwrite an existing one); must run before the open-exposure check below.
   await applyEnvPassword()
   const store = new SessionStore()
-  const registry = new SessionRegistry(store)
+  // The transcript lake lives in the state dir next to podium.db (transcript-mirror
+  // spec §2.1). Passing the dir opts the registry into mirroring; tests that construct
+  // SessionRegistry without it produce no mirror traffic.
+  const registry = new SessionRegistry(store, undefined, {
+    mirrorLakeDir: join(stateDir(), 'transcripts'),
+  })
   // The persistent same-host shared secret, read (or created 0600) from the state dir.
   // The server hashes it into the local machine's stored credential below; the bundled
   // local daemon reads the SAME file (or, in-process, gets this value via ServerHandle)
@@ -149,7 +155,13 @@ export async function startServer(
   // caller so the issueCapabilityGuard middleware enforces the agent's subtree scope. Injected
   // here (not in relay.ts) to keep relay.ts free of the appRouter import cycle.
   registry.makeIssueCaller = (capability, overrideScope) =>
-    appRouter.createCaller({ registry, repos, superagent, capability, overrideScope }) as unknown as {
+    appRouter.createCaller({
+      registry,
+      repos,
+      superagent,
+      capability,
+      overrideScope,
+    }) as unknown as {
       [router: string]: Record<string, (i: unknown) => Promise<unknown>> | undefined
     }
   const app = new Hono()

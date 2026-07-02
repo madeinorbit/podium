@@ -40,6 +40,7 @@ import { knownPathsFor } from './file-relay-policy'
 import type { Capability } from './issue-authz'
 import { IssueService } from './issues'
 import { LOCAL_MACHINE_ID } from './local-machine'
+import { MirrorService } from './mirror'
 import {
   type AttentionNotice,
   attentionNotice,
@@ -157,6 +158,9 @@ interface SessionRegistryOptions {
   telegramSetup?: TelegramSetupClient
   generateTelegramSetupCode?: () => string
   now?: () => number
+  /** Root of the transcript lake ($PODIUM_STATE_DIR/transcripts). Opt-in: when unset
+   *  (the default — every existing test), NO mirror traffic is produced. */
+  mirrorLakeDir?: string
 }
 
 interface PendingTelegramSetup {
@@ -347,6 +351,10 @@ export class SessionRegistry {
     string,
     (r: { items: TranscriptItem[]; head?: string; tail?: string; hasMore: boolean }) => void
   >()
+  private readonly pendingMirrorReads = new Map<
+    string,
+    (r: { data: string; fileSize: number; eof: boolean; error?: string }) => void
+  >()
   private readonly pendingUploads = new Map<string, (r: { path: string; error?: string }) => void>()
   private readonly pendingFileReads = new Map<
     string,
@@ -389,6 +397,9 @@ export class SessionRegistry {
   // Durable metadata change log fed at the broadcast seam (docs/spec/oplog-read-path.md).
   // Assigned in the constructor before loadFromStore (which can trigger broadcasts).
   private readonly oplog: MetadataOplog
+  // Transcript lake mirror (docs/spec/transcript-mirror.md) — constructed only when
+  // options.mirrorLakeDir is set; undefined means zero mirror traffic (tests default).
+  private readonly mirror: MirrorService | undefined
   // Diagnostics ride the conversationsChanged snapshot, not the delta stream — track
   // their last serialization so cap clients still get a snapshot when ONLY diagnostics
   // changed (rare: scan problems), without re-sending the list on every conversation delta.
@@ -424,6 +435,14 @@ export class SessionRegistry {
     this.activityFlushTimer.unref?.()
     this.oplog = new MetadataOplog(this.store, this.now)
     this.loadFromStore()
+    this.mirror = options.mirrorLakeDir
+      ? new MirrorService(
+          this.store,
+          options.mirrorLakeDir,
+          (machineId, req) => this.mirrorRead(machineId, req),
+          this.now,
+        )
+      : undefined
     this.issues = new IssueService({
       store: this.store,
       listSessions: () => this.listSessions(),
@@ -607,6 +626,9 @@ export class SessionRegistry {
         this.drainQueuedMessages(s.sessionId)
       }
     }
+    // Attach trigger (transcript-mirror spec §2.3): catch-up sweep after server/daemon
+    // downtime — re-enqueue this machine's unmirrored segments. No-op without a lake dir.
+    this.mirror?.enqueueMachine(machineId)
     // A freshly-(re)connected daemon knows no session's relay priority. Clear the
     // delta cache so every current session re-sends as a change, then push the full
     // map — otherwise a daemon restart would leave the scheduler at its default
@@ -2320,6 +2342,19 @@ export class SessionRegistry {
         }
         break
       }
+      case 'transcriptMirrorResult': {
+        const resolve = this.pendingMirrorReads.get(msg.requestId)
+        if (resolve) {
+          this.pendingMirrorReads.delete(msg.requestId)
+          resolve({
+            data: msg.data,
+            fileSize: msg.fileSize,
+            eof: msg.eof,
+            ...(msg.error !== undefined ? { error: msg.error } : {}),
+          })
+        }
+        break
+      }
       case 'imageUploadResult': {
         const resolve = this.pendingUploads.get(msg.requestId)
         if (resolve) {
@@ -2493,6 +2528,9 @@ export class SessionRegistry {
       })),
     )
     if (removed.length) this.store.deleteConversations(removed)
+    // Scan trigger (transcript-mirror spec §2.3): the segments just upserted may have
+    // grown/appeared — pull their new bytes into the lake. No-op without a lake dir.
+    this.mirror?.enqueueMachine(machineId)
     return conversations.map((c) => {
       const podiumId = podiumIds.get(c.id)
       return podiumId ? { ...c, podiumId } : c
@@ -2564,6 +2602,29 @@ export class SessionRegistry {
         limit: input.limit,
       }),
       session.machineId, // the transcript file lives on the session's machine
+    )
+  }
+
+  /** One transcript-mirror ranged read against a specific machine — MirrorService's
+   *  read seam. A timeout resolves an error result (never rejects), so the pull loop
+   *  backs the segment off instead of hanging (docs/spec/transcript-mirror.md §2.3). */
+  private mirrorRead(
+    machineId: string,
+    req: { path: string; offset: number; maxBytes: number },
+  ): Promise<{ data: string; fileSize: number; eof: boolean; error?: string }> {
+    return this.daemonRequest(
+      this.pendingMirrorReads,
+      'mr',
+      SCAN_TIMEOUT_MS,
+      () => ({ data: '', fileSize: 0, eof: false, error: 'timeout' }),
+      (requestId) => ({
+        type: 'transcriptMirrorRead',
+        requestId,
+        path: req.path,
+        offset: req.offset,
+        maxBytes: req.maxBytes,
+      }),
+      machineId,
     )
   }
 
