@@ -678,6 +678,13 @@ describe('IssueService.prime (P1a)', () => {
     expect(out).toMatch(/discovered-from|Workflow|track work as issues/i)
   })
 
+  it('prime tells the agent to report worktree moves via `podium worktree`', () => {
+    const { svc } = harness()
+    const issue = svc.create({ repoPath: '/r', title: 'Bound', startNow: false })
+    expect(svc.prime({ repoPath: '/r', boundIssueId: issue.id })).toContain('podium worktree')
+    expect(svc.prime({ repoPath: '/r', boundIssueId: null })).toContain('podium worktree')
+  })
+
   it('prime renders a lobby when unbound', () => {
     const { svc } = harness()
     svc.create({ repoPath: '/r', title: 'Ready one', startNow: false })

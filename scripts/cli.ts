@@ -118,6 +118,14 @@ export async function main(): Promise<void> {
     return
   }
 
+  // `podium worktree [path]`: agent declares the worktree it's working in (defaults
+  // to its cwd); the daemon resolves it to the git toplevel and regroups the session.
+  if (argv[0] === 'worktree') {
+    const { worktreeCliMain } = await import('./worktree-cli')
+    await worktreeCliMain(argv.slice(1))
+    return
+  }
+
   // `podium setup` (or --reconfigure) re-enters the interactive flow: a mode-first menu that
   // can switch this box into all-in-one / server / daemon and edit the URL/password. It's the
   // interactive command, so the only gate is a TTY (headless falls through to serving the web
