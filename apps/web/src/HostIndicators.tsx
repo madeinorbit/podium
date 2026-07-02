@@ -1,4 +1,4 @@
-import { MemoryStick } from 'lucide-react'
+import { CloudUpload, MemoryStick } from 'lucide-react'
 import type { JSX } from 'react'
 import { useState } from 'react'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -34,7 +34,7 @@ const SEVERITY = {
  * the per-process breakdown / connection detail.
  */
 export function HostIndicators({ compact = false }: { compact?: boolean }): JSX.Element {
-  const { hostMetrics } = useStore()
+  const { hostMetrics, outboxSize } = useStore()
   const { health, visible: connVisible } = useStableConnection()
   const hibernation = useHibernationSetting()
   const [infoTab, setInfoTab] = useState<HostInfoTab | null>(null)
@@ -118,6 +118,31 @@ export function HostIndicators({ compact = false }: { compact?: boolean }): JSX.
       })}
       {connVisible && (
         <ConnectionIndicator health={health} onOpen={() => setInfoTab('connection')} />
+      )}
+      {/* Offline-authored writes waiting in the client outbox. Appears only while
+          something is actually pending — a permanent "0 pending" would be noise. */}
+      {outboxSize > 0 && (
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <span
+                className={cn(
+                  'inline-flex items-center gap-1 whitespace-nowrap text-[11px] text-muted-foreground',
+                  compact && 'min-w-[30px] justify-center px-1',
+                )}
+              >
+                <CloudUpload size={14} aria-hidden="true" />
+                {!compact && <span>{outboxSize} pending</span>}
+              </span>
+            }
+          />
+          <TooltipContent className="max-w-60 flex-col items-start gap-0.5">
+            <strong>
+              {outboxSize} pending {outboxSize === 1 ? 'change' : 'changes'}
+            </strong>
+            <span className="text-background/70">changes queued — will sync when reconnected</span>
+          </TooltipContent>
+        </Tooltip>
       )}
       <QuotaIndicator compact={compact} />
       {infoTab && <HostInfoView initialTab={infoTab} onClose={() => setInfoTab(null)} />}

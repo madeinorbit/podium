@@ -1347,6 +1347,76 @@ export class SessionStore {
     }))
   }
 
+  // ---- outbox write path (docs/spec/outbox-write-path.md) ----
+
+  /** The stored result of an already-applied mutation, or undefined if new. */
+  getAppliedMutation(mutationId: string): string | undefined {
+    const row = this.db
+      .prepare('SELECT result FROM applied_mutations WHERE mutation_id = ?')
+      .get(mutationId) as { result: string } | undefined
+    return row?.result
+  }
+
+  recordAppliedMutation(mutationId: string, proc: string, result: string, appliedAt: number): void {
+    this.db
+      .prepare(
+        'INSERT OR IGNORE INTO applied_mutations (mutation_id, proc, result, applied_at) VALUES (?, ?, ?, ?)',
+      )
+      .run(mutationId, proc, result, appliedAt)
+  }
+
+  pruneAppliedMutations(opts: { maxAgeMs: number; now: number }): void {
+    this.db
+      .prepare('DELETE FROM applied_mutations WHERE applied_at < ?')
+      .run(opts.now - opts.maxAgeMs)
+  }
+
+  /** Enqueue a message; the id IS the mutationId, so a replayed enqueue is a no-op.
+   *  Returns false when the id already existed (replay). */
+  enqueueMessage(row: { id: string; sessionId: string; text: string; queuedAt: number }): boolean {
+    const r = this.db
+      .prepare(
+        'INSERT OR IGNORE INTO queued_messages (id, session_id, text, queued_at) VALUES (?, ?, ?, ?)',
+      )
+      .run(row.id, row.sessionId, row.text, row.queuedAt)
+    return Number(r.changes) > 0
+  }
+
+  /** FIFO head-first queue for one session. */
+  listQueuedMessages(sessionId: string): { id: string; text: string; attempts: number }[] {
+    const rows = this.db
+      .prepare(
+        'SELECT id, text, attempts FROM queued_messages WHERE session_id = ? ORDER BY queued_at ASC, rowid ASC',
+      )
+      .all(sessionId) as Record<string, unknown>[]
+    return rows.map((r) => ({
+      id: r.id as string,
+      text: r.text as string,
+      attempts: r.attempts as number,
+    }))
+  }
+
+  /** Per-session queued counts — the boot seed for Session.queuedMessageCount. */
+  queuedMessageCounts(): Map<string, number> {
+    const rows = this.db
+      .prepare('SELECT session_id, COUNT(*) AS n FROM queued_messages GROUP BY session_id')
+      .all() as { session_id: string; n: number }[]
+    return new Map(rows.map((r) => [r.session_id, r.n]))
+  }
+
+  deleteQueuedMessage(id: string): void {
+    this.db.prepare('DELETE FROM queued_messages WHERE id = ?').run(id)
+  }
+
+  bumpQueuedAttempts(id: string): void {
+    this.db.prepare('UPDATE queued_messages SET attempts = attempts + 1 WHERE id = ?').run(id)
+  }
+
+  /** Drop a dead session's queue (kill without resume ref, permanent delete). */
+  deleteQueuedMessagesForSession(sessionId: string): void {
+    this.db.prepare('DELETE FROM queued_messages WHERE session_id = ?').run(sessionId)
+  }
+
   close(): void {
     this.db.close()
   }
@@ -1434,6 +1504,30 @@ export class SessionStore {
        )`,
     )
     this.db.exec('CREATE INDEX IF NOT EXISTS changes_entity ON changes(entity, entity_id, seq)')
+    // Outbox write path (docs/spec/outbox-write-path.md). applied_mutations makes
+    // replayed writes no-ops (the stored result is returned instead of re-running);
+    // queued_messages is the durable per-session send queue that replaced the
+    // in-memory sendTextWhenReady timer (survives restarts, never drops silently).
+    this.db.exec(
+      `CREATE TABLE IF NOT EXISTS applied_mutations (
+         mutation_id TEXT PRIMARY KEY,
+         proc        TEXT NOT NULL,
+         result      TEXT NOT NULL,
+         applied_at  INTEGER NOT NULL
+       )`,
+    )
+    this.db.exec(
+      `CREATE TABLE IF NOT EXISTS queued_messages (
+         id         TEXT PRIMARY KEY,
+         session_id TEXT NOT NULL,
+         text       TEXT NOT NULL,
+         queued_at  INTEGER NOT NULL,
+         attempts   INTEGER NOT NULL DEFAULT 0
+       )`,
+    )
+    this.db.exec(
+      'CREATE INDEX IF NOT EXISTS queued_messages_session ON queued_messages(session_id, queued_at)',
+    )
     // Persistent human-client login sessions (web/desktop UI). We store only the SHA-256
     // of the cookie token, never the token itself, so a DB read can't mint a valid cookie.
     // Persisted (not in-memory) so a server redeploy doesn't force every device to re-login.

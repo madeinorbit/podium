@@ -37,10 +37,10 @@ import {
   type ToolBatchRow,
   ticksFromOffsets,
 } from './chat'
+import { handleCodeCopyClick } from './code-copy'
 import { chatActivity } from './derive'
 import { resolveAgainstCwd } from './file-path'
 import { useIsMobile } from './hooks/use-is-mobile'
-import { handleCodeCopyClick } from './code-copy'
 import { renderMarkdown } from './markdown'
 import { useStore } from './store'
 import { useNow } from './useNow'
@@ -702,10 +702,16 @@ export function ChatView({
     ])
     setJustSent(true)
     try {
-      // Live → send straight through. Parked but recoverable → wake it and let
-      // the server deliver the text once the resumed CLI is ready.
+      // Live → send straight through (NOT outboxed: live chat must fail fast when
+      // offline). The mutationId only makes an ambiguous retry replay-safe.
+      // Parked but recoverable → wake it and let the server deliver the text once
+      // the resumed CLI is ready.
       if (session?.status === 'live' || session?.status === 'starting') {
-        await trpc.sessions.sendText.mutate({ sessionId, text: fullText })
+        await trpc.sessions.sendText.mutate({
+          sessionId,
+          text: fullText,
+          mutationId: crypto.randomUUID(),
+        })
       } else {
         await resumeAndSend(sessionId, fullText)
       }
@@ -732,6 +738,10 @@ export function ChatView({
   // The composer accepts input when the agent is live OR when it can be woken by
   // sending (auto-resume). Only a truly dead/unrecoverable session locks it out.
   const composerEnabled = sendable || canResume
+  // Durable server-held messages waiting to be typed into the agent when it's
+  // back (SessionMeta.queuedMessageCount, live via the sessions subscription) —
+  // the honest state behind the optimistic pending bubbles.
+  const queuedCount = session?.queuedMessageCount ?? 0
   const activity = chatActivity(session, justSent)
 
   // Autofocus the composer when the chat view becomes active for a session that
@@ -1009,6 +1019,13 @@ export function ChatView({
           void processFiles(Array.from(e.dataTransfer.files))
         }}
       >
+        {queuedCount > 0 && (
+          <div className="flex items-center gap-1.5 pb-1.5 text-[11px] text-muted-foreground">
+            <Clock size={12} aria-hidden="true" />
+            {queuedCount === 1 ? '1 message queued' : `${queuedCount} messages queued`} — delivers
+            when the agent is back
+          </div>
+        )}
         <div className="relative flex flex-col gap-0.5 rounded-2xl border border-input bg-background px-2.5 pt-2 pb-1.5 focus-within:border-primary">
           {dragOver && (
             <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-2xl border-2 border-dashed border-primary bg-primary/5">

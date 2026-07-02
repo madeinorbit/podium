@@ -57,6 +57,12 @@ class FakeHub {
   onAttention() {
     return () => {}
   }
+  connectionHealth() {
+    return { status: 'ok', rttMs: null, since: 0 }
+  }
+  onConnectionHealth() {
+    return () => {}
+  }
   connect() {}
   dispose() {}
   sendSessionDraft() {}

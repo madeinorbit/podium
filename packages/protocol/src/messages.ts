@@ -142,6 +142,11 @@ export const SessionMeta = z.object({
    *  by when its prompt was last edited (a draft edit is recent user intent on
    *  that session). Absent = no draft (or an empty one). */
   draftUpdatedAt: z.string().optional(),
+  /** Number of durable server-held messages waiting to be typed into this agent
+   *  once it is back (docs/spec/outbox-write-path.md §2.2). Absent = none. Like
+   *  snoozedUntil/draftUpdatedAt this is pending USER intent, orthogonal to the
+   *  agent's phase; it drives the chat "queued" state on every client. */
+  queuedMessageCount: z.number().int().positive().optional(),
 })
 export type SessionMeta = z.infer<typeof SessionMeta>
 

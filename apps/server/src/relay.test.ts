@@ -1459,7 +1459,7 @@ describe('sendText (chat send path)', () => {
   })
 })
 
-describe('sendTextWhenReady (resume/spawn readiness — #5b)', () => {
+describe('queueText drain (resume/spawn readiness — #5b, durable queue)', () => {
   const inputsOf = (daemon: ControlMessage[]): string =>
     daemon
       .filter((m) => m.type === 'input')
@@ -1474,7 +1474,7 @@ describe('sendTextWhenReady (resume/spawn readiness — #5b)', () => {
       reg.attachDaemon('local', (m) => daemon.push(m))
       const { sessionId } = reg.createSession({ agentKind: 'codex', cwd: '/w' })
       reg.onDaemonMessageFrom('local', bind(sessionId)) // -> live
-      reg.sendTextWhenReady(sessionId, 'deferred-msg')
+      reg.queueText({ sessionId, text: 'deferred-msg' })
 
       // The TUI is still drawing: an output frame every poll for ~2s.
       let seq = 0
@@ -1502,7 +1502,7 @@ describe('sendTextWhenReady (resume/spawn readiness — #5b)', () => {
       const daemon: ControlMessage[] = []
       reg.attachDaemon('local', (m) => daemon.push(m))
       const { sessionId } = reg.createSession({ agentKind: 'codex', cwd: '/w' }) // 'starting'
-      reg.sendTextWhenReady(sessionId, 'too-early')
+      reg.queueText({ sessionId, text: 'too-early' })
       vi.advanceTimersByTime(5000)
       expect(inputsOf(daemon)).not.toContain('too-early')
     } finally {
@@ -1518,7 +1518,7 @@ describe('sendTextWhenReady (resume/spawn readiness — #5b)', () => {
       reg.attachDaemon('local', (m) => daemon.push(m))
       const { sessionId } = reg.createSession({ agentKind: 'codex', cwd: '/w' })
       reg.onDaemonMessageFrom('local', bind(sessionId)) // live, but never emits output
-      reg.sendTextWhenReady(sessionId, 'silent-msg')
+      reg.queueText({ sessionId, text: 'silent-msg' })
       vi.advanceTimersByTime(5000)
       expect(inputsOf(daemon)).not.toContain('silent-msg') // still within the max window
       vi.advanceTimersByTime(2000)

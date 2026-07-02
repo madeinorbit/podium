@@ -215,8 +215,8 @@ Each phase ships independently and delivers value on its own. Each phase gets it
 | # | Phase | Delivers |
 |---|---|---|
 | P1 | **Conversation registry** + resolver | Stable transcript loading; fixed resume UI; foundation for search/backup/sync |
-| P2 | **Oplog read path** (`changes` table, `changesSince`, `metadataDelta`) | Deltas replace full-snapshot broadcasts; cross-client reactivity formalized. Spec: `docs/spec/oplog-read-path.md` |
-| P3 | **Outbox write path** + idempotency IDs + pending UI | Queued work UX; offline authoring semantics (used by all later consumers) |
+| P2 | **Oplog read path** (`changes` table, `changesSince`, `metadataDelta`) | ✅ Implemented. Deltas replace full-snapshot broadcasts; cross-client reactivity formalized. Spec: `docs/spec/oplog-read-path.md` |
+| P3 | **Outbox write path** + idempotency IDs + pending UI | ✅ Implemented (issue-mutation outbox routing on web is a follow-on). Queued work UX; offline authoring semantics. Spec: `docs/spec/outbox-write-path.md` |
 | P4 | **Transcript lake + hub mirror** | Backup/export feature; blob store; transcripts survive agent deletion |
 | P5 | **Search v1** (FTS5 omni-index, ⌘K) | Replaces current search |
 | P6 | **Thin-client replica** (TanStack DB on mobile/browser) | Mobile offline read + author |

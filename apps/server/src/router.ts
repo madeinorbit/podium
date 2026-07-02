@@ -148,8 +148,20 @@ export const appRouter = t.router({
     // Chat-view send path: routes around controller gating on purpose — a chat
     // message is an explicit user act, not a competing keyboard.
     sendText: t.procedure
-      .input(z.object({ sessionId: z.string(), text: z.string().min(1).max(32_768) }))
-      .mutation(({ ctx, input }) => ctx.registry.sendText(input)),
+      .input(
+        z.object({
+          sessionId: z.string(),
+          text: z.string().min(1).max(32_768),
+          // Idempotency key (docs/spec/outbox-write-path.md §2.1): a replayed send
+          // must NOT double-type into the PTY.
+          mutationId: z.string().max(128).optional(),
+        }),
+      )
+      .mutation(({ ctx, input }) =>
+        ctx.registry.withMutation(input.mutationId, 'sessions.sendText', () =>
+          ctx.registry.sendText(input),
+        ),
+      ),
     // Chat-view answer to a live AskUserQuestion prompt: type the chosen option
     // number(s) into the agent's native menu (the native terminal is unmounted in
     // chat mode). One entry per question, each with its 1-based option indices.
@@ -166,8 +178,18 @@ export const appRouter = t.router({
     // Chat compose for a parked session: wake it if needed, then deliver the
     // message once the resumed CLI is ready (auto-resume on submit).
     resumeAndSend: t.procedure
-      .input(z.object({ sessionId: z.string(), text: z.string().min(1).max(32_768) }))
-      .mutation(({ ctx, input }) => ctx.registry.resumeAndSend(input)),
+      .input(
+        z.object({
+          sessionId: z.string(),
+          text: z.string().min(1).max(32_768),
+          mutationId: z.string().max(128).optional(),
+        }),
+      )
+      .mutation(({ ctx, input }) =>
+        ctx.registry.withMutation(input.mutationId, 'sessions.resumeAndSend', () =>
+          ctx.registry.resumeAndSend(input),
+        ),
+      ),
     // On-demand transcript window for the chat view — a pure disk read via the
     // daemon (disk = source of truth). `anchor` is a cursor; `direction` reads the
     // `limit` items before (older) or after (newer) it. No anchor = the latest
@@ -190,14 +212,44 @@ export const appRouter = t.router({
       .input(z.object({ sessionId: z.string() }))
       .mutation(({ ctx, input }) => ctx.registry.resurrectSession(input)),
     rename: t.procedure
-      .input(z.object({ sessionId: z.string(), name: z.string().max(120) }))
-      .mutation(({ ctx, input }) => ctx.registry.renameSession(input)),
+      .input(
+        z.object({
+          sessionId: z.string(),
+          name: z.string().max(120),
+          mutationId: z.string().max(128).optional(),
+        }),
+      )
+      .mutation(({ ctx, input }) =>
+        ctx.registry.withMutation(input.mutationId, 'sessions.rename', () =>
+          ctx.registry.renameSession(input),
+        ),
+      ),
     setArchived: t.procedure
-      .input(z.object({ sessionId: z.string(), archived: z.boolean() }))
-      .mutation(({ ctx, input }) => ctx.registry.setArchived(input)),
+      .input(
+        z.object({
+          sessionId: z.string(),
+          archived: z.boolean(),
+          mutationId: z.string().max(128).optional(),
+        }),
+      )
+      .mutation(({ ctx, input }) =>
+        ctx.registry.withMutation(input.mutationId, 'sessions.setArchived', () =>
+          ctx.registry.setArchived(input),
+        ),
+      ),
     setWorkState: t.procedure
-      .input(z.object({ sessionId: z.string(), workState: WorkState.nullable() }))
-      .mutation(({ ctx, input }) => ctx.registry.setWorkState(input)),
+      .input(
+        z.object({
+          sessionId: z.string(),
+          workState: WorkState.nullable(),
+          mutationId: z.string().max(128).optional(),
+        }),
+      )
+      .mutation(({ ctx, input }) =>
+        ctx.registry.withMutation(input.mutationId, 'sessions.setWorkState', () =>
+          ctx.registry.setWorkState(input),
+        ),
+      ),
     // Image upload: the client sends a base64-encoded image; the daemon writes
     // it to ~/.podium/uploads/<sessionId>/<uuid>.<ext> and returns the absolute
     // path so it can be inserted into a prompt. Claude Code reads images by path.
@@ -255,15 +307,27 @@ export const appRouter = t.router({
     list: t.procedure.query(({ ctx }) => ctx.registry.listSnoozes()),
     // until === null => "until next message"; ISO string => timed.
     set: t.procedure
-      .input(z.object({ sessionId: z.string(), until: z.string().nullable() }))
-      .mutation(({ ctx, input }) => {
-        ctx.registry.setSnooze(input)
-        return ctx.registry.listSnoozes()
-      }),
-    clear: t.procedure.input(z.object({ sessionId: z.string() })).mutation(({ ctx, input }) => {
-      ctx.registry.clearSnooze(input.sessionId)
-      return ctx.registry.listSnoozes()
-    }),
+      .input(
+        z.object({
+          sessionId: z.string(),
+          until: z.string().nullable(),
+          mutationId: z.string().max(128).optional(),
+        }),
+      )
+      .mutation(({ ctx, input }) =>
+        ctx.registry.withMutation(input.mutationId, 'snoozes.set', () => {
+          ctx.registry.setSnooze(input)
+          return ctx.registry.listSnoozes()
+        }),
+      ),
+    clear: t.procedure
+      .input(z.object({ sessionId: z.string(), mutationId: z.string().max(128).optional() }))
+      .mutation(({ ctx, input }) =>
+        ctx.registry.withMutation(input.mutationId, 'snoozes.clear', () => {
+          ctx.registry.clearSnooze(input.sessionId)
+          return ctx.registry.listSnoozes()
+        }),
+      ),
   }),
   superagent: t.router({
     // The global orchestrator thread plus per-session 'btw' threads.
@@ -654,9 +718,14 @@ export const appRouter = t.router({
           assignee: z.string().optional(),
           labels: z.array(z.string()).optional(),
           parentId: z.string().optional(),
+          mutationId: z.string().max(128).optional(),
         }),
       )
-      .mutation(({ ctx, input }) => ctx.registry.issues.createAndMaybeStart(input)),
+      .mutation(({ ctx, input }) =>
+        ctx.registry.withMutation(input.mutationId, 'issues.create', () =>
+          ctx.registry.issues.createAndMaybeStart(input),
+        ),
+      ),
     start: issueProc
       .input(z.object({ id: z.string() }))
       .mutation(({ ctx, input }) => ctx.registry.issues.start(input.id)),
@@ -684,9 +753,14 @@ export const appRouter = t.router({
             pinned: z.boolean().optional(),
             estimateMin: z.number().int().optional(),
           }),
+          mutationId: z.string().max(128).optional(),
         }),
       )
-      .mutation(({ ctx, input }) => ctx.registry.issues.update(input.id, input.patch)),
+      .mutation(({ ctx, input }) =>
+        ctx.registry.withMutation(input.mutationId, 'issues.update', () =>
+          ctx.registry.issues.update(input.id, input.patch),
+        ),
+      ),
     archive: issueProc
       .input(z.object({ id: z.string() }))
       .mutation(({ ctx, input }) => ctx.registry.issues.archive(input.id)),
@@ -715,9 +789,18 @@ export const appRouter = t.router({
       .input(z.object({ id: z.string(), labels: z.array(z.string()) }))
       .mutation(({ ctx, input }) => ctx.registry.issues.setLabels(input.id, input.labels)),
     addComment: issueProc
-      .input(z.object({ id: z.string(), author: z.string(), body: z.string().min(1) }))
+      .input(
+        z.object({
+          id: z.string(),
+          author: z.string(),
+          body: z.string().min(1),
+          mutationId: z.string().max(128).optional(),
+        }),
+      )
       .mutation(({ ctx, input }) =>
-        ctx.registry.issues.addComment(input.id, input.author, input.body),
+        ctx.registry.withMutation(input.mutationId, 'issues.addComment', () =>
+          ctx.registry.issues.addComment(input.id, input.author, input.body),
+        ),
       ),
     depAdd: issueProc
       .input(z.object({ fromId: z.string(), toId: z.string(), type: z.string().optional() }))
@@ -747,8 +830,18 @@ export const appRouter = t.router({
       .input(z.object({ id: z.string(), assignee: z.string() }))
       .mutation(({ ctx, input }) => ctx.registry.issues.claim(input.id, input.assignee)),
     close: issueProc
-      .input(z.object({ id: z.string(), reason: z.string().optional() }))
-      .mutation(({ ctx, input }) => ctx.registry.issues.close(input.id, input.reason)),
+      .input(
+        z.object({
+          id: z.string(),
+          reason: z.string().optional(),
+          mutationId: z.string().max(128).optional(),
+        }),
+      )
+      .mutation(({ ctx, input }) =>
+        ctx.registry.withMutation(input.mutationId, 'issues.close', () =>
+          ctx.registry.issues.close(input.id, input.reason),
+        ),
+      ),
     supersede: issueProc
       .input(z.object({ oldId: z.string(), newId: z.string() }))
       .mutation(({ ctx, input }) => ctx.registry.issues.supersede(input.oldId, input.newId)),

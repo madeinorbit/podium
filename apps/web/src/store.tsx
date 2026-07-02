@@ -23,6 +23,7 @@ import { toast } from 'sonner'
 import { formatAppError } from './AppErrorPage'
 import { dedupeSessionsByResume, EMPTY_PINS, planWorktreeMoves, reposToViews } from './derive'
 import { type FileScope, scopeKey, tabIdFor } from './file-scope'
+import { createOutbox } from './outbox'
 import { makeTrpc, type ServerOrigin, type Trpc } from './trpc'
 import type { PinKind, PinState } from './types'
 
@@ -152,6 +153,9 @@ export interface Store {
   setSidebarSettings: (next: Partial<SidebarSettings>) => Promise<void>
   /** Server HTTP origin — used to build asset URLs (e.g. markdown images). */
   httpOrigin: string
+  /** Count of not-yet-synced outbox entries (offline-authored writes waiting to
+   *  replay) — drives the "pending" chip in HostIndicators. */
+  outboxSize: number
 }
 
 export type MainView = 'home' | 'workspace' | 'settings' | 'usage' | 'issues'
@@ -222,6 +226,20 @@ function readStoredPanelModes(): Record<string, 'chat' | 'native'> {
   }
 }
 
+/** Outboxed mutation kinds → their tRPC inputs (docs/spec/outbox-write-path.md
+ *  §2.3). Each executor replays with the entry's stable mutationId, so the
+ *  server dedupes across reload/reconnect. Pins/tab-orders/sidebar-settings
+ *  stay direct (low offline value); sendText stays direct too — live chat must
+ *  fail fast, not silently queue. */
+type OutboxKinds = {
+  resumeAndSend: { sessionId: string; text: string }
+  rename: { sessionId: string; name: string }
+  setArchived: { sessionId: string; archived: boolean }
+  setWorkState: { sessionId: string; workState: WorkState | null }
+  snoozeSet: { sessionId: string; until: string | null }
+  snoozeClear: { sessionId: string }
+}
+
 export function StoreProvider({
   config,
   onFatalError,
@@ -245,6 +263,39 @@ export function StoreProvider({
       }),
     [config.wsClientUrl, onFatalError, trpc],
   )
+  // Durable write path for the covered mutations: optimistic local apply stays in
+  // each store method; the server round-trip goes through the outbox so an offline
+  // write survives a reload and replays (deduped by mutationId) on reconnect.
+  const outbox = useMemo(
+    () =>
+      createOutbox<OutboxKinds>({
+        executors: {
+          resumeAndSend: (i) => trpc.sessions.resumeAndSend.mutate(i),
+          rename: (i) => trpc.sessions.rename.mutate(i),
+          setArchived: (i) => trpc.sessions.setArchived.mutate(i),
+          setWorkState: (i) => trpc.sessions.setWorkState.mutate(i),
+          snoozeSet: (i) => trpc.snoozes.set.mutate(i),
+          snoozeClear: (i) => trpc.snoozes.clear.mutate(i),
+        },
+        // A poison entry (server-side validation reject) can never sync — it's
+        // dropped, and the toast is the honesty about that.
+        onPoison: (entry) =>
+          toast.error(`A queued change (${entry.kind}) was rejected by the server and dropped`),
+      }),
+    [trpc],
+  )
+  const [outboxSize, setOutboxSize] = useState(0)
+  useEffect(() => {
+    setOutboxSize(outbox.size())
+    const off = outbox.subscribe(setOutboxSize)
+    // attach/dispose pair (not constructor-only): StrictMode's dev double-mount
+    // disposes the memoized instance once, so the mount must re-arm its triggers.
+    outbox.attach()
+    return () => {
+      off()
+      outbox.dispose()
+    }
+  }, [outbox])
 
   const [repos, setRepos] = useState<GitRepositoryWire[]>([])
   const [reposLoading, setReposLoading] = useState(false)
@@ -443,20 +494,23 @@ export function StoreProvider({
   )
   const resumeAndSend = useMemo(
     () => async (sessionId: string, text: string) => {
-      await trpc.sessions.resumeAndSend.mutate({ sessionId, text }).catch(() => {})
+      // Outboxed: the wake+deliver is durably queued server-side once it lands,
+      // and the outbox carries it there across offline gaps/reloads.
+      outbox.enqueue('resumeAndSend', { sessionId, text })
     },
-    [trpc],
+    [outbox],
   )
   // Curation mutations are optimistic: the server broadcast reconciles, but
-  // waiting on it makes renames/drags feel sticky.
+  // waiting on it makes renames/drags feel sticky. The round-trip itself goes
+  // through the outbox, so these survive being authored offline.
   const renameSession = useMemo(
     () => async (sessionId: string, name: string) => {
       setSessions((all) =>
         all.map((s) => (s.sessionId === sessionId ? { ...s, name: name.trim() } : s)),
       )
-      await trpc.sessions.rename.mutate({ sessionId, name }).catch(() => {})
+      outbox.enqueue('rename', { sessionId, name })
     },
-    [trpc],
+    [outbox],
   )
   const archiveSession = useMemo(
     () => async (sessionId: string, archived: boolean) => {
@@ -475,14 +529,13 @@ export function StoreProvider({
       // DB and resurrect on reload — clear it on the server too to make it stick.
       if (archived) {
         setPins((p) => ({ ...p, panels: p.panels.filter((id) => id !== sessionId) }))
+        // Pins stay direct (not outboxed) — low offline value, follow-on phase.
         await trpc.pins.set.mutate({ kind: 'panel', id: sessionId, pinned: false }).catch(() => {})
       }
-      await trpc.sessions.setArchived.mutate({ sessionId, archived }).catch(() => {})
-      if (archived) {
-        await trpc.sessions.setWorkState.mutate({ sessionId, workState: 'done' }).catch(() => {})
-      }
+      outbox.enqueue('setArchived', { sessionId, archived })
+      if (archived) outbox.enqueue('setWorkState', { sessionId, workState: 'done' })
     },
-    [trpc],
+    [outbox, trpc],
   )
   const startBtw = useMemo(
     () => async (sessionId: string) => {
@@ -555,27 +608,27 @@ export function StoreProvider({
           s.sessionId === sessionId ? { ...s, workState: workState ?? undefined } : s,
         ),
       )
-      await trpc.sessions.setWorkState.mutate({ sessionId, workState }).catch(() => {})
+      outbox.enqueue('setWorkState', { sessionId, workState })
     },
-    [trpc],
+    [outbox],
   )
   const setSnooze = useMemo(
     () => async (sessionId: string, until: string | null) => {
       setSessions((all) =>
         all.map((s) => (s.sessionId === sessionId ? { ...s, snoozedUntil: until } : s)),
       )
-      await trpc.snoozes.set.mutate({ sessionId, until }).catch(() => {})
+      outbox.enqueue('snoozeSet', { sessionId, until })
     },
-    [trpc],
+    [outbox],
   )
   const clearSnooze = useMemo(
     () => async (sessionId: string) => {
       setSessions((all) =>
         all.map((s) => (s.sessionId === sessionId ? { ...s, snoozedUntil: undefined } : s)),
       )
-      await trpc.snoozes.clear.mutate({ sessionId }).catch(() => {})
+      outbox.enqueue('snoozeClear', { sessionId })
     },
-    [trpc],
+    [outbox],
   )
 
   // Report which sessions this client renders (`visible`) and which one has input
@@ -692,6 +745,14 @@ export function StoreProvider({
     const offDraft = hub.onSessionDraft((sessionId, text) =>
       setDrafts((d) => (d[sessionId] === text ? d : { ...d, [sessionId]: text })),
     )
+    // Reconnect drains the outbox: the browser 'online' event (the outbox's own
+    // trigger) misses a server restart behind a healthy network, but the hub's
+    // heartbeat-derived health catches both.
+    let prevHealth = hub.connectionHealth().status
+    const offHealth = hub.onConnectionHealth((h) => {
+      if (h.status === 'ok' && prevHealth !== 'ok') outbox.notifyConnected()
+      prevHealth = h.status
+    })
     // Attention → web notification, but only while this page can't be seen —
     // a visible Podium window IS the notification.
     const offAttention = hub.onAttention((e) => {
@@ -738,11 +799,12 @@ export function StoreProvider({
       offHostMetrics()
       offMachines()
       offDraft()
+      offHealth()
       offAttention()
       document.removeEventListener('visibilitychange', reportVisibility)
       hub.dispose()
     }
-  }, [hub, onFatalError, refreshPins, refreshRepos, refreshTabOrders])
+  }, [hub, onFatalError, outbox, refreshPins, refreshRepos, refreshTabOrders])
 
   const value: Store = {
     hub,
@@ -810,6 +872,7 @@ export function StoreProvider({
     sidebarSettings,
     setSidebarSettings,
     httpOrigin: config.httpOrigin,
+    outboxSize,
     fileTabs,
     openFile,
     openFileInWorktree,

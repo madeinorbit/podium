@@ -140,6 +140,10 @@ export class Session {
    *  until next message; ISO string = timed. Lives in its own `snoozes` table, so
    *  it is NOT part of toRow(); the registry seeds it at load and on mutation. */
   snoozedUntil: string | null | undefined = undefined
+  /** Count of durable queued messages awaiting delivery (queued_messages table).
+   *  Transient mirror maintained by the registry (enqueue/deliver/boot) — the
+   *  table is the truth; this exists so toMeta() stays synchronous. */
+  queuedMessageCount = 0
   /** Last-edit time of a non-empty unsent composer draft (undefined = no draft).
    *  Lives in its own `session_drafts` table (not toRow()); the registry seeds it
    *  at load and on every setSessionDraft. Surfaced so the client can show DRAFT
@@ -713,6 +717,7 @@ export class Session {
       ...(this.agentColor ? { agentColor: this.agentColor } : {}),
       ...(this.snoozedUntil !== undefined ? { snoozedUntil: this.snoozedUntil } : {}),
       ...(this.draftUpdatedAt !== undefined ? { draftUpdatedAt: this.draftUpdatedAt } : {}),
+      ...(this.queuedMessageCount > 0 ? { queuedMessageCount: this.queuedMessageCount } : {}),
     }
   }
 

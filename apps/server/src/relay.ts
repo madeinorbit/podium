@@ -92,6 +92,15 @@ const READY_FLOOR_MS = 800
 const READY_QUIET_MS = 600
 const READY_MAX_MS = 6_000
 const READY_POLL_MS = 200
+// Durable queued sends (docs/spec/outbox-write-path.md §2.2): one drain ATTEMPT
+// gives the session this long to come live before parking the loop (the rows
+// remain; the next liveness signal re-arms — unlike the old sendTextWhenReady
+// deadline, this drops nothing). Successive queued messages are spaced so each
+// lands as its own submitted input (CR delay + separate-read margin).
+const QUEUE_DRAIN_DEADLINE_MS = 25_000
+const QUEUE_MESSAGE_SPACING_MS = 400
+// Idempotency records outlive any sane replay horizon, then get pruned.
+const APPLIED_MUTATIONS_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000
 const SCAN_TIMEOUT_MS = 10_000
 const FILE_RPC_TIMEOUT_MS = 10_000
 
@@ -556,6 +565,15 @@ export class SessionRegistry {
       if (r.id in draftTimes) session.draftUpdatedAt = draftTimes[r.id]
       if (r.status !== reloadStatus) this.persist(session)
     }
+    // Re-seed the transient queued-send counts from the durable queue — the rows
+    // survived the restart (that's their point); delivery re-arms when the daemon
+    // reattaches and the sessions bind.
+    for (const [sessionId, n] of this.store.queuedMessageCounts()) {
+      const session = this.sessions.get(sessionId)
+      if (session) session.queuedMessageCount = n
+      else this.store.deleteQueuedMessagesForSession(sessionId) // orphaned queue
+    }
+    this.store.pruneAppliedMutations({ maxAgeMs: APPLIED_MUTATIONS_MAX_AGE_MS, now: this.now() })
   }
 
   attachDaemon(machineId: string, send: Send<ControlMessage>): void {
@@ -572,6 +590,14 @@ export class SessionRegistry {
     if (pending && pending.length > 0) {
       this.pendingByMachine.delete(machineId)
       for (const m of pending) send(m)
+    }
+    // Re-arm queued-send delivery for this machine's sessions: their earlier drain
+    // attempts parked while the daemon was away (single-flight + liveness wait make
+    // this safe to fire eagerly; reattached sessions also re-trigger via 'bind').
+    for (const s of this.sessions.values()) {
+      if (s.machineId === machineId && s.queuedMessageCount > 0) {
+        this.drainQueuedMessages(s.sessionId)
+      }
     }
     // A freshly-(re)connected daemon knows no session's relay priority. Clear the
     // delta cache so every current session re-sends as a change, then push the full
@@ -984,11 +1010,27 @@ export class SessionRegistry {
   }
 
   /**
-   * Chat-view send: type a message into the agent's input as if pasted. Multi-line
-   * text goes bracketed so the harness treats it as one block instead of
-   * submitting at each newline; a trailing CR submits.
+   * Chat-view send: type a message into the agent's input as if pasted. When the
+   * session already has queued messages waiting, the new one goes BEHIND them
+   * (FIFO) instead of jumping the queue — otherwise a live-chat send would land
+   * before messages the user typed earlier while the agent was parked.
    */
-  sendText({ sessionId, text }: { sessionId: string; text: string }): { ok: boolean } {
+  sendText({ sessionId, text }: { sessionId: string; text: string }): {
+    ok: boolean
+    queued?: boolean
+    reason?: string
+  } {
+    const session = this.sessions.get(sessionId)
+    if (session && (session.queuedMessageCount > 0 || this.activeDrains.has(sessionId))) {
+      return this.queueText({ sessionId, text })
+    }
+    return this.typeText({ sessionId, text })
+  }
+
+  /** The raw typing primitive (bracketed paste + separated CR). Only sendText and
+   *  the queue drain call this — everything else must go through them so queued
+   *  messages keep their FIFO order. */
+  private typeText({ sessionId, text }: { sessionId: string; text: string }): { ok: boolean } {
     const session = this.sessions.get(sessionId)
     if (!session || (session.status !== 'live' && session.status !== 'starting')) {
       return { ok: false }
@@ -1119,48 +1161,182 @@ export class SessionRegistry {
     }
   }
 
+  // ---- durable queued sends (docs/spec/outbox-write-path.md §2.2) ----
+  // Replaces the old in-memory sendTextWhenReady, which silently dropped its
+  // message on a 25s timeout, a failed wake, or a server restart. Messages now
+  // live in the queued_messages table until the moment their bytes go toward the
+  // daemon; a failed drain attempt keeps the rows and re-arms on the next
+  // liveness signal (bind / attachDaemon / resurrect / enqueue).
+
+  /** Sessions with a drain loop in flight — single-flight per session so two
+   *  triggers can't interleave deliveries (spec invariant 2). */
+  private readonly activeDrains = new Set<string>()
+
   /**
-   * Deliver text once the session is actually up. The superagent's start_agent
-   * tool needs this: createSession returns immediately, but the CLI isn't ready
-   * to receive input until it binds. Polls for 'live' and gives up if the spawn
-   * fails (status 'exited') — better than a fixed timer that fires into a dead
-   * PTY or before the prompt is drawn.
+   * Queue a message for a session, waking it if parked. ALWAYS defers to the
+   * drain loop — even for a live session — because the drain's settle heuristics
+   * are what keep a message out of a still-booting TUI (the #5b fix); callers
+   * that want the instant live-chat path (resumeAndSend, ChatView) use sendText
+   * directly. `mutationId` doubles as the durable row id, so a replayed enqueue
+   * is a no-op at the storage layer too.
    */
-  sendTextWhenReady(sessionId: string, text: string, timeoutMs = 25_000): void {
-    const deadline = Date.now() + timeoutMs
-    // Captured on the first tick that sees the session live: when it went live (for
-    // FLOOR/MAX) and its output baseline (so a STALE pre-hibernate output timestamp
-    // doesn't read as "already settled" and fire the message into a booting TUI).
+  queueText({
+    sessionId,
+    text,
+    mutationId,
+  }: {
+    sessionId: string
+    text: string
+    mutationId?: string
+  }): { ok: boolean; queued?: boolean; reason?: string } {
+    const session = this.sessions.get(sessionId)
+    if (!session) return { ok: false, reason: 'unknown session' }
+    // A parked session we can never wake would hold the message forever with no
+    // path to delivery — surface that instead of queueing into a void. (Shells
+    // resurrect by fresh respawn, agents need a resume ref.)
+    const parked = session.status === 'hibernated' || session.status === 'exited'
+    if (parked && session.agentKind !== 'shell' && !session.resume) {
+      return { ok: false, reason: 'no resume ref' }
+    }
+    const inserted = this.store.enqueueMessage({
+      id: mutationId ?? randomUUID(),
+      sessionId,
+      text,
+      queuedAt: this.now(),
+    })
+    if (inserted) {
+      session.queuedMessageCount += 1
+      // A queued message is fresh user intent on the session — clear any snooze,
+      // mirroring sendText, so it returns to the normal attention flow.
+      if (session.snoozedUntil !== undefined) this.clearSnooze(sessionId)
+      this.broadcastSessions()
+    }
+    if (parked) this.resurrectSession({ sessionId })
+    this.drainQueuedMessages(sessionId)
+    return { ok: true, queued: true }
+  }
+
+  /**
+   * Deliver a session's queued messages FIFO once it is actually ready, reusing
+   * the spawn-readiness heuristics (live + produced output + floor/quiet settle,
+   * with a MAX fallback for silent spawns). One attempt per trigger: if the
+   * session never comes live before the deadline the loop stops and the ROWS
+   * REMAIN — the next liveness signal re-arms. Successive messages are spaced so
+   * each lands as its own submitted input.
+   */
+  private drainQueuedMessages(sessionId: string): void {
+    if (this.activeDrains.has(sessionId)) return
+    const session = this.sessions.get(sessionId)
+    if (!session || session.queuedMessageCount === 0) return
+    this.activeDrains.add(sessionId)
+    const deadline = this.now() + QUEUE_DRAIN_DEADLINE_MS
     let liveAtMs = 0
     let baseOutputMs = 0
+    const stop = (): void => {
+      this.activeDrains.delete(sessionId)
+    }
+    const deliverNext = (): void => {
+      const s = this.sessions.get(sessionId)
+      if (!s || (s.status !== 'live' && s.status !== 'starting')) {
+        stop()
+        return
+      }
+      const head = this.store.listQueuedMessages(sessionId)[0]
+      if (!head) {
+        stop()
+        return
+      }
+      this.store.bumpQueuedAttempts(head.id)
+      const sent = this.typeText({ sessionId, text: head.text })
+      if (!sent.ok) {
+        stop() // status raced to parked — rows remain
+        return
+      }
+      // Delete only AFTER the bytes went toward the daemon (spec invariant 3).
+      this.store.deleteQueuedMessage(head.id)
+      s.queuedMessageCount = Math.max(0, s.queuedMessageCount - 1)
+      this.broadcastSessions()
+      if (s.queuedMessageCount > 0) {
+        const t = setTimeout(deliverNext, QUEUE_MESSAGE_SPACING_MS)
+        t.unref?.()
+      } else stop()
+    }
     const tick = (): void => {
-      const session = this.sessions.get(sessionId)
-      if (!session || session.status === 'exited') return // gone — drop it
-      const now = Date.now()
-      if (session.status === 'live') {
+      const s = this.sessions.get(sessionId)
+      // Parked/gone: stop WITHOUT touching rows — re-armed on the next wake.
+      if (!s || s.status === 'exited' || s.status === 'hibernated') {
+        stop()
+        return
+      }
+      const now = this.now()
+      if (s.status === 'live') {
         if (!liveAtMs) {
           liveAtMs = now
-          baseOutputMs = session.lastOutputAtMs
+          baseOutputMs = s.lastOutputAtMs
         }
-        const producedOutput = session.lastOutputAtMs > baseOutputMs
+        const producedOutput = s.lastOutputAtMs > baseOutputMs
         const settled =
           producedOutput &&
           now - liveAtMs >= READY_FLOOR_MS &&
-          now - session.lastOutputAtMs >= READY_QUIET_MS
-        // Fallback: a spawn that never produces output (or streams forever) still
-        // gets its message after MAX rather than waiting out the whole deadline.
+          now - s.lastOutputAtMs >= READY_QUIET_MS
         if (settled || now - liveAtMs >= READY_MAX_MS || now >= deadline) {
-          this.sendText({ sessionId, text })
+          deliverNext()
           return
         }
       } else if (now >= deadline) {
-        return // never came live — drop rather than fire into a dead PTY
+        stop() // never came live this attempt; rows remain for the next one
+        return
       }
       const t = setTimeout(tick, READY_POLL_MS)
       t.unref?.()
     }
     const t = setTimeout(tick, READY_POLL_MS)
     t.unref?.()
+  }
+
+  /**
+   * Idempotency wrapper (docs/spec/outbox-write-path.md §2.1): a mutation carrying
+   * an already-seen mutationId returns its recorded result WITHOUT re-running —
+   * what makes outbox replays and network retries safe. Check-run-record is one
+   * synchronous pass (no await), so replays can't interleave with the original.
+   */
+  /** Async mutations in flight, so a replay arriving before the original resolves
+   *  (e.g. both calls in one tRPC HTTP batch) joins the SAME promise instead of
+   *  re-running — the async analogue of the sync check-run-record pass. */
+  private readonly inFlightMutations = new Map<string, Promise<unknown>>()
+
+  withMutation<T>(mutationId: string | undefined, proc: string, fn: () => T): T {
+    if (!mutationId) return fn()
+    const prior = this.store.getAppliedMutation(mutationId)
+    if (prior !== undefined) return JSON.parse(prior) as T
+    const inFlight = this.inFlightMutations.get(mutationId)
+    if (inFlight !== undefined) return inFlight as T
+    const result = fn()
+    // An async proc (issues.create → createAndMaybeStart) must record its RESOLVED
+    // value: stringifying the pending Promise itself would durably record '{}' —
+    // poisoning every replay — and would mark a rejected mutation as applied.
+    if (result instanceof Promise) {
+      const tracked = result.then(
+        (value) => {
+          this.store.recordAppliedMutation(
+            mutationId,
+            proc,
+            JSON.stringify(value ?? null),
+            this.now(),
+          )
+          this.inFlightMutations.delete(mutationId)
+          return value
+        },
+        (err) => {
+          this.inFlightMutations.delete(mutationId)
+          throw err
+        },
+      )
+      this.inFlightMutations.set(mutationId, tracked)
+      return tracked as T
+    }
+    this.store.recordAppliedMutation(mutationId, proc, JSON.stringify(result ?? null), this.now())
+    return result
   }
 
   /** Set (or clear with '') the user-facing session name. */
@@ -1224,22 +1400,27 @@ export class SessionRegistry {
    * composer accept a message on a sleeping agent instead of refusing input —
    * the message itself becomes the reason to wake.
    */
-  resumeAndSend({ sessionId, text }: { sessionId: string; text: string }): {
+  resumeAndSend({
+    sessionId,
+    text,
+    mutationId,
+  }: {
+    sessionId: string
+    text: string
+    mutationId?: string
+  }): {
     ok: boolean
     reason?: string
   } {
     const session = this.sessions.get(sessionId)
     if (!session) return { ok: false, reason: 'unknown session' }
-    if (session.status === 'live' || session.status === 'starting') {
+    if (session.status === 'live' && session.queuedMessageCount === 0) {
       return this.sendText({ sessionId, text })
     }
-    if (session.status === 'hibernated' || session.status === 'exited') {
-      const woke = this.resurrectSession({ sessionId })
-      if (!woke.ok) return woke
-      this.sendTextWhenReady(sessionId, text)
-      return { ok: true }
-    }
-    return { ok: false, reason: 'session cannot accept input' }
+    // Everything else — parked (wakes), starting (waits for settle), reconnecting
+    // (waits for the daemon), or live-behind-a-queue (FIFO) — goes through the
+    // durable queue instead of the old drop-after-25s in-memory timer.
+    return this.queueText({ sessionId, text, mutationId })
   }
 
   /** Wake a hibernated session: respawn under the same id with its resume ref. */
@@ -1345,6 +1526,9 @@ export class SessionRegistry {
       this.draftWriteTimers.delete(input.sessionId)
     }
     this.store.deleteSession(input.sessionId)
+    // A killed session can never deliver: drop its queued sends now rather than
+    // leaving orphan rows for the next boot's sweep.
+    this.store.deleteQueuedMessagesForSession(input.sessionId)
     for (const c of this.clients.values()) c.attached.delete(input.sessionId)
     this.broadcastSessions()
   }
@@ -1811,6 +1995,10 @@ export class SessionRegistry {
         const s = this.sessions.get(msg.sessionId)
         if (s) this.persist(s)
         this.broadcastSessions()
+        // The PTY is bound: if messages queued up while this session was parked
+        // (or across a server restart), start a delivery attempt — the drain loop
+        // itself waits out the boot-settle before typing.
+        this.drainQueuedMessages(msg.sessionId)
         break
       }
       case 'agentFrame':

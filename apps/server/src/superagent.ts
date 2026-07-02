@@ -621,8 +621,9 @@ export class SuperagentService {
           if (str(args.name)) registry.renameSession({ sessionId, name: str(args.name) ?? '' })
           const first = str(args.firstMessage)
           if (first) {
-            // Deliver once the CLI is actually up; drops itself if the spawn fails.
-            registry.sendTextWhenReady(sessionId, first)
+            // Durable queued send: delivers once the CLI settles, survives a failed
+            // spawn attempt AND a server restart (unlike the old in-memory timer).
+            registry.queueText({ sessionId, text: first })
           }
           return JSON.stringify({ sessionId, cwd, agentKind })
         },
