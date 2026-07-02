@@ -1279,6 +1279,21 @@ export class SessionStore {
     })
   }
 
+  // ---- steward state ----
+
+  getStewardState(key: string): string | undefined {
+    const row = this.db.prepare('SELECT value FROM steward_state WHERE key = ?').get(key) as
+      | { value: string }
+      | undefined
+    return row?.value
+  }
+
+  setStewardState(key: string, value: string): void {
+    this.db
+      .prepare('INSERT OR REPLACE INTO steward_state (key, value) VALUES (?, ?)')
+      .run(key, value)
+  }
+
   /** One-time, idempotent: mirror legacy issues.blocked_by arrays into issue_deps. */
   private backfillIssueDeps(): void {
     const rows = this.db
@@ -2003,6 +2018,14 @@ export class SessionStore {
        )`,
     )
     this.db.exec('CREATE INDEX IF NOT EXISTS idx_podium_events_kind ON podium_events(kind)')
+    // Steward bookkeeping (event-log cursor etc.) — a tiny KV kept separate from
+    // `meta` so orchestrator state never collides with the settings blob's keys.
+    this.db.exec(
+      `CREATE TABLE IF NOT EXISTS steward_state (
+         key   TEXT PRIMARY KEY,
+         value TEXT NOT NULL
+       )`,
+    )
     this.backfillIssueDeps()
     // External-content FTS over the searchable text columns. Hybrid search note:
     // keyword now; a vector column joins when an embeddings provider is configured.

@@ -36,6 +36,7 @@ import {
   type WorkState,
 } from '@podium/protocol'
 import { AutoContinueController } from './auto-continue'
+import { StewardService } from './steward'
 import { knownPathsFor } from './file-relay-policy'
 import type { Capability } from './issue-authz'
 import { IssueService } from './issues'
@@ -334,6 +335,8 @@ export class SessionRegistry {
   ) => { [router: string]: Record<string, (i: unknown) => Promise<unknown>> | undefined }
   /** Backend auto-continue loop; constructed in the constructor (see below). */
   private autoContinue!: AutoContinueController
+  /** Steward trigger queue over the event log; polls only while settings-enabled. */
+  private steward!: StewardService
   private readonly pendingScans = new Map<string, (r: ScanResult) => void>()
   private readonly pendingRepoScans = new Map<string, (r: ScanReposResult) => void>()
   private readonly pendingBreakdowns = new Map<string, (r: MemoryBreakdown | undefined) => void>()
@@ -476,6 +479,15 @@ export class SessionRegistry {
         return { live: s.status === 'live' || s.status === 'starting', state: s.agentState }
       },
     })
+    this.steward = new StewardService({
+      store: this.store,
+      issues: this.issues,
+      listSessions: () => this.listSessions(),
+      // Durable outbox path: the nudge survives restarts and waits out a booting TUI.
+      sendTextWhenReady: (sessionId, text) => void this.queueText({ sessionId, text }),
+      getSettings: () => this.store.getSettings(),
+    })
+    this.steward.start()
     // Boot reconciliation: record what changed across the restart (sessions restored
     // by loadFromStore, issues from the store) so a cursor-holding client that
     // reconnects can heal via changesSince instead of silently missing the gap.
@@ -515,6 +527,7 @@ export class SessionRegistry {
 
   dispose(): void {
     clearInterval(this.activityFlushTimer)
+    this.steward.dispose()
   }
 
   private loadFromStore(): void {

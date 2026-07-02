@@ -128,6 +128,13 @@ export const PodiumSettings = z.object({
       assistantEnabled: z.boolean().default(true),
     })
     .default({}),
+  /** The steward: the orchestrator's trigger queue over the durable event log
+   *  (deterministic unblock nudges etc.). Ships dark — default off. */
+  steward: z
+    .object({
+      enabled: z.boolean().default(false),
+    })
+    .default({}),
   /** When enabled, the server re-sends `continue` to any session stopped on a
    *  retryable error, on an escalating backoff up to 5 min. `promptDismissed`
    *  suppresses the one-time opt-in popup once the user has answered it. */
