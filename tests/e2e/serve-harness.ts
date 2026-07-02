@@ -11,7 +11,9 @@
  * Port: PORT (default 8799). Health: GET /health. The playwright.config webServer starts
  * this automatically; the specs connect via `?server=ws://localhost:8799`.
  */
-import { writeFileSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { ConversationDiscoveryCache } from '@podium/agent-bridge'
@@ -79,7 +81,29 @@ const REPO_ROOT = fileURLToPath(new URL('../../', import.meta.url)).replace(/\/$
 // real sessions). globalTeardown reaps the same dir after the suite.
 reapHarnessSessions(PORT)
 const { stateDir } = applyHarnessEnv(PORT)
-writeFileSync(join(stateDir, 'repos.json'), JSON.stringify([REPO_ROOT]))
+
+// A scratch repo WITH a linked worktree, at a deterministic per-port path so specs
+// can compute it (tmpdir()/zz-podium-e2e-repo-<PORT>; the zz- prefix keeps it
+// sorted BEHIND the real repo, so specs that hover "the first worktree row"
+// keep browsing this repo's tree). Scanning THIS repo (unlike
+// REPO_ROOT, which is often itself a linked worktree and scans as a single entry)
+// yields a main worktree + a sibling — the multi-worktree sidebar that the
+// worktree-follow specs need a session to move between.
+const SCRATCH_REPO = join(tmpdir(), `zz-podium-e2e-repo-${PORT}`)
+const SCRATCH_FEAT = `${SCRATCH_REPO}-feat`
+rmSync(SCRATCH_REPO, { recursive: true, force: true })
+rmSync(SCRATCH_FEAT, { recursive: true, force: true })
+mkdirSync(SCRATCH_REPO, { recursive: true })
+const git = (args: string[], cwd: string): void => {
+  execFileSync('git', ['-c', 'user.email=e2e@podium', '-c', 'user.name=e2e', ...args], { cwd })
+}
+git(['init', '-q', '-b', 'main'], SCRATCH_REPO)
+writeFileSync(join(SCRATCH_REPO, 'README.md'), 'e2e scratch repo\n')
+git(['add', '.'], SCRATCH_REPO)
+git(['commit', '-q', '-m', 'init'], SCRATCH_REPO)
+git(['worktree', 'add', '-q', SCRATCH_FEAT, '-b', 'e2e-feat'], SCRATCH_REPO)
+
+writeFileSync(join(stateDir, 'repos.json'), JSON.stringify([REPO_ROOT, SCRATCH_REPO]))
 // Pre-pick the deployment mode so the setup gate (SetupGate → /setup/config →
 // needsSetup) doesn't block the workspace: the harness IS an all-in-one server.
 // Without this every browser spec lands on the first-run SetupView.
