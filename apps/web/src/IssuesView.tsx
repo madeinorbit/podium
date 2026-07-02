@@ -17,6 +17,7 @@ import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuRadioGroup,
@@ -704,22 +705,22 @@ function DisplayMenu({
       <DropdownMenuContent align="end" className="w-48">
         {showLayout && (
           <>
-            <DropdownMenuLabel>Layout</DropdownMenuLabel>
             <DropdownMenuRadioGroup
               value={display.layout}
               onValueChange={(v) => onChange({ layout: v as IssuesLayout })}
             >
+              <DropdownMenuLabel>Layout</DropdownMenuLabel>
               <DropdownMenuRadioItem value="board">Board</DropdownMenuRadioItem>
               <DropdownMenuRadioItem value="list">List</DropdownMenuRadioItem>
             </DropdownMenuRadioGroup>
             <DropdownMenuSeparator />
           </>
         )}
-        <DropdownMenuLabel>Ordering</DropdownMenuLabel>
         <DropdownMenuRadioGroup
           value={display.ordering}
           onValueChange={(v) => onChange({ ordering: v as IssuesOrdering })}
         >
+          <DropdownMenuLabel>Ordering</DropdownMenuLabel>
           {(Object.keys(ORDERING_LABELS) as IssuesOrdering[]).map((o) => (
             <DropdownMenuRadioItem key={o} value={o}>
               {ORDERING_LABELS[o]}
@@ -727,16 +728,18 @@ function DisplayMenu({
           ))}
         </DropdownMenuRadioGroup>
         <DropdownMenuSeparator />
-        <DropdownMenuLabel>Badges</DropdownMenuLabel>
-        {BADGE_LABELS.map(({ key, label }) => (
-          <DropdownMenuCheckboxItem
-            key={key}
-            checked={display.badges[key]}
-            onCheckedChange={(c) => onChange({ badges: { [key]: c === true } })}
-          >
-            {label}
-          </DropdownMenuCheckboxItem>
-        ))}
+        <DropdownMenuGroup>
+          <DropdownMenuLabel>Badges</DropdownMenuLabel>
+          {BADGE_LABELS.map(({ key, label }) => (
+            <DropdownMenuCheckboxItem
+              key={key}
+              checked={display.badges[key]}
+              onCheckedChange={(c) => onChange({ badges: { [key]: c === true } })}
+            >
+              {label}
+            </DropdownMenuCheckboxItem>
+          ))}
+        </DropdownMenuGroup>
       </DropdownMenuContent>
     </DropdownMenu>
   )

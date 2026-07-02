@@ -505,3 +505,60 @@ test('issues keyboard: x / x selects two issues, bulk stage change moves both', 
     'the second selected issue moved to Done',
   ).toBeVisible({ timeout: 15_000 })
 })
+
+test('issues display: the Display menu opens (no crash), switches to List, and back to Board', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await openShell(page)
+  await page.locator('button[title="Issues"]').click({ timeout: 15_000 })
+  const board = page.getByRole('region', { name: 'Issues' })
+  await expect(board).toBeVisible({ timeout: 10_000 })
+
+  // Guarantee at least one row so the List view has a stage group to render (the
+  // list only emits a <section> for stages that have members).
+  await createBacklogIssue(page, `E2E display ${Date.now()}`)
+
+  // ---- Open the Display menu ----
+  // Regression check for the Menu.GroupLabel-outside-Group crash: before the fix,
+  // clicking Display threw Base UI error #31 and the app error boundary replaced the
+  // whole UI, so the menu never opened. Assert the "List" layout radio is visible.
+  await board.getByRole('button', { name: 'Display', exact: true }).click({ timeout: 10_000 })
+  const menu = page.locator('[data-slot="dropdown-menu-content"]')
+  const listRadio = menu.getByRole('menuitemradio').filter({ hasText: 'List' })
+  await expect(listRadio, 'the Display menu opened without crashing').toBeVisible({
+    timeout: 10_000,
+  })
+
+  // ---- Switch to the List layout ----
+  await listRadio.click({ timeout: 10_000 })
+  const list = page.locator('[data-testid="issues-list"]')
+  await expect(list, 'the List view renders').toBeVisible({ timeout: 10_000 })
+  // Rows are grouped under sticky stage headers; Backlog must contain at least one row.
+  const backlogGroup = list.locator('section[aria-label="Backlog"]')
+  await expect(backlogGroup, 'the List view groups rows by stage').toBeVisible({ timeout: 10_000 })
+  await expect(
+    backlogGroup.locator('[data-issue-id]').first(),
+    'the Backlog group has a row',
+  ).toBeVisible({ timeout: 10_000 })
+
+  // ---- Switch back to the Board layout via the Display menu ----
+  // The reopened menu animates in and its radio item can transiently re-mount, so
+  // clicking once mid-animation sometimes no-ops. Poll: (re)open, click Board, and
+  // stop once the layout actually switched back (the list is unmounted).
+  const displayBtn = board.getByRole('button', { name: 'Display', exact: true })
+  await expect(async () => {
+    if ((await menu.count()) === 0) await displayBtn.click({ timeout: 5_000 })
+    const boardRadio = menu.getByRole('menuitemradio').filter({ hasText: 'Board' })
+    await expect(boardRadio).toBeVisible({ timeout: 5_000 })
+    await boardRadio.click({ timeout: 5_000 })
+    await expect(list).toHaveCount(0, { timeout: 2_000 })
+  }).toPass({ timeout: 20_000 })
+  // The six stage columns return.
+  for (const stage of STAGES) {
+    await expect(
+      board.getByRole('heading', { name: stage, exact: true }),
+      `column "${stage}" returns on Board`,
+    ).toBeVisible({ timeout: 10_000 })
+  }
+})
