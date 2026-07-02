@@ -1,0 +1,266 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Podium Orchestration — your work keeps moving</title>
+<style>
+  :root {
+    --bg: #0b0e14; --panel: #121826; --panel2: #0f1420;
+    --text: #e8ecf4; --dim: #9aa5b8; --faint: #6b7688;
+    --accent: #5eead4; --accent2: #818cf8; --warn: #fbbf24; --good: #4ade80;
+    --border: #232c40; --radius: 14px;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  body {
+    background: var(--bg); color: var(--text);
+    font: 16px/1.65 -apple-system, "Segoe UI", Inter, Roboto, sans-serif;
+    padding: 0 20px 80px;
+  }
+  main { max-width: 880px; margin: 0 auto; }
+  .hero { padding: 72px 0 40px; text-align: center; }
+  .hero .kicker { color: var(--accent); font-weight: 600; letter-spacing: .12em; text-transform: uppercase; font-size: 13px; }
+  .hero h1 { font-size: clamp(32px, 6vw, 52px); line-height: 1.12; margin: 14px 0 18px; letter-spacing: -.02em; }
+  .hero h1 em { font-style: normal; background: linear-gradient(90deg, var(--accent), var(--accent2)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .hero p { color: var(--dim); font-size: 19px; max-width: 620px; margin: 0 auto; }
+  section { margin: 56px 0; }
+  h2 { font-size: 26px; letter-spacing: -.01em; margin-bottom: 6px; }
+  .sub { color: var(--dim); margin-bottom: 22px; max-width: 700px; }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 22px 24px; }
+  .grid { display: grid; gap: 14px; }
+  .grid.two { grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
+  .step { display: flex; gap: 16px; align-items: flex-start; }
+  .step + .step { margin-top: 18px; }
+  .step .n {
+    flex: 0 0 34px; height: 34px; border-radius: 50%;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    color: #0b0e14; font-weight: 700; display: flex; align-items: center; justify-content: center;
+  }
+  .step h3 { font-size: 17px; margin-bottom: 2px; }
+  .step p { color: var(--dim); font-size: 15px; }
+  .chat { background: var(--panel2); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px; font-size: 15px; }
+  .chat .you { color: var(--text); }
+  .chat .bot { color: var(--dim); margin-top: 10px; }
+  .chat .tag { font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; margin-right: 8px; }
+  .chat .you .tag { color: var(--accent); }
+  .chat .bot .tag { color: var(--accent2); }
+  .pump-diagram { display: flex; flex-direction: column; gap: 0; align-items: stretch; margin: 20px 0; }
+  .pump-row { display: flex; gap: 10px; align-items: center; justify-content: center; flex-wrap: wrap; }
+  .node { background: var(--panel2); border: 1px solid var(--border); border-radius: 10px; padding: 10px 16px; font-size: 14px; text-align: center; }
+  .node b { display: block; font-size: 14px; }
+  .node span { color: var(--faint); font-size: 12.5px; }
+  .arrow { color: var(--faint); font-size: 20px; padding: 0 2px; }
+  .down { text-align: center; color: var(--faint); font-size: 20px; line-height: 1.4; }
+  .modes { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+  .mode { border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; background: var(--panel); }
+  .mode.hot { border-color: var(--accent2); }
+  .mode h3 { font-size: 17px; margin-bottom: 8px; }
+  .mode .pill { display: inline-block; font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; border-radius: 99px; padding: 3px 10px; margin-bottom: 10px; }
+  .mode:nth-child(1) .pill { background: #1e293b; color: var(--dim); }
+  .mode:nth-child(2) .pill { background: #172554; color: #93c5fd; }
+  .mode:nth-child(3) .pill { background: #2e1065; color: #c4b5fd; }
+  .mode ul { list-style: none; padding: 0; }
+  .mode li { color: var(--dim); font-size: 14.5px; padding: 5px 0 5px 22px; position: relative; }
+  .mode li::before { content: "→"; position: absolute; left: 0; color: var(--accent); }
+  .mode li.stop::before { content: "✋"; }
+  .mode li.auto::before { content: "⚡"; }
+  table { width: 100%; border-collapse: collapse; font-size: 15px; }
+  th, td { text-align: left; padding: 12px 14px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { color: var(--faint); font-size: 12.5px; text-transform: uppercase; letter-spacing: .07em; font-weight: 600; }
+  td.cost { white-space: nowrap; font-weight: 600; }
+  .free { color: var(--good); }
+  .cents { color: var(--accent); }
+  .main-cost { color: var(--warn); }
+  .callout { border-left: 3px solid var(--accent); background: var(--panel2); border-radius: 0 var(--radius) var(--radius) 0; padding: 16px 20px; color: var(--dim); font-size: 15px; margin-top: 18px; }
+  .callout b { color: var(--text); }
+  .lever { display: flex; gap: 12px; align-items: baseline; padding: 10px 0; border-bottom: 1px dashed var(--border); }
+  .lever:last-child { border-bottom: none; }
+  .lever code { background: var(--panel2); border: 1px solid var(--border); border-radius: 6px; padding: 2px 8px; font-size: 13.5px; color: var(--accent); white-space: nowrap; }
+  .lever p { color: var(--dim); font-size: 14.5px; }
+  .brief { border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; font-size: 14.5px; }
+  .brief .head { background: var(--panel2); padding: 12px 18px; border-bottom: 1px solid var(--border); display: flex; gap: 10px; align-items: center; }
+  .brief .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--warn); }
+  .brief .body { padding: 16px 18px; color: var(--dim); }
+  .brief .body b { color: var(--text); }
+  .brief .opts { display: flex; gap: 10px; padding: 0 18px 16px; flex-wrap: wrap; }
+  .brief .opt { border: 1px solid var(--border); border-radius: 8px; padding: 7px 14px; font-size: 13.5px; color: var(--text); background: var(--panel); }
+  .brief .opt.rec { border-color: var(--accent); color: var(--accent); }
+  footer { margin-top: 72px; text-align: center; color: var(--faint); font-size: 13.5px; }
+</style>
+</head>
+<body>
+<main>
+
+  <div class="hero">
+    <div class="kicker">Podium Orchestration</div>
+    <h1>You describe the goal.<br><em>Your agents keep working.</em></h1>
+    <p>Podium turns a wish into tracked work, runs it across your coding agents, and only
+    interrupts you when your judgment is genuinely needed — with everything you need to decide in one card.</p>
+  </div>
+
+  <section>
+    <h2>Start with a wish</h2>
+    <p class="sub">Everything starts at the <b>+ button</b>. No forms, no picking the right board — just say it.
+    The concierge finds or creates the right epic, breaks it into issues with dependencies, and kicks off the first agents.
+    And while the system works, it's <b>someone to talk to</b>: ask "where is dark mode?" and get an answer, not a wall of terminals.</p>
+    <div class="chat card">
+      <div class="you"><span class="tag">You</span>Add CSV export to the reports page. Ship it while I'm in meetings — budget of about two agent runs.</div>
+      <div class="bot"><span class="tag">Concierge</span>Filed epic <b>#52 CSV export</b> with 3 issues (backend endpoint → UI button → e2e test, chained).
+      Setting it to <b>Auto</b> with a cap of <b>2 concurrent sessions</b>. Starting #53 now on Claude Code.
+      I'll bring you one decision card if anything needs you — otherwise you'll get the completion summary.</div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Issues are the shared memory</h2>
+    <p class="sub">Every piece of work is an issue with dependencies — the same tracker you use, drivable by agents.
+    Agents claim work, file what they discover, and leave a <b>completion note</b> when they finish: a short handoff
+    that becomes the message the next agent (or you) reads. Close a blocker and everything waiting on it becomes ready — automatically.</p>
+    <div class="grid two">
+      <div class="card"><b>Nothing lives in anyone's head.</b><br><span style="color:var(--dim)">Sessions crash, contexts fill up, days end. The issue graph is the durable state of the work — any agent can pick it up cold.</span></div>
+      <div class="card"><b>The board never lies.</b><br><span style="color:var(--dim)">A housekeeping service (the steward) reconciles reality with the tracker: stages, titles, completion notes, discovered work — and nudges agents that forgot their paperwork.</span></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>The pump — a thermostat, not another AI</h2>
+    <p class="sub">The pump is the part that keeps work flowing when you're not looking. It's important to understand
+    what it is: <b>a deterministic rule, not an agent</b>. It never thinks, never plans, never spends a single token itself.</p>
+
+    <div class="card">
+      <div class="pump-diagram">
+        <div class="pump-row">
+          <div class="node"><b>An agent finishes</b><span>issue closed, note left</span></div>
+          <div class="arrow">→</div>
+          <div class="node"><b>Dependents become ready</b><span>derived from the graph</span></div>
+          <div class="arrow">→</div>
+          <div class="node"><b>The pump checks three things</b><span>plain code, runs in milliseconds</span></div>
+        </div>
+        <div class="down">↓</div>
+        <div class="pump-row">
+          <div class="node"><b>1 · Mode</b><span>does this epic allow auto-start?</span></div>
+          <div class="node"><b>2 · Budget</b><span>is there budget left on the epic?</span></div>
+          <div class="node"><b>3 · Capacity</b><span>is a concurrency slot free?</span></div>
+        </div>
+        <div class="down">↓</div>
+        <div class="pump-row">
+          <div class="node"><b>All yes → start the next ready issue</b><span>highest priority first · logged on the issue</span></div>
+          <div class="node"><b>Any no → do nothing</b><span>work waits for you, costing nothing</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="callout">
+      Like a thermostat: it doesn't decide what temperature is right — <b>you</b> set that per epic.
+      It just switches the heater on and off. The only thing the pump ever "costs" is the agent sessions
+      it starts — which run on the subscriptions you already have, and which it will never start beyond your budget.
+    </div>
+  </section>
+
+  <section>
+    <h2>You choose how autonomous each epic is</h2>
+    <p class="sub">Autonomy is a setting <b>on the epic</b>, not a global switch. Different work, different trust.</p>
+    <div class="modes">
+      <div class="mode">
+        <div class="pill">Default</div>
+        <h3>Interactive</h3>
+        <ul>
+          <li class="stop">Nothing starts unless you start it</li>
+          <li class="stop">Agent questions come to you</li>
+          <li class="stop">You merge</li>
+          <li><b>Autonomous spend: zero.</b> Exactly today's behavior, plus the bookkeeping.</li>
+        </ul>
+      </div>
+      <div class="mode">
+        <div class="pill">Keep it moving</div>
+        <h3>Auto</h3>
+        <ul>
+          <li class="auto">Pump starts ready work — within your budget &amp; caps</li>
+          <li class="stop">Agent questions still come to you, as decision cards</li>
+          <li class="stop">You confirm merges</li>
+          <li><b>Spend: bounded</b> by the budget you set on this epic.</li>
+        </ul>
+      </div>
+      <div class="mode hot">
+        <div class="pill">Overnight mode</div>
+        <h3>Full Autonomy</h3>
+        <ul>
+          <li class="auto">Pump starts ready work within budget</li>
+          <li class="auto">Agents decide routine questions and record why in their notes</li>
+          <li class="auto">Merges when checks are green</li>
+          <li class="stop">Hard failures still stop and wait for you</li>
+          <li><b>Spend: same bound.</b> "Full" means fewer interruptions — never unlimited cost.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>What it costs — no surprises</h2>
+    <p class="sub">Orchestration doesn't add a new meter. It decides <b>when</b> your existing agents run — and gives you hard stops.</p>
+    <div class="card" style="padding: 8px 10px;">
+      <table>
+        <tr><th>Component</th><th>What runs it</th><th>Cost</th></tr>
+        <tr>
+          <td><b>Working agents</b><br><span style="color:var(--faint)">Claude Code, Codex, … doing the actual coding</span></td>
+          <td>Your existing subscriptions or API keys — same as when you launch them by hand</td>
+          <td class="cost main-cost">the real cost</td>
+        </tr>
+        <tr>
+          <td><b>The pump &amp; bookkeeping</b><br><span style="color:var(--faint)">dispatch, unblocking, forwarding completion notes, board tidy-ups</span></td>
+          <td>Plain code inside Podium — no model involved</td>
+          <td class="cost free">$0</td>
+        </tr>
+        <tr>
+          <td><b>Concierge chat &amp; decision cards</b><br><span style="color:var(--faint)">intake, briefs, judgment calls</span></td>
+          <td>Small calls on the background model <i>you</i> configure (a cheap/fast one by default; your subscription or key)</td>
+          <td class="cost cents">cents</td>
+        </tr>
+      </table>
+    </div>
+    <div class="card" style="margin-top:14px;">
+      <div class="lever"><code>budget per epic</code><p>A hard stop, not a suggestion. When it's spent, the pump stops starting work on that epic and tells you.</p></div>
+      <div class="lever"><code>concurrency caps</code><p>Max auto-started sessions per repo and per machine — also respects your agents' own rate-limit gauges.</p></div>
+      <div class="lever"><code>pause</code><p>One switch freezes all autonomous dispatch, everywhere, instantly. Running agents finish; nothing new starts.</p></div>
+      <div class="lever"><code>audit trail</code><p>Every autonomous action — every dispatch, nudge, merge — is a comment on the issue and a row in the activity feed. Nothing happens silently.</p></div>
+    </div>
+    <div class="callout">
+      <b>Rule of thumb:</b> Interactive costs what Podium costs you today. Auto/Full cost what you'd have spent
+      running those same agents by hand — minus the hours where work sat idle waiting for you to notice a finished blocker.
+    </div>
+  </section>
+
+  <section>
+    <h2>Come back without the whiplash</h2>
+    <p class="sub">The most expensive thing in agent work isn't tokens — it's <b>your context switch</b>. When an agent
+    genuinely needs you, Podium doesn't hand you a terminal scrollback. It hands you a decision card.</p>
+    <div class="brief">
+      <div class="head"><div class="dot"></div><b>#54 · CSV export UI</b>&nbsp;<span style="color:var(--faint)">needs a decision · agent paused</span></div>
+      <div class="body">
+        Adding the export button to the reports toolbar. The design system has two button styles here —
+        <b>primary</b> (used for report-level actions) or <b>ghost</b> (used for per-table utilities).
+        The mockups in the epic don't cover this page. Everything else is done and tested; this is the last open point.
+      </div>
+      <div class="opts">
+        <div class="opt rec">Ghost — matches the other per-table tools (recommended)</div>
+        <div class="opt">Primary</div>
+        <div class="opt">Ask me something else</div>
+      </div>
+    </div>
+    <p class="sub" style="margin-top:16px;">One tap, and your answer is delivered into the waiting session — it resumes immediately.
+    At milestones, agents also leave short explainer artifacts, so "what happened while I was away?" is a two-minute read, not an archaeology dig.</p>
+  </section>
+
+  <section>
+    <h2>Always in charge</h2>
+    <div class="grid two">
+      <div class="card"><b>Decision gates.</b><br><span style="color:var(--dim)">Merging, pushing, deleting, killing sessions — these ask first, unless you explicitly granted Full Autonomy on that epic (and even then, conflicts and failures stop and wait).</span></div>
+      <div class="card"><b>Change your mind anytime.</b><br><span style="color:var(--dim)">Autonomy is just a field on the epic. Dial it up for the refactor you trust, down for the migration you don't. Takes effect immediately.</span></div>
+    </div>
+  </section>
+
+  <footer>Podium · orchestration concept — companion to docs/superpowers/specs/2026-07-02-orchestrator-agents-design.md</footer>
+
+</main>
+</body>
+</html>
