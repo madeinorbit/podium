@@ -30,6 +30,11 @@ function mockClient(overrides: Record<string, unknown> = {}): { client: IssueTrp
       stats: proc('stats'),
       setNeedsHuman: proc('setNeedsHuman'),
       clearNeedsHuman: proc('clearNeedsHuman'),
+      start: proc('start'),
+      archive: proc('archive'),
+      action: proc('action'),
+      addSession: proc('addSession'),
+      addShell: proc('addShell'),
     },
   } as unknown as IssueTrpc
   return { client, calls }
@@ -51,9 +56,9 @@ describe('ISSUE_COMMANDS registry', () => {
     }
   })
 
-  it('includes the full verb set (P4b parity)', () => {
+  it('includes the full verb set (P4b parity + lifecycle verbs)', () => {
     const names = ISSUE_COMMANDS.map((c) => c.name)
-    for (const v of ['delete', 'label', 'defer', 'undefer', 'supersede', 'duplicate', 'dep-remove', 'reparent', 'find-duplicates', 'graph', 'doctor', 'stale', 'orphans', 'lint', 'preflight', 'count', 'epic-status']) {
+    for (const v of ['delete', 'label', 'defer', 'undefer', 'supersede', 'duplicate', 'dep-remove', 'reparent', 'find-duplicates', 'graph', 'doctor', 'stale', 'orphans', 'lint', 'preflight', 'count', 'epic-status', 'start', 'archive', 'action', 'add-session', 'add-shell']) {
       expect(names, `missing verb ${v}`).toContain(v)
     }
   })
@@ -66,8 +71,9 @@ describe('ISSUE_COMMANDS registry', () => {
       kind: 'mutate',
       input: expect.objectContaining({ title: 'Fix login', repoPath: '/r', startNow: false }),
     })
-    expect(out).toContain('7')
-    expect(out).toContain('Fix login')
+    expect(out.text).toContain('7')
+    expect(out.text).toContain('Fix login')
+    expect(out.data).toMatchObject({ seq: 7 })
   })
 
   it('ready calls issues.ready.query and lists titles', async () => {
@@ -78,8 +84,9 @@ describe('ISSUE_COMMANDS registry', () => {
       ],
     })
     const out = await cmd('ready').run(client, { repoPath: '/r' })
-    expect(out).toContain('A')
-    expect(out).toContain('B')
+    expect(out.text).toContain('A')
+    expect(out.text).toContain('B')
+    expect(out.data).toHaveLength(2)
   })
 
   it('claim calls issues.claim.mutate with id + assignee', async () => {
@@ -119,7 +126,49 @@ describe('ISSUE_COMMANDS registry', () => {
     } as unknown as import('./issue-client').IssueTrpc
     const cmd = ISSUE_COMMANDS.find((c) => c.name === 'prime')!
     expect(cmd).toBeTruthy()
-    expect(await cmd.run(fake, { repoPath: '/r' })).toBe('PRIME OUTPUT')
+    expect((await cmd.run(fake, { repoPath: '/r' })).text).toBe('PRIME OUTPUT')
+  })
+
+  it('id args accept display refs and numbers (schema coercion)', () => {
+    const show = cmd('show')
+    expect(show.args.parse({ id: 10 })).toEqual({ id: '10' })
+    expect(show.args.parse({ id: '#10' })).toEqual({ id: '#10' })
+    expect(show.args.parse({ id: 'iss_abc' })).toEqual({ id: 'iss_abc' })
+  })
+
+  it('comment defaults the author to agent', () => {
+    const parsed = cmd('comment').args.parse({ id: '10', body: 'hi' }) as { author: string }
+    expect(parsed.author).toBe('agent')
+  })
+
+  it('close --note records a completion-note comment before closing', async () => {
+    const { client, calls } = mockClient({ close: { seq: 5 } })
+    const out = await cmd('close').run(client, {
+      id: '5',
+      note: 'done: shipped the fix',
+      author: 'agent',
+    })
+    const idx = (p: string) => calls.findIndex((c) => c.path === p)
+    expect(idx('addComment')).toBeGreaterThanOrEqual(0)
+    expect(idx('close')).toBeGreaterThan(idx('addComment'))
+    expect(calls[idx('addComment')].input.body).toContain('[completion-note]')
+    expect(out.text).toContain('completion note')
+  })
+
+  it('start maps to issues.start.mutate', async () => {
+    const { client, calls } = mockClient({
+      start: { seq: 3, branch: 'issue/3-x', worktreePath: '/r/.worktrees/issue-3-x' },
+    })
+    const out = await cmd('start').run(client, { id: '3' })
+    expect(calls).toContainEqual({ path: 'start', kind: 'mutate', input: { id: '3' } })
+    expect(out.text).toContain('issue/3-x')
+  })
+
+  it('show throws on a missing issue (non-zero exit, not a 0-exit string)', async () => {
+    const fake = {
+      issues: { get: { query: async () => null } },
+    } as unknown as IssueTrpc
+    await expect(cmd('show').run(fake, { id: '99' })).rejects.toThrow(/unknown issue 99/)
   })
 
   it('create passes --parentId through to the mutation', async () => {

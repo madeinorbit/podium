@@ -761,3 +761,68 @@ describe('IssueService.issueForCwd (P1b)', () => {
     expect(svc.issueForCwd('/somewhere/else')).toBeNull()
   })
 })
+
+describe('IssueService.resolveRef (display seq → internal id)', () => {
+  it('passes internal ids and unknown refs through unchanged', () => {
+    const { svc } = harness()
+    const w = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    expect(svc.resolveRef(w.id)).toBe(w.id)
+    expect(svc.resolveRef('garbage')).toBe('garbage')
+    expect(svc.resolveRef('999')).toBe('999')
+  })
+
+  it('resolves bare and #-prefixed seqs to the internal id', () => {
+    const { svc } = harness()
+    const w = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    expect(svc.resolveRef(String(w.seq))).toBe(w.id)
+    expect(svc.resolveRef(`#${w.seq}`)).toBe(w.id)
+  })
+
+  it('throws on a seq that exists in several repos (per-repo counters collide)', () => {
+    const { svc } = harness()
+    svc.create({ repoPath: '/r1', title: 'A', startNow: false })
+    svc.create({ repoPath: '/r2', title: 'B', startNow: false })
+    expect(() => svc.resolveRef('1')).toThrow(/ambiguous issue ref #1/)
+  })
+
+  it('every id-taking mutation accepts a display seq and persists the INTERNAL id', () => {
+    const { svc, store } = harness()
+    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    const b = svc.create({ repoPath: '/r', title: 'B', startNow: false })
+
+    // comment: stored against iss_… not the raw seq string
+    svc.addComment(String(a.seq), 'agent', 'hello')
+    expect(store.listIssueComments(a.id).map((c) => c.body)).toContain('hello')
+
+    // deps: edge rows carry internal ids so blocked/ready derive correctly
+    svc.addDep(String(b.seq), `#${a.seq}`, 'blocks')
+    expect(svc.get(b.id)?.blocked).toBe(true)
+    svc.close(String(a.seq))
+    expect(svc.get(b.id)?.ready).toBe(true)
+
+    // labels + update + claim + needs-human by seq
+    svc.setLabels(String(b.seq), ['x'])
+    expect(svc.get(String(b.seq))?.labels).toContain('x')
+    svc.claim(`#${b.seq}`, 'agent:test')
+    expect(svc.get(b.id)?.assignee).toBe('agent:test')
+    svc.setNeedsHuman(String(b.seq), 'q?')
+    expect(svc.get(b.id)?.needsHuman).toBe(true)
+  })
+
+  it('reparent + supersede + duplicate resolve BOTH sides (no raw refs in columns)', () => {
+    const { svc, store } = harness()
+    const parent = svc.create({ repoPath: '/r', title: 'P', type: 'epic', startNow: false })
+    const kid = svc.create({ repoPath: '/r', title: 'K', startNow: false })
+    const repl = svc.create({ repoPath: '/r', title: 'R', startNow: false })
+
+    svc.reparent(String(kid.seq), `#${parent.seq}`)
+    expect(store.getIssue(kid.id)?.parentId).toBe(parent.id)
+
+    svc.supersede(String(kid.seq), String(repl.seq))
+    expect(store.getIssue(kid.id)?.supersededBy).toBe(repl.id)
+
+    const dup = svc.create({ repoPath: '/r', title: 'D', startNow: false })
+    svc.duplicate(String(dup.seq), `#${repl.seq}`)
+    expect(store.getIssue(dup.id)?.duplicateOf).toBe(repl.id)
+  })
+})

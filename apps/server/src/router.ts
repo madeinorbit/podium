@@ -87,7 +87,11 @@ const issueCapabilityGuard = t.middleware(async ({ ctx, path, next, getRawInput 
   // Scope gate: only for constrained caps writing an existing target issue.
   const extract = ctx.capability.scope.kind !== 'all' ? SCOPED_TARGET[proc] : undefined
   if (extract) {
-    const targetId = extract((await getRawInput()) as Record<string, unknown>)
+    const rawTarget = extract((await getRawInput()) as Record<string, unknown>)
+    // Resolve display refs (#seq) to the internal id BEFORE the subtree check —
+    // scope.rootId is an internal id, so comparing the raw ref would false-negative
+    // on the agent's own bound issue.
+    const targetId = typeof rawTarget === 'string' ? ctx.registry.issues.resolveRef(rawTarget) : rawTarget
     if (targetId && ctx.registry.issues.get(targetId)) {
       const ancestorIds = ctx.registry.issues.ancestorIds(targetId)
       const decision = authorize(

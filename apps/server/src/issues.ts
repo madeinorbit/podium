@@ -336,8 +336,27 @@ export class IssueService {
     }
   }
 
+  /** Resolve an issue reference to the internal id. Accepts the internal `iss_…` id
+   *  (passthrough) or a display seq (`10` / `#10` — what list/prime/search print).
+   *  Seq is only unique per repo: a seq matching issues in several repos is ambiguous
+   *  and throws (callers must pass the full id). Unresolvable refs return the input
+   *  unchanged so the caller's normal unknown-issue error fires. */
+  resolveRef(ref: string): string {
+    if (ref.startsWith('iss_') || this.rows.has(ref)) return ref
+    const m = /^#?(\d+)$/.exec(ref.trim())
+    if (!m) return ref
+    const seq = Number(m[1])
+    const matches = [...this.rows.values()].filter((r) => r.seq === seq)
+    if (matches.length === 1) return matches[0]!.id
+    if (matches.length > 1) {
+      const where = matches.map((r) => `${r.repoPath}#${r.seq}`).join(', ')
+      throw new Error(`ambiguous issue ref #${seq} (matches ${where}); pass the full id`)
+    }
+    return ref
+  }
+
   get(id: string): IssueWire | null {
-    const r = this.rows.get(id)
+    const r = this.rows.get(this.resolveRef(id))
     return r ? this.toWire(r) : null
   }
 
@@ -443,10 +462,10 @@ export class IssueService {
     | 'archived' | 'priority' | 'type' | 'assignee' | 'parentId' | 'design' | 'acceptance'
     | 'notes' | 'dueAt' | 'deferUntil' | 'closedReason' | 'supersededBy' | 'duplicateOf'
     | 'pinned' | 'estimateMin' | 'needsHuman' | 'humanQuestion'>>): IssueWire {
-    const row = this.rows.get(id)
+    const row = this.rows.get(this.resolveRef(id))
     if (!row) throw new Error(`unknown issue ${id}`)
     if ('parentId' in patch) {
-      this.setParent(row, patch.parentId ?? null)
+      this.setParent(row, patch.parentId == null ? null : this.resolveRef(patch.parentId))
       const { parentId: _ignored, ...rest } = patch
       Object.assign(row, rest)
     } else {
@@ -460,6 +479,7 @@ export class IssueService {
   }
 
   delete(id: string): void {
+    id = this.resolveRef(id)
     this.rowOrThrow(id)
     this.deps.store.deleteIssue(id)
     // Re-hydrate from the store: deleteIssue also clears scalar back-refs
@@ -470,12 +490,14 @@ export class IssueService {
   }
 
   setLabels(id: string, labels: string[]): IssueWire {
+    id = this.resolveRef(id)
     const row = this.rowOrThrow(id)
     this.deps.store.setIssueLabels(id, labels)
     return this.persist(row)
   }
 
   addComment(id: string, author: string, body: string): IssueWire {
+    id = this.resolveRef(id)
     const row = this.rowOrThrow(id)
     this.deps.store.addIssueComment({
       id: `cmt_${randomUUID()}`, issueId: id, author, body, createdAt: this.now(),
@@ -505,6 +527,8 @@ export class IssueService {
     // Block it here BEFORE any store write so an arbitrary-type caller can't add
     // the hierarchy edge without ever touching the column (column/edge divergence).
     if (type === 'parent-child') throw new Error('parent-child is managed by reparent, not addDep')
+    fromId = this.resolveRef(fromId)
+    toId = this.resolveRef(toId)
     const row = this.rowOrThrow(fromId)
     this.rowOrThrow(toId)
     if (fromId === toId) throw new Error('an issue cannot depend on itself (self-dep)')
@@ -520,6 +544,8 @@ export class IssueService {
     // parent-child removal, and on the bulk (no-type) path delete only non-parent-child
     // edges so the hierarchy edge is never silently dropped out from under the column.
     if (type === 'parent-child') throw new Error('parent-child is managed by reparent, not removeDep')
+    fromId = this.resolveRef(fromId)
+    toId = this.resolveRef(toId)
     const row = this.rowOrThrow(fromId)
     if (type) {
       this.deps.store.removeIssueDep(fromId, toId, type)
@@ -567,7 +593,7 @@ export class IssueService {
 
   reparent(id: string, parentId: string | null): IssueWire {
     const row = this.rowOrThrow(id)
-    this.setParent(row, parentId)
+    this.setParent(row, parentId == null ? null : this.resolveRef(parentId))
     return this.persist(row)
   }
 
@@ -576,7 +602,7 @@ export class IssueService {
   ancestorIds(id: string): string[] {
     const out: string[] = []
     const seen = new Set<string>()
-    let cur = this.rows.get(id)?.parentId ?? null
+    let cur = this.rows.get(this.resolveRef(id))?.parentId ?? null
     while (cur && !seen.has(cur)) {
       seen.add(cur)
       out.push(cur)
@@ -594,12 +620,16 @@ export class IssueService {
   }
 
   supersede(oldId: string, newId: string): IssueWire {
+    oldId = this.resolveRef(oldId)
+    newId = this.resolveRef(newId)
     this.rowOrThrow(newId)
     this.addDep(oldId, newId, 'supersedes')
     return this.update(oldId, { stage: 'done', closedReason: 'superseded', supersededBy: newId })
   }
 
   duplicate(id: string, canonicalId: string): IssueWire {
+    id = this.resolveRef(id)
+    canonicalId = this.resolveRef(canonicalId)
     this.rowOrThrow(canonicalId)
     this.addDep(id, canonicalId, 'related')
     return this.update(id, { stage: 'done', closedReason: 'duplicate', duplicateOf: canonicalId })
@@ -806,7 +836,7 @@ export class IssueService {
   // dismissSuggestion(id), refreshAssistant(id), addSession/addShell, onSessionActivity.
   /** @internal exposed for later tasks */
   protected rowOrThrow(id: string): IssueRow {
-    const r = this.rows.get(id)
+    const r = this.rows.get(this.resolveRef(id))
     if (!r) throw new Error(`unknown issue ${id}`)
     return r
   }

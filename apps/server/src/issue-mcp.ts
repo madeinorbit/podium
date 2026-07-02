@@ -55,8 +55,13 @@ export class IssueToolProvider implements McpToolProvider {
     if (!this.client) throw new Error('issue MCP not ready (no client)')
     const parsed = cmd.args.safeParse(args)
     if (!parsed.success)
-      throw new Error(`invalid args: ${parsed.error.issues.map((i) => i.message).join('; ')}`)
-    return cmd.run(this.client, parsed.data as Record<string, unknown>)
+      throw new Error(
+        `invalid args: ${parsed.error.issues
+          .map((i) => `${i.path.join('.') || 'args'}: ${i.message}`)
+          .join('; ')}`,
+      )
+    const res = await cmd.run(this.client, parsed.data as Record<string, unknown>)
+    return res.text
   }
 }
 

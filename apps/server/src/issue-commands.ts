@@ -1,15 +1,30 @@
 import { z } from 'zod'
 import type { IssueTrpc } from './issue-client'
 
+/** What a command returns: `text` is the human rendering; `data` is the structured
+ *  payload (the tRPC result) that `--json` and MCP structured output serialize. */
+export interface IssueCommandResult {
+  text: string
+  data?: unknown
+}
+
 export interface IssueCommand {
   name: string
   summary: string
   args: z.ZodType
-  run(client: IssueTrpc, args: Record<string, unknown>): Promise<string>
+  /** Positional argv words mapped to these arg keys in order (flags still win),
+   *  so `podium issue start 10` ≡ `podium issue start --id 10`. */
+  positionals?: string[]
+  run(client: IssueTrpc, args: Record<string, unknown>): Promise<IssueCommandResult>
 }
 
 const repoArg = { repoPath: z.string() }
 const optRepo = { repoPath: z.string().optional() }
+
+/** Issue references accept the internal `iss_…` id or the display seq the CLI prints
+ *  (`10` / `#10`); MCP callers may pass the seq as a number. Resolution happens
+ *  server-side (IssueService.resolveRef). */
+const idArg = z.union([z.string(), z.number()]).transform((v) => String(v))
 
 // One-line summary of an issue for list/ready/blocked output.
 function line(i: { seq: number; title: string; priority?: number; stage?: string }): string {
@@ -18,16 +33,20 @@ function line(i: { seq: number; title: string; priority?: number; stage?: string
   return `#${i.seq} ${p}${s}${i.title}`
 }
 
+type Row = Parameters<typeof line>[0]
+const listResult = (rows: Row[], empty: string): IssueCommandResult => ({
+  text: rows.length ? rows.map(line).join('\n') : empty,
+  data: rows,
+})
+
 export const ISSUE_COMMANDS: IssueCommand[] = [
   {
     name: 'ready',
     summary: 'List issues ready to work (open, not deferred, unblocked).',
     args: z.object(optRepo),
     async run(c, a) {
-      const rows = (await c.issues.ready.query(a as { repoPath?: string })) as Array<
-        Parameters<typeof line>[0]
-      >
-      return rows.length ? rows.map(line).join('\n') : '(no ready issues)'
+      const rows = (await c.issues.ready.query(a as { repoPath?: string })) as Row[]
+      return listResult(rows, '(no ready issues)')
     },
   },
   {
@@ -35,10 +54,8 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
     summary: 'List issues blocked by an open dependency.',
     args: z.object(optRepo),
     async run(c, a) {
-      const rows = (await c.issues.blocked.query(a as { repoPath?: string })) as Array<
-        Parameters<typeof line>[0]
-      >
-      return rows.length ? rows.map(line).join('\n') : '(no blocked issues)'
+      const rows = (await c.issues.blocked.query(a as { repoPath?: string })) as Row[]
+      return listResult(rows, '(no blocked issues)')
     },
   },
   {
@@ -46,18 +63,18 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
     summary: 'List all issues in the repo.',
     args: z.object(optRepo),
     async run(c, a) {
-      const rows = (await c.issues.list.query(a as { repoPath?: string })) as Array<
-        Parameters<typeof line>[0]
-      >
-      return rows.length ? rows.map(line).join('\n') : '(no issues)'
+      const rows = (await c.issues.list.query(a as { repoPath?: string })) as Row[]
+      return listResult(rows, '(no issues)')
     },
   },
   {
     name: 'show',
-    summary: 'Show one issue by id.',
-    args: z.object({ id: z.string() }),
+    summary: 'Show one issue: show <id>.',
+    args: z.object({ id: idArg }),
+    positionals: ['id'],
     async run(c, a) {
       const i = (await c.issues.get.query({ id: a.id as string })) as {
+        id: string
         seq: number
         title: string
         description: string
@@ -65,102 +82,201 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
         priority: number
         ready: boolean
         blocked: boolean
+        assignee?: string | null
+        needsHuman?: boolean
+        humanQuestion?: string | null
+        labels?: string[]
+        worktreePath?: string | null
+        branch?: string | null
       } | null
-      if (!i) return `(no issue ${a.id})`
-      return `#${i.seq} ${i.title}\nstage=${i.stage} P${i.priority} ready=${i.ready} blocked=${i.blocked}\n\n${i.description}`
+      if (!i) throw new Error(`unknown issue ${a.id}`)
+      const meta = [
+        `stage=${i.stage} P${i.priority} ready=${i.ready} blocked=${i.blocked}`,
+        i.assignee ? `assignee=${i.assignee}` : null,
+        i.labels?.length ? `labels=${i.labels.join(',')}` : null,
+        i.branch ? `branch=${i.branch}` : null,
+        i.needsHuman ? `NEEDS HUMAN${i.humanQuestion ? `: ${i.humanQuestion}` : ''}` : null,
+      ]
+        .filter(Boolean)
+        .join('\n')
+      return { text: `#${i.seq} ${i.title}\n${meta}\n\n${i.description}`, data: i }
     },
   },
   {
     name: 'create',
-    summary: 'Create an issue. --title required; --priority --type --description optional.',
+    summary: 'Create an issue. --title required; --description --priority --type --parentId --start optional.',
     args: z.object({
       ...repoArg,
       title: z.string().min(1),
       description: z.string().optional(),
       priority: z.coerce.number().int().min(0).max(4).optional(),
       type: z.string().optional(),
-      parentId: z.string().optional(),
+      parentId: idArg.optional(),
+      start: z.boolean().optional(),
     }),
     async run(c, a) {
       const i = (await c.issues.create.mutate({
         repoPath: a.repoPath as string,
         title: a.title as string,
-        startNow: false,
+        startNow: a.start === true,
         ...(a.description ? { description: a.description as string } : {}),
         ...(a.priority != null ? { priority: a.priority as number } : {}),
         ...(a.type ? { type: a.type as never } : {}),
         ...(a.parentId ? { parentId: a.parentId as string } : {}),
-      })) as { seq: number; title: string }
-      return `created #${i.seq} ${i.title}`
+      })) as { seq: number; title: string; worktreePath?: string | null }
+      const started = a.start === true && i.worktreePath ? ` (started in ${i.worktreePath})` : ''
+      return { text: `created #${i.seq} ${i.title}${started}`, data: i }
+    },
+  },
+  {
+    name: 'start',
+    summary: 'Start an issue: create its worktree+branch, claim it, spawn its agent. start <id>.',
+    args: z.object({ id: idArg }),
+    positionals: ['id'],
+    async run(c, a) {
+      const i = (await c.issues.start.mutate({ id: a.id as string })) as {
+        seq: number
+        worktreePath?: string | null
+        branch?: string | null
+      }
+      return { text: `started #${i.seq} (${i.branch ?? '?'} @ ${i.worktreePath ?? '?'})`, data: i }
     },
   },
   {
     name: 'update',
-    summary: 'Update fields on an issue (--stage --priority --assignee --title …).',
+    summary: 'Update fields on an issue (--stage --priority --assignee --title --description --type …).',
     args: z.object({
-      id: z.string(),
+      id: idArg,
       stage: z.string().optional(),
       priority: z.coerce.number().int().min(0).max(4).optional(),
       assignee: z.string().optional(),
       title: z.string().optional(),
+      description: z.string().optional(),
+      type: z.string().optional(),
     }),
+    positionals: ['id'],
     async run(c, a) {
       const patch: Record<string, unknown> = {}
-      for (const k of ['stage', 'priority', 'assignee', 'title']) if (a[k] != null) patch[k] = a[k]
+      for (const k of ['stage', 'priority', 'assignee', 'title', 'description', 'type'])
+        if (a[k] != null) patch[k] = a[k]
       const i = (await c.issues.update.mutate({ id: a.id as string, patch: patch as never })) as {
         seq: number
       }
-      return `updated #${i.seq}`
+      return { text: `updated #${i.seq}`, data: i }
     },
   },
   {
     name: 'close',
-    summary: 'Close an issue (--reason done|superseded|duplicate|wontfix).',
-    args: z.object({ id: z.string(), reason: z.string().optional() }),
+    summary: 'Close an issue: close <id> [--reason done|superseded|duplicate|wontfix] [--note "handoff"].',
+    args: z.object({
+      id: idArg,
+      reason: z.string().optional(),
+      note: z.string().optional(),
+      author: z.string().default('agent'),
+    }),
+    positionals: ['id'],
     async run(c, a) {
+      // Completion note first: it must land even if close then fails, and the
+      // close broadcast should follow the note so watchers read a complete issue.
+      if (a.note) {
+        await c.issues.addComment.mutate({
+          id: a.id as string,
+          author: a.author as string,
+          body: `[completion-note] ${a.note as string}`,
+        })
+      }
       const i = (await c.issues.close.mutate({
         id: a.id as string,
         ...(a.reason ? { reason: a.reason as string } : {}),
       })) as { seq: number }
-      return `closed #${i.seq}`
+      return { text: `closed #${i.seq}${a.note ? ' (completion note recorded)' : ''}`, data: i }
     },
   },
   {
     name: 'claim',
-    summary: 'Claim an issue (set assignee + in_progress).',
-    args: z.object({ id: z.string(), assignee: z.string() }),
+    summary: 'Claim an issue (set assignee + in_progress): claim <id> --assignee me.',
+    args: z.object({ id: idArg, assignee: z.string() }),
+    positionals: ['id'],
     async run(c, a) {
       const i = (await c.issues.claim.mutate({
         id: a.id as string,
         assignee: a.assignee as string,
       })) as { seq: number }
-      return `claimed #${i.seq}`
+      return { text: `claimed #${i.seq}`, data: i }
+    },
+  },
+  {
+    name: 'archive',
+    summary: 'Archive an issue: archive <id>.',
+    args: z.object({ id: idArg }),
+    positionals: ['id'],
+    async run(c, a) {
+      const i = (await c.issues.archive.mutate({ id: a.id as string })) as { seq: number }
+      return { text: `archived #${i.seq}`, data: i }
+    },
+  },
+  {
+    name: 'action',
+    summary: 'Run a git action on a started issue: action <id> <kind: rebase|pr|merge>.',
+    args: z.object({ id: idArg, kind: z.enum(['rebase', 'pr', 'merge']) }),
+    positionals: ['id', 'kind'],
+    async run(c, a) {
+      const r = (await c.issues.action.mutate({
+        id: a.id as string,
+        kind: a.kind as 'rebase' | 'pr' | 'merge',
+      })) as { ok: boolean; output: string }
+      return { text: `${a.kind}: ${r.ok ? 'OK' : 'FAILED'}\n${r.output}`.trim(), data: r }
+    },
+  },
+  {
+    name: 'add-session',
+    summary: "Spawn another agent session in a started issue's worktree: add-session <id> [--agent claude-code].",
+    args: z.object({ id: idArg, agent: z.string().optional() }),
+    positionals: ['id'],
+    async run(c, a) {
+      const i = (await c.issues.addSession.mutate({
+        id: a.id as string,
+        ...(a.agent ? { agentKind: a.agent as string } : {}),
+      })) as { seq: number }
+      return { text: `session added to #${i.seq}`, data: i }
+    },
+  },
+  {
+    name: 'add-shell',
+    summary: "Spawn a shell in a started issue's worktree: add-shell <id>.",
+    args: z.object({ id: idArg }),
+    positionals: ['id'],
+    async run(c, a) {
+      const i = (await c.issues.addShell.mutate({ id: a.id as string })) as { seq: number }
+      return { text: `shell added to #${i.seq}`, data: i }
     },
   },
   {
     name: 'dep-add',
-    summary: 'Add a dependency: <from> depends on <to> (--type blocks|related|…).',
-    args: z.object({ fromId: z.string(), toId: z.string(), type: z.string().optional() }),
+    summary: 'Add a dependency, <from> depends on <to>: dep-add <fromId> <toId> [--type blocks|related|discovered-from|…].',
+    args: z.object({ fromId: idArg, toId: idArg, type: z.string().optional() }),
+    positionals: ['fromId', 'toId'],
     async run(c, a) {
-      await c.issues.depAdd.mutate({
+      const i = (await c.issues.depAdd.mutate({
         fromId: a.fromId as string,
         toId: a.toId as string,
         ...(a.type ? { type: a.type as string } : {}),
-      })
-      return `dep added ${a.fromId} -> ${a.toId}`
+      })) as unknown
+      return { text: `dep added ${a.fromId} -> ${a.toId}`, data: i }
     },
   },
   {
     name: 'comment',
-    summary: 'Add a comment to an issue (--author --body).',
-    args: z.object({ id: z.string(), author: z.string(), body: z.string().min(1) }),
+    summary: 'Add a comment: comment <id> --body "…" [--author name].',
+    args: z.object({ id: idArg, author: z.string().default('agent'), body: z.string().min(1) }),
+    positionals: ['id'],
     async run(c, a) {
-      await c.issues.addComment.mutate({
+      const i = (await c.issues.addComment.mutate({
         id: a.id as string,
         author: a.author as string,
         body: a.body as string,
-      })
-      return `commented on ${a.id}`
+      })) as { seq: number }
+      return { text: `commented on #${i.seq}`, data: i }
     },
   },
   {
@@ -175,8 +291,8 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
       label: z.string().optional(),
     }),
     async run(c, a) {
-      const rows = (await c.issues.search.query(a as never)) as Array<Parameters<typeof line>[0]>
-      return rows.length ? rows.map(line).join('\n') : '(no matches)'
+      const rows = (await c.issues.search.query(a as never)) as Row[]
+      return listResult(rows, '(no matches)')
     },
   },
   {
@@ -185,24 +301,29 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
     args: z.object(optRepo),
     async run(c, a) {
       const s = (await c.issues.stats.query(a as { repoPath?: string })) as Record<string, number>
-      return Object.entries(s)
-        .map(([k, v]) => `${k}: ${v}`)
-        .join('\n')
+      return {
+        text: Object.entries(s)
+          .map(([k, v]) => `${k}: ${v}`)
+          .join('\n'),
+        data: s,
+      }
     },
   },
   {
     name: 'delete',
-    summary: 'Delete an issue permanently (maintainer).',
-    args: z.object({ id: z.string() }),
+    summary: 'Delete an issue permanently (maintainer): delete <id>.',
+    args: z.object({ id: idArg }),
+    positionals: ['id'],
     async run(c, a) {
-      await c.issues.delete.mutate({ id: a.id as string })
-      return `deleted ${a.id}`
+      const r = (await c.issues.delete.mutate({ id: a.id as string })) as unknown
+      return { text: `deleted ${a.id}`, data: r }
     },
   },
   {
     name: 'label',
-    summary: "Set an issue's labels (replaces): --labels a,b,c.",
-    args: z.object({ id: z.string(), labels: z.string() }),
+    summary: "Set an issue's labels (replaces): label <id> --labels a,b,c.",
+    args: z.object({ id: idArg, labels: z.string() }),
+    positionals: ['id'],
     async run(c, a) {
       const labels = String(a.labels)
         .split(',')
@@ -211,86 +332,109 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
       const w = (await c.issues.setLabels.mutate({ id: a.id as string, labels })) as {
         labels: string[]
       }
-      return `labels: ${w.labels.join(', ') || '(none)'}`
+      return { text: `labels: ${w.labels.join(', ') || '(none)'}`, data: w }
     },
   },
   {
     name: 'defer',
-    summary: 'Defer an issue until a date (--until 2026-07-01).',
-    args: z.object({ id: z.string(), until: z.string() }),
+    summary: 'Defer an issue until a date: defer <id> --until 2026-07-01.',
+    args: z.object({ id: idArg, until: z.string() }),
+    positionals: ['id'],
     async run(c, a) {
-      await c.issues.defer.mutate({ id: a.id as string, until: a.until as string })
-      return `deferred ${a.id} until ${a.until}`
+      const i = (await c.issues.defer.mutate({
+        id: a.id as string,
+        until: a.until as string,
+      })) as unknown
+      return { text: `deferred ${a.id} until ${a.until}`, data: i }
     },
   },
   {
     name: 'undefer',
-    summary: "Clear an issue's defer.",
-    args: z.object({ id: z.string() }),
+    summary: "Clear an issue's defer: undefer <id>.",
+    args: z.object({ id: idArg }),
+    positionals: ['id'],
     async run(c, a) {
-      await c.issues.defer.mutate({ id: a.id as string, until: null })
-      return `undeferred ${a.id}`
+      const i = (await c.issues.defer.mutate({ id: a.id as string, until: null })) as unknown
+      return { text: `undeferred ${a.id}`, data: i }
     },
   },
   {
     name: 'needs-human',
-    summary: 'Flag an issue as needing a human decision (--question optional).',
-    args: z.object({ id: z.string(), question: z.string().optional() }),
+    summary: 'Flag an issue as needing a human decision: needs-human <id> [--question "…"].',
+    args: z.object({ id: idArg, question: z.string().optional() }),
+    positionals: ['id'],
     async run(c, a) {
-      await c.issues.setNeedsHuman.mutate({ id: a.id as string, ...(a.question ? { question: a.question as string } : {}) })
-      return `flagged ${a.id} for human`
+      const i = (await c.issues.setNeedsHuman.mutate({
+        id: a.id as string,
+        ...(a.question ? { question: a.question as string } : {}),
+      })) as unknown
+      return { text: `flagged ${a.id} for human`, data: i }
     },
   },
   {
     name: 'clear-needs-human',
-    summary: 'Clear the needs-human flag on an issue.',
-    args: z.object({ id: z.string() }),
+    summary: 'Clear the needs-human flag: clear-needs-human <id>.',
+    args: z.object({ id: idArg }),
+    positionals: ['id'],
     async run(c, a) {
-      await c.issues.clearNeedsHuman.mutate({ id: a.id as string })
-      return `cleared needs-human on ${a.id}`
+      const i = (await c.issues.clearNeedsHuman.mutate({ id: a.id as string })) as unknown
+      return { text: `cleared needs-human on ${a.id}`, data: i }
     },
   },
   {
     name: 'supersede',
-    summary: 'Supersede <old> with <new>: --oldId --newId.',
-    args: z.object({ oldId: z.string(), newId: z.string() }),
+    summary: 'Supersede <old> with <new>: supersede <oldId> <newId>.',
+    args: z.object({ oldId: idArg, newId: idArg }),
+    positionals: ['oldId', 'newId'],
     async run(c, a) {
-      await c.issues.supersede.mutate({ oldId: a.oldId as string, newId: a.newId as string })
-      return `${a.oldId} superseded by ${a.newId}`
+      const i = (await c.issues.supersede.mutate({
+        oldId: a.oldId as string,
+        newId: a.newId as string,
+      })) as unknown
+      return { text: `${a.oldId} superseded by ${a.newId}`, data: i }
     },
   },
   {
     name: 'duplicate',
-    summary: 'Mark <id> a duplicate of <canonicalId>.',
-    args: z.object({ id: z.string(), canonicalId: z.string() }),
+    summary: 'Mark a duplicate: duplicate <id> <canonicalId>.',
+    args: z.object({ id: idArg, canonicalId: idArg }),
+    positionals: ['id', 'canonicalId'],
     async run(c, a) {
-      await c.issues.duplicate.mutate({ id: a.id as string, canonicalId: a.canonicalId as string })
-      return `${a.id} marked duplicate of ${a.canonicalId}`
+      const i = (await c.issues.duplicate.mutate({
+        id: a.id as string,
+        canonicalId: a.canonicalId as string,
+      })) as unknown
+      return { text: `${a.id} marked duplicate of ${a.canonicalId}`, data: i }
     },
   },
   {
     name: 'dep-remove',
-    summary: 'Remove a dependency: --fromId --toId [--type].',
-    args: z.object({ fromId: z.string(), toId: z.string(), type: z.string().optional() }),
+    summary: 'Remove a dependency: dep-remove <fromId> <toId> [--type].',
+    args: z.object({ fromId: idArg, toId: idArg, type: z.string().optional() }),
+    positionals: ['fromId', 'toId'],
     async run(c, a) {
-      await c.issues.depRemove.mutate({
+      const i = (await c.issues.depRemove.mutate({
         fromId: a.fromId as string,
         toId: a.toId as string,
         ...(a.type ? { type: a.type as string } : {}),
-      })
-      return `dep removed ${a.fromId} -> ${a.toId}`
+      })) as unknown
+      return { text: `dep removed ${a.fromId} -> ${a.toId}`, data: i }
     },
   },
   {
     name: 'reparent',
-    summary: "Set/clear an issue's parent: --id --parentId (omit parentId to clear).",
-    args: z.object({ id: z.string(), parentId: z.string().optional() }),
+    summary: "Set/clear an issue's parent: reparent <id> [--parentId <id>] (omit parentId to clear).",
+    args: z.object({ id: idArg, parentId: idArg.optional() }),
+    positionals: ['id', 'parentId'],
     async run(c, a) {
-      await c.issues.reparent.mutate({
+      const i = (await c.issues.reparent.mutate({
         id: a.id as string,
         parentId: (a.parentId as string) ?? null,
-      })
-      return a.parentId ? `${a.id} parented to ${a.parentId}` : `${a.id} unparented`
+      })) as unknown
+      return {
+        text: a.parentId ? `${a.id} parented to ${a.parentId}` : `${a.id} unparented`,
+        data: i,
+      }
     },
   },
   {
@@ -303,9 +447,12 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
         b: string
         score: number
       }[]
-      return ds.length
-        ? ds.map((d) => `${d.a} ~ ${d.b} (${d.score.toFixed(2)})`).join('\n')
-        : '(no duplicates)'
+      return {
+        text: ds.length
+          ? ds.map((d) => `${d.a} ~ ${d.b} (${d.score.toFixed(2)})`).join('\n')
+          : '(no duplicates)',
+        data: ds,
+      }
     },
   },
   {
@@ -317,7 +464,7 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
         nodes: { seq: number; title: string }[]
         edges: { from: string; to: string; type: string }[]
       }
-      return `${g.nodes.length} nodes, ${g.edges.length} edges`
+      return { text: `${g.nodes.length} nodes, ${g.edges.length} edges`, data: g }
     },
   },
   {
@@ -331,7 +478,10 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
         lintCount: number
         staleCount: number
       }
-      return `cycles: ${d.cycles.length}, dangling: ${d.danglingDeps.length}, lint: ${d.lintCount}, stale: ${d.staleCount}`
+      return {
+        text: `cycles: ${d.cycles.length}, dangling: ${d.danglingDeps.length}, lint: ${d.lintCount}, stale: ${d.staleCount}`,
+        data: d,
+      }
     },
   },
   {
@@ -340,7 +490,7 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
     args: z.object(optRepo),
     async run(c, a) {
       const p = (await c.issues.preflight.query(a as { repoPath?: string })) as { ok: boolean }
-      return p.ok ? 'preflight: OK' : 'preflight: FAIL (run doctor)'
+      return { text: p.ok ? 'preflight: OK' : 'preflight: FAIL (run doctor)', data: p }
     },
   },
   {
@@ -348,8 +498,8 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
     summary: 'Issues with no activity in N days (--days 30).',
     args: z.object({ ...optRepo, days: z.coerce.number().optional() }),
     async run(c, a) {
-      const rows = (await c.issues.stale.query(a as never)) as Array<Parameters<typeof line>[0]>
-      return rows.length ? rows.map(line).join('\n') : '(none stale)'
+      const rows = (await c.issues.stale.query(a as never)) as Row[]
+      return listResult(rows, '(none stale)')
     },
   },
   {
@@ -362,9 +512,12 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
         title: string
         ref: string
       }[]
-      return rows.length
-        ? rows.map((r) => `#${r.seq} ${r.title} (${r.ref})`).join('\n')
-        : '(no orphans)'
+      return {
+        text: rows.length
+          ? rows.map((r) => `#${r.seq} ${r.title} (${r.ref})`).join('\n')
+          : '(no orphans)',
+        data: rows,
+      }
     },
   },
   {
@@ -376,9 +529,12 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
         seq: number
         findings: string[]
       }[]
-      return rows.length
-        ? rows.map((r) => `#${r.seq}: ${r.findings.join('; ')}`).join('\n')
-        : '(lint clean)'
+      return {
+        text: rows.length
+          ? rows.map((r) => `#${r.seq}: ${r.findings.join('; ')}`).join('\n')
+          : '(lint clean)',
+        data: rows,
+      }
     },
   },
   {
@@ -390,7 +546,10 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
         byStage: Record<string, number>
         byType: Record<string, number>
       }
-      return `by stage: ${JSON.stringify(ct.byStage)}\nby type: ${JSON.stringify(ct.byType)}`
+      return {
+        text: `by stage: ${JSON.stringify(ct.byStage)}\nby type: ${JSON.stringify(ct.byType)}`,
+        data: ct,
+      }
     },
   },
   {
@@ -398,20 +557,25 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
     summary: "Print this session's issue context (bound issue + children/blockers, or ready-work lobby).",
     args: z.object(optRepo),
     async run(c, a) {
-      return (await c.issues.prime.query(a as { repoPath?: string })) as string
+      const text = (await c.issues.prime.query(a as { repoPath?: string })) as string
+      return { text, data: { prime: text } }
     },
   },
   {
     name: 'epic-status',
-    summary: 'Epic completion: --id.',
-    args: z.object({ id: z.string() }),
+    summary: 'Epic completion: epic-status <id>.',
+    args: z.object({ id: idArg }),
+    positionals: ['id'],
     async run(c, a) {
       const e = (await c.issues.epicStatus.query({ id: a.id as string })) as {
         childCount: number
         childDoneCount: number
         complete: boolean
       }
-      return `${e.childDoneCount}/${e.childCount} done${e.complete ? ' (complete)' : ''}`
+      return {
+        text: `${e.childDoneCount}/${e.childCount} done${e.complete ? ' (complete)' : ''}`,
+        data: e,
+      }
     },
   },
 ]
