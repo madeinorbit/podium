@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { SessionMeta } from '@podium/protocol'
 import { SessionStore } from './store'
 import { IssueService, type IssueDeps } from './issues'
+import { SessionRegistry } from './relay'
 
 function harness(sessions: SessionMeta[] = []) {
   const store = new SessionStore(':memory:')
@@ -131,5 +132,108 @@ describe('IssueService event emission', () => {
     })
     const w = svc.create({ repoPath: '/r', title: 'A', startNow: false })
     expect(svc.close(w.id).stage).toBe('done')
+  })
+
+  it('update --stage done (board drag / CLI path) emits issue.closed + the ready fanout', () => {
+    const { svc, store } = harness()
+    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    const b = svc.create({ repoPath: '/r', title: 'B', startNow: false })
+    svc.addDep(b.id, a.id, 'blocks')
+    svc.update(a.id, { stage: 'done' })
+    const closed = store.listEventsSince(0, { kinds: ['issue.closed'] })
+    expect(closed.length).toBe(1)
+    expect(closed[0]).toMatchObject({ subject: a.id, payload: { seq: a.seq, reason: 'done' } })
+    expect(store.listEventsSince(0, { kinds: ['issue.stage_changed'] })).toEqual([])
+    const ready = store.listEventsSince(0, { kinds: ['issue.ready'] })
+    expect(ready.length).toBe(1)
+    expect(ready[0]).toMatchObject({ subject: b.id, payload: { seq: b.seq, unblockedBy: a.seq } })
+  })
+
+  it('supersede and duplicate emit issue.closed with their reasons', () => {
+    const { svc, store } = harness()
+    const old = svc.create({ repoPath: '/r', title: 'Old', startNow: false })
+    const canon = svc.create({ repoPath: '/r', title: 'New', startNow: false })
+    const dup = svc.create({ repoPath: '/r', title: 'Dup', startNow: false })
+    svc.supersede(old.id, canon.id)
+    svc.duplicate(dup.id, canon.id)
+    const closed = store.listEventsSince(0, { kinds: ['issue.closed'] })
+    expect(closed.map((e) => [e.subject, (e.payload as { reason: string }).reason])).toEqual([
+      [old.id, 'superseded'],
+      [dup.id, 'duplicate'],
+    ])
+  })
+
+  it('double-close emits exactly one issue.closed', () => {
+    const { svc, store } = harness()
+    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    svc.close(a.id)
+    svc.close(a.id, 'wontfix')
+    svc.update(a.id, { closedReason: 'obsolete' }) // still closed — no re-emit
+    expect(store.listEventsSince(0, { kinds: ['issue.closed'] }).length).toBe(1)
+  })
+
+  it('a fanout read error after the close persisted does not break close()', () => {
+    const { svc, store } = harness()
+    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    const b = svc.create({ repoPath: '/r', title: 'B', startNow: false })
+    svc.addDep(b.id, a.id, 'blocks')
+    // Arm the failure only once the issue.closed row landed, so persist/broadcast
+    // succeed and the throw hits exactly the ready fanout's read path.
+    const origAppend = store.appendEvent.bind(store)
+    const origDeps = store.listIssueDeps.bind(store)
+    let armed = false
+    vi.spyOn(store, 'appendEvent').mockImplementation((e) => {
+      const id = origAppend(e)
+      if (e.kind === 'issue.closed') armed = true
+      return id
+    })
+    vi.spyOn(store, 'listIssueDeps').mockImplementation((fromId) => {
+      if (armed) throw new Error('boom')
+      return origDeps(fromId)
+    })
+    expect(svc.close(a.id).stage).toBe('done')
+    expect(store.getIssue(a.id)?.stage).toBe('done')
+    expect(store.listEventsSince(0, { kinds: ['issue.closed'] }).length).toBe(1)
+    expect(store.listEventsSince(0, { kinds: ['issue.ready'] })).toEqual([])
+  })
+
+  it('re-flagging needs-human emits once; re-clearing likewise', () => {
+    const { svc, store } = harness()
+    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    svc.clearNeedsHuman(a.id) // never flagged — nothing to log
+    svc.setNeedsHuman(a.id, 'q1')
+    svc.setNeedsHuman(a.id, 'q2')
+    expect(store.listEventsSince(0, { kinds: ['issue.needs_human'] }).length).toBe(1)
+    svc.clearNeedsHuman(a.id)
+    svc.clearNeedsHuman(a.id)
+    expect(store.listEventsSince(0, { kinds: ['issue.needs_human_cleared'] }).length).toBe(1)
+  })
+})
+
+describe('SessionRegistry session.phase events', () => {
+  const st = (phase: string, idle?: { kind: string }) =>
+    ({ phase, since: 't', openTaskCount: 0, ...(idle ? { idle } : {}) }) as never
+
+  it('skips the prev-undefined seed and logs only real phase transitions', () => {
+    const store = new SessionStore(':memory:')
+    const reg = new SessionRegistry(store)
+    reg.attachDaemon('local', () => {})
+    const { sessionId } = reg.createSession({ agentKind: 'claude-code', cwd: '/proj' })
+    // First state after boot/spawn: prev is undefined → no phantom row.
+    reg.onDaemonMessageFrom('local', { type: 'agentState', sessionId, state: st('working') })
+    expect(store.listEventsSince(0, { kinds: ['session.phase'] })).toEqual([])
+    reg.onDaemonMessageFrom('local', {
+      type: 'agentState',
+      sessionId,
+      state: st('idle', { kind: 'question' }),
+    })
+    // Same-phase refresh → no second row.
+    reg.onDaemonMessageFrom('local', { type: 'agentState', sessionId, state: st('idle') })
+    const evs = store.listEventsSince(0, { kinds: ['session.phase'] })
+    expect(evs.length).toBe(1)
+    expect(evs[0]).toMatchObject({
+      subject: sessionId,
+      payload: { phase: 'idle', verdict: 'question', agentKind: 'claude-code', cwd: '/proj' },
+    })
   })
 })

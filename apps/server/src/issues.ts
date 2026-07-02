@@ -452,17 +452,20 @@ export class IssueService {
 
   /** Dependents of `closed` that its close just unblocked (their ONLY open blocker
    *  was `closed`): open rows in the same repo with a `blocks` dep on it whose wire
-   *  `ready` is now true. */
+   *  `ready` is now true. Never throws — the close already persisted, and a sqlite
+   *  read error in this fanout must not make the succeeded mutation look failed. */
   private emitReadyAfterClose(closed: IssueRow): void {
-    for (const r of this.rows.values()) {
-      if (r.id === closed.id || r.repoPath !== closed.repoPath || this.isClosed(r)) continue
-      const blocksClosed = this.deps.store
-        .listIssueDeps(r.id)
-        .some((d) => d.type === 'blocks' && d.toId === closed.id)
-      if (blocksClosed && this.toWire(r).ready) {
-        this.emitEvent('issue.ready', r.id, { seq: r.seq, unblockedBy: closed.seq })
+    try {
+      for (const r of this.rows.values()) {
+        if (r.id === closed.id || r.repoPath !== closed.repoPath || this.isClosed(r)) continue
+        const blocksClosed = this.deps.store
+          .listIssueDeps(r.id)
+          .some((d) => d.type === 'blocks' && d.toId === closed.id)
+        if (blocksClosed && this.toWire(r).ready) {
+          this.emitEvent('issue.ready', r.id, { seq: r.seq, unblockedBy: closed.seq })
+        }
       }
-    }
+    } catch {}
   }
 
   private persist(row: IssueRow): IssueWire {
@@ -515,6 +518,7 @@ export class IssueService {
     const row = this.rows.get(this.resolveRef(id))
     if (!row) throw new Error(`unknown issue ${id}`)
     const prevStage = row.stage
+    const wasClosed = this.isClosed(row)
     if ('parentId' in patch) {
       this.setParent(row, patch.parentId == null ? null : this.resolveRef(patch.parentId))
       const { parentId: _ignored, ...rest } = patch
@@ -523,13 +527,20 @@ export class IssueService {
       Object.assign(row, patch)
     }
     const wire = this.persist(row)
-    // stage→done is close()'s territory (issue.closed) — don't double-log it here.
+    // Transitions into done log as issue.closed below, not stage_changed.
     if (patch.stage != null && patch.stage !== prevStage && patch.stage !== 'done') {
       this.emitEvent('issue.stage_changed', row.id, {
         seq: row.seq,
         from: prevStage,
         to: patch.stage,
       })
+    }
+    // update() owns the closed emission: EVERY close path funnels here (close(),
+    // supersede/duplicate, board drag-to-done, CLI `update --stage done`), and the
+    // false→true flip check means a re-close never re-emits.
+    if (!wasClosed && this.isClosed(row)) {
+      this.emitEvent('issue.closed', row.id, { seq: row.seq, reason: row.closedReason ?? 'done' })
+      this.emitReadyAfterClose(row)
     }
     return wire
   }
@@ -624,14 +635,19 @@ export class IssueService {
   }
 
   setNeedsHuman(id: string, question?: string | null): IssueWire {
+    const wasFlagged = this.rows.get(this.resolveRef(id))?.needsHuman === true
     const wire = this.update(id, { needsHuman: true, humanQuestion: question ?? null })
-    this.emitEvent('issue.needs_human', wire.id, { seq: wire.seq, question: question ?? null })
+    // Emit only on the false→true flip — a re-flag must not duplicate the event.
+    if (!wasFlagged) {
+      this.emitEvent('issue.needs_human', wire.id, { seq: wire.seq, question: question ?? null })
+    }
     return wire
   }
 
   clearNeedsHuman(id: string): IssueWire {
+    const wasFlagged = this.rows.get(this.resolveRef(id))?.needsHuman === true
     const wire = this.update(id, { needsHuman: false, humanQuestion: null })
-    this.emitEvent('issue.needs_human_cleared', wire.id, { seq: wire.seq })
+    if (wasFlagged) this.emitEvent('issue.needs_human_cleared', wire.id, { seq: wire.seq })
     return wire
   }
 
@@ -680,13 +696,7 @@ export class IssueService {
   }
 
   close(id: string, reason = 'done'): IssueWire {
-    const wire = this.update(id, { stage: 'done', closedReason: reason })
-    const row = this.rows.get(wire.id)
-    if (row) {
-      this.emitEvent('issue.closed', row.id, { seq: row.seq, reason })
-      this.emitReadyAfterClose(row)
-    }
-    return wire
+    return this.update(id, { stage: 'done', closedReason: reason }) // update() emits issue.closed
   }
 
   supersede(oldId: string, newId: string): IssueWire {

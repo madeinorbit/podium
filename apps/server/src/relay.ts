@@ -2806,8 +2806,10 @@ export class SessionRegistry {
     next: AgentRuntimeState,
   ): void {
     // Durable event log: one row per REAL phase transition (the caller fires on
-    // every agentState message, including same-phase refreshes). Best-effort.
-    if (prev?.phase !== next.phase) {
+    // every agentState message, including same-phase refreshes). prev==null is the
+    // first seed after a server restart (agentState isn't restored from the DB) —
+    // skip it or every redeploy logs a phantom row per live session. Best-effort.
+    if (prev != null && prev.phase !== next.phase) {
       try {
         this.store.appendEvent({
           ts: new Date(this.now()).toISOString(),
