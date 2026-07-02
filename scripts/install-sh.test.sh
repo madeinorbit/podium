@@ -33,6 +33,33 @@ rm -rf "$HOME/.local/share/podium" "$HOME/.local/bin/podium" "$PODIUM_STATE_DIR"
 sh "$ROOT/install.sh" --channel edge
 test "$(cat "$PODIUM_STATE_DIR/update-channel" 2>/dev/null || true)" = "edge" || { echo "FAIL: edge install did not persist update channel"; exit 1; }
 
+echo "== authenticated fetch sends GitHub token =="
+AUTHBIN="$WORK/authbin"; mkdir -p "$AUTHBIN"
+cat > "$AUTHBIN/curl" <<'SH'
+#!/bin/sh
+log="${PODIUM_CURL_LOG:?}"
+out=""
+url=""
+config=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -o) out="$2"; shift 2 ;;
+    --config) config="$2"; shift 2 ;;
+    -*) shift ;;
+    *) url="$1"; shift ;;
+  esac
+done
+[ -n "$config" ] && cat "$config" >> "$log"
+case "$url" in
+  file://*) cp "${url#file://}" "$out" ;;
+  *) echo "unexpected url: $url" >&2; exit 1 ;;
+esac
+SH
+chmod +x "$AUTHBIN/curl"
+rm -rf "$HOME/.local/share/podium" "$HOME/.local/bin/podium" "$PODIUM_STATE_DIR" "$WORK/curl.log"
+env PATH="$AUTHBIN:$PATH" GH_TOKEN="gh_testtoken" PODIUM_CURL_LOG="$WORK/curl.log" sh "$ROOT/install.sh" --channel edge
+grep -F 'Authorization: Bearer gh_testtoken' "$WORK/curl.log" >/dev/null || { echo "FAIL: authenticated install did not send GitHub token"; exit 1; }
+
 # Stub systemctl + loginctl so --join runs write the unit FILES without touching the real
 # user session; we assert on the written files, not on systemctl succeeding.
 STUB="$WORK/bin"; mkdir -p "$STUB"
