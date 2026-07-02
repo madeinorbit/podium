@@ -21,9 +21,11 @@ import {
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
 import { CardBoundary } from './CardBoundary'
-import { AssigneeAvatar, PriorityGlyph, StageGlyph } from './issue-glyphs'
+import { useIsMobile } from './hooks/use-is-mobile'
+import { IssueListView } from './IssueListView'
 import { type BoardFilter, clearChip, filterBoardIssues, filterChips } from './issue-board-filter'
 import { issueCardModel, STAGE_LABELS } from './issue-card'
+import { AssigneeAvatar, PriorityGlyph, StageGlyph } from './issue-glyphs'
 import {
   DISPLAY_KEY,
   type IssuesDisplay,
@@ -53,6 +55,8 @@ type DisplayPatch = Partial<Omit<IssuesDisplay, 'badges'>> & {
  */
 export function IssuesView(): JSX.Element {
   const { issues, setOpenIssueId, trpc } = useStore()
+  // On phones the board's horizontal lanes don't fit — force the list layout.
+  const isMobile = useIsMobile()
   // Display options (layout / ordering / badge visibility), persisted so the
   // board looks the same across reloads. Field-by-field fallback on read.
   const [display, setDisplay] = useState<IssuesDisplay>(() =>
@@ -98,6 +102,7 @@ export function IssuesView(): JSX.Element {
   }
 
   const chips = filterChips(filter)
+  const layout = isMobile ? 'list' : display.layout
 
   return (
     <section className="flex min-w-0 flex-1 flex-col overflow-hidden" aria-label="Issues">
@@ -105,7 +110,7 @@ export function IssuesView(): JSX.Element {
         <h2 className="font-medium text-base text-foreground">Issues</h2>
         <div className="flex items-center gap-2">
           <FilterMenu filter={filter} onChange={setFilter} labels={labels} assignees={assignees} />
-          <DisplayMenu display={display} onChange={updateDisplay} />
+          <DisplayMenu display={display} onChange={updateDisplay} showLayout={!isMobile} />
           <Button type="button" size="sm" onClick={() => setCreating({})}>
             <Plus size={14} aria-hidden="true" /> New Issue
           </Button>
@@ -133,9 +138,13 @@ export function IssuesView(): JSX.Element {
         ))}
       </div>
 
-      {display.layout === 'list' ? (
-        // List layout lands in Task 6 — keep the seam so the board branch is stable.
-        <div className="min-h-0 flex-1 overflow-y-auto" aria-label="Issues list" />
+      {layout === 'list' ? (
+        <IssueListView
+          issues={active}
+          display={display}
+          onOpen={setOpenIssueId}
+          onCreateIn={(stage) => setCreating({ stage })}
+        />
       ) : (
         <div className="flex min-h-0 flex-1 gap-3 overflow-x-auto p-3 md:p-4">
           {ISSUE_STAGES.map((stage) => (
@@ -301,9 +310,11 @@ const BADGE_LABELS: { key: keyof IssuesDisplay['badges']; label: string }[] = [
 function DisplayMenu({
   display,
   onChange,
+  showLayout,
 }: {
   display: IssuesDisplay
   onChange: (patch: DisplayPatch) => void
+  showLayout: boolean
 }): JSX.Element {
   return (
     <DropdownMenu>
@@ -315,15 +326,19 @@ function DisplayMenu({
         }
       />
       <DropdownMenuContent align="end" className="w-48">
-        <DropdownMenuLabel>Layout</DropdownMenuLabel>
-        <DropdownMenuRadioGroup
-          value={display.layout}
-          onValueChange={(v) => onChange({ layout: v as IssuesLayout })}
-        >
-          <DropdownMenuRadioItem value="board">Board</DropdownMenuRadioItem>
-          <DropdownMenuRadioItem value="list">List</DropdownMenuRadioItem>
-        </DropdownMenuRadioGroup>
-        <DropdownMenuSeparator />
+        {showLayout && (
+          <>
+            <DropdownMenuLabel>Layout</DropdownMenuLabel>
+            <DropdownMenuRadioGroup
+              value={display.layout}
+              onValueChange={(v) => onChange({ layout: v as IssuesLayout })}
+            >
+              <DropdownMenuRadioItem value="board">Board</DropdownMenuRadioItem>
+              <DropdownMenuRadioItem value="list">List</DropdownMenuRadioItem>
+            </DropdownMenuRadioGroup>
+            <DropdownMenuSeparator />
+          </>
+        )}
         <DropdownMenuLabel>Ordering</DropdownMenuLabel>
         <DropdownMenuRadioGroup
           value={display.ordering}
