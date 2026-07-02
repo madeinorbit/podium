@@ -176,6 +176,31 @@ duty**, stated in prime; the steward is the backstop that notices and
 nudges, not the maid that silently fixes. This keeps blame legible and
 avoids two writers fighting over the same fields.
 
+### The sidebar: where agents live (2026-07-02 revision)
+
+Audit finding: an agent-created session (`start_agent`) today is a
+metadata-poor twin of a human session — title = `basename(cwd)`, no
+workState, no creator record, issue membership only if the cwd happens to
+land inside an issue worktree. Nothing anywhere records *who spawned it*.
+
+Target sidebar structure:
+
+1. **NEEDS YOUR ATTENTION** — stays. Signal quality improves via the
+   completion-note contract and structured needs_human questions; agents
+   are instructed (prime) to send concrete signals rather than us inferring.
+2. **WORKING** — stays, but batched: sessions grouped under their issue row
+   (one row, "3 working" badge), issue-less sessions under their worktree
+   row. Note: harness-internal subagents (Claude's Task tool) never create
+   Podium sessions, so the flood risk is only Podium-spawned sessions —
+   issue/worktree grouping covers it.
+3. **PINNED PANELS** — keep as-is until the "spaces" idea is fleshed out.
+4. + 5. **Worktrees and issues merge into one list.** An item is an issue
+   (grouping its sessions) when the worktree belongs to one or more issues
+   — show only the issue(s); a bare worktree row otherwise. This makes the
+   issues system incrementally adoptable. Feasible today: membership is
+   already cwd-containment (`sessionsForIssueWorktree`, `isMemberCwd`);
+   IssueBlock UI exists. Multi-issue worktrees show each issue.
+
 ## 5. Missing primitives (the distillation)
 
 In dependency order. 1–3 are the real build; the rest are mostly policy
@@ -195,37 +220,97 @@ future UI activity feed reads.
 
 ### 5.2 Trigger queue + scheduler (P1)
 
-Maps events → steward runs. Coalescing/debounce per subject (an issue close
-that unblocks five dependents = one run, not five), a serialization lock
-(one steward run at a time per repo), and a timer wheel for the sparse
-patrol tick, defer-until wakeups, and "still working after N hours?"
-checks. Escalating backoff when runs produce no actions (Gas Town patrols).
-A crashed run marks its event unconsumed for retry with a cap. This is
-~one file next to `AutoContinueController`, which it should eventually
-absorb (error-retry becomes just another trigger).
+Concretely, one server module (`steward/triggers.ts`) with four parts:
 
-### 5.3 The pump: auto-dispatch policy (P2)
+- **Trigger rules**: pure functions mapping events → a trigger key +
+  handler, e.g. `issue.closed → unblock:<repoPath>`,
+  `session.idle → reconcile:<sessionId>`, `issue.needsHuman →
+  brief:<issueId>`. Rules are data, easy to list and test.
+- **Coalescing**: a trigger fires N seconds (≈30s) after the *last*
+  contributing event, carrying every event since the previous run. Closing
+  an epic's final child (epic auto-close + five dependents newly ready = 7
+  events) → **one** run with all seven in the payload, not seven runs.
+- **Serialization + backoff**: one run at a time per repo; events arriving
+  mid-run queue a follow-up. Exponential backoff on runs that produce no
+  actions (Gas Town patrols). Crashed runs leave events unconsumed for a
+  capped retry.
+- **Timer rows**: `fireAt` rows scanned by one interval — defer-until
+  wakeups, snooze returns, "working >2h with no output?" checks, a sparse
+  hourly tidy tick.
 
-The deliberately-deferred piece of the issues-in-agents design. Server-side
-dispatch of ready issues under explicit consent and caps:
+**Handlers come in three tiers, cheapest first** (this answers
+"deterministic or agent?"): (a) **deterministic** — no LLM at all: "blocker
+closed → look up waiting/dependent issues, `resumeAndSend` the completion
+note to their sessions, or dispatch under the pump policy" is a lookup plus
+a template; (b) **background LLM call** via the existing `llm.ts` path
+(cheap `workLlm`) where judgment is needed — reconciling a messy idle
+session, composing a re-entry brief; (c) **headless harness one-shot**
+(`harnessExec`) only when repo files must be touched. Most traffic is tier
+(a). Every run writes to an auditable runs feed (the event log again).
 
-- **Autonomy is opt-in per epic/issue** (`autonomy: manual | dispatch`,
-  inherited down the tree). Default manual — the concierge asks "want me to
-  keep this epic moving?" and sets it.
-- **Caps**: max concurrent auto-dispatched sessions per repo and per
-  machine (start: 2/repo, 4/machine), respecting agent rate-limit signals
-  we already surface in HostIndicators.
-- **Mechanism exists**: dispatch = `issues.start()`. The pump only decides
-  *whether/when*.
+Worked example: agent closes #12 → events `issue.closed(#12)`,
+`issue.ready(#13)`, `issue.ready(#14)` → one `unblock` run 30s later →
+deterministic handler: #13 has a parked session waiting on #12 →
+`resumeAndSend("#12 closed — completion note: …")`; #14 is unclaimed and
+its epic is mode=Auto with capacity → `issues.start(#14)`; both actions
+logged as events + issue comments. No LLM was involved.
+
+Absorbs `AutoContinueController` eventually (error-retry becomes one more
+trigger rule).
+
+### 5.3 The pump: auto-dispatch under autonomy modes (P2)
+
+The deliberately-deferred piece of the issues-in-agents design. **The pump
+itself is deterministic — no LLM**: a priority-ordered walk of `readyList`
+filtered by mode, caps, and budget, dispatching via the existing
+`issues.start()`. The LLM only appears in steward judgment handlers (§5.2
+tier b).
+
+**Autonomy is a user-visible field on the epic** (inherited by children,
+per-issue override, repo-level default), three modes:
+
+| | dispatch of ready work | agent questions | merge |
+|---|---|---|---|
+| **Interactive** (default) | human (or human-via-concierge) starts it | needs_human → re-entry brief → user | human |
+| **Auto** | pump auto-starts within caps + budget | needs_human → brief → user | decision gate (user confirms) |
+| **Full Autonomy** | pump auto-starts | agents primed "don't ask — decide, record it in the completion note"; steward answers what it can from epic context; only hard failures escalate | auto-merge when checks green; conflicts escalate |
+
+Triggered **manually** (user creates epic/issue in the UI): mode picker on
+the create form, defaulting to Interactive. A bare issue carries the same
+field. Triggered **via concierge**: the concierge proposes a mode + budget
+inferred from the wish's phrasing ("ship this overnight" → Full with a
+budget; "let's work through X" → Interactive), states its choice explicitly
+in the reply, and sets the same field via issue tools — one field, no
+separate path. Mode changes take effect at the next trigger evaluation.
+
+**Token control is separate from mode** — mode says *who decides*, budget
+says *how much*. Hard controls: per-epic token/run budget, concurrency caps
+(start: 2 auto-dispatched/repo, 4/machine, respecting the rate-limit
+signals already in HostIndicators), and a global pause switch. Full
+Autonomy ≠ unlimited spend; it means "don't wait for me," bounded by the
+budget. Every auto-dispatch is an event row + issue comment.
 
 ### 5.4 Steward principal + gates (P1)
 
-A headless capability: `agent:steward`, role `worker`+scope `all` (not
-admin — it must not delete/archive), minted in-process for steward runs and
-audited under its own assignee/author name. Destructive or outward actions
-(merge, push, delete, killing a session) are **decision gates**: the steward
-files/updates a needs_human with a prepared decision card instead of acting.
-Orca's gates + our existing confirm-required pattern.
+To be unambiguous: **the steward is not an agent, not a session, and not a
+thing anyone starts or talks to.** It is a server-side service inside
+podium-server (like `AutoContinueController` or the issue assistant): the
+trigger queue plus its handler registry. It has no PTY, no thread, no
+sidebar row. Nobody owns it per-user; there is one per server, serialized
+per repo. Its runs surface only as event-log rows and issue comments.
+
+"Principal" means only the **identity and permission set its mutations run
+under**: author/assignee string `agent:steward` + a capability of role
+`worker` with scope `all` (deliberately not admin — it cannot delete or
+archive). Today the alternatives are OPERATOR (the human's full authority —
+wrong for audit and blast radius) or cwd-scoped worker (too narrow to
+coordinate across issues). It's an authz row, not a being.
+
+Destructive or outward actions (merge, push, delete, killing a session) are
+**decision gates**: the steward files/updates a needs_human with a prepared
+decision card instead of acting. Orca's gates + our existing
+confirm-required pattern. (In Full Autonomy mode, merge-on-green is
+delegated per §5.3; the other gates remain.)
 
 ### 5.5 Handoff protocol: structured completion notes (P1, small)
 
@@ -248,13 +333,57 @@ bus, no new messaging system needed (Orca's "clear handoff model" lesson).
   optimized for a human re-entering cold. Start with comments + existing
   markdown preview; a dedicated artifact tier only if this proves out.
 
-### 5.7 Agent-grade CLI plumbing (P1, prerequisite)
+### 5.7 Agent-grade CLI plumbing (P1, prerequisite — filed as #48)
 
-- Fix display-id resolution in `show`/`comment`/`dep-add`/… (#11).
-- Finish `--json` output (currently prints `{"ok":true}` plus text).
-- `podium issue events --since <cursor>` for debuggability of §5.1.
+Root-caused 2026-07-02 (supersedes #11): there is **no seq→id resolver
+anywhere** — the store keys by `iss_<uuid>`, the CLI prints `#<seq>`
+(per-repo counter), and every id-taking command feeds the raw string into a
+uuid-keyed map (`issues.ts:339/446/807`); `prime` only works because the
+capability path mints the internal uuid from cwd. `--json` is a hardcoded
+`{command, ok}` envelope with human text appended (`issue-cli.ts:87`).
+**`start` is missing from the command registry entirely** even though
+prime's output instructs agents to run it — agents cannot start issue-bound
+work. Plus: positional args silently ignored, nameless "Required" Zod
+errors, inconsistent exit codes, `--outside-scope` only via argv sniffing,
+e2e test masks the bug by fetching the internal uuid via the typed client.
+Full fix list + acceptance criteria in issue **#48** (P1). Also wanted
+here: `podium issue events --since <cursor>` for §5.1 debuggability.
 
 Without these, the orchestrator can see work it cannot act on.
+
+### 5.8 Session provenance + first-class spawn metadata (P1)
+
+Audit verdict: agent-created sessions are metadata-poor and anonymous. No
+session field records its creator (`SessionOrigin` is only
+`spawn|resume`); `start_agent` passes only `{agentKind, cwd}` — title
+defaults to `basename(cwd)`, workState unset, issue membership only by
+accidental cwd containment; and the tool belt cannot answer a session's
+question, resume/continue a parked session, snooze, rename, set workState,
+or gracefully hibernate. There is no parent/child or hidden-session
+concept (the conversation-index `parentId` covers only harness-internal
+Task subagents, which never become Podium sessions).
+
+Fixes, so an agent-spawned agent is fully at home:
+
+- **`spawnedBy` on SessionMeta + sessions table**:
+  `user | concierge:<threadId> | steward | session:<sessionId> |
+  issue:<issueId>`. Enables audit, UI grouping/dimming of helper sessions,
+  and steward policies ("nudge only sessions I dispatched").
+- **`start_agent` grows up**: accepts `title` (required-ish; fall back to
+  first-line-of-task), `issueId` (routes through the `issues.start()` path
+  so worktree/branch/binding are guaranteed), seeds `spawnedBy`.
+- **Expose `issue_start`** as CLI verb + MCP tool (the server proc exists;
+  the verb doesn't — part of #48). This is the sanctioned way for an agent
+  to spawn issue-bound work; bare `start_agent` remains for unbound helpers.
+- **Tool-belt completion** (each is an existing tRPC/registry capability
+  with no tool today): `answer_question` (answerAskUserQuestion),
+  `resume_and_send`, `continue_session`, `snooze`, `rename_session`,
+  `set_work_state`, `hibernate` (graceful, vs the existing kill), and a
+  `wait_for_session` completion signal (subscribes to the §5.1 event log —
+  Orca's "wait for completion signals").
+- **Visibility policy**: no hidden sessions for now — transparency wins;
+  the sidebar merge (§4) handles clutter by grouping under issues/worktrees,
+  and `spawnedBy` gives us dimming/filtering later if needed.
 
 ## 6. What we deliberately do NOT build
 
@@ -279,10 +408,12 @@ natively and iterate on fast:
 
 ## 7. Phasing
 
+- **P0 — prerequisite**: agent-grade CLI plumbing (#48). Fix first.
 - **P1 — nervous system**: event log + trigger queue + steward principal +
-  completion-note contract + CLI plumbing fixes. Steward duties: unblock
-  notifications, idle reconciliation nudges, tracker tidy tick. No
-  auto-dispatch yet — every dispatch still human- or concierge-initiated.
+  completion-note contract + session provenance/spawn metadata + tool-belt
+  completion (§5.8). Steward duties: unblock notifications, idle
+  reconciliation nudges, tracker tidy tick. No auto-dispatch yet — every
+  dispatch still human- or concierge-initiated.
 - **P2 — the pump**: opt-in autonomy flag, caps, auto-dispatch of ready
   work, wedge detection/check-ins.
 - **P3 — concierge UX**: + button entry point wired to the global
@@ -295,15 +426,41 @@ natively and iterate on fast:
 Each phase is independently shippable and useful; P1 alone removes the
 "human as message bus" tax.
 
-## 8. Open questions (needs-human)
+## 8. Decisions (resolved 2026-07-02) + remaining questions
 
-1. **Steward brain default**: superagent `api` backend (cheap `workLlm`,
-   fast, no sandbox) vs `harnessExec` claude-code one-shot (subscription
-   auth, tools, slower)? Proposal: api-backend for reconciliation/briefs,
-   harnessExec only when the steward must touch a repo.
-2. **Where does the + button thread live** — reuse the existing global
-   superagent thread or one concierge thread per repo? Proposal: global,
-   with per-repo context loaded on demand (matches "one server, many
-   repos").
-3. **Nudge etiquette**: how many times may the steward nudge an idle agent
-   before escalating to needs_human? Proposal: once, then escalate.
+1. **Steward brain — flexible by construction.** Handlers declare what they
+   need; three tiers (§5.2): deterministic (most traffic, no LLM) →
+   background LLM via the existing `llm.ts` backend abstraction (which
+   already spans subscription OAuth / API credits / API keys —
+   anthropic/openai/openrouter/codex-oauth) → `harnessExec` one-shot only
+   when repo files must be touched. No resident agent is needed; the brain
+   choice stays a per-handler seam, decided later per deployment.
+2. **Concierge lives per project (≈ per repo for now)**, thread id like
+   `concierge:<repoPath>`. The + button routes by the view the user is in;
+   the user never chooses. Context bloat is handled with the btw-thread
+   recap/watermark machinery. **No concierge-to-concierge messaging** —
+   cross-repo coordination goes through the tracker if it ever matters
+   (YAGNI now). The concierge is reserved for the user: working agents
+   never talk to it; they write completion notes / needs_human, and steward
+   handlers route those into the concierge thread as briefs. One-way flow,
+   no agent-to-agent chat protocol.
+3. **Nudge, narrowed.** A nudge is (a) *delivery of new facts to a stopped
+   session* — your blocker closed (with its completion note), the user
+   answered your question — which no system prompt can do, because prompts
+   can't act after the agent stops or carry information that didn't exist
+   yet; and (b) *one* post-condition reminder when a session idles with
+   unfinished bureaucracy (issue open, note missing, branch unpushed).
+   Category (b) is a backstop for prime-prompt failures: we track its
+   causes and tighten prime until it's rare. After one reminder →
+   needs_human. It is not a "keep working" whip.
+
+Remaining open:
+
+1. Budget accounting for the pump — what unit can we actually meter
+   (sessions dispatched? harness-reported token usage? wall-clock)?
+   Rate-limit gauges exist per agent (HostIndicators) but per-epic token
+   attribution does not.
+2. Multi-issue worktrees in the merged sidebar: session shown under every
+   matching issue vs the most specific one — pick during UI implementation.
+3. Full-Autonomy merge-on-green needs a definition of "checks green" per
+   repo (CI? typecheck+tests via a verify step?) before it can be enabled.
