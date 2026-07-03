@@ -16,6 +16,10 @@ function harness(opts: { enabled?: boolean; sessions?: SessionMeta[]; seedCursor
     gitWorkflow: { defaultParentBranch: '', mergeStyle: 'ff-only', autoRebaseBeforeMerge: true },
     sessionDefaults: { agent: 'claude-code' },
   } as never
+  // Incrementing clock: a pinned constant made same-batch comments share
+  // created_at, so order assertions fell to the cmt_<uuid> tie-break (flaky).
+  let clockMs = Date.parse('2026-07-02T00:00:00.000Z')
+  const now = () => new Date(clockMs++).toISOString()
   const issueDeps: IssueDeps = {
     store,
     listSessions: () => sessions,
@@ -23,7 +27,7 @@ function harness(opts: { enabled?: boolean; sessions?: SessionMeta[]; seedCursor
     spawnSession: vi.fn(() => ({ sessionId: 's1' })),
     repoOp: vi.fn(async () => ({ ok: true, output: '' })),
     broadcast: vi.fn(),
-    now: () => '2026-07-02T00:00:00.000Z',
+    now,
   }
   const issues = new IssueService(issueDeps)
   const sendTextWhenReady = vi.fn()
@@ -33,7 +37,7 @@ function harness(opts: { enabled?: boolean; sessions?: SessionMeta[]; seedCursor
     listSessions: () => sessions,
     sendTextWhenReady,
     getSettings: () => settings,
-    now: () => '2026-07-02T00:00:00.000Z',
+    now,
   }
   return { store, issues, sendTextWhenReady, deps, steward: new StewardService(deps) }
 }

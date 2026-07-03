@@ -218,7 +218,9 @@ export class StewardService {
       // First line only, capped: the excerpt is agent-authored and belongs in
       // the comment alone — never in the nudge text.
       const excerpt = (completionNote(child).split('\n')[0] ?? '').slice(0, 200).trim()
-      this.deps.issues.addComment(parent.id, 'steward', `${marker} ${excerpt}`)
+      // Empty excerpt (child wire missing) → bare marker, no trailing space.
+      // The marker keeps its colon so replay dedup still matches.
+      this.deps.issues.addComment(parent.id, 'steward', excerpt ? `${marker} ${excerpt}` : marker)
       posted = true
     }
     // Nudge only when something new landed (crash-replayed batches stay silent),
