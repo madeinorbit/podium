@@ -1,8 +1,8 @@
 import type { IssueWire } from '@podium/protocol'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { OPERATOR } from './issue-authz'
 import { IssueToolProvider } from './issue-mcp'
 import type { LlmClient, LlmResponse } from './llm'
-import { OPERATOR } from './issue-authz'
 import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
 import { appRouter } from './router'
@@ -36,7 +36,7 @@ afterEach(() => {
   for (const r of registries.splice(0)) r.dispose()
 })
 
-function harness() {
+async function harness(opts?: { eventReadLimit?: number }) {
   const registry = new SessionRegistry()
   registries.push(registry)
   registry.attachDaemon('local', (m) => {
@@ -52,7 +52,8 @@ function harness() {
     }
   })
   const repos = new RepoRegistry(registry, registry.sessionStore)
-  const sa = new SuperagentService(registry, repos, registry.sessionStore)
+  await repos.add('/r') // concierge() rejects unregistered repos
+  const sa = new SuperagentService(registry, repos, registry.sessionStore, opts)
   // Same wiring as server.ts: issue tools over an in-process OPERATOR caller.
   const issueTools = new IssueToolProvider()
   const caller = appRouter.createCaller({ registry, repos, superagent: sa, capability: OPERATOR })
@@ -153,7 +154,7 @@ describe('buildConciergeDelta', () => {
 
 describe('concierge threads (issue #64)', () => {
   it('reuses one thread per repo across calls — never duplicates', async () => {
-    const { sa } = harness()
+    const { sa } = await harness()
     const a = await sa.concierge({ repoPath: '/r', text: 'hello' })
     const b = await sa.concierge({ repoPath: '/r', text: 'again' })
     expect(a.threadId).toBe(b.threadId)
@@ -165,7 +166,7 @@ describe('concierge threads (issue #64)', () => {
   })
 
   it('seeds a new thread with ready/needs-human/session lines from the tracker', async () => {
-    const { registry, sa } = harness()
+    const { registry, sa } = await harness()
     const ready = registry.issues.create({ repoPath: '/r', title: 'Fix login', startNow: false })
     const asking = registry.issues.create({ repoPath: '/r', title: 'Deploy', startNow: false })
     registry.issues.setNeedsHuman(asking.id, 'Which region?')
@@ -180,7 +181,7 @@ describe('concierge threads (issue #64)', () => {
   })
 
   it('prepends an issue-event delta on re-open after a watermark gap', async () => {
-    const { registry, sa } = harness()
+    const { registry, sa } = await harness()
     const { threadId } = await sa.concierge({ repoPath: '/r', text: 'hi' })
     registry.issues.create({ repoPath: '/r', title: 'New work', startNow: false })
     await sa.concierge({ repoPath: '/r', text: 'what changed?' })
@@ -194,7 +195,7 @@ describe('concierge threads (issue #64)', () => {
   })
 
   it('runs issue tools through the api loop (mock LLM calls issue_search)', async () => {
-    const { registry, sa } = harness()
+    const { registry, sa } = await harness()
     registry.issues.create({ repoPath: '/r', title: 'Fix login', startNow: false })
     llmScript.push(
       {
@@ -213,7 +214,7 @@ describe('concierge threads (issue #64)', () => {
   })
 
   it('gates start-capable tools behind confirmed:true on concierge threads', async () => {
-    const { registry, sa } = harness()
+    const { registry, sa } = await harness()
     const issue = registry.issues.create({ repoPath: '/r', title: 'X', startNow: false })
     const tid = conciergeThreadId('/r')
     // Unconfirmed → refused, nothing spawned, issue untouched.
@@ -235,10 +236,70 @@ describe('concierge threads (issue #64)', () => {
   })
 
   it('does not gate start tools on non-concierge threads', async () => {
-    const { registry, sa } = harness()
+    const { registry, sa } = await harness()
     const out = JSON.parse(
       await sa.callMcpTool('start_agent', { agentKind: 'shell', cwd: '/w' }, 'btw_s1'),
     ) as { sessionId: string }
     expect(registry.listSessions().find((s) => s.sessionId === out.sessionId)).toBeDefined()
+  })
+
+  it('rejects an unregistered repoPath without minting a thread', async () => {
+    const { sa } = await harness()
+    await expect(sa.concierge({ repoPath: '/typo', text: 'hi' })).rejects.toThrow(/unknown repo/)
+    expect(sa.listThreads().filter((t) => t.kind === 'concierge')).toHaveLength(0)
+  })
+
+  it('two concurrent first opens seed exactly once (reads inside the lock)', async () => {
+    const { sa } = await harness()
+    const [a, b] = await Promise.all([
+      sa.concierge({ repoPath: '/r', text: 'first' }),
+      sa.concierge({ repoPath: '/r', text: 'second' }),
+    ])
+    expect([a.isNew, b.isNew].filter(Boolean)).toHaveLength(1)
+    const seeds = sa.history(a.threadId).filter((m) => m.content.includes('[CONCIERGE CONTEXT]'))
+    expect(seeds).toHaveLength(1)
+  })
+
+  it('gates issue_create --start behind confirmed, refusing BEFORE any mutation', async () => {
+    const { registry, sa } = await harness()
+    const tid = conciergeThreadId('/r')
+    // Unconfirmed create --start → refused whole: no issue, no session.
+    expect(
+      await sa.callMcpTool('issue_create', { repoPath: '/r', title: 'Big', start: true }, tid),
+    ).toBe(NOT_CONFIRMED_MSG)
+    expect(registry.issues.list('/r')).toHaveLength(0)
+    expect(registry.listSessions()).toHaveLength(0)
+    // Plain create (no start) stays ungated — filing issues is always allowed.
+    const plain = await sa.callMcpTool('issue_create', { repoPath: '/r', title: 'Note' }, tid)
+    expect(plain).toContain('created #1 Note')
+    // Confirmed create --start → created AND started.
+    const out = await sa.callMcpTool(
+      'issue_create',
+      { repoPath: '/r', title: 'Big', start: true, confirmed: true },
+      tid,
+    )
+    expect(out).toContain('created #2 Big')
+    expect(out).toContain('started in')
+    expect(registry.issues.list('/r').find((i) => i.title === 'Big')?.stage).toBe('in_progress')
+  })
+
+  it('advances the watermark only to the last read event on delta overflow', async () => {
+    const { registry, sa } = await harness({ eventReadLimit: 2 })
+    const { threadId } = await sa.concierge({ repoPath: '/r', text: 'hi' })
+    // 3 issue.created events > limit 2: first re-open digests 2, second the rest.
+    registry.issues.create({ repoPath: '/r', title: 'A', startNow: false })
+    registry.issues.create({ repoPath: '/r', title: 'B', startNow: false })
+    registry.issues.create({ repoPath: '/r', title: 'C', startNow: false })
+    await sa.concierge({ repoPath: '/r', text: 'update?' })
+    const afterFirst = sa.history(threadId).filter((m) => m.content.includes('[CONCIERGE UPDATE'))
+    expect(afterFirst).toHaveLength(1)
+    expect(afterFirst[0]?.content).toContain('created "A"')
+    expect(afterFirst[0]?.content).toContain('created "B"')
+    expect(afterFirst[0]?.content).not.toContain('created "C"')
+    // The overflowed remainder arrives on the next open — nothing silently lost.
+    await sa.concierge({ repoPath: '/r', text: 'more?' })
+    const updates = sa.history(threadId).filter((m) => m.content.includes('[CONCIERGE UPDATE'))
+    expect(updates).toHaveLength(2)
+    expect(updates[1]?.content).toContain('created "C"')
   })
 })
