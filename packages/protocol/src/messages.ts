@@ -724,6 +724,20 @@ export const IssueWire = z.object({
   // Derived server-side at serialization (not persisted):
   sessions: z.array(SessionMeta),
   sessionSummary: IssueSessionSummary,
+  /** True for an issue mirrored FROM this node's upstream hub (node⇄hub issues,
+   *  docs/spec/node-hub-issues.md §2.1) — stamped at ingest, never on local
+   *  issues. Derived fields (ready/blocked/deps) arrive hub-computed. Additive:
+   *  absent = a local issue, today's behavior. */
+  viaHub: z.boolean().optional(),
+  /** True when this viaHub entry is last-known state from an UNREACHABLE hub —
+   *  retained, not blanked (same semantics as SessionMeta.upstreamStale). Only
+   *  ever set alongside viaHub. */
+  upstreamStale: z.boolean().optional(),
+  /** True while a node-side edit of this viaHub issue sits queued in the node's
+   *  upstream outbox (hub unreachable) — the value shown is the node's optimistic
+   *  patch; the hub's next delta/snapshot overwrites with truth and clears this
+   *  (docs/spec/node-hub-issues.md §2.2). Only ever set alongside viaHub. */
+  pendingSync: z.boolean().optional(),
 })
 export type IssueWire = z.infer<typeof IssueWire>
 

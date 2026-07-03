@@ -1656,6 +1656,49 @@ export class SessionStore {
     this.db.prepare('DELETE FROM queued_messages WHERE session_id = ?').run(sessionId)
   }
 
+  // ---- upstream issue-write outbox (docs/spec/node-hub-issues.md §2.2) ----
+
+  /** Enqueue an issue mutation bound for the hub. The mutationId IS the PK, so a
+   *  replayed enqueue is a no-op. Returns false when the id already existed. */
+  enqueueUpstreamMutation(row: {
+    mutationId: string
+    proc: string
+    input: string
+    queuedAt: number
+  }): boolean {
+    const r = this.db
+      .prepare(
+        'INSERT OR IGNORE INTO upstream_outbox (mutation_id, proc, input, queued_at) VALUES (?, ?, ?, ?)',
+      )
+      .run(row.mutationId, row.proc, row.input, row.queuedAt)
+    return Number(r.changes) > 0
+  }
+
+  /** The full outbox, FIFO (drain order — serial, oldest first). */
+  listUpstreamOutbox(): { mutationId: string; proc: string; input: string; attempts: number }[] {
+    const rows = this.db
+      .prepare(
+        'SELECT mutation_id, proc, input, attempts FROM upstream_outbox ORDER BY queued_at ASC, rowid ASC',
+      )
+      .all() as Record<string, unknown>[]
+    return rows.map((r) => ({
+      mutationId: r.mutation_id as string,
+      proc: r.proc as string,
+      input: r.input as string,
+      attempts: r.attempts as number,
+    }))
+  }
+
+  deleteUpstreamMutation(mutationId: string): void {
+    this.db.prepare('DELETE FROM upstream_outbox WHERE mutation_id = ?').run(mutationId)
+  }
+
+  bumpUpstreamMutationAttempts(mutationId: string): void {
+    this.db
+      .prepare('UPDATE upstream_outbox SET attempts = attempts + 1 WHERE mutation_id = ?')
+      .run(mutationId)
+  }
+
   // ---- conversation registry (docs/spec/conversation-registry.md) ----
 
   /** The Podium identity a native conversation maps to, or undefined if unseen. */
@@ -2166,6 +2209,19 @@ export class SessionStore {
     )
     this.db.exec(
       'CREATE INDEX IF NOT EXISTS queued_messages_session ON queued_messages(session_id, queued_at)',
+    )
+    // Node⇄hub issue write forwarding (docs/spec/node-hub-issues.md §2.2): the
+    // durable outbox of issue mutations targeting viaHub issues, replayed to the
+    // hub's tRPC with each entry's mutation_id (hub-side applied_mutations makes
+    // the replays idempotent). mutation_id PK doubles as the enqueue dedupe.
+    this.db.exec(
+      `CREATE TABLE IF NOT EXISTS upstream_outbox (
+         mutation_id TEXT PRIMARY KEY,
+         proc        TEXT NOT NULL,
+         input       TEXT NOT NULL,
+         queued_at   INTEGER NOT NULL,
+         attempts    INTEGER NOT NULL DEFAULT 0
+       )`,
     )
     // Conversation registry (docs/spec/conversation-registry.md §3.1): identity is
     // Podium-generated and immutable; native session ids / file paths are EVIDENCE

@@ -3,11 +3,13 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createTRPCClient, httpBatchLink } from '@trpc/client'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { OPERATOR } from './issue-authz'
 import { SessionRegistry } from './relay'
-import type { AppRouter } from './router'
+import { type AppRouter, appRouter } from './router'
 import { startServer } from './server'
 import { SessionStore } from './store'
 import { UpstreamSync } from './upstream'
+import { UpstreamForwarder } from './upstream-forwarder'
 
 // Node⇄hub sync e2e over the REAL wiring (docs/spec/node-hub-sync.md §4): a
 // booted HUB server (startServer — real WS upgrades, real HTTP tRPC), a NODE
@@ -27,7 +29,11 @@ describe('node⇄hub upstream sync e2e (live hub server)', () => {
   let nodeStore: SessionStore
   let nodeRegistry: SessionRegistry
   let sync: UpstreamSync
+  let forwarder: UpstreamForwarder
   let hubClosed = false
+  let hubPort = 0
+  /** The hub issue under test (created below, edited via the node's router). */
+  let hubIssueId = ''
 
   const until = async (pred: () => boolean, ms = 5000): Promise<void> => {
     const deadline = Date.now() + ms
@@ -38,11 +44,25 @@ describe('node⇄hub upstream sync e2e (live hub server)', () => {
   }
 
   const nodeHubSessions = () => nodeRegistry.listSessions().filter((s) => s.viaHub)
+  /** The node's issue WIRE (what a node client sees): local ∪ upstream. */
+  const nodeIssueWire = () => {
+    const snap = nodeRegistry.syncChangesSince(null)
+    return snap.kind === 'snapshot' ? snap.issues : []
+  }
+  /** An OPERATOR caller on the NODE's router — the real forwarding-detection seam. */
+  const nodeCaller = () =>
+    appRouter.createCaller({
+      registry: nodeRegistry,
+      repos: { list: () => [] } as never,
+      superagent: {} as never,
+      capability: OPERATOR,
+    })
 
   beforeAll(async () => {
     hubStateDir = mkdtempSync(join(tmpdir(), 'podium-upstream-hub-'))
     process.env.PODIUM_STATE_DIR = hubStateDir
     hub = await startServer({ port: 0 })
+    hubPort = hub.port
     trpc = createTRPCClient<AppRouter>({
       links: [httpBatchLink({ url: `http://127.0.0.1:${hub.port}/trpc` })],
     })
@@ -52,18 +72,30 @@ describe('node⇄hub upstream sync e2e (live hub server)', () => {
     nodeRegistry = new SessionRegistry(nodeStore)
     nodeRegistry.attachDaemon('local', () => {})
     nodeRegistry.setUpstreamOwnMachineIds([NODE_DAEMON_MACHINE_ID])
+    // P7b write path: the forwarder shares the node store (durable outbox) and the
+    // hub token; UpstreamSync's onConnected is its reconnect drain trigger.
+    forwarder = new UpstreamForwarder({
+      url: `http://127.0.0.1:${hubPort}`,
+      token,
+      store: nodeStore,
+      onQueueChanged: () => nodeRegistry.upstreamOutboxChanged(),
+      retryMs: 100,
+    })
+    nodeRegistry.setUpstreamForwarder(forwarder)
     sync = new UpstreamSync({
       url: `http://127.0.0.1:${hub.port}`,
       token,
       mirror: nodeRegistry,
       store: nodeStore,
       backoff: { minMs: 50, maxMs: 250 },
+      onConnected: () => void forwarder.drain(),
     })
     sync.start()
   })
 
   afterAll(async () => {
     sync.stop()
+    forwarder.stop()
     nodeRegistry.dispose()
     nodeStore.close()
     if (!hubClosed) await hub.close()
@@ -120,11 +152,13 @@ describe('node⇄hub upstream sync e2e (live hub server)', () => {
   })
 
   it('stores hub issues durably WITHOUT merging them into the node tracker', async () => {
-    await trpc.issues.create.mutate({
+    const created = await trpc.issues.create.mutate({
       repoPath: '/hub/repo-a',
       title: 'hub issue',
       startNow: false,
     })
+    if ('queued' in created) throw new Error('hub-side create unexpectedly queued')
+    hubIssueId = created.id
     await until(() => (nodeStore.getUpstreamIssuesJson() ?? '').includes('hub issue'))
     const parked = JSON.parse(nodeStore.getUpstreamIssuesJson() ?? '[]') as Array<{
       title: string
@@ -145,11 +179,98 @@ describe('node⇄hub upstream sync e2e (live hub server)', () => {
       mirror: nodeRegistry,
       store: nodeStore, // same store — the persisted cursor is the resume point
       backoff: { minMs: 50, maxMs: 250 },
+      onConnected: () => void forwarder.drain(),
     })
     sync.start()
     await until(() => nodeHubSessions().some((s) => s.sessionId === created.sessionId))
     // The catch-up was a DELTA from the persisted cursor — the whole point of §2.2.
     expect(sync.lastCatchUpKind).toBe('delta')
+  })
+
+  // ---- P7b: viaHub issues on the node's wire + write forwarding ----
+  // (docs/spec/node-hub-issues.md §4 — the acceptance narrative, end to end.)
+
+  it("P7b: the hub issue appears in the node's issue STREAM, viaHub-marked, store-pure", async () => {
+    await until(() => nodeIssueWire().some((i) => i.id === hubIssueId))
+    const wire = nodeIssueWire().find((i) => i.id === hubIssueId)
+    expect(wire?.viaHub).toBe(true)
+    expect(wire?.title).toBe('hub issue')
+    // Invariant 1: the wire is the ONLY place it exists node-side.
+    expect(nodeRegistry.issues.get(hubIssueId)).toBeNull()
+    expect(nodeStore.listIssueRows()).toHaveLength(0)
+  })
+
+  it('P7b: editing a viaHub issue while the hub is UP changes the HUB store; the node converges via delta', async () => {
+    const res = await nodeCaller().issues.update({
+      id: hubIssueId,
+      patch: { title: 'renamed-via-node' },
+    })
+    // Hub reachable → the hub's own result comes back, not a queue receipt.
+    if ('queued' in res) throw new Error('unexpected queue while hub is up')
+    expect(res.title).toBe('renamed-via-node')
+    // Hub store truth changed…
+    expect(hub.registry.issues.get(hubIssueId)?.title).toBe('renamed-via-node')
+    // …and the node's replica converges through the live delta, no pendingSync.
+    await until(() =>
+      nodeIssueWire().some((i) => i.id === hubIssueId && i.title === 'renamed-via-node'),
+    )
+    expect(nodeIssueWire().find((i) => i.id === hubIssueId)?.pendingSync).toBeUndefined()
+    expect(nodeStore.listUpstreamOutbox()).toHaveLength(0)
+  })
+
+  it('P7b: editing while the hub is DOWN queues durably; a hub restart applies it EXACTLY once and clears pendingSync', async () => {
+    await hub.close()
+    hubClosed = true
+    // Node-side edit while offline: queued receipt + optimistic pendingSync wire.
+    const res = await nodeCaller().issues.addComment({
+      id: hubIssueId,
+      author: 'node-op',
+      body: 'offline comment',
+    })
+    expect(res).toEqual({ queued: true })
+    const outbox = nodeStore.listUpstreamOutbox()
+    expect(outbox).toHaveLength(1)
+    const mutationId = outbox[0]?.mutationId ?? ''
+    expect(mutationId).not.toBe('')
+    const pending = nodeIssueWire().find((i) => i.id === hubIssueId)
+    expect(pending?.pendingSync).toBe(true)
+    expect(pending?.comments.some((c) => c.body === 'offline comment')).toBe(true)
+    // Invariant 3: local issues are completely unaffected while the hub is down.
+    const localIssue = await nodeRegistry.issues.createAndMaybeStart({
+      repoPath: '/node/repo',
+      title: 'purely local',
+      startNow: false,
+    })
+    expect(nodeRegistry.issues.get(localIssue.id)?.title).toBe('purely local')
+
+    // Hub returns (same state dir + port): reconnect heals, the outbox drains.
+    hub = await startServer({ port: hubPort })
+    hubClosed = false
+    await until(() => nodeStore.listUpstreamOutbox().length === 0, 10_000)
+    // EXACTLY ONE application, asserted via hub issue state + the hub's
+    // idempotency record for the entry's mutationId (invariant 2).
+    const applied = () =>
+      hub.registry.issues.get(hubIssueId)?.comments.filter((c) => c.body === 'offline comment') ??
+      []
+    expect(applied()).toHaveLength(1)
+    expect(hub.registry.sessionStore.getAppliedMutation(mutationId)).toBeDefined()
+    // Belt-and-braces: replay the SAME mutation again (a lost-ack retry) — the
+    // hub returns the recorded result instead of applying twice.
+    await forwarder.forward('addComment', {
+      id: hubIssueId,
+      author: 'node-op',
+      body: 'offline comment',
+      mutationId,
+    })
+    expect(applied()).toHaveLength(1)
+    // The hub's post-restart truth reaches the node and pendingSync clears.
+    await until(() => {
+      const entry = nodeIssueWire().find((i) => i.id === hubIssueId)
+      return (
+        entry?.pendingSync === undefined &&
+        entry?.comments.some((c) => c.body === 'offline comment') === true
+      )
+    }, 10_000)
   })
 
   it('hub stopped → mirrored entries stale-flagged and RETAINED; node-local work unaffected', async () => {

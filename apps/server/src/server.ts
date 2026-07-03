@@ -27,6 +27,7 @@ import { registerWebStatic } from './static-web'
 import { SessionStore } from './store'
 import { SuperagentService } from './superagent'
 import { readOwnDaemonMachineId, UpstreamSync } from './upstream'
+import { UpstreamForwarder } from './upstream-forwarder'
 import { attachWebSockets } from './wsServer'
 
 /** Adapt an in-process tRPC `createCaller` caller to the `IssueTrpc` HTTP-client shape the
@@ -168,15 +169,29 @@ export async function startServer(
   // this server is a NODE and mirrors its hub's fleet through the thin-client
   // protocol. No upstream config = the constructor never runs = zero new behavior.
   let upstreamSync: UpstreamSync | undefined
+  let upstreamForwarder: UpstreamForwarder | undefined
   const upstreamConfig = loadConfig().upstream
   if (upstreamConfig) {
     const ownMachineId = readOwnDaemonMachineId()
     if (ownMachineId) registry.setUpstreamOwnMachineIds([ownMachineId])
+    // P7b write path (docs/spec/node-hub-issues.md §2.2): issue mutations targeting
+    // viaHub issues forward to the hub with the SAME token, durably queued while it
+    // is unreachable. Drain triggers: enqueue (forwarder-internal), flat retry
+    // (forwarder-internal), and upstream (re)connect (onConnected below).
+    upstreamForwarder = new UpstreamForwarder({
+      url: upstreamConfig.url,
+      token: upstreamConfig.token,
+      store,
+      onQueueChanged: () => registry.upstreamOutboxChanged(),
+    })
+    registry.setUpstreamForwarder(upstreamForwarder)
+    const forwarder = upstreamForwarder
     upstreamSync = new UpstreamSync({
       url: upstreamConfig.url,
       token: upstreamConfig.token,
       mirror: registry,
       store,
+      onConnected: () => void forwarder.drain(),
     })
     upstreamSync.start()
   }
@@ -279,6 +294,7 @@ export async function startServer(
       if (settled) return
       settled = true
       upstreamSync?.stop()
+      upstreamForwarder?.stop()
       registry.dispose()
       store.close()
       reject(
@@ -327,9 +343,11 @@ export async function startServer(
               () =>
                 new Promise<void>((res) => {
                   ;(server as unknown as Server).close(() => {
-                    // Stop the upstream sync loop BEFORE the store closes — a late
-                    // cursor/issue persist against a closed DB would throw.
+                    // Stop the upstream sync loop + outbox drain BEFORE the store
+                    // closes — a late cursor/issue/outbox write against a closed DB
+                    // would throw.
                     upstreamSync?.stop()
+                    upstreamForwarder?.stop()
                     // Persist the last dirty activity timestamps while the DB is still
                     // open, then stop the periodic flush timer (so a tick can't fire an
                     // upsertSession against a closed DB), and only then close the store.

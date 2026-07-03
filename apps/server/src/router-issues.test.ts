@@ -27,6 +27,8 @@ describe('issues router', () => {
     const c = caller()
     const created = await c.issues.create({ repoPath: '/r', title: 'X', startNow: false })
     const moved = await c.issues.update({ id: created.id, patch: { stage: 'in_progress' } })
+    // Local issues never take the forwarded `{ queued: true }` branch (P7b).
+    if ('queued' in moved) throw new Error('local update unexpectedly queued')
     expect(moved.stage).toBe('in_progress')
   })
 })

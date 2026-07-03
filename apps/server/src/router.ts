@@ -14,7 +14,7 @@ import { AgentKind, IssueStage, IssueType, ResumeRef, WorkState } from '@podium/
 import { initTRPC, TRPCError } from '@trpc/server'
 import { z } from 'zod'
 import { clearPassword, hasPassword, setPassword, verifyPassword } from './auth-store'
-import { authorize, type Capability, PROC_ACTION } from './issue-authz'
+import { authorize, type Capability, PROC_ACTION, SCOPED_TARGET } from './issue-authz'
 import { buildJoinCommand } from './machines-join'
 import type { SessionRegistry } from './relay'
 import { browseDirectories, type RepoRegistry } from './repo-registry'
@@ -37,36 +37,9 @@ export interface Context {
 const t = initTRPC.context<Context>().create()
 const PinKind = z.enum(['panel', 'worktree', 'repo'])
 
-/** proc name → how to read the target EXISTING issue id from its input. The scope gate runs
- *  ONLY for procs listed here, so every write/manage proc that mutates an existing issue must
- *  appear (create/linearSearch are additive / not-an-issue). router.issues.test.ts ties this
- *  set to PROC_ACTION so a new write/manage proc can't silently escape the subtree check. */
-export const SCOPED_TARGET: Record<string, (i: Record<string, unknown>) => string | undefined> = {
-  // write — target = the issue being worked on
-  claim: (i) => i.id as string,
-  update: (i) => i.id as string,
-  close: (i) => i.id as string,
-  defer: (i) => i.id as string,
-  setNeedsHuman: (i) => i.id as string,
-  clearNeedsHuman: (i) => i.id as string,
-  addComment: (i) => i.id as string,
-  action: (i) => i.id as string,
-  applySuggestion: (i) => i.id as string,
-  dismissSuggestion: (i) => i.id as string,
-  refreshAssistant: (i) => i.id as string,
-  start: (i) => i.id as string,
-  addSession: (i) => i.id as string,
-  addShell: (i) => i.id as string,
-  depAdd: (i) => i.fromId as string,
-  // manage — target = the mutated subject issue (verified against each resolver's input)
-  archive: (i) => i.id as string,
-  delete: (i) => i.id as string,
-  setLabels: (i) => i.id as string,
-  reparent: (i) => i.id as string,
-  depRemove: (i) => i.fromId as string,
-  supersede: (i) => i.oldId as string,
-  duplicate: (i) => i.id as string,
-}
+// Moved to issue-authz.ts (a leaf module) so relay.ts can share it without importing
+// the router; re-exported here for existing importers/tests.
+export { SCOPED_TARGET } from './issue-authz'
 
 /** Authorize every issues.* call against the caller's capability. The middleware `path`
  *  is e.g. "issues.create"; its last segment is the proc name, mapped to the action it needs
@@ -116,6 +89,38 @@ const issueCapabilityGuard = t.middleware(async ({ ctx, path, next, getRawInput 
   return next()
 })
 const issueProc = t.procedure.use(issueCapabilityGuard)
+
+/**
+ * viaHub write forwarding (docs/spec/node-hub-issues.md §2.2): a mutation whose target
+ * is a hub-mirrored issue is handed to the registry's UpstreamForwarder instead of the
+ * local IssueService — `{ queued: true }` when the hub is unreachable (durable outbox +
+ * optimistic pendingSync patch), the hub's own result when it is. Runs AFTER the
+ * capability guard, so the role gate applies to forwarded writes exactly as to local
+ * ones; the scope gate skips hub issues (they are not in the local store), so the gate
+ * HERE closes that hole: only the unconstrained operator may act on hub issues —
+ * node-side agents/assistants never do (§2.3 out-of-scope: no autonomous actions on
+ * viaHub issues). Every write proc in SCOPED_TARGET routes through this helper.
+ */
+function issueWrite<R>(
+  ctx: Context,
+  proc: string,
+  input: Record<string, unknown>,
+  local: () => R,
+): R | Promise<Awaited<R> | { queued: true }> {
+  const target = SCOPED_TARGET[proc]?.(input)
+  if (typeof target === 'string' && ctx.registry.isUpstreamIssue(target)) {
+    if (ctx.capability.scope.kind !== 'all') {
+      throw new TRPCError({
+        code: 'FORBIDDEN',
+        message: 'issue is managed via the hub — agents cannot act on hub issues from this node',
+      })
+    }
+    // The hub runs the same router, so its result IS this proc's result shape —
+    // plus the offline `{ queued: true }` outcome (spec §2.2).
+    return ctx.registry.forwardIssueMutation(proc, input) as Promise<Awaited<R> | { queued: true }>
+  }
+  return local()
+}
 
 export const appRouter = t.router({
   sessions: t.router({
@@ -778,14 +783,31 @@ export const appRouter = t.router({
           mutationId: z.string().max(128).optional(),
         }),
       )
-      .mutation(({ ctx, input }) =>
-        ctx.registry.withMutation(input.mutationId, 'issues.create', () =>
+      .mutation(({ ctx, input }) => {
+        // issues.create ALWAYS creates locally in P7b (creating INTO the hub needs
+        // repo mapping — spec §2.2). A repoPath that exists only among the hub's
+        // mirrored issues is detectable: reject it clearly instead of silently
+        // filing a local issue against a repo this node doesn't have.
+        // (hub check first: with no upstream issues this never touches ctx.repos —
+        // the no-upstream-config inertness invariant, and test stubs stay happy.)
+        if (
+          ctx.registry.upstreamIssueRepoPaths().has(input.repoPath) &&
+          !ctx.repos.list().includes(input.repoPath)
+        ) {
+          throw new TRPCError({
+            code: 'BAD_REQUEST',
+            message: `repo ${input.repoPath} exists only on the hub — create the issue on the hub itself`,
+          })
+        }
+        return ctx.registry.withMutation(input.mutationId, 'issues.create', () =>
           ctx.registry.issues.createAndMaybeStart(input),
-        ),
-      ),
+        )
+      }),
     start: issueProc
       .input(z.object({ id: z.string(), agentKind: z.string().optional() }))
-      .mutation(({ ctx, input }) => ctx.registry.issues.start(input.id, input.agentKind)),
+      .mutation(({ ctx, input }) =>
+        issueWrite(ctx, 'start', input, () => ctx.registry.issues.start(input.id, input.agentKind)),
+      ),
     update: issueProc
       .input(
         z.object({
@@ -816,37 +838,67 @@ export const appRouter = t.router({
         }),
       )
       .mutation(({ ctx, input }) =>
-        ctx.registry.withMutation(input.mutationId, 'issues.update', () =>
-          ctx.registry.issues.update(input.id, input.patch),
+        issueWrite(ctx, 'update', input, () =>
+          ctx.registry.withMutation(input.mutationId, 'issues.update', () =>
+            ctx.registry.issues.update(input.id, input.patch),
+          ),
         ),
       ),
     archive: issueProc
       .input(z.object({ id: z.string() }))
-      .mutation(({ ctx, input }) => ctx.registry.issues.archive(input.id)),
+      .mutation(({ ctx, input }) =>
+        issueWrite(ctx, 'archive', input, () => ctx.registry.issues.archive(input.id)),
+      ),
     delete: issueProc
       .input(z.object({ id: z.string() }))
-      .mutation(({ ctx, input }) => ctx.registry.issues.delete(input.id)),
+      .mutation(({ ctx, input }) =>
+        issueWrite(ctx, 'delete', input, () => ctx.registry.issues.delete(input.id)),
+      ),
     action: issueProc
       .input(z.object({ id: z.string(), kind: z.enum(['rebase', 'pr', 'merge']) }))
-      .mutation(({ ctx, input }) => ctx.registry.issues.action(input.id, input.kind)),
+      .mutation(({ ctx, input }) =>
+        issueWrite(ctx, 'action', input, () => ctx.registry.issues.action(input.id, input.kind)),
+      ),
     addSession: issueProc
       .input(z.object({ id: z.string(), agentKind: z.string().optional() }))
-      .mutation(({ ctx, input }) => ctx.registry.issues.addSession(input.id, input.agentKind)),
+      .mutation(({ ctx, input }) =>
+        issueWrite(ctx, 'addSession', input, () =>
+          ctx.registry.issues.addSession(input.id, input.agentKind),
+        ),
+      ),
     addShell: issueProc
       .input(z.object({ id: z.string() }))
-      .mutation(({ ctx, input }) => ctx.registry.issues.addShell(input.id)),
+      .mutation(({ ctx, input }) =>
+        issueWrite(ctx, 'addShell', input, () => ctx.registry.issues.addShell(input.id)),
+      ),
     applySuggestion: issueProc
       .input(z.object({ id: z.string() }))
-      .mutation(({ ctx, input }) => ctx.registry.issues.applySuggestion(input.id)),
+      .mutation(({ ctx, input }) =>
+        issueWrite(ctx, 'applySuggestion', input, () =>
+          ctx.registry.issues.applySuggestion(input.id),
+        ),
+      ),
     dismissSuggestion: issueProc
       .input(z.object({ id: z.string() }))
-      .mutation(({ ctx, input }) => ctx.registry.issues.dismissSuggestion(input.id)),
+      .mutation(({ ctx, input }) =>
+        issueWrite(ctx, 'dismissSuggestion', input, () =>
+          ctx.registry.issues.dismissSuggestion(input.id),
+        ),
+      ),
     refreshAssistant: issueProc
       .input(z.object({ id: z.string() }))
-      .mutation(({ ctx, input }) => ctx.registry.issues.refreshAssistant(input.id)),
+      .mutation(({ ctx, input }) =>
+        issueWrite(ctx, 'refreshAssistant', input, () =>
+          ctx.registry.issues.refreshAssistant(input.id),
+        ),
+      ),
     setLabels: issueProc
       .input(z.object({ id: z.string(), labels: z.array(z.string()) }))
-      .mutation(({ ctx, input }) => ctx.registry.issues.setLabels(input.id, input.labels)),
+      .mutation(({ ctx, input }) =>
+        issueWrite(ctx, 'setLabels', input, () =>
+          ctx.registry.issues.setLabels(input.id, input.labels),
+        ),
+      ),
     addComment: issueProc
       .input(
         z.object({
@@ -857,37 +909,57 @@ export const appRouter = t.router({
         }),
       )
       .mutation(({ ctx, input }) =>
-        ctx.registry.withMutation(input.mutationId, 'issues.addComment', () =>
-          ctx.registry.issues.addComment(input.id, input.author, input.body),
+        issueWrite(ctx, 'addComment', input, () =>
+          ctx.registry.withMutation(input.mutationId, 'issues.addComment', () =>
+            ctx.registry.issues.addComment(input.id, input.author, input.body),
+          ),
         ),
       ),
     depAdd: issueProc
       .input(z.object({ fromId: z.string(), toId: z.string(), type: z.string().optional() }))
       .mutation(({ ctx, input }) =>
-        ctx.registry.issues.addDep(input.fromId, input.toId, input.type),
+        issueWrite(ctx, 'depAdd', input, () =>
+          ctx.registry.issues.addDep(input.fromId, input.toId, input.type),
+        ),
       ),
     depRemove: issueProc
       .input(z.object({ fromId: z.string(), toId: z.string(), type: z.string().optional() }))
       .mutation(({ ctx, input }) =>
-        ctx.registry.issues.removeDep(input.fromId, input.toId, input.type),
+        issueWrite(ctx, 'depRemove', input, () =>
+          ctx.registry.issues.removeDep(input.fromId, input.toId, input.type),
+        ),
       ),
     defer: issueProc
       .input(z.object({ id: z.string(), until: z.string().nullable() }))
-      .mutation(({ ctx, input }) => ctx.registry.issues.defer(input.id, input.until)),
+      .mutation(({ ctx, input }) =>
+        issueWrite(ctx, 'defer', input, () => ctx.registry.issues.defer(input.id, input.until)),
+      ),
     setNeedsHuman: issueProc
       .input(z.object({ id: z.string(), question: z.string().optional() }))
       .mutation(({ ctx, input }) =>
-        ctx.registry.issues.setNeedsHuman(input.id, input.question ?? null),
+        issueWrite(ctx, 'setNeedsHuman', input, () =>
+          ctx.registry.issues.setNeedsHuman(input.id, input.question ?? null),
+        ),
       ),
     clearNeedsHuman: issueProc
       .input(z.object({ id: z.string() }))
-      .mutation(({ ctx, input }) => ctx.registry.issues.clearNeedsHuman(input.id)),
+      .mutation(({ ctx, input }) =>
+        issueWrite(ctx, 'clearNeedsHuman', input, () =>
+          ctx.registry.issues.clearNeedsHuman(input.id),
+        ),
+      ),
     reparent: issueProc
       .input(z.object({ id: z.string(), parentId: z.string().nullable() }))
-      .mutation(({ ctx, input }) => ctx.registry.issues.reparent(input.id, input.parentId)),
+      .mutation(({ ctx, input }) =>
+        issueWrite(ctx, 'reparent', input, () =>
+          ctx.registry.issues.reparent(input.id, input.parentId),
+        ),
+      ),
     claim: issueProc
       .input(z.object({ id: z.string(), assignee: z.string() }))
-      .mutation(({ ctx, input }) => ctx.registry.issues.claim(input.id, input.assignee)),
+      .mutation(({ ctx, input }) =>
+        issueWrite(ctx, 'claim', input, () => ctx.registry.issues.claim(input.id, input.assignee)),
+      ),
     close: issueProc
       .input(
         z.object({
@@ -897,16 +969,26 @@ export const appRouter = t.router({
         }),
       )
       .mutation(({ ctx, input }) =>
-        ctx.registry.withMutation(input.mutationId, 'issues.close', () =>
-          ctx.registry.issues.close(input.id, input.reason),
+        issueWrite(ctx, 'close', input, () =>
+          ctx.registry.withMutation(input.mutationId, 'issues.close', () =>
+            ctx.registry.issues.close(input.id, input.reason),
+          ),
         ),
       ),
     supersede: issueProc
       .input(z.object({ oldId: z.string(), newId: z.string() }))
-      .mutation(({ ctx, input }) => ctx.registry.issues.supersede(input.oldId, input.newId)),
+      .mutation(({ ctx, input }) =>
+        issueWrite(ctx, 'supersede', input, () =>
+          ctx.registry.issues.supersede(input.oldId, input.newId),
+        ),
+      ),
     duplicate: issueProc
       .input(z.object({ id: z.string(), canonicalId: z.string() }))
-      .mutation(({ ctx, input }) => ctx.registry.issues.duplicate(input.id, input.canonicalId)),
+      .mutation(({ ctx, input }) =>
+        issueWrite(ctx, 'duplicate', input, () =>
+          ctx.registry.issues.duplicate(input.id, input.canonicalId),
+        ),
+      ),
     linearSearch: issueProc
       .input(z.object({ query: z.string() }))
       .query(({ ctx, input }) => ctx.registry.issues.linearSearch(input.query)),

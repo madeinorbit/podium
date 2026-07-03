@@ -30,8 +30,10 @@ import type { AppRouter } from './router'
  *  - sessions + conversations → the registry's upstream mirror
  *    (setUpstreamSessions / setUpstreamConversations — read-only, viaHub-marked,
  *    echo-filtered there);
- *  - issues → stored verbatim (setUpstreamIssuesJson), deliberately NOT merged
- *    into the node's IssueService — that is P7b's job; this is its durable input.
+ *  - issues → the registry's upstream ISSUE mirror (setUpstreamIssues — P7b,
+ *    docs/spec/node-hub-issues.md §2.1: merged into the node's issue WIRE only,
+ *    never into its IssueService store) + stored verbatim (setUpstreamIssuesJson)
+ *    so the replica survives restarts.
  *
  * Failure posture mirrors SocketHub server-side: exponential reconnect backoff
  * (flat-capped), and on hub loss the mirror KEEPS last-known entries, flagged
@@ -44,6 +46,7 @@ import type { AppRouter } from './router'
 export interface UpstreamMirror {
   setUpstreamSessions(list: SessionMeta[]): void
   setUpstreamConversations(list: ConversationSummaryWire[]): void
+  setUpstreamIssues(list: IssueWire[]): void
   setUpstreamStale(stale: boolean): void
 }
 
@@ -70,6 +73,9 @@ export interface UpstreamSyncOptions {
   store: UpstreamSyncStore
   /** Reconnect backoff bounds (test seam). Defaults mirror SocketHub's posture. */
   backoff?: { minMs?: number; maxMs?: number }
+  /** Fired after each successful catch-up (the hub is provably reachable over
+   *  HTTP) — P7b's outbox drain trigger on upstream (re)connect. */
+  onConnected?: () => void
 }
 
 // Same posture as SocketHub (packages/terminal-client/src/connection.ts): quick
@@ -122,6 +128,7 @@ export class UpstreamSync {
   private readonly store: UpstreamSyncStore
   private readonly minBackoffMs: number
   private readonly maxBackoffMs: number
+  private readonly onConnected: (() => void) | undefined
 
   // Node-side replica of the hub's wire entities, keyed by id so deltas apply
   // incrementally; pushed to the mirror as full lists (its setters replace).
@@ -161,6 +168,7 @@ export class UpstreamSync {
     this.store = opts.store
     this.minBackoffMs = opts.backoff?.minMs ?? RECONNECT_MIN_MS
     this.maxBackoffMs = opts.backoff?.maxMs ?? RECONNECT_MAX_MS
+    this.onConnected = opts.onConnected
     this.reconnectDelay = this.minBackoffMs
     this.cursor = this.store.getUpstreamCursor()
     // Rehydrate the last-known replica: the persisted cursor's meaning depends on
@@ -196,7 +204,7 @@ export class UpstreamSync {
     this.stopped = false
     // Surface the rehydrated last-known state immediately, stale until the first
     // catch-up confirms it (spec §2.3: stale-visible beats blank, from boot on).
-    if (this.sessions.size > 0 || this.conversations.size > 0) {
+    if (this.sessions.size > 0 || this.conversations.size > 0 || this.issues.size > 0) {
       this.push()
       this.mirror.setUpstreamStale(true)
     }
@@ -385,6 +393,7 @@ export class UpstreamSync {
     }
     this.push()
     this.mirror.setUpstreamStale(false)
+    this.onConnected?.()
   }
 
   /** Push the replica into the registry mirror + persist it (the durable base a
@@ -392,11 +401,13 @@ export class UpstreamSync {
   private push(): void {
     const sessions = [...this.sessions.values()]
     const conversations = [...this.conversations.values()]
+    const issues = [...this.issues.values()]
     this.mirror.setUpstreamSessions(sessions)
     this.mirror.setUpstreamConversations(conversations)
+    this.mirror.setUpstreamIssues(issues)
     this.store.setUpstreamSessionsJson(JSON.stringify(sessions))
     this.store.setUpstreamConversationsJson(JSON.stringify(conversations))
-    this.store.setUpstreamIssuesJson(JSON.stringify([...this.issues.values()]))
+    this.store.setUpstreamIssuesJson(JSON.stringify(issues))
   }
 
   private logFailure(message: string): void {
