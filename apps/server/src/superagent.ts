@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { type IssueWire, type TranscriptItem, WorkState } from '@podium/protocol'
 import { createIssue, moveIssue, searchIssues } from './linear'
 import { LlmConfigError, type LlmMessage, type LlmTool, llmClient } from './llm'
@@ -13,6 +14,10 @@ const HISTORY_WINDOW = 40
  *  `mcp__podium__<tool>`). Header carries the access token to the in-process route. */
 export const MCP_SERVER_NAME = 'podium'
 export const MCP_TOKEN_HEADER = 'x-podium-mcp-token'
+/** Per-invocation thread identity (issue #67): an opaque token the mcp-config
+ *  carries so the HTTP MCP route can resolve which superagent thread the harness
+ *  agent runs for — never the raw threadId, so callers can't claim one. */
+export const MCP_THREAD_HEADER = 'x-podium-mcp-thread'
 /** Read-only built-in tools the harness orchestrator may use headlessly without a
  *  permission prompt (alongside the Podium MCP tools). */
 const HARNESS_BUILTIN_ALLOWED = ['Read', 'Grep', 'Glob']
@@ -405,6 +410,11 @@ export class SuperagentService {
   // Where a harness-backed agent reaches Podium's own tools over MCP. Set by the
   // server once it's listening (it knows its own HTTP port + the access token).
   private mcpEndpoint: { url: string; token: string; allToolNames?: string[] } | undefined
+  // Opaque per-thread MCP tokens (issue #67): minted when a harness turn wires its
+  // mcp-config, resolved by the HTTP MCP route back to the threadId. In-memory only —
+  // the config is rebuilt every invocation, so a restart just mints fresh tokens.
+  private readonly mcpTokenToThread = new Map<string, string>()
+  private readonly mcpThreadToToken = new Map<string, string>()
   // Issue-tracker tools (issue-mcp's IssueToolProvider) bridged into the API tool
   // loop. Set by the server once the in-process issue client exists. Note: this is
   // the OPERATOR-authority in-process caller — constraining the concierge to an
@@ -432,6 +442,23 @@ export class SuperagentService {
     this.mcpEndpoint = { url, token, ...(allToolNames ? { allToolNames } : {}) }
   }
 
+  /** Mint (or reuse) the opaque MCP token identifying `threadId` to the HTTP MCP
+   *  route. Stable per thread so mid-turn config rebuilds keep working. */
+  mcpThreadToken(threadId: string): string {
+    const existing = this.mcpThreadToToken.get(threadId)
+    if (existing) return existing
+    const token = randomUUID()
+    this.mcpThreadToToken.set(threadId, token)
+    this.mcpTokenToThread.set(token, threadId)
+    return token
+  }
+
+  /** Resolve an opaque per-thread MCP token back to its threadId (undefined for
+   *  unknown tokens — the call then runs thread-blind). */
+  threadForMcpToken(token: string): string | undefined {
+    return this.mcpTokenToThread.get(token)
+  }
+
   /** Bridge the issue tracker's MCP tools into the API tool loop (all API-backed
    *  threads — the global thread benefits as much as the concierge). */
   setIssueTools(provider: McpToolProvider): void {
@@ -450,9 +477,11 @@ export class SuperagentService {
     }))
   }
 
-  /** Run one MCP tool call, returning its text output. `threadId` (when the caller
-   *  knows it) sharpens session provenance to 'superagent:<threadId>'; the HTTP MCP
-   *  route has no thread context, so it falls back to the bare 'superagent' tag. */
+  /** Run one MCP tool call, returning its text output. `threadId` (resolved by the
+   *  caller — the API loop knows it directly, the HTTP MCP route via the per-thread
+   *  token, issue #67) sharpens session provenance to 'superagent:<threadId>' and
+   *  attaches the concierge confirmed-gate. Identity-less calls fall back to the
+   *  bare 'superagent' tag AND fail closed on start-capable tools (see tools()). */
   async callMcpTool(
     name: string,
     args: Record<string, unknown>,
@@ -739,7 +768,12 @@ export class SuperagentService {
                   [MCP_SERVER_NAME]: {
                     type: 'http',
                     url: this.mcpEndpoint.url,
-                    headers: { [MCP_TOKEN_HEADER]: this.mcpEndpoint.token },
+                    headers: {
+                      [MCP_TOKEN_HEADER]: this.mcpEndpoint.token,
+                      // Thread identity (issue #67): the route resolves this back to
+                      // threadId, so the gate + provenance work on the harness backend.
+                      [MCP_THREAD_HEADER]: this.mcpThreadToken(threadId),
+                    },
                   },
                 },
               }),
@@ -1585,7 +1619,14 @@ export class SuperagentService {
     // explicit confirmed:true (the prompt-level interactive-only rule is the real
     // gate; this backstop makes a stray model call fail closed instead of
     // spawning). `confirmed` is stripped before the underlying tool runs.
-    if (threadId?.startsWith('concierge_')) {
+    // IDENTITY-LESS callers get the gate too (issue #67): when threadId is unknown
+    // (an MCP call whose thread token is absent/unresolvable) we can't tell a
+    // global thread from a concierge one, so spawn-capable tools fail closed
+    // rather than open — the caller must pass confirmed:true explicitly. This is a
+    // deliberate behavior change for thread-blind MCP callers; every legitimate
+    // harness invocation now carries a thread token, so only strays are affected.
+    // Non-spawning tools are untouched.
+    if (threadId === undefined || threadId.startsWith('concierge_')) {
       for (const t of tools) {
         const isCreate = t.spec.name === CREATE_WITH_START_TOOL
         if (!START_CAPABLE_TOOLS.has(t.spec.name) && !isCreate) continue

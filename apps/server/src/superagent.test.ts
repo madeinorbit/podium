@@ -8,6 +8,7 @@ import {
   buildBtwSeed,
   harnessAllowedTools,
   matchAnswerToOptions,
+  NOT_CONFIRMED_MSG,
   SuperagentService,
   transcriptDelta,
 } from './superagent'
@@ -154,6 +155,9 @@ describe('start_agent tool wiring (issue #60)', () => {
         agentKind: 'claude-code',
         cwd: '/w',
         title: 'Investigate flake',
+        // Identity-less calls fail closed on start-capable tools (issue #67), so
+        // the thread-blind MCP path must confirm explicitly.
+        confirmed: true,
       }),
     ) as { sessionId: string; cwd: string; agentKind: string }
     expect(out).toMatchObject({ cwd: '/w', agentKind: 'claude-code' })
@@ -181,6 +185,7 @@ describe('start_agent tool wiring (issue #60)', () => {
         agentKind: 'claude-code',
         cwd: '/ignored',
         issueId: issue.id,
+        confirmed: true,
       }),
     ) as { sessionId: string; cwd: string }
     expect(out.cwd).toBe('/r/.worktrees/issue-1-x')
@@ -197,6 +202,7 @@ describe('start_agent tool wiring (issue #60)', () => {
         agentKind: 'claude-code',
         cwd: '/ignored',
         issueId: issue.id,
+        confirmed: true,
       }),
     ) as { sessionId?: string; cwd: string }
     expect(out.cwd).toBe('/r/.worktrees/issue-1-fix-login')
@@ -212,7 +218,11 @@ describe('start_agent tool wiring (issue #60)', () => {
     const issue = registry.issues.create({ repoPath: '/r', title: 'X', startNow: false })
     registry.issues.update(issue.id, { worktreePath: '/r/.worktrees/issue-1-x', stage: 'planning' })
     const out = JSON.parse(
-      await sa.callMcpTool('start_agent', { agentKind: 'claude-code', issueId: issue.id }),
+      await sa.callMcpTool('start_agent', {
+        agentKind: 'claude-code',
+        issueId: issue.id,
+        confirmed: true,
+      }),
     ) as { sessionId: string; cwd: string }
     expect(out.cwd).toBe('/r/.worktrees/issue-1-x')
     expect(registry.listSessions().find((s) => s.sessionId === out.sessionId)?.cwd).toBe(
@@ -222,9 +232,44 @@ describe('start_agent tool wiring (issue #60)', () => {
 
   it('rejects a call with neither cwd nor issueId, spawning nothing', async () => {
     const { registry, sa } = harness()
-    const out = await sa.callMcpTool('start_agent', { agentKind: 'claude-code' })
+    const out = await sa.callMcpTool('start_agent', { agentKind: 'claude-code', confirmed: true })
     expect(out).toMatch(/pass cwd or issueId/)
     expect(registry.listSessions()).toHaveLength(0)
+  })
+
+  // Fail-closed identity (issue #67): a thread-blind MCP call can't be told apart
+  // from a concierge one, so spawn-capable tools refuse without confirmed:true.
+  it('fails closed on identity-less start-capable calls without confirmed', async () => {
+    const { registry, sa } = harness()
+    expect(await sa.callMcpTool('start_agent', { agentKind: 'claude-code', cwd: '/w' })).toBe(
+      NOT_CONFIRMED_MSG,
+    )
+    expect(registry.listSessions()).toHaveLength(0)
+  })
+
+  it('leaves non-spawning tools ungated for identity-less callers', async () => {
+    const { sa } = harness()
+    expect(JSON.parse(await sa.callMcpTool('list_sessions', {}))).toEqual([])
+  })
+
+  it('does not gate start-capable tools on known non-concierge threads', async () => {
+    const { registry, sa } = harness()
+    const out = JSON.parse(
+      await sa.callMcpTool('start_agent', { agentKind: 'shell', cwd: '/w' }, 'global'),
+    ) as { sessionId: string }
+    expect(registry.listSessions().find((s) => s.sessionId === out.sessionId)?.spawnedBy).toBe(
+      'superagent:global',
+    )
+  })
+
+  it('mints stable opaque per-thread MCP tokens and resolves them back', () => {
+    const { sa } = harness()
+    const tok = sa.mcpThreadToken('concierge_abc')
+    expect(tok).not.toContain('concierge_abc') // opaque, not the raw threadId
+    expect(sa.mcpThreadToken('concierge_abc')).toBe(tok) // stable per thread
+    expect(sa.mcpThreadToken('btw_s1')).not.toBe(tok)
+    expect(sa.threadForMcpToken(tok)).toBe('concierge_abc')
+    expect(sa.threadForMcpToken('no-such-token')).toBeUndefined()
   })
 
   it('rejects an unknown issue ref without spawning anything', async () => {
@@ -233,6 +278,7 @@ describe('start_agent tool wiring (issue #60)', () => {
       agentKind: 'claude-code',
       cwd: '/w',
       issueId: 'iss_nope',
+      confirmed: true,
     })
     expect(out).toMatch(/unknown issue/)
     expect(registry.listSessions()).toHaveLength(0)
@@ -335,7 +381,11 @@ describe('session-steering tool belt (issue #62)', () => {
     })
 
   const markPending = (h: ReturnType<typeof harness>, sessionId: string) =>
-    h.registry.onDaemonMessageFrom('local', { type: 'agentState', sessionId, state: pendingQuestion })
+    h.registry.onDaemonMessageFrom('local', {
+      type: 'agentState',
+      sessionId,
+      state: pendingQuestion,
+    })
 
   it('answer_question matches a label and types the option digit into the menu', async () => {
     const h = harness({ transcriptItems: [askItem()] })
@@ -490,9 +540,9 @@ describe('session-steering tool belt (issue #62)', () => {
   it("snooze_session supports 'next-message' (null) and ISO timestamps; clear_snooze undoes", async () => {
     const h = harness()
     const sessionId = h.spawn()
-    expect(
-      await h.sa.callMcpTool('snooze_session', { sessionId, until: 'next-message' }),
-    ).toBe(JSON.stringify({ snoozedUntil: null }))
+    expect(await h.sa.callMcpTool('snooze_session', { sessionId, until: 'next-message' })).toBe(
+      JSON.stringify({ snoozedUntil: null }),
+    )
     expect(h.metaOf(sessionId)?.snoozedUntil).toBeNull()
     const iso = '2026-07-03T05:00:00.000Z'
     await h.sa.callMcpTool('snooze_session', { sessionId, until: iso })
@@ -537,9 +587,9 @@ describe('session-steering tool belt (issue #62)', () => {
       /invalid workState/,
     )
     expect(h.metaOf(sessionId)?.workState).toBe('testing') // unchanged
-    expect(
-      await h.sa.callMcpTool('set_work_state', { sessionId: 'nope', workState: 'done' }),
-    ).toBe('unknown session')
+    expect(await h.sa.callMcpTool('set_work_state', { sessionId: 'nope', workState: 'done' })).toBe(
+      'unknown session',
+    )
   })
 
   it('wait_for_session resolves early on the next phase event, with the verdict', async () => {

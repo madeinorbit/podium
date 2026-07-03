@@ -1,8 +1,10 @@
 import type { IssueWire } from '@podium/protocol'
+import { Hono } from 'hono'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { OPERATOR } from './issue-authz'
 import { IssueToolProvider } from './issue-mcp'
 import type { LlmClient, LlmResponse } from './llm'
+import { registerMcpRoute } from './mcp-route'
 import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
 import { appRouter } from './router'
@@ -282,6 +284,84 @@ describe('concierge threads (issue #64)', () => {
     expect(out).toContain('created #2 Big')
     expect(out).toContain('started in')
     expect(registry.issues.list('/r').find((i) => i.title === 'Big')?.stage).toBe('in_progress')
+  })
+
+  // Issue #67: the harness backend reaches these tools over the HTTP MCP route,
+  // whose per-thread token now resolves the concierge identity server-side —
+  // the confirmed-gate and superagent:<threadId> provenance work end-to-end.
+  describe('through the HTTP MCP route (issue #67)', () => {
+    const ROUTE_TOKEN = 'route-secret'
+    async function httpHarness() {
+      const h = await harness()
+      const app = new Hono()
+      // Same wiring shape as server.ts: calls dispatch through the superagent,
+      // thread tokens resolve via the service's token map.
+      registerMcpRoute(
+        app,
+        {
+          mcpToolSpecs: () => [],
+          callMcpTool: (name, args, threadId) => h.sa.callMcpTool(name, args, threadId),
+        },
+        ROUTE_TOKEN,
+        { resolveThread: (tok) => h.sa.threadForMcpToken(tok) },
+      )
+      const call = async (name: string, args: Record<string, unknown>, threadToken?: string) => {
+        const res = await app.request('/mcp', {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'x-podium-mcp-token': ROUTE_TOKEN,
+            ...(threadToken ? { 'x-podium-mcp-thread': threadToken } : {}),
+          },
+          body: JSON.stringify({
+            jsonrpc: '2.0',
+            id: 1,
+            method: 'tools/call',
+            params: { name, arguments: args },
+          }),
+        })
+        const body = (await res.json()) as { result?: { content?: Array<{ text: string }> } }
+        return body.result?.content?.[0]?.text ?? ''
+      }
+      return { ...h, call }
+    }
+
+    it('attaches the confirmed-gate for a concierge thread token', async () => {
+      const { registry, sa, call } = await httpHarness()
+      const issue = registry.issues.create({ repoPath: '/r', title: 'X', startNow: false })
+      const tok = sa.mcpThreadToken(conciergeThreadId('/r'))
+      // Start-capable tools without confirmed → refused over HTTP, nothing spawned.
+      expect(await call('issue_start', { id: issue.id }, tok)).toBe(NOT_CONFIRMED_MSG)
+      expect(await call('start_agent', { agentKind: 'claude-code', cwd: '/r' }, tok)).toBe(
+        NOT_CONFIRMED_MSG,
+      )
+      expect(registry.listSessions()).toHaveLength(0)
+      expect(registry.issues.get(issue.id)?.stage).toBe('backlog')
+    })
+
+    it('stamps superagent:<threadId> provenance on a resolved thread', async () => {
+      const { registry, sa, call } = await httpHarness()
+      const tid = conciergeThreadId('/r')
+      const tok = sa.mcpThreadToken(tid)
+      const out = JSON.parse(
+        await call('start_agent', { agentKind: 'shell', cwd: '/r', confirmed: true }, tok),
+      ) as { sessionId: string }
+      expect(registry.listSessions().find((s) => s.sessionId === out.sessionId)?.spawnedBy).toBe(
+        `superagent:${tid}`,
+      )
+    })
+
+    it('fails closed on start-capable tools for identity-less callers only', async () => {
+      const { registry, call } = await httpHarness()
+      // No thread token (or a forged one) → the confirmed-gate applies anyway.
+      expect(await call('start_agent', { agentKind: 'shell', cwd: '/r' })).toBe(NOT_CONFIRMED_MSG)
+      expect(await call('start_agent', { agentKind: 'shell', cwd: '/r' }, 'forged')).toBe(
+        NOT_CONFIRMED_MSG,
+      )
+      expect(registry.listSessions()).toHaveLength(0)
+      // Non-spawning tools stay ungated for identity-less callers.
+      expect(JSON.parse(await call('list_sessions', {}))).toEqual([])
+    })
   })
 
   it('advances the watermark only to the last read event on delta overflow', async () => {

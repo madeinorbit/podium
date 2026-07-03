@@ -82,3 +82,59 @@ describe('registerMcpRoute', () => {
     expect(res.status).toBe(202)
   })
 })
+
+// Thread identity (issue #67): the route resolves the opaque x-podium-mcp-thread
+// token server-side and passes the threadId into callMcpTool.
+describe('registerMcpRoute thread identity', () => {
+  function threadApp() {
+    const seen: Array<string | undefined> = []
+    const a = new Hono()
+    registerMcpRoute(
+      a,
+      {
+        mcpToolSpecs: () => [],
+        callMcpTool: async (name, _args, threadId) => {
+          seen.push(threadId)
+          return `ran ${name} as ${threadId ?? '(none)'}`
+        },
+      },
+      TOKEN,
+      { resolveThread: (tok) => (tok === 'tok-1' ? 'concierge_abc' : undefined) },
+    )
+    const call = (headers: Record<string, string>) =>
+      a.request('/mcp', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-podium-mcp-token': TOKEN,
+          ...headers,
+        },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 1,
+          method: 'tools/call',
+          params: { name: 't', arguments: {} },
+        }),
+      })
+    return { seen, call }
+  }
+
+  it('resolves a known thread token and passes the threadId to callMcpTool', async () => {
+    const { seen, call } = threadApp()
+    const body = await json(await call({ 'x-podium-mcp-thread': 'tok-1' }))
+    expect(body.result?.content?.[0]?.text).toBe('ran t as concierge_abc')
+    expect(seen).toEqual(['concierge_abc'])
+  })
+
+  it('treats an unknown thread token as thread-blind (undefined threadId)', async () => {
+    const { seen, call } = threadApp()
+    await call({ 'x-podium-mcp-thread': 'forged' })
+    expect(seen).toEqual([undefined])
+  })
+
+  it('treats an absent thread header as thread-blind', async () => {
+    const { seen, call } = threadApp()
+    await call({})
+    expect(seen).toEqual([undefined])
+  })
+})

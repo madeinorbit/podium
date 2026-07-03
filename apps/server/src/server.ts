@@ -239,7 +239,20 @@ export async function startServer(
   const mcpToken = randomUUID()
   const issueTools = new IssueToolProvider()
   const mcpProvider = new CompositeMcpProvider([superagent, issueTools])
-  registerMcpRoute(app, mcpProvider, mcpToken)
+  // Calls dispatch through the superagent (NOT the composite): its tool belt already
+  // bridges the issue tools, so the concierge confirmed-gate and thread provenance
+  // wrap issue_* tools too — the exact same path the API tool loop takes (issue #67).
+  // Specs still come from the composite (superagent excludes the bridged issue specs).
+  registerMcpRoute(
+    app,
+    {
+      mcpToolSpecs: () => mcpProvider.mcpToolSpecs(),
+      callMcpTool: (name, args, threadId) => superagent.callMcpTool(name, args, threadId),
+    },
+    mcpToken,
+    // The per-thread token each harness invocation's mcp-config carries (issue #67).
+    { resolveThread: (token) => superagent.threadForMcpToken(token) },
+  )
   app.use('/trpc/*', cors())
   app.use('/trpc/*', guard)
   app.use(

@@ -71,9 +71,13 @@ export class CompositeMcpProvider implements McpToolProvider {
   mcpToolSpecs(): Array<{ name: string; description: string; inputSchema: unknown }> {
     return this.providers.flatMap((p) => p.mcpToolSpecs())
   }
-  async callMcpTool(name: string, args: Record<string, unknown>): Promise<string> {
+  async callMcpTool(
+    name: string,
+    args: Record<string, unknown>,
+    threadId?: string,
+  ): Promise<string> {
     const owner = this.providers.find((p) => p.mcpToolSpecs().some((s) => s.name === name))
     if (!owner) throw new Error(`unknown tool: ${name}`)
-    return owner.callMcpTool(name, args)
+    return owner.callMcpTool(name, args, threadId)
   }
 }

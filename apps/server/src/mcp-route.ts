@@ -6,7 +6,9 @@ import type { Hono } from 'hono'
  */
 export interface McpToolProvider {
   mcpToolSpecs(): Array<{ name: string; description: string; inputSchema: unknown }>
-  callMcpTool(name: string, args: Record<string, unknown>): Promise<string>
+  /** `threadId` (when the transport resolved one) scopes the call to the
+   *  superagent thread it runs for — gate + session provenance (issue #67). */
+  callMcpTool(name: string, args: Record<string, unknown>, threadId?: string): Promise<string>
 }
 
 const PROTOCOL_VERSION = '2024-11-05'
@@ -23,8 +25,20 @@ interface JsonRpcRequest {
  * tools to a harness agent. Stateless and tools-only: `initialize`, `tools/list`,
  * `tools/call`, with `notifications/*` acknowledged. Gated by a bearer token (the
  * loopback HTTP surface is same-trust, but the token stops stray local processes).
+ *
+ * Thread identity (issue #67): each harness invocation's mcp-config carries an
+ * opaque per-thread token in `x-podium-mcp-thread`; `resolveThread` maps it back
+ * to the threadId server-side. Opaque-token-in-header (not the raw threadId, not
+ * the URL) so the id can't be forged by a caller and the URL — which leaks into
+ * process lists and logs — stays identity-free. Absent/unknown token → the call
+ * runs thread-blind (callMcpTool then fails closed on start-capable tools).
  */
-export function registerMcpRoute(app: Hono, provider: McpToolProvider, token: string): void {
+export function registerMcpRoute(
+  app: Hono,
+  provider: McpToolProvider,
+  token: string,
+  opts?: { resolveThread?: (threadToken: string) => string | undefined },
+): void {
   const tokenOf = (header: string | undefined): string | undefined =>
     header?.replace(/^Bearer\s+/i, '')
 
@@ -73,8 +87,10 @@ export function registerMcpRoute(app: Hono, provider: McpToolProvider, token: st
       if (!name) {
         return c.json({ jsonrpc: '2.0', id, error: { code: -32602, message: 'missing tool name' } })
       }
+      const threadToken = c.req.header('x-podium-mcp-thread')
+      const threadId = threadToken ? opts?.resolveThread?.(threadToken) : undefined
       try {
-        const text = await provider.callMcpTool(name, body.params?.arguments ?? {})
+        const text = await provider.callMcpTool(name, body.params?.arguments ?? {}, threadId)
         return c.json({ jsonrpc: '2.0', id, result: { content: [{ type: 'text', text }] } })
       } catch (err) {
         return c.json({
