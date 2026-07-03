@@ -12,38 +12,46 @@
   }
   *{box-sizing:border-box;margin:0}
   body{background:var(--bg);color:var(--text);font:15.5px/1.62 -apple-system,"Segoe UI",Inter,Roboto,sans-serif;padding:0 20px 80px}
-  main{max-width:920px;margin:0 auto}
-  .hero{padding:56px 0 28px}
+  main{max-width:940px;margin:0 auto}
+  .hero{padding:56px 0 24px}
   .hero .kicker{color:var(--accent);font-weight:600;letter-spacing:.12em;text-transform:uppercase;font-size:12.5px}
   .hero h1{font-size:clamp(28px,5vw,42px);line-height:1.15;margin:10px 0 10px;letter-spacing:-.02em}
-  .hero p{color:var(--dim);max-width:720px}
-  section{margin:44px 0}
-  h2{font-size:22px;margin-bottom:14px;letter-spacing:-.01em}
-  h3{font-size:16px;margin:18px 0 8px}
+  .hero p{color:var(--dim);max-width:740px}
+  section{margin:46px 0}
+  h2{font-size:23px;margin-bottom:12px;letter-spacing:-.01em}
+  h3{font-size:16.5px;margin:22px 0 8px;color:var(--accent)}
+  p.lead{color:var(--dim);margin-bottom:14px;max-width:780px}
   .card{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);padding:20px 22px}
   .status-strip{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(200px,1fr))}
   .status{border:1px solid var(--border);border-radius:var(--radius);padding:16px 18px;background:var(--panel)}
-  .status .pill{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;border-radius:99px;padding:3px 10px;margin-bottom:8px}
-  .pill.live{background:#052e1c;color:var(--good)} .pill.dark{background:#2a2408;color:var(--warn)}
+  .status .pill,.pill{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;border-radius:99px;padding:3px 10px;margin-bottom:8px}
+  .pill.live{background:#052e1c;color:var(--good)} .pill.dark{background:#2a2408;color:var(--warn)} .pill.deferred{background:#2d1215;color:var(--red)} .pill.next{background:#172554;color:#93c5fd}
   .status b{display:block;font-size:15px} .status span{color:var(--dim);font-size:13.5px}
-  table{width:100%;border-collapse:collapse;font-size:14px}
-  th,td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--border);vertical-align:top}
-  th{color:var(--faint);font-size:12px;text-transform:uppercase;letter-spacing:.07em;font-weight:600}
-  code,.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px;color:var(--accent)}
-  .flow{display:flex;flex-direction:column;gap:0;margin:14px 0}
-  .frow{display:flex;gap:10px;align-items:center;justify-content:center;flex-wrap:wrap}
-  .node{background:var(--panel2);border:1px solid var(--border);border-radius:10px;padding:9px 14px;font-size:13.5px;text-align:center}
-  .node b{display:block;font-size:13.5px} .node span{color:var(--faint);font-size:12px}
-  .node.dark-node{border-style:dashed;border-color:#4a4420}
-  .arrow{color:var(--faint);font-size:18px} .down{text-align:center;color:var(--faint);font-size:18px;line-height:1.5}
-  .callout{border-left:3px solid var(--accent);background:var(--panel2);border-radius:0 var(--radius) var(--radius) 0;padding:14px 18px;color:var(--dim);font-size:14px;margin-top:14px}
-  .callout b{color:var(--text)}
-  .callout.warn{border-left-color:var(--warn)}
+  table{width:100%;border-collapse:collapse;font-size:13.5px}
+  th,td{text-align:left;padding:9px 11px;border-bottom:1px solid var(--border);vertical-align:top}
+  th{color:var(--faint);font-size:11.5px;text-transform:uppercase;letter-spacing:.07em;font-weight:600}
+  code,.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;color:var(--accent)}
+  td .why{color:var(--faint);font-size:12.5px;display:block;margin-top:2px}
+  .callout{border-left:3px solid var(--accent);background:var(--panel2);border-radius:0 var(--radius) var(--radius) 0;padding:14px 18px;color:var(--dim);font-size:14px;margin:14px 0}
+  .callout b{color:var(--text)} .callout.warn{border-left-color:var(--warn)} .callout.red{border-left-color:var(--red)}
+  ol.steps{padding-left:0;counter-reset:s;list-style:none}
+  ol.steps li{counter-increment:s;position:relative;padding:10px 0 10px 46px;border-bottom:1px dashed var(--border);color:var(--dim)}
+  ol.steps li:last-child{border-bottom:none}
+  ol.steps li::before{content:counter(s);position:absolute;left:0;top:10px;width:30px;height:30px;border-radius:50%;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#0b0e14;font-weight:700;display:flex;align-items:center;justify-content:center;font-size:14px}
+  ol.steps b{color:var(--text)}
+  .scenario{border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;font-size:13.5px;margin-top:14px}
+  .scenario .row{display:flex;gap:14px;padding:12px 16px;border-bottom:1px solid var(--border);align-items:baseline}
+  .scenario .row:last-child{border-bottom:none}
+  .scenario .who{flex:0 0 120px;color:var(--faint);font-size:11.5px;text-transform:uppercase;letter-spacing:.06em;font-weight:600;padding-top:2px}
+  .scenario .what{color:var(--dim)} .scenario .what b{color:var(--text)} .scenario .what code{white-space:pre-wrap}
   ol.runbook{padding-left:22px;color:var(--dim)} ol.runbook li{padding:5px 0} ol.runbook b{color:var(--text)}
-  .must{color:var(--red);font-weight:600} .ok{color:var(--good)}
+  .must{color:var(--red);font-weight:600}
   ul.plain{list-style:none;padding:0} ul.plain li{padding:6px 0 6px 22px;position:relative;color:var(--dim)}
   ul.plain li::before{content:"→";position:absolute;left:0;color:var(--accent)}
+  ul.plain b{color:var(--text)}
   .scroll{overflow-x:auto}
+  .doc-link{display:block;border:1px solid var(--border);border-radius:12px;padding:14px 18px;background:var(--panel);margin-bottom:10px}
+  .doc-link b{display:block} .doc-link span{color:var(--dim);font-size:13.5px}
   footer{margin-top:64px;text-align:center;color:var(--faint);font-size:13px}
 </style>
 </head>
@@ -53,66 +61,163 @@
   <div class="hero">
     <div class="kicker">Engineering review · as-built · 2026-07-03</div>
     <h1>The Orchestrator Mechanism</h1>
-    <p>Everything that shipped for issue #10 P1: what runs on live right now, how the pieces connect,
-    what the adversarial reviews caught before it could hurt, how to turn the steward on — and what's deliberately not built yet.</p>
+    <p>What runs on live right now, exactly how each mechanism works, how they compose, what the adversarial
+    reviews caught — and what's deferred or next. Companion docs are listed at the bottom.</p>
   </div>
 
   <section>
     <h2>Live right now</h2>
     <div class="status-strip">
-      <div class="status"><span class="pill live">recording</span><b>Event log</b><span>every issue transition + session phase change → <code>podium_events</code>, 14d/50k retention</span></div>
-      <div class="status"><span class="pill dark">dark</span><b>Steward</b><span>merged, inert behind <code>steward.enabled: false</code> — one settings read per 15s</span></div>
-      <div class="status"><span class="pill live">active</span><b>Steering tools</b><span>9 new superagent tools, live on both backends</span></div>
-      <div class="status"><span class="pill live">stamping</span><b>Provenance</b><span>every new session carries <code>spawnedBy</code></span></div>
+      <div class="status"><span class="pill live">recording</span><b>Event log</b><span>every issue transition + session phase change → <code>podium_events</code></span></div>
+      <div class="status"><span class="pill dark">dark</span><b>Steward</b><span>merged, inert behind <code>steward.enabled: false</code></span></div>
+      <div class="status"><span class="pill live">active</span><b>Steering tools</b><span>9 superagent tools for driving sessions</span></div>
+      <div class="status"><span class="pill live">stamping</span><b>Provenance</b><span>every new session records who created it</span></div>
+      <div class="status"><span class="pill deferred">deferred</span><b>The pump</b><span>auto-dispatch parked on cost-control design</span></div>
+      <div class="status"><span class="pill next">building</span><b>Concierge</b><span>the + button intake thread</span></div>
     </div>
   </section>
 
   <section>
-    <h2>How it fits together</h2>
-    <div class="card">
-      <div class="flow">
-        <div class="frow">
-          <div class="node"><b>Any close/ready/needs-human/phase change</b><span>board drag, CLI, supersede, agent close — all paths</span></div>
-          <div class="arrow">→</div>
-          <div class="node"><b>Semantic emitters</b><span>owned by <code>update()</code> — no path can close silently</span></div>
-          <div class="arrow">→</div>
-          <div class="node"><b>podium_events</b><span>append-only, AUTOINCREMENT cursor, pruned 6-hourly</span></div>
-        </div>
-        <div class="down">↓ (when <code>steward.enabled</code>) &nbsp;&nbsp;&nbsp;&nbsp; ↓ (always)</div>
-        <div class="frow">
-          <div class="node dark-node"><b>Steward tick (15s)</b><span>cursor → coalesce → deterministic handlers; never throws, never wedges</span></div>
-          <div class="node"><b>Readers</b><span><code>podium issue events --since</code> · <code>wait_for_session</code> tool</span></div>
-        </div>
-        <div class="down">↓</div>
-        <div class="frow">
-          <div class="node dark-node"><b>Unblock handler</b><span>"Unblocked by #N: &lt;completion note&gt;" comment + safe nudge (live, non-shell sessions only)</span></div>
-          <div class="node"><b>Superagent steering</b><span>answer_question · resume_and_send · snooze · hibernate · workstate · wait …</span></div>
-        </div>
-      </div>
-      <div class="callout">Verified on production data: closing #58 emitted <code>issue.closed</code> and
-      <code>issue.ready {seq:59, unblockedBy:58}</code> — the DAG fanout firing live. The log has been recording all
-      repo activity since deploy.</div>
-    </div>
-  </section>
+    <h2>Mechanism 1 — the event log (the senses)</h2>
+    <p class="lead">Podium already knew everything that happens — but only as transient websocket broadcasts:
+    if nothing was listening at that instant, the fact evaporated. The event log makes state changes <b>durable and
+    replayable</b>: an append-only SQLite table (<code>podium_events</code>) where each row has an auto-incrementing
+    <code>id</code> that doubles as a cursor. Any consumer — the steward, a CLI, a future UI feed — remembers the last
+    id it processed and asks "everything since 741, please". Ids never rewind or get reused, even after pruning,
+    so a cursor is always safe to resume from.</p>
 
-  <section>
-    <h2>What shipped</h2>
     <div class="card scroll">
       <table>
-        <tr><th>Issue</th><th>Commits</th><th>Delivered</th></tr>
-        <tr><td><b>#48</b> agent-grade CLI</td><td class="mono">e032b70</td><td>seq→id resolver everywhere (agents can finally act on the ids they see), structured <code>--json</code>, <code>start/archive/action</code> verbs, positional ids, exit codes, <code>close --note</code> completion-note contract</td></tr>
-        <tr><td><b>#58</b> event log</td><td class="mono">c29b73a, 660ee31</td><td><code>podium_events</code> + emitters on every close path + <code>session.phase</code> + <code>events --since</code> verb</td></tr>
-        <tr><td><b>#59</b> steward core</td><td class="mono">8c578c0, 97b61b3</td><td>trigger queue: persisted cursor (seeds to "now" on first enable), coalescing, per-repo serialization, drop-don't-wedge, unblock handler, <code>steward.enabled</code> flag</td></tr>
-        <tr><td><b>#60</b> provenance</td><td class="mono">9c506ea, dbead12</td><td><code>spawnedBy</code> on every creation path (user / issue:&lt;id&gt; / superagent:&lt;thread&gt;), <code>start_agent</code> gains title + issueId (cwd optional)</td></tr>
-        <tr><td><b>#61</b> retention</td><td class="mono">08f4f19</td><td>age+cap pruning, cursor-safe, benchmarked (~42ms per 6h tick)</td></tr>
-        <tr><td><b>#62</b> steering belt</td><td class="mono">b53d9fa, 3f1891c</td><td>answer_question (pending-question-gated), resume_and_send, continue, snooze/clear, rename, set_work_state, hibernate, wait_for_session, provenance in list_sessions</td></tr>
+        <tr><th>Event kind</th><th>Emitted when</th><th>Payload</th></tr>
+        <tr><td><code>issue.created</code></td><td>an issue is filed (any path: UI, CLI, agent, concierge)</td><td><code>{seq, title}</code></td></tr>
+        <tr><td><code>issue.stage_changed</code></td><td>stage moves, except into done</td><td><code>{seq, from, to}</code></td></tr>
+        <tr><td><code>issue.closed</code></td><td>the issue flips to closed — <b>by any means</b>: <code>close</code>, board drag-to-Done, <code>update --stage done</code>, supersede, duplicate</td><td><code>{seq, reason}</code></td></tr>
+        <tr><td><code>issue.ready</code></td><td>immediately after a close, for <b>each dependent</b> whose last blocker that close removed</td><td><code>{seq, unblockedBy}</code></td></tr>
+        <tr><td><code>issue.needs_human</code> / <code>_cleared</code></td><td>the needs-human flag actually flips (deduped)</td><td><code>{seq, question}</code></td></tr>
+        <tr><td><code>issue.started</code></td><td>worktree+branch created, agent spawned</td><td><code>{seq, branch, worktreePath}</code></td></tr>
+        <tr><td><code>session.phase</code></td><td>a session's agent-state phase genuinely transitions (working→idle, →needs_user, →errored…). Restart re-seeds are filtered.</td><td><code>{phase, verdict?, agentKind, cwd}</code></td></tr>
       </table>
     </div>
+
+    <div class="callout"><b>The design detail that matters:</b> closed-emission is owned by the one low-level
+    <code>update()</code> that every close path funnels through, keyed on the derived closed-state flipping
+    false→true. That's why a board drag emits the same events as an agent's <code>close --note</code> — and why
+    a double-close emits nothing twice. (The first review round caught that the original version missed the
+    board-drag path entirely — the log would have silently ignored most human closes.)</div>
+
+    <p class="lead"><b>Emission can never break work:</b> every emit is wrapped so a full disk or corrupt row
+    loses a log entry, never a close. <b>Retention:</b> a 6-hourly job deletes rows older than 14 days and caps
+    the table at 50k rows (measured: ~42ms per pass). <b>Reading it:</b> <code>podium issue events --since &lt;id&gt;</code>
+    (agents get it too, via CLI and MCP).</p>
+  </section>
+
+  <section>
+    <h2>Mechanism 2 — the steward (the reflexes)</h2>
+    <p class="lead">The steward is <b>not an agent, not a session, and not a chat</b>. It is ~300 lines of plain
+    TypeScript inside podium-server that convert events into housekeeping actions. No LLM is involved anywhere in
+    it today — every handler is deterministic code, so a steward pass costs zero tokens. It exists because today
+    <b>you</b> are the message bus: when an agent finishes a blocker, nothing tells the waiting work until you notice.</p>
+
+    <h3>What one tick does (every 15s while enabled)</h3>
+    <ol class="steps">
+      <li><b>Gate:</b> read <code>steward.enabled</code> from settings. Off → return. (This is the entire cost of the dark ship: one settings read.)</li>
+      <li><b>Resolve the cursor</b> from <code>steward_state</code>. First time ever (or corrupted): seed it to the <b>newest</b> event id and persist — so enabling the steward never replays history; it starts from "now".</li>
+      <li><b>Read the batch:</b> all events after the cursor (capped at 200/tick for backpressure).</li>
+      <li><b>Map events → triggers</b> via a pure rule table:
+        <code>issue.closed / issue.ready → unblock:&lt;repo&gt;</code> ·
+        <code>issue.needs_human → needshuman:&lt;issue&gt;</code> · everything else consumed silently.
+        Events with the same key <b>coalesce into one batch</b> — an epic close unblocking five issues is one
+        handler run seeing all five, not five runs.</li>
+      <li><b>Run handlers</b>, one key at a time (this sequencing <i>is</i> the per-repo serialization). Each handler
+        is wrapped: a throw is logged and dropped — the steward can be wrong, but it can never wedge.</li>
+      <li><b>Advance the cursor</b> — only now, after handlers ran. A crash mid-tick means the batch re-runs next
+        tick; handlers are idempotent (see dedup below), so replay is safe.</li>
+    </ol>
+
+    <h3>The one handler that exists: unblock</h3>
+    <p class="lead">For each <code>issue.ready</code> in the batch, the steward does two things to the newly-ready issue:</p>
+    <ul class="plain">
+      <li><b>A durable comment</b> — <code>Unblocked by #58: &lt;the closed issue's completion note&gt;</code> — authored
+        by <code>steward</code>. This is the inter-agent mail: the completion note the finishing agent wrote travels to
+        the work that was waiting on it. Dedup: if that exact marker already exists in the comments, skip (so crash-replays
+        never double-post).</li>
+      <li><b>A nudge to live sessions</b> in that issue's worktree — a fixed, single-line message
+        ("Blocker #58 closed — you are unblocked… run: podium issue prime") queued through the durable outbox.
+        <b>Strictly filtered:</b> only <code>live/starting</code>, never shells (no text into your bash), never
+        parked sessions (a nudge must never resurrect a 500MB agent process). No agent-authored text is ever
+        interpolated into the nudge — the note stays in the comment.</li>
+    </ul>
+
+    <div class="callout"><b>Failure philosophy — drop, don't wedge:</b> the steward prefers missing one action
+    (which is always visible as a gap in the audit trail) over getting stuck or acting twice. Everything it does
+    is an issue comment or an event row — there is no invisible steward action.</div>
+
+    <div class="callout warn"><b>What flipping <code>steward.enabled</code> does NOT do:</b> no sessions started,
+    no LLM calls, no merges, no deletes, no answers to questions. Comments + nudges. That's the entire authority
+    of the current steward.</div>
+  </section>
+
+  <section>
+    <h2>Mechanism 3 — the pump <span class="pill deferred" style="vertical-align:middle">deferred</span></h2>
+    <p class="lead">The pump is the piece that would <b>start work by itself</b>: when an issue becomes ready and a
+    slot is free and the epic allows it, spawn the agent session. It is a deterministic three-question check (mode?
+    budget? capacity?) — a thermostat, not an AI — but it is the <b>only</b> mechanism in the whole design that
+    creates new token-spending sessions autonomously. It is deferred on your call, and rightly: the cost story has
+    to be airtight first.</p>
+    <div class="card">
+      <table>
+        <tr><th>What exists today</th><th>What the pump would add</th></tr>
+        <tr>
+          <td>Nothing starts sessions automatically. Every agent session is started by a human (UI/CLI), by a human-driven concierge command, or explicitly by another agent the human is talking to. The steward only comments and nudges <i>already-running</i> sessions.</td>
+          <td>Auto-dispatch of ready issues under an epic's autonomy mode, bounded by budget + concurrency caps. Unbuilt: the autonomy field, the caps, the budget accounting, the dispatch loop.</td>
+        </tr>
+      </table>
+      <div class="callout red" style="margin:14px 0 0"><b>Why deferred:</b> "budget" needs a unit we can actually
+      meter and hard-stop on. Sessions-started is trivially enforceable but crude; token attribution per epic doesn't
+      exist yet; wall-clock lies. Until that design is settled (open question Q1 below), the pump stays unbuilt —
+      not dark, <b>unbuilt</b> — so there is no flag anyone can flip into runaway spend.</div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Mechanism 4 — steering + provenance (the hands)</h2>
+    <p class="lead">The superagent (and soon the concierge, which is the same brain with an intake job) can now fully
+    drive sessions instead of just spawning and killing them:</p>
+    <div class="card scroll">
+      <table>
+        <tr><th>Tool</th><th>What it does / the safety detail</th></tr>
+        <tr><td><code>answer_question</code></td><td>answers a pending AskUserQuestion menu by number/label. <b>Gated:</b> refuses unless the session is verifiably waiting on a menu (<code>needs_user/question</code>) — a stale menu can never be "answered" into a working agent's keyboard.</td></tr>
+        <tr><td><code>resume_and_send</code></td><td>wakes a parked session and delivers text via the durable outbox (survives restarts, waits out TUI boot).</td></tr>
+        <tr><td><code>wait_for_session</code></td><td>blocks (≤120s) until the target session's phase changes — reads <code>session.phase</code> events from the log; returns instantly if the session is already settled. This is the first consumer of the event log besides the steward.</td></tr>
+        <tr><td><code>snooze / rename / set_work_state / hibernate / continue</code></td><td>the remaining metadata + lifecycle knobs, each a thin wrapper whose description exactly matches its server-side gate.</td></tr>
+      </table>
+    </div>
+    <p class="lead" style="margin-top:12px"><b>Provenance:</b> every session now carries <code>spawnedBy</code>
+    (<code>user</code> · <code>issue:&lt;id&gt;</code> · <code>superagent:&lt;thread&gt;</code>), stamped at creation. That's
+    the audit answer to "where did this session come from?", the future basis for UI grouping/dimming of helper
+    sessions, and the precondition for any steward policy like "only nudge sessions I dispatched".</p>
+  </section>
+
+  <section>
+    <h2>One story, end to end</h2>
+    <p class="lead">Issue <b>#71 "API endpoint"</b> blocks <b>#72 "wire the UI"</b>. An agent works #71; another
+    session sits in #72's worktree, stuck waiting. Steward enabled.</p>
+    <div class="scenario">
+      <div class="row"><div class="who">Agent (#71)</div><div class="what">finishes, runs <code>podium issue close 71 --note "endpoint at /api/export, auth via session cookie, see tests"</code></div></div>
+      <div class="row"><div class="who">Event log</div><div class="what">server appends <code>[812] issue.closed {seq:71, reason:done}</code> and — because #71 was #72's last open blocker — <code>[813] issue.ready {seq:72, unblockedBy:71}</code>. Both rows durable; nothing else has happened yet.</div></div>
+      <div class="row"><div class="who">Steward, ≤15s later</div><div class="what">tick reads 812–813 past its cursor → both map to <code>unblock:&lt;repo&gt;</code> → one handler run.</div></div>
+      <div class="row"><div class="who">Handler</div><div class="what">posts on #72: <b>"Unblocked by #71: endpoint at /api/export, auth via session cookie, see tests"</b> — then finds #72's worktree sessions, filters to the one live agent, queues: <b>"Blocker #71 closed — you are unblocked. See the steward comment on your issue, or run: podium issue prime"</b>. Advances cursor to 813.</div></div>
+      <div class="row"><div class="who">Agent (#72)</div><div class="what">receives the nudge as its next input, runs <code>prime</code>/reads the comment — and has the completion note, i.e. exactly the context it needs to continue. No human was in the loop.</div></div>
+      <div class="row"><div class="who">You, later</div><div class="what">the whole exchange is on the issues: the note, the steward comment, the events. Audit by reading, not by reconstructing.</div></div>
+    </div>
+    <div class="callout">If #72 had <b>no</b> live session, the story stops at the comment — visible, durable, waiting.
+    Starting a session for it is the pump's job, which is deferred; today that start stays yours (or the concierge's,
+    on your explicit word).</div>
   </section>
 
   <section>
     <h2>What the adversarial reviews caught</h2>
-    <p style="color:var(--dim);margin-bottom:12px">Every slice went implement → adversarial review → fix → verify, all in subagents. Eight must-fixes never reached live:</p>
+    <p class="lead">Every slice went implement → adversarial review → fix → verify, all in subagents. Eight must-fixes never reached live:</p>
     <div class="card scroll">
       <table>
         <tr><th>Would have happened</th><th>Caught in</th></tr>
@@ -126,45 +231,48 @@
         <tr><td><span class="must">Vacuous idempotence test</span> — the dedup test passed with the dedup deleted</td><td>#59 round 1</td></tr>
       </table>
     </div>
-    <div class="callout">Also positively verified each round: live-DB migration safety (all additive <code>IF NOT EXISTS</code> /
-    guarded ALTER — zero boot risk), broadcast strip-safety for stale clients, hot-path cost, cursor monotonicity across pruning,
-    and that every tool description matches its real server gate.</div>
   </section>
 
   <section>
-    <h2>Enablement runbook (when you're ready)</h2>
+    <h2>Enablement runbook (steward)</h2>
     <ol class="runbook">
-      <li><b>Optional pre-flight:</b> land #63 (boot-seed mapper) so menus survive restarts as <code>needs_user</code>; without it, answer_question fails closed after a redeploy until the agent's next hook event.</li>
-      <li><b>Flip:</b> Settings → <code>steward.enabled: true</code> (takes effect within 15s, no restart).</li>
-      <li><b>First tick seeds the cursor to "now"</b> — dark history is skipped by design. Only new closes trigger.</li>
-      <li><b>Watch:</b> steward comments on issues ("Unblocked by #N: …"), <code>podium issue events</code>, and <code>[podium:steward]</code> journal lines. Every action is a comment — nothing is silent.</li>
-      <li><b>Rollback:</b> flip the flag off. The cursor persists; re-enabling resumes from where it stopped (or re-seeds if pruned past).</li>
+      <li><b>Optional pre-flight:</b> land #63 (boot-seed mapper) so open menus survive restarts as <code>needs_user</code>.</li>
+      <li><b>Flip:</b> Settings → <code>steward.enabled: true</code> (takes effect ≤15s, no restart).</li>
+      <li><b>First tick seeds the cursor to "now"</b> — dark history is skipped by design.</li>
+      <li><b>Watch:</b> steward comments on issues, <code>podium issue events</code>, <code>[podium:steward]</code> journal lines.</li>
+      <li><b>Rollback:</b> flip off. Cursor persists; re-enable resumes (or re-seeds if pruned past).</li>
     </ol>
-    <div class="callout warn"><b>What enabling does NOT do:</b> no auto-dispatch, no LLM calls, no merges, no session spawning.
-    The only behaviors are unblock comments + nudges to live non-shell sessions. The pump (auto-dispatch) is P2 and unbuilt.</div>
   </section>
 
   <section>
-    <h2>Deliberately not built yet</h2>
-    <ul class="plain">
-      <li><b>P2 — the pump:</b> Interactive/Auto/Full autonomy on epics, budgets, caps, deterministic dispatch. Needs your design sign-off on the autonomy field UX + budget accounting unit (spec §8).</li>
-      <li><b>P3 — concierge:</b> the + button intake flow, re-entry decision cards, artifact elicitation.</li>
-      <li><b>Steward LLM handlers:</b> idle-session reconciliation and tidy tick (rule slots exist in TRIGGER_RULES; everything so far is deterministic — zero token cost).</li>
-      <li><b>Open small items:</b> #63 boot-seed mapper; supersede is manage-gated (worker agents close-as-superseded instead — arguably correct).</li>
-    </ul>
+    <h2>Shipped inventory + status</h2>
+    <div class="card scroll">
+      <table>
+        <tr><th>Issue</th><th>Commits</th><th>Delivered</th></tr>
+        <tr><td><b>#48</b> agent-grade CLI</td><td class="mono">e032b70</td><td>seq→id resolver, structured <code>--json</code>, start/archive/action verbs, positional ids, exit codes, <code>close --note</code></td></tr>
+        <tr><td><b>#58</b> event log</td><td class="mono">c29b73a, 660ee31</td><td>podium_events + emitters + <code>events --since</code></td></tr>
+        <tr><td><b>#59</b> steward core</td><td class="mono">8c578c0, 97b61b3</td><td>cursor/coalescing/serialization, unblock handler, <code>steward.enabled</code></td></tr>
+        <tr><td><b>#60</b> provenance</td><td class="mono">9c506ea, dbead12</td><td>spawnedBy everywhere, start_agent title/issueId</td></tr>
+        <tr><td><b>#61</b> retention</td><td class="mono">08f4f19</td><td>age+cap pruning, cursor-safe, benchmarked</td></tr>
+        <tr><td><b>#62</b> steering belt</td><td class="mono">b53d9fa, 3f1891c</td><td>9 tools incl. gated answer_question + wait_for_session</td></tr>
+        <tr><td><b>#63</b> boot-seed mapper</td><td class="mono">open</td><td>menus present as idle/question after restart (fail-closed); optional steward pre-flight</td></tr>
+        <tr><td><b>pump</b></td><td class="mono">—</td><td><b>deferred</b> pending cost-control design (unbuilt, no flag exists)</td></tr>
+        <tr><td><b>concierge</b></td><td class="mono">—</td><td><b>in progress</b>: per-repo + button intake thread, interactive-only (never starts work without your word)</td></tr>
+      </table>
+    </div>
   </section>
 
   <section>
-    <h2>Where everything lives</h2>
-    <ul class="plain">
-      <li>Spec: <code>docs/superpowers/specs/2026-07-02-orchestrator-agents-design.md</code> (evaluation of Gas Town/Orca, the concierge+steward vision, primitives)</li>
-      <li>Concept pitch (pump-as-thermostat + cost model): <code>docs/orchestration-pitch.html</code></li>
-      <li>Code: <code>apps/server/src/steward.ts</code>, event log in <code>store.ts</code> + emitters in <code>issues.ts</code>/<code>relay.ts</code>, belt in <code>superagent.ts</code></li>
-      <li>Full review trail: comments on issues #48, #58–#63</li>
-    </ul>
+    <h2>The companion documents</h2>
+    <a class="doc-link" href="#"><b>Design spec — <code>docs/superpowers/specs/2026-07-02-orchestrator-agents-design.md</code></b>
+      <span>The full evaluation of Gas Town &amp; Orca, the concierge+steward vision, all seven missing primitives with design sketches, phasing, and the open questions. The "why" behind everything on this page.</span></a>
+    <a class="doc-link" href="#"><b>Concept pitch — <code>docs/orchestration-pitch.html</code></b>
+      <span>The marketing-page explainer: wish → concierge → issue graph → steward → pump-as-thermostat, and the cost model table ($0 plumbing / cents briefs / your-subscription agents) with the four hard levers.</span></a>
+    <a class="doc-link" href="#"><b>This review — <code>docs/orchestrator-mechanism-review.html</code></b>
+      <span>As-built mechanics (this page). All three live on main; the full review trail is in the comments of issues #48, #58–#63.</span></a>
   </section>
 
-  <footer>Podium · Orchestrator Agents (#10) · P1 as-built review · live main 3f1891c</footer>
+  <footer>Podium · Orchestrator Agents (#10) · P1 as-built review, rev 2</footer>
 
 </main>
 </body>
