@@ -476,6 +476,14 @@ export const appRouter = t.router({
     // which is transcript-harvested token-cost analytics.
     summary: t.procedure.query(({ ctx }) => ctx.registry.agentQuota()),
   }),
+  models: t.router({
+    // Live per-agent model lists (grok/cursor/opencode `models`). Stale-while-
+    // revalidate: `catalog` returns instantly (cached, possibly empty on first ever
+    // call) and refreshes in the background; the web merges these over its static
+    // catalog and re-reads on the next open. `refresh` forces + awaits a fresh probe.
+    catalog: t.procedure.query(({ ctx }) => ctx.registry.getModelCatalog()),
+    refresh: t.procedure.mutation(({ ctx }) => ctx.registry.refreshModelCatalog()),
+  }),
   hosts: t.router({
     // Who owns the used memory right now. Roots are derived server-side — the
     // registered repos plus their worktrees (worktrees often live OUTSIDE the

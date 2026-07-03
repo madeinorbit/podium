@@ -17,6 +17,7 @@ import type { IssueTrpc } from './issue-client'
 import { CompositeMcpProvider, IssueToolProvider } from './issue-mcp'
 import { readOrCreateDaemonSecret, stateDir } from './local-machine'
 import { registerMcpRoute } from './mcp-route'
+import { probeAllModels } from './model-probe'
 import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
 import { appRouter } from './router'
@@ -135,6 +136,9 @@ export async function startServer(
   // SessionRegistry without it produce no mirror traffic.
   const registry = new SessionRegistry(store, undefined, {
     mirrorLakeDir: join(stateDir(), 'transcripts'),
+    // Live model enumeration shells out to the agent CLIs, so it's only wired in the
+    // real process; tests get the empty default and never spawn a CLI.
+    modelProbe: () => probeAllModels(),
   })
   // The persistent same-host shared secret, read (or created 0600) from the state dir.
   // The server hashes it into the local machine's stored credential below; the bundled

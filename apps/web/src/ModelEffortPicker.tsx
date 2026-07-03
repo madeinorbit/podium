@@ -12,6 +12,7 @@ import {
 } from './agent-models'
 import type { IssueAgentKind } from './issue-agents'
 import { PropertyMenu } from './PropertyMenu'
+import { useModelCatalog } from './use-model-catalog'
 
 /**
  * Reusable Model + Effort pickers, backed by the per-agent `agent-models` catalog.
@@ -77,17 +78,20 @@ export function ModelPicker({
   onChange: (value: string) => void
   variant?: Variant
 }): JSX.Element {
+  // Live models from the agent's own CLI (grok/cursor/opencode), fetched + cached by
+  // the server; falls back to the static catalog for claude/codex or before it loads.
+  const live = useModelCatalog()[agentKind]
   return (
     <PropertyMenu
       trigger={
         <PickerTrigger
           variant={variant}
           icon={cpuIcon}
-          label={modelLabel(agentKind, value)}
+          label={modelLabel(agentKind, value, live)}
           aria-label="Model"
         />
       }
-      options={modelOptions(agentKind)}
+      options={modelOptions(agentKind, live)}
       selectedValue={value || 'auto'}
       allowFreeText
       placeholder="Model name…"

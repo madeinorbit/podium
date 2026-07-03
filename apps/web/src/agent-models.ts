@@ -19,10 +19,11 @@ import type { PropertyOption } from './PropertyMenu'
 /** Stored sentinel meaning "no override — the agent/harness decides". */
 export const AUTO = 'auto'
 
-interface Choice {
+export interface ModelChoice {
   value: string
   label: string
 }
+type Choice = ModelChoice
 
 const AGENT_MODELS: Record<IssueAgentKind, Choice[]> = {
   'claude-code': [
@@ -87,9 +88,19 @@ function withAuto(choices: Choice[]): PropertyOption[] {
   return [{ value: AUTO, label: 'Auto' }, ...choices]
 }
 
-/** Model options for a `PropertyMenu`/`Select`, with the `auto` default first. */
-export function modelOptions(kind: IssueAgentKind): PropertyOption[] {
-  return withAuto(AGENT_MODELS[kind])
+/** The models to offer for an agent: the live list (from the CLI's `models` command,
+ *  fetched by the server) when available, else the built-in static list. */
+function agentModels(kind: IssueAgentKind, live?: readonly ModelChoice[]): readonly ModelChoice[] {
+  return live && live.length > 0 ? live : AGENT_MODELS[kind]
+}
+
+/** Model options for a `PropertyMenu`/`Select`, with the `auto` default first.
+ *  Pass `live` (the server's live catalog for this agent) to override the static list. */
+export function modelOptions(
+  kind: IssueAgentKind,
+  live?: readonly ModelChoice[],
+): PropertyOption[] {
+  return withAuto([...agentModels(kind, live)])
 }
 
 /** Effort options for a `PropertyMenu`/`Select`, with the `auto` default first. */
@@ -97,11 +108,15 @@ export function effortOptions(kind: IssueAgentKind): PropertyOption[] {
   return withAuto(AGENT_EFFORTS[kind])
 }
 
-/** Display label for a stored model value; falls back to the raw value for a custom
- *  (free-text) model, and 'Auto' for the sentinel/empty. */
-export function modelLabel(kind: IssueAgentKind, value: string | null | undefined): string {
+/** Display label for a stored model value; checks live models first, falls back to the
+ *  raw value for a custom (free-text) model, and 'Auto' for the sentinel/empty. */
+export function modelLabel(
+  kind: IssueAgentKind,
+  value: string | null | undefined,
+  live?: readonly ModelChoice[],
+): string {
   if (!value || value === AUTO) return 'Auto'
-  return AGENT_MODELS[kind].find((m) => m.value === value)?.label ?? value
+  return agentModels(kind, live).find((m) => m.value === value)?.label ?? value
 }
 
 /** Display label for a stored effort value; 'Auto' for the sentinel/empty. */

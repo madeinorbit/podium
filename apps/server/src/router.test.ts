@@ -24,6 +24,20 @@ describe('appRouter', () => {
     expect(list).toMatchObject([{ sessionId, agentKind: 'claude-code', cwd: '/p' }])
   })
 
+  it('models.refresh + models.catalog return the injected live catalog', async () => {
+    const registry = new SessionRegistry(undefined, undefined, {
+      modelProbe: async () => ({ grok: [{ value: 'grok-build', label: 'grok-build' }] }),
+    })
+    registry.attachDaemon('local', () => {})
+    const repos = new RepoRegistry(registry, registry.sessionStore)
+    const superagent = new SuperagentService(registry, repos, registry.sessionStore)
+    const call = appRouter.createCaller({ registry, repos, superagent, capability: OPERATOR })
+    const refreshed = await call.models.refresh()
+    expect(refreshed.byAgent.grok?.[0]?.value).toBe('grok-build')
+    expect((await call.models.catalog()).byAgent.grok?.[0]?.value).toBe('grok-build')
+    registry.dispose()
+  })
+
   it("sessions.create stamps spawnedBy 'user' (the tRPC seam is the human seam, issue #60)", async () => {
     const { call } = caller()
     const { sessionId } = await call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })

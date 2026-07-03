@@ -40,6 +40,7 @@ import { knownPathsFor } from './file-relay-policy'
 import type { Capability } from './issue-authz'
 import { IssueService } from './issues'
 import { LOCAL_MACHINE_ID } from './local-machine'
+import { ModelCatalog, type ModelProbe, type ModelCatalogSnapshot } from './model-catalog'
 import { MirrorService } from './mirror'
 import {
   type AttentionNotice,
@@ -169,6 +170,9 @@ interface SessionRegistryOptions {
   /** Root of the transcript lake ($PODIUM_STATE_DIR/transcripts). Opt-in: when unset
    *  (the default — every existing test), NO mirror traffic is produced. */
   mirrorLakeDir?: string
+  /** Live model-list probe (grok/cursor/opencode `models`). Injected in tests so the
+   *  catalog never shells out; defaults to the real CLI probe. */
+  modelProbe?: ModelProbe
 }
 
 interface PendingTelegramSetup {
@@ -407,6 +411,9 @@ export class SessionRegistry {
   // Durable metadata change log fed at the broadcast seam (docs/spec/oplog-read-path.md).
   // Assigned in the constructor before loadFromStore (which can trigger broadcasts).
   private readonly oplog: MetadataOplog
+  // SWR cache of live per-agent model lists (grok/cursor/opencode). Query-driven:
+  // nothing probes until a client asks via getModelCatalog().
+  private readonly modelCatalog: ModelCatalog
   // Transcript lake mirror (docs/spec/transcript-mirror.md) — constructed only when
   // options.mirrorLakeDir is set; undefined means zero mirror traffic (tests default).
   private readonly mirror: MirrorService | undefined
@@ -447,6 +454,7 @@ export class SessionRegistry {
     this.generateTelegramSetupCode = options.generateTelegramSetupCode ?? defaultTelegramSetupCode
     this.now = options.now ?? Date.now
     this.activityFlushTimer.unref?.()
+    this.modelCatalog = new ModelCatalog(options.modelProbe, { now: this.now })
     this.oplog = new MetadataOplog(this.store, this.now)
     this.loadFromStore()
     this.mirror = options.mirrorLakeDir
@@ -905,6 +913,18 @@ export class SessionRegistry {
 
   setTabOrder(worktree: string, sessionIds: string[]) {
     this.store.setTabOrder(worktree, sessionIds)
+  }
+
+  /** Live per-agent model lists (SWR — returns cached instantly, refreshes in the
+   *  background). The web merges these over its static catalog. */
+  getModelCatalog(): ModelCatalogSnapshot {
+    return this.modelCatalog.get()
+  }
+
+  /** Force a fresh probe and return the updated snapshot (explicit "refresh now"). */
+  async refreshModelCatalog(): Promise<ModelCatalogSnapshot> {
+    await this.modelCatalog.refresh()
+    return this.modelCatalog.get()
   }
 
   getSettings(): PodiumSettings {
