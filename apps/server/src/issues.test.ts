@@ -1212,8 +1212,53 @@ describe('IssueService.integrate (issue #70)', () => {
     const r = await h.svc.integrate(epic.id)
     expect(r.ok).toBe(true)
     expect(calls[0]).toEqual({ op: 'status', cwd: INT_WT })
-    expect(calls[1]).toEqual({ op: 'checkoutReset', cwd: INT_WT, args: { branch: INT_BR, startPoint: 'main' } })
+    // defensive un-wedge before the reset (result ignored; healthy = "no rebase in progress")
+    expect(calls[1]).toEqual({ op: 'rebaseAbort', cwd: INT_WT })
+    expect(calls[2]).toEqual({ op: 'checkoutReset', cwd: INT_WT, args: { branch: INT_BR, startPoint: 'main' } })
     expect(calls.some((c) => c.op === 'worktreeAdd' || c.op === 'worktreeAddReset')).toBe(false)
+  })
+
+  it('in-flight guard: a concurrent second integrate() refuses cleanly; exactly one op sequence runs', async () => {
+    const h = harness()
+    const { epic } = epicWith(h, [{}, {}])
+    const calls = scriptOps(h.deps, () => undefined)
+    const [r1, r2] = await Promise.all([h.svc.integrate(epic.id), h.svc.integrate(epic.id)])
+    const refused = [r1, r2].filter((r) => /integration already running for #1/.test(r.output))
+    const ran = [r1, r2].filter((r) => r.ok)
+    expect(refused.length).toBe(1)
+    expect(ran.length).toBe(1)
+    expect(calls.filter((c) => c.op === 'status').length).toBe(1) // one rebuild, not two interleaved
+    // guard released: a later run proceeds normally
+    const r3 = await h.svc.integrate(epic.id)
+    expect(r3.ok).toBe(true)
+  })
+
+  it('self-healing: a wedged worktree (failed conflict recovery) is un-wedged by the next run', async () => {
+    const h = harness()
+    const { epic, children } = epicWith(h, [{}])
+    const child = children[0]!
+    // Run 1: non-ff, rebase conflicts, and the recovery rebaseAbort ITSELF fails →
+    // worktree left mid-rebase.
+    let run = 1
+    const calls = scriptOps(h.deps, (op, args) => {
+      if (run === 1) {
+        if (op === 'mergeFfOnly' && args?.branch === child.branch) {
+          return { ok: false, output: 'fatal: Not possible to fast-forward, aborting.' }
+        }
+        if (op === 'rebase') return { ok: false, output: 'CONFLICT (content): Merge conflict in src/a.ts' }
+        if (op === 'rebaseAbort') return { ok: false, output: 'error: could not abort' }
+      }
+      return undefined
+    })
+    const r1 = await h.svc.integrate(epic.id)
+    expect(r1.ok).toBe(false)
+    // Run 2: worktree exists (status ok) → defensive rebaseAbort BEFORE checkoutReset
+    // un-wedges it and the rebuild completes.
+    run = 2
+    calls.length = 0
+    const r2 = await h.svc.integrate(epic.id)
+    expect(r2.ok).toBe(true)
+    expect(calls.slice(0, 3).map((c) => c.op)).toEqual(['status', 'rebaseAbort', 'checkoutReset'])
   })
 
   it('topological order: A blocks B ⇒ A integrates first (beats seq order)', async () => {
@@ -1244,7 +1289,7 @@ describe('IssueService.integrate (issue #70)', () => {
     })
     const r = await h.svc.integrate(epic.id)
     expect(r.ok).toBe(true)
-    expect(calls.slice(2)).toEqual([
+    expect(calls.slice(3)).toEqual([
       { op: 'mergeFfOnly', cwd: INT_WT, args: { branch: child.branch! } },
       { op: 'checkoutReset', cwd: INT_WT, args: { branch: temp, startPoint: child.branch! } },
       { op: 'rebase', cwd: INT_WT, args: { parentBranch: INT_BR } },

@@ -1099,6 +1099,28 @@ export class IssueService {
    */
   async integrate(id: string): Promise<{ ok: boolean; output: string; issue: IssueWire }> {
     const row = this.rowOrThrow(id)
+    // Per-epic in-flight guard: two overlapping runs would interleave resets/rebases
+    // in the SAME integration worktree. Re-entry refuses cleanly with zero repoOps.
+    if (this.integratingEpics.has(row.id)) {
+      return {
+        ok: false,
+        output: `integration already running for #${row.seq}`,
+        issue: this.toWire(row),
+      }
+    }
+    this.integratingEpics.add(row.id)
+    try {
+      return await this.integrateRun(row)
+    } finally {
+      this.integratingEpics.delete(row.id)
+    }
+  }
+
+  private readonly integratingEpics = new Set<string>()
+
+  private async integrateRun(
+    row: IssueRow,
+  ): Promise<{ ok: boolean; output: string; issue: IssueWire }> {
     const refuse = (output: string): { ok: boolean; output: string; issue: IssueWire } => ({
       ok: false,
       output,
@@ -1132,6 +1154,11 @@ export class IssueService {
     } else if (!st.ok) {
       return refuse(`integrate: cannot inspect integration worktree: ${st.output}`)
     } else {
+      // Self-healing: if a previous run's conflict recovery itself failed (its
+      // rebaseAbort errored), the worktree is stuck mid-rebase and checkoutReset
+      // would refuse with a raw git error. A defensive abort first (result ignored
+      // — "no rebase in progress" is the normal healthy outcome) un-wedges it.
+      await this.d.repoOp('rebaseAbort', worktree)
       const reset = await this.d.repoOp('checkoutReset', worktree, {
         branch: intBranch,
         startPoint: row.parentBranch,
