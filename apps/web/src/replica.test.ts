@@ -1,5 +1,6 @@
 import type { IssueWire, SessionMeta, TranscriptItem } from '@podium/protocol'
 import { beforeEach, describe, expect, it } from 'vitest'
+import { OUTBOX_LS_KEY, type OutboxEntry } from './outbox'
 import {
   createReplica,
   REPLICA_TRANSCRIPT_CONVERSATION_CAP,
@@ -235,5 +236,83 @@ describe('replica adapter', () => {
     r.applySnapshot('sessions', [session('s1'), session('s2')])
     await settle()
     expect(writes).toEqual([])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// P6b Part 2: the outbox's storage seam backed by a replica collection
+// (`<prefix>.outbox.v1`) — one persistence layer, FIFO order via a stable per-
+// entry seq, one-time migration of the legacy podium.outbox.v1 blob, and cross-
+// tab consistency through the lib's `storage` events.
+// ---------------------------------------------------------------------------
+
+function entry(mutationId: string, queuedAt = 1): OutboxEntry {
+  return { mutationId, kind: 'rename', input: { sessionId: 's1', name: mutationId }, queuedAt }
+}
+
+describe('replica outbox storage', () => {
+  it('round-trips entries in FIFO order across save/load and across instances', async () => {
+    const { storage } = makeStorage()
+    const a = createReplica({ storage, keyPrefix: prefix }).outboxStorage()
+    a.save([entry('m1'), entry('m2'), entry('m3')])
+    // Same instance reads back synchronously (optimistic state).
+    expect(a.load().map((e) => e.mutationId)).toEqual(['m1', 'm2', 'm3'])
+    // FIFO shift-from-front + push-at-back keeps order without rewriting rows.
+    a.save([entry('m2'), entry('m3'), entry('m4')])
+    expect(a.load().map((e) => e.mutationId)).toEqual(['m2', 'm3', 'm4'])
+    await settle()
+    // Reload path: a fresh replica over the same storage sees the same queue.
+    const b = createReplica({ storage, keyPrefix: prefix }).outboxStorage()
+    expect(b.load().map((e) => e.mutationId)).toEqual(['m2', 'm3', 'm4'])
+    expect(b.load()[0]).toEqual(entry('m2'))
+  })
+
+  it('migrates the legacy podium.outbox.v1 blob into the collection once', () => {
+    const { storage, data } = makeStorage()
+    storage.setItem(OUTBOX_LS_KEY, JSON.stringify([entry('legacy1'), entry('legacy2')]))
+    const s = createReplica({ storage, keyPrefix: prefix }).outboxStorage()
+    expect(s.load().map((e) => e.mutationId)).toEqual(['legacy1', 'legacy2'])
+    // The legacy key is retired so an old blob can't be re-imported later.
+    expect(data.has(OUTBOX_LS_KEY)).toBe(false)
+  })
+
+  it('follows another tab through the storage event', async () => {
+    const { storage } = makeStorage()
+    const listeners: Array<(e: unknown) => void> = []
+    const storageEventApi = {
+      addEventListener: (_type: string, cb: (e: never) => void) =>
+        listeners.push(cb as (e: unknown) => void),
+      removeEventListener: () => {},
+    }
+    const tabA = createReplica({ storage, storageEventApi, keyPrefix: prefix }).outboxStorage()
+    expect(tabA.load()).toEqual([])
+    // "Tab B": a second adapter over the same storage persists an entry…
+    const tabB = createReplica({ storage, keyPrefix: prefix }).outboxStorage()
+    tabB.save([entry('cross')])
+    await settle()
+    // …and the browser's storage event tells tab A, whose collection re-syncs.
+    for (const cb of listeners) {
+      cb({ key: `${prefix}.outbox.v1`, storageArea: storage })
+    }
+    expect(tabA.load().map((e) => e.mutationId)).toEqual(['cross'])
+  })
+
+  it('falls back to the guarded legacy backing when the replica is unavailable', () => {
+    localStorage.clear() // the fallback reads the real (happy-dom) localStorage
+    const r = createReplica({
+      storage: {
+        getItem: () => null,
+        setItem: () => {
+          throw new Error('quota')
+        },
+        removeItem: () => {},
+      },
+      keyPrefix: prefix,
+    })
+    expect(r.available).toBe(false)
+    const s = r.outboxStorage()
+    // Private-mode degradation: everything is a best-effort no-op, never a throw.
+    expect(s.load()).toEqual([])
+    expect(() => s.save([entry('m1')])).not.toThrow()
   })
 })

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createOutbox, OUTBOX_LS_KEY, type Outbox, type OutboxEntry } from './outbox'
+import { createReplica } from './replica'
 
 // ---------------------------------------------------------------------------
 // Outbox (docs/spec/outbox-write-path.md §2.3): durable FIFO of covered
@@ -150,5 +151,37 @@ describe('outbox', () => {
     expect(make({ isOnline: () => false }).size()).toBe(0)
     localStorage.setItem(OUTBOX_LS_KEY, JSON.stringify([{ mutationId: 1 }, null]))
     expect(make({ isOnline: () => false }).size()).toBe(0)
+  })
+
+  // P6b Part 2: the exact same Outbox logic, running against the replica-backed
+  // storage seam the web store now wires in — one persistence layer.
+  it('over replica-backed storage: a reload keeps mutationIds and FIFO order', async () => {
+    const data = new Map<string, string>()
+    const storage = {
+      getItem: (k: string) => data.get(k) ?? null,
+      setItem: (k: string, v: string) => void data.set(k, v),
+      removeItem: (k: string) => void data.delete(k),
+    }
+    const backing = () => createReplica({ storage, keyPrefix: 'ob.itest' }).outboxStorage()
+    // "Offline" first life: entries persist into the replica collection.
+    const first = createOutbox<Kinds>({
+      executors: makeExecutors().executors,
+      storage: backing(),
+      isOnline: () => false,
+    })
+    outboxes.push(first)
+    const a = first.enqueue('rename', { sessionId: 's1', name: 'one' })
+    const b = first.enqueue('snoozeClear', { sessionId: 's2' })
+    first.dispose()
+    // Collection persistence lands asynchronously (a microtask hop per write).
+    await new Promise((r) => setTimeout(r, 0))
+    // Second life over a FRESH replica instance on the same storage.
+    const { calls, executors } = makeExecutors()
+    const second = createOutbox<Kinds>({ executors, storage: backing() })
+    outboxes.push(second)
+    expect(second.size()).toBe(2)
+    await second.drain()
+    expect(calls.map((c) => c.input.mutationId)).toEqual([a.mutationId, b.mutationId])
+    expect(second.size()).toBe(0)
   })
 })

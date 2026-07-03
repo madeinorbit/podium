@@ -24,7 +24,7 @@ import { formatAppError } from './AppErrorPage'
 import { dedupeSessionsByResume, EMPTY_PINS, planWorktreeMoves, reposToViews } from './derive'
 import { type FileScope, scopeKey, tabIdFor } from './file-scope'
 import { createOutbox } from './outbox'
-import { createReplica, type Replica } from './replica'
+import { createReplica, type Replica, useReplicaRows } from './replica'
 import { makeTrpc, type ServerOrigin, type Trpc } from './trpc'
 import type { PinKind, PinState } from './types'
 
@@ -245,6 +245,9 @@ type OutboxKinds = {
   snoozeClear: { sessionId: string }
 }
 
+/** Stable empty list so the issues getter doesn't churn identity pre-hydrate. */
+const NO_ISSUES: IssueWire[] = []
+
 export function StoreProvider({
   config,
   onFatalError,
@@ -290,6 +293,12 @@ export function StoreProvider({
   const outbox = useMemo(
     () =>
       createOutbox<OutboxKinds>({
+        // One persistence layer (P6b Part 2): the queue persists into a replica
+        // collection (cross-tab consistent via storage events) instead of its
+        // own hand-rolled localStorage blob; the drain/retry/poison logic is
+        // unchanged. Falls back to the legacy guarded backing when the replica
+        // is unavailable.
+        storage: replica.outboxStorage(),
         executors: {
           resumeAndSend: (i) => trpc.sessions.resumeAndSend.mutate(i),
           rename: (i) => trpc.sessions.rename.mutate(i),
@@ -303,7 +312,7 @@ export function StoreProvider({
         onPoison: (entry) =>
           toast.error(`A queued change (${entry.kind}) was rejected by the server and dropped`),
       }),
-    [trpc],
+    [trpc, replica],
   )
   const [outboxSize, setOutboxSize] = useState(0)
   useEffect(() => {
@@ -322,8 +331,42 @@ export function StoreProvider({
   const [reposLoading, setReposLoading] = useState(false)
   const [reposLoaded, setReposLoaded] = useState(false)
   const [repoDiagnostics, setRepoDiagnostics] = useState<GitDiscoveryDiagnosticWire[]>([])
-  const [sessions, setSessions] = useState<SessionMeta[]>([])
-  const [issues, setIssues] = useState<IssueWire[]>([])
+  // Entity state, single-sourced (P6b Part 1): with a usable replica, sessions/
+  // issues are TanStack DB live queries over its collections — the hub writes
+  // ONLY into the replica (onMetadataApplied above) and the queries re-render
+  // from there. When persistence is unavailable (private browsing) the replica
+  // is inert and the LEGACY path below (hub subscriptions → useState) carries
+  // the same state, exactly like the pre-replica client (spec invariant 4).
+  const liveSessionRows = useReplicaRows(replica, 'sessions')
+  const liveIssueRows = useReplicaRows(replica, 'issues')
+  const [legacySessions, setLegacySessions] = useState<SessionMeta[]>([])
+  const [legacyIssues, setLegacyIssues] = useState<IssueWire[]>([])
+  // Same dedupe the legacy path applies at its setState seam; memoized so list
+  // identity only changes when the underlying rows do (no per-render churn).
+  const sessions = useMemo(
+    () => (replica.available ? dedupeSessionsByResume(liveSessionRows ?? []) : legacySessions),
+    [replica, liveSessionRows, legacySessions],
+  )
+  const issues = replica.available ? (liveIssueRows ?? NO_ISSUES) : legacyIssues
+  // Optimistic local apply for curation mutations, path-matched to where entity
+  // state lives: a replica-collection upsert (the live query re-renders, and the
+  // optimism even survives an offline reload alongside its queued outbox entry)
+  // or the legacy setState. Server truth reconciles either way.
+  const liveSessionRowsRef = useRef<SessionMeta[]>([])
+  liveSessionRowsRef.current = liveSessionRows ?? []
+  const patchSession = useMemo(
+    () => (sessionId: string, patch: Partial<SessionMeta>) => {
+      if (replica.available) {
+        const row = liveSessionRowsRef.current.find((s) => s.sessionId === sessionId)
+        if (row) replica.applyChanges('sessions', [{ ...row, ...patch }], [])
+      } else {
+        setLegacySessions((all) =>
+          all.map((s) => (s.sessionId === sessionId ? { ...s, ...patch } : s)),
+        )
+      }
+    },
+    [replica],
+  )
   const [hostMetrics, setHostMetrics] = useState<HostMetricsWire[]>([])
   const [machines, setMachines] = useState<MachineWire[]>([])
   const [pins, setPins] = useState<PinState>(EMPTY_PINS)
@@ -526,23 +569,16 @@ export function StoreProvider({
   // through the outbox, so these survive being authored offline.
   const renameSession = useMemo(
     () => async (sessionId: string, name: string) => {
-      setSessions((all) =>
-        all.map((s) => (s.sessionId === sessionId ? { ...s, name: name.trim() } : s)),
-      )
+      patchSession(sessionId, { name: name.trim() })
       outbox.enqueue('rename', { sessionId, name })
     },
-    [outbox],
+    [outbox, patchSession],
   )
   const archiveSession = useMemo(
     () => async (sessionId: string, archived: boolean) => {
       // Archiving "files the work away": it also lands the session in the board's
       // Done lane. Unarchiving only restores it — it doesn't reopen the work state.
-      const workState: WorkState | undefined = archived ? 'done' : undefined
-      setSessions((all) =>
-        all.map((s) =>
-          s.sessionId === sessionId ? { ...s, archived, ...(archived ? { workState } : {}) } : s,
-        ),
-      )
+      patchSession(sessionId, archived ? { archived, workState: 'done' } : { archived })
       // Filing the work away also drops it from pinned panels — a pinned tab for an
       // archived session is dead weight, exactly as closing/killing it removes the
       // pin (mirrors killSession's local pin filter). Unlike kill, archiving doesn't
@@ -556,7 +592,7 @@ export function StoreProvider({
       outbox.enqueue('setArchived', { sessionId, archived })
       if (archived) outbox.enqueue('setWorkState', { sessionId, workState: 'done' })
     },
-    [outbox, trpc],
+    [outbox, patchSession, trpc],
   )
   const startBtw = useMemo(
     () => async (sessionId: string) => {
@@ -624,32 +660,24 @@ export function StoreProvider({
   )
   const setWorkState = useMemo(
     () => async (sessionId: string, workState: WorkState | null) => {
-      setSessions((all) =>
-        all.map((s) =>
-          s.sessionId === sessionId ? { ...s, workState: workState ?? undefined } : s,
-        ),
-      )
+      patchSession(sessionId, { workState: workState ?? undefined })
       outbox.enqueue('setWorkState', { sessionId, workState })
     },
-    [outbox],
+    [outbox, patchSession],
   )
   const setSnooze = useMemo(
     () => async (sessionId: string, until: string | null) => {
-      setSessions((all) =>
-        all.map((s) => (s.sessionId === sessionId ? { ...s, snoozedUntil: until } : s)),
-      )
+      patchSession(sessionId, { snoozedUntil: until })
       outbox.enqueue('snoozeSet', { sessionId, until })
     },
-    [outbox],
+    [outbox, patchSession],
   )
   const clearSnooze = useMemo(
     () => async (sessionId: string) => {
-      setSessions((all) =>
-        all.map((s) => (s.sessionId === sessionId ? { ...s, snoozedUntil: undefined } : s)),
-      )
+      patchSession(sessionId, { snoozedUntil: undefined })
       outbox.enqueue('snoozeClear', { sessionId })
     },
-    [outbox],
+    [outbox, patchSession],
   )
 
   // Report which sessions this client renders (`visible`) and which one has input
@@ -744,13 +772,20 @@ export function StoreProvider({
   useEffect(() => lsSet(PANEL_MODE_KEY, JSON.stringify(panelMode)), [panelMode])
 
   useEffect(() => {
-    // Collapse duplicate rows for the same underlying conversation (e.g. a Codex
-    // thread surfaced twice on resume) before they reach any view.
-    const offSessions = hub.onSessions((s) => setSessions(dedupeSessionsByResume(s)))
-    const offIssues = hub.onIssues(setIssues)
-    const offIssueUpd = hub.onIssueUpdated((u) =>
-      setIssues((xs) => xs.map((i) => (i.id === u.id ? u : i))),
-    )
+    // LEGACY entity path only (replica unavailable): mirror hub events into
+    // useState, collapsing duplicate rows for the same underlying conversation
+    // (e.g. a Codex thread surfaced twice on resume) before they reach any view.
+    // With a usable replica these callbacks are inert — the hub's single write
+    // seam is onMetadataApplied → replica, and the live queries render from there.
+    const offSessions = hub.onSessions((s) => {
+      if (!replica.available) setLegacySessions(dedupeSessionsByResume(s))
+    })
+    const offIssues = hub.onIssues((i) => {
+      if (!replica.available) setLegacyIssues(i)
+    })
+    const offIssueUpd = hub.onIssueUpdated((u) => {
+      if (!replica.available) setLegacyIssues((xs) => xs.map((i) => (i.id === u.id ? u : i)))
+    })
     const offHostMetrics = hub.onHostMetrics(setHostMetrics)
     // Repos are only scannable through a connected daemon, so a machine coming online
     // (e.g. the split daemon reconnecting after a restart) can make previously-empty

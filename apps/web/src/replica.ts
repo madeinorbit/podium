@@ -36,8 +36,16 @@ import type {
   SessionMeta,
   TranscriptItem,
 } from '@podium/protocol'
-import type { StorageApi, StorageEventApi, Transaction } from '@tanstack/db'
+import type { Collection, StorageApi, StorageEventApi, Transaction } from '@tanstack/db'
 import { createCollection, localStorageCollectionOptions } from '@tanstack/db'
+import { useLiveQuery } from '@tanstack/react-db'
+import {
+  localStorageBacking,
+  OUTBOX_LS_KEY,
+  type OutboxEntry,
+  type OutboxStorage,
+  parseOutboxEntries,
+} from './outbox'
 
 /** Wire row type per replica collection kind. */
 export interface ReplicaRows {
@@ -84,6 +92,18 @@ export interface Replica {
    *  REPLICA_TRANSCRIPT_ITEM_CAP items, LRU-capped at
    *  REPLICA_TRANSCRIPT_CONVERSATION_CAP conversations. */
   putTranscriptWindow(conversationKey: string, items: TranscriptItem[]): void
+  /** The underlying entity collection for `kind` — the live-query seam consumed
+   *  ONLY by `useReplicaRows` below (typed `unknown` so no TanStack type leaks
+   *  through the interface). Present even when `available` is false; the hook
+   *  simply doesn't subscribe then. */
+  collection(kind: ReplicaKind): unknown
+  /** P6b outbox consolidation: an `OutboxStorage` backed by a replica collection
+   *  (`<prefix>.outbox.v1`), so the offline queue shares the ONE persistence
+   *  layer and gets cross-tab consistency from the lib's `storage` events. The
+   *  legacy `podium.outbox.v1` JSON blob is migrated in on first use. When the
+   *  replica is unavailable it falls back to the legacy guarded localStorage
+   *  backing (which itself degrades to best-effort no-ops). */
+  outboxStorage(): OutboxStorage
 }
 
 /** Spec §2.3: "last ~200 items per conversation, LRU cap ~50 conversations". */
@@ -109,6 +129,15 @@ interface TranscriptRow {
   items: TranscriptItem[]
 }
 
+/** Persisted outbox entry (P6b): the OutboxEntry plus a stable FIFO ordinal. */
+type OutboxRow = OutboxEntry & { seq: number }
+
+function maxSeq(rows: OutboxRow[]): number {
+  let max = -1
+  for (const r of rows) if (typeof r.seq === 'number' && r.seq > max) max = r.seq
+  return max
+}
+
 /** In-place full replace of a draft's contents with `value` (update drafts are
  *  proxies over the stored object; leftover stale fields must be deleted). */
 function replaceContents(draft: Record<string, unknown>, value: Record<string, unknown>): void {
@@ -125,16 +154,23 @@ let instanceSeq = 0
 class TanstackReplica implements Replica {
   readonly available: boolean
   private readonly storage: StorageApi
+  private readonly storageEventApi: StorageEventApi
+  private readonly prefix: string
+  private readonly nonce: number
   private readonly cursorKey: string
   private readonly now: () => number
   // biome-ignore lint/suspicious/noExplicitAny: heterogeneous collection map, typed at the access sites
   private readonly cols: Record<ReplicaKind | 'transcripts', any>
+  /** Lazily-built outbox backing (P6b) — separate from `cols` so a poisoned
+   *  entity replica's clearAll never wipes queued writes. */
+  private outboxBacking: OutboxStorage | undefined
   /** Settles when every entity write issued so far has persisted — the fence
    *  `setCursor` waits behind (spec invariant 3). */
   private lastWrite: Promise<unknown> = Promise.resolve()
 
   constructor(init: ReplicaInit = {}) {
     const prefix = init.keyPrefix ?? REPLICA_KEY_PREFIX
+    this.prefix = prefix
     this.cursorKey = `${prefix}.cursor.v1`
     this.now = init.now ?? Date.now
     const storage =
@@ -147,27 +183,18 @@ class TanstackReplica implements Replica {
       setItem: () => {},
       removeItem: () => {},
     }
-    const nonce = ++instanceSeq
-    const make = <T extends object>(kind: string, getKey: (row: T) => string) =>
-      createCollection(
-        localStorageCollectionOptions<T, string>({
-          id: `${prefix}.${kind}#${nonce}`,
-          storageKey: `${prefix}.${kind}.v1`,
-          storage: this.storage,
-          // Default cross-tab wiring only when we're really on window.localStorage.
-          storageEventApi:
-            init.storageEventApi ??
-            (init.storage === undefined && typeof window !== 'undefined'
-              ? window
-              : { addEventListener: () => {}, removeEventListener: () => {} }),
-          getKey,
-        }),
-      )
+    // Default cross-tab wiring only when we're really on window.localStorage.
+    this.storageEventApi =
+      init.storageEventApi ??
+      (init.storage === undefined && typeof window !== 'undefined'
+        ? window
+        : { addEventListener: () => {}, removeEventListener: () => {} })
+    this.nonce = ++instanceSeq
     this.cols = {
-      sessions: make<SessionMeta>('sessions', (s) => s.sessionId),
-      issues: make<IssueWire>('issues', (i) => i.id),
-      conversations: make<ConversationSummaryWire>('conversations', (c) => c.id),
-      transcripts: make<TranscriptRow>('transcripts', (t) => t.key),
+      sessions: this.makeCollection<SessionMeta>('sessions', (s) => s.sessionId),
+      issues: this.makeCollection<IssueWire>('issues', (i) => i.id),
+      conversations: this.makeCollection<ConversationSummaryWire>('conversations', (c) => c.id),
+      transcripts: this.makeCollection<TranscriptRow>('transcripts', (t) => t.key),
     }
     if (this.available) {
       // Keep the collections' sync alive for the app's lifetime: a permanent
@@ -306,7 +333,102 @@ class TanstackReplica implements Replica {
     }
   }
 
+  collection(kind: ReplicaKind): unknown {
+    return this.cols[kind]
+  }
+
+  outboxStorage(): OutboxStorage {
+    if (this.outboxBacking) return this.outboxBacking
+    if (!this.available) {
+      // Inert replica (private browsing) → today's guarded localStorage backing,
+      // which itself no-ops when storage throws. Behavior identical to P3.
+      this.outboxBacking = localStorageBacking()
+      return this.outboxBacking
+    }
+    const col = this.makeCollection<OutboxRow>('outbox', (r) => r.mutationId)
+    try {
+      // Permanent no-op subscriber: starts the collection's (synchronous)
+      // localStorage sync and keeps it from being GC'd between accesses.
+      col.subscribeChanges(() => {})
+      // One-time migration: fold any legacy podium.outbox.v1 JSON blob into the
+      // collection (append entries not already present, FIFO after what's here),
+      // then retire the legacy key — entries are never dropped silently.
+      const legacy = parseOutboxEntries(this.storage.getItem(OUTBOX_LS_KEY))
+      if (legacy.length > 0) {
+        const have = new Set((col.toArray as OutboxRow[]).map((r) => r.mutationId))
+        let seq = maxSeq(col.toArray as OutboxRow[])
+        const missing = legacy
+          .filter((e) => !have.has(e.mutationId))
+          .map((e) => ({ ...e, seq: ++seq }))
+        if (missing.length > 0) this.track(col.insert(missing))
+        this.storage.removeItem(OUTBOX_LS_KEY)
+      }
+    } catch (err) {
+      console.warn('[podium] replica outbox migration failed', err)
+    }
+    this.outboxBacking = {
+      // `seq` is assigned once at first sight and never rewritten, so ordering
+      // survives reloads and front-of-queue drops without churning rows.
+      load: () => {
+        try {
+          return (
+            (col.toArray as OutboxRow[])
+              .filter(
+                (r) =>
+                  typeof r.mutationId === 'string' &&
+                  typeof r.kind === 'string' &&
+                  typeof r.queuedAt === 'number',
+              )
+              .sort((a, b) => a.seq - b.seq || a.queuedAt - b.queuedAt)
+              // Explicit reconstruction: synced rows carry the lib's $-metadata
+              // props (and our seq) — hand the outbox exactly its own shape.
+              .map((r) => ({
+                mutationId: r.mutationId,
+                kind: r.kind,
+                input: r.input,
+                queuedAt: r.queuedAt,
+              }))
+          )
+        } catch {
+          return []
+        }
+      },
+      save: (entries) => {
+        try {
+          const existing = new Map((col.toArray as OutboxRow[]).map((r) => [r.mutationId, r]))
+          const keep = new Set(entries.map((e) => e.mutationId))
+          const stale = [...existing.keys()].filter((id) => !keep.has(id))
+          if (stale.length > 0) this.track(col.delete(stale))
+          let seq = maxSeq([...existing.values()])
+          // The queue only pushes at the back and shifts from the front, so the
+          // new (unseen) entries arrive in FIFO order — ascending seq matches it.
+          const inserts = entries
+            .filter((e) => !existing.has(e.mutationId))
+            .map((e) => ({ ...e, seq: ++seq }))
+          if (inserts.length > 0) this.track(col.insert(inserts))
+        } catch (err) {
+          console.warn('[podium] replica outbox save failed', err)
+        }
+      },
+    }
+    return this.outboxBacking
+  }
+
   // ---- internals ----
+
+  private makeCollection<T extends object>(kind: string, getKey: (row: T) => string) {
+    return createCollection(
+      localStorageCollectionOptions<T, string>({
+        // Collections are identified globally by id; the per-instance nonce lets
+        // tests build several adapters over the same storageKey without colliding.
+        id: `${this.prefix}.${kind}#${this.nonce}`,
+        storageKey: `${this.prefix}.${kind}.v1`,
+        storage: this.storage,
+        storageEventApi: this.storageEventApi,
+        getKey,
+      }),
+    )
+  }
 
   private keyFor<K extends ReplicaKind>(kind: K): (row: ReplicaRows[K]) => string {
     return kind === 'sessions'
@@ -374,4 +496,27 @@ function probeStorage(storage: StorageApi | undefined): boolean {
 
 export function createReplica(init: ReplicaInit = {}): Replica {
   return new TanstackReplica(init)
+}
+
+/**
+ * React live-query over one replica collection (P6b Part 1): the rows re-render
+ * on every collection change — the store derives its entity arrays from this
+ * instead of mirroring hub events into useState. Returns `undefined` while the
+ * replica is unavailable (private browsing), which tells the store to keep the
+ * legacy hub-subscription path. Lives here so ALL TanStack APIs (including the
+ * React binding) stay behind the one adapter module (spec §2.1).
+ */
+export function useReplicaRows<K extends ReplicaKind>(
+  replica: Replica,
+  kind: K,
+): ReplicaRows[K][] | undefined {
+  const { data } = useLiveQuery(
+    () =>
+      replica.available
+        ? // biome-ignore lint/suspicious/noExplicitAny: adapter-internal cast from the untyped collection seam
+          (replica.collection(kind) as Collection<ReplicaRows[K], string, any>)
+        : null,
+    [replica, kind],
+  )
+  return data as ReplicaRows[K][] | undefined
 }

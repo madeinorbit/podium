@@ -23,8 +23,9 @@ export interface OutboxStorage {
 
 export const OUTBOX_LS_KEY = 'podium.outbox.v1'
 
-/** A corrupt/foreign blob reads as empty rather than wedging the queue. */
-function parseEntries(raw: string | null): OutboxEntry[] {
+/** A corrupt/foreign blob reads as empty rather than wedging the queue.
+ *  Exported for the replica's one-time migration of the legacy blob (P6b). */
+export function parseOutboxEntries(raw: string | null): OutboxEntry[] {
   if (!raw) return []
   try {
     const parsed = JSON.parse(raw) as unknown
@@ -47,7 +48,7 @@ export function localStorageBacking(key = OUTBOX_LS_KEY): OutboxStorage {
   return {
     load: () => {
       try {
-        return parseEntries(localStorage.getItem(key))
+        return parseOutboxEntries(localStorage.getItem(key))
       } catch {
         return []
       }

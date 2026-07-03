@@ -33,6 +33,7 @@ const fakeTrpc = {
   pins: { list: { query: async () => ({ panels: [], worktrees: [], repos: [] }) } },
   tabs: { listOrders: { query: async () => ({}) } },
   settings: { get: { query: async () => ({ sidebar: { repoSort: 'lastUsed', repoOrder: [] } }) } },
+  sessions: { rename: { mutate: async () => ({}) } },
 }
 
 vi.mock('./trpc', () => ({ makeTrpc: () => fakeTrpc }))
@@ -75,9 +76,11 @@ function session(id: string, title = id): SessionMeta {
 }
 
 let latest: { sessions: SessionMeta[] } = { sessions: [] }
+let latestStore: ReturnType<typeof useStore> | null = null
 function Probe(): null {
   const store = useStore()
   latest = { sessions: store.sessions }
+  latestStore = store
   return null
 }
 
@@ -91,6 +94,7 @@ beforeEach(() => {
   changesSinceResolve = undefined
   sockets.length = 0
   latest = { sessions: [] }
+  latestStore = null
   realWS = globalThis.WebSocket
   globalThis.WebSocket = FakeWS as unknown as typeof WebSocket
   container = document.createElement('div')
@@ -166,5 +170,68 @@ describe('store ↔ replica', () => {
     act(() => sockets[0]?.onopen?.({}))
     await settle()
     expect(changesSinceCalls).toEqual([null])
+  })
+
+  it('optimistic write in live-query mode: renameSession patches the replica and the list re-renders', async () => {
+    const previous = createReplica()
+    previous.applySnapshot('sessions', [session('s1', 't1')])
+    previous.setCursor(3)
+    await settle()
+
+    render()
+    await settle()
+    expect(latest.sessions).toHaveLength(1)
+    expect(latest.sessions[0]?.name).toBeUndefined()
+
+    // Optimistic curation write: no server involved (the round-trip rides the
+    // outbox) — the live query must re-render with the patched row, and the
+    // patch must persist (an offline reload keeps the optimistic value).
+    await act(async () => {
+      await latestStore?.renameSession('s1', ' renamed ')
+    })
+    await settle()
+    expect(latest.sessions[0]?.name).toBe('renamed')
+    const reread = createReplica()
+    const h = await reread.hydrate()
+    expect(h.sessions[0]?.name).toBe('renamed')
+  })
+
+  it('replica unavailable (private browsing): the legacy hub-subscription path carries sessions', async () => {
+    // Make the replica's availability probe fail while leaving every other
+    // localStorage key usable — exactly the private-mode degradation contract.
+    const realSetItem = localStorage.setItem.bind(localStorage)
+    vi.spyOn(localStorage as Storage, 'setItem').mockImplementation(
+      (key: string, value: string) => {
+        if (key.startsWith('podium.replica')) throw new Error('quota exceeded')
+        realSetItem(key, value)
+      },
+    )
+
+    render()
+    await settle()
+    expect(latest.sessions).toEqual([])
+
+    // The network answers: state must arrive via hub observers → legacy useState
+    // (the replica is inert and its live queries stay disabled).
+    act(() => sockets[0]?.onopen?.({}))
+    await settle()
+    expect(changesSinceCalls).toEqual([null])
+    changesSinceResolve?.({
+      kind: 'snapshot',
+      sessions: [session('s-legacy', 'legacy path')],
+      issues: [],
+      conversations: [],
+      diagnostics: [],
+      cursor: 4,
+    })
+    await settle()
+    expect(latest.sessions.map((s) => s.title)).toEqual(['legacy path'])
+
+    // Optimistic writes flow through the legacy setState seam too.
+    await act(async () => {
+      await latestStore?.renameSession('s-legacy', 'renamed')
+    })
+    await settle()
+    expect(latest.sessions[0]?.name).toBe('renamed')
   })
 })
