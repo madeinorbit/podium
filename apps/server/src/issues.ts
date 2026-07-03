@@ -664,7 +664,13 @@ export class IssueService {
     // supersede/duplicate, board drag-to-done, CLI `update --stage done`), and the
     // false→true flip check means a re-close never re-emits.
     if (!wasClosed && this.isClosed(row)) {
-      this.emitEvent('issue.closed', row.id, { seq: row.seq, reason: row.closedReason ?? 'done' })
+      this.emitEvent('issue.closed', row.id, {
+        seq: row.seq,
+        reason: row.closedReason ?? 'done',
+        // Carried so the steward's trigger rules stay pure over the event
+        // (parent-nudge keys on parentId without a service lookup).
+        ...(row.parentId ? { parentId: row.parentId } : {}),
+      })
       this.emitReadyAfterClose(row)
     }
     return wire

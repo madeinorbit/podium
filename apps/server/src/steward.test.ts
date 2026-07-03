@@ -54,6 +54,15 @@ describe('TRIGGER_RULES', () => {
     )
     expect(TRIGGER_RULES['issue.created']).toBeUndefined()
   })
+
+  it('issue.closed with a parentId fans out to unblock AND parentnudge keys', () => {
+    const e = { id: 1, ts: 't', kind: 'issue.closed', subject: 'iss_c', repoPath: '/r' }
+    expect(TRIGGER_RULES['issue.closed']!({ ...e, payload: { seq: 3, parentId: 'iss_p' } })).toEqual(
+      ['unblock:/r', 'parentnudge:iss_p'],
+    )
+    // No parentId → single unblock key only (no parentnudge batch is formed).
+    expect(TRIGGER_RULES['issue.closed']!({ ...e, payload: { seq: 3 } })).toBe('unblock:/r')
+  })
 })
 
 describe('StewardService cursor', () => {
@@ -218,6 +227,108 @@ describe('StewardService unblock handler', () => {
     await steward.tick()
     expect(sendTextWhenReady).not.toHaveBeenCalled()
     expect(stewardComments(issues, b.id).length).toBe(1)
+  })
+})
+
+describe('StewardService parent-nudge handler', () => {
+  it('child close → parent comment with note excerpt + one nudge with correct counts', async () => {
+    const sessions = [fakeSession({ sessionId: 'plive', cwd: '/r/.worktrees/issue-1-epic' })]
+    const { issues, steward, sendTextWhenReady } = harness({ sessions })
+    const parent = issues.create({ repoPath: '/r', title: 'Epic', startNow: false }) // seq 1
+    issues.update(parent.id, { worktreePath: '/r/.worktrees/issue-1-epic' })
+    const c1 = issues.create({ repoPath: '/r', title: 'Child 1', parentId: parent.id, startNow: false })
+    issues.create({ repoPath: '/r', title: 'Child 2', parentId: parent.id, startNow: false })
+    issues.create({ repoPath: '/r', title: 'Child 3', parentId: parent.id, startNow: false })
+    issues.addComment(c1.id, 'agent', '[completion-note] shipped the widget\nsecond line ignored')
+    issues.close(c1.id)
+    await steward.tick()
+    const posted = stewardComments(issues, parent.id)
+    expect(posted.length).toBe(1)
+    expect(posted[0]!.body).toBe(`Child #${c1.seq} closed: shipped the widget`)
+    expect(sendTextWhenReady).toHaveBeenCalledTimes(1)
+    const [target, text] = sendTextWhenReady.mock.calls[0] as [string, string]
+    expect(target).toBe('plive')
+    expect(text).toBe(
+      `Child issue #${c1.seq} closed — 2 of 3 children remain. See the steward comment, or run: podium issue prime`,
+    )
+    // Comment-only excerpt: the agent-authored note never reaches the nudge.
+    expect(text).not.toContain('widget')
+    expect(text).not.toContain('\n')
+  })
+
+  it('two children closing in one batch → two comments, ONE nudge with latest counts', async () => {
+    const sessions = [fakeSession({ sessionId: 'plive', cwd: '/r/.worktrees/issue-1-epic' })]
+    const { issues, steward, sendTextWhenReady } = harness({ sessions })
+    const parent = issues.create({ repoPath: '/r', title: 'Epic', startNow: false })
+    issues.update(parent.id, { worktreePath: '/r/.worktrees/issue-1-epic' })
+    const c1 = issues.create({ repoPath: '/r', title: 'Child 1', parentId: parent.id, startNow: false })
+    const c2 = issues.create({ repoPath: '/r', title: 'Child 2', parentId: parent.id, startNow: false })
+    issues.create({ repoPath: '/r', title: 'Child 3', parentId: parent.id, startNow: false })
+    issues.close(c1.id)
+    issues.close(c2.id)
+    await steward.tick()
+    const posted = stewardComments(issues, parent.id)
+    expect(posted.map((c) => c.body)).toEqual([
+      `Child #${c1.seq} closed: Child 1`,
+      `Child #${c2.seq} closed: Child 2`,
+    ])
+    expect(sendTextWhenReady).toHaveBeenCalledTimes(1)
+    expect((sendTextWhenReady.mock.calls[0] as [string, string])[1]).toBe(
+      `Child issue #${c2.seq} closed — 1 of 3 children remain. See the steward comment, or run: podium issue prime`,
+    )
+  })
+
+  it('cursor-rewind replay posts no duplicate comment and no second nudge', async () => {
+    const sessions = [fakeSession({ sessionId: 'plive', cwd: '/r/.worktrees/issue-1-epic' })]
+    const { store, issues, steward, sendTextWhenReady } = harness({ sessions })
+    const parent = issues.create({ repoPath: '/r', title: 'Epic', startNow: false })
+    issues.update(parent.id, { worktreePath: '/r/.worktrees/issue-1-epic' })
+    const c1 = issues.create({ repoPath: '/r', title: 'Child 1', parentId: parent.id, startNow: false })
+    issues.close(c1.id)
+    await steward.tick()
+    expect(stewardComments(issues, parent.id).length).toBe(1)
+    expect(sendTextWhenReady).toHaveBeenCalledTimes(1)
+    store.setStewardState('cursor', '0')
+    await steward.tick()
+    expect(stewardComments(issues, parent.id).length).toBe(1)
+    expect(sendTextWhenReady).toHaveBeenCalledTimes(1)
+  })
+
+  it('closing an issue without a parentId produces no parent-nudge activity', async () => {
+    const { issues, steward, sendTextWhenReady } = harness()
+    const solo = issues.create({ repoPath: '/r', title: 'Solo', startNow: false })
+    issues.close(solo.id)
+    await steward.tick()
+    // No parent exists; nothing to comment on, nothing to nudge.
+    expect(sendTextWhenReady).not.toHaveBeenCalled()
+    expect(issues.list('/r').flatMap((w) => w.comments)).toEqual([])
+  })
+
+  it('shell and exited sessions in the parent worktree get nothing', async () => {
+    const sessions = [
+      fakeSession({ sessionId: 'parked', cwd: '/r/.worktrees/issue-1-epic', status: 'exited' }),
+      fakeSession({ sessionId: 'sh', cwd: '/r/.worktrees/issue-1-epic', agentKind: 'shell' }),
+    ]
+    const { issues, steward, sendTextWhenReady } = harness({ sessions })
+    const parent = issues.create({ repoPath: '/r', title: 'Epic', startNow: false })
+    issues.update(parent.id, { worktreePath: '/r/.worktrees/issue-1-epic' })
+    const c1 = issues.create({ repoPath: '/r', title: 'Child 1', parentId: parent.id, startNow: false })
+    issues.close(c1.id)
+    await steward.tick()
+    expect(sendTextWhenReady).not.toHaveBeenCalled()
+    expect(stewardComments(issues, parent.id).length).toBe(1) // comment still lands
+  })
+
+  it('note excerpt is first-line-only and capped at 200 chars', async () => {
+    const { issues, steward } = harness()
+    const parent = issues.create({ repoPath: '/r', title: 'Epic', startNow: false })
+    const c1 = issues.create({ repoPath: '/r', title: 'Child 1', parentId: parent.id, startNow: false })
+    issues.addComment(c1.id, 'agent', `[completion-note] ${'x'.repeat(500)}\nmore lines`)
+    issues.close(c1.id)
+    await steward.tick()
+    const body = stewardComments(issues, parent.id)[0]!.body
+    expect(body).toBe(`Child #${c1.seq} closed: ${'x'.repeat(200)}`)
+    expect(body).not.toContain('\n')
   })
 })
 

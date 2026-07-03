@@ -15,16 +15,23 @@ export interface StewardEvent {
 }
 
 /**
- * Event kind → coalescing key. Events sharing a key in one poll are handled as
- * ONE batch; kinds with no rule are consumed silently (the cursor moves past
+ * Event kind → coalescing key(s). Events sharing a key in one poll are handled
+ * as ONE batch; kinds with no rule are consumed silently (the cursor moves past
  * them). Pure and data-like so rules are inspectable/testable in isolation.
+ * A rule may return several keys — one event can fan out to multiple handlers
+ * with different audiences (e.g. a closed child both unblocks dependents AND
+ * nudges the parent-issue sessions).
  *
  * Follow-up rule slots (NOT this issue):
  * - session.phase → reconcile (issue-stage suggestions off agent phase)
  * - a periodic tidy tick (stale/doctor sweeps)
  */
-export const TRIGGER_RULES: Record<string, (e: StewardEvent) => string> = {
-  'issue.closed': (e) => `unblock:${e.repoPath ?? ''}`,
+export const TRIGGER_RULES: Record<string, (e: StewardEvent) => string | string[]> = {
+  'issue.closed': (e) => {
+    const unblock = `unblock:${e.repoPath ?? ''}`
+    const parentId = (e.payload as { parentId?: string } | null)?.parentId
+    return parentId ? [unblock, `parentnudge:${parentId}`] : unblock
+  },
   'issue.ready': (e) => `unblock:${e.repoPath ?? ''}`,
   'issue.needs_human': (e) => `needshuman:${e.subject}`,
 }
@@ -123,15 +130,19 @@ export class StewardService {
     // Coalesce: all events for the same key form one batch this poll.
     const batches = new Map<string, StewardEvent[]>()
     for (const e of events) {
-      const key = TRIGGER_RULES[e.kind]?.(e)
-      if (!key) continue // unmatched kind — consumed silently
-      const batch = batches.get(key) ?? []
-      batch.push(e)
-      batches.set(key, batch)
+      const keys = TRIGGER_RULES[e.kind]?.(e)
+      if (!keys) continue // unmatched kind — consumed silently
+      for (const key of Array.isArray(keys) ? keys : [keys]) {
+        const batch = batches.get(key) ?? []
+        batch.push(e)
+        batches.set(key, batch)
+      }
     }
     for (const [key, batch] of batches) {
       try {
         if (key.startsWith('unblock:')) await this.handleUnblock(batch)
+        else if (key.startsWith('parentnudge:'))
+          await this.handleParentNudge(key.slice('parentnudge:'.length), batch)
         else if (key.startsWith('needshuman:')) this.handleNeedsHuman(batch)
       } catch (err) {
         // Drop, don't wedge: the trigger is lost but the queue keeps moving.
@@ -177,6 +188,54 @@ export class StewardService {
           `Blocker #${closedSeq} closed — you are unblocked. See the steward comment on your issue, or run: podium issue prime`,
         )
       }
+    }
+  }
+
+  /** A closed child notifies its parent issue: one steward comment per closed
+   *  child (deduped on its colon-anchored marker, same lesson as unblock/#59)
+   *  plus ONE nudge to the parent's live non-shell sessions carrying the latest
+   *  remaining/total counts. The child's note excerpt lives in the COMMENT only
+   *  (capped, single line) — the nudge is a fixed computed-numbers line. */
+  private async handleParentNudge(parentId: string, batch: StewardEvent[]): Promise<void> {
+    const parent = this.deps.issues.get(parentId)
+    if (!parent) return
+    let posted = false
+    let lastChildSeq: number | undefined
+    for (const e of batch) {
+      const childSeq = (e.payload as { seq?: number } | null)?.seq
+      if (childSeq == null) continue
+      lastChildSeq = childSeq
+      // Colon-anchored so '#5' never matches a prior '#55' comment (see the
+      // matching note on handleUnblock — same single-server dedup assumption).
+      const marker = `Child #${childSeq} closed:`
+      const already = parent.comments.some(
+        (c) => c.author === 'steward' && c.body.includes(marker),
+      )
+      if (already) continue
+      const child = this.deps.issues
+        .list(e.repoPath ?? parent.repoPath)
+        .find((w) => w.seq === childSeq)
+      // First line only, capped: the excerpt is agent-authored and belongs in
+      // the comment alone — never in the nudge text.
+      const excerpt = (completionNote(child).split('\n')[0] ?? '').slice(0, 200).trim()
+      this.deps.issues.addComment(parent.id, 'steward', `${marker} ${excerpt}`)
+      posted = true
+    }
+    // Nudge only when something new landed (crash-replayed batches stay silent),
+    // with counts re-read AFTER the comments so a multi-child batch reports the
+    // latest numbers. Same target filter as unblock: no resurrect, no shells.
+    if (!posted || lastChildSeq == null) return
+    const fresh = this.deps.issues.get(parentId)
+    const total = fresh?.childCount ?? 0
+    const remaining = Math.max(0, total - (fresh?.childDoneCount ?? 0))
+    const targets = sessionsForIssue(parent.worktreePath, this.deps.listSessions()).filter(
+      (s) => (s.status === 'live' || s.status === 'starting') && s.agentKind !== 'shell',
+    )
+    for (const s of targets) {
+      this.deps.sendTextWhenReady(
+        s.sessionId,
+        `Child issue #${lastChildSeq} closed — ${remaining} of ${total} children remain. See the steward comment, or run: podium issue prime`,
+      )
     }
   }
 
