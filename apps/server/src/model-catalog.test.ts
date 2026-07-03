@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { ModelCatalog } from './model-catalog'
+import { MODEL_CATALOG_VERSION, ModelCatalog } from './model-catalog'
 
 describe('ModelCatalog (stale-while-revalidate)', () => {
   it('serves empty immediately and refreshes in the background', async () => {
@@ -46,10 +46,11 @@ describe('ModelCatalog (stale-while-revalidate)', () => {
     expect(probe).toHaveBeenCalledTimes(1)
   })
 
-  it('seeds from a persisted snapshot on construction (instant, non-cold first open)', () => {
+  it('seeds from a current-version persisted snapshot (instant, non-cold first open)', () => {
     const persisted = {
       byAgent: { grok: [{ value: 'grok-build', label: 'grok-build' }] },
       fetchedAt: 123,
+      version: MODEL_CATALOG_VERSION,
     }
     const cat = new ModelCatalog(
       vi.fn(async () => ({})),
@@ -59,19 +60,27 @@ describe('ModelCatalog (stale-while-revalidate)', () => {
     expect(cat.get().byAgent.grok?.[0]?.value).toBe('grok-build')
   })
 
-  it('saves each successful refresh so it survives the next restart', async () => {
+  it('discards a stale-shape persisted snapshot (old/absent version) and re-probes', () => {
+    const probe = vi.fn(async () => ({}))
+    // A pre-`efforts` snapshot has no version → must be ignored, not served.
+    const cat = new ModelCatalog(probe, {
+      load: () => ({ byAgent: { grok: [{ value: 'old', label: 'old' }] }, fetchedAt: 123 }),
+    })
+    expect(cat.get().byAgent).toEqual({}) // not seeded from the stale snapshot
+    expect(probe).toHaveBeenCalled() // get() kicked a re-probe
+  })
+
+  it('saves each successful refresh with the current version', async () => {
     const save = vi.fn()
     const cat = new ModelCatalog(
       async () => ({ codex: [{ value: 'gpt-5.5', label: 'GPT-5.5' }] }),
-      {
-        now: () => 42,
-        save,
-      },
+      { now: () => 42, save },
     )
     await cat.refresh()
     expect(save).toHaveBeenCalledWith({
       byAgent: { codex: [{ value: 'gpt-5.5', label: 'GPT-5.5' }] },
       fetchedAt: 42,
+      version: MODEL_CATALOG_VERSION,
     })
   })
 })

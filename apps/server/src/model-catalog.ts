@@ -1,11 +1,18 @@
 import type { ModelChoice } from './model-probe'
 
+/** Bumped whenever the probe's output SHAPE changes (e.g. per-model `efforts` added),
+ *  so a persisted snapshot from an older build is ignored and re-probed instead of
+ *  served stale within its TTL. */
+export const MODEL_CATALOG_VERSION = 2
+
 export interface ModelCatalogSnapshot {
   /** Live models keyed by agent kind (grok/cursor/opencode). Absent agents fall
    *  back to the web's static catalog. */
   byAgent: Record<string, ModelChoice[]>
   /** Epoch ms of the last successful probe; 0 = never fetched yet. */
   fetchedAt: number
+  /** Shape version — a persisted snapshot with a different version is discarded. */
+  version?: number
 }
 
 export type ModelProbe = () => Promise<Record<string, ModelChoice[]>>
@@ -35,8 +42,10 @@ export class ModelCatalog {
       save?: (snapshot: ModelCatalogSnapshot) => void
     } = {},
   ) {
+    // Only seed from a persisted snapshot of the CURRENT shape — an older one (e.g.
+    // pre-`efforts`) is discarded so `get()` re-probes instead of serving it stale.
     const persisted = opts.load?.()
-    if (persisted) this.snapshot = persisted
+    if (persisted && persisted.version === MODEL_CATALOG_VERSION) this.snapshot = persisted
   }
 
   private now(): number {
@@ -61,7 +70,11 @@ export class ModelCatalog {
     if (this.inflight) return this.inflight
     this.inflight = (async () => {
       try {
-        this.snapshot = { byAgent: await this.probe(), fetchedAt: this.now() }
+        this.snapshot = {
+          byAgent: await this.probe(),
+          fetchedAt: this.now(),
+          version: MODEL_CATALOG_VERSION,
+        }
         this.opts.save?.(this.snapshot)
       } catch {
         // keep last-good; isStale() retries on the next get() past the TTL

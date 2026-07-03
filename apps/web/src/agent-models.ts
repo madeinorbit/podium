@@ -142,19 +142,18 @@ function effortLevelLabel(level: string): string {
  * falls back to the agent's known ladder. Empty result = hide the effort picker.
  */
 export function effortOptionsForModel(
-  kind: IssueAgentKind,
+  _kind: IssueAgentKind,
   modelValue: string | null | undefined,
   live?: readonly ModelChoice[],
 ): PropertyOption[] {
   if (!modelValue || modelValue === AUTO) return []
-  const model = live?.find((m) => m.value === modelValue)
-  if (model?.efforts !== undefined) {
-    return model.efforts.length > 0
-      ? withAuto(model.efforts.map((e) => ({ value: e, label: effortLevelLabel(e) })))
-      : []
-  }
-  // No per-model data → the agent's static ladder (empty for cursor → hidden).
-  return AGENT_EFFORTS[kind].length > 0 ? effortOptions(kind) : []
+  // Only offer effort we can confirm for THIS model — claude `capabilities.effort`,
+  // codex `supported_reasoning_levels`. When the source doesn't expose per-model effort
+  // (grok/cursor/opencode, or before the live catalog loads), hide it rather than guess
+  // with an agent-wide ladder that may not apply (e.g. grok composer is non-reasoning).
+  const efforts = live?.find((m) => m.value === modelValue)?.efforts
+  if (!efforts || efforts.length === 0) return []
+  return withAuto(efforts.map((e) => ({ value: e, label: effortLevelLabel(e) })))
 }
 
 /** Display label for a stored model value; checks live models first, falls back to the

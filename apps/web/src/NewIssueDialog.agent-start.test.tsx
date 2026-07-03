@@ -91,26 +91,20 @@ describe('NewIssueDialog agent start selection', () => {
     )
   })
 
-  it('lets you pick a model + effort and passes them to create', async () => {
+  it('lets you pick a model and passes it to create', async () => {
+    // (Effort is per-model and needs the live catalog, so the effort→create wiring is
+    // covered in ModelEffortPicker.live.test.tsx; here we cover model selection.)
     render(<NewIssueDialog onClose={vi.fn()} />)
 
-    // Default agent is Claude Code → its model list (Opus/Sonnet/Haiku) + full effort ladder.
     fireEvent.click(screen.getByRole('button', { name: 'Model' }))
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Opus' }))
-
-    fireEvent.click(screen.getByRole('button', { name: 'Effort' }))
-    fireEvent.click(await screen.findByRole('menuitem', { name: 'High' }))
 
     fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'Tune the model' } })
     fireEvent.click(screen.getByRole('button', { name: 'Create' }))
 
     await waitFor(() =>
       expect(create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          title: 'Tune the model',
-          defaultModel: 'opus',
-          defaultEffort: 'high',
-        }),
+        expect.objectContaining({ title: 'Tune the model', defaultModel: 'opus' }),
       ),
     )
   })

@@ -560,6 +560,7 @@ export class SessionStore {
   getModelCatalog(): {
     byAgent: Record<string, Array<{ value: string; label: string; efforts?: string[] }>>
     fetchedAt: number
+    version?: number
   } | null {
     const row = this.db.prepare('SELECT value FROM meta WHERE key = ?').get('model_catalog') as
       | { value: string }
@@ -573,7 +574,11 @@ export class SessionStore {
     }
   }
 
-  setModelCatalog(snapshot: { byAgent: Record<string, unknown>; fetchedAt: number }): void {
+  setModelCatalog(snapshot: {
+    byAgent: Record<string, unknown>
+    fetchedAt: number
+    version?: number
+  }): void {
     this.db
       .prepare('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)')
       .run('model_catalog', JSON.stringify(snapshot))
