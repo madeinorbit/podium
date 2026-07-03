@@ -307,6 +307,11 @@ export async function startServer(
         // capabilities later: pass a constrained capability instead of OPERATOR.
         const caller = appRouter.createCaller({ registry, repos, superagent, capability: OPERATOR })
         issueTools.setClient(callerAsIssueTrpc(caller))
+        // Bridge the issue tools into the superagent's API tool loop (issue #64):
+        // concierge (and global) threads drive the tracker through the same
+        // in-process OPERATOR caller. Constraining this to an agent capability is
+        // future work (same seam as above).
+        superagent.setIssueTools(issueTools)
         const ws = attachWebSockets(server as unknown as Server, registry, {
           // Same gate as the HTTP guard: open unless a password is set, then require a valid
           // session cookie on the upgrade request.

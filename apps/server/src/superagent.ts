@@ -1,6 +1,7 @@
-import { type TranscriptItem, WorkState } from '@podium/protocol'
+import { type IssueWire, type TranscriptItem, WorkState } from '@podium/protocol'
 import { createIssue, moveIssue, searchIssues } from './linear'
 import { LlmConfigError, type LlmMessage, type LlmTool, llmClient } from './llm'
+import type { McpToolProvider } from './mcp-route'
 import type { SessionRegistry } from './relay'
 import type { RepoRegistry } from './repo-registry'
 import type { SessionStore, SuperagentMessageRow, SuperagentThreadRow } from './store'
@@ -76,6 +77,152 @@ Ground rules:
   or conversations the user picked from a context menu — the parenthesized part is the path/id.
 - When you start an agent, tell the user its session name and where it runs.
 - Destructive actions (killing sessions) only when clearly asked.`
+
+/** Per-repo concierge intake thread (issue #64). One thread per repo path, id
+ *  deterministic + reversible: `concierge_<base64url(repoPath)>`. */
+export function conciergeThreadId(repoPath: string): string {
+  return `concierge_${Buffer.from(repoPath, 'utf8').toString('base64url')}`
+}
+
+export function conciergeRepoPath(threadId: string): string | undefined {
+  if (!threadId.startsWith('concierge_')) return undefined
+  try {
+    return Buffer.from(threadId.slice('concierge_'.length), 'base64url').toString('utf8')
+  } catch {
+    return undefined
+  }
+}
+
+/** Tools that spawn (or lead directly to spawning) an agent session. On concierge
+ *  threads these carry a belt-and-braces `confirmed` arg: the system prompt tells
+ *  the model to set it only after the user explicitly said "go" IN this
+ *  conversation, and the tool refuses without it. The real rule is prompt-level
+ *  (interactive-only, no auto-dispatch); this is a cheap code-level backstop. */
+export const START_CAPABLE_TOOLS = new Set([
+  'start_agent',
+  'issue_start',
+  'issue_add_session',
+  'issue_add_shell',
+])
+export const NOT_CONFIRMED_MSG =
+  'not confirmed — ask the user first. Session-starting tools on this thread require ' +
+  '{"confirmed": true}, which you may pass only after the user explicitly told you to ' +
+  'start in THIS conversation.'
+
+function conciergeSystemPrompt(repoPath: string): string {
+  return `You are the Podium concierge for ${repoPath}. The user types wishes, questions, and status asks here.
+
+Ground rules:
+- SEARCH BEFORE CREATE: run issue_search and issue_find_duplicates first; link to or reuse existing epics/issues instead of creating duplicates.
+- Structure work as an epic with child issues; add blocks-dependencies (issue_dep_add) for sequencing. Write each issue description as a self-contained work brief — it becomes the working agent's first prompt, so it must stand alone.
+- INTERACTIVE-ONLY: NEVER call issue_start (or any session-spawning tool: start_agent, issue_add_session, issue_add_shell) unless the user explicitly confirmed starting in THIS conversation ("start it", "go", "kick it off"). Propose, then wait. Auto-dispatch is deliberately disabled product-wide. When (and only when) the user has explicitly confirmed, pass {"confirmed": true} to the tool.
+- Status questions: answer from the issue tools / list_sessions / recent events; summarize in plain sentences, never dump raw lists unless asked.
+- Always end with: what you did (created/linked issue #s), and what awaits the user's word.`
+}
+
+// ---- concierge seeding ---------------------------------------------------------
+
+export interface ConciergeEvent {
+  ts: string
+  kind: string
+  subject: string
+  payload: unknown
+}
+
+export interface ConciergeSessionInfo {
+  sessionId: string
+  name?: string
+  agentKind?: string
+  phase?: string
+  spawnedBy?: string
+  issueSeq?: number
+}
+
+const issueLine = (i: IssueWire): string => `#${i.seq} ${i.title} P${i.priority}`
+
+function eventLine(e: ConciergeEvent, seqOf: (id: string) => number | undefined): string {
+  const p = (e.payload ?? {}) as Record<string, unknown>
+  const seq = typeof p.seq === 'number' ? p.seq : seqOf(e.subject)
+  const extra =
+    typeof p.title === 'string'
+      ? ` "${p.title}"`
+      : typeof p.question === 'string'
+        ? ` "${p.question}"`
+        : typeof p.reason === 'string'
+          ? ` (${p.reason})`
+          : typeof p.stage === 'string'
+            ? ` → ${p.stage}`
+            : ''
+  return `[${e.ts}] #${seq ?? '?'} ${e.kind.replace(/^issue\./, '')}${extra}`
+}
+
+/**
+ * The opening context for a new concierge thread: a deterministic, zero-LLM
+ * digest of the repo's tracker + sessions. Compact by construction (top-N slices,
+ * one-liners) — well under ~2k tokens.
+ */
+export function buildConciergeSeed(opts: {
+  repoPath: string
+  ready: IssueWire[]
+  blocked: IssueWire[]
+  needsHuman: IssueWire[]
+  all: IssueWire[]
+  sessions: ConciergeSessionInfo[]
+  events: ConciergeEvent[]
+  maxEventId: number
+}): string {
+  const { repoPath, ready, blocked, needsHuman, all, sessions, events } = opts
+  const seqOf = (id: string) => all.find((i) => i.id === id)?.seq
+  const lines: string[] = [
+    '[CONCIERGE CONTEXT]',
+    `Repo: ${repoPath}. Deterministic tracker digest (event cursor ${opts.maxEventId}).`,
+    '',
+    `Ready (${ready.length}):`,
+    ...(ready.length ? ready.slice(0, 10).map((i) => `- ${issueLine(i)}`) : ['- (none)']),
+    ...(ready.length > 10 ? [`- (+${ready.length - 10} more)`] : []),
+    '',
+    `Blocked: ${blocked.length}`,
+    ...blocked.slice(0, 3).map((i) => {
+      const by = i.blockedBy.map((id) => `#${seqOf(id) ?? '?'}`).join(', ')
+      return `- ${issueLine(i)} — blocked by ${by || i.dependencyNote || '?'}`
+    }),
+    '',
+    'Needs human:',
+    ...(needsHuman.length
+      ? needsHuman.map((i) => `- #${i.seq} ${i.humanQuestion ?? '(no question recorded)'}`)
+      : ['- (none)']),
+    '',
+    'Live sessions:',
+    ...(sessions.length
+      ? sessions.map(
+          (s) =>
+            `- ${s.name ?? s.sessionId} · ${s.agentKind ?? '?'} · ${s.phase ?? '?'}` +
+            `${s.spawnedBy ? ` · by ${s.spawnedBy}` : ''}${s.issueSeq != null ? ` · issue #${s.issueSeq}` : ''}`,
+        )
+      : ['- (none)']),
+    '',
+    `Recent issue events (last ${Math.min(events.length, 15)}):`,
+    ...(events.length ? events.slice(-15).map((e) => `- ${eventLine(e, seqOf)}`) : ['- (none)']),
+  ]
+  return lines.join('\n')
+}
+
+/** A re-open update: issue events since the concierge last looked. */
+export function buildConciergeDelta(opts: {
+  prevEventId: number
+  events: ConciergeEvent[]
+  maxEventId: number
+  now: string
+  seqOf?: (id: string) => number | undefined
+}): string {
+  const seqOf = opts.seqOf ?? (() => undefined)
+  return (
+    `[CONCIERGE UPDATE @ ${opts.now}]\n` +
+    `Since you last looked (event ${opts.prevEventId}), ${opts.events.length} issue events:\n` +
+    opts.events.map((e) => `- ${eventLine(e, seqOf)}`).join('\n') +
+    `\nNow caught up to event ${opts.maxEventId}.`
+  )
+}
 
 export interface SuperagentTurn {
   messages: SuperagentMessageRow[]
@@ -245,6 +392,11 @@ export class SuperagentService {
   // Where a harness-backed agent reaches Podium's own tools over MCP. Set by the
   // server once it's listening (it knows its own HTTP port + the access token).
   private mcpEndpoint: { url: string; token: string; allToolNames?: string[] } | undefined
+  // Issue-tracker tools (issue-mcp's IssueToolProvider) bridged into the API tool
+  // loop. Set by the server once the in-process issue client exists. Note: this is
+  // the OPERATOR-authority in-process caller — constraining the concierge to an
+  // agent capability is future work.
+  private issueTools: McpToolProvider | undefined
 
   /** How often wait_for_session re-checks the event log. Injectable for tests. */
   private readonly waitPollMs: number
@@ -264,8 +416,16 @@ export class SuperagentService {
     this.mcpEndpoint = { url, token, ...(allToolNames ? { allToolNames } : {}) }
   }
 
+  /** Bridge the issue tracker's MCP tools into the API tool loop (all API-backed
+   *  threads — the global thread benefits as much as the concierge). */
+  setIssueTools(provider: McpToolProvider): void {
+    this.issueTools = provider
+  }
+
   /** Tool specs exposed over MCP — the same orchestrator tools the API tool-loop
-   *  uses, in MCP's `{name, description, inputSchema}` shape. */
+   *  uses, in MCP's `{name, description, inputSchema}` shape. Excludes the bridged
+   *  issue tools: the MCP surface composes them via CompositeMcpProvider, and
+   *  double-advertising would shadow the issue provider's dispatch. */
   mcpToolSpecs(): Array<{ name: string; description: string; inputSchema: unknown }> {
     return this.tools(this.store.getSettings().integrations.linearApiKey).map((t) => ({
       name: t.spec.name,
@@ -277,10 +437,14 @@ export class SuperagentService {
   /** Run one MCP tool call, returning its text output. `threadId` (when the caller
    *  knows it) sharpens session provenance to 'superagent:<threadId>'; the HTTP MCP
    *  route has no thread context, so it falls back to the bare 'superagent' tag. */
-  async callMcpTool(name: string, args: Record<string, unknown>, threadId?: string): Promise<string> {
-    const tool = this.tools(this.store.getSettings().integrations.linearApiKey, threadId).find(
-      (t) => t.spec.name === name,
-    )
+  async callMcpTool(
+    name: string,
+    args: Record<string, unknown>,
+    threadId?: string,
+  ): Promise<string> {
+    const tool = this.tools(this.store.getSettings().integrations.linearApiKey, threadId, {
+      issueBelt: true,
+    }).find((t) => t.spec.name === name)
     if (!tool) throw new Error(`unknown tool: ${name}`)
     return tool.run(args as Args)
   }
@@ -390,6 +554,109 @@ export class SuperagentService {
   }
 
   /**
+   * The per-repo concierge intake (issue #64): ensure the repo's thread exists
+   * (seeding a deterministic tracker digest on first open, or a delta of issue
+   * events on re-open after a gap), then run the user's message through the
+   * normal tool loop. One thread per repo, ever — the id is derived from the path.
+   */
+  async concierge({
+    repoPath,
+    text,
+  }: {
+    repoPath: string
+    text: string
+  }): Promise<SuperagentTurn & { threadId: string; isNew: boolean }> {
+    const threadId = conciergeThreadId(repoPath)
+    const existing = this.store.getSuperagentThread(threadId)
+    const maxEventId = this.store.maxEventId()
+    let isNew = false
+    return this.withLock(threadId, async () => {
+      const newMessages: SuperagentMessageRow[] = []
+      if (existing?.kind !== 'concierge') {
+        isNew = true
+        this.store.upsertSuperagentThread({
+          id: threadId,
+          kind: 'concierge',
+          repoPath,
+          title: `concierge · ${repoPath.split('/').pop() ?? repoPath}`,
+        })
+        const seed = buildConciergeSeed({ ...this.conciergeDigest(repoPath), maxEventId })
+        newMessages.push(
+          this.store.appendSuperagentMessage(threadId, { role: 'user', content: seed }),
+        )
+        this.store.setThreadWatermark(threadId, String(maxEventId), new Date().toISOString())
+      } else {
+        const prevEventId = Number(existing.watermarkItemId ?? '0') || 0
+        const events = this.issueEventsSince(prevEventId, repoPath)
+        if (events.length > 0) {
+          const all = this.registry.issues.list(repoPath)
+          const update = buildConciergeDelta({
+            prevEventId,
+            events,
+            maxEventId,
+            now: new Date().toISOString(),
+            seqOf: (id) => all.find((i) => i.id === id)?.seq,
+          })
+          newMessages.push(
+            this.store.appendSuperagentMessage(threadId, { role: 'user', content: update }),
+          )
+          this.store.setThreadWatermark(threadId, String(maxEventId), new Date().toISOString())
+        }
+      }
+      newMessages.push(
+        this.store.appendSuperagentMessage(threadId, { role: 'user', content: text }),
+      )
+      const turn = await this.generate(threadId, text, newMessages)
+      return { ...turn, threadId, isNew }
+    })
+  }
+
+  /** Zero-LLM repo digest inputs: tracker slices + live sessions bound to the repo. */
+  private conciergeDigest(
+    repoPath: string,
+  ): Omit<Parameters<typeof buildConciergeSeed>[0], 'maxEventId'> {
+    const issues = this.registry.issues
+    const all = issues.list(repoPath)
+    const byWorktree = new Map(all.filter((i) => i.worktreePath).map((i) => [i.worktreePath, i]))
+    const sessions: ConciergeSessionInfo[] = this.registry
+      .listSessions()
+      .filter(
+        (s) =>
+          s.status !== 'exited' &&
+          !s.archived &&
+          (s.cwd === repoPath || s.cwd?.startsWith(`${repoPath}/`) || byWorktree.has(s.cwd)),
+      )
+      .map((s) => {
+        const bound = byWorktree.get(s.cwd)
+        return {
+          sessionId: s.sessionId,
+          name: s.name ?? s.title,
+          agentKind: s.agentKind,
+          phase: s.agentState?.phase ?? 'unknown',
+          spawnedBy: s.spawnedBy,
+          ...(bound ? { issueSeq: bound.seq } : {}),
+        }
+      })
+    return {
+      repoPath,
+      ready: issues.readyList(repoPath),
+      blocked: issues.blockedList(repoPath),
+      needsHuman: all.filter((i) => i.needsHuman),
+      all,
+      sessions,
+      events: this.issueEventsSince(0, repoPath),
+    }
+  }
+
+  /** issue.* rows of the durable event log for one repo, after a cursor. */
+  private issueEventsSince(sinceId: number, repoPath: string): ConciergeEvent[] {
+    return this.store
+      .listEventsSince(sinceId, { repoPath, limit: 500 })
+      .filter((e) => e.kind.startsWith('issue.'))
+      .map((e) => ({ ts: e.ts, kind: e.kind, subject: e.subject, payload: e.payload }))
+  }
+
+  /**
    * Run the backend over the thread's current history (the latest user message is
    * already persisted) and record the assistant/tool turns. Returns this turn's
    * new messages.
@@ -401,6 +668,13 @@ export class SuperagentService {
   ): Promise<SuperagentTurn> {
     const settings = this.store.getSettings()
     const backend = settings.superagent
+    // Concierge threads get the repo-scoped intake prompt; everything else the
+    // orchestrator prompt.
+    const thread = this.store.getSuperagentThread(threadId)
+    const systemPrompt =
+      thread?.kind === 'concierge'
+        ? conciergeSystemPrompt(thread.repoPath ?? conciergeRepoPath(threadId) ?? '?')
+        : SYSTEM_PROMPT
     const record = (m: Omit<SuperagentMessageRow, 'id' | 'createdAt'>): SuperagentMessageRow => {
       const saved = this.store.appendSuperagentMessage(threadId, m)
       newMessages.push(saved)
@@ -436,7 +710,7 @@ export class SuperagentService {
         agent: backend.harnessAgent,
         model: backend.harnessModel,
         prompt,
-        systemPrompt: SYSTEM_PROMPT,
+        systemPrompt,
         ...(mcp ?? {}),
       })
       record({
@@ -462,9 +736,9 @@ export class SuperagentService {
       return { messages: newMessages, backendLabel: 'unconfigured' }
     }
 
-    const tools = this.tools(settings.integrations.linearApiKey, threadId)
+    const tools = this.tools(settings.integrations.linearApiKey, threadId, { issueBelt: true })
     const messages: LlmMessage[] = [
-      { role: 'system', content: SYSTEM_PROMPT },
+      { role: 'system', content: systemPrompt },
       ...this.historyAsLlm(threadId),
     ]
 
@@ -560,6 +834,7 @@ export class SuperagentService {
   private tools(
     linearKey: string,
     threadId?: string,
+    opts?: { issueBelt?: boolean },
   ): { spec: LlmTool; run: (args: Args) => Promise<string> }[] {
     const registry = this.registry
     const repos = this.repos
@@ -669,7 +944,9 @@ export class SuperagentService {
                 agentKind,
                 ...(spawned
                   ? {}
-                  : { note: 'issue started; its session is still registering — list_sessions to find it' }),
+                  : {
+                      note: 'issue started; its session is still registering — list_sessions to find it',
+                    }),
               })
             }
           }
@@ -839,9 +1116,7 @@ export class SuperagentService {
           const sessionId = str(args.sessionId) ?? ''
           if (!getSession(sessionId)) return 'unknown session'
           const r = registry.continueSession({ sessionId })
-          return r.ok
-            ? 'sent continue'
-            : 'failed: session must be running and in the errored phase'
+          return r.ok ? 'sent continue' : 'failed: session must be running and in the errored phase'
         },
       },
       {
@@ -1184,6 +1459,50 @@ export class SuperagentService {
             ),
         },
       )
+    }
+    // Issue tracker tools bridged from the MCP provider (issue #64): all API-backed
+    // threads get them (the global thread benefits as much as the concierge), and
+    // execution goes through the same callMcpTool path as the MCP surface, so
+    // behavior is identical. Skipped for mcpToolSpecs (the composite MCP provider
+    // already advertises them).
+    if (opts?.issueBelt && this.issueTools) {
+      const issueProvider = this.issueTools
+      for (const spec of issueProvider.mcpToolSpecs()) {
+        tools.push({
+          spec: {
+            name: spec.name,
+            description: spec.description,
+            parameters: spec.inputSchema as Record<string, unknown>,
+          },
+          run: (args) => issueProvider.callMcpTool(spec.name, args),
+        })
+      }
+    }
+    // Belt-and-braces on concierge threads: session-spawning tools require an
+    // explicit confirmed:true (the prompt-level interactive-only rule is the real
+    // gate; this backstop makes a stray model call fail closed instead of
+    // spawning). `confirmed` is stripped before the underlying tool runs.
+    if (threadId?.startsWith('concierge_')) {
+      for (const t of tools) {
+        if (!START_CAPABLE_TOOLS.has(t.spec.name)) continue
+        const inner = t.run
+        const params = t.spec.parameters as {
+          properties?: Record<string, unknown>
+        }
+        params.properties = {
+          ...(params.properties ?? {}),
+          confirmed: {
+            type: 'boolean',
+            description:
+              'REQUIRED true — pass only after the user explicitly confirmed starting in this conversation.',
+          },
+        }
+        t.run = async (args) => {
+          if (args.confirmed !== true) return NOT_CONFIRMED_MSG
+          const { confirmed: _confirmed, ...rest } = args
+          return inner(rest)
+        }
+      }
     }
     return tools
   }
