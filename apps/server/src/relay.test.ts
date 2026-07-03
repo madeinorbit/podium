@@ -593,6 +593,7 @@ describe('SessionRegistry', () => {
       sessionId,
       resume: { kind: 'codex-thread', value: 'thread-1' },
     })
+    reg.flushBroadcasts() // createSession's broadcast armed the coalescer — run the pending pipeline
 
     const pushed = c.sent.filter(
       (m): m is Extract<ServerMessage, { type: 'sessionsChanged' }> => m.type === 'sessionsChanged',
@@ -1560,7 +1561,12 @@ describe('queueText drain (resume/spawn readiness — #5b, durable queue)', () =
       // The TUI is still drawing: an output frame every poll for ~2s.
       let seq = 0
       for (let i = 0; i < 10; i += 1) {
-        reg.onDaemonMessageFrom('local', { type: 'agentFrame', sessionId, seq: seq++, data: 'eA==' })
+        reg.onDaemonMessageFrom('local', {
+          type: 'agentFrame',
+          sessionId,
+          seq: seq++,
+          data: 'eA==',
+        })
         vi.advanceTimersByTime(200)
       }
       // Output is still recent → NOT delivered (this is what the fix prevents:

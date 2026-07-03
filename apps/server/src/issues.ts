@@ -1,13 +1,27 @@
 import { randomUUID } from 'node:crypto'
 import type { PodiumSettings } from '@podium/core'
-import { type DoctorReport, type DuplicateCandidate, type EpicStatus, type IssueCount, type IssueGraph, type IssueSearchFilter, type IssueStats, type IssueWire, type LintFinding, type OrphanIssue, type RepoOp, type ServerMessage, type SessionMeta } from '@podium/protocol'
-import { jaccard, tokenize } from './issue-similarity'
+import type {
+  DoctorReport,
+  DuplicateCandidate,
+  EpicStatus,
+  IssueCount,
+  IssueGraph,
+  IssueSearchFilter,
+  IssueStats,
+  IssueWire,
+  LintFinding,
+  OrphanIssue,
+  RepoOp,
+  ServerMessage,
+  SessionMeta,
+} from '@podium/protocol'
 import { lintIssue } from './issue-lint'
+import { jaccard, tokenize } from './issue-similarity'
 import { isMemberCwd, sessionsForIssue, slugifyBranch, summarizeSessions } from './issue-util'
-import type { IssueRow, SessionStore } from './store'
 import { buildAssistantMessages, parseAssistantJson } from './issueAssistant'
-import { llmClient } from './llm'
 import { type LinearIssue, searchIssues } from './linear'
+import { llmClient } from './llm'
+import type { IssueRow, SessionStore } from './store'
 
 export interface IssueDeps {
   store: SessionStore
@@ -25,7 +39,11 @@ export interface IssueDeps {
     initialPrompt?: string
     spawnedBy?: string
   }): { sessionId: string }
-  repoOp(op: RepoOp, cwd: string, args?: Record<string, string>): Promise<{ ok: boolean; output: string }>
+  repoOp(
+    op: RepoOp,
+    cwd: string,
+    args?: Record<string, string>,
+  ): Promise<{ ok: boolean; output: string }>
   broadcast(msg: ServerMessage): void
   now?(): string
   defaultRepoBranch?(repoPath: string): Promise<string>
@@ -92,8 +110,12 @@ export class IssueService {
       })
   }
 
-  toWire(row: IssueRow): IssueWire {
-    const sessions = sessionsForIssue(row.worktreePath, this.deps.listSessions())
+  /** Serialize one issue. `sessionList` lets multi-issue serializers (list/allWire/
+   *  search/stats/…) compute the session list ONCE and share it — per-issue
+   *  `deps.listSessions()` calls were the boot-storm hot path (66 sessions × 60
+   *  issues per broadcast). Omitting it (single-issue paths) fetches a fresh list. */
+  toWire(row: IssueRow, sessionList: SessionMeta[] = this.deps.listSessions()): IssueWire {
+    const sessions = sessionsForIssue(row.worktreePath, sessionList)
     const labels = this.deps.store.getIssueLabels(row.id)
     const deps = this.deps.store.listIssueDeps(row.id).map((d) => ({ id: d.toId, type: d.type }))
     const dependents = this.deps.store
@@ -105,10 +127,18 @@ export class IssueService {
     const deferred = this.isDeferred(row)
     const ready = !this.isClosed(row) && !deferred && !blocked
     return {
-      id: row.id, repoPath: row.repoPath, seq: row.seq, title: row.title, description: row.description,
-      stage: row.stage as IssueWire['stage'], worktreePath: row.worktreePath, branch: row.branch,
-      parentBranch: row.parentBranch, defaultAgent: row.defaultAgent,
-      defaultModel: row.defaultModel, defaultEffort: row.defaultEffort,
+      id: row.id,
+      repoPath: row.repoPath,
+      seq: row.seq,
+      title: row.title,
+      description: row.description,
+      stage: row.stage as IssueWire['stage'],
+      worktreePath: row.worktreePath,
+      branch: row.branch,
+      parentBranch: row.parentBranch,
+      defaultAgent: row.defaultAgent,
+      defaultModel: row.defaultModel,
+      defaultEffort: row.defaultEffort,
       ...(row.linearId ? { linearId: row.linearId } : {}),
       ...(row.linearIdentifier ? { linearIdentifier: row.linearIdentifier } : {}),
       ...(row.linearUrl ? { linearUrl: row.linearUrl } : {}),
@@ -119,7 +149,9 @@ export class IssueService {
       blockedBy: row.blockedBy,
       ...(row.dependencyNote ? { dependencyNote: row.dependencyNote } : {}),
       ...(row.prUrl ? { prUrl: row.prUrl } : {}),
-      priority: row.priority, type: row.type as IssueWire['type'], pinned: row.pinned,
+      priority: row.priority,
+      type: row.type as IssueWire['type'],
+      pinned: row.pinned,
       needsHuman: row.needsHuman,
       ...(row.humanQuestion ? { humanQuestion: row.humanQuestion } : {}),
       ...(row.supersededBy ? { supersededBy: row.supersededBy } : {}),
@@ -133,45 +165,64 @@ export class IssueService {
       ...(row.deferUntil ? { deferUntil: row.deferUntil } : {}),
       ...(row.closedReason ? { closedReason: row.closedReason } : {}),
       ...(row.estimateMin != null ? { estimateMin: row.estimateMin } : {}),
-      labels, deps, dependents, comments,
-      ready, blocked, deferred,
+      labels,
+      deps,
+      dependents,
+      comments,
+      ready,
+      blocked,
+      deferred,
       childCount: children.length,
       childDoneCount: children.filter((c) => this.isClosed(c)).length,
-      createdAt: row.createdAt, updatedAt: row.updatedAt, archived: row.archived,
-      sessions, sessionSummary: summarizeSessions(sessions),
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+      archived: row.archived,
+      sessions,
+      sessionSummary: summarizeSessions(sessions),
     }
   }
 
   list(repoPath?: string): IssueWire[] {
+    const sessionList = this.deps.listSessions()
     return [...this.rows.values()]
       .filter((r) => !repoPath || r.repoPath === repoPath)
-      .sort((a, b) => (a.repoPath === b.repoPath ? a.seq - b.seq : a.repoPath.localeCompare(b.repoPath)))
-      .map((r) => this.toWire(r))
+      .sort((a, b) =>
+        a.repoPath === b.repoPath ? a.seq - b.seq : a.repoPath.localeCompare(b.repoPath),
+      )
+      .map((r) => this.toWire(r, sessionList))
   }
   readyList(repoPath?: string): IssueWire[] {
+    const sessionList = this.deps.listSessions()
     return [...this.rows.values()]
       .filter((r) => !repoPath || r.repoPath === repoPath)
-      .map((r) => this.toWire(r))
+      .map((r) => this.toWire(r, sessionList))
       .filter((w) => w.ready)
       .sort((a, b) => (a.priority !== b.priority ? a.priority - b.priority : a.seq - b.seq))
   }
 
   blockedList(repoPath?: string): IssueWire[] {
+    const sessionList = this.deps.listSessions()
     return [...this.rows.values()]
       .filter((r) => !repoPath || r.repoPath === repoPath)
-      .map((r) => this.toWire(r))
+      .map((r) => this.toWire(r, sessionList))
       .filter((w) => w.blocked)
       .sort((a, b) => (a.priority !== b.priority ? a.priority - b.priority : a.seq - b.seq))
   }
 
   graph(repoPath?: string): IssueGraph {
     const rows = [...this.rows.values()].filter((r) => !repoPath || r.repoPath === repoPath)
+    const sessionList = this.deps.listSessions()
     const nodes = rows.map((r) => {
-      const w = this.toWire(r)
+      const w = this.toWire(r, sessionList)
       return {
-        id: r.id, seq: r.seq, title: r.title, stage: r.stage as IssueGraph['nodes'][number]['stage'],
-        priority: r.priority, type: r.type as IssueGraph['nodes'][number]['type'],
-        ready: w.ready, blocked: w.blocked,
+        id: r.id,
+        seq: r.seq,
+        title: r.title,
+        stage: r.stage as IssueGraph['nodes'][number]['stage'],
+        priority: r.priority,
+        type: r.type as IssueGraph['nodes'][number]['type'],
+        ready: w.ready,
+        blocked: w.blocked,
       }
     })
     const edges = rows.flatMap((r) =>
@@ -185,16 +236,21 @@ export class IssueService {
     const children = [...this.rows.values()].filter((r) => r.parentId === row.id)
     const childDoneCount = children.filter((c) => this.isClosed(c)).length
     return {
-      id: row.id, childCount: children.length, childDoneCount,
+      id: row.id,
+      childCount: children.length,
+      childDoneCount,
       complete: children.length > 0 && childDoneCount === children.length,
     }
   }
 
   closeEligibleEpics(repoPath?: string): IssueWire[] {
+    const sessionList = this.deps.listSessions()
     return [...this.rows.values()]
-      .filter((r) => (!repoPath || r.repoPath === repoPath) && r.type === 'epic' && !this.isClosed(r))
+      .filter(
+        (r) => (!repoPath || r.repoPath === repoPath) && r.type === 'epic' && !this.isClosed(r),
+      )
       .filter((r) => this.epicStatus(r.id).complete)
-      .map((r) => this.toWire(r))
+      .map((r) => this.toWire(r, sessionList))
   }
 
   /** Mechanical (Jaccard) duplicate detection over open issues in a repo.
@@ -221,11 +277,12 @@ export class IssueService {
    *  oldest-first. `nowMs` is injectable so tests can pin "now". */
   staleList(repoPath?: string, days = 30, nowMs = Date.now()): IssueWire[] {
     const cutoff = nowMs - days * 24 * 60 * 60 * 1000
+    const sessionList = this.deps.listSessions()
     return [...this.rows.values()]
       .filter((r) => (!repoPath || r.repoPath === repoPath) && !this.isClosed(r))
       .filter((r) => Date.parse(r.updatedAt) < cutoff)
       .sort((a, b) => Date.parse(a.updatedAt) - Date.parse(b.updatedAt))
-      .map((r) => this.toWire(r))
+      .map((r) => this.toWire(r, sessionList))
   }
 
   /** Open issues with ≥1 template-completeness finding (see `lintIssue`). */
@@ -266,7 +323,8 @@ export class IssueService {
     }
     for (const r of rows) if (!colour.get(r.id)) visit(r.id)
     return {
-      cycles, danglingDeps,
+      cycles,
+      danglingDeps,
       lintCount: this.lint(repoPath).length,
       staleCount: this.staleList(repoPath).length,
     }
@@ -295,9 +353,10 @@ export class IssueService {
 
   search(filter: IssueSearchFilter): IssueWire[] {
     const text = filter.text?.toLowerCase()
+    const sessionList = this.deps.listSessions()
     return [...this.rows.values()]
       .filter((r) => !filter.repoPath || r.repoPath === filter.repoPath)
-      .map((r) => this.toWire(r))
+      .map((r) => this.toWire(r, sessionList))
       .filter((w) => {
         if (filter.stage && w.stage !== filter.stage) return false
         if (filter.priority != null && w.priority !== filter.priority) return false
@@ -335,12 +394,15 @@ export class IssueService {
   }
 
   stats(repoPath?: string): IssueStats {
+    const sessionList = this.deps.listSessions()
     const wires = [...this.rows.values()]
       .filter((r) => !repoPath || r.repoPath === repoPath)
-      .map((r) => this.toWire(r))
+      .map((r) => this.toWire(r, sessionList))
     const closed = wires.filter((w) => w.stage === 'done' || w.closedReason).length
     return {
-      total: wires.length, closed, open: wires.length - closed,
+      total: wires.length,
+      closed,
+      open: wires.length - closed,
       ready: wires.filter((w) => w.ready).length,
       blocked: wires.filter((w) => w.blocked).length,
       deferred: wires.filter((w) => w.deferred).length,
@@ -417,7 +479,9 @@ export class IssueService {
           `You are working on #${me.seq}: ${me.title}`,
           me.acceptance ? `Acceptance: ${me.acceptance}` : null,
           me.parentId ? `Parent epic: #${parent?.seq ?? me.parentId}` : null,
-          kids.length ? `Open children:\n${kids.map((k) => `  - #${k.seq} ${k.title}`).join('\n')}` : null,
+          kids.length
+            ? `Open children:\n${kids.map((k) => `  - #${k.seq} ${k.title}`).join('\n')}`
+            : null,
           blockers.length ? `Blocked by: ${blockers.join(', ')}` : null,
           '',
           ...rules,
@@ -458,12 +522,13 @@ export class IssueService {
    *  read error in this fanout must not make the succeeded mutation look failed. */
   private emitReadyAfterClose(closed: IssueRow): void {
     try {
+      const sessionList = this.deps.listSessions()
       for (const r of this.rows.values()) {
         if (r.id === closed.id || r.repoPath !== closed.repoPath || this.isClosed(r)) continue
         const blocksClosed = this.deps.store
           .listIssueDeps(r.id)
           .some((d) => d.type === 'blocks' && d.toId === closed.id)
-        if (blocksClosed && this.toWire(r).ready) {
+        if (blocksClosed && this.toWire(r, sessionList).ready) {
           this.emitEvent('issue.ready', r.id, { seq: r.seq, unblockedBy: closed.seq })
         }
       }
@@ -484,20 +549,50 @@ export class IssueService {
     const seq = this.deps.store.nextIssueSeq(input.repoPath)
     const ts = this.now()
     const row: IssueRow = {
-      id: `iss_${randomUUID()}`, repoPath: input.repoPath, seq, title: input.title,
-      description: input.description ?? '', stage: 'backlog', worktreePath: null, branch: null,
-      parentBranch: input.parentBranch || this.deps.getSettings().gitWorkflow.defaultParentBranch || 'main',
-      defaultAgent: input.defaultAgent || this.deps.getSettings().sessionDefaults.agent || 'claude-code',
+      id: `iss_${randomUUID()}`,
+      repoPath: input.repoPath,
+      seq,
+      title: input.title,
+      description: input.description ?? '',
+      stage: 'backlog',
+      worktreePath: null,
+      branch: null,
+      parentBranch:
+        input.parentBranch || this.deps.getSettings().gitWorkflow.defaultParentBranch || 'main',
+      defaultAgent:
+        input.defaultAgent || this.deps.getSettings().sessionDefaults.agent || 'claude-code',
       defaultModel: input.defaultModel || this.deps.getSettings().sessionDefaults.model || 'auto',
-      defaultEffort: input.defaultEffort || this.deps.getSettings().sessionDefaults.effort || 'auto',
-      linearId: input.linear?.id ?? null, linearIdentifier: input.linear?.identifier ?? null,
-      linearUrl: input.linear?.url ?? null, activityNotes: null, notesUpdatedAt: null,
-      suggestedStage: null, suggestedReason: null, blockedBy: [], dependencyNote: null, prUrl: null,
-      priority: 2, type: 'task', assignee: null, parentId: null, design: null, acceptance: null,
-      notes: null, dueAt: null, deferUntil: null, closedReason: null, supersededBy: null,
-      duplicateOf: null, pinned: false, estimateMin: null,
-      needsHuman: false, humanQuestion: null,
-      createdAt: ts, updatedAt: ts, archived: false,
+      defaultEffort:
+        input.defaultEffort || this.deps.getSettings().sessionDefaults.effort || 'auto',
+      linearId: input.linear?.id ?? null,
+      linearIdentifier: input.linear?.identifier ?? null,
+      linearUrl: input.linear?.url ?? null,
+      activityNotes: null,
+      notesUpdatedAt: null,
+      suggestedStage: null,
+      suggestedReason: null,
+      blockedBy: [],
+      dependencyNote: null,
+      prUrl: null,
+      priority: 2,
+      type: 'task',
+      assignee: null,
+      parentId: null,
+      design: null,
+      acceptance: null,
+      notes: null,
+      dueAt: null,
+      deferUntil: null,
+      closedReason: null,
+      supersededBy: null,
+      duplicateOf: null,
+      pinned: false,
+      estimateMin: null,
+      needsHuman: false,
+      humanQuestion: null,
+      createdAt: ts,
+      updatedAt: ts,
+      archived: false,
     }
     if (input.priority != null) row.priority = input.priority
     if (input.type) row.type = input.type
@@ -511,12 +606,40 @@ export class IssueService {
     return wire
   }
 
-  update(id: string, patch: Partial<Pick<IssueRow,
-    'title' | 'description' | 'stage' | 'worktreePath' | 'branch' | 'parentBranch' | 'defaultAgent'
-    | 'defaultModel' | 'defaultEffort'
-    | 'archived' | 'priority' | 'type' | 'assignee' | 'parentId' | 'design' | 'acceptance'
-    | 'notes' | 'dueAt' | 'deferUntil' | 'closedReason' | 'supersededBy' | 'duplicateOf'
-    | 'pinned' | 'estimateMin' | 'needsHuman' | 'humanQuestion'>>): IssueWire {
+  update(
+    id: string,
+    patch: Partial<
+      Pick<
+        IssueRow,
+        | 'title'
+        | 'description'
+        | 'stage'
+        | 'worktreePath'
+        | 'branch'
+        | 'parentBranch'
+        | 'defaultAgent'
+        | 'defaultModel'
+        | 'defaultEffort'
+        | 'archived'
+        | 'priority'
+        | 'type'
+        | 'assignee'
+        | 'parentId'
+        | 'design'
+        | 'acceptance'
+        | 'notes'
+        | 'dueAt'
+        | 'deferUntil'
+        | 'closedReason'
+        | 'supersededBy'
+        | 'duplicateOf'
+        | 'pinned'
+        | 'estimateMin'
+        | 'needsHuman'
+        | 'humanQuestion'
+      >
+    >,
+  ): IssueWire {
     const row = this.rows.get(this.resolveRef(id))
     if (!row) throw new Error(`unknown issue ${id}`)
     const prevStage = row.stage
@@ -573,7 +696,11 @@ export class IssueService {
     id = this.resolveRef(id)
     const row = this.rowOrThrow(id)
     this.deps.store.addIssueComment({
-      id: `cmt_${randomUUID()}`, issueId: id, author, body, createdAt: this.now(),
+      id: `cmt_${randomUUID()}`,
+      issueId: id,
+      author,
+      body,
+      createdAt: this.now(),
     })
     return this.persist(row)
   }
@@ -616,7 +743,8 @@ export class IssueService {
     // parent-child is owned exclusively by reparent/setParent. Reject an explicit
     // parent-child removal, and on the bulk (no-type) path delete only non-parent-child
     // edges so the hierarchy edge is never silently dropped out from under the column.
-    if (type === 'parent-child') throw new Error('parent-child is managed by reparent, not removeDep')
+    if (type === 'parent-child')
+      throw new Error('parent-child is managed by reparent, not removeDep')
     fromId = this.resolveRef(fromId)
     toId = this.resolveRef(toId)
     const row = this.rowOrThrow(fromId)
@@ -729,7 +857,11 @@ export class IssueService {
     if (agentKind) row.defaultAgent = agentKind
     const branch = this.slug(row.seq, row.title)
     const path = this.worktreePathFor(row.repoPath, branch)
-    const res = await this.d.repoOp('worktreeAdd', row.repoPath, { path, branch, startPoint: row.parentBranch })
+    const res = await this.d.repoOp('worktreeAdd', row.repoPath, {
+      path,
+      branch,
+      startPoint: row.parentBranch,
+    })
     if (!res.ok) throw new Error(`worktree add failed: ${res.output}`)
     row.branch = branch
     row.worktreePath = path
@@ -760,7 +892,10 @@ export class IssueService {
     return input.startNow ? this.start(created.id) : created
   }
 
-  async action(id: string, kind: 'rebase' | 'pr' | 'merge'): Promise<{ ok: boolean; output: string; issue: IssueWire }> {
+  async action(
+    id: string,
+    kind: 'rebase' | 'pr' | 'merge',
+  ): Promise<{ ok: boolean; output: string; issue: IssueWire }> {
     const row = this.rowOrThrow(id)
     if (!row.worktreePath || !row.branch) throw new Error('issue not started')
     const gw = this.d.getSettings().gitWorkflow
@@ -769,7 +904,10 @@ export class IssueService {
       return { ...r, issue: this.toWire(row) }
     }
     if (kind === 'pr') {
-      const r = await this.d.repoOp('prCreate', row.worktreePath, { branch: row.branch, parentBranch: row.parentBranch })
+      const r = await this.d.repoOp('prCreate', row.worktreePath, {
+        branch: row.branch,
+        parentBranch: row.parentBranch,
+      })
       if (r.ok) {
         const url = r.output.match(/https?:\/\/\S+/)?.[0]
         if (url) row.prUrl = url
@@ -863,7 +1001,9 @@ export class IssueService {
     const sess = this.d.listSessions().find((s) => s.sessionId === sessionId)
     if (!sess) return
     const row = [...this.rows.values()].find(
-      (r) => r.worktreePath && (sess.cwd === r.worktreePath || sess.cwd.startsWith(`${r.worktreePath}/`)),
+      (r) =>
+        r.worktreePath &&
+        (sess.cwd === r.worktreePath || sess.cwd.startsWith(`${r.worktreePath}/`)),
     )
     if (!row) return
     const prev = this.assistantTimers.get(row.id)

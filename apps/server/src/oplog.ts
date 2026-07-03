@@ -19,20 +19,55 @@ import type { SessionStore } from './store'
 export class MetadataOplog {
   /** entity -> id -> serialized wire JSON of the last recorded state. */
   private readonly last = new Map<MetadataEntityKind, Map<string, string>>()
+  /** Conversation id -> stable-field projection JSON of the last recorded state
+   *  (see conversationProjection) — the change-detection key for that entity. */
+  private readonly lastConvProjection = new Map<string, string>()
   private appendsSincePrune = 0
 
-  /** Retention (spec §2.1): keep 20k rows or 14 days, whichever window is larger. */
+  /** Retention: keep the newest 20k rows, and nothing older than 3 days —
+   *  whichever budget deletes more (store.pruneChanges, head-only). */
   static readonly KEEP_ROWS = 20_000
-  static readonly MAX_AGE_MS = 14 * 24 * 60 * 60 * 1000
+  static readonly MAX_AGE_MS = 3 * 24 * 60 * 60 * 1000
   private static readonly PRUNE_EVERY = 64
+
+  /** Conversation fields that churn on every discovery scan (activity bumps) —
+   *  EXCLUDED from change detection so a scan storm doesn't re-record the full
+   *  payload per conversation per scan. Staleness tradeoff: delta clients see
+   *  these refresh only when a stable field also changes, or on their next
+   *  reconnect snapshot — acceptable for advisory recency/count hints. */
+  private static conversationProjection(value: unknown): string {
+    const {
+      updatedAt: _updatedAt,
+      messageCount: _messageCount,
+      statusHint: _statusHint,
+      ...stable
+    } = value as Record<string, unknown>
+    return JSON.stringify(stable)
+  }
 
   constructor(
     private readonly store: SessionStore,
     private readonly now: () => number = Date.now,
   ) {
+    // Boot prune BEFORE folding the log: a table bloated by an old retention
+    // policy (or a long outage) self-heals on deploy instead of waiting for the
+    // PRUNE_EVERY appends, and the baseline fold below reads fewer rows.
+    store.pruneChanges({
+      keepRows: MetadataOplog.KEEP_ROWS,
+      maxAgeMs: MetadataOplog.MAX_AGE_MS,
+      now: this.now(),
+    })
     for (const row of store.latestChangeStates()) {
       if (row.op !== 'upsert' || row.payload == null) continue
       this.byEntity(row.entity as MetadataEntityKind).set(row.entityId, row.payload)
+      if (row.entity === 'conversation') {
+        try {
+          this.lastConvProjection.set(
+            row.entityId,
+            MetadataOplog.conversationProjection(JSON.parse(row.payload)),
+          )
+        } catch {} // corrupt payload -> no baseline; first record() re-upserts it
+      }
     }
   }
 
@@ -67,11 +102,24 @@ export class MetadataOplog {
       payload: string | null
     }[] = []
     const values = new Map<string, unknown>()
+    // Conversations diff on a projection EXCLUDING volatile fields (updatedAt /
+    // messageCount / statusHint): scan-driven activity bumps re-shipped the FULL
+    // payload per conversation per scan (81MB/day of oplog churn). The durable
+    // payload stays the full wire value — only change DETECTION is projected.
+    const nextProjection = entity === 'conversation' ? new Map<string, string>() : null
     for (const { id, value } of list) {
       const json = JSON.stringify(value)
       next.set(id, json)
       values.set(id, value)
-      if (prev.get(id) !== json) rows.push({ entity, entityId: id, op: 'upsert', payload: json })
+      let changed: boolean
+      if (nextProjection) {
+        const projection = MetadataOplog.conversationProjection(value)
+        nextProjection.set(id, projection)
+        changed = this.lastConvProjection.get(id) !== projection
+      } else {
+        changed = prev.get(id) !== json
+      }
+      if (changed) rows.push({ entity, entityId: id, op: 'upsert', payload: json })
     }
     for (const id of prev.keys()) {
       if (!next.has(id)) rows.push({ entity, entityId: id, op: 'remove', payload: null })
@@ -81,8 +129,15 @@ export class MetadataOplog {
     // Update the baseline only after the append committed — a throw above must not
     // desync the in-memory state from the durable log.
     for (const row of rows) {
-      if (row.op === 'upsert') prev.set(row.entityId, row.payload as string)
-      else prev.delete(row.entityId)
+      if (row.op === 'upsert') {
+        prev.set(row.entityId, row.payload as string)
+        if (nextProjection) {
+          this.lastConvProjection.set(row.entityId, nextProjection.get(row.entityId) as string)
+        }
+      } else {
+        prev.delete(row.entityId)
+        if (nextProjection) this.lastConvProjection.delete(row.entityId)
+      }
     }
     if (++this.appendsSincePrune >= MetadataOplog.PRUNE_EVERY) {
       this.appendsSincePrune = 0

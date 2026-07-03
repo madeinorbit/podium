@@ -223,6 +223,7 @@ describe('queueText (durable outbox sends)', () => {
     const before = inbox.length
 
     reg.queueText({ sessionId, text: 'queued-while-parked' })
+    reg.flushBroadcasts() // earlier setup broadcasts armed the coalescer — run the pending pipeline
 
     const changes = inbox
       .slice(before)

@@ -39,6 +39,10 @@ export function sdNotify(state: string): void {
 export function startWatchdog(): (() => void) | undefined {
   if (!process.env.NOTIFY_SOCKET) return undefined
   sdNotify('READY=1')
+  // First pet IMMEDIATELY, not at the first interval tick: a stall right after
+  // boot (e.g. a daemon-reattach storm on redeploy) then has the full WatchdogSec
+  // budget instead of WatchdogSec minus the first pet interval (~half the window).
+  sdNotify('WATCHDOG=1')
   const timer = setInterval(() => sdNotify('WATCHDOG=1'), watchdogPetIntervalMs())
   timer.unref?.()
   return () => clearInterval(timer)

@@ -1268,9 +1268,7 @@ export class SessionStore {
     }
     params.push(opts?.limit ?? 200)
     const rows = this.db
-      .prepare(
-        `SELECT * FROM podium_events WHERE ${where.join(' AND ')} ORDER BY id ASC LIMIT ?`,
-      )
+      .prepare(`SELECT * FROM podium_events WHERE ${where.join(' AND ')} ORDER BY id ASC LIMIT ?`)
       .all(...(params as never[])) as Record<string, unknown>[]
     return rows.map((r) => {
       let payload: unknown = {}
@@ -1441,16 +1439,22 @@ export class SessionStore {
   }
 
   /**
-   * Head-only retention: drop rows that are BOTH beyond the row budget AND older
-   * than the age budget (keep whichever window is larger — spec §2.1). Pruning only
-   * from the head keeps the retained seq range contiguous.
+   * Head-only retention: drop rows beyond the row budget (keep the newest
+   * `keepRows`) OR older than the age budget — whichever deletes MORE. The old
+   * AND-policy never pruned under sustained write rates (rows aged past 14 days
+   * only after the table had grown unboundedly for weeks). Deletion is still
+   * head-only: we compute the highest seq that satisfies either budget and delete
+   * everything at-or-below it, so the retained seq range stays contiguous (an
+   * aged row can never be removed from the middle of the range).
    */
   pruneChanges(opts: { keepRows: number; maxAgeMs: number; now: number }): void {
-    const thresholdSeq = this.maxChangeSeq() - opts.keepRows
+    const rowCapSeq = this.maxChangeSeq() - opts.keepRows
+    const aged = this.db
+      .prepare('SELECT MAX(seq) AS seq FROM changes WHERE event_time < ?')
+      .get(opts.now - opts.maxAgeMs) as { seq: number | null }
+    const thresholdSeq = Math.max(rowCapSeq, aged.seq ?? 0)
     if (thresholdSeq <= 0) return
-    this.db
-      .prepare('DELETE FROM changes WHERE seq <= ? AND event_time < ?')
-      .run(thresholdSeq, opts.now - opts.maxAgeMs)
+    this.db.prepare('DELETE FROM changes WHERE seq <= ?').run(thresholdSeq)
   }
 
   /**
@@ -1636,9 +1640,7 @@ export class SessionStore {
     const nextSeq =
       ((
         this.db
-          .prepare(
-            'SELECT MAX(seq_in_conv) AS m FROM conversation_segments WHERE podium_id = ?',
-          )
+          .prepare('SELECT MAX(seq_in_conv) AS m FROM conversation_segments WHERE podium_id = ?')
           .get(podiumId) as { m: number | null }
       ).m ?? 0) + 1
     this.db
@@ -1662,9 +1664,7 @@ export class SessionStore {
 
   /** Segments with known path evidence for one machine — the mirror work list.
    *  Cheap to call per scan: the caller diffs against in-flight state. */
-  segmentsToMirror(
-    machineId: string,
-  ): { nativeId: string; path: string; mirroredBytes: number }[] {
+  segmentsToMirror(machineId: string): { nativeId: string; path: string; mirroredBytes: number }[] {
     const rows = this.db
       .prepare(
         'SELECT native_id, path, mirrored_bytes FROM conversation_segments WHERE machine_id = ? AND path IS NOT NULL',
@@ -1851,9 +1851,9 @@ export class SessionStore {
     // created by the pre-mirror registry (the CREATE above no-ops there).
     {
       const segCols = new Set(
-        (this.db.prepare('PRAGMA table_info(conversation_segments)').all() as { name: string }[]).map(
-          (c) => c.name,
-        ),
+        (
+          this.db.prepare('PRAGMA table_info(conversation_segments)').all() as { name: string }[]
+        ).map((c) => c.name),
       )
       if (!segCols.has('mirrored_bytes'))
         this.db.exec(
@@ -2133,8 +2133,7 @@ export class SessionStore {
       this.db.exec('ALTER TABLE sessions ADD COLUMN last_resumed_at TEXT')
     // Additive provenance column (issue #60): WHO created the session. Legacy rows
     // read NULL (creator unknown). Structural guard, no version marker change.
-    if (!colNames.has('spawned_by'))
-      this.db.exec('ALTER TABLE sessions ADD COLUMN spawned_by TEXT')
+    if (!colNames.has('spawned_by')) this.db.exec('ALTER TABLE sessions ADD COLUMN spawned_by TEXT')
     // v3 -> v4: per-session composer drafts (issue #34). A brand-new standalone
     // table created by the CREATE IF NOT EXISTS above — pre-v4 DBs gain it with no
     // ALTER, so the bump is just the recorded version marker.

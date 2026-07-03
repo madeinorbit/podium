@@ -40,7 +40,7 @@ describe('SessionStore changes table', () => {
     expect(store.changesSince(3)).toEqual([])
   })
 
-  it('prunes only rows beyond BOTH the row and age budgets, from the head', () => {
+  it('prunes rows beyond EITHER the row cap or the age budget, head-only', () => {
     const store = new SessionStore(':memory:')
     for (let i = 1; i <= 5; i++) {
       store.appendChanges(
@@ -48,15 +48,28 @@ describe('SessionStore changes table', () => {
         i * 1000,
       )
     }
-    // Row budget keeps 2 (threshold seq 3), age budget cuts before t=4000: rows 1-3
-    // are beyond the row budget, but row 3 (t=3000) is NOT older than... it is
-    // (< 4000). Rows 1-3 satisfy both -> pruned; 4,5 retained.
-    store.pruneChanges({ keepRows: 2, maxAgeMs: 1000, now: 5000 })
+    // Row cap alone: keep the newest 2, even though every row is young (nothing
+    // is older than the huge age window). The old AND-policy kept all 5 here —
+    // that is exactly why the table never pruned under sustained write rates.
+    store.pruneChanges({ keepRows: 2, maxAgeMs: 60_000, now: 5000 })
     expect(store.minChangeSeq()).toBe(4)
-    // Age budget protects rows the row budget would drop: nothing is older than
-    // a huge age window, so nothing else is pruned.
-    store.pruneChanges({ keepRows: 0, maxAgeMs: 60_000, now: 5000 })
-    expect(store.minChangeSeq()).toBe(4)
+    expect(store.maxChangeSeq()).toBe(5)
+    // Age budget alone: a generous row cap does not protect rows past the age
+    // cutoff (t < 4500 -> row 4 at t=4000 goes, row 5 at t=5000 stays).
+    store.pruneChanges({ keepRows: 100, maxAgeMs: 500, now: 5000 })
+    expect(store.minChangeSeq()).toBe(5)
+  })
+
+  it('age pruning deletes from the head only, keeping the retained range contiguous', () => {
+    const store = new SessionStore(':memory:')
+    // Out-of-order event times: row 2 is "old", rows 1 and 3 are "young". A naive
+    // `WHERE event_time < cutoff` would punch a hole at seq 2; head-only pruning
+    // must delete everything at-or-below the highest aged seq instead.
+    store.appendChanges([{ entity: 'issue', entityId: 'i1', op: 'upsert', payload: '{}' }], 9000)
+    store.appendChanges([{ entity: 'issue', entityId: 'i2', op: 'upsert', payload: '{}' }], 1000)
+    store.appendChanges([{ entity: 'issue', entityId: 'i3', op: 'upsert', payload: '{}' }], 9000)
+    store.pruneChanges({ keepRows: 100, maxAgeMs: 1000, now: 5000 })
+    expect(store.minChangeSeq()).toBe(3)
   })
 
   it('keeps seq monotonic even after the whole table is pruned', () => {

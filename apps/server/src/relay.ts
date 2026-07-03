@@ -36,7 +36,6 @@ import {
   type WorkState,
 } from '@podium/protocol'
 import { AutoContinueController } from './auto-continue'
-import { StewardService } from './steward'
 import { knownPathsFor } from './file-relay-policy'
 import type { Capability } from './issue-authz'
 import { IssueService } from './issues'
@@ -53,7 +52,8 @@ import { MetadataOplog } from './oplog'
 import { PairingManager } from './pairing'
 import { type ClientConn, type Send, Session } from './session'
 import { computePriorities } from './session-priority'
-import { type PinKind, SessionStore } from './store'
+import { StewardService } from './steward'
+import { type MachineRecord, type PinKind, SessionStore } from './store'
 import {
   isGenericClaudeTitle,
   isTransientTitle,
@@ -563,6 +563,9 @@ export class SessionRegistry {
     clearInterval(this.activityFlushTimer)
     if (this.eventPruneBootTimer) clearTimeout(this.eventPruneBootTimer)
     if (this.eventPruneTimer) clearInterval(this.eventPruneTimer)
+    // Run any coalesced session broadcast so the oplog records the final state
+    // (clients are going away, but the durable log must not drop the tail).
+    this.flushBroadcasts()
     this.steward.dispose()
   }
 
@@ -657,6 +660,9 @@ export class SessionRegistry {
 
   attachDaemon(machineId: string, send: Send<ControlMessage>): void {
     this.daemons.set(machineId, send)
+    // The daemon may have (re-)registered/touched its machine row on the way in
+    // (pair/hello, or a test upserting directly before attaching) — drop the cache.
+    this.invalidateMachineCache()
     // The local machine adopts every lingering `'__local__'` placeholder row/session/
     // queue onto itself as it attaches. ensureLocalMachine already ran this at startup,
     // but a session created in the gap between that and the daemon connecting (the boot
@@ -721,6 +727,7 @@ export class SessionRegistry {
   }
   detachDaemon(machineId: string): void {
     this.daemons.delete(machineId)
+    this.invalidateMachineCache()
     // This machine's host sample is only as live as its socket — drop it so a dead
     // machine's numbers never linger as truth. Keyed by machineId, so other machines'
     // samples are untouched.
@@ -782,9 +789,34 @@ export class SessionRegistry {
     }))
   }
 
-  /** Display name for a machineId (the machines table); falls back to the id. */
+  /**
+   * In-memory mirror of the machines table. listSessions() resolves machineName
+   * PER SESSION (and allWire() transitively per issue), so an uncached lookup is
+   * a fresh SQLite prepare+all on the hottest path in the process — the profiled
+   * boot-storm CPU sink. Machines change rarely: every registry method that
+   * writes the machines table (and daemon attach/detach, defensively) calls
+   * invalidateMachineCache(); the next read rebuilds lazily.
+   */
+  private machineRecordsCache: MachineRecord[] | null = null
+  private machineNameCache = new Map<string, string>()
+
+  private machineRecords(): MachineRecord[] {
+    if (!this.machineRecordsCache) {
+      this.machineRecordsCache = this.store.listMachines()
+      this.machineNameCache = new Map(this.machineRecordsCache.map((m) => [m.id, m.name]))
+    }
+    return this.machineRecordsCache
+  }
+
+  private invalidateMachineCache(): void {
+    this.machineRecordsCache = null
+  }
+
+  /** Display name for a machineId (the machines table); falls back to the id.
+   *  Served from the cache — ZERO SQL on the listSessions hot path. */
   machineName(id: string): string {
-    return this.store.listMachines().find((m) => m.id === id)?.name ?? id
+    if (!this.machineRecordsCache) this.machineRecords()
+    return this.machineNameCache.get(id) ?? id
   }
 
   /** machineIds with a live daemon socket right now. Public for RepoRegistry fan-out. */
@@ -2938,10 +2970,12 @@ export class SessionRegistry {
         hostname: frame.hostname,
         tokenHash: sha256(token),
       })
+      this.invalidateMachineCache()
       return { ok: true, machineId: frame.machineId, name, token }
     }
     if (this.store.getMachineByToken(frame.machineId, frame.token)) {
       this.store.touchMachine(frame.machineId, frame.hostname)
+      this.invalidateMachineCache()
       const name =
         this.store.listMachines().find((m) => m.id === frame.machineId)?.name ?? frame.hostname
       return { ok: true, machineId: frame.machineId, name }
@@ -2951,7 +2985,7 @@ export class SessionRegistry {
 
   /** All known machines with live online status (a daemon socket is attached). */
   listMachines(): MachineWire[] {
-    return this.store.listMachines().map((m) => ({
+    return this.machineRecords().map((m) => ({
       id: m.id,
       name: m.name,
       hostname: m.hostname,
@@ -2962,12 +2996,14 @@ export class SessionRegistry {
 
   renameMachine(id: string, name: string): void {
     this.store.renameMachine(id, name)
+    this.invalidateMachineCache()
     this.broadcastSessions() // sessions show machineName — refresh it
     this.broadcastMachines()
   }
 
   revokeMachine(id: string): void {
     this.store.deleteMachine(id)
+    this.invalidateMachineCache()
     this.daemons.delete(id)
     this.broadcastMachines()
   }
@@ -3016,6 +3052,7 @@ export class SessionRegistry {
       hostname,
       tokenHash: sha256(secret),
     })
+    this.invalidateMachineCache()
     this.adoptPlaceholderRows(LOCAL_MACHINE_ID)
     return LOCAL_MACHINE_ID
   }
@@ -3025,7 +3062,56 @@ export class SessionRegistry {
     for (const c of this.clients.values()) c.send(msg)
   }
 
+  // Coalescing state for broadcastSessions() (bind-storm fix). Design: the FIRST
+  // call in a burst runs the pipeline synchronously (single-event callers — and
+  // the many tests that assert right after one trigger — keep exact ordering);
+  // while its setTimeout(0) cooldown is armed, follow-up calls only set a pending
+  // flag and fold into ONE trailing run when the timer fires. A 66-bind daemon
+  // reattach storm thus runs the full pipeline (dedup + oplog record + issue
+  // rebuild + fan-out) ~2× per event-loop turn instead of 66×, which is what
+  // burned the systemd watchdog budget on redeploy. flushBroadcasts() is the
+  // deterministic seam for tests (and any caller that must observe the trailing
+  // run without waiting a tick).
+  private broadcastCooldown: ReturnType<typeof setTimeout> | null = null
+  private broadcastPending = false
+
   private broadcastSessions(): void {
+    if (this.broadcastCooldown) {
+      this.broadcastPending = true
+      return
+    }
+    this.runSessionsBroadcast()
+    this.broadcastCooldown = setTimeout(() => {
+      this.broadcastCooldown = null
+      if (this.broadcastPending) {
+        this.broadcastPending = false
+        // The trailing run has no caller to propagate to (timer context): a
+        // pipeline throw here would be an uncaught exception and take the whole
+        // process down, where the same throw on the synchronous leading run
+        // surfaces to the triggering handler exactly as before.
+        try {
+          this.broadcastSessions() // leading run again + re-arm the cooldown
+        } catch (err) {
+          console.warn('[podium] coalesced session broadcast failed', err)
+        }
+      }
+    }, 0)
+    this.broadcastCooldown.unref?.()
+  }
+
+  /** Run any coalesced (pending) session broadcast NOW. Test seam + dispose. */
+  flushBroadcasts(): void {
+    if (this.broadcastCooldown) {
+      clearTimeout(this.broadcastCooldown)
+      this.broadcastCooldown = null
+    }
+    if (this.broadcastPending) {
+      this.broadcastPending = false
+      this.runSessionsBroadcast()
+    }
+  }
+
+  private runSessionsBroadcast(): void {
     const sessions = this.listSessions()
     // Skip a byte-identical re-broadcast (audit P1-8) — every existing client already
     // holds this exact list, and a new client gets it via attachClient, so re-sending
