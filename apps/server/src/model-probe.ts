@@ -10,8 +10,9 @@ const execFileAsync = promisify(execFile)
  * Live model enumeration for every agent:
  *   grok/cursor/opencode → `<cli> models`
  *   codex                → `codex debug models` (JSON)
- *   claude               → Anthropic `GET /v1/models` with the Claude Code OAuth token
- *                          (~/.claude/.credentials.json; no separate API key)
+ *   claude               → Anthropic `GET /v1/models`, matching the agent's auth: an
+ *                          Anthropic API key if the user runs API-based Claude, else
+ *                          the Claude Code OAuth token (subscription; no separate key)
  *
  * Kept in apps/server (rather than @podium/agent-bridge) so the server needs no new
  * package dependency — the CLIs resolve via PATH and the claude call is a raw fetch.
@@ -174,26 +175,43 @@ export type FetchLike = (
 ) => Promise<{ ok: boolean; status: number; json: () => Promise<unknown> }>
 
 export interface ClaudeProbeOptions {
-  /** Injected token (tests). `undefined` = read from ~/.claude/.credentials.json; `null` = none. */
+  /** API-based Claude: an Anthropic API key (from `apiKeys.anthropic` or
+   *  `ANTHROPIC_API_KEY`). When set it wins over the OAuth token — mirroring how the
+   *  `claude` CLI resolves auth — so the models listed match the account the agent runs on. */
+  apiKey?: string | null
+  /** Subscription Claude: the OAuth token. `undefined` = read
+   *  ~/.claude/.credentials.json; `null` = none. */
   token?: string | null
   fetchImpl?: FetchLike
   timeoutMs?: number
 }
 
 /**
- * List Claude models via `GET https://api.anthropic.com/v1/models` using the Claude
- * Code OAuth token — a read-only metadata call (the same subscription the `claude` CLI
- * uses). Returns [] on any failure (no creds, expired/401 token, network) → the web
- * falls back to its static claude list. (The response also carries per-model
- * `capabilities.effort`, available for a future per-model effort picker.)
+ * List Claude models via `GET https://api.anthropic.com/v1/models` — a read-only
+ * metadata call. Works for BOTH auth modes the user might run the agent with, with no
+ * dedicated setting: an Anthropic API key (`x-api-key`) for API-based Claude, else the
+ * Claude Code OAuth token (`Authorization: Bearer`) for subscription Claude. Returns []
+ * on any failure (no creds, expired/401, network) → the web falls back to its static
+ * claude list. (The response also carries per-model `capabilities.effort`, available
+ * for a future per-model effort picker.)
  */
 export async function probeClaudeModels(opts: ClaudeProbeOptions = {}): Promise<ModelChoice[]> {
-  const token = opts.token !== undefined ? opts.token : await readClaudeOAuthToken()
-  if (!token) return []
+  const apiKey = opts.apiKey || undefined
+  const token = apiKey
+    ? undefined
+    : opts.token !== undefined
+      ? opts.token
+      : await readClaudeOAuthToken()
+  const auth: Record<string, string> | null = apiKey
+    ? { 'x-api-key': apiKey }
+    : token
+      ? { authorization: `Bearer ${token}` }
+      : null
+  if (!auth) return []
   const fetchImpl = (opts.fetchImpl ?? (fetch as unknown as FetchLike)) as FetchLike
   try {
     const res = await fetchImpl('https://api.anthropic.com/v1/models?limit=100', {
-      headers: { authorization: `Bearer ${token}`, 'anthropic-version': '2023-06-01' },
+      headers: { ...auth, 'anthropic-version': '2023-06-01' },
       signal: AbortSignal.timeout(opts.timeoutMs ?? 8000),
     })
     if (!res.ok) return []

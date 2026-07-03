@@ -90,28 +90,47 @@ const claudeFetch =
   (status: number, data: unknown): FetchLike =>
   async () => ({ ok: status >= 200 && status < 300, status, json: async () => ({ data }) })
 
-describe('probeClaudeModels (Anthropic /v1/models via OAuth)', () => {
-  it('maps id + display_name from the models API', async () => {
+/** A claude /v1/models mock that records the auth headers it was called with. */
+function capturingClaudeFetch(status: number, data: unknown) {
+  const calls: Array<Record<string, string>> = []
+  const fetchImpl: FetchLike = async (_url, init) => {
+    calls.push(init.headers)
+    return { ok: status >= 200 && status < 300, status, json: async () => ({ data }) }
+  }
+  return { fetchImpl, calls }
+}
+
+describe('probeClaudeModels (Anthropic /v1/models — subscription OAuth OR API key)', () => {
+  const MODELS = [{ id: 'claude-sonnet-5', display_name: 'Claude Sonnet 5' }]
+
+  it('subscription: sends the OAuth token as a Bearer token', async () => {
+    const { fetchImpl, calls } = capturingClaudeFetch(200, MODELS)
+    const models = await probeClaudeModels({ token: 'oat-123', fetchImpl })
+    expect(models).toEqual([{ value: 'claude-sonnet-5', label: 'Claude Sonnet 5' }])
+    expect(calls[0]?.authorization).toBe('Bearer oat-123')
+    expect(calls[0]?.['x-api-key']).toBeUndefined()
+  })
+
+  it('API-based: sends x-api-key, and the key wins over any OAuth token', async () => {
+    const { fetchImpl, calls } = capturingClaudeFetch(200, MODELS)
     const models = await probeClaudeModels({
-      token: 'sk-ant-oat01-test',
-      fetchImpl: claudeFetch(200, [
-        { id: 'claude-sonnet-5', display_name: 'Claude Sonnet 5' },
-        { id: 'claude-fable-5', display_name: 'Claude Fable 5' },
-      ]),
+      apiKey: 'sk-ant-api-key',
+      token: 'oat-ignored',
+      fetchImpl,
     })
-    expect(models).toEqual([
-      { value: 'claude-sonnet-5', label: 'Claude Sonnet 5' },
-      { value: 'claude-fable-5', label: 'Claude Fable 5' },
-    ])
+    expect(models).toEqual([{ value: 'claude-sonnet-5', label: 'Claude Sonnet 5' }])
+    expect(calls[0]?.['x-api-key']).toBe('sk-ant-api-key')
+    expect(calls[0]?.authorization).toBeUndefined()
   })
 
-  it('returns [] when there is no token (falls back to static)', async () => {
-    expect(await probeClaudeModels({ token: null, fetchImpl: claudeFetch(200, []) })).toEqual([])
+  it('returns [] when neither an API key nor a token is available (→ static fallback)', async () => {
+    const { fetchImpl } = capturingClaudeFetch(200, MODELS)
+    expect(await probeClaudeModels({ token: null, fetchImpl })).toEqual([])
   })
 
-  it('returns [] on a 401 (expired token) without throwing', async () => {
-    const models = await probeClaudeModels({ token: 't', fetchImpl: claudeFetch(401, null) })
-    expect(models).toEqual([])
+  it('returns [] on a 401 without throwing', async () => {
+    const { fetchImpl } = capturingClaudeFetch(401, null)
+    expect(await probeClaudeModels({ token: 't', fetchImpl })).toEqual([])
   })
 })
 

@@ -137,8 +137,17 @@ export async function startServer(
   const registry = new SessionRegistry(store, undefined, {
     mirrorLakeDir: join(stateDir(), 'transcripts'),
     // Live model enumeration shells out to the agent CLIs, so it's only wired in the
-    // real process; tests get the empty default and never spawn a CLI.
-    modelProbe: () => probeAllModels(),
+    // real process; tests get the empty default and never spawn a CLI. The claude list
+    // matches the agent's auth: an Anthropic API key (env or the existing
+    // `apiKeys.anthropic` setting) for API-based Claude, else the OAuth login — no new
+    // setting. Read fresh each refresh so a settings change takes effect.
+    modelProbe: () =>
+      probeAllModels({
+        claude: {
+          apiKey:
+            process.env.ANTHROPIC_API_KEY || store.getSettings().apiKeys.anthropic || undefined,
+        },
+      }),
   })
   // The persistent same-host shared secret, read (or created 0600) from the state dir.
   // The server hashes it into the local machine's stored credential below; the bundled
