@@ -40,8 +40,8 @@ import { knownPathsFor } from './file-relay-policy'
 import type { Capability } from './issue-authz'
 import { IssueService } from './issues'
 import { LOCAL_MACHINE_ID } from './local-machine'
-import { ModelCatalog, type ModelProbe, type ModelCatalogSnapshot } from './model-catalog'
 import { MirrorService } from './mirror'
+import { ModelCatalog, type ModelCatalogSnapshot, type ModelProbe } from './model-catalog'
 import {
   type AttentionNotice,
   attentionNotice,
@@ -454,7 +454,13 @@ export class SessionRegistry {
     this.generateTelegramSetupCode = options.generateTelegramSetupCode ?? defaultTelegramSetupCode
     this.now = options.now ?? Date.now
     this.activityFlushTimer.unref?.()
-    this.modelCatalog = new ModelCatalog(options.modelProbe, { now: this.now })
+    this.modelCatalog = new ModelCatalog(options.modelProbe, {
+      now: this.now,
+      // Persist the catalog so the first picker-open after a restart/redeploy serves
+      // the last-known list instantly (then refreshes), instead of a cold ~2s probe.
+      load: () => this.store.getModelCatalog(),
+      save: (snapshot) => this.store.setModelCatalog(snapshot),
+    })
     this.oplog = new MetadataOplog(this.store, this.now)
     this.loadFromStore()
     this.mirror = options.mirrorLakeDir

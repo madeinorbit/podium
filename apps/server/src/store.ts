@@ -555,6 +555,30 @@ export class SessionStore {
       .run('settings', JSON.stringify(settings))
   }
 
+  // ---- live model catalog (SWR cache, persisted so it survives restarts and the
+  //      first picker-open after a redeploy is instant, not a cold ~2s probe) ----
+  getModelCatalog(): {
+    byAgent: Record<string, Array<{ value: string; label: string }>>
+    fetchedAt: number
+  } | null {
+    const row = this.db.prepare('SELECT value FROM meta WHERE key = ?').get('model_catalog') as
+      | { value: string }
+      | undefined
+    if (!row) return null
+    try {
+      const parsed = JSON.parse(row.value)
+      return parsed && typeof parsed === 'object' && parsed.byAgent ? parsed : null
+    } catch {
+      return null
+    }
+  }
+
+  setModelCatalog(snapshot: { byAgent: Record<string, unknown>; fetchedAt: number }): void {
+    this.db
+      .prepare('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)')
+      .run('model_catalog', JSON.stringify(snapshot))
+  }
+
   // ---- client (human UI) login sessions ----
   /** Record a login session keyed by the SHA-256 of its cookie token. */
   createClientSession(tokenHash: string, expiresAt: string): void {

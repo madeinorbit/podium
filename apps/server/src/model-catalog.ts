@@ -26,8 +26,18 @@ export class ModelCatalog {
   // startServer via SessionRegistryOptions.modelProbe.
   constructor(
     private readonly probe: ModelProbe = async () => ({}),
-    private readonly opts: { ttlMs?: number; now?: () => number } = {},
-  ) {}
+    private readonly opts: {
+      ttlMs?: number
+      now?: () => number
+      /** Persist across restarts: `load` seeds the cache at boot (→ instant, non-cold
+       *  first open after a redeploy); `save` writes each successful refresh. */
+      load?: () => ModelCatalogSnapshot | null
+      save?: (snapshot: ModelCatalogSnapshot) => void
+    } = {},
+  ) {
+    const persisted = opts.load?.()
+    if (persisted) this.snapshot = persisted
+  }
 
   private now(): number {
     return this.opts.now ? this.opts.now() : Date.now()
@@ -52,6 +62,7 @@ export class ModelCatalog {
     this.inflight = (async () => {
       try {
         this.snapshot = { byAgent: await this.probe(), fetchedAt: this.now() }
+        this.opts.save?.(this.snapshot)
       } catch {
         // keep last-good; isStale() retries on the next get() past the TTL
       } finally {

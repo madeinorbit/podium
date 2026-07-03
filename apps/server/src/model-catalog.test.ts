@@ -45,4 +45,33 @@ describe('ModelCatalog (stale-while-revalidate)', () => {
     await Promise.all([cat.refresh(), cat.refresh(), cat.refresh()])
     expect(probe).toHaveBeenCalledTimes(1)
   })
+
+  it('seeds from a persisted snapshot on construction (instant, non-cold first open)', () => {
+    const persisted = {
+      byAgent: { grok: [{ value: 'grok-build', label: 'grok-build' }] },
+      fetchedAt: 123,
+    }
+    const cat = new ModelCatalog(
+      vi.fn(async () => ({})),
+      { load: () => persisted },
+    )
+    // Served immediately — no probe needed for the first open after a restart.
+    expect(cat.get().byAgent.grok?.[0]?.value).toBe('grok-build')
+  })
+
+  it('saves each successful refresh so it survives the next restart', async () => {
+    const save = vi.fn()
+    const cat = new ModelCatalog(
+      async () => ({ codex: [{ value: 'gpt-5.5', label: 'GPT-5.5' }] }),
+      {
+        now: () => 42,
+        save,
+      },
+    )
+    await cat.refresh()
+    expect(save).toHaveBeenCalledWith({
+      byAgent: { codex: [{ value: 'gpt-5.5', label: 'GPT-5.5' }] },
+      fetchedAt: 42,
+    })
+  })
 })
