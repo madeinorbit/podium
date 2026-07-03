@@ -88,9 +88,9 @@ describe('buildHarnessExec', () => {
     )
     expect(cmd).toBe('codex')
     expect(args[0]).toBe('exec')
-    expect(args).toContain('mcp_servers.podium.url="http://127.0.0.1:1878/mcp"')
+    expect(args).toContain('mcp_servers."podium".url="http://127.0.0.1:1878/mcp"')
     expect(args).toContain(
-      'mcp_servers.podium.http_headers={"x-podium-mcp-token"="tok","x-podium-mcp-thread"="thr"}',
+      'mcp_servers."podium".http_headers={"x-podium-mcp-token"="tok","x-podium-mcp-thread"="thr"}',
     )
     // No allowedTools flag on codex — MCP tools run without an approval flag.
     expect(args).not.toContain('--allowedTools')
@@ -102,9 +102,10 @@ describe('buildHarnessExec', () => {
     expect(args).toEqual(['exec', '--skip-git-repo-check', 'p'])
   })
 
-  it('codex tolerates a malformed MCP config by omitting the overrides', () => {
-    const { args } = buildHarnessExec('codex', { prompt: 'p', mcpConfig: 'not json' }, bins)
-    expect(args).not.toContain('-c')
+  it('codex REFUSES a malformed MCP config rather than running tool-less (throws)', () => {
+    expect(() => buildHarnessExec('codex', { prompt: 'p', mcpConfig: 'not json' }, bins)).toThrow(
+      /malformed MCP config/,
+    )
   })
 
   it('resolves opencode/cursor bins and uses their run flags', () => {

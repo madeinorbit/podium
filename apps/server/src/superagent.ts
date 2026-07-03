@@ -16,6 +16,10 @@ const HISTORY_WINDOW = 40
  *  they get a far longer leash than the daemon's 240s harnessExec default —
  *  threaded through harnessExec input, not a change to the global default. */
 export const SUPERAGENT_HARNESS_TIMEOUT_MS = 600_000
+/** One-time thread notice markers (persisted as ordinary assistant messages;
+ *  their presence anywhere in the thread means "already told"). */
+const FALLBACK_NOTICE_MARKER = 'running on the api fallback'
+const FLIP_NOTICE_MARKER = 'superagent now runs the full'
 /** MCP server name the harness agent sees Podium's tools under (→ tool ids
  *  `mcp__podium__<tool>`). Header carries the access token to the in-process route. */
 export const MCP_SERVER_NAME = 'podium'
@@ -423,9 +427,6 @@ export class SuperagentService {
   // the config is rebuilt every invocation, so a restart just mints fresh tokens.
   private readonly mcpTokenToThread = new Map<string, string>()
   private readonly mcpThreadToToken = new Map<string, string>()
-  // Threads already told (this process) that they run on the api fallback —
-  // the notice is visible but not repeated on every turn.
-  private readonly fallbackNoticed = new Set<string>()
   // Issue-tracker tools (issue-mcp's IssueToolProvider) bridged into the API tool
   // loop. Set by the server once the in-process issue client exists. Note: this is
   // the OPERATOR-authority in-process caller — constraining the concierge to an
@@ -770,7 +771,23 @@ export class SuperagentService {
     // as an HONEST fallback: same tools, but with a visible notice — never a
     // silent, tool-less harness and never silent tool loss.
     const harnessAgent = superagentHarnessAgent(settings)
+    // One-time persisted notices (once per thread EVER, survives redeploys): a
+    // marker message in the thread itself is the flag.
+    const noticeOnce = (marker: string, content: string): void => {
+      const seen = this.store
+        .loadSuperagentMessages(threadId, 100_000)
+        .some((m) => m.role === 'assistant' && m.content.startsWith(marker))
+      if (!seen) record({ role: 'assistant', content })
+    }
     if (HARNESS_MCP_SUPPORT[harnessAgent] === 'full' && this.mcpEndpoint) {
+      // Harness-always overrode a saved api backend config (the directive wins
+      // over settings that predate it) — say so once, visibly (review of #84).
+      if (backend.kind === 'api') {
+        noticeOnce(
+          FLIP_NOTICE_MARKER,
+          `${FLIP_NOTICE_MARKER} ${harnessAgent} harness (was: api/${backend.provider}) — change in Settings if unwanted`,
+        )
+      }
       // Full harness: run the real agent CLI with its own tool belt + Podium's
       // orchestrator tools over MCP, injecting our system prompt (natively via
       // --append-system-prompt for Claude, else prepended). The conversation so far
@@ -815,16 +832,14 @@ export class SuperagentService {
 
     // Api fallback: the chosen harness can't mount our MCP tools (or the MCP
     // endpoint isn't up yet). Same tool belt via the api loop, with a one-line
-    // notice on the thread — once per thread per process, not per turn.
-    if (!this.fallbackNoticed.has(threadId)) {
-      this.fallbackNoticed.add(threadId)
-      record({
-        role: 'assistant',
-        content: this.mcpEndpoint
-          ? `running on the api fallback: ${harnessAgent} cannot mount Podium tools`
-          : `running on the api fallback: the Podium MCP endpoint is not available yet`,
-      })
-    }
+    // notice on the thread — persisted once per thread, not once per process
+    // (this box redeploys constantly; the notice must not re-post each boot).
+    noticeOnce(
+      FALLBACK_NOTICE_MARKER,
+      this.mcpEndpoint
+        ? `${FALLBACK_NOTICE_MARKER}: ${harnessAgent} cannot mount Podium tools`
+        : `${FALLBACK_NOTICE_MARKER}: the Podium MCP endpoint is not available yet`,
+    )
     let client: ReturnType<typeof llmClient>
     try {
       client = llmClient({ ...backend, kind: 'api' }, settings.apiKeys)

@@ -13,9 +13,12 @@ export interface HarnessBins {
 
 /**
  * Translate a Claude-shaped MCP config JSON into codex `-c` TOML overrides:
- * `mcp_servers.<name>.url="…"` plus `mcp_servers.<name>.http_headers={"k"="v"}`.
+ * `mcp_servers."<name>".url="…"` plus `mcp_servers."<name>".http_headers={"k"="v"}`.
  * JSON string literals are valid TOML basic strings, so JSON.stringify quotes
- * every key/value safely. Unparseable/empty configs yield no args (chat-only).
+ * every key segment and value safely. An unparseable config THROWS rather than
+ * quietly yielding a tool-less run — the caller reports the failed turn, so the
+ * tool loss is visible on the thread (never silent, even on this branch that
+ * the server-composed config should make unreachable).
  */
 function codexMcpArgs(mcpConfig: string | undefined): string[] {
   if (!mcpConfig) return []
@@ -23,16 +26,17 @@ function codexMcpArgs(mcpConfig: string | undefined): string[] {
   try {
     servers = (JSON.parse(mcpConfig) as { mcpServers?: typeof servers }).mcpServers ?? {}
   } catch {
-    return []
+    console.warn('[podium:superagent] malformed MCP config for codex — refusing a tool-less run')
+    throw new Error('malformed MCP config for codex — refusing a tool-less harness run')
   }
   const args: string[] = []
   for (const [name, srv] of Object.entries(servers)) {
     if (!srv.url) continue
-    args.push('-c', `mcp_servers.${name}.url=${JSON.stringify(srv.url)}`)
+    args.push('-c', `mcp_servers.${JSON.stringify(name)}.url=${JSON.stringify(srv.url)}`)
     const headers = Object.entries(srv.headers ?? {})
     if (headers.length > 0) {
       const toml = headers.map(([k, v]) => `${JSON.stringify(k)}=${JSON.stringify(v)}`).join(',')
-      args.push('-c', `mcp_servers.${name}.http_headers={${toml}}`)
+      args.push('-c', `mcp_servers.${JSON.stringify(name)}.http_headers={${toml}}`)
     }
   }
   return args
@@ -103,6 +107,9 @@ export function buildHarnessExec(
           // Podium's MCP servers as per-invocation config overrides: verified on
           // codex-cli 0.142.5 that `mcp_servers.<name>.url` + `.http_headers`
           // mount a streamable HTTP server with our identity headers attached.
+          // Codex has no --allowedTools equivalent — allowedTools is ignored
+          // here; the run rides `codex exec`'s own default read-only sandbox,
+          // and MCP tool calls need no approval flag in exec mode.
           ...codexMcpArgs(opts.mcpConfig),
           prompt,
         ],

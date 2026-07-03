@@ -77,7 +77,7 @@ async function harness(opts?: { eventReadLimit?: number }) {
   const caller = appRouter.createCaller({ registry, repos, superagent: sa, capability: OPERATOR })
   issueTools.setClient(callerAsIssueTrpc(caller))
   sa.setIssueTools(issueTools)
-  return { registry, sa, harnessCalls }
+  return { registry, repos, sa, harnessCalls }
 }
 
 const wire = (o: Partial<IssueWire>): IssueWire =>
@@ -601,5 +601,53 @@ describe('harness-always backend resolution (issue #84)', () => {
     const body = (await res.json()) as { result?: { content?: Array<{ text: string }> } }
     expect(body.result?.content?.[0]?.text).toBe(NOT_CONFIRMED_MSG)
     expect(registry.issues.get(issue.id)?.stage).toBe('backlog')
+  })
+})
+
+// Review of #84: notices are PERSISTED once per thread ever — marker messages in
+// the thread survive a service restart (this box redeploys constantly).
+describe('persisted one-time thread notices (issue #84 review)', () => {
+  it('a harness turn over saved api-kind settings posts the flip notice once ever', async () => {
+    const { registry, repos, sa, harnessCalls } = await harness()
+    sa.setMcpEndpoint('http://127.0.0.1:1878/mcp', 'tok')
+    const first = await sa.send('global', 'hello')
+    const flip = first.messages.filter((m) => m.content.startsWith('superagent now runs the full'))
+    expect(flip).toHaveLength(1)
+    expect(flip[0]?.content).toContain('claude-code harness (was: api/openrouter)')
+    expect(flip[0]?.content).toContain('change in Settings if unwanted')
+    // Not repeated on the next turn…
+    const second = await sa.send('global', 'again')
+    expect(second.messages.some((m) => m.content.includes('now runs the full'))).toBe(false)
+    // …and not after a service restart over the same store (persisted flag).
+    const sa2 = new SuperagentService(registry, repos, registry.sessionStore)
+    sa2.setMcpEndpoint('http://127.0.0.1:1878/mcp', 'tok')
+    const third = await sa2.send('global', 'once more')
+    expect(third.messages.some((m) => m.content.includes('now runs the full'))).toBe(false)
+    expect(harnessCalls).toHaveLength(3)
+  })
+
+  it('an explicit harness choice posts no flip notice', async () => {
+    const { registry, sa } = await harness()
+    registry.sessionStore.setSettings(
+      normalizeSettings({ superagent: { kind: 'harness', harnessAgent: 'claude-code' } }),
+    )
+    sa.setMcpEndpoint('http://127.0.0.1:1878/mcp', 'tok')
+    const turn = await sa.send('global', 'hello')
+    expect(turn.messages.some((m) => m.content.includes('now runs the full'))).toBe(false)
+  })
+
+  it('the api-fallback notice survives a service restart without re-posting', async () => {
+    const { registry, repos, sa } = await harness()
+    registry.sessionStore.setSettings(normalizeSettings({ sessionDefaults: { agent: 'grok' } }))
+    sa.setMcpEndpoint('http://127.0.0.1:1878/mcp', 'tok')
+    llmScript.push({ text: 'a', toolCalls: [] }, { text: 'b', toolCalls: [] })
+    const first = await sa.send('global', 'hello')
+    expect(first.messages.some((m) => m.content.startsWith('running on the api fallback'))).toBe(
+      true,
+    )
+    const sa2 = new SuperagentService(registry, repos, registry.sessionStore)
+    sa2.setMcpEndpoint('http://127.0.0.1:1878/mcp', 'tok')
+    const second = await sa2.send('global', 'again')
+    expect(second.messages.some((m) => m.content.includes('api fallback'))).toBe(false)
   })
 })

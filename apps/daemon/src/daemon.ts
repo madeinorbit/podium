@@ -1740,19 +1740,21 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
         mcpConfigPath = undefined
       }
     }
-    const { cmd, args } = buildHarnessExec(
-      msg.agent,
-      {
-        prompt: msg.prompt,
-        ...(msg.model ? { model: msg.model } : {}),
-        ...(msg.systemPrompt ? { systemPrompt: msg.systemPrompt } : {}),
-        ...(mcpConfigPath ? { mcpConfigPath } : {}),
-        ...(msg.mcpConfig ? { mcpConfig: msg.mcpConfig } : {}),
-        ...(msg.allowedTools ? { allowedTools: msg.allowedTools } : {}),
-      },
-      { opencode: resolveOpencodeBin, cursor: resolveCursorBin },
-    )
     try {
+      // Inside the try: buildHarnessExec THROWS on a malformed codex MCP config
+      // (refusing a silent tool-less run) — that must surface as a failed turn.
+      const { cmd, args } = buildHarnessExec(
+        msg.agent,
+        {
+          prompt: msg.prompt,
+          ...(msg.model ? { model: msg.model } : {}),
+          ...(msg.systemPrompt ? { systemPrompt: msg.systemPrompt } : {}),
+          ...(mcpConfigPath ? { mcpConfigPath } : {}),
+          ...(msg.mcpConfig ? { mcpConfig: msg.mcpConfig } : {}),
+          ...(msg.allowedTools ? { allowedTools: msg.allowedTools } : {}),
+        },
+        { opencode: resolveOpencodeBin, cursor: resolveCursorBin },
+      )
       const { stdout } = await execFileAsync(cmd, args, {
         timeout: msg.timeoutMs ?? 240_000,
         maxBuffer: 4 * 1024 * 1024,
