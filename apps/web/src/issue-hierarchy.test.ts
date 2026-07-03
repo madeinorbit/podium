@@ -1,8 +1,10 @@
 import type { IssueWire } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import {
+  childStageCounts,
   flattenRowGroups,
   isEpic,
+  issuePageOrderIds,
   issueRowsByStage,
   partitionByParent,
   partitionIssueTree,
@@ -161,5 +163,79 @@ describe('issueRowsByStage', () => {
       ['m', 1],
       ['g', 2],
     ])
+  })
+})
+
+describe('cycle fallback (#85 review)', () => {
+  const a = issue({ id: 'a', parentId: 'b', stage: 'backlog' })
+  const b = issue({ id: 'b', parentId: 'a', stage: 'backlog' })
+
+  it('a parentId cycle promotes a member to root instead of vanishing both', () => {
+    const { roots, childrenByParent } = partitionIssueTree([a, b])
+    // One member becomes the root; the other stays reachable as its child.
+    expect(roots.map((i) => i.id)).toEqual(['a'])
+    expect(childrenByParent.get('a')?.map((i) => i.id)).toEqual(['b'])
+    // And nothing is lost from the rendered rows.
+    const groups = issueRowsByStage([a, b], 'priority', {
+      flatten: false,
+      expanded: new Set(['a']),
+    })
+    expect(flattenRowGroups(groups)).toEqual(['a', 'b'])
+  })
+
+  it('a cycle hanging off a healthy child stays reachable', () => {
+    const child = issue({ id: 'c', parentId: 'a', stage: 'backlog' })
+    const { roots, childrenByParent } = partitionIssueTree([a, b, child])
+    expect(roots.length).toBeGreaterThan(0)
+    const reachable = new Set(roots.map((i) => i.id))
+    const stack = [...reachable]
+    while (stack.length > 0) {
+      const cur = stack.pop() as string
+      for (const kid of childrenByParent.get(cur) ?? []) {
+        if (!reachable.has(kid.id)) {
+          reachable.add(kid.id)
+          stack.push(kid.id)
+        }
+      }
+    }
+    expect([...reachable].sort()).toEqual(['a', 'b', 'c'])
+  })
+
+  it('issueRowsByStage terminates on an expanded cycle (path guard)', () => {
+    const groups = issueRowsByStage([a, b], 'priority', {
+      flatten: false,
+      expanded: new Set(['a', 'b']),
+    })
+    const ids = flattenRowGroups(groups)
+    expect(ids.length).toBeLessThanOrEqual(4) // finite; each id at most once per path
+    expect(new Set(ids)).toEqual(new Set(['a', 'b']))
+  })
+})
+
+describe('childStageCounts', () => {
+  it('rolls DIRECT children up per stage, ISSUE_STAGES order, zero stages omitted', () => {
+    const p = issue({ id: 'p', childCount: 3 })
+    const kids = [
+      issue({ id: 'k1', parentId: 'p', stage: 'in_progress' }),
+      issue({ id: 'k2', parentId: 'p', stage: 'in_progress' }),
+      issue({ id: 'k3', parentId: 'p', stage: 'done' }),
+      issue({ id: 'g1', parentId: 'k1', stage: 'review' }), // grandchild → counts under k1
+    ]
+    const counts = childStageCounts([p, ...kids])
+    expect(counts.get('p')).toEqual([
+      { stage: 'in_progress', count: 2 },
+      { stage: 'done', count: 1 },
+    ])
+    expect(counts.get('k1')).toEqual([{ stage: 'review', count: 1 }])
+    expect(counts.has('k3')).toBe(false)
+  })
+})
+
+describe('issuePageOrderIds', () => {
+  it('uses the visible order when the open issue is visible', () => {
+    expect(issuePageOrderIds(['p', 'l'], ['p', 'c', 'l'], 'p')).toEqual(['p', 'l'])
+  })
+  it('falls back to the full flat order for a hidden (collapsed) child', () => {
+    expect(issuePageOrderIds(['p', 'l'], ['p', 'c', 'l'], 'c')).toEqual(['p', 'c', 'l'])
   })
 })

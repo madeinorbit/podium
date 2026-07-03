@@ -35,6 +35,30 @@ export function partitionByParent<T>(
       roots.push(item)
     }
   }
+  // Cycle fallback: a parentId cycle (A→B→A) leaves its members reachable from
+  // NO root — they'd silently vanish from every view. Promote unreached items
+  // to roots (mirrors the tracker's topo-order leftover fallback). Server-side
+  // guards make this unreachable in practice; this is belt-and-braces.
+  const reached = new Set<string>()
+  const stack = roots.map(id)
+  while (stack.length > 0) {
+    const cur = stack.pop() as string
+    if (reached.has(cur)) continue
+    reached.add(cur)
+    for (const child of childrenByParent.get(cur) ?? []) stack.push(id(child))
+  }
+  for (const item of items) {
+    if (reached.has(id(item))) continue
+    roots.push(item)
+    // Everything under the promoted item is now reachable too.
+    const sub = [id(item)]
+    while (sub.length > 0) {
+      const cur = sub.pop() as string
+      if (reached.has(cur)) continue
+      reached.add(cur)
+      for (const child of childrenByParent.get(cur) ?? []) sub.push(id(child))
+    }
+  }
   return { roots, childrenByParent }
 }
 
@@ -80,11 +104,17 @@ export function issueRowsByStage(
     }))
   }
   const { roots, childrenByParent } = partitionIssueTree(issues)
-  const emit = (issue: IssueWire, depth: number, out: IssueRow[]): void => {
+  const emit = (issue: IssueWire, depth: number, out: IssueRow[], path: Set<string>): void => {
+    // Path guard: a parentId cycle (its members promoted to roots above) must
+    // not recurse forever when every member is expanded.
+    if (path.has(issue.id)) return
     const children = childrenByParent.get(issue.id) ?? []
     const expanded = children.length > 0 && opts.expanded.has(issue.id)
     out.push({ issue, depth, childCount: children.length, expanded })
-    if (expanded) for (const c of orderIssues(children, ordering)) emit(c, depth + 1, out)
+    if (expanded) {
+      const next = new Set(path).add(issue.id)
+      for (const c of orderIssues(children, ordering)) emit(c, depth + 1, out, next)
+    }
   }
   return ISSUE_STAGES.map((stage) => {
     const rows: IssueRow[] = []
@@ -92,7 +122,7 @@ export function issueRowsByStage(
       roots.filter((i) => i.stage === stage),
       ordering,
     ))
-      emit(root, 0, rows)
+      emit(root, 0, rows, new Set())
     return { stage, rows }
   })
 }
@@ -100,4 +130,39 @@ export function issueRowsByStage(
 /** Flatten row groups into ids in visual order — the keyboard-nav basis. */
 export function flattenRowGroups(groups: { rows: IssueRow[] }[]): string[] {
   return groups.flatMap((g) => g.rows.map((r) => r.issue.id))
+}
+
+/**
+ * Per-parent counts of DIRECT children by stage, in `ISSUE_STAGES` order, only
+ * stages with a count > 0. Feeds the board's epic-card stage chips: with
+ * roots-only lanes an in-progress child appears in no lane, so the parent card
+ * itself must say where its children stand.
+ */
+export function childStageCounts(
+  issues: IssueWire[],
+): Map<string, { stage: IssueStage; count: number }[]> {
+  const { childrenByParent } = partitionIssueTree(issues)
+  const out = new Map<string, { stage: IssueStage; count: number }[]>()
+  for (const [parent, children] of childrenByParent) {
+    const counts = ISSUE_STAGES.map((stage) => ({
+      stage,
+      count: children.filter((c) => c.stage === stage).length,
+    })).filter((c) => c.count > 0)
+    if (counts.length > 0) out.set(parent, counts)
+  }
+  return out
+}
+
+/**
+ * The prev/next order for the issue page: the visible rows when the open issue
+ * is among them, else the full flat order — a deep-linked issue whose parent is
+ * collapsed (or a child opened from the roots-only board) still gets a working
+ * navigator instead of a dead one.
+ */
+export function issuePageOrderIds(
+  visibleIds: string[],
+  allIds: string[],
+  openId: string,
+): string[] {
+  return visibleIds.includes(openId) ? visibleIds : allIds
 }

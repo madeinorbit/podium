@@ -38,7 +38,14 @@ import { IssuePage } from './IssuePage'
 import { type BoardFilter, clearChip, filterBoardIssues, filterChips } from './issue-board-filter'
 import { issueCardModel, STAGE_LABELS } from './issue-card'
 import { AssigneeAvatar, PriorityGlyph, StageGlyph } from './issue-glyphs'
-import { flattenRowGroups, isEpic, issueRowsByStage, partitionIssueTree } from './issue-hierarchy'
+import {
+  childStageCounts,
+  flattenRowGroups,
+  isEpic,
+  issuePageOrderIds,
+  issueRowsByStage,
+  partitionIssueTree,
+} from './issue-hierarchy'
 import { groupIssuesByStage } from './issue-list'
 import {
   DISPLAY_KEY,
@@ -158,6 +165,13 @@ export function IssuesView(): JSX.Element {
   // children hide behind their parent's chevron (list) or roll up into the
   // parent card's n/m count (board). The Flatten toggle restores the old view.
   const boardIssues = display.flatten ? active : partitionIssueTree(active).roots
+  // Nested board only: per-parent direct-child stage counts, so an epic card
+  // says where its (lane-hidden) children stand. Computed over the whole
+  // non-archived scope, not the filtered view — the rollup states a fact about
+  // the epic, and a filter hiding a child shouldn't make the fact wrong.
+  const stageCounts = display.flatten
+    ? new Map<string, { stage: IssueStage; count: number }[]>()
+    : childStageCounts(scope)
 
   // The per-stage ordered lanes / rows — computed once so the board render, the
   // list render, and the keyboard nav all agree on order. `listIds` flattens the
@@ -298,7 +312,11 @@ export function IssuesView(): JSX.Element {
     return (
       <IssuePage
         issue={open}
-        orderedIds={listIds}
+        orderedIds={issuePageOrderIds(
+          listIds,
+          flattenRowGroups(issueRowsByStage(active, display.ordering, { flatten: true, expanded })),
+          open.id,
+        )}
         onBack={() => setOpenIssueId(null)}
         onNavigate={setOpenIssueId}
       />
@@ -377,6 +395,7 @@ export function IssuesView(): JSX.Element {
               label={STAGE_LABELS[stage]}
               issues={laneIssues}
               badges={display.badges}
+              stageCounts={stageCounts}
               onOpen={setOpenIssueId}
               onMoveIssue={moveIssue}
               onCreateIn={(s) => setCreating({ stage: s })}
@@ -785,6 +804,7 @@ function IssueColumn({
   label,
   issues,
   badges,
+  stageCounts,
   onOpen,
   onMoveIssue,
   onCreateIn,
@@ -798,6 +818,7 @@ function IssueColumn({
   label: string
   issues: IssueWire[]
   badges: IssuesDisplay['badges']
+  stageCounts: Map<string, { stage: IssueStage; count: number }[]>
   onOpen: (id: string) => void
   onMoveIssue: (id: string, stage: IssueStage) => void
   onCreateIn: (stage: IssueStage) => void
@@ -852,6 +873,7 @@ function IssueColumn({
               <IssueCard
                 issue={issue}
                 badges={badges}
+                stageCounts={stageCounts.get(issue.id)}
                 onOpen={onOpen}
                 onSetAssignee={onSetAssignee}
                 assignees={assignees}
@@ -917,6 +939,7 @@ function AssigneeMenu({
 function IssueCard({
   issue,
   badges,
+  stageCounts,
   onOpen,
   onSetAssignee,
   assignees,
@@ -926,6 +949,8 @@ function IssueCard({
 }: {
   issue: IssueWire
   badges: IssuesDisplay['badges']
+  /** Direct-child stage rollup (nested board only) — see childStageCounts. */
+  stageCounts?: { stage: IssueStage; count: number }[]
   onOpen: (id: string) => void
   onSetAssignee: (id: string, assignee: string) => void
   assignees: string[]
@@ -1000,6 +1025,20 @@ function IssueCard({
               {m.subProgress.done}/{m.subProgress.total}
             </span>
           )}
+          {/* Nested board: the lanes hold roots only, so this card must say
+              where its hidden children stand — one glyph+count chip per stage
+              in play (e.g. ◔2 ●1 = 2 in-progress, 1 done). */}
+          {stageCounts?.map(({ stage, count }) => (
+            <span
+              key={stage}
+              className="inline-flex items-center gap-0.5 text-[11px] text-muted-foreground tabular-nums"
+              title={`${count} ${STAGE_LABELS[stage].toLowerCase()}`}
+              data-testid={`stage-chip-${stage}`}
+            >
+              <StageGlyph stage={stage} size={11} />
+              {count}
+            </span>
+          ))}
           {m.isBlocked && <Flag size={12} className="text-orange-500" aria-label="Blocked" />}
           {m.isBlocking && <Flag size={12} className="text-red-500" aria-label="Blocking" />}
           {m.needsHuman && (

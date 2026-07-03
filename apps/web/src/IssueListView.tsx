@@ -42,7 +42,12 @@ export function IssueListView({
             <div className="group sticky top-0 z-10 flex items-center gap-1.5 border-border border-b bg-muted/60 px-4 py-1.5 backdrop-blur">
               <StageGlyph stage={stage} />
               <h3 className="font-medium text-[13px]">{STAGE_LABELS[stage]}</h3>
-              <span className="text-[11px] text-muted-foreground tabular-nums">{rows.length}</span>
+              {/* Count only issues that actually LIVE in this stage — an expanded
+                  parent's foreign-stage children ride under it visually but must
+                  not inflate the header ("Backlog · 5" with 2 in-progress kids). */}
+              <span className="text-[11px] text-muted-foreground tabular-nums">
+                {rows.filter((r) => r.issue.stage === stage).length}
+              </span>
               <Button
                 type="button"
                 variant="ghost"
