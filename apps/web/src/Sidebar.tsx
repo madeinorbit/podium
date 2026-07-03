@@ -22,14 +22,15 @@ import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger } from '@/components/ui/select'
 import { useSessionGuard } from '@/hooks/use-session-guard'
 import { cn } from '@/lib/utils'
+import { ConciergeButton } from './ConciergeButton'
 import {
   agentBadge,
   agentColorHex,
   filterIssueNav,
   filterSidebarSections,
+  type IssueNavView,
   isSnoozed,
   issueNavList,
-  type IssueNavView,
   partitionStaleSessions,
   partitionWorkItems,
   type RepoNavView,
@@ -215,19 +216,24 @@ export function Sidebar(): JSX.Element {
       >
         <Home size={14} aria-hidden="true" /> Command center
       </button>
-      <button
-        type="button"
-        className={cn(
-          'mx-3 mt-2.5 flex items-center gap-2 rounded-md border px-2.5 py-[7px] text-[13px] text-foreground',
-          superOpen
-            ? 'border-primary font-medium text-foreground'
-            : 'border-input bg-secondary hover:border-primary hover:text-foreground',
-        )}
-        aria-pressed={superOpen}
-        onClick={() => setSuperOpen(!superOpen)}
-      >
-        <Sparkles size={14} aria-hidden="true" /> Superagent
-      </button>
+      {/* Superagent toggle + the concierge front door: the filled + opens the
+          current repo's concierge intake thread in the superagent panel. */}
+      <div className="mx-3 mt-2.5 flex items-center gap-2">
+        <button
+          type="button"
+          className={cn(
+            'flex min-w-0 flex-1 items-center gap-2 rounded-md border px-2.5 py-[7px] text-[13px] text-foreground',
+            superOpen
+              ? 'border-primary font-medium text-foreground'
+              : 'border-input bg-secondary hover:border-primary hover:text-foreground',
+          )}
+          aria-pressed={superOpen}
+          onClick={() => setSuperOpen(!superOpen)}
+        >
+          <Sparkles size={14} aria-hidden="true" /> Superagent
+        </button>
+        <ConciergeButton />
+      </div>
       {/* App-level tools row. Analytics + settings + search + add-repo live
           here — global actions that are not tied to a specific section. */}
       <div className="flex items-center gap-1 px-3 pt-0.5 pb-1">

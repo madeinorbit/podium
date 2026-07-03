@@ -7,6 +7,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { cn } from '@/lib/utils'
 import { CardBoundary } from './CardBoundary'
 import { mergeByCursor } from './chat'
+import { conciergeLabel, conciergeRepoPath } from './concierge'
 import { agentBadge, panelLabel, reposToViews, sessionDotClass } from './derive'
 import { useIsMobile } from './hooks/use-is-mobile'
 import { renderMarkdown } from './markdown'
@@ -27,12 +28,17 @@ interface SuperMessage {
 
 interface SuperThread {
   id: string
-  kind: 'global' | 'btw'
+  kind: 'global' | 'btw' | 'concierge'
   originSessionId?: string
   title?: string
+  repoPath?: string
 }
 
 function superThreadLabel(thread: SuperThread): string {
+  if (thread.kind === 'concierge') {
+    const repoPath = thread.repoPath ?? conciergeRepoPath(thread.id)
+    if (repoPath) return conciergeLabel(repoPath)
+  }
   return thread.id === 'global' ? 'Global' : (thread.title ?? thread.originSessionId ?? thread.id)
 }
 
@@ -62,6 +68,10 @@ export function SuperagentView({ onClose }: { onClose?: () => void } = {}): JSX.
   const inputRef = useRef<HTMLTextAreaElement | null>(null)
   const voice = useVoiceInput((text) => setDraft((d) => (d ? `${d} ${text}` : text)))
   const isMobile = useIsMobile()
+  // Concierge binding: the active thread's repo, decoded from the deterministic
+  // thread id — valid even BEFORE the thread exists server-side (first send
+  // creates + seeds it via superagent.concierge).
+  const conciergeRepo = conciergeRepoPath(superThreadId)
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: refetch on thread switch + after seeding
   useEffect(() => {
@@ -167,12 +177,23 @@ export function SuperagentView({ onClose }: { onClose?: () => void } = {}): JSX.
     }
     setMessages((m) => [...m, optimistic])
     try {
-      const turn = (await trpc.superagent.send.mutate({ threadId: superThreadId, text })) as {
-        messages: SuperMessage[]
-        backendLabel: string
-      }
+      // Concierge threads route through the dedicated mutation, which creates +
+      // seeds the per-repo thread on first message; everything else uses send.
+      const turn = (
+        conciergeRepo
+          ? await trpc.superagent.concierge.mutate({ repoPath: conciergeRepo, text })
+          : await trpc.superagent.send.mutate({ threadId: superThreadId, text })
+      ) as { messages: SuperMessage[]; backendLabel: string; isNew?: boolean }
       setBackendLabel(turn.backendLabel)
       setMessages((m) => [...m.filter((x) => x.id !== optimistic.id), ...turn.messages])
+      // A first concierge send minted the thread server-side — refresh the
+      // switcher so its pill appears without waiting for a thread change.
+      if (turn.isNew) {
+        trpc.superagent.listThreads
+          .query()
+          .then((t) => setThreads(t as SuperThread[]))
+          .catch(() => {})
+      }
     } catch (e) {
       setMessages((m) => [
         ...m,
@@ -199,7 +220,10 @@ export function SuperagentView({ onClose }: { onClose?: () => void } = {}): JSX.
     <section className="flex min-h-0 min-w-0 flex-1 flex-col">
       <div className="flex min-w-0 items-center gap-2.5 border-b border-border px-[18px] py-3">
         <h1 className="m-0 inline-flex flex-none items-center gap-[7px] text-[15px] font-medium text-foreground">
-          <Sparkles size={16} aria-hidden="true" /> Superagent
+          <Sparkles size={16} aria-hidden="true" />{' '}
+          <span className="truncate">
+            {conciergeRepo ? conciergeLabel(conciergeRepo) : 'Superagent'}
+          </span>
         </h1>
         {threads.length > 1 &&
           (isMobile ? (
@@ -234,7 +258,11 @@ export function SuperagentView({ onClose }: { onClose?: () => void } = {}): JSX.
                       : 'border-border text-muted-foreground hover:border-muted-foreground hover:text-foreground',
                   )}
                   title={
-                    th.kind === 'btw' ? 'BTW thread for a chat session' : 'Global orchestrator'
+                    th.kind === 'btw'
+                      ? 'BTW thread for a chat session'
+                      : th.kind === 'concierge'
+                        ? `Concierge intake for ${th.repoPath ?? conciergeRepoPath(th.id) ?? 'a repo'}`
+                        : 'Global orchestrator'
                   }
                   onClick={() => setSuperThreadId(th.id)}
                 >
@@ -268,14 +296,20 @@ export function SuperagentView({ onClose }: { onClose?: () => void } = {}): JSX.
         className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto px-[18px] py-3.5"
         ref={scrollRef}
       >
-        {messages.length === 0 && (
-          <div className="mx-auto my-6 max-w-[46ch] text-center text-[13px] text-muted-foreground/70">
-            Your orchestrator. Ask it to start agents, set up worktrees, dig through past
-            conversations, or work tickets. Type{' '}
-            <code className="rounded-sm bg-background px-[3px] font-mono text-[0.92em]">@</code> to
-            reference a repo, worktree, or conversation.
-          </div>
-        )}
+        {messages.length === 0 &&
+          (conciergeRepo ? (
+            <div className="mx-auto my-6 max-w-[46ch] text-center text-[13px] text-muted-foreground/70">
+              Tell the concierge what you want — it finds or files the issues and won't start work
+              without your go-ahead.
+            </div>
+          ) : (
+            <div className="mx-auto my-6 max-w-[46ch] text-center text-[13px] text-muted-foreground/70">
+              Your orchestrator. Ask it to start agents, set up worktrees, dig through past
+              conversations, or work tickets. Type{' '}
+              <code className="rounded-sm bg-background px-[3px] font-mono text-[0.92em]">@</code>{' '}
+              to reference a repo, worktree, or conversation.
+            </div>
+          ))}
         {messages.map((m) => (
           <CardBoundary key={m.id} resetKey={String(m.id)} label="superagent message">
             <SuperMessageView message={m} />
@@ -545,11 +579,17 @@ function SuperMessageView({ message }: { message: SuperMessage }): JSX.Element |
     )
   }
   if (message.role === 'system') return null
-  // The btw seed / re-open delta are persisted as user messages so the agent sees
-  // them, but they're machine-authored context — collapse them instead of showing a
-  // giant "You" bubble.
-  if (message.role === 'user' && /^\[BTW (CONTEXT|UPDATE)/.test(message.content)) {
-    const label = message.content.startsWith('[BTW UPDATE') ? 'session update' : 'session context'
+  // The btw/concierge seed / re-open delta are persisted as user messages so the
+  // agent sees them, but they're machine-authored context — collapse them instead
+  // of showing a giant "You" bubble.
+  if (message.role === 'user' && /^\[(BTW|CONCIERGE) (CONTEXT|UPDATE)/.test(message.content)) {
+    const label = /^\[(BTW|CONCIERGE) UPDATE/.test(message.content)
+      ? message.content.startsWith('[CONCIERGE')
+        ? 'repo update'
+        : 'session update'
+      : message.content.startsWith('[CONCIERGE')
+        ? 'repo context'
+        : 'session context'
     return (
       <div className="mx-auto w-full max-w-[760px]">
         <button
