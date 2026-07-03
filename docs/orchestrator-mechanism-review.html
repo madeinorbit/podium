@@ -72,9 +72,26 @@
       <div class="status"><span class="pill dark">dark</span><b>Steward</b><span>merged, inert behind <code>steward.enabled: false</code></span></div>
       <div class="status"><span class="pill live">active</span><b>Steering tools</b><span>9 superagent tools for driving sessions</span></div>
       <div class="status"><span class="pill live">stamping</span><b>Provenance</b><span>every new session records who created it</span></div>
-      <div class="status"><span class="pill deferred">deferred</span><b>The pump</b><span>auto-dispatch parked on cost-control design</span></div>
-      <div class="status"><span class="pill next">building</span><b>Concierge</b><span>the + button intake thread</span></div>
+      <div class="status"><span class="pill live">active</span><b>Concierge</b><span>the + button: prior-art-aware intake, confirmed-gated starts</span></div>
+      <div class="status"><span class="pill live">active</span><b>Git primitives</b><span><code>cleanup</code> + <code>action integrate</code> — guarded, local-only, never the repo root</span></div>
+      <div class="status"><span class="pill deferred">deferred</span><b>The pump</b><span>auto-dispatch parked on cost-control design — unbuilt, no flag exists</span></div>
     </div>
+  </section>
+
+  <section>
+    <h2>Mechanism 0 — the concierge (the front door)</h2>
+    <p class="lead">The + button in the sidebar opens a persistent per-repo intake thread. It arrives already knowing the
+    board (a zero-LLM digest: ready/blocked/needs-human, live sessions with provenance, recent events) and its first move
+    on any wish is <b>prior art</b>: it searches issues, past conversations and transcripts (omni-search), and existing
+    branches — then asks "continue #34's half-done branch, or fresh?" before filing anything. It structures work as
+    dependency-chained epics whose descriptions double as agent work briefs, answers status questions with cited sources,
+    and <b>cannot start a session without your explicit in-thread word</b> — a prompt rule backed by a code gate
+    (<code>confirmed:true</code> on every spawn-capable tool, including the <code>create --start</code> shortcut) that
+    holds on both backends via server-minted thread identity, and fails <i>closed</i> for identity-less callers.</p>
+    <div class="callout"><b>Taxonomy that emerged in review:</b> the <i>concierge</i> (always-on, gated) · the
+    <i>manual pump</i> — a session you deliberately appoint to orchestrate an epic; your instruction is its confirmation,
+    and the CLI now carries everything it needs (per-issue agent/model/effort, child-start within its subtree, events,
+    cleanup, integrate) · the <i>pump</i> (autonomous — deferred, unbuilt). Only the last acts without you.</div>
   </section>
 
   <section>
@@ -134,8 +151,11 @@
         tick; handlers are idempotent (see dedup below), so replay is safe.</li>
     </ol>
 
-    <h3>The one handler that exists: unblock</h3>
-    <p class="lead">For each <code>issue.ready</code> in the batch, the steward does two things to the newly-ready issue:</p>
+    <h3>The two handlers that exist: unblock + parent-nudge</h3>
+    <p class="lead"><b>Parent-nudge</b>: when a child issue closes, its parent's live sessions get one counted line —
+    "Child #N closed — 3 of 7 children remain" — plus a deduped comment carrying the child's completion note. This is
+    what lets an orchestrator session (the manual pump) sleep instead of polling. <b>Unblock</b>: for each
+    <code>issue.ready</code> in the batch, two things happen to the newly-ready issue:</p>
     <ul class="plain">
       <li><b>A durable comment</b> — <code>Unblocked by #58: &lt;the closed issue's completion note&gt;</code> — authored
         by <code>steward</code>. This is the inter-agent mail: the completion note the finishing agent wrote travels to
@@ -236,7 +256,7 @@
   <section>
     <h2>Enablement runbook (steward)</h2>
     <ol class="runbook">
-      <li><b>Optional pre-flight:</b> land #63 (boot-seed mapper) so open menus survive restarts as <code>needs_user</code>.</li>
+      <li><b>Pre-flight: done.</b> #63 (boot-seed) and #61 (retention) are live — nothing gates the flip anymore.</li>
       <li><b>Flip:</b> Settings → <code>steward.enabled: true</code> (takes effect ≤15s, no restart).</li>
       <li><b>First tick seeds the cursor to "now"</b> — dark history is skipped by design.</li>
       <li><b>Watch:</b> steward comments on issues, <code>podium issue events</code>, <code>[podium:steward]</code> journal lines.</li>
@@ -255,9 +275,14 @@
         <tr><td><b>#60</b> provenance</td><td class="mono">9c506ea, dbead12</td><td>spawnedBy everywhere, start_agent title/issueId</td></tr>
         <tr><td><b>#61</b> retention</td><td class="mono">08f4f19</td><td>age+cap pruning, cursor-safe, benchmarked</td></tr>
         <tr><td><b>#62</b> steering belt</td><td class="mono">b53d9fa, 3f1891c</td><td>9 tools incl. gated answer_question + wait_for_session</td></tr>
-        <tr><td><b>#63</b> boot-seed mapper</td><td class="mono">open</td><td>menus present as idle/question after restart (fail-closed); optional steward pre-flight</td></tr>
-        <tr><td><b>pump</b></td><td class="mono">—</td><td><b>deferred</b> pending cost-control design (unbuilt, no flag exists)</td></tr>
-        <tr><td><b>concierge</b></td><td class="mono">—</td><td><b>in progress</b>: per-repo + button intake thread, interactive-only (never starts work without your word)</td></tr>
+        <tr><td><b>#64/65/72</b> concierge</td><td class="mono">1efd7b7…d66ae18</td><td>per-repo intake thread + the + button + prior-art recall (omni-search, issue↔session traversal)</td></tr>
+        <tr><td><b>#63</b> boot-seed mapper</td><td class="mono">115e3f4</td><td>pending menus survive restarts as needs_user (live-path parity by construction)</td></tr>
+        <tr><td><b>#68</b> CLI flags</td><td class="mono">83cc42b</td><td>per-issue --agent/--model/--effort; subtree child-start proven by test</td></tr>
+        <tr><td><b>#69</b> parent-nudge</td><td class="mono">dc38c6d</td><td>steward rule: child close → counted nudge to the parent's sessions</td></tr>
+        <tr><td><b>#71</b> cleanup</td><td class="mono">269edaf, f49b8e5</td><td>guarded worktree+branch removal (merged-ancestor + clean checks, never forced, local-only)</td></tr>
+        <tr><td><b>#67</b> thread identity</td><td class="mono">0b87260</td><td>concierge gate + provenance on the harness backend; fail-closed for identity-less MCP callers</td></tr>
+        <tr><td><b>#70</b> integrate</td><td class="mono">0cfe968, 35749a4</td><td>rebuild epic integration branch from closed children — topo order, conflict → needs_human, never the repo root</td></tr>
+        <tr><td><b>pump (#66)</b></td><td class="mono">—</td><td><b>deferred</b> pending the budget-unit decision (unbuilt, no flag exists)</td></tr>
       </table>
     </div>
   </section>
@@ -272,7 +297,7 @@
       <span>As-built mechanics (this page). All three live on main; the full review trail is in the comments of issues #48, #58–#63.</span></a>
   </section>
 
-  <footer>Podium · Orchestrator Agents (#10) · P1 as-built review, rev 2</footer>
+  <footer>Podium · Orchestrator Agents (#10) · as-built review, rev 3 — build complete except the deferred pump</footer>
 
 </main>
 </body>
