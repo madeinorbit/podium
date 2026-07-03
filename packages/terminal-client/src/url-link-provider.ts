@@ -14,6 +14,13 @@ const URL_BODY = /[^\s"'`<>(){}|\\^]/
 const URL_RE = /https?:\/\/[^\s"'`<>(){}|\\^]+/gi
 // Trailing punctuation that is almost never part of the URL (sentence/markup noise).
 const TRAILING = /[.,;:!?)\]}>'"]+$/
+// Upper bound on cells stitched into one logical unit. provideLinks runs per hover, and
+// stitching happens before findUrlMatches filters for http(s) — so a long space-free blob
+// (minified JS, base64) pays this cost even if it yields no link. The cap bounds that. It
+// must clear any REAL URL, though, or it truncates the link mid-token and orphans trailing
+// rows: a PostHog MCP OAuth URL (huge scope list) is ~2.5KB. 8K covers every URL that can
+// actually work — servers reject request lines past ~8KB — while bounding the worst case.
+const MAX_STITCH_CELLS = 8192
 
 export interface UrlLinkConfig {
   onOpen: (url: string) => void
@@ -138,8 +145,7 @@ function logicalStart(buf: BufferLike, row: number): number {
 function stitchUnit(buf: BufferLike, startY: number): Cell[] {
   const cells: Cell[] = [...trimmedRow(buf, startY)]
   let y = startY
-  // Cap the stitch (provideLinks runs per render on hover; a URL is never this long).
-  while (buf.getLine(y + 1) && cells.length < 2048) {
+  while (buf.getLine(y + 1) && cells.length < MAX_STITCH_CELLS) {
     if (isWrapped(buf, y + 1)) {
       cells.push(...trimmedRow(buf, y + 1))
       y += 1

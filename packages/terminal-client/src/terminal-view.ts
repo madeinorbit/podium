@@ -49,16 +49,26 @@ const DEFAULT_THEME: ITheme = {
   brightWhite: '#f3f3f8',
 }
 
-/** Open an external URL in a new tab / the system browser. A synthetic anchor
- *  click (inside the originating user gesture) is used instead of window.open
- *  because window.open replaces the current window in a standalone PWA (notably
- *  iOS), which would navigate Podium itself away. */
+/** Open an external URL in a new tab / the system browser. In installed PWAs,
+ *  `window.open(..., '_blank')` is the most reliable handoff to the browser app
+ *  (iOS Safari in particular); fall back to an anchor click only if it is blocked. */
 function openExternalUrl(uri: string): void {
+  if (typeof window !== 'undefined' && typeof window.open === 'function') {
+    const opened = window.open(uri, '_blank')
+    if (opened) {
+      try {
+        opened.opener = null
+      } catch {
+        // Some browser WindowProxy implementations reject opener writes.
+      }
+      return
+    }
+  }
   if (typeof document === 'undefined') return
   const a = document.createElement('a')
   a.href = uri
   a.target = '_blank'
-  a.rel = 'noopener noreferrer'
+  a.rel = 'noopener noreferrer external'
   a.style.display = 'none'
   document.body.appendChild(a)
   a.click()
@@ -111,10 +121,8 @@ export class TerminalView {
     this.term.loadAddon(this.fitAddon)
     // Clickable URLs across single-line, SOFT (reflow) and HARD (agent hang-indent)
     // wraps — replaces WebLinksAddon, which only stitched soft wraps so a Claude-wrapped
-    // URL was clickable on its first row only. Opens via a synthetic anchor click rather
-    // than window.open: in a standalone PWA (iOS especially) window.open navigates the
-    // app's OWN window — replacing Podium — whereas <a target="_blank"> hands off to a
-    // new browser tab. Runs inside the click gesture, so it isn't popup-blocked.
+    // URL was clickable on its first row only. Opens with window.open('_blank') from the
+    // click gesture so installed PWAs hand off to the browser instead of replacing Podium.
     this.term.registerLinkProvider(
       makeUrlLinkProvider(
         () => this.term.buffer.active as unknown as import('./buffer-line').BufferLike,

@@ -141,6 +141,32 @@ describe('makeUrlLinkProvider', () => {
     expect(linksFor(buf, 3)[0]?.text).toBe(full) // last row
   })
 
+  it('stitches a very long URL (>2KB) across ALL its hard-wrapped rows', () => {
+    // A real PostHog MCP OAuth URL is ~2.5KB — one contiguous, space-free token whose
+    // huge scope list makes it far longer than the old 2048-cell stitch cap. Hard-wrapped
+    // (zero indent, no gutter) at the terminal width, it must link from the FIRST row to
+    // the LAST: the cap must never truncate the URL and orphan its trailing rows.
+    const W = 220
+    const url = `https://oauth.posthog.com/oauth/authorize/?response_type=code&client_id=x&scope=${'a%3Aread+'.repeat(280)}end`
+    expect(url.length).toBeGreaterThan(2048)
+    const rows: string[] = []
+    for (let i = 0; i < url.length; i += W) rows.push(url.slice(i, i + W))
+    const buf = fakeBuf(
+      rows,
+      rows.map(() => false),
+      W,
+    )
+
+    const fromTop = linksFor(buf, 1)
+    expect(fromTop).toHaveLength(1)
+    expect(fromTop[0]!.text).toBe(url) // whole URL, not a 2048-char prefix
+    expect(fromTop[0]!.ey).toBe(rows.length) // link reaches the LAST row
+
+    const fromLast = linksFor(buf, rows.length) // hovering the last row links too
+    expect(fromLast).toHaveLength(1)
+    expect(fromLast[0]!.text).toBe(url)
+  })
+
   it('does not merge a prose word that happens to follow a URL at zero indent', () => {
     // A long prose line ending in a URL, then a new sentence at zero indent: the
     // URL must stay clean, not absorb "Done".
