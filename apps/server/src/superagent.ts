@@ -732,7 +732,19 @@ export class SuperagentService {
         run: async (args) => {
           const sessionId = str(args.sessionId) ?? ''
           const answer = str(args.answer) ?? ''
-          if (!getSession(sessionId)) return 'unknown session'
+          const session = getSession(sessionId)
+          if (!session) return 'unknown session'
+          // Gate on a LIVE pending menu before touching the PTY: the claude-code
+          // classifier resolves an unresolved AskUserQuestion as needs_user with
+          // need.kind 'question' (agent-bridge ask_user_tool label) — the ONLY
+          // shape a real on-screen menu produces. idle+idle.kind 'question' is a
+          // textual question (no menu; digits would land as message text), and a
+          // working agent must never get stray digits/Enter mid-turn from a stale
+          // menu still sitting in the transcript tail.
+          const state = session.agentState
+          if (!(state?.phase === 'needs_user' && state.need?.kind === 'question')) {
+            return `no pending question (phase=${state?.phase ?? 'unknown'})`
+          }
           // The live prompt's options live in the transcript: the LAST
           // AskUserQuestion call carries them as structured toolInputJson (the same
           // source the chat card renders from).
@@ -759,6 +771,7 @@ export class SuperagentService {
           // native menu). The single answer text is resolved against each
           // question's options — the dominant case is a single question.
           const choices: { optionIndices: number[] }[] = []
+          const notes: string[] = []
           for (const qq of questions) {
             const labels = (qq.options ?? []).map((o) => o.label ?? '')
             const idx = matchAnswerToOptions(answer, labels)
@@ -767,10 +780,25 @@ export class SuperagentService {
                 .map((l, i) => `${i + 1}) ${l}`)
                 .join(', ')}`
             }
+            // The native menu takes single digits — the relay silently drops
+            // indices outside 1-9, so fail loudly here instead of reporting a
+            // success that never reached the agent.
+            const over = idx.find((n) => n > 9)
+            if (over !== undefined) {
+              return `option ${over} is beyond the native menu's 1-9 range — answer by label instead`
+            }
+            if (!qq.multiSelect && idx.length > 1) {
+              notes.push(`single-select — used first of ${idx.join(',')}`)
+            }
             choices.push({ optionIndices: qq.multiSelect ? idx : idx.slice(0, 1) })
           }
           const r = registry.answerAskUserQuestion({ sessionId, choices })
-          return r.ok ? JSON.stringify({ answered: true, choices }) : 'failed: session not running'
+          if (!r.ok) return 'failed: session not running'
+          return JSON.stringify({
+            answered: true,
+            choices,
+            ...(notes.length > 0 ? { note: notes.join('; ') } : {}),
+          })
         },
       },
       {
@@ -931,7 +959,10 @@ export class SuperagentService {
           name: 'wait_for_session',
           description:
             "Block until a session's agent phase changes (e.g. finishes working), up to " +
-            'timeoutSeconds (default 60, max 120). Returns the new phase, or a timeout note.',
+            'timeoutSeconds (default 60, max 120). Returns the new phase, or a timeout note. ' +
+            'If the session is already settled (idle/needs_user/errored/ended) it returns ' +
+            'that phase immediately. Waiting blocks this thread for up to timeoutSeconds — ' +
+            'prefer short timeouts and re-check rather than one long wait.',
           parameters: {
             type: 'object',
             properties: {
@@ -948,6 +979,22 @@ export class SuperagentService {
           const sessionId = str(args.sessionId) ?? ''
           if (!getSession(sessionId)) return 'unknown session'
           const timeoutS = Math.min(120, Math.max(0, num(args.timeoutSeconds) ?? 60))
+          // Already settled? Answer from the current state without waiting — the
+          // event log only carries TRANSITIONS, so an agent that finished before
+          // this call would otherwise sit out the full timeout.
+          const cur = getSession(sessionId)?.agentState
+          if (
+            cur &&
+            (cur.phase === 'idle' ||
+              cur.phase === 'needs_user' ||
+              cur.phase === 'errored' ||
+              cur.phase === 'ended')
+          ) {
+            return JSON.stringify({
+              phase: cur.phase,
+              ...(cur.idle?.kind ? { verdict: cur.idle.kind } : {}),
+            })
+          }
           // Watch the durable event log from "now": session.phase rows are appended
           // on every real phase transition (subject = sessionId), so polling the
           // cursor catches the change even across a busy log. Never throws.
@@ -1150,13 +1197,14 @@ function sleep(ms: number): Promise<void> {
 
 /**
  * Map a free-text answer to 1-based option indices for one AskUserQuestion:
- * bare number(s) win ("2", "1,3"), then a case-insensitive exact label match,
- * then a UNIQUE case-insensitive substring match. Empty result = no match.
+ * bare number(s) win ("2", "1,3" — repeats deduped), then a case-insensitive
+ * exact label match, then a UNIQUE case-insensitive substring match.
+ * Empty result = no match.
  */
 export function matchAnswerToOptions(answer: string, labels: string[]): number[] {
   const t = answer.trim()
   if (/^\d+(\s*,\s*\d+)*$/.test(t)) {
-    const idx = t.split(',').map((s) => Number.parseInt(s.trim(), 10))
+    const idx = [...new Set(t.split(',').map((s) => Number.parseInt(s.trim(), 10)))]
     return idx.every((n) => n >= 1 && n <= labels.length) ? idx : []
   }
   const lower = t.toLowerCase()
