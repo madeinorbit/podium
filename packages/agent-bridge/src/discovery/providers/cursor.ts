@@ -154,9 +154,12 @@ async function loadConversation(summary: AgentConversationSummary): Promise<Agen
       path: summary.source.path,
     })
   } catch (cause) {
-    throw new AgentConversationLoadError(`Could not load Cursor conversation from ${summary.source.path}`, {
-      cause,
-    })
+    throw new AgentConversationLoadError(
+      `Could not load Cursor conversation from ${summary.source.path}`,
+      {
+        cause,
+      },
+    )
   }
 
   // A read failure already threw above. Per-line PARSE diagnostics were isolated by
@@ -202,6 +205,7 @@ function summarizeCursorHeadRecords(
     createdAt: createdAtFromStats(stats),
     updatedAt: validDate(stats.mtime, stats.mtimeMs),
     messageCount,
+    sizeBytes: stats.size,
     resume: { kind: 'cursor-chat', value: id },
     source: {
       providerId,

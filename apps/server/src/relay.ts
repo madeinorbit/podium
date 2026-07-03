@@ -2648,6 +2648,7 @@ export class SessionRegistry {
           nativeId: c.id,
           providerId: c.providerId,
           ...(c.path ? { path: c.path } : {}),
+          ...(c.sizeBytes !== undefined ? { sizeBytes: c.sizeBytes } : {}),
         }),
       )
     }
@@ -2668,6 +2669,7 @@ export class SessionRegistry {
           providerId: c.providerId,
           parentPodiumId,
           ...(c.path ? { path: c.path } : {}),
+          ...(c.sizeBytes !== undefined ? { sizeBytes: c.sizeBytes } : {}),
         }),
       )
     }
@@ -2807,13 +2809,16 @@ export class SessionRegistry {
   }
 
   /** The lake maintenance pass behind every scan/attach trigger: mirror-pull the
-   *  machine's unmirrored segments AND FTS-backfill segments whose lake copy is
-   *  ahead of the index cursor (lakes mirrored before the indexer deployed, or a
-   *  budget-stopped earlier pass). Both self-noop cheaply when caught up. */
+   *  machine's DIRTY segments (spec §2.3 "Dirty-driven": reported size ≠ mirrored
+   *  cursor — NOT a full sweep, which cost one daemon eof-check round trip per
+   *  segment even when fully caught up) AND FTS-backfill segments whose lake copy
+   *  is ahead of the index cursor. Both self-noop cheaply when caught up. On
+   *  attach, before any scan, the LAST-KNOWN reported sizes persisted in the store
+   *  cover the offline gap; the first scan (~15s later) refreshes them. */
   private triggerLakeSweep(machineId: string): void {
     const mirror = this.mirror
     if (!mirror) return
-    mirror.enqueueMachine(machineId)
+    mirror.enqueueDirty(machineId)
     this.transcriptIndexer?.backfillMachine(machineId, (nativeId) =>
       mirror.lakePath(machineId, nativeId),
     )

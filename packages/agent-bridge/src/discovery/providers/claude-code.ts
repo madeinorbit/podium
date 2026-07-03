@@ -288,6 +288,7 @@ function summarizeClaudeHeadRecords(
     statusHint: 'unknown',
     createdAt: firstRecordTimestamp(records) ?? createdAtFromStats(stats),
     updatedAt: validDate(stats.mtime, stats.mtimeMs),
+    sizeBytes: stats.size,
     resume: { kind: 'claude-session', value: id },
     source: {
       providerId,

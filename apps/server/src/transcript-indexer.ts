@@ -53,6 +53,13 @@ export class TranscriptIndexer {
   private readonly running = new Map<string, { rerun: boolean; lakePath: string }>()
   /** Machines with a backfill sweep in flight (single-flight per machine). */
   private readonly backfilling = new Set<string>()
+  /** Per-segment `${mirrored}:${indexed}` pair at the end of the last backfill
+   *  attempt. A segment whose pair hasn't moved since is SKIPPED: its unindexed
+   *  gap is a permanent partial trailing line (e.g. a lake file with no trailing
+   *  newline — 42 in production) that re-reading can never drain. Retried as soon
+   *  as either cursor moves (mirror append completes the line, or a truncate
+   *  resets both). In-memory on purpose: a restart retries everything once. */
+  private readonly lastBackfillGap = new Map<string, string>()
 
   private readonly chunkDelayMs: number
   private readonly passBudgetBytes: number
@@ -84,6 +91,7 @@ export class TranscriptIndexer {
    *  content is invalid. Synchronous, so an in-flight run's cursor check below
    *  observes the reset before it can append stale rows. */
   onTruncate(machineId: string, nativeId: string): void {
+    this.lastBackfillGap.delete(`${machineId}\n${nativeId}`)
     this.store.dropTranscriptIndex(machineId, nativeId)
   }
 
@@ -97,7 +105,17 @@ export class TranscriptIndexer {
   backfillMachine(machineId: string, lakePathFor: (nativeId: string) => string): void {
     if (this.backfilling.has(machineId)) return
     if (!this.store.transcriptIndexAvailable) return
-    const behind = this.store.segmentsToIndex(machineId)
+    // Unchanged-gap skip: drop segments whose (mirrored, indexed) pair is exactly
+    // where the last attempt left it — that gap is a partial trailing line the
+    // indexer already proved it cannot consume (newline-less lake tail); reading
+    // it again every sweep is pure waste. Either cursor moving re-qualifies it.
+    const behind = this.store
+      .segmentsToIndex(machineId)
+      .filter(
+        (s) =>
+          this.lastBackfillGap.get(`${machineId}\n${s.nativeId}`) !==
+          `${s.mirroredBytes}:${s.indexedBytes}`,
+      )
     if (behind.length === 0) return
     this.backfilling.add(machineId)
     void this.backfill(
@@ -122,8 +140,22 @@ export class TranscriptIndexer {
         const key = `${machineId}\n${nativeId}`
         // A live onBytes run is already catching this segment up — skip it here.
         if (this.running.has(key)) continue
+        const indexedBefore = this.store.indexedCursor(machineId, nativeId)
         this.running.set(key, { rerun: false, lakePath: lakePathFor(nativeId) })
         await this.run(key, machineId, nativeId, pass)
+        // Unchanged-gap bookkeeping: a ZERO-progress attempt proves the remaining
+        // gap is undrainable as-is (partial trailing line / read error) — record
+        // the pair so the next sweep skips it until a cursor moves. An attempt
+        // that DID progress must not record (a budget stop mid-file leaves a
+        // perfectly drainable gap; the next sweep resumes it).
+        if (this.store.indexedCursor(machineId, nativeId) === indexedBefore) {
+          this.lastBackfillGap.set(
+            key,
+            `${this.store.mirrorCursor(machineId, nativeId)}:${indexedBefore}`,
+          )
+        } else {
+          this.lastBackfillGap.delete(key)
+        }
         // Breathe between segments, not just between windows within one.
         if (this.chunkDelayMs > 0) await this.sleep(this.chunkDelayMs)
       }

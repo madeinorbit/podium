@@ -186,6 +186,7 @@ async function summarizeGrokSummary(
       dateField(summary, 'last_active_at') ??
       validDate(stats.mtime, stats.mtimeMs),
     messageCount: numberField(summary, 'num_chat_messages') ?? numberField(summary, 'num_messages'),
+    sizeBytes: stats.size,
     git: gitMetadata(summary),
     resume: { kind: 'grok-session', value: id },
     source: {

@@ -1614,6 +1614,10 @@ export class SessionStore {
     providerId: string
     parentPodiumId?: string
     path?: string
+    /** Transcript file size at scan time (discovery evidence). Persisted as
+     *  `reported_bytes` so attach-time dirty reconciliation can use the LAST
+     *  KNOWN size without waiting for a fresh scan (or sweeping everything). */
+    sizeBytes?: number
   }): string {
     const existing = this.conversationPodiumId(opts.machineId, opts.nativeId)
     if (existing !== undefined) {
@@ -1624,12 +1628,14 @@ export class SessionStore {
           )
           .run(opts.parentPodiumId, existing)
       }
-      if (opts.path) {
+      if (opts.path || opts.sizeBytes !== undefined) {
+        // COALESCE keeps whichever evidence this call did NOT bring (a size-less
+        // re-observation must not blank a previously reported size, or vice versa).
         this.db
           .prepare(
-            'UPDATE conversation_segments SET path = ? WHERE machine_id = ? AND native_id = ?',
+            'UPDATE conversation_segments SET path = COALESCE(?, path), reported_bytes = COALESCE(?, reported_bytes) WHERE machine_id = ? AND native_id = ?',
           )
-          .run(opts.path, opts.machineId, opts.nativeId)
+          .run(opts.path ?? null, opts.sizeBytes ?? null, opts.machineId, opts.nativeId)
       }
       return existing
     }
@@ -1643,10 +1649,18 @@ export class SessionStore {
     this.db
       .prepare(
         `INSERT INTO conversation_segments
-           (machine_id, native_id, provider_id, podium_id, path, seq_in_conv, linked_by, created_at)
-         VALUES (?, ?, ?, ?, ?, 1, 'discovery', ?)`,
+           (machine_id, native_id, provider_id, podium_id, path, reported_bytes, seq_in_conv, linked_by, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, 1, 'discovery', ?)`,
       )
-      .run(opts.machineId, opts.nativeId, opts.providerId, podiumId, opts.path ?? null, now)
+      .run(
+        opts.machineId,
+        opts.nativeId,
+        opts.providerId,
+        podiumId,
+        opts.path ?? null,
+        opts.sizeBytes ?? null,
+        now,
+      )
     return podiumId
   }
 
@@ -1708,6 +1722,50 @@ export class SessionStore {
       path: r.path as string,
       mirroredBytes: r.mirrored_bytes as number,
     }))
+  }
+
+  /** DIRTY subset of {@link segmentsToMirror} (spec §2.3 "Dirty-driven"): segments
+   *  whose last daemon-reported size disagrees with the mirrored cursor, plus
+   *  NULL-reported rows (pre-upgrade / providers that never report a size) which
+   *  count as dirty so one mirror pass can observe their size and quiet them.
+   *  This is the per-scan/attach work list — a fully-mirrored fleet returns []. */
+  segmentsToMirrorDirty(
+    machineId: string,
+  ): { nativeId: string; path: string; mirroredBytes: number }[] {
+    const rows = this.db
+      .prepare(
+        `SELECT native_id, path, mirrored_bytes FROM conversation_segments
+         WHERE machine_id = ? AND path IS NOT NULL
+           AND (reported_bytes IS NULL OR reported_bytes != mirrored_bytes)`,
+      )
+      .all(machineId) as Record<string, unknown>[]
+    return rows.map((r) => ({
+      nativeId: r.native_id as string,
+      path: r.path as string,
+      mirroredBytes: r.mirrored_bytes as number,
+    }))
+  }
+
+  /** Record the file size the mirror OBSERVED at eof. Fresher than any scan report
+   *  (the read just happened), and the convergence step for NULL-reported rows:
+   *  after one successful pull, reported == mirrored and the segment goes quiet
+   *  until a scan reports growth. */
+  setReportedBytes(machineId: string, nativeId: string, bytes: number): void {
+    this.db
+      .prepare(
+        'UPDATE conversation_segments SET reported_bytes = ? WHERE machine_id = ? AND native_id = ?',
+      )
+      .run(bytes, machineId, nativeId)
+  }
+
+  /** Last daemon-reported transcript size, or undefined when never reported. */
+  reportedBytes(machineId: string, nativeId: string): number | undefined {
+    const row = this.db
+      .prepare(
+        'SELECT reported_bytes FROM conversation_segments WHERE machine_id = ? AND native_id = ?',
+      )
+      .get(machineId, nativeId) as { reported_bytes: number | null } | undefined
+    return row?.reported_bytes ?? undefined
   }
 
   mirrorCursor(machineId: string, nativeId: string): number {
@@ -2058,6 +2116,7 @@ export class SessionStore {
          mirrored_bytes INTEGER NOT NULL DEFAULT 0,
          mirrored_at TEXT,
          indexed_bytes INTEGER NOT NULL DEFAULT 0,
+         reported_bytes INTEGER,
          PRIMARY KEY (machine_id, native_id)
        )`,
     )
@@ -2080,6 +2139,11 @@ export class SessionStore {
         this.db.exec(
           'ALTER TABLE conversation_segments ADD COLUMN indexed_bytes INTEGER NOT NULL DEFAULT 0',
         )
+      // Dirty-driven mirror (transcript-mirror spec §2.3 "Dirty-driven"): the
+      // daemon-reported transcript file size, NULLable on purpose — NULL marks a
+      // pre-upgrade row that must count as dirty ONCE so the fleet converges.
+      if (!segCols.has('reported_bytes'))
+        this.db.exec('ALTER TABLE conversation_segments ADD COLUMN reported_bytes INTEGER')
     }
     this.db.exec(
       'CREATE INDEX IF NOT EXISTS conversation_segments_podium ON conversation_segments(podium_id, seq_in_conv)',

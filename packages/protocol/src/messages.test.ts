@@ -124,6 +124,20 @@ describe('shared schemas', () => {
     expect(ConversationSummaryWire.parse(min)).toEqual(min)
   })
 
+  it('round-trips ConversationSummaryWire.sizeBytes (the mirror dirty signal)', () => {
+    const sized = {
+      id: 'x',
+      agentKind: 'claude-code' as const,
+      providerId: 'claude-code-jsonl',
+      path: '/home/u/.claude/projects/-p/x.jsonl',
+      sizeBytes: 4096,
+    }
+    expect(ConversationSummaryWire.parse(sized)).toEqual(sized)
+    // Negative / fractional sizes are wire corruption, not evidence.
+    expect(() => ConversationSummaryWire.parse({ ...sized, sizeBytes: -1 })).toThrow()
+    expect(() => ConversationSummaryWire.parse({ ...sized, sizeBytes: 1.5 })).toThrow()
+  })
+
   it('round-trips a GitRepositoryWire with worktrees', () => {
     const repo = {
       path: '/r',
@@ -237,9 +251,9 @@ describe('parseServerMessageLenient (per-element quarantine)', () => {
     })
     const { message, dropped } = parseServerMessageLenient(raw)
     expect(dropped).toBe(1)
-    expect(
-      message?.type === 'sessionsChanged' && message.sessions.map((s) => s.sessionId),
-    ).toEqual(['a', 'c'])
+    expect(message?.type === 'sessionsChanged' && message.sessions.map((s) => s.sessionId)).toEqual(
+      ['a', 'c'],
+    )
   })
 
   it('passes a fully valid collection through unchanged (dropped=0)', () => {
@@ -465,11 +479,15 @@ describe('memory breakdown messages', () => {
 
 describe('session draft messages', () => {
   it('parses setSessionDraft (client) and sessionDraftChanged (server)', () => {
-    expect(ClientMessage.parse({ type: 'setSessionDraft', sessionId: 's', text: 'hi' })).toMatchObject({
+    expect(
+      ClientMessage.parse({ type: 'setSessionDraft', sessionId: 's', text: 'hi' }),
+    ).toMatchObject({
       type: 'setSessionDraft',
       text: 'hi',
     })
-    expect(ServerMessage.parse({ type: 'sessionDraftChanged', sessionId: 's', text: 'hi' })).toMatchObject({
+    expect(
+      ServerMessage.parse({ type: 'sessionDraftChanged', sessionId: 's', text: 'hi' }),
+    ).toMatchObject({
       type: 'sessionDraftChanged',
       text: 'hi',
     })
@@ -604,9 +622,9 @@ describe('agent runtime state', () => {
     } as const
     expect(SessionMeta.parse(base).snoozedUntil).toBeUndefined()
     expect(SessionMeta.parse({ ...base, snoozedUntil: null }).snoozedUntil).toBeNull()
-    expect(SessionMeta.parse({ ...base, snoozedUntil: '2026-06-19T06:00:00.000Z' }).snoozedUntil).toBe(
-      '2026-06-19T06:00:00.000Z',
-    )
+    expect(
+      SessionMeta.parse({ ...base, snoozedUntil: '2026-06-19T06:00:00.000Z' }).snoozedUntil,
+    ).toBe('2026-06-19T06:00:00.000Z')
   })
 })
 
@@ -626,8 +644,20 @@ describe('agent quota messages', () => {
           agent: 'claude-code' as const,
           status: 'ok' as const,
           windows: [
-            { key: '5h' as const, label: '5-hour', usedPercent: 42.5, resetsAt: '2026-06-19T20:00:00.000Z', windowMinutes: 300 },
-            { key: 'weekly' as const, label: 'Weekly', usedPercent: 7, resetsAt: '2026-06-24T00:00:00.000Z', windowMinutes: 10080 },
+            {
+              key: '5h' as const,
+              label: '5-hour',
+              usedPercent: 42.5,
+              resetsAt: '2026-06-19T20:00:00.000Z',
+              windowMinutes: 300,
+            },
+            {
+              key: 'weekly' as const,
+              label: 'Weekly',
+              usedPercent: 7,
+              resetsAt: '2026-06-24T00:00:00.000Z',
+              windowMinutes: 10080,
+            },
           ],
           fetchedAt: '2026-06-19T18:00:00.000Z',
         },
@@ -672,7 +702,11 @@ describe('output-scheduling protocol', () => {
   })
   it('rejects out-of-range / non-int sessionPriority', () => {
     for (const p of [-1, 4, 1.5]) {
-      expect(() => parseControlMessage(encode({ type: 'sessionPriority', sessionId: 's', priority: p } as never))).toThrow()
+      expect(() =>
+        parseControlMessage(
+          encode({ type: 'sessionPriority', sessionId: 's', priority: p } as never),
+        ),
+      ).toThrow()
     }
   })
 })
@@ -681,8 +715,12 @@ describe('issue relay messages', () => {
   it('round-trips an issueRelayRequest (daemon→server)', () => {
     const m = parseDaemonMessage(
       JSON.stringify({
-        type: 'issueRelayRequest', requestId: 'ir0', sessionId: 's1',
-        router: 'issues', proc: 'ready', input: { repoPath: '/r' },
+        type: 'issueRelayRequest',
+        requestId: 'ir0',
+        sessionId: 's1',
+        router: 'issues',
+        proc: 'ready',
+        input: { repoPath: '/r' },
       }),
     )
     expect(m.type).toBe('issueRelayRequest')

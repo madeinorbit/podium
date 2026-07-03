@@ -278,6 +278,7 @@ function summarizeCodexHeadRecords(
     statusHint: metadata?.archived ? 'archived' : 'unknown',
     createdAt: firstRecordTimestamp(records) ?? createdAtFromStats(stats),
     updatedAt: validDate(stats.mtime, stats.mtimeMs),
+    sizeBytes: stats.size,
     git: metadata?.git,
     resume: { kind: 'codex-thread', value: id },
     source: {

@@ -62,6 +62,28 @@ daemon → server: transcriptMirrorResult {
   conversations — enqueue every segment whose evidence path is known), and a
   low-frequency sweep on daemon attach (catch-up after server downtime). Dedup:
   a segment already queued/in-flight is not re-enqueued.
+- **Dirty-driven (redesign, 2026-07)**: full sweeps made every trigger cost one
+  daemon eof-check round trip per path-known segment even when fully mirrored
+  (~1,150 reads ≈ 2 s wall / 0.9 s CPU per attach, latency-bound noise on the hot
+  control channel). Discovery already stats every transcript for mtime, so the
+  size now rides along for free: `AgentConversationSummary.sizeBytes` →
+  `ConversationSummaryWire.sizeBytes` → persisted as `reported_bytes` on
+  `conversation_segments` (additive, NULLable). Scan/attach triggers enqueue ONLY
+  the dirty set (`path IS NOT NULL AND (reported_bytes IS NULL OR reported_bytes
+  != mirrored_bytes)`); a caught-up machine enqueues nothing and issues zero
+  mirror reads. `reported_bytes` persists, so an attach BEFORE the first scan
+  reconciles from last-known sizes (the ~15 s scan refreshes them).
+  *Upgrade path*: pre-upgrade rows (and providers that never report a size, e.g.
+  opencode's SQLite-backed sessions) have NULL `reported_bytes` and count as
+  dirty; when a pull reaches eof the mirror records the observed size, so each
+  such segment costs exactly one catch-up pull and then goes quiet. Consequence
+  for size-less providers: growth after that one pull is no longer noticed —
+  acceptable, the mirror formally covers file-path providers (§2.5), which all
+  report sizes now. *Correctness*: a size report racing an append is harmless
+  (the next scan reports the newer size and re-dirties); a SAME-SIZE rewrite
+  with different content remains undetectable — unchanged from the full-sweep
+  posture, which keyed off `mirrored_bytes` the same way. The full-sweep
+  `enqueueMachine` survives as a manual-reconcile/test seam only.
 - **Pacing (incident amendment, 2026-07)**: the first live deploy enqueued a
   months-deep lake on daemon attach and drained it back-to-back — continuous
   256 KB chunks pumped through the daemon WS, decoded and written with zero idle.

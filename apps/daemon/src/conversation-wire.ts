@@ -1,7 +1,4 @@
-import type {
-  AgentConversationDiagnostic,
-  AgentConversationSummary,
-} from '@podium/agent-bridge'
+import type { AgentConversationDiagnostic, AgentConversationSummary } from '@podium/agent-bridge'
 import type { ConversationDiagnosticWire, ConversationSummaryWire } from '@podium/protocol'
 
 export function summaryToWire(s: AgentConversationSummary): ConversationSummaryWire {
@@ -17,6 +14,9 @@ export function summaryToWire(s: AgentConversationSummary): ConversationSummaryW
     ...(s.createdAt ? { createdAt: s.createdAt.toISOString() } : {}),
     ...(s.updatedAt ? { updatedAt: s.updatedAt.toISOString() } : {}),
     ...(s.messageCount !== undefined ? { messageCount: s.messageCount } : {}),
+    // Dirty signal for the server's transcript mirror: the transcript file's byte
+    // size at scan time (free — discovery already stat()s the file for mtime).
+    ...(s.sizeBytes !== undefined ? { sizeBytes: s.sizeBytes } : {}),
     ...(s.git ? { git: s.git } : {}),
     ...(s.resume ? { resume: s.resume } : {}),
     // Registry evidence: the absolute file this summary came from, recorded on the

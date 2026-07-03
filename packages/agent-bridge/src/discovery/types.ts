@@ -49,6 +49,10 @@ export type AgentConversationSummary = {
   createdAt?: Date
   updatedAt?: Date
   messageCount?: number
+  /** Byte size of `source.path` at scan time (from the stat every file-backed
+   *  provider already performs for mtime). Free evidence for the server's
+   *  dirty-driven transcript mirror: size ≠ mirrored cursor ⇒ pull. */
+  sizeBytes?: number
   git?: AgentConversationGitMetadata
   resume?: AgentConversationResumeRef
   source: AgentConversationSource

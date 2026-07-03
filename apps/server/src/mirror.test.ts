@@ -397,4 +397,90 @@ describe('MirrorService', () => {
     expect(maxLag).toBeLessThan(250)
     store.close()
   })
+
+  // Dirty-driven enqueueing (spec §2.3 "Dirty-driven"): scan/attach triggers call
+  // enqueueDirty, which pulls ONLY segments whose daemon-reported size disagrees
+  // with the mirrored cursor (NULL-reported rows count as dirty once). The
+  // headline regression: a fully-mirrored fleet must issue ZERO mirror reads.
+  describe('enqueueDirty', () => {
+    function seedSized(
+      store: SessionStore,
+      machineId: string,
+      nativeId: string,
+      sizeBytes?: number,
+    ): string {
+      const path = `/home/u/.claude/projects/-proj/${nativeId}.jsonl`
+      store.ensureConversationIdentity({
+        machineId,
+        nativeId,
+        providerId: 'claude-code-jsonl',
+        path,
+        ...(sizeBytes !== undefined ? { sizeBytes } : {}),
+      })
+      return path
+    }
+
+    it('pulls exactly the behind + never-reported segments, then a re-trigger issues ZERO reads', async () => {
+      const { store, fs, mirror } = setup()
+      const caughtUp = Buffer.from('{"line":"old"}\n')
+      const behind = Buffer.from('{"line":"one"}\n{"line":"two"}\n')
+      const preUpgrade = Buffer.from('{"line":"legacy"}\n')
+
+      // Caught up: reported == mirrored (mirror it fully first, which records the
+      // observed size at eof), so it must NOT be touched by the dirty trigger.
+      const caughtUpPath = seedSized(store, 'm1', 'caught-up', caughtUp.length)
+      fs.set(caughtUpPath, caughtUp)
+      mirror.enqueue('m1', 'caught-up', caughtUpPath)
+      await settle(mirror, 'm1')
+      expect(store.mirrorCursor('m1', 'caught-up')).toBe(caughtUp.length)
+
+      // Behind: a scan reported a size ahead of the (zero) mirror cursor.
+      const behindPath = seedSized(store, 'm1', 'behind', behind.length)
+      fs.set(behindPath, behind)
+      // NULL-reported: a pre-upgrade row — no scan ever carried a size for it.
+      const preUpgradePath = seedSized(store, 'm1', 'pre-upgrade')
+      fs.set(preUpgradePath, preUpgrade)
+
+      const logBefore = fs.log.length
+      mirror.enqueueDirty('m1')
+      await settle(mirror, 'm1')
+
+      // Exactly the two dirty segments were read — never the caught-up one.
+      const pulled = new Set(fs.log.slice(logBefore).map((r) => r.path))
+      expect(pulled).toEqual(new Set([behindPath, preUpgradePath]))
+      expect(readFileSync(mirror.lakePath('m1', 'behind')).equals(behind)).toBe(true)
+      expect(readFileSync(mirror.lakePath('m1', 'pre-upgrade')).equals(preUpgrade)).toBe(true)
+      // Convergence: eof recorded the observed size, so BOTH now read as clean —
+      // including the pre-upgrade row (dirty exactly ONCE, per the upgrade path).
+      expect(store.reportedBytes('m1', 'behind')).toBe(behind.length)
+      expect(store.reportedBytes('m1', 'pre-upgrade')).toBe(preUpgrade.length)
+      expect(store.segmentsToMirrorDirty('m1')).toEqual([])
+
+      // THE regression: a re-trigger on a caught-up machine enqueues nothing and
+      // issues zero daemon round trips (the old full sweep paid one eof-check
+      // read per segment, ~1,150 per attach in production).
+      const logAfterConvergence = fs.log.length
+      mirror.enqueueDirty('m1')
+      await settle(mirror, 'm1')
+      expect(fs.log.length).toBe(logAfterConvergence)
+      store.close()
+    })
+
+    it('attach before any scan reconciles from PERSISTED reported sizes', async () => {
+      // Simulates: sizes were reported in an earlier server life, the daemon
+      // (re)attaches, and no fresh scan has run yet — the dirty query must work
+      // off the reported_bytes already in the store.
+      const { store, fs, mirror } = setup()
+      const grown = Buffer.from('{"line":1}\n{"line":2}\n{"line":3}\n')
+      const path = seedSized(store, 'm1', 'offline-growth', grown.length) // persisted last-known size
+      fs.set(path, grown)
+
+      mirror.enqueueDirty('m1') // the attach trigger — nothing scanned this life
+      await settle(mirror, 'm1')
+
+      expect(readFileSync(mirror.lakePath('m1', 'offline-growth')).equals(grown)).toBe(true)
+      expect(store.segmentsToMirrorDirty('m1')).toEqual([])
+      store.close()
+    })
+  })
 })

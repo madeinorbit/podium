@@ -88,9 +88,24 @@ export class MirrorService {
     return join(this.lakeDir, machineId, `${nativeId}.jsonl`)
   }
 
-  /** Enqueue every path-known segment of a machine (scan / daemon-attach trigger). */
+  /** Enqueue every path-known segment of a machine — the FULL sweep. Kept as the
+   *  manual-reconcile / test seam; the scan/attach triggers use {@link enqueueDirty}
+   *  instead (spec §2.3 "Dirty-driven"): a full sweep of a caught-up fleet still
+   *  costs one daemon eof-check round trip PER SEGMENT (~1,150 reads ≈ 2s wall on
+   *  the hot control channel per attach), which is exactly the regression the
+   *  dirty set eliminates. */
   enqueueMachine(machineId: string): void {
     for (const seg of this.store.segmentsToMirror(machineId)) {
+      this.enqueue(machineId, seg.nativeId, seg.path)
+    }
+  }
+
+  /** Enqueue ONLY the machine's dirty segments: daemon-reported size ≠ mirrored
+   *  cursor, plus never-reported (NULL) rows which stay dirty until one pull
+   *  records their observed size (upgrade path — the fleet converges, then a
+   *  caught-up machine enqueues NOTHING and issues ZERO mirror reads). */
+  enqueueDirty(machineId: string): void {
+    for (const seg of this.store.segmentsToMirrorDirty(machineId)) {
       this.enqueue(machineId, seg.nativeId, seg.path)
     }
   }
@@ -209,7 +224,16 @@ export class MirrorService {
       } else if (!res.eof) {
         throw new Error('empty non-eof mirror chunk') // defensive: avoid a spin
       }
-      if (res.eof) return
+      if (res.eof) {
+        // Fully caught up: the cursor IS the file size we just observed — record
+        // it as the reported size so the dirty set drops this segment. This is
+        // what quiets NULL-reported rows (pre-upgrade / size-less providers), and
+        // it is FRESHER than the scan's stat (a grow that raced the scan report is
+        // covered: we mirrored to the real eof). A later grow re-dirties via the
+        // next scan's sizeBytes.
+        this.store.setReportedBytes(machineId, nativeId, cursor)
+        return
+      }
       if (pass.remainingBytes <= 0) return // budget hit mid-file: cursor persisted, next pass resumes
     }
   }

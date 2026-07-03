@@ -186,6 +186,23 @@ describe('createClaudeCodeConversationProvider', () => {
     )
   })
 
+  test('reports the transcript file byte size on the summary (mirror dirty signal)', async () => {
+    const root = await createRoot()
+    const file = join(root, 'projects/-repo-project/sized.jsonl')
+    await mkdir(join(file, '..'), { recursive: true })
+    const content = `${JSON.stringify({
+      timestamp: '2026-06-01T11:00:00.000Z',
+      sessionId: 'sized',
+    })}\n`
+    await writeFile(file, content)
+
+    const result = await createClaudeCodeConversationProvider().scanRoot(root)
+
+    expect(result.conversations[0]).toEqual(
+      expect.objectContaining({ id: 'sized', sizeBytes: Buffer.byteLength(content) }),
+    )
+  })
+
   test('loads full normalized Claude Code messages on demand and includes raw records', async () => {
     const root = await createRoot()
     await writeClaudeSession(root, 'projects/-repo-project/claude-session-1.jsonl')

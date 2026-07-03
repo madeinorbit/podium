@@ -302,6 +302,52 @@ describe('TranscriptIndexer', () => {
     expect(store.transcriptIndexRows('m1', 'done')).toHaveLength(1)
   })
 
+  it('stops re-reading an unchanged undrainable gap across sweeps (newline-less tail)', async () => {
+    // Production shape: 42 lake files end without a trailing newline, so their
+    // segments never leave segmentsToIndex — every sweep used to re-read the same
+    // tiny gap. The indexer must skip a segment whose (mirrored, indexed) pair
+    // hasn't moved since the last attempt, and retry as soon as either moves.
+    const complete = userLine('u1', 'a finished thought')
+    const partial = '{"type":"user","uuid":"u2","message":{"role":"user"' // torn mid-record, no \n
+    const { store, indexer, lakePathFor } = backfillSetup([
+      { nativeId: 'tail', content: complete + partial },
+    ])
+    // indexedCursor is the first call of every index attempt — its call count is
+    // the proxy for "the indexer went back to the file".
+    const attempts = vi.spyOn(store, 'indexedCursor')
+
+    // Sweep 1: drains the complete line, leaves the partial tail unconsumed.
+    indexer.backfillMachine('m1', lakePathFor)
+    await indexer.settled()
+    expect(store.indexedCursor('m1', 'tail')).toBe(Buffer.byteLength(complete))
+    expect(store.segmentsToIndex('m1').map((s) => s.nativeId)).toEqual(['tail'])
+
+    // Sweep 2: attempts once more, proves zero progress, records the gap.
+    indexer.backfillMachine('m1', lakePathFor)
+    await indexer.settled()
+    const settledCalls = attempts.mock.calls.length
+
+    // Sweeps 3..5: pair unchanged — skipped outright, NO further index attempts
+    // (this is the read-call count stopping its per-sweep growth).
+    for (let i = 0; i < 3; i++) {
+      indexer.backfillMachine('m1', lakePathFor)
+      await indexer.settled()
+    }
+    expect(attempts.mock.calls.length).toBe(settledCalls)
+
+    // The mirror completes the record: cursor moves → the segment re-qualifies.
+    const completed = `${complete + partial},"content":"now whole"}}\n`
+    writeFileSync(lakePathFor('tail'), completed)
+    store.setMirrorCursor('m1', 'tail', Buffer.byteLength(completed), '2026-07-01T11:00:00Z')
+    indexer.backfillMachine('m1', lakePathFor)
+    await indexer.settled()
+    expect(store.indexedCursor('m1', 'tail')).toBe(Buffer.byteLength(completed))
+    expect(store.transcriptIndexRows('m1', 'tail').map((r) => r.content)).toEqual([
+      'a finished thought',
+      'now whole',
+    ])
+  })
+
   it('backs off cleanly when the lake file is unreadable (cursor untouched)', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     try {

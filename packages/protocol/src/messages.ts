@@ -184,6 +184,10 @@ export const ConversationSummaryWire = z.object({
   createdAt: z.string().optional(),
   updatedAt: z.string().optional(),
   messageCount: z.number().int().nonnegative().optional(),
+  /** Byte size of `path` at scan time — the transcript mirror's dirty signal:
+   *  the server enqueues a pull only when this differs from its mirrored cursor,
+   *  so a fully-mirrored fleet costs zero mirror round trips per scan/attach. */
+  sizeBytes: z.number().int().nonnegative().optional(),
   git: ConversationGit.optional(),
   resume: ResumeRef.optional(),
   providerId: z.string(),

@@ -104,6 +104,83 @@ describe('SessionStore transcript mirror state', () => {
     store.close()
   })
 
+  it('persists reported_bytes through ensureConversationIdentity (insert, update, COALESCE)', () => {
+    const store = new SessionStore(':memory:')
+    // Insert with a size (first observation carries discovery's stat).
+    store.ensureConversationIdentity({
+      machineId: 'm1',
+      nativeId: 'n1',
+      providerId: 'claude-code-jsonl',
+      path: '/home/u/.claude/projects/-proj/n1.jsonl',
+      sizeBytes: 100,
+    })
+    expect(store.reportedBytes('m1', 'n1')).toBe(100)
+    // Re-observation with a newer size updates it.
+    store.ensureConversationIdentity({
+      machineId: 'm1',
+      nativeId: 'n1',
+      providerId: 'claude-code-jsonl',
+      path: '/home/u/.claude/projects/-proj/n1.jsonl',
+      sizeBytes: 250,
+    })
+    expect(store.reportedBytes('m1', 'n1')).toBe(250)
+    // A size-less re-observation (e.g. a live-roll link) must NOT blank the
+    // last-known size — attach-time reconcile depends on it surviving.
+    store.ensureConversationIdentity({
+      machineId: 'm1',
+      nativeId: 'n1',
+      providerId: 'claude-code-jsonl',
+      path: '/home/u/.claude/projects/-proj/n1.jsonl',
+    })
+    expect(store.reportedBytes('m1', 'n1')).toBe(250)
+    // Never-reported row reads undefined (the NULL upgrade-path marker).
+    store.ensureConversationIdentity({
+      machineId: 'm1',
+      nativeId: 'n2',
+      providerId: 'claude-code-jsonl',
+      path: '/home/u/.claude/projects/-proj/n2.jsonl',
+    })
+    expect(store.reportedBytes('m1', 'n2')).toBeUndefined()
+    store.close()
+  })
+
+  it('segmentsToMirrorDirty lists behind + NULL-reported segments, never caught-up ones', () => {
+    const store = new SessionStore(':memory:')
+    const seed = (nativeId: string, sizeBytes?: number) =>
+      store.ensureConversationIdentity({
+        machineId: 'm1',
+        nativeId,
+        providerId: 'claude-code-jsonl',
+        path: `/home/u/.claude/projects/-proj/${nativeId}.jsonl`,
+        ...(sizeBytes !== undefined ? { sizeBytes } : {}),
+      })
+    seed('caught-up', 64)
+    store.setMirrorCursor('m1', 'caught-up', 64, '2026-07-02T10:00:00.000Z')
+    seed('behind', 128)
+    store.setMirrorCursor('m1', 'behind', 64, '2026-07-02T10:00:00.000Z')
+    seed('never-reported') // NULL reported_bytes → dirty (upgrade path)
+    // Path evidence never observed — not mirrorable at all, dirty or not.
+    store.ensureConversationIdentity({
+      machineId: 'm1',
+      nativeId: 'no-path',
+      providerId: 'claude-code-jsonl',
+    })
+
+    expect(
+      store
+        .segmentsToMirrorDirty('m1')
+        .map((s) => s.nativeId)
+        .sort(),
+    ).toEqual(['behind', 'never-reported'])
+    // setReportedBytes (the mirror's eof observation) quiets a segment.
+    store.setReportedBytes('m1', 'never-reported', 0)
+    store.setReportedBytes('m1', 'behind', 64)
+    expect(store.segmentsToMirrorDirty('m1')).toEqual([])
+    // The FULL work list is untouched by dirtiness — the manual-reconcile seam.
+    expect(store.segmentsToMirror('m1').length).toBe(3)
+    store.close()
+  })
+
   it('reopening a file-backed store is idempotent and keeps cursors (ALTER guard)', async () => {
     const file = await tmpDbPath()
     const first = new SessionStore(file)
@@ -114,12 +191,16 @@ describe('SessionStore transcript mirror state', () => {
       path: '/home/u/.claude/projects/-proj/n1.jsonl',
     })
     first.setMirrorCursor('m1', 'n1', 777, '2026-07-02T10:00:00.000Z')
+    first.setReportedBytes('m1', 'n1', 900)
     first.close()
 
     // Second open replays CREATE TABLE ... IF NOT EXISTS + the ALTER guards over a
     // schema that ALREADY has the mirror columns — must not throw, must not reset.
     const second = new SessionStore(file)
     expect(second.mirrorCursor('m1', 'n1')).toBe(777)
+    // reported_bytes survives too — attach-time dirty reconcile reads it before
+    // the first scan of the new server life.
+    expect(second.reportedBytes('m1', 'n1')).toBe(900)
     expect(rawMirrorRow(second, 'm1', 'n1')).toEqual({
       mirrored_bytes: 777,
       mirrored_at: '2026-07-02T10:00:00.000Z',
