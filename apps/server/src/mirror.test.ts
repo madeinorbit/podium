@@ -168,13 +168,24 @@ describe('MirrorService', () => {
     store.close()
   })
 
+  it('a deleted source (denied) marks the segment converged — no eternal retries', async () => {
+    const { store, fs, mirror } = setup()
+    const path = seed(store, 'm1', 'gone')
+    store.setMirrorCursor('m1', 'gone', 500, new Date().toISOString()) // lake holds 500B already
+    fs.errors.set(path, 'denied')
+    mirror.enqueue('m1', 'gone', path)
+    await settle(mirror, 'm1')
+    // reported == mirrored: the dirty query no longer selects it — scans go quiet.
+    expect(store.segmentsToMirrorDirty('m1').find((x) => x.nativeId === 'gone')).toBeUndefined()
+  })
+
   it('backs off on a read error: cursor untouched, no lake file, re-enqueue is a no-op', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     try {
       const { store, fs, mirror } = setup()
       const path = seed(store, 'm1', 'denied')
       fs.set(path, 'never served\n')
-      fs.errors.set(path, 'denied')
+      fs.errors.set(path, 'timeout')
 
       mirror.enqueue('m1', 'denied', path)
       await settle(mirror, 'm1')

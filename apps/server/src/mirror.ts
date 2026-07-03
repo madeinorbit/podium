@@ -153,10 +153,27 @@ export class MirrorService {
         try {
           await this.mirrorOne(machineId, item.nativeId, item.path, pass)
         } catch (err) {
-          // Unreadable/denied/timeout: back off this segment, cursor untouched —
-          // the next scan/attach after the window retries from where we stopped.
-          this.backoffUntil.set(key, this.now() + MirrorService.ERROR_BACKOFF_MS)
-          console.warn(`[podium] transcript mirror failed for ${item.nativeId}:`, err)
+          if (err instanceof Error && err.message === 'denied') {
+            // The daemon can't serve this path anymore — the native file was
+            // DELETED (the exact scenario the lake is the backup for). Nothing
+            // will ever be pullable again and no scan will refresh its size, so
+            // without this it would retry every backoff window forever. Mark it
+            // converged; if the file ever reappears, the scan reports a fresh
+            // size and it turns dirty again.
+            this.store.setReportedBytes(
+              machineId,
+              item.nativeId,
+              this.store.mirrorCursor(machineId, item.nativeId),
+            )
+            console.info(
+              `[podium] transcript mirror: source gone for ${item.nativeId} — lake copy is now the only copy`,
+            )
+          } else {
+            // Unreadable/timeout: back off this segment, cursor untouched — the
+            // next scan/attach after the window retries from where we stopped.
+            this.backoffUntil.set(key, this.now() + MirrorService.ERROR_BACKOFF_MS)
+            console.warn(`[podium] transcript mirror failed for ${item.nativeId}:`, err)
+          }
         } finally {
           this.queued.delete(key)
         }
