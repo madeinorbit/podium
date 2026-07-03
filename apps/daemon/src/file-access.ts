@@ -1,6 +1,10 @@
 import { readdir, readFile, realpath, stat, writeFile } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, join, relative } from 'node:path'
-import type { FileAssetResultMessage, FileReadResultMessage, FileWriteResultMessage } from '@podium/protocol'
+import type {
+  FileAssetResultMessage,
+  FileReadResultMessage,
+  FileWriteResultMessage,
+} from '@podium/protocol'
 
 const MAX_FILE_BYTES = 2 * 1024 * 1024
 
@@ -52,9 +56,31 @@ export async function readFileSandboxed(opts: {
 const MAX_ASSET_BYTES = 10 * 1024 * 1024
 
 const ASSET_CONTENT_TYPES: Record<string, string> = {
-  png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif',
-  webp: 'image/webp', svg: 'image/svg+xml', avif: 'image/avif', bmp: 'image/bmp',
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  gif: 'image/gif',
+  webp: 'image/webp',
+  svg: 'image/svg+xml',
+  avif: 'image/avif',
+  bmp: 'image/bmp',
   ico: 'image/x-icon',
+  css: 'text/css; charset=utf-8',
+  js: 'text/javascript; charset=utf-8',
+  mjs: 'text/javascript; charset=utf-8',
+  json: 'application/json; charset=utf-8',
+  map: 'application/json; charset=utf-8',
+  txt: 'text/plain; charset=utf-8',
+  html: 'text/html; charset=utf-8',
+  htm: 'text/html; charset=utf-8',
+  woff: 'font/woff',
+  woff2: 'font/woff2',
+  ttf: 'font/ttf',
+  otf: 'font/otf',
+  mp4: 'video/mp4',
+  webm: 'video/webm',
+  mp3: 'audio/mpeg',
+  wav: 'audio/wav',
 }
 
 type AssetResult = Omit<FileAssetResultMessage, 'type' | 'requestId'>
@@ -128,7 +154,12 @@ export async function writeFileSandboxed(opts: {
 export async function listDirSandboxed(opts: {
   root: string
   path?: string
-}): Promise<{ ok: boolean; path: string; entries: { name: string; isDir: boolean }[]; error?: string }> {
+}): Promise<{
+  ok: boolean
+  path: string
+  entries: { name: string; isDir: boolean }[]
+  error?: string
+}> {
   const target = opts.path ?? opts.root
   let realRoot: string
   let real: string
@@ -138,15 +169,14 @@ export async function listDirSandboxed(opts: {
   } catch {
     return { ok: false, path: target, entries: [], error: 'not found' }
   }
-  if (!isInside(real, realRoot)) return { ok: false, path: target, entries: [], error: 'outside workspace' }
+  if (!isInside(real, realRoot))
+    return { ok: false, path: target, entries: [], error: 'outside workspace' }
   try {
     const st = await stat(real)
     if (!st.isDirectory()) return { ok: false, path: real, entries: [], error: 'not a directory' }
     const entries = (await readdir(real, { withFileTypes: true }))
       .map((e) => ({ name: e.name, isDir: e.isDirectory() }))
-      .sort((a, b) =>
-        a.isDir === b.isDir ? a.name.localeCompare(b.name) : a.isDir ? -1 : 1,
-      )
+      .sort((a, b) => (a.isDir === b.isDir ? a.name.localeCompare(b.name) : a.isDir ? -1 : 1))
     return { ok: true, path: real, entries }
   } catch {
     return { ok: false, path: real, entries: [], error: 'read error' }

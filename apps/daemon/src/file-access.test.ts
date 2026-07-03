@@ -1,8 +1,21 @@
-import { mkdtemp, mkdir, readFile, symlink, writeFile, writeFile as writeFileFs } from 'node:fs/promises'
+import {
+  mkdtemp,
+  mkdir,
+  readFile,
+  symlink,
+  writeFile,
+  writeFile as writeFileFs,
+} from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { isInside, listDirSandboxed, readAssetSandboxed, readFileSandboxed, writeFileSandboxed } from './file-access'
+import {
+  isInside,
+  listDirSandboxed,
+  readAssetSandboxed,
+  readFileSandboxed,
+  writeFileSandboxed,
+} from './file-access'
 
 async function repo(): Promise<string> {
   return mkdtemp(join(tmpdir(), 'podium-fa-'))
@@ -104,9 +117,9 @@ describe('writeFileSandboxed', () => {
     const dir = join(cwd, 'adir')
     await mkdir(dir)
     // writeFile to a directory throws EISDIR — the post-sandbox try/catch must catch it.
-    await expect(
-      writeFileSandboxed({ cwd, path: dir, content: 'oops' }),
-    ).resolves.toMatchObject({ ok: false })
+    await expect(writeFileSandboxed({ cwd, path: dir, content: 'oops' })).resolves.toMatchObject({
+      ok: false,
+    })
   })
 })
 
@@ -119,6 +132,13 @@ describe('readAssetSandboxed', () => {
     expect(r.ok).toBe(true)
     expect(r.contentType).toBe('image/png')
     expect(Buffer.from(r.dataBase64 ?? '', 'base64').equals(png)).toBe(true)
+  })
+  it('returns a stylesheet content-type for css assets', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'asset-'))
+    await writeFileFs(join(dir, 'site.css'), 'body { color: red; }')
+    const r = await readAssetSandboxed({ cwd: dir, path: join(dir, 'site.css'), knownPath: false })
+    expect(r.ok).toBe(true)
+    expect(r.contentType).toBe('text/css; charset=utf-8')
   })
   it('rejects a path outside the sandbox', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'asset-'))

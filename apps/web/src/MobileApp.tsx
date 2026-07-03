@@ -41,9 +41,7 @@ import { useNow } from './useNow'
 import { WorkerLabel } from './WorkerLabel'
 
 // File viewer (clickable transcript paths) — lazy, mirroring the desktop Workspace.
-const MarkdownFilePanel = lazy(() =>
-  import('./MarkdownFilePanel').then((m) => ({ default: m.MarkdownFilePanel })),
-)
+const FilePanel = lazy(() => import('./FilePanel').then((m) => ({ default: m.FilePanel })))
 
 /**
  * Pin the mobile shell to the visual viewport. The layout viewport (what dvh
@@ -365,7 +363,7 @@ export function MobileApp(): JSX.Element {
           <Suspense
             fallback={<div className="m-auto text-[13px] text-muted-foreground/70">Loading…</div>}
           >
-            <MarkdownFilePanel
+            <FilePanel
               scope={activeFileTab.scope}
               path={activeFileTab.path}
               onClose={() => closeFileTab(activeFileTab.id)}

@@ -36,9 +36,7 @@ import { useWarmSet } from './use-warm-set'
 import { type ContextMenuAnchor, SessionContextMenu } from './SessionContextMenu'
 import { SessionNameEditor, sessionDisplayName, WorkerLabel } from './WorkerLabel'
 
-const MarkdownFilePanel = lazy(() =>
-  import('./MarkdownFilePanel').then((m) => ({ default: m.MarkdownFilePanel })),
-)
+const FilePanel = lazy(() => import('./FilePanel').then((m) => ({ default: m.FilePanel })))
 
 // A tab in the strip is either an agent/shell session or an open file editor. Both are
 // first-class: same strip, same drag/select/close behaviour. paneA/paneB hold a tab id
@@ -272,7 +270,7 @@ export function Workspace(): JSX.Element {
                 <AgentPanel sessionId={t.id} active={visible} />
               ) : (
                 <Suspense fallback={null}>
-                  <MarkdownFilePanel
+                  <FilePanel
                     scope={t.file.scope}
                     path={t.file.path}
                     onClose={() => closeFileTab(t.id)}
