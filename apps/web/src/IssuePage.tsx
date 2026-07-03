@@ -39,9 +39,9 @@ import {
   ISSUE_AGENT_KINDS,
   type IssueAgentKind,
   issueAgentDefaultLabel,
-  issueDefaultAgentKind,
   issueAgentIcon,
   issueAgentLabel,
+  issueDefaultAgentKind,
 } from './issue-agents'
 import { STAGE_LABELS } from './issue-card'
 import { issueDetailFields } from './issue-detail-fields'
@@ -379,7 +379,10 @@ export function IssuePage({
 
           {/* ---- Properties (mobile) — the desktop aside is hidden <md, so mirror
                 its rows in a collapsible disclosure above the activity feed. ---- */}
-          <details className="mb-4 rounded-lg border border-border md:hidden" data-testid="issue-details-mobile">
+          <details
+            className="mb-4 rounded-lg border border-border md:hidden"
+            data-testid="issue-details-mobile"
+          >
             <summary className="cursor-pointer select-none px-3 py-2 font-medium text-[13px] text-foreground">
               Details
             </summary>
@@ -1030,7 +1033,9 @@ function IssueProperties({
                 size="sm"
                 className="h-7"
                 disabled={busy}
-                onClick={() => void run(() => trpc.issues.defer.mutate({ id: issue.id, until: null }))}
+                onClick={() =>
+                  void run(() => trpc.issues.defer.mutate({ id: issue.id, until: null }))
+                }
               >
                 Undefer
               </Button>
@@ -1071,11 +1076,7 @@ function IssueProperties({
                   disabled={busy}
                   className={cn('h-7 gap-1 px-2 text-[13px]', parent ? '' : 'w-full justify-start')}
                 >
-                  {parent ? (
-                    'Change'
-                  ) : (
-                    <span className="text-muted-foreground">No parent</span>
-                  )}
+                  {parent ? 'Change' : <span className="text-muted-foreground">No parent</span>}
                 </Button>
               }
             />
@@ -1181,11 +1182,18 @@ function IssueProperties({
             agentKind={issueDefaultAgentKind(issue.defaultAgent)}
             value={issue.defaultModel}
             onChange={(defaultModel) =>
-              void run(() => trpc.issues.update.mutate({ id: issue.id, patch: { defaultModel } }))
+              // Effort is per-model — changing the model resets effort to auto.
+              void run(() =>
+                trpc.issues.update.mutate({
+                  id: issue.id,
+                  patch: { defaultModel, defaultEffort: 'auto' },
+                }),
+              )
             }
           />
           <EffortPicker
             agentKind={issueDefaultAgentKind(issue.defaultAgent)}
+            model={issue.defaultModel}
             value={issue.defaultEffort}
             onChange={(defaultEffort) =>
               void run(() => trpc.issues.update.mutate({ id: issue.id, patch: { defaultEffort } }))

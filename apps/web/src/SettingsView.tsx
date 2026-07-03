@@ -22,13 +22,14 @@ import {
 } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import { cn } from '@/lib/utils'
-import { agentSupportsEffort } from './agent-models'
+import { effortOptionsForModel } from './agent-models'
 import { issueDefaultAgentKind } from './issue-agents'
 import { MachinesPanel } from './MachinesPanel'
 import { EffortPicker, ModelPicker } from './ModelEffortPicker'
 import { useStore } from './store'
 import { type ThemeMode, type ThemePreset, useTheme } from './theme'
 import { serverConfig, type Trpc } from './trpc'
+import { useModelCatalog } from './use-model-catalog'
 
 export type SettingsTab =
   | 'appearance'
@@ -83,6 +84,7 @@ export const SETTINGS_TABS: { key: SettingsTab; label: string }[] = [
  */
 export function SettingsView(): JSX.Element {
   const { trpc, setView, settingsTab, setSettingsTab } = useStore()
+  const modelCatalog = useModelCatalog()
   const [settings, setSettings] = useState<PodiumSettings | null>(null)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -299,15 +301,23 @@ export function SettingsView(): JSX.Element {
                       agentKind={issueDefaultAgentKind(settings.sessionDefaults.agent)}
                       value={settings.sessionDefaults.model}
                       onChange={(model) =>
-                        patch({ sessionDefaults: { ...settings.sessionDefaults, model } })
+                        // Effort is per-model — reset it when the default model changes.
+                        patch({
+                          sessionDefaults: { ...settings.sessionDefaults, model, effort: 'auto' },
+                        })
                       }
                     />
                   </Row>
-                  {agentSupportsEffort(issueDefaultAgentKind(settings.sessionDefaults.agent)) && (
+                  {effortOptionsForModel(
+                    issueDefaultAgentKind(settings.sessionDefaults.agent),
+                    settings.sessionDefaults.model,
+                    modelCatalog[issueDefaultAgentKind(settings.sessionDefaults.agent)],
+                  ).length > 0 && (
                     <Row label="Effort for new sessions">
                       <EffortPicker
                         variant="field"
                         agentKind={issueDefaultAgentKind(settings.sessionDefaults.agent)}
+                        model={settings.sessionDefaults.model}
                         value={settings.sessionDefaults.effort}
                         onChange={(effort) =>
                           patch({ sessionDefaults: { ...settings.sessionDefaults, effort } })

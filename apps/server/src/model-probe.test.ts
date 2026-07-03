@@ -36,8 +36,20 @@ xai/grok-4.3
 
 const CODEX = JSON.stringify({
   models: [
-    { slug: 'gpt-5.4', display_name: 'GPT-5.4', visibility: 'list', priority: 16 },
-    { slug: 'gpt-5.5', display_name: 'GPT-5.5', visibility: 'list', priority: 7 },
+    {
+      slug: 'gpt-5.4',
+      display_name: 'GPT-5.4',
+      visibility: 'list',
+      priority: 16,
+      supported_reasoning_levels: [{ effort: 'low' }, { effort: 'high' }],
+    },
+    {
+      slug: 'gpt-5.5',
+      display_name: 'GPT-5.5',
+      visibility: 'list',
+      priority: 7,
+      supported_reasoning_levels: [{ effort: 'low' }, { effort: 'medium' }, { effort: 'xhigh' }],
+    },
     {
       slug: 'codex-auto-review',
       display_name: 'Codex Auto Review',
@@ -71,10 +83,10 @@ describe('model-probe parsers', () => {
     ])
   })
 
-  it('codex: parses debug-models JSON, drops hidden models, orders by priority', () => {
+  it('codex: parses debug-models JSON, drops hidden models, orders by priority, per-model effort', () => {
     expect(parseCodexModels(CODEX)).toEqual([
-      { value: 'gpt-5.5', label: 'GPT-5.5' }, // priority 7 sorts before 16
-      { value: 'gpt-5.4', label: 'GPT-5.4' },
+      { value: 'gpt-5.5', label: 'GPT-5.5', efforts: ['low', 'medium', 'xhigh'] }, // priority 7 first
+      { value: 'gpt-5.4', label: 'GPT-5.4', efforts: ['low', 'high'] },
     ])
   })
 
@@ -101,12 +113,22 @@ function capturingClaudeFetch(status: number, data: unknown) {
 }
 
 describe('probeClaudeModels (Anthropic /v1/models — subscription OAuth OR API key)', () => {
-  const MODELS = [{ id: 'claude-sonnet-5', display_name: 'Claude Sonnet 5' }]
+  const eff = (...levels: string[]) => ({
+    effort: {
+      supported: levels.length > 0,
+      ...Object.fromEntries(levels.map((l) => [l, { supported: true }])),
+    },
+  })
+  const MODELS = [
+    { id: 'claude-sonnet-5', display_name: 'Claude Sonnet 5', capabilities: eff('low', 'high') },
+  ]
 
   it('subscription: sends the OAuth token as a Bearer token', async () => {
     const { fetchImpl, calls } = capturingClaudeFetch(200, MODELS)
     const models = await probeClaudeModels({ token: 'oat-123', fetchImpl })
-    expect(models).toEqual([{ value: 'claude-sonnet-5', label: 'Claude Sonnet 5' }])
+    expect(models).toEqual([
+      { value: 'claude-sonnet-5', label: 'Claude Sonnet 5', efforts: ['low', 'high'] },
+    ])
     expect(calls[0]?.authorization).toBe('Bearer oat-123')
     expect(calls[0]?.['x-api-key']).toBeUndefined()
   })
@@ -118,9 +140,28 @@ describe('probeClaudeModels (Anthropic /v1/models — subscription OAuth OR API 
       token: 'oat-ignored',
       fetchImpl,
     })
-    expect(models).toEqual([{ value: 'claude-sonnet-5', label: 'Claude Sonnet 5' }])
+    expect(models[0]?.value).toBe('claude-sonnet-5')
     expect(calls[0]?.['x-api-key']).toBe('sk-ant-api-key')
     expect(calls[0]?.authorization).toBeUndefined()
+  })
+
+  it('per-model effort: reads capabilities.effort; a no-effort model yields efforts: []', async () => {
+    const { fetchImpl } = capturingClaudeFetch(200, [
+      {
+        id: 'claude-opus-4-8',
+        display_name: 'Opus',
+        capabilities: eff('low', 'high', 'xhigh', 'max'),
+      },
+      { id: 'claude-haiku-4-5', display_name: 'Haiku' }, // no capabilities → no effort
+    ])
+    const models = await probeClaudeModels({ token: 't', fetchImpl })
+    expect(models.find((m) => m.value === 'claude-opus-4-8')?.efforts).toEqual([
+      'low',
+      'high',
+      'xhigh',
+      'max',
+    ])
+    expect(models.find((m) => m.value === 'claude-haiku-4-5')?.efforts).toEqual([])
   })
 
   it('returns [] when neither an API key nor a token is available (→ static fallback)', async () => {

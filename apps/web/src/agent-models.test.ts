@@ -4,6 +4,7 @@ import {
   agentSupportsEffort,
   effortLabel,
   effortOptions,
+  effortOptionsForModel,
   isEffortValid,
   modelLabel,
   modelOptions,
@@ -70,5 +71,36 @@ describe('agent-models catalog', () => {
     expect(isEffortValid('codex', 'xhigh')).toBe(true)
     expect(isEffortValid('codex', 'max')).toBe(false)
     expect(isEffortValid('codex', 'auto')).toBe(true)
+  })
+})
+
+describe('effortOptionsForModel — effort follows the selected model', () => {
+  it('auto model → no effort options (effort stays auto)', () => {
+    expect(effortOptionsForModel('claude-code', 'auto')).toEqual([])
+    expect(effortOptionsForModel('claude-code', '')).toEqual([])
+  })
+
+  it("uses the live model's authoritative per-model efforts", () => {
+    const live = [
+      { value: 'claude-opus-4-8', label: 'Opus', efforts: ['low', 'high', 'xhigh', 'max'] },
+      { value: 'claude-haiku-4-5', label: 'Haiku', efforts: [] },
+    ]
+    expect(
+      effortOptionsForModel('claude-code', 'claude-opus-4-8', live).map((o) => o.value),
+    ).toEqual(['auto', 'low', 'high', 'xhigh', 'max'])
+    // A no-effort model (efforts: []) → nothing to pick → hidden.
+    expect(effortOptionsForModel('claude-code', 'claude-haiku-4-5', live)).toEqual([])
+  })
+
+  it('falls back to the agent ladder when the model has no per-model data', () => {
+    // grok models carry no efforts (undefined) → agent-static ladder.
+    const live = [{ value: 'grok-composer-2.5-fast', label: 'x' }]
+    expect(
+      effortOptionsForModel('grok', 'grok-composer-2.5-fast', live).map((o) => o.value),
+    ).toEqual(['auto', 'low', 'medium', 'high', 'xhigh', 'max'])
+    // cursor has no agent ladder → hidden even for a concrete model.
+    expect(
+      effortOptionsForModel('cursor', 'composer-2.5', [{ value: 'composer-2.5', label: 'x' }]),
+    ).toEqual([])
   })
 })

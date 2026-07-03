@@ -380,8 +380,16 @@ export function NewIssueDialog({
               selectedValue={agent}
               onSelect={selectAgent}
             />
-            <ModelPicker agentKind={agentKind} value={model} onChange={setModel} />
-            <EffortPicker agentKind={agentKind} value={effort} onChange={setEffort} />
+            <ModelPicker
+              agentKind={agentKind}
+              value={model}
+              onChange={(m) => {
+                // Effort is per-model — reset it whenever the model changes.
+                setModel(m)
+                setEffort(AUTO)
+              }}
+            />
+            <EffortPicker agentKind={agentKind} model={model} value={effort} onChange={setEffort} />
           </div>
 
           <Label className="cursor-pointer">

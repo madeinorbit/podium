@@ -558,7 +558,7 @@ export class SessionStore {
   // ---- live model catalog (SWR cache, persisted so it survives restarts and the
   //      first picker-open after a redeploy is instant, not a cold ~2s probe) ----
   getModelCatalog(): {
-    byAgent: Record<string, Array<{ value: string; label: string }>>
+    byAgent: Record<string, Array<{ value: string; label: string; efforts?: string[] }>>
     fetchedAt: number
   } | null {
     const row = this.db.prepare('SELECT value FROM meta WHERE key = ?').get('model_catalog') as

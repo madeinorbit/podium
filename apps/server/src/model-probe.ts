@@ -24,6 +24,11 @@ const execFileAsync = promisify(execFile)
 export interface ModelChoice {
   value: string
   label: string
+  /** Reasoning-effort levels this specific model supports, when the source reports
+   *  them authoritatively (claude `capabilities.effort`, codex `supported_reasoning_levels`).
+   *  `[]` = the model supports no effort (e.g. claude haiku). `undefined` = unknown
+   *  (grok/cursor/opencode don't expose it) → the web falls back to its agent-level list. */
+  efforts?: string[]
 }
 
 /** Agent kinds that can enumerate models → the argv that lists them. Keyed by the
@@ -95,16 +100,31 @@ export function parseCodexModels(out: string): ModelChoice[] {
         display_name?: string
         visibility?: string
         priority?: number
+        supported_reasoning_levels?: Array<{ effort?: unknown }>
       }>
     }
     return (parsed.models ?? [])
-      .filter((m): m is { slug: string; display_name?: string; priority?: number } =>
-        Boolean(m.slug && m.visibility === 'list'),
+      .filter(
+        (
+          m,
+        ): m is {
+          slug: string
+          display_name?: string
+          priority?: number
+          supported_reasoning_levels?: Array<{ effort?: unknown }>
+        } => Boolean(m.slug && m.visibility === 'list'),
       )
       .sort(
         (a, b) => (a.priority ?? Number.MAX_SAFE_INTEGER) - (b.priority ?? Number.MAX_SAFE_INTEGER),
       )
-      .map((m) => ({ value: m.slug, label: m.display_name || m.slug }))
+      .map((m) => ({
+        value: m.slug,
+        label: m.display_name || m.slug,
+        // Per-model effort from the CLI's own catalog (authoritative).
+        efforts: (m.supported_reasoning_levels ?? [])
+          .map((r) => r.effort)
+          .filter((e): e is string => typeof e === 'string'),
+      }))
   } catch {
     return []
   }
@@ -215,16 +235,35 @@ export async function probeClaudeModels(opts: ClaudeProbeOptions = {}): Promise<
       signal: AbortSignal.timeout(opts.timeoutMs ?? 8000),
     })
     if (!res.ok) return []
-    const body = (await res.json()) as { data?: Array<{ id?: unknown; display_name?: unknown }> }
+    const body = (await res.json()) as {
+      data?: Array<{ id?: unknown; display_name?: unknown; capabilities?: unknown }>
+    }
     return (body.data ?? [])
-      .filter((m): m is { id: string; display_name?: string } => typeof m.id === 'string')
+      .filter(
+        (m): m is { id: string; display_name?: string; capabilities?: unknown } =>
+          typeof m.id === 'string',
+      )
       .map((m) => ({
         value: m.id,
         label: typeof m.display_name === 'string' ? m.display_name : m.id,
+        // Per-model effort from capabilities.effort; [] when the model has none
+        // (e.g. haiku) — authoritative, so the web won't show a spurious effort picker.
+        efforts: claudeEffortLevels(m.capabilities),
       }))
   } catch {
     return []
   }
+}
+
+/** Extract supported effort levels from an Anthropic model's `capabilities.effort`
+ *  (`{ supported, low: {supported}, ... }`). Returns [] when effort is unsupported. */
+function claudeEffortLevels(capabilities: unknown): string[] {
+  const effort = (capabilities as { effort?: Record<string, { supported?: boolean } | boolean> })
+    ?.effort
+  if (!effort || (effort as { supported?: boolean }).supported === false) return []
+  return Object.entries(effort)
+    .filter(([k, v]) => k !== 'supported' && (v as { supported?: boolean })?.supported)
+    .map(([k]) => k)
 }
 
 /** Probe every enumerable agent in parallel (wall time ≈ the slowest source). CLI

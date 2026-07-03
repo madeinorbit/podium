@@ -22,8 +22,11 @@ export const AUTO = 'auto'
 export interface ModelChoice {
   value: string
   label: string
+  /** Per-model effort levels, when the source reports them authoritatively (claude,
+   *  codex). `[]` = the model supports no effort; `undefined` = unknown (agent fallback). */
+  efforts?: string[]
 }
-type Choice = ModelChoice
+type Choice = { value: string; label: string }
 
 const AGENT_MODELS: Record<IssueAgentKind, Choice[]> = {
   'claude-code': [
@@ -116,6 +119,44 @@ export function effortOptions(kind: IssueAgentKind): PropertyOption[] {
   return withAuto(AGENT_EFFORTS[kind])
 }
 
+const EFFORT_LEVEL_LABELS: Record<string, string> = {
+  minimal: 'Minimal',
+  low: 'Low',
+  medium: 'Medium',
+  high: 'High',
+  xhigh: 'Extra high',
+  max: 'Max',
+}
+
+function effortLevelLabel(level: string): string {
+  return EFFORT_LEVEL_LABELS[level] ?? level
+}
+
+/**
+ * Effort options for the SELECTED model — effort is a per-model property, not a blanket
+ * per-agent one. With no concrete model (auto) there's nothing to scope effort to, so
+ * returns [] (effort stays auto). When the live catalog reports the model's effort
+ * levels (claude `capabilities.effort`, codex `supported_reasoning_levels`), those are
+ * authoritative: a model with `[]` (e.g. claude haiku) offers no effort. When the source
+ * doesn't expose per-model effort (grok/cursor/opencode, or before the live list loads),
+ * falls back to the agent's known ladder. Empty result = hide the effort picker.
+ */
+export function effortOptionsForModel(
+  kind: IssueAgentKind,
+  modelValue: string | null | undefined,
+  live?: readonly ModelChoice[],
+): PropertyOption[] {
+  if (!modelValue || modelValue === AUTO) return []
+  const model = live?.find((m) => m.value === modelValue)
+  if (model?.efforts !== undefined) {
+    return model.efforts.length > 0
+      ? withAuto(model.efforts.map((e) => ({ value: e, label: effortLevelLabel(e) })))
+      : []
+  }
+  // No per-model data → the agent's static ladder (empty for cursor → hidden).
+  return AGENT_EFFORTS[kind].length > 0 ? effortOptions(kind) : []
+}
+
 /** Display label for a stored model value; checks live models first, falls back to the
  *  raw value for a custom (free-text) model, and 'Auto' for the sentinel/empty. */
 export function modelLabel(
@@ -128,9 +169,9 @@ export function modelLabel(
 }
 
 /** Display label for a stored effort value; 'Auto' for the sentinel/empty. */
-export function effortLabel(kind: IssueAgentKind, value: string | null | undefined): string {
+export function effortLabel(_kind: IssueAgentKind, value: string | null | undefined): string {
   if (!value || value === AUTO) return 'Auto'
-  return AGENT_EFFORTS[kind].find((e) => e.value === value)?.label ?? value
+  return effortLevelLabel(value)
 }
 
 /** Whether an effort value is offered for this agent — used to reset a stale effort

@@ -67,8 +67,12 @@ describe('IssuePage agent start controls', () => {
     fireEvent.click(modelButton)
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Sonnet' }))
 
+    // Effort is per-model, so changing the model also resets effort to auto.
     await waitFor(() =>
-      expect(update).toHaveBeenCalledWith({ id: 'i-1', patch: { defaultModel: 'sonnet' } }),
+      expect(update).toHaveBeenCalledWith({
+        id: 'i-1',
+        patch: { defaultModel: 'sonnet', defaultEffort: 'auto' },
+      }),
     )
   })
 })

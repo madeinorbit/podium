@@ -3,13 +3,7 @@ import type { ComponentProps, JSX, ReactNode } from 'react'
 import { forwardRef } from 'react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
-import {
-  agentSupportsEffort,
-  effortLabel,
-  effortOptions,
-  modelLabel,
-  modelOptions,
-} from './agent-models'
+import { effortLabel, effortOptionsForModel, modelLabel, modelOptions } from './agent-models'
 import type { IssueAgentKind } from './issue-agents'
 import { PropertyMenu } from './PropertyMenu'
 import { useModelCatalog } from './use-model-catalog'
@@ -102,17 +96,23 @@ export function ModelPicker({
 
 export function EffortPicker({
   agentKind,
+  model,
   value,
   onChange,
   variant = 'pill',
 }: {
   agentKind: IssueAgentKind
+  /** The currently-selected model — effort is scoped to it. */
+  model: string
   value: string
   onChange: (value: string) => void
   variant?: Variant
 }): JSX.Element | null {
-  // Cursor has no effort flag — nothing to pick.
-  if (!agentSupportsEffort(agentKind)) return null
+  const live = useModelCatalog()[agentKind]
+  // Effort follows the selected model: none when the model is `auto` or supports no
+  // effort (e.g. claude haiku) → hide the picker entirely.
+  const options = effortOptionsForModel(agentKind, model, live)
+  if (options.length === 0) return null
   return (
     <PropertyMenu
       trigger={
@@ -123,7 +123,7 @@ export function EffortPicker({
           aria-label="Effort"
         />
       }
-      options={effortOptions(agentKind)}
+      options={options}
       selectedValue={value || 'auto'}
       placeholder="Effort…"
       onSelect={onChange}
