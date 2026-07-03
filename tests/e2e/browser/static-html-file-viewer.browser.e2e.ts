@@ -120,7 +120,7 @@ test('native terminal: clicking a static html file opens rendered preview and so
       )
       .toBe('rgb(1, 99, 33)')
 
-    await page.getByRole('button', { name: 'Source' }).click()
+    await page.getByRole('button', { name: 'Source', exact: true }).click()
     await expect(page.locator('.cm-content')).toContainText('STATIC_HTML_RENDERED', {
       timeout: 15_000,
     })
