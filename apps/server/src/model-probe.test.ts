@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import {
+  type FetchLike,
   parseCodexModels,
   parseCursorModels,
   parseGrokModels,
   parseOpencodeModels,
   probeAgentModels,
   probeAllModels,
+  probeClaudeModels,
 } from './model-probe'
 
 const GROK = `You are logged in with grok.com.
@@ -84,6 +86,35 @@ describe('model-probe parsers', () => {
   })
 })
 
+const claudeFetch =
+  (status: number, data: unknown): FetchLike =>
+  async () => ({ ok: status >= 200 && status < 300, status, json: async () => ({ data }) })
+
+describe('probeClaudeModels (Anthropic /v1/models via OAuth)', () => {
+  it('maps id + display_name from the models API', async () => {
+    const models = await probeClaudeModels({
+      token: 'sk-ant-oat01-test',
+      fetchImpl: claudeFetch(200, [
+        { id: 'claude-sonnet-5', display_name: 'Claude Sonnet 5' },
+        { id: 'claude-fable-5', display_name: 'Claude Fable 5' },
+      ]),
+    })
+    expect(models).toEqual([
+      { value: 'claude-sonnet-5', label: 'Claude Sonnet 5' },
+      { value: 'claude-fable-5', label: 'Claude Fable 5' },
+    ])
+  })
+
+  it('returns [] when there is no token (falls back to static)', async () => {
+    expect(await probeClaudeModels({ token: null, fetchImpl: claudeFetch(200, []) })).toEqual([])
+  })
+
+  it('returns [] on a 401 (expired token) without throwing', async () => {
+    const models = await probeClaudeModels({ token: 't', fetchImpl: claudeFetch(401, null) })
+    expect(models).toEqual([])
+  })
+})
+
 describe('probe (injected exec — no shelling out)', () => {
   it('returns parsed models on success', async () => {
     const models = await probeAgentModels('grok', { exec: async () => GROK })
@@ -99,7 +130,7 @@ describe('probe (injected exec — no shelling out)', () => {
     expect(models).toEqual([])
   })
 
-  it('probeAllModels fans out and keys by agent kind', async () => {
+  it('probeAllModels fans out over all five agents, keyed by agent kind', async () => {
     const byAgent = await probeAllModels({
       exec: async (argv) => {
         if (argv[0] === 'grok') return GROK
@@ -108,11 +139,27 @@ describe('probe (injected exec — no shelling out)', () => {
         if (argv[0] === 'codex') return CODEX
         return ''
       },
+      claude: {
+        token: 'sk-ant-oat01-test',
+        fetchImpl: claudeFetch(200, [{ id: 'claude-sonnet-5', display_name: 'Claude Sonnet 5' }]),
+      },
     })
-    expect(Object.keys(byAgent).sort()).toEqual(['codex', 'cursor', 'grok', 'opencode'])
-    expect(byAgent.grok?.length).toBe(2)
-    expect(byAgent.cursor?.length).toBe(3)
-    expect(byAgent.opencode?.length).toBe(3)
+    expect(Object.keys(byAgent).sort()).toEqual([
+      'claude-code',
+      'codex',
+      'cursor',
+      'grok',
+      'opencode',
+    ])
+    expect(byAgent['claude-code']?.[0]?.value).toBe('claude-sonnet-5')
     expect(byAgent.codex?.length).toBe(2)
+  })
+
+  it('omits claude-code when the OAuth call yields nothing (static fallback)', async () => {
+    const byAgent = await probeAllModels({
+      exec: async () => '',
+      claude: { token: null, fetchImpl: claudeFetch(200, []) },
+    })
+    expect(byAgent['claude-code']).toBeUndefined()
   })
 })
