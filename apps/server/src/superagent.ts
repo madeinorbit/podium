@@ -4,6 +4,7 @@ import { LlmConfigError, type LlmMessage, type LlmTool, llmClient } from './llm'
 import type { McpToolProvider } from './mcp-route'
 import type { SessionRegistry } from './relay'
 import type { RepoRegistry } from './repo-registry'
+import { searchAll } from './search'
 import type { SessionStore, SuperagentMessageRow, SuperagentThreadRow } from './store'
 
 const MAX_TOOL_ROUNDS = 8
@@ -114,14 +115,15 @@ export const NOT_CONFIRMED_MSG =
  *  which spawns a session — that path takes the same confirmed gate. */
 const CREATE_WITH_START_TOOL = 'issue_create'
 
-function conciergeSystemPrompt(repoPath: string): string {
+export function conciergeSystemPrompt(repoPath: string): string {
   return `You are the Podium concierge for ${repoPath}. The user types wishes, questions, and status asks here.
 
 Ground rules:
 - SEARCH BEFORE CREATE: run issue_search and issue_find_duplicates first; link to or reuse existing epics/issues instead of creating duplicates.
+- PRIOR ART before filing ANY new work: besides issue_search/issue_find_duplicates, run search_all over past conversations and transcripts, and check for existing branches/worktrees on related issues (issue data carries branch and worktreePath). When something relevant exists, PRESENT the prior art to the user — cite issue #s, session titles, and branch names you found — and ask whether to continue the existing thread of work or start fresh. Only file new issues after that check comes up empty or the user chose fresh.
 - Structure work as an epic with child issues; add blocks-dependencies (issue_dep_add) for sequencing. Write each issue description as a self-contained work brief — it becomes the working agent's first prompt, so it must stand alone.
 - INTERACTIVE-ONLY: NEVER call issue_start (or any session-spawning tool: start_agent, issue_add_session, issue_add_shell) unless the user explicitly confirmed starting in THIS conversation ("start it", "go", "kick it off"). Propose, then wait. Auto-dispatch is deliberately disabled product-wide. When (and only when) the user has explicitly confirmed, pass {"confirmed": true} to the tool.
-- Status questions: answer from the issue tools / list_sessions / recent events; summarize in plain sentences, never dump raw lists unless asked.
+- Status questions: answer from the issue tools / list_sessions / recent events; summarize in plain sentences, never dump raw lists unless asked. Cite the sessions and issue #s the answer is based on.
 - Always end with: what you did (created/linked issue #s), and what awaits the user's word.`
 }
 
@@ -890,25 +892,34 @@ export class SuperagentService {
           name: 'list_sessions',
           description:
             'List all agent/shell sessions: id, name, kind, cwd, status, agent phase, ' +
-            'last activity, provenance (spawnedBy), snooze state.',
+            'last activity, provenance (spawnedBy), snooze state, and the tracker issue ' +
+            'the session works in (boundIssue: {seq, title}), when its cwd is inside an ' +
+            'issue worktree.',
           parameters: { type: 'object', properties: {} },
         },
         run: async () =>
           JSON.stringify(
-            registry.listSessions().map((s) => ({
-              sessionId: s.sessionId,
-              name: s.name ?? s.title,
-              kind: s.agentKind,
-              cwd: s.cwd,
-              status: s.status,
-              phase: s.agentState?.phase ?? 'unknown',
-              archived: s.archived,
-              lastActiveAt: s.lastActiveAt,
-              // Provenance + snooze (issue #62): who created it, and whether it's
-              // parked out of the attention flow (null = until next message).
-              spawnedBy: s.spawnedBy,
-              snoozedUntil: s.snoozedUntil,
-            })),
+            registry.listSessions().map((s) => {
+              // Reverse of issue_show's session list (issue #72): session cwd →
+              // bound issue, via the same worktree-containment rule as authz scope.
+              const issueId = registry.issues.issueForCwd(s.cwd)
+              const issue = issueId ? registry.issues.get(issueId) : null
+              return {
+                sessionId: s.sessionId,
+                name: s.name ?? s.title,
+                kind: s.agentKind,
+                cwd: s.cwd,
+                status: s.status,
+                phase: s.agentState?.phase ?? 'unknown',
+                archived: s.archived,
+                lastActiveAt: s.lastActiveAt,
+                // Provenance + snooze (issue #62): who created it, and whether it's
+                // parked out of the attention flow (null = until next message).
+                spawnedBy: s.spawnedBy,
+                snoozedUntil: s.snoozedUntil,
+                ...(issue ? { boundIssue: { seq: issue.seq, title: issue.title } } : {}),
+              }
+            }),
           ),
       },
       {
@@ -1398,6 +1409,57 @@ export class SuperagentService {
               limit: 15,
             }),
           ),
+      },
+      {
+        spec: {
+          name: 'search_all',
+          description:
+            'Omni-search across everything Podium knows: sessions, issues (+comments), ' +
+            'past conversations, transcript full-text, settings. One ranked, typed result ' +
+            'list — the same search the UI omni-search uses. Use it to ground new work in ' +
+            'prior work before filing or starting anything.',
+          parameters: {
+            type: 'object',
+            properties: {
+              query: { type: 'string' },
+              kinds: {
+                type: 'array',
+                items: {
+                  type: 'string',
+                  enum: ['session', 'issue', 'conversation', 'transcript', 'setting'],
+                },
+                description: 'optional filter to these result kinds',
+              },
+              limit: { type: 'number', description: 'max results, default 20, max 50' },
+            },
+            required: ['query'],
+          },
+        },
+        run: async (args) => {
+          const query = str(args.query)
+          if (!query) return 'missing query'
+          const limit = Math.min(50, Math.max(1, num(args.limit) ?? 20))
+          const kinds = Array.isArray(args.kinds)
+            ? args.kinds.filter((k): k is string => typeof k === 'string')
+            : undefined
+          // A kind filter drops hits AFTER ranking, so over-fetch to keep the
+          // filtered list full (searchAll caps its own limit at 100).
+          const raw = searchAll(store, registry, {
+            text: query,
+            limit: kinds && kinds.length > 0 ? 100 : limit,
+          })
+          const results = (
+            kinds && kinds.length > 0 ? raw.filter((r) => kinds.includes(r.kind)) : raw
+          ).slice(0, limit)
+          if (results.length === 0) return '(no results)'
+          const lines = results.map((r) => {
+            // Issues read by display seq (what users and issue_* tools speak).
+            const seq = r.kind === 'issue' ? registry.issues.get(r.id)?.seq : undefined
+            const ref = seq !== undefined ? `#${seq}` : r.id
+            return `[${r.kind}] ${r.title}${r.snippet ? ` — ${r.snippet}` : ''} (${ref})`
+          })
+          return `${lines.join('\n')}\n\n${JSON.stringify(results)}`
+        },
       },
       {
         spec: {

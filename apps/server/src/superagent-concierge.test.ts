@@ -11,6 +11,7 @@ import {
   buildConciergeDelta,
   buildConciergeSeed,
   conciergeRepoPath,
+  conciergeSystemPrompt,
   conciergeThreadId,
   NOT_CONFIRMED_MSG,
   SuperagentService,
@@ -301,5 +302,99 @@ describe('concierge threads (issue #64)', () => {
     const updates = sa.history(threadId).filter((m) => m.content.includes('[CONCIERGE UPDATE'))
     expect(updates).toHaveLength(2)
     expect(updates[1]?.content).toContain('created "C"')
+  })
+})
+
+// Recall (issue #72): ground new work in prior work — omni-search in the belt,
+// session→issue back-links, and a prior-art step in the intake protocol.
+describe('search_all tool', () => {
+  it('wraps the real searchAll: renders one line per typed hit plus the data payload', async () => {
+    const { registry, sa } = await harness()
+    registry.attachDaemon('m1', () => {})
+    const issue = registry.issues.create({
+      repoPath: '/r',
+      title: 'replace the flux capacitor',
+      description: 'it drifts',
+      startNow: false,
+    })
+    const { sessionId } = registry.createSession({ agentKind: 'claude-code', cwd: '/w' })
+    registry.renameSession({ sessionId, name: 'capacitor refactor' })
+    registry.sessionStore.upsertConversations([
+      {
+        id: 'native-conv',
+        agentKind: 'claude-code',
+        providerId: 'claude-code-jsonl',
+        title: 'capacitor deep dive',
+        updatedAt: '2026-07-01T09:00:00.000Z',
+        machineId: 'm1',
+      },
+    ])
+    const out = await sa.callMcpTool('search_all', { query: 'capacitor' })
+    // One rendered line per hit: [kind] title (ref) — issues cite the display seq.
+    expect(out).toContain(`[issue] replace the flux capacitor`)
+    expect(out).toContain(`(#${issue.seq})`)
+    expect(out).toContain('[session] capacitor refactor')
+    expect(out).toContain('[conversation] capacitor deep dive')
+    // Plus the machine-readable payload (SearchResultWire rows).
+    const json = out.slice(out.indexOf('\n\n[') + 2)
+    const rows = JSON.parse(json) as { kind: string; id: string }[]
+    expect(rows.map((r) => r.kind).sort()).toEqual(['conversation', 'issue', 'session'])
+  })
+
+  it('filters by kinds and caps the limit', async () => {
+    const { registry, sa } = await harness()
+    registry.issues.create({ repoPath: '/r', title: 'capacitor issue', startNow: false })
+    const { sessionId } = registry.createSession({ agentKind: 'claude-code', cwd: '/w' })
+    registry.renameSession({ sessionId, name: 'capacitor session' })
+    const out = await sa.callMcpTool('search_all', { query: 'capacitor', kinds: ['issue'] })
+    expect(out).toContain('[issue]')
+    expect(out).not.toContain('[session]')
+    expect(await sa.callMcpTool('search_all', { query: 'zzz-no-such-thing' })).toBe('(no results)')
+    expect(await sa.callMcpTool('search_all', {})).toBe('missing query')
+  })
+})
+
+describe('list_sessions boundIssue', () => {
+  it('carries {seq, title} for sessions inside an issue worktree, absent otherwise', async () => {
+    const { registry, sa } = await harness()
+    // issue_create --start mints the worktree; read state back from the tracker.
+    await sa.callMcpTool(
+      'issue_create',
+      { repoPath: '/r', title: 'Worktree work', start: true, confirmed: true },
+      conciergeThreadId('/r'),
+    )
+    const issue = registry.issues.list('/r').find((i) => i.title === 'Worktree work')
+    expect(issue?.worktreePath).toBeTruthy()
+    // A second session inside the issue worktree, one outside.
+    registry.createSession({ agentKind: 'shell', cwd: issue?.worktreePath ?? '/x' })
+    registry.createSession({ agentKind: 'shell', cwd: '/elsewhere' })
+    const rows = JSON.parse(await sa.callMcpTool('list_sessions', {})) as {
+      cwd: string
+      boundIssue?: { seq: number; title: string }
+    }[]
+    const inside = rows.filter((r) => r.cwd === issue?.worktreePath)
+    expect(inside.length).toBeGreaterThan(0)
+    for (const r of inside) {
+      expect(r.boundIssue).toEqual({ seq: issue?.seq, title: 'Worktree work' })
+    }
+    const outside = rows.find((r) => r.cwd === '/elsewhere')
+    expect(outside).toBeDefined()
+    expect(outside).not.toHaveProperty('boundIssue')
+  })
+})
+
+describe('concierge prior-art intake', () => {
+  it('the concierge prompt instructs a prior-art check before filing new work', () => {
+    const p = conciergeSystemPrompt('/r')
+    expect(p).toContain('PRIOR ART')
+    expect(p).toContain('search_all')
+    expect(p).toContain('issue_find_duplicates')
+    expect(p).toContain('worktreePath')
+    expect(p).toContain('continue the existing thread of work or start fresh')
+    // The interactive-only + confirmed rules stay untouched.
+    expect(p).toContain('INTERACTIVE-ONLY')
+    expect(p).toContain('{"confirmed": true}')
+    // Status answers cite their sources.
+    expect(p).toContain('Cite the sessions and issue #s')
   })
 })
