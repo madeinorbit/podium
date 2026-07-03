@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from 'node:crypto'
+import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { basename } from 'node:path'
 import { fileChainSource, fileIdFor, recordToItemsForKind } from '@podium/agent-bridge'
 import type { PodiumSettings } from '@podium/core'
@@ -67,6 +67,25 @@ import { TranscriptIndexer } from './transcript-indexer'
 /** sha-256 hex of a secret — matches the store's token-hash scheme. */
 function sha256(s: string): string {
   return createHash('sha256').update(s).digest('hex')
+}
+
+/**
+ * The upstream-token mint primitive (node⇄hub sync §2.1): a long-lived, revocable
+ * client_sessions row; the plaintext is returned exactly once (only its sha-256 is
+ * stored). Standalone (store-only) so `scripts/mint-upstream-token.ts` can run it
+ * against a hub's DB without constructing a full registry — a second registry's
+ * boot reconciliation would append oplog rows behind a live server's back.
+ */
+export function mintUpstreamTokenInto(
+  store: Pick<SessionStore, 'createClientSession'>,
+  nowMs: number = Date.now(),
+): string {
+  const token = randomBytes(32).toString('base64url')
+  // 10 years ≈ non-expiring, while keeping the ordinary expiry machinery (and
+  // revocation via deleteClientSession) intact.
+  const expiresAt = new Date(nowMs + 10 * 365 * 24 * 60 * 60 * 1000).toISOString()
+  store.createClientSession(sha256(token), expiresAt)
+  return token
 }
 
 /** Placeholder machineId for sessions/rows created before a real machine adopts
@@ -813,10 +832,114 @@ export class SessionRegistry {
 
   // ---- tRPC control plane ----
   listSessions(): SessionMeta[] {
-    return [...this.sessions.values()].map((s) => ({
+    const local: SessionMeta[] = [...this.sessions.values()].map((s) => ({
       ...s.toMeta(),
       machineName: this.machineName(s.machineId),
     }))
+    if (this.upstreamSessions.size === 0) return local
+    // Local ∪ upstream (docs/spec/node-hub-sync.md §2.3). Upstream entries carry
+    // viaHub (set at ingest) and, while the hub link is down, upstreamStale —
+    // applied at read time so a staleness flip needs no rewrite of the mirror.
+    // A local id always wins a collision (defensive; ingest already excludes them).
+    const localIds = new Set(local.map((s) => s.sessionId))
+    const upstream = [...this.upstreamSessions.values()]
+      .filter((s) => !localIds.has(s.sessionId))
+      .map((s) => (this.upstreamStale ? { ...s, upstreamStale: true } : s))
+    return [...local, ...upstream]
+  }
+
+  // ---- upstream mirror (node⇄hub sync, docs/spec/node-hub-sync.md §2.3) ----
+  // Entities mirrored FROM the hub this node syncs against. They are display/read
+  // surfaces: never in this.sessions (so PTY/command paths can't touch them), never
+  // pushed back upstream (viaHub provenance), and retained-but-stale on hub loss.
+  private readonly upstreamSessions = new Map<string, SessionMeta>()
+  private readonly upstreamConversations = new Map<string, ConversationSummaryWire>()
+  private upstreamStale = false
+  /** machineIds that ARE this node (its daemon may also be paired with the hub in
+   *  some topologies) — hub entries for them are echoes and are dropped at ingest. */
+  private upstreamOwnMachineIds = new Set<string>()
+
+  /** Rejection every command path returns for a hub-mirrored session (spec §2.3). */
+  static readonly UPSTREAM_COMMAND_REJECTION = 'remote session — managed via the hub'
+
+  setUpstreamOwnMachineIds(ids: Iterable<string>): void {
+    this.upstreamOwnMachineIds = new Set(ids)
+  }
+
+  /** True when `sessionId` is a hub-mirrored (read-only) session. */
+  isUpstreamSession(sessionId: string): boolean {
+    return this.upstreamSessions.has(sessionId)
+  }
+
+  /** `{ ok: false, reason }` for a hub-mirrored session, else null — the shared
+   *  guard every ok/reason command path checks first. */
+  private upstreamRejection(sessionId: string): { ok: false; reason: string } | null {
+    if (!this.upstreamSessions.has(sessionId)) return null
+    return { ok: false, reason: SessionRegistry.UPSTREAM_COMMAND_REJECTION }
+  }
+
+  /**
+   * Replace the mirrored session list with the hub's truth. Own-machine entries are
+   * excluded (echo filter — this node's daemon registered with the hub would reflect
+   * its own sessions back), as is anything colliding with a local session id.
+   * Entries are stamped `viaHub` at ingest so provenance travels with the value —
+   * the P7b push path and the UI both key off it. Flows through the normal
+   * broadcast/oplog pipeline so node clients see hub sessions live.
+   */
+  setUpstreamSessions(list: SessionMeta[]): void {
+    this.upstreamSessions.clear()
+    for (const s of list) {
+      if (s.machineId !== undefined && this.upstreamOwnMachineIds.has(s.machineId)) continue
+      if (this.sessions.has(s.sessionId)) continue
+      this.upstreamSessions.set(s.sessionId, { ...s, viaHub: true })
+    }
+    this.broadcastSessions()
+  }
+
+  /** Replace the mirrored conversation list (same pipeline as sessions). Conversations
+   *  carry no machineId on the wire, so the echo filter here is id-based: a locally
+   *  known conversation id wins over the hub copy. */
+  setUpstreamConversations(list: ConversationSummaryWire[]): void {
+    this.upstreamConversations.clear()
+    const localIds = new Set(this.latestConversations.map((c) => c.id))
+    for (const c of list) {
+      if (localIds.has(c.id)) continue
+      this.upstreamConversations.set(c.id, c)
+    }
+    this.broadcastConversations()
+  }
+
+  /**
+   * Hub reachability flip. Unreachable → mirrored entries are KEPT and marked stale
+   * (spec §2.3: degrade to stale-visible, never to blank); local entities are never
+   * affected. Both directions rebroadcast so clients see the flag change.
+   */
+  setUpstreamStale(stale: boolean): void {
+    if (this.upstreamStale === stale) return
+    this.upstreamStale = stale
+    if (this.upstreamSessions.size > 0) this.broadcastSessions()
+    if (this.upstreamConversations.size > 0) this.broadcastConversations()
+  }
+
+  /** Local ∪ upstream conversations — what attach/broadcast/changesSince serve. */
+  private allConversations(): ConversationSummaryWire[] {
+    if (this.upstreamConversations.size === 0) return this.latestConversations
+    const localIds = new Set(this.latestConversations.map((c) => c.id))
+    return [
+      ...this.latestConversations,
+      ...[...this.upstreamConversations.values()].filter((c) => !localIds.has(c.id)),
+    ]
+  }
+
+  /**
+   * Mint a long-lived client-session token for a NODE to sync against this server
+   * as its hub (spec §2.1 provisioning). The token rides as the `podium_session`
+   * cookie on the node's /client WS upgrade and /trpc calls — a normal, revocable
+   * client_sessions row (delete it to cut the node off). Printed once; only the
+   * sha-256 is stored.
+   */
+  mintUpstreamToken(): string {
+    return mintUpstreamTokenInto(this.store, this.now())
   }
 
   /**
@@ -1166,6 +1289,7 @@ export class SessionRegistry {
    * can't inject text into a healthy prompt.
    */
   continueSession({ sessionId }: { sessionId: string }): { ok: boolean } {
+    if (this.upstreamRejection(sessionId)) return { ok: false }
     const session = this.sessions.get(sessionId)
     if (!session) return { ok: false }
     // Status gate as well as phase: a session can read 'errored' while its
@@ -1192,6 +1316,8 @@ export class SessionRegistry {
     queued?: boolean
     reason?: string
   } {
+    const rejected = this.upstreamRejection(sessionId)
+    if (rejected) return rejected
     const session = this.sessions.get(sessionId)
     if (session && (session.queuedMessageCount > 0 || this.activeDrains.has(sessionId))) {
       return this.queueText({ sessionId, text })
@@ -1361,6 +1487,8 @@ export class SessionRegistry {
     text: string
     mutationId?: string
   }): { ok: boolean; queued?: boolean; reason?: string } {
+    const rejected = this.upstreamRejection(sessionId)
+    if (rejected) return rejected
     const session = this.sessions.get(sessionId)
     if (!session) return { ok: false, reason: 'unknown session' }
     // A parked session we can never wake would hold the message forever with no
@@ -1543,6 +1671,8 @@ export class SessionRegistry {
    * than silently turn "hibernate" into "kill".
    */
   hibernateSession({ sessionId }: { sessionId: string }): { ok: boolean; reason?: string } {
+    const rejected = this.upstreamRejection(sessionId)
+    if (rejected) return rejected
     const session = this.sessions.get(sessionId)
     if (!session) return { ok: false, reason: 'unknown session' }
     if (session.status !== 'live') return { ok: false, reason: 'not running' }
@@ -1584,6 +1714,8 @@ export class SessionRegistry {
     ok: boolean
     reason?: string
   } {
+    const rejected = this.upstreamRejection(sessionId)
+    if (rejected) return rejected
     const session = this.sessions.get(sessionId)
     if (!session) return { ok: false, reason: 'unknown session' }
     if (session.status === 'live' && session.queuedMessageCount === 0) {
@@ -1597,6 +1729,8 @@ export class SessionRegistry {
 
   /** Wake a hibernated session: respawn under the same id with its resume ref. */
   resurrectSession({ sessionId }: { sessionId: string }): { ok: boolean; reason?: string } {
+    const rejected = this.upstreamRejection(sessionId)
+    if (rejected) return rejected
     const session = this.sessions.get(sessionId)
     if (!session) return { ok: false, reason: 'unknown session' }
     // Hibernated (parked on purpose) and exited (process died or was killed
@@ -1679,6 +1813,11 @@ export class SessionRegistry {
   }
 
   killSession(input: { sessionId: string }): void {
+    // Read-only surface (node-hub-sync §2.3): killing a hub-mirrored session here
+    // would fabricate a kill for a PTY this server doesn't own — reject loudly.
+    if (this.isUpstreamSession(input.sessionId)) {
+      throw new Error(SessionRegistry.UPSTREAM_COMMAND_REJECTION)
+    }
     const session = this.sessions.get(input.sessionId)
     this.toMachine(session?.machineId ?? LOCAL_PLACEHOLDER, {
       type: 'kill',
@@ -2046,7 +2185,7 @@ export class SessionRegistry {
     }
     send({
       type: 'conversationsChanged',
-      conversations: this.latestConversations,
+      conversations: this.allConversations(),
       diagnostics: this.latestConversationDiagnostics,
     })
     send({ type: 'machinesChanged', machines: this.listMachines() })
@@ -3261,14 +3400,17 @@ export class SessionRegistry {
   }
 
   private broadcastConversations(): void {
+    // Local ∪ upstream: hub-mirrored conversations ride the same snapshot + oplog
+    // pipeline as local ones (node-hub-sync §2.3), so node clients see them live.
+    const conversations = this.allConversations()
     const msg: ServerMessage = {
       type: 'conversationsChanged',
-      conversations: this.latestConversations,
+      conversations,
       diagnostics: this.latestConversationDiagnostics,
     }
     const changes = this.oplog.record(
       'conversation',
-      this.latestConversations.map((c) => ({ id: c.id, value: c })),
+      conversations.map((c) => ({ id: c.id, value: c })),
     )
     // Diagnostics don't ride the delta stream (they're scan-level, not per-entity):
     // when they changed, cap clients need the snapshot too. Applying it as a full
@@ -3317,7 +3459,7 @@ export class SessionRegistry {
       kind: 'snapshot',
       sessions: this.listSessions(),
       issues: this.safeIssuesList(),
-      conversations: this.latestConversations,
+      conversations: this.allConversations(),
       diagnostics: this.latestConversationDiagnostics,
       cursor: this.oplog.cursor(),
     }

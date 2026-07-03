@@ -53,4 +53,17 @@ describe('podium config', () => {
   it('rejects an invalid updateChannel', () => {
     expect(() => saveConfig({ updateChannel: 'nightly' } as never)).toThrow()
   })
+  it('round-trips the upstream hub target (node⇄hub sync §2.1)', () => {
+    saveConfig({
+      mode: 'server',
+      upstream: { url: 'https://hub.example:18787', token: 'tok_abc' },
+    })
+    expect(loadConfig()).toEqual({
+      mode: 'server',
+      upstream: { url: 'https://hub.example:18787', token: 'tok_abc' },
+    })
+  })
+  it('rejects a partial upstream block (url and token are both required)', () => {
+    expect(() => saveConfig({ upstream: { url: 'https://hub' } } as never)).toThrow()
+  })
 })

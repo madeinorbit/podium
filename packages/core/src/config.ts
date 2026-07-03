@@ -21,6 +21,18 @@ export const PodiumConfig = z.object({
   updateChannel: z.enum(['stable', 'edge']).optional(),
   /** Externally-reachable base URL captured at setup; embedded into machine join tokens. */
   publicUrl: z.string().optional(),
+  /**
+   * Node⇄hub sync (docs/spec/node-hub-sync.md §2.1): when present, this server is a NODE
+   * that mirrors the hub at `url` (http(s):// or ws(s):// base) through the thin-client
+   * protocol, authenticating with `token` — a hub-minted long-lived client-session token
+   * (`scripts/mint-upstream-token.ts` on the hub). Absent = today's behavior, byte-identical.
+   */
+  upstream: z
+    .object({
+      url: z.string(),
+      token: z.string(),
+    })
+    .optional(),
 })
 export type PodiumConfig = z.infer<typeof PodiumConfig>
 

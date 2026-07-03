@@ -155,6 +155,15 @@ export const SessionMeta = z.object({
    *  'user' | 'superagent:<threadId>' | 'steward' | 'issue:<issueId>' |
    *  'session:<sessionId>'. Absent = created before this field existed (unknown). */
   spawnedBy: z.string().optional(),
+  /** True for a session mirrored FROM this node's upstream hub (node⇄hub sync,
+   *  docs/spec/node-hub-sync.md §2.3). Read-only surface in P7a: command paths
+   *  reject it; P7b's push path excludes it (provenance — never echoed back).
+   *  Additive: absent = a local session, today's behavior. */
+  viaHub: z.boolean().optional(),
+  /** True when this viaHub entry is last-known state from an UNREACHABLE hub —
+   *  retained, not blanked (spec §2.3 staleness semantics). Only ever set
+   *  alongside viaHub; local sessions never carry it. */
+  upstreamStale: z.boolean().optional(),
 })
 export type SessionMeta = z.infer<typeof SessionMeta>
 

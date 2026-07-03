@@ -626,6 +626,32 @@ describe('agent runtime state', () => {
       SessionMeta.parse({ ...base, snoozedUntil: '2026-06-19T06:00:00.000Z' }).snoozedUntil,
     ).toBe('2026-06-19T06:00:00.000Z')
   })
+
+  it('SessionMeta carries the additive upstream-mirror flags (node⇄hub sync)', () => {
+    const base = {
+      sessionId: 's1',
+      agentKind: 'shell',
+      title: 't',
+      cwd: '/w',
+      status: 'live',
+      controllerId: null,
+      geometry: { cols: 80, rows: 24 },
+      epoch: 0,
+      clientCount: 0,
+      createdAt: '2026-07-01T00:00:00.000Z',
+      lastActiveAt: '2026-07-01T00:00:00.000Z',
+      origin: { kind: 'spawn' },
+      archived: false,
+    } as const
+    // Additive: absent = a local session (older peers keep parsing).
+    const local = SessionMeta.parse(base)
+    expect(local.viaHub).toBeUndefined()
+    expect(local.upstreamStale).toBeUndefined()
+    const mirrored = SessionMeta.parse({ ...base, viaHub: true, upstreamStale: true })
+    expect(mirrored.viaHub).toBe(true)
+    expect(mirrored.upstreamStale).toBe(true)
+    expect(() => SessionMeta.parse({ ...base, viaHub: 'yes' })).toThrow()
+  })
 })
 
 describe('agent quota messages', () => {

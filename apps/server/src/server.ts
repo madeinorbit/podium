@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { serve } from '@hono/node-server'
 import { trpcServer } from '@hono/trpc-server'
+import { loadConfig } from '@podium/core/config'
 import { startLoopMetrics } from '@podium/core/loop-metrics'
 import { MIN_SUPPORTED_VERSION, WIRE_VERSION } from '@podium/protocol'
 import { Hono } from 'hono'
@@ -25,6 +26,7 @@ import { registerSetupRoute } from './setup-route'
 import { registerWebStatic } from './static-web'
 import { SessionStore } from './store'
 import { SuperagentService } from './superagent'
+import { readOwnDaemonMachineId, UpstreamSync } from './upstream'
 import { attachWebSockets } from './wsServer'
 
 /** Adapt an in-process tRPC `createCaller` caller to the `IssueTrpc` HTTP-client shape the
@@ -162,6 +164,22 @@ export async function startServer(
   // against the regression where data vanished because no daemon ever registered. The
   // same-host daemon then authenticates through the normal hello path (wsServer).
   registry.ensureLocalMachine(hostname(), bootstrapToken)
+  // Node⇄hub sync (docs/spec/node-hub-sync.md): when config.json carries `upstream`,
+  // this server is a NODE and mirrors its hub's fleet through the thin-client
+  // protocol. No upstream config = the constructor never runs = zero new behavior.
+  let upstreamSync: UpstreamSync | undefined
+  const upstreamConfig = loadConfig().upstream
+  if (upstreamConfig) {
+    const ownMachineId = readOwnDaemonMachineId()
+    if (ownMachineId) registry.setUpstreamOwnMachineIds([ownMachineId])
+    upstreamSync = new UpstreamSync({
+      url: upstreamConfig.url,
+      token: upstreamConfig.token,
+      mirror: registry,
+      store,
+    })
+    upstreamSync.start()
+  }
   const repos = new RepoRegistry(registry, store)
   const superagent = new SuperagentService(registry, repos, store)
   // The daemon issue-relay seam: run a relayed agent op through a capability-scoped tRPC
@@ -260,6 +278,7 @@ export async function startServer(
     const failListen = (err: unknown): void => {
       if (settled) return
       settled = true
+      upstreamSync?.stop()
       registry.dispose()
       store.close()
       reject(
@@ -303,6 +322,9 @@ export async function startServer(
               () =>
                 new Promise<void>((res) => {
                   ;(server as unknown as Server).close(() => {
+                    // Stop the upstream sync loop BEFORE the store closes — a late
+                    // cursor/issue persist against a closed DB would throw.
+                    upstreamSync?.stop()
                     // Persist the last dirty activity timestamps while the DB is still
                     // open, then stop the periodic flush timer (so a tick can't fire an
                     // upsertSession against a closed DB), and only then close the store.
