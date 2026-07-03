@@ -11,7 +11,7 @@ import {
 } from './claude-code-classifier.js'
 import { codexStateProvider } from './codex.js'
 import { cursorStateProvider } from './cursor.js'
-import type { DeterministicAgentState } from './deterministic.js'
+import { type DeterministicAgentState, deterministicStateToEvents } from './deterministic.js'
 import { grokStateProvider } from './grok.js'
 import { opencodeStateProvider } from './opencode.js'
 import type { AgentInstrumentation, AgentStateEvent, AgentStateProvider } from './types.js'
@@ -85,12 +85,24 @@ export async function claudeBootEvents(opts: {
     })
     if (!transcript) return [{ kind: 'session_started' }]
     try {
-      const verdict = classifyIdleTranscript(await readTranscriptTail(transcript), 'default')
+      const state = classifyClaudeTranscriptDeterministically(
+        await readTranscriptTail(transcript),
+        'default',
+      )
       // Stamp the last DATED record's time, NOT the file mtime: Claude appends
       // timestamp-less metadata (bridge-session/mode/…) on resume/reattach, which
       // bumps the mtime to "now" though no real activity happened. Using mtime here
       // restamped idle sessions to "now" on every redeploy.
       const at = await lastTimestampedRecordIso(transcript)
+      // A still-pending AskUserQuestion menu must seed the SAME wire shape as the
+      // live hook path (needs_user/question, see translate() and
+      // deterministicStateToEvents), not a turn_completed 'question' verdict:
+      // the idle/question form made restarted sessions invisible to the
+      // superagent's answer_question gate and to NEEDS-ATTENTION grouping.
+      if (state.status === 'resolved' && state.label === 'idle.needs_input.ask_user_tool') {
+        return deterministicStateToEvents(state).map((e) => (at ? { ...e, at } : e))
+      }
+      const verdict = idleClassificationFromState(state)
       if (verdict) {
         return [{ kind: 'turn_completed', verdict, ...(at ? { at } : {}) }]
       }

@@ -11,6 +11,7 @@ import {
 } from './claude-code'
 import { codexStateProvider } from './codex'
 import { grokStateProvider } from './grok'
+import { initialAgentState, reduceAgentState } from './reducer'
 
 const URL = 'http://127.0.0.1:45777/hooks/s1'
 
@@ -386,6 +387,100 @@ describe('bootEvents', () => {
         at: realActivity,
       },
     ])
+  })
+
+  it('resume onto a PENDING AskUserQuestion menu → needs_user/question (same wire shape as the live hook path), stamped with the record time [#63]', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'podium-boot-home-'))
+    const cwd = '/home/dev/my.app'
+    const projectDir = join(home, '.claude', 'projects', '-home-dev-my-app')
+    await mkdir(projectDir, { recursive: true })
+    const transcript = join(projectDir, 'conv-ask.jsonl')
+    const realActivity = '2026-06-21T09:00:00.000Z'
+    await writeFile(
+      transcript,
+      [
+        JSON.stringify({ type: 'user', message: { role: 'user', content: 'pick one' } }),
+        JSON.stringify({
+          type: 'assistant',
+          timestamp: realActivity,
+          message: {
+            role: 'assistant',
+            content: [
+              {
+                type: 'tool_use',
+                id: 'ask1',
+                name: 'AskUserQuestion',
+                input: { questions: [{ question: 'Which database?', header: 'DB' }] },
+              },
+            ],
+          },
+        }),
+      ].join('\n'),
+    )
+    const events = await claudeCodeStateProvider.bootEvents?.({
+      cwd,
+      resumeValue: 'conv-ask',
+      homeDir: home,
+    })
+    // Must match the LIVE PreToolUse translation shape (needs_user/question), not a
+    // turn_completed 'question' verdict: idle/question after a restart hid the menu
+    // from the superagent answer_question gate and NEEDS-ATTENTION grouping.
+    expect(events).toEqual([
+      { kind: 'needs_user', need: 'question', summary: 'Which database?', at: realActivity },
+    ])
+    // Parity through the reducer: the boot seed and the live hook event land on the
+    // same phase/need.
+    const now = '2026-06-21T10:00:00.000Z'
+    const booted = reduceAgentState(initialAgentState(now), (events ?? [])[0]!, now)
+    const liveEvents = await translateClaudeHookPayload({
+      hook_event_name: 'PreToolUse',
+      tool_name: 'AskUserQuestion',
+      tool_input: { questions: [{ question: 'Which database?', header: 'DB' }] },
+    })
+    const live = reduceAgentState(initialAgentState(now), liveEvents[0]!, now)
+    expect(booted.phase).toBe('needs_user')
+    expect(booted.phase).toBe(live.phase)
+    expect('need' in booted && booted.need).toEqual('need' in live && live.need)
+  })
+
+  it('resume onto an ANSWERED AskUserQuestion → neither needs_user nor an idle question verdict', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'podium-boot-home-'))
+    const cwd = '/home/dev/my.app'
+    const projectDir = join(home, '.claude', 'projects', '-home-dev-my-app')
+    await mkdir(projectDir, { recursive: true })
+    const transcript = join(projectDir, 'conv-answered.jsonl')
+    const realActivity = '2026-06-21T09:05:00.000Z'
+    await writeFile(
+      transcript,
+      [
+        JSON.stringify({ type: 'user', message: { role: 'user', content: 'pick one' } }),
+        assistantLine([
+          {
+            type: 'tool_use',
+            id: 'ask1',
+            name: 'AskUserQuestion',
+            input: { questions: [{ question: 'Which database?', header: 'DB' }] },
+          },
+        ]),
+        userLine([{ type: 'tool_result', tool_use_id: 'ask1', content: 'Postgres' }]),
+        JSON.stringify({
+          type: 'assistant',
+          timestamp: realActivity,
+          message: { role: 'assistant', content: [text('Done — Postgres it is.')] },
+        }),
+      ].join('\n'),
+    )
+    const events = await claudeCodeStateProvider.bootEvents?.({
+      cwd,
+      resumeValue: 'conv-answered',
+      homeDir: home,
+    })
+    expect(events).toHaveLength(1)
+    expect(events?.[0]).toMatchObject({
+      kind: 'turn_completed',
+      verdict: { kind: 'done' },
+      at: realActivity,
+    })
   })
 
   it('resume with a missing/unclassifiable transcript falls back to session_started', async () => {
