@@ -46,6 +46,7 @@ import { FileBrowserModal } from './FileBrowserModal'
 import { HostIndicators } from './HostIndicators'
 import { STAGE_LABELS } from './issue-card'
 import { StageGlyph } from './issue-glyphs'
+import { isEpic, partitionByParent } from './issue-hierarchy'
 import { NewPanelMenu } from './NewPanelMenu'
 import { RepoScanFlow } from './RepoScanFlow'
 import { SearchView } from './SearchView'
@@ -101,6 +102,14 @@ export function Sidebar(): JSX.Element {
   const [treeFilter, setTreeFilter] = useState('')
   const sections = filterSidebarSections(sidebarSections(repos, sessions, pins, now), treeFilter)
   const issueList = filterIssueNav(issueNavList(issues, sessions, now), treeFilter)
+  // Hierarchy (#85): only top-level issues at the tab's root; children nest under
+  // their parent's chevron. A child whose parent got filtered out is promoted to
+  // a root, so filter matches never vanish.
+  const issueTree = partitionByParent(
+    issueList,
+    (v) => v.issue.id,
+    (v) => v.issue.parentId,
+  )
 
   // Drag-to-reorder state.
   const dragRepoPath = useRef<string | null>(null)
@@ -579,14 +588,16 @@ export function Sidebar(): JSX.Element {
                 {treeFilter.trim() ? 'No matching issues.' : 'No issues.'}
               </p>
             ) : (
-              issueList.map((nav) => (
+              issueTree.roots.map((nav) => (
                 <IssueBlock
                   key={nav.issue.id}
                   nav={nav}
-                  active={selectedWorktree !== null && selectedWorktree === nav.issue.worktreePath}
+                  childrenByParent={issueTree.childrenByParent}
+                  depth={0}
+                  activeWorktree={selectedWorktree}
                   paneA={paneA}
                   now={now}
-                  onSelectIssue={() => selectIssue(nav.issue)}
+                  onSelectIssue={selectIssue}
                   onSelectPanel={selectPanel}
                   setPinned={setPinned}
                 />
@@ -777,12 +788,15 @@ function RepoBlock({
 }
 
 /** One issue row in the sidebar Issues tab. Default-collapsed (chevron toggles the
- *  attached sessions); the header shows the title, a session count, a muted repo
- *  name, and a stage glyph + label. Clicking the header selects the issue's
- *  worktree (or opens the issue page for an unstarted issue). Mirrors WorktreeBlock. */
+ *  attached sessions AND nested sub-issues, #85); the header shows the title, an
+ *  epic badge + n/m progress for parents, a session count, a muted repo name, and
+ *  a stage glyph + label. Clicking the header selects the issue's worktree (or
+ *  opens the issue page for an unstarted issue). Mirrors WorktreeBlock. */
 function IssueBlock({
   nav,
-  active,
+  childrenByParent,
+  depth,
+  activeWorktree,
   paneA,
   now,
   onSelectIssue,
@@ -790,14 +804,18 @@ function IssueBlock({
   setPinned,
 }: {
   nav: IssueNavView
-  active: boolean
+  childrenByParent: Map<string, IssueNavView[]>
+  depth: number
+  activeWorktree: string | null
   paneA: string | null
   now: number
-  onSelectIssue: () => void
+  onSelectIssue: (issue: IssueWire) => void
   onSelectPanel: (worktreePath: string, sessionId: string) => void
   setPinned: (kind: PinKind, id: string, pinned: boolean) => Promise<void>
 }): JSX.Element {
   const { issue, repoName, sessions } = nav
+  const children = childrenByParent.get(issue.id) ?? []
+  const active = activeWorktree !== null && activeWorktree === issue.worktreePath
   const [collapsed, toggle] = useCollapsed(`podium:sidebar:issue-collapsed:${issue.id}`, true)
   const { visible, stale } = partitionStaleSessions(sessions, now)
   const renderRow = (session: SessionMeta) => (
@@ -813,9 +831,9 @@ function IssueBlock({
     />
   )
   return (
-    <div className="min-w-0">
+    <div className="min-w-0" style={depth > 0 ? { paddingLeft: depth * 12 } : undefined}>
       <div className="group/iss flex min-w-0 items-stretch">
-        {sessions.length > 0 ? (
+        {sessions.length > 0 || children.length > 0 ? (
           <button
             type="button"
             className="flex-none px-1 text-muted-foreground/60 hover:text-foreground"
@@ -842,11 +860,21 @@ function IssueBlock({
               ? 'bg-accent font-medium text-accent-foreground'
               : 'text-foreground hover:bg-accent',
           )}
-          onClick={onSelectIssue}
+          onClick={() => onSelectIssue(issue)}
         >
           <span className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap">
             {issue.title}
           </span>
+          {isEpic(issue) && (
+            <span className="flex-none rounded border border-violet-500/50 px-1 text-[9px] leading-4 text-violet-600 dark:text-violet-400">
+              epic
+            </span>
+          )}
+          {issue.childCount > 0 && (
+            <span className="flex-none text-[10px] text-muted-foreground/70 tabular-nums">
+              {issue.childDoneCount}/{issue.childCount}
+            </span>
+          )}
           {sessions.length > 0 && (
             <span className="flex-none text-[10px] text-muted-foreground/70 tabular-nums">
               {sessions.length}
@@ -865,6 +893,20 @@ function IssueBlock({
         <>
           {visible.map(renderRow)}
           <StaleSection sessions={stale} render={renderRow} />
+          {children.map((child) => (
+            <IssueBlock
+              key={child.issue.id}
+              nav={child}
+              childrenByParent={childrenByParent}
+              depth={depth + 1}
+              activeWorktree={activeWorktree}
+              paneA={paneA}
+              now={now}
+              onSelectIssue={onSelectIssue}
+              onSelectPanel={onSelectPanel}
+              setPinned={setPinned}
+            />
+          ))}
         </>
       )}
     </div>

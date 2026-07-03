@@ -4,6 +4,7 @@ import {
   CircleUser,
   Flag,
   ListFilter,
+  ListTree,
   Plus,
   SlidersHorizontal,
   Trash2,
@@ -37,7 +38,8 @@ import { IssuePage } from './IssuePage'
 import { type BoardFilter, clearChip, filterBoardIssues, filterChips } from './issue-board-filter'
 import { issueCardModel, STAGE_LABELS } from './issue-card'
 import { AssigneeAvatar, PriorityGlyph, StageGlyph } from './issue-glyphs'
-import { flattenGroups, groupIssuesByStage } from './issue-list'
+import { flattenRowGroups, isEpic, issueRowsByStage, partitionIssueTree } from './issue-hierarchy'
+import { groupIssuesByStage } from './issue-list'
 import {
   DISPLAY_KEY,
   type IssuesDisplay,
@@ -101,6 +103,15 @@ export function IssuesView(): JSX.Element {
   const [keyState, setKeyState] = useState<IssuesKeyState>({ focusId: null, selected: [] })
   // Which keyboard-anchored property menu (s/p/a/l) is open, and over which issue.
   const [propMenu, setPropMenu] = useState<PropMenuState | null>(null)
+  // Parents whose nested children are revealed (list layout, nested mode only).
+  const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set())
+  const toggleExpand = (id: string): void =>
+    setExpanded((s) => {
+      const next = new Set(s)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
   // Hide archived, then narrow by the filter — both run before the issues are
   // split into per-stage lanes, so each lane reflects the same view.
   const active = filterBoardIssues(
@@ -143,19 +154,28 @@ export function IssuesView(): JSX.Element {
   const chips = filterChips(filter)
   const layout = isMobile ? 'list' : display.layout
 
-  // The per-stage ordered lanes — computed once so the board render, the list
-  // render, and the keyboard nav all agree on order. `listIds` flattens them
-  // top-to-bottom for the single-column list layout.
-  const orderedByStage = groupIssuesByStage(active, display.ordering)
-  const listIds = flattenGroups(orderedByStage)
+  // Hierarchy (#85): by default only top-level issues (roots) surface — nested
+  // children hide behind their parent's chevron (list) or roll up into the
+  // parent card's n/m count (board). The Flatten toggle restores the old view.
+  const boardIssues = display.flatten ? active : partitionIssueTree(active).roots
+
+  // The per-stage ordered lanes / rows — computed once so the board render, the
+  // list render, and the keyboard nav all agree on order. `listIds` flattens the
+  // visible (expanded) rows top-to-bottom for the single-column list layout.
+  const orderedByStage = groupIssuesByStage(boardIssues, display.ordering)
+  const rowGroups = issueRowsByStage(active, display.ordering, {
+    flatten: display.flatten,
+    expanded,
+  })
+  const listIds = flattenRowGroups(rowGroups)
   const nav: IssuesNav =
     layout === 'list'
       ? { kind: 'rows', ids: listIds }
       : { kind: 'columns', columns: orderedByStage.map((c) => c.issues.map((i) => i.id)) }
 
-  // Selection filtered to ids still on the board (deleted/filtered-out drop off),
-  // so the bulk bar and highlights never reference stale issues.
-  const presentIds = new Set(listIds)
+  // Selection filtered to ids still visible (deleted/filtered-out/collapsed drop
+  // off), so the bulk bar and highlights never reference stale issues.
+  const presentIds = new Set(nav.kind === 'rows' ? nav.ids : nav.columns.flat())
   const selectedIds = keyState.selected.filter((id) => presentIds.has(id))
   const focusId = keyState.focusId
 
@@ -278,7 +298,7 @@ export function IssuesView(): JSX.Element {
     return (
       <IssuePage
         issue={open}
-        orderedIds={flattenGroups(groupIssuesByStage(active, display.ordering))}
+        orderedIds={listIds}
         onBack={() => setOpenIssueId(null)}
         onNavigate={setOpenIssueId}
       />
@@ -306,6 +326,24 @@ export function IssuesView(): JSX.Element {
           aria-label="Search issues"
           className="h-8 w-full max-w-[240px] flex-1"
         />
+        <button
+          type="button"
+          className={cn(
+            'inline-flex items-center gap-1 rounded-full border border-border px-2 py-0.5 text-[12px] transition-colors',
+            display.flatten
+              ? 'bg-primary/15 text-foreground'
+              : 'bg-muted/50 text-muted-foreground hover:text-foreground',
+          )}
+          aria-pressed={display.flatten}
+          title={
+            display.flatten
+              ? 'Showing all issues flat — click to nest sub-issues under parents'
+              : 'Showing top-level issues — click to flatten sub-issues into the list'
+          }
+          onClick={() => updateDisplay({ flatten: !display.flatten })}
+        >
+          <ListTree size={12} aria-hidden="true" /> Flatten
+        </button>
         {chips.map((c) => (
           <button
             key={c.key}
@@ -321,13 +359,14 @@ export function IssuesView(): JSX.Element {
 
       {layout === 'list' ? (
         <IssueListView
-          issues={active}
+          groups={rowGroups}
           display={display}
           onOpen={setOpenIssueId}
           onCreateIn={(stage) => setCreating({ stage })}
           focusId={focusId}
           selected={selectedIds}
           onToggleSelect={toggleSelectId}
+          onToggleExpand={toggleExpand}
         />
       ) : (
         <div className="flex min-h-0 flex-1 gap-3 overflow-x-auto p-3 md:p-4">
@@ -931,7 +970,16 @@ function IssueCard({
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
           <PriorityGlyph priority={issue.priority} />
-          {show.type && (
+          {isEpic(issue) && (
+            <Badge
+              variant="outline"
+              className="border-violet-500/50 font-normal text-violet-600 dark:text-violet-400"
+            >
+              Epic
+            </Badge>
+          )}
+          {/* Skip the plain type badge for typed epics — the Epic badge already says it. */}
+          {show.type && issue.type !== 'epic' && (
             <Badge variant="outline" className="font-normal">
               {m.typeLabel}
             </Badge>

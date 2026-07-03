@@ -6,6 +6,8 @@ export type IssuesOrdering = 'priority' | 'updated' | 'created'
 export interface IssuesDisplay {
   layout: IssuesLayout
   ordering: IssuesOrdering
+  /** true = the old flat view (sub-issues at top level); false = nested (#85). */
+  flatten: boolean
   badges: { labels: boolean; type: boolean; estimate: boolean; due: boolean; sessions: boolean }
 }
 
@@ -14,6 +16,7 @@ export const DISPLAY_KEY = 'podium.issues.display'
 export const DEFAULT_DISPLAY: IssuesDisplay = {
   layout: 'board',
   ordering: 'updated',
+  flatten: false,
   badges: { labels: true, type: true, estimate: true, due: true, sessions: true },
 }
 
@@ -43,6 +46,7 @@ export function readIssuesDisplay(raw: string | null): IssuesDisplay {
     ordering: ORDERINGS.has(String(o.ordering))
       ? (o.ordering as IssuesOrdering)
       : DEFAULT_DISPLAY.ordering,
+    flatten: typeof o.flatten === 'boolean' ? o.flatten : DEFAULT_DISPLAY.flatten,
     badges: {
       labels: badge('labels'),
       type: badge('type'),

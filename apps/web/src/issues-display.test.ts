@@ -33,8 +33,16 @@ describe('orderIssues', () => {
     expect(orderIssues([a, c, b], 'priority').map((i) => i.id)).toEqual(['b', 'a', 'c'])
   })
   it('updated: most recently updated first; created likewise', () => {
-    const old = issue({ id: 'old', updatedAt: '2026-01-01T00:00:00Z', createdAt: '2026-01-02T00:00:00Z' })
-    const fresh = issue({ id: 'new', updatedAt: '2026-06-01T00:00:00Z', createdAt: '2026-01-01T00:00:00Z' })
+    const old = issue({
+      id: 'old',
+      updatedAt: '2026-01-01T00:00:00Z',
+      createdAt: '2026-01-02T00:00:00Z',
+    })
+    const fresh = issue({
+      id: 'new',
+      updatedAt: '2026-06-01T00:00:00Z',
+      createdAt: '2026-01-01T00:00:00Z',
+    })
     expect(orderIssues([old, fresh], 'updated')[0]?.id).toBe('new')
     expect(orderIssues([old, fresh], 'created')[0]?.id).toBe('old')
   })
@@ -42,5 +50,16 @@ describe('orderIssues', () => {
     const list = [issue({ id: 'a', priority: 3 }), issue({ id: 'b', priority: 0 })]
     orderIssues(list, 'priority')
     expect(list[0]?.id).toBe('a')
+  })
+})
+
+describe('flatten pref (#85)', () => {
+  it('defaults to nested (flatten=false) and survives a stale blob missing the field', () => {
+    expect(readIssuesDisplay(null).flatten).toBe(false)
+    expect(readIssuesDisplay(JSON.stringify({ layout: 'list' })).flatten).toBe(false)
+  })
+  it('round-trips flatten=true through write/read', () => {
+    const d = { ...readIssuesDisplay(null), flatten: true }
+    expect(readIssuesDisplay(writeIssuesDisplay(d)).flatten).toBe(true)
   })
 })
