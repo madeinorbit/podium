@@ -103,6 +103,13 @@ const QUEUE_DRAIN_DEADLINE_MS = 25_000
 const QUEUE_MESSAGE_SPACING_MS = 400
 // Idempotency records outlive any sane replay horizon, then get pruned.
 const APPLIED_MUTATIONS_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000
+// podium_events retention (issue #61): pruned on a sparse timer — first run
+// shortly after boot, then every 6h. Hardcoded (no settings knob yet); revisit
+// as a setting when the steward goes always-on.
+const EVENT_RETENTION_MAX_AGE_DAYS = 14
+const EVENT_RETENTION_MAX_ROWS = 50_000
+const EVENT_PRUNE_BOOT_DELAY_MS = 60_000
+const EVENT_PRUNE_INTERVAL_MS = 6 * 60 * 60 * 1000
 const SCAN_TIMEOUT_MS = 10_000
 const FILE_RPC_TIMEOUT_MS = 10_000
 
@@ -426,6 +433,10 @@ export class SessionRegistry {
   // Single registry-wide timer that persists only sessions whose activity counters
   // advanced since the last tick — keeps the per-frame / per-keystroke path off the DB.
   private readonly activityFlushTimer = setInterval(() => this.flushActivity(), 12_000)
+  // Sparse podium_events retention timers (issue #61): a one-shot boot delay that
+  // hands off to the 6h interval. Both unref'd so they never hold the process open.
+  private eventPruneBootTimer: ReturnType<typeof setTimeout> | undefined
+  private eventPruneTimer: ReturnType<typeof setInterval> | undefined
 
   constructor(
     private readonly store: SessionStore = new SessionStore(':memory:'),
@@ -489,6 +500,14 @@ export class SessionRegistry {
       getSettings: () => this.store.getSettings(),
     })
     this.steward.start()
+    // Event-log retention (issue #61): first prune ~1min after boot (off the boot
+    // hot path), then every 6h. try/catch lives in pruneEventLog.
+    this.eventPruneBootTimer = setTimeout(() => {
+      this.pruneEventLog()
+      this.eventPruneTimer = setInterval(() => this.pruneEventLog(), EVENT_PRUNE_INTERVAL_MS)
+      this.eventPruneTimer.unref?.()
+    }, EVENT_PRUNE_BOOT_DELAY_MS)
+    this.eventPruneBootTimer.unref?.()
     // Boot reconciliation: record what changed across the restart (sessions restored
     // by loadFromStore, issues from the store) so a cursor-holding client that
     // reconnects can heal via changesSince instead of silently missing the gap.
@@ -526,8 +545,24 @@ export class SessionRegistry {
     }
   }
 
+  /** One retention pass over podium_events. Failures are logged, never thrown —
+   *  a broken prune must not take down the timer or the registry. */
+  private pruneEventLog(): void {
+    try {
+      const deleted = this.store.pruneEvents({
+        maxAgeDays: EVENT_RETENTION_MAX_AGE_DAYS,
+        maxRows: EVENT_RETENTION_MAX_ROWS,
+      })
+      if (deleted > 0) console.log(`[podium:events] pruned ${deleted} event log rows`)
+    } catch (err) {
+      console.warn('[podium:events] event log prune failed:', err)
+    }
+  }
+
   dispose(): void {
     clearInterval(this.activityFlushTimer)
+    if (this.eventPruneBootTimer) clearTimeout(this.eventPruneBootTimer)
+    if (this.eventPruneTimer) clearInterval(this.eventPruneTimer)
     this.steward.dispose()
   }
 

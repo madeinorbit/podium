@@ -1297,6 +1297,32 @@ export class SessionStore {
     return r.m ?? 0
   }
 
+  /**
+   * Event-log retention (issue #61): delete rows older than maxAgeDays, and always
+   * keep the total row count ≤ maxRows (dropping the oldest beyond the cap even if
+   * young). Returns the number of rows deleted.
+   *
+   * Cursor safety: `id` is AUTOINCREMENT, so ids are never reused after deletion —
+   * a consumer cursor (e.g. the steward's persisted `steward_state` cursor) stays
+   * valid across pruning: listEventsSince(cursor) simply returns whatever retained
+   * rows still lie above it. The one intentional gap: a consumer that was disabled
+   * for longer than the retention window will silently miss the pruned events.
+   * That is BY DESIGN — first-enable seeds the cursor to MAX(id) ("now") anyway,
+   * so replaying deep history was never part of the contract.
+   */
+  pruneEvents(opts: { maxAgeDays: number; maxRows: number }): number {
+    // ts is an ISO-8601 string, so lexicographic comparison == chronological.
+    const cutoff = new Date(Date.now() - opts.maxAgeDays * 24 * 60 * 60 * 1000).toISOString()
+    const byAge = this.db.prepare('DELETE FROM podium_events WHERE ts < ?').run(cutoff)
+    // Row cap: keep only the newest maxRows rows (highest ids), regardless of age.
+    const byCap = this.db
+      .prepare(
+        'DELETE FROM podium_events WHERE id NOT IN (SELECT id FROM podium_events ORDER BY id DESC LIMIT ?)',
+      )
+      .run(opts.maxRows)
+    return Number(byAge.changes) + Number(byCap.changes)
+  }
+
   // ---- steward state ----
 
   getStewardState(key: string): string | undefined {

@@ -49,6 +49,62 @@ describe('SessionStore event log', () => {
   })
 })
 
+describe('SessionStore event log retention (pruneEvents)', () => {
+  const daysAgo = (n: number) => new Date(Date.now() - n * 24 * 60 * 60 * 1000).toISOString()
+
+  it('deletes rows older than maxAgeDays and returns the deleted count', () => {
+    const store = new SessionStore(':memory:')
+    store.appendEvent({ ts: daysAgo(30), kind: 'old', subject: 's' })
+    store.appendEvent({ ts: daysAgo(20), kind: 'old', subject: 's' })
+    const keep = store.appendEvent({ ts: daysAgo(1), kind: 'new', subject: 's' })
+    expect(store.pruneEvents({ maxAgeDays: 14, maxRows: 100 })).toBe(2)
+    expect(store.listEventsSince(0).map((e) => e.id)).toEqual([keep])
+  })
+
+  it('row cap deletes the oldest rows beyond maxRows even when young', () => {
+    const store = new SessionStore(':memory:')
+    const ids = [1, 2, 3, 4, 5].map(() =>
+      store.appendEvent({ ts: daysAgo(0), kind: 'k', subject: 's' }),
+    )
+    expect(store.pruneEvents({ maxAgeDays: 14, maxRows: 2 })).toBe(3)
+    expect(store.listEventsSince(0).map((e) => e.id)).toEqual(ids.slice(3))
+  })
+
+  it('a cursor pointing into a pruned range still works — returns only retained rows', () => {
+    const store = new SessionStore(':memory:')
+    const id1 = store.appendEvent({ ts: daysAgo(30), kind: 'k', subject: 's' })
+    const id2 = store.appendEvent({ ts: daysAgo(30), kind: 'k', subject: 's' })
+    const id3 = store.appendEvent({ ts: daysAgo(1), kind: 'k', subject: 's' })
+    const id4 = store.appendEvent({ ts: daysAgo(0), kind: 'k', subject: 's' })
+    store.pruneEvents({ maxAgeDays: 14, maxRows: 100 })
+    // Cursor sits below the oldest retained row (id1) and mid-gap (id2): both
+    // simply resume at the first retained row above them — no error, no skip
+    // of anything that still exists.
+    expect(store.listEventsSince(id1).map((e) => e.id)).toEqual([id3, id4])
+    expect(store.listEventsSince(id2).map((e) => e.id)).toEqual([id3, id4])
+  })
+
+  it('maxEventId tracks the newest retained row; ids never rewind after a full prune', () => {
+    const store = new SessionStore(':memory:')
+    store.appendEvent({ ts: daysAgo(30), kind: 'k', subject: 's' })
+    const top = store.appendEvent({ ts: daysAgo(0), kind: 'k', subject: 's' })
+    store.pruneEvents({ maxAgeDays: 14, maxRows: 100 })
+    expect(store.maxEventId()).toBe(top)
+    // AUTOINCREMENT: even after deleting EVERY row, the next id continues past
+    // the old max — pruned ids are never reused, so cursors stay monotonic.
+    store.pruneEvents({ maxAgeDays: 14, maxRows: 0 })
+    expect(store.maxEventId()).toBe(0)
+    const next = store.appendEvent({ ts: daysAgo(0), kind: 'k', subject: 's' })
+    expect(next).toBeGreaterThan(top)
+  })
+
+  it('returns 0 when nothing qualifies for pruning', () => {
+    const store = new SessionStore(':memory:')
+    store.appendEvent({ ts: daysAgo(1), kind: 'k', subject: 's' })
+    expect(store.pruneEvents({ maxAgeDays: 14, maxRows: 100 })).toBe(0)
+  })
+})
+
 describe('IssueService event emission', () => {
   it('create emits issue.created with seq/title and the repo path', () => {
     const { svc, store } = harness()
