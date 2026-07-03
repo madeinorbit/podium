@@ -67,6 +67,13 @@ export function registerWebStatic(app: Hono, webDir: string): boolean {
         headers: { 'Content-Type': contentType(filePath) },
       })
     }
+    // A MISSING path with a file extension is a stale/renamed static asset (e.g. a
+    // content-hashed JS/CSS from a superseded build), NOT an SPA navigation. Return
+    // 404: handing back index.html (HTML) where the browser expects a JS module
+    // yields "Expected a module script but the server responded with MIME type
+    // text/html", which breaks the post-redeploy load and poisons the PWA precache.
+    if (extname(rel) !== '') return c.notFound()
+    // Extensionless path → SPA navigation route; serve the app shell.
     return new Response(readFileSync(join(webDir, 'index.html'), 'utf8'), {
       status: 200,
       headers: { 'Content-Type': 'text/html; charset=utf-8' },

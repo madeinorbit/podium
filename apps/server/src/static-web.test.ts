@@ -35,6 +35,19 @@ describe('registerWebStatic', () => {
     expect(res.status).toBe(200)
     expect(await res.text()).toContain('Podium')
   })
+  it('returns 404 (not index.html) for a missing hashed asset', async () => {
+    // A content-hashed asset from a superseded build no longer exists on disk.
+    // It must 404 — serving index.html here would hand the browser HTML where a
+    // JS module is expected ("MIME type text/html"), breaking the post-update load.
+    const res = await app.request('/assets/index-DELETED123.js')
+    expect(res.status).toBe(404)
+    expect(res.headers.get('content-type') ?? '').not.toContain('text/html')
+  })
+  it('still serves index.html for an extensionless deep route', async () => {
+    const res = await app.request('/issues/podium-abc')
+    expect(res.status).toBe(200)
+    expect(await res.text()).toContain('Podium')
+  })
   it('does not shadow API routes', async () => {
     const res = await app.request('/trpc/x')
     expect(await res.text()).toBe('api')

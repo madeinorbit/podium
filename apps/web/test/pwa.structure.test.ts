@@ -89,10 +89,13 @@ describe('update prompt', () => {
     expect(src).toContain('onRegisteredSW')
     expect(src).toContain('registration.update()')
     expect(src).toContain('visibilitychange')
-    expect(src).toContain('updateServiceWorker(true)')
-    // Reload must be driven by controllerchange, not the library's isUpdate-gated
-    // auto-reload (which no-ops on uncontrolled normal-browser tabs).
-    expect(src).toContain('controllerchange')
+    // Applying the update must EVICT the SW + caches and hard-reload (forceReload),
+    // NOT drive the workbox skipWaiting/controllerchange dance. That dance leaves an
+    // uncontrolled tab — and iOS-standalone PWAs where controllerchange is unreliable —
+    // on the stale precached shell, so it re-detects the "new version" and spins the
+    // prompt on every reload. See UpdatePrompt.reload / version-guard.forceReload.
+    expect(src).toContain('forceReload')
+    expect(src).not.toContain('updateServiceWorker(true)')
   })
 
   it('AppShell always mounts the update prompt', () => {
