@@ -4,7 +4,10 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
-# Type=notify + WatchdogSec: the server pets the watchdog from its event loop
+# Type=notify + WatchdogSec: the server pets the watchdog from its event loop.
+# 90s, not 30: boot can stall tens of seconds at LOW cpu on disk contention
+# (WAL checkpoint fsyncs on a large podium.db while the web build writes) —
+# observed 2026-07-03, one silent-stall kill at exactly 30s with only 8s CPU.
 # (scripts/sd-notify.ts), so a wedged-but-alive coordinating loop stops petting and
 # systemd restarts it — Restart=always only fires on EXIT and can't see a stall.
 # NotifyAccess=all because the notifier (systemd-notify) is a child of the bun pid.
@@ -12,7 +15,7 @@ Wants=network-online.target
 # under Bun.)
 Type=notify
 NotifyAccess=all
-WatchdogSec=30
+WatchdogSec=90
 WorkingDirectory=/home/user/src/other/podium
 Environment=HOME=/home/user
 Environment=PATH=/home/user/.local/bin:/home/user/.opencode/bin:/home/user/.bun/bin:/usr/local/bin:/usr/bin:/bin
