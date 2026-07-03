@@ -966,17 +966,50 @@ export class IssueService {
     if (!this.isClosed(row)) {
       return refuse(`refusing cleanup: issue #${row.seq} is still open (close it first)`)
     }
-    // (b) nothing recorded → nothing to do.
-    if (!row.worktreePath || !row.branch) {
+    // (b) nothing recorded → nothing to do. Branch-only state (worktree already
+    //     removed, branch delete previously refused — the partial-failure retry)
+    //     is VALID: fall through to the worktree-less delete path below.
+    if (!row.worktreePath && !row.branch) {
       return refuse('nothing to clean up: no worktree/branch recorded on this issue')
     }
-    const worktreePath = row.worktreePath
+    if (!row.worktreePath && row.branch) {
+      // Retry path after a partial cleanup: re-verify ancestry, then delete.
+      const branch = row.branch
+      const merged = await this.d.repoOp('isMergedInto', row.repoPath, {
+        branch,
+        parentBranch: row.parentBranch,
+      })
+      if (!merged.ok) {
+        return refuse(
+          `refusing cleanup: branch '${branch}' is not fully merged into '${row.parentBranch}'${merged.output ? ` (${merged.output})` : ''}`,
+        )
+      }
+      const bd = await this.d.repoOp('branchDelete', row.repoPath, { branch })
+      if (!bd.ok) return refuse(this.branchDeleteRefusal(branch, row.parentBranch, bd.output))
+      row.branch = null
+      this.persistRow(row)
+      const issue = this.addComment(
+        row.id,
+        'system:cleanup',
+        `cleanup: deleted merged branch '${branch}' (worktree was already removed)`,
+      )
+      this.emitEvent('issue.cleaned', row.id, { seq: row.seq, worktreePath: null, branch })
+      return { ok: true, output: `deleted branch ${branch}`, issue }
+    }
+    if (!row.branch) {
+      // Worktree recorded but no branch — shouldn't happen via our flows; refuse
+      // rather than guess (removing a worktree whose branch we can't verify).
+      return refuse('refusing cleanup: worktree recorded but no branch — resolve manually')
+    }
+    const worktreePath = row.worktreePath as string
     const branch = row.branch
     // (c) worktree gone on disk (deleted out-of-band) → reconcile the columns
-    //     and report; nothing destructive to run. Detected via `git status` on
-    //     the worktree cwd: `git -C <missing>` fails with "cannot change to".
+    //     and report; nothing destructive to run. STRICT ENOENT match only:
+    //     `git -C <missing>` fails "cannot change to '<p>': No such file or
+    //     directory". EACCES ("Permission denied") or "not a working tree"
+    //     (files still on disk) must REFUSE, not clear a live worktree's columns.
     const st = await this.d.repoOp('status', worktreePath)
-    if (!st.ok && /cannot change to|no such file or directory|not a working tree/i.test(st.output)) {
+    if (!st.ok && /cannot change to .*: no such file or directory/i.test(st.output)) {
       row.worktreePath = null
       row.branch = null
       this.persistRow(row)
@@ -988,7 +1021,12 @@ export class IssueService {
       this.emitEvent('issue.cleaned', row.id, { seq: row.seq, worktreePath, branch, alreadyGone: true })
       return { ok: true, output: `already gone: ${worktreePath} (columns cleared)`, issue }
     }
-    if (!st.ok) return refuse(`refusing cleanup: cannot inspect worktree: ${st.output}`)
+    if (!st.ok) {
+      const hint = /not a working tree/i.test(st.output)
+        ? ' (path exists but is not a git worktree — files are still on disk; inspect and remove manually)'
+        : ''
+      return refuse(`refusing cleanup: cannot inspect worktree: ${st.output}${hint}`)
+    }
     // (d) branch must be fully merged into the parent branch. Read-only ancestry
     //     check against the repo ROOT's ref database — exit 1 (not an ancestor)
     //     and any error both refuse.
@@ -1014,14 +1052,15 @@ export class IssueService {
     // Delete the branch (-d only; git refuses unmerged as a belt-and-braces guard).
     const bd = await this.d.repoOp('branchDelete', row.repoPath, { branch })
     if (!bd.ok) {
+      const why = this.branchDeleteRefusal(branch, row.parentBranch, bd.output)
       const issue = this.addComment(
         row.id,
         'system:cleanup',
-        `cleanup: removed worktree ${worktreePath}; branch '${branch}' NOT deleted: ${bd.output}`,
+        `cleanup: removed worktree ${worktreePath}; branch '${branch}' NOT deleted: ${why}`,
       )
       return {
         ok: false,
-        output: `worktree ${worktreePath} removed, but branch delete refused: ${bd.output}`,
+        output: `worktree ${worktreePath} removed, but branch delete refused: ${why}`,
         issue,
       }
     }
@@ -1034,6 +1073,18 @@ export class IssueService {
     )
     this.emitEvent('issue.cleaned', row.id, { seq: row.seq, worktreePath, branch })
     return { ok: true, output: `removed ${worktreePath}; deleted branch ${branch}`, issue }
+  }
+
+  /** Explain a `git branch -d` refusal. We deliberately keep -d (never -D): for a
+   *  STACKED issue (parentBranch = another issue branch) our ancestry guard passes
+   *  against the parent while git's -d checks merged-into-HEAD (usually main), so
+   *  -d routinely refuses. Retrying `cleanup` after the parent chain reaches the
+   *  root HEAD succeeds — the branch-only retry path exists exactly for that. */
+  private branchDeleteRefusal(branch: string, parentBranch: string, gitOutput: string): string {
+    const stacked = /not fully merged/i.test(gitOutput)
+      ? ` Note: '${branch}' IS merged into '${parentBranch}' (verified), but git -d checks the root HEAD — retry cleanup after '${parentBranch}' reaches the root branch, or delete the branch manually.`
+      : ''
+    return `${gitOutput}${stacked}`
   }
 
   /**

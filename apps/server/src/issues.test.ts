@@ -1027,3 +1027,105 @@ describe('IssueService.cleanup (issue #71)', () => {
     expect(h.store.getIssue(w.id)?.branch).toBe(BR)
   })
 })
+
+describe('IssueService.cleanup follow-ups (retry + strict gone detection)', () => {
+  const WT = '/r/.worktrees/issue-1-x'
+  const BR = 'issue/1-x'
+  const CLEAN_STATUS = '## issue/1-x'
+
+  function prepared(h: ReturnType<typeof harness>) {
+    const w = h.svc.create({ repoPath: '/r', title: 'X', parentBranch: 'main', startNow: false })
+    h.svc.update(w.id, { worktreePath: WT, branch: BR })
+    h.svc.close(w.id)
+    return w
+  }
+  function scriptRepoOp(deps: IssueDeps, impl: Record<string, { ok: boolean; output: string }>) {
+    const calls: Array<{ op: string; cwd: string; args?: Record<string, string> }> = []
+    deps.repoOp = vi.fn(async (op, cwd, args) => {
+      calls.push({ op, cwd, ...(args ? { args } : {}) })
+      return impl[op] ?? { ok: true, output: '' }
+    })
+    return calls
+  }
+
+  it('retry after partial failure deletes the branch via the worktree-less path', async () => {
+    const h = harness()
+    const w = prepared(h)
+    scriptRepoOp(h.deps, {
+      status: { ok: true, output: CLEAN_STATUS },
+      branchDelete: { ok: false, output: `error: the branch '${BR}' is not fully merged` },
+    })
+    const r1 = await h.svc.cleanup(w.id)
+    expect(r1.ok).toBe(false)
+    expect(h.store.getIssue(w.id)?.worktreePath).toBeNull()
+    expect(h.store.getIssue(w.id)?.branch).toBe(BR)
+
+    // second call: parent chain has merged, -d now succeeds
+    const calls2 = scriptRepoOp(h.deps, {})
+    const r2 = await h.svc.cleanup(w.id)
+    expect(r2.ok).toBe(true)
+    expect(r2.output).toContain(`deleted branch ${BR}`)
+    // worktree-less path: NO status/worktreeRemove — just ancestry + delete
+    expect(calls2).toEqual([
+      { op: 'isMergedInto', cwd: '/r', args: { branch: BR, parentBranch: 'main' } },
+      { op: 'branchDelete', cwd: '/r', args: { branch: BR } },
+    ])
+    expect(h.store.getIssue(w.id)?.branch).toBeNull()
+    const comments = h.store.listIssueComments(w.id)
+    expect(comments.some((c) => c.author === 'system:cleanup' && /deleted merged branch/.test(c.body))).toBe(true)
+  })
+
+  it('stacked retry still refused by -d gives the precise stacked message, not "nothing to clean up"', async () => {
+    const h = harness()
+    const w = prepared(h)
+    scriptRepoOp(h.deps, {
+      status: { ok: true, output: CLEAN_STATUS },
+      branchDelete: { ok: false, output: `error: the branch '${BR}' is not fully merged` },
+    })
+    await h.svc.cleanup(w.id) // partial: worktree removed, branch kept
+    const r2 = await h.svc.cleanup(w.id) // retry, -d still refuses (parent not on root HEAD yet)
+    expect(r2.ok).toBe(false)
+    expect(r2.output).not.toMatch(/nothing to clean up/)
+    expect(r2.output).toMatch(/IS merged into 'main'/)
+    expect(r2.output).toMatch(/retry cleanup after|delete the branch manually/)
+    expect(h.store.getIssue(w.id)?.branch).toBe(BR)
+  })
+
+  it('retry path still refuses an unmerged branch', async () => {
+    const h = harness()
+    const w = prepared(h)
+    h.svc.update(w.id, { worktreePath: null }) // simulate branch-only state directly
+    const calls = scriptRepoOp(h.deps, { isMergedInto: { ok: false, output: '' } })
+    const r = await h.svc.cleanup(w.id)
+    expect(r.ok).toBe(false)
+    expect(r.output).toMatch(/not fully merged into 'main'/)
+    expect(calls.map((c) => c.op)).toEqual(['isMergedInto'])
+    expect(h.store.getIssue(w.id)?.branch).toBe(BR)
+  })
+
+  it('permission-denied status error REFUSES and keeps the columns (no false already-gone)', async () => {
+    const h = harness()
+    const w = prepared(h)
+    const calls = scriptRepoOp(h.deps, {
+      status: { ok: false, output: `fatal: cannot change to '${WT}': Permission denied` },
+    })
+    const r = await h.svc.cleanup(w.id)
+    expect(r.ok).toBe(false)
+    expect(r.output).toMatch(/cannot inspect worktree/)
+    expect(calls.map((c) => c.op)).toEqual(['status'])
+    expect(h.store.getIssue(w.id)?.worktreePath).toBe(WT)
+    expect(h.store.getIssue(w.id)?.branch).toBe(BR)
+  })
+
+  it('"not a working tree" REFUSES with a files-still-on-disk hint', async () => {
+    const h = harness()
+    const w = prepared(h)
+    scriptRepoOp(h.deps, {
+      status: { ok: false, output: `fatal: not a working tree: '${WT}'` },
+    })
+    const r = await h.svc.cleanup(w.id)
+    expect(r.ok).toBe(false)
+    expect(r.output).toMatch(/files are still on disk/)
+    expect(h.store.getIssue(w.id)?.worktreePath).toBe(WT)
+  })
+})

@@ -108,9 +108,22 @@ const FORWARD_INPUTS: Record<string, Record<string, unknown>> = {
   duplicate: { id: HUB_ID, canonicalId: 'iss_other' },
 }
 
+/** Write procs deliberately EXCLUDED from hub forwarding, with the reason. cleanup
+ *  acts on LOCAL git state (worktree dir + branch via this node's daemon) — the hub
+ *  cannot clean this node's worktree, so its router proc refuses viaHub ids instead
+ *  of forwarding (see the cleanup proc in router.ts). Tested below. */
+const NOT_FORWARDED = new Set(['cleanup'])
+
 describe('viaHub forwarding detection (per proc)', () => {
-  it('covers every SCOPED_TARGET write proc', () => {
-    expect(Object.keys(FORWARD_INPUTS).sort()).toEqual(Object.keys(SCOPED_TARGET).sort())
+  it('covers every SCOPED_TARGET write proc (forwarded or explicitly excluded)', () => {
+    const covered = [...Object.keys(FORWARD_INPUTS), ...NOT_FORWARDED].sort()
+    expect(covered).toEqual(Object.keys(SCOPED_TARGET).sort())
+  })
+
+  it('issues.cleanup on a viaHub id REFUSES (local-only; never forwards)', async () => {
+    const { forwarded, caller } = makeNode()
+    await expect(caller().issues.cleanup({ id: HUB_ID })).rejects.toThrow(/cleanup is local-only/)
+    expect(forwarded).toHaveLength(0)
   })
 
   for (const [proc, input] of Object.entries(FORWARD_INPUTS)) {
