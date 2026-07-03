@@ -34,6 +34,13 @@ interface SuperThread {
   repoPath?: string
 }
 
+/** "12s" under a minute, then "3m 04s" — the in-flight turn's elapsed clock. */
+function formatElapsed(ms: number): string {
+  const s = Math.max(0, Math.floor(ms / 1000))
+  if (s < 60) return `${s}s`
+  return `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, '0')}s`
+}
+
 function superThreadLabel(thread: SuperThread): string {
   if (thread.kind === 'concierge') {
     const repoPath = thread.repoPath ?? conciergeRepoPath(thread.id)
@@ -61,6 +68,15 @@ export function SuperagentView({ onClose }: { onClose?: () => void } = {}): JSX.
   const [threads, setThreads] = useState<SuperThread[]>([])
   const [draft, setDraft] = useState('')
   const [busy, setBusy] = useState(false)
+  // Harness turns can run for minutes — show elapsed time so the pending state
+  // reads as alive, not dead (issue #84).
+  const [busySince, setBusySince] = useState(0)
+  const [, forceTick] = useState(0)
+  useEffect(() => {
+    if (!busy) return
+    const t = setInterval(() => forceTick((n) => n + 1), 1000)
+    return () => clearInterval(t)
+  }, [busy])
   const [backendLabel, setBackendLabel] = useState('')
   const [atQuery, setAtQuery] = useState<string | null>(null)
   const [atIndex, setAtIndex] = useState(0)
@@ -168,6 +184,7 @@ export function SuperagentView({ onClose }: { onClose?: () => void } = {}): JSX.
     setDraft('')
     setAtQuery(null)
     setBusy(true)
+    setBusySince(Date.now())
     // Optimistic local echo; the server returns the persisted turn.
     const optimistic: SuperMessage = {
       id: -Date.now(),
@@ -317,7 +334,7 @@ export function SuperagentView({ onClose }: { onClose?: () => void } = {}): JSX.
         ))}
         {busy && (
           <div className="mx-auto w-full max-w-[760px] animate-pulse text-xs text-muted-foreground/70">
-            Thinking…
+            Thinking… {formatElapsed(Date.now() - busySince)}
           </div>
         )}
       </div>

@@ -1,4 +1,5 @@
-import type { IssueWire } from '@podium/protocol'
+import { normalizeSettings } from '@podium/core'
+import type { ControlMessage, IssueWire } from '@podium/protocol'
 import { Hono } from 'hono'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { OPERATOR } from './issue-authz'
@@ -16,6 +17,7 @@ import {
   conciergeSystemPrompt,
   conciergeThreadId,
   NOT_CONFIRMED_MSG,
+  SUPERAGENT_HARNESS_TIMEOUT_MS,
   SuperagentService,
 } from './superagent'
 
@@ -42,6 +44,8 @@ afterEach(() => {
 async function harness(opts?: { eventReadLimit?: number }) {
   const registry = new SessionRegistry()
   registries.push(registry)
+  // Every harnessExecRequest the fake daemon saw (issue #84 routing assertions).
+  const harnessCalls: Array<Extract<ControlMessage, { type: 'harnessExecRequest' }>> = []
   registry.attachDaemon('local', (m) => {
     if (m.type === 'repoOpRequest') {
       queueMicrotask(() =>
@@ -50,6 +54,17 @@ async function harness(opts?: { eventReadLimit?: number }) {
           requestId: m.requestId,
           ok: true,
           output: '',
+        }),
+      )
+    }
+    if (m.type === 'harnessExecRequest') {
+      harnessCalls.push(m)
+      queueMicrotask(() =>
+        registry.onDaemonMessageFrom('local', {
+          type: 'harnessExecResult',
+          requestId: m.requestId,
+          ok: true,
+          output: 'harness says hi',
         }),
       )
     }
@@ -62,7 +77,7 @@ async function harness(opts?: { eventReadLimit?: number }) {
   const caller = appRouter.createCaller({ registry, repos, superagent: sa, capability: OPERATOR })
   issueTools.setClient(callerAsIssueTrpc(caller))
   sa.setIssueTools(issueTools)
-  return { registry, sa }
+  return { registry, sa, harnessCalls }
 }
 
 const wire = (o: Partial<IssueWire>): IssueWire =>
@@ -476,5 +491,115 @@ describe('concierge prior-art intake', () => {
     expect(p).toContain('{"confirmed": true}')
     // Status answers cite their sources.
     expect(p).toContain('Cite the sessions and issue #s')
+  })
+})
+
+// Issue #84: every turn routes through the settings-chosen FULL harness when it
+// can mount Podium's MCP tools; anything else runs the api loop with a visible
+// one-line notice — never silently.
+describe('harness-always backend resolution (issue #84)', () => {
+  const ROUTE_SECRET = 'route-secret-84'
+  it('default settings route to the claude-code harness with MCP + long timeout', async () => {
+    const { sa, harnessCalls } = await harness()
+    sa.setMcpEndpoint('http://127.0.0.1:1878/mcp', 'route-tok', ['list_sessions', 'issue_list'])
+    const turn = await sa.send('global', 'hello')
+    expect(harnessCalls).toHaveLength(1)
+    const call = harnessCalls[0]!
+    expect(call.agent).toBe('claude-code')
+    expect(call.timeoutMs).toBe(SUPERAGENT_HARNESS_TIMEOUT_MS)
+    expect(call.allowedTools).toContain('mcp__podium__issue_list')
+    // The mcp-config carries the per-thread identity token (issue #67) — it
+    // resolves back to the sending thread server-side.
+    const cfg = JSON.parse(call.mcpConfig ?? '{}') as {
+      mcpServers: Record<string, { url: string; headers: Record<string, string> }>
+    }
+    const podium = cfg.mcpServers.podium!
+    expect(podium.url).toBe('http://127.0.0.1:1878/mcp')
+    expect(podium.headers['x-podium-mcp-token']).toBe('route-tok')
+    expect(sa.threadForMcpToken(podium.headers['x-podium-mcp-thread'] ?? '')).toBe('global')
+    // The harness reply lands on the thread, labeled as a harness turn.
+    expect(turn.backendLabel).toBe('claude-code harness')
+    expect(turn.messages.at(-1)?.content).toBe('harness says hi')
+  })
+
+  it('an explicit codex harness choice routes to the codex CLI', async () => {
+    const { registry, sa, harnessCalls } = await harness()
+    registry.sessionStore.setSettings(
+      normalizeSettings({ superagent: { kind: 'harness', harnessAgent: 'codex' } }),
+    )
+    sa.setMcpEndpoint('http://127.0.0.1:1878/mcp', 'route-tok')
+    const turn = await sa.send('global', 'hello')
+    expect(harnessCalls[0]?.agent).toBe('codex')
+    expect(turn.backendLabel).toBe('codex harness')
+  })
+
+  it('a no-MCP harness (grok) falls back to the api loop with one visible notice', async () => {
+    const { registry, sa, harnessCalls } = await harness()
+    registry.sessionStore.setSettings(normalizeSettings({ sessionDefaults: { agent: 'grok' } }))
+    sa.setMcpEndpoint('http://127.0.0.1:1878/mcp', 'route-tok')
+    llmScript.push({ text: 'api reply', toolCalls: [] }, { text: 'api reply 2', toolCalls: [] })
+    const first = await sa.send('global', 'hello')
+    expect(harnessCalls).toHaveLength(0)
+    const notice = first.messages.find((m) =>
+      m.content.includes('running on the api fallback: grok cannot mount Podium tools'),
+    )
+    expect(notice).toBeDefined()
+    expect(first.messages.at(-1)?.content).toBe('api reply')
+    // The notice is not repeated on the next turn.
+    const second = await sa.send('global', 'again')
+    expect(second.messages.some((m) => m.content.includes('api fallback'))).toBe(false)
+  })
+
+  it('without an MCP endpoint even claude falls back, with a notice naming why', async () => {
+    const { sa, harnessCalls } = await harness()
+    llmScript.push({ text: 'ok', toolCalls: [] })
+    const turn = await sa.send('global', 'hello')
+    expect(harnessCalls).toHaveLength(0)
+    expect(
+      turn.messages.some((m) => m.content.includes('Podium MCP endpoint is not available')),
+    ).toBe(true)
+  })
+
+  it('a concierge harness turn keeps thread identity + the confirmed gate (#67, e2e)', async () => {
+    const { registry, sa, harnessCalls } = await harness()
+    sa.setMcpEndpoint('http://127.0.0.1:1878/mcp', ROUTE_SECRET)
+    const app = new Hono()
+    registerMcpRoute(
+      app,
+      {
+        mcpToolSpecs: () => [],
+        callMcpTool: (name, args, threadId) => sa.callMcpTool(name, args, threadId),
+      },
+      ROUTE_SECRET,
+      { resolveThread: (tok) => sa.threadForMcpToken(tok) },
+    )
+    const issue = registry.issues.create({ repoPath: '/r', title: 'X', startNow: false })
+    await sa.concierge({ repoPath: '/r', text: 'what should we do?' })
+    // The concierge turn ran on the harness, carrying its own thread token…
+    expect(harnessCalls.length).toBeGreaterThan(0)
+    const cfg = JSON.parse(harnessCalls.at(-1)?.mcpConfig ?? '{}') as {
+      mcpServers: Record<string, { headers: Record<string, string> }>
+    }
+    const threadTok = cfg.mcpServers.podium?.headers['x-podium-mcp-thread'] ?? ''
+    expect(sa.threadForMcpToken(threadTok)).toBe(conciergeThreadId('/r'))
+    // …and a tool call through the HTTP MCP route under that token hits the
+    // concierge confirmed-gate: start-capable tools refuse without confirmed.
+    const res = await app.request('/mcp', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-podium-mcp-token': ROUTE_SECRET,
+        'x-podium-mcp-thread': threadTok,
+      },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'tools/call',
+        params: { name: 'issue_start', arguments: { id: issue.id } },
+      }),
+    })
+    const body = (await res.json()) as { result?: { content?: Array<{ text: string }> } }
+    expect(body.result?.content?.[0]?.text).toBe(NOT_CONFIRMED_MSG)
+    expect(registry.issues.get(issue.id)?.stage).toBe('backlog')
   })
 })

@@ -18,6 +18,27 @@ export const AUTO_CONTINUE_MAX_DELAY_MS = 300_000
 export const HarnessAgent = z.enum(['claude-code', 'codex', 'grok', 'opencode', 'cursor'])
 export type HarnessAgent = z.infer<typeof HarnessAgent>
 
+/**
+ * The one capability matrix (issue #84): which harness CLIs can mount Podium's
+ * HTTP MCP server (orchestrator tools + per-thread identity headers, issue #67)
+ * on a one-shot headless invocation. Superagent turns route through the full
+ * harness when support is 'full'; anything else runs the api tool-loop fallback
+ * with a visible notice — never a silent, tool-less harness.
+ *
+ * - claude-code: `--mcp-config <file>` + `--allowedTools` (long-standing).
+ * - codex: `codex exec -c mcp_servers.<name>.url=… -c mcp_servers.<name>.http_headers={…}`
+ *   — verified against codex-cli 0.142.5: custom headers arrive on every MCP
+ *   request (streamable HTTP client), turn completes.
+ * - grok / opencode / cursor: no per-invocation MCP mounting today.
+ */
+export const HARNESS_MCP_SUPPORT: Record<HarnessAgent, 'full' | 'none'> = {
+  'claude-code': 'full',
+  codex: 'full',
+  grok: 'none',
+  opencode: 'none',
+  cursor: 'none',
+}
+
 export const AgentChoice = z.enum(['auto', 'claude-code', 'codex', 'grok', 'opencode', 'cursor'])
 export type AgentChoice = z.infer<typeof AgentChoice>
 
@@ -150,10 +171,12 @@ export type PodiumSettings = z.infer<typeof PodiumSettings>
 export const DEFAULT_SETTINGS: PodiumSettings = PodiumSettings.parse({})
 
 /**
- * The Codex "harness" backend shelled out to `codex exec` — heavyweight, prone to
- * hanging, and chat-only. Codex now runs as an API provider against the ChatGPT
- * Responses backend (full tools, no CLI, no hang), so fold any saved Codex-harness
- * config onto that path. Claude Code and Grok harnesses are untouched.
+ * The old Codex "harness" backend shelled out to a bare, tool-less `codex exec`
+ * — chat-only and prone to hanging, so it was folded onto the ChatGPT Responses
+ * API. That stays true for the workLlm (a pure completion consumer). The
+ * SUPERAGENT codex harness is back (issue #84): it now mounts Podium's MCP
+ * tools per-invocation (see HARNESS_MCP_SUPPORT), so a saved codex-harness
+ * superagent choice is honored, not migrated away.
  */
 function migrateCodexHarness(b: LlmBackend): LlmBackend {
   if (b.kind !== 'harness' || b.harnessAgent !== 'codex') return b
@@ -170,9 +193,22 @@ export function normalizeSettings(raw: unknown): PodiumSettings {
   const parsed = PodiumSettings.parse(raw ?? {})
   return {
     ...parsed,
-    superagent: migrateCodexHarness(parsed.superagent),
     workLlm: migrateCodexHarness(parsed.workLlm),
   }
+}
+
+/**
+ * Which harness runs a superagent turn (issue #84 — the backend concept
+ * collapses: every turn is a full harness turn when the harness can mount our
+ * MCP tools). An explicit `kind: 'harness'` choice names its agent; otherwise
+ * (legacy api-kind settings, fresh installs) follow the session default, with
+ * 'auto' resolving to claude-code — the reference full-capability harness.
+ */
+export function superagentHarnessAgent(settings: PodiumSettings): HarnessAgent {
+  const b = settings.superagent
+  if (b.kind === 'harness') return b.harnessAgent
+  const fallback = settings.sessionDefaults.agent
+  return fallback === 'auto' ? 'claude-code' : fallback
 }
 
 /** The first manual Continue click offers to enable auto-continue — but only once

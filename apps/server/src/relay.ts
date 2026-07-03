@@ -2166,11 +2166,14 @@ export class SessionRegistry {
     systemPrompt?: string
     mcpConfig?: string
     allowedTools?: string[]
+    /** Kill budget for the CLI run, ms (daemon default 240s). The server-side
+     *  wait adds 10s slack over it so the daemon's own timeout reports first. */
+    timeoutMs?: number
   }): Promise<OpResult> {
     return this.daemonRequest(
       this.pendingHarnessExecs,
       'hx',
-      250_000,
+      (input.timeoutMs ?? 240_000) + 10_000,
       () => ({ ok: false, output: 'harness run timed out' }),
       (requestId) => ({
         type: 'harnessExecRequest',
@@ -2182,6 +2185,7 @@ export class SessionRegistry {
         ...(input.systemPrompt ? { systemPrompt: input.systemPrompt } : {}),
         ...(input.mcpConfig ? { mcpConfig: input.mcpConfig } : {}),
         ...(input.allowedTools ? { allowedTools: input.allowedTools } : {}),
+        ...(input.timeoutMs ? { timeoutMs: input.timeoutMs } : {}),
       }),
     )
   }

@@ -57,14 +57,54 @@ describe('buildHarnessExec', () => {
     expect(args.at(-1)).toBe('go')
   })
 
-  it('ignores mcp args for non-claude agents', () => {
+  it('ignores mcp args for agents without MCP mounting (grok)', () => {
     const { args } = buildHarnessExec(
       'grok',
-      { prompt: 'go', mcpConfigPath: '/tmp/mcp.json', allowedTools: ['Read'] },
+      { prompt: 'go', mcpConfigPath: '/tmp/mcp.json', mcpConfig: '{}', allowedTools: ['Read'] },
       bins,
     )
     expect(args).not.toContain('--mcp-config')
     expect(args).not.toContain('--allowedTools')
+    expect(args).not.toContain('-c')
+  })
+
+  it('translates the MCP config into codex -c overrides (url + http_headers)', () => {
+    const { cmd, args } = buildHarnessExec(
+      'codex',
+      {
+        prompt: 'go',
+        mcpConfig: JSON.stringify({
+          mcpServers: {
+            podium: {
+              type: 'http',
+              url: 'http://127.0.0.1:1878/mcp',
+              headers: { 'x-podium-mcp-token': 'tok', 'x-podium-mcp-thread': 'thr' },
+            },
+          },
+        }),
+        allowedTools: ['Read'],
+      },
+      bins,
+    )
+    expect(cmd).toBe('codex')
+    expect(args[0]).toBe('exec')
+    expect(args).toContain('mcp_servers.podium.url="http://127.0.0.1:1878/mcp"')
+    expect(args).toContain(
+      'mcp_servers.podium.http_headers={"x-podium-mcp-token"="tok","x-podium-mcp-thread"="thr"}',
+    )
+    // No allowedTools flag on codex — MCP tools run without an approval flag.
+    expect(args).not.toContain('--allowedTools')
+    expect(args.at(-1)).toBe('go')
+  })
+
+  it('codex without an MCP config stays a plain exec (chat-only)', () => {
+    const { args } = buildHarnessExec('codex', { prompt: 'p' }, bins)
+    expect(args).toEqual(['exec', '--skip-git-repo-check', 'p'])
+  })
+
+  it('codex tolerates a malformed MCP config by omitting the overrides', () => {
+    const { args } = buildHarnessExec('codex', { prompt: 'p', mcpConfig: 'not json' }, bins)
+    expect(args).not.toContain('-c')
   })
 
   it('resolves opencode/cursor bins and uses their run flags', () => {

@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { HARNESS_MCP_SUPPORT, superagentHarnessAgent } from '@podium/core'
 import { type IssueWire, type TranscriptItem, WorkState } from '@podium/protocol'
 import { createIssue, moveIssue, searchIssues } from './linear'
 import { LlmConfigError, type LlmMessage, type LlmTool, llmClient } from './llm'
@@ -10,6 +11,11 @@ import type { SessionStore, SuperagentMessageRow, SuperagentThreadRow } from './
 
 const MAX_TOOL_ROUNDS = 8
 const HISTORY_WINDOW = 40
+/** Kill budget for one superagent harness turn (issue #84). Orchestration turns
+ *  routinely run multiple minutes (the agent reads repos, steers sessions), so
+ *  they get a far longer leash than the daemon's 240s harnessExec default —
+ *  threaded through harnessExec input, not a change to the global default. */
+export const SUPERAGENT_HARNESS_TIMEOUT_MS = 600_000
 /** MCP server name the harness agent sees Podium's tools under (→ tool ids
  *  `mcp__podium__<tool>`). Header carries the access token to the in-process route. */
 export const MCP_SERVER_NAME = 'podium'
@@ -399,9 +405,11 @@ export function buildBtwDelta(opts: {
 
 /**
  * The orchestrator with cross-project context. The always-there 'global' thread
- * plus per-session 'btw' threads, persisted in SQLite. The API-backed mode gets
- * the full tool belt; the harness-backed mode (codex subscription) is chat-only —
- * the daemon runs one-shot \`codex exec\`/\`claude -p\`.
+ * plus per-session 'btw' threads (and per-repo concierge threads), persisted in
+ * SQLite. Every turn runs the settings-chosen FULL harness (one-shot
+ * \`claude -p\`/\`codex exec\` with Podium's MCP tools mounted, issue #84);
+ * harnesses that can't mount MCP fall back to the api tool loop with a visible
+ * notice.
  */
 export class SuperagentService {
   // Per-thread serialization: a second send on a thread waits for the first (tools
@@ -415,6 +423,9 @@ export class SuperagentService {
   // the config is rebuilt every invocation, so a restart just mints fresh tokens.
   private readonly mcpTokenToThread = new Map<string, string>()
   private readonly mcpThreadToToken = new Map<string, string>()
+  // Threads already told (this process) that they run on the api fallback —
+  // the notice is visible but not repeated on every turn.
+  private readonly fallbackNoticed = new Set<string>()
   // Issue-tracker tools (issue-mcp's IssueToolProvider) bridged into the API tool
   // loop. Set by the server once the in-process issue client exists. Note: this is
   // the OPERATOR-authority in-process caller — constraining the concierge to an
@@ -753,55 +764,70 @@ export class SuperagentService {
       return saved
     }
 
-    if (backend.kind === 'harness') {
+    // Issue #84: every superagent turn runs the settings-chosen FULL harness —
+    // as long as that harness can mount Podium's MCP tools (capability matrix in
+    // @podium/core HARNESS_MCP_SUPPORT). Otherwise the api tool loop below runs
+    // as an HONEST fallback: same tools, but with a visible notice — never a
+    // silent, tool-less harness and never silent tool loss.
+    const harnessAgent = superagentHarnessAgent(settings)
+    if (HARNESS_MCP_SUPPORT[harnessAgent] === 'full' && this.mcpEndpoint) {
       // Full harness: run the real agent CLI with its own tool belt + Podium's
       // orchestrator tools over MCP, injecting our system prompt (natively via
       // --append-system-prompt for Claude, else prepended). The conversation so far
       // is folded into the prompt, the same way the API path re-sends history.
       const prompt = this.renderHarnessPrompt(threadId, latestText)
-      // MCP tool access is wired for Claude (the only harness with --mcp-config).
-      const mcp =
-        backend.harnessAgent === 'claude-code' && this.mcpEndpoint
-          ? {
-              mcpConfig: JSON.stringify({
-                mcpServers: {
-                  [MCP_SERVER_NAME]: {
-                    type: 'http',
-                    url: this.mcpEndpoint.url,
-                    headers: {
-                      [MCP_TOKEN_HEADER]: this.mcpEndpoint.token,
-                      // Thread identity (issue #67): the route resolves this back to
-                      // threadId, so the gate + provenance work on the harness backend.
-                      [MCP_THREAD_HEADER]: this.mcpThreadToken(threadId),
-                    },
-                  },
-                },
-              }),
-              allowedTools: harnessAllowedTools(
-                this.mcpEndpoint.allToolNames,
-                this.mcpToolSpecs().map((t) => t.name),
-              ),
-            }
-          : undefined
+      const mcp = {
+        mcpConfig: JSON.stringify({
+          mcpServers: {
+            [MCP_SERVER_NAME]: {
+              type: 'http',
+              url: this.mcpEndpoint.url,
+              headers: {
+                [MCP_TOKEN_HEADER]: this.mcpEndpoint.token,
+                // Thread identity (issue #67): the route resolves this back to
+                // threadId, so the gate + provenance work on the harness backend.
+                [MCP_THREAD_HEADER]: this.mcpThreadToken(threadId),
+              },
+            },
+          },
+        }),
+        allowedTools: harnessAllowedTools(
+          this.mcpEndpoint.allToolNames,
+          this.mcpToolSpecs().map((t) => t.name),
+        ),
+      }
       const result = await this.registry.harnessExec({
-        agent: backend.harnessAgent,
-        model: backend.harnessModel,
+        agent: harnessAgent,
+        model: backend.kind === 'harness' ? backend.harnessModel : 'auto',
         prompt,
         systemPrompt,
-        ...(mcp ?? {}),
+        timeoutMs: SUPERAGENT_HARNESS_TIMEOUT_MS,
+        ...mcp,
       })
       record({
         role: 'assistant',
         content: result.ok
           ? result.output
-          : `The ${backend.harnessAgent} harness run failed: ${result.output}`,
+          : `The ${harnessAgent} harness run failed: ${result.output}`,
       })
-      return { messages: newMessages, backendLabel: `${backend.harnessAgent} (subscription)` }
+      return { messages: newMessages, backendLabel: `${harnessAgent} harness` }
     }
 
+    // Api fallback: the chosen harness can't mount our MCP tools (or the MCP
+    // endpoint isn't up yet). Same tool belt via the api loop, with a one-line
+    // notice on the thread — once per thread per process, not per turn.
+    if (!this.fallbackNoticed.has(threadId)) {
+      this.fallbackNoticed.add(threadId)
+      record({
+        role: 'assistant',
+        content: this.mcpEndpoint
+          ? `running on the api fallback: ${harnessAgent} cannot mount Podium tools`
+          : `running on the api fallback: the Podium MCP endpoint is not available yet`,
+      })
+    }
     let client: ReturnType<typeof llmClient>
     try {
-      client = llmClient(backend, settings.apiKeys)
+      client = llmClient({ ...backend, kind: 'api' }, settings.apiKeys)
     } catch (err) {
       record({
         role: 'assistant',

@@ -11,6 +11,33 @@ export interface HarnessBins {
   cursor: () => string
 }
 
+/**
+ * Translate a Claude-shaped MCP config JSON into codex `-c` TOML overrides:
+ * `mcp_servers.<name>.url="…"` plus `mcp_servers.<name>.http_headers={"k"="v"}`.
+ * JSON string literals are valid TOML basic strings, so JSON.stringify quotes
+ * every key/value safely. Unparseable/empty configs yield no args (chat-only).
+ */
+function codexMcpArgs(mcpConfig: string | undefined): string[] {
+  if (!mcpConfig) return []
+  let servers: Record<string, { url?: string; headers?: Record<string, string> }>
+  try {
+    servers = (JSON.parse(mcpConfig) as { mcpServers?: typeof servers }).mcpServers ?? {}
+  } catch {
+    return []
+  }
+  const args: string[] = []
+  for (const [name, srv] of Object.entries(servers)) {
+    if (!srv.url) continue
+    args.push('-c', `mcp_servers.${name}.url=${JSON.stringify(srv.url)}`)
+    const headers = Object.entries(srv.headers ?? {})
+    if (headers.length > 0) {
+      const toml = headers.map(([k, v]) => `${JSON.stringify(k)}=${JSON.stringify(v)}`).join(',')
+      args.push('-c', `mcp_servers.${name}.http_headers={${toml}}`)
+    }
+  }
+  return args
+}
+
 /** Claude Code is the only harness with a native flag to inject an extra system
  *  prompt (`--append-system-prompt`). Everything else gets it prepended. */
 function supportsSystemFlag(agent: HarnessAgentKind): boolean {
@@ -33,6 +60,9 @@ export function buildHarnessExec(
     systemPrompt?: string
     /** Path to a written MCP config JSON (Claude `--mcp-config`). */
     mcpConfigPath?: string
+    /** The raw MCP config JSON ({ mcpServers: { name: { url, headers } } }).
+     *  Codex has no config-file flag; its servers ride `-c` TOML overrides. */
+    mcpConfig?: string
     /** Tools pre-approved so they run headlessly without a permission prompt. */
     allowedTools?: string[]
   },
@@ -66,7 +96,16 @@ export function buildHarnessExec(
     case 'codex':
       return {
         cmd: 'codex',
-        args: ['exec', '--skip-git-repo-check', ...modelArgs('--model'), prompt],
+        args: [
+          'exec',
+          '--skip-git-repo-check',
+          ...modelArgs('--model'),
+          // Podium's MCP servers as per-invocation config overrides: verified on
+          // codex-cli 0.142.5 that `mcp_servers.<name>.url` + `.http_headers`
+          // mount a streamable HTTP server with our identity headers attached.
+          ...codexMcpArgs(opts.mcpConfig),
+          prompt,
+        ],
       }
     case 'opencode':
       return { cmd: bins.opencode(), args: ['run', ...modelArgs('-m'), prompt] }

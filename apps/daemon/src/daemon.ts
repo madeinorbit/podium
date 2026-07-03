@@ -1728,10 +1728,11 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
   const runHarnessExec = async (
     msg: Extract<ControlMessage, { type: 'harnessExecRequest' }>,
   ): Promise<void> => {
-    // MCP config (Claude's --mcp-config) must be a file path, so write the JSON to
-    // a temp file for the run and clean it up afterwards.
+    // Claude's --mcp-config must be a file path, so write the JSON to a temp
+    // file for the run and clean it up afterwards. Codex takes the raw JSON
+    // instead (translated to `-c` overrides in buildHarnessExec) — no file.
     let mcpConfigPath: string | undefined
-    if (msg.mcpConfig) {
+    if (msg.mcpConfig && msg.agent === 'claude-code') {
       mcpConfigPath = join(tmpdir(), `podium-mcp-${randomUUID()}.json`)
       try {
         writeFileSync(mcpConfigPath, msg.mcpConfig)
@@ -1746,13 +1747,14 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
         ...(msg.model ? { model: msg.model } : {}),
         ...(msg.systemPrompt ? { systemPrompt: msg.systemPrompt } : {}),
         ...(mcpConfigPath ? { mcpConfigPath } : {}),
+        ...(msg.mcpConfig ? { mcpConfig: msg.mcpConfig } : {}),
         ...(msg.allowedTools ? { allowedTools: msg.allowedTools } : {}),
       },
       { opencode: resolveOpencodeBin, cursor: resolveCursorBin },
     )
     try {
       const { stdout } = await execFileAsync(cmd, args, {
-        timeout: 240_000,
+        timeout: msg.timeoutMs ?? 240_000,
         maxBuffer: 4 * 1024 * 1024,
         ...(msg.cwd ? { cwd: msg.cwd } : {}),
       })

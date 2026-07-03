@@ -1184,7 +1184,8 @@ export const RepoOpRequestMessage = z.object({
   args: z.record(z.string()).optional(),
 })
 // One-shot non-interactive harness run (`claude -p` / `codex exec` / `grok -p`) — the
-// harness-backed superagent/work-LLM path. Chat only: no Podium tools inside.
+// harness-backed superagent/work-LLM path. Where the CLI supports it (claude,
+// codex) the run mounts Podium's MCP tools via `mcpConfig`.
 export const HarnessExecRequestMessage = z.object({
   type: z.literal('harnessExecRequest'),
   requestId: z.string(),
@@ -1200,6 +1201,9 @@ export const HarnessExecRequestMessage = z.object({
   mcpConfig: z.string().optional(),
   /** Tools pre-approved so they run headlessly without a permission prompt. */
   allowedTools: z.array(z.string()).optional(),
+  /** Kill budget for the CLI process, ms. Superagent turns pass a long budget
+   *  (multi-minute orchestration); absent = the daemon's 240s default. */
+  timeoutMs: z.number().int().positive().optional(),
 })
 
 // Token-usage harvest from harness transcripts (ccusage-style, in-house so it
