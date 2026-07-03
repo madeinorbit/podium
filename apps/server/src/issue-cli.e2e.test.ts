@@ -77,6 +77,35 @@ describe('podium issue CLI ↔ live server (e2e)', () => {
     expect(readyRows.some((r) => r.seq === Number(b))).toBe(true)
   })
 
+  it('--agent/--model/--effort flow into the issue columns on create and update, show surfaces them', async () => {
+    const client = makeIssueClient(baseUrl)
+    const seq = /created #(\d+)/.exec(
+      await runIssueCli(
+        [
+          'create', '--repoPath', '/repo', '--title', 'Model routing',
+          '--agent', 'codex', '--model', 'gpt-5.2-codex', '--effort', 'high',
+        ],
+        client,
+      ),
+    )?.[1]
+    if (!seq) throw new Error('missing seq')
+
+    const shown = JSON.parse(await runIssueCli(['show', seq, '--json'], client))
+    expect(shown.data).toMatchObject({
+      defaultAgent: 'codex',
+      defaultModel: 'gpt-5.2-codex',
+      defaultEffort: 'high',
+    })
+
+    // update rewrites all three via the same patch path the web pickers use
+    await runIssueCli(
+      ['update', seq, '--agent', 'claude-code', '--model', 'opus-4-5', '--effort', 'low'],
+      client,
+    )
+    const text = await runIssueCli(['show', seq], client)
+    expect(text).toContain('agent=claude-code model=opus-4-5 effort=low')
+  })
+
   it('failures exit non-zero paths: unknown seq throws, ambiguity is explicit', async () => {
     const client = makeIssueClient(baseUrl)
     await expect(runIssueCli(['show', '99999'], client)).rejects.toThrow(/unknown issue/)

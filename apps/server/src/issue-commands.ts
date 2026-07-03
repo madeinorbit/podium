@@ -88,11 +88,17 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
         labels?: string[]
         worktreePath?: string | null
         branch?: string | null
+        defaultAgent?: string | null
+        defaultModel?: string | null
+        defaultEffort?: string | null
       } | null
       if (!i) throw new Error(`unknown issue ${a.id}`)
       const meta = [
         `stage=${i.stage} P${i.priority} ready=${i.ready} blocked=${i.blocked}`,
         i.assignee ? `assignee=${i.assignee}` : null,
+        i.defaultAgent || i.defaultModel || i.defaultEffort
+          ? `agent=${i.defaultAgent ?? 'auto'} model=${i.defaultModel ?? 'auto'} effort=${i.defaultEffort ?? 'auto'}`
+          : null,
         i.labels?.length ? `labels=${i.labels.join(',')}` : null,
         i.branch ? `branch=${i.branch}` : null,
         i.needsHuman ? `NEEDS HUMAN${i.humanQuestion ? `: ${i.humanQuestion}` : ''}` : null,
@@ -104,7 +110,7 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
   },
   {
     name: 'create',
-    summary: 'Create an issue. --title required; --description --priority --type --parentId --start optional.',
+    summary: 'Create an issue. --title required; --description --priority --type --parentId --agent --model --effort --start optional.',
     args: z.object({
       ...repoArg,
       title: z.string().min(1),
@@ -112,6 +118,9 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
       priority: z.coerce.number().int().min(0).max(4).optional(),
       type: z.string().optional(),
       parentId: idArg.optional(),
+      agent: z.string().min(1).optional(),
+      model: z.string().min(1).optional(),
+      effort: z.string().min(1).optional(),
       start: z.boolean().optional(),
     }),
     async run(c, a) {
@@ -123,6 +132,9 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
         ...(a.priority != null ? { priority: a.priority as number } : {}),
         ...(a.type ? { type: a.type as never } : {}),
         ...(a.parentId ? { parentId: a.parentId as string } : {}),
+        ...(a.agent ? { defaultAgent: a.agent as string } : {}),
+        ...(a.model ? { defaultModel: a.model as string } : {}),
+        ...(a.effort ? { defaultEffort: a.effort as string } : {}),
       })) as { seq: number; title: string; worktreePath?: string | null }
       const started = a.start === true && i.worktreePath ? ` (started in ${i.worktreePath})` : ''
       return { text: `created #${i.seq} ${i.title}${started}`, data: i }
@@ -130,11 +142,14 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
   },
   {
     name: 'start',
-    summary: 'Start an issue: create its worktree+branch, claim it, spawn its agent. start <id>.',
-    args: z.object({ id: idArg }),
+    summary: 'Start an issue: create its worktree+branch, claim it, spawn its agent. start <id> [--agent claude-code]. Model/effort come from the issue (set via create/update --model/--effort).',
+    args: z.object({ id: idArg, agent: z.string().min(1).optional() }),
     positionals: ['id'],
     async run(c, a) {
-      const i = (await c.issues.start.mutate({ id: a.id as string })) as {
+      const i = (await c.issues.start.mutate({
+        id: a.id as string,
+        ...(a.agent ? { agentKind: a.agent as string } : {}),
+      })) as {
         seq: number
         worktreePath?: string | null
         branch?: string | null
@@ -144,7 +159,7 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
   },
   {
     name: 'update',
-    summary: 'Update fields on an issue (--stage --priority --assignee --title --description --type …).',
+    summary: 'Update fields on an issue (--stage --priority --assignee --title --description --type --agent --model --effort …).',
     args: z.object({
       id: idArg,
       stage: z.string().optional(),
@@ -153,12 +168,18 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
       title: z.string().optional(),
       description: z.string().optional(),
       type: z.string().optional(),
+      agent: z.string().min(1).optional(),
+      model: z.string().min(1).optional(),
+      effort: z.string().min(1).optional(),
     }),
     positionals: ['id'],
     async run(c, a) {
       const patch: Record<string, unknown> = {}
       for (const k of ['stage', 'priority', 'assignee', 'title', 'description', 'type'])
         if (a[k] != null) patch[k] = a[k]
+      if (a.agent != null) patch.defaultAgent = a.agent
+      if (a.model != null) patch.defaultModel = a.model
+      if (a.effort != null) patch.defaultEffort = a.effort
       const i = (await c.issues.update.mutate({ id: a.id as string, patch: patch as never })) as {
         seq: number
       }
@@ -230,7 +251,7 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
   },
   {
     name: 'add-session',
-    summary: "Spawn another agent session in a started issue's worktree: add-session <id> [--agent claude-code].",
+    summary: "Spawn another agent session in a started issue's worktree: add-session <id> [--agent claude-code]. Model/effort follow the issue defaults (update --model/--effort).",
     args: z.object({ id: idArg, agent: z.string().optional() }),
     positionals: ['id'],
     async run(c, a) {

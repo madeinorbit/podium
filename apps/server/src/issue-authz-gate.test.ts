@@ -8,9 +8,9 @@ import { appRouter } from './router'
 // mirrors router-issues.test.ts and keeps the test off the heavy services.
 const registries: SessionRegistry[] = []
 
-function caller(capability: Capability) {
-  const registry = new SessionRegistry() // in-memory :memory: store
-  registries.push(registry)
+function caller(capability: Capability, shared?: SessionRegistry) {
+  const registry = shared ?? new SessionRegistry() // in-memory :memory: store
+  if (!shared) registries.push(registry)
   return appRouter.createCaller({
     registry,
     repos: {} as never,
@@ -44,6 +44,42 @@ describe('issues.* capability gate', () => {
     // a write-tier call passes the gate, then errors on the unknown id (not FORBIDDEN):
     await expect(c.issues.claim({ id: 'iss_missing', assignee: 'a' })).rejects.not.toThrow(
       /FORBIDDEN|not allowed/i,
+    )
+  })
+
+  it('subtree-scoped worker may start a CHILD inside its subtree without --outside-scope; outside issues are scope-blocked', async () => {
+    const registry = new SessionRegistry()
+    registries.push(registry)
+    // No daemon in this harness: a real repoOp would await a machine round-trip forever.
+    // Failing it fast keeps the test on what it proves — the AUTHZ gate decision.
+    registry.repoOp = async () => ({ ok: false, output: 'no daemon in test harness' })
+    const op = caller(OPERATOR, registry)
+    const epic = await op.issues.create({ repoPath: '/r', title: 'Epic', startNow: false })
+    const child = await op.issues.create({
+      repoPath: '/r',
+      title: 'Child',
+      parentId: epic.id,
+      startNow: false,
+    })
+    const outsider = await op.issues.create({ repoPath: '/r', title: 'Outside', startNow: false })
+
+    const scoped = caller(
+      { role: 'worker', scope: { kind: 'subtree', rootId: epic.id } },
+      registry,
+    )
+    // In-subtree child: clears BOTH gates (role + scope) with no --outside-scope override.
+    // Past the gate, start hits real git plumbing ('/r' is not a repo) — any failure there
+    // must NOT be an authz denial. (Mirrors the "passes the gate, then errors on other
+    // grounds" pattern above; a full worktree spawn needs a real repo + session backend.)
+    const err = await scoped.issues.start({ id: child.id }).then(
+      () => null,
+      (e: unknown) => e,
+    )
+    if (err) expect(String(err)).not.toMatch(/FORBIDDEN|not allowed|outside your subtree/i)
+
+    // Outside the subtree: the scope gate demands the explicit override.
+    await expect(scoped.issues.start({ id: outsider.id })).rejects.toThrow(
+      /outside your subtree/i,
     )
   })
 

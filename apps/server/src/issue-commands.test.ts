@@ -165,6 +165,76 @@ describe('ISSUE_COMMANDS registry', () => {
     expect(out.text).toContain('issue/3-x')
   })
 
+  it('create maps --agent/--model/--effort to defaultAgent/defaultModel/defaultEffort', async () => {
+    const { client, calls } = mockClient()
+    await cmd('create').run(client, {
+      repoPath: '/r',
+      title: 'T',
+      agent: 'codex',
+      model: 'gpt-5.2-codex',
+      effort: 'high',
+    })
+    expect(calls).toContainEqual({
+      path: 'create',
+      kind: 'mutate',
+      input: expect.objectContaining({
+        defaultAgent: 'codex',
+        defaultModel: 'gpt-5.2-codex',
+        defaultEffort: 'high',
+      }),
+    })
+  })
+
+  it('update maps --agent/--model/--effort into the patch', async () => {
+    const { client, calls } = mockClient()
+    await cmd('update').run(client, { id: '3', agent: 'claude-code', model: 'opus-4-5', effort: 'low' })
+    expect(calls).toContainEqual({
+      path: 'update',
+      kind: 'mutate',
+      input: {
+        id: '3',
+        patch: { defaultAgent: 'claude-code', defaultModel: 'opus-4-5', defaultEffort: 'low' },
+      },
+    })
+  })
+
+  it('start passes --agent through as agentKind (overrides the issue defaultAgent server-side)', async () => {
+    const { client, calls } = mockClient({
+      start: { seq: 3, branch: 'issue/3-x', worktreePath: '/r/.worktrees/issue-3-x' },
+    })
+    await cmd('start').run(client, { id: '3', agent: 'codex' })
+    expect(calls).toContainEqual({
+      path: 'start',
+      kind: 'mutate',
+      input: { id: '3', agentKind: 'codex' },
+    })
+  })
+
+  it('show surfaces defaultAgent/defaultModel/defaultEffort in the meta line and data', async () => {
+    const { client } = mockClient({
+      get: {
+        id: 'iss_1',
+        seq: 1,
+        title: 'T',
+        description: 'd',
+        stage: 'backlog',
+        priority: 2,
+        ready: true,
+        blocked: false,
+        defaultAgent: 'codex',
+        defaultModel: 'gpt-5.2-codex',
+        defaultEffort: 'high',
+      },
+    })
+    const out = await cmd('show').run(client, { id: '1' })
+    expect(out.text).toContain('agent=codex model=gpt-5.2-codex effort=high')
+    expect(out.data).toMatchObject({
+      defaultAgent: 'codex',
+      defaultModel: 'gpt-5.2-codex',
+      defaultEffort: 'high',
+    })
+  })
+
   it('show throws on a missing issue (non-zero exit, not a 0-exit string)', async () => {
     const fake = {
       issues: { get: { query: async () => null } },
