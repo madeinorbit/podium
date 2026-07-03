@@ -198,13 +198,17 @@ export interface SuperagentMessageRow {
   createdAt: string
 }
 
-/** A superagent conversation: the always-there 'global' thread, or a per-session 'btw' thread. */
+/** A superagent conversation: the always-there 'global' thread, a per-session 'btw'
+ *  thread, or a per-repo 'concierge' intake thread. */
 export interface SuperagentThreadRow {
   id: string
-  kind: 'global' | 'btw'
+  kind: 'global' | 'btw' | 'concierge'
   originSessionId?: string
+  /** The repo this thread fronts (concierge threads only). */
+  repoPath?: string
   title?: string
-  /** High-water mark into the origin session's transcript (btw threads only). */
+  /** High-water mark into the origin session's transcript (btw threads), or the
+   *  issue event-log id already digested (concierge threads, stringified). */
   watermarkItemId?: string
   watermarkTs?: string
   createdAt: string
@@ -858,7 +862,7 @@ export class SessionStore {
   listSuperagentThreads(): SuperagentThreadRow[] {
     const rows = this.db
       .prepare(
-        `SELECT id, kind, origin_session_id, title, watermark_item_id, watermark_ts,
+        `SELECT id, kind, origin_session_id, repo_path, title, watermark_item_id, watermark_ts,
                 created_at, updated_at, archived
          FROM superagent_threads WHERE archived = 0 ORDER BY updated_at DESC`,
       )
@@ -875,19 +879,29 @@ export class SessionStore {
 
   upsertSuperagentThread(t: {
     id: string
-    kind: 'global' | 'btw'
+    kind: 'global' | 'btw' | 'concierge'
     originSessionId?: string
+    repoPath?: string
     title?: string
   }): void {
     const now = new Date().toISOString()
     this.db
       .prepare(
-        `INSERT INTO superagent_threads (id, kind, origin_session_id, title, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?)
+        `INSERT INTO superagent_threads (id, kind, origin_session_id, repo_path, title, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            title = COALESCE(excluded.title, title), archived = 0, updated_at = ?`,
       )
-      .run(t.id, t.kind, t.originSessionId ?? null, t.title ?? null, now, now, now)
+      .run(
+        t.id,
+        t.kind,
+        t.originSessionId ?? null,
+        t.repoPath ?? null,
+        t.title ?? null,
+        now,
+        now,
+        now,
+      )
   }
 
   setThreadWatermark(id: string, itemId: string, ts: string | undefined): void {
@@ -988,8 +1002,9 @@ export class SessionStore {
   private mapSuperagentThread(r: Record<string, unknown>): SuperagentThreadRow {
     return {
       id: r.id as string,
-      kind: r.kind as 'global' | 'btw',
+      kind: r.kind as 'global' | 'btw' | 'concierge',
       originSessionId: (r.origin_session_id as string | null) ?? undefined,
+      repoPath: (r.repo_path as string | null) ?? undefined,
       title: (r.title as string | null) ?? undefined,
       watermarkItemId: (r.watermark_item_id as string | null) ?? undefined,
       watermarkTs: (r.watermark_ts as string | null) ?? undefined,
@@ -2226,6 +2241,13 @@ export class SessionStore {
       this.db.exec(
         "ALTER TABLE superagent_messages ADD COLUMN thread_id TEXT NOT NULL DEFAULT 'global'",
       )
+    }
+    // Additive column for per-repo concierge threads (issue #64).
+    const satCols = this.db.prepare('PRAGMA table_info(superagent_threads)').all() as {
+      name: string
+    }[]
+    if (!satCols.some((c) => c.name === 'repo_path')) {
+      this.db.exec('ALTER TABLE superagent_threads ADD COLUMN repo_path TEXT')
     }
     const saNow = new Date().toISOString()
     this.db

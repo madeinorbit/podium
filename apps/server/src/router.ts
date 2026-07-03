@@ -92,7 +92,8 @@ const issueCapabilityGuard = t.middleware(async ({ ctx, path, next, getRawInput 
     // Resolve display refs (#seq) to the internal id BEFORE the subtree check —
     // scope.rootId is an internal id, so comparing the raw ref would false-negative
     // on the agent's own bound issue.
-    const targetId = typeof rawTarget === 'string' ? ctx.registry.issues.resolveRef(rawTarget) : rawTarget
+    const targetId =
+      typeof rawTarget === 'string' ? ctx.registry.issues.resolveRef(rawTarget) : rawTarget
     if (targetId && ctx.registry.issues.get(targetId)) {
       const ancestorIds = ctx.registry.issues.ancestorIds(targetId)
       const decision = authorize(
@@ -359,6 +360,12 @@ export const appRouter = t.router({
     startBtw: t.procedure
       .input(z.object({ sessionId: z.string() }))
       .mutation(({ ctx, input }) => ctx.superagent.startBtw(input)),
+    // Per-repo concierge intake (issue #64): ensure the repo's thread (digest seed
+    // on first open, issue-event delta on re-open), then run the message through
+    // the tool loop. listThreads exposes kind='concierge' + repoPath for the web.
+    concierge: t.procedure
+      .input(z.object({ repoPath: z.string().min(1), text: z.string().min(1).max(32_768) }))
+      .mutation(({ ctx, input }) => ctx.superagent.concierge(input)),
   }),
   conversations: t.router({
     // Keyword search over the durable index (FTS5 where available). Empty query
