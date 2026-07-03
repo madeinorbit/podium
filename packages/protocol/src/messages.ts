@@ -1157,6 +1157,12 @@ export const RepoOp = z.enum([
   'rebase',
   'mergeFfOnly',
   'prCreate',
+  // cleanup (issue #71) — remove a merged issue's worktree + branch. worktreeRemove
+  // and branchDelete are deliberately non-forcing (`git worktree remove` / `branch -d`,
+  // never --force / -D); isMergedInto = `merge-base --is-ancestor` (exit status only).
+  'worktreeRemove',
+  'branchDelete',
+  'isMergedInto',
 ])
 export type RepoOp = z.infer<typeof RepoOp>
 export const RepoOpRequestMessage = z.object({

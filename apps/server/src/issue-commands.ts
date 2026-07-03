@@ -250,6 +250,20 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
     },
   },
   {
+    name: 'cleanup',
+    summary:
+      "Remove a closed issue's worktree and delete its merged branch: cleanup <id>. Guarded: refuses unless the issue is closed, the branch is fully merged into its parent, and the worktree is clean (never --force / -D).",
+    args: z.object({ id: idArg }),
+    positionals: ['id'],
+    async run(c, a) {
+      const r = (await c.issues.cleanup.mutate({ id: a.id as string })) as {
+        ok: boolean
+        output: string
+      }
+      return { text: `cleanup: ${r.ok ? 'OK' : 'REFUSED'}\n${r.output}`.trim(), data: r }
+    },
+  },
+  {
     name: 'add-session',
     summary: "Spawn another agent session in a started issue's worktree: add-session <id> [--agent claude-code]. Model/effort follow the issue defaults (update --model/--effort).",
     args: z.object({ id: idArg, agent: z.string().optional() }),

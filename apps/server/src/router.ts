@@ -859,6 +859,23 @@ export const appRouter = t.router({
       .mutation(({ ctx, input }) =>
         issueWrite(ctx, 'action', input, () => ctx.registry.issues.action(input.id, input.kind)),
       ),
+    cleanup: issueProc
+      .input(z.object({ id: z.string() }))
+      // Deliberately NOT issueWrite-forwarded (P7b write forwarding): cleanup acts on
+      // LOCAL git state — it removes a worktree directory and deletes a branch via
+      // THIS node's daemon. The hub cannot clean this node's worktree, and this node
+      // must not delete another machine's. Hub-mirrored issues get a hard refusal
+      // here instead of falling through to a misleading local 'unknown issue'.
+      .mutation(({ ctx, input }) => {
+        if (ctx.registry.isUpstreamIssue(input.id)) {
+          throw new TRPCError({
+            code: 'PRECONDITION_FAILED',
+            message:
+              'cleanup is local-only: this issue is managed via the hub — run cleanup on the machine that owns its worktree',
+          })
+        }
+        return ctx.registry.issues.cleanup(input.id)
+      }),
     addSession: issueProc
       .input(z.object({ id: z.string(), agentKind: z.string().optional() }))
       .mutation(({ ctx, input }) =>

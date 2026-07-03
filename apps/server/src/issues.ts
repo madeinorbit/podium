@@ -948,6 +948,95 @@ export class IssueService {
   }
 
   /**
+   * Guarded worktree+branch cleanup for a merged, closed issue (issue #71).
+   * Every guard refuses with {ok:false, output:<reason>} and NO side effects;
+   * the destructive ops themselves are non-forcing (`git worktree remove` /
+   * `git branch -d` — never --force / -D), so git itself is the last guard.
+   * Never touches the repo ROOT checkout: worktreeRemove/branchDelete run
+   * with the root as cwd but only ever name the issue's worktree/branch.
+   */
+  async cleanup(id: string): Promise<{ ok: boolean; output: string; issue: IssueWire }> {
+    const row = this.rowOrThrow(id)
+    const refuse = (output: string): { ok: boolean; output: string; issue: IssueWire } => ({
+      ok: false,
+      output,
+      issue: this.toWire(row),
+    })
+    // (a) only closed issues are cleanable.
+    if (!this.isClosed(row)) {
+      return refuse(`refusing cleanup: issue #${row.seq} is still open (close it first)`)
+    }
+    // (b) nothing recorded → nothing to do.
+    if (!row.worktreePath || !row.branch) {
+      return refuse('nothing to clean up: no worktree/branch recorded on this issue')
+    }
+    const worktreePath = row.worktreePath
+    const branch = row.branch
+    // (c) worktree gone on disk (deleted out-of-band) → reconcile the columns
+    //     and report; nothing destructive to run. Detected via `git status` on
+    //     the worktree cwd: `git -C <missing>` fails with "cannot change to".
+    const st = await this.d.repoOp('status', worktreePath)
+    if (!st.ok && /cannot change to|no such file or directory|not a working tree/i.test(st.output)) {
+      row.worktreePath = null
+      row.branch = null
+      this.persistRow(row)
+      const issue = this.addComment(
+        row.id,
+        'system:cleanup',
+        `cleanup: worktree ${worktreePath} already gone; cleared recorded worktree/branch (${branch})`,
+      )
+      this.emitEvent('issue.cleaned', row.id, { seq: row.seq, worktreePath, branch, alreadyGone: true })
+      return { ok: true, output: `already gone: ${worktreePath} (columns cleared)`, issue }
+    }
+    if (!st.ok) return refuse(`refusing cleanup: cannot inspect worktree: ${st.output}`)
+    // (d) branch must be fully merged into the parent branch. Read-only ancestry
+    //     check against the repo ROOT's ref database — exit 1 (not an ancestor)
+    //     and any error both refuse.
+    const merged = await this.d.repoOp('isMergedInto', row.repoPath, {
+      branch,
+      parentBranch: row.parentBranch,
+    })
+    if (!merged.ok) {
+      return refuse(
+        `refusing cleanup: branch '${branch}' is not fully merged into '${row.parentBranch}'${merged.output ? ` (${merged.output})` : ''}`,
+      )
+    }
+    // (e) worktree must be clean (porcelain lines beyond the `## branch` header = dirty).
+    const dirty = st.output.split('\n').filter((l) => l.trim() !== '' && !l.startsWith('## '))
+    if (dirty.length > 0) {
+      return refuse(`refusing cleanup: worktree has uncommitted changes:\n${dirty.join('\n')}`)
+    }
+    // Remove the worktree (non-forcing; git may still refuse and we surface it).
+    const wr = await this.d.repoOp('worktreeRemove', row.repoPath, { path: worktreePath })
+    if (!wr.ok) return refuse(`worktree remove failed: ${wr.output}`)
+    row.worktreePath = null
+    this.persistRow(row) // columns reflect reality even if branch delete refuses below
+    // Delete the branch (-d only; git refuses unmerged as a belt-and-braces guard).
+    const bd = await this.d.repoOp('branchDelete', row.repoPath, { branch })
+    if (!bd.ok) {
+      const issue = this.addComment(
+        row.id,
+        'system:cleanup',
+        `cleanup: removed worktree ${worktreePath}; branch '${branch}' NOT deleted: ${bd.output}`,
+      )
+      return {
+        ok: false,
+        output: `worktree ${worktreePath} removed, but branch delete refused: ${bd.output}`,
+        issue,
+      }
+    }
+    row.branch = null
+    this.persistRow(row)
+    const issue = this.addComment(
+      row.id,
+      'system:cleanup',
+      `cleanup: removed worktree ${worktreePath} and deleted merged branch '${branch}'`,
+    )
+    this.emitEvent('issue.cleaned', row.id, { seq: row.seq, worktreePath, branch })
+    return { ok: true, output: `removed ${worktreePath}; deleted branch ${branch}`, issue }
+  }
+
+  /**
    * Parse the current branch from `git status --porcelain=v1 -b` output.
    * The first line is `## <branch>...<upstream>`, `## <branch>`, or
    * `## HEAD (no branch)` when detached. Returns null for detached/unparseable.

@@ -109,6 +109,12 @@ describe('issue protocol types', () => {
     expect(RepoOp.parse('prCreate')).toBe('prCreate')
   })
 
+  it('accepts the cleanup RepoOps (issue #71)', () => {
+    expect(RepoOp.parse('worktreeRemove')).toBe('worktreeRemove')
+    expect(RepoOp.parse('branchDelete')).toBe('branchDelete')
+    expect(RepoOp.parse('isMergedInto')).toBe('isMergedInto')
+  })
+
   it('round-trips issue broadcast messages', () => {
     const issue = IssueWire.parse({
       id: 'iss_1',

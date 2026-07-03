@@ -58,6 +58,9 @@ export const PROC_ACTION: Record<string, IssueAction> = {
   addSession: 'write',
   addShell: 'write',
   action: 'write',
+  // write, not manage: heavily guarded (closed + merged + clean only), so a
+  // closing agent may clean up after itself.
+  cleanup: 'write',
   applySuggestion: 'write',
   dismissSuggestion: 'write',
   refreshAssistant: 'write',
@@ -92,6 +95,9 @@ export const SCOPED_TARGET: Record<string, (i: Record<string, unknown>) => strin
   clearNeedsHuman: (i) => i.id as string,
   addComment: (i) => i.id as string,
   action: (i) => i.id as string,
+  // cleanup is scope-gated like its siblings but is NOT hub-forwarded: its router
+  // proc bypasses issueWrite and refuses upstream issues (local git state only).
+  cleanup: (i) => i.id as string,
   applySuggestion: (i) => i.id as string,
   dismissSuggestion: (i) => i.id as string,
   refreshAssistant: (i) => i.id as string,

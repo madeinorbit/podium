@@ -33,6 +33,7 @@ function mockClient(overrides: Record<string, unknown> = {}): { client: IssueTrp
       start: proc('start'),
       archive: proc('archive'),
       action: proc('action'),
+      cleanup: proc('cleanup'),
       addSession: proc('addSession'),
       addShell: proc('addShell'),
       events: proc('events'),
@@ -59,9 +60,24 @@ describe('ISSUE_COMMANDS registry', () => {
 
   it('includes the full verb set (P4b parity + lifecycle verbs)', () => {
     const names = ISSUE_COMMANDS.map((c) => c.name)
-    for (const v of ['delete', 'label', 'defer', 'undefer', 'supersede', 'duplicate', 'dep-remove', 'reparent', 'find-duplicates', 'graph', 'doctor', 'stale', 'orphans', 'lint', 'preflight', 'count', 'epic-status', 'start', 'archive', 'action', 'add-session', 'add-shell']) {
+    for (const v of ['delete', 'label', 'defer', 'undefer', 'supersede', 'duplicate', 'dep-remove', 'reparent', 'find-duplicates', 'graph', 'doctor', 'stale', 'orphans', 'lint', 'preflight', 'count', 'epic-status', 'start', 'archive', 'action', 'cleanup', 'add-session', 'add-shell']) {
       expect(names, `missing verb ${v}`).toContain(v)
     }
+  })
+
+  it('cleanup calls issues.cleanup.mutate with the id and reports OK/REFUSED', async () => {
+    const { client, calls } = mockClient({
+      cleanup: { ok: true, output: 'removed /r/.worktrees/issue-1-x; deleted branch issue/1-x' },
+    })
+    const out = await cmd('cleanup').run(client, { id: 'iss_1' })
+    expect(calls).toContainEqual({ path: 'cleanup', kind: 'mutate', input: { id: 'iss_1' } })
+    expect(out.text).toContain('cleanup: OK')
+    expect(out.text).toContain('deleted branch issue/1-x')
+
+    const refused = mockClient({ cleanup: { ok: false, output: 'refusing cleanup: issue #1 is still open (close it first)' } })
+    const out2 = await cmd('cleanup').run(refused.client, { id: 'iss_1' })
+    expect(out2.text).toContain('cleanup: REFUSED')
+    expect(out2.text).toContain('still open')
   })
 
   it('create calls issues.create.mutate with the title and returns the new id/seq', async () => {
