@@ -1163,6 +1163,16 @@ export const RepoOp = z.enum([
   'worktreeRemove',
   'branchDelete',
   'isMergedInto',
+  // integrate (issue #70) — rebuild an epic's integration branch from its closed
+  // children. worktreeAddReset/checkoutReset use -B (reset-to-startPoint is the
+  // POINT: every run rebuilds); rebaseAbort cleanly unwinds a conflicted rebase;
+  // branchDeleteForce (-D) is restricted by the daemon to the `integrate-tmp/`
+  // temp-ref namespace — child branches are never force-deleted.
+  'worktreeAddReset',
+  'checkoutReset',
+  'checkout',
+  'rebaseAbort',
+  'branchDeleteForce',
 ])
 export type RepoOp = z.infer<typeof RepoOp>
 export const RepoOpRequestMessage = z.object({

@@ -238,14 +238,19 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
   },
   {
     name: 'action',
-    summary: 'Run a git action on a started issue: action <id> <kind: rebase|pr|merge>.',
-    args: z.object({ id: idArg, kind: z.enum(['rebase', 'pr', 'merge']) }),
+    summary:
+      'Run a git action on an issue: action <id> <kind: rebase|pr|merge|integrate>. integrate (epics only) rebuilds the integration branch from closed children — local-only, never merges to the parent branch.',
+    args: z.object({ id: idArg, kind: z.enum(['rebase', 'pr', 'merge', 'integrate']) }),
     positionals: ['id', 'kind'],
     async run(c, a) {
-      const r = (await c.issues.action.mutate({
-        id: a.id as string,
-        kind: a.kind as 'rebase' | 'pr' | 'merge',
-      })) as { ok: boolean; output: string }
+      // integrate is its own local-only proc (like cleanup): it must never be
+      // hub-forwarded, while the other kinds go through the forwarding action proc.
+      const r = (a.kind === 'integrate'
+        ? await c.issues.integrate.mutate({ id: a.id as string })
+        : await c.issues.action.mutate({
+            id: a.id as string,
+            kind: a.kind as 'rebase' | 'pr' | 'merge',
+          })) as { ok: boolean; output: string }
       return { text: `${a.kind}: ${r.ok ? 'OK' : 'FAILED'}\n${r.output}`.trim(), data: r }
     },
   },

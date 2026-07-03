@@ -876,6 +876,22 @@ export const appRouter = t.router({
         }
         return ctx.registry.issues.cleanup(input.id)
       }),
+    integrate: issueProc
+      .input(z.object({ id: z.string() }))
+      // Like cleanup, deliberately NOT issueWrite-forwarded: integrate rebuilds a
+      // LOCAL integration worktree/branch via THIS node's daemon — the hub cannot
+      // rebuild this node's worktree. Hub-mirrored issues get a hard refusal.
+      // Spawns nothing, so it is not confirmed-gated beyond the write role gate.
+      .mutation(({ ctx, input }) => {
+        if (ctx.registry.isUpstreamIssue(input.id)) {
+          throw new TRPCError({
+            code: 'PRECONDITION_FAILED',
+            message:
+              'integrate is local-only: this issue is managed via the hub — run integrate on the machine that owns its worktrees',
+          })
+        }
+        return ctx.registry.issues.integrate(input.id)
+      }),
     addSession: issueProc
       .input(z.object({ id: z.string(), agentKind: z.string().optional() }))
       .mutation(({ ctx, input }) =>

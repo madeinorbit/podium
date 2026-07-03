@@ -112,7 +112,7 @@ const FORWARD_INPUTS: Record<string, Record<string, unknown>> = {
  *  acts on LOCAL git state (worktree dir + branch via this node's daemon) — the hub
  *  cannot clean this node's worktree, so its router proc refuses viaHub ids instead
  *  of forwarding (see the cleanup proc in router.ts). Tested below. */
-const NOT_FORWARDED = new Set(['cleanup'])
+const NOT_FORWARDED = new Set(['cleanup', 'integrate'])
 
 describe('viaHub forwarding detection (per proc)', () => {
   it('covers every SCOPED_TARGET write proc (forwarded or explicitly excluded)', () => {
@@ -123,6 +123,14 @@ describe('viaHub forwarding detection (per proc)', () => {
   it('issues.cleanup on a viaHub id REFUSES (local-only; never forwards)', async () => {
     const { forwarded, caller } = makeNode()
     await expect(caller().issues.cleanup({ id: HUB_ID })).rejects.toThrow(/cleanup is local-only/)
+    expect(forwarded).toHaveLength(0)
+  })
+
+  it('issues.integrate on a viaHub id REFUSES (local-only; never forwards)', async () => {
+    const { forwarded, caller } = makeNode()
+    await expect(caller().issues.integrate({ id: HUB_ID })).rejects.toThrow(
+      /integrate is local-only/,
+    )
     expect(forwarded).toHaveLength(0)
   })
 

@@ -61,6 +61,10 @@ export const PROC_ACTION: Record<string, IssueAction> = {
   // write, not manage: heavily guarded (closed + merged + clean only), so a
   // closing agent may clean up after itself.
   cleanup: 'write',
+  // write, not manage: builds/reset a dedicated integration worktree+branch only —
+  // never touches child branches, the root checkout, or the parent branch. Spawns
+  // nothing, so no confirm gate beyond the write role gate.
+  integrate: 'write',
   applySuggestion: 'write',
   dismissSuggestion: 'write',
   refreshAssistant: 'write',
@@ -98,6 +102,9 @@ export const SCOPED_TARGET: Record<string, (i: Record<string, unknown>) => strin
   // cleanup is scope-gated like its siblings but is NOT hub-forwarded: its router
   // proc bypasses issueWrite and refuses upstream issues (local git state only).
   cleanup: (i) => i.id as string,
+  // integrate is scope-gated like its siblings but is NOT hub-forwarded either:
+  // it rebuilds a local integration worktree (local git state only).
+  integrate: (i) => i.id as string,
   applySuggestion: (i) => i.id as string,
   dismissSuggestion: (i) => i.id as string,
   refreshAssistant: (i) => i.id as string,

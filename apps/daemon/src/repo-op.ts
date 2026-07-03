@@ -45,6 +45,37 @@ export function repoOpCommand(op: RepoOp, args: Record<string, string> = {}): Re
       if (!branch || !parentBranch) return { error: 'missing args' }
       return { bin: 'git', argv: ['merge-base', '--is-ancestor', branch, parentBranch] }
     }
+    case 'worktreeAddReset': {
+      // -B (vs worktreeAdd's -b): resets the branch to startPoint if it already
+      // exists — integrate (issue #70) REBUILDS its integration branch every run.
+      const { path, branch, startPoint } = args
+      if (!path || !branch || !startPoint) return { error: 'missing args' }
+      return { bin: 'git', argv: ['worktree', 'add', path, '-B', branch, startPoint] }
+    }
+    case 'checkoutReset': {
+      // git checkout -B <branch> <startPoint>: create-or-reset and switch to it.
+      const { branch, startPoint } = args
+      if (!branch || !startPoint) return { error: 'missing args' }
+      return { bin: 'git', argv: ['checkout', '-B', branch, startPoint] }
+    }
+    case 'checkout': {
+      const { branch } = args
+      if (!branch) return { error: 'missing args' }
+      return { bin: 'git', argv: ['checkout', branch] }
+    }
+    case 'rebaseAbort':
+      return { bin: 'git', argv: ['rebase', '--abort'] }
+    case 'branchDeleteForce': {
+      // -D, but ONLY inside the integrate temp-ref namespace: integrate rebases a
+      // throwaway copy of each child branch and must be able to drop it even when
+      // unmerged (conflict abort). Real branches keep the non-forcing branchDelete.
+      const { branch } = args
+      if (!branch) return { error: 'missing args' }
+      if (!branch.startsWith('integrate-tmp/')) {
+        return { error: 'branchDeleteForce is restricted to integrate-tmp/* refs' }
+      }
+      return { bin: 'git', argv: ['branch', '-D', branch] }
+    }
     case 'prCreate': {
       const { branch, parentBranch } = args
       if (!branch || !parentBranch) return { error: 'missing args' }

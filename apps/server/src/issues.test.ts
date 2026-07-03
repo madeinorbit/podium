@@ -1129,3 +1129,196 @@ describe('IssueService.cleanup follow-ups (retry + strict gone detection)', () =
     expect(h.store.getIssue(w.id)?.worktreePath).toBe(WT)
   })
 })
+
+describe('IssueService.integrate (issue #70)', () => {
+  const INT_BR = 'integrate/1-e'
+  const INT_WT = '/r/.worktrees/integrate-1-e'
+  const GONE = { ok: false, output: `fatal: cannot change to '${INT_WT}': No such file or directory` }
+
+  type Call = { op: string; cwd: string; args?: Record<string, string> }
+
+  /** repoOp stub scripted per call: `impl(op, cwd, args, call#)`; records every call. */
+  function scriptOps(
+    deps: IssueDeps,
+    impl: (op: string, args?: Record<string, string>) => { ok: boolean; output: string } | undefined,
+  ): Call[] {
+    const calls: Call[] = []
+    deps.repoOp = vi.fn(async (op, cwd, args) => {
+      calls.push({ op, cwd, ...(args ? { args } : {}) })
+      return impl(op, args) ?? { ok: true, output: '' }
+    })
+    return calls
+  }
+
+  /** Epic (seq 1, title 'E') + closed children with recorded branches. */
+  function epicWith(h: ReturnType<typeof harness>, kids: Array<{ branch?: string | null; closed?: boolean }>) {
+    const epic = h.svc.create({ repoPath: '/r', title: 'E', type: 'epic', parentBranch: 'main', startNow: false })
+    const children = kids.map((k, i) => {
+      const c = h.svc.create({ repoPath: '/r', title: `K${i}`, parentId: epic.id, startNow: false })
+      if (k.branch !== null) h.svc.update(c.id, { branch: k.branch ?? `issue/${c.seq}-k${i}` })
+      if (k.closed !== false) h.svc.close(c.id)
+      return h.svc.get(c.id)!
+    })
+    return { epic, children }
+  }
+
+  it('refuses a target with no children (no repoOp at all)', async () => {
+    const h = harness()
+    const epic = h.svc.create({ repoPath: '/r', title: 'E', type: 'epic', startNow: false })
+    const calls = scriptOps(h.deps, () => undefined)
+    const r = await h.svc.integrate(epic.id)
+    expect(r.ok).toBe(false)
+    expect(r.output).toMatch(/no children/)
+    expect(calls).toEqual([])
+  })
+
+  it('refuses when no closed child has a recorded branch', async () => {
+    const h = harness()
+    const { epic } = epicWith(h, [{ closed: false }, { branch: null, closed: true }])
+    const calls = scriptOps(h.deps, () => undefined)
+    const r = await h.svc.integrate(epic.id)
+    expect(r.ok).toBe(false)
+    expect(r.output).toMatch(/no closed child .* recorded branch/)
+    expect(calls).toEqual([])
+  })
+
+  it('fresh run: rebuild-reset op order (worktreeAddReset from root, ff merges in worktree), comment + event', async () => {
+    const h = harness()
+    const { epic, children } = epicWith(h, [{}, {}])
+    const calls = scriptOps(h.deps, (op) => (op === 'status' ? GONE : undefined))
+    const r = await h.svc.integrate(epic.id)
+    expect(r.ok).toBe(true)
+    expect(calls).toEqual([
+      { op: 'status', cwd: INT_WT },
+      { op: 'worktreeAddReset', cwd: '/r', args: { path: INT_WT, branch: INT_BR, startPoint: 'main' } },
+      { op: 'mergeFfOnly', cwd: INT_WT, args: { branch: children[0]!.branch! } },
+      { op: 'mergeFfOnly', cwd: INT_WT, args: { branch: children[1]!.branch! } },
+    ])
+    // boundary: the ONLY op with the repo root as cwd is the worktree add itself
+    expect(calls.filter((c) => c.cwd === '/r').map((c) => c.op)).toEqual(['worktreeAddReset'])
+    const comments = h.store.listIssueComments(epic.id)
+    expect(comments.filter((c) => c.author === 'system:integrate').length).toBe(1)
+    expect(comments[0]!.body).toContain(`rebuilt '${INT_BR}' from 'main'`)
+    expect(comments[0]!.body).toContain(`#${children[0]!.seq}, #${children[1]!.seq}`)
+    const ev = h.store.listEventsSince(0, { kinds: ['issue.integration'] })
+    expect(ev.length).toBe(1)
+    expect(ev[0]!.payload).toEqual({ epicSeq: 1, integrated: [children[0]!.seq, children[1]!.seq] })
+  })
+
+  it('existing worktree: resets the integration branch to the parent tip (checkoutReset), no worktreeAdd', async () => {
+    const h = harness()
+    const { epic } = epicWith(h, [{}])
+    const calls = scriptOps(h.deps, () => undefined) // status ok → worktree exists
+    const r = await h.svc.integrate(epic.id)
+    expect(r.ok).toBe(true)
+    expect(calls[0]).toEqual({ op: 'status', cwd: INT_WT })
+    expect(calls[1]).toEqual({ op: 'checkoutReset', cwd: INT_WT, args: { branch: INT_BR, startPoint: 'main' } })
+    expect(calls.some((c) => c.op === 'worktreeAdd' || c.op === 'worktreeAddReset')).toBe(false)
+  })
+
+  it('topological order: A blocks B ⇒ A integrates first (beats seq order)', async () => {
+    const h = harness()
+    const { epic, children } = epicWith(h, [{}, {}]) // B=children[0] (seq 2), A=children[1] (seq 3)
+    const [b, a] = children
+    h.svc.addDep(b!.id, a!.id, 'blocks') // B is blocked by A ⇒ A first
+    const calls = scriptOps(h.deps, () => undefined)
+    await h.svc.integrate(epic.id)
+    const merges = calls.filter((c) => c.op === 'mergeFfOnly').map((c) => c.args?.branch)
+    expect(merges).toEqual([a!.branch, b!.branch])
+    const ev = h.store.listEventsSince(0, { kinds: ['issue.integration'] })
+    expect((ev[0]!.payload as { integrated: number[] }).integrated).toEqual([a!.seq, b!.seq])
+  })
+
+  it('non-ff child: rebases a TEMP ref (never the child branch) then ff-merges it', async () => {
+    const h = harness()
+    const { epic, children } = epicWith(h, [{}])
+    const child = children[0]!
+    const temp = `integrate-tmp/${child.seq}`
+    let ffTried = false
+    const calls = scriptOps(h.deps, (op, args) => {
+      if (op === 'mergeFfOnly' && args?.branch === child.branch && !ffTried) {
+        ffTried = true
+        return { ok: false, output: 'fatal: Not possible to fast-forward, aborting.' }
+      }
+      return undefined
+    })
+    const r = await h.svc.integrate(epic.id)
+    expect(r.ok).toBe(true)
+    expect(calls.slice(2)).toEqual([
+      { op: 'mergeFfOnly', cwd: INT_WT, args: { branch: child.branch! } },
+      { op: 'checkoutReset', cwd: INT_WT, args: { branch: temp, startPoint: child.branch! } },
+      { op: 'rebase', cwd: INT_WT, args: { parentBranch: INT_BR } },
+      { op: 'checkout', cwd: INT_WT, args: { branch: INT_BR } },
+      { op: 'mergeFfOnly', cwd: INT_WT, args: { branch: temp } },
+      { op: 'branchDeleteForce', cwd: INT_WT, args: { branch: temp } },
+    ])
+    const ev = h.store.listEventsSince(0, { kinds: ['issue.integration'] })
+    expect((ev[0]!.payload as { integrated: number[] }).integrated).toEqual([child.seq])
+  })
+
+  it('conflict: aborts cleanly, restores the last good head, sets needs_human, stops — later children untouched', async () => {
+    const h = harness()
+    const { epic, children } = epicWith(h, [{}, {}, {}])
+    const [ok1, bad, never] = children
+    const temp = `integrate-tmp/${bad!.seq}`
+    const calls = scriptOps(h.deps, (op, args) => {
+      if (op === 'mergeFfOnly' && args?.branch === bad!.branch) {
+        return { ok: false, output: 'fatal: Not possible to fast-forward, aborting.' }
+      }
+      if (op === 'rebase') return { ok: false, output: 'CONFLICT (content): Merge conflict in src/a.ts\nerror: could not apply abc123' }
+      return undefined
+    })
+    const r = await h.svc.integrate(epic.id)
+    expect(r.ok).toBe(false)
+    // cleanup after the conflicted rebase, in order
+    const tail = calls.slice(calls.findIndex((c) => c.op === 'rebase') + 1)
+    expect(tail).toEqual([
+      { op: 'rebaseAbort', cwd: INT_WT },
+      { op: 'checkout', cwd: INT_WT, args: { branch: INT_BR } },
+      { op: 'branchDeleteForce', cwd: INT_WT, args: { branch: temp } },
+    ])
+    // never touches the third child
+    expect(calls.some((c) => c.args?.branch === never!.branch)).toBe(false)
+    // epic flagged for a human with the precise blocker
+    const row = h.store.getIssue(epic.id)!
+    expect(row.needsHuman).toBe(true)
+    expect(row.humanQuestion).toMatch(new RegExp(`integration blocked at #${bad!.seq}: CONFLICT`))
+    // one summary comment: what landed vs what blocked
+    const comments = h.store.listIssueComments(epic.id).filter((c) => c.author === 'system:integrate')
+    expect(comments.length).toBe(1)
+    expect(comments[0]!.body).toContain(`integrated #${ok1!.seq}`)
+    expect(comments[0]!.body).toContain(`blocked at #${bad!.seq}`)
+    const ev = h.store.listEventsSince(0, { kinds: ['issue.integration'] })
+    expect(ev[0]!.payload).toEqual({ epicSeq: 1, integrated: [ok1!.seq], blockedAt: bad!.seq })
+  })
+
+  it('re-run idempotence: unchanged outcome posts NO duplicate comment (events still record each run)', async () => {
+    const h = harness()
+    const { epic } = epicWith(h, [{}, {}])
+    scriptOps(h.deps, () => undefined)
+    const r1 = await h.svc.integrate(epic.id)
+    const r2 = await h.svc.integrate(epic.id)
+    expect(r1.ok).toBe(true)
+    expect(r2.ok).toBe(true)
+    expect(r2.output).toBe(r1.output)
+    const comments = h.store.listIssueComments(epic.id).filter((c) => c.author === 'system:integrate')
+    expect(comments.length).toBe(1)
+    const ev = h.store.listEventsSince(0, { kinds: ['issue.integration'] })
+    expect(ev.length).toBe(2)
+    // a CHANGED outcome (new child closes) does comment again
+    const extra = h.svc.create({ repoPath: '/r', title: 'K2', parentId: epic.id, startNow: false })
+    h.svc.update(extra.id, { branch: 'issue/4-k2' })
+    h.svc.close(extra.id)
+    await h.svc.integrate(epic.id)
+    expect(h.store.listIssueComments(epic.id).filter((c) => c.author === 'system:integrate').length).toBe(2)
+  })
+
+  it('closed-but-branchless siblings are skipped, not fatal', async () => {
+    const h = harness()
+    const { epic, children } = epicWith(h, [{}, { branch: null }])
+    const calls = scriptOps(h.deps, () => undefined)
+    const r = await h.svc.integrate(epic.id)
+    expect(r.ok).toBe(true)
+    expect(calls.filter((c) => c.op === 'mergeFfOnly').map((c) => c.args?.branch)).toEqual([children[0]!.branch])
+  })
+})
