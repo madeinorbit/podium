@@ -24,12 +24,17 @@ import { formatAppError } from './AppErrorPage'
 import { dedupeSessionsByResume, EMPTY_PINS, planWorktreeMoves, reposToViews } from './derive'
 import { type FileScope, scopeKey, tabIdFor } from './file-scope'
 import { createOutbox } from './outbox'
+import { createReplica, type Replica } from './replica'
 import { makeTrpc, type ServerOrigin, type Trpc } from './trpc'
 import type { PinKind, PinState } from './types'
 
 export interface Store {
   hub: SocketHub
   trpc: Trpc
+  /** Persistent local replica (docs/spec/thin-client-replica.md): entity mirror
+   *  + offline transcript windows. `replica.available` is false when storage is
+   *  unusable (private mode) — everything then behaves like the in-memory client. */
+  replica: Replica
   repos: GitRepositoryWire[]
   reposLoading: boolean
   /** True once the first repo refresh has resolved — lets the UI distinguish
@@ -250,6 +255,11 @@ export function StoreProvider({
   children: ReactNode
 }): JSX.Element {
   const trpc = useMemo(() => makeTrpc(config.httpOrigin), [config.httpOrigin])
+  // Persistent local replica (docs/spec/thin-client-replica.md). Constructed
+  // synchronously so its persisted cursor can seed the hub's first changesSince;
+  // entity hydration happens async in the mount effect below. When storage is
+  // unavailable the replica is inert and everything behaves exactly like today.
+  const replica = useMemo(() => createReplica(), [])
   const hub = useMemo(
     () =>
       new SocketHub({
@@ -260,8 +270,19 @@ export function StoreProvider({
         // session/issue/conversation updates arrive as per-entity oplog changes,
         // with (re)connect catch-up healed through this query.
         fetchChangesSince: (cursor) => trpc.sync.changesSince.query({ cursor }),
+        // Resume across reloads: the replica's persisted cursor makes the first
+        // catch-up a delta instead of a full snapshot (null on a cold client).
+        initialCursor: replica.getCursor(),
+        // Persist-after-apply: mirror every applied metadata batch into the
+        // replica, entities first, cursor after (replica upholds the ordering).
+        onMetadataApplied: (state) => {
+          replica.applySnapshot('sessions', state.sessions)
+          replica.applySnapshot('issues', state.issues)
+          replica.applySnapshot('conversations', state.conversations)
+          replica.setCursor(state.cursor)
+        },
       }),
-    [config.wsClientUrl, onFatalError, trpc],
+    [config.wsClientUrl, onFatalError, trpc, replica],
   )
   // Durable write path for the covered mutations: optimistic local apply stays in
   // each store method; the server round-trip goes through the outbox so an offline
@@ -772,6 +793,20 @@ export function StoreProvider({
     }
     document.addEventListener('visibilitychange', reportVisibility)
     reportVisibility()
+    // Hydrate-first paint (docs/spec/thin-client-replica.md §2.2): seed the hub's
+    // entity lists from the persisted replica so the subscriptions above deliver
+    // last-known data before (or without) the network answering — an offline
+    // reload paints a full UI instead of a blank shell. The hydrate microtask
+    // resolves before the deferred connect below, and `seedMetadata` refuses to
+    // clobber server truth if a heal somehow lands first. `hydrate` never throws
+    // (a poisoned replica clears itself and cold-starts).
+    if (replica.available) {
+      void replica.hydrate().then((snap) => {
+        if (snap.sessions.length + snap.issues.length + snap.conversations.length > 0) {
+          hub.seedMetadata(snap)
+        }
+      })
+    }
     const connectTimer = setTimeout(() => {
       try {
         hub.connect()
@@ -804,11 +839,12 @@ export function StoreProvider({
       document.removeEventListener('visibilitychange', reportVisibility)
       hub.dispose()
     }
-  }, [hub, onFatalError, outbox, refreshPins, refreshRepos, refreshTabOrders])
+  }, [hub, onFatalError, outbox, refreshPins, refreshRepos, refreshTabOrders, replica])
 
   const value: Store = {
     hub,
     trpc,
+    replica,
     repos,
     reposLoading,
     reposLoaded,

@@ -74,6 +74,31 @@ export interface SocketHubOptions {
    * Omitted (tests, embedders): legacy snapshot behavior, byte-for-byte unchanged.
    */
   fetchChangesSince?: (cursor: number | null) => Promise<SyncChangesSinceResult>
+  /**
+   * Resume-across-reloads (docs/spec/thin-client-replica.md §2.2): the cursor a
+   * persisted local replica left off at. When set, the FIRST metadata heal after
+   * connect calls `fetchChangesSince(initialCursor)` instead of `null`, so a warm
+   * reload downloads a delta instead of the world. The snapshot fallback (server
+   * compacted past the cursor) is unchanged — it full-replaces. Only meaningful
+   * together with `fetchChangesSince`; pair it with `seedMetadata()` so a delta
+   * result applies onto the replica's lists rather than empty ones.
+   */
+  initialCursor?: number | null
+  /**
+   * Fired after each APPLIED metadata batch (bootstrap/heal snapshot, heal delta,
+   * or live `metadataDelta`) with the hub's current lists + cursor — the web
+   * store persists these into the replica (data first, cursor after). The arrays
+   * are the hub's own (not copies): treat them as read-only.
+   */
+  onMetadataApplied?: (state: MetadataAppliedState) => void
+}
+
+/** Snapshot of the hub's metadata state handed to `onMetadataApplied`. */
+export interface MetadataAppliedState {
+  cursor: number
+  sessions: SessionMeta[]
+  issues: IssueWire[]
+  conversations: ConversationSummaryWire[]
 }
 
 function utf8ToBase64(text: string): string {
@@ -172,6 +197,9 @@ export class SocketHub {
   // ---- metadata-oplog cursor state (delta mode only; see SocketHubOptions) ----
   /** Last applied oplog seq; null until the first changesSince completes. */
   private metadataCursor: number | null = null
+  /** The options' `initialCursor` is spent on the FIRST heal only — after that
+   *  the live `metadataCursor` (or null → snapshot) is always the truth. */
+  private initialCursorSpent = false
   /** Deltas that arrived while a heal/bootstrap was in flight — replayed after. */
   private pendingDeltas: MetadataDeltaMessage[] = []
   private healInFlight = false
@@ -500,6 +528,27 @@ export class SocketHub {
   }
 
   /**
+   * Seed the entity lists from a persisted local replica (hydrate-first paint,
+   * docs/spec/thin-client-replica.md §2.2) and notify observers, so an offline
+   * reload shows last-known data before — or without — the network answering.
+   * A no-op once server truth has landed (any completed changesSince): the
+   * replica is a cache and never argues with the server (spec invariant 1).
+   */
+  seedMetadata(seed: {
+    sessions: SessionMeta[]
+    issues: IssueWire[]
+    conversations: ConversationSummaryWire[]
+  }): void {
+    if (this.metadataCursor !== null) return
+    this.sessionList = seed.sessions
+    this.issueList = seed.issues
+    this.conversationList = seed.conversations
+    for (const o of this.sessionObservers) o(this.sessionList)
+    for (const o of this.issueObservers) o(this.issueList)
+    for (const o of this.conversationObservers) o(this.conversationList)
+  }
+
+  /**
    * Observe a session's live structured-transcript deltas, resuming from `since`
    * (the cursor of the newest item the caller already holds — typically the
    * `tail` of an initial tRPC read). The first observer triggers a server-side
@@ -788,7 +837,21 @@ export class SocketHub {
       if (!this.healInFlight && this.healRetryTimer === undefined) this.healMetadata()
       return
     }
-    if (!this.applyDelta(msg)) this.healMetadata()
+    if (this.applyDelta(msg)) this.emitMetadataApplied()
+    else this.healMetadata()
+  }
+
+  /** Persist hook: hand the current lists + cursor to the embedder after an
+   *  applied batch. Allocation-light — passes the live arrays, not copies. */
+  private emitMetadataApplied(): void {
+    const cb = this.opts.onMetadataApplied
+    if (cb === undefined || this.metadataCursor === null) return
+    cb({
+      cursor: this.metadataCursor,
+      sessions: this.sessionList,
+      issues: this.issueList,
+      conversations: this.conversationList,
+    })
   }
 
   /**
@@ -847,7 +910,13 @@ export class SocketHub {
       this.healRetryTimer = undefined
     }
     this.healInFlight = true
-    fetch(this.metadataCursor).then(
+    // A persisted replica's cursor stands in for null on the very first fetch
+    // only (warm reload → delta, not the world). Once spent — whatever the
+    // outcome — the live cursor owns every subsequent heal.
+    const since =
+      this.metadataCursor ?? (this.initialCursorSpent ? null : (this.opts.initialCursor ?? null))
+    this.initialCursorSpent = true
+    fetch(since).then(
       (result) => {
         this.healInFlight = false
         if (result.kind === 'snapshot') {
@@ -865,12 +934,14 @@ export class SocketHub {
         for (let i = 0; i < queued.length; i++) {
           if (!this.applyDelta(queued[i] as MetadataDeltaMessage)) {
             // Still gapped (changes raced past between the fetch and now): requeue
-            // the rest and go around again.
+            // the rest and go around again. The re-entered heal emits the persist
+            // hook once it settles — no intermediate emit for the torn state.
             this.pendingDeltas = queued.slice(i)
             this.healMetadata()
             return
           }
         }
+        this.emitMetadataApplied()
       },
       () => {
         this.healInFlight = false

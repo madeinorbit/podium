@@ -74,7 +74,10 @@ const snapshot = (cursor: number, issues: IssueWire[] = []): SyncChangesSinceRes
   cursor,
 })
 
-function setup(results: Array<SyncChangesSinceResult | Error>) {
+function setup(
+  results: Array<SyncChangesSinceResult | Error>,
+  extra: Partial<ConstructorParameters<typeof SocketHub>[0]> = {},
+) {
   const sock = new FakeSocket()
   const calls: Array<number | null> = []
   const fetchChangesSince = vi.fn((cursor: number | null) => {
@@ -88,6 +91,7 @@ function setup(results: Array<SyncChangesSinceResult | Error>) {
     viewport: { cols: 80, rows: 24, dpr: 1 },
     makeSocket: () => sock,
     fetchChangesSince,
+    ...extra,
   })
   return { sock, hub, calls }
 }
@@ -217,6 +221,130 @@ describe('SocketHub metadata delta mode', () => {
     expect(calls).toEqual([null, 5])
     expect(hub.issues()).toEqual([]) // nothing applied from the poisoned batch
     warn.mockRestore()
+  })
+
+  it('initialCursor drives the FIRST changesSince; later heals use the live cursor', async () => {
+    const { sock, hub, calls } = setup(
+      [
+        // Warm reload within retention → the server answers with a delta.
+        {
+          kind: 'delta',
+          changes: [{ seq: 6, entity: 'issue', id: 'a', op: 'upsert', value: issue('a', 'one') }],
+          cursor: 6,
+        },
+        { kind: 'delta', changes: [], cursor: 9 }, // the gap heal below
+      ],
+      { initialCursor: 5 },
+    )
+    hub.connect()
+    sock.open()
+    await flush()
+    expect(calls).toEqual([5])
+    expect(hub.issues().map((i) => i.title)).toEqual(['one'])
+    // A live gap heals from the LIVE cursor (6), not the spent initialCursor.
+    sock.recv({
+      type: 'metadataDelta',
+      seq: 8,
+      changes: [{ seq: 8, entity: 'issue', id: 'x', op: 'upsert', value: issue('x', 'late') }],
+    })
+    await flush()
+    expect(calls).toEqual([5, 6])
+  })
+
+  it('initialCursor with a compaction fallback still full-replaces from the snapshot', async () => {
+    const { sock, hub, calls } = setup([snapshot(20, [issue('s', 'from snapshot')])], {
+      initialCursor: 5,
+    })
+    hub.seedMetadata({ sessions: [], issues: [issue('old', 'stale seed')], conversations: [] })
+    hub.connect()
+    sock.open()
+    await flush()
+    expect(calls).toEqual([5])
+    // The snapshot replaced the seeded list wholesale — gap-heal semantics unchanged.
+    expect(hub.issues().map((i) => i.title)).toEqual(['from snapshot'])
+  })
+
+  it('a reconnect after a spent initialCursor without a live cursor falls back to null', async () => {
+    // First heal (with initialCursor) FAILS — the cursor never establishes.
+    vi.useFakeTimers()
+    try {
+      const { sock, hub, calls } = setup([new Error('blip'), snapshot(3)], { initialCursor: 7 })
+      hub.connect()
+      sock.open()
+      await vi.advanceTimersByTimeAsync(0)
+      expect(calls).toEqual([7])
+      // The retry must NOT reuse the spent initialCursor: null → full snapshot.
+      await vi.advanceTimersByTimeAsync(3_000)
+      expect(calls).toEqual([7, null])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('seedMetadata paints lists + notifies observers, and server truth supersedes it', async () => {
+    const { sock, hub } = setup([snapshot(5, [issue('a', 'server')])])
+    const seen: string[][] = []
+    hub.onIssues((i) => seen.push(i.map((x) => x.title)))
+    hub.seedMetadata({ sessions: [], issues: [issue('local', 'replica')], conversations: [] })
+    // Hydrate-first: the seed is visible before any socket traffic.
+    expect(hub.issues().map((i) => i.title)).toEqual(['replica'])
+    expect(seen.at(-1)).toEqual(['replica'])
+    hub.connect()
+    sock.open()
+    await flush()
+    // Reconcile-on-snapshot: final state = server state.
+    expect(hub.issues().map((i) => i.title)).toEqual(['server'])
+    // A late seed (e.g. slow hydrate losing the race) can no longer clobber it.
+    hub.seedMetadata({ sessions: [], issues: [issue('late', 'stale')], conversations: [] })
+    expect(hub.issues().map((i) => i.title)).toEqual(['server'])
+  })
+
+  it('a delta first-heal applies onto seeded lists (warm reload catch-up)', async () => {
+    const { sock, hub, calls } = setup(
+      [
+        {
+          kind: 'delta',
+          changes: [
+            { seq: 6, entity: 'issue', id: 'a', op: 'upsert', value: issue('a', 'a v2') },
+            { seq: 7, entity: 'issue', id: 'b', op: 'remove' },
+          ],
+          cursor: 7,
+        },
+      ],
+      { initialCursor: 5 },
+    )
+    hub.seedMetadata({
+      sessions: [],
+      issues: [issue('a', 'a v1'), issue('b', 'gone soon'), issue('c', 'untouched')],
+      conversations: [],
+    })
+    hub.connect()
+    sock.open()
+    await flush()
+    expect(calls).toEqual([5])
+    expect(hub.issues().map((i) => i.title)).toEqual(['a v2', 'untouched'])
+  })
+
+  it('onMetadataApplied fires after each applied batch with cursor + lists', async () => {
+    const applied: Array<{ cursor: number; issues: string[] }> = []
+    const { sock, hub } = setup([snapshot(5, [issue('a', 'one')])], {
+      onMetadataApplied: (s) =>
+        applied.push({ cursor: s.cursor, issues: s.issues.map((i) => i.title) }),
+    })
+    hub.connect()
+    sock.open()
+    await flush()
+    expect(applied).toEqual([{ cursor: 5, issues: ['one'] }])
+    // Live delta → another emission with the advanced cursor.
+    sock.recv({
+      type: 'metadataDelta',
+      seq: 6,
+      changes: [{ seq: 6, entity: 'issue', id: 'b', op: 'upsert', value: issue('b', 'two') }],
+    })
+    expect(applied).toEqual([
+      { cursor: 5, issues: ['one'] },
+      { cursor: 6, issues: ['one', 'two'] },
+    ])
   })
 
   it('a failed heal retries on a timer while the socket is up', async () => {

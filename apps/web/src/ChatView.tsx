@@ -5,6 +5,7 @@ import {
   ChevronDown,
   ChevronUp,
   Clock,
+  CloudOff,
   FileText,
   Image as ImageIcon,
   Mic,
@@ -142,6 +143,7 @@ export function ChatView({
   const {
     hub,
     trpc,
+    replica,
     sessions,
     drafts,
     setSessionDraft,
@@ -165,6 +167,11 @@ export function ChatView({
   const [headCursor, setHeadCursor] = useState<string | undefined>(undefined)
   // False until the initial read resolves; gates the loader vs the empty-state copy.
   const [initialLoaded, setInitialLoaded] = useState(false)
+  // Non-null when the rendered window is the replica's OFFLINE COPY (the read
+  // failed / server unreachable): epoch ms of when that copy was cached, shown
+  // as a subtle "offline copy — as of <time>" notice. Cleared by any successful
+  // read (docs/spec/thin-client-replica.md §2.3).
+  const [offlineAsOf, setOfflineAsOf] = useState<number | null>(null)
   // Older items paged in from disk on scroll-to-top (anchored reads), newest-last.
   // Always a contiguous chunk that sits immediately BEFORE the held `items`, so
   // [...older, ...items] is a clean prefix→suffix of the full on-disk transcript.
@@ -240,8 +247,14 @@ export function ChatView({
     setHeadCursor(r.head)
     setHasMoreOlder(r.hasMore)
     setInitialLoaded(true)
+    // A fresh read is server truth again — drop the offline-copy notice and
+    // write the window through into the replica so an offline reopen can serve
+    // it (bounded per spec §2.3; a no-op when persistence is unavailable).
+    setOfflineAsOf(null)
+    // Optional-chained: some test harnesses mock a partial store without a replica.
+    if (r.items.length > 0) replica?.putTranscriptWindow(sid, r.items)
     return r
-  }, [trpc, sessionId])
+  }, [trpc, sessionId, replica])
 
   // Read-then-subscribe: the single source of the transcript window for ANY
   // status. (1) Read the newest window off disk via tRPC — this alone populates a
@@ -260,6 +273,7 @@ export function ChatView({
     setHasMoreOlder(true)
     setHeadCursor(undefined)
     setInitialLoaded(false)
+    setOfflineAsOf(null)
     pinnedToBottom.current = true
     didInitialScroll.current = false
 
@@ -274,22 +288,33 @@ export function ChatView({
           // in-flight tail, while a genuine roll still swaps to the new file.
           pinnedToBottom.current = true
           didInitialScroll.current = false
-          void readNewest()
+          void readNewest().catch(() => {}) // transient failure — keep the held window
           return
         }
         setItems((prev) => mergeByCursor(prev, delta))
       })
     })().catch(() => {
-      // The read failed (e.g. daemon offline). Don't spin forever — settle to the
-      // empty/"No transcript yet" state.
-      if (!cancelled) setInitialLoaded(true)
+      // The read failed (server/daemon unreachable — e.g. the PWA opened
+      // offline, or the hub is disconnected and tRPC is down with it). Serve
+      // the replica's cached window with the offline-copy notice instead of a
+      // blank shell; without a cache, settle to the empty/"No transcript yet"
+      // state as before. Online behavior is untouched — this is the catch path.
+      if (cancelled) return
+      const cached = replica?.transcriptWindow(sessionId)
+      if (cached !== undefined && cached.items.length > 0) {
+        setItems(cached.items)
+        // No back-paging against a dead server; the cache IS the window.
+        setHasMoreOlder(false)
+        setOfflineAsOf(cached.savedAt)
+      }
+      setInitialLoaded(true)
     })
 
     return () => {
       cancelled = true
       unsub()
     }
-  }, [hub, sessionId, trpc, readNewest])
+  }, [hub, sessionId, trpc, readNewest, replica])
 
   // Re-read the newest window at the two moments the held window can silently go
   // stale, both of which the sticky read-then-subscribe above can miss:
@@ -309,7 +334,7 @@ export function ChatView({
     prevLive.current = nowLive
     prevActive.current = active
     if (!initialLoaded) return // the read-then-subscribe effect owns the first load
-    if (wokeToLive || becameActive) void readNewest()
+    if (wokeToLive || becameActive) void readNewest().catch(() => {}) // keep the held window
   }, [session?.status, active, initialLoaded, readNewest])
 
   // The full loaded list: older pages prepended to the held window. A small
@@ -1024,6 +1049,12 @@ export function ChatView({
             <Clock size={12} aria-hidden="true" />
             {queuedCount === 1 ? '1 message queued' : `${queuedCount} messages queued`} — delivers
             when the agent is back
+          </div>
+        )}
+        {offlineAsOf !== null && (
+          <div className="flex items-center gap-1.5 pb-1.5 text-[11px] text-muted-foreground">
+            <CloudOff size={12} aria-hidden="true" />
+            offline copy — as of {new Date(offlineAsOf).toLocaleString()}
           </div>
         )}
         <div className="relative flex flex-col gap-0.5 rounded-2xl border border-input bg-background px-2.5 pt-2 pb-1.5 focus-within:border-primary">

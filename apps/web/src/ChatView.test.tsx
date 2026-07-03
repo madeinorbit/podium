@@ -44,10 +44,23 @@ const fakeTrpc = {
 
 let storeSessions: SessionMeta[] = []
 
+// Inert replica stub — the offline-copy path has its own suite (ChatView.offline.test.tsx).
+const fakeReplica = {
+  available: false,
+  hydrate: async () => ({ sessions: [], issues: [], conversations: [], cursor: null }),
+  applySnapshot: () => {},
+  applyChanges: () => {},
+  getCursor: () => null,
+  setCursor: () => {},
+  transcriptWindow: () => undefined,
+  putTranscriptWindow: () => {},
+}
+
 vi.mock('./store', () => ({
   useStore: () => ({
     hub: fakeHub,
     trpc: fakeTrpc,
+    replica: fakeReplica,
     sessions: storeSessions,
     drafts: {},
     setSessionDraft: vi.fn(),
