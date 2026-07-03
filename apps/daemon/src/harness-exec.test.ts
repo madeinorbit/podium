@@ -4,8 +4,8 @@ import { buildHarnessExec, type HarnessBins } from './harness-exec.js'
 const bins: HarnessBins = { opencode: () => '/bin/opencode', cursor: () => '/bin/agent' }
 
 describe('buildHarnessExec', () => {
-  it('injects the system prompt via --append-system-prompt for Claude (prompt unchanged)', () => {
-    const { cmd, args } = buildHarnessExec(
+  it('injects the system prompt via --append-system-prompt for Claude (prompt on stdin)', () => {
+    const { cmd, args, stdin } = buildHarnessExec(
       'claude-code',
       { prompt: 'list my sessions', systemPrompt: 'You are Podium.' },
       bins,
@@ -14,8 +14,10 @@ describe('buildHarnessExec', () => {
     const i = args.indexOf('--append-system-prompt')
     expect(i).toBeGreaterThanOrEqual(0)
     expect(args[i + 1]).toBe('You are Podium.')
-    expect(args).toContain('list my sessions') // not prepended into the prompt
-    expect(args.at(-1)).toBe('list my sessions')
+    // The prompt rides stdin, never argv: --allowedTools is variadic and would
+    // eat a trailing positional (live #84 incident), and argv has ARG_MAX.
+    expect(stdin).toBe('list my sessions')
+    expect(args).not.toContain('list my sessions')
   })
 
   it('prepends the system prompt for agents without a native flag (grok)', () => {
@@ -42,8 +44,8 @@ describe('buildHarnessExec', () => {
     expect(args[args.indexOf('--model') + 1]).toBe('opus')
   })
 
-  it('wires --mcp-config and --allowedTools for Claude', () => {
-    const { args } = buildHarnessExec(
+  it('wires --mcp-config and --allowedTools for Claude, prompt via stdin', () => {
+    const { args, stdin } = buildHarnessExec(
       'claude-code',
       {
         prompt: 'go',
@@ -54,7 +56,10 @@ describe('buildHarnessExec', () => {
     )
     expect(args[args.indexOf('--mcp-config') + 1]).toBe('/tmp/mcp.json')
     expect(args[args.indexOf('--allowedTools') + 1]).toBe('Read,mcp__podium__list_sessions')
-    expect(args.at(-1)).toBe('go')
+    // Regression (#84 live): variadic --allowedTools must be the FINAL argv
+    // entry — any trailing positional would be swallowed as junk tool rules.
+    expect(args.at(-1)).toBe('Read,mcp__podium__list_sessions')
+    expect(stdin).toBe('go')
   })
 
   it('ignores mcp args for agents without MCP mounting (grok)', () => {

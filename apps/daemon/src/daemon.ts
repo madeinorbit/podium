@@ -1743,7 +1743,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     try {
       // Inside the try: buildHarnessExec THROWS on a malformed codex MCP config
       // (refusing a silent tool-less run) — that must surface as a failed turn.
-      const { cmd, args } = buildHarnessExec(
+      const { cmd, args, stdin } = buildHarnessExec(
         msg.agent,
         {
           prompt: msg.prompt,
@@ -1755,11 +1755,17 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
         },
         { opencode: resolveOpencodeBin, cursor: resolveCursorBin },
       )
-      const { stdout } = await execFileAsync(cmd, args, {
+      // promisified execFile still exposes the child: deliver the prompt on
+      // stdin (claude — variadic --allowedTools would eat an argv prompt) and
+      // ALWAYS close the pipe, or stdin-appending CLIs (codex) block on EOF.
+      // Timeout/maxBuffer kill-budget semantics are execFileAsync's, unchanged.
+      const pending = execFileAsync(cmd, args, {
         timeout: msg.timeoutMs ?? 240_000,
         maxBuffer: 4 * 1024 * 1024,
         ...(msg.cwd ? { cwd: msg.cwd } : {}),
       })
+      pending.child.stdin?.end(stdin ?? '')
+      const { stdout } = await pending
       send({
         type: 'harnessExecResult',
         requestId: msg.requestId,

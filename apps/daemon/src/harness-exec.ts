@@ -3,6 +3,12 @@ export type HarnessAgentKind = 'claude-code' | 'codex' | 'grok' | 'opencode' | '
 export interface HarnessExecSpec {
   cmd: string
   args: string[]
+  /** Delivered on the child's stdin (then EOF). Claude takes the prompt here:
+   *  its `--allowedTools` flag is VARIADIC (eats every following non-flag arg,
+   *  including a trailing prompt positional — live incident on #84), and argv
+   *  prompts also risk ARG_MAX with folded-in thread history. Agents without a
+   *  stdin prompt get their prompt as a positional and an immediate EOF. */
+  stdin?: string
 }
 
 /** Bin resolvers for agents whose executable path isn't a fixed name. */
@@ -94,8 +100,12 @@ export function buildHarnessExec(
           ...(opts.allowedTools && opts.allowedTools.length > 0
             ? ['--allowedTools', opts.allowedTools.join(',')]
             : []),
-          prompt,
         ],
+        // NO trailing prompt positional: --allowedTools is variadic and would
+        // swallow it as junk tool rules, leaving claude promptless ("Input must
+        // be provided either through stdin or as a prompt argument"). `-p` with
+        // stdin is the documented headless mode and dodges ARG_MAX too.
+        stdin: prompt,
       }
     case 'codex':
       return {
@@ -110,6 +120,10 @@ export function buildHarnessExec(
           // Codex has no --allowedTools equivalent — allowedTools is ignored
           // here; the run rides `codex exec`'s own default read-only sandbox,
           // and MCP tool calls need no approval flag in exec mode.
+          // Prompt as positional is safe here: `-c` is single-value (clap
+          // `<key=value>`), no variadic flag precedes the positional. The
+          // daemon closes stdin immediately, else codex would block appending
+          // a `<stdin>` block from the never-EOF pipe.
           ...codexMcpArgs(opts.mcpConfig),
           prompt,
         ],
