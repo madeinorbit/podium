@@ -31,13 +31,22 @@ describe('agent-models catalog', () => {
       'xhigh',
       'max',
     ])
-    // Codex stops at high and adds minimal.
+    // Codex effort (verified via `codex debug models`): low → xhigh, no minimal.
     expect(effortOptions('codex').map((o) => o.value)).toEqual([
+      'auto',
+      'low',
+      'medium',
+      'high',
+      'xhigh',
+    ])
+    // opencode --variant: minimal → max.
+    expect(effortOptions('opencode').map((o) => o.value)).toEqual([
       'auto',
       'minimal',
       'low',
       'medium',
       'high',
+      'max',
     ])
   })
 
@@ -56,9 +65,10 @@ describe('agent-models catalog', () => {
     expect(effortLabel('claude-code', 'xhigh')).toBe('Extra high')
   })
 
-  it('isEffortValid rejects an out-of-ladder value (e.g. xhigh under codex)', () => {
-    expect(isEffortValid('claude-code', 'xhigh')).toBe(true)
-    expect(isEffortValid('codex', 'xhigh')).toBe(false)
+  it('isEffortValid rejects an out-of-ladder value (codex tops at xhigh, no max)', () => {
+    expect(isEffortValid('claude-code', 'max')).toBe(true)
+    expect(isEffortValid('codex', 'xhigh')).toBe(true)
+    expect(isEffortValid('codex', 'max')).toBe(false)
     expect(isEffortValid('codex', 'auto')).toBe(true)
   })
 })

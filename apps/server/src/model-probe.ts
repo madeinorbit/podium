@@ -4,13 +4,14 @@ import { promisify } from 'node:util'
 const execFileAsync = promisify(execFile)
 
 /**
- * Live model enumeration. Some agent CLIs list the models the current login can use
- * (`grok models`, `cursor-agent models`, `opencode models`); others (claude, codex)
- * have no list command and the web falls back to its static catalog.
+ * Live model enumeration. Most agent CLIs list the models the current login can use:
+ * `grok models`, `cursor-agent models`, `opencode models`, and `codex debug models`
+ * (JSON). Only claude has no list command (would need the Anthropic /v1/models API +
+ * key), so the web falls back to its static catalog for claude.
  *
  * Kept in apps/server (rather than @podium/agent-bridge) so the server needs no new
- * package dependency — it only shells out via PATH, which already resolves all three
- * CLIs on the deploy host. The lists are network-backed (~2s warm, ~7s cold), so the
+ * package dependency — it only shells out via PATH, which already resolves the CLIs on
+ * the deploy host. The lists are network-backed (~2s warm, ~7s cold), so the
  * ModelCatalog caches them stale-while-revalidate rather than probing on every open.
  */
 
@@ -20,11 +21,14 @@ export interface ModelChoice {
 }
 
 /** Agent kinds that can enumerate models → the argv that lists them. Keyed by the
- *  web/protocol agent kind ('cursor'), not the binary ('cursor-agent'). */
+ *  web/protocol agent kind ('cursor'), not the binary ('cursor-agent'). codex uses
+ *  `codex debug models` (JSON; the only non-interactive path — `codex models` forwards
+ *  to the TUI). claude/codex-less agents have no list command → the web static list. */
 const MODEL_PROBES = {
   grok: ['grok', 'models'],
   cursor: ['cursor-agent', 'models'],
   opencode: ['opencode', 'models'],
+  codex: ['codex', 'debug', 'models'],
 } as const satisfies Record<string, readonly string[]>
 
 export type ProbeableAgent = keyof typeof MODEL_PROBES
@@ -74,10 +78,37 @@ export function parseOpencodeModels(out: string): ModelChoice[] {
   return models
 }
 
+/** codex debug models → `{ models: [{ slug, display_name, visibility, priority }] }`.
+ *  Keep only user-selectable models (`visibility === 'list'` drops internal ones like
+ *  codex-auto-review), ordered by the CLI's own priority. */
+export function parseCodexModels(out: string): ModelChoice[] {
+  try {
+    const parsed = JSON.parse(out) as {
+      models?: Array<{
+        slug?: string
+        display_name?: string
+        visibility?: string
+        priority?: number
+      }>
+    }
+    return (parsed.models ?? [])
+      .filter((m): m is { slug: string; display_name?: string; priority?: number } =>
+        Boolean(m.slug && m.visibility === 'list'),
+      )
+      .sort(
+        (a, b) => (a.priority ?? Number.MAX_SAFE_INTEGER) - (b.priority ?? Number.MAX_SAFE_INTEGER),
+      )
+      .map((m) => ({ value: m.slug, label: m.display_name || m.slug }))
+  } catch {
+    return []
+  }
+}
+
 const PARSERS: Record<ProbeableAgent, (out: string) => ModelChoice[]> = {
   grok: parseGrokModels,
   cursor: parseCursorModels,
   opencode: parseOpencodeModels,
+  codex: parseCodexModels,
 }
 
 export function parseModels(kind: ProbeableAgent, out: string): ModelChoice[] {

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  parseCodexModels,
   parseCursorModels,
   parseGrokModels,
   parseOpencodeModels,
@@ -31,6 +32,19 @@ openai/gpt-5.5
 xai/grok-4.3
 `
 
+const CODEX = JSON.stringify({
+  models: [
+    { slug: 'gpt-5.4', display_name: 'GPT-5.4', visibility: 'list', priority: 16 },
+    { slug: 'gpt-5.5', display_name: 'GPT-5.5', visibility: 'list', priority: 7 },
+    {
+      slug: 'codex-auto-review',
+      display_name: 'Codex Auto Review',
+      visibility: 'hide',
+      priority: 43,
+    },
+  ],
+})
+
 describe('model-probe parsers', () => {
   it('grok: reads the marker list under "Available models:", ignores header/default line', () => {
     expect(parseGrokModels(GROK)).toEqual([
@@ -55,10 +69,18 @@ describe('model-probe parsers', () => {
     ])
   })
 
+  it('codex: parses debug-models JSON, drops hidden models, orders by priority', () => {
+    expect(parseCodexModels(CODEX)).toEqual([
+      { value: 'gpt-5.5', label: 'GPT-5.5' }, // priority 7 sorts before 16
+      { value: 'gpt-5.4', label: 'GPT-5.4' },
+    ])
+  })
+
   it('parsers tolerate empty / junk output', () => {
     expect(parseGrokModels('')).toEqual([])
     expect(parseCursorModels('nonsense\n')).toEqual([])
     expect(parseOpencodeModels('not a model line')).toEqual([])
+    expect(parseCodexModels('not json')).toEqual([])
   })
 })
 
@@ -83,12 +105,14 @@ describe('probe (injected exec — no shelling out)', () => {
         if (argv[0] === 'grok') return GROK
         if (argv[0] === 'cursor-agent') return CURSOR
         if (argv[0] === 'opencode') return OPENCODE
+        if (argv[0] === 'codex') return CODEX
         return ''
       },
     })
-    expect(Object.keys(byAgent).sort()).toEqual(['cursor', 'grok', 'opencode'])
+    expect(Object.keys(byAgent).sort()).toEqual(['codex', 'cursor', 'grok', 'opencode'])
     expect(byAgent.grok?.length).toBe(2)
     expect(byAgent.cursor?.length).toBe(3)
     expect(byAgent.opencode?.length).toBe(3)
+    expect(byAgent.codex?.length).toBe(2)
   })
 })

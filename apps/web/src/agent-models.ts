@@ -31,9 +31,10 @@ const AGENT_MODELS: Record<IssueAgentKind, Choice[]> = {
     { value: 'sonnet', label: 'Sonnet' },
     { value: 'haiku', label: 'Haiku' },
   ],
+  // Fallback only — codex is live-enumerated server-side via `codex debug models`.
   codex: [
     { value: 'gpt-5.5', label: 'GPT-5.5' },
-    { value: 'gpt-5.1-codex', label: 'GPT-5.1 Codex' },
+    { value: 'gpt-5.4', label: 'GPT-5.4' },
   ],
   grok: [
     { value: 'grok-composer-2.5-fast', label: 'Grok Composer 2.5 Fast' },
@@ -51,9 +52,14 @@ const AGENT_MODELS: Record<IssueAgentKind, Choice[]> = {
   ],
 }
 
-/** Standard reasoning-effort ladders. Claude + Grok share the full five; codex adds
- *  a `minimal` rung and stops at `high`; opencode's `--variant` takes the common three. */
-const FULL_EFFORT: Choice[] = [
+// Reasoning-effort ladders, each verified against the agent's own authoritative
+// source (not guessed):
+//   claude  `claude --help` → low, medium, high, xhigh, max
+//   grok    `grok --help`   → low, medium, high, xhigh, max
+//   codex   `codex debug models` supported_reasoning_levels → low, medium, high, xhigh
+//   opencode `opencode run --help` --variant examples → minimal, low, medium, high, max
+//   cursor   no effort flag — effort rides the model string (`model[effort=high]`)
+const CLAUDE_GROK_EFFORT: Choice[] = [
   { value: 'low', label: 'Low' },
   { value: 'medium', label: 'Medium' },
   { value: 'high', label: 'High' },
@@ -62,20 +68,22 @@ const FULL_EFFORT: Choice[] = [
 ]
 
 const AGENT_EFFORTS: Record<IssueAgentKind, Choice[]> = {
-  'claude-code': FULL_EFFORT,
-  grok: FULL_EFFORT,
+  'claude-code': CLAUDE_GROK_EFFORT,
+  grok: CLAUDE_GROK_EFFORT,
   codex: [
+    { value: 'low', label: 'Low' },
+    { value: 'medium', label: 'Medium' },
+    { value: 'high', label: 'High' },
+    { value: 'xhigh', label: 'Extra high' },
+  ],
+  opencode: [
     { value: 'minimal', label: 'Minimal' },
     { value: 'low', label: 'Low' },
     { value: 'medium', label: 'Medium' },
     { value: 'high', label: 'High' },
+    { value: 'max', label: 'Max' },
   ],
-  opencode: [
-    { value: 'low', label: 'Low' },
-    { value: 'medium', label: 'Medium' },
-    { value: 'high', label: 'High' },
-  ],
-  // Cursor's CLI has no effort/reasoning flag.
+  // Cursor has no effort flag — effort is a model parameter (model[effort=high]).
   cursor: [],
 }
 
