@@ -7,6 +7,7 @@ import {
   buildBtwRecap,
   buildBtwSeed,
   harnessAllowedTools,
+  matchAnswerToOptions,
   SuperagentService,
   transcriptDelta,
 } from './superagent'
@@ -235,5 +236,286 @@ describe('start_agent tool wiring (issue #60)', () => {
     })
     expect(out).toMatch(/unknown issue/)
     expect(registry.listSessions()).toHaveLength(0)
+  })
+})
+
+describe('matchAnswerToOptions', () => {
+  const labels = ['Yes, deploy', 'No, wait', 'Rollback']
+  it('takes bare 1-based numbers, incl. comma-separated multi-select', () => {
+    expect(matchAnswerToOptions('2', labels)).toEqual([2])
+    expect(matchAnswerToOptions('1, 3', labels)).toEqual([1, 3])
+  })
+  it('rejects out-of-range numbers', () => {
+    expect(matchAnswerToOptions('4', labels)).toEqual([])
+  })
+  it('matches an exact label case-insensitively', () => {
+    expect(matchAnswerToOptions('no, wait', labels)).toEqual([2])
+  })
+  it('matches a UNIQUE substring, and refuses an ambiguous one', () => {
+    expect(matchAnswerToOptions('rollback', labels)).toEqual([3])
+    expect(matchAnswerToOptions(',', labels)).toEqual([]) // in every label
+  })
+})
+
+// Session-steering belt (issue #62) — a real in-memory registry driven through
+// callMcpTool, with a daemon fake that records inputs and answers transcript reads.
+describe('session-steering tool belt (issue #62)', () => {
+  const st = (phase: string, idle?: { kind: string }) =>
+    ({ phase, since: 't', openTaskCount: 0, ...(idle ? { idle } : {}) }) as never
+
+  function harness(opts?: { waitPollMs?: number; transcriptItems?: TranscriptItem[] }) {
+    const registry = new SessionRegistry()
+    const inputs: string[] = []
+    registry.attachDaemon('local', (m) => {
+      if (m.type === 'input') inputs.push(Buffer.from(m.data, 'base64').toString())
+      if (m.type === 'repoOpRequest') {
+        queueMicrotask(() =>
+          registry.onDaemonMessageFrom('local', {
+            type: 'repoOpResult',
+            requestId: m.requestId,
+            ok: true,
+            output: '',
+          }),
+        )
+      }
+      if (m.type === 'transcriptRead') {
+        queueMicrotask(() =>
+          registry.onDaemonMessageFrom('local', {
+            type: 'transcriptReadResult',
+            requestId: m.requestId,
+            sessionId: m.sessionId,
+            items: opts?.transcriptItems ?? [],
+            hasMore: false,
+          }),
+        )
+      }
+    })
+    const repos = new RepoRegistry(registry, registry.sessionStore)
+    const sa = new SuperagentService(registry, repos, registry.sessionStore, {
+      waitPollMs: opts?.waitPollMs ?? 5,
+    })
+    const spawn = (live = false): string => {
+      const { sessionId } = registry.createSession({ agentKind: 'claude-code', cwd: '/w' })
+      if (live)
+        registry.onDaemonMessageFrom('local', {
+          type: 'bind',
+          sessionId,
+          cmd: 'claude',
+          cwd: '/w',
+          agentKind: 'claude-code',
+          geometry: { cols: 80, rows: 24 },
+        })
+      return sessionId
+    }
+    const metaOf = (id: string) => registry.listSessions().find((s) => s.sessionId === id)
+    return { registry, sa, inputs, spawn, metaOf }
+  }
+
+  const askItem = (multiSelect = false): TranscriptItem =>
+    item({
+      id: 'q1',
+      role: 'tool',
+      toolName: 'AskUserQuestion',
+      toolInputJson: JSON.stringify({
+        questions: [
+          {
+            question: 'Deploy now?',
+            multiSelect,
+            options: [{ label: 'Yes' }, { label: 'No' }, { label: 'Later' }],
+          },
+        ],
+      }),
+    })
+
+  it('answer_question matches a label and types the option digit into the menu', async () => {
+    const h = harness({ transcriptItems: [askItem()] })
+    const sessionId = h.spawn(true)
+    const out = await h.sa.callMcpTool('answer_question', { sessionId, answer: 'No' })
+    expect(JSON.parse(out)).toEqual({ answered: true, choices: [{ optionIndices: [2] }] })
+    expect(h.inputs).toContain('2')
+  })
+
+  it('answer_question passes multi-select numbers through as a comma set + Enter', async () => {
+    const h = harness({ transcriptItems: [askItem(true)] })
+    const sessionId = h.spawn(true)
+    const out = await h.sa.callMcpTool('answer_question', { sessionId, answer: '1,3' })
+    expect(JSON.parse(out)).toEqual({ answered: true, choices: [{ optionIndices: [1, 3] }] })
+    expect(h.inputs).toContain('1,3\r')
+  })
+
+  it('answer_question reports unmatched answers with the option list, and missing prompts', async () => {
+    const h = harness({ transcriptItems: [askItem()] })
+    const sessionId = h.spawn(true)
+    expect(await h.sa.callMcpTool('answer_question', { sessionId, answer: 'maybe' })).toMatch(
+      /could not match "maybe".*1\) Yes, 2\) No, 3\) Later/,
+    )
+    const empty = harness()
+    const s2 = empty.spawn(true)
+    expect(await empty.sa.callMcpTool('answer_question', { sessionId: s2, answer: 'Yes' })).toMatch(
+      /no pending AskUserQuestion/,
+    )
+  })
+
+  it('answer_question rejects an unknown session', async () => {
+    const h = harness()
+    expect(await h.sa.callMcpTool('answer_question', { sessionId: 'nope', answer: '1' })).toBe(
+      'unknown session',
+    )
+  })
+
+  it('resume_and_send accepts a message for a not-yet-live session (durable queue)', async () => {
+    const h = harness()
+    const sessionId = h.spawn() // starting: goes through the queue
+    const out = await h.sa.callMcpTool('resume_and_send', { sessionId, text: 'carry on' })
+    expect(out).toMatch(/^sent/)
+    expect(h.metaOf(sessionId)?.queuedMessageCount).toBe(1)
+  })
+
+  it('resume_and_send fails on an unknown session', async () => {
+    const h = harness()
+    expect(await h.sa.callMcpTool('resume_and_send', { sessionId: 'nope', text: 'x' })).toBe(
+      'failed: unknown session',
+    )
+  })
+
+  it("continue_session types 'continue' into an errored live session only", async () => {
+    const h = harness()
+    const sessionId = h.spawn(true)
+    h.registry.onDaemonMessageFrom('local', { type: 'agentState', sessionId, state: st('errored') })
+    expect(await h.sa.callMcpTool('continue_session', { sessionId })).toBe('sent continue')
+    expect(h.inputs).toContain('continue\r')
+    // Not errored anymore → refused, with the gate surfaced.
+    h.registry.onDaemonMessageFrom('local', { type: 'agentState', sessionId, state: st('idle') })
+    expect(await h.sa.callMcpTool('continue_session', { sessionId })).toMatch(/errored phase/)
+  })
+
+  it('continue_session rejects an unknown session', async () => {
+    const h = harness()
+    expect(await h.sa.callMcpTool('continue_session', { sessionId: 'nope' })).toBe(
+      'unknown session',
+    )
+  })
+
+  it('hibernate_session parks a live session with a resume ref', async () => {
+    const h = harness()
+    const sessionId = h.spawn(true)
+    h.registry.onDaemonMessageFrom('local', {
+      type: 'sessionResumeRef',
+      sessionId,
+      resume: { kind: 'claude-session', value: 'r1' },
+    })
+    expect(await h.sa.callMcpTool('hibernate_session', { sessionId })).toBe('hibernated')
+    expect(h.metaOf(sessionId)?.status).toBe('hibernated')
+  })
+
+  it('hibernate_session surfaces the registry refusal reasons', async () => {
+    const h = harness()
+    expect(await h.sa.callMcpTool('hibernate_session', { sessionId: 'nope' })).toBe(
+      'failed: unknown session',
+    )
+    const sessionId = h.spawn(true) // live but no resume ref yet
+    expect(await h.sa.callMcpTool('hibernate_session', { sessionId })).toMatch(
+      /failed: no resume ref/,
+    )
+  })
+
+  it("snooze_session supports 'next-message' (null) and ISO timestamps; clear_snooze undoes", async () => {
+    const h = harness()
+    const sessionId = h.spawn()
+    expect(
+      await h.sa.callMcpTool('snooze_session', { sessionId, until: 'next-message' }),
+    ).toBe(JSON.stringify({ snoozedUntil: null }))
+    expect(h.metaOf(sessionId)?.snoozedUntil).toBeNull()
+    const iso = '2026-07-03T05:00:00.000Z'
+    await h.sa.callMcpTool('snooze_session', { sessionId, until: iso })
+    expect(h.metaOf(sessionId)?.snoozedUntil).toBe(iso)
+    expect(await h.sa.callMcpTool('clear_snooze', { sessionId })).toBe('snooze cleared')
+    expect(h.metaOf(sessionId)?.snoozedUntil).toBeUndefined()
+  })
+
+  it('snooze_session rejects garbage untils and unknown sessions', async () => {
+    const h = harness()
+    const sessionId = h.spawn()
+    expect(await h.sa.callMcpTool('snooze_session', { sessionId, until: 'whenever' })).toMatch(
+      /invalid until/,
+    )
+    expect(h.metaOf(sessionId)?.snoozedUntil).toBeUndefined()
+    expect(
+      await h.sa.callMcpTool('snooze_session', { sessionId: 'nope', until: 'next-message' }),
+    ).toBe('unknown session')
+    expect(await h.sa.callMcpTool('clear_snooze', { sessionId: 'nope' })).toBe('unknown session')
+  })
+
+  it('rename_session sets the user-facing name', async () => {
+    const h = harness()
+    const sessionId = h.spawn()
+    expect(await h.sa.callMcpTool('rename_session', { sessionId, name: 'auth fix' })).toBe(
+      'renamed',
+    )
+    expect(h.metaOf(sessionId)?.name).toBe('auth fix')
+    expect(await h.sa.callMcpTool('rename_session', { sessionId: 'nope', name: 'x' })).toBe(
+      'unknown session',
+    )
+  })
+
+  it('set_work_state validates against the protocol WorkState enum', async () => {
+    const h = harness()
+    const sessionId = h.spawn()
+    expect(await h.sa.callMcpTool('set_work_state', { sessionId, workState: 'testing' })).toBe(
+      JSON.stringify({ workState: 'testing' }),
+    )
+    expect(h.metaOf(sessionId)?.workState).toBe('testing')
+    expect(await h.sa.callMcpTool('set_work_state', { sessionId, workState: 'shipping' })).toMatch(
+      /invalid workState/,
+    )
+    expect(h.metaOf(sessionId)?.workState).toBe('testing') // unchanged
+    expect(
+      await h.sa.callMcpTool('set_work_state', { sessionId: 'nope', workState: 'done' }),
+    ).toBe('unknown session')
+  })
+
+  it('wait_for_session resolves early on the next phase event, with the verdict', async () => {
+    const h = harness({ waitPollMs: 5 })
+    const sessionId = h.spawn(true)
+    // Seed a phase so the NEXT one is a real transition (prev==null logs nothing).
+    h.registry.onDaemonMessageFrom('local', { type: 'agentState', sessionId, state: st('working') })
+    const p = h.sa.callMcpTool('wait_for_session', { sessionId, timeoutSeconds: 10 })
+    await new Promise((r) => setTimeout(r, 15))
+    h.registry.onDaemonMessageFrom('local', {
+      type: 'agentState',
+      sessionId,
+      state: st('idle', { kind: 'done' }),
+    })
+    expect(JSON.parse(await p)).toEqual({ phase: 'idle', verdict: 'done' })
+  })
+
+  it('wait_for_session times out quietly with the last-known phase (never throws)', async () => {
+    const h = harness({ waitPollMs: 5 })
+    const sessionId = h.spawn(true)
+    h.registry.onDaemonMessageFrom('local', { type: 'agentState', sessionId, state: st('working') })
+    expect(await h.sa.callMcpTool('wait_for_session', { sessionId, timeoutSeconds: 0 })).toBe(
+      'timeout after 0s (session still working)',
+    )
+  })
+
+  it('wait_for_session rejects an unknown session', async () => {
+    const h = harness()
+    expect(await h.sa.callMcpTool('wait_for_session', { sessionId: 'nope' })).toBe(
+      'unknown session',
+    )
+  })
+
+  it('list_sessions rows carry spawnedBy + snoozedUntil', async () => {
+    const h = harness()
+    const { sessionId } = h.registry.createSession({
+      agentKind: 'claude-code',
+      cwd: '/w',
+      spawnedBy: 'user',
+    })
+    h.registry.setSnooze({ sessionId, until: null })
+    const rows = JSON.parse(await h.sa.callMcpTool('list_sessions', {}, 'btw_x')) as Array<
+      Record<string, unknown>
+    >
+    expect(rows[0]).toMatchObject({ sessionId, spawnedBy: 'user', snoozedUntil: null })
   })
 })

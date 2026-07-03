@@ -1,4 +1,4 @@
-import type { TranscriptItem } from '@podium/protocol'
+import { type TranscriptItem, WorkState } from '@podium/protocol'
 import { createIssue, moveIssue, searchIssues } from './linear'
 import { LlmConfigError, type LlmMessage, type LlmTool, llmClient } from './llm'
 import type { SessionRegistry } from './relay'
@@ -246,11 +246,17 @@ export class SuperagentService {
   // server once it's listening (it knows its own HTTP port + the access token).
   private mcpEndpoint: { url: string; token: string; allToolNames?: string[] } | undefined
 
+  /** How often wait_for_session re-checks the event log. Injectable for tests. */
+  private readonly waitPollMs: number
+
   constructor(
     private readonly registry: SessionRegistry,
     private readonly repos: RepoRegistry,
     private readonly store: SessionStore,
-  ) {}
+    opts?: { waitPollMs?: number },
+  ) {
+    this.waitPollMs = opts?.waitPollMs ?? 2000
+  }
 
   /** Point harness agents at the in-process MCP server (Podium's orchestrator
    *  tools). Called by the server after it binds its port. */
@@ -557,14 +563,18 @@ export class SuperagentService {
   ): { spec: LlmTool; run: (args: Args) => Promise<string> }[] {
     const registry = this.registry
     const repos = this.repos
+    const store = this.store
+    const waitPollMs = this.waitPollMs
     // Session provenance (issue #60): thread-scoped when the executing thread is known.
     const spawnedBy = threadId ? `superagent:${threadId}` : 'superagent'
+    const getSession = (id: string) => registry.listSessions().find((s) => s.sessionId === id)
     const tools: { spec: LlmTool; run: (args: Args) => Promise<string> }[] = [
       {
         spec: {
           name: 'list_sessions',
           description:
-            'List all agent/shell sessions: id, name, kind, cwd, status, agent phase, last activity.',
+            'List all agent/shell sessions: id, name, kind, cwd, status, agent phase, ' +
+            'last activity, provenance (spawnedBy), snooze state.',
           parameters: { type: 'object', properties: {} },
         },
         run: async () =>
@@ -578,6 +588,10 @@ export class SuperagentService {
               phase: s.agentState?.phase ?? 'unknown',
               archived: s.archived,
               lastActiveAt: s.lastActiveAt,
+              // Provenance + snooze (issue #62): who created it, and whether it's
+              // parked out of the attention flow (null = until next message).
+              spawnedBy: s.spawnedBy,
+              snoozedUntil: s.snoozedUntil,
             })),
           ),
       },
@@ -695,6 +709,266 @@ export class SuperagentService {
             text: str(args.text) ?? '',
           })
           return r.ok ? 'sent' : 'failed: session not running'
+        },
+      },
+      {
+        spec: {
+          name: 'answer_question',
+          description:
+            'Answer a pending AskUserQuestion prompt on a session. Pass the chosen option ' +
+            'by its label or its 1-based number ("2", or "1,3" for multi-select).',
+          parameters: {
+            type: 'object',
+            properties: {
+              sessionId: { type: 'string' },
+              answer: {
+                type: 'string',
+                description: 'option label, or 1-based option number(s) like "2" or "1,3"',
+              },
+            },
+            required: ['sessionId', 'answer'],
+          },
+        },
+        run: async (args) => {
+          const sessionId = str(args.sessionId) ?? ''
+          const answer = str(args.answer) ?? ''
+          if (!getSession(sessionId)) return 'unknown session'
+          // The live prompt's options live in the transcript: the LAST
+          // AskUserQuestion call carries them as structured toolInputJson (the same
+          // source the chat card renders from).
+          const { items } = await registry.readTranscript({
+            sessionId,
+            direction: 'before',
+            limit: 50,
+          })
+          const q = [...items]
+            .reverse()
+            .find((i) => i.role === 'tool' && i.toolName === 'AskUserQuestion' && i.toolInputJson)
+          if (!q) return 'no pending AskUserQuestion found in the transcript tail'
+          let questions: Array<{
+            question?: string
+            multiSelect?: boolean
+            options?: Array<{ label?: string }>
+          }> = []
+          try {
+            const parsed = JSON.parse(q.toolInputJson ?? '{}') as { questions?: unknown }
+            if (Array.isArray(parsed?.questions)) questions = parsed.questions
+          } catch {}
+          if (questions.length === 0) return 'pending question has no parseable options'
+          // One choice entry per question (the registry types digits into the
+          // native menu). The single answer text is resolved against each
+          // question's options — the dominant case is a single question.
+          const choices: { optionIndices: number[] }[] = []
+          for (const qq of questions) {
+            const labels = (qq.options ?? []).map((o) => o.label ?? '')
+            const idx = matchAnswerToOptions(answer, labels)
+            if (idx.length === 0) {
+              return `could not match ${JSON.stringify(answer)} to the options: ${labels
+                .map((l, i) => `${i + 1}) ${l}`)
+                .join(', ')}`
+            }
+            choices.push({ optionIndices: qq.multiSelect ? idx : idx.slice(0, 1) })
+          }
+          const r = registry.answerAskUserQuestion({ sessionId, choices })
+          return r.ok ? JSON.stringify({ answered: true, choices }) : 'failed: session not running'
+        },
+      },
+      {
+        spec: {
+          name: 'resume_and_send',
+          description:
+            'Deliver a message to a session even if it is parked (hibernated/exited): ' +
+            'wakes it when needed and types the text once the CLI is ready.',
+          parameters: {
+            type: 'object',
+            properties: { sessionId: { type: 'string' }, text: { type: 'string' } },
+            required: ['sessionId', 'text'],
+          },
+        },
+        run: async (args) => {
+          const r = registry.resumeAndSend({
+            sessionId: str(args.sessionId) ?? '',
+            text: str(args.text) ?? '',
+          })
+          return r.ok
+            ? 'sent (queued for delivery if the session is still waking)'
+            : `failed: ${r.reason ?? 'unknown'}`
+        },
+      },
+      {
+        spec: {
+          name: 'continue_session',
+          description:
+            "Nudge an errored agent to retry (types 'continue' into it). Only works on a " +
+            'running session whose phase is errored.',
+          parameters: {
+            type: 'object',
+            properties: { sessionId: { type: 'string' } },
+            required: ['sessionId'],
+          },
+        },
+        run: async (args) => {
+          const sessionId = str(args.sessionId) ?? ''
+          if (!getSession(sessionId)) return 'unknown session'
+          const r = registry.continueSession({ sessionId })
+          return r.ok
+            ? 'sent continue'
+            : 'failed: session must be running and in the errored phase'
+        },
+      },
+      {
+        spec: {
+          name: 'hibernate_session',
+          description:
+            'Gracefully park a live session: kill its process but keep the row, transcript, ' +
+            'and resume ref so it can be woken later (vs kill_session, which removes it).',
+          parameters: {
+            type: 'object',
+            properties: { sessionId: { type: 'string' } },
+            required: ['sessionId'],
+          },
+        },
+        run: async (args) => {
+          const r = registry.hibernateSession({ sessionId: str(args.sessionId) ?? '' })
+          return r.ok ? 'hibernated' : `failed: ${r.reason ?? 'unknown'}`
+        },
+      },
+      {
+        spec: {
+          name: 'snooze_session',
+          description:
+            "Snooze a session out of the NEEDS ATTENTION list. until: 'next-message' " +
+            '(until it next speaks) or an ISO timestamp.',
+          parameters: {
+            type: 'object',
+            properties: {
+              sessionId: { type: 'string' },
+              until: {
+                type: 'string',
+                description: "'next-message' or an ISO 8601 timestamp",
+              },
+            },
+            required: ['sessionId', 'until'],
+          },
+        },
+        run: async (args) => {
+          const sessionId = str(args.sessionId) ?? ''
+          const until = str(args.until) ?? ''
+          if (!getSession(sessionId)) return 'unknown session'
+          // null = until next message (SessionMeta.snoozedUntil semantics).
+          const value = until === 'next-message' ? null : until
+          if (value !== null && Number.isNaN(Date.parse(value))) {
+            return `invalid until: pass 'next-message' or an ISO timestamp, got ${JSON.stringify(until)}`
+          }
+          registry.setSnooze({ sessionId, until: value })
+          return JSON.stringify({ snoozedUntil: value })
+        },
+      },
+      {
+        spec: {
+          name: 'clear_snooze',
+          description: 'Clear a snooze, returning the session to the normal attention flow.',
+          parameters: {
+            type: 'object',
+            properties: { sessionId: { type: 'string' } },
+            required: ['sessionId'],
+          },
+        },
+        run: async (args) => {
+          const sessionId = str(args.sessionId) ?? ''
+          if (!getSession(sessionId)) return 'unknown session'
+          registry.clearSnooze(sessionId)
+          return 'snooze cleared'
+        },
+      },
+      {
+        spec: {
+          name: 'rename_session',
+          description: 'Set the user-facing name of a session (empty string clears it).',
+          parameters: {
+            type: 'object',
+            properties: { sessionId: { type: 'string' }, name: { type: 'string' } },
+            required: ['sessionId', 'name'],
+          },
+        },
+        run: async (args) => {
+          const sessionId = str(args.sessionId) ?? ''
+          if (!getSession(sessionId)) return 'unknown session'
+          registry.renameSession({
+            sessionId,
+            name: typeof args.name === 'string' ? args.name : '',
+          })
+          return 'renamed'
+        },
+      },
+      {
+        spec: {
+          name: 'set_work_state',
+          description:
+            "Set a session's kanban work state: planning | implementing | testing | done | icebox.",
+          parameters: {
+            type: 'object',
+            properties: {
+              sessionId: { type: 'string' },
+              workState: { type: 'string', enum: [...WorkState.options] },
+            },
+            required: ['sessionId', 'workState'],
+          },
+        },
+        run: async (args) => {
+          const sessionId = str(args.sessionId) ?? ''
+          const parsed = WorkState.safeParse(args.workState)
+          if (!parsed.success) {
+            return `invalid workState: expected one of ${WorkState.options.join(' | ')}`
+          }
+          if (!getSession(sessionId)) return 'unknown session'
+          registry.setWorkState({ sessionId, workState: parsed.data })
+          return JSON.stringify({ workState: parsed.data })
+        },
+      },
+      {
+        spec: {
+          name: 'wait_for_session',
+          description:
+            "Block until a session's agent phase changes (e.g. finishes working), up to " +
+            'timeoutSeconds (default 60, max 120). Returns the new phase, or a timeout note.',
+          parameters: {
+            type: 'object',
+            properties: {
+              sessionId: { type: 'string' },
+              timeoutSeconds: {
+                type: 'number',
+                description: 'default 60, max 120',
+              },
+            },
+            required: ['sessionId'],
+          },
+        },
+        run: async (args) => {
+          const sessionId = str(args.sessionId) ?? ''
+          if (!getSession(sessionId)) return 'unknown session'
+          const timeoutS = Math.min(120, Math.max(0, num(args.timeoutSeconds) ?? 60))
+          // Watch the durable event log from "now": session.phase rows are appended
+          // on every real phase transition (subject = sessionId), so polling the
+          // cursor catches the change even across a busy log. Never throws.
+          const since = store.maxEventId()
+          const deadline = Date.now() + timeoutS * 1000
+          while (Date.now() < deadline) {
+            const evs = store
+              .listEventsSince(since, { kinds: ['session.phase'] })
+              .filter((e) => e.subject === sessionId)
+            const last = evs[evs.length - 1]
+            if (last) {
+              const p = last.payload as { phase?: string; verdict?: string }
+              return JSON.stringify({
+                phase: p.phase ?? 'unknown',
+                ...(p.verdict ? { verdict: p.verdict } : {}),
+              })
+            }
+            await sleep(Math.min(waitPollMs, Math.max(0, deadline - Date.now())))
+          }
+          const phase = getSession(sessionId)?.agentState?.phase ?? 'unknown'
+          return `timeout after ${timeoutS}s (session still ${phase})`
         },
       },
       {
@@ -869,6 +1143,28 @@ export class SuperagentService {
 }
 
 type Args = Record<string, unknown>
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, Math.max(0, ms)))
+}
+
+/**
+ * Map a free-text answer to 1-based option indices for one AskUserQuestion:
+ * bare number(s) win ("2", "1,3"), then a case-insensitive exact label match,
+ * then a UNIQUE case-insensitive substring match. Empty result = no match.
+ */
+export function matchAnswerToOptions(answer: string, labels: string[]): number[] {
+  const t = answer.trim()
+  if (/^\d+(\s*,\s*\d+)*$/.test(t)) {
+    const idx = t.split(',').map((s) => Number.parseInt(s.trim(), 10))
+    return idx.every((n) => n >= 1 && n <= labels.length) ? idx : []
+  }
+  const lower = t.toLowerCase()
+  const exact = labels.findIndex((l) => l.trim().toLowerCase() === lower)
+  if (exact !== -1) return [exact + 1]
+  const subs = labels.flatMap((l, i) => (l.toLowerCase().includes(lower) ? [i + 1] : []))
+  return subs.length === 1 ? subs : []
+}
 
 function parseArgs(raw: string): Args {
   try {
