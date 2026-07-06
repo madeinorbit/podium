@@ -1,6 +1,6 @@
 import type { IssueWire, SessionMeta } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
-import { draftIssueLabel, resolveDefaultAgent, sessionsForIssueNav } from './derive'
+import { draftIssueLabel, pickPaneSession, resolveDefaultAgent, sessionsForIssueNav } from './derive'
 import { filterBoardScope } from './issues-display'
 
 const NOW = Date.parse('2026-07-06T12:00:00.000Z')
@@ -180,5 +180,29 @@ describe('filterBoardScope', () => {
         .map((i) => i.id)
         .sort(),
     ).toEqual(['leaf', 'mid', 'root'])
+  })
+})
+
+describe('pickPaneSession (#108 — sidebar click opens a pane)', () => {
+  const old = sess('old', WT, { lastActiveAt: new Date(NOW - 5 * 3_600_000).toISOString() })
+  const recent = sess('recent', WT, { lastActiveAt: new Date(NOW - 3_600_000).toISOString() })
+
+  it('keeps the current pane when it is already a member', () => {
+    expect(pickPaneSession([old, recent], 'old')).toBe('old')
+  })
+
+  it('keeps the current pane when it is a row file tab (extraValidIds)', () => {
+    expect(pickPaneSession([old, recent], 'file:x', ['file:x'])).toBe('file:x')
+  })
+
+  it('opens the most recently active member when the pane is foreign or empty', () => {
+    expect(pickPaneSession([old, recent], 'elsewhere')).toBe('recent')
+    expect(pickPaneSession([old, recent], null)).toBe('recent')
+    expect(pickPaneSession([old], null)).toBe('old')
+  })
+
+  it('returns null for an empty row (clear to the picker)', () => {
+    expect(pickPaneSession([], 'elsewhere')).toBeNull()
+    expect(pickPaneSession([], null)).toBeNull()
   })
 })

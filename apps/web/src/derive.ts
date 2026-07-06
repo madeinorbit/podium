@@ -898,6 +898,27 @@ export function sessionsForIssueNav(
   })
 }
 
+/** Pane target when a sidebar issue/worktree row is clicked: keep the current
+ *  pane if it's already one of the row's members (a session in `members` or an
+ *  id in `extraValidIds` — e.g. the row's open file tabs); otherwise open the
+ *  row's most recently active session (lastActiveAt, ISO-comparable). Null =
+ *  nothing to open (empty row) — clear the pane so the picker shows. */
+export function pickPaneSession(
+  members: SessionMeta[],
+  paneA: string | null,
+  extraValidIds: readonly string[] = [],
+): string | null {
+  if (
+    paneA != null &&
+    (members.some((s) => s.sessionId === paneA) || extraValidIds.includes(paneA))
+  ) {
+    return paneA
+  }
+  let best: SessionMeta | null = null
+  for (const s of members) if (!best || s.lastActiveAt > best.lastActiveAt) best = s
+  return best?.sessionId ?? null
+}
+
 /** Row label for a DRAFT issue (placeholder-titled vessel): the attached session's
  *  display name, falling back to 'New agent'. Mirrors sessionDisplayName's
  *  name-beats-title rule (WorkerLabel imports from this module, so the tiny

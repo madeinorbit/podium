@@ -8,7 +8,7 @@ import { cn } from '@/lib/utils'
 import {
   artifactKind,
   basename,
-  issueForCwd,
+  issueForPanel,
   panelNonEmpty,
   worktreeAssetUrl,
 } from './dock-panel'
@@ -334,12 +334,17 @@ function PanelSections({
 export function IssuePanelView({
   cwd,
   machineId,
+  sessionId,
 }: {
   cwd: string
   machineId?: string
+  sessionId?: string
 }): JSX.Element {
-  const { issues } = useStore()
-  const issue = useMemo(() => issueForCwd(issues, cwd), [issues, cwd])
+  const { issues, sessions } = useStore()
+  const issue = useMemo(
+    () => issueForPanel({ issues, sessions, cwd, sessionId }),
+    [issues, sessions, cwd, sessionId],
+  )
   const children = useMemo(
     () =>
       issue
@@ -352,7 +357,11 @@ export function IssuePanelView({
   const subPanels = useMemo(() => children.filter(panelNonEmpty), [children])
 
   if (!issue) {
-    return <div className="p-3 text-xs text-muted-foreground/70">No issue owns this worktree.</div>
+    return (
+      <div className="p-3 text-xs text-muted-foreground/70">
+        No issue is attached to this session or worktree.
+      </div>
+    )
   }
 
   return (

@@ -5,6 +5,7 @@ import {
   basename,
   cwdInWorktree,
   issueForCwd,
+  issueForPanel,
   panelNonEmpty,
   readStoredDockTab,
   resolveActiveWorktree,
@@ -54,6 +55,7 @@ describe('resolveActiveWorktree', () => {
     expect(resolveActiveWorktree({ paneA: 's1', fileTabs: [], sessions: [s1, s2] })).toEqual({
       cwd: '/wt/a',
       machineId: 'm1',
+      sessionId: 's1',
     })
   })
 
@@ -66,13 +68,14 @@ describe('resolveActiveWorktree', () => {
     }
     expect(
       resolveActiveWorktree({ paneA: tab.id, fileTabs: [tab], sessions: [s1] }),
-    ).toEqual({ cwd: '/wt/c', machineId: 'm2' })
+    ).toEqual({ cwd: '/wt/c', machineId: 'm2', sessionId: undefined })
   })
 
   it('falls back to the most recently active session', () => {
     expect(resolveActiveWorktree({ paneA: null, fileTabs: [], sessions: [s1, s2] })).toEqual({
       cwd: '/wt/b',
       machineId: undefined,
+      sessionId: 's2',
     })
   })
 
@@ -95,6 +98,56 @@ describe('issueForCwd', () => {
     expect(issueForCwd([i], '/repo/.worktrees/issue-7/sub/dir')?.id).toBe('i1')
     expect(issueForCwd([i], '/repo/.worktrees/issue-70')).toBeNull()
     expect(issueForCwd([issue({ worktreePath: null })], '/anywhere')).toBeNull()
+  })
+})
+
+describe('issueForPanel', () => {
+  const owning = issue() // worktreePath /repo/.worktrees/issue-7
+  const attached = issue({ id: 'i2', worktreePath: null })
+
+  it('owning worktree wins (issueForCwd semantics unchanged)', () => {
+    const s = sess('s1', '/repo/.worktrees/issue-7', { issueId: 'i2' })
+    expect(
+      issueForPanel({
+        issues: [owning, attached],
+        sessions: [s],
+        cwd: '/repo/.worktrees/issue-7',
+        sessionId: 's1',
+      })?.id,
+    ).toBe('i1')
+  })
+
+  it('falls back to the active session explicit issue attachment', () => {
+    const s = sess('s1', '/elsewhere/wt', { issueId: 'i2' })
+    expect(
+      issueForPanel({
+        issues: [owning, attached],
+        sessions: [s],
+        cwd: '/elsewhere/wt',
+        sessionId: 's1',
+      })?.id,
+    ).toBe('i2')
+  })
+
+  it('ignores archived attached issues and misses cleanly', () => {
+    const s = sess('s1', '/elsewhere/wt', { issueId: 'i2' })
+    const archived = issue({ id: 'i2', worktreePath: null, archived: true })
+    expect(
+      issueForPanel({ issues: [archived], sessions: [s], cwd: '/elsewhere/wt', sessionId: 's1' }),
+    ).toBeNull()
+    // No sessionId (file-tab resolution) → cwd-only behavior.
+    expect(
+      issueForPanel({ issues: [owning, attached], sessions: [s], cwd: '/elsewhere/wt' }),
+    ).toBeNull()
+    // Session without issueId → null.
+    expect(
+      issueForPanel({
+        issues: [owning, attached],
+        sessions: [sess('s2', '/elsewhere/wt')],
+        cwd: '/elsewhere/wt',
+        sessionId: 's2',
+      }),
+    ).toBeNull()
   })
 })
 

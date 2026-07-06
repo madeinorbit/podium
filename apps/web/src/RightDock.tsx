@@ -69,7 +69,11 @@ export function RightDock(): JSX.Element {
       {dockTab === 'git' && <GitPlaceholder />}
       {dockTab === 'issue' &&
         (active ? (
-          <IssuePanelView cwd={active.cwd} machineId={active.machineId} />
+          <IssuePanelView
+            cwd={active.cwd}
+            machineId={active.machineId}
+            sessionId={active.sessionId}
+          />
         ) : (
           <div className="p-3 text-xs text-muted-foreground/70">No active session.</div>
         ))}

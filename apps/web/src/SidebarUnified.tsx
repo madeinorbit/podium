@@ -19,9 +19,12 @@ import {
   panelLabel,
   partitionStaleSessions,
   partitionWorkItems,
+  pickPaneSession,
   type RepoNavView,
   resolveDefaultAgent,
   sessionDotClass,
+  sessionsForIssueNav,
+  sessionsForWorktree,
   sidebarSections,
   spawnTargetForRepo,
   type UnifiedWorkRow,
@@ -63,6 +66,7 @@ export function SidebarUnified(): JSX.Element {
     setSelectedIssueId,
     paneA,
     setPane,
+    fileTabs,
     view,
     setView,
   } = useStore()
@@ -155,6 +159,15 @@ export function SidebarUnified(): JSX.Element {
   const selectIssue = (issue: IssueWire) => {
     setSelectedIssueId(issue.id)
     if (issue.worktreePath) setSelectedWorktree(issue.worktreePath)
+    // Open a pane too (#108): keep the current one if it already belongs to this
+    // issue (session or file tab), else the issue's most recently active session.
+    const members = sessionsForIssueNav(issue, sessions, allWorktreePaths, {
+      includeShells: true,
+    })
+    const rowFileIds = issue.worktreePath
+      ? fileTabs.filter((f) => f.worktreePath === issue.worktreePath).map((f) => f.id)
+      : []
+    setPane('A', pickPaneSession(members, paneA, rowFileIds))
     setView('workspace')
   }
   const selectPanelForIssue = (issue: IssueWire, sessionId: string) => {
@@ -164,6 +177,10 @@ export function SidebarUnified(): JSX.Element {
   const selectWorktree = (path: string) => {
     setSelectedIssueId(null)
     setSelectedWorktree(path)
+    // Same pane-opening rule as selectIssue, keyed by the worktree's sessions.
+    const members = sessionsForWorktree(sessions, path, allWorktreePaths)
+    const rowFileIds = fileTabs.filter((f) => f.worktreePath === path).map((f) => f.id)
+    setPane('A', pickPaneSession(members, paneA, rowFileIds))
     setView('workspace')
   }
   const selectPanel = (worktreePath: string, sessionId: string) => {

@@ -11,6 +11,10 @@ export function readStoredDockTab(raw: string | null): DockTab {
 export interface ActiveWorktree {
   cwd: string
   machineId?: string
+  /** The session the dock resolved its worktree FROM, when it came from a
+   *  session (paneA or the recency fallback) — lets the Issue tab fall back to
+   *  that session's explicit issue attachment. Absent for file-tab resolution. */
+  sessionId?: string
 }
 
 /** True when `cwd` sits at or under `root` (path containment, POSIX). */
@@ -29,7 +33,8 @@ export function resolveActiveWorktree(args: {
   const { paneA, fileTabs, sessions } = args
   if (paneA != null) {
     const session = sessions.find((s) => s.sessionId === paneA)
-    if (session) return { cwd: session.cwd, machineId: session.machineId }
+    if (session)
+      return { cwd: session.cwd, machineId: session.machineId, sessionId: session.sessionId }
     const tab = fileTabs.find((t) => t.id === paneA)
     if (tab && tab.worktreePath) {
       const machineId = tab.scope.kind === 'worktree' ? tab.scope.machineId : undefined
@@ -42,7 +47,7 @@ export function resolveActiveWorktree(args: {
     if (s.archived) continue
     if (!best || s.lastActiveAt > best.lastActiveAt) best = s
   }
-  return best ? { cwd: best.cwd, machineId: best.machineId } : null
+  return best ? { cwd: best.cwd, machineId: best.machineId, sessionId: best.sessionId } : null
 }
 
 /** The issue whose worktree contains `cwd` (same containment rule the sidebar
@@ -51,6 +56,27 @@ export function issueForCwd(issues: IssueWire[], cwd: string): IssueWire | null 
   return (
     issues.find((i) => i.worktreePath != null && cwdInWorktree(cwd, i.worktreePath)) ?? null
   )
+}
+
+/** The issue the dock's Issue tab should show: the issue whose worktree contains
+ *  `cwd` (owning case, unchanged), falling back to the active session's explicit
+ *  issue attachment (`SessionMeta.issueId`) — worktreePath is only stamped by
+ *  `podium issue start`, so self-attached sessions (e.g. draft-issue sessions in
+ *  EnterWorktree-created worktrees) would otherwise dead-end the panel. */
+export function issueForPanel(args: {
+  issues: IssueWire[]
+  sessions: SessionMeta[]
+  cwd: string
+  sessionId?: string
+}): IssueWire | null {
+  const owned = issueForCwd(args.issues, args.cwd)
+  if (owned) return owned
+  const session = args.sessionId
+    ? args.sessions.find((s) => s.sessionId === args.sessionId)
+    : undefined
+  const id = session?.issueId
+  if (id === undefined) return null
+  return args.issues.find((i) => i.id === id && !i.archived) ?? null
 }
 
 /** True when a panel has anything worth rendering. */
