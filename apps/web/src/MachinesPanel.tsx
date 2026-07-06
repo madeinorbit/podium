@@ -14,6 +14,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
 import { relativeTime } from './home'
+import { NetworkStep } from './SetupView'
 import { useStore } from './store'
 
 /**
@@ -82,25 +83,35 @@ export function MachinesPanel(): JSX.Element {
             <DialogHeader>
               <DialogTitle>Add a machine</DialogTitle>
               <DialogDescription>
-                Run the command below on the other machine to pair it with this Podium server.
+                {code && !joinCommand && !addLoading
+                  ? 'This server needs a reachable URL before it can pair a machine — set that up here.'
+                  : 'Run the command below on the other machine to pair it with this Podium server.'}
               </DialogDescription>
             </DialogHeader>
             {addError && <p className="text-destructive text-xs">{addError}</p>}
             {addLoading && (
               <p className="text-muted-foreground text-xs">Generating pairing code…</p>
             )}
-            {code && <PairingCodeDisplay code={code} joinCommand={joinCommand} />}
-            <DialogFooter showCloseButton>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                disabled={addLoading}
-                onClick={() => void mintCode()}
-              >
-                New code
-              </Button>
-            </DialogFooter>
+            {code && joinCommand && <PairingCodeDisplay code={code} joinCommand={joinCommand} />}
+            {code && !joinCommand && !addLoading && (
+              // No publicUrl yet ⇒ the server can't build a join command. Let the user set up
+              // reachability right here (same flow as the CLI / first-run setup), then re-mint —
+              // which now returns a full one-line join command.
+              <NetworkStep embedded trpc={trpc} onSaved={() => void mintCode()} />
+            )}
+            {code && joinCommand && (
+              <DialogFooter showCloseButton>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={addLoading}
+                  onClick={() => void mintCode()}
+                >
+                  New code
+                </Button>
+              </DialogFooter>
+            )}
           </DialogContent>
         </Dialog>
       </div>

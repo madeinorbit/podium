@@ -67,7 +67,12 @@ export function wssFrom(publicUrl: string): string {
 }
 
 export function applySetup(input: { publicUrl: string }): PodiumConfig {
-  const cfg: PodiumConfig = { ...loadConfig(), mode: 'all-in-one', publicUrl: input.publicUrl }
+  const prev = loadConfig()
+  // Preserve an already-chosen host mode: a relay-only `server` box setting its URL later (e.g.
+  // from Settings → Machines) must stay `server`, not silently flip to `all-in-one`. First run
+  // (mode unset) defaults to all-in-one, the main-instance path.
+  const mode = prev.mode === 'server' ? 'server' : 'all-in-one'
+  const cfg: PodiumConfig = { ...prev, mode, publicUrl: input.publicUrl }
   saveConfig(cfg)
   return cfg
 }

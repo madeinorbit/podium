@@ -172,18 +172,22 @@ export function SetupView({
   )
 }
 
-/** Reachability step for the all-in-one (main-instance) path: pick how to expose the relay,
- *  run the printed command, paste the resulting https URL, then persist it via setup.complete. */
-function NetworkStep({
+/** Reachability step: pick how to expose the relay, run the printed command, paste the resulting
+ *  https URL, then persist it via setup.complete. Used both by first-run setup (full page) and,
+ *  with `embedded`, inside Settings → Machines when the server has no publicUrl yet. */
+export function NetworkStep({
   trpc,
   onBack,
   onSkip,
   onSaved,
+  embedded = false,
 }: {
   trpc: Trpc
-  onBack: () => void
-  onSkip: () => void
+  onBack?: () => void
+  onSkip?: () => void
   onSaved: () => void
+  /** Compact layout (no page chrome / Back / Skip) for hosting inside a dialog. */
+  embedded?: boolean
 }): ReactNode {
   const [options, setOptions] = useState<NetOptionInfo[]>([])
   const [option, setOption] = useState<NetOption>('tailscale-funnel')
@@ -245,14 +249,22 @@ function NetworkStep({
   }
 
   return (
-    <div className="setup-view mx-auto flex max-w-lg flex-col gap-4 p-6">
-      <div>
-        <h1 className="font-semibold text-foreground text-lg">Make this instance reachable</h1>
-        <p className="text-[13px] text-muted-foreground">
-          Choose how to expose this Podium so your other devices can connect, run the command, then
-          paste the URL it prints.
-        </p>
-      </div>
+    <div
+      className={
+        embedded
+          ? 'setup-view flex flex-col gap-4'
+          : 'setup-view mx-auto flex max-w-lg flex-col gap-4 p-6'
+      }
+    >
+      {!embedded && (
+        <div>
+          <h1 className="font-semibold text-foreground text-lg">Make this instance reachable</h1>
+          <p className="text-[13px] text-muted-foreground">
+            Choose how to expose this Podium so your other devices can connect, run the command,
+            then paste the URL it prints.
+          </p>
+        </div>
+      )}
       <fieldset className="flex flex-col gap-2">
         {options.map((o) => (
           <label
@@ -385,13 +397,19 @@ function NetworkStep({
         </p>
       )}
       <div className="flex items-center justify-between gap-2">
-        <Button type="button" variant="ghost" size="sm" onClick={onBack}>
-          Back
-        </Button>
-        <div className="flex items-center gap-2">
-          <Button type="button" variant="outline" size="sm" onClick={onSkip}>
-            Skip for now
+        {onBack ? (
+          <Button type="button" variant="ghost" size="sm" onClick={onBack}>
+            Back
           </Button>
+        ) : (
+          <span />
+        )}
+        <div className="flex items-center gap-2">
+          {onSkip && (
+            <Button type="button" variant="outline" size="sm" onClick={onSkip}>
+              Skip for now
+            </Button>
+          )}
           <Button
             type="button"
             disabled={
@@ -399,7 +417,7 @@ function NetworkStep({
             }
             onClick={() => void finish()}
           >
-            {busy ? 'Saving…' : 'Finish'}
+            {busy ? 'Saving…' : embedded ? 'Save URL' : 'Finish'}
           </Button>
         </div>
       </div>

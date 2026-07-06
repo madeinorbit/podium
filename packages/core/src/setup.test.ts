@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { loadConfig } from './config'
+import { loadConfig, saveConfig } from './config'
 import { encodeJoin } from './join'
 import {
   applyJoin,
@@ -48,9 +48,14 @@ describe('setup core', () => {
     expect(wssFrom('https://box.ts.net')).toBe('wss://box.ts.net')
     expect(wssFrom('http://10.0.0.1:18787')).toBe('ws://10.0.0.1:18787')
   })
-  it('applySetup persists mode + publicUrl', () => {
+  it('applySetup persists mode + publicUrl (first run → all-in-one)', () => {
     applySetup({ publicUrl: 'https://box.ts.net' })
     expect(loadConfig()).toEqual({ mode: 'all-in-one', publicUrl: 'https://box.ts.net' })
+  })
+  it('applySetup preserves a relay-only `server` mode when the URL is set later', () => {
+    saveConfig({ mode: 'server' })
+    applySetup({ publicUrl: 'https://relay.ts.net' })
+    expect(loadConfig()).toEqual({ mode: 'server', publicUrl: 'https://relay.ts.net' })
   })
   it('applyJoin writes a self-contained daemon config from a join token', () => {
     const token = encodeJoin({ v: 1, serverUrl: 'wss://relay', pairCode: 'P1', name: 'box' })
