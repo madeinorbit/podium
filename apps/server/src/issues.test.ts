@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { SessionMeta } from '@podium/protocol'
 import { SessionStore } from './store'
 import { IssueService, type IssueDeps } from './issues'
+import { repoOpCommand } from '../../daemon/src/repo-op'
 
 function harness(sessions: SessionMeta[] = []) {
   const store = new SessionStore(':memory:')
@@ -1525,5 +1526,23 @@ describe('IssueService agent mail (#103)', () => {
     expect(svc.prime({ boundIssueId: a.id })).toContain(
       "You have 2 unread mail message(s): run 'podium issue mail inbox'",
     )
+  })
+})
+
+describe('IssueService surfaces daemon argv-hardening rejections (issue #81)', () => {
+  it('action(pr) with a crafted leading-dash branch returns the readable unsafe-ref error', async () => {
+    const { svc, deps } = harness()
+    const c = svc.create({ repoPath: '/r', title: 'X', startNow: false })
+    await svc.start(c.id)
+    // A tampered stored branch column. The mock mirrors the daemon: it builds
+    // argv via the real repoOpCommand and returns builder errors as ok:false.
+    svc.update(c.id, { branch: '-D' })
+    ;(deps.repoOp as ReturnType<typeof vi.fn>).mockImplementation(async (op, _cwd, args) => {
+      const cmd = repoOpCommand(op as never, args as never)
+      return 'error' in cmd ? { ok: false, output: cmd.error } : { ok: true, output: '' }
+    })
+    const r = await svc.action(c.id, 'pr')
+    expect(r.ok).toBe(false)
+    expect(r.output).toBe("unsafe branch: must not start with '-' (got '-D')")
   })
 })
