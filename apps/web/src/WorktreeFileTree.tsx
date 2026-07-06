@@ -1,9 +1,10 @@
-import { ChevronDown, ChevronRight, File as FileIcon, Folder, RefreshCw } from 'lucide-react'
+import { ChevronDown, ChevronRight, Folder, FolderOpen, RefreshCw } from 'lucide-react'
 import type { JSX } from 'react'
 import { useCallback, useEffect, useState } from 'react'
 import { formatAppError } from './AppErrorPage'
 import { Button } from '@/components/ui/button'
 import { basename } from './dock-panel'
+import { FileTypeIcon } from './file-icon'
 import { useStore } from './store'
 
 type Entry = { name: string; isDir: boolean }
@@ -137,9 +138,13 @@ export function WorktreeFileTree({
               <span className="w-[13px] flex-none" />
             )}
             {entry.isDir ? (
-              <Folder size={14} className="flex-none" />
+              open ? (
+                <FolderOpen size={14} className="flex-none text-amber-300/80" />
+              ) : (
+                <Folder size={14} className="flex-none text-amber-300/80" />
+              )
             ) : (
-              <FileIcon size={14} className="flex-none" />
+              <FileTypeIcon name={entry.name} />
             )}
             <span className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-[13px]">
               {entry.name}
@@ -154,9 +159,18 @@ export function WorktreeFileTree({
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex items-center gap-2 border-b border-border px-3 py-2">
-        <span className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-[13px] font-medium">
-          {basename(root)}
-        </span>
+        <div className="min-w-0 flex-1" title={root}>
+          <div className="overflow-hidden text-ellipsis whitespace-nowrap text-[13px] font-medium">
+            {basename(root)}
+          </div>
+          {/* Full directory path; leading side truncates so the tail stays readable. */}
+          <div
+            className="overflow-hidden text-ellipsis whitespace-nowrap text-[11px] text-muted-foreground/70"
+            style={{ direction: 'rtl', textAlign: 'left' }}
+          >
+            <bdi>{root}</bdi>
+          </div>
+        </div>
         <Button
           variant="ghost"
           size="icon"

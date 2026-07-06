@@ -1,3 +1,4 @@
+import { CircleDot, FolderTree, GitBranch, type LucideIcon, Sparkles } from 'lucide-react'
 import type { JSX } from 'react'
 import { useMemo } from 'react'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -7,11 +8,11 @@ import { useStore } from './store'
 import { SuperagentView } from './SuperagentView'
 import { WorktreeFileTree } from './WorktreeFileTree'
 
-const TABS: { id: DockTab; label: string }[] = [
-  { id: 'superagent', label: 'Superagent' },
-  { id: 'files', label: 'Files' },
-  { id: 'git', label: 'Git' },
-  { id: 'issue', label: 'Issue' },
+const TABS: { id: DockTab; label: string; icon: LucideIcon }[] = [
+  { id: 'superagent', label: 'Superagent', icon: Sparkles },
+  { id: 'files', label: 'Files', icon: FolderTree },
+  { id: 'git', label: 'Git', icon: GitBranch },
+  { id: 'issue', label: 'Issue', icon: CircleDot },
 ]
 
 function GitPlaceholder(): JSX.Element {
@@ -45,8 +46,15 @@ export function RightDock(): JSX.Element {
       >
         <TabsList variant="line" className="w-full justify-start">
           {TABS.map((t) => (
-            <TabsTrigger key={t.id} value={t.id} className="text-xs">
-              {t.label}
+            <TabsTrigger
+              key={t.id}
+              value={t.id}
+              className="gap-1.5 text-xs"
+              aria-label={t.label}
+              title={t.label}
+            >
+              <t.icon size={14} aria-hidden="true" />
+              <span>{t.label}</span>
             </TabsTrigger>
           ))}
         </TabsList>
