@@ -6,30 +6,34 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { makeTrpc, type Trpc } from './trpc'
 
+// Intent-first labels: lead with what the user WANTS, not the deployment term. The pivot between
+// the two "host" modes is simply whether your agents run on THIS machine (all-in-one) or on the
+// other machines that connect to it (server/hub).
 const MODES: { id: PodiumMode; title: string; blurb: string; needsServer: boolean }[] = [
   {
     id: 'all-in-one',
-    title: 'All-in-one (this computer)',
-    blurb: 'Run the server + agent daemon here.',
+    title: 'Run Podium on this machine',
+    blurb: 'The app and your agents both run here. Best if this is your only computer.',
+    needsServer: false,
+  },
+  {
+    id: 'server',
+    title: 'Set up a hub for your other machines',
+    blurb:
+      'This box hosts the app; your agents run on the machines that connect to it — not here. Best for an always-on server or VPS.',
     needsServer: false,
   },
   {
     id: 'daemon',
-    title: 'Daemon → external server',
-    blurb: 'Contribute this machine to a server elsewhere.',
+    title: 'Add this machine to a Podium you already run',
+    blurb: 'It runs agents here and connects to your existing server. Paste its join code.',
     needsServer: true,
   },
   {
     id: 'client',
-    title: 'Client → external server',
-    blurb: 'Just connect to a server running elsewhere.',
+    title: 'Just open a Podium running elsewhere',
+    blurb: 'This machine only opens the app — it runs no agents. Enter the server’s URL.',
     needsServer: true,
-  },
-  {
-    id: 'server',
-    title: 'Server only',
-    blurb: 'Run the relay here; daemons live elsewhere.',
-    needsServer: false,
   },
 ]
 

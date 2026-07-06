@@ -65,10 +65,10 @@ describe('SetupView', () => {
     render(<SetupView httpOrigin="http://localhost:18787" onSaved={() => {}} />)
     const radios = screen.getAllByRole('radio')
     expect(radios).toHaveLength(4)
-    expect(screen.getByText(/all-in-one/i)).toBeTruthy()
-    expect(screen.getByText(/^daemon/i)).toBeTruthy()
-    expect(screen.getByText(/^client/i)).toBeTruthy()
-    expect(screen.getByText(/^server only/i)).toBeTruthy()
+    expect(screen.getByText(/run podium on this machine/i)).toBeTruthy()
+    expect(screen.getByText(/add this machine to a podium/i)).toBeTruthy()
+    expect(screen.getByText(/open a podium running elsewhere/i)).toBeTruthy()
+    expect(screen.getByText(/hub for your other machines/i)).toBeTruthy()
   })
 
   it('all-in-one requires choosing open mode before showing no-password acknowledgement', async () => {
@@ -170,15 +170,15 @@ describe('SetupView', () => {
     const view = within(container)
 
     // No join-code field for default all-in-one mode.
-    expect(view.queryByLabelText(/join code/i)).toBeNull()
+    expect(view.queryByLabelText(/^join code/i)).toBeNull()
 
     // Select daemon mode — a single join-code field appears (no separate URL / pair fields).
-    fireEvent.click(view.getByRole('radio', { name: /daemon → external server/i }))
-    expect(view.getByLabelText(/join code/i)).toBeTruthy()
-    expect(view.queryByLabelText(/server url/i)).toBeNull()
+    fireEvent.click(view.getByRole('radio', { name: /add this machine to a podium/i }))
+    expect(view.getByLabelText(/^join code/i)).toBeTruthy()
+    expect(view.queryByLabelText(/^server url/i)).toBeNull()
     expect(view.queryByLabelText(/pairing code/i)).toBeNull()
 
-    fireEvent.change(view.getByLabelText(/join code/i), { target: { value: 'JOINCODE123' } })
+    fireEvent.change(view.getByLabelText(/^join code/i), { target: { value: 'JOINCODE123' } })
     await act(async () => {
       fireEvent.click(view.getByRole('button', { name: /save/i }))
       await flush()
@@ -193,9 +193,9 @@ describe('SetupView', () => {
       <SetupView httpOrigin="http://localhost:18787" onSaved={() => {}} />,
     )
     const view = within(container)
-    fireEvent.click(view.getByRole('radio', { name: /client → external server/i }))
-    expect(view.getByLabelText(/server url/i)).toBeTruthy()
-    expect(view.queryByLabelText(/join code/i)).toBeNull()
+    fireEvent.click(view.getByRole('radio', { name: /open a podium running elsewhere/i }))
+    expect(view.getByLabelText(/^server url/i)).toBeTruthy()
+    expect(view.queryByLabelText(/^join code/i)).toBeNull()
   })
 
   it('client mode applies via setup.connect (not the legacy POST)', async () => {
@@ -204,8 +204,8 @@ describe('SetupView', () => {
       <SetupView httpOrigin="http://localhost:18787" onSaved={onSaved} />,
     )
     const view = within(container)
-    fireEvent.click(view.getByRole('radio', { name: /client → external server/i }))
-    fireEvent.change(view.getByLabelText(/server url/i), { target: { value: 'ws://host:18787' } })
+    fireEvent.click(view.getByRole('radio', { name: /open a podium running elsewhere/i }))
+    fireEvent.change(view.getByLabelText(/^server url/i), { target: { value: 'ws://host:18787' } })
     await act(async () => {
       fireEvent.click(view.getByRole('button', { name: /save/i }))
       await flush()
@@ -220,7 +220,7 @@ describe('SetupView', () => {
       <SetupView httpOrigin="http://localhost:18787" onSaved={onSaved} />,
     )
     const view = within(container)
-    fireEvent.click(view.getByRole('radio', { name: /server only/i }))
+    fireEvent.click(view.getByRole('radio', { name: /hub for your other machines/i }))
     // Server now goes through reachability (URL + password), like the CLI — not a bare connect.
     await act(async () => {
       fireEvent.click(view.getByRole('button', { name: /continue/i }))

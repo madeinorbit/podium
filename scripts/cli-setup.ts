@@ -225,13 +225,18 @@ export async function runCliSetup(io: SetupIO, port: number, deps: SetupDeps = {
   const mode = loadConfig().mode
   const hostsServer = mode === 'all-in-one' || mode === 'server'
 
-  io.print('What should this machine do?')
-  io.print('  1) Host a server here (all-in-one)')
-  io.print('  2) Host the relay only (server)')
-  io.print('  3) Join a server as a worker (daemon) — paste a join code')
+  io.print('What do you want this machine to do?')
+  io.print('')
+  io.print('  1) Run Podium on this machine')
+  io.print('       The app AND your agents run right here. Best if this is your only computer.')
+  io.print('  2) Set up a hub for your other machines')
+  io.print('       This box hosts the app; your agents run on the machines that connect to it,')
+  io.print('       not here. Best for an always-on server or VPS.')
+  io.print('  3) Add this machine to a Podium you already run')
+  io.print('       It runs agents here and connects to your existing server. Paste its join code.')
   if (hostsServer) {
-    io.print('  4) Change the reachable URL')
-    io.print('  5) Change or disable the login password')
+    io.print('  4) Change how this machine is reached (its URL)')
+    io.print('  5) Change or remove the login password')
   }
   const choice = ((await io.prompt('Choose (blank to cancel): ')) ?? '').trim()
 
