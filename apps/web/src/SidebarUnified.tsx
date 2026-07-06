@@ -360,8 +360,7 @@ export function SidebarUnified(): JSX.Element {
  * The shared WORK-row skeleton: [chevron?][icon][title][right status summary].
  * Agent drafts, issues, and worktrees all render through this — they differ only
  * in their leading icon and right-side extras. `expandable` gates the chevron;
- * `dotSession` (most urgent child) drives the right-side status dot, and
- * `childSessions` (when >1) render as smaller per-agent dots inline before it.
+ * `dotSession` (most urgent child) drives the right-side status dot.
  */
 function UnifiedRowShell({
   icon,
@@ -372,7 +371,6 @@ function UnifiedRowShell({
   onToggle,
   onSelect,
   dotSession,
-  childSessions,
   extras,
   children,
   testId,
@@ -385,7 +383,6 @@ function UnifiedRowShell({
   onToggle: () => void
   onSelect: () => void
   dotSession: SessionMeta | undefined
-  childSessions?: SessionMeta[]
   extras?: ReactNode
   children?: ReactNode
   testId: string
@@ -415,7 +412,7 @@ function UnifiedRowShell({
         <button
           type="button"
           className={cn(
-            'flex min-w-0 flex-1 cursor-pointer items-center gap-2 py-1.5 pr-3 text-left text-sm',
+            'flex min-w-0 flex-1 cursor-pointer items-center gap-2 py-2 pr-3 text-left text-sm',
             active
               ? 'bg-accent font-medium text-accent-foreground'
               : 'text-foreground hover:bg-accent',
@@ -427,17 +424,9 @@ function UnifiedRowShell({
             {label}
           </span>
           {extras}
-          {/* Right-side status summary: with multiple agents, each agent's dot
-              renders inline (a tiny bit smaller), then the most urgent child's
-              dot — so the user can see WHY the row floats where it does. */}
-          {childSessions &&
-            childSessions.length > 1 &&
-            childSessions.map((s) => (
-              <span
-                key={s.sessionId}
-                className={cn(sessionDotClass(s), 'size-1.5 min-w-1.5')}
-              />
-            ))}
+          {/* Right-side status summary: the most urgent child's dot, so the user
+              can see WHY the row floats where it does. Expanded child rows show
+              their own (smaller) dots vertically aligned under this one. */}
           {dotSession && <span className={sessionDotClass(dotSession)} />}
         </button>
       </div>
@@ -474,11 +463,10 @@ function UnifiedIssueRow({
   onPinned: (sessionId: string, pinned: boolean) => void
 }): JSX.Element {
   const { issue, sessions: mine } = row
-  // A single agent underneath = nothing worth a second line: collapse by default.
-  const [collapsed, toggle] = useCollapsed(
-    `podium:sidebar:unified-issue:${issue.id}`,
-    mine.length <= 1,
-  )
+  const [collapsed, toggle] = useCollapsed(`podium:sidebar:unified-issue:${issue.id}`, false)
+  // A single agent underneath = nothing worth a second line: the parent row's
+  // dot IS that agent's indicator. Child rows only exist from 2 agents up.
+  const showChildren = mine.length >= 2
   const { visible, stale } = partitionStaleSessions(mine, now)
   const urgent = mostUrgentSession(mine, now)
   // Draft vessel whose only content is agents → a single session-like line.
@@ -493,6 +481,7 @@ function UnifiedIssueRow({
       active={active && paneA === session.sessionId}
       onSelect={() => onSelectPanel(session.sessionId)}
       onPinned={(p) => onPinned(session.sessionId, p)}
+      dotRight
     />
   )
   if (draftAgentOnly) {
@@ -524,12 +513,11 @@ function UnifiedIssueRow({
       icon={<StageGlyph stage={issue.stage} size={13} />}
       label={label}
       active={active}
-      expandable={mine.length > 0}
-      collapsed={mine.length === 0 ? true : collapsed}
+      expandable={showChildren}
+      collapsed={showChildren ? collapsed : true}
       onToggle={toggle}
       onSelect={onSelect}
       dotSession={urgent}
-      childSessions={mine}
       extras={
         isEpic(issue) ? (
           <span className="flex-none rounded border border-violet-500/50 px-1 text-[9px] leading-4 text-violet-600 dark:text-violet-400">
@@ -563,11 +551,10 @@ function UnifiedWorktreeRow({
   onPinned: (sessionId: string, pinned: boolean) => void
 }): JSX.Element {
   const { worktree } = row
-  // A single agent underneath = nothing worth a second line: collapse by default.
-  const [collapsed, toggle] = useCollapsed(
-    `podium:sidebar:unified-wt:${worktree.path}`,
-    worktree.sessions.length <= 1,
-  )
+  const [collapsed, toggle] = useCollapsed(`podium:sidebar:unified-wt:${worktree.path}`, false)
+  // A single agent underneath = nothing worth a second line: the parent row's
+  // dot IS that agent's indicator. Child rows only exist from 2 agents up.
+  const showChildren = worktree.sessions.length >= 2
   const { visible, stale } = partitionStaleSessions(worktree.sessions, now)
   const renderRow = (session: SessionMeta) => (
     <PanelRow
@@ -577,6 +564,7 @@ function UnifiedWorktreeRow({
       active={active && paneA === session.sessionId}
       onSelect={() => onSelectPanel(session.sessionId)}
       onPinned={(p) => onPinned(session.sessionId, p)}
+      dotRight
     />
   )
   return (
@@ -585,12 +573,11 @@ function UnifiedWorktreeRow({
       icon={<GitBranch size={13} aria-hidden="true" className="flex-none text-muted-foreground" />}
       label={worktree.branch ?? worktree.path.split('/').pop() ?? worktree.path}
       active={active}
-      expandable
-      collapsed={collapsed}
+      expandable={showChildren}
+      collapsed={showChildren ? collapsed : true}
       onToggle={toggle}
       onSelect={onSelect}
       dotSession={mostUrgentSession(worktree.sessions, now)}
-      childSessions={worktree.sessions}
       extras={
         worktree.isMain ? (
           <span className="rounded border border-input px-1 text-[10px] uppercase text-muted-foreground">

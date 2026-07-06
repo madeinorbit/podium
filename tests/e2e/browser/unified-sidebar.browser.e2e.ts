@@ -75,6 +75,14 @@ test('unified sidebar: switcher, split-button spawn creates a draft row, wider +
     .poll(async () => aside.getByTestId('unified-issue-row').count(), { timeout: 30_000 })
     .toBeGreaterThan(rowsBefore)
 
+  // Spawn a SECOND agent into the same repo's primary worktree: its worktree row
+  // now has 2 sessions → expandable, child rows with right-aligned smaller dots.
+  await splitMain.click()
+  await page.waitForTimeout(3_000)
+  if (process.env.SIDEBAR_SHOT) {
+    await aside.screenshot({ path: process.env.SIDEBAR_SHOT })
+  }
+
   // ---- `+` opens the (widened) New Issue dialog ----
   await aside.getByRole('button', { name: 'New issue', exact: true }).click()
   const dialog = page.getByRole('dialog')

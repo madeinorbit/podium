@@ -1078,6 +1078,7 @@ export function PanelRow({
   onSelect,
   onPinned,
   attention = false,
+  dotRight = false,
 }: {
   session: SessionMeta
   pinned: boolean
@@ -1087,6 +1088,10 @@ export function PanelRow({
   /** True only for the NEEDS YOUR ATTENTION rows: shows the snooze control
    *  (rightmost, always visible) and reveals pin/close on hover. */
   attention?: boolean
+  /** Unified WORK-list child rows: the status dot moves to the RIGHT edge,
+   *  slightly smaller, vertically aligned under the parent row's summary dot
+   *  (same pr-3 + a w-2 slot centering the smaller dot). */
+  dotRight?: boolean
 }): JSX.Element {
   const { continueSession, renameSession } = useStore()
   const { guardedKill } = useSessionGuard()
@@ -1135,7 +1140,7 @@ export function PanelRow({
             setMenuAnchor({ x: e.clientX, y: e.clientY })
           }}
         >
-          <StatusDot session={session} /> <WorkerLabel session={session} />
+          {!dotRight && <StatusDot session={session} />} <WorkerLabel session={session} />
           {/* Unsent composer draft → DRAFT tag (shown wherever a session is listed,
               not just NEEDS YOUR ATTENTION). The session is also lifted by its
               draft-edit time via compareRecency. */}
@@ -1167,6 +1172,11 @@ export function PanelRow({
           {/* Pinned panels span repos/worktrees, so show which one — compact two
               lines (repo bold, branch below) where the kind label used to sit. */}
           {pinned && <RepoBranchTag cwd={session.cwd} />}
+          {dotRight && (
+            <span className="ml-auto flex w-2 flex-none justify-center">
+              <span className={cn(sessionDotClass(session), 'size-1.5 min-w-1.5')} />
+            </span>
+          )}
         </button>
       )}
       {badge?.showContinue && (
