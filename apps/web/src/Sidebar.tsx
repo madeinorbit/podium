@@ -1090,7 +1090,8 @@ export function PanelRow({
   attention?: boolean
   /** Unified WORK-list child rows: the status dot moves to the RIGHT edge,
    *  slightly smaller, vertically aligned under the parent row's summary dot
-   *  (same pr-3 + a w-2 slot centering the smaller dot). */
+   *  (same pr-3 + a w-2 slot centering the smaller dot). Rows are also more
+   *  indented and tighter, so the group reads as belonging to its parent. */
   dotRight?: boolean
 }): JSX.Element {
   const { continueSession, renameSession } = useStore()
@@ -1109,7 +1110,7 @@ export function PanelRow({
   return (
     // Constant row height (matches the icon-sm controls) so revealing pin/close on
     // hover never grows the row — otherwise every row below jumps down.
-    <div className="group flex min-h-7 min-w-0 items-center gap-1">
+    <div className={cn('group flex min-w-0 items-center gap-1', dotRight ? 'min-h-6' : 'min-h-7')}>
       {editing ? (
         <div className="flex min-w-0 flex-1 items-center gap-1.5 py-[3px] pr-3 pl-7">
           <StatusDot session={session} />
@@ -1126,7 +1127,8 @@ export function PanelRow({
         <button
           type="button"
           className={cn(
-            'flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 py-[3px] pr-3 pl-7 text-left text-xs',
+            'flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 py-[3px] pr-3 text-left text-xs',
+            dotRight ? 'pl-10' : 'pl-7',
             active
               ? 'bg-accent font-medium text-accent-foreground'
               : 'text-muted-foreground hover:bg-accent hover:text-foreground',

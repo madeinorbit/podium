@@ -211,6 +211,36 @@ describe('unifiedWorkList (content filter + status ordering)', () => {
     expect(rows[0]?.kind).toBe('worktree')
   })
 
+  it('suppresses a worktree row whose sessions are ALL attached to live issues', () => {
+    // Agent self-created worktree; the issue never stamped worktreePath. The
+    // session already renders under the issue row — no duplicate worktree row.
+    const wtPath = '/r/a/.worktrees/i1'
+    const owned = idle('s', wtPath, { issueId: 'i1' })
+    const wt = navWt(wtPath, { isMain: false, sessions: [owned] })
+    const rows = unifiedWorkList(emptySections([wt]), [issue({ id: 'i1' })], [owned], [], NOW)
+    expect(rows.map((r) => r.kind)).toEqual(['issue'])
+  })
+
+  it('a worktree row keeps only sessions NOT owned by a live issue (archived issues do not own)', () => {
+    const wtPath = '/r/a/.worktrees/x'
+    const owned = idle('s1', wtPath, { issueId: 'i1' })
+    const free = idle('s2', wtPath)
+    const orphanRef = idle('s3', wtPath, { issueId: 'gone-archived' })
+    const wt = navWt(wtPath, { isMain: false, sessions: [owned, free, orphanRef] })
+    const rows = unifiedWorkList(
+      emptySections([wt]),
+      [issue({ id: 'i1' })],
+      [owned, free, orphanRef],
+      [],
+      NOW,
+    )
+    const wtRow = rows.find((r) => r.kind === 'worktree')
+    expect(wtRow?.kind).toBe('worktree')
+    expect(
+      wtRow?.kind === 'worktree' ? wtRow.worktree.sessions.map((s) => s.sessionId) : [],
+    ).toEqual(['s2', 's3'])
+  })
+
   it('orders by rank asc (attention incl. finished first, working, stale, session-less last)', () => {
     const iNeeds = issue({ id: 'needs' })
     const iWork = issue({ id: 'work' })

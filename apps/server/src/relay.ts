@@ -3011,6 +3011,21 @@ export class SessionRegistry {
           this.persist(session)
           this.broadcastSessions()
         }
+        // An EXPLICIT declaration (`podium worktree`) also stamps the worktree
+        // onto the session's attached issue — but only when that issue doesn't
+        // own one yet, and never the repo's primary checkout (an issue must not
+        // claim live main just because its agent reported from there).
+        if (msg.explicit && msg.cwd && session.issueId) {
+          const issue = this.issues?.get(session.issueId)
+          if (
+            issue &&
+            !issue.archived &&
+            issue.worktreePath === null &&
+            issue.repoPath !== msg.cwd
+          ) {
+            this.issues.update(issue.id, { worktreePath: msg.cwd })
+          }
+        }
         break
       }
       case 'transcriptDelta': {

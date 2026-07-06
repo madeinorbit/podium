@@ -1089,6 +1089,10 @@ export function unifiedWorkList(
   // Worktrees not owned by ANY non-archived issue (navWorktree already attaches
   // owning issues per worktree — a non-empty list means an issue row covers it).
   // Session-less worktrees stay out: the unified list is work, not a repo tree.
+  // Sessions ATTACHED to a live issue already appear under that issue's row, so
+  // they don't count toward (or render in) a worktree row — an agent-created
+  // worktree whose issue never stamped worktreePath must not show up twice.
+  const liveIssueIds = new Set(issues.filter((i) => !i.archived).map((i) => i.id))
   const seen = new Set<string>()
   const navWorktrees = [
     ...sections.pinnedWorktrees,
@@ -1096,17 +1100,19 @@ export function unifiedWorkList(
     ...sections.repos.flatMap((r) => r.worktrees),
   ]
   for (const wt of navWorktrees) {
-    if (seen.has(wt.path) || wt.issues.length > 0 || wt.sessions.length === 0) continue
+    if (seen.has(wt.path) || wt.issues.length > 0) continue
     seen.add(wt.path)
-    const lastSession = wt.sessions.reduce(
+    const unowned = wt.sessions.filter((s) => !(s.issueId && liveIssueIds.has(s.issueId)))
+    if (unowned.length === 0) continue
+    const lastSession = unowned.reduce(
       (max, s) => Math.max(max, Date.parse(s.lastActiveAt) || 0),
       0,
     )
     rows.push({
       kind: 'worktree',
-      worktree: wt,
+      worktree: { ...wt, sessions: unowned },
       activityAt: lastSession,
-      rank: rowRank(wt.sessions, now),
+      rank: rowRank(unowned, now),
     })
   }
   return rows.sort((a, b) => {

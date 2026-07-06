@@ -766,7 +766,8 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
   // startHookIngest (whose onPayload feeds it) via the same `send` closure.
   const sessionCwdTracker = createSessionCwdTracker({
     resolver: createCwdResolver(),
-    send: (sessionId, cwd) => send({ type: 'sessionCwd', sessionId, cwd }),
+    send: (sessionId, cwd, explicit) =>
+      send({ type: 'sessionCwd', sessionId, cwd, ...(explicit ? { explicit: true } : {}) }),
   })
   // `currentWs` is the live socket; `send()` always targets it, so frames keep flowing
   // to a new connection after a reconnect. Declared/defined ahead of startHookIngest

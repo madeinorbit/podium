@@ -84,7 +84,7 @@ export interface SessionCwdTracker {
  */
 export function createSessionCwdTracker(opts: {
   resolver: CwdResolver
-  send: (sessionId: string, cwd: string) => void
+  send: (sessionId: string, cwd: string, explicit?: boolean) => void
 }): SessionCwdTracker {
   const lastRawCwd = new Map<string, string>()
   const lastSentRoot = new Map<string, string>()
@@ -113,10 +113,11 @@ export function createSessionCwdTracker(opts: {
       lastRawCwd.delete(sessionId)
       pinned.add(sessionId)
       const root = await opts.resolver.resolve(path)
-      if (lastSentRoot.get(sessionId) !== root) {
-        lastSentRoot.set(sessionId, root)
-        opts.send(sessionId, root)
-      }
+      // Explicit declarations ALWAYS send (no root dedup): beyond regrouping,
+      // the server stamps the worktree onto the session's attached issue — which
+      // must happen even when the session is already grouped under this root.
+      lastSentRoot.set(sessionId, root)
+      opts.send(sessionId, root, true)
       return root
     },
     clear(sessionId) {

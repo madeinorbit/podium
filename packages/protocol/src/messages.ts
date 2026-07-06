@@ -1594,6 +1594,10 @@ export const SessionCwdMessage = z.object({
   type: z.literal('sessionCwd'),
   sessionId: z.string(),
   cwd: z.string(),
+  // True when the agent DECLARED this worktree (`podium worktree`), as opposed
+  // to hook-observed cd wandering. An explicit declaration also stamps the
+  // worktree onto the session's attached issue (if that issue has none yet).
+  explicit: z.boolean().optional(),
 })
 export type SessionCwdMessage = z.infer<typeof SessionCwdMessage>
 

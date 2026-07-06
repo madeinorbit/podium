@@ -227,6 +227,23 @@ describe('createSessionCwdTracker', () => {
     expect(sent).toEqual([{ sessionId: 's1', cwd: '/explicit' }])
   })
 
+  it('setExplicit marks its send explicit and re-sends even for an unchanged root', async () => {
+    const sent: Array<{ sessionId: string; cwd: string; explicit?: boolean }> = []
+    const tracker = createSessionCwdTracker({
+      resolver: createCwdResolver({ toplevel: async () => '/repo/.worktrees/feat' }),
+      send: (sessionId, cwd, explicit) =>
+        sent.push({ sessionId, cwd, ...(explicit ? { explicit } : {}) }),
+    })
+    // Hook already grouped the session under the root; the explicit declaration
+    // must STILL send (the server stamps the attached issue's worktree from it).
+    await tracker.onHookCwd('s1', '/repo/.worktrees/feat/apps')
+    await tracker.setExplicit('s1', '/repo/.worktrees/feat')
+    expect(sent).toEqual([
+      { sessionId: 's1', cwd: '/repo/.worktrees/feat' },
+      { sessionId: 's1', cwd: '/repo/.worktrees/feat', explicit: true },
+    ])
+  })
+
   it('tracks sessions independently', async () => {
     const { sent, tracker } = make(inRepo)
     await tracker.onHookCwd('s1', '/repo')

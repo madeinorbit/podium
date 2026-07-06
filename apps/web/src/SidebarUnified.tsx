@@ -430,7 +430,9 @@ function UnifiedRowShell({
           {dotSession && <span className={sessionDotClass(dotSession)} />}
         </button>
       </div>
-      {!collapsed && children}
+      {/* Child agent rows: pulled up against the parent (tight margin) so the
+          group visually reads as one unit. */}
+      {!collapsed && <div className="-mt-1.5 pb-1">{children}</div>}
     </div>
   )
 }
