@@ -683,7 +683,11 @@ export const IssuePanelArtifact = z.object({
 export type IssuePanelArtifact = z.infer<typeof IssuePanelArtifact>
 export const IssuePanelDeferred = z.object({ text: z.string(), addedAt: z.string() })
 export type IssuePanelDeferred = z.infer<typeof IssuePanelDeferred>
+export const IssuePanelState = z.object({ text: z.string(), updatedAt: z.string() })
+export type IssuePanelState = z.infer<typeof IssuePanelState>
 export const IssuePanel = z.object({
+  /** One-paragraph "where things stand" the working agent keeps current. */
+  state: IssuePanelState.optional(),
   todos: z.array(IssuePanelTodo).default([]),
   artifacts: z.array(IssuePanelArtifact).default([]),
   deferred: z.array(IssuePanelDeferred).default([]),

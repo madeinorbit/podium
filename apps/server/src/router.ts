@@ -706,6 +706,7 @@ export const appRouter = t.router({
         z.object({
           id: z.string(),
           op: z.enum([
+            'state-set',
             'todo-add',
             'todo-done',
             'todo-undone',

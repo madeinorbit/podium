@@ -634,6 +634,31 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
     },
   },
   {
+    name: 'state',
+    summary:
+      'One-paragraph "where things stand" the USER reads in the issue sidebar — update whenever the situation changes: state <id> [--set "…"]. No flags = print.',
+    args: z.object({ id: idArg, set: z.string().optional() }),
+    positionals: ['id'],
+    async run(c, a) {
+      const i = (a.set != null
+        ? await c.issues.panelApply.mutate({
+            id: a.id as string,
+            op: 'state-set',
+            text: a.set,
+          } as never)
+        : await c.issues.get.query({ id: a.id as string })) as {
+        seq: number
+        panel?: { state?: { text: string; updatedAt: string } }
+      } | null
+      if (!i) throw new Error(`unknown issue ${a.id}`)
+      const s = i.panel?.state
+      return {
+        text: s ? `${s.text}\n(updated ${s.updatedAt})` : '(no state posted)',
+        data: s ?? null,
+      }
+    },
+  },
+  {
     name: 'todo',
     summary:
       'Human-facing todo list shown to the USER in the issue sidebar (keep it updated so they know what is left): todo <id> [--add "…"] [--done n] [--undone n] [--remove n] [--clear]. No flags = print it.',

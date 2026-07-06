@@ -26,6 +26,7 @@ import type { IssueRow, SessionStore } from './store'
 
 /** One mutation on the agent-published human panel — see IssueService.panelApply. */
 export type IssuePanelOp =
+  | { op: 'state-set'; text: string }
   | { op: 'todo-add'; text: string }
   | { op: 'todo-done' | 'todo-undone' | 'todo-remove'; index: number }
   | { op: 'todo-clear' }
@@ -302,6 +303,9 @@ export class IssueService {
       return item
     }
     switch (op.op) {
+      case 'state-set':
+        panel.state = { text: op.text, updatedAt: this.now() }
+        break
       case 'todo-add':
         panel.todos.push({ text: op.text, done: false })
         break
@@ -670,6 +674,7 @@ export class IssueService {
           blockers.length ? `Blocked by: ${blockers.join(', ')}` : null,
           '',
           'The user sees a live panel for this issue. Keep it current as you work:',
+          `  - \`podium issue state ${me.seq} --set "…"\` — one-paragraph "where things stand"; update whenever the situation changes so the user can see at a glance what's up.`,
           `  - \`podium issue todo ${me.seq} --add "…"\` / \`--done n\` — HUMAN-facing todo list (what is left, in user terms; distinct from your internal todos).`,
           `  - \`podium issue artifact ${me.seq} --add <path> [--title "…"]\` — files the user should look at (screenshots, videos, html/md docs).`,
           `  - \`podium issue deferred ${me.seq} --add "…"\` — work you chose to defer; the user decides on it later.`,
