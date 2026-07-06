@@ -51,6 +51,22 @@ describe('runIssueCli', () => {
     expect(out).toContain('#10 T')
   })
 
+  it('joins extra positionals into the restKey (show 1 2 3 ≡ show 1 --ids 2,3) [#82]', async () => {
+    const seen: string[] = []
+    const get = vi.fn(async (i: { id: string }) => {
+      seen.push(i.id)
+      return {
+        id: `iss_${i.id}`, seq: Number(i.id), title: `T${i.id}`, description: 'D',
+        stage: 'backlog', priority: 2, ready: true, blocked: false,
+      }
+    })
+    const c = { issues: { get: { query: get } } } as any
+    const out = await runIssueCli(['show', '1', '2', '3'], c)
+    expect(seen.sort()).toEqual(['1', '2', '3'])
+    expect(out).toContain('#1 T1')
+    expect(out).toContain('#3 T3')
+  })
+
   it('maps two positionals for dep-add (from, to)', async () => {
     const depAdd = vi.fn(async () => ({}))
     const c = { issues: { depAdd: { mutate: depAdd } } } as any

@@ -15,6 +15,9 @@ export interface IssueCommand {
   /** Positional argv words mapped to these arg keys in order (flags still win),
    *  so `podium issue start 10` ≡ `podium issue start --id 10`. */
   positionals?: string[]
+  /** Variadic tail: positionals beyond `positionals` join (comma-separated) into this
+   *  arg key, so `show 1 2 3` ≡ `show 1 --ids 2,3`. An explicit flag wins. */
+  restKey?: string
   run(client: IssueTrpc, args: Record<string, unknown>): Promise<IssueCommandResult>
 }
 
@@ -38,6 +41,63 @@ const listResult = (rows: Row[], empty: string): IssueCommandResult => ({
   text: rows.length ? rows.map(line).join('\n') : empty,
   data: rows,
 })
+
+/** The slice of an issue wire the show renderer reads. */
+interface ShowWire {
+  id: string
+  seq: number
+  title: string
+  description: string
+  stage: string
+  priority: number
+  ready: boolean
+  blocked: boolean
+  assignee?: string | null
+  needsHuman?: boolean
+  humanQuestion?: string | null
+  labels?: string[]
+  worktreePath?: string | null
+  branch?: string | null
+  defaultAgent?: string | null
+  defaultModel?: string | null
+  defaultEffort?: string | null
+}
+
+/** The single-issue `show` rendering — shared verbatim by single and bulk show. */
+function renderShow(i: ShowWire): string {
+  const meta = [
+    `stage=${i.stage} P${i.priority} ready=${i.ready} blocked=${i.blocked}`,
+    i.assignee ? `assignee=${i.assignee}` : null,
+    i.defaultAgent || i.defaultModel || i.defaultEffort
+      ? `agent=${i.defaultAgent ?? 'auto'} model=${i.defaultModel ?? 'auto'} effort=${i.defaultEffort ?? 'auto'}`
+      : null,
+    i.labels?.length ? `labels=${i.labels.join(',')}` : null,
+    i.branch ? `branch=${i.branch}` : null,
+    i.needsHuman ? `NEEDS HUMAN${i.humanQuestion ? `: ${i.humanQuestion}` : ''}` : null,
+  ]
+    .filter(Boolean)
+    .join('\n')
+  return `#${i.seq} ${i.title}\n${meta}\n\n${i.description}`
+}
+
+/** One node of the issues.tree payload (issue #82) as the CLI renders it. */
+interface TreeNode {
+  seq: number
+  title: string
+  stage: string
+  priority: number
+  assignee?: string
+  branch?: string
+  needsHuman: boolean
+  humanQuestion?: string
+  blocksDeps: number[]
+  description: string
+  closed: boolean
+  blocked: boolean
+  ready: boolean
+  children: TreeNode[]
+  omittedChildren: number
+}
 
 export const ISSUE_COMMANDS: IssueCommand[] = [
   {
@@ -69,43 +129,79 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
   },
   {
     name: 'show',
-    summary: 'Show one issue: show <id>.',
+    summary:
+      'Show issues in full: show <id> [<id>...] or show --ids a,b,c. One call surveys many issues (each rendered like single show).',
+    args: z.object({ id: idArg.optional(), ids: z.string().optional() }),
+    positionals: ['id'],
+    restKey: 'ids',
+    async run(c, a) {
+      const refs = [
+        ...(a.id != null ? [String(a.id)] : []),
+        ...(a.ids
+          ? String(a.ids)
+              .split(',')
+              .map((s) => s.trim())
+              .filter(Boolean)
+          : []),
+      ]
+      if (refs.length === 0) throw new Error('show needs at least one issue id')
+      // Exactly one id keeps the historical contract: unknown issue THROWS
+      // (non-zero exit) and data is the single issue object, not a 1-array.
+      if (refs.length === 1) {
+        const i = (await c.issues.get.query({ id: refs[0]! })) as ShowWire | null
+        if (!i) throw new Error(`unknown issue ${refs[0]}`)
+        return { text: renderShow(i), data: i }
+      }
+      // Bulk: per-id failures (unknown/ambiguous ref) become an inline error
+      // entry instead of failing the whole call — a 24-child survey should not
+      // die on one stale ref. data = array (issue wires ⊕ {ref,error} entries).
+      const results = await Promise.all(
+        refs.map(async (ref): Promise<ShowWire | { ref: string; error: string }> => {
+          try {
+            const i = (await c.issues.get.query({ id: ref })) as ShowWire | null
+            return i ?? { ref, error: `unknown issue ${ref}` }
+          } catch (err) {
+            return { ref, error: err instanceof Error ? err.message : String(err) }
+          }
+        }),
+      )
+      const text = results
+        .map((r) => ('error' in r && !('seq' in r) ? `${r.ref}: ERROR ${r.error}` : renderShow(r as ShowWire)))
+        .join('\n\n')
+      return { text, data: results }
+    },
+  },
+  {
+    name: 'tree',
+    summary:
+      'Whole epic in ONE call: tree <id> — the issue + all descendants (depth ≤3, ≤100 nodes) with stage/priority/assignee/branch/needs-human/blocking deps and a description snippet. Prefer this over per-child show when surveying an epic.',
     args: z.object({ id: idArg }),
     positionals: ['id'],
     async run(c, a) {
-      const i = (await c.issues.get.query({ id: a.id as string })) as {
-        id: string
-        seq: number
-        title: string
-        description: string
-        stage: string
-        priority: number
-        ready: boolean
-        blocked: boolean
-        assignee?: string | null
-        needsHuman?: boolean
-        humanQuestion?: string | null
-        labels?: string[]
-        worktreePath?: string | null
-        branch?: string | null
-        defaultAgent?: string | null
-        defaultModel?: string | null
-        defaultEffort?: string | null
-      } | null
-      if (!i) throw new Error(`unknown issue ${a.id}`)
-      const meta = [
-        `stage=${i.stage} P${i.priority} ready=${i.ready} blocked=${i.blocked}`,
-        i.assignee ? `assignee=${i.assignee}` : null,
-        i.defaultAgent || i.defaultModel || i.defaultEffort
-          ? `agent=${i.defaultAgent ?? 'auto'} model=${i.defaultModel ?? 'auto'} effort=${i.defaultEffort ?? 'auto'}`
-          : null,
-        i.labels?.length ? `labels=${i.labels.join(',')}` : null,
-        i.branch ? `branch=${i.branch}` : null,
-        i.needsHuman ? `NEEDS HUMAN${i.humanQuestion ? `: ${i.humanQuestion}` : ''}` : null,
-      ]
-        .filter(Boolean)
-        .join('\n')
-      return { text: `#${i.seq} ${i.title}\n${meta}\n\n${i.description}`, data: i }
+      const t = (await c.issues.tree.query({ id: a.id as string })) as {
+        root: TreeNode
+        totalNodes: number
+        omitted: number
+      }
+      const out: string[] = []
+      const walk = (n: TreeNode, depth: number): void => {
+        const pad = '  '.repeat(depth)
+        const status = n.closed ? 'DONE' : n.blocked ? 'BLOCKED' : n.ready ? 'READY' : n.stage
+        const extras = [
+          n.assignee ? `assignee=${n.assignee}` : null,
+          n.branch ? `branch=${n.branch}` : null,
+          n.blocksDeps.length ? `waits-on=${n.blocksDeps.map((s) => `#${s}`).join(',')}` : null,
+          n.needsHuman ? `NEEDS HUMAN${n.humanQuestion ? `: ${n.humanQuestion}` : ''}` : null,
+        ].filter(Boolean)
+        out.push(
+          `${pad}#${n.seq} P${n.priority} [${n.stage}] ${n.title} — ${status}${extras.length ? ` (${extras.join(' ')})` : ''}`,
+        )
+        if (n.description) out.push(`${pad}    ${n.description}`)
+        for (const ch of n.children) walk(ch, depth + 1)
+        if (n.omittedChildren > 0) out.push(`${'  '.repeat(depth + 1)}(+${n.omittedChildren} more)`)
+      }
+      walk(t.root, 0)
+      return { text: out.join('\n'), data: t }
     },
   },
   {

@@ -783,6 +783,10 @@ export const appRouter = t.router({
     children: issueProc
       .input(z.object({ id: z.string(), recursive: z.boolean().optional() }))
       .query(({ ctx, input }) => ctx.registry.issues.children(input.id, input.recursive ?? false)),
+    // Whole-epic survey in one call (issue #82) — read-only, scope-free like all reads.
+    tree: issueProc
+      .input(z.object({ id: z.string() }))
+      .query(({ ctx, input }) => ctx.registry.issues.tree(input.id)),
     setState: issueProc
       .input(z.object({ id: z.string(), text: z.string() }))
       .mutation(({ ctx, input }) =>

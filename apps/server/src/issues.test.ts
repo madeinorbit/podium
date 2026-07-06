@@ -596,6 +596,60 @@ describe('IssueService epic status (P2a)', () => {
   })
 })
 
+describe('IssueService.tree (issue #82)', () => {
+  it('returns the whole subtree in one payload with blocks-deps as seqs', () => {
+    const { svc } = harness()
+    const epic = svc.create({ repoPath: '/r', title: 'Epic', type: 'epic', startNow: false })
+    const c1 = svc.create({ repoPath: '/r', title: 'C1', parentId: epic.id, startNow: false, description: 'do  the\nthing' })
+    const c2 = svc.create({ repoPath: '/r', title: 'C2', parentId: epic.id, startNow: false })
+    const g1 = svc.create({ repoPath: '/r', title: 'G1', parentId: c1.id, startNow: false })
+    svc.addDep(c1.id, c2.id, 'blocks')
+    svc.close(c2.id)
+    const t = svc.tree(String(epic.seq)) // resolves display seq refs too
+    expect(t.totalNodes).toBe(4)
+    expect(t.omitted).toBe(0)
+    expect(t.root.seq).toBe(epic.seq)
+    const [n1, n2] = t.root.children
+    expect(n1!.seq).toBe(c1.seq)
+    expect(n1!.blocksDeps).toEqual([c2.seq])
+    expect(n1!.blocked).toBe(false) // c2 closed → not blocking
+    expect(n1!.description).toBe('do the thing') // whitespace collapsed to one line
+    expect(n1!.children[0]!.seq).toBe(g1.seq)
+    expect(n2!.closed).toBe(true)
+  })
+
+  it('caps depth and total nodes, counting omissions per parent and in total', () => {
+    const { svc } = harness()
+    const epic = svc.create({ repoPath: '/r', title: 'E', type: 'epic', startNow: false })
+    const c = svc.create({ repoPath: '/r', title: 'C', parentId: epic.id, startNow: false })
+    const g = svc.create({ repoPath: '/r', title: 'G', parentId: c.id, startNow: false })
+    const gg = svc.create({ repoPath: '/r', title: 'GG', parentId: g.id, startNow: false })
+    svc.create({ repoPath: '/r', title: 'GGG', parentId: gg.id, startNow: false }) // depth 4 → omitted
+    const t = svc.tree(epic.id)
+    expect(t.totalNodes).toBe(4)
+    expect(t.omitted).toBe(1)
+    const deepest = t.root.children[0]!.children[0]!.children[0]!
+    expect(deepest.title).toBe('GG')
+    expect(deepest.omittedChildren).toBe(1)
+
+    const wide = svc.create({ repoPath: '/r', title: 'W', type: 'epic', startNow: false })
+    for (let i = 0; i < 5; i++)
+      svc.create({ repoPath: '/r', title: `k${i}`, parentId: wide.id, startNow: false })
+    const capped = svc.tree(wide.id, { maxNodes: 3 })
+    expect(capped.totalNodes).toBe(3)
+    expect(capped.root.children.length).toBe(2)
+    expect(capped.root.omittedChildren).toBe(3)
+    expect(capped.omitted).toBe(3)
+  })
+
+  it('truncates descriptions to 300 chars and throws on an unknown ref', () => {
+    const { svc } = harness()
+    const e = svc.create({ repoPath: '/r', title: 'E', startNow: false, description: 'x'.repeat(500) })
+    expect(svc.tree(e.id).root.description.length).toBe(300)
+    expect(() => svc.tree('iss_nope')).toThrow()
+  })
+})
+
 describe('IssueService supersede/duplicate (P2b)', () => {
   it('supersede closes old with reason + supersededBy + supersedes dep', () => {
     const { svc, store } = harness()

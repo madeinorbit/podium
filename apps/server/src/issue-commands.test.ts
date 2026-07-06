@@ -42,6 +42,7 @@ function mockClient(overrides: Record<string, unknown> = {}): { client: IssueTrp
       mailClaim: proc('mailClaim'),
       mailPending: proc('mailPending'),
       children: proc('children'),
+      tree: proc('tree'),
       depReport: proc('depReport'),
       panelApply: proc('panelApply'),
     },
@@ -263,6 +264,88 @@ describe('ISSUE_COMMANDS registry', () => {
       issues: { get: { query: async () => null } },
     } as unknown as IssueTrpc
     await expect(cmd('show').run(fake, { id: '99' })).rejects.toThrow(/unknown issue 99/)
+  })
+
+  it('bulk show (issue #82): several ids render single-show sections, data is an array', async () => {
+    const wires: Record<string, unknown> = {
+      '1': { id: 'iss_a', seq: 1, title: 'A', description: 'da', stage: 'backlog', priority: 2, ready: true, blocked: false },
+      'iss_b': { id: 'iss_b', seq: 2, title: 'B', description: 'db', stage: 'in_progress', priority: 1, ready: false, blocked: true },
+    }
+    const fake = {
+      issues: { get: { query: async (i: { id: string }) => wires[i.id] ?? null } },
+    } as unknown as IssueTrpc
+    const out = await cmd('show').run(fake, { id: '1', ids: 'iss_b' })
+    expect(out.text).toContain('#1 A')
+    expect(out.text).toContain('#2 B')
+    expect(out.text.split('\n\n').length).toBeGreaterThanOrEqual(3) // two sections, each with a desc block
+    expect(Array.isArray(out.data)).toBe(true)
+    expect((out.data as unknown[]).length).toBe(2)
+  })
+
+  it('bulk show: one unknown id becomes a per-id error entry, not a whole-call failure', async () => {
+    const fake = {
+      issues: {
+        get: {
+          query: async (i: { id: string }) =>
+            i.id === '1'
+              ? { id: 'iss_a', seq: 1, title: 'A', description: 'd', stage: 'backlog', priority: 2, ready: true, blocked: false }
+              : null,
+        },
+      },
+    } as unknown as IssueTrpc
+    const out = await cmd('show').run(fake, { ids: '1,99' })
+    expect(out.text).toContain('#1 A')
+    expect(out.text).toContain('99: ERROR unknown issue 99')
+    const data = out.data as ({ seq?: number; ref?: string; error?: string })[]
+    expect(data[0]!.seq).toBe(1)
+    expect(data[1]).toEqual({ ref: '99', error: 'unknown issue 99' })
+  })
+
+  it('single-id show keeps the historical contract: data is the object, unknown throws', async () => {
+    const fake = {
+      issues: { get: { query: async () => null } },
+    } as unknown as IssueTrpc
+    await expect(cmd('show').run(fake, { ids: '99' })).rejects.toThrow(/unknown issue 99/)
+    expect(() => cmd('show').args.parse({})).not.toThrow() // no-id caught at run time
+    await expect(cmd('show').run(fake, {})).rejects.toThrow(/at least one issue id/)
+  })
+
+  it('tree renders an indented subtree with status, waits-on, needs-human and (+N more)', async () => {
+    const treeData = {
+      root: {
+        seq: 10, title: 'Epic', stage: 'in_progress', priority: 1, needsHuman: false,
+        blocksDeps: [], description: 'the epic', closed: false, blocked: false, ready: true,
+        omittedChildren: 0,
+        children: [
+          {
+            seq: 11, title: 'Child', stage: 'backlog', priority: 2, assignee: 'bob',
+            branch: 'issue/11-c', needsHuman: true, humanQuestion: 'which db?',
+            blocksDeps: [12], description: 'first child', closed: false, blocked: true, ready: false,
+            omittedChildren: 3, children: [],
+          },
+          {
+            seq: 12, title: 'Done one', stage: 'done', priority: 2, needsHuman: false,
+            blocksDeps: [], description: '', closed: true, blocked: false, ready: false,
+            omittedChildren: 0, children: [],
+          },
+        ],
+      },
+      totalNodes: 3,
+      omitted: 3,
+    }
+    const { client, calls } = mockClient({ tree: treeData })
+    const out = await cmd('tree').run(client, { id: '10' })
+    expect(calls).toContainEqual({ path: 'tree', kind: 'query', input: { id: '10' } })
+    const lines = out.text.split('\n')
+    expect(lines[0]).toBe('#10 P1 [in_progress] Epic — READY')
+    expect(lines[1]).toBe('    the epic')
+    expect(lines[2]).toBe(
+      '  #11 P2 [backlog] Child — BLOCKED (assignee=bob branch=issue/11-c waits-on=#12 NEEDS HUMAN: which db?)',
+    )
+    expect(lines[3]).toBe('      first child')
+    expect(lines[4]).toBe('    (+3 more)')
+    expect(lines[5]).toBe('  #12 P2 [done] Done one — DONE')
+    expect(out.data).toBe(treeData)
   })
 
   it('create passes --parentId through to the mutation', async () => {

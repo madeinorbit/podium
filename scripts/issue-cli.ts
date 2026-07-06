@@ -91,6 +91,12 @@ export async function runIssueCli(
     const key = cmd.positionals![i]!
     if (args[key] == null && positionals[i] != null) args[key] = positionals[i]
   }
+  // Variadic tail (issue #82): leftover positionals join into the command's restKey,
+  // so `show 1 2 3` ≡ `show 1 --ids 2,3` (an explicit --ids flag wins).
+  if (cmd.restKey && args[cmd.restKey] == null) {
+    const rest = positionals.slice(cmd.positionals?.length ?? 0)
+    if (rest.length) args[cmd.restKey] = rest.join(',')
+  }
   // Comment-style commands: default the author to who we are (agent via relay,
   // operator when talking to the server directly) unless explicitly given.
   const shape = (cmd.args as { shape?: Record<string, unknown> }).shape ?? {}

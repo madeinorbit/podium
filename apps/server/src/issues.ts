@@ -58,6 +58,37 @@ export interface DepReportEntry {
   dependents: DepReportRef[]
 }
 
+/** One node of an epic subtree payload — see tree() (issue #82). */
+export interface IssueTreeNode {
+  id: string
+  seq: number
+  title: string
+  stage: string
+  priority: number
+  type: string
+  assignee?: string
+  branch?: string
+  needsHuman: boolean
+  humanQuestion?: string
+  /** Seqs of `blocks` targets this issue waits on (open or closed). */
+  blocksDeps: number[]
+  /** First 300 chars of the description, whitespace collapsed to one line. */
+  description: string
+  closed: boolean
+  blocked: boolean
+  ready: boolean
+  children: IssueTreeNode[]
+  /** Direct children omitted here by the depth/node cap ('(+N more)' in the CLI). */
+  omittedChildren: number
+}
+
+export interface IssueTree {
+  root: IssueTreeNode
+  totalNodes: number
+  /** Total children omitted across the tree by the depth/node cap. */
+  omitted: number
+}
+
 export interface IssueDeps {
   store: SessionStore
   listSessions(): SessionMeta[]
@@ -389,6 +420,69 @@ export class IssueService {
     walk(root.id)
     const sessionList = this.deps.listSessions()
     return rows.sort((a, b) => a.seq - b.seq).map((r) => this.toWire(r, sessionList))
+  }
+
+  /** One-call epic survey (issue #82): the root + its whole descendant subtree,
+   *  depth-capped and node-capped so the payload stays bounded. Each node carries
+   *  the fields an orchestrating agent needs to plan (stage/priority/assignee/
+   *  branch/needs-human/blocking deps as seqs) plus a single-line 300-char
+   *  description snippet — NOT the full wire (use get/show for one issue's detail).
+   *  Children omitted by the depth or node cap are counted on their parent
+   *  (`omittedChildren`) and in the total (`omitted`). */
+  tree(ref: string, opts: { maxDepth?: number; maxNodes?: number } = {}): IssueTree {
+    const maxDepth = opts.maxDepth ?? 3
+    const maxNodes = opts.maxNodes ?? 100
+    const rootRow = this.rowOrThrow(this.resolveRef(ref))
+    const byParent = new Map<string, IssueRow[]>()
+    for (const r of this.rows.values()) {
+      if (!r.parentId || r.archived) continue
+      const list = byParent.get(r.parentId)
+      if (list) list.push(r)
+      else byParent.set(r.parentId, [r])
+    }
+    let count = 0
+    let omitted = 0
+    const node = (row: IssueRow, depth: number): IssueTreeNode => {
+      count++
+      const closed = this.isClosed(row)
+      const blocked = this.computeBlocked(row)
+      const blocksDeps = this.deps.store
+        .listIssueDeps(row.id)
+        .filter((d) => d.type === 'blocks')
+        .flatMap((d) => {
+          const target = this.rows.get(d.toId)
+          return target ? [target.seq] : []
+        })
+      const kids = (byParent.get(row.id) ?? []).sort((a, b) => a.seq - b.seq)
+      const children: IssueTreeNode[] = []
+      let omittedChildren = 0
+      for (const k of kids) {
+        if (depth < maxDepth && count < maxNodes) children.push(node(k, depth + 1))
+        else omittedChildren++
+      }
+      omitted += omittedChildren
+      return {
+        id: row.id,
+        seq: row.seq,
+        title: row.title,
+        stage: row.stage,
+        priority: row.priority,
+        type: row.type,
+        ...(row.assignee ? { assignee: row.assignee } : {}),
+        ...(row.branch ? { branch: row.branch } : {}),
+        needsHuman: row.needsHuman,
+        ...(row.humanQuestion ? { humanQuestion: row.humanQuestion } : {}),
+        blocksDeps,
+        description: row.description.replace(/\s+/g, ' ').trim().slice(0, 300),
+        closed,
+        blocked,
+        ready: !closed && !this.isDeferred(row) && !blocked,
+        children,
+        omittedChildren,
+      }
+    }
+    const root = node(rootRow, 0)
+    return { root, totalNodes: count, omitted }
   }
 
   /** Dependency status over a set of issues — an issue's subtree (id given,
