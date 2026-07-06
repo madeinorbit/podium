@@ -120,7 +120,9 @@ export function compareRecency(a: SessionMeta, b: SessionMeta, now: number = Dat
  * shells under their worktree.
  */
 export function withoutShells(sessions: SessionMeta[]): SessionMeta[] {
-  return sessions.filter((s) => s.agentKind !== 'shell')
+  // Headless superagent sessions are equally out of place on the board — they
+  // render only inside the superagent panel's embedded chat.
+  return sessions.filter((s) => s.agentKind !== 'shell' && s.headless !== true)
 }
 
 export function groupSessions(sessions: SessionMeta[]): HomeGroups {

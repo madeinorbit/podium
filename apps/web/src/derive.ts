@@ -221,6 +221,21 @@ export function worktreeForCwd(cwd: string, worktreePaths: string[]): string | n
   return best
 }
 
+/**
+ * A HEADLESS session (concierge unification): a superagent thread's harness
+ * session with no PTY. It renders ONLY inside the superagent panel's embedded
+ * ChatView (which is handed its sessionId explicitly) — every generic session
+ * surface (tabs, sidebar, home board, work items, issue counts) must skip it.
+ */
+export function isHeadlessSession(s: SessionMeta): boolean {
+  return s.headless === true
+}
+
+/** Drop headless sessions from a generic session enumeration. */
+export function withoutHeadless(sessions: SessionMeta[]): SessionMeta[] {
+  return sessions.some(isHeadlessSession) ? sessions.filter((s) => !isHeadlessSession(s)) : sessions
+}
+
 /** Sessions shown in a worktree's tab strip / sidebar — archived ones stay out.
  *  With `allWorktreePaths`, membership is by CONTAINMENT (worktreeForCwd), so a
  *  session whose stamped cwd is a subdirectory of the worktree still shows in it
@@ -233,6 +248,7 @@ export function sessionsForWorktree(
   return sessions.filter(
     (s) =>
       !s.archived &&
+      !isHeadlessSession(s) &&
       (allWorktreePaths
         ? worktreeForCwd(s.cwd, allWorktreePaths) === worktreePath
         : s.cwd === worktreePath),
@@ -511,7 +527,10 @@ export function sidebarSections(
   const pinnedPanels = sortSessionsForSidebar(
     pins.panels
       .map((sessionId) => sessions.find((session) => session.sessionId === sessionId))
-      .filter((session): session is SessionMeta => session !== undefined),
+      .filter(
+        (session): session is SessionMeta =>
+          session !== undefined && !isHeadlessSession(session),
+      ),
   )
 
   // A pinned panel still appears in its own repo/worktree list (it's not removed
@@ -584,7 +603,7 @@ export function partitionWorkItems(
   const pinnedPanels: SessionMeta[] = []
 
   for (const s of sessions) {
-    if (s.archived) continue
+    if (s.archived || isHeadlessSession(s)) continue
     // Shells never appear in the sidebar — not in WORKING, PINNED, or attention.
     if (s.agentKind === 'shell') continue
     if (pinnedSessionIds.has(s.sessionId)) pinnedPanels.push(s)
@@ -677,7 +696,9 @@ export function dedupeSessionsByResume(sessions: SessionMeta[]): SessionMeta[] {
   const indexByRef = new Map<string, number>()
   const out: SessionMeta[] = []
   for (const s of sessions) {
-    if (!s.resume) {
+    // A headless session shares its resume ref with its "open in terminal" PTY
+    // twin by design (same harness conversation) — never collapse the two rows.
+    if (!s.resume || isHeadlessSession(s)) {
       out.push(s)
       continue
     }
@@ -811,7 +832,10 @@ function sessionsForIssueWorktree(
   worktreePath: string | null,
 ): SessionMeta[] {
   if (!worktreePath) return []
-  return sessions.filter((s) => s.cwd === worktreePath || s.cwd.startsWith(`${worktreePath}/`))
+  return sessions.filter(
+    (s) =>
+      !isHeadlessSession(s) && (s.cwd === worktreePath || s.cwd.startsWith(`${worktreePath}/`)),
+  )
 }
 
 /** Flat, activity-sorted issue list for the sidebar Issues tab. Each issue carries

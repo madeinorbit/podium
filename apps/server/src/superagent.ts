@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
+import { homedir } from 'node:os'
 import { HARNESS_MCP_SUPPORT, superagentHarnessAgent } from '@podium/core'
-import { type IssueWire, type TranscriptItem, WorkState } from '@podium/protocol'
+import { HarnessAgent, type IssueWire, type TranscriptItem, WorkState } from '@podium/protocol'
 import { createIssue, moveIssue, searchIssues } from './linear'
 import { LlmConfigError, type LlmMessage, type LlmTool, llmClient } from './llm'
 import type { McpToolProvider } from './mcp-route'
@@ -31,6 +32,20 @@ export const MCP_THREAD_HEADER = 'x-podium-mcp-thread'
 /** Read-only built-in tools the harness orchestrator may use headlessly without a
  *  permission prompt (alongside the Podium MCP tools). */
 const HARNESS_BUILTIN_ALLOWED = ['Read', 'Grep', 'Glob']
+/** Persisted marker for a failed headless turn (like the flip/fallback notices:
+ *  a visible, durable line on the thread — never a silent fallback). */
+export const TURN_FAILED_MARKER = 'the headless harness turn failed'
+/** The native resume-ref kind each harness's sessions are stored under — the
+ *  same convention the PTY spawn path persists (daemon.ts resume observers), so
+ *  per-kind transcript reads and `agentLaunchCommand` resume argv both work on
+ *  a headless session's ref. */
+export const RESUME_KIND: Record<HarnessAgent, string> = {
+  'claude-code': 'claude-session',
+  codex: 'codex-thread',
+  grok: 'grok-session',
+  opencode: 'opencode-session',
+  cursor: 'cursor-chat',
+}
 
 /** The harness agent's `--allowedTools` belt: the read-only builtins plus every
  *  Podium MCP tool. Prefer the full composite tool set (superagent ⊕ issue) the
@@ -419,6 +434,10 @@ export class SuperagentService {
   // Per-thread serialization: a second send on a thread waits for the first (tools
   // mutate shared state), but the global thread and a btw thread don't block each other.
   private readonly busy = new Map<string, Promise<void>>()
+  // Threads with a headless turn in flight. Unlike `busy` (a queue), a second
+  // sendTurn is REJECTED — one writer per harness session, and the UI shows the
+  // running turn live via headlessActivity anyway.
+  private readonly turnInFlight = new Set<string>()
   // Where a harness-backed agent reaches Podium's own tools over MCP. Set by the
   // server once it's listening (it knows its own HTTP port + the access token).
   private mcpEndpoint: { url: string; token: string; allToolNames?: string[] } | undefined
@@ -484,7 +503,9 @@ export class SuperagentService {
    *  `confirmed` param appears on start-capable tools for concierge and
    *  thread-blind callers (else schema-strict harness clients strip the flag
    *  and the gate can never be satisfied). */
-  mcpToolSpecs(threadId?: string): Array<{ name: string; description: string; inputSchema: unknown }> {
+  mcpToolSpecs(
+    threadId?: string,
+  ): Array<{ name: string; description: string; inputSchema: unknown }> {
     return this.tools(this.store.getSettings().integrations.linearApiKey, threadId, {
       issueBelt: true,
     }).map((t) => ({
@@ -539,6 +560,339 @@ export class SuperagentService {
 
   listThreads(): SuperagentThreadRow[] {
     return this.store.listSuperagentThreads()
+  }
+
+  // ---- headless turns (concierge unification) ----------------------------------
+  // A superagent thread is a persistent harness session: the harness owns the
+  // conversation history (resume by id), its transcript renders through the
+  // normal Podium transcript pipeline, and a turn is fire-and-forget — sendTurn
+  // acks as soon as the daemon accepts the turn, progress streams to clients as
+  // `headlessActivity` frames, and the canonical items arrive via the tail.
+
+  /**
+   * Run one turn of a thread's headless harness session. Resolves with an ack
+   * `{threadId, podiumSessionId}` as soon as the turn is dispatched — it does
+   * NOT await completion. Rejects while a turn is already running on the thread
+   * or while a terminal attachment holds the one-writer lock.
+   *
+   * First turn on a thread (including a legacy thread that only has buffered
+   * messages): freezes the settings-chosen agent onto the thread, creates the
+   * headless Podium session, and prepends the concierge/btw seed block; the
+   * harness session id learned from the result becomes the thread's resume
+   * value. Later turns prepend only the re-entry delta (issue events / origin
+   * transcript) — no history re-folding, the harness owns history.
+   */
+  async sendTurn({
+    threadId,
+    text,
+  }: {
+    threadId: string
+    text: string
+  }): Promise<{ threadId: string; podiumSessionId: string }> {
+    const thread = this.store.getSuperagentThread(threadId)
+    if (!thread) throw new Error(`unknown thread: ${threadId}`)
+    if (this.turnInFlight.has(threadId)) {
+      throw new Error('a turn is already running on this thread — stop it or wait for it to finish')
+    }
+    const lockError = this.terminalLockError(thread)
+    if (lockError) throw new Error(lockError)
+    this.turnInFlight.add(threadId)
+    let sessionId: string
+    try {
+      const settings = this.store.getSettings()
+      // Freeze the agent onto the thread on first contact; later turns keep it
+      // even if the settings default changes (the harness session is agent-bound).
+      const frozen = HarnessAgent.safeParse(thread.agentKind)
+      const agent: HarnessAgent = frozen.success ? frozen.data : superagentHarnessAgent(settings)
+      if (!frozen.success) this.store.updateSuperagentThreadBinding(threadId, { agentKind: agent })
+      const cwd = this.threadCwd(thread)
+      // Ensure the headless Podium session (recreate if the row was deleted).
+      const existing = thread.podiumSessionId
+        ? this.registry.listSessions().find((s) => s.sessionId === thread.podiumSessionId)
+        : undefined
+      if (existing) {
+        sessionId = existing.sessionId
+      } else {
+        sessionId = this.registry.createHeadlessSession({
+          agentKind: agent,
+          cwd,
+          title: thread.title ?? threadId,
+          spawnedBy: `superagent:${threadId}`,
+        }).sessionId
+        this.store.updateSuperagentThreadBinding(threadId, { podiumSessionId: sessionId })
+      }
+      // First HARNESS turn = no harness session yet. A legacy thread (buffered
+      // messages, no harness session) re-primes through the seed the same way.
+      const firstTurn = !thread.harnessSessionId
+      const context = await this.composeContext(thread, firstTurn)
+      const prompt = context ? `${context}\n\n${text}` : text
+      const systemPrompt =
+        thread.kind === 'concierge'
+          ? conciergeSystemPrompt(thread.repoPath ?? conciergeRepoPath(threadId) ?? '?')
+          : SYSTEM_PROMPT
+      const backend = settings.superagent
+      // Claude sessions are minted with our uuid so the thread↔transcript
+      // binding is deterministic from turn 1; other harnesses report theirs.
+      const sessionUuid = firstTurn && agent === 'claude-code' ? randomUUID() : undefined
+      this.registry.broadcastHeadlessActivity(sessionId, { kind: 'turn-start' })
+      const turn = this.registry.headlessTurn(
+        {
+          sessionId,
+          threadId,
+          agent,
+          model: backend.kind === 'harness' ? backend.harnessModel : 'auto',
+          cwd,
+          prompt,
+          systemPrompt,
+          timeoutMs: SUPERAGENT_HARNESS_TIMEOUT_MS,
+          ...(thread.harnessSessionId ? { resumeValue: thread.harnessSessionId } : {}),
+          ...(sessionUuid ? { sessionUuid } : {}),
+          // Podium's orchestrator tools over MCP, when this harness can mount
+          // them per-invocation; grok/cursor/opencode run without (as today).
+          ...(HARNESS_MCP_SUPPORT[agent] === 'full' ? this.harnessMcp(threadId) : {}),
+        },
+        (event) => this.registry.broadcastHeadlessActivity(sessionId, event),
+      )
+      void turn.then((result) => {
+        this.turnInFlight.delete(threadId)
+        if (result.ok) {
+          const harnessSessionId = result.harnessSessionId ?? sessionUuid
+          if (firstTurn && harnessSessionId) {
+            this.store.updateSuperagentThreadBinding(threadId, { harnessSessionId })
+            this.registry.setHeadlessResume(sessionId, {
+              kind: RESUME_KIND[agent],
+              value: harnessSessionId,
+            })
+          }
+          this.registry.broadcastHeadlessActivity(sessionId, { kind: 'turn-end' })
+        } else {
+          const error = result.error ?? 'unknown error'
+          // Persisted failure notice (like the flip/fallback notices): visible on
+          // the thread's legacy history, never a silent fallback to the buffered path.
+          this.store.appendSuperagentMessage(threadId, {
+            role: 'assistant',
+            content: `${TURN_FAILED_MARKER} (${agent}): ${error}`,
+          })
+          this.registry.broadcastHeadlessActivity(sessionId, { kind: 'turn-end', error })
+        }
+      })
+    } catch (err) {
+      this.turnInFlight.delete(threadId)
+      throw err
+    }
+    return { threadId, podiumSessionId: sessionId }
+  }
+
+  /** Interrupt the thread's running headless turn (fire-and-forget; the turn's
+   *  own result broadcasts the turn-end). */
+  interruptTurn({ threadId }: { threadId: string }): void {
+    const thread = this.store.getSuperagentThread(threadId)
+    if (!thread?.podiumSessionId) throw new Error(`no headless session for thread: ${threadId}`)
+    this.registry.headlessInterrupt(thread.podiumSessionId)
+  }
+
+  /**
+   * Escape hatch: open the thread's harness session as a NORMAL PTY session
+   * (`claude --resume <id>` / `codex resume <id>` / …) and lock the thread —
+   * one writer at a time. sendTurn rejects while the terminal session is live;
+   * the lock clears lazily once that session exits.
+   */
+  openInTerminal({ threadId }: { threadId: string }): { sessionId: string } {
+    const thread = this.store.getSuperagentThread(threadId)
+    if (!thread) throw new Error(`unknown thread: ${threadId}`)
+    if (this.turnInFlight.has(threadId)) {
+      throw new Error('a turn is running on this thread — wait for it to finish')
+    }
+    const agent = HarnessAgent.safeParse(thread.agentKind)
+    if (!agent.success || !thread.harnessSessionId) {
+      throw new Error('this thread has no harness session yet — send a message first')
+    }
+    // Re-opening while an earlier terminal attachment is still live just
+    // focuses it (resumeSession reuses the row for the same resume ref).
+    const { sessionId } = this.registry.resumeSession({
+      agentKind: agent.data,
+      cwd: this.threadCwd(thread),
+      resume: { kind: RESUME_KIND[agent.data], value: thread.harnessSessionId },
+      conversationId: thread.harnessSessionId,
+      ...(thread.title ? { title: thread.title } : {}),
+      spawnedBy: `superagent:${threadId}`,
+    })
+    this.store.updateSuperagentThreadBinding(threadId, { terminalSessionId: sessionId })
+    return { sessionId }
+  }
+
+  /** Ensure the repo's concierge thread, then run the turn (see sendTurn). */
+  async conciergeTurn({
+    repoPath,
+    text,
+  }: {
+    repoPath: string
+    text: string
+  }): Promise<{ threadId: string; podiumSessionId: string; isNew: boolean }> {
+    if (!this.repos.list().includes(repoPath)) {
+      throw new Error(`unknown repo: ${repoPath} — register it in Podium first`)
+    }
+    const threadId = conciergeThreadId(repoPath)
+    const existing = this.store.getSuperagentThread(threadId)
+    const isNew = existing?.kind !== 'concierge'
+    if (isNew) {
+      this.store.upsertSuperagentThread({
+        id: threadId,
+        kind: 'concierge',
+        repoPath,
+        title: `concierge · ${repoPath.split('/').pop() ?? repoPath}`,
+      })
+    }
+    const ack = await this.sendTurn({ threadId, text })
+    return { ...ack, isNew }
+  }
+
+  /**
+   * Ensure a btw thread for a chat session. No turn runs here: the seed (new
+   * thread) or origin-transcript delta (re-open) is prepended to the user's
+   * next sendTurn by composeContext, so the harness gets it exactly once.
+   */
+  startBtwTurn({ sessionId }: { sessionId: string }): { threadId: string; isNew: boolean } {
+    const threadId = `btw_${sessionId}`
+    const existing = this.store.getSuperagentThread(threadId)
+    if (existing?.kind === 'btw') return { threadId, isNew: false }
+    const info = this.registry.listSessions().find((s) => s.sessionId === sessionId)
+    this.store.upsertSuperagentThread({
+      id: threadId,
+      kind: 'btw',
+      originSessionId: sessionId,
+      title: `btw · ${info?.name ?? info?.title ?? sessionId}`,
+    })
+    return { threadId, isNew: true }
+  }
+
+  /** Where a thread's harness session runs: the repo for concierge threads, the
+   *  origin session's cwd for btw threads, the home directory for the global
+   *  thread (the old buffered path never set a cwd — the daemon ran harnessExec
+   *  from its own default; home is that, made explicit). */
+  private threadCwd(thread: SuperagentThreadRow): string {
+    if (thread.kind === 'concierge') {
+      return thread.repoPath ?? conciergeRepoPath(thread.id) ?? homedir()
+    }
+    if (thread.kind === 'btw' && thread.originSessionId) {
+      const origin = this.registry
+        .listSessions()
+        .find((s) => s.sessionId === thread.originSessionId)
+      return origin?.cwd ?? homedir()
+    }
+    return homedir()
+  }
+
+  /** One-writer lock, terminal side: while the thread's "open in terminal"
+   *  session is live, chatting is refused. A dead terminal session clears the
+   *  lock lazily right here. Returns the rejection message, or undefined. */
+  private terminalLockError(thread: SuperagentThreadRow): string | undefined {
+    if (!thread.terminalSessionId) return undefined
+    const s = this.registry.listSessions().find((x) => x.sessionId === thread.terminalSessionId)
+    if (s && (s.status === 'live' || s.status === 'starting' || s.status === 'reconnecting')) {
+      return 'this thread is open in a terminal session — close it to chat here'
+    }
+    this.store.updateSuperagentThreadBinding(thread.id, { terminalSessionId: null })
+    return undefined
+  }
+
+  /** The machine-authored context block for a turn: the concierge seed / issue-
+   *  event delta, or the btw seed / origin-transcript delta. Advances the
+   *  thread watermark as a side effect. Undefined = nothing to prepend. */
+  private async composeContext(
+    thread: SuperagentThreadRow,
+    firstTurn: boolean,
+  ): Promise<string | undefined> {
+    const now = () => new Date().toISOString()
+    if (thread.kind === 'concierge') {
+      const repoPath = thread.repoPath ?? conciergeRepoPath(thread.id)
+      if (!repoPath) return undefined
+      const maxEventId = this.store.maxEventId()
+      if (firstTurn) {
+        const seed = buildConciergeSeed({
+          ...this.conciergeDigest(repoPath, maxEventId),
+          maxEventId,
+        })
+        this.store.setThreadWatermark(thread.id, String(maxEventId), now())
+        return seed
+      }
+      const prevEventId = Number(thread.watermarkItemId ?? '0') || 0
+      const { events, overflowLastId } = this.issueEventsSince(prevEventId, repoPath)
+      if (events.length === 0) return undefined
+      const all = this.registry.issues.list(repoPath)
+      // On overflow, advance only to the last event actually digested — the
+      // next turn picks up the rest instead of silently skipping past it.
+      const nextWatermark = overflowLastId ?? maxEventId
+      const update = buildConciergeDelta({
+        prevEventId,
+        events,
+        maxEventId: nextWatermark,
+        now: now(),
+        seqOf: (id) => all.find((i) => i.id === id)?.seq,
+      })
+      this.store.setThreadWatermark(thread.id, String(nextWatermark), now())
+      return update
+    }
+    if (thread.kind === 'btw' && thread.originSessionId) {
+      const originId = thread.originSessionId
+      const { items } = await this.registry.readTranscript({
+        sessionId: originId,
+        direction: 'before',
+        limit: 2000,
+      })
+      const last = items[items.length - 1]
+      if (firstTurn) {
+        const info = this.registry.listSessions().find((s) => s.sessionId === originId)
+        const seed = buildBtwSeed({
+          session: {
+            sessionId: originId,
+            name: info?.name ?? info?.title,
+            agentKind: info?.agentKind,
+            cwd: info?.cwd,
+          },
+          items,
+        })
+        this.store.setThreadWatermark(thread.id, last?.id ?? '', last?.ts)
+        return seed
+      }
+      const delta = transcriptDelta(items, { itemId: thread.watermarkItemId })
+      if (delta.length === 0) return undefined
+      const update = buildBtwDelta({
+        prev: { itemId: thread.watermarkItemId, ts: thread.watermarkTs },
+        delta,
+        now: now(),
+      })
+      this.store.setThreadWatermark(thread.id, last?.id ?? thread.watermarkItemId ?? '', last?.ts)
+      return update
+    }
+    return undefined
+  }
+
+  /** The MCP mount for a headless turn — exactly the config/allowlist the old
+   *  buffered harness path built (in-process Podium tools keep working). Empty
+   *  when the server hasn't published its MCP endpoint yet. */
+  private harnessMcp(threadId: string): { mcpConfig?: string; allowedTools?: string[] } {
+    if (!this.mcpEndpoint) return {}
+    return {
+      mcpConfig: JSON.stringify({
+        mcpServers: {
+          [MCP_SERVER_NAME]: {
+            type: 'http',
+            url: this.mcpEndpoint.url,
+            headers: {
+              [MCP_TOKEN_HEADER]: this.mcpEndpoint.token,
+              // Thread identity (issue #67): the route resolves this back to
+              // threadId, so the gate + provenance work on the harness backend.
+              [MCP_THREAD_HEADER]: this.mcpThreadToken(threadId),
+            },
+          },
+        },
+      }),
+      allowedTools: harnessAllowedTools(
+        this.mcpEndpoint.allToolNames,
+        this.mcpToolSpecs().map((t) => t.name),
+      ),
+    }
   }
 
   async send(threadId: string, text: string): Promise<SuperagentTurn> {

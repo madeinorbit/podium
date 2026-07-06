@@ -67,6 +67,8 @@ export interface SessionInit {
   /** WHO created this session (provenance, issue #60): 'user', 'issue:<id>',
    *  'superagent:<threadId>', … Absent = unknown (legacy row). */
   spawnedBy?: string
+  /** True for a headless harness session (no PTY; concierge unification). */
+  headless?: boolean
   /** Called when a meta field changes outside the normal control flow (the
    *  debounced shell `busy` flag) so the registry can rebroadcast the session list. */
   onActivity?: () => void
@@ -117,6 +119,8 @@ export class Session {
   readonly durableLabel: string
   /** Creation provenance (issue #60) — immutable for the life of the row. */
   readonly spawnedBy: string | undefined
+  /** True for a headless harness session (no PTY) — immutable for the row's life. */
+  readonly headless: boolean
   /** The machine (daemon) this session runs on. The registry routes this
    *  session's control messages to it; '__local__' until a real machine adopts
    *  it (see SessionRegistry.ensureLocalMachine), so it is reassignable, not readonly. */
@@ -208,6 +212,7 @@ export class Session {
     this.origin = init.origin
     this.createdAt = init.createdAt
     this.spawnedBy = init.spawnedBy
+    this.headless = init.headless ?? false
     this.geometry = { ...init.geometry }
     this.toDaemon = init.toDaemon
     this.machineId = init.machineId ?? '__local__'
@@ -691,6 +696,7 @@ export class Session {
       lastResumedAt: Session.msToIso(this.resumedAtMs),
       spawnedBy: this.spawnedBy ?? null,
       machineId: this.machineId,
+      headless: this.headless,
     }
   }
 
@@ -731,6 +737,7 @@ export class Session {
       ...(this.queuedMessageCount > 0 ? { queuedMessageCount: this.queuedMessageCount } : {}),
       ...(this.conversationPodiumId ? { conversationPodiumId: this.conversationPodiumId } : {}),
       ...(this.spawnedBy ? { spawnedBy: this.spawnedBy } : {}),
+      ...(this.headless ? { headless: true } : {}),
     }
   }
 

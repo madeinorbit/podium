@@ -352,25 +352,43 @@ export const appRouter = t.router({
     history: t.procedure
       .input(z.object({ threadId: z.string().default('global') }))
       .query(({ ctx, input }) => ctx.superagent.history(input.threadId)),
-    // Runs the full tool loop server-side; resolves with this turn's new messages.
+    // One headless harness turn on an existing thread (concierge unification):
+    // acks {threadId, podiumSessionId} as soon as the turn is dispatched — output
+    // arrives via the session's transcript stream + headlessActivity frames.
+    sendTurn: t.procedure
+      .input(
+        z.object({ threadId: z.string().default('global'), text: z.string().min(1).max(32_768) }),
+      )
+      .mutation(({ ctx, input }) => ctx.superagent.sendTurn(input)),
+    // `send` is the same turn path (kept as the generic entry the panel uses).
     send: t.procedure
       .input(
         z.object({ threadId: z.string().default('global'), text: z.string().min(1).max(32_768) }),
       )
-      .mutation(({ ctx, input }) => ctx.superagent.send(input.threadId, input.text)),
+      .mutation(({ ctx, input }) => ctx.superagent.sendTurn(input)),
+    // Stop the thread's running headless turn.
+    interruptTurn: t.procedure
+      .input(z.object({ threadId: z.string() }))
+      .mutation(({ ctx, input }) => ctx.superagent.interruptTurn(input)),
+    // Escape hatch: open the thread's harness session as a normal PTY session
+    // (resume argv) and lock the thread — one writer at a time.
+    openInTerminal: t.procedure
+      .input(z.object({ threadId: z.string() }))
+      .mutation(({ ctx, input }) => ctx.superagent.openInTerminal(input)),
     clear: t.procedure
       .input(z.object({ threadId: z.string().default('global') }))
       .mutation(({ ctx, input }) => ctx.superagent.clear(input.threadId)),
-    // Spin up (or re-open) a btw thread seeded from a chat session's transcript.
+    // Ensure (or re-open) a btw thread for a chat session. The transcript seed /
+    // re-open delta is prepended to the thread's next sendTurn.
     startBtw: t.procedure
       .input(z.object({ sessionId: z.string() }))
-      .mutation(({ ctx, input }) => ctx.superagent.startBtw(input)),
-    // Per-repo concierge intake (issue #64): ensure the repo's thread (digest seed
-    // on first open, issue-event delta on re-open), then run the message through
-    // the tool loop. listThreads exposes kind='concierge' + repoPath for the web.
+      .mutation(({ ctx, input }) => ctx.superagent.startBtwTurn(input)),
+    // Per-repo concierge intake (issue #64): ensure the repo's thread, then run
+    // the message as a headless harness turn (digest seed on the first turn,
+    // issue-event delta on re-entry). Returns the sendTurn ack + isNew.
     concierge: t.procedure
       .input(z.object({ repoPath: z.string().min(1), text: z.string().min(1).max(32_768) }))
-      .mutation(({ ctx, input }) => ctx.superagent.concierge(input)),
+      .mutation(({ ctx, input }) => ctx.superagent.conciergeTurn(input)),
   }),
   conversations: t.router({
     // Keyword search over the durable index (FTS5 where available). Empty query

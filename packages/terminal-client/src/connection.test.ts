@@ -115,6 +115,42 @@ describe('SocketHub', () => {
     warn.mockRestore()
   })
 
+  it('dispatches headlessActivity frames to the matching session subscribers only', () => {
+    const { sock, hub } = setup()
+    const seenA: unknown[] = []
+    const seenB: unknown[] = []
+    const unsubA = hub.subscribeHeadless('sA', (e) => seenA.push(e))
+    hub.subscribeHeadless('sB', (e) => seenB.push(e))
+    hub.connect()
+    sock.open()
+    sock.recv({ type: 'headlessActivity', sessionId: 'sA', event: { kind: 'turn-start' } })
+    sock.recv({
+      type: 'headlessActivity',
+      sessionId: 'sA',
+      event: { kind: 'partial-text', text: 'hel' },
+    })
+    sock.recv({
+      type: 'headlessActivity',
+      sessionId: 'sB',
+      event: { kind: 'status', status: 'tool', label: 'Bash' },
+    })
+    expect(seenA).toEqual([{ kind: 'turn-start' }, { kind: 'partial-text', text: 'hel' }])
+    expect(seenB).toEqual([{ kind: 'status', status: 'tool', label: 'Bash' }])
+    // Unsubscribe stops delivery; other sessions unaffected.
+    unsubA()
+    sock.recv({ type: 'headlessActivity', sessionId: 'sA', event: { kind: 'turn-end' } })
+    expect(seenA).toHaveLength(2)
+  })
+
+  it('drops headlessActivity for sessions with no subscriber without throwing', () => {
+    const { sock, hub } = setup()
+    hub.connect()
+    sock.open()
+    expect(() =>
+      sock.recv({ type: 'headlessActivity', sessionId: 'ghost', event: { kind: 'turn-start' } }),
+    ).not.toThrow()
+  })
+
   it('exposes conversationsChanged via conversations() + onConversations', () => {
     const { sock, hub } = setup()
     const seen: number[] = []

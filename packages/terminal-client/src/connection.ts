@@ -2,6 +2,7 @@ import {
   CAP_METADATA_DELTA,
   type ConversationSummaryWire,
   encode,
+  type HeadlessActivityEvent,
   type HostMetricsWire,
   type IssueWire,
   type MachineWire,
@@ -238,6 +239,10 @@ export class SocketHub {
   private readonly issueUpdatedObservers = new Set<(i: IssueWire) => void>()
   private readonly healthObservers = new Set<(h: ConnectionHealth) => void>()
   private readonly attentionObservers = new Set<(e: AttentionEvent) => void>()
+  // Live turn activity for HEADLESS sessions (concierge unification): the server
+  // broadcasts `headlessActivity` frames to every client; this is a purely local
+  // observer registry — no server-side subscribe/unsubscribe round trip.
+  private readonly headlessObservers = new Map<string, Set<(e: HeadlessActivityEvent) => void>>()
   private draftObservers = new Set<(sessionId: string, text: string) => void>()
   private lastVisible = true
   private lastViewState: {
@@ -587,6 +592,27 @@ export class SocketHub {
     }
   }
 
+  /**
+   * Observe live turn activity for a HEADLESS session (partial assistant text,
+   * status, turn boundaries). Frames are server-broadcast to all clients, so this
+   * is a local fan-out only — mirrors subscribeTranscript's shape without the
+   * server subscription. Returns an unsubscribe.
+   */
+  subscribeHeadless(sessionId: string, cb: (e: HeadlessActivityEvent) => void): () => void {
+    let set = this.headlessObservers.get(sessionId)
+    if (!set) {
+      set = new Set()
+      this.headlessObservers.set(sessionId, set)
+    }
+    set.add(cb)
+    return () => {
+      const current = this.headlessObservers.get(sessionId)
+      if (!current) return
+      current.delete(cb)
+      if (current.size === 0) this.headlessObservers.delete(sessionId)
+    }
+  }
+
   /** Attention events (agent needs the human) — the app turns these into notifications. */
   onAttention(cb: (e: AttentionEvent) => void): () => void {
     this.attentionObservers.add(cb)
@@ -781,6 +807,11 @@ export class SocketHub {
       for (const o of this.attentionObservers) {
         o({ sessionId: msg.sessionId, title: msg.title, body: msg.body })
       }
+      return
+    }
+    if (msg.type === 'headlessActivity') {
+      const observers = this.headlessObservers.get(msg.sessionId)
+      if (observers) for (const o of observers) o(msg.event)
       return
     }
     if (msg.type === 'transcriptDelta') {

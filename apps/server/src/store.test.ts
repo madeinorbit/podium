@@ -66,6 +66,8 @@ function row(overrides: Partial<SessionRow> = {}): SessionRow {
     machineId: '__local__',
     // Same for provenance (issue #60): loadSessions always returns it (null = legacy).
     spawnedBy: null,
+    // And the headless flag (concierge unification): always present, default false.
+    headless: false,
     ...overrides,
   }
 }

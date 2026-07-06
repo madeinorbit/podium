@@ -84,6 +84,7 @@ import {
   writeFileSandboxed,
 } from './file-access'
 import { buildHarnessExec } from './harness-exec.js'
+import { type HeadlessTurnHandle, runHeadlessTurn } from './headless-drivers.js'
 import { startHookIngest } from './hook-ingest'
 import { sampleHostMemory } from './host-metrics'
 import { loadIdentity, saveToken } from './identity'
@@ -1568,6 +1569,25 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
       case 'harnessExecRequest':
         void runHarnessExec(msg)
         break
+      case 'headlessTurnRequest':
+        runHeadlessTurnRequest(msg)
+        break
+      case 'headlessInterrupt':
+        runningHeadlessTurns.get(msg.sessionId)?.interrupt()
+        break
+      case 'headlessBind':
+        try {
+          bindHeadlessSession(msg.sessionId, msg.agentKind, msg.cwd, msg.resumeValue)
+          send({ type: 'headlessBindResult', requestId: msg.requestId, ok: true })
+        } catch (err) {
+          send({
+            type: 'headlessBindResult',
+            requestId: msg.requestId,
+            ok: false,
+            error: err instanceof Error ? err.message : String(err),
+          })
+        }
+        break
       case 'usageRequest':
         void runUsageScan(msg)
         break
@@ -1788,6 +1808,123 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
         }
       }
     }
+  }
+
+  // ---- Headless harness sessions (concierge unification, Phase A) ----
+  // One live turn per session; concurrent sends on a thread are rejected so two
+  // writers can never race the same harness session.
+  const runningHeadlessTurns = new Map<string, HeadlessTurnHandle>()
+
+  /** Stand up the per-kind transcript observers/tails for a headless session —
+   *  the same setup initSessionObservers does on reattach, minus the PTY and
+   *  state tracker (headless sessions have no hook channel; observers that call
+   *  applyAgentStateEvents no-op without a tracker). */
+  const bindHeadlessSession = (
+    sessionId: string,
+    agentKind: AgentKind,
+    cwd: string,
+    resumeValue: string,
+  ): void => {
+    switch (agentKind) {
+      case 'claude-code':
+        startClaudeTranscriptTail(sessionId, cwd, resumeValue)
+        break
+      case 'codex':
+        // The observer pins the rollout by thread id and re-resolves the tailed
+        // path (resume may mint a new rollout file).
+        startCodexStateObserver(sessionId, cwd, resumeValue)
+        break
+      case 'grok':
+        startGrokStateObserver(sessionId, cwd, resumeValue)
+        break
+      case 'opencode':
+        startOpencodeStateObserver(sessionId, cwd, resumeValue)
+        break
+      case 'cursor':
+        startCursorStateObserver(sessionId, cwd, resumeValue)
+        tailCursorTranscript(sessionId, cwd, resumeValue)
+        break
+      default:
+        throw new Error(`agent kind ${agentKind} has no headless transcript binding`)
+    }
+  }
+
+  const runHeadlessTurnRequest = (
+    msg: Extract<ControlMessage, { type: 'headlessTurnRequest' }>,
+  ): void => {
+    if (runningHeadlessTurns.has(msg.sessionId)) {
+      send({
+        type: 'headlessTurnResult',
+        requestId: msg.requestId,
+        ok: false,
+        error: 'turn already running',
+      })
+      return
+    }
+    let handle: HeadlessTurnHandle
+    try {
+      handle = runHeadlessTurn(
+        {
+          agent: msg.agent,
+          cwd: msg.cwd,
+          prompt: msg.prompt,
+          ...(msg.model ? { model: msg.model } : {}),
+          ...(msg.effort ? { effort: msg.effort } : {}),
+          ...(msg.systemPrompt ? { systemPrompt: msg.systemPrompt } : {}),
+          ...(msg.mcpConfig ? { mcpConfig: msg.mcpConfig } : {}),
+          ...(msg.allowedTools ? { allowedTools: msg.allowedTools } : {}),
+          ...(msg.permissionMode ? { permissionMode: msg.permissionMode } : {}),
+          ...(msg.resumeValue ? { resumeValue: msg.resumeValue } : {}),
+          ...(msg.sessionUuid ? { sessionUuid: msg.sessionUuid } : {}),
+          ...(msg.timeoutMs ? { timeoutMs: msg.timeoutMs } : {}),
+        },
+        (event) =>
+          send({
+            type: 'headlessTurnEvent',
+            requestId: msg.requestId,
+            sessionId: msg.sessionId,
+            event,
+          }),
+        { opencode: resolveOpencodeBin, cursor: resolveCursorBin },
+      )
+    } catch (err) {
+      send({
+        type: 'headlessTurnResult',
+        requestId: msg.requestId,
+        ok: false,
+        error: err instanceof Error ? err.message : String(err),
+      })
+      return
+    }
+    runningHeadlessTurns.set(msg.sessionId, handle)
+    void handle.done
+      .then(({ harnessSessionId, output }) => {
+        // First turn: start the transcript tail immediately so streaming-to-chat
+        // works from turn 1 without waiting for a bind round-trip.
+        if (!msg.resumeValue) {
+          try {
+            bindHeadlessSession(msg.sessionId, msg.agent, msg.cwd, harnessSessionId)
+          } catch {
+            // tail setup is best-effort here; a later headlessBind can retry
+          }
+        }
+        send({
+          type: 'headlessTurnResult',
+          requestId: msg.requestId,
+          ok: true,
+          harnessSessionId,
+          output,
+        })
+      })
+      .catch((err) =>
+        send({
+          type: 'headlessTurnResult',
+          requestId: msg.requestId,
+          ok: false,
+          error: err instanceof Error ? err.message : String(err),
+        }),
+      )
+      .finally(() => runningHeadlessTurns.delete(msg.sessionId))
   }
 
   const disposeAll = (reapSessions = false): void => {

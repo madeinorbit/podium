@@ -1,5 +1,13 @@
 import type { AgentKind, TranscriptItem } from '@podium/protocol'
-import { ArrowUpRight, Eraser, Mic, PanelRightClose, Send, Sparkles } from 'lucide-react'
+import {
+  ArrowUpRight,
+  Eraser,
+  Mic,
+  PanelRightClose,
+  Send,
+  Sparkles,
+  SquareTerminal,
+} from 'lucide-react'
 import type { JSX } from 'react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
@@ -7,6 +15,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { cn } from '@/lib/utils'
 import { CardBoundary } from './CardBoundary'
 import { mergeByCursor } from './chat'
+import { ChatView } from './ChatView'
 import { conciergeLabel, conciergeRepoPath } from './concierge'
 import { agentBadge, panelLabel, reposToViews, sessionDotClass } from './derive'
 import { useIsMobile } from './hooks/use-is-mobile'
@@ -32,13 +41,10 @@ interface SuperThread {
   originSessionId?: string
   title?: string
   repoPath?: string
-}
-
-/** "12s" under a minute, then "3m 04s" — the in-flight turn's elapsed clock. */
-function formatElapsed(ms: number): string {
-  const s = Math.max(0, Math.floor(ms / 1000))
-  if (s < 60) return `${s}s`
-  return `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, '0')}s`
+  /** The headless Podium session rendering this thread (set on the first turn). */
+  podiumSessionId?: string
+  /** The harness's own session id — present once the thread has a real session. */
+  harnessSessionId?: string
 }
 
 function superThreadLabel(thread: SuperThread): string {
@@ -58,179 +64,106 @@ interface AtOption {
 }
 
 /**
- * The superagent: an orchestrator chat with cross-project context and tools.
- * `@` in the input opens the context menu — repos, worktrees, conversations
- * (files later) — and inserts an @label(ref) token the agent understands.
+ * The superagent panel (concierge unification, Phase C): a thin shell — thread
+ * switcher header + optional legacy-history block — around an embedded ChatView
+ * bound to the thread's HEADLESS Podium session. The harness owns the
+ * conversation; ChatView renders its real transcript (tool batching, windowing,
+ * streaming overlay) and routes sends through superagent.sendTurn.
+ *
+ * A thread with no session yet (fresh concierge/global thread) shows only a
+ * composer; the first send creates the headless session (conciergeTurn /
+ * sendTurn ack carries podiumSessionId) and the panel swaps to ChatView.
  */
 export function SuperagentView({ onClose }: { onClose?: () => void } = {}): JSX.Element {
-  const { trpc, repos, superThreadId, setSuperThreadId, superRefreshKey } = useStore()
-  const [messages, setMessages] = useState<SuperMessage[]>([])
+  const {
+    trpc,
+    sessions,
+    superThreadId,
+    setSuperThreadId,
+    superRefreshKey,
+    setPane,
+    setSelectedWorktree,
+    setView,
+  } = useStore()
   const [threads, setThreads] = useState<SuperThread[]>([])
-  const [draft, setDraft] = useState('')
-  const [busy, setBusy] = useState(false)
-  // Harness turns can run for minutes — show elapsed time so the pending state
-  // reads as alive, not dead (issue #84).
-  const [busySince, setBusySince] = useState(0)
-  const [, forceTick] = useState(0)
-  useEffect(() => {
-    if (!busy) return
-    const t = setInterval(() => forceTick((n) => n + 1), 1000)
-    return () => clearInterval(t)
-  }, [busy])
-  const [backendLabel, setBackendLabel] = useState('')
-  const [atQuery, setAtQuery] = useState<string | null>(null)
-  const [atIndex, setAtIndex] = useState(0)
-  const scrollRef = useRef<HTMLDivElement | null>(null)
-  const inputRef = useRef<HTMLTextAreaElement | null>(null)
-  const voice = useVoiceInput((text) => setDraft((d) => (d ? `${d} ${text}` : text)))
+  const [legacy, setLegacy] = useState<SuperMessage[]>([])
+  const [legacyOpen, setLegacyOpen] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   const isMobile = useIsMobile()
   // Concierge binding: the active thread's repo, decoded from the deterministic
   // thread id — valid even BEFORE the thread exists server-side (first send
   // creates + seeds it via superagent.concierge).
   const conciergeRepo = conciergeRepoPath(superThreadId)
+  const thread = threads.find((t) => t.id === superThreadId)
+  const podiumSessionId = thread?.podiumSessionId
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: refetch on thread switch + after seeding
-  useEffect(() => {
-    trpc.superagent.history
-      .query({ threadId: superThreadId })
-      .then((h) => setMessages(h as SuperMessage[]))
-      .catch(() => {})
-  }, [trpc, superThreadId, superRefreshKey])
-
-  // Thread list (Global + btw threads); refresh when the active thread changes or a
-  // btw thread finishes seeding, so it shows up in the switcher.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: refetch on thread switch + after seeding
-  useEffect(() => {
+  const refreshThreads = () =>
     trpc.superagent.listThreads
       .query()
       .then((t) => setThreads(t as SuperThread[]))
       .catch(() => {})
+
+  // Legacy buffered history (read-only): threads that predate the headless
+  // migration keep their old SuperMessage[] as a collapsed block.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: refetch on thread switch + after seeding
+  useEffect(() => {
+    setLegacy([])
+    setLegacyOpen(false)
+    setError(null)
+    trpc.superagent.history
+      .query({ threadId: superThreadId })
+      .then((h) => setLegacy(h as SuperMessage[]))
+      .catch(() => {})
   }, [trpc, superThreadId, superRefreshKey])
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: scroll follows new messages
+  // Thread list (Global + btw/concierge threads); refresh when the active thread
+  // changes or a btw thread finishes seeding, so it shows up in the switcher.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: refetch on thread switch + after seeding
   useEffect(() => {
-    const el = scrollRef.current
-    if (el) el.scrollTop = el.scrollHeight
-  }, [messages.length, busy])
+    void refreshThreads()
+  }, [trpc, superThreadId, superRefreshKey])
 
-  // ---- @ context menu ----
-  const localAtOptions = useMemo<AtOption[]>(() => {
-    const views = reposToViews(repos)
-    const out: AtOption[] = []
-    for (const repo of views) {
-      out.push({ kind: 'repo', label: repo.name, detail: repo.path, ref: repo.path })
-      for (const wt of repo.worktrees) {
-        if (wt.isMain) continue
-        out.push({
-          kind: 'worktree',
-          label: `${repo.name}/${wt.branch ?? wt.path.split('/').pop()}`,
-          detail: wt.path,
-          ref: wt.path,
-        })
-      }
-    }
-    return out
-  }, [repos])
+  // "Open in terminal": focus the PTY session once its row lands in the
+  // sessions broadcast (a fresh resume may beat the broadcast by a beat).
+  const [focusSessionId, setFocusSessionId] = useState<string | null>(null)
+  useEffect(() => {
+    if (!focusSessionId) return
+    const s = sessions.find((x) => x.sessionId === focusSessionId)
+    if (!s) return
+    setFocusSessionId(null)
+    setSelectedWorktree(s.cwd)
+    setPane('A', s.sessionId)
+    setView('workspace')
+  }, [focusSessionId, sessions, setSelectedWorktree, setPane, setView])
 
-  // Conversations join the @-menu async via the shared (race-guarded) search;
-  // files come later. The menu is derived, not stored, so a slow stale response
-  // can't overwrite the current query's options.
-  const { hits: convHits } = useConversationSearch({
-    query: atQuery ?? '',
-    limit: 4,
-    enabled: atQuery !== null,
-    debounceMs: 150,
-  })
-  const atHits = useMemo<AtOption[]>(() => {
-    if (atQuery === null) return []
-    const q = atQuery.toLowerCase()
-    const local = localAtOptions
-      .filter((o) => o.label.toLowerCase().includes(q) || o.detail.toLowerCase().includes(q))
-      .slice(0, 6)
-    const convs = convHits.map(
-      (hit): AtOption => ({
-        kind: 'conversation',
-        label: hit.name || hit.title || hit.id,
-        detail: hit.projectPath?.split('/').slice(-2).join('/') ?? '',
-        ref: `conversation:${hit.id}`,
-      }),
-    )
-    return [...local, ...convs].slice(0, 10)
-  }, [atQuery, localAtOptions, convHits])
-  // Keep the highlighted index in range as the option list changes.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: reset on query change
-  useEffect(() => setAtIndex(0), [atQuery])
-
-  const syncAtState = (value: string, caret: number) => {
-    // An @-mention is active when the text before the caret ends in @word.
-    const before = value.slice(0, caret)
-    const match = /(?:^|\s)@([\w./-]*)$/.exec(before)
-    setAtQuery(match ? (match[1] ?? '') : null)
-  }
-
-  const insertAt = (option: AtOption) => {
-    const el = inputRef.current
-    const caret = el?.selectionStart ?? draft.length
-    const before = draft.slice(0, caret).replace(/@([\w./-]*)$/, '')
-    const token = `@${option.label}(${option.ref}) `
-    setDraft(before + token + draft.slice(caret))
-    setAtQuery(null)
-    el?.focus()
-  }
-
-  const send = async () => {
-    const text = draft.trim()
-    if (!text || busy) return
-    setDraft('')
-    setAtQuery(null)
-    setBusy(true)
-    setBusySince(Date.now())
-    // Optimistic local echo; the server returns the persisted turn.
-    const optimistic: SuperMessage = {
-      id: -Date.now(),
-      role: 'user',
-      content: text,
-      createdAt: new Date().toISOString(),
-    }
-    setMessages((m) => [...m, optimistic])
+  const openInTerminal = async () => {
+    setError(null)
     try {
-      // Concierge threads route through the dedicated mutation, which creates +
-      // seeds the per-repo thread on first message; everything else uses send.
-      const turn = (
-        conciergeRepo
-          ? await trpc.superagent.concierge.mutate({ repoPath: conciergeRepo, text })
-          : await trpc.superagent.send.mutate({ threadId: superThreadId, text })
-      ) as { messages: SuperMessage[]; backendLabel: string; isNew?: boolean }
-      setBackendLabel(turn.backendLabel)
-      setMessages((m) => [...m.filter((x) => x.id !== optimistic.id), ...turn.messages])
-      // A first concierge send minted the thread server-side — refresh the
-      // switcher so its pill appears without waiting for a thread change.
-      if (turn.isNew) {
-        trpc.superagent.listThreads
-          .query()
-          .then((t) => setThreads(t as SuperThread[]))
-          .catch(() => {})
-      }
+      const r = await trpc.superagent.openInTerminal.mutate({ threadId: superThreadId })
+      setFocusSessionId(r.sessionId)
+      await refreshThreads()
     } catch (e) {
-      setMessages((m) => [
-        ...m,
-        {
-          id: -Date.now() - 1,
-          role: 'assistant',
-          content: `Request failed: ${e instanceof Error ? e.message : String(e)}`,
-          createdAt: new Date().toISOString(),
-        },
-      ])
-    } finally {
-      setBusy(false)
+      setError(e instanceof Error ? e.message : String(e))
     }
   }
 
   const clear = async () => {
     await trpc.superagent.clear.mutate({ threadId: superThreadId }).catch(() => {})
-    setMessages([])
+    setLegacy([])
     // Clearing a btw thread archives it server-side; fall back to the global thread.
     if (superThreadId !== 'global') setSuperThreadId('global')
+    void refreshThreads()
+  }
+
+  // The superThread ref handed to the embedded ChatView so its composer routes
+  // through the turn mutations. Kind falls back on the id shape for threads the
+  // list hasn't caught up with yet.
+  const threadKind: SuperThread['kind'] =
+    thread?.kind ?? (conciergeRepo ? 'concierge' : superThreadId.startsWith('btw_') ? 'btw' : 'global')
+  const superThreadRef = {
+    threadId: superThreadId,
+    kind: threadKind,
+    ...(conciergeRepo ? { repoPath: conciergeRepo } : thread?.repoPath ? { repoPath: thread.repoPath } : {}),
   }
 
   return (
@@ -288,12 +221,22 @@ export function SuperagentView({ onClose }: { onClose?: () => void } = {}): JSX.
               ))}
             </div>
           ))}
-        <span className="flex-none text-[11px] text-muted-foreground/70">{backendLabel}</span>
+        {thread?.harnessSessionId && (
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className="ml-auto"
+            title="Open this conversation in a terminal session"
+            onClick={() => void openInTerminal()}
+          >
+            <SquareTerminal size={14} aria-hidden="true" />
+          </Button>
+        )}
         <Button
           variant="ghost"
           size="icon-sm"
-          className="ml-auto"
-          title={superThreadId === 'global' ? 'Clear thread' : 'Close this BTW thread'}
+          className={thread?.harnessSessionId ? undefined : 'ml-auto'}
+          title={superThreadId === 'global' ? 'Clear thread' : 'Close this thread'}
           onClick={() => void clear()}
         >
           <Eraser size={14} aria-hidden="true" />
@@ -309,11 +252,171 @@ export function SuperagentView({ onClose }: { onClose?: () => void } = {}): JSX.
           </Button>
         )}
       </div>
-      <div
-        className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto px-[18px] py-3.5"
-        ref={scrollRef}
-      >
-        {messages.length === 0 &&
+      {error && (
+        <div className="border-b border-border px-[18px] py-2 text-[12px] text-destructive">
+          {error}
+        </div>
+      )}
+      {legacy.length > 0 && (
+        <div className="flex-none border-b border-border px-[18px] py-2">
+          <button
+            type="button"
+            className="flex w-full min-w-0 cursor-pointer items-baseline gap-[7px] py-0.5 text-left text-xs text-muted-foreground hover:text-foreground"
+            onClick={() => setLegacyOpen((v) => !v)}
+            aria-expanded={legacyOpen}
+          >
+            <span className="flex-none text-[10px] text-muted-foreground/70">
+              {legacyOpen ? '▾' : '▸'}
+            </span>
+            <span className="flex-none text-xs font-semibold">Earlier conversation</span>
+            <span className="text-[11px] text-muted-foreground/70">
+              {legacy.length} message{legacy.length === 1 ? '' : 's'}
+            </span>
+          </button>
+          {legacyOpen && (
+            <div className="mt-2 flex max-h-[40vh] flex-col gap-2.5 overflow-y-auto">
+              {legacy.map((m) => (
+                <CardBoundary key={m.id} resetKey={String(m.id)} label="superagent message">
+                  <SuperMessageView message={m} />
+                </CardBoundary>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+      {podiumSessionId ? (
+        <ChatView sessionId={podiumSessionId} active superThread={superThreadRef} compact />
+      ) : (
+        <FreshThreadComposer
+          key={superThreadId}
+          conciergeRepo={conciergeRepo ?? null}
+          threadId={superThreadId}
+          onError={setError}
+          onSent={() => void refreshThreads()}
+        />
+      )}
+    </section>
+  )
+}
+
+/**
+ * The pre-session state of a thread: hint copy + a composer with @-mentions and
+ * voice input. The FIRST send runs the turn (conciergeTurn ensures + seeds the
+ * per-repo thread; sendTurn covers global/btw threads that already exist) — the
+ * ack's podiumSessionId flows back via listThreads and the parent swaps this
+ * composer for the embedded ChatView. The just-sent text stays visible as an
+ * optimistic bubble until the swap.
+ */
+function FreshThreadComposer({
+  conciergeRepo,
+  threadId,
+  onError,
+  onSent,
+}: {
+  conciergeRepo: string | null
+  threadId: string
+  onError: (message: string | null) => void
+  onSent: () => void
+}): JSX.Element {
+  const { trpc, repos } = useStore()
+  const [draft, setDraft] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [sentText, setSentText] = useState<string | null>(null)
+  const [atQuery, setAtQuery] = useState<string | null>(null)
+  const [atIndex, setAtIndex] = useState(0)
+  const inputRef = useRef<HTMLTextAreaElement | null>(null)
+  const voice = useVoiceInput((text) => setDraft((d) => (d ? `${d} ${text}` : text)))
+
+  // ---- @ context menu (repos, worktrees, conversations) ----
+  const localAtOptions = useMemo<AtOption[]>(() => {
+    const views = reposToViews(repos)
+    const out: AtOption[] = []
+    for (const repo of views) {
+      out.push({ kind: 'repo', label: repo.name, detail: repo.path, ref: repo.path })
+      for (const wt of repo.worktrees) {
+        if (wt.isMain) continue
+        out.push({
+          kind: 'worktree',
+          label: `${repo.name}/${wt.branch ?? wt.path.split('/').pop()}`,
+          detail: wt.path,
+          ref: wt.path,
+        })
+      }
+    }
+    return out
+  }, [repos])
+
+  const { hits: convHits } = useConversationSearch({
+    query: atQuery ?? '',
+    limit: 4,
+    enabled: atQuery !== null,
+    debounceMs: 150,
+  })
+  const atHits = useMemo<AtOption[]>(() => {
+    if (atQuery === null) return []
+    const q = atQuery.toLowerCase()
+    const local = localAtOptions
+      .filter((o) => o.label.toLowerCase().includes(q) || o.detail.toLowerCase().includes(q))
+      .slice(0, 6)
+    const convs = convHits.map(
+      (hit): AtOption => ({
+        kind: 'conversation',
+        label: hit.name || hit.title || hit.id,
+        detail: hit.projectPath?.split('/').slice(-2).join('/') ?? '',
+        ref: `conversation:${hit.id}`,
+      }),
+    )
+    return [...local, ...convs].slice(0, 10)
+  }, [atQuery, localAtOptions, convHits])
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reset on query change
+  useEffect(() => setAtIndex(0), [atQuery])
+
+  const syncAtState = (value: string, caret: number) => {
+    const before = value.slice(0, caret)
+    const match = /(?:^|\s)@([\w./-]*)$/.exec(before)
+    setAtQuery(match ? (match[1] ?? '') : null)
+  }
+
+  const insertAt = (option: AtOption) => {
+    const el = inputRef.current
+    const caret = el?.selectionStart ?? draft.length
+    const before = draft.slice(0, caret).replace(/@([\w./-]*)$/, '')
+    const token = `@${option.label}(${option.ref}) `
+    setDraft(before + token + draft.slice(caret))
+    setAtQuery(null)
+    el?.focus()
+  }
+
+  const send = async () => {
+    const text = draft.trim()
+    if (!text || busy) return
+    setDraft('')
+    setAtQuery(null)
+    setBusy(true)
+    setSentText(text)
+    onError(null)
+    try {
+      if (conciergeRepo) {
+        await trpc.superagent.concierge.mutate({ repoPath: conciergeRepo, text })
+      } else {
+        await trpc.superagent.sendTurn.mutate({ threadId, text })
+      }
+      // The ack minted the headless session — refresh the thread list so the
+      // parent swaps to the embedded ChatView (the bubble carries over there
+      // via the transcript itself).
+      onSent()
+    } catch (e) {
+      onError(e instanceof Error ? e.message : String(e))
+      setSentText(null)
+      setDraft(text) // give the message back for a retry
+      setBusy(false)
+    }
+  }
+
+  return (
+    <>
+      <div className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto px-[18px] py-3.5">
+        {sentText === null &&
           (conciergeRepo ? (
             <div className="mx-auto my-6 max-w-[46ch] text-center text-[13px] text-muted-foreground/70">
               Tell the concierge what you want — it finds or files the issues and won't start work
@@ -327,15 +430,18 @@ export function SuperagentView({ onClose }: { onClose?: () => void } = {}): JSX.
               to reference a repo, worktree, or conversation.
             </div>
           ))}
-        {messages.map((m) => (
-          <CardBoundary key={m.id} resetKey={String(m.id)} label="superagent message">
-            <SuperMessageView message={m} />
-          </CardBoundary>
-        ))}
-        {busy && (
-          <div className="mx-auto w-full max-w-[760px] animate-pulse text-xs text-muted-foreground/70">
-            Thinking… {formatElapsed(Date.now() - busySince)}
-          </div>
+        {sentText !== null && (
+          <>
+            <div className="mx-auto w-full max-w-[760px] rounded-[10px] border border-border bg-secondary px-3.5 py-2.5">
+              <div className="mb-[3px] text-[10px] uppercase tracking-[0.07em] text-muted-foreground/70">
+                You
+              </div>
+              <div className="chat-md whitespace-pre-wrap">{sentText}</div>
+            </div>
+            <div className="mx-auto w-full max-w-[760px] animate-pulse text-xs text-muted-foreground/70">
+              Starting the conversation…
+            </div>
+          </>
         )}
       </div>
       <div className="flex items-end gap-2 border-t border-border bg-card px-3.5 pt-2.5 pb-[calc(10px+env(safe-area-inset-bottom,0px))]">
@@ -437,13 +543,15 @@ export function SuperagentView({ onClose }: { onClose?: () => void } = {}): JSX.
           <Send size={15} aria-hidden="true" />
         </button>
       </div>
-    </section>
+    </>
   )
 }
 
 /** A worker session the superagent spawned (`start_agent` result): a live,
  *  clickable card — one click opens it in the workspace, and "Follow" expands a
- *  live transcript tail so you can watch progress without leaving the chat. */
+ *  live transcript tail so you can watch progress without leaving the chat.
+ *  Retained for LEGACY history rendering; new-path start_agent results render
+ *  through ChatView's normal tool rendering. */
 function SpawnedAgentCard({
   sessionId,
   cwd,
@@ -547,6 +655,8 @@ export function SpawnedFollow({
   )
 }
 
+/** Read-only renderer for one LEGACY buffered message (the pre-headless
+ *  SuperMessage rows). New turns render through the embedded ChatView. */
 function SuperMessageView({ message }: { message: SuperMessage }): JSX.Element | null {
   const [open, setOpen] = useState(false)
   // A spawned worker session — render it as a live, openable card instead of a

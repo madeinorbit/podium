@@ -94,6 +94,9 @@ export interface SessionRow {
   workState: string | null
   /** The machine this session runs on. Optional during build-out (Task 5 always emits it). */
   machineId?: string
+  /** True for a headless harness session (no PTY; superagent-driven turns).
+   *  Optional so pre-existing row literals stay valid; absent = false. */
+  headless?: boolean
 }
 
 /** One row of the machines table (token_hash is internal — not included here). */
@@ -214,6 +217,16 @@ export interface SuperagentThreadRow {
    *  issue event-log id already digested (concierge threads, stringified). */
   watermarkItemId?: string
   watermarkTs?: string
+  /** Harness agent frozen onto the thread at its first headless turn — later
+   *  turns keep the same agent even if the settings default changes. */
+  agentKind?: string
+  /** The Podium headless session rendering this thread (concierge unification). */
+  podiumSessionId?: string
+  /** The harness's own session id — the resume value for every later turn. */
+  harnessSessionId?: string
+  /** PTY session holding the "open in terminal" one-writer lock; sendTurn
+   *  rejects while this session is live (lazily checked, lazily cleared). */
+  terminalSessionId?: string
   createdAt: string
   updatedAt: string
   archived: boolean
@@ -398,7 +411,7 @@ export class SessionStore {
         `SELECT id, agent_kind, cwd, title, name, origin_kind, conversation_id, resume_kind,
                 resume_value, status, exit_code, durable_label, created_at, last_active_at,
                 archived, work_state, machine_id, last_output_at, last_input_at, last_resumed_at,
-                spawned_by
+                spawned_by, headless
          FROM sessions ORDER BY created_at ASC, rowid ASC`,
       )
       .all() as Record<string, unknown>[]
@@ -424,6 +437,7 @@ export class SessionStore {
       lastInputAt: (r.last_input_at as string | null) ?? null,
       lastResumedAt: (r.last_resumed_at as string | null) ?? null,
       spawnedBy: (r.spawned_by as string | null) ?? null,
+      headless: r.headless === 1,
     }))
   }
 
@@ -442,8 +456,8 @@ export class SessionStore {
            (id, agent_kind, cwd, title, name, origin_kind, conversation_id, resume_kind,
             resume_value, status, exit_code, durable_label, created_at, last_active_at,
             archived, work_state, machine_id, last_output_at, last_input_at, last_resumed_at,
-            spawned_by)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            spawned_by, headless)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            title = excluded.title,
            name = excluded.name,
@@ -485,6 +499,7 @@ export class SessionStore {
         row.lastInputAt ?? null,
         row.lastResumedAt ?? null,
         row.spawnedBy ?? null,
+        row.headless ? 1 : 0,
       )
   }
 
@@ -924,11 +939,7 @@ export class SessionStore {
 
   listSuperagentThreads(): SuperagentThreadRow[] {
     const rows = this.db
-      .prepare(
-        `SELECT id, kind, origin_session_id, repo_path, title, watermark_item_id, watermark_ts,
-                created_at, updated_at, archived
-         FROM superagent_threads WHERE archived = 0 ORDER BY updated_at DESC`,
-      )
+      .prepare(`SELECT * FROM superagent_threads WHERE archived = 0 ORDER BY updated_at DESC`)
       .all() as Record<string, unknown>[]
     return rows.map((r) => this.mapSuperagentThread(r))
   }
@@ -971,6 +982,44 @@ export class SessionStore {
     this.db
       .prepare('UPDATE superagent_threads SET watermark_item_id = ?, watermark_ts = ? WHERE id = ?')
       .run(itemId, ts ?? null, id)
+  }
+
+  /** Patch the headless-session binding columns on a thread. Only the fields
+   *  present in `patch` are written; `terminalSessionId: null` clears the
+   *  terminal one-writer lock. */
+  updateSuperagentThreadBinding(
+    id: string,
+    patch: {
+      agentKind?: string
+      podiumSessionId?: string
+      harnessSessionId?: string
+      terminalSessionId?: string | null
+    },
+  ): void {
+    const sets: string[] = []
+    const args: (string | null)[] = []
+    if (patch.agentKind !== undefined) {
+      sets.push('agent_kind = ?')
+      args.push(patch.agentKind)
+    }
+    if (patch.podiumSessionId !== undefined) {
+      sets.push('podium_session_id = ?')
+      args.push(patch.podiumSessionId)
+    }
+    if (patch.harnessSessionId !== undefined) {
+      sets.push('harness_session_id = ?')
+      args.push(patch.harnessSessionId)
+    }
+    if (patch.terminalSessionId !== undefined) {
+      sets.push('terminal_session_id = ?')
+      args.push(patch.terminalSessionId)
+    }
+    if (sets.length === 0) return
+    sets.push('updated_at = ?')
+    args.push(new Date().toISOString())
+    this.db
+      .prepare(`UPDATE superagent_threads SET ${sets.join(', ')} WHERE id = ?`)
+      .run(...args, id)
   }
 
   archiveSuperagentThread(id: string): void {
@@ -1071,6 +1120,10 @@ export class SessionStore {
       title: (r.title as string | null) ?? undefined,
       watermarkItemId: (r.watermark_item_id as string | null) ?? undefined,
       watermarkTs: (r.watermark_ts as string | null) ?? undefined,
+      agentKind: (r.agent_kind as string | null) ?? undefined,
+      podiumSessionId: (r.podium_session_id as string | null) ?? undefined,
+      harnessSessionId: (r.harness_session_id as string | null) ?? undefined,
+      terminalSessionId: (r.terminal_session_id as string | null) ?? undefined,
       createdAt: r.created_at as string,
       updatedAt: r.updated_at as string,
       archived: Boolean(r.archived),
@@ -2158,9 +2211,19 @@ export class SessionStore {
          last_output_at TEXT,
          last_input_at TEXT,
          last_resumed_at TEXT,
-         spawned_by TEXT
+         spawned_by TEXT,
+         headless INTEGER NOT NULL DEFAULT 0
        )`,
     )
+    // Additive column for headless harness sessions (concierge unification).
+    // Fresh DBs get it from the CREATE above; live DBs gain it in place.
+    if (
+      !(this.db.prepare('PRAGMA table_info(sessions)').all() as { name: string }[]).some(
+        (c) => c.name === 'headless',
+      )
+    ) {
+      this.db.exec('ALTER TABLE sessions ADD COLUMN headless INTEGER NOT NULL DEFAULT 0')
+    }
     this.db.exec(
       `CREATE TABLE IF NOT EXISTS tab_order (
          worktree TEXT PRIMARY KEY,
@@ -2370,6 +2433,20 @@ export class SessionStore {
     }[]
     if (!satCols.some((c) => c.name === 'repo_path')) {
       this.db.exec('ALTER TABLE superagent_threads ADD COLUMN repo_path TEXT')
+    }
+    // Additive headless-session binding columns (concierge unification): the
+    // harness agent frozen onto the thread at its first headless turn, the
+    // Podium headless session rendering it, the harness's own resume id, and
+    // the PTY session id while "open in terminal" holds the one-writer lock.
+    for (const col of [
+      'agent_kind',
+      'podium_session_id',
+      'harness_session_id',
+      'terminal_session_id',
+    ]) {
+      if (!satCols.some((c) => c.name === col)) {
+        this.db.exec(`ALTER TABLE superagent_threads ADD COLUMN ${col} TEXT`)
+      }
     }
     const saNow = new Date().toISOString()
     this.db

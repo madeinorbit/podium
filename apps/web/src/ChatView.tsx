@@ -1,4 +1,4 @@
-import type { TranscriptItem } from '@podium/protocol'
+import type { HeadlessActivityEvent, TranscriptItem } from '@podium/protocol'
 import {
   ArrowDownToLine,
   ArrowUp,
@@ -11,6 +11,7 @@ import {
   Mic,
   Paperclip,
   ScrollText,
+  Square,
   X,
 } from 'lucide-react'
 import type { JSX } from 'react'
@@ -131,14 +132,29 @@ export function shouldPinOnReset(isReset: boolean, pinnedToBottom: boolean): boo
   return isReset || pinnedToBottom
 }
 
+/** The superagent thread an embedded (headless) ChatView fronts: sends route to
+ *  superagent.sendTurn / conciergeTurn instead of sessions.sendText. */
+export interface SuperThreadRef {
+  threadId: string
+  kind: 'global' | 'btw' | 'concierge'
+  repoPath?: string
+}
+
 export function ChatView({
   sessionId,
   active = true,
+  superThread,
+  compact = false,
 }: {
   sessionId: string
   /** False when this panel is mounted but hidden (keep-mounted deck). On
    *  becoming active (true) the view snaps to the bottom if still pinned. */
   active?: boolean
+  /** Present when this ChatView is embedded in the superagent panel over a
+   *  HEADLESS session — routes sends through the superagent turn mutations. */
+  superThread?: SuperThreadRef
+  /** Narrow-dock mode (the superagent side panel): hides the minimap + tl;dr. */
+  compact?: boolean
 }): JSX.Element {
   const {
     hub,
@@ -154,6 +170,56 @@ export function ChatView({
   } = useStore()
   const session = sessions.find((s) => s.sessionId === sessionId)
   const cwd = session?.cwd ?? '/'
+  // HEADLESS mode (concierge unification): a superagent thread's harness session
+  // with no PTY. Sends route through superagent turn mutations, the working
+  // indicator follows turn-start/turn-end frames (not PTY-derived agent state),
+  // and mid-turn partial text streams into an overlay row below the transcript.
+  const headless = session?.headless === true
+  // True while a headless turn runs (turn-start → turn-end).
+  const [turnRunning, setTurnRunning] = useState(false)
+  // Streaming overlay: cumulative partial assistant text, or a status label
+  // ("running Bash…"), whichever the driver last reported. Null = no overlay.
+  const [overlay, setOverlay] = useState<{ text?: string; status?: string } | null>(null)
+  // sendTurn rejection / turn error, surfaced inline above the composer.
+  const [turnError, setTurnError] = useState<string | null>(null)
+  useEffect(() => {
+    setTurnRunning(false)
+    setOverlay(null)
+    setTurnError(null)
+    if (!headless) return
+    // Optional-chained: older hub fakes in tests don't implement it.
+    return hub.subscribeHeadless?.(sessionId, (event: HeadlessActivityEvent) => {
+      switch (event.kind) {
+        case 'turn-start':
+          setTurnRunning(true)
+          setOverlay(null)
+          setTurnError(null)
+          break
+        case 'turn-end':
+          setTurnRunning(false)
+          setOverlay(null)
+          if (event.error) setTurnError(event.error)
+          break
+        case 'partial-text':
+          setTurnRunning(true)
+          setOverlay({ text: event.text })
+          break
+        case 'status':
+          setTurnRunning(true)
+          setOverlay((prev) => ({
+            // Keep any streamed text visible; the status rides under it.
+            ...(prev?.text !== undefined ? { text: prev.text } : {}),
+            status:
+              event.status === 'tool'
+                ? `running ${event.label ?? 'a tool'}…`
+                : event.status === 'starting'
+                  ? 'starting…'
+                  : 'working…',
+          }))
+          break
+      }
+    })
+  }, [hub, sessionId, headless])
   // Full-screen image preview (SendUserFile / image tags), null when closed.
   const [lightbox, setLightbox] = useState<string | null>(null)
   // Whether the last user prompt is stuck to the top (scrolled up past it).
@@ -381,10 +447,14 @@ export function ChatView({
   const lastUserBlockIndex = useMemo(() => {
     for (let i = blocks.length - 1; i >= 0; i--) {
       const it = blocks[i]?.item
-      if (it && it.role === 'user' && it.event !== 'interrupt' && it.text.trim()) return i
+      if (!it || it.role !== 'user' || it.event === 'interrupt' || !it.text.trim()) continue
+      // Headless: machine-authored context blocks render collapsed — they are
+      // not "the user's last prompt" for the sticky header / tl;dr context.
+      if (headless && MACHINE_CONTEXT_RE.test(it.text)) continue
+      return i
     }
     return -1
-  }, [blocks])
+  }, [blocks, headless])
   const lastUserText = lastUserBlockIndex >= 0 ? (blocks[lastUserBlockIndex]?.item.text ?? '') : ''
   const lastAnswerText = useMemo(() => {
     let answer = ''
@@ -437,9 +507,22 @@ export function ChatView({
     }
     seenUserIds.current = next
     if (newUserTexts.length > 0) {
-      setPending((p) => (p.length === 0 ? p : reconcilePending(p, newUserTexts)))
+      // Headless: the server prepends machine context (seed/delta blocks) to the
+      // delivered turn text, so the echoed user item rarely equals the optimistic
+      // bubble verbatim — any new user item means the send landed; drop them all.
+      if (headless) setPending([])
+      else setPending((p) => (p.length === 0 ? p : reconcilePending(p, newUserTexts)))
     }
-  }, [blocks])
+  }, [blocks, headless])
+
+  // Headless overlay lifecycle: the streamed partial text is a preview of the
+  // assistant item that will land via the transcript tail — whenever new items
+  // arrive, clear the accumulated text (turn-end clears the whole overlay).
+  // biome-ignore lint/correctness/useExhaustiveDependencies: clear on transcript growth
+  useEffect(() => {
+    if (!headless) return
+    setOverlay((o) => (o?.text !== undefined ? (o.status ? { status: o.status } : null) : o))
+  }, [blocks.length, headless])
 
   // Drop the "sending" affordance after a grace period even if no echo arrived
   // (slow tail / uninstrumented) — the prompt was still sent, so settle to 'sent'
@@ -727,6 +810,23 @@ export function ChatView({
     ])
     setJustSent(true)
     try {
+      // Headless superagent thread → route through the turn mutations; output
+      // arrives via the transcript tail + headlessActivity frames. Rejections
+      // (turn already running / terminal lock) surface inline.
+      if (headless && superThread) {
+        setTurnError(null)
+        try {
+          if (superThread.kind === 'concierge' && superThread.repoPath) {
+            await trpc.superagent.concierge.mutate({ repoPath: superThread.repoPath, text: fullText })
+          } else {
+            await trpc.superagent.sendTurn.mutate({ threadId: superThread.threadId, text: fullText })
+          }
+        } catch (e) {
+          setTurnError(e instanceof Error ? e.message : String(e))
+          throw e
+        }
+        return
+      }
       // Live → send straight through (NOT outboxed: live chat must fail fast when
       // offline). The mutationId only makes an ambiguous retry replay-safe.
       // Parked but recoverable → wake it and let the server deliver the text once
@@ -762,12 +862,22 @@ export function ChatView({
   const sendable = session?.status === 'live' || session?.status === 'starting'
   // The composer accepts input when the agent is live OR when it can be woken by
   // sending (auto-resume). Only a truly dead/unrecoverable session locks it out.
-  const composerEnabled = sendable || canResume
+  // Headless: PTY status is meaningless — the composer is open whenever no turn
+  // is running (a turn is one queued unit; the server rejects overlap anyway).
+  const composerEnabled = headless ? !turnRunning : sendable || canResume
   // Durable server-held messages waiting to be typed into the agent when it's
   // back (SessionMeta.queuedMessageCount, live via the sessions subscription) —
   // the honest state behind the optimistic pending bubbles.
   const queuedCount = session?.queuedMessageCount ?? 0
-  const activity = chatActivity(session, justSent)
+  // Headless: the working indicator follows turn boundaries, not PTY-derived
+  // agent state (there is no PTY). The overlay row carries the detail.
+  const activity = headless
+    ? turnRunning
+      ? { label: 'Working…', tone: 'working' as const }
+      : justSent
+        ? { label: 'Sending…', tone: 'working' as const }
+        : null
+    : chatActivity(session, justSent)
 
   // Autofocus the composer when the chat view becomes active for a session that
   // can take input, so the user can type straight away. Re-runs on session switch
@@ -823,7 +933,9 @@ export function ChatView({
           </span>
         )}
         {/* tl;dr — open this session's BTW superagent thread and ask for a concise
-            summary of the agent's last answer (seeded with the answer + context). */}
+            summary of the agent's last answer (seeded with the answer + context).
+            Hidden in the compact superagent dock (that IS the superagent). */}
+        {!compact && (
         <Button
           type="button"
           variant="ghost"
@@ -835,6 +947,7 @@ export function ChatView({
         >
           <ScrollText size={13} aria-hidden="true" /> tl;dr
         </Button>
+        )}
       </div>
       <div className="relative flex min-h-0 flex-1">
         {/* Sticky last-user prompt: stays pinned at the top while reading the
@@ -940,6 +1053,7 @@ export function ChatView({
                 // indexes into `blocks`, matched here against the row's blockIndex).
                 askLivePending={row.blockIndex === livePendingAskIndex}
                 onAnswerAsk={answerAsk}
+                collapseContext={headless}
               />
             )
           })}
@@ -978,6 +1092,27 @@ export function ChatView({
               </div>
             </div>
           ))}
+          {/* Headless streaming overlay: the in-progress assistant text (or the
+              driver's status label) below the last transcript row. Replaced by
+              the real item when it lands via the transcript tail; cleared on
+              turn-end. Native sessions never emit these frames. */}
+          {headless && overlay && (
+            <div className="transcript-row mx-auto w-full max-w-[960px]" data-headless-overlay>
+              <div className="transcript-rail transcript-rail--none" aria-hidden="true" />
+              <div className="transcript-body">
+                {overlay.text !== undefined && (
+                  <div
+                    className="chat-md opacity-80"
+                    // biome-ignore lint/security/noDangerouslySetInnerHtml: sanitized by DOMPurify
+                    dangerouslySetInnerHTML={{ __html: renderMarkdown(overlay.text) }}
+                  />
+                )}
+                {overlay.status && (
+                  <div className="mt-1 text-xs text-muted-foreground italic">{overlay.status}</div>
+                )}
+              </div>
+            </div>
+          )}
           {activity && (
             <div
               role="status"
@@ -1011,7 +1146,7 @@ export function ChatView({
             up with the scrollable content. For a very long transcript that means
             it reflects the loaded/visible tail, not the entire on-disk history;
             scrolling up to page in older items extends what it covers. */}
-        <Minimap rows={visibleRows} scrollerRef={scrollerRef} />
+        {!compact && <Minimap rows={visibleRows} scrollerRef={scrollerRef} />}
         {!atBottom && (
           <button
             type="button"
@@ -1051,6 +1186,11 @@ export function ChatView({
             when the agent is back
           </div>
         )}
+        {turnError !== null && (
+          <div className="flex items-center gap-1.5 pb-1.5 text-[11px] text-destructive">
+            {turnError}
+          </div>
+        )}
         {offlineAsOf !== null && (
           <div className="flex items-center gap-1.5 pb-1.5 text-[11px] text-muted-foreground">
             <CloudOff size={12} aria-hidden="true" />
@@ -1078,11 +1218,15 @@ export function ChatView({
             ref={taRef}
             rows={1}
             placeholder={
-              sendable
-                ? 'Message the agent…'
-                : canResume
-                  ? 'Message — resumes the agent…'
-                  : 'Session is not running.'
+              headless
+                ? turnRunning
+                  ? 'Working — stop the turn to interject…'
+                  : 'Message the agent…'
+                : sendable
+                  ? 'Message the agent…'
+                  : canResume
+                    ? 'Message — resumes the agent…'
+                    : 'Session is not running.'
             }
             className="max-h-44 min-h-11 w-full resize-none overflow-y-auto rounded-none border-0 bg-transparent p-0.5 text-sm leading-[1.45] text-foreground transition-none outline-none [field-sizing:fixed] focus-visible:border-0 focus-visible:ring-0 disabled:bg-transparent disabled:text-muted-foreground disabled:opacity-100 dark:bg-transparent dark:disabled:bg-transparent"
             value={draft}
@@ -1147,6 +1291,24 @@ export function ChatView({
             </div>
           )}
           <div className="flex items-center justify-end gap-1">
+            {headless && turnRunning && superThread && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="rounded-full text-destructive hover:bg-transparent hover:text-destructive [&_svg:not([class*='size-'])]:size-4"
+                title="Stop this turn"
+                onClick={() => {
+                  trpc.superagent.interruptTurn
+                    .mutate({ threadId: superThread.threadId })
+                    .catch((e: unknown) =>
+                      setTurnError(e instanceof Error ? e.message : String(e)),
+                    )
+                }}
+              >
+                <Square size={16} aria-hidden="true" />
+              </Button>
+            )}
             <Button
               type="button"
               variant="ghost"
@@ -1243,6 +1405,7 @@ const ChatBlockView = memo(function ChatBlockView({
   onOpenImage,
   askLivePending,
   onAnswerAsk,
+  collapseContext = false,
 }: {
   block: ChatBlock
   index: number
@@ -1257,6 +1420,9 @@ const ChatBlockView = memo(function ChatBlockView({
   /** True only for the latest unanswered AskUserQuestion on a live session. */
   askLivePending: boolean
   onAnswerAsk: (choices: { optionIndices: number[] }[]) => Promise<void>
+  /** Headless superagent sessions: collapse machine-authored [BTW/CONCIERGE
+   *  CONTEXT/UPDATE] user blocks into a quiet disclosure row. */
+  collapseContext?: boolean
 }): JSX.Element | null {
   const { item } = block
   const html = useMemo(() => renderMarkdown(item.text), [item.text])
@@ -1265,6 +1431,12 @@ const ChatBlockView = memo(function ChatBlockView({
     highlighted && 'rounded-md outline outline-1 outline-primary outline-offset-4',
     dimmed && 'opacity-35',
   )
+
+  // The concierge/btw seed & re-entry deltas are delivered as user text so the
+  // agent sees them, but they're machine-authored context — collapse instead of
+  // showing a giant "You" bubble (ported from the old SuperagentView renderer).
+  if (collapseContext && item.role === 'user' && MACHINE_CONTEXT_RE.test(item.text))
+    return <MachineContextRow item={item} cls={rowClass} index={index} />
 
   if (item.role === 'tool' && item.toolName === 'AskUserQuestion' && item.toolInputJson)
     return (
@@ -1447,6 +1619,56 @@ const ChatBlockView = memo(function ChatBlockView({
     </div>
   )
 })
+
+/** Machine-authored superagent context blocks (seed / re-entry delta), matched
+ *  by their leading marker. Exported for tests. */
+export const MACHINE_CONTEXT_RE = /^\[(BTW|CONCIERGE) (CONTEXT|UPDATE)/
+
+/** Label for a collapsed machine-context row: repo vs session, context vs update. */
+export function machineContextLabel(text: string): string {
+  const what = text.startsWith('[CONCIERGE') ? 'repo' : 'session'
+  const kind = /^\[(BTW|CONCIERGE) UPDATE/.test(text) ? 'update' : 'context'
+  return `${what} ${kind}`
+}
+
+/** A collapsed machine-authored context block (headless superagent sessions):
+ *  a quiet disclosure row that expands to the raw block text. */
+function MachineContextRow({
+  item,
+  cls,
+  index,
+}: {
+  item: TranscriptItem
+  cls: string
+  index: number
+}): JSX.Element {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className={cls} data-block={index}>
+      <div className="transcript-rail transcript-rail--none" aria-hidden="true" />
+      <div className="transcript-body py-0.5">
+        <button
+          type="button"
+          className="flex w-full min-w-0 cursor-pointer items-baseline gap-[7px] py-0.5 text-left text-xs text-muted-foreground"
+          onClick={() => setOpen((v) => !v)}
+          aria-expanded={open}
+        >
+          <span className="flex-none font-mono text-[10px] text-muted-foreground/50">
+            {open ? '▾' : '▸'}
+          </span>
+          <span className="flex-none text-xs font-semibold text-foreground">
+            {machineContextLabel(item.text)}
+          </span>
+        </button>
+        {open && (
+          <pre className="mt-1 max-h-[280px] overflow-auto rounded-md border border-border bg-background px-2.5 py-2 text-[11px] whitespace-pre-wrap break-words text-muted-foreground">
+            {item.text}
+          </pre>
+        )}
+      </div>
+    </div>
+  )
+}
 
 /**
  * The agent sharing files with the user (SendUserFile). Images render as

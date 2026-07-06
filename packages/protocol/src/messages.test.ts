@@ -767,3 +767,120 @@ describe('issue relay messages', () => {
     expect(m.type).toBe('issueRelayResult')
   })
 })
+
+describe('headless harness frames (concierge unification, Phase A)', () => {
+  it('round-trips a headlessTurnRequest through the ControlMessage codec', () => {
+    const msg: ControlMessage = {
+      type: 'headlessTurnRequest',
+      requestId: 'ht1',
+      sessionId: 's1',
+      threadId: 'concierge',
+      agent: 'claude-code',
+      model: 'opus',
+      effort: 'low',
+      cwd: '/repo',
+      prompt: 'hello',
+      systemPrompt: 'be the orchestrator',
+      mcpConfig: '{"mcpServers":{}}',
+      allowedTools: ['Read'],
+      permissionMode: 'bypassPermissions',
+      sessionUuid: '11111111-2222-3333-4444-555555555555',
+      timeoutMs: 600_000,
+    }
+    expect(parseControlMessage(encode(msg))).toEqual(msg)
+  })
+
+  it('round-trips a minimal resume-turn request (only required fields + resumeValue)', () => {
+    const msg: ControlMessage = {
+      type: 'headlessTurnRequest',
+      requestId: 'ht2',
+      sessionId: 's1',
+      threadId: 'btw_x',
+      agent: 'codex',
+      cwd: '/repo',
+      prompt: 'continue',
+      resumeValue: '019f0000-aaaa-bbbb-cccc-000000000000',
+    }
+    expect(parseControlMessage(encode(msg))).toEqual(msg)
+  })
+
+  it('round-trips headlessInterrupt and headlessBind', () => {
+    const interrupt: ControlMessage = { type: 'headlessInterrupt', requestId: 'hi1', sessionId: 's1' }
+    expect(parseControlMessage(encode(interrupt))).toEqual(interrupt)
+    const bind: ControlMessage = {
+      type: 'headlessBind',
+      requestId: 'hb1',
+      sessionId: 's1',
+      agentKind: 'grok',
+      cwd: '/repo',
+      resumeValue: 'abc',
+    }
+    expect(parseControlMessage(encode(bind))).toEqual(bind)
+  })
+
+  it('round-trips headlessTurnEvent/Result/BindResult through the DaemonMessage codec', () => {
+    const partial: DaemonMessage = {
+      type: 'headlessTurnEvent',
+      requestId: 'ht1',
+      sessionId: 's1',
+      event: { kind: 'partial-text', text: 'Hel', itemHint: 'u1' },
+    }
+    expect(parseDaemonMessage(encode(partial))).toEqual(partial)
+    const status: DaemonMessage = {
+      type: 'headlessTurnEvent',
+      requestId: 'ht1',
+      sessionId: 's1',
+      event: { kind: 'status', status: 'tool', label: 'Bash' },
+    }
+    expect(parseDaemonMessage(encode(status))).toEqual(status)
+    const result: DaemonMessage = {
+      type: 'headlessTurnResult',
+      requestId: 'ht1',
+      ok: true,
+      harnessSessionId: 'abc',
+      output: 'done',
+    }
+    expect(parseDaemonMessage(encode(result))).toEqual(result)
+    const bindResult: DaemonMessage = {
+      type: 'headlessBindResult',
+      requestId: 'hb1',
+      ok: false,
+      error: 'no such kind',
+    }
+    expect(parseDaemonMessage(encode(bindResult))).toEqual(bindResult)
+  })
+
+  it('rejects a turn event with an unknown kind', () => {
+    expect(() =>
+      parseDaemonMessage(
+        encode({
+          type: 'headlessTurnEvent',
+          requestId: 'x',
+          sessionId: 's',
+          event: { kind: 'bogus' },
+        } as unknown as DaemonMessage),
+      ),
+    ).toThrow()
+  })
+
+  it('round-trips headlessActivity (turn boundaries) through the ServerMessage codec', () => {
+    const start: ServerMessage = {
+      type: 'headlessActivity',
+      sessionId: 's1',
+      event: { kind: 'turn-start' },
+    }
+    expect(parseServerMessage(encode(start))).toEqual(start)
+    const end: ServerMessage = {
+      type: 'headlessActivity',
+      sessionId: 's1',
+      event: { kind: 'turn-end', error: 'boom' },
+    }
+    expect(parseServerMessage(encode(end))).toEqual(end)
+    const text: ServerMessage = {
+      type: 'headlessActivity',
+      sessionId: 's1',
+      event: { kind: 'partial-text', text: 'hi' },
+    }
+    expect(parseServerMessage(encode(text))).toEqual(text)
+  })
+})
