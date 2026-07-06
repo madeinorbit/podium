@@ -39,6 +39,7 @@ function mockClient(overrides: Record<string, unknown> = {}): { client: IssueTrp
       events: proc('events'),
       children: proc('children'),
       depReport: proc('depReport'),
+      panelApply: proc('panelApply'),
     },
   } as unknown as IssueTrpc
   return { client, calls }
@@ -352,5 +353,51 @@ describe('children + deps commands (epic ergonomics)', () => {
     const out = await cmd('deps').run(client, { repoPath: '/r' })
     expect(calls).toContainEqual({ path: 'depReport', kind: 'query', input: { repoPath: '/r' } })
     expect(out.text).toBe('(no issues in set)')
+  })
+})
+
+describe('panel commands (todo / artifact / deferred)', () => {
+  it('todo --add mutates via panelApply and prints the checklist', async () => {
+    const { client, calls } = mockClient({
+      panelApply: { seq: 1, panel: { todos: [{ text: 'ship it', done: false }], artifacts: [], deferred: [] } },
+    })
+    const out = await cmd('todo').run(client, { id: '1', add: 'ship it' })
+    expect(calls).toContainEqual({
+      path: 'panelApply', kind: 'mutate', input: { id: '1', op: 'todo-add', text: 'ship it' },
+    })
+    expect(out.text).toBe('1. [ ] ship it')
+  })
+
+  it('todo --done n and no-flag print', async () => {
+    const done = mockClient({
+      panelApply: { seq: 1, panel: { todos: [{ text: 'a', done: true }], artifacts: [], deferred: [] } },
+    })
+    const out = await cmd('todo').run(done.client, { id: '1', done: 1 })
+    expect(done.calls).toContainEqual({
+      path: 'panelApply', kind: 'mutate', input: { id: '1', op: 'todo-done', index: 1 },
+    })
+    expect(out.text).toBe('1. [x] a')
+    const show = mockClient({ get: { seq: 1, panel: undefined } })
+    expect((await cmd('todo').run(show.client, { id: '1' })).text).toBe('(no human todos)')
+    expect(show.calls.some((c: { path: string }) => c.path === 'panelApply')).toBe(false)
+  })
+
+  it('artifact --add passes path+title; deferred --add passes text', async () => {
+    const art = mockClient({
+      panelApply: { seq: 1, panel: { todos: [], artifacts: [{ path: 's.png', title: 'shot', addedAt: 't' }], deferred: [] } },
+    })
+    const out = await cmd('artifact').run(art.client, { id: '1', add: 's.png', title: 'shot' })
+    expect(art.calls).toContainEqual({
+      path: 'panelApply', kind: 'mutate',
+      input: { id: '1', op: 'artifact-add', path: 's.png', title: 'shot' },
+    })
+    expect(out.text).toBe('1. shot — s.png')
+    const def = mockClient({
+      panelApply: { seq: 1, panel: { todos: [], artifacts: [], deferred: [{ text: 'later', addedAt: 't' }] } },
+    })
+    await cmd('deferred').run(def.client, { id: '1', add: 'later' })
+    expect(def.calls).toContainEqual({
+      path: 'panelApply', kind: 'mutate', input: { id: '1', op: 'deferred-add', text: 'later' },
+    })
   })
 })

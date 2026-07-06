@@ -15,6 +15,7 @@ import type {
   ServerMessage,
   SessionMeta,
 } from '@podium/protocol'
+import { IssuePanel } from '@podium/protocol'
 import { lintIssue } from './issue-lint'
 import { jaccard, tokenize } from './issue-similarity'
 import { isMemberCwd, sessionsForIssue, slugifyBranch, summarizeSessions } from './issue-util'
@@ -22,6 +23,16 @@ import { buildAssistantMessages, parseAssistantJson } from './issueAssistant'
 import { type LinearIssue, searchIssues } from './linear'
 import { llmClient } from './llm'
 import type { IssueRow, SessionStore } from './store'
+
+/** One mutation on the agent-published human panel — see IssueService.panelApply. */
+export type IssuePanelOp =
+  | { op: 'todo-add'; text: string }
+  | { op: 'todo-done' | 'todo-undone' | 'todo-remove'; index: number }
+  | { op: 'todo-clear' }
+  | { op: 'artifact-add'; path: string; title?: string }
+  | { op: 'artifact-remove'; index: number }
+  | { op: 'deferred-add'; text: string }
+  | { op: 'deferred-remove'; index: number }
 
 /** One edge endpoint in a dep report: enough to render "#12 title (open, blocks)". */
 export interface DepReportRef {
@@ -189,6 +200,7 @@ export class IssueService {
       ...(row.deferUntil ? { deferUntil: row.deferUntil } : {}),
       ...(row.closedReason ? { closedReason: row.closedReason } : {}),
       ...(row.estimateMin != null ? { estimateMin: row.estimateMin } : {}),
+      ...(row.panel ? { panel: this.parsePanel(row) } : {}),
       labels,
       deps,
       dependents,
@@ -265,6 +277,73 @@ export class IssueService {
       childDoneCount,
       complete: children.length > 0 && childDoneCount === children.length,
     }
+  }
+
+  /** Parse the stored panel JSON, tolerating legacy/garbage values (empty panel). */
+  private parsePanel(row: IssueRow): IssuePanel {
+    if (!row.panel) return { todos: [], artifacts: [], deferred: [] }
+    try {
+      return IssuePanel.parse(JSON.parse(row.panel))
+    } catch {
+      return { todos: [], artifacts: [], deferred: [] }
+    }
+  }
+
+  /** Apply one mutation to an issue's agent-published human panel (right-sidebar
+   *  "Issue" tab): human-facing todos, artifacts (files the user should look at),
+   *  and deferred-work items awaiting a user decision. Indexes are 1-based (what
+   *  the CLI prints). Persists + broadcasts like any other issue update. */
+  panelApply(id: string, op: IssuePanelOp): IssueWire {
+    const row = this.rowOrThrow(id)
+    const panel = this.parsePanel(row)
+    const at = <T>(list: T[], index: number): T => {
+      const item = list[index - 1]
+      if (!item) throw new Error(`no item ${index} (list has ${list.length})`)
+      return item
+    }
+    switch (op.op) {
+      case 'todo-add':
+        panel.todos.push({ text: op.text, done: false })
+        break
+      case 'todo-done':
+        at(panel.todos, op.index).done = true
+        break
+      case 'todo-undone':
+        at(panel.todos, op.index).done = false
+        break
+      case 'todo-remove':
+        at(panel.todos, op.index)
+        panel.todos.splice(op.index - 1, 1)
+        break
+      case 'todo-clear':
+        panel.todos = []
+        break
+      case 'artifact-add': {
+        // Re-adding the same path replaces its entry (agents iterate on artifacts).
+        panel.artifacts = panel.artifacts.filter((a) => a.path !== op.path)
+        panel.artifacts.push({
+          path: op.path,
+          ...(op.title ? { title: op.title } : {}),
+          addedAt: this.now(),
+        })
+        break
+      }
+      case 'artifact-remove':
+        at(panel.artifacts, op.index)
+        panel.artifacts.splice(op.index - 1, 1)
+        break
+      case 'deferred-add':
+        panel.deferred.push({ text: op.text, addedAt: this.now() })
+        break
+      case 'deferred-remove':
+        at(panel.deferred, op.index)
+        panel.deferred.splice(op.index - 1, 1)
+        break
+    }
+    row.panel = JSON.stringify(panel)
+    const wire = this.persist(row)
+    this.emitEvent('issue.panel', row.id, { seq: row.seq, op: op.op })
+    return wire
   }
 
   /** Subissues of an issue — direct children, or the whole subtree with
@@ -590,6 +669,11 @@ export class IssueService {
             : null,
           blockers.length ? `Blocked by: ${blockers.join(', ')}` : null,
           '',
+          'The user sees a live panel for this issue. Keep it current as you work:',
+          `  - \`podium issue todo ${me.seq} --add "…"\` / \`--done n\` — HUMAN-facing todo list (what is left, in user terms; distinct from your internal todos).`,
+          `  - \`podium issue artifact ${me.seq} --add <path> [--title "…"]\` — files the user should look at (screenshots, videos, html/md docs).`,
+          `  - \`podium issue deferred ${me.seq} --add "…"\` — work you chose to defer; the user decides on it later.`,
+          '',
           ...rules,
         ]
           .filter((l) => l !== null)
@@ -696,6 +780,7 @@ export class IssueService {
       estimateMin: null,
       needsHuman: false,
       humanQuestion: null,
+      panel: null,
       createdAt: ts,
       updatedAt: ts,
       archived: false,

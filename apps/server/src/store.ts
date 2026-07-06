@@ -148,6 +148,9 @@ export interface IssueRow {
   estimateMin: number | null
   needsHuman: boolean
   humanQuestion: string | null
+  /** Agent-published human-facing panel, stored as raw JSON (parsed in IssueService).
+   *  Optional so pre-existing row literals (tests, ingest) stay valid; absent = none. */
+  panel?: string | null
 }
 
 export interface IssueCommentRow {
@@ -1098,9 +1101,9 @@ export class SessionStore {
             suggested_stage, suggested_reason, blocked_by, dependency_note, pr_url,
             priority, type, assignee, parent_id, design, acceptance, notes, due_at,
             defer_until, closed_reason, superseded_by, duplicate_of, pinned, estimate_min,
-            needs_human, human_question,
+            needs_human, human_question, panel,
             created_at, updated_at, archived)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            title = excluded.title, description = excluded.description, stage = excluded.stage,
            worktree_path = excluded.worktree_path, branch = excluded.branch,
@@ -1118,6 +1121,7 @@ export class SessionStore {
            superseded_by = excluded.superseded_by, duplicate_of = excluded.duplicate_of,
            pinned = excluded.pinned, estimate_min = excluded.estimate_min,
            needs_human = excluded.needs_human, human_question = excluded.human_question,
+           panel = excluded.panel,
            updated_at = excluded.updated_at, archived = excluded.archived`,
       )
       .run(
@@ -1159,6 +1163,7 @@ export class SessionStore {
         row.estimateMin,
         row.needsHuman ? 1 : 0,
         row.humanQuestion,
+        row.panel ?? null,
         row.createdAt,
         row.updatedAt,
         row.archived ? 1 : 0,
@@ -1205,6 +1210,7 @@ export class SessionStore {
       estimateMin: (r.estimate_min as number | null) ?? null,
       needsHuman: r.needs_human === 1,
       humanQuestion: (r.human_question as string | null) ?? null,
+      panel: (r.panel as string | null) ?? null,
       createdAt: r.created_at as string,
       updatedAt: r.updated_at as string,
       archived: r.archived === 1,
@@ -2412,6 +2418,7 @@ export class SessionStore {
          estimate_min INTEGER,
          needs_human INTEGER NOT NULL DEFAULT 0,
          human_question TEXT,
+         panel TEXT,
          created_at TEXT NOT NULL,
          updated_at TEXT NOT NULL,
          archived INTEGER NOT NULL DEFAULT 0
@@ -2444,6 +2451,7 @@ export class SessionStore {
     addIssueCol('estimate_min', 'estimate_min INTEGER')
     addIssueCol('needs_human', 'needs_human INTEGER NOT NULL DEFAULT 0')
     addIssueCol('human_question', 'human_question TEXT')
+    addIssueCol('panel', 'panel TEXT')
     this.db.exec(
       `CREATE TABLE IF NOT EXISTS issue_labels (
          issue_id TEXT NOT NULL,

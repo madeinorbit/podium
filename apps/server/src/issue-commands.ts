@@ -634,6 +634,109 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
     },
   },
   {
+    name: 'todo',
+    summary:
+      'Human-facing todo list shown to the USER in the issue sidebar (keep it updated so they know what is left): todo <id> [--add "…"] [--done n] [--undone n] [--remove n] [--clear]. No flags = print it.',
+    args: z.object({
+      id: idArg,
+      add: z.string().optional(),
+      done: z.coerce.number().int().min(1).optional(),
+      undone: z.coerce.number().int().min(1).optional(),
+      remove: z.coerce.number().int().min(1).optional(),
+      clear: z.boolean().optional(),
+    }),
+    positionals: ['id'],
+    async run(c, a) {
+      const op =
+        a.add != null
+          ? { op: 'todo-add', text: a.add }
+          : a.done != null
+            ? { op: 'todo-done', index: a.done }
+            : a.undone != null
+              ? { op: 'todo-undone', index: a.undone }
+              : a.remove != null
+                ? { op: 'todo-remove', index: a.remove }
+                : a.clear === true
+                  ? { op: 'todo-clear' }
+                  : null
+      const i = (op
+        ? await c.issues.panelApply.mutate({ id: a.id as string, ...op } as never)
+        : await c.issues.get.query({ id: a.id as string })) as {
+        seq: number
+        panel?: { todos: { text: string; done: boolean }[] }
+      } | null
+      if (!i) throw new Error(`unknown issue ${a.id}`)
+      const todos = i.panel?.todos ?? []
+      const text = todos.length
+        ? todos.map((t, n) => `${n + 1}. [${t.done ? 'x' : ' '}] ${t.text}`).join('\n')
+        : '(no human todos)'
+      return { text, data: todos }
+    },
+  },
+  {
+    name: 'artifact',
+    summary:
+      'Artifacts the USER should look at (images/videos/html/md — UX shots, concept docs), shown in the issue sidebar: artifact <id> [--add <path>] [--title "…"] [--remove n]. Paths relative to the issue worktree or absolute. No flags = print.',
+    args: z.object({
+      id: idArg,
+      add: z.string().optional(),
+      title: z.string().optional(),
+      remove: z.coerce.number().int().min(1).optional(),
+    }),
+    positionals: ['id'],
+    async run(c, a) {
+      const op =
+        a.add != null
+          ? { op: 'artifact-add', path: a.add, ...(a.title ? { title: a.title as string } : {}) }
+          : a.remove != null
+            ? { op: 'artifact-remove', index: a.remove }
+            : null
+      const i = (op
+        ? await c.issues.panelApply.mutate({ id: a.id as string, ...op } as never)
+        : await c.issues.get.query({ id: a.id as string })) as {
+        seq: number
+        panel?: { artifacts: { path: string; title?: string; addedAt: string }[] }
+      } | null
+      if (!i) throw new Error(`unknown issue ${a.id}`)
+      const arts = i.panel?.artifacts ?? []
+      const text = arts.length
+        ? arts.map((x, n) => `${n + 1}. ${x.title ? `${x.title} — ` : ''}${x.path}`).join('\n')
+        : '(no artifacts)'
+      return { text, data: arts }
+    },
+  },
+  {
+    name: 'deferred',
+    summary:
+      'Deferred-work list for the USER to decide on (shown in the issue sidebar): deferred <id> [--add "…"] [--remove n]. No flags = print.',
+    args: z.object({
+      id: idArg,
+      add: z.string().optional(),
+      remove: z.coerce.number().int().min(1).optional(),
+    }),
+    positionals: ['id'],
+    async run(c, a) {
+      const op =
+        a.add != null
+          ? { op: 'deferred-add', text: a.add }
+          : a.remove != null
+            ? { op: 'deferred-remove', index: a.remove }
+            : null
+      const i = (op
+        ? await c.issues.panelApply.mutate({ id: a.id as string, ...op } as never)
+        : await c.issues.get.query({ id: a.id as string })) as {
+        seq: number
+        panel?: { deferred: { text: string; addedAt: string }[] }
+      } | null
+      if (!i) throw new Error(`unknown issue ${a.id}`)
+      const items = i.panel?.deferred ?? []
+      const text = items.length
+        ? items.map((x, n) => `${n + 1}. ${x.text}`).join('\n')
+        : '(no deferred work)'
+      return { text, data: items }
+    },
+  },
+  {
     name: 'children',
     summary:
       'List subissues of an issue/epic with ready/blocked status: children <id> [--recursive].',

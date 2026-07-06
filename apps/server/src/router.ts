@@ -701,6 +701,38 @@ export const appRouter = t.router({
     children: issueProc
       .input(z.object({ id: z.string(), recursive: z.boolean().optional() }))
       .query(({ ctx, input }) => ctx.registry.issues.children(input.id, input.recursive ?? false)),
+    panelApply: issueProc
+      .input(
+        z.object({
+          id: z.string(),
+          op: z.enum([
+            'todo-add',
+            'todo-done',
+            'todo-undone',
+            'todo-remove',
+            'todo-clear',
+            'artifact-add',
+            'artifact-remove',
+            'deferred-add',
+            'deferred-remove',
+          ]),
+          text: z.string().optional(),
+          index: z.number().int().min(1).optional(),
+          path: z.string().optional(),
+          title: z.string().optional(),
+        }),
+      )
+      .mutation(({ ctx, input }) =>
+        issueWrite(ctx, 'panelApply', input, () =>
+          ctx.registry.issues.panelApply(input.id, {
+            op: input.op,
+            text: input.text,
+            index: input.index,
+            path: input.path,
+            title: input.title,
+          } as never),
+        ),
+      ),
     depReport: issueProc
       .input(z.object({ id: z.string().optional(), repoPath: z.string().optional() }))
       .query(({ ctx, input }) => ctx.registry.issues.depReport(input)),

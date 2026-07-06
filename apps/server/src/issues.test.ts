@@ -1415,3 +1415,45 @@ describe('IssueService children + depReport (epic ergonomics)', () => {
     expect(svc.depReport({}).length).toBe(2)
   })
 })
+
+describe('IssueService panelApply (agent-published human panel)', () => {
+  it('todo ops: add, done, undone, remove, clear — 1-based, bad index throws', () => {
+    const { svc } = harness()
+    const w = svc.create({ repoPath: '/r', title: 'X', startNow: false })
+    svc.panelApply(w.id, { op: 'todo-add', text: 'first' })
+    const after = svc.panelApply(w.id, { op: 'todo-add', text: 'second' })
+    expect(after.panel?.todos).toEqual([
+      { text: 'first', done: false },
+      { text: 'second', done: false },
+    ])
+    expect(svc.panelApply(w.id, { op: 'todo-done', index: 2 }).panel?.todos[1]?.done).toBe(true)
+    expect(svc.panelApply(w.id, { op: 'todo-undone', index: 2 }).panel?.todos[1]?.done).toBe(false)
+    expect(svc.panelApply(w.id, { op: 'todo-remove', index: 1 }).panel?.todos).toEqual([
+      { text: 'second', done: false },
+    ])
+    expect(() => svc.panelApply(w.id, { op: 'todo-done', index: 9 })).toThrow(/no item 9/)
+    expect(svc.panelApply(w.id, { op: 'todo-clear' }).panel?.todos).toEqual([])
+  })
+
+  it('artifact add replaces same-path entries; deferred add/remove; persists across reload', () => {
+    const { svc, store, deps } = harness()
+    const w = svc.create({ repoPath: '/r', title: 'X', startNow: false })
+    svc.panelApply(w.id, { op: 'artifact-add', path: 'shots/a.png', title: 'v1' })
+    const re = svc.panelApply(w.id, { op: 'artifact-add', path: 'shots/a.png', title: 'v2' })
+    expect(re.panel?.artifacts).toHaveLength(1)
+    expect(re.panel?.artifacts[0]?.title).toBe('v2')
+    svc.panelApply(w.id, { op: 'deferred-add', text: 'dark mode later' })
+    const wire = svc.panelApply(w.id, { op: 'deferred-remove', index: 1 })
+    expect(wire.panel?.deferred).toEqual([])
+    // reload from the same store: panel round-trips through the DB
+    const svc2 = new IssueService(deps)
+    expect(svc2.get(w.id)?.panel?.artifacts[0]?.title).toBe('v2')
+    expect(store.getIssue(w.id)?.panel).toContain('a.png')
+  })
+
+  it('no panel published → wire has no panel field', () => {
+    const { svc } = harness()
+    const w = svc.create({ repoPath: '/r', title: 'X', startNow: false })
+    expect(w.panel).toBeUndefined()
+  })
+})

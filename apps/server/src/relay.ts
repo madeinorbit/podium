@@ -1,5 +1,5 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
-import { basename } from 'node:path'
+import { basename, isAbsolute, join } from 'node:path'
 import { fileChainSource, fileIdFor, recordToItemsForKind } from '@podium/agent-bridge'
 import type { PodiumSettings } from '@podium/core'
 import type {
@@ -3204,23 +3204,45 @@ export class SessionRegistry {
     )
   }
 
-  readAsset({
-    sessionId,
-    path,
-  }: {
-    sessionId: string
-    path: string
-  }): Promise<Omit<FileAssetResultMessage, 'type' | 'requestId'>> {
-    const session = this.sessions.get(sessionId)
-    if (!session) return Promise.resolve({ ok: false, path, error: 'no session' })
-    const knownPath = knownPathsFor(session.transcriptItems()).has(path)
+  readAsset(
+    input: { sessionId: string; path: string } | { machineId?: string; root: string; path: string },
+  ): Promise<Omit<FileAssetResultMessage, 'type' | 'requestId'>> {
+    if ('sessionId' in input) {
+      const session = this.sessions.get(input.sessionId)
+      if (!session) return Promise.resolve({ ok: false, path: input.path, error: 'no session' })
+      const knownPath = knownPathsFor(session.transcriptItems()).has(input.path)
+      return this.daemonRequest(
+        this.pendingFileAssets,
+        'fa',
+        FILE_RPC_TIMEOUT_MS,
+        () => ({ ok: false, path: input.path, error: 'timeout' }),
+        (requestId) => ({
+          type: 'fileAssetRequest',
+          requestId,
+          cwd: session.cwd,
+          path: input.path,
+          knownPath,
+        }),
+        session.machineId, // the asset lives in the session's cwd on its machine
+      )
+    }
+    // Worktree-scoped variant (issue panel artifacts, worktree md images): same
+    // daemon sandbox as fileReadRequest — cwd = the worktree root. Artifact paths
+    // may be worktree-relative; the daemon realpaths them, so absolutize here.
+    const absPath = isAbsolute(input.path) ? input.path : join(input.root, input.path)
     return this.daemonRequest(
       this.pendingFileAssets,
       'fa',
       FILE_RPC_TIMEOUT_MS,
-      () => ({ ok: false, path, error: 'timeout' }),
-      (requestId) => ({ type: 'fileAssetRequest', requestId, cwd: session.cwd, path, knownPath }),
-      session.machineId, // the asset lives in the session's cwd on its machine
+      () => ({ ok: false, path: input.path, error: 'timeout' }),
+      (requestId) => ({
+        type: 'fileAssetRequest',
+        requestId,
+        cwd: input.root,
+        path: absPath,
+        knownPath: false,
+      }),
+      input.machineId ?? this.defaultMachineId(),
     )
   }
 

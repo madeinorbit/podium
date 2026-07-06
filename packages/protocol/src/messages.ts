@@ -669,6 +669,27 @@ export const IssueComment = z.object({
 })
 export type IssueComment = z.infer<typeof IssueComment>
 
+/** Agent-published, human-facing issue panel (right-sidebar "Issue" tab).
+ *  Distinct from the agent's internal todo list: agents intentionally update
+ *  this so the HUMAN can see what's left, review artifacts, decide deferrals. */
+export const IssuePanelTodo = z.object({ text: z.string(), done: z.boolean() })
+export type IssuePanelTodo = z.infer<typeof IssuePanelTodo>
+export const IssuePanelArtifact = z.object({
+  /** Path to the artifact file — absolute, or relative to the issue worktree. */
+  path: z.string(),
+  title: z.string().optional(),
+  addedAt: z.string(),
+})
+export type IssuePanelArtifact = z.infer<typeof IssuePanelArtifact>
+export const IssuePanelDeferred = z.object({ text: z.string(), addedAt: z.string() })
+export type IssuePanelDeferred = z.infer<typeof IssuePanelDeferred>
+export const IssuePanel = z.object({
+  todos: z.array(IssuePanelTodo).default([]),
+  artifacts: z.array(IssuePanelArtifact).default([]),
+  deferred: z.array(IssuePanelDeferred).default([]),
+})
+export type IssuePanel = z.infer<typeof IssuePanel>
+
 export const IssueWire = z.object({
   id: z.string(),
   repoPath: z.string(),
@@ -709,6 +730,8 @@ export const IssueWire = z.object({
   estimateMin: z.number().int().optional(),
   needsHuman: z.boolean(),
   humanQuestion: z.string().optional(),
+  /** Agent-published human-facing panel; absent = nothing published yet. */
+  panel: IssuePanel.optional(),
   labels: z.array(z.string()),
   deps: z.array(IssueDepWire),
   dependents: z.array(IssueDepWire),

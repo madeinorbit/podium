@@ -13,7 +13,7 @@ import { MobileApp } from './MobileApp'
 import { OnboardingWizard } from './OnboardingWizard'
 import { SettingsView } from './SettingsView'
 import { Sidebar } from './Sidebar'
-import { SuperagentView } from './SuperagentView'
+import { RightDock } from './RightDock'
 import { StoreProvider, useStore } from './store'
 import { serverConfig } from './trpc'
 import { UpdatePrompt } from './UpdatePrompt'
@@ -76,7 +76,7 @@ export function AppShell(): JSX.Element {
 }
 
 function AppBody({ isMobile }: { isMobile: boolean }): JSX.Element {
-  const { repos, reposLoaded, view, superOpen, setSuperOpen } = useStore()
+  const { repos, reposLoaded, view, superOpen } = useStore()
   const [dismissed, setDismissed] = useState(false)
 
   // Cold start: the first backend fetch (repos/pins/tab orders) hasn't resolved
@@ -113,7 +113,7 @@ function AppBody({ isMobile }: { isMobile: boolean }): JSX.Element {
               an agent and orchestrate it side by side instead of a full-screen swap. */}
           {superOpen && (
             <aside className="flex w-[400px] max-w-[40vw] min-w-[320px] flex-none flex-col border-l border-border bg-card">
-              <SuperagentView onClose={() => setSuperOpen(false)} />
+              <RightDock />
             </aside>
           )}
         </div>

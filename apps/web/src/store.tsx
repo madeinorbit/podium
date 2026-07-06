@@ -22,6 +22,7 @@ import {
 import { toast } from 'sonner'
 import { formatAppError } from './AppErrorPage'
 import { dedupeSessionsByResume, EMPTY_PINS, planWorktreeMoves, reposToViews } from './derive'
+import { type DockTab, readStoredDockTab } from './dock-panel'
 import { type FileScope, scopeKey, tabIdFor } from './file-scope'
 import { createOutbox } from './outbox'
 import { createReplica, type Replica, useReplicaRows } from './replica'
@@ -66,6 +67,8 @@ export interface Store {
   /** Whether the superagent panel is open — a collapsible right dock on desktop,
    *  a minimizable overlay on mobile (no longer a full-screen view). */
   superOpen: boolean
+  dockTab: DockTab
+  setDockTab: (tab: DockTab) => void
   setSuperOpen: (open: boolean) => void
   /** Bumped when a btw thread finishes seeding, so the superagent view refetches. */
   superRefreshKey: number
@@ -183,6 +186,7 @@ export interface FileTab {
   worktreePath: string
 }
 
+const DOCK_TAB_KEY = 'podium.dockTab'
 const PANE_A_KEY = 'podium.paneA'
 const PANE_B_KEY = 'podium.paneB'
 const SPLIT_KEY = 'podium.split'
@@ -378,6 +382,11 @@ export function StoreProvider({
   )
   const [superThreadId, setSuperThreadId] = useState('global')
   const [superOpen, setSuperOpen] = useState(() => lsGet(SUPER_OPEN_KEY) === '1')
+  const [dockTab, setDockTabState] = useState<DockTab>(() => readStoredDockTab(lsGet(DOCK_TAB_KEY)))
+  const setDockTab = (tab: DockTab) => {
+    setDockTabState(tab)
+    lsSet(DOCK_TAB_KEY, tab)
+  }
   const [superRefreshKey, setSuperRefreshKey] = useState(0)
   const [drafts, setDrafts] = useState<Record<string, string>>({})
   const [sidebarSettings, setSidebarSettingsState] = useState<SidebarSettings>({
@@ -900,6 +909,8 @@ export function StoreProvider({
     setSuperThreadId,
     superOpen,
     setSuperOpen,
+    dockTab,
+    setDockTab,
     superRefreshKey,
     startBtw,
     tldrSession,
