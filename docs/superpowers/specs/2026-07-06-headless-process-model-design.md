@@ -1,6 +1,14 @@
 # Headless process model: setup orchestrates independent server + daemon
 
-Issue: #98 (epic #96 — Podium on a new VPS). Status: design, no code yet.
+Issue: #98 (epic #96 — Podium on a new VPS). Status: **IMPLEMENTED** (branch issue/96), verified
+on the real compiled binary.
+
+**Implementation note — split daemon auth (not in the original design):** the in-process all-in-one
+handed the daemon the server's in-memory bootstrap token. The split daemon is a separate process
+and can't get it, so it authenticates as the LOCAL machine via the shared secret file both sides
+read (`readOrCreateDaemonSecret()` + `LOCAL_MACHINE_ID`), exactly like `scripts/daemon.ts`. This is
+surfaced as `podium daemon --local` (detached spawn + the all-in-one systemd daemon unit use it);
+without `--local` the daemon is a remote/join daemon that auths via the config's pair code.
 
 ## Problem
 
