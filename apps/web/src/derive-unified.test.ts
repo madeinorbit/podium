@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
   mostUrgentSession,
   type RepoNavView,
+  repoUsageAt,
   type SidebarSections,
   sessionUrgencyRank,
   spawnTargetForRepo,
@@ -256,5 +257,25 @@ describe('unifiedWorkList (content filter + status ordering)', () => {
     const e2 = issue({ id: 'e2', stage: 'planning', updatedAt: '2026-06-25T00:00:00.000Z' })
     const empties = unifiedWorkList(emptySections([]), [e1, e2], [], [], NOW)
     expect(empties.map((r) => (r.kind === 'issue' ? r.issue.id : ''))).toEqual(['e2', 'e1'])
+  })
+})
+
+describe('repoUsageAt', () => {
+  const wire = (path: string, worktrees: { path: string }[] = []) =>
+    ({ path, kind: 'repository', worktrees }) as never
+  it('takes the max session activity over the repo root and its worktrees', () => {
+    const r = wire('/src/a', [{ path: '/src/a/.worktrees/x' }])
+    const s1 = sess('s1', '/src/a/pkg', { lastActiveAt: new Date(NOW - 2 * HOUR).toISOString() })
+    const s2 = sess('s2', '/src/a/.worktrees/x', {
+      lastActiveAt: new Date(NOW - HOUR).toISOString(),
+    })
+    const other = sess('s3', '/src/b', { lastActiveAt: new Date(NOW).toISOString() })
+    expect(repoUsageAt(r, [s1, s2, other])).toBe(NOW - HOUR)
+    expect(repoUsageAt(wire('/src/never'), [s1, s2, other])).toBe(0)
+  })
+  it('does not match sibling path prefixes without a boundary', () => {
+    const r = wire('/src/a')
+    const s1 = sess('s1', '/src/a-other')
+    expect(repoUsageAt(r, [s1])).toBe(0)
   })
 })

@@ -99,6 +99,13 @@ export function SidebarUnified(): JSX.Element {
   // the registered repo name (never a clone or worktree basename).
   const defaultTarget = defaultRepo ? spawnTargetForRepo(defaultRepo) : undefined
   const defaultAgent = resolveDefaultAgent(agentSetting, sessions)
+  // Menu repos read most-recently-used first (name tiebreak) — same order the
+  // default <Repo> pick uses, so the top menu entry IS the default.
+  const menuRepos = [...repoNavs].sort(
+    (a, b) =>
+      (byRepo.get(b.path) ?? 0) - (byRepo.get(a.path) ?? 0) ||
+      a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }),
+  )
   const allWorktreePaths = repoNavs.flatMap((r) => r.worktrees.map((w) => w.path))
   const workRows = unifiedWorkList(sections, issues, sessions, allWorktreePaths, now)
   const workItems = partitionWorkItems(sessions, new Set(pins.panels), now)
@@ -223,10 +230,10 @@ export function SidebarUnified(): JSX.Element {
                     {label}
                   </DropdownMenuSubTrigger>
                   <DropdownMenuSubContent>
-                    {repoNavs.length === 0 && (
+                    {menuRepos.length === 0 && (
                       <DropdownMenuItem disabled>No repos</DropdownMenuItem>
                     )}
-                    {repoNavs.map((repo) => (
+                    {menuRepos.map((repo) => (
                       <DropdownMenuItem
                         key={repo.path}
                         onClick={() => {

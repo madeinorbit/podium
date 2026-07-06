@@ -17,6 +17,7 @@ import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 import { useIsMobile } from '@/hooks/use-is-mobile'
 import { AUTO } from './agent-models'
+import { repoUsageAt } from './derive'
 import {
   issueAgentDefaultLabel,
   issueAgentIcon,
@@ -93,7 +94,7 @@ export function NewIssueDialog({
    *  patch. */
   initialStage?: IssueStage
 }): JSX.Element {
-  const { trpc, repos, issues } = useStore()
+  const { trpc, repos, issues, sessions = [] } = useStore()
   const isMobile = useIsMobile()
   const titleRef = useRef<HTMLInputElement>(null)
   const [title, setTitle] = useState('')
@@ -103,9 +104,12 @@ export function NewIssueDialog({
   const [type, setType] = useState<IssueType>('task')
   const [assignee, setAssignee] = useState('')
   const [labels, setLabels] = useState<string[]>([])
-  const [repoPath, setRepoPath] = useState(
-    repos.find((r) => r.kind !== 'worktree')?.path ?? repos[0]?.path ?? '',
-  )
+  // Default repo = the most recently used one (mount-time snapshot).
+  const [repoPath, setRepoPath] = useState(() => {
+    const choices = repos.filter((r) => r.kind !== 'worktree')
+    const mru = [...choices].sort((a, b) => repoUsageAt(b, sessions) - repoUsageAt(a, sessions))[0]
+    return mru?.path ?? repos[0]?.path ?? ''
+  })
   const [branchChoice, setBranchChoice] = useState('')
   const [defaultAgent, setDefaultAgent] = useState('claude-code')
   const [settingsParentBranch, setSettingsParentBranch] = useState('main')
@@ -149,7 +153,14 @@ export function NewIssueDialog({
   const labelOptions: PropertyOption[] = [...new Set(issues.flatMap((i) => i.labels))]
     .sort()
     .map((l) => ({ value: l, label: l }))
-  const repoChoices = repos.filter((r) => r.kind !== 'worktree')
+  // Most-recently-used repos first — matches the sidebar's New-agent menu.
+  const repoChoices = repos
+    .filter((r) => r.kind !== 'worktree')
+    .sort(
+      (a, b) =>
+        repoUsageAt(b, sessions) - repoUsageAt(a, sessions) ||
+        repoLabel(a.path).localeCompare(repoLabel(b.path), undefined, { sensitivity: 'base' }),
+    )
   const selectedRepo = repos.find((r) => r.path === repoPath)
   const primaryBranch = selectedRepo?.branch?.trim() || settingsParentBranch || 'main'
   const selectedBranch = branchChoice || primaryBranch

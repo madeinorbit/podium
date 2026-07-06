@@ -933,6 +933,19 @@ export function resolveDefaultAgent(
  *  and per-worktree (for worktree ordering). A session's cwd is its worktree path;
  *  cwds not matching any known worktree aggregate under themselves. Extracted from
  *  Sidebar so the unified layout's "New <Agent> in <Repo>" shares the exact logic. */
+/** Most-recent session activity per raw repo wire (containment over the repo
+ *  root and its linked worktrees) — for sorting repo pickers by recent use. */
+export function repoUsageAt(repo: GitRepositoryWire, sessions: SessionMeta[]): number {
+  const roots = [repo.path, ...repo.worktrees.map((w) => w.path)]
+  let max = 0
+  for (const s of sessions) {
+    if (!roots.some((r) => s.cwd === r || s.cwd.startsWith(`${r}/`))) continue
+    const ts = Date.parse(s.lastActiveAt) || 0
+    if (ts > max) max = ts
+  }
+  return max
+}
+
 export function lastUsedMaps(
   sections: SidebarSections,
   sessions: SessionMeta[],
