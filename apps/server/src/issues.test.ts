@@ -1457,3 +1457,14 @@ describe('IssueService panelApply (agent-published human panel)', () => {
     expect(w.panel).toBeUndefined()
   })
 })
+
+describe('IssueService setState (agent-posted current state → activityNotes)', () => {
+  it('writes activityNotes + notesUpdatedAt and broadcasts', () => {
+    const { svc } = harness()
+    const w = svc.create({ repoPath: '/r', title: 'X', startNow: false })
+    const wire = svc.setState(w.id, 'halfway there; blocked on review')
+    expect(wire.activityNotes).toBe('halfway there; blocked on review')
+    expect(wire.notesUpdatedAt).toBe('2026-06-30T00:00:00.000Z')
+    expect(svc.get(`#${w.seq}`)?.activityNotes).toContain('halfway')
+  })
+})

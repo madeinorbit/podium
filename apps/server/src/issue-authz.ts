@@ -71,6 +71,8 @@ export const PROC_ACTION: Record<string, IssueAction> = {
   depAdd: 'write',
   // agent-published human panel (todos/artifacts/deferred) — part of doing the work
   panelApply: 'write',
+  // agent-posted current state (activityNotes) — same nature as panelApply
+  setState: 'write',
   // hits the external Linear API — keep read-only callers from driving it
   linearSearch: 'write',
   // write — filing/decomposing is additive; scope gates writes to EXISTING issues, not creation
@@ -101,6 +103,7 @@ export const SCOPED_TARGET: Record<string, (i: Record<string, unknown>) => strin
   clearNeedsHuman: (i) => i.id as string,
   addComment: (i) => i.id as string,
   panelApply: (i) => i.id as string,
+  setState: (i) => i.id as string,
   action: (i) => i.id as string,
   // cleanup is scope-gated like its siblings but is NOT hub-forwarded: its router
   // proc bypasses issueWrite and refuses upstream issues (local git state only).

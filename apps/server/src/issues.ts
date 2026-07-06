@@ -26,7 +26,6 @@ import type { IssueRow, SessionStore } from './store'
 
 /** One mutation on the agent-published human panel — see IssueService.panelApply. */
 export type IssuePanelOp =
-  | { op: 'state-set'; text: string }
   | { op: 'todo-add'; text: string }
   | { op: 'todo-done' | 'todo-undone' | 'todo-remove'; index: number }
   | { op: 'todo-clear' }
@@ -280,6 +279,18 @@ export class IssueService {
     }
   }
 
+  /** Agent-posted "where things stand" — writes activityNotes directly (the same
+   *  field the assistant digest maintains; an explicit agent post is fresher truth
+   *  and simply overwrites, and vice versa). Shown in the issue sidebar header. */
+  setState(id: string, text: string): IssueWire {
+    const row = this.rowOrThrow(id)
+    row.activityNotes = text
+    row.notesUpdatedAt = this.now()
+    const wire = this.persist(row)
+    this.emitEvent('issue.state', row.id, { seq: row.seq })
+    return wire
+  }
+
   /** Parse the stored panel JSON, tolerating legacy/garbage values (empty panel). */
   private parsePanel(row: IssueRow): IssuePanel {
     if (!row.panel) return { todos: [], artifacts: [], deferred: [] }
@@ -303,9 +314,6 @@ export class IssueService {
       return item
     }
     switch (op.op) {
-      case 'state-set':
-        panel.state = { text: op.text, updatedAt: this.now() }
-        break
       case 'todo-add':
         panel.todos.push({ text: op.text, done: false })
         break

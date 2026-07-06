@@ -1,7 +1,7 @@
 import type { IssueStage, IssueWire } from '@podium/protocol'
 import { CircleAlert, CircleCheck, FileText, User } from 'lucide-react'
 import type { JSX } from 'react'
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { cn } from '@/lib/utils'
@@ -46,9 +46,49 @@ function Hint({ children }: { children: string }): JSX.Element {
   return <div className="py-0.5 text-xs text-muted-foreground/60 italic">{children}</div>
 }
 
-/** Header card: identity, stage, meta, and the agent-maintained current state. */
+/** Latest checkpoint comment, expandable to the full history. */
+function CommentsBlock({ issue }: { issue: IssueWire }): JSX.Element | null {
+  const [showAll, setShowAll] = useState(false)
+  const comments = issue.comments
+  if (comments.length === 0) return null
+  const shown = showAll ? [...comments].reverse() : [comments[comments.length - 1]!]
+  return (
+    <div className="mt-2">
+      <div className="flex flex-col gap-1.5">
+        {shown.map((c) => (
+          <div
+            key={c.id}
+            className="rounded-md border border-border/50 bg-background/40 px-2.5 py-1.5"
+          >
+            <div className="flex items-baseline gap-2 text-[10px] text-muted-foreground/70">
+              <span className="font-mono">{c.author}</span>
+              <span>{relativeTime(c.createdAt, Date.now())}</span>
+            </div>
+            <div className="mt-0.5 text-[12px] leading-relaxed whitespace-pre-wrap text-foreground/80">
+              {c.body}
+            </div>
+          </div>
+        ))}
+      </div>
+      {comments.length > 1 && (
+        <button
+          type="button"
+          onClick={() => setShowAll((v) => !v)}
+          className="mt-1 text-[11px] text-muted-foreground hover:text-foreground"
+        >
+          {showAll ? 'Show latest only' : `Show all ${comments.length} comments`}
+        </button>
+      )}
+    </div>
+  )
+}
+
+/** Header card: identity, stage, meta, and the agent-maintained current state
+ *  (activityNotes — posted via `podium issue state` or the assistant digest). */
 function SummaryHeader({ issue }: { issue: IssueWire }): JSX.Element {
-  const state = issue.panel?.state
+  const state = issue.activityNotes
+    ? { text: issue.activityNotes, updatedAt: issue.notesUpdatedAt }
+    : null
   const accent = STAGE_ACCENT[issue.stage]
   return (
     <header className="border-b border-border/60 px-3 pt-3 pb-3">
@@ -93,12 +133,13 @@ function SummaryHeader({ issue }: { issue: IssueWire }): JSX.Element {
           aria-hidden="true"
         />
         {state ? state.text : 'No status posted yet.'}
-        {state && (
+        {state?.updatedAt && (
           <div className="mt-1 text-[10px] tracking-wide text-muted-foreground/60 uppercase">
             updated {relativeTime(state.updatedAt, Date.now())}
           </div>
         )}
       </div>
+      <CommentsBlock issue={issue} />
     </header>
   )
 }

@@ -641,20 +641,20 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
     positionals: ['id'],
     async run(c, a) {
       const i = (a.set != null
-        ? await c.issues.panelApply.mutate({
-            id: a.id as string,
-            op: 'state-set',
-            text: a.set,
-          } as never)
+        ? await c.issues.setState.mutate({ id: a.id as string, text: a.set as string })
         : await c.issues.get.query({ id: a.id as string })) as {
         seq: number
-        panel?: { state?: { text: string; updatedAt: string } }
+        activityNotes?: string
+        notesUpdatedAt?: string
       } | null
       if (!i) throw new Error(`unknown issue ${a.id}`)
-      const s = i.panel?.state
       return {
-        text: s ? `${s.text}\n(updated ${s.updatedAt})` : '(no state posted)',
-        data: s ?? null,
+        text: i.activityNotes
+          ? `${i.activityNotes}${i.notesUpdatedAt ? `\n(updated ${i.notesUpdatedAt})` : ''}`
+          : '(no state posted)',
+        data: i.activityNotes
+          ? { text: i.activityNotes, updatedAt: i.notesUpdatedAt ?? null }
+          : null,
       }
     },
   },

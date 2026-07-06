@@ -701,12 +701,18 @@ export const appRouter = t.router({
     children: issueProc
       .input(z.object({ id: z.string(), recursive: z.boolean().optional() }))
       .query(({ ctx, input }) => ctx.registry.issues.children(input.id, input.recursive ?? false)),
+    setState: issueProc
+      .input(z.object({ id: z.string(), text: z.string() }))
+      .mutation(({ ctx, input }) =>
+        issueWrite(ctx, 'setState', input, () =>
+          ctx.registry.issues.setState(input.id, input.text),
+        ),
+      ),
     panelApply: issueProc
       .input(
         z.object({
           id: z.string(),
           op: z.enum([
-            'state-set',
             'todo-add',
             'todo-done',
             'todo-undone',

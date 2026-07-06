@@ -92,6 +92,7 @@ const FORWARD_INPUTS: Record<string, Record<string, unknown>> = {
   clearNeedsHuman: { id: HUB_ID },
   addComment: { id: HUB_ID, author: 'op', body: 'hi' },
   panelApply: { id: HUB_ID, op: 'todo-add', text: 'x' },
+  setState: { id: HUB_ID, text: 'x' },
   action: { id: HUB_ID, kind: 'rebase' },
   applySuggestion: { id: HUB_ID },
   dismissSuggestion: { id: HUB_ID },
