@@ -655,7 +655,10 @@ export const appRouter = t.router({
         const v = validatePublicUrl(input.publicUrl)
         if (!v.ok) throw new TRPCError({ code: 'BAD_REQUEST', message: v.error })
         const password = input.password?.trim()
-        if (!password && !input.acknowledgeNoPassword) {
+        // Neither a new password NOR an explicit no-password ack is required when one is ALREADY
+        // set — that's "keep the current password" (e.g. setting the URL later from Settings →
+        // Machines). It's only a mandatory choice on a fresh, password-less instance.
+        if (!password && !input.acknowledgeNoPassword && !hasPassword()) {
           throw new TRPCError({
             code: 'BAD_REQUEST',
             message: 'Confirm running without a login password.',

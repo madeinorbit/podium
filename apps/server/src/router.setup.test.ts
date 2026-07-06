@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { loadConfig } from '@podium/core/config'
 import { encodeJoin } from '@podium/core/join'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { hasPassword, verifyPassword } from './auth-store'
+import { hasPassword, setPassword, verifyPassword } from './auth-store'
 import { OPERATOR } from './issue-authz'
 import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
@@ -57,6 +57,13 @@ describe('setup tRPC', () => {
   it('rejects a reachable setup without password acknowledgement', async () => {
     await expect(caller().setup.complete({ publicUrl: 'https://box.ts.net' })).rejects.toThrow()
     expect(hasPassword(dir)).toBe(false)
+  })
+  it('keeps an existing password when the URL is set later (no re-ack needed)', async () => {
+    await setPassword('already-set', dir)
+    // No password + no ack must NOT throw once one is already configured — it's "keep current".
+    await caller().setup.complete({ publicUrl: 'https://relay.ts.net' })
+    expect(loadConfig().publicUrl).toBe('https://relay.ts.net')
+    expect(await verifyPassword('already-set', dir)).toBe(true) // unchanged
   })
   it('leaves auth open when no password is explicitly acknowledged', async () => {
     await caller().setup.complete({

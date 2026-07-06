@@ -9,6 +9,7 @@ const trpcMock = vi.hoisted(() => ({
   complete: vi.fn(),
   join: vi.fn(),
   connect: vi.fn(),
+  authStatus: vi.fn(),
 }))
 
 vi.mock('./trpc', async (importOriginal) => {
@@ -22,6 +23,9 @@ vi.mock('./trpc', async (importOriginal) => {
         complete: { mutate: trpcMock.complete },
         join: { mutate: trpcMock.join },
         connect: { mutate: trpcMock.connect },
+      },
+      auth: {
+        status: { query: trpcMock.authStatus },
       },
     }),
   }
@@ -47,6 +51,7 @@ beforeEach(() => {
     hint: 'Then paste the https URL it prints.',
   })
   trpcMock.complete.mockResolvedValue({ mode: 'all-in-one', publicUrl: 'https://box.ts.net' })
+  trpcMock.authStatus.mockResolvedValue({ enabled: false }) // no password by default (first run)
 })
 
 afterEach(() => {
@@ -125,6 +130,31 @@ describe('SetupView', () => {
       publicUrl: 'https://box.ts.net',
       password: 'launch-code',
     })
+  })
+
+  it('keeps the existing password when one is already set (no re-entry)', async () => {
+    trpcMock.authStatus.mockResolvedValue({ enabled: true }) // a password already exists
+    const { container } = render(
+      <SetupView httpOrigin="http://localhost:18787" onSaved={() => {}} />,
+    )
+    const view = within(container)
+    await act(async () => {
+      fireEvent.click(view.getByRole('button', { name: /continue/i }))
+      await flush()
+    })
+    // Defaults to "Keep current password" — just set the URL and finish.
+    expect(
+      (view.getByRole('radio', { name: /keep current password/i }) as HTMLInputElement).checked,
+    ).toBe(true)
+    fireEvent.change(view.getByLabelText(/public url/i), {
+      target: { value: 'https://box.ts.net' },
+    })
+    await act(async () => {
+      fireEvent.click(view.getByRole('button', { name: /finish/i }))
+      await flush()
+    })
+    // No password / no ack → the server keeps the existing one.
+    expect(trpcMock.complete).toHaveBeenCalledWith({ publicUrl: 'https://box.ts.net' })
   })
 
   it('daemon mode takes one join code and applies it via setup.join', async () => {

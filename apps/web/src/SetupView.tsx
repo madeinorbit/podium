@@ -193,7 +193,9 @@ export function NetworkStep({
   const [option, setOption] = useState<NetOption>('tailscale-funnel')
   const [cmd, setCmd] = useState<{ command: string; hint: string } | null>(null)
   const [url, setUrl] = useState('')
-  const [authMode, setAuthMode] = useState<'password' | 'open'>('password')
+  // 'keep' = leave the already-set password untouched (only offered when one exists).
+  const [authMode, setAuthMode] = useState<'password' | 'open' | 'keep'>('password')
+  const [hasPassword, setHasPassword] = useState(false)
   const [password, setPassword] = useState('')
   const [ackNoPassword, setAckNoPassword] = useState(false)
   const [err, setErr] = useState('')
@@ -212,6 +214,19 @@ export function NetworkStep({
       .then(setCmd)
       .catch(() => {})
   }, [trpc, option])
+  // If a login password is already set (e.g. setting the URL later from Settings → Machines),
+  // default to keeping it rather than forcing the user to re-enter one.
+  useEffect(() => {
+    trpc.auth.status
+      .query()
+      .then((s) => {
+        if (s.enabled) {
+          setHasPassword(true)
+          setAuthMode('keep')
+        }
+      })
+      .catch(() => {})
+  }, [trpc])
 
   const copy = (): void => {
     if (!cmd?.command) return
@@ -236,9 +251,12 @@ export function NetworkStep({
     try {
       await trpc.setup.complete.mutate({
         publicUrl: url,
+        // 'keep' sends neither field → the server leaves the existing password untouched.
         ...(authMode === 'password'
           ? { password: passwordValue }
-          : { acknowledgeNoPassword: true }),
+          : authMode === 'open'
+            ? { acknowledgeNoPassword: true }
+            : {}),
       })
       onSaved()
     } catch (e) {
@@ -318,6 +336,31 @@ export function NetworkStep({
       </div>
       <fieldset className="flex flex-col gap-2">
         <legend className="text-[12px] text-muted-foreground">Login</legend>
+        {hasPassword && (
+          <label
+            htmlFor="setup-auth-keep"
+            className="flex cursor-pointer items-start gap-2 rounded-md border border-border px-3 py-2"
+          >
+            <input
+              id="setup-auth-keep"
+              type="radio"
+              name="setup-auth"
+              value="keep"
+              checked={authMode === 'keep'}
+              onChange={() => {
+                setAuthMode('keep')
+                setAckNoPassword(false)
+              }}
+              className="mt-1"
+            />
+            <span className="flex flex-col">
+              <strong className="text-[13px] text-foreground">Keep current password</strong>
+              <span className="text-[12px] text-muted-foreground">
+                A login password is already set — leave it unchanged.
+              </span>
+            </span>
+          </label>
+        )}
         <label
           htmlFor="setup-auth-password"
           className="flex cursor-pointer items-start gap-2 rounded-md border border-border px-3 py-2"
@@ -335,7 +378,9 @@ export function NetworkStep({
             className="mt-1"
           />
           <span className="flex flex-col">
-            <strong className="text-[13px] text-foreground">Require a login password</strong>
+            <strong className="text-[13px] text-foreground">
+              {hasPassword ? 'Change the login password' : 'Require a login password'}
+            </strong>
             <span className="text-[12px] text-muted-foreground">
               Recommended for reachable instances.
             </span>
@@ -413,7 +458,13 @@ export function NetworkStep({
           <Button
             type="button"
             disabled={
-              busy || !url.trim() || (authMode === 'password' ? !password.trim() : !ackNoPassword)
+              busy ||
+              !url.trim() ||
+              (authMode === 'password'
+                ? !password.trim()
+                : authMode === 'open'
+                  ? !ackNoPassword
+                  : false)
             }
             onClick={() => void finish()}
           >
