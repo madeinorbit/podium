@@ -838,6 +838,9 @@ export class SessionRegistry {
         geometry: s.geometry,
         ...(s.resume ? { resume: s.resume } : {}),
         ...(this.transcriptPathHint(s) ?? {}),
+        // Spawn-time floor for observer-based harnesses (codex): lets a reattached
+        // observer discover a lazily-created rollout it never saw before the restart.
+        ...(Number.isFinite(Date.parse(s.createdAt)) ? { createdAtMs: Date.parse(s.createdAt) } : {}),
       })
     }
     // Headless sessions have no PTY to reattach; instead re-establish their

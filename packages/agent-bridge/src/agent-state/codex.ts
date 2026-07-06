@@ -96,18 +96,20 @@ async function codexBootEvents(opts: {
 }): Promise<AgentStateEvent[]> {
   if (opts.resumeValue) {
     try {
-      const root = join(opts.homeDir ?? homedir(), '.codex')
-      const meta = await readCodexStateMetadata(root)
-      const rollout = meta.byThreadId.get(opts.resumeValue)?.rolloutPath
+      const rollout = await findCodexRolloutPath({
+        resumeValue: opts.resumeValue,
+        ...(opts.homeDir ? { homeDir: opts.homeDir } : {}),
+      })
       if (rollout) {
-        const last = lastTaskComplete(await readFile(rollout, 'utf8'))
-        if (last !== undefined) {
-          // Stamp the rollout mtime so re-seeding this idle session on reattach
-          // restores its real last-active time, not the reattach moment.
-          const at = await fileMtimeIso(rollout)
-          return [
-            { kind: 'turn_completed', verdict: classifyCodexVerdict(last), ...(at ? { at } : {}) },
-          ]
+        const seed = classifyResumedRollout(await readFile(rollout, 'utf8'))
+        if (seed) {
+          if (seed.at === undefined) {
+            // Old rollouts without per-record timestamps: the file mtime is the
+            // best remaining approximation of when the turn boundary happened.
+            const at = await fileMtimeIso(rollout)
+            return [at ? { ...seed, at } : seed]
+          }
+          return [seed]
         }
       }
     } catch {
@@ -117,19 +119,48 @@ async function codexBootEvents(opts: {
   return [{ kind: 'session_started' }]
 }
 
-function lastTaskComplete(jsonl: string): string | undefined {
+/**
+ * Classify a resumed rollout from its LAST turn-boundary record. A rollout whose
+ * newest boundary is `task_started`/`user_message` has an OPEN turn — the agent is
+ * still working, and the earlier `task_complete` belongs to a previous turn.
+ * Seeding "idle done <old summary>" there (the pre-fix behavior) flapped every
+ * mid-turn codex session to idle on each daemon restart AND restamped its recency
+ * to the reattach moment. Events are stamped with the record's own timestamp so
+ * recency reflects when the agent actually acted.
+ */
+function classifyResumedRollout(jsonl: string): AgentStateEvent | undefined {
   const lines = jsonl.split(/\r?\n/)
   for (let i = lines.length - 1; i >= 0; i--) {
     const line = lines[i]?.trim()
     if (!line) continue
+    let rec: unknown
     try {
-      const rec = JSON.parse(line)
-      if (strField(rec, 'type') !== 'event_msg') continue
-      const p = isRecord(rec) && isRecord(rec.payload) ? rec.payload : undefined
-      if (p && strField(p, 'type') === 'task_complete')
-        return strField(p, 'last_agent_message') ?? ''
+      rec = JSON.parse(line)
     } catch {
-      // skip torn line
+      continue // torn line
+    }
+    if (strField(rec, 'type') !== 'event_msg') continue
+    const p = isRecord(rec) && isRecord(rec.payload) ? rec.payload : undefined
+    if (!p) continue
+    const at = strField(rec, 'timestamp')
+    switch (strField(p, 'type')) {
+      case 'task_complete':
+        return {
+          kind: 'turn_completed',
+          verdict: classifyCodexVerdict(strField(p, 'last_agent_message') ?? ''),
+          ...(at ? { at } : {}),
+        }
+      case 'turn_aborted':
+        return {
+          kind: 'turn_completed',
+          verdict: { kind: 'interrupted', summary: 'turn aborted' },
+          ...(at ? { at } : {}),
+        }
+      case 'task_started':
+      case 'user_message':
+        return { kind: 'prompt_submitted', ...(at ? { at } : {}) }
+      default:
+        continue // activity records don't decide whether the turn is open
     }
   }
   return undefined
@@ -171,13 +202,22 @@ export function observeCodexState(opts: {
   const codexHome = join(opts.homeDir ?? homedir(), '.codex')
   const root = join(codexHome, 'sessions')
   const startedAtMs = opts.startedAtMs ?? 0
-  // Only a FRESH SPAWN passes a start floor (the daemon omits it on reattach). With
-  // no resumeValue AND no start floor we're reattaching a session that never had a
-  // rollout — discovering by cwd would grab a sibling's, so we stay idle instead.
+  // A fresh spawn passes its spawn time as the floor; a reattach passes the
+  // session's original createdAt (the server persists it). Codex creates the
+  // rollout file LAZILY — often only at the first prompt, which can land after a
+  // daemon restart — so reattach MUST be able to discover by cwd+floor or a
+  // session whose rollout appeared after a restart stays status-blind forever.
+  // With no resumeValue AND no floor at all (older server), discovering by cwd
+  // would grab a sibling's rollout, so we stay idle instead.
   const canDiscoverByCwd = opts.startedAtMs !== undefined
   let stopped = false
   let rolloutPath: string | undefined
   let announced = false
+  // One-shot diagnostics: an observer that can't bind is a silently dead status
+  // pipeline (the exact failure mode that left active sessions shown idle), so
+  // say so once instead of polling forever in silence.
+  let unboundTicks = 0
+  let warnedUnbound = false
   // The thread id of the live rollout, learned at discovery. Kept so every later
   // tick can re-read the native (state-DB) title and pick up an in-session `/rename`.
   let threadId: string | undefined
@@ -249,7 +289,18 @@ export function observeCodexState(opts: {
           : canDiscoverByCwd
             ? await findLiveCodexRollout(root, opts.cwd, startedAtMs)
             : undefined
-        if (!found) return
+        if (!found) {
+          unboundTicks++
+          if (!warnedUnbound && unboundTicks === 40) {
+            warnedUnbound = true
+            console.warn(
+              `[podium] codex state observer unbound after ${unboundTicks} ticks ` +
+                `(cwd=${opts.cwd}, resumeValue=${opts.resumeValue ?? 'none'}, ` +
+                `floor=${opts.startedAtMs ?? 'none'}) — status will read idle until a rollout binds`,
+            )
+          }
+          return
+        }
         rolloutPath = found.path
         if (!announced && found.id) {
           announced = true
@@ -347,8 +398,9 @@ function sessionMetaStartedAtMs(
 }
 
 /**
- * Newest INTERACTIVE `*.jsonl` under `~/.codex/sessions` whose `session_meta.cwd`
- * matches. For a fresh spawn (`startedAtMs > 0`), only rollouts whose
+ * The INTERACTIVE `*.jsonl` under `~/.codex/sessions` whose `session_meta.cwd`
+ * matches, booted nearest after `startedAtMs`. For a fresh spawn or a floored
+ * reattach (`startedAtMs > 0`), only rollouts whose
  * `session_meta` timestamp (fallback: file birthtime) is at/after the spawn —
  * NOT file mtime, which keeps advancing on an active sibling and would collapse
  * every new Codex pane in the same repo onto that sibling's thread. Returns its
@@ -403,7 +455,13 @@ export async function findLiveCodexRollout(
     }
   }
   await walk(sessionsRoot)
-  candidates.sort((a, b) => b.sortMs - a.sortMs)
+  // Nearest-after the floor, not newest: Codex creates the rollout file LAZILY
+  // (often at the first prompt, minutes after boot), so several sessions' rollouts
+  // can all sit past the floor by the time a reattached observer discovers by cwd.
+  // Each rollout's session_meta timestamp is its BOOT time, which tracks its own
+  // pane's spawn — so the candidate closest after this session's floor is its own;
+  // a sibling pane spawned later boots later. Newest-first cross-wired panes.
+  candidates.sort((a, b) => a.sortMs - b.sortMs)
   const best = candidates[0]
   return best ? { path: best.path, id: best.id } : undefined
 }

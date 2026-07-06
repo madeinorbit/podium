@@ -1075,6 +1075,12 @@ export const ReattachMessage = z.object({
   // Recorded segment evidence — same contract as transcriptRead.pathHint: the
   // reattach tail re-binds to this file without deriving from the (mutable) cwd.
   pathHint: z.string().optional(),
+  // The session's original spawn time (epoch ms). Observer-based harnesses (codex)
+  // need it as the cwd-discovery floor on reattach: codex creates its rollout file
+  // lazily (often at the first prompt), so the file can first appear only after a
+  // daemon restart — without a floor the reattached observer could never bind it
+  // and the session would stay status-blind forever.
+  createdAtMs: z.number().optional(),
 })
 export const KillMessage = z.object({ type: z.literal('kill'), sessionId: z.string() })
 // Server→daemon: relay priority for one session (0=focused,1=visible,2=attached,

@@ -1026,7 +1026,13 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     if (msg.agentKind === 'grok') {
       startGrokStateObserver(msg.sessionId, msg.cwd, msg.resume?.value, init.grokStartedAt)
     } else if (msg.agentKind === 'codex') {
-      startCodexStateObserver(msg.sessionId, msg.cwd, msg.resume?.value, init.grokStartedAt)
+      // Codex creates its rollout lazily (often at the first prompt), so a
+      // reattached observer must still be able to discover by cwd — floored at
+      // the session's original spawn time so it can't latch onto an older
+      // sibling's rollout. Spawn passes its own start; reattach the persisted one.
+      const codexFloor =
+        init.grokStartedAt ?? ('createdAtMs' in msg ? msg.createdAtMs : undefined)
+      startCodexStateObserver(msg.sessionId, msg.cwd, msg.resume?.value, codexFloor)
     } else if (msg.agentKind === 'opencode') {
       startOpencodeStateObserver(msg.sessionId, msg.cwd, msg.resume?.value, init.grokStartedAt)
     } else if (msg.agentKind === 'cursor') {

@@ -462,6 +462,141 @@ async function waitFor(pred: () => boolean, timeoutMs = 3000): Promise<void> {
   }
 }
 
+describe('findLiveCodexRollout sibling disambiguation (nearest-after floor)', () => {
+  it('binds the rollout booted nearest after the floor, not a later sibling', async () => {
+    // Codex creates the rollout file LAZILY (first prompt), so by the time a
+    // reattached observer discovers by cwd there may be several candidates past
+    // the floor. The session's own rollout is the one whose session_meta boot
+    // timestamp is CLOSEST AFTER its spawn; a sibling pane spawned later boots
+    // later. Newest-first would cross-wire this pane onto the sibling.
+    const sessions = await mkdtemp(join(tmpdir(), 'podium-codex-nearest-'))
+    const dir = join(sessions, '2026', '07', '06')
+    await mkdir(dir, { recursive: true })
+    const cwd = '/repo/podium'
+    const spawnAt = Date.parse('2026-07-06T10:00:00.000Z')
+
+    const own = join(dir, 'rollout-2026-07-06T10-00-02-own.jsonl')
+    await writeFile(
+      own,
+      `${JSON.stringify({
+        timestamp: '2026-07-06T10:00:02.000Z',
+        type: 'session_meta',
+        payload: { id: 'own', cwd, source: 'cli', timestamp: '2026-07-06T10:00:02.000Z' },
+      })}\n`,
+    )
+    const sibling = join(dir, 'rollout-2026-07-06T12-00-01-sibling.jsonl')
+    await writeFile(
+      sibling,
+      `${JSON.stringify({
+        timestamp: '2026-07-06T12:00:01.000Z',
+        type: 'session_meta',
+        payload: { id: 'sibling', cwd, source: 'cli', timestamp: '2026-07-06T12:00:01.000Z' },
+      })}\n`,
+    )
+
+    const found = await findLiveCodexRollout(sessions, cwd, spawnAt)
+    expect(found?.id).toBe('own')
+    expect(found?.path).toBe(own)
+  })
+})
+
+describe('codexBootEvents (resumed session classification)', () => {
+  const rec = (ptype: string, ts: string, extra: Record<string, unknown> = {}) =>
+    JSON.stringify({ type: 'event_msg', timestamp: ts, payload: { type: ptype, ...extra } })
+  const meta = (id: string) =>
+    JSON.stringify({ type: 'session_meta', payload: { id, cwd: '/repo/x', source: 'cli' } })
+
+  const homeWithRollout = async (id: string, lines: string[]): Promise<string> => {
+    const home = await mkdtemp(join(tmpdir(), 'podium-codex-boot-'))
+    const dir = join(home, '.codex', 'sessions', '2026', '07', '06')
+    await mkdir(dir, { recursive: true })
+    await writeFile(join(dir, `rollout-2026-07-06T10-00-00-${id}.jsonl`), `${lines.join('\n')}\n`)
+    return home
+  }
+
+  it('resolves the rollout via filename fallback when the state DB is absent', async () => {
+    const home = await homeWithRollout('th-1', [
+      meta('th-1'),
+      rec('task_complete', '2026-07-06T10:05:00.000Z', { last_agent_message: 'All done.' }),
+    ])
+    const events = await codexStateProvider.bootEvents!({
+      cwd: '/repo/x',
+      resumeValue: 'th-1',
+      homeDir: home,
+    })
+    expect(events[0]?.kind).toBe('turn_completed')
+  })
+
+  it('stamps an idle seed with the task_complete record time, not the file mtime', async () => {
+    // Mid-turn the rollout mtime is "now"; stamping mtime restamps the session's
+    // recency to the reattach moment. The record's own timestamp is the truth.
+    const home = await homeWithRollout('th-2', [
+      meta('th-2'),
+      rec('task_complete', '2026-07-06T10:05:00.000Z', { last_agent_message: 'Done.' }),
+    ])
+    const events = await codexStateProvider.bootEvents!({
+      cwd: '/repo/x',
+      resumeValue: 'th-2',
+      homeDir: home,
+    })
+    expect(events).toEqual([
+      {
+        kind: 'turn_completed',
+        verdict: { kind: 'done', summary: 'Done.' },
+        at: '2026-07-06T10:05:00.000Z',
+      },
+    ])
+  })
+
+  it('seeds WORKING when the rollout has an open turn (task_started after the last task_complete)', async () => {
+    // A daemon restart mid-turn must not flap the session to "idle done <stale
+    // summary>": the last task_complete belongs to a PREVIOUS turn.
+    const home = await homeWithRollout('th-3', [
+      meta('th-3'),
+      rec('task_complete', '2026-07-06T10:05:00.000Z', { last_agent_message: 'Earlier turn.' }),
+      rec('user_message', '2026-07-06T10:10:00.000Z', { message: 'next task please' }),
+      rec('task_started', '2026-07-06T10:10:00.500Z'),
+      rec('token_count', '2026-07-06T10:10:05.000Z'),
+    ])
+    const events = await codexStateProvider.bootEvents!({
+      cwd: '/repo/x',
+      resumeValue: 'th-3',
+      homeDir: home,
+    })
+    expect(events).toEqual([{ kind: 'prompt_submitted', at: '2026-07-06T10:10:00.500Z' }])
+  })
+
+  it('classifies an aborted last turn as interrupted', async () => {
+    const home = await homeWithRollout('th-4', [
+      meta('th-4'),
+      rec('task_started', '2026-07-06T10:00:01.000Z'),
+      rec('turn_aborted', '2026-07-06T10:02:00.000Z'),
+    ])
+    const events = await codexStateProvider.bootEvents!({
+      cwd: '/repo/x',
+      resumeValue: 'th-4',
+      homeDir: home,
+    })
+    expect(events).toEqual([
+      {
+        kind: 'turn_completed',
+        verdict: { kind: 'interrupted', summary: 'turn aborted' },
+        at: '2026-07-06T10:02:00.000Z',
+      },
+    ])
+  })
+
+  it('falls back to session_started when the rollout has no turn records', async () => {
+    const home = await homeWithRollout('th-5', [meta('th-5')])
+    const events = await codexStateProvider.bootEvents!({
+      cwd: '/repo/x',
+      resumeValue: 'th-5',
+      homeDir: home,
+    })
+    expect(events).toEqual([{ kind: 'session_started' }])
+  })
+})
+
 describe('findCodexRolloutPath', () => {
   it('falls back to a filename match on the resume value when the state DB is absent', async () => {
     const home = await mkdtemp(join(tmpdir(), 'podium-codex-home-'))
