@@ -2,6 +2,7 @@
 import { randomUUID } from 'node:crypto'
 import { Worker } from 'node:worker_threads'
 import type { WorkerJob, WorkerResult } from './discovery-worker'
+import { DISCOVERY_WORKER_EMBEDDED_PATH } from './discovery-worker-embed.js'
 
 export interface WorkerLike {
   postMessage(m: unknown): void
@@ -15,10 +16,22 @@ interface Pending {
   timer: ReturnType<typeof setTimeout>
 }
 
+function workerUrl(): URL {
+  // In the `bun build --compile` daemon, `new URL('./discovery-worker.ts', import.meta.url)`
+  // does NOT resolve — import.meta.url collapses to the main entry (file:///$bunfs/root/<binary>)
+  // and the worker is embedded (as a separate entrypoint, see scripts/build-bun.ts) at a nested
+  // `.js` path. Detect the standalone binary via its `/$bunfs/` module URL and spawn the worker
+  // from its embedded path. Running from source (bun run host / bun test) we spawn the sibling
+  // `.ts` on disk instead. See discovery-worker-embed.ts for the shared path.
+  if (import.meta.url.includes('/$bunfs/'))
+    return new URL(`file://${DISCOVERY_WORKER_EMBEDDED_PATH}`)
+  return new URL('./discovery-worker.ts', import.meta.url)
+}
+
 function defaultSpawn(): WorkerLike {
   // `{ type: 'module' }` is honored by the Bun/web Worker runtime this daemon runs
   // under; cast past node:worker_threads' stricter WorkerOptions type which omits it.
-  return new Worker(new URL('./discovery-worker.ts', import.meta.url), {
+  return new Worker(workerUrl(), {
     type: 'module',
   } as unknown as ConstructorParameters<typeof Worker>[1]) as unknown as WorkerLike
 }

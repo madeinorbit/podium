@@ -12,6 +12,7 @@ import { execFileSync } from 'node:child_process'
 import { sign as cryptoSign } from 'node:crypto'
 import { chmodSync, cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
+import { DISCOVERY_WORKER_ENTRY } from '../apps/daemon/src/discovery-worker-embed.js'
 import { buildVendoredAbduco } from '../packages/agent-bridge/src/abduco-bin.js'
 
 /**
@@ -77,19 +78,32 @@ function main(): void {
     )
   console.log(`[build-bun] abduco -> ${abduco}`)
 
-  const compile = (entry: string, name: string): void => {
+  const compile = (
+    entry: string,
+    name: string,
+    opts: { extraEntrypoints?: string[]; defines?: Record<string, string> } = {},
+  ): void => {
     console.log(`[build-bun] compiling ${name} (v${version})…`)
+    const defines: Record<string, string> = {
+      // Bake the real version so the compiled server's /version reports it (not 'dev').
+      // Inlined at build time wherever process.env.PODIUM_APP_VERSION is read.
+      'process.env.PODIUM_APP_VERSION': `"${version}"`,
+      ...opts.defines,
+    }
+    const defineArgs = Object.entries(defines).flatMap(([k, v]) => ['--define', `${k}=${v}`])
     execFileSync(
       'bun',
       [
         'build',
         '--compile',
         '--conditions=@podium/source',
-        // Bake the real version so the compiled server's /version reports it (not 'dev').
-        // Inlined at build time wherever process.env.PODIUM_APP_VERSION is read.
-        '--define',
-        `process.env.PODIUM_APP_VERSION="${version}"`,
+        ...defineArgs,
         entry,
+        // Extra entrypoints are bundled + embedded alongside the main one (their whole dep
+        // graph included). `bun build --compile` embeds each additional entrypoint at its path
+        // relative to the common ancestor of ALL entrypoints, under /$bunfs/root. The main
+        // entry, by contrast, always lands at /$bunfs/root/<outfile-basename>.
+        ...(opts.extraEntrypoints ?? []),
         '--outfile',
         `dist-bun/${name}`,
       ],
@@ -97,9 +111,18 @@ function main(): void {
     )
   }
 
+  // Any binary that runs a daemon in-process spawns discovery work in a Worker.
+  // `new Worker(new URL('./discovery-worker.ts', import.meta.url))` is NOT auto-embedded by
+  // `bun build --compile` (Bun 1.3.x), so we add the worker as an explicit extra entrypoint
+  // (bundling its whole dep graph). worker-client.ts then spawns it from
+  // DISCOVERY_WORKER_EMBEDDED_PATH — the two share discovery-worker-embed.ts. This applies to
+  // BOTH the standalone daemon AND the `podium` CLI (which runs the daemon in-process for
+  // all-in-one / daemon modes — the path actually shipped by the headless bundle). The server
+  // never runs a daemon, so it doesn't embed the worker.
+  const withWorker = { extraEntrypoints: [DISCOVERY_WORKER_ENTRY] }
   compile('scripts/server.ts', 'podium-server')
-  compile('scripts/daemon-compiled.ts', 'podium-daemon')
-  compile('scripts/cli-compiled.ts', 'podium')
+  compile('scripts/daemon-compiled.ts', 'podium-daemon', withWorker)
+  compile('scripts/cli-compiled.ts', 'podium', withWorker)
   console.log('[build-bun] done -> dist-bun/podium-server, dist-bun/podium-daemon, dist-bun/podium')
 
   // --- headless bundle: binaries + web + launcher ---------------------------------
