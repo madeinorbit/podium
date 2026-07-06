@@ -34,6 +34,12 @@ export async function openApp(page: Page): Promise<void> {
   await page.waitForFunction(() => !document.querySelector('.app-loading'), undefined, {
     timeout: 45_000,
   })
+
+  const repoDialog = page.getByRole('dialog', { name: 'Find repositories' })
+  if (await repoDialog.isVisible().catch(() => false)) {
+    await repoDialog.getByRole('button', { name: 'Close' }).click()
+  }
+
   await gotoWorkspace(page)
 }
 
