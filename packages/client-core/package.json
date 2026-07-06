@@ -18,6 +18,11 @@
       "@podium/source": "./src/transport.ts",
       "types": "./src/transport.ts",
       "import": "./src/transport.ts"
+    },
+    "./outbox": {
+      "@podium/source": "./src/outbox.ts",
+      "types": "./src/outbox.ts",
+      "import": "./src/outbox.ts"
     }
   },
   "scripts": {

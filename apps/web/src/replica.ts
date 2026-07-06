@@ -40,12 +40,11 @@ import type { Collection, StorageApi, StorageEventApi, Transaction } from '@tans
 import { createCollection, localStorageCollectionOptions } from '@tanstack/db'
 import { useLiveQuery } from '@tanstack/react-db'
 import {
-  localStorageBacking,
-  OUTBOX_LS_KEY,
+  parseOutboxEntries,
   type OutboxEntry,
   type OutboxStorage,
-  parseOutboxEntries,
-} from './outbox'
+} from '@podium/client-core/outbox'
+import { localStorageBacking, OUTBOX_LS_KEY } from './outbox'
 
 /** Wire row type per replica collection kind. */
 export interface ReplicaRows {
