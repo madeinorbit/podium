@@ -9,7 +9,7 @@ import { ISSUE_COMMANDS } from '../apps/server/src/issue-commands'
 const camelFlag = (s: string): string => s.replace(/-([a-z])/g, (_, c: string) => c.toUpperCase())
 
 /** Flags that never take a value; a following bare token is a positional, not their value. */
-const BOOL_FLAGS = new Set(['json', 'start', 'outsideScope'])
+const BOOL_FLAGS = new Set(['json', 'start', 'outsideScope', 'recursive'])
 
 /** A CLI failure that should print as `podium issue: <message>` and exit non-zero. */
 export class IssueCliError extends Error {}

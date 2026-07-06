@@ -1367,3 +1367,51 @@ describe('IssueService.integrate (issue #70)', () => {
     expect(calls.filter((c) => c.op === 'mergeFfOnly').map((c) => c.args?.branch)).toEqual([children[0]!.branch])
   })
 })
+
+describe('IssueService children + depReport (epic ergonomics)', () => {
+  it('children lists direct subissues sorted by seq; recursive walks the subtree', () => {
+    const { svc } = harness()
+    const epic = svc.create({ repoPath: '/r', title: 'E', type: 'epic', startNow: false })
+    const c2 = svc.create({ repoPath: '/r', title: 'c2', parentId: epic.id, startNow: false })
+    const c1 = svc.create({ repoPath: '/r', title: 'c1', parentId: epic.id, startNow: false })
+    const grand = svc.create({ repoPath: '/r', title: 'g', parentId: c1.id, startNow: false })
+    svc.create({ repoPath: '/r', title: 'unrelated', startNow: false })
+    expect(svc.children(epic.id).map((w) => w.title)).toEqual(['c2', 'c1'])
+    expect(svc.children(epic.id, true).map((w) => w.id)).toEqual([c2.id, c1.id, grand.id])
+    // seq refs resolve like everywhere else
+    expect(svc.children(`#${epic.seq}`).length).toBe(2)
+    expect(() => svc.children('iss_nope')).toThrow(/unknown issue/)
+  })
+
+  it('depReport over an epic subtree marks ready/blocked and resolves edges', () => {
+    const { svc } = harness()
+    const epic = svc.create({ repoPath: '/r', title: 'E', type: 'epic', startNow: false })
+    const a = svc.create({ repoPath: '/r', title: 'a', parentId: epic.id, startNow: false })
+    const b = svc.create({ repoPath: '/r', title: 'b', parentId: epic.id, startNow: false })
+    const c = svc.create({ repoPath: '/r', title: 'c', parentId: epic.id, startNow: false })
+    svc.addDep(b.id, a.id) // b waits on a
+    svc.addDep(c.id, b.id, 'related')
+    svc.close(c.id)
+    const report = svc.depReport({ id: epic.id })
+    expect(report.map((e) => e.seq)).toEqual([epic.seq, a.seq, b.seq, c.seq])
+    const byTitle = Object.fromEntries(report.map((e) => [e.title, e]))
+    expect(byTitle.a!.ready).toBe(true)
+    expect(byTitle.a!.dependents).toEqual([{ seq: b.seq, title: 'b', type: 'blocks', closed: false }])
+    expect(byTitle.b!.blocked).toBe(true)
+    expect(byTitle.b!.deps).toEqual([{ seq: a.seq, title: 'a', type: 'blocks', closed: false }])
+    expect(byTitle.c!.closed).toBe(true)
+    expect(byTitle.c!.ready).toBe(false)
+    // a closed blocker unblocks: close a, b becomes ready
+    svc.close(a.id)
+    const after = svc.depReport({ id: epic.id })
+    expect(after.find((e) => e.title === 'b')!.ready).toBe(true)
+  })
+
+  it('depReport without id covers the repo', () => {
+    const { svc } = harness()
+    svc.create({ repoPath: '/r', title: 'x', startNow: false })
+    svc.create({ repoPath: '/other', title: 'y', startNow: false })
+    expect(svc.depReport({ repoPath: '/r' }).map((e) => e.title)).toEqual(['x'])
+    expect(svc.depReport({}).length).toBe(2)
+  })
+})

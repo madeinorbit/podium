@@ -698,6 +698,12 @@ export const appRouter = t.router({
     epicStatus: issueProc
       .input(z.object({ id: z.string() }))
       .query(({ ctx, input }) => ctx.registry.issues.epicStatus(input.id)),
+    children: issueProc
+      .input(z.object({ id: z.string(), recursive: z.boolean().optional() }))
+      .query(({ ctx, input }) => ctx.registry.issues.children(input.id, input.recursive ?? false)),
+    depReport: issueProc
+      .input(z.object({ id: z.string().optional(), repoPath: z.string().optional() }))
+      .query(({ ctx, input }) => ctx.registry.issues.depReport(input)),
     closeEligibleEpics: issueProc
       .input(z.object({ repoPath: z.string().optional() }))
       .query(({ ctx, input }) => ctx.registry.issues.closeEligibleEpics(input.repoPath)),

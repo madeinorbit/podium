@@ -634,6 +634,68 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
     },
   },
   {
+    name: 'children',
+    summary:
+      'List subissues of an issue/epic with ready/blocked status: children <id> [--recursive].',
+    args: z.object({ id: idArg, recursive: z.boolean().optional() }),
+    positionals: ['id'],
+    async run(c, a) {
+      const rows = (await c.issues.children.query({
+        id: a.id as string,
+        ...(a.recursive === true ? { recursive: true } : {}),
+      })) as (Row & { ready: boolean; blocked: boolean; closedReason?: string })[]
+      const mark = (r: (typeof rows)[number]) =>
+        r.stage === 'done' || r.closedReason
+          ? 'DONE'
+          : r.blocked
+            ? 'BLOCKED'
+            : r.ready
+              ? 'READY'
+              : r.stage ?? ''
+      return {
+        text: rows.length
+          ? rows.map((r) => `${line(r)} — ${mark(r)}`).join('\n')
+          : '(no subissues)',
+        data: rows,
+      }
+    },
+  },
+  {
+    name: 'deps',
+    summary:
+      "Dependency status within a set of issues: deps [<id>] — an issue/epic's subtree (root included), or the whole repo without an id. Shows per issue what it waits on (open/closed) and what waits on it.",
+    args: z.object({ id: idArg.optional(), ...optRepo }),
+    positionals: ['id'],
+    async run(c, a) {
+      const entries = (await c.issues.depReport.query({
+        ...(a.id ? { id: a.id as string } : {}),
+        ...(a.repoPath ? { repoPath: a.repoPath as string } : {}),
+      })) as {
+        seq: number
+        title: string
+        stage: string
+        priority: number
+        closed: boolean
+        blocked: boolean
+        ready: boolean
+        deps: { seq: number; title: string; type: string; closed: boolean }[]
+        dependents: { seq: number; title: string; type: string; closed: boolean }[]
+      }[]
+      const edge = (r: { seq: number; type: string; closed: boolean }) =>
+        `#${r.seq} (${r.closed ? 'closed' : 'open'}${r.type === 'blocks' ? '' : `, ${r.type}`})`
+      const text = entries
+        .map((e) => {
+          const status = e.closed ? 'DONE' : e.blocked ? 'BLOCKED' : e.ready ? 'READY' : e.stage
+          const lines = [`${line(e)} — ${status}`]
+          if (e.deps.length) lines.push(`  waits on: ${e.deps.map(edge).join(', ')}`)
+          if (e.dependents.length) lines.push(`  blocks: ${e.dependents.map(edge).join(', ')}`)
+          return lines.join('\n')
+        })
+        .join('\n')
+      return { text: text || '(no issues in set)', data: entries }
+    },
+  },
+  {
     name: 'epic-status',
     summary: 'Epic completion: epic-status <id>.',
     args: z.object({ id: idArg }),

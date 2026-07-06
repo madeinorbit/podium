@@ -37,6 +37,8 @@ function mockClient(overrides: Record<string, unknown> = {}): { client: IssueTrp
       addSession: proc('addSession'),
       addShell: proc('addShell'),
       events: proc('events'),
+      children: proc('children'),
+      depReport: proc('depReport'),
     },
   } as unknown as IssueTrpc
   return { client, calls }
@@ -293,5 +295,62 @@ describe('ISSUE_COMMANDS registry', () => {
     const out = await cmd('events').run(client, { since: 0 })
     expect(out.text).toBe('(no events)')
     expect(out.data).toEqual([])
+  })
+})
+
+describe('children + deps commands (epic ergonomics)', () => {
+  it('children renders one line per subissue with a status mark', async () => {
+    const { client, calls } = mockClient({
+      children: [
+        { seq: 2, title: 'a', stage: 'backlog', priority: 2, ready: true, blocked: false },
+        { seq: 3, title: 'b', stage: 'backlog', priority: 2, ready: false, blocked: true },
+        { seq: 4, title: 'c', stage: 'done', priority: 2, ready: false, blocked: false },
+      ],
+    })
+    const out = await cmd('children').run(client, { id: '#1', recursive: true })
+    expect(calls).toContainEqual({ path: 'children', kind: 'query', input: { id: '#1', recursive: true } })
+    const lines = out.text.split('\n')
+    expect(lines[0]).toContain('#2')
+    expect(lines[0]).toContain('READY')
+    expect(lines[1]).toContain('BLOCKED')
+    expect(lines[2]).toContain('DONE')
+  })
+
+  it('children reports empty', async () => {
+    const { client } = mockClient({ children: [] })
+    const out = await cmd('children').run(client, { id: '1' })
+    expect(out.text).toBe('(no subissues)')
+  })
+
+  it('deps renders waits-on/blocks edges with open/closed state', async () => {
+    const { client, calls } = mockClient({
+      depReport: [
+        {
+          seq: 1, title: 'E', stage: 'backlog', priority: 2, closed: false, blocked: false, ready: true,
+          deps: [], dependents: [],
+        },
+        {
+          seq: 2, title: 'b', stage: 'backlog', priority: 2, closed: false, blocked: true, ready: false,
+          deps: [
+            { seq: 3, title: 'a', type: 'blocks', closed: false },
+            { seq: 4, title: 'd', type: 'related', closed: true },
+          ],
+          dependents: [{ seq: 5, title: 'e', type: 'blocks', closed: false }],
+        },
+      ],
+    })
+    const out = await cmd('deps').run(client, { id: '#1' })
+    expect(calls).toContainEqual({ path: 'depReport', kind: 'query', input: { id: '#1' } })
+    expect(out.text).toContain('#1 P2 [backlog] E — READY')
+    expect(out.text).toContain('#2 P2 [backlog] b — BLOCKED')
+    expect(out.text).toContain('waits on: #3 (open), #4 (closed, related)')
+    expect(out.text).toContain('blocks: #5 (open)')
+  })
+
+  it('deps without id queries the repo set', async () => {
+    const { client, calls } = mockClient({ depReport: [] })
+    const out = await cmd('deps').run(client, { repoPath: '/r' })
+    expect(calls).toContainEqual({ path: 'depReport', kind: 'query', input: { repoPath: '/r' } })
+    expect(out.text).toBe('(no issues in set)')
   })
 })

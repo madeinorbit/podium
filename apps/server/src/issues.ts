@@ -23,6 +23,30 @@ import { type LinearIssue, searchIssues } from './linear'
 import { llmClient } from './llm'
 import type { IssueRow, SessionStore } from './store'
 
+/** One edge endpoint in a dep report: enough to render "#12 title (open, blocks)". */
+export interface DepReportRef {
+  seq: number
+  title: string
+  type: string
+  closed: boolean
+}
+
+/** Per-issue dependency status inside a set (epic subtree or repo) — see depReport(). */
+export interface DepReportEntry {
+  id: string
+  seq: number
+  title: string
+  stage: string
+  priority: number
+  closed: boolean
+  blocked: boolean
+  ready: boolean
+  /** Outgoing deps: issues this one waits on. */
+  deps: DepReportRef[]
+  /** Incoming deps: issues waiting on this one. */
+  dependents: DepReportRef[]
+}
+
 export interface IssueDeps {
   store: SessionStore
   listSessions(): SessionMeta[]
@@ -241,6 +265,88 @@ export class IssueService {
       childDoneCount,
       complete: children.length > 0 && childDoneCount === children.length,
     }
+  }
+
+  /** Subissues of an issue — direct children, or the whole subtree with
+   *  `recursive`. Sorted by seq; wires carry ready/blocked so a caller can
+   *  attack an epic without stitching list+graph together. */
+  children(id: string, recursive = false): IssueWire[] {
+    const root = this.rowOrThrow(id)
+    const rows: IssueRow[] = []
+    const walk = (pid: string): void => {
+      for (const r of this.rows.values()) {
+        if (r.parentId !== pid) continue
+        rows.push(r)
+        if (recursive) walk(r.id)
+      }
+    }
+    walk(root.id)
+    const sessionList = this.deps.listSessions()
+    return rows.sort((a, b) => a.seq - b.seq).map((r) => this.toWire(r, sessionList))
+  }
+
+  /** Dependency status over a set of issues — an issue's subtree (id given,
+   *  root included) or a whole repo. One entry per member with its blocks/waits
+   *  edges resolved to seq+open/closed state, so an agent can see at a glance
+   *  what is ready, what blocks what, and why something is not ready. */
+  depReport(opts: { id?: string; repoPath?: string } = {}): DepReportEntry[] {
+    let members: IssueRow[]
+    if (opts.id) {
+      const root = this.rowOrThrow(opts.id)
+      members = [root]
+      const walk = (pid: string): void => {
+        for (const r of this.rows.values()) {
+          if (r.parentId !== pid) continue
+          members.push(r)
+          walk(r.id)
+        }
+      }
+      walk(root.id)
+    } else {
+      members = [...this.rows.values()].filter(
+        (r) => !opts.repoPath || r.repoPath === opts.repoPath,
+      )
+    }
+    const ref = (row: IssueRow, type: string): DepReportRef => ({
+      seq: row.seq,
+      title: row.title,
+      type,
+      closed: this.isClosed(row),
+    })
+    return members
+      .sort((a, b) => a.seq - b.seq)
+      .map((row) => {
+        const closed = this.isClosed(row)
+        const blocked = this.computeBlocked(row)
+        // parent-child edges are hierarchy, not scheduling — the report is about
+        // readiness, so only real dependency types appear.
+        const deps = this.deps.store
+          .listIssueDeps(row.id)
+          .filter((d) => d.type !== 'parent-child')
+          .flatMap((d) => {
+            const target = this.rows.get(d.toId)
+            return target ? [ref(target, d.type)] : []
+          })
+        const dependents = this.deps.store
+          .listDependents(row.id)
+          .filter((d) => d.type !== 'parent-child')
+          .flatMap((d) => {
+            const source = this.rows.get(d.fromId)
+            return source ? [ref(source, d.type)] : []
+          })
+        return {
+          id: row.id,
+          seq: row.seq,
+          title: row.title,
+          stage: row.stage,
+          priority: row.priority,
+          closed,
+          blocked,
+          ready: !closed && !this.isDeferred(row) && !blocked,
+          deps,
+          dependents,
+        }
+      })
   }
 
   closeEligibleEpics(repoPath?: string): IssueWire[] {
