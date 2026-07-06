@@ -18,7 +18,12 @@ jobs:
             ~/.bun/install/cache
             packages/agent-bridge/src/abduco.bin
           key: build-${{ hashFiles('bun.lock') }}
-      - run: bun install --frozen-lockfile
+      # --ignore-scripts: the headless release compiles on Bun (Bun.Terminal PTY backend) and never
+      # loads node-pty (lazily require()d only under the Node fallback), so its native rebuild is
+      # dead weight here — and it crash-loops CI (node-gyp `webidl.util.markAsUncloneable` on the
+      # runner toolchain). esbuild ships its binary via @esbuild/<platform> packages (no script),
+      # and abduco is built by build-bun's own cc step, so skipping lifecycle scripts is safe.
+      - run: bun install --frozen-lockfile --ignore-scripts
       - name: Headless build + publish
         env:
           PODIUM_UPDATE_SIGNING_KEY: ${{ secrets.PODIUM_UPDATE_SIGNING_KEY }}
