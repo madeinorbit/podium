@@ -15,7 +15,7 @@ import {
   SquarePlus,
   X,
 } from 'lucide-react'
-import type { DragEvent, JSX, ReactNode } from 'react'
+import type { DragEvent, JSX, PointerEvent as ReactPointerEvent, ReactNode } from 'react'
 import { useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -64,7 +64,68 @@ const REPO_SORT_LABELS: Record<'alphabetical' | 'lastUsed' | 'custom', string> =
 
 /** The one aside shell both sidebar layouts share. */
 export const SIDEBAR_ASIDE_CLASS =
-  'flex w-[280px] flex-shrink-0 flex-col overflow-y-auto border-r border-border bg-card text-card-foreground'
+  'flex w-full flex-col overflow-y-auto border-r border-border bg-card text-card-foreground'
+
+const SIDEBAR_WIDTH_KEY = 'podium:sidebar:width'
+const SIDEBAR_WIDTH_MIN = 200
+const SIDEBAR_WIDTH_MAX = 560
+const SIDEBAR_WIDTH_DEFAULT = 280
+
+/**
+ * The aside shell with a drag-to-resize right edge. The handle lives on a
+ * non-scrolling wrapper (the aside itself scrolls, so an absolute child of it
+ * would only cover the first viewport-height of content). Width persists to
+ * localStorage.
+ */
+function ResizableAside({ children }: { children: ReactNode }): JSX.Element {
+  const [width, setWidth] = useState<number>(() => {
+    try {
+      const v = Number(localStorage.getItem(SIDEBAR_WIDTH_KEY))
+      return Number.isFinite(v) && v >= SIDEBAR_WIDTH_MIN && v <= SIDEBAR_WIDTH_MAX
+        ? v
+        : SIDEBAR_WIDTH_DEFAULT
+    } catch {
+      return SIDEBAR_WIDTH_DEFAULT
+    }
+  })
+  const onHandlePointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    const handle = e.currentTarget
+    const left = handle.parentElement?.getBoundingClientRect().left ?? 0
+    handle.setPointerCapture(e.pointerId)
+    const move = (ev: PointerEvent) => {
+      setWidth(
+        Math.min(SIDEBAR_WIDTH_MAX, Math.max(SIDEBAR_WIDTH_MIN, Math.round(ev.clientX - left))),
+      )
+    }
+    const up = () => {
+      handle.removeEventListener('pointermove', move)
+      setWidth((w) => {
+        try {
+          localStorage.setItem(SIDEBAR_WIDTH_KEY, String(w))
+        } catch {
+          // ignore
+        }
+        return w
+      })
+    }
+    handle.addEventListener('pointermove', move)
+    handle.addEventListener('pointerup', up, { once: true })
+    handle.addEventListener('pointercancel', up, { once: true })
+  }
+  return (
+    <div className="relative flex flex-none" style={{ width }}>
+      <aside className={SIDEBAR_ASIDE_CLASS}>{children}</aside>
+      <div
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize sidebar"
+        className="absolute inset-y-0 -right-0.5 z-10 w-1.5 cursor-col-resize hover:bg-primary/40 active:bg-primary/60"
+        onPointerDown={onHandlePointerDown}
+      />
+    </div>
+  )
+}
 
 /** Temporary Classic | Unified layout switcher (issue-as-workspace rollout). */
 function LayoutSwitcher({
@@ -215,15 +276,15 @@ export function Sidebar(): JSX.Element {
   // branch below is safe.
   if (sidebarLayout === 'unified') {
     return (
-      <aside className={SIDEBAR_ASIDE_CLASS}>
+      <ResizableAside>
         <LayoutSwitcher layout={sidebarLayout} onChange={setSidebarLayout} />
         <SidebarUnified />
-      </aside>
+      </ResizableAside>
     )
   }
 
   return (
-    <aside className={SIDEBAR_ASIDE_CLASS}>
+    <ResizableAside>
       <LayoutSwitcher layout={sidebarLayout} onChange={setSidebarLayout} />
       <button
         type="button"
@@ -551,7 +612,7 @@ export function Sidebar(): JSX.Element {
         <RepoScanFlow onClose={() => setPickerOpen(false)} onDone={() => setPickerOpen(false)} />
       )}
       {searchOpen && <SearchView onClose={() => setSearchOpen(false)} />}
-    </aside>
+    </ResizableAside>
   )
 }
 

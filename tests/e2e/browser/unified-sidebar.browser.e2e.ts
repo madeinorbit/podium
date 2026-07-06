@@ -94,3 +94,32 @@ test('unified sidebar: switcher, split-button spawn creates a draft row, wider +
     timeout: 10_000,
   })
 })
+
+test('sidebar width is draggable via the right-edge handle and persists', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await openShell(page)
+  const aside = page.locator('aside').first()
+  const handle = page.getByRole('separator', { name: 'Resize sidebar' })
+  await expect(handle).toBeVisible({ timeout: 10_000 })
+
+  const before = (await aside.boundingBox())?.width ?? 0
+  const hb = await handle.boundingBox()
+  expect(hb).not.toBeNull()
+  if (!hb) return
+  const y = hb.y + 200
+  await page.mouse.move(hb.x + hb.width / 2, y)
+  await page.mouse.down()
+  await page.mouse.move(hb.x + hb.width / 2 + 120, y, { steps: 8 })
+  await page.mouse.up()
+
+  const after = (await aside.boundingBox())?.width ?? 0
+  expect(after).toBeGreaterThan(before + 80)
+
+  // Width persists to localStorage and survives a reload.
+  await page.reload()
+  await page.waitForFunction(() => !document.querySelector('.app-loading'), undefined, {
+    timeout: 60_000,
+  })
+  const reloaded = (await page.locator('aside').first().boundingBox())?.width ?? 0
+  expect(Math.abs(reloaded - after)).toBeLessThan(3)
+})
