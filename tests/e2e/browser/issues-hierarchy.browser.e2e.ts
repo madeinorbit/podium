@@ -6,8 +6,9 @@ import { RELAY } from './_harness'
  * REAL Live UI on the harness relay: sub-issues are hidden at the top level by
  * default (board and list), the parent grows an Epic badge + n/m progress
  * fraction, a list-row chevron expands the nested children, the Flatten toggle
- * restores the old flat view, and the sidebar Issues tab nests children under
- * their parent's chevron.
+ * and the Flatten toggle restores the old flat view. (The sidebar Issues tab is
+ * gone — the unified sidebar shows only issues that own a worktree, and these
+ * fixtures are worktree-less, so there is no sidebar leg anymore.)
  *
  * Desktop-only: the "Issues" nav button lives in the <aside> Sidebar, which the
  * mobile layout (MobileApp) does not render.
@@ -148,18 +149,8 @@ test('issues hierarchy: nested children, epic badge + fraction, flatten toggle, 
   await page.keyboard.press('Escape')
   await expect(menu).toHaveCount(0, { timeout: 10_000 })
 
-  // ---- Sidebar Issues tab: child nests under the parent's chevron ----
+  // ---- Unified sidebar: worktree-less issues never appear there ----
   const aside = page.locator('aside').first()
-  await aside.locator('button').filter({ hasText: /^Issues$/ }).click({ timeout: 10_000 })
-  const parentBlock = aside.getByRole('button', { name: new RegExp(parentTitle) }).first()
-  await expect(parentBlock, 'the parent shows in the sidebar Issues tab').toBeVisible({
-    timeout: 15_000,
-  })
-  // The child is NOT a top-level row (only reachable via the parent's chevron).
+  await expect(aside.getByText(parentTitle, { exact: false })).toHaveCount(0)
   await expect(aside.getByText(childTitle, { exact: false })).toHaveCount(0)
-  await aside.locator(`[aria-label="Expand ${parentTitle}"]`).click({ timeout: 10_000 })
-  await expect(
-    aside.getByText(childTitle, { exact: false }),
-    'expanding the parent block reveals the nested child',
-  ).toBeVisible({ timeout: 10_000 })
 })

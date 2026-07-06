@@ -101,27 +101,38 @@ describe('partitionWorkItems (sidebar WORK ITEMS) ordering', () => {
     expect(attention.map((s) => s.sessionId)).toEqual(['ag'])
   })
 
-  it('a busy shell stays in WORKING, never attention', () => {
+  it('shells never appear in the sidebar — not even a busy one in WORKING', () => {
     const busyShell = meta({ sessionId: 'sh', agentKind: 'shell', busy: true })
-    const { attention, working: w } = partitionWorkItems(
-      [busyShell],
-      new Set(),
-      Date.parse('2026-06-11'),
-    )
+    const {
+      attention,
+      working: w,
+      pinnedPanels,
+    } = partitionWorkItems([busyShell], new Set(['sh']), Date.parse('2026-06-11'))
     expect(attention).toEqual([])
-    expect(w.map((s) => s.sessionId)).toEqual(['sh'])
+    expect(w).toEqual([])
+    expect(pinnedPanels).toEqual([])
   })
 
   it('orders WORKING newest-active first', () => {
-    const a = meta({ sessionId: 'old', lastActiveAt: old, agentState: working(old) })
-    const b = meta({ sessionId: 'new', lastActiveAt: recent, agentState: working(recent) })
+    const a = meta({
+      sessionId: 'old',
+      lastActiveAt: old,
+      agentState: working(old),
+      agentKind: 'claude-code',
+    })
+    const b = meta({
+      sessionId: 'new',
+      lastActiveAt: recent,
+      agentState: working(recent),
+      agentKind: 'claude-code',
+    })
     const { working: w } = partitionWorkItems([a, b], new Set(), Date.parse('2026-06-11'))
     expect(w.map((s) => s.sessionId)).toEqual(['new', 'old'])
   })
 
   it('orders PINNED PANELS newest-active first', () => {
-    const a = meta({ sessionId: 'old', lastActiveAt: old })
-    const b = meta({ sessionId: 'new', lastActiveAt: recent })
+    const a = meta({ sessionId: 'old', lastActiveAt: old, agentKind: 'claude-code' })
+    const b = meta({ sessionId: 'new', lastActiveAt: recent, agentKind: 'claude-code' })
     const { pinnedPanels } = partitionWorkItems(
       [a, b],
       new Set(['old', 'new']),

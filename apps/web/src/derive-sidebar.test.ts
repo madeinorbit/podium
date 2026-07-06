@@ -93,6 +93,45 @@ describe('sidebarSections (containment grouping)', () => {
     expect(byPath('/repo')).toEqual(['inMain'])
     expect(byPath('/repo/.worktrees/feat')).toEqual(['inFeat'])
   })
+
+  it('attaches non-archived issues to their worktree; shells never appear in sidebar sessions', () => {
+    const repos: GitRepositoryWire[] = [
+      {
+        path: '/repo',
+        kind: 'repository',
+        branch: 'main',
+        worktrees: [{ path: '/repo/.worktrees/feat', branch: 'feat' }],
+      },
+    ]
+    const issue = (id: string, over: Record<string, unknown>) =>
+      ({
+        id,
+        title: id,
+        stage: 'in_progress',
+        repoPath: '/repo',
+        archived: false,
+        worktreePath: '/repo/.worktrees/feat',
+        updatedAt: new Date(NOW).toISOString(),
+        ...over,
+      }) as unknown as import('@podium/protocol').IssueWire
+    const issues = [
+      issue('live-1', {}),
+      issue('live-2', {}), // two issues may own the same worktree
+      issue('archived', { archived: true }),
+      issue('unstarted', { worktreePath: null }),
+    ]
+    const sessions = [
+      sess('agent', 1, { cwd: '/repo/.worktrees/feat' } as Partial<SessionMeta>),
+      sess('sh', 1, { cwd: '/repo/.worktrees/feat', agentKind: 'shell' } as Partial<SessionMeta>),
+    ]
+    const sections = sidebarSections(repos, sessions, EMPTY_PINS, NOW, issues)
+    const worktrees = sections.repos.flatMap((r) => r.worktrees)
+    const feat = worktrees.find((w) => w.path === '/repo/.worktrees/feat')
+    expect(feat?.issues.map((i) => i.id)).toEqual(['live-1', 'live-2'])
+    expect(worktrees.find((w) => w.path === '/repo')?.issues).toEqual([])
+    // The shell is filtered out of every sidebar session list.
+    expect(feat?.sessions.map((s) => s.sessionId)).toEqual(['agent'])
+  })
 })
 
 describe('partitionStaleSessions', () => {
@@ -160,6 +199,7 @@ function wt(path: string, branch: string | undefined, isMain: boolean): Worktree
     repoName: 'repo',
     isMain,
     sessions: [],
+    issues: [],
   } as WorktreeNavView
 }
 

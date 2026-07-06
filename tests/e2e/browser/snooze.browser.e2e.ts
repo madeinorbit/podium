@@ -39,14 +39,17 @@ test.describe('session snooze', () => {
     // Snooze "until next message" — server persists + broadcasts.
     await page.getByRole('menuitem', { name: 'Until next message' }).click()
 
-    // In its normal worktree row the session now shows an UN-snooze affordance
-    // (title starts "Snoozed…") — and a plain snooze icon never appears in the sidebar.
-    const unsnooze = aside.getByRole('button', { name: /^Snoozed/ })
+    // Shells never render in the sidebar (no row, so no sidebar affordance at
+    // all); the toolbar control flips to an UN-snooze affordance (title starts
+    // "Snoozed…").
+    const unsnooze = page.getByRole('button', { name: /^Snoozed/ })
     await expect(unsnooze.first()).toBeVisible({ timeout: 10_000 })
+    await expect(aside.getByRole('button', { name: /^Snoozed/ })).toHaveCount(0)
     await expect(aside.getByRole('button', { name: 'Snooze', exact: true })).toHaveCount(0)
 
-    // Un-snooze from the worktree row → the affordance disappears (round-trip back).
+    // Un-snooze from the toolbar → the affordance flips back (round-trip).
     await unsnooze.first().click()
-    await expect(aside.getByRole('button', { name: /^Snoozed/ })).toHaveCount(0, { timeout: 10_000 })
+    await expect(page.getByRole('button', { name: /^Snoozed/ })).toHaveCount(0, { timeout: 10_000 })
+    await expect(snooze.first()).toBeVisible({ timeout: 10_000 })
   })
 })

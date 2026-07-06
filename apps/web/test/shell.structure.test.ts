@@ -46,9 +46,7 @@ describe('web shell structure', () => {
     const src = read('Sidebar.tsx')
     expect(src).toContain('sidebarSections')
     expect(src).toContain('PinButton')
-    expect(src).toContain('PINNED PANELS')
-    expect(src).toContain('PINNED WORKTREES')
-    expect(src).toContain('PINNED REPOS')
+    expect(src).toContain('"PINNED"')
     expect(src).toContain('setPinned')
   })
   it('workspace and mobile tabs use the persisted manual order (pins as fallback)', () => {

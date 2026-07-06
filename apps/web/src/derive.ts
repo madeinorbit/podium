@@ -331,9 +331,7 @@ export function orphanSessionFor(opts: {
   // Containment against just the selected path: the worktree is gone from the
   // scan, so there's no root list to resolve against — but a session stamped
   // with a subdirectory of the removed worktree is still its orphan.
-  const orphans = sessionsForWorktree(opts.sessions, opts.selectedWorktree, [
-    opts.selectedWorktree,
-  ])
+  const orphans = sessionsForWorktree(opts.sessions, opts.selectedWorktree, [opts.selectedWorktree])
   return orphans.find((s) => s.sessionId === opts.paneA) ?? orphans[0] ?? null
 }
 
@@ -378,6 +376,9 @@ export function exitedRecovery(opts: {
 export interface WorktreeNavView extends WorktreeView {
   repoName: string
   sessions: SessionMeta[]
+  /** Non-archived issues whose worktree this is. When non-empty, the sidebar
+   *  renders the issue block(s) instead of the bare worktree row. */
+  issues: IssueWire[]
 }
 
 export interface RepoNavView {
@@ -474,15 +475,32 @@ export function orderTabs(
   return [...known, ...unknown]
 }
 
+/** Sessions shown in the sidebar — shells never appear there (they stay in the
+ *  main-view tab strip). */
+export function sidebarSessions(sessions: SessionMeta[]): SessionMeta[] {
+  return sessions.filter((s) => s.agentKind !== 'shell')
+}
+
 export function sidebarSections(
   repos: GitRepositoryWire[],
   sessions: SessionMeta[],
   pins: PinState,
   now: number = Date.now(),
+  issues: IssueWire[] = [],
 ): SidebarSections {
   const repoViews = reposToViews(repos)
   const pinnedWorktreePaths = new Set(pins.worktrees)
   const pinnedRepoPaths = new Set(pins.repos)
+  sessions = sidebarSessions(sessions)
+  // worktree path → its non-archived issues (an issue owns at most one worktree;
+  // several issues may point at the same worktree — the worktree shows under each).
+  const issuesByWorktree = new Map<string, IssueWire[]>()
+  for (const issue of issues) {
+    if (issue.archived || !issue.worktreePath) continue
+    const list = issuesByWorktree.get(issue.worktreePath)
+    if (list) list.push(issue)
+    else issuesByWorktree.set(issue.worktreePath, [issue])
+  }
 
   const allWorktrees = repoViews.flatMap((repo) =>
     repo.worktrees.map((worktree) => ({ repo, worktree })),
@@ -507,6 +525,7 @@ export function sidebarSections(
       sessionsForWorktree(sessions, worktree.path, allWorktreePaths),
       now,
     ),
+    issues: issuesByWorktree.get(worktree.path) ?? [],
   })
 
   const navRepo = (repo: RepoView): RepoNavView => ({
@@ -566,14 +585,13 @@ export function partitionWorkItems(
 
   for (const s of sessions) {
     if (s.archived) continue
+    // Shells never appear in the sidebar — not in WORKING, PINNED, or attention.
+    if (s.agentKind === 'shell') continue
     if (pinnedSessionIds.has(s.sessionId)) pinnedPanels.push(s)
     const group = attentionGroup(s)
     if (group === 'working') {
       working.push(s)
     } else if (isSnoozed(s, now)) {
-    } else if (s.agentKind === 'shell') {
-      // A shell sitting at its prompt isn't an agent blocked on you — it never
-      // "needs your attention". (A shell running a command is `working` above.)
     } else {
       attention.push(s)
     }
@@ -741,7 +759,9 @@ export function sortWorktrees(
 /** Does a worktree row match the inline sidebar filter (case-insensitive over
  *  branch / path / repo name)? */
 function worktreeMatches(worktree: WorktreeNavView, q: string): boolean {
-  const hay = `${worktree.repoName} ${worktree.branch ?? ''} ${worktree.path}`.toLowerCase()
+  const titles = worktree.issues.map((i) => i.title).join(' ')
+  const hay =
+    `${worktree.repoName} ${worktree.branch ?? ''} ${worktree.path} ${titles}`.toLowerCase()
   return hay.includes(q)
 }
 
