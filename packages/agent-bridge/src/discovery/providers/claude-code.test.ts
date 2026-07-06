@@ -115,6 +115,36 @@ describe('createClaudeCodeConversationProvider', () => {
     expect(child).not.toHaveProperty('messages')
   })
 
+  test('a subagent transcript whose records carry the PARENT sessionId still ids as the subagent file', async () => {
+    // Real Claude Code subagent jsonls stamp every record with the PARENT
+    // conversation's sessionId. Using that as the summary id collided with the
+    // parent in the conversation registry, letting the subagent's path overwrite
+    // the parent's segment path — reattach then classified the subagent
+    // transcript as the session and regressed lastActiveAt (issue #94).
+    const root = await createRoot()
+    await writeClaudeSession(root, 'projects/-repo-project/claude-session-1.jsonl')
+    await writeClaudeSession(
+      root,
+      'projects/-repo-project/claude-session-1/subagents/agent-a.jsonl',
+      'claude-session-1', // parent id inside the records, as Claude writes it
+      'Subagent work',
+    )
+
+    const result = await createClaudeCodeConversationProvider().scanRoot(root)
+
+    expect(result.diagnostics).toEqual([])
+    const ids = result.conversations.map((c) => c.id).sort()
+    expect(ids).toEqual(['agent-a', 'claude-session-1'])
+    const child = result.conversations.find((c) => c.id === 'agent-a')
+    expect(child).toEqual(
+      expect.objectContaining({
+        id: 'agent-a',
+        parentConversationId: 'claude-session-1',
+        resume: { kind: 'claude-session', value: 'agent-a' },
+      }),
+    )
+  })
+
   test('summarizes from a bounded head read and ignores an invalid tail', async () => {
     const root = await createRoot()
     const file = join(root, 'projects/-repo-project/head-only.jsonl')

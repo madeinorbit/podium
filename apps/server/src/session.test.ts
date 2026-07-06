@@ -436,16 +436,17 @@ describe('Session', () => {
     expect(s.lastActiveAt).toBe('2026-06-04T00:00:00.000Z')
   })
 
-  it('setAgentState re-syncs lastActiveAt to the event-time (boot re-seed can correct a stale value down)', () => {
-    // lastActiveAt tracks the phase event-time (state.since), sourced from the real
-    // transcript record. A reattach re-seeds boot state from the transcript's true
-    // last-activity time; if recency was wrongly bumped (e.g. a metadata write once
-    // moved the file mtime), re-seeding must correct it back DOWN to the truth.
+  it('setAgentState never regresses lastActiveAt (a stale-timestamped seed must not sink the session)', () => {
+    // lastActiveAt advances with the phase event-time but is MONOTONIC: a boot
+    // re-seed that classified the wrong transcript (a subagent jsonl registered
+    // under the parent's id, issue #94) carries an older event-time and must not
+    // drag the session down the recency order. The state itself still updates.
     const s = makeSession()
     s.setAgentState(state('idle', '2026-06-10T00:00:00.000Z'))
     expect(s.lastActiveAt).toBe('2026-06-10T00:00:00.000Z')
-    s.setAgentState(state('idle', '2026-06-04T00:00:00.000Z')) // re-seed with the true (older) time
-    expect(s.lastActiveAt).toBe('2026-06-04T00:00:00.000Z')
+    s.setAgentState(state('idle', '2026-06-04T00:00:00.000Z')) // stale re-seed
+    expect(s.lastActiveAt).toBe('2026-06-10T00:00:00.000Z')
+    expect(s.agentState?.since).toBe('2026-06-04T00:00:00.000Z')
   })
 
   it('markLive (daemon reattach/bind) does NOT restamp lastActiveAt', () => {

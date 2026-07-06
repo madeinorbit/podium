@@ -611,12 +611,13 @@ export class Session {
   setAgentState(state: AgentRuntimeState): void {
     this.agentState = state
     // Recency = the phase event-time (state.since), which is the real source-record
-    // time (transcript timestamp), never "now". Authoritative SET, not a monotonic
-    // max: a reattach re-seeds boot state from the transcript's true last-activity,
-    // so this must be able to CORRECT a stale-high value back down (e.g. one a
-    // metadata mtime bump once poisoned). Every event source delivers timestamps in
-    // increasing order, so a genuinely-newer value is never regressed.
-    this.lastActiveAt = state.since
+    // time (transcript timestamp), never "now" — but MONOTONIC: a boot re-seed that
+    // read the wrong transcript (a subagent jsonl registered under the parent's
+    // native id, issue #94) carries a stale event-time; an authoritative set let it
+    // sink the session below genuinely-older ones and every reattach re-asserted
+    // it. The old stale-HIGH poisoning this could correct (mtime-derived stamps) is
+    // gone since seeds stamp the last DATED record, so regression buys nothing.
+    if (state.since > this.lastActiveAt) this.lastActiveAt = state.since
   }
 
   /** Adopt a `/color` value from the transcript. Treats Claude's "no colour"

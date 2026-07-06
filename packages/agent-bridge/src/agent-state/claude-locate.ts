@@ -1,6 +1,6 @@
 import { readdir, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 
 /** Claude's per-project transcript dir name: the cwd with every non-alphanumeric
  *  character flattened to '-' (verified against real hook payloads, CLI 2.1.173). */
@@ -31,7 +31,16 @@ export async function locateClaudeSessionFile(opts: {
   pathHint?: string
   homeDir?: string
 }): Promise<string | null> {
-  if (opts.pathHint && (await isFile(opts.pathHint))) return opts.pathHint
+  // The hint is evidence for WHERE the file lives (moved worktrees), never for
+  // WHICH file the session is: a poisoned registry path (e.g. a subagent
+  // transcript once registered under the parent's native id, issue #94) must not
+  // make boot classification read a different conversation's timestamps.
+  if (
+    opts.pathHint &&
+    basename(opts.pathHint) === `${opts.resumeValue}.jsonl` &&
+    (await isFile(opts.pathHint))
+  )
+    return opts.pathHint
   const home = opts.homeDir ?? homedir()
   const projects = join(home, '.claude', 'projects')
   const exact = join(projects, claudeProjectSlug(opts.cwd), `${opts.resumeValue}.jsonl`)

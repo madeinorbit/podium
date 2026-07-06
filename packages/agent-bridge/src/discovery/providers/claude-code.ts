@@ -271,7 +271,14 @@ function summarizeClaudeHeadRecords(
   )
   const summary = isRecord(summaryRecord) ? summaryRecord : undefined
   const session = isRecord(sessionRecord) ? sessionRecord : undefined
-  const id = stringField(session ?? {}, 'sessionId') ?? basename(file.path, '.jsonl')
+  // Subagent transcripts stamp every record with the PARENT conversation's
+  // sessionId — trusting it would collide the child with its parent in the
+  // conversation registry (the subagent's path then overwrites the parent's
+  // segment path, and reattach classifies the wrong transcript — issue #94).
+  // The filename is the subagent's own identity.
+  const id = file.parentConversationId
+    ? basename(file.path, '.jsonl')
+    : (stringField(session ?? {}, 'sessionId') ?? basename(file.path, '.jsonl'))
 
   // Title preference: the conversation's native customTitle, else the start of
   // the first human prompt (a filename like "a1b2c3d4.jsonl" is useless in the

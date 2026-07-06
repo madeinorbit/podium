@@ -1,3 +1,6 @@
+import { mkdtemp } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { SessionStore } from './store'
 
@@ -134,5 +137,43 @@ describe('conversation registry store', () => {
     const batch = store.conversationPodiumIds('m1', ['child', 'parent-a', 'parent-b'])
     expect(batch.get('child')).toBe(child)
     expect(batch.size).toBe(3)
+  })
+
+  it('boot repair nulls subagent paths poisoned onto other identities, keeps legitimate ones', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'podium-conv-registry-'))
+    const file = join(dir, 'store.db')
+    const first = new SessionStore(file)
+    // Poisoned by the pre-#94 discovery bug: a subagent transcript summarized
+    // under the PARENT's native id clobbered the parent's segment path.
+    first.ensureConversationIdentity({
+      machineId: 'm1',
+      nativeId: 'parent-1',
+      providerId: 'claude-code-jsonl',
+      path: '/home/u/.claude/projects/-repo/parent-1/subagents/agent-x.jsonl',
+    })
+    // A subagent conversation's OWN row (post-fix): basename matches native id.
+    first.ensureConversationIdentity({
+      machineId: 'm1',
+      nativeId: 'agent-x',
+      providerId: 'claude-code-jsonl',
+      path: '/home/u/.claude/projects/-repo/parent-1/subagents/agent-x.jsonl',
+    })
+    // A normal main-transcript row: untouched.
+    first.ensureConversationIdentity({
+      machineId: 'm1',
+      nativeId: 'parent-2',
+      providerId: 'claude-code-jsonl',
+      path: '/home/u/.claude/projects/-repo/parent-2.jsonl',
+    })
+    first.close()
+    const second = new SessionStore(file)
+    expect(second.conversationSegmentPath('m1', 'parent-1')).toBeUndefined()
+    expect(second.conversationSegmentPath('m1', 'agent-x')).toBe(
+      '/home/u/.claude/projects/-repo/parent-1/subagents/agent-x.jsonl',
+    )
+    expect(second.conversationSegmentPath('m1', 'parent-2')).toBe(
+      '/home/u/.claude/projects/-repo/parent-2.jsonl',
+    )
+    second.close()
   })
 })

@@ -2371,6 +2371,15 @@ export class SessionStore {
       if (!segCols.has('reported_bytes'))
         this.db.exec('ALTER TABLE conversation_segments ADD COLUMN reported_bytes INTEGER')
     }
+    // Repair rows poisoned by the pre-#94 discovery bug: a subagent transcript
+    // summarized under its PARENT's native id clobbered the parent's segment
+    // path, so reattach boot-seeded from the wrong file. A main transcript is
+    // always named <native_id>.jsonl; a subagents/ path under any OTHER name is
+    // never legitimate evidence. NULL just falls back to derivation — the next
+    // discovery scan re-fills it correctly. Idempotent, runs every boot.
+    this.db.exec(
+      "UPDATE conversation_segments SET path = NULL WHERE path LIKE '%/subagents/%' AND path NOT LIKE '%/' || native_id || '.jsonl'",
+    )
     this.db.exec(
       'CREATE INDEX IF NOT EXISTS conversation_segments_podium ON conversation_segments(podium_id, seq_in_conv)',
     )

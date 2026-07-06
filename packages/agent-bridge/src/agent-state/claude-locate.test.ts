@@ -84,6 +84,25 @@ describe('locateClaudeSessionFile', () => {
     ).toBe(real)
   })
 
+  it("a pathHint whose filename is not the session's own jsonl is ignored", async () => {
+    // The registry's recorded path can be poisoned by a native-id collision (a
+    // subagent transcript registered under the parent's id, issue #94). The hint
+    // is only evidence for WHERE the session's file lives — it must still BE the
+    // session's file (filename == native id), or boot classification reads a
+    // different conversation's timestamps.
+    const home = await seedHome()
+    const real = await seedTranscript(home, '/origin', 'sess-hint2')
+    const impostor = await seedTranscript(home, '/origin', 'other-file')
+    expect(
+      await locateClaudeSessionFile({
+        cwd: '/elsewhere',
+        resumeValue: 'sess-hint2',
+        pathHint: impostor, // exists, but is not sess-hint2's transcript
+        homeDir: home,
+      }),
+    ).toBe(real)
+  })
+
   it('returns null when the session exists nowhere (and when projects/ is absent)', async () => {
     const home = await seedHome()
     expect(
