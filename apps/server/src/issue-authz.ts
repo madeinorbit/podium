@@ -81,6 +81,21 @@ export const PROC_ACTION: Record<string, IssueAction> = {
   // session RE-HOMING itself onto another issue — targeting outside the current
   // subtree is the whole point (issue-as-workspace), so no --outside-scope needed.
   attachSession: 'write',
+  // agent mail (issue #103)
+  // write, DELIBERATELY NOT scope-gated (no SCOPED_TARGET entry): mail is an
+  // append-only mailbox and addressing ANOTHER issue is the whole point of it —
+  // cross-issue sends must not require --outside-scope. Treated like `create`
+  // (a write with no existing-target issue), so the role gate still applies.
+  mailSend: 'write',
+  // write, scoped to the caller's own subtree; the target issue lives behind the
+  // message id, so the scope check is enforced in the router proc itself (the
+  // SCOPED_TARGET extractor cannot resolve message→issue from the input alone —
+  // its entry below documents that and returns undefined).
+  mailClaim: 'write',
+  // reads: inbox listing marks messages read, but that is mailbox bookkeeping on
+  // behalf of the reader, not issue mutation — viewers may check mail.
+  mailInbox: 'read',
+  mailPending: 'read',
   // manage — structural / destructive / cross-cutting
   archive: 'manage',
   delete: 'manage',
@@ -122,6 +137,13 @@ export const SCOPED_TARGET: Record<string, (i: Record<string, unknown>) => strin
   addSession: (i) => i.id as string,
   addShell: (i) => i.id as string,
   depAdd: (i) => i.fromId as string,
+  // mailClaim's target issue lives behind the MESSAGE id, which a pure input
+  // extractor cannot resolve — the router proc resolves message→issue and runs
+  // the same scope check itself. Listed here (returning undefined) so the
+  // PROC_ACTION↔SCOPED_TARGET coverage tests stay complete; the guard skips an
+  // undefined target and the proc-level check is the enforcement. NOT hub-
+  // forwarded (message ids are node-local).
+  mailClaim: () => undefined,
   // manage — target = the mutated subject issue (verified against each resolver's input)
   archive: (i) => i.id as string,
   delete: (i) => i.id as string,

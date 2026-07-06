@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { SessionMeta } from '@podium/protocol'
-import { isMemberCwd, sessionsForIssue, slugifyBranch, stageIndex, summarizeSessions } from './issue-util'
+import { isMemberCwd, selectMailNudgeSession, sessionsForIssue, slugifyBranch, stageIndex, summarizeSessions } from './issue-util'
 
 const sess = (cwd: string, phase?: string): SessionMeta =>
   ({
@@ -43,5 +43,60 @@ describe('stageIndex', () => {
   it('orders stages', () => {
     expect(stageIndex('backlog')).toBe(0)
     expect(stageIndex('done')).toBe(5)
+  })
+})
+
+describe('selectMailNudgeSession (agent mail #103)', () => {
+  const meta = (o: {
+    id: string
+    agentKind?: string
+    status?: string
+    phase?: string
+    lastActiveAt?: string
+  }): SessionMeta =>
+    ({
+      sessionId: o.id, agentKind: o.agentKind ?? 'claude-code', title: 't', cwd: '/r/wt',
+      status: o.status ?? 'live', controllerId: null, geometry: { cols: 80, rows: 24 }, epoch: 0,
+      clientCount: 0, createdAt: 't', lastActiveAt: o.lastActiveAt ?? '2026-07-06T00:00:00Z',
+      origin: { kind: 'spawn' }, archived: false,
+      ...(o.phase ? { agentState: { phase: o.phase, since: 't', openTaskCount: 0 } } : {}),
+    }) as unknown as SessionMeta
+
+  it('single idle live agent → immediate send', () => {
+    expect(selectMailNudgeSession([meta({ id: 'a', phase: 'idle' })])).toEqual({
+      sessionId: 'a',
+      mode: 'send',
+    })
+  })
+
+  it('single busy live agent → queued send', () => {
+    expect(selectMailNudgeSession([meta({ id: 'a', phase: 'working' })])).toEqual({
+      sessionId: 'a',
+      mode: 'queue',
+    })
+  })
+
+  it('several live agents → most recently active, queued (even if one is idle)', () => {
+    const picked = selectMailNudgeSession([
+      meta({ id: 'old', phase: 'idle', lastActiveAt: '2026-07-06T00:00:00Z' }),
+      meta({ id: 'new', phase: 'working', lastActiveAt: '2026-07-06T01:00:00Z' }),
+    ])
+    expect(picked).toEqual({ sessionId: 'new', mode: 'queue' })
+  })
+
+  it('ignores shells and non-live sessions; none live → null', () => {
+    expect(
+      selectMailNudgeSession([
+        meta({ id: 'sh', agentKind: 'shell', phase: 'idle' }),
+        meta({ id: 'gone', status: 'exited', phase: 'idle' }),
+      ]),
+    ).toBeNull()
+    // the shell must not count toward the "exactly one live agent" rule
+    expect(
+      selectMailNudgeSession([
+        meta({ id: 'sh', agentKind: 'shell' }),
+        meta({ id: 'a', phase: 'idle' }),
+      ]),
+    ).toEqual({ sessionId: 'a', mode: 'send' })
   })
 })

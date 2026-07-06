@@ -122,6 +122,26 @@ function issueWrite<R>(
   return local()
 }
 
+/** Agent-mail sender/claimer identity: the caller's bound issue (`issue:#<seq>`)
+ *  for a subtree-scoped agent, else 'operator'. */
+function mailIdentity(ctx: Context): string {
+  if (ctx.capability.scope.kind === 'subtree') {
+    const me = ctx.registry.issues.get(ctx.capability.scope.rootId)
+    if (me) return `issue:#${me.seq}`
+  }
+  return 'operator'
+}
+
+/** Resolve an omitted mail issue ref to the caller's own bound issue (capability rootId). */
+function mailOwnIssue(ctx: Context, id?: string): string {
+  if (id) return id
+  if (ctx.capability.scope.kind === 'subtree') return ctx.capability.scope.rootId
+  throw new TRPCError({
+    code: 'BAD_REQUEST',
+    message: 'no issue bound to this caller; pass an issue id',
+  })
+}
+
 export const appRouter = t.router({
   sessions: t.router({
     list: t.procedure.query(({ ctx }) => ctx.registry.listSessions()),
@@ -1071,6 +1091,54 @@ export const appRouter = t.router({
           ),
         ),
       ),
+    // ---- agent mail (issue #103). Local-only (never hub-forwarded): message ids
+    // and mailboxes live on this node. mailSend is deliberately cross-scope (see
+    // PROC_ACTION comment); mailClaim enforces scope in-proc (see SCOPED_TARGET).
+    mailSend: issueProc
+      .input(z.object({ id: z.string(), body: z.string().min(1) }))
+      .mutation(({ ctx, input }) =>
+        ctx.registry.issues.sendMail(input.id, mailIdentity(ctx), input.body),
+      ),
+    mailInbox: issueProc
+      // A mutation (listing marks the returned unread messages read), but authz-wise
+      // a 'read' — mailbox bookkeeping, not issue mutation.
+      .input(z.object({ id: z.string().optional() }).optional())
+      .mutation(({ ctx, input }) => ctx.registry.issues.mailInbox(mailOwnIssue(ctx, input?.id))),
+    mailClaim: issueProc
+      .input(z.object({ messageId: z.string() }))
+      .mutation(({ ctx, input }) => {
+        const msg = ctx.registry.issues.mailMessage(input.messageId)
+        if (!msg) {
+          throw new TRPCError({
+            code: 'NOT_FOUND',
+            message: `unknown mail message ${input.messageId}`,
+          })
+        }
+        // Proc-level scope gate, mirroring issueCapabilityGuard: the guard cannot
+        // resolve message→issue from the input (SCOPED_TARGET.mailClaim), so the
+        // same authorize() decision runs here against the message's issue.
+        if (ctx.capability.scope.kind !== 'all') {
+          const decision = authorize(
+            ctx.capability,
+            'write',
+            { id: msg.issueId, ancestorIds: ctx.registry.issues.ancestorIds(msg.issueId) },
+            { override: ctx.overrideScope },
+          )
+          if (decision === 'confirm-required') {
+            throw new TRPCError({
+              code: 'PRECONDITION_FAILED',
+              message: `issue ${msg.issueId} is outside your subtree; re-run with --outside-scope to confirm`,
+            })
+          }
+          if (decision === 'forbidden') {
+            throw new TRPCError({ code: 'FORBIDDEN', message: "not allowed to 'mailClaim' issues" })
+          }
+        }
+        return ctx.registry.issues.mailClaim(input.messageId, mailIdentity(ctx))
+      }),
+    mailPending: issueProc
+      .input(z.object({ id: z.string().optional() }).optional())
+      .query(({ ctx, input }) => ctx.registry.issues.mailPending(mailOwnIssue(ctx, input?.id))),
     depAdd: issueProc
       .input(z.object({ fromId: z.string(), toId: z.string(), type: z.string().optional() }))
       .mutation(({ ctx, input }) =>

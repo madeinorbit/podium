@@ -42,6 +42,7 @@ import {
 import { AutoContinueController } from './auto-continue'
 import { knownPathsFor } from './file-relay-policy'
 import { type Capability, SCOPED_TARGET } from './issue-authz'
+import { selectMailNudgeSession, sessionsForIssue } from './issue-util'
 import { IssueService } from './issues'
 import { LOCAL_MACHINE_ID } from './local-machine'
 import { MirrorService } from './mirror'
@@ -108,6 +109,8 @@ const LOCAL_PLACEHOLDER = '__local__'
  *  can never reach an ungated router (sessions/spawn/kill/etc.). `null` = any proc on that
  *  router. */
 const RELAY_ALLOWED: Record<string, Set<string> | null> = {
+  // null = every issues.* proc, which includes the agent-mail procs
+  // (mailSend/mailInbox/mailClaim/mailPending, issue #103).
   issues: null,
   repos: new Set(['inferFromPath']),
 }
@@ -554,6 +557,20 @@ export class SessionRegistry {
         // per-issue changes; everything else (issueUpdated etc.) stays a raw fan-out.
         if (msg.type === 'issuesChanged') this.publishIssues(msg.issues)
         else for (const c of this.clients.values()) c.send(msg)
+      },
+      // Agent mail send-time nudge (issue #103): poke the target issue's live agent
+      // session so mail is noticed without polling. The nudge carries NO message
+      // body — an idempotent "check your inbox" poke. Selection: a single idle
+      // live agent gets an immediate sendText; otherwise the most recently active
+      // live agent gets a durable queued send; no live agents → nothing (the mail
+      // surfaces via prime / the stop-hook).
+      onMailSent: (row) => {
+        const members = sessionsForIssue(row.worktreePath, this.listSessions())
+        const target = selectMailNudgeSession(members)
+        if (!target) return
+        const text = `You have mail on issue #${row.seq}: run 'podium issue mail inbox' (claim with 'podium issue mail claim <id>' only if you will act on it).`
+        if (target.mode === 'send') this.sendText({ sessionId: target.sessionId, text })
+        else void this.queueText({ sessionId: target.sessionId, text })
       },
     })
     // Boot-time reconciliation: reap draft issues leaked before the kill-path

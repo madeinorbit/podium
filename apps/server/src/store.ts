@@ -176,6 +176,20 @@ export interface IssueCommentRow {
   createdAt: string
 }
 
+/** One "agent mail" message addressed to an ISSUE (issue #103). Status lifecycle:
+ *  unread → read (inbox listing) → claimed (an agent committing to act on it). */
+export interface IssueMessageRow {
+  id: string
+  issueId: string
+  fromAuthor: string
+  body: string
+  createdAt: string
+  status: 'unread' | 'read' | 'claimed'
+  claimedBy: string | null
+  readAt: string | null
+  claimedAt: string | null
+}
+
 /** One row of the conversation index (camelCase mirror of `conversations`). */
 export interface ConversationIndexRow {
   id: string
@@ -1447,10 +1461,102 @@ export class SessionStore {
     }))
   }
 
+  // ---- issue mail (issue #103) ----
+
+  private mapIssueMessage(r: Record<string, unknown>): IssueMessageRow {
+    return {
+      id: r.id as string,
+      issueId: r.issue_id as string,
+      fromAuthor: r.from_author as string,
+      body: r.body as string,
+      createdAt: r.created_at as string,
+      status: r.status as IssueMessageRow['status'],
+      claimedBy: (r.claimed_by as string | null) ?? null,
+      readAt: (r.read_at as string | null) ?? null,
+      claimedAt: (r.claimed_at as string | null) ?? null,
+    }
+  }
+
+  addIssueMessage(m: IssueMessageRow): void {
+    this.db
+      .prepare(
+        `INSERT INTO issue_messages
+           (id, issue_id, from_author, body, created_at, status, claimed_by, read_at, claimed_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        m.id,
+        m.issueId,
+        m.fromAuthor,
+        m.body,
+        m.createdAt,
+        m.status,
+        m.claimedBy,
+        m.readAt,
+        m.claimedAt,
+      )
+  }
+
+  getIssueMessage(id: string): IssueMessageRow | null {
+    const r = this.db.prepare('SELECT * FROM issue_messages WHERE id = ?').get(id) as
+      | Record<string, unknown>
+      | undefined
+    return r ? this.mapIssueMessage(r) : null
+  }
+
+  listIssueMessages(issueId: string, opts?: { status?: IssueMessageRow['status'] }): IssueMessageRow[] {
+    const rows = (
+      opts?.status
+        ? this.db
+            .prepare(
+              'SELECT * FROM issue_messages WHERE issue_id = ? AND status = ? ORDER BY created_at ASC, id ASC',
+            )
+            .all(issueId, opts.status)
+        : this.db
+            .prepare('SELECT * FROM issue_messages WHERE issue_id = ? ORDER BY created_at ASC, id ASC')
+            .all(issueId)
+    ) as Record<string, unknown>[]
+    return rows.map((r) => this.mapIssueMessage(r))
+  }
+
+  countUnreadIssueMessages(issueId: string): number {
+    const r = this.db
+      .prepare("SELECT COUNT(*) AS n FROM issue_messages WHERE issue_id = ? AND status = 'unread'")
+      .get(issueId) as { n: number }
+    return r.n
+  }
+
+  /** Mark the given messages read. Only flips 'unread' rows (idempotent; never
+   *  regresses a 'claimed' message back to 'read'). */
+  markIssueMessagesRead(issueId: string, ids: string[], readAt: string): void {
+    const upd = this.db.prepare(
+      `UPDATE issue_messages SET status = 'read', read_at = ?
+       WHERE issue_id = ? AND id = ? AND status = 'unread'`,
+    )
+    for (const id of ids) upd.run(readAt, issueId, id)
+  }
+
+  /** Atomic claim: exactly one caller wins; a second claim on the same message
+   *  returns false. Single UPDATE guarded on status, so there is no read-then-write race. */
+  claimIssueMessage(id: string, claimedBy: string, claimedAt: string): boolean {
+    const r = this.db
+      .prepare(
+        `UPDATE issue_messages SET status = 'claimed', claimed_by = ?, claimed_at = ?
+         WHERE id = ? AND status != 'claimed'`,
+      )
+      .run(claimedBy, claimedAt, id)
+    return r.changes === 1
+  }
+
+  deleteIssueMessagesForIssue(issueId: string): void {
+    this.db.prepare('DELETE FROM issue_messages WHERE issue_id = ?').run(issueId)
+  }
+
   deleteIssueChildRows(issueId: string): void {
     this.db.prepare('DELETE FROM issue_labels WHERE issue_id = ?').run(issueId)
     this.db.prepare('DELETE FROM issue_deps WHERE from_id = ? OR to_id = ?').run(issueId, issueId)
     this.db.prepare('DELETE FROM issue_comments WHERE issue_id = ?').run(issueId)
+    this.deleteIssueMessagesForIssue(issueId)
   }
 
   nextIssueSeq(repoPath: string): number {
@@ -2647,6 +2753,21 @@ export class SessionStore {
        )`,
     )
     this.db.exec('CREATE INDEX IF NOT EXISTS idx_issue_comments_issue ON issue_comments(issue_id)')
+    // Agent mail (issue #103): messages addressed to an ISSUE, not a session.
+    this.db.exec(
+      `CREATE TABLE IF NOT EXISTS issue_messages (
+         id          TEXT PRIMARY KEY,
+         issue_id    TEXT NOT NULL,
+         from_author TEXT NOT NULL,
+         body        TEXT NOT NULL,
+         created_at  TEXT NOT NULL,
+         status      TEXT NOT NULL DEFAULT 'unread',
+         claimed_by  TEXT,
+         read_at     TEXT,
+         claimed_at  TEXT
+       )`,
+    )
+    this.db.exec('CREATE INDEX IF NOT EXISTS idx_issue_messages_issue ON issue_messages(issue_id)')
     // Durable orchestrator event log — append-only, cursor = the AUTOINCREMENT id.
     this.db.exec(
       `CREATE TABLE IF NOT EXISTS podium_events (

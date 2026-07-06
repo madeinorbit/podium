@@ -200,3 +200,59 @@ describe('issue comments (P1)', () => {
     expect(cs[0]!.author).toBe('mike')
   })
 })
+
+describe('issue mail store (agent mail #103)', () => {
+  const msg = (id: string, issueId = 'iss_a', createdAt = 't1') => ({
+    id, issueId, fromAuthor: 'issue:#2', body: `body ${id}`, createdAt,
+    status: 'unread' as const, claimedBy: null, readAt: null, claimedAt: null,
+  })
+
+  it('creates the issue_messages table', () => {
+    expect(tableNames(new SessionStore(':memory:')).has('issue_messages')).toBe(true)
+  })
+
+  it('add/list/count: ordered by created_at,id; count only unread', () => {
+    const store = new SessionStore(':memory:')
+    store.addIssueMessage(msg('msg_b', 'iss_a', 't2'))
+    store.addIssueMessage(msg('msg_a', 'iss_a', 't1'))
+    store.addIssueMessage(msg('msg_c', 'iss_other', 't1'))
+    const list = store.listIssueMessages('iss_a')
+    expect(list.map((m) => m.id)).toEqual(['msg_a', 'msg_b'])
+    expect(list[0]).toMatchObject({ issueId: 'iss_a', fromAuthor: 'issue:#2', status: 'unread' })
+    expect(store.countUnreadIssueMessages('iss_a')).toBe(2)
+    store.markIssueMessagesRead('iss_a', ['msg_a'], 'tr')
+    expect(store.countUnreadIssueMessages('iss_a')).toBe(1)
+    expect(store.listIssueMessages('iss_a', { status: 'unread' }).map((m) => m.id)).toEqual(['msg_b'])
+  })
+
+  it('claim is atomic: second claim returns false and does not overwrite the winner', () => {
+    const store = new SessionStore(':memory:')
+    store.addIssueMessage(msg('msg_a'))
+    expect(store.claimIssueMessage('msg_a', 'issue:#3', 'tc')).toBe(true)
+    expect(store.claimIssueMessage('msg_a', 'issue:#4', 'tc2')).toBe(false)
+    const m = store.getIssueMessage('msg_a')!
+    expect(m.status).toBe('claimed')
+    expect(m.claimedBy).toBe('issue:#3')
+    expect(m.claimedAt).toBe('tc')
+  })
+
+  it('markRead is idempotent and never regresses a claimed message', () => {
+    const store = new SessionStore(':memory:')
+    store.addIssueMessage(msg('msg_a'))
+    store.markIssueMessagesRead('iss_a', ['msg_a'], 't1')
+    store.markIssueMessagesRead('iss_a', ['msg_a'], 't2') // already read: no-op
+    expect(store.getIssueMessage('msg_a')).toMatchObject({ status: 'read', readAt: 't1' })
+    store.claimIssueMessage('msg_a', 'x', 'tc')
+    store.markIssueMessagesRead('iss_a', ['msg_a'], 't3')
+    expect(store.getIssueMessage('msg_a')!.status).toBe('claimed')
+  })
+
+  it('deleteIssueChildRows removes the issue mailbox', () => {
+    const store = new SessionStore(':memory:')
+    store.addIssueMessage(msg('msg_a'))
+    store.addIssueMessage(msg('msg_z', 'iss_other'))
+    store.deleteIssueChildRows('iss_a')
+    expect(store.listIssueMessages('iss_a')).toEqual([])
+    expect(store.listIssueMessages('iss_other').length).toBe(1)
+  })
+})

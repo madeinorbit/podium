@@ -348,6 +348,76 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
     },
   },
   {
+    // One dispatcher command (the registry is a flat single-word table; the sub-verb
+    // rides in as the first positional): mail send <id> --body "…" · mail inbox [<id>]
+    // · mail claim <msgId> · mail pending [<id>].
+    name: 'mail',
+    summary:
+      'Agent mail addressed to an issue: mail send <id> --body "…" · mail inbox [<id>] · mail claim <msgId> · mail pending [<id>].',
+    args: z.object({
+      sub: z.enum(['send', 'inbox', 'claim', 'pending']),
+      ref: idArg.optional(),
+      body: z.string().optional(),
+    }),
+    positionals: ['sub', 'ref'],
+    async run(c, a) {
+      const ref = a.ref as string | undefined
+      switch (a.sub as string) {
+        case 'send': {
+          if (!ref) throw new Error('mail send needs an issue id: mail send <id> --body "…"')
+          if (!a.body) throw new Error('mail send needs --body')
+          const m = (await c.issues.mailSend.mutate({ id: ref, body: a.body as string })) as {
+            id: string
+            issueId: string
+          }
+          return { text: `mail sent to ${ref} (${m.id})`, data: m }
+        }
+        case 'inbox': {
+          const msgs = (await c.issues.mailInbox.mutate(ref ? { id: ref } : {})) as {
+            id: string
+            fromAuthor: string
+            body: string
+            createdAt: string
+            status: string
+            wasUnread: boolean
+          }[]
+          return {
+            text: msgs.length
+              ? msgs
+                  .map(
+                    (m) =>
+                      `${m.wasUnread ? '*' : ' '} ${m.id} ${m.fromAuthor} ${m.createdAt}${m.status === 'claimed' ? ' [claimed]' : ''}\n  ${m.body}`,
+                  )
+                  .join('\n')
+              : '(no mail)',
+            data: msgs,
+          }
+        }
+        case 'claim': {
+          if (!ref) throw new Error('mail claim needs a message id: mail claim <msgId>')
+          const r = (await c.issues.mailClaim.mutate({ messageId: ref })) as {
+            claimed: boolean
+            message: { id: string; claimedBy: string | null }
+          }
+          return {
+            text: r.claimed
+              ? `claimed ${ref}`
+              : `already claimed${r.message.claimedBy ? ` by ${r.message.claimedBy}` : ''}: ${ref}`,
+            data: r,
+          }
+        }
+        case 'pending': {
+          const p = (await c.issues.mailPending.query(ref ? { id: ref } : {})) as {
+            unread: number
+          }
+          return { text: `${p.unread} unread`, data: p }
+        }
+        default:
+          throw new Error(`unknown mail subcommand: ${a.sub}`)
+      }
+    },
+  },
+  {
     name: 'search',
     summary: 'Search issues (--text --status --priority --type --label …).',
     args: z.object({

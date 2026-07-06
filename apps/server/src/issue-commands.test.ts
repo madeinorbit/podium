@@ -37,6 +37,10 @@ function mockClient(overrides: Record<string, unknown> = {}): { client: IssueTrp
       addSession: proc('addSession'),
       addShell: proc('addShell'),
       events: proc('events'),
+      mailSend: proc('mailSend'),
+      mailInbox: proc('mailInbox'),
+      mailClaim: proc('mailClaim'),
+      mailPending: proc('mailPending'),
       children: proc('children'),
       depReport: proc('depReport'),
       panelApply: proc('panelApply'),
@@ -296,6 +300,65 @@ describe('ISSUE_COMMANDS registry', () => {
     const out = await cmd('events').run(client, { since: 0 })
     expect(out.text).toBe('(no events)')
     expect(out.data).toEqual([])
+  })
+})
+
+describe('mail command (agent mail #103)', () => {
+  it('mail send posts id+body via mailSend', async () => {
+    const { client, calls } = mockClient({ mailSend: { id: 'msg_1', issueId: 'iss_1' } })
+    const r = await cmd('mail').run(client, { sub: 'send', ref: '#7', body: 'ping' })
+    expect(calls).toEqual([{ path: 'mailSend', kind: 'mutate', input: { id: '#7', body: 'ping' } }])
+    expect(r.text).toContain('mail sent to #7')
+    expect(r.text).toContain('msg_1')
+  })
+
+  it('mail send without body or id throws', async () => {
+    const { client } = mockClient()
+    await expect(cmd('mail').run(client, { sub: 'send', ref: '#7' })).rejects.toThrow(/--body/)
+    await expect(cmd('mail').run(client, { sub: 'send', body: 'x' })).rejects.toThrow(/issue id/)
+  })
+
+  it('mail inbox renders unread markers and passes the optional id', async () => {
+    const msgs = [
+      { id: 'msg_1', fromAuthor: 'issue:#2', body: 'do X', createdAt: 't1', status: 'read', wasUnread: true },
+      { id: 'msg_2', fromAuthor: 'operator', body: 'old', createdAt: 't0', status: 'claimed', wasUnread: false },
+    ]
+    const { client, calls } = mockClient({ mailInbox: msgs })
+    const r = await cmd('mail').run(client, { sub: 'inbox', ref: '#7' })
+    expect(calls[0]).toEqual({ path: 'mailInbox', kind: 'mutate', input: { id: '#7' } })
+    expect(r.text).toContain('* msg_1 issue:#2 t1')
+    expect(r.text).toContain('  msg_2 operator t0 [claimed]')
+    const { client: c2, calls: calls2 } = mockClient({ mailInbox: [] })
+    const empty = await cmd('mail').run(c2, { sub: 'inbox' })
+    expect(calls2[0].input).toEqual({})
+    expect(empty.text).toBe('(no mail)')
+  })
+
+  it('mail claim reports claimed vs already-claimed', async () => {
+    const { client } = mockClient({
+      mailClaim: { claimed: true, message: { id: 'msg_1', claimedBy: 'issue:#3' } },
+    })
+    const won = await cmd('mail').run(client, { sub: 'claim', ref: 'msg_1' })
+    expect(won.text).toBe('claimed msg_1')
+    const { client: c2 } = mockClient({
+      mailClaim: { claimed: false, message: { id: 'msg_1', claimedBy: 'issue:#9' } },
+    })
+    const lost = await cmd('mail').run(c2, { sub: 'claim', ref: 'msg_1' })
+    expect(lost.text).toBe('already claimed by issue:#9: msg_1')
+    await expect(cmd('mail').run(client, { sub: 'claim' })).rejects.toThrow(/message id/)
+  })
+
+  it('mail pending prints the unread count', async () => {
+    const { client, calls } = mockClient({ mailPending: { unread: 3 } })
+    const r = await cmd('mail').run(client, { sub: 'pending' })
+    expect(calls[0]).toEqual({ path: 'mailPending', kind: 'query', input: {} })
+    expect(r.text).toBe('3 unread')
+  })
+
+  it('parses positionals: mail send <id> / mail claim <msgId>', () => {
+    const parsed = cmd('mail').args.parse({ sub: 'send', ref: 7, body: 'x' })
+    expect(parsed).toMatchObject({ sub: 'send', ref: '7' })
+    expect(cmd('mail').positionals).toEqual(['sub', 'ref'])
   })
 })
 

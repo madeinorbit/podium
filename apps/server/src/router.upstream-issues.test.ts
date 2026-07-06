@@ -116,7 +116,13 @@ const FORWARD_INPUTS: Record<string, Record<string, unknown>> = {
  *  acts on LOCAL git state (worktree dir + branch via this node's daemon) — the hub
  *  cannot clean this node's worktree, so its router proc refuses viaHub ids instead
  *  of forwarding (see the cleanup proc in router.ts). Tested below. */
-const NOT_FORWARDED = new Set(['cleanup', 'integrate'])
+const NOT_FORWARDED = new Set([
+  'cleanup',
+  'integrate',
+  // mailClaim targets a node-local MESSAGE id (agent mail, issue #103) — mailboxes
+  // are never hub-mirrored, so the proc is local-only and enforces scope itself.
+  'mailClaim',
+])
 
 describe('viaHub forwarding detection (per proc)', () => {
   it('covers every SCOPED_TARGET write proc (forwarded or explicitly excluded)', () => {

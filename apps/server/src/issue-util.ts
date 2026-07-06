@@ -42,6 +42,26 @@ export function summarizeSessions(sessions: SessionMeta[]): IssueSessionSummary 
   return { total: sessions.length, byPhase }
 }
 
+/** Send-time mail nudge target (issue #103). Over the issue's member sessions:
+ *  - exactly one live agent session AND it is idle → immediate 'send' (sendText);
+ *  - otherwise any live agent sessions → most recently active one, 'queue'
+ *    (sendTextWhenReady / durable outbox);
+ *  - none → null (mail waits for prime / the stop-hook).
+ *  Shells never get nudged. */
+export function selectMailNudgeSession(
+  sessions: SessionMeta[],
+): { sessionId: string; mode: 'send' | 'queue' } | null {
+  const live = sessions.filter((s) => s.agentKind !== 'shell' && s.status === 'live')
+  if (live.length === 0) return null
+  if (live.length === 1 && live[0]!.agentState?.phase === 'idle') {
+    return { sessionId: live[0]!.sessionId, mode: 'send' }
+  }
+  const target = [...live].sort((a, b) =>
+    (b.lastActiveAt ?? '').localeCompare(a.lastActiveAt ?? ''),
+  )[0]!
+  return { sessionId: target.sessionId, mode: 'queue' }
+}
+
 export function stageIndex(stage: IssueStage): number {
   return ISSUE_STAGES.indexOf(stage)
 }

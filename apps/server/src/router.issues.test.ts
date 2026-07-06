@@ -152,7 +152,14 @@ describe('scope-gate coverage (P1b)', () => {
   // Procs that mutate but have NO single existing-issue target (additive / not-an-issue):
   // attachSession is a deliberate exemption: the session re-homes itself onto an
   // issue OUTSIDE its subtree by design (issue-as-workspace), so no scope gate.
-  const NO_TARGET = new Set(['create', 'linearSearch', 'attachSession'])
+  const NO_TARGET = new Set([
+    'create',
+    'linearSearch',
+    'attachSession',
+    // mailSend is deliberately cross-scope (append-only mailbox; see issue-authz.ts) —
+    // like create, a write with no EXISTING-target extractor.
+    'mailSend',
+  ])
 
   it('every write/manage proc that targets an existing issue is scope-gated', () => {
     const need = Object.entries(PROC_ACTION)
@@ -161,5 +168,97 @@ describe('scope-gate coverage (P1b)', () => {
       .filter((p) => !NO_TARGET.has(p))
     const missing = need.filter((p) => !Object.hasOwn(SCOPED_TARGET, p))
     expect(missing).toEqual([])
+  })
+})
+
+// Agent mail procs (#103): mailSend is deliberately cross-scope; mailClaim enforces
+// the subtree scope in-proc (its target lives behind a message id); omitted ids
+// resolve to the caller's own bound issue.
+describe('issues.mail* (agent mail #103)', () => {
+  const registries: SessionRegistry[] = []
+  let registry: SessionRegistry
+  let A: { id: string; seq: number }
+  let B: { id: string; seq: number }
+
+  beforeEach(async () => {
+    registry = new SessionRegistry()
+    registries.push(registry)
+    const setup = appRouter.createCaller({
+      registry,
+      repos: {} as never,
+      superagent: {} as never,
+      capability: OPERATOR,
+    })
+    A = await setup.issues.create({ repoPath: '/r', title: 'mine', startNow: false })
+    B = await setup.issues.create({ repoPath: '/r', title: 'other', startNow: false })
+  })
+
+  afterEach(() => {
+    for (const r of registries.splice(0)) r.dispose()
+  })
+
+  const callerWith = (capability: Capability, overrideScope = false) =>
+    appRouter.createCaller({
+      registry,
+      repos: {} as never,
+      superagent: {} as never,
+      capability,
+      overrideScope,
+    })
+
+  const scopedToA = () => callerWith({ role: 'worker', scope: { kind: 'subtree', rootId: A.id } })
+
+  it('mailSend to ANOTHER issue needs no --outside-scope; sender is issue:#<seq>', async () => {
+    const m = await scopedToA().issues.mailSend({ id: B.id, body: 'heads up' })
+    expect(m).toMatchObject({ issueId: B.id, fromAuthor: `issue:#${A.seq}`, status: 'unread' })
+  })
+
+  it('operator mailSend stamps from_author=operator', async () => {
+    const m = await callerWith(OPERATOR).issues.mailSend({ id: A.id, body: 'hi' })
+    expect(m.fromAuthor).toBe('operator')
+  })
+
+  it('mailInbox / mailPending with no id resolve to the caller bound issue', async () => {
+    await callerWith(OPERATOR).issues.mailSend({ id: A.id, body: 'for A' })
+    const c = scopedToA()
+    expect(await c.issues.mailPending()).toEqual({ unread: 1 })
+    const inbox = await c.issues.mailInbox()
+    expect(inbox).toHaveLength(1)
+    expect(inbox[0]).toMatchObject({ body: 'for A', wasUnread: true })
+    expect(await c.issues.mailPending()).toEqual({ unread: 0 })
+  })
+
+  it('mailInbox with no id and no bound issue is a BAD_REQUEST', async () => {
+    const c = callerWith({ role: 'worker', scope: { kind: 'none' } })
+    await expect(c.issues.mailInbox()).rejects.toThrow(/no issue bound/)
+  })
+
+  it('mailClaim is scope-gated to the OWN issue via the message target', async () => {
+    const op = callerWith(OPERATOR)
+    const mine = await op.issues.mailSend({ id: A.id, body: 'mine' })
+    const theirs = await op.issues.mailSend({ id: B.id, body: 'theirs' })
+    const c = scopedToA()
+    const r = await c.issues.mailClaim({ messageId: mine.id })
+    expect(r.claimed).toBe(true)
+    expect(r.message.claimedBy).toBe(`issue:#${A.seq}`)
+    await expect(c.issues.mailClaim({ messageId: theirs.id })).rejects.toThrow(
+      /outside your subtree/,
+    )
+    const c2 = callerWith({ role: 'worker', scope: { kind: 'subtree', rootId: A.id } }, true)
+    await expect(c2.issues.mailClaim({ messageId: theirs.id })).resolves.toMatchObject({
+      claimed: true,
+    })
+    await expect(c.issues.mailClaim({ messageId: 'msg_nope' })).rejects.toThrow(
+      /unknown mail message/,
+    )
+  })
+
+  it('second claim on the same message loses', async () => {
+    const op = callerWith(OPERATOR)
+    const m = await op.issues.mailSend({ id: A.id, body: 'race' })
+    expect((await op.issues.mailClaim({ messageId: m.id })).claimed).toBe(true)
+    const again = await scopedToA().issues.mailClaim({ messageId: m.id })
+    expect(again.claimed).toBe(false)
+    expect(again.message.claimedBy).toBe('operator')
   })
 })

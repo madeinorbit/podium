@@ -1468,3 +1468,62 @@ describe('IssueService setState (agent-posted current state → activityNotes)',
     expect(svc.get(`#${w.seq}`)?.activityNotes).toContain('halfway')
   })
 })
+
+describe('IssueService agent mail (#103)', () => {
+  it('sendMail stores an unread message and fires the delivery hook', () => {
+    const { svc, deps } = harness()
+    ;(deps as { onMailSent?: unknown }).onMailSent = vi.fn()
+    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    const m = svc.sendMail(`#${a.seq}`, 'issue:#9', 'please rebase')
+    expect(m).toMatchObject({ issueId: a.id, fromAuthor: 'issue:#9', status: 'unread' })
+    expect(m.id).toMatch(/^msg_/)
+    expect(deps.onMailSent).toHaveBeenCalledWith(expect.objectContaining({ id: a.id }), m)
+  })
+
+  it('a delivery-hook failure never fails the send', () => {
+    const { svc, deps } = harness()
+    ;(deps as { onMailSent?: unknown }).onMailSent = vi.fn(() => {
+      throw new Error('nudge exploded')
+    })
+    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    const m = svc.sendMail(a.id, 'operator', 'hi')
+    expect(svc.mailPending(a.id)).toEqual({ unread: 1 })
+    expect(m.status).toBe('unread')
+  })
+
+  it('mailInbox is read-on-list: returns wasUnread, subsequent lists are read', () => {
+    const { svc } = harness()
+    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    svc.sendMail(a.id, 'operator', 'one')
+    const first = svc.mailInbox(a.id)
+    expect(first).toHaveLength(1)
+    expect(first[0]).toMatchObject({ wasUnread: true, status: 'read', body: 'one' })
+    expect(svc.mailPending(a.id)).toEqual({ unread: 0 })
+    const second = svc.mailInbox(a.id)
+    expect(second[0]).toMatchObject({ wasUnread: false, status: 'read' })
+  })
+
+  it('mailClaim: first wins, second reports claimed=false with the winning message', () => {
+    const { svc } = harness()
+    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    const m = svc.sendMail(a.id, 'operator', 'act on this')
+    const r1 = svc.mailClaim(m.id, 'issue:#5')
+    expect(r1.claimed).toBe(true)
+    expect(r1.message).toMatchObject({ status: 'claimed', claimedBy: 'issue:#5' })
+    const r2 = svc.mailClaim(m.id, 'issue:#6')
+    expect(r2.claimed).toBe(false)
+    expect(r2.message.claimedBy).toBe('issue:#5')
+    expect(() => svc.mailClaim('msg_nope', 'x')).toThrow(/unknown mail message/)
+  })
+
+  it('prime (bound) surfaces the unread mail count', () => {
+    const { svc } = harness()
+    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    expect(svc.prime({ boundIssueId: a.id })).not.toContain('unread mail')
+    svc.sendMail(a.id, 'operator', 'x')
+    svc.sendMail(a.id, 'operator', 'y')
+    expect(svc.prime({ boundIssueId: a.id })).toContain(
+      "You have 2 unread mail message(s): run 'podium issue mail inbox'",
+    )
+  })
+})
