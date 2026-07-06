@@ -709,16 +709,44 @@ export class IssueService {
     return this.toWire(this.rowOrThrow(target.id))
   }
 
-  /** Delete `id` iff it is a draft with no attached sessions, no worktree and no
-   *  children — the empty auto-created vessel left behind by an attach. */
-  private deleteIfEmptyDraft(id: string): void {
+  /** Delete `id` iff it is a draft with no LIVING attached sessions, no worktree
+   *  and no children — the empty auto-created vessel left behind by an attach or
+   *  by its last session dying. A session blocks deletion only while it can still
+   *  produce work: exited or archived sessions don't count (hibernated ones DO —
+   *  hibernation is an intentional park, the draft must survive it). Any dead
+   *  sessions still pointing at the deleted issue are detached so nothing
+   *  dangles. Returns true iff the issue was deleted. */
+  reapIfEmptyDraft(id: string): boolean {
     const row = this.rows.get(id)
-    if (!row || !row.draft || row.worktreePath) return
+    if (!row || !row.draft || row.worktreePath) return false
     const hasChildren = [...this.rows.values()].some((r) => r.parentId === id)
-    if (hasChildren) return
-    const attached = this.deps.listSessions().some((s) => s.issueId === id && !s.archived)
-    if (attached) return
+    if (hasChildren) return false
+    const attached = this.deps.listSessions().filter((s) => s.issueId === id)
+    const blocking = attached.some((s) => !s.archived && s.status !== 'exited')
+    if (blocking) return false
+    // Detach the remaining dead sessions BEFORE deleting so their broadcasts
+    // never reference a vanished issue.
+    if (this.deps.setSessionIssueId) {
+      for (const s of attached) this.deps.setSessionIssueId(s.sessionId, null)
+    }
     this.delete(id)
+    return true
+  }
+
+  private deleteIfEmptyDraft(id: string): void {
+    this.reapIfEmptyDraft(id)
+  }
+
+  /** Boot-time reconciliation: delete every leaked empty draft (same emptiness
+   *  predicate as the kill-path reaper — sessions killed/removed before the
+   *  reaper existed left orphaned "Draft" vessels behind). Returns the number
+   *  of drafts reaped. */
+  reapLeakedDrafts(): number {
+    let n = 0
+    for (const id of [...this.rows.keys()]) {
+      if (this.rows.get(id)?.draft && this.reapIfEmptyDraft(id)) n++
+    }
+    return n
   }
 
   /** The auto-created vessel for a low-friction agent start: a draft, human-origin

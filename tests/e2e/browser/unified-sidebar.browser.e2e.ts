@@ -34,10 +34,11 @@ test('unified sidebar: switcher, split-button spawn creates a draft row, wider +
   await unifiedToggle.click()
   await expect(unifiedToggle).toHaveAttribute('aria-pressed', 'true')
 
-  // Unified layout drops the Command center button.
+  // Unified layout drops the Command center button but keeps the Superagent row.
   await expect(aside.getByRole('button', { name: /Command center/ })).toHaveCount(0)
+  await expect(aside.getByRole('button', { name: /Superagent/ })).toBeVisible({ timeout: 10_000 })
 
-  // ---- Split button renders `New <Agent> in <Repo>` once repos load ----
+  // ---- The button renders `New <Agent> in <Repo>` once repos load ----
   const splitMain = aside.getByRole('button', { name: /^New .+ in .+/ })
   await expect(splitMain).toBeVisible({ timeout: 20_000 })
   await expect(splitMain).toBeEnabled({ timeout: 20_000 })
@@ -46,6 +47,20 @@ test('unified sidebar: switcher, split-button spawn creates a draft row, wider +
   await aside.getByRole('button', { name: 'Choose agent and repo' }).click()
   const agentItem = page.getByRole('menuitem', { name: 'New Claude', exact: true })
   await expect(agentItem).toBeVisible({ timeout: 10_000 })
+
+  // The menu is anchored to the WHOLE bordered button: it opens directly under
+  // it, left-aligned, at the button's width.
+  const buttonBox = await aside.getByTestId('new-agent-button').boundingBox()
+  const menuBox = await page.locator('[data-slot="dropdown-menu-content"]').first().boundingBox()
+  expect(buttonBox).not.toBeNull()
+  expect(menuBox).not.toBeNull()
+  if (buttonBox && menuBox) {
+    expect(Math.abs(menuBox.x - buttonBox.x)).toBeLessThan(2)
+    expect(menuBox.y).toBeGreaterThanOrEqual(buttonBox.y + buttonBox.height)
+    expect(menuBox.y).toBeLessThan(buttonBox.y + buttonBox.height + 12)
+    expect(Math.abs(menuBox.width - buttonBox.width)).toBeLessThan(2)
+  }
+
   await agentItem.hover()
   // The harness registers one repo; its name appears in the submenu.
   const repoItems = page.getByRole('menuitem')

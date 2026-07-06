@@ -956,14 +956,104 @@ export function lastUsedMaps(
   return { byRepo, byWorktree }
 }
 
-/** One row of the unified sidebar's WORK LIST: a human-origin issue (drafts
- *  included) or a worktree not owned by any issue. */
-export type UnifiedWorkRow =
-  | { kind: 'issue'; issue: IssueWire; sessions: SessionMeta[]; activityAt: number }
-  | { kind: 'worktree'; worktree: WorktreeNavView; activityAt: number }
+/** The worktree the unified "New <Agent> in <Repo>" button spawns into, plus the
+ *  clone's own display name. A RepoNavView can aggregate SEVERAL local clones of
+ *  the same origin (reposToViews groups by normalized origin URL), so it may hold
+ *  multiple `isMain` worktrees — spawning must target the clone the user actually
+ *  works in, not whichever clone happened to be scanned first. Pick the main with
+ *  the most recent session activity (`byWorktree` from {@link lastUsedMaps});
+ *  with no activity anywhere, prefer the RepoView's canonical path; else first. */
+export function spawnTargetForRepo(
+  repo: RepoNavView,
+  byWorktree: Map<string, number>,
+): { worktree: WorktreeView; repoName: string } {
+  const mains = repo.worktrees.filter((w) => w.isMain)
+  const pool = mains.length > 0 ? mains : repo.worktrees
+  let best: WorktreeNavView | undefined
+  let bestTs = -1
+  for (const w of pool) {
+    const ts = byWorktree.get(w.path) ?? 0
+    // Strictly-greater keeps the earlier candidate on ties; a tie (or all-zero)
+    // resolves toward the canonical repo path below.
+    if (ts > bestTs) {
+      best = w
+      bestTs = ts
+    } else if (ts === bestTs && w.path === repo.path) {
+      best = w
+    }
+  }
+  const chosen = best ?? pool.find((w) => w.path === repo.path) ?? pool[0]
+  if (!chosen) {
+    // Every worktree filtered out of the nav (e.g. all pinned away) — reconstruct
+    // the repo's own main checkout, same fallback as repoPrimaryWorktree.
+    return {
+      worktree: { path: repo.path, repoPath: repo.path, isMain: true },
+      repoName: repo.name,
+    }
+  }
+  const { repoName: _repoName, sessions: _sessions, issues: _issues, ...view } = chosen
+  return { worktree: view, repoName: chosen.path.split('/').pop() || repo.name }
+}
 
-/** The unified WORK LIST: all non-archived human-origin issues (drafts first-class)
- *  ∪ nav worktrees owned by no issue, most-recently-active first. */
+/**
+ * Urgency rank of one session for the unified WORK list ordering:
+ *   0 — needs the human NOW (attention state, not snoozed, process still around)
+ *   1 — working (running fine without us)
+ *   2 — ready/idle and recently active
+ *   3 — stale (long-quiet), exited, or otherwise dormant
+ * Built on the same primitives every other surface uses (attentionGroup,
+ * isSnoozed, STALE_INACTIVE_MS) so "urgent" means the same thing everywhere.
+ */
+export function sessionUrgencyRank(s: SessionMeta, now: number): number {
+  const group = attentionGroup(s)
+  if (group === 'working') return 1
+  const needsYou = group === 'needsYou' && !isSnoozed(s, now) && s.status !== 'exited'
+  if (needsYou) return 0
+  const recent = now - Date.parse(s.lastActiveAt) <= STALE_INACTIVE_MS
+  return recent && s.status !== 'exited' ? 2 : 3
+}
+
+/** The row's most urgent child session (lowest urgency rank, recency tiebreak) —
+ *  drives the row's right-side status dot. Undefined for session-less rows. */
+export function mostUrgentSession(
+  sessions: SessionMeta[],
+  now: number = Date.now(),
+): SessionMeta | undefined {
+  let best: SessionMeta | undefined
+  for (const s of sessions) {
+    if (!best) {
+      best = s
+      continue
+    }
+    const dr = sessionUrgencyRank(s, now) - sessionUrgencyRank(best, now)
+    if (dr < 0 || (dr === 0 && compareRecency(s, best, now) < 0)) best = s
+  }
+  return best
+}
+
+/** Rank of rows with NO sessions — sinks below every session-bearing row. */
+export const UNIFIED_ROW_EMPTY_RANK = 4
+
+/** One row of the unified sidebar's WORK LIST: a human-origin issue (drafts
+ *  included) or a with-session worktree not owned by any issue. `rank` is the
+ *  min of the child sessions' urgency ranks (UNIFIED_ROW_EMPTY_RANK when none). */
+export type UnifiedWorkRow =
+  | { kind: 'issue'; issue: IssueWire; sessions: SessionMeta[]; activityAt: number; rank: number }
+  | { kind: 'worktree'; worktree: WorktreeNavView; activityAt: number; rank: number }
+
+const rowRank = (sessions: SessionMeta[], now: number): number =>
+  sessions.reduce((min, s) => Math.min(min, sessionUrgencyRank(s, now)), UNIFIED_ROW_EMPTY_RANK)
+
+/**
+ * The unified WORK LIST — one flat list, ordered by aggregated status instead of
+ * separate NEEDS-ATTENTION/WORKING sections. Contents:
+ *   - non-archived human-origin issues that are ACTIVE — attached sessions, or a
+ *     worktree, or a stage that isn't backlog/done (the whole backlog stays out);
+ *   - draft issues with sessions (the "new agent" vessels);
+ *   - nav worktrees owned by no issue that have at least one (non-shell) session.
+ * Order: rank asc (min child session urgency; session-less rows sink), then
+ * most-recent child activity desc, then issue.updatedAt desc.
+ */
 export function unifiedWorkList(
   sections: SidebarSections,
   issues: IssueWire[],
@@ -973,18 +1063,26 @@ export function unifiedWorkList(
 ): UnifiedWorkRow[] {
   const rows: UnifiedWorkRow[] = []
   for (const issue of issues) {
-    if (issue.archived || issue.origin !== 'human') continue
+    if (issue.archived) continue
     const mine = sortSessionsForSidebar(sessionsForIssueNav(issue, sessions, allWorktreePaths), now)
+    const active =
+      mine.length > 0 ||
+      issue.worktreePath !== null ||
+      (issue.stage !== 'backlog' && issue.stage !== 'done')
+    const wanted = issue.draft ? mine.length > 0 : issue.origin === 'human' && active
+    if (!wanted) continue
     const lastSession = mine.reduce((max, s) => Math.max(max, Date.parse(s.lastActiveAt) || 0), 0)
     rows.push({
       kind: 'issue',
       issue,
       sessions: mine,
       activityAt: lastSession || Date.parse(issue.updatedAt) || 0,
+      rank: rowRank(mine, now),
     })
   }
   // Worktrees not owned by ANY non-archived issue (navWorktree already attaches
   // owning issues per worktree — a non-empty list means an issue row covers it).
+  // Session-less worktrees stay out: the unified list is work, not a repo tree.
   const seen = new Set<string>()
   const navWorktrees = [
     ...sections.pinnedWorktrees,
@@ -992,15 +1090,26 @@ export function unifiedWorkList(
     ...sections.repos.flatMap((r) => r.worktrees),
   ]
   for (const wt of navWorktrees) {
-    if (seen.has(wt.path) || wt.issues.length > 0) continue
+    if (seen.has(wt.path) || wt.issues.length > 0 || wt.sessions.length === 0) continue
     seen.add(wt.path)
     const lastSession = wt.sessions.reduce(
       (max, s) => Math.max(max, Date.parse(s.lastActiveAt) || 0),
       0,
     )
-    rows.push({ kind: 'worktree', worktree: wt, activityAt: lastSession })
+    rows.push({
+      kind: 'worktree',
+      worktree: wt,
+      activityAt: lastSession,
+      rank: rowRank(wt.sessions, now),
+    })
   }
-  return rows.sort((a, b) => b.activityAt - a.activityAt)
+  return rows.sort((a, b) => {
+    if (a.rank !== b.rank) return a.rank - b.rank
+    if (a.activityAt !== b.activityAt) return b.activityAt - a.activityAt
+    const au = a.kind === 'issue' ? Date.parse(a.issue.updatedAt) || 0 : 0
+    const bu = b.kind === 'issue' ? Date.parse(b.issue.updatedAt) || 0 : 0
+    return bu - au
+  })
 }
 
 function orderMap(ids: string[]): Map<string, number> {

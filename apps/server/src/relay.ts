@@ -556,6 +556,20 @@ export class SessionRegistry {
         else for (const c of this.clients.values()) c.send(msg)
       },
     })
+    // Boot-time reconciliation: reap draft issues leaked before the kill-path
+    // reaper existed (sessions killed/removed while attached to an empty draft).
+    // Sessions are already hydrated (loadFromStore ran above), so the emptiness
+    // predicate sees real statuses: live sessions come back as 'reconnecting'
+    // (not 'exited') and hibernated stays 'hibernated' — both block the reap,
+    // so only truly dead drafts go.
+    try {
+      const reaped = this.issues.reapLeakedDrafts()
+      if (reaped > 0) {
+        console.warn(`[podium:issues] boot sweep reaped ${reaped} leaked draft issue(s)`)
+      }
+    } catch (err) {
+      console.warn('[podium:issues] boot draft sweep failed:', err)
+    }
     this.autoContinue = new AutoContinueController({
       isEnabled: () => this.store.getSettings().autoContinue.enabled,
       sendContinue: (sessionId) => {
@@ -1880,6 +1894,8 @@ export class SessionRegistry {
     session.archived = archived
     this.persist(session)
     this.broadcastSessions()
+    // Archiving can leave its draft issue with no living sessions — reap it.
+    if (archived) this.maybeReapDraftIssue(session.issueId)
   }
 
   /** Set (or clear with null) a session's explicit issue attachment. */
@@ -2052,6 +2068,20 @@ export class SessionRegistry {
     this.hibernateSession({ sessionId: target.sessionId })
   }
 
+  /** issue-as-workspace draft cleanup: after a session dies (kill/remove/exit/
+   *  archive), reap its draft issue if the draft is now empty — draft, no
+   *  worktree, no children, and every attached session dead (exited/archived) or
+   *  gone. Hibernation does NOT land here via a dead status ('hibernated' blocks
+   *  the reap inside reapIfEmptyDraft), so a parked draft survives. */
+  private maybeReapDraftIssue(issueId: string | null | undefined): void {
+    if (!issueId) return
+    try {
+      this.issues.reapIfEmptyDraft(issueId)
+    } catch (err) {
+      console.warn(`[podium:issues] draft-issue reap failed for ${issueId}:`, err)
+    }
+  }
+
   killSession(input: { sessionId: string }): void {
     // Read-only surface (node-hub-sync §2.3): killing a hub-mirrored session here
     // would fabricate a kill for a PTY this server doesn't own — reject loudly.
@@ -2059,6 +2089,8 @@ export class SessionRegistry {
       throw new Error(SessionRegistry.UPSTREAM_COMMAND_REJECTION)
     }
     const session = this.sessions.get(input.sessionId)
+    // Capture before the row is deleted — the reap after cleanup needs it.
+    const issueId = session?.issueId
     this.toMachine(session?.machineId ?? LOCAL_PLACEHOLDER, {
       type: 'kill',
       sessionId: input.sessionId,
@@ -2082,6 +2114,9 @@ export class SessionRegistry {
     this.store.deleteQueuedMessagesForSession(input.sessionId)
     for (const c of this.clients.values()) c.attached.delete(input.sessionId)
     this.broadcastSessions()
+    // The killed session may have been the last living occupant of an empty
+    // draft issue — reap the vessel so "x" doesn't leak orphaned Drafts.
+    this.maybeReapDraftIssue(issueId)
   }
 
   /**
@@ -2771,6 +2806,10 @@ export class SessionRegistry {
         if (s) this.persist(s)
         this.broadcastSessions()
         this.issues.onSessionActivity(msg.sessionId)
+        // If the process death made an empty draft's last session 'exited', reap
+        // the draft. A hibernate kill lands here too, but onExit keeps status
+        // 'hibernated', which blocks the reap — parked drafts survive.
+        this.maybeReapDraftIssue(s?.issueId)
         break
       }
       case 'spawnError': {
