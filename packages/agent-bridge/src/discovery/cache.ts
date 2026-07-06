@@ -4,7 +4,11 @@ import { dirname, join } from 'node:path'
 import { openDatabase, type SqlDatabase } from '@podium/core/sqlite'
 import type { AgentConversationSummary, AgentKind, ConversationFileStat } from './types.js'
 
-export const DISCOVERY_CACHE_SCHEMA_VERSION = 1
+// Bump whenever summary DERIVATION changes, not just the row shape — cached
+// summaries outlive the code that wrote them. v2: subagent conversation ids
+// switched from the records' (parent) sessionId to the agent-* filename
+// (issue #94); v1 caches keep re-poisoning the parent's registry path.
+export const DISCOVERY_CACHE_SCHEMA_VERSION = 2
 const DB_SCHEMA_VERSION = '1'
 
 export function defaultDiscoveryDbPath(): string {
