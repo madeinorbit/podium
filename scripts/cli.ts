@@ -186,12 +186,21 @@ export async function main(): Promise<void> {
   const plan = resolvePlan(argv, config)
   const port = Number(process.env.PODIUM_PORT) || config.port || 18787
 
+  // A box configured before the persistence step existed (mode set, no `persistence`) — or one
+  // written by the web setup — would otherwise fall through to the in-process path. On a TTY, route
+  // a bare `podium` back into setup so it completes the split (pick persistence + start). Non-TTY
+  // keeps the in-process fallback (the desktop sidecar, which sets no persistence).
+  const bareInvocation = !SUBCOMMANDS.some((s) => argv.includes(s)) && !argv.includes('all')
+  const incompleteHeadlessConfig =
+    bareInvocation && !!config.mode && config.mode !== 'client' && !config.persistence
+
   const { runCliSetup, shouldRunCliSetup } = await import('./cli-setup')
   if (
     shouldRunCliSetup({
       forceSetup,
-      // plan.showSetupHint == no explicit subcommand AND the config still needs setup.
-      firstRunNeedsSetup: plan.showSetupHint,
+      // plan.showSetupHint == bare invocation AND the config still needs setup; also re-run setup
+      // for an incompletely-configured headless box so it never silently runs in-process.
+      firstRunNeedsSetup: plan.showSetupHint || incompleteHeadlessConfig,
       isTTY: Boolean(process.stdin.isTTY),
     })
   ) {

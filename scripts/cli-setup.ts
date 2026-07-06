@@ -36,6 +36,10 @@ export interface SetupDeps {
 async function realStartBackend(opts: StartBackendOpts): Promise<StartBackendResult> {
   const { persistence, mode, port } = opts
   const { startDetachedStack } = await import('./cli-spawn')
+  // Tear down any previously-running backend first, so switching modes (or reconfiguring) never
+  // leaves the old server/daemon running alongside the new one. No-op on a fresh box.
+  const { stopBackend } = await import('./cli-lifecycle')
+  await stopBackend()
   const what = mode === 'daemon' ? 'daemon' : 'server + daemon'
   if (persistence === 'systemd') {
     const { installSystemd } = await import('./cli-systemd')

@@ -57,6 +57,10 @@ describe('setup core', () => {
     applySetup({ publicUrl: 'https://relay.ts.net' })
     expect(loadConfig()).toEqual({ mode: 'server', publicUrl: 'https://relay.ts.net' })
   })
+  it('applySetup takes an explicit mode (web server-only reachability, fresh config)', () => {
+    applySetup({ publicUrl: 'https://relay.ts.net', mode: 'server' })
+    expect(loadConfig()).toEqual({ mode: 'server', publicUrl: 'https://relay.ts.net' })
+  })
   it('applyJoin writes a self-contained daemon config from a join token', () => {
     const token = encodeJoin({ v: 1, serverUrl: 'wss://relay', pairCode: 'P1', name: 'box' })
     expect(applyJoin(token)).toEqual({ name: 'box' })

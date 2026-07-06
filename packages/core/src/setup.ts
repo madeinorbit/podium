@@ -66,12 +66,16 @@ export function wssFrom(publicUrl: string): string {
   return publicUrl.replace(/^http(s?):\/\//, (_m, s) => (s ? 'wss://' : 'ws://')).replace(/\/$/, '')
 }
 
-export function applySetup(input: { publicUrl: string }): PodiumConfig {
+export function applySetup(input: {
+  publicUrl: string
+  mode?: 'all-in-one' | 'server'
+}): PodiumConfig {
   const prev = loadConfig()
-  // Preserve an already-chosen host mode: a relay-only `server` box setting its URL later (e.g.
-  // from Settings → Machines) must stay `server`, not silently flip to `all-in-one`. First run
-  // (mode unset) defaults to all-in-one, the main-instance path.
-  const mode = prev.mode === 'server' ? 'server' : 'all-in-one'
+  // Explicit mode wins (the web reachability step now runs for BOTH all-in-one and server-only).
+  // Else preserve an already-chosen host mode — a relay-only `server` box setting its URL later
+  // (e.g. from Settings → Machines) must stay `server`. First run (mode unset) defaults to
+  // all-in-one, the main-instance path.
+  const mode = input.mode ?? (prev.mode === 'server' ? 'server' : 'all-in-one')
   const cfg: PodiumConfig = { ...prev, mode, publicUrl: input.publicUrl }
   saveConfig(cfg)
   return cfg

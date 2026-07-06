@@ -78,11 +78,15 @@ export function SetupView({
   }
 
   if (step === 'network') {
+    // Reachability runs for BOTH host modes now (all-in-one and relay-only server), so a server
+    // set up in the browser gets a publicUrl — matching the CLI and letting it mint join commands.
+    const hostMode = mode === 'server' ? 'server' : 'all-in-one'
     return (
       <NetworkStep
         trpc={trpc}
+        mode={hostMode}
         onBack={() => setStep('mode')}
-        onSkip={() => void save('all-in-one')}
+        onSkip={() => void save(hostMode)}
         onSaved={onSaved}
       />
     )
@@ -153,7 +157,8 @@ export function SetupView({
           {error}
         </p>
       )}
-      {mode === 'all-in-one' ? (
+      {mode === 'all-in-one' || mode === 'server' ? (
+        // Both host modes go through the reachability step (URL + password).
         <Button type="button" onClick={() => setStep('network')}>
           Continue
         </Button>
@@ -181,6 +186,7 @@ export function NetworkStep({
   onSkip,
   onSaved,
   embedded = false,
+  mode,
 }: {
   trpc: Trpc
   onBack?: () => void
@@ -188,6 +194,8 @@ export function NetworkStep({
   onSaved: () => void
   /** Compact layout (no page chrome / Back / Skip) for hosting inside a dialog. */
   embedded?: boolean
+  /** Which host mode this box is; sent to setup.complete. Omitted (embedded) preserves it. */
+  mode?: 'all-in-one' | 'server'
 }): ReactNode {
   const [options, setOptions] = useState<NetOptionInfo[]>([])
   const [option, setOption] = useState<NetOption>('tailscale-funnel')
@@ -251,6 +259,7 @@ export function NetworkStep({
     try {
       await trpc.setup.complete.mutate({
         publicUrl: url,
+        ...(mode ? { mode } : {}),
         // 'keep' sends neither field → the server leaves the existing password untouched.
         ...(authMode === 'password'
           ? { password: passwordValue }

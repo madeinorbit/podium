@@ -49,6 +49,15 @@ describe('setup tRPC', () => {
     expect(loadConfig().publicUrl).toBe('https://box.ts.net')
     expect(loadConfig().mode).toBe('all-in-one')
   })
+  it('complete with mode=server persists a reachable relay-only box', async () => {
+    await caller().setup.complete({
+      publicUrl: 'https://relay.ts.net',
+      mode: 'server',
+      acknowledgeNoPassword: true,
+    })
+    expect(loadConfig().mode).toBe('server')
+    expect(loadConfig().publicUrl).toBe('https://relay.ts.net')
+  })
   it('sets the login password when one is supplied (network-exposed install)', async () => {
     await caller().setup.complete({ publicUrl: 'https://box.ts.net', password: 'launch-code' })
     expect(hasPassword(dir)).toBe(true)

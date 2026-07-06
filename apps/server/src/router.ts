@@ -647,6 +647,9 @@ export const appRouter = t.router({
       .input(
         z.object({
           publicUrl: z.string(),
+          // Which host mode this reachable box is (the web runs this step for both now); absent
+          // preserves the existing mode (default all-in-one on first run).
+          mode: z.enum(['all-in-one', 'server']).optional(),
           password: z.string().optional(),
           acknowledgeNoPassword: z.literal(true).optional(),
         }),
@@ -664,7 +667,10 @@ export const appRouter = t.router({
             message: 'Confirm running without a login password.',
           })
         }
-        const cfg = applySetup({ publicUrl: v.normalized })
+        const cfg = applySetup({
+          publicUrl: v.normalized,
+          ...(input.mode ? { mode: input.mode } : {}),
+        })
         if (password) await setPassword(password)
         return cfg
       }),

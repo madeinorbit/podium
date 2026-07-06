@@ -102,6 +102,7 @@ describe('SetupView', () => {
 
     expect(trpcMock.complete).toHaveBeenCalledWith({
       publicUrl: 'https://box.ts.net',
+      mode: 'all-in-one',
       acknowledgeNoPassword: true,
     })
     expect(onSaved).toHaveBeenCalled()
@@ -128,6 +129,7 @@ describe('SetupView', () => {
     })
     expect(trpcMock.complete).toHaveBeenCalledWith({
       publicUrl: 'https://box.ts.net',
+      mode: 'all-in-one',
       password: 'launch-code',
     })
   })
@@ -154,7 +156,10 @@ describe('SetupView', () => {
       await flush()
     })
     // No password / no ack → the server keeps the existing one.
-    expect(trpcMock.complete).toHaveBeenCalledWith({ publicUrl: 'https://box.ts.net' })
+    expect(trpcMock.complete).toHaveBeenCalledWith({
+      publicUrl: 'https://box.ts.net',
+      mode: 'all-in-one',
+    })
   })
 
   it('daemon mode takes one join code and applies it via setup.join', async () => {
@@ -209,18 +214,31 @@ describe('SetupView', () => {
     expect(onSaved).toHaveBeenCalled()
   })
 
-  it('server-only mode applies via setup.connect', async () => {
+  it('server-only mode runs the reachability step and applies with mode=server', async () => {
     const onSaved = vi.fn()
     const { container } = render(
       <SetupView httpOrigin="http://localhost:18787" onSaved={onSaved} />,
     )
     const view = within(container)
     fireEvent.click(view.getByRole('radio', { name: /server only/i }))
+    // Server now goes through reachability (URL + password), like the CLI — not a bare connect.
     await act(async () => {
-      fireEvent.click(view.getByRole('button', { name: /save/i }))
+      fireEvent.click(view.getByRole('button', { name: /continue/i }))
       await flush()
     })
-    expect(trpcMock.connect).toHaveBeenCalledWith({ mode: 'server' })
+    fireEvent.change(view.getByLabelText(/public url/i), {
+      target: { value: 'https://relay.ts.net' },
+    })
+    fireEvent.change(view.getByLabelText(/^login password$/i), { target: { value: 'pw' } })
+    await act(async () => {
+      fireEvent.click(view.getByRole('button', { name: /finish/i }))
+      await flush()
+    })
+    expect(trpcMock.complete).toHaveBeenCalledWith({
+      publicUrl: 'https://relay.ts.net',
+      mode: 'server',
+      password: 'pw',
+    })
     expect(onSaved).toHaveBeenCalled()
   })
 })

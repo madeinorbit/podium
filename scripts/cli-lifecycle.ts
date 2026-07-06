@@ -117,6 +117,34 @@ export async function stopCommand(): Promise<void> {
   }
 }
 
+/**
+ * Fully tear down ANY currently-running backend — every systemd unit AND every detached/foreground
+ * role — so a `podium setup` mode SWITCH never leaves the old mode running alongside the new one.
+ * Best-effort + idempotent: no-op on a fresh box. `disable --now` (not just `stop`) is required so
+ * a `Restart=always` unit doesn't respawn, and so switching modes drops units the new mode won't
+ * use. Called only from the real backend-starter (never the stubbed test path).
+ */
+export async function stopBackend(): Promise<void> {
+  if (hasSystemctl()) {
+    try {
+      execFileSync(
+        'systemctl',
+        ['--user', 'disable', '--now', 'podium-server.service', 'podium-daemon.service'],
+        { stdio: 'ignore' },
+      )
+    } catch {
+      // units may not exist / already disabled — fine.
+    }
+  }
+  for (const role of RunRole.options) {
+    try {
+      await reclaim(role)
+    } catch {
+      // an unkillable holder shouldn't block the switch; the new start will surface conflicts.
+    }
+  }
+}
+
 /** `podium logs [-f]` — tails detached component logs; systemd mode points at journalctl. */
 export function logsCommand(argv: string[]): void {
   const config = loadConfig()
