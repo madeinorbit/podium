@@ -126,10 +126,11 @@ describe('spawnTargetForRepo', () => {
 })
 
 describe('sessionUrgencyRank / mostUrgentSession', () => {
-  it('ranks needs-you 0, working 1, recent idle 2, stale/exited 3', () => {
+  it('ranks needs-you AND finished-idle 0 (above working), working 1, stale/exited 3', () => {
     expect(sessionUrgencyRank(needsYou('a', '/w'), NOW)).toBe(0)
     expect(sessionUrgencyRank(working('b', '/w'), NOW)).toBe(1)
-    expect(sessionUrgencyRank(idle('c', '/w'), NOW)).toBe(2)
+    // A just-finished agent is attention, not background — it outranks working.
+    expect(sessionUrgencyRank(idle('c', '/w'), NOW)).toBe(0)
     expect(
       sessionUrgencyRank(
         idle('d', '/w', { lastActiveAt: new Date(NOW - 48 * HOUR).toISOString() }),
@@ -146,7 +147,8 @@ describe('sessionUrgencyRank / mostUrgentSession', () => {
 
   it('mostUrgentSession returns the lowest-ranked child', () => {
     const urgent = needsYou('u', '/w')
-    expect(mostUrgentSession([working('w1', '/w'), urgent, idle('i1', '/w')], NOW)).toBe(urgent)
+    const olderIdle = idle('i1', '/w', { lastActiveAt: new Date(NOW - 2 * HOUR).toISOString() })
+    expect(mostUrgentSession([working('w1', '/w'), urgent, olderIdle], NOW)).toBe(urgent)
     expect(mostUrgentSession([], NOW)).toBeUndefined()
   })
 })
@@ -208,7 +210,7 @@ describe('unifiedWorkList (content filter + status ordering)', () => {
     expect(rows[0]?.kind).toBe('worktree')
   })
 
-  it('orders by rank asc (needs-you first, working, ready, stale, session-less last)', () => {
+  it('orders by rank asc (attention incl. finished first, working, stale, session-less last)', () => {
     const iNeeds = issue({ id: 'needs' })
     const iWork = issue({ id: 'work' })
     const iIdle = issue({ id: 'idle' })
@@ -219,6 +221,11 @@ describe('unifiedWorkList (content filter + status ordering)', () => {
       idle('si', '/x', { issueId: 'idle' }),
     ]
     sessions[1] = { ...sessions[1], issueId: 'work' } as SessionMeta
+    // Finished-idle shares rank 0 with needs-you; recency breaks the tie.
+    sessions[2] = {
+      ...sessions[2],
+      lastActiveAt: new Date(NOW - 2 * HOUR).toISOString(),
+    } as SessionMeta
     const rows = unifiedWorkList(
       emptySections([]),
       [iEmpty, iIdle, iWork, iNeeds],
@@ -228,8 +235,8 @@ describe('unifiedWorkList (content filter + status ordering)', () => {
     )
     expect(rows.map((r) => (r.kind === 'issue' ? r.issue.id : ''))).toEqual([
       'needs',
-      'work',
       'idle',
+      'work',
       'empty',
     ])
     expect(rows[3]?.rank).toBe(UNIFIED_ROW_EMPTY_RANK)

@@ -997,9 +997,12 @@ export function spawnTargetForRepo(repo: RepoNavView): {
 export function sessionUrgencyRank(s: SessionMeta, now: number): number {
   const group = attentionGroup(s)
   if (group === 'working') return 1
-  const needsYou = group === 'needsYou' && !isSnoozed(s, now) && s.status !== 'exited'
-  if (needsYou) return 0
   const recent = now - Date.parse(s.lastActiveAt) <= STALE_INACTIVE_MS
+  // Anything non-working that classic counted as attention — a blocked agent OR
+  // a just-FINISHED one (idle/done) — floats above working, exactly like the old
+  // NEEDS YOUR ATTENTION section did. Snoozed sessions are muted to rank 2; only
+  // long-quiet or exited sessions sink to stale.
+  if (!isSnoozed(s, now) && s.status !== 'exited' && recent) return 0
   return recent && s.status !== 'exited' ? 2 : 3
 }
 
