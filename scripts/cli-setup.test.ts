@@ -7,14 +7,32 @@ import { encodeJoin } from '../packages/core/src/join'
 import { runCliSetup, shouldRunCliSetup } from './cli-setup'
 
 describe('shouldRunCliSetup (when `podium setup` launches the terminal flow)', () => {
-  it('requires an explicit `podium setup` / --reconfigure', () => {
-    expect(shouldRunCliSetup({ forceSetup: false, isTTY: true })).toBe(false)
+  it('does not launch setup for a bare `podium` on an already-configured box', () => {
+    expect(shouldRunCliSetup({ forceSetup: false, firstRunNeedsSetup: false, isTTY: true })).toBe(
+      false,
+    )
   })
   it('never runs the interactive flow without a TTY (headless/systemd/piped)', () => {
-    expect(shouldRunCliSetup({ forceSetup: true, isTTY: false })).toBe(false)
+    expect(shouldRunCliSetup({ forceSetup: true, firstRunNeedsSetup: false, isTTY: false })).toBe(
+      false,
+    )
   })
-  it('runs for any install on a TTY — the menu lets you switch mode from anything', () => {
-    expect(shouldRunCliSetup({ forceSetup: true, isTTY: true })).toBe(true)
+  it('runs for any install on a TTY via explicit `setup` — menu lets you switch mode', () => {
+    expect(shouldRunCliSetup({ forceSetup: true, firstRunNeedsSetup: false, isTTY: true })).toBe(
+      true,
+    )
+  })
+  it('launches setup automatically for a bare `podium` on a fresh/unconfigured box (TTY)', () => {
+    // The headline fix: an unconfigured install run interactively walks straight into setup
+    // instead of silently starting all-in-one.
+    expect(shouldRunCliSetup({ forceSetup: false, firstRunNeedsSetup: true, isTTY: true })).toBe(
+      true,
+    )
+  })
+  it('does NOT block a fresh box when non-interactive — headless serves the web setup URL', () => {
+    expect(shouldRunCliSetup({ forceSetup: false, firstRunNeedsSetup: true, isTTY: false })).toBe(
+      false,
+    )
   })
 })
 

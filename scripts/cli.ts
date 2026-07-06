@@ -5,13 +5,14 @@
  * UI (printed URL), so the box is usable at once; switching modes in the UI writes config
  * and asks for a restart.
  */
+
+import { LOCAL_MACHINE_ID } from '../apps/server/src/local-machine'
 import {
   loadConfig,
   needsSetup,
   type PodiumConfig,
   type PodiumMode,
 } from '../packages/core/src/config'
-import { LOCAL_MACHINE_ID } from '../apps/server/src/local-machine'
 
 export interface LaunchPlan {
   mode: PodiumMode
@@ -169,7 +170,14 @@ export async function main(): Promise<void> {
   const port = Number(process.env.PODIUM_PORT) || config.port || 18787
 
   const { runCliSetup, shouldRunCliSetup } = await import('./cli-setup')
-  if (shouldRunCliSetup({ forceSetup, isTTY: Boolean(process.stdin.isTTY) })) {
+  if (
+    shouldRunCliSetup({
+      forceSetup,
+      // plan.showSetupHint == no explicit subcommand AND the config still needs setup.
+      firstRunNeedsSetup: plan.showSetupHint,
+      isTTY: Boolean(process.stdin.isTTY),
+    })
+  ) {
     const { createInterface } = await import('node:readline/promises')
     const rl = createInterface({ input: process.stdin, output: process.stdout })
     await runCliSetup({ prompt: (q) => rl.question(q), print: (s) => console.log(s) }, port)

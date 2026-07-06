@@ -23,8 +23,17 @@ export interface SetupDeps {
  * without a terminal the prompts would hang, so we fall through to serving the web UI. The
  * menu lets you switch into ANY mode, so it's offered regardless of the current mode.
  */
-export function shouldRunCliSetup(opts: { forceSetup: boolean; isTTY: boolean }): boolean {
-  return opts.forceSetup && opts.isTTY
+export function shouldRunCliSetup(opts: {
+  forceSetup: boolean
+  firstRunNeedsSetup: boolean
+  isTTY: boolean
+}): boolean {
+  // Interactive only (a TTY): headless/systemd/piped runs must never block on a prompt —
+  // they fall through to serving the web setup URL. On a TTY we enter the terminal flow both
+  // when explicitly asked (`podium setup` / --reconfigure) AND on a bare `podium` against an
+  // unconfigured box (firstRunNeedsSetup), so a fresh install walks straight into setup rather
+  // than silently starting all-in-one.
+  return (opts.forceSetup || opts.firstRunNeedsSetup) && opts.isTTY
 }
 
 type HostMode = 'all-in-one' | 'server'
