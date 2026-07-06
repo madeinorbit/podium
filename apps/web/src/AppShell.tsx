@@ -7,6 +7,7 @@ import { ConfirmProvider } from '@/hooks/use-confirm'
 import { useIsMobile } from '@/hooks/use-is-mobile'
 import { AppErrorPage } from './AppErrorPage'
 import { AutoContinueDialog } from './AutoContinueDialog'
+import { AutomationsView } from './AutomationsView'
 import { ErrorBoundary } from './ErrorBoundary'
 import { HomeView } from './HomeView'
 import { IssuesView } from './IssuesView'
@@ -107,6 +108,8 @@ function AppBody({ isMobile }: { isMobile: boolean }): JSX.Element {
             <UsageView />
           ) : view === 'issues' ? (
             <IssuesView />
+          ) : view === 'automations' ? (
+            <AutomationsView />
           ) : (
             <Workspace />
           )}

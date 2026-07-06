@@ -1,5 +1,5 @@
 import type { AgentKind, IssueWire, SessionMeta } from '@podium/protocol'
-import { ChevronDown, ChevronRight, GitBranch, Plus } from 'lucide-react'
+import { ChevronDown, ChevronRight, GitBranch, KanbanSquare, Plus, Zap } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
 import { useEffect, useRef, useState } from 'react'
 import {
@@ -63,6 +63,7 @@ export function SidebarUnified(): JSX.Element {
     setSelectedIssueId,
     paneA,
     setPane,
+    view,
     setView,
   } = useStore()
   const now = useNow(60_000)
@@ -259,6 +260,34 @@ export function SidebarUnified(): JSX.Element {
           onClick={() => setNewIssueOpen(true)}
         >
           <Plus size={17} aria-hidden="true" />
+        </button>
+      </div>
+
+      {/* App-surface nav: full-width links to the big non-workspace views. */}
+      <div className="mx-3 mt-2 flex flex-col gap-0.5">
+        <button
+          type="button"
+          className={cn(
+            'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-[13px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground',
+            view === 'issues' && 'bg-secondary text-foreground',
+          )}
+          aria-pressed={view === 'issues'}
+          onClick={() => setView('issues')}
+        >
+          <KanbanSquare size={15} aria-hidden="true" />
+          Issues
+        </button>
+        <button
+          type="button"
+          className={cn(
+            'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-[13px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground',
+            view === 'automations' && 'bg-secondary text-foreground',
+          )}
+          aria-pressed={view === 'automations'}
+          onClick={() => setView('automations')}
+        >
+          <Zap size={15} aria-hidden="true" />
+          Automations
         </button>
       </div>
 

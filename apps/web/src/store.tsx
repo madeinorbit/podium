@@ -174,7 +174,7 @@ export interface Store {
   outboxSize: number
 }
 
-export type MainView = 'home' | 'workspace' | 'settings' | 'usage' | 'issues'
+export type MainView = 'home' | 'workspace' | 'settings' | 'usage' | 'issues' | 'automations'
 
 const Ctx = createContext<Store | null>(null)
 
@@ -221,7 +221,12 @@ function readStoredView(): MainView {
   const v = lsGet(VIEW_KEY)
   // 'superagent' is no longer a full view (it's a dock now) — a returning user who
   // left on it lands on home instead of a dead surface.
-  return v === 'home' || v === 'workspace' || v === 'settings' || v === 'usage' || v === 'issues'
+  return v === 'home' ||
+    v === 'workspace' ||
+    v === 'settings' ||
+    v === 'usage' ||
+    v === 'issues' ||
+    v === 'automations'
     ? v
     : 'home'
 }
