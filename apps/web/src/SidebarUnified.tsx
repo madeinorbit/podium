@@ -1,5 +1,5 @@
 import type { AgentKind, IssueWire, SessionMeta } from '@podium/protocol'
-import { ChevronDown, ChevronRight, GitBranch, Plus, Sparkles } from 'lucide-react'
+import { ChevronDown, ChevronRight, GitBranch, Plus } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
 import { useEffect, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
@@ -13,7 +13,6 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { cn } from '@/lib/utils'
-import { ConciergeButton } from './ConciergeButton'
 import {
   draftIssueLabel,
   lastUsedMaps,
@@ -53,8 +52,8 @@ const CLASSIC_BUTTON_CLASS =
  * The UNIFIED sidebar (issue-as-workspace, behind the temporary layout
  * switcher): one status-ordered list of "pieces of work" — agent drafts,
  * human-origin issues, and unowned worktrees as SAME-LEVEL rows — topped by the
- * classic-styled Superagent row and a `New <Agent> in <Repo>` button that
- * spawns an agent into a draft issue.
+ * classic-styled `New <Agent> in <Repo>` button that spawns an agent into a
+ * draft issue.
  */
 export function SidebarUnified(): JSX.Element {
   const {
@@ -71,8 +70,6 @@ export function SidebarUnified(): JSX.Element {
     paneA,
     setPane,
     setView,
-    superOpen,
-    setSuperOpen,
   } = useStore()
   const now = useNow(60_000)
   const [newIssueOpen, setNewIssueOpen] = useState(false)
@@ -96,7 +93,7 @@ export function SidebarUnified(): JSX.Element {
   }, [trpc])
 
   const sections = sidebarSections(repos, sessions, pins, now, issues)
-  const { byRepo, byWorktree } = lastUsedMaps(sections, sessions)
+  const { byRepo } = lastUsedMaps(sections, sessions)
   const repoNavs: RepoNavView[] = [...sections.pinnedRepos, ...sections.repos]
   // <Repo> on the button = the repo of the most recent session activity.
   const defaultRepo = repoNavs.reduce<RepoNavView | undefined>(
@@ -104,10 +101,9 @@ export function SidebarUnified(): JSX.Element {
       best === undefined || (byRepo.get(r.path) ?? 0) > (byRepo.get(best.path) ?? 0) ? r : best,
     undefined,
   )
-  // Which CLONE inside that repo group actually receives the spawn (a RepoNavView
-  // may aggregate several local clones of the same origin) — the label shows the
-  // chosen clone's own name so the button never lies about the target.
-  const defaultTarget = defaultRepo ? spawnTargetForRepo(defaultRepo, byWorktree) : undefined
+  // The spawn target is always the repo's OWN primary worktree; the label is
+  // the registered repo name (never a clone or worktree basename).
+  const defaultTarget = defaultRepo ? spawnTargetForRepo(defaultRepo) : undefined
   const defaultAgent = resolveDefaultAgent(agentSetting, sessions)
   const allWorktreePaths = repoNavs.flatMap((r) => r.worktrees.map((w) => w.path))
   const workRows = unifiedWorkList(sections, issues, sessions, allWorktreePaths, now)
@@ -126,9 +122,9 @@ export function SidebarUnified(): JSX.Element {
     }
   }, [sessions, setSelectedIssueId])
 
-  /** Spawn `agentKind` in `repo`'s best main clone inside a fresh draft issue. */
+  /** Spawn `agentKind` in `repo`'s primary worktree inside a fresh draft issue. */
   async function spawn(agentKind: AgentKind, repo: RepoNavView): Promise<void> {
-    const { worktree: wt } = spawnTargetForRepo(repo, byWorktree)
+    const { worktree: wt } = spawnTargetForRepo(repo)
     const { sessionId } = await trpc.sessions.create.mutate({
       agentKind,
       cwd: wt.path,
@@ -182,27 +178,10 @@ export function SidebarUnified(): JSX.Element {
 
   return (
     <>
-      {/* Row 1: Superagent toggle + concierge front door — same as classic. */}
+      {/* The one top row: `New <Agent> in <Repo>` wearing the classic Superagent
+          button's clothes (main surface spawns; the chevron segment opens the
+          agent→repo menu) + the `+` (new issue) button. */}
       <div className="mx-3 mt-2.5 flex items-center gap-2">
-        <button
-          type="button"
-          className={cn(
-            'flex min-w-0 flex-1 items-center gap-2 rounded-md border px-2.5 py-[7px] text-[13px] text-foreground',
-            superOpen
-              ? 'border-primary font-medium text-foreground'
-              : 'border-input bg-secondary hover:border-primary hover:text-foreground',
-          )}
-          aria-pressed={superOpen}
-          onClick={() => setSuperOpen(!superOpen)}
-        >
-          <Sparkles size={14} aria-hidden="true" /> Superagent
-        </button>
-        <ConciergeButton />
-      </div>
-
-      {/* Row 2: `New <Agent> in <Repo>` (main surface spawns; the chevron segment
-          opens the agent→repo menu) + the `+` (new issue) icon button. */}
-      <div className="mx-3 mt-2 flex items-center gap-2">
         <div
           ref={newAgentAnchorRef}
           data-testid="new-agent-button"

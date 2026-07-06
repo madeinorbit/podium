@@ -87,46 +87,39 @@ const emptySections = (worktrees: WorktreeNavView[]): SidebarSections => ({
 
 describe('spawnTargetForRepo', () => {
   const repo = (worktrees: WorktreeNavView[]): RepoNavView => ({
-    path: '/src/podium-conv-identity',
-    name: 'podium-conv-identity',
+    path: '/src/podium',
+    name: 'podium',
     worktrees,
   })
-  const clone1 = navWt('/src/podium-conv-identity')
-  const clone2 = navWt('/src/podium', { repoPath: '/src/podium' })
+  const own = navWt('/src/podium', { repoPath: '/src/podium' })
+  const clone = navWt('/src/podium-conv-identity', { repoPath: '/src/podium-conv-identity' })
   const branch = navWt('/src/podium/.worktrees/x', { isMain: false, repoPath: '/src/podium' })
 
-  it('picks the main clone with the highest activity, not the first', () => {
-    const byWorktree = new Map([
-      ['/src/podium-conv-identity', NOW - 100 * HOUR],
-      ['/src/podium', NOW - HOUR],
-    ])
-    const t = spawnTargetForRepo(repo([clone1, clone2, branch]), byWorktree)
+  it("always picks the repo's OWN main checkout, never a sibling clone", () => {
+    const t = spawnTargetForRepo(repo([clone, own, branch]))
     expect(t.worktree.path).toBe('/src/podium')
     expect(t.repoName).toBe('podium')
   })
 
-  it('never picks a non-main worktree even when it is the most active', () => {
-    const byWorktree = new Map([['/src/podium/.worktrees/x', NOW]])
-    const t = spawnTargetForRepo(repo([clone1, clone2, branch]), byWorktree)
+  it('never picks a linked worktree', () => {
+    const t = spawnTargetForRepo(repo([branch, own]))
     expect(t.worktree.isMain).toBe(true)
-  })
-
-  it('with no activity anywhere, falls back to the RepoView path match', () => {
-    const t = spawnTargetForRepo(repo([clone2, clone1]), new Map())
-    expect(t.worktree.path).toBe('/src/podium-conv-identity')
-    expect(t.repoName).toBe('podium-conv-identity')
-  })
-
-  it('falls back to the first main when nothing matches the repo path', () => {
-    const t = spawnTargetForRepo(
-      { path: '/gone', name: 'gone', worktrees: [clone2, clone1] },
-      new Map(),
-    )
     expect(t.worktree.path).toBe('/src/podium')
   })
 
+  it('label is the registered repo name even when clones differ', () => {
+    const t = spawnTargetForRepo(repo([clone, own]))
+    expect(t.repoName).toBe('podium')
+  })
+
+  it('reconstructs the main checkout when nothing matches the repo path', () => {
+    const t = spawnTargetForRepo({ path: '/gone', name: 'gone', worktrees: [clone, branch] })
+    expect(t.worktree).toEqual({ path: '/gone', repoPath: '/gone', isMain: true })
+    expect(t.repoName).toBe('gone')
+  })
+
   it('reconstructs the main checkout when the nav list is empty', () => {
-    const t = spawnTargetForRepo({ path: '/r/a', name: 'a', worktrees: [] }, new Map())
+    const t = spawnTargetForRepo({ path: '/r/a', name: 'a', worktrees: [] })
     expect(t.worktree).toEqual({ path: '/r/a', repoPath: '/r/a', isMain: true })
     expect(t.repoName).toBe('a')
   })

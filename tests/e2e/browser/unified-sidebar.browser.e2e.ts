@@ -34,9 +34,10 @@ test('unified sidebar: switcher, split-button spawn creates a draft row, wider +
   await unifiedToggle.click()
   await expect(unifiedToggle).toHaveAttribute('aria-pressed', 'true')
 
-  // Unified layout drops the Command center button but keeps the Superagent row.
+  // Unified layout drops the Command center AND Superagent rows — the New-agent
+  // button (wearing the classic style) is the one top row.
   await expect(aside.getByRole('button', { name: /Command center/ })).toHaveCount(0)
-  await expect(aside.getByRole('button', { name: /Superagent/ })).toBeVisible({ timeout: 10_000 })
+  await expect(aside.getByRole('button', { name: /Superagent/ })).toHaveCount(0)
 
   // ---- The button renders `New <Agent> in <Repo>` once repos load ----
   const splitMain = aside.getByRole('button', { name: /^New .+ in .+/ })

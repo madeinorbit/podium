@@ -963,36 +963,26 @@ export function lastUsedMaps(
  *  works in, not whichever clone happened to be scanned first. Pick the main with
  *  the most recent session activity (`byWorktree` from {@link lastUsedMaps});
  *  with no activity anywhere, prefer the RepoView's canonical path; else first. */
-export function spawnTargetForRepo(
-  repo: RepoNavView,
-  byWorktree: Map<string, number>,
-): { worktree: WorktreeView; repoName: string } {
-  const mains = repo.worktrees.filter((w) => w.isMain)
-  const pool = mains.length > 0 ? mains : repo.worktrees
-  let best: WorktreeNavView | undefined
-  let bestTs = -1
-  for (const w of pool) {
-    const ts = byWorktree.get(w.path) ?? 0
-    // Strictly-greater keeps the earlier candidate on ties; a tie (or all-zero)
-    // resolves toward the canonical repo path below.
-    if (ts > bestTs) {
-      best = w
-      bestTs = ts
-    } else if (ts === bestTs && w.path === repo.path) {
-      best = w
-    }
-  }
-  const chosen = best ?? pool.find((w) => w.path === repo.path) ?? pool[0]
+export function spawnTargetForRepo(repo: RepoNavView): {
+  worktree: WorktreeView
+  repoName: string
+} {
+  // The primary worktree is the repo's OWN main checkout (path === repo.path) —
+  // never a sibling clone that origin-grouping folded into this RepoView, and
+  // never a linked worktree. The label is always the repo's registered name.
+  const chosen =
+    repo.worktrees.find((w) => w.isMain && w.path === repo.path) ??
+    repo.worktrees.find((w) => w.path === repo.path)
   if (!chosen) {
-    // Every worktree filtered out of the nav (e.g. all pinned away) — reconstruct
-    // the repo's own main checkout, same fallback as repoPrimaryWorktree.
+    // Filtered out of the nav (e.g. pinned away) or a clone-canonical mismatch —
+    // reconstruct the repo's own main checkout, same fallback as repoPrimaryWorktree.
     return {
       worktree: { path: repo.path, repoPath: repo.path, isMain: true },
       repoName: repo.name,
     }
   }
   const { repoName: _repoName, sessions: _sessions, issues: _issues, ...view } = chosen
-  return { worktree: view, repoName: chosen.path.split('/').pop() || repo.name }
+  return { worktree: view, repoName: repo.name }
 }
 
 /**
