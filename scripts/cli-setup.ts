@@ -1,11 +1,9 @@
 import { setPassword as realSetPassword } from '../apps/server/src/auth-store'
 import { loadConfig, saveConfig } from '../packages/core/src/config'
-import { encodeJoin } from '../packages/core/src/join'
 import {
   NETWORK_OPTIONS,
   networkOptionCommand,
   validatePublicUrl,
-  wssFrom,
 } from '../packages/core/src/setup'
 import { applyJoinToken } from './cli-join'
 
@@ -177,62 +175,25 @@ async function hostStep(
   await persistenceStep(io, port, mode, startBackend)
 }
 
-/** A bare server-minted pairing code: two 4-char groups, e.g. `8WZZ-FMAS`. */
-const PAIRING_CODE_RE = /^[A-Za-z0-9]{4}-[A-Za-z0-9]{4}$/
-
-/**
- * Daemon mode. Accepts EITHER the full one-line join token (which embeds the server URL, so we
- * never ask for one) OR a bare pairing code — which is all the server can show until IT finishes
- * setup (no `publicUrl` ⇒ no token). For a bare code we ask for the server URL and build the join
- * ourselves. (This is why a plain pairing code used to fail with "invalid join token".)
- */
+/** Daemon mode: paste the one-line join code (it carries the server URL + pairing code). */
 async function joinStep(io: SetupIO): Promise<void> {
-  io.print('\nPaste the join info from the server (Settings → Machines → Add machine):')
-  io.print('  • the long one-line join token (preferred — it carries the server URL), or')
-  io.print('  • the short XXXX-YYYY pairing code (you’ll then be asked for the server URL).')
+  io.print('\nPaste the join code from the server (its Machines → Add machine screen).')
   const MAX_ATTEMPTS = 5
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
-    const input = ((await io.prompt('Join token or pairing code (blank to cancel): ')) ?? '').trim()
-    if (!input) {
+    const token = ((await io.prompt('Join code (blank to cancel): ')) ?? '').trim()
+    if (!token) {
       io.print('Cancelled.')
       return
     }
-    // Full token first.
     try {
-      const { name } = applyJoinToken(input)
+      const { name } = applyJoinToken(token)
       io.print(`\nJoined as "${name}". Restart podium to apply.`)
       return
-    } catch (tokenErr) {
-      // A bare pairing code → ask for the URL and synthesize the token; otherwise report the error.
-      if (PAIRING_CODE_RE.test(input)) {
-        if (await joinWithPairingCode(io, input)) return
-      } else {
-        io.print(`  ${(tokenErr as Error).message}`)
-      }
+    } catch (e) {
+      io.print(`  ${(e as Error).message}`)
     }
   }
-  io.print('\nNo valid join after several attempts — giving up.')
-}
-
-/** Pairing-code fallback: prompt for the server URL, ws-ify it, and apply the join. */
-async function joinWithPairingCode(io: SetupIO, pairCode: string): Promise<boolean> {
-  io.print(
-    '  That’s a pairing code. What URL do you open the server at? (e.g. https://host.ts.net)',
-  )
-  for (let i = 0; i < 3; i++) {
-    const url = ((await io.prompt('Server URL (blank to cancel): ')) ?? '').trim()
-    if (!url) return false
-    const v = validatePublicUrl(url)
-    if (!v.ok) {
-      io.print(`  ${v.error}`)
-      continue
-    }
-    const serverUrl = wssFrom(v.normalized)
-    const { name } = applyJoinToken(encodeJoin({ v: 1, serverUrl, pairCode }))
-    io.print(`\nJoined as "${name}" → ${serverUrl}. Restart podium to apply.`)
-    return true
-  }
-  return false
+  io.print('\nNo valid join code after several attempts — giving up.')
 }
 
 /**
