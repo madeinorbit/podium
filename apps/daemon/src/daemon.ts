@@ -2159,36 +2159,46 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
       //   - source/dev run   → back off + reconnect (a `bun`-launched daemon can't
       //                        self-update; the mismatch is usually a mid-redeploy blip).
       // An installed run is: PODIUM_HOME set, or execPath is the `podium` binary itself.
-      w.on('unexpected-response', (_req, res) => {
-        if (res.statusCode !== 426) return
-        const installed = !!process.env.PODIUM_HOME || /(?:^|[\\/])podium$/.test(process.execPath)
-        const { action } = decideOnProtocolMismatch({ installed })
-        if (action === 'self-update') {
-          console.error(
-            `[podium:daemon] server rejected this daemon: protocol mismatch (daemon v=${WIRE_VERSION}). Running \`podium update\`.`,
-          )
-          // spawnSync (not execFileSync) so a non-zero exit gives us `.status`
-          // instead of throwing — we branch on that code.
-          const r = spawnSync(process.execPath, ['update'], { stdio: 'inherit' })
-          if (decidePostUpdate(r.status) === 'restart') {
-            // Exit cleanly so systemd (Restart=always) relaunches into the newer
-            // binary that matches the server's wire version.
-            process.exit(0)
+      //
+      // `unexpected-response` is a Node-`ws` event; Bun's WebSocket doesn't implement it, so
+      // registering it under Bun does nothing except print `[bun] Warning: ws.WebSocket
+      // 'unexpected-response' event is not implemented in bun` on every connect. The shipped
+      // daemon runs under Bun, so only register it on Node — where it actually fires. Under Bun a
+      // 426 surfaces as 'error'→'close' and drives the backoff reconnect below (the wire-mismatch
+      // self-heal via `podium update` is not yet wired for Bun — tracked in #106).
+      if (!process.versions.bun) {
+        w.on('unexpected-response', (_req, res) => {
+          if (res.statusCode !== 426) return
+          const installed =
+            !!process.env.PODIUM_HOME || /(?:^|[\\/])podium$/.test(process.execPath)
+          const { action } = decideOnProtocolMismatch({ installed })
+          if (action === 'self-update') {
+            console.error(
+              `[podium:daemon] server rejected this daemon: protocol mismatch (daemon v=${WIRE_VERSION}). Running \`podium update\`.`,
+            )
+            // spawnSync (not execFileSync) so a non-zero exit gives us `.status`
+            // instead of throwing — we branch on that code.
+            const r = spawnSync(process.execPath, ['update'], { stdio: 'inherit' })
+            if (decidePostUpdate(r.status) === 'restart') {
+              // Exit cleanly so systemd (Restart=always) relaunches into the newer
+              // binary that matches the server's wire version.
+              process.exit(0)
+            }
+            // No newer build available (or the update failed): restarting would just
+            // land on the same wire-incompatible binary, so stop hot-looping.
+            stopNoReconnect(
+              'protocol-mismatch',
+              `wire mismatch; no newer build available (podium update exit ${r.status}) — manual update required`,
+              w,
+            )
+            return
           }
-          // No newer build available (or the update failed): restarting would just
-          // land on the same wire-incompatible binary, so stop hot-looping.
-          stopNoReconnect(
-            'protocol-mismatch',
-            `wire mismatch; no newer build available (podium update exit ${r.status}) — manual update required`,
-            w,
+          // Source/dev run: log + let 'close' drive the backoff reconnect below.
+          console.error(
+            `[podium:daemon] server rejected this daemon: protocol mismatch (daemon v=${WIRE_VERSION}). Update the daemon to match the server.`,
           )
-          return
-        }
-        // Source/dev run: log + let 'close' drive the backoff reconnect below.
-        console.error(
-          `[podium:daemon] server rejected this daemon: protocol mismatch (daemon v=${WIRE_VERSION}). Update the daemon to match the server.`,
-        )
-      })
+        })
+      }
       // A dropped/refused connection (server restart, or not up yet) must NOT tear
       // down running agents — keep the abduco attaches + transcript tails alive and
       // just reconnect (re-authenticating). Only an explicit handle.close() disposes.
