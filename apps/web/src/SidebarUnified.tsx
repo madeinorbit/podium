@@ -2,7 +2,6 @@ import type { AgentKind, IssueWire, SessionMeta } from '@podium/protocol'
 import { ChevronDown, ChevronRight, GitBranch, Plus } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
 import { useEffect, useRef, useState } from 'react'
-import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -42,11 +41,6 @@ import { useNow } from './useNow'
 function agentIconFor(kind: AgentKind) {
   return NEW_AGENTS.find((a) => a.kind === kind)?.Icon
 }
-
-/** Classic sidebar's bordered-button recipe (Superagent row) — the unified top
- *  rows reuse it verbatim so the two layouts read as one design language. */
-const CLASSIC_BUTTON_CLASS =
-  'rounded-md border border-input bg-secondary text-[13px] text-foreground hover:border-primary hover:text-foreground'
 
 /**
  * The UNIFIED sidebar (issue-as-workspace, behind the temporary layout
@@ -185,11 +179,14 @@ export function SidebarUnified(): JSX.Element {
         <div
           ref={newAgentAnchorRef}
           data-testid="new-agent-button"
-          className={cn('flex min-w-0 flex-1 items-stretch overflow-hidden', CLASSIC_BUTTON_CLASS)}
+          className="relative min-w-0 flex-1"
         >
+          {/* EXACT classic Superagent-button clothes: one bordered rounded-md
+              surface, bg-secondary, leading icon, no inner segments. The chevron
+              is a borderless hitbox floating inside the same outline. */}
           <button
             type="button"
-            className="min-w-0 flex-1 truncate px-2.5 py-[7px] text-left hover:bg-accent disabled:opacity-50"
+            className="flex w-full min-w-0 items-center gap-2 rounded-md border border-input bg-secondary px-2.5 py-[7px] pr-8 text-[13px] text-foreground hover:border-primary hover:text-foreground disabled:opacity-50"
             disabled={!defaultRepo}
             title={
               defaultTarget
@@ -198,14 +195,20 @@ export function SidebarUnified(): JSX.Element {
             }
             onClick={() => defaultRepo && void spawn(defaultAgent, defaultRepo)}
           >
-            New {panelLabel(defaultAgent)} in {defaultTarget?.repoName ?? '…'}
+            {(() => {
+              const AgentIcon = agentIconFor(defaultAgent)
+              return AgentIcon ? <AgentIcon size={14} aria-hidden="true" /> : null
+            })()}
+            <span className="min-w-0 truncate">
+              New {panelLabel(defaultAgent)} in {defaultTarget?.repoName ?? '…'}
+            </span>
           </button>
           <DropdownMenu modal={false}>
             <DropdownMenuTrigger
               render={
                 <button
                   type="button"
-                  className="flex flex-none items-center border-l border-input px-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+                  className="absolute top-1/2 right-1 flex size-6 -translate-y-1/2 items-center justify-center rounded text-muted-foreground hover:text-foreground"
                   aria-label="Choose agent and repo"
                 >
                   <ChevronDown size={14} aria-hidden="true" />
@@ -240,16 +243,16 @@ export function SidebarUnified(): JSX.Element {
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="border border-input text-muted-foreground hover:border-primary hover:text-foreground"
+        {/* EXACT classic Concierge-button clothes: round, primary-filled. */}
+        <button
+          type="button"
+          className="flex size-8 flex-none items-center justify-center rounded-full bg-primary text-primary-foreground shadow-sm transition-colors hover:bg-primary/90"
           title="New issue"
           aria-label="New issue"
           onClick={() => setNewIssueOpen(true)}
         >
-          <Plus size={15} aria-hidden="true" />
-        </Button>
+          <Plus size={17} aria-hidden="true" />
+        </button>
       </div>
 
       <div className="mt-1 flex-1 overflow-y-auto pb-3">
