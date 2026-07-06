@@ -14,6 +14,11 @@ import { AgentKind, IssueStage, IssueType, ResumeRef, WorkState } from '@podium/
 import { initTRPC, TRPCError } from '@trpc/server'
 import { z } from 'zod'
 import { clearPassword, hasPassword, setPassword, verifyPassword } from './auth-store'
+import {
+  type CloudRuntimeProvider,
+  CloudRuntimeUnavailableError,
+  disabledCloudRuntimeProvider,
+} from './cloud-runtime'
 import { authorize, type Capability, PROC_ACTION, SCOPED_TARGET } from './issue-authz'
 import { buildJoinCommand } from './machines-join'
 import type { SessionRegistry } from './relay'
@@ -26,6 +31,7 @@ export interface Context {
   registry: SessionRegistry
   repos: RepoRegistry
   superagent: SuperagentService
+  cloud?: CloudRuntimeProvider
   /** What this caller may do with issues (authz, distinct from the login authn on /trpc).
    *  Every HTTP caller is the OPERATOR today; the in-process MCP passes its own. */
   capability: Capability
@@ -36,6 +42,27 @@ export interface Context {
 
 const t = initTRPC.context<Context>().create()
 const PinKind = z.enum(['panel', 'worktree', 'repo'])
+const cloudRepoInput = z.object({
+  provider: z.literal('github'),
+  owner: z.string().min(1),
+  name: z.string().min(1),
+  ref: z.string().min(1).optional(),
+})
+const cloudAgentInput = z.object({
+  tenantId: z.string().min(1),
+  displayName: z.string().min(1),
+  repo: cloudRepoInput,
+  issueId: z.string().optional(),
+  purpose: z.string().optional(),
+})
+const cloudMachineInput = z.object({
+  tenantId: z.string().min(1),
+  displayName: z.string().min(1),
+  size: z.enum(['small', 'medium', 'large']),
+  repo: cloudRepoInput.optional(),
+  purpose: z.string().optional(),
+})
+const cloudRuntimeIdInput = z.object({ id: z.string().min(1) })
 
 // Moved to issue-authz.ts (a leaf module) so relay.ts can share it without importing
 // the router; re-exported here for existing importers/tests.
@@ -142,7 +169,52 @@ function mailOwnIssue(ctx: Context, id?: string): string {
   })
 }
 
+function cloudProvider(ctx: Context): CloudRuntimeProvider {
+  return ctx.cloud ?? disabledCloudRuntimeProvider
+}
+
+function cloudError(error: unknown): never {
+  if (error instanceof CloudRuntimeUnavailableError) {
+    throw new TRPCError({ code: 'PRECONDITION_FAILED', message: error.message })
+  }
+  throw error
+}
+
 export const appRouter = t.router({
+  cloud: t.router({
+    capabilities: t.procedure.query(({ ctx }) => cloudProvider(ctx).capabilities()),
+    createMachine: t.procedure.input(cloudMachineInput).mutation(async ({ ctx, input }) => {
+      try {
+        return await cloudProvider(ctx).createCloudMachine(input)
+      } catch (error) {
+        cloudError(error)
+      }
+    }),
+    createAgent: t.procedure.input(cloudAgentInput).mutation(async ({ ctx, input }) => {
+      try {
+        return await cloudProvider(ctx).createCloudAgent(input)
+      } catch (error) {
+        cloudError(error)
+      }
+    }),
+    runtime: t.procedure
+      .input(cloudRuntimeIdInput)
+      .query(({ ctx, input }) => cloudProvider(ctx).getRuntime(input.id)),
+    stop: t.procedure.input(cloudRuntimeIdInput).mutation(async ({ ctx, input }) => {
+      try {
+        return await cloudProvider(ctx).stopRuntime(input.id)
+      } catch (error) {
+        cloudError(error)
+      }
+    }),
+    wake: t.procedure.input(cloudRuntimeIdInput).mutation(async ({ ctx, input }) => {
+      try {
+        return await cloudProvider(ctx).wakeRuntime(input.id)
+      } catch (error) {
+        cloudError(error)
+      }
+    }),
+  }),
   sessions: t.router({
     list: t.procedure.query(({ ctx }) => ctx.registry.listSessions()),
     create: t.procedure

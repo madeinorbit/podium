@@ -12,6 +12,7 @@ import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { clientAuthGuard, isRequestAuthed, registerAuthRoute } from './auth-route'
 import { applyEnvPassword, hasPassword } from './auth-store'
+import { createCloudRuntimeProviderFromEnv } from './cloud-runtime'
 import { registerAssetRoute } from './file-asset-route'
 import { OPERATOR } from './issue-authz'
 import type { IssueTrpc } from './issue-client'
@@ -197,6 +198,7 @@ export async function startServer(
   }
   const repos = new RepoRegistry(registry, store)
   const superagent = new SuperagentService(registry, repos, store)
+  const cloud = createCloudRuntimeProviderFromEnv()
   // The daemon issue-relay seam: run a relayed agent op through a capability-scoped tRPC
   // caller so the issueCapabilityGuard middleware enforces the agent's subtree scope. Injected
   // here (not in relay.ts) to keep relay.ts free of the appRouter import cycle.
@@ -264,7 +266,7 @@ export async function startServer(
       // above) already authenticated the human, so the tracker grants full authority — no
       // separate tracker credential. Constrained agents don't come through here; they are
       // relayed via their daemon and carry their own capability (agent integration).
-      createContext: () => ({ registry, repos, superagent, capability: OPERATOR }),
+      createContext: () => ({ registry, repos, superagent, cloud, capability: OPERATOR }),
     }),
   )
 
