@@ -11,9 +11,11 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import { Select, SelectContent, SelectItem, SelectTrigger } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
 import {
   draftIssueLabel,
+  groupUnifiedWorkRows,
   lastUsedMaps,
   mostUrgentSession,
   panelLabel,
@@ -69,6 +71,8 @@ export function SidebarUnified(): JSX.Element {
     fileTabs,
     view,
     setView,
+    sidebarSettings,
+    setSidebarSettings,
   } = useStore()
   const now = useNow(60_000)
   const [newIssueOpen, setNewIssueOpen] = useState(false)
@@ -329,43 +333,76 @@ export function SidebarUnified(): JSX.Element {
 
         {/* ── WORK LIST: drafts + active human issues + with-session worktrees,
             one row design, ordered by aggregated child-session urgency. ── */}
-        <div className="px-3 pt-3 pb-1">
+        <div className="flex items-center justify-between px-3 pt-3 pb-1">
           <span className="text-[11px] font-semibold tracking-[0.08em] text-muted-foreground">
             WORK
           </span>
+          <Select
+            value={sidebarSettings.groupByRepo ? 'repo' : 'none'}
+            onValueChange={(v) => void setSidebarSettings({ groupByRepo: v === 'repo' })}
+          >
+            <SelectTrigger
+              aria-label="Group work list"
+              className="h-5 w-auto gap-1 border-0 px-1 text-[10px] text-muted-foreground/70 shadow-none hover:text-foreground focus:ring-0"
+            >
+              {/* Render the human label, not the raw enum value — Base UI's
+                  SelectValue shows the bare `value` otherwise. */}
+              <span>{sidebarSettings.groupByRepo ? 'Group: repo' : 'Group: none'}</span>
+            </SelectTrigger>
+            <SelectContent align="end">
+              <SelectItem value="none" className="text-xs">
+                Group: none
+              </SelectItem>
+              <SelectItem value="repo" className="text-xs">
+                Group: repo
+              </SelectItem>
+            </SelectContent>
+          </Select>
         </div>
         {workRows.length === 0 && (
           <div className="p-3 text-xs text-muted-foreground/70">
             Nothing yet — start an agent or create an issue above.
           </div>
         )}
-        {workRows.map((row) =>
-          row.kind === 'issue' ? (
-            <UnifiedIssueRow
-              key={`issue:${row.issue.id}`}
-              row={row}
-              allWorktreePaths={allWorktreePaths}
-              sessions={sessions}
-              active={selectedIssueId === row.issue.id}
-              paneA={paneA}
-              now={now}
-              onSelect={() => selectIssue(row.issue)}
-              onSelectPanel={(sid) => selectPanelForIssue(row.issue, sid)}
-              onPinned={(sid, p) => void setPinned('panel', sid, p)}
-            />
-          ) : (
-            <UnifiedWorktreeRow
-              key={`wt:${row.worktree.path}`}
-              row={row}
-              active={selectedIssueId === null && selectedWorktree === row.worktree.path}
-              paneA={paneA}
-              now={now}
-              onSelect={() => selectWorktree(row.worktree.path)}
-              onSelectPanel={(sid) => selectPanel(row.worktree.path, sid)}
-              onPinned={(sid, p) => void setPinned('panel', sid, p)}
-            />
-          ),
-        )}
+        {(() => {
+          const renderWorkRow = (row: UnifiedWorkRow) =>
+            row.kind === 'issue' ? (
+              <UnifiedIssueRow
+                key={`issue:${row.issue.id}`}
+                row={row}
+                allWorktreePaths={allWorktreePaths}
+                sessions={sessions}
+                active={selectedIssueId === row.issue.id}
+                paneA={paneA}
+                now={now}
+                onSelect={() => selectIssue(row.issue)}
+                onSelectPanel={(sid) => selectPanelForIssue(row.issue, sid)}
+                onPinned={(sid, p) => void setPinned('panel', sid, p)}
+              />
+            ) : (
+              <UnifiedWorktreeRow
+                key={`wt:${row.worktree.path}`}
+                row={row}
+                active={selectedIssueId === null && selectedWorktree === row.worktree.path}
+                paneA={paneA}
+                now={now}
+                onSelect={() => selectWorktree(row.worktree.path)}
+                onSelectPanel={(sid) => selectPanel(row.worktree.path, sid)}
+                onPinned={(sid, p) => void setPinned('panel', sid, p)}
+              />
+            )
+          if (!sidebarSettings.groupByRepo) return workRows.map(renderWorkRow)
+          return groupUnifiedWorkRows(workRows).map((group) => (
+            <CollapsibleSection
+              key={group.key}
+              label={group.label}
+              storageKey={`podium:sidebar:unified-repo:${group.key}`}
+              count={group.rows.length}
+            >
+              {group.rows.map(renderWorkRow)}
+            </CollapsibleSection>
+          ))
+        })()}
       </div>
       <HostIndicators />
       {newIssueOpen && <NewIssueDialog onClose={() => setNewIssueOpen(false)} />}

@@ -49,6 +49,7 @@ describe('normalizeSettings — sidebar defaults', () => {
     const s = normalizeSettings({})
     expect(s.sidebar.repoSort).toBe('lastUsed')
     expect(s.sidebar.repoOrder).toEqual([])
+    expect(s.sidebar.groupByRepo).toBe(false)
   })
 
   it('fills in sidebar defaults for old blobs without sidebar key', () => {

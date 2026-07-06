@@ -1,6 +1,7 @@
 import type { IssueWire, SessionMeta } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import {
+  groupUnifiedWorkRows,
   mostUrgentSession,
   type RepoNavView,
   repoUsageAt,
@@ -287,6 +288,92 @@ describe('unifiedWorkList (content filter + status ordering)', () => {
     const e2 = issue({ id: 'e2', stage: 'planning', updatedAt: '2026-06-25T00:00:00.000Z' })
     const empties = unifiedWorkList(emptySections([]), [e1, e2], [], [], NOW)
     expect(empties.map((r) => (r.kind === 'issue' ? r.issue.id : ''))).toEqual(['e2', 'e1'])
+  })
+})
+
+describe('groupUnifiedWorkRows', () => {
+  const rowsFor = (
+    issues: IssueWire[],
+    sessions: SessionMeta[],
+    worktrees: WorktreeNavView[] = [],
+  ) => unifiedWorkList(emptySections(worktrees), issues, sessions, [], NOW)
+
+  it('merges rows from different paths that share a repoId into one group', () => {
+    const rows = rowsFor(
+      [
+        issue({ id: 'i1', repoPath: '/machine1/a', repoId: 'repo-a' } as Partial<IssueWire>),
+        issue({ id: 'i2', repoPath: '/machine2/a', repoId: 'repo-a' } as Partial<IssueWire>),
+      ],
+      [],
+    )
+    const groups = groupUnifiedWorkRows(rows)
+    expect(groups).toHaveLength(1)
+    expect(groups[0]?.key).toBe('repo-a')
+    expect(groups[0]?.rows).toHaveLength(2)
+  })
+
+  it('falls back to repoPath when repoId is missing; labels from repoName / path tail', () => {
+    const wt = navWt('/r/b/.worktrees/x', {
+      isMain: false,
+      repoPath: '/r/b',
+      repoName: 'b',
+      sessions: [idle('s1', '/r/b/.worktrees/x')],
+    })
+    const rows = rowsFor([issue({ id: 'i1', repoPath: '/r/a' })], [], [wt])
+    const groups = groupUnifiedWorkRows(rows)
+    expect(groups.map((g) => g.key).sort()).toEqual(['/r/a', '/r/b'])
+    expect(groups.find((g) => g.key === '/r/a')?.label).toBe('a')
+    expect(groups.find((g) => g.key === '/r/b')?.label).toBe('b')
+  })
+
+  it('preserves incoming row order within groups and orders groups by first row', () => {
+    const rows = rowsFor(
+      [
+        issue({ id: 'a-needs', repoPath: '/r/a' }),
+        issue({ id: 'b-needs', repoPath: '/r/b' }),
+        issue({ id: 'a-work', repoPath: '/r/a' }),
+      ],
+      [
+        needsYou('s1', '/x', { issueId: 'a-needs' }),
+        needsYou('s2', '/x', {
+          issueId: 'b-needs',
+          lastActiveAt: new Date(NOW - 2 * HOUR).toISOString(),
+        }),
+        working('s3', '/x'),
+      ].map((s, i) => (i === 2 ? ({ ...s, issueId: 'a-work' } as SessionMeta) : s)),
+    )
+    expect(rows.map((r) => (r.kind === 'issue' ? r.issue.id : ''))).toEqual([
+      'a-needs',
+      'b-needs',
+      'a-work',
+    ])
+    const groups = groupUnifiedWorkRows(rows)
+    expect(groups.map((g) => g.key)).toEqual(['/r/a', '/r/b'])
+    expect(groups[0]?.rows.map((r) => (r.kind === 'issue' ? r.issue.id : ''))).toEqual([
+      'a-needs',
+      'a-work',
+    ])
+  })
+
+  it('groups worktree rows by worktree.repoId when present', () => {
+    const wt1 = navWt('/m1/a/.worktrees/x', {
+      isMain: false,
+      repoPath: '/m1/a',
+      repoName: 'a',
+      repoId: 'repo-a',
+      sessions: [idle('s1', '/m1/a/.worktrees/x')],
+    })
+    const wt2 = navWt('/m2/a/.worktrees/y', {
+      isMain: false,
+      repoPath: '/m2/a',
+      repoName: 'a',
+      repoId: 'repo-a',
+      sessions: [idle('s2', '/m2/a/.worktrees/y')],
+    })
+    const groups = groupUnifiedWorkRows(rowsFor([], [], [wt1, wt2]))
+    expect(groups).toHaveLength(1)
+    expect(groups[0]?.key).toBe('repo-a')
+    expect(groups[0]?.label).toBe('a')
   })
 })
 

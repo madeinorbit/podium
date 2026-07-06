@@ -411,6 +411,7 @@ export function StoreProvider({
   const [sidebarSettings, setSidebarSettingsState] = useState<SidebarSettings>({
     repoSort: 'lastUsed',
     repoOrder: [],
+    groupByRepo: false,
   })
   const [sidebarTab, setSidebarTabState] = useState<'worktrees' | 'issues'>(readStoredSidebarTab)
   const setSidebarTab = (tab: 'worktrees' | 'issues') => {

@@ -89,6 +89,7 @@ export type LlmBackend = z.infer<typeof LlmBackend>
 export const Sidebar = z.object({
   repoSort: z.enum(['alphabetical', 'lastUsed', 'custom']).default('lastUsed'),
   repoOrder: z.array(z.string()).default([]),
+  groupByRepo: z.boolean().default(false),
 })
 export type Sidebar = z.infer<typeof Sidebar>
 

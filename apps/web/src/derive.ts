@@ -144,6 +144,7 @@ export function reposToViews(repos: GitRepositoryWire[]): RepoView[] {
         repoPath: r.path,
         isMain: true,
         ...(machineId !== undefined ? { machineId } : {}),
+        ...(r.repoId !== undefined ? { repoId: r.repoId } : {}),
       }
       worktrees.push(main)
       for (const w of r.worktrees) {
@@ -153,6 +154,7 @@ export function reposToViews(repos: GitRepositoryWire[]): RepoView[] {
           repoPath: r.path,
           isMain: false,
           ...(machineId !== undefined ? { machineId } : {}),
+          ...(r.repoId !== undefined ? { repoId: r.repoId } : {}),
         })
       }
     }
@@ -163,6 +165,7 @@ export function reposToViews(repos: GitRepositoryWire[]): RepoView[] {
       worktrees,
       machines,
       ...(originUrl !== undefined ? { originUrl } : {}),
+      ...(first.repoId !== undefined ? { repoId: first.repoId } : {}),
     })
   }
 
@@ -1143,6 +1146,41 @@ export function unifiedWorkList(
     const bu = b.kind === 'issue' ? Date.parse(b.issue.updatedAt) || 0 : 0
     return bu - au
   })
+}
+
+export interface UnifiedWorkGroup {
+  key: string
+  label: string
+  rows: UnifiedWorkRow[]
+}
+
+/**
+ * Bucket unified WORK rows by repo (stable repoId when known, repoPath
+ * otherwise — so the same repo on two machines/paths merges into one group).
+ * Row order inside a group and group order both follow the incoming urgency
+ * order: a group sits where its most urgent row would.
+ */
+export function groupUnifiedWorkRows(rows: UnifiedWorkRow[]): UnifiedWorkGroup[] {
+  const groups: UnifiedWorkGroup[] = []
+  const byKey = new Map<string, UnifiedWorkGroup>()
+  for (const row of rows) {
+    const key =
+      row.kind === 'issue'
+        ? (row.issue.repoId ?? row.issue.repoPath)
+        : (row.worktree.repoId ?? row.worktree.repoPath)
+    let group = byKey.get(key)
+    if (!group) {
+      const label =
+        row.kind === 'worktree'
+          ? row.worktree.repoName
+          : row.issue.repoPath.split('/').pop() || row.issue.repoPath
+      group = { key, label, rows: [] }
+      byKey.set(key, group)
+      groups.push(group)
+    }
+    group.rows.push(row)
+  }
+  return groups
 }
 
 function orderMap(ids: string[]): Map<string, number> {
