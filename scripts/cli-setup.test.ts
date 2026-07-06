@@ -145,6 +145,19 @@ describe('runCliSetup', () => {
       expect(loadConfig().mode).toBeUndefined()
     })
 
+    it('a bare pairing code asks for the server URL, then joins (ws-ified)', async () => {
+      await run(['3', '8WZZ-FMAS', 'https://relay.ts.net'])
+      expect(loadConfig().mode).toBe('daemon')
+      expect(loadConfig().serverUrl).toBe('wss://relay.ts.net')
+      expect(loadConfig().pairCode).toBe('8WZZ-FMAS')
+    })
+
+    it('a bad URL after a pairing code re-prompts, then joins', async () => {
+      await run(['3', 'ABCD-1234', 'not-a-url', 'https://relay.ts.net'])
+      expect(loadConfig().mode).toBe('daemon')
+      expect(loadConfig().serverUrl).toBe('wss://relay.ts.net')
+    })
+
     it('re-prompts on an invalid URL', async () => {
       await run(['1', '1', 'nope', 'https://box.ts.net'])
       expect(loadConfig().publicUrl).toBe('https://box.ts.net')
