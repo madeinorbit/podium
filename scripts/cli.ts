@@ -54,6 +54,8 @@ export interface DaemonStartOptions {
   machineId?: string
   pairCode?: string
   name?: string
+  /** Production daemons install the global codex hook instrumentation at boot. */
+  installCodexHooks?: boolean
 }
 
 /** Build the daemon auth/options for modes that actually run a daemon. */
@@ -76,6 +78,7 @@ export function daemonOptionsForPlan(
   return {
     serverUrl,
     ...localAuth,
+    installCodexHooks: true,
     ...(plan.mode === 'daemon' && plan.pairCode ? { pairCode: plan.pairCode } : {}),
     ...(plan.mode === 'daemon' && plan.name ? { name: plan.name } : {}),
   }
@@ -325,6 +328,7 @@ export async function main(): Promise<void> {
         serverUrl: plan.serverUrl ?? `ws://localhost:${port}`,
         bootstrapToken: readOrCreateDaemonSecret(),
         machineId: LOCAL_MACHINE_ID,
+        installCodexHooks: true,
       }
     } else {
       try {

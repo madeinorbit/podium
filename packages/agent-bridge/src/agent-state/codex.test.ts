@@ -63,6 +63,55 @@ describe('translateCodexEvent', () => {
   })
 })
 
+describe('translateCodexEvent — native hook payloads (hook_event_name)', () => {
+  const hook = (event: string, extra: Record<string, unknown> = {}) => ({
+    session_id: '019f38c0-efde-7fb0-838d-55cf6fc7691a',
+    transcript_path: '/home/u/.codex/sessions/2026/07/06/rollout-x.jsonl',
+    cwd: '/repo/x',
+    hook_event_name: event,
+    ...extra,
+  })
+
+  it('maps SessionStart to session_started', async () => {
+    expect(await translateCodexEvent(hook('SessionStart', { source: 'startup' }))).toEqual([
+      { kind: 'session_started' },
+    ])
+  })
+
+  it('maps UserPromptSubmit to prompt_submitted', async () => {
+    expect(await translateCodexEvent(hook('UserPromptSubmit', { prompt: 'do it' }))).toEqual([
+      { kind: 'prompt_submitted' },
+    ])
+  })
+
+  it('maps Pre/PostToolUse to activity', async () => {
+    expect(await translateCodexEvent(hook('PreToolUse', { tool_name: 'Bash' }))).toEqual([
+      { kind: 'activity' },
+    ])
+    expect(await translateCodexEvent(hook('PostToolUse', { tool_name: 'Bash' }))).toEqual([
+      { kind: 'activity' },
+    ])
+  })
+
+  it('maps PermissionRequest to needs_user/permission with the tool name', async () => {
+    // The rollout can NEVER carry this signal (codex pauses without writing);
+    // the hook is the only source for the red "waiting on approval" state.
+    expect(await translateCodexEvent(hook('PermissionRequest', { tool_name: 'Bash' }))).toEqual([
+      { kind: 'needs_user', need: 'permission', summary: 'Bash' },
+    ])
+  })
+
+  it('maps Stop to a classified turn_completed from last_assistant_message', async () => {
+    expect(
+      await translateCodexEvent(hook('Stop', { last_assistant_message: 'Should I merge?' })),
+    ).toEqual([{ kind: 'turn_completed', verdict: { kind: 'question', summary: 'Should I merge?' } }])
+  })
+
+  it('ignores unknown hook events', async () => {
+    expect(await translateCodexEvent(hook('PreCompact'))).toEqual([])
+  })
+})
+
 describe('classifyCodexVerdict', () => {
   it('treats a trailing question mark as a question, else done', () => {
     expect(classifyCodexVerdict('Should I proceed?').kind).toBe('question')

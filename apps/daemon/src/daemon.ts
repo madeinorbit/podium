@@ -85,6 +85,7 @@ import {
 } from './file-access'
 import { buildHarnessExec } from './harness-exec.js'
 import { type HeadlessTurnHandle, runHeadlessTurn } from './headless-drivers.js'
+import { ensurePodiumCodexHooks, PODIUM_CODEX_HOOK_URL_ENV } from './codex-hooks'
 import { startHookIngest } from './hook-ingest'
 import { sampleHostMemory } from './host-metrics'
 import { loadIdentity, saveToken } from './identity'
@@ -170,6 +171,12 @@ export type DurableBackend = 'abduco' | 'tmux' | 'none'
 
 export interface DaemonOptions {
   serverUrl: string
+  /**
+   * Install the global codex native-hook instrumentation (hooks.json + trust
+   * entries in the user's CODEX_HOME) at boot. Opt-IN so tests booting a daemon
+   * can never write to the real ~/.codex; every production entrypoint sets it.
+   */
+  installCodexHooks?: boolean
   /**
    * The in-process bootstrap secret (from the ServerHandle) OR the persistent shared
    * secret read from the state dir. When set, the daemon authenticates as the local
@@ -368,9 +375,15 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
   // for both harnesses, so reattached chat gets history before new activity.
   const tails = new Map<string, TranscriptTailer>()
   const grokStateObservers = new Map<string, GrokStateObserver>()
-  // Codex is observed the same way as Grok (no hooks): one poller per session
-  // that discovers the rollout file, tails it for state, and feeds the chat tail.
+  // Codex state arrives on TWO channels: native hooks (codex ≥0.142, fast +
+  // authoritative, the only source for PermissionRequest) POSTed to the shared
+  // ingest, and the rollout observer below (binding, titles, and the fallback
+  // for codex builds/sessions without hooks). These maps let the hook path pin
+  // the observer to the thread the hook payload names without restarting a
+  // correctly-bound observer on every POST.
   const codexStateObservers = new Map<string, { stop(): void }>()
+  const codexBoundThreads = new Map<string, string>()
+  const codexObserverCwds = new Map<string, string>()
   const opencodeStateObservers = new Map<string, OpencodeStateObserver>()
   const cursorStateObservers = new Map<string, CursorStateObserver>()
   // Event-driven active conversation-index refresh. Instantiated below once
@@ -424,6 +437,8 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
   const stopCodexStateObserver = (sessionId: string): void => {
     codexStateObservers.get(sessionId)?.stop()
     codexStateObservers.delete(sessionId)
+    codexBoundThreads.delete(sessionId)
+    codexObserverCwds.delete(sessionId)
   }
   const stopOpencodeStateObserver = (sessionId: string): void => {
     opencodeStateObservers.get(sessionId)?.stop()
@@ -641,6 +656,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     startedAtMs?: number,
   ): void => {
     stopCodexStateObserver(sessionId)
+    codexObserverCwds.set(sessionId, cwd)
     codexStateObservers.set(
       sessionId,
       observeCodexState({
@@ -649,6 +665,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
         ...(opts.discovery?.homeDir ? { homeDir: opts.discovery.homeDir } : {}),
         ...(startedAtMs !== undefined ? { startedAtMs } : {}),
         onSession: (rolloutId, rolloutPath) => {
+          codexBoundThreads.set(sessionId, rolloutId)
           // Recording a resume ref marks the session resumable (→ hibernate
           // button); the first transcript frame marks it chat-capable (→ chat
           // switcher + BTW button).
@@ -817,24 +834,39 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     onPayload: (sessionId, payload) => {
       const tracker = trackers.get(sessionId)
       if (!tracker) return
-      // Every Claude hook payload carries transcript_path — the authoritative
-      // pointer to the live JSONL (resumes roll into a fresh file; this follows).
+      // Claude AND Codex (≥0.142 native hooks) both post here with the same core
+      // shape: session_id + transcript_path + hook_event_name. Route per harness.
+      const isCodex = codexObserverCwds.has(sessionId)
+      // Every hook payload carries transcript_path — the authoritative pointer
+      // to the live JSONL (resumes roll into a fresh file; this follows).
       const fields = payload as Record<string, unknown> | null
       const transcriptPath = fields?.transcript_path
       if (typeof transcriptPath === 'string' && transcriptPath) {
-        ensureTranscriptTail(sessionId, transcriptPath)
+        if (isCodex) ensureTranscriptTail(sessionId, transcriptPath, codexRecordToItems)
+        else ensureTranscriptTail(sessionId, transcriptPath)
       }
       // The hook payload's session_id is the harness's own conversation id — the
       // authoritative resume ref (don't reverse-engineer it from the filename,
-      // which couples us to Claude's on-disk layout). Lets the server hibernate
-      // a fresh spawn and resume it later.
+      // which couples us to the harness's on-disk layout). Lets the server
+      // hibernate a fresh spawn and resume it later.
       const harnessSessionId = fields?.session_id
       if (typeof harnessSessionId === 'string' && harnessSessionId) {
         send({
           type: 'sessionResumeRef',
           sessionId,
-          resume: { kind: 'claude-session', value: harnessSessionId },
+          resume: { kind: isCodex ? 'codex-thread' : 'claude-session', value: harnessSessionId },
         })
+        // Deterministic binding: the hook names the thread this pane REALLY runs,
+        // ending any discovery ambiguity (lazy rollout creation, cwd siblings, a
+        // mid-session /new rolling to a fresh thread). Re-pin the observer only
+        // when its binding disagrees — every later POST is a cheap map hit.
+        if (isCodex && codexBoundThreads.get(sessionId) !== harnessSessionId) {
+          const cwd =
+            codexObserverCwds.get(sessionId) ??
+            (typeof fields?.cwd === 'string' ? fields.cwd : '')
+          startCodexStateObserver(sessionId, cwd, harnessSessionId)
+          codexBoundThreads.set(sessionId, harnessSessionId)
+        }
       }
       // The agent's live working directory — follows EnterWorktree and `cd`. The
       // tracker resolves it to the containing worktree root and tells the server
@@ -850,6 +882,18 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
         .catch((err) => console.warn(`[podium] hook translate failed for ${sessionId}:`, err))
     },
   })
+  // Install/refresh the global codex hook instrumentation once per boot —
+  // idempotent, preserves foreign hooks, and skips when codex isn't present.
+  // Best-effort: codex sessions degrade to the rollout observer without it.
+  if (opts.installCodexHooks) {
+    void ensurePodiumCodexHooks({
+      ...(opts.discovery?.homeDir ? { homeDir: opts.discovery.homeDir } : {}),
+    })
+      .then((r) => {
+        if (r.changed) console.log('[podium] codex hooks installed/refreshed')
+      })
+      .catch((err) => console.warn('[podium] codex hooks install failed:', err))
+  }
   // Reconnecting client: the daemon may start before the server (separate
   // processes / `After=` ordering) and must survive a server restart without
   // dropping its abduco attaches. `currentWs` (declared above alongside `send`) is
@@ -1282,6 +1326,13 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
           ...issueRelayEnv(msg.sessionId, issueRelay.endpointFor(msg.sessionId)),
           // Subagent model rides as env — Claude Code reads it; harmless elsewhere.
           ...(msg.subagentModel ? { CLAUDE_CODE_SUBAGENT_MODEL: msg.subagentModel } : {}),
+          // Codex native hooks are installed GLOBALLY (hooks.json is per
+          // CODEX_HOME, not per spawn); the per-session ingest URL rides the env
+          // instead. The hook command exits 0 instantly when the var is absent,
+          // so codex runs outside Podium are unaffected.
+          ...(msg.agentKind === 'codex'
+            ? { [PODIUM_CODEX_HOOK_URL_ENV]: ingest.endpointFor(msg.sessionId) }
+            : {}),
         },
       }
       const session =

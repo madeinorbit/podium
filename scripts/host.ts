@@ -38,6 +38,7 @@ const daemon = await startDaemon({
   serverUrl: `ws://localhost:${server.port}`,
   bootstrapToken: server.bootstrapToken,
   machineId: LOCAL_MACHINE_ID, // attach to the machine the server adopted '__local__' rows onto
+  installCodexHooks: true,
 })
 clearTimeout(bootWatchdog)
 console.log(`podium backend up: relay + daemon on ws://localhost:${server.port}`)

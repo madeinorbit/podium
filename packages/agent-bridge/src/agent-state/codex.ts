@@ -47,8 +47,45 @@ export function classifyCodexVerdict(lastAgentMessage: string | undefined): {
   return summary ? { kind, summary } : { kind }
 }
 
-/** One Codex rollout record (`{type:'event_msg', payload:{type,…}}`) → state events. */
+/**
+ * One Codex native-hook POST (payload carries `hook_event_name`, Claude-style) →
+ * state events. Codex ≥0.142 fires shell-command hooks with a JSON payload on
+ * stdin carrying session_id + transcript_path + event fields; the daemon's hook
+ * ingest forwards the parsed payload here. Hooks are the only source for
+ * PermissionRequest — codex pauses WITHOUT writing to the rollout while waiting
+ * for approval, so the file observer can never see that state.
+ */
+function translateCodexHookEvent(payload: Record<string, unknown>): AgentStateEvent[] {
+  switch (strField(payload, 'hook_event_name')) {
+    case 'SessionStart':
+      return [{ kind: 'session_started' }]
+    case 'UserPromptSubmit':
+      return [{ kind: 'prompt_submitted' }]
+    case 'PreToolUse':
+    case 'PostToolUse':
+      return [{ kind: 'activity' }]
+    case 'PermissionRequest': {
+      const summary = strField(payload, 'tool_name')
+      return [{ kind: 'needs_user', need: 'permission', ...(summary ? { summary } : {}) }]
+    }
+    case 'Stop':
+      return [
+        {
+          kind: 'turn_completed',
+          verdict: classifyCodexVerdict(strField(payload, 'last_assistant_message')),
+        },
+      ]
+    default:
+      return []
+  }
+}
+
+/** One Codex rollout record (`{type:'event_msg', payload:{type,…}}`) or native
+ *  hook payload (`{hook_event_name,…}`) → state events. */
 export async function translateCodexEvent(record: unknown): Promise<AgentStateEvent[]> {
+  if (isRecord(record) && strField(record, 'hook_event_name')) {
+    return translateCodexHookEvent(record)
+  }
   if (!isRecord(record) || strField(record, 'type') !== 'event_msg') return []
   const payload = isRecord(record.payload) ? record.payload : undefined
   if (!payload) return []
@@ -167,8 +204,9 @@ function classifyResumedRollout(jsonl: string): AgentStateEvent | undefined {
 }
 
 export const codexStateProvider: AgentStateProvider = {
-  // Codex has no hook system; state is observed from its rollout file instead, so
-  // no argv or settings-file injection is needed.
+  // Codex hooks are installed GLOBALLY (hooks.json lives in CODEX_HOME, not per
+  // spawn — see the daemon's ensurePodiumCodexHooks); the per-session ingest URL
+  // rides the spawn env instead, so no argv or settings-file injection is needed.
   instrumentation() {
     return { args: [] }
   },
