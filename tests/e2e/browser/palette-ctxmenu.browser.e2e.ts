@@ -104,8 +104,14 @@ test('command palette: open, search, arrow, enter-to-issue, fallback row, two-st
   await expect(fallback).toBeVisible({ timeout: 10_000 })
   await expect(fallback).toContainText('zzqxjv gibberish 42')
   await expect(fallback).toHaveAttribute('aria-selected', 'true')
-  // It should be the ONLY row.
-  await expect(palette.getByRole('option')).toHaveCount(1)
+  // Only fallback rows remain (one per spawn target: current worktree and/or
+  // the last repo's primary worktree).
+  const optionCount = await palette.getByRole('option').count()
+  expect(optionCount).toBeGreaterThanOrEqual(1)
+  expect(optionCount).toBeLessThanOrEqual(2)
+  await expect(palette.getByRole('option').filter({ hasText: 'New agent' })).toHaveCount(
+    optionCount,
+  )
   await page.screenshot({ path: `${SHOT}/palette-05-fallback.png` })
 
   // ---- Two-stage Escape: clears query first, closes second ----

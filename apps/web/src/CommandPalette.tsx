@@ -149,14 +149,13 @@ function PaletteDialog({
 
   const serverIssueHits = useIssueSearch(query, true)
 
-  // Spawn target for "New agent": the current worktree when one is selected,
-  // else the same default the sidebar's "New <Agent> in <Repo>" button picks
-  // (the most recently active repo's own primary worktree).
+  // Spawn targets for "New agent": the currently selected worktree AND the
+  // sidebar "New <Agent> in <Repo>" button's default (the most recently active
+  // repo's primary worktree) — both offered when they differ.
   const defaultAgent: AgentKind = resolveDefaultAgent(agentSetting, sessions)
-  const spawnTarget = useMemo((): SpawnTarget | undefined => {
+  const spawnTargets = useMemo((): SpawnTarget[] => {
     const worktrees = reposToViews(repos).flatMap((r) => r.worktrees)
     const current = worktrees.find((w) => w.path === store.selectedWorktree)
-    if (current) return current
     const sections = sidebarSections(repos, sessions, pins, Date.now(), issues)
     const { byRepo } = lastUsedMaps(sections, sessions)
     const repoNavs: RepoNavView[] = [...sections.pinnedRepos, ...sections.repos]
@@ -165,7 +164,11 @@ function PaletteDialog({
         best === undefined || (byRepo.get(r.path) ?? 0) > (byRepo.get(best.path) ?? 0) ? r : best,
       undefined,
     )
-    return defaultRepo ? spawnTargetForRepo(defaultRepo).worktree : undefined
+    const primary = defaultRepo ? spawnTargetForRepo(defaultRepo).worktree : undefined
+    const out: SpawnTarget[] = []
+    if (current) out.push(current)
+    if (primary && primary.path !== current?.path) out.push(primary)
+    return out
   }, [repos, sessions, pins, issues, store.selectedWorktree])
 
   /** Close the palette, then run — optimistic close; errors toast downstream. */
@@ -245,20 +248,19 @@ function PaletteDialog({
       keywords: ['create', 'add'],
       run: onNewIssue,
     })
-    if (spawnTarget) {
+    for (const target of spawnTargets) {
       out.push({
-        id: 'global:new-agent',
+        id: `global:new-agent:${target.path}`,
         group: 'global',
-        label: `New ${panelLabel(defaultAgent)} agent`,
-        keywords: ['session', 'spawn', 'start'],
-        hint: spawnTarget.path.split('/').pop(),
+        label: `New ${panelLabel(defaultAgent)} agent in ${target.path.split('/').pop()}`,
+        keywords: ['session', 'spawn', 'start', 'new agent'],
         run: async () => {
           const sessionId = await spawnDraftAgent({
             trpc,
-            target: spawnTarget,
+            target,
             agentKind: defaultAgent,
           })
-          openSession(sessionId, spawnTarget.path)
+          openSession(sessionId, target.path)
         },
       })
     }
@@ -368,7 +370,7 @@ function PaletteDialog({
     serverIssueHits,
     pins,
     paneA,
-    spawnTarget,
+    spawnTargets,
     defaultAgent,
     sidebarLayout,
     superOpen,
@@ -376,9 +378,9 @@ function PaletteDialog({
 
   const groups = useMemo(() => filterCommands(query, commands), [query, commands])
   const flat = useMemo(() => flattenGroups(groups), [groups])
-  // Rows = matches + the always-last free-text fallback (row index flat.length).
-  // No fallback without a spawn target (no repos yet).
-  const rowCount = flat.length + (spawnTarget ? 1 : 0)
+  // Rows = matches + the always-last free-text fallback rows (one per spawn
+  // target, indices flat.length…). No fallback without targets (no repos yet).
+  const rowCount = flat.length + spawnTargets.length
 
   // Re-highlight the top result whenever the result set changes.
   useEffect(() => {
@@ -392,24 +394,26 @@ function PaletteDialog({
       ?.scrollIntoView({ block: 'nearest' })
   }, [highlight])
 
-  const runFallback = (): void => {
-    if (!spawnTarget) return
+  const runFallback = (target: SpawnTarget): void => {
     const text = query.trim()
     execute(async () => {
       const sessionId = await spawnDraftAgent({
         trpc,
-        target: spawnTarget,
+        target,
         agentKind: defaultAgent,
         firstPrompt: text || undefined,
       })
-      openSession(sessionId, spawnTarget.path)
+      openSession(sessionId, target.path)
     })
   }
 
   const runRow = (index: number): void => {
     const cmd = flat[index]
     if (cmd) execute(cmd.run)
-    else runFallback()
+    else {
+      const target = spawnTargets[index - flat.length]
+      if (target) runFallback(target)
+    }
   }
 
   const onInputKeyDown = (e: React.KeyboardEvent): void => {
@@ -504,30 +508,35 @@ function PaletteDialog({
               })}
             </div>
           ))}
-          {/* Free-text fallback — always the last row (and the only row when
-              nothing matches): spawn a new agent with the query as first prompt. */}
-          {spawnTarget && (
-            <button
-              id={`palette-item-${flat.length}`}
-              type="button"
-              role="option"
-              aria-selected={flat.length === highlight}
-              tabIndex={-1}
-              className={itemCls(flat.length === highlight)}
-              onMouseMove={() => setHighlight(flat.length)}
-              onClick={() => runRow(flat.length)}
-            >
-              <span className="flex-none rounded border border-input px-1 text-[10px] text-muted-foreground">
-                ↵
-              </span>
-              <span className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-muted-foreground">
-                New agent{query.trim() ? `: “${query.trim()}”` : ''}
-              </span>
-              <span className="ml-auto flex-none text-[11px] text-muted-foreground/70">
-                {spawnTarget.path.split('/').pop()}
-              </span>
-            </button>
-          )}
+          {/* Free-text fallback — always the last rows (and the only rows when
+              nothing matches): spawn a new agent with the query as first prompt,
+              one row per target (current worktree / last repo's primary). */}
+          {spawnTargets.map((target, i) => {
+            const idx = flat.length + i
+            return (
+              <button
+                key={target.path}
+                id={`palette-item-${idx}`}
+                type="button"
+                role="option"
+                aria-selected={idx === highlight}
+                tabIndex={-1}
+                className={itemCls(idx === highlight)}
+                onMouseMove={() => setHighlight(idx)}
+                onClick={() => runRow(idx)}
+              >
+                <span className="flex-none rounded border border-input px-1 text-[10px] text-muted-foreground">
+                  ↵
+                </span>
+                <span className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-muted-foreground">
+                  New agent{query.trim() ? `: “${query.trim()}”` : ''}
+                </span>
+                <span className="ml-auto flex-none text-[11px] text-muted-foreground/70">
+                  {target.path.split('/').pop()}
+                </span>
+              </button>
+            )
+          })}
         </div>
       </DialogContent>
     </Dialog>
