@@ -101,6 +101,7 @@ import {
 import type { MemoryAttribution } from './memory-breakdown'
 import { OutputScheduler, type Tier } from './output-scheduler'
 import { createPrimeInjector } from './prime-injector'
+import { composeResponders, createMailInjector } from './mail-injector'
 import { makeQuotaFetcher } from './quota-fetch'
 import { repoOpCommand } from './repo-op'
 import { decideOnProtocolMismatch, decidePostUpdate } from './self-update'
@@ -798,11 +799,21 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
   const primeInjector = createPrimeInjector((sessionId) =>
     issueRelayHub.relay({ sessionId, router: 'issues', proc: 'prime', input: {} }),
   )
+  // Blocks the Stop transition (decision:"block") when the session's issue has unread
+  // mail, so the agent reads its inbox instead of going idle. Loop-guarded by
+  // stop_hook_active and a per-session cooldown inside the injector.
+  const mailInjector = createMailInjector((sessionId) =>
+    issueRelayHub.relay({ sessionId, router: 'issues', proc: 'mailPending', input: {} }),
+  )
+  const respondTo = composeResponders(
+    (sessionId, payload) => primeInjector.respondTo(sessionId, payload),
+    (sessionId, payload) => mailInjector.respondTo(sessionId, payload),
+  )
   const ingest = await startHookIngest({
     ...(opts.hooks?.port !== undefined ? { port: opts.hooks.port } : {}),
-    // Bounded, timeout-safe: injects the session's `prime` as additionalContext on the
-    // first SessionStart/UserPromptSubmit (re-armed by PreCompact); null otherwise.
-    respondTo: (sessionId, payload) => primeInjector.respondTo(sessionId, payload),
+    // Bounded, timeout-safe: prime injection first (SessionStart/UserPromptSubmit),
+    // then mail delivery at Stop; first non-null wins.
+    respondTo,
     onPayload: (sessionId, payload) => {
       const tracker = trackers.get(sessionId)
       if (!tracker) return
