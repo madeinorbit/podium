@@ -14,4 +14,6 @@
 
 export type { PodiumConfig, PodiumMode } from './config.js'
 export * from './git.js'
+// run-registry (node:fs) lives behind the `@podium/core/run-registry` subpath; types only here.
+export type { RunRecord, RunRole } from './run-registry.js'
 export * from './settings.js'

@@ -22,6 +22,13 @@ export const PodiumConfig = z.object({
   /** Externally-reachable base URL captured at setup; embedded into machine join tokens. */
   publicUrl: z.string().optional(),
   /**
+   * How the headless backend is kept running, chosen at setup (docs/superpowers/specs/
+   * 2026-07-06-headless-process-model-design.md): `systemd` = supervised `--user` units that
+   * survive reboot; `detached` = setsid spawn-and-forget (survives logout, dies on reboot).
+   * Absent = not a headless-managed install (e.g. the desktop sidecar) or pre-dates the choice.
+   */
+  persistence: z.enum(['systemd', 'detached']).optional(),
+  /**
    * Node⇄hub sync (docs/spec/node-hub-sync.md §2.1): when present, this server is a NODE
    * that mirrors the hub at `url` (http(s):// or ws(s):// base) through the thin-client
    * protocol, authenticating with `token` — a hub-minted long-lived client-session token
@@ -36,10 +43,15 @@ export const PodiumConfig = z.object({
 })
 export type PodiumConfig = z.infer<typeof PodiumConfig>
 
+/** The Podium state directory: $PODIUM_STATE_DIR, else ~/.podium. Home for config.json, the
+ *  run registry (run/), logs (logs/), etc. */
+export function stateDir(): string {
+  return process.env.PODIUM_STATE_DIR ?? join(process.env.HOME || homedir(), '.podium')
+}
+
 /** $PODIUM_STATE_DIR/config.json, else ~/.podium/config.json. */
 export function configPath(): string {
-  const base = process.env.PODIUM_STATE_DIR ?? join(process.env.HOME || homedir(), '.podium')
-  return join(base, 'config.json')
+  return join(stateDir(), 'config.json')
 }
 
 /** Read + validate the config; a missing or corrupt file yields {} (treated as "needs setup"). */
