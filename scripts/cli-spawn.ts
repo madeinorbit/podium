@@ -89,6 +89,13 @@ export async function startDetachedStack(
   mode: PodiumConfig['mode'],
   port: number,
 ): Promise<{ serverUp: boolean }> {
+  // Joined worker: a bare `podium daemon` reads serverUrl + pairCode from config and dials the
+  // REMOTE server — no local server, no `--local`.
+  if (mode === 'daemon') {
+    spawnDetached('daemon', {})
+    return { serverUp: true }
+  }
+  // Host modes: the local server first, then the LOCAL daemon (`--local`) pointed at it.
   const roles = rolesForMode(mode)
   let serverUp = true
   if (roles.includes('server')) {
@@ -113,6 +120,11 @@ export async function ensureDetachedUp(
   const roles = rolesForMode(config.mode)
   const down = roles.filter((r) => !liveRecord(r))
   if (down.length === 0) return { started: [] }
+  // Joined worker: bare `podium daemon` (remote, config-driven) — not the local `--local` split.
+  if (config.mode === 'daemon') {
+    spawnDetached('daemon', {})
+    return { started: down }
+  }
   if (down.includes('server')) {
     spawnDetached('server', { port })
     await waitForHealth(port)

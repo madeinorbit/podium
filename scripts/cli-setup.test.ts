@@ -126,7 +126,7 @@ describe('runCliSetup', () => {
       expect(setPw).toHaveBeenCalledWith('s3cret')
     })
 
-    it('join a server as a worker (daemon) by pasting a join code', async () => {
+    it('join a server as a worker (daemon), then starts the daemon (persistence choice)', async () => {
       const token = encodeJoin({
         v: 1,
         serverUrl: 'wss://relay.example',
@@ -134,9 +134,25 @@ describe('runCliSetup', () => {
         name: 'box',
       })
       const setPw = vi.fn(async () => {})
-      await run(['3', token], setPw)
+      const startBackend = vi.fn(async (o: { persistence: 'systemd' | 'detached' }) => ({
+        effectivePersistence: o.persistence,
+        message: '',
+      }))
+      let i = 0
+      const answers = ['3', token, 'n'] // join, then decline systemd → detached
+      await runCliSetup({ prompt: async () => answers[i++] ?? '', print: () => {} }, 18787, {
+        setPassword: setPw,
+        startBackend,
+      })
       expect(loadConfig().mode).toBe('daemon')
       expect(loadConfig().serverUrl).toBe('wss://relay.example')
+      expect(loadConfig().persistence).toBe('detached')
+      // The join now STARTS the daemon rather than telling the user to restart.
+      expect(startBackend).toHaveBeenCalledWith({
+        persistence: 'detached',
+        mode: 'daemon',
+        port: 18787,
+      })
       expect(setPw).not.toHaveBeenCalled()
     })
 

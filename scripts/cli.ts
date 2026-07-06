@@ -219,9 +219,11 @@ export async function main(): Promise<void> {
   if (!forceSetup && !explicitSub && config.persistence) {
     if (config.persistence === 'systemd') {
       const units =
-        plan.mode === 'server'
-          ? ['podium-server.service']
-          : ['podium-server.service', 'podium-daemon.service']
+        plan.mode === 'daemon'
+          ? ['podium-daemon.service']
+          : plan.mode === 'server'
+            ? ['podium-server.service']
+            : ['podium-server.service', 'podium-daemon.service']
       try {
         const { execFileSync } = await import('node:child_process')
         execFileSync('systemctl', ['--user', 'start', ...units], { stdio: 'ignore' })

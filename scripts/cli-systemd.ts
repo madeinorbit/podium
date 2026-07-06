@@ -49,9 +49,11 @@ export function renderDaemonUnit(opts: { serverUrl?: string; local?: boolean } =
     .filter(Boolean)
     .join(' ')
   const exec = `%h/.local/bin/podium daemon${flags ? ` ${flags}` : ''}`
+  // A local-split daemon starts after the co-located server; a joined worker has no local server.
+  const after = opts.local ? `network-online.target ${SERVER_UNIT}` : 'network-online.target'
   return `[Unit]
 Description=Podium per-machine agent daemon
-After=network-online.target ${SERVER_UNIT}
+After=${after}
 Wants=network-online.target
 
 [Service]
@@ -86,9 +88,10 @@ export interface InstallResult {
 }
 
 /**
- * Render + install the `--user` units for the host `mode` and enable+start them. `all-in-one`
- * installs both units (daemon → local server); `server` installs only the server. Best-effort:
- * returns {ok:false, reason} when systemd is absent or a step fails, so setup can fall back.
+ * Render + install the `--user` units for `mode` and enable+start them. `all-in-one` installs both
+ * (daemon → local server); `server` installs only the server; `daemon` (a joined worker) installs
+ * only the daemon unit (bare `podium daemon`, config-driven remote server). Best-effort: returns
+ * {ok:false, reason} when systemd is absent or a step fails, so setup can fall back.
  */
 export function installSystemd(mode: PodiumConfig['mode'], port: number): InstallResult {
   if (!hasSystemctl()) return { ok: false, reason: 'systemctl not found' }
@@ -96,14 +99,20 @@ export function installSystemd(mode: PodiumConfig['mode'], port: number): Instal
   const units: string[] = []
   try {
     mkdirSync(dir, { recursive: true })
-    writeFileSync(join(dir, SERVER_UNIT), renderServerUnit())
-    units.push(SERVER_UNIT)
-    if (mode === 'all-in-one') {
-      writeFileSync(
-        join(dir, DAEMON_UNIT),
-        renderDaemonUnit({ serverUrl: `ws://localhost:${port}`, local: true }),
-      )
+    if (mode === 'daemon') {
+      // Joined worker: only the daemon unit, dialing the remote server from config.
+      writeFileSync(join(dir, DAEMON_UNIT), renderDaemonUnit())
       units.push(DAEMON_UNIT)
+    } else {
+      writeFileSync(join(dir, SERVER_UNIT), renderServerUnit())
+      units.push(SERVER_UNIT)
+      if (mode === 'all-in-one') {
+        writeFileSync(
+          join(dir, DAEMON_UNIT),
+          renderDaemonUnit({ serverUrl: `ws://localhost:${port}`, local: true }),
+        )
+        units.push(DAEMON_UNIT)
+      }
     }
     run('systemctl', ['--user', 'daemon-reload'])
     // Linger so the units run without an active login session (headless VPS over SSH).

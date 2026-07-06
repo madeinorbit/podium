@@ -14,7 +14,8 @@ export interface SetupIO {
 
 export interface StartBackendOpts {
   persistence: 'systemd' | 'detached'
-  mode: HostMode
+  /** 'daemon' = a joined worker (start just the daemon); host modes start the split. */
+  mode: HostMode | 'daemon'
   port: number
 }
 export interface StartBackendResult {
@@ -30,23 +31,25 @@ export interface SetupDeps {
   startBackend?: (opts: StartBackendOpts) => Promise<StartBackendResult>
 }
 
-/** Default backend starter: systemd install (with detached fallback) or a detached spawn. */
+/** Default backend starter: systemd install (with detached fallback) or a detached spawn. Works
+ *  for host modes (start the server + daemon split) AND a joined worker (start just the daemon). */
 async function realStartBackend(opts: StartBackendOpts): Promise<StartBackendResult> {
   const { persistence, mode, port } = opts
   const { startDetachedStack } = await import('./cli-spawn')
+  const what = mode === 'daemon' ? 'daemon' : 'server + daemon'
   if (persistence === 'systemd') {
     const { installSystemd } = await import('./cli-systemd')
     const res = installSystemd(mode, port)
     if (res.ok)
       return {
         effectivePersistence: 'systemd',
-        message: 'Installed + started as a systemd service — survives reboot.',
+        message: `Installed + started the ${what} as a systemd service — survives reboot.`,
       }
     const { serverUp } = await startDetachedStack(mode, port)
     return {
       effectivePersistence: 'detached',
-      message: `systemd unavailable (${res.reason}); started detached instead — runs until reboot.${
-        serverUp ? '' : ' (server did not come up — check ~/.podium/logs/)'
+      message: `systemd unavailable (${res.reason}); started the ${what} detached — runs until reboot.${
+        serverUp ? '' : ' (did not come up — check ~/.podium/logs/)'
       }`,
     }
   }
@@ -54,8 +57,8 @@ async function realStartBackend(opts: StartBackendOpts): Promise<StartBackendRes
   return {
     effectivePersistence: 'detached',
     message: serverUp
-      ? 'Started (detached) — runs until reboot. Use `podium status` / `podium stop` to manage.'
-      : 'Server did not come up — check ~/.podium/logs/.',
+      ? `Started the ${what} (detached) — runs until reboot. Use \`podium status\` / \`podium stop\` to manage.`
+      : 'Did not come up — check ~/.podium/logs/.',
   }
 }
 
@@ -148,7 +151,7 @@ async function passwordStep(
 async function persistenceStep(
   io: SetupIO,
   port: number,
-  mode: HostMode,
+  mode: HostMode | 'daemon',
   startBackend: (opts: StartBackendOpts) => Promise<StartBackendResult>,
 ): Promise<void> {
   const ans = (
@@ -175,8 +178,14 @@ async function hostStep(
   await persistenceStep(io, port, mode, startBackend)
 }
 
-/** Daemon mode: paste the one-line join code (it carries the server URL + pairing code). */
-async function joinStep(io: SetupIO): Promise<void> {
+/** Daemon mode: paste the one-line join code (it carries the server URL + pairing code), then
+ *  start the daemon (persistence choice) — same as the host path, so the user never has to
+ *  manually restart. */
+async function joinStep(
+  io: SetupIO,
+  port: number,
+  startBackend: (opts: StartBackendOpts) => Promise<StartBackendResult>,
+): Promise<void> {
   io.print('\nPaste the join code from the server (its Machines → Add machine screen).')
   const MAX_ATTEMPTS = 5
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
@@ -187,7 +196,8 @@ async function joinStep(io: SetupIO): Promise<void> {
     }
     try {
       const { name } = applyJoinToken(token)
-      io.print(`\nJoined as "${name}". Restart podium to apply.`)
+      io.print(`\nJoined as "${name}".`)
+      await persistenceStep(io, port, 'daemon', startBackend)
       return
     } catch (e) {
       io.print(`  ${(e as Error).message}`)
@@ -226,7 +236,7 @@ export async function runCliSetup(io: SetupIO, port: number, deps: SetupDeps = {
   } else if (choice === '2') {
     await hostStep(io, port, 'server', setPassword, startBackend)
   } else if (choice === '3') {
-    await joinStep(io)
+    await joinStep(io, port, startBackend)
   } else if (choice === '4' && hostsServer) {
     await reachabilityStep(io, port, mode === 'server' ? 'server' : 'all-in-one')
   } else if (choice === '5' && hostsServer) {
