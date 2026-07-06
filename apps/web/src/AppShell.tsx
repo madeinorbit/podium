@@ -1,6 +1,6 @@
 import { PanelRightClose, PanelRightOpen } from 'lucide-react'
 import type { JSX } from 'react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Toaster } from '@/components/ui/sonner'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { ConfirmProvider } from '@/hooks/use-confirm'
@@ -8,14 +8,15 @@ import { useIsMobile } from '@/hooks/use-is-mobile'
 import { AppErrorPage } from './AppErrorPage'
 import { AutoContinueDialog } from './AutoContinueDialog'
 import { AutomationsView } from './AutomationsView'
+import { CommandPalette } from './CommandPalette'
 import { ErrorBoundary } from './ErrorBoundary'
 import { HomeView } from './HomeView'
 import { IssuesView } from './IssuesView'
 import { MobileApp } from './MobileApp'
 import { OnboardingWizard } from './OnboardingWizard'
+import { RightDock } from './RightDock'
 import { SettingsView } from './SettingsView'
 import { Sidebar } from './Sidebar'
-import { RightDock } from './RightDock'
 import { StoreProvider, useStore } from './store'
 import { serverConfig } from './trpc'
 import { UpdatePrompt } from './UpdatePrompt'
@@ -78,8 +79,23 @@ export function AppShell(): JSX.Element {
 }
 
 function AppBody({ isMobile }: { isMobile: boolean }): JSX.Element {
-  const { repos, reposLoaded, view, superOpen, setSuperOpen } = useStore()
+  const { repos, reposLoaded, view, superOpen, setSuperOpen, paletteOpen, setPaletteOpen } =
+    useStore()
   const [dismissed, setDismissed] = useState(false)
+
+  // Global Cmd/Ctrl+K toggles the command palette. Registered at shell level so
+  // it works from every view; IssuesView's global handler already ignores
+  // meta-chords, and its `[role="dialog"]` guard makes it inert while open.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'k') {
+        e.preventDefault()
+        setPaletteOpen(!paletteOpen)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [paletteOpen, setPaletteOpen])
 
   // Cold start: the first backend fetch (repos/pins/tab orders) hasn't resolved
   // yet. Show a loading splash rather than flashing an empty shell — and never
@@ -141,6 +157,7 @@ function AppBody({ isMobile }: { isMobile: boolean }): JSX.Element {
         </div>
       )}
       <AutoContinueDialog />
+      <CommandPalette />
     </>
   )
 }

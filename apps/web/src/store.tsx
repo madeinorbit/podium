@@ -85,6 +85,10 @@ export interface Store {
    *  Issues tab), or null when closed. Ephemeral — not persisted. */
   openIssueId: string | null
   setOpenIssueId: (id: string | null) => void
+  /** Whether the Cmd/Ctrl+K command palette is open. In the store (not palette-
+   *  local) so other surfaces (toolbar button, shell shortcut) can open it. */
+  paletteOpen: boolean
+  setPaletteOpen: (open: boolean) => void
   selectedWorktree: string | null
   setSelectedWorktree: (path: string | null) => void
   /** Issue-keyed workspace selection (unified sidebar only): the issue whose
@@ -414,6 +418,7 @@ export function StoreProvider({
     lsSet(SIDEBAR_TAB_KEY, tab)
   }
   const [openIssueId, setOpenIssueId] = useState<string | null>(null)
+  const [paletteOpen, setPaletteOpen] = useState(false)
   const [selectedWorktree, setSelectedWorktree] = useState<string | null>(() => lsGet(WT_KEY))
   const [selectedIssueId, setSelectedIssueId] = useState<string | null>(() => lsGet(ISSUE_SEL_KEY))
   const [sidebarLayout, setSidebarLayoutState] = useState<'classic' | 'unified'>(() =>
@@ -942,6 +947,8 @@ export function StoreProvider({
     setSidebarTab,
     openIssueId,
     setOpenIssueId,
+    paletteOpen,
+    setPaletteOpen,
     selectedWorktree,
     setSelectedWorktree,
     selectedIssueId,

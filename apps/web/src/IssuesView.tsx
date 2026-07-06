@@ -10,7 +10,7 @@ import {
   Trash2,
   X,
 } from 'lucide-react'
-import type { JSX } from 'react'
+import type { JSX, MouseEvent as ReactMouseEvent } from 'react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -33,10 +33,12 @@ import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
 import { CardBoundary } from './CardBoundary'
 import { useIsMobile } from './hooks/use-is-mobile'
+import { IssueContextMenu } from './IssueContextMenu'
 import { IssueListView } from './IssueListView'
 import { IssuePage } from './IssuePage'
 import { type BoardFilter, clearChip, filterBoardIssues, filterChips } from './issue-board-filter'
 import { issueCardModel, STAGE_LABELS } from './issue-card'
+import { contextMenuTargets } from './issue-context-menu'
 import { AssigneeAvatar, PriorityGlyph, StageGlyph } from './issue-glyphs'
 import {
   childStageCounts,
@@ -65,6 +67,7 @@ import {
 import { dropTargetStage } from './kanban-dnd'
 import { NewIssueDialog } from './NewIssueDialog'
 import { PropertyMenu } from './PropertyMenu'
+import type { ContextMenuAnchor } from './SessionContextMenu'
 import { useStore } from './store'
 
 /** Which anchored property menu the keyboard opened, and for which issue. */
@@ -111,6 +114,9 @@ export function IssuesView(): JSX.Element {
   const [keyState, setKeyState] = useState<IssuesKeyState>({ focusId: null, selected: [] })
   // Which keyboard-anchored property menu (s/p/a/l) is open, and over which issue.
   const [propMenu, setPropMenu] = useState<PropMenuState | null>(null)
+  // Right-click context menu: the target ids (clicked issue, or the whole
+  // multi-selection) and the cursor anchor. `null` = closed.
+  const [ctxMenu, setCtxMenu] = useState<{ ids: string[]; anchor: ContextMenuAnchor } | null>(null)
   // Parents whose nested children are revealed (list layout, nested mode only).
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set())
   const toggleExpand = (id: string): void =>
@@ -289,6 +295,19 @@ export function IssuesView(): JSX.Element {
       issuesKeyReduce({ ...s, focusId: id }, { kind: 'toggleSelect' }, navRef.current),
     )
 
+  // Right-click on a card/row: inside the current selection the menu acts on
+  // all selected (bulk-bar semantics); on an unselected issue it re-focuses it
+  // and drops the old selection, then the menu acts on just that issue.
+  const onIssueContextMenu = (id: string, e: ReactMouseEvent): void => {
+    e.preventDefault()
+    const { keyState: next, targetIds } = contextMenuTargets(
+      { focusId: keyState.focusId, selected: selectedIds },
+      id,
+    )
+    setKeyState(next)
+    setCtxMenu({ ids: targetIds, anchor: { x: e.clientX, y: e.clientY } })
+  }
+
   // Bulk-bar actions loop the mutation over the whole selection; the server
   // re-broadcasts the board so the view reconciles. Delete confirms once, then
   // clears the (now-gone) selection.
@@ -388,6 +407,7 @@ export function IssuesView(): JSX.Element {
           selected={selectedIds}
           onToggleSelect={toggleSelectId}
           onToggleExpand={toggleExpand}
+          onContextMenu={onIssueContextMenu}
         />
       ) : (
         <div className="flex min-h-0 flex-1 gap-3 overflow-x-auto p-3 md:p-4">
@@ -407,6 +427,7 @@ export function IssuesView(): JSX.Element {
               focusId={focusId}
               selected={selectedIds}
               onToggleSelect={toggleSelectId}
+              onContextMenu={onIssueContextMenu}
             />
           ))}
         </div>
@@ -446,6 +467,23 @@ export function IssuesView(): JSX.Element {
               onSetAssignee={setAssignee}
               onToggleLabel={toggleLabel}
               onClose={() => setPropMenu(null)}
+            />
+          ) : null
+        })()}
+      {ctxMenu &&
+        (() => {
+          // Resolve targets against the live issue list — vanished ids drop out,
+          // and an emptied target set closes the menu.
+          const targets = ctxMenu.ids
+            .map((id) => issues.find((i) => i.id === id))
+            .filter((i): i is IssueWire => i !== undefined)
+          return targets.length > 0 ? (
+            <IssueContextMenu
+              issues={targets}
+              allIssues={scope}
+              anchor={ctxMenu.anchor}
+              onClose={() => setCtxMenu(null)}
+              onOpen={setOpenIssueId}
             />
           ) : null
         })()}
@@ -823,6 +861,7 @@ function IssueColumn({
   focusId,
   selected,
   onToggleSelect,
+  onContextMenu,
 }: {
   stage: IssueStage
   label: string
@@ -837,6 +876,7 @@ function IssueColumn({
   focusId: string | null
   selected: string[]
   onToggleSelect: (id: string) => void
+  onContextMenu: (id: string, e: ReactMouseEvent) => void
 }): JSX.Element {
   // Highlight the column while a card is dragged over it. Native DnD fires
   // enter/leave on descendants too, so this can flicker — it's cosmetic only.
@@ -890,6 +930,7 @@ function IssueColumn({
                 focused={focusId === issue.id}
                 selected={selected.includes(issue.id)}
                 onToggleSelect={onToggleSelect}
+                onContextMenu={onContextMenu}
               />
             </CardBoundary>
           ))
@@ -956,6 +997,7 @@ function IssueCard({
   focused,
   selected,
   onToggleSelect,
+  onContextMenu,
 }: {
   issue: IssueWire
   badges: IssuesDisplay['badges']
@@ -967,6 +1009,7 @@ function IssueCard({
   focused: boolean
   selected: boolean
   onToggleSelect: (id: string) => void
+  onContextMenu: (id: string, e: ReactMouseEvent) => void
 }): JSX.Element {
   const m = issueCardModel(issue)
   const show = badges
@@ -986,6 +1029,7 @@ function IssueCard({
           selected && 'bg-primary/10',
         )}
         onClick={(e) => (e.shiftKey ? onToggleSelect(issue.id) : onOpen(issue.id))}
+        onContextMenu={(e) => onContextMenu(issue.id, e)}
       >
         <div className="flex items-center justify-between">
           <span className="text-[11px] text-muted-foreground tabular-nums">{m.seqLabel}</span>

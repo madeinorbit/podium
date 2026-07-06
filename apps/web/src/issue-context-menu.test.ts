@@ -1,0 +1,122 @@
+import { describe, expect, it } from 'vitest'
+import {
+  contextMenuTargets,
+  deferDateFromNow,
+  isIssueClosed,
+  issueMenuEligibility,
+  toggleLabelAcross,
+} from './issue-context-menu'
+import { makeIssue } from './test-issue'
+
+describe('issueMenuEligibility', () => {
+  it('gates everything off for an empty target set', () => {
+    const e = issueMenuEligibility([])
+    expect(Object.values(e).every((v) => v === false)).toBe(true)
+  })
+
+  it('enables the full single-issue set for one open issue', () => {
+    const e = issueMenuEligibility([makeIssue()])
+    expect(e).toEqual({
+      canOpen: true,
+      canSetStage: true,
+      canSetPriority: true,
+      canAssignAgent: true,
+      canSetLabels: true,
+      canClose: true,
+      canDefer: true,
+      canUndefer: false,
+      canDuplicate: true,
+      canPin: true,
+      canDelete: true,
+    })
+  })
+
+  it('drops close / defer / assign-agent on a closed issue', () => {
+    const e = issueMenuEligibility([makeIssue({ closedReason: 'done' })])
+    expect(e.canClose).toBe(false)
+    expect(e.canDefer).toBe(false)
+    expect(e.canAssignAgent).toBe(false)
+    // still openable / re-stageable / deletable
+    expect(e.canOpen).toBe(true)
+    expect(e.canSetStage).toBe(true)
+    expect(e.canDelete).toBe(true)
+  })
+
+  it('offers undefer only when a defer date is set', () => {
+    expect(issueMenuEligibility([makeIssue()]).canUndefer).toBe(false)
+    expect(
+      issueMenuEligibility([makeIssue({ deferUntil: '2026-07-10', deferred: true })]).canUndefer,
+    ).toBe(true)
+  })
+
+  it('hides duplicate once the issue already points at a canonical one', () => {
+    expect(issueMenuEligibility([makeIssue({ duplicateOf: 'x' })]).canDuplicate).toBe(false)
+  })
+
+  it('keeps only bulk-capable actions on a multi-selection', () => {
+    const e = issueMenuEligibility([makeIssue({ id: 'a' }), makeIssue({ id: 'b' })])
+    expect(e.canSetStage).toBe(true)
+    expect(e.canSetPriority).toBe(true)
+    expect(e.canSetLabels).toBe(true)
+    expect(e.canDelete).toBe(true)
+    expect(e.canOpen).toBe(false)
+    expect(e.canAssignAgent).toBe(false)
+    expect(e.canClose).toBe(false)
+    expect(e.canDefer).toBe(false)
+    expect(e.canDuplicate).toBe(false)
+    expect(e.canPin).toBe(false)
+  })
+})
+
+describe('isIssueClosed', () => {
+  it('closed ⇔ closedReason present', () => {
+    expect(isIssueClosed(makeIssue())).toBe(false)
+    expect(isIssueClosed(makeIssue({ closedReason: 'wontfix' }))).toBe(true)
+  })
+})
+
+describe('contextMenuTargets', () => {
+  it('right-click inside the selection keeps it and targets all selected', () => {
+    const r = contextMenuTargets({ focusId: 'a', selected: ['a', 'b', 'c'] }, 'b')
+    expect(r.keyState).toEqual({ focusId: 'b', selected: ['a', 'b', 'c'] })
+    expect(r.targetIds).toEqual(['a', 'b', 'c'])
+  })
+
+  it('right-click on an unselected issue re-focuses it and drops the selection', () => {
+    const r = contextMenuTargets({ focusId: 'a', selected: ['a', 'b'] }, 'z')
+    expect(r.keyState).toEqual({ focusId: 'z', selected: [] })
+    expect(r.targetIds).toEqual(['z'])
+  })
+
+  it('right-click with no selection targets just the clicked issue', () => {
+    const r = contextMenuTargets({ focusId: null, selected: [] }, 'x')
+    expect(r.keyState).toEqual({ focusId: 'x', selected: [] })
+    expect(r.targetIds).toEqual(['x'])
+  })
+})
+
+describe('deferDateFromNow', () => {
+  it('formats now+days as local YYYY-MM-DD, rolling over month ends', () => {
+    // 2026-06-30 12:00 local
+    const base = new Date(2026, 5, 30, 12, 0, 0).getTime()
+    expect(deferDateFromNow(base, 1)).toBe('2026-07-01')
+    expect(deferDateFromNow(base, 7)).toBe('2026-07-07')
+  })
+})
+
+describe('toggleLabelAcross', () => {
+  it('adds the label to targets missing it (mixed selection)', () => {
+    const a = makeIssue({ id: 'a', labels: ['x'] })
+    const b = makeIssue({ id: 'b', labels: [] })
+    expect(toggleLabelAcross([a, b], 'x')).toEqual([{ id: 'b', labels: ['x'] }])
+  })
+
+  it('removes the label everywhere when every target has it', () => {
+    const a = makeIssue({ id: 'a', labels: ['x', 'y'] })
+    const b = makeIssue({ id: 'b', labels: ['x'] })
+    expect(toggleLabelAcross([a, b], 'x')).toEqual([
+      { id: 'a', labels: ['y'] },
+      { id: 'b', labels: [] },
+    ])
+  })
+})

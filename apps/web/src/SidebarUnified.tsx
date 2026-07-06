@@ -34,6 +34,7 @@ import { isEpic } from './issue-hierarchy'
 import { NewIssueDialog } from './NewIssueDialog'
 import { NEW_AGENTS } from './NewPanelMenu'
 import { CollapsibleSection, PanelRow, StaleSection, useCollapsed } from './Sidebar'
+import { spawnDraftAgent } from './spawn-agent'
 import { useStore } from './store'
 import { useNow } from './useNow'
 
@@ -127,12 +128,7 @@ export function SidebarUnified(): JSX.Element {
   /** Spawn `agentKind` in `repo`'s primary worktree inside a fresh draft issue. */
   async function spawn(agentKind: AgentKind, repo: RepoNavView): Promise<void> {
     const { worktree: wt } = spawnTargetForRepo(repo)
-    const { sessionId } = await trpc.sessions.create.mutate({
-      agentKind,
-      cwd: wt.path,
-      draftIssue: { repoPath: wt.repoPath },
-      ...(wt.machineId ? { machineId: wt.machineId } : {}),
-    })
+    const sessionId = await spawnDraftAgent({ trpc, target: wt, agentKind })
     pendingSelect.current = sessionId
     // Same post-create plumbing as NewPanelMenu consumers: select + open.
     setSelectedWorktree(wt.path)

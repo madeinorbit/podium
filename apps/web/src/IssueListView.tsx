@@ -1,6 +1,6 @@
 import type { IssueStage } from '@podium/protocol'
 import { ChevronDown, ChevronRight, Plus } from 'lucide-react'
-import type { JSX } from 'react'
+import type { JSX, MouseEvent as ReactMouseEvent } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
@@ -24,6 +24,7 @@ export function IssueListView({
   selected,
   onToggleSelect,
   onToggleExpand,
+  onContextMenu,
 }: {
   groups: { stage: IssueStage; rows: IssueRow[] }[]
   display: IssuesDisplay
@@ -33,6 +34,7 @@ export function IssueListView({
   selected: string[]
   onToggleSelect: (id: string) => void
   onToggleExpand: (id: string) => void
+  onContextMenu: (id: string, e: ReactMouseEvent) => void
 }): JSX.Element {
   return (
     <div className="min-h-0 flex-1 overflow-y-auto" data-testid="issues-list">
@@ -75,6 +77,7 @@ export function IssueListView({
                   )}
                   style={depth > 0 ? { paddingLeft: `${16 + depth * 22}px` } : undefined}
                   onClick={(e) => (e.shiftKey ? onToggleSelect(issue.id) : onOpen(issue.id))}
+                  onContextMenu={(e) => onContextMenu(issue.id, e)}
                 >
                   {childCount > 0 ? (
                     // biome-ignore lint/a11y/useKeyWithClickEvents: the row button handles keyboard; this is a pointer affordance (nested-button markup is invalid)
