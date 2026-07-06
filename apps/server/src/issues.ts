@@ -1097,15 +1097,24 @@ export class IssueService {
   /** List an issue's mailbox, marking the returned currently-unread messages read
    *  (read-on-list; content is never destroyed). `wasUnread` carries the pre-read
    *  status so the caller can render the unread marker. */
-  mailInbox(issueId: string): Array<IssueMessageRow & { wasUnread: boolean }> {
+  mailInbox(
+    issueId: string,
+    opts?: { markRead?: boolean },
+  ): Array<IssueMessageRow & { wasUnread: boolean }> {
     const id = this.resolveRef(issueId)
     this.rowOrThrow(id)
+    // markRead only when the RECIPIENT reads its own mailbox; a peek at another
+    // issue's inbox (operator, other agents — reads are scope-free) must not
+    // consume unread status or it silently suppresses stop-hook/prime delivery.
+    const markRead = opts?.markRead !== false
     const messages = this.deps.store.listIssueMessages(id)
-    const unreadIds = messages.filter((m) => m.status === 'unread').map((m) => m.id)
+    const unreadIds = markRead
+      ? messages.filter((m) => m.status === 'unread').map((m) => m.id)
+      : []
     if (unreadIds.length) this.deps.store.markIssueMessagesRead(id, unreadIds, this.now())
     return messages.map((m) => ({
       ...m,
-      ...(m.status === 'unread' ? { status: 'read' as const, readAt: this.now() } : {}),
+      ...(markRead && m.status === 'unread' ? { status: 'read' as const, readAt: this.now() } : {}),
       wasUnread: m.status === 'unread',
     }))
   }

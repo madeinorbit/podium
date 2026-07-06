@@ -1103,7 +1103,16 @@ export const appRouter = t.router({
       // A mutation (listing marks the returned unread messages read), but authz-wise
       // a 'read' — mailbox bookkeeping, not issue mutation.
       .input(z.object({ id: z.string().optional() }).optional())
-      .mutation(({ ctx, input }) => ctx.registry.issues.mailInbox(mailOwnIssue(ctx, input?.id))),
+      .mutation(({ ctx, input }) => {
+        const id = mailOwnIssue(ctx, input?.id)
+        // Only the recipient consumes unread status: an agent reading its own
+        // mailbox (scope root = the issue). Operator/other-agent peeks must not
+        // mark mail read, or delivery to the real recipient is suppressed.
+        const markRead =
+          ctx.capability.scope.kind === 'subtree' &&
+          ctx.registry.issues.resolveRef(id) === ctx.capability.scope.rootId
+        return ctx.registry.issues.mailInbox(id, { markRead })
+      }),
     mailClaim: issueProc
       .input(z.object({ messageId: z.string() }))
       .mutation(({ ctx, input }) => {

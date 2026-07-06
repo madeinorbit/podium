@@ -228,6 +228,21 @@ describe('issues.mail* (agent mail #103)', () => {
     expect(await c.issues.mailPending()).toEqual({ unread: 0 })
   })
 
+  it('a PEEK at another mailbox (operator or other agent) does not consume unread', async () => {
+    await callerWith(OPERATOR).issues.mailSend({ id: A.id, body: 'for A' })
+    // operator peek
+    const opInbox = await callerWith(OPERATOR).issues.mailInbox({ id: A.id })
+    expect(opInbox[0]).toMatchObject({ status: 'unread', wasUnread: true })
+    // other agent peek (reads are scope-free)
+    const scopedToB = callerWith({ role: 'worker', scope: { kind: 'subtree', rootId: B.id } })
+    await scopedToB.issues.mailInbox({ id: A.id })
+    // recipient still sees it unread and consumes it
+    expect(await scopedToA().issues.mailPending()).toEqual({ unread: 1 })
+    const inbox = await scopedToA().issues.mailInbox()
+    expect(inbox[0]).toMatchObject({ wasUnread: true })
+    expect(await scopedToA().issues.mailPending()).toEqual({ unread: 0 })
+  })
+
   it('mailInbox with no id and no bound issue is a BAD_REQUEST', async () => {
     const c = callerWith({ role: 'worker', scope: { kind: 'none' } })
     await expect(c.issues.mailInbox()).rejects.toThrow(/no issue bound/)
