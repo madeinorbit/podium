@@ -1,7 +1,7 @@
 import type { EditorView } from '@codemirror/view'
 import { Columns2, Eye, Pencil, Save, X } from 'lucide-react'
 import { type JSX, useEffect, useMemo, useRef, useState } from 'react'
-import { assetUrl } from './asset-url'
+import { scopedAssetUrl } from './asset-url'
 import { canSave } from './editor-save'
 import { scopeKey, type FileScope } from './file-scope'
 import { useIsMobile } from './hooks/use-is-mobile'
@@ -94,9 +94,7 @@ export function HtmlFilePanel({
         html: doc.content,
         fileDir,
         resolveAsset: (baseDir, src) =>
-          scope.kind === 'session'
-            ? assetUrl({ httpOrigin, sessionId: scope.sessionId, fileDir: baseDir, src })
-            : null,
+          scopedAssetUrl({ httpOrigin, scope, fileDir: baseDir, src }),
         readTextAsset: (absPath) => cssTextByPath[absPath],
       }),
     [doc.content, fileDir, httpOrigin, scope, cssTextByPath],

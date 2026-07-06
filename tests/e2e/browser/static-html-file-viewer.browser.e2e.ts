@@ -141,3 +141,65 @@ test('native terminal: clicking a static html file opens rendered preview and so
     await rm(cssAbs, { force: true }).catch(() => {})
   }
 })
+
+test('worktree Files tree: .superpowers ready.html renders relative assets', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 820 })
+  await openApp(page)
+  await newSession(page, 'Shell')
+  await expect
+    .poll(async () => (await podium.screen(page)).length, { timeout: 20_000 })
+    .toBeGreaterThan(0)
+
+  await sh(page, 'printf "CWDIS<<%s>>\\n" "$PWD"')
+  let cwd = ''
+  await expect
+    .poll(
+      async () => {
+        const m = (await podium.screen(page)).match(/CWDIS<<(\/[^>]*)>>/)
+        if (m) cwd = m[1].trim()
+        return cwd
+      },
+      { timeout: 15_000 },
+    )
+    .toMatch(/^\//)
+
+  const dir = `${cwd}/.superpowers/e2e-ready-html`
+  try {
+    await sh(page, 'mkdir -p ./.superpowers/e2e-ready-html')
+    await sh(
+      page,
+      `printf '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12"><rect width="12" height="12" fill="red"/></svg>\n' > ./.superpowers/e2e-ready-html/hero.svg`,
+    )
+    await sh(
+      page,
+      `printf '<h1>READY_HTML_WORKTREE</h1><img src="./hero.svg" alt="Hero">\n' > ./.superpowers/e2e-ready-html/ready.html`,
+    )
+
+    const openRight = page.getByRole('button', { name: 'Open right panel' })
+    if (await openRight.isVisible().catch(() => false)) await openRight.click()
+    await page.getByRole('tab', { name: 'Files' }).click()
+
+    const dock = page.locator('aside').last()
+    await dock.getByRole('button', { name: '.superpowers' }).click({ timeout: 15_000 })
+    await dock.getByRole('button', { name: 'e2e-ready-html' }).click({ timeout: 15_000 })
+    await dock.getByRole('button', { name: 'ready.html' }).click({ timeout: 15_000 })
+
+    await expect(page.getByRole('button', { name: 'ready.html' }).first()).toBeVisible()
+    const iframe = page.locator('iframe[title="Rendered HTML preview"]')
+    await expect(iframe).toBeVisible({ timeout: 15_000 })
+
+    const preview = page.frameLocator('iframe[title="Rendered HTML preview"]')
+    await expect(preview.locator('body')).toContainText('READY_HTML_WORKTREE', {
+      timeout: 15_000,
+    })
+    const img = preview.locator('img[alt="Hero"]')
+    await expect(img).toHaveAttribute('src', /\/files\/asset\?root=.*path=.*hero\.svg/)
+    await expect
+      .poll(async () => img.evaluate((el: HTMLImageElement) => el.naturalWidth), {
+        timeout: 10_000,
+      })
+      .toBeGreaterThan(0)
+  } finally {
+    await rm(dir, { recursive: true, force: true }).catch(() => {})
+  }
+})

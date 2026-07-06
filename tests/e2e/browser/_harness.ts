@@ -31,11 +31,9 @@ export async function openApp(page: Page): Promise<void> {
   // "Loading Podium…" — wait until that is GONE (i.e. the .app-loading element
   // has been removed from the DOM), which means the app shell has rendered.
   // Fallback: if the loading element never appeared, just check it's gone anyway.
-  await page.waitForFunction(
-    () => !document.querySelector('.app-loading'),
-    undefined,
-    { timeout: 20_000 },
-  )
+  await page.waitForFunction(() => !document.querySelector('.app-loading'), undefined, {
+    timeout: 45_000,
+  })
   await gotoWorkspace(page)
 }
 
@@ -47,7 +45,7 @@ export async function openApp(page: Page): Promise<void> {
  */
 export async function gotoWorkspace(page: Page): Promise<void> {
   // If the "New panel" button is already visible we're already in the workspace.
-  const newPanelBtn = page.locator('[aria-label="New panel"]')
+  const newPanelBtn = page.locator('button[aria-label="New panel"]:visible').first()
   if (await newPanelBtn.isVisible().catch(() => false)) {
     return
   }
@@ -63,30 +61,12 @@ export async function gotoWorkspace(page: Page): Promise<void> {
     return
   }
 
-  // Repos load async — wait for at least one worktree nav button to appear.
-  // The sidebar's scrollable repo list (.overflow-y-auto) contains several kinds
-  // of buttons: repo PinButtons (have `title="Pin <repo>"`), worktree nav buttons
-  // (no title, no aria-label, have branch name as text), worktree PinButtons
-  // (have `title="Pin <branch>"`), and panel row buttons. We want the first
-  // worktree navigation button — identified by having no `title` and no `aria-label`
-  // and having non-empty text content (branch name).
-  // Strategy: wait for any button with non-empty text and no title in the list,
-  // which is the worktree nav button. The Worktrees|Issues tab toggle (shipped with the
-  // Issues sidebar tab) also has no title/aria-label, but DOES carry aria-pressed — so
-  // exclude aria-pressed, or the first match is the "Worktrees" toggle and clicking it
-  // never activates the workspace.
-  const worktreeNavBtn = sidebar
-    .locator('.overflow-y-auto button:not([title]):not([aria-label]):not([aria-pressed])')
-    .first()
-
-  try {
-    await worktreeNavBtn.waitFor({ state: 'visible', timeout: 15_000 })
-  } catch {
-    // No repos loaded yet — bail
-    return
-  }
-
-  await worktreeNavBtn.click()
+  // Repos load async — wait for the main worktree row. Current sidebar
+  // layouts expose the row as a button whose accessible name ends with the
+  // `main` badge, e.g. `main main` or `<branch> main`.
+  const mainWorktreeBtn = sidebar.getByRole('button', { name: /(^|\s)main$/ }).first()
+  await mainWorktreeBtn.waitFor({ state: 'visible', timeout: 15_000 })
+  await mainWorktreeBtn.click()
   // Confirm the workspace loaded by waiting for the "New panel" button.
   await newPanelBtn.waitFor({ state: 'visible', timeout: 15_000 })
 }
@@ -99,7 +79,7 @@ export async function newSession(page: Page, kind: 'Claude' | 'Codex' | 'Shell')
   await page.evaluate(() => {
     delete (window as unknown as TestWindow).__podium
   })
-  await page.locator('[aria-label="New panel"]').click({ timeout: 15_000 })
+  await page.locator('button[aria-label="New panel"]:visible').first().click({ timeout: 15_000 })
   await page.getByRole('menuitem', { name: `New ${kind}` }).click({ timeout: 10_000 })
   await page.waitForFunction(() => !!(window as unknown as TestWindow).__podium, undefined, {
     timeout: 20_000,

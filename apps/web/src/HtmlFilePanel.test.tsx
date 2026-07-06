@@ -6,13 +6,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 const onSave = vi.fn(async () => {})
 const onSetContent = vi.fn()
 const onReadFile = vi.fn(async () => ({ ok: false, error: 'not found' }))
+let documentContent = '<h1>Rendered</h1>'
 
 vi.mock('./useFileDocument', () => ({
   useFileDocument: () => ({
     status: 'ready',
     message: '',
-    content: '<h1>Rendered</h1>',
-    contentRef: { current: '<h1>Rendered</h1>' },
+    content: documentContent,
+    contentRef: { current: documentContent },
     editable: true,
     dirty: false,
     saving: false,
@@ -50,6 +51,7 @@ describe('HtmlFilePanel', () => {
   beforeEach(() => {
     localStorage.clear()
     vi.clearAllMocks()
+    documentContent = '<h1>Rendered</h1>'
     container = document.createElement('div')
     document.body.appendChild(container)
     root = createRoot(container)
@@ -92,5 +94,26 @@ describe('HtmlFilePanel', () => {
     })
 
     expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('rewrites worktree-scoped relative assets through the root-scoped asset route', () => {
+    documentContent = '<img src="./hero.png" alt="Hero">'
+    act(() => {
+      root.render(
+        <HtmlFilePanel
+          scope={{ kind: 'worktree', root: '/repo', machineId: 'm1' }}
+          path="/repo/.superpowers/run/ready.html"
+          onClose={vi.fn()}
+        />,
+      )
+    })
+
+    const iframe = container.querySelector('iframe[title="Rendered HTML preview"]')
+    const srcdoc = iframe?.getAttribute('srcdoc') ?? ''
+    const preview = new DOMParser().parseFromString(srcdoc, 'text/html')
+    expect(preview.querySelector('img')?.getAttribute('src')).toBe(
+      'http://podium.test/files/asset?root=%2Frepo&path=%2Frepo%2F.superpowers%2Frun%2Fhero.png&machineId=m1',
+    )
+    expect(srcdoc).not.toContain('src="./hero.png"')
   })
 })
