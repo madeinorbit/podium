@@ -21,7 +21,9 @@ export const ISSUE_SYSTEM_POINTER =
   '`podium issue ready` lists unblocked work; ' +
   '`podium issue claim`/`close` as you go. Editing an issue outside your assigned one needs `--outside-scope`. ' +
   'If this session is on the wrong issue (or a draft), re-home it: `podium issue attach --id <issue>` ' +
-  'to join an existing issue, or `podium issue attach --subissue "<title>"` for a new piece of work.'
+  'to join an existing issue, or `podium issue attach --subissue "<title>"` for a new piece of work. ' +
+  'If you discover something another issue\'s agent should know (a fix to merge, a conflict, a dependency), ' +
+  'send it mail: `podium issue mail send <id> --body "…"` — it is delivered to whoever works that issue.'
 
 export interface LaunchOptions {
   /** Working directory the agent runs in (a project or worktree path). */
