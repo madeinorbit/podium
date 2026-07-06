@@ -58,7 +58,10 @@ export interface SessionCwdTracker {
   onHookCwd(sessionId: string, cwd: string): Promise<void>
   /** Agent-declared worktree (`podium worktree` via the loopback relay). Resolves
    *  `path` to its worktree root, sends if it differs from the last sent root,
-   *  supersedes any in-flight hook resolution, and returns the resolved root. */
+   *  supersedes any in-flight hook resolution, and returns the resolved root.
+   *  The pin is STICKY: hook-observed cwds can no longer re-home the session
+   *  (a `cd` into another checkout for one command doesn't bounce it); only a
+   *  new `podium worktree` (or session exit) moves it again. */
   setExplicit(sessionId: string, path: string): Promise<string>
   /** Forget a session (on exit) so a respawn re-reports from scratch. */
   clear(sessionId: string): void
@@ -86,8 +89,12 @@ export function createSessionCwdTracker(opts: {
   const lastRawCwd = new Map<string, string>()
   const lastSentRoot = new Map<string, string>()
   const seq = new Map<string, number>()
+  // Sessions whose worktree was declared explicitly (`podium worktree`): the
+  // declaration wins over hook-observed wandering — see setExplicit docs.
+  const pinned = new Set<string>()
   return {
     async onHookCwd(sessionId, cwd) {
+      if (pinned.has(sessionId)) return
       if (lastRawCwd.get(sessionId) === cwd) return
       lastRawCwd.set(sessionId, cwd)
       const mySeq = (seq.get(sessionId) ?? 0) + 1
@@ -104,6 +111,7 @@ export function createSessionCwdTracker(opts: {
       // resolving to the same root then stays quiet via the root dedup below).
       seq.set(sessionId, (seq.get(sessionId) ?? 0) + 1)
       lastRawCwd.delete(sessionId)
+      pinned.add(sessionId)
       const root = await opts.resolver.resolve(path)
       if (lastSentRoot.get(sessionId) !== root) {
         lastSentRoot.set(sessionId, root)
@@ -115,6 +123,7 @@ export function createSessionCwdTracker(opts: {
       lastRawCwd.delete(sessionId)
       lastSentRoot.delete(sessionId)
       seq.delete(sessionId)
+      pinned.delete(sessionId)
     },
   }
 }

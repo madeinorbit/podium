@@ -1,7 +1,7 @@
-import { mkdtempSync, mkdirSync, rmSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { execFileSync } from 'node:child_process'
 import { afterAll, describe, expect, it } from 'vitest'
 import { createCwdResolver, createSessionCwdTracker, gitToplevel } from './worktree-resolve'
 
@@ -164,6 +164,46 @@ describe('createSessionCwdTracker', () => {
     await tracker.setExplicit('s1', '/repo/.worktrees/feat')
     await tracker.onHookCwd('s1', '/repo/.worktrees/feat/apps/web')
     expect(sent).toEqual([{ sessionId: 's1', cwd: '/repo/.worktrees/feat' }])
+  })
+
+  it('the explicit pin is STICKY: a hook cwd in ANOTHER checkout does not re-home', async () => {
+    const { sent, tracker } = make(inRepo)
+    await tracker.setExplicit('s1', '/repo/.worktrees/feat')
+    // e.g. `cd <main checkout> && git merge …` during a deploy — must not move.
+    await tracker.onHookCwd('s1', '/repo')
+    await tracker.onHookCwd('s1', '/repo/packages/web')
+    expect(sent).toEqual([{ sessionId: 's1', cwd: '/repo/.worktrees/feat' }])
+  })
+
+  it('a second setExplicit still moves a pinned session', async () => {
+    const { sent, tracker } = make(inRepo)
+    await tracker.setExplicit('s1', '/repo/.worktrees/feat')
+    await tracker.setExplicit('s1', '/repo')
+    expect(sent).toEqual([
+      { sessionId: 's1', cwd: '/repo/.worktrees/feat' },
+      { sessionId: 's1', cwd: '/repo' },
+    ])
+  })
+
+  it('clear() drops the pin: hook cwds re-home again after a respawn', async () => {
+    const { sent, tracker } = make(inRepo)
+    await tracker.setExplicit('s1', '/repo/.worktrees/feat')
+    tracker.clear('s1')
+    await tracker.onHookCwd('s1', '/repo')
+    expect(sent).toEqual([
+      { sessionId: 's1', cwd: '/repo/.worktrees/feat' },
+      { sessionId: 's1', cwd: '/repo' },
+    ])
+  })
+
+  it('pins are per-session: another session still follows its hooks', async () => {
+    const { sent, tracker } = make(inRepo)
+    await tracker.setExplicit('s1', '/repo/.worktrees/feat')
+    await tracker.onHookCwd('s2', '/repo')
+    expect(sent).toEqual([
+      { sessionId: 's1', cwd: '/repo/.worktrees/feat' },
+      { sessionId: 's2', cwd: '/repo' },
+    ])
   })
 
   it('setExplicit supersedes an in-flight hook resolution', async () => {
