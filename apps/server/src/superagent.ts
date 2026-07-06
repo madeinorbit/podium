@@ -478,11 +478,16 @@ export class SuperagentService {
   }
 
   /** Tool specs exposed over MCP — the same orchestrator tools the API tool-loop
-   *  uses, in MCP's `{name, description, inputSchema}` shape. Excludes the bridged
-   *  issue tools: the MCP surface composes them via CompositeMcpProvider, and
-   *  double-advertising would shadow the issue provider's dispatch. */
-  mcpToolSpecs(): Array<{ name: string; description: string; inputSchema: unknown }> {
-    return this.tools(this.store.getSettings().integrations.linearApiKey).map((t) => ({
+   *  uses, in MCP's `{name, description, inputSchema}` shape, INCLUDING the
+   *  bridged issue tools. Built through tools() so the advertised schemas match
+   *  the call path exactly — in particular the concierge confirmed-gate's
+   *  `confirmed` param appears on start-capable tools for concierge and
+   *  thread-blind callers (else schema-strict harness clients strip the flag
+   *  and the gate can never be satisfied). */
+  mcpToolSpecs(threadId?: string): Array<{ name: string; description: string; inputSchema: unknown }> {
+    return this.tools(this.store.getSettings().integrations.linearApiKey, threadId, {
+      issueBelt: true,
+    }).map((t) => ({
       name: t.spec.name,
       description: t.spec.description,
       inputSchema: t.spec.parameters,

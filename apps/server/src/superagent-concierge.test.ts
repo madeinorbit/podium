@@ -314,7 +314,7 @@ describe('concierge threads (issue #64)', () => {
       registerMcpRoute(
         app,
         {
-          mcpToolSpecs: () => [],
+          mcpToolSpecs: (threadId) => h.sa.mcpToolSpecs(threadId),
           callMcpTool: (name, args, threadId) => h.sa.callMcpTool(name, args, threadId),
         },
         ROUTE_TOKEN,
@@ -338,8 +338,47 @@ describe('concierge threads (issue #64)', () => {
         const body = (await res.json()) as { result?: { content?: Array<{ text: string }> } }
         return body.result?.content?.[0]?.text ?? ''
       }
-      return { ...h, call }
+      const list = async (threadToken?: string) => {
+        const res = await app.request('/mcp', {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'x-podium-mcp-token': ROUTE_TOKEN,
+            ...(threadToken ? { 'x-podium-mcp-thread': threadToken } : {}),
+          },
+          body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }),
+        })
+        const body = (await res.json()) as {
+          result?: { tools?: Array<{ name: string; inputSchema: unknown }> }
+        }
+        return body.result?.tools ?? []
+      }
+      return { ...h, call, list }
     }
+
+    // The advertised schema must carry the gate's `confirmed` param: schema-strict
+    // harness clients strip args absent from tools/list, so a hidden param makes
+    // the confirmed-gate unsatisfiable from a concierge thread.
+    it('advertises `confirmed` on start-capable issue tools in tools/list', async () => {
+      const { sa, list } = await httpHarness()
+      const tok = sa.mcpThreadToken(conciergeThreadId('/r'))
+      const props = (name: string, tools: Awaited<ReturnType<typeof list>>) =>
+        Object.keys(
+          ((tools.find((t) => t.name === name)?.inputSchema ?? {}) as {
+            properties?: Record<string, unknown>
+          }).properties ?? {},
+        )
+      const concierge = await list(tok)
+      expect(props('issue_start', concierge)).toContain('confirmed')
+      expect(props('start_agent', concierge)).toContain('confirmed')
+      expect(props('issue_create', concierge)).toContain('confirmed')
+      // Identity-less lists fail closed the same way the call path does.
+      const blind = await list()
+      expect(props('issue_start', blind)).toContain('confirmed')
+      // Non-concierge threads stay ungated — no confirmed param advertised.
+      const global = await list(sa.mcpThreadToken('btw_s1'))
+      expect(props('issue_start', global)).not.toContain('confirmed')
+    })
 
     it('attaches the confirmed-gate for a concierge thread token', async () => {
       const { registry, sa, call } = await httpHarness()

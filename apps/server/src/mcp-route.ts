@@ -5,7 +5,11 @@ import type { Hono } from 'hono'
  * (Claude with `--mcp-config`) can reach Podium's orchestrator tools.
  */
 export interface McpToolProvider {
-  mcpToolSpecs(): Array<{ name: string; description: string; inputSchema: unknown }>
+  /** `threadId` (when the transport resolved one) lets the provider shape specs
+   *  per thread — e.g. advertise the `confirmed` gate param on start-capable
+   *  tools for concierge/thread-blind callers, so harness clients that validate
+   *  args against the advertised schema can actually pass the flag. */
+  mcpToolSpecs(threadId?: string): Array<{ name: string; description: string; inputSchema: unknown }>
   /** `threadId` (when the transport resolved one) scopes the call to the
    *  superagent thread it runs for — gate + session provenance (issue #67). */
   callMcpTool(name: string, args: Record<string, unknown>, threadId?: string): Promise<string>
@@ -80,7 +84,13 @@ export function registerMcpRoute(
       return c.body(null, 202)
     }
     if (method === 'tools/list') {
-      return c.json({ jsonrpc: '2.0', id, result: { tools: provider.mcpToolSpecs() } })
+      // Same thread resolution as tools/call: the advertised schemas must match
+      // what the call path enforces (the concierge confirmed-gate adds a
+      // `confirmed` param — if it's absent from the listed schema, schema-strict
+      // harness clients strip it and the gate can never be satisfied).
+      const listThreadToken = c.req.header('x-podium-mcp-thread')
+      const listThreadId = listThreadToken ? opts?.resolveThread?.(listThreadToken) : undefined
+      return c.json({ jsonrpc: '2.0', id, result: { tools: provider.mcpToolSpecs(listThreadId) } })
     }
     if (method === 'tools/call') {
       const name = body.params?.name

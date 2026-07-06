@@ -15,7 +15,7 @@ import { applyEnvPassword, hasPassword } from './auth-store'
 import { registerAssetRoute } from './file-asset-route'
 import { OPERATOR } from './issue-authz'
 import type { IssueTrpc } from './issue-client'
-import { CompositeMcpProvider, IssueToolProvider } from './issue-mcp'
+import { IssueToolProvider } from './issue-mcp'
 import { readOrCreateDaemonSecret, stateDir } from './local-machine'
 import { registerMcpRoute } from './mcp-route'
 import { probeAllModels } from './model-probe'
@@ -238,15 +238,16 @@ export async function startServer(
   // name collisions) with the native issue-tracker tools.
   const mcpToken = randomUUID()
   const issueTools = new IssueToolProvider()
-  const mcpProvider = new CompositeMcpProvider([superagent, issueTools])
-  // Calls dispatch through the superagent (NOT the composite): its tool belt already
-  // bridges the issue tools, so the concierge confirmed-gate and thread provenance
-  // wrap issue_* tools too — the exact same path the API tool loop takes (issue #67).
-  // Specs still come from the composite (superagent excludes the bridged issue specs).
+  // Both specs AND calls dispatch through the superagent: its tool belt bridges the
+  // issue tools, so the concierge confirmed-gate and thread provenance wrap issue_*
+  // tools too — the exact same path the API tool loop takes (issue #67). Specs must
+  // come from the same path so the advertised schemas carry the gate's `confirmed`
+  // param (a composite serving the issue provider's raw specs hid it, and
+  // schema-strict harness clients stripped the flag — the gate was unsatisfiable).
   registerMcpRoute(
     app,
     {
-      mcpToolSpecs: () => mcpProvider.mcpToolSpecs(),
+      mcpToolSpecs: (threadId) => superagent.mcpToolSpecs(threadId),
       callMcpTool: (name, args, threadId) => superagent.callMcpTool(name, args, threadId),
     },
     mcpToken,
@@ -322,13 +323,6 @@ export async function startServer(
       server = serve({ fetch: app.fetch, port: requestedPort, hostname: host }, (info) => {
         if (settled) return
         settled = true
-        // The harness agent runs on the same host (single-machine), so loopback
-        // reaches this MCP route. Now that the port is known, point it there.
-        superagent.setMcpEndpoint(
-          `http://127.0.0.1:${info.port}/mcp`,
-          mcpToken,
-          mcpProvider.mcpToolSpecs().map((s) => s.name),
-        )
         // The in-process MCP issue surface is the trusted superagent orchestrator. It calls the
         // router DIRECTLY (not the cookie-gated HTTP /trpc, which would 401 it) as the OPERATOR.
         // The shared command registry expects an IssueTrpc client (.<router>.<proc>.mutate/query);
@@ -339,8 +333,16 @@ export async function startServer(
         // Bridge the issue tools into the superagent's API tool loop (issue #64):
         // concierge (and global) threads drive the tracker through the same
         // in-process OPERATOR caller. Constraining this to an agent capability is
-        // future work (same seam as above).
+        // future work (same seam as above). Must precede setMcpEndpoint so the
+        // allowed-tool name list below includes the bridged issue tools.
         superagent.setIssueTools(issueTools)
+        // The harness agent runs on the same host (single-machine), so loopback
+        // reaches this MCP route. Now that the port is known, point it there.
+        superagent.setMcpEndpoint(
+          `http://127.0.0.1:${info.port}/mcp`,
+          mcpToken,
+          superagent.mcpToolSpecs().map((s) => s.name),
+        )
         const ws = attachWebSockets(server as unknown as Server, registry, {
           // Same gate as the HTTP guard: open unless a password is set, then require a valid
           // session cookie on the upgrade request.
