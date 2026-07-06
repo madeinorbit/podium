@@ -1,3 +1,4 @@
+import { PanelRightClose, PanelRightOpen } from 'lucide-react'
 import type { JSX } from 'react'
 import { useState } from 'react'
 import { Toaster } from '@/components/ui/sonner'
@@ -76,7 +77,7 @@ export function AppShell(): JSX.Element {
 }
 
 function AppBody({ isMobile }: { isMobile: boolean }): JSX.Element {
-  const { repos, reposLoaded, view, superOpen } = useStore()
+  const { repos, reposLoaded, view, superOpen, setSuperOpen } = useStore()
   const [dismissed, setDismissed] = useState(false)
 
   // Cold start: the first backend fetch (repos/pins/tab orders) hasn't resolved
@@ -116,6 +117,24 @@ function AppBody({ isMobile }: { isMobile: boolean }): JSX.Element {
               <RightDock />
             </aside>
           )}
+          {/* Always-visible dock toggle rail (IDE-style): open/close the right
+              panel from anywhere, independent of the sidebar Superagent button. */}
+          <div className="flex flex-none flex-col items-center border-l border-border bg-card px-0.5 pt-1.5">
+            <button
+              type="button"
+              aria-label={superOpen ? 'Close right panel' : 'Open right panel'}
+              title={superOpen ? 'Close right panel' : 'Open right panel'}
+              aria-pressed={superOpen}
+              onClick={() => setSuperOpen(!superOpen)}
+              className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+            >
+              {superOpen ? (
+                <PanelRightClose size={16} aria-hidden="true" />
+              ) : (
+                <PanelRightOpen size={16} aria-hidden="true" />
+              )}
+            </button>
+          </div>
         </div>
       )}
       <AutoContinueDialog />
