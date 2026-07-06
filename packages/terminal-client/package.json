@@ -12,6 +12,16 @@
       "@podium/source": "./src/index.ts",
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./connection": {
+      "@podium/source": "./src/connection.ts",
+      "types": "./src/connection.ts",
+      "import": "./src/connection.ts"
+    },
+    "./session-mount": {
+      "@podium/source": "./src/session-mount.ts",
+      "types": "./src/session-mount.ts",
+      "import": "./src/session-mount.ts"
     }
   },
   "files": [
