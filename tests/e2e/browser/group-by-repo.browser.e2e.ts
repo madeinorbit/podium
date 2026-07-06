@@ -18,6 +18,17 @@ async function openShell(page: Page): Promise<void> {
   await page.locator('aside').first().waitFor({ state: 'visible', timeout: 60_000 })
 }
 
+/** Rows inside the CollapsibleSection that `header` belongs to (its section div). */
+function countRowsUnder(
+  _aside: ReturnType<Page['locator']>,
+  header: ReturnType<Page['locator']>,
+): Promise<number> {
+  return header
+    .locator('xpath=ancestor::div[contains(@class,"min-w-0")][1]')
+    .getByTestId('unified-issue-row')
+    .count()
+}
+
 test('unified WORK list groups by repo and back', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 900 })
   await openShell(page)
@@ -32,6 +43,17 @@ test('unified WORK list groups by repo and back', async ({ page }) => {
   await expect
     .poll(async () => aside.getByTestId('unified-issue-row').count(), { timeout: 30_000 })
     .toBeGreaterThan(0)
+
+  // Spawn a second agent into the harness's OTHER repo (zz-podium-e2e-repo-*)
+  // via the two-level agent→repo menu, so grouping has two distinct repos.
+  await aside.getByRole('button', { name: 'Choose agent and repo' }).click()
+  await page.getByRole('menuitem', { name: 'New Claude', exact: true }).hover()
+  await page
+    .getByRole('menuitem', { name: /zz-podium-e2e-repo/ })
+    .click({ timeout: 10_000 })
+  await expect
+    .poll(async () => aside.getByTestId('unified-issue-row').count(), { timeout: 30_000 })
+    .toBeGreaterThan(1)
   const flatRows = await aside.getByTestId('unified-issue-row').count()
 
   // The harness repo's name shows in the spawn button: `New <Agent> in <Repo>`.
@@ -45,19 +67,23 @@ test('unified WORK list groups by repo and back', async ({ page }) => {
   await page.getByRole('option', { name: 'Group: repo' }).click()
   await expect(groupSelect).toContainText('Group: repo')
 
-  // One harness repo → one group header (CollapsibleSection button, aria-label
-  // "Collapse <repoName>") wrapping every row.
+  // Two repos → two group headers (CollapsibleSection buttons, aria-label
+  // "Collapse <repoName>"), together wrapping every row.
   const groupHeader = aside.getByRole('button', {
     name: new RegExp(`^(Collapse|Expand) ${repoName}$`, 'i'),
   })
+  const zzHeader = aside.getByRole('button', {
+    name: /^(Collapse|Expand) zz-podium-e2e-repo/i,
+  })
   await expect(groupHeader).toBeVisible({ timeout: 10_000 })
+  await expect(zzHeader).toBeVisible({ timeout: 10_000 })
   await expect(aside.getByTestId('unified-issue-row')).toHaveCount(flatRows)
 
-  // ---- Collapse hides the group's rows (count badge appears); expand restores ----
-  await groupHeader.click()
-  await expect(aside.getByTestId('unified-issue-row')).toHaveCount(0)
-  await expect(groupHeader).toContainText(`· ${flatRows}`)
-  await groupHeader.click()
+  // ---- Collapsing ONE group hides only its rows; expand restores ----
+  const zzRows = flatRows - (await countRowsUnder(aside, groupHeader))
+  await zzHeader.click()
+  await expect(aside.getByTestId('unified-issue-row')).toHaveCount(flatRows - zzRows)
+  await zzHeader.click()
   await expect(aside.getByTestId('unified-issue-row')).toHaveCount(flatRows)
 
   if (process.env.SIDEBAR_SHOT) {
