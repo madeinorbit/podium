@@ -1,10 +1,15 @@
 import {
   BrushCleaning,
+  ChevronDown,
+  ChevronRight,
+  CircleCheck,
+  CircleX,
   GitMerge,
+  LoaderCircle,
   MessageSquareWarning,
   Plus,
+  RotateCw,
   ShieldCheck,
-  Zap,
 } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
 import { useState } from 'react'
@@ -41,6 +46,63 @@ interface Automation {
   /** Human-readable trigger summary, e.g. "Weekly on Sunday at 04:00". */
   summary: string
   enabled: boolean
+  /** Small muted "agent · model" line on the card, if configured. */
+  agentLine?: string
+}
+
+type RunStatus = 'success' | 'failure' | 'running'
+
+interface AutomationRun {
+  id: string
+  status: RunStatus
+  /** Relative time, e.g. "2h ago". */
+  when: string
+  /** Duration, e.g. "1m 12s" — empty while running. */
+  duration: string
+  summary: string
+}
+
+/** Hardcoded mock run history for the prototype, keyed by automation id. */
+const MOCK_RUNS: Record<string, AutomationRun[]> = {
+  'seed-worktree-cleanup': [
+    {
+      id: 'r1',
+      status: 'running',
+      when: 'now',
+      duration: '',
+      summary: 'Scanning worktrees…',
+    },
+    {
+      id: 'r2',
+      status: 'success',
+      when: '2h ago',
+      duration: '1m 12s',
+      summary: 'Pruned 3 worktrees',
+    },
+    {
+      id: 'r3',
+      status: 'success',
+      when: 'yesterday',
+      duration: '48s',
+      summary: 'No changes needed',
+    },
+  ],
+  'seed-changelog-update': [
+    {
+      id: 'r1',
+      status: 'success',
+      when: '5h ago',
+      duration: '2m 04s',
+      summary: 'Appended entry for #94 merge',
+    },
+    {
+      id: 'r2',
+      status: 'failure',
+      when: 'yesterday',
+      duration: '31s',
+      summary: 'Rebase conflict in CHANGELOG.md',
+    },
+  ],
 }
 
 /** Seeded example automations — all deactivated; this view is a prototype. */
@@ -179,37 +241,97 @@ function AutomationCard({
   onToggle: (enabled: boolean) => void
 }): JSX.Element {
   const a = automation
+  const [expanded, setExpanded] = useState(false)
+  const runs = MOCK_RUNS[a.id] ?? []
+  const lastRun = runs.find((r) => r.status !== 'running')
   return (
     <div
       className={cn(
-        'flex items-center gap-3 rounded-md border border-border bg-card px-3 py-2.5 transition-colors',
+        'rounded-md border border-border bg-card transition-colors',
         !a.enabled && 'opacity-80',
       )}
     >
-      <span
-        className={cn(
-          'flex size-8 flex-none items-center justify-center rounded-md bg-muted/60',
-          a.enabled ? 'text-foreground' : 'text-muted-foreground',
-        )}
-      >
-        {a.icon}
-      </span>
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2">
-          <span className="truncate font-medium text-[13px] text-foreground">{a.name}</span>
-          <Badge variant="outline" className="font-normal">
-            {a.trigger === 'schedule' ? 'Schedule' : 'Reactive'}
-          </Badge>
+      <div className="flex items-center gap-3 px-3 py-2.5">
+        <button
+          type="button"
+          className="-ml-1 flex size-6 flex-none items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          aria-label={`${expanded ? 'Collapse' : 'Expand'} ${a.name} runs`}
+          aria-expanded={expanded}
+          onClick={() => setExpanded((v) => !v)}
+        >
+          {expanded ? (
+            <ChevronDown size={14} aria-hidden="true" />
+          ) : (
+            <ChevronRight size={14} aria-hidden="true" />
+          )}
+        </button>
+        <span
+          className={cn(
+            'flex size-8 flex-none items-center justify-center rounded-md bg-muted/60',
+            a.enabled ? 'text-foreground' : 'text-muted-foreground',
+          )}
+        >
+          {a.icon}
+        </span>
+        {/* biome-ignore lint/a11y/noStaticElementInteractions: convenience click target; the chevron button is the accessible control */}
+        <div
+          className="min-w-0 flex-1 cursor-pointer"
+          onClick={() => setExpanded((v) => !v)}
+        >
+          <div className="flex items-center gap-2">
+            <span className="truncate font-medium text-[13px] text-foreground">{a.name}</span>
+            <Badge variant="outline" className="font-normal">
+              {a.trigger === 'schedule' ? 'Schedule' : 'Reactive'}
+            </Badge>
+          </div>
+          <div className="truncate text-[12px] text-muted-foreground">{a.summary}</div>
+          <div className="truncate text-[11px] text-muted-foreground/70">
+            Last run: {lastRun ? `${lastRun.when} — ${lastRun.summary}` : '—'}
+            {a.agentLine ? ` · ${a.agentLine}` : ''}
+          </div>
         </div>
-        <div className="truncate text-[12px] text-muted-foreground">{a.summary}</div>
-        <div className="text-[11px] text-muted-foreground/70">Last run: —</div>
+        <Switch
+          checked={a.enabled}
+          onCheckedChange={onToggle}
+          aria-label={`${a.enabled ? 'Disable' : 'Enable'} ${a.name}`}
+        />
       </div>
-      <Switch
-        checked={a.enabled}
-        onCheckedChange={onToggle}
-        aria-label={`${a.enabled ? 'Disable' : 'Enable'} ${a.name}`}
-      />
+      {expanded && (
+        <div className="border-border border-t px-3 py-2">
+          <div className="mb-1 font-medium text-[11px] text-muted-foreground uppercase tracking-wide">
+            Recent runs
+          </div>
+          {runs.length === 0 ? (
+            <div className="py-1 text-[12px] text-muted-foreground/70">No runs yet</div>
+          ) : (
+            <ul className="flex flex-col">
+              {runs.map((r) => (
+                <li key={r.id} className="flex items-center gap-2 py-1 text-[12px]">
+                  <RunStatusIcon status={r.status} />
+                  <span className="w-16 flex-none text-muted-foreground">{r.when}</span>
+                  <span className="w-14 flex-none text-muted-foreground/70">{r.duration || '—'}</span>
+                  <span className="min-w-0 truncate text-foreground">{r.summary}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
     </div>
+  )
+}
+
+function RunStatusIcon({ status }: { status: RunStatus }): JSX.Element {
+  if (status === 'success')
+    return <CircleCheck size={14} aria-label="Succeeded" className="flex-none text-emerald-500" />
+  if (status === 'failure')
+    return <CircleX size={14} aria-label="Failed" className="flex-none text-red-500" />
+  return (
+    <LoaderCircle
+      size={14}
+      aria-label="Running"
+      className="flex-none animate-spin text-muted-foreground"
+    />
   )
 }
 
@@ -236,6 +358,10 @@ function NewAutomationDialog({
   const [glob, setGlob] = useState('')
   // Task prompt.
   const [prompt, setPrompt] = useState('')
+  // Runner configuration (local-only mock).
+  const [agent, setAgent] = useState('Claude Code')
+  const [model, setModel] = useState('Fable 5')
+  const [thinking, setThinking] = useState('Medium')
 
   const cron = cronPreview(freq, time, weekday, rawCron)
   const canCreate = name.trim().length > 0
@@ -251,10 +377,11 @@ function NewAutomationDialog({
     onCreate({
       id: `local-${Date.now()}`,
       name: name.trim(),
-      icon: <Zap size={16} aria-hidden="true" />,
+      icon: <RotateCw size={16} aria-hidden="true" />,
       trigger: kind,
       summary,
       enabled: false,
+      agentLine: `${agent} · ${model}`,
     })
   }
 
@@ -395,6 +522,54 @@ function NewAutomationDialog({
               placeholder="What should the agent do each run?"
               className="min-h-24"
             />
+          </div>
+
+          <div className="grid grid-cols-3 gap-2">
+            <div className="flex min-w-0 flex-col gap-1.5">
+              <Label htmlFor="automation-agent">Agent</Label>
+              <Select value={agent} onValueChange={(v) => setAgent(v ?? 'Claude Code')}>
+                <SelectTrigger id="automation-agent" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {['Claude Code', 'Codex', 'Shell command'].map((v) => (
+                    <SelectItem key={v} value={v}>
+                      {v}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex min-w-0 flex-col gap-1.5">
+              <Label htmlFor="automation-model">Model</Label>
+              <Select value={model} onValueChange={(v) => setModel(v ?? 'Fable 5')}>
+                <SelectTrigger id="automation-model" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {['Fable 5', 'Opus 4.8', 'Sonnet 5', 'Haiku 4.5'].map((v) => (
+                    <SelectItem key={v} value={v}>
+                      {v}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex min-w-0 flex-col gap-1.5">
+              <Label htmlFor="automation-thinking">Thinking</Label>
+              <Select value={thinking} onValueChange={(v) => setThinking(v ?? 'Medium')}>
+                <SelectTrigger id="automation-thinking" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {['Low', 'Medium', 'High', 'Max'].map((v) => (
+                    <SelectItem key={v} value={v}>
+                      {v}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
         </div>
 

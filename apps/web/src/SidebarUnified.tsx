@@ -1,5 +1,5 @@
 import type { AgentKind, IssueWire, SessionMeta } from '@podium/protocol'
-import { ChevronDown, ChevronRight, GitBranch, KanbanSquare, Plus, Zap } from 'lucide-react'
+import { ChevronDown, ChevronRight, GitBranch, KanbanSquare, Plus, RotateCw } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
 import { useEffect, useRef, useState } from 'react'
 import {
@@ -286,7 +286,7 @@ export function SidebarUnified(): JSX.Element {
           aria-pressed={view === 'automations'}
           onClick={() => setView('automations')}
         >
-          <Zap size={15} aria-hidden="true" />
+          <RotateCw size={15} aria-hidden="true" />
           Automations
         </button>
       </div>
@@ -295,7 +295,7 @@ export function SidebarUnified(): JSX.Element {
         {/* PINNED stays; NEEDS YOUR ATTENTION / WORKING are gone — the WORK list
             below is status-ordered instead. */}
         {workItems.pinnedPanels.length > 0 && (
-          <div className="min-w-0 border-b border-border">
+          <div className="min-w-0">
             <CollapsibleSection
               label="PINNED"
               storageKey="podium:sidebar:collapsed:pinned"

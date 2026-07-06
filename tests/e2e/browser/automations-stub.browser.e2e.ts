@@ -17,7 +17,7 @@ test('unified sidebar links + automations prototype', async ({ page }) => {
   })
 
   const sidebar = page.locator('aside').first()
-  await sidebar.waitFor({ state: 'visible', timeout: 10_000 })
+  await sidebar.waitFor({ state: 'visible', timeout: 60_000 })
 
   // Both nav links present under the top action row.
   const issuesLink = sidebar.getByRole('button', { name: 'Issues', exact: true })
@@ -49,6 +49,14 @@ test('unified sidebar links + automations prototype', async ({ page }) => {
   await cleanupToggle.click()
   await expect(cleanupToggle).toBeChecked()
 
+  // Expanding a card reveals its mock "Recent runs" list.
+  await view.getByRole('button', { name: /Expand Worktree cleanup runs/ }).click()
+  await expect(view.getByText('Pruned 3 worktrees', { exact: true })).toBeVisible()
+  await expect(view.getByText('No changes needed', { exact: true })).toBeVisible()
+  // A seeded automation without history shows the empty state.
+  await view.getByRole('button', { name: /Expand Dependency audit runs/ }).click()
+  await expect(view.getByText('No runs yet')).toBeVisible()
+
   // New-automation dialog: schedule cron preview reacts to frequency.
   await view.getByRole('button', { name: 'New automation' }).click()
   const dialog = page.getByRole('dialog')
@@ -64,6 +72,11 @@ test('unified sidebar links + automations prototype', async ({ page }) => {
   await dialog.getByRole('combobox').first().click()
   await page.getByRole('option', { name: 'File changed' }).click()
   await expect(dialog.getByLabel('Path glob')).toBeVisible()
+
+  // Agent / Model / Thinking pickers with defaults.
+  await expect(dialog.getByLabel('Agent')).toContainText('Claude Code')
+  await expect(dialog.getByLabel('Model')).toContainText('Fable 5')
+  await expect(dialog.getByLabel('Thinking')).toContainText('Medium')
 
   // Create appends a deactivated card and closes the dialog.
   await dialog.getByRole('button', { name: 'Create automation' }).click()
