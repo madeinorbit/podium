@@ -87,6 +87,14 @@ export interface Store {
   setOpenIssueId: (id: string | null) => void
   selectedWorktree: string | null
   setSelectedWorktree: (path: string | null) => void
+  /** Issue-keyed workspace selection (unified sidebar only): the issue whose
+   *  sessions the center tab strip shows. Null = today's worktree-keyed view.
+   *  Classic sidebar never sets it; unified worktree rows clear it. */
+  selectedIssueId: string | null
+  setSelectedIssueId: (id: string | null) => void
+  /** Temporary sidebar layout switcher (issue-as-workspace rollout). Persisted. */
+  sidebarLayout: 'classic' | 'unified'
+  setSidebarLayout: (layout: 'classic' | 'unified') => void
   paneA: string | null // sessionId in pane A
   paneB: string | null // sessionId in pane B (null = no split)
   setPane: (pane: 'A' | 'B', sessionId: string | null) => void
@@ -176,6 +184,8 @@ const Ctx = createContext<Store | null>(null)
 const VIEW_KEY = 'podium.view'
 const SIDEBAR_TAB_KEY = 'podium.sidebarTab'
 const WT_KEY = 'podium.selectedWorktree'
+const ISSUE_SEL_KEY = 'podium.selectedIssueId'
+const SIDEBAR_LAYOUT_KEY = 'podium.sidebarLayout'
 /** An open file-editor tab. `id` is `file:<scopeKey>:<path>`; `worktreePath` (the
  *  containment root) scopes it to a worktree's tab strip. `scope` carries how the
  *  daemon read/write is addressed (a session today, or a worktree directly). */
@@ -400,6 +410,14 @@ export function StoreProvider({
   }
   const [openIssueId, setOpenIssueId] = useState<string | null>(null)
   const [selectedWorktree, setSelectedWorktree] = useState<string | null>(() => lsGet(WT_KEY))
+  const [selectedIssueId, setSelectedIssueId] = useState<string | null>(() => lsGet(ISSUE_SEL_KEY))
+  const [sidebarLayout, setSidebarLayoutState] = useState<'classic' | 'unified'>(() =>
+    lsGet(SIDEBAR_LAYOUT_KEY) === 'unified' ? 'unified' : 'classic',
+  )
+  const setSidebarLayout = (layout: 'classic' | 'unified') => {
+    setSidebarLayoutState(layout)
+    lsSet(SIDEBAR_LAYOUT_KEY, layout)
+  }
   const [paneA, setPaneA] = useState<string | null>(() => lsGet(PANE_A_KEY))
   const [paneB, setPaneB] = useState<string | null>(() => lsGet(PANE_B_KEY))
   const [split, setSplit] = useState(() => lsGet(SPLIT_KEY) === '1')
@@ -774,6 +792,7 @@ export function StoreProvider({
   // Persist the "where am I" state for next load.
   useEffect(() => lsSet(VIEW_KEY, view), [view])
   useEffect(() => lsSet(WT_KEY, selectedWorktree), [selectedWorktree])
+  useEffect(() => lsSet(ISSUE_SEL_KEY, selectedIssueId), [selectedIssueId])
   useEffect(() => lsSet(PANE_A_KEY, paneA), [paneA])
   useEffect(() => lsSet(PANE_B_KEY, paneB), [paneB])
   useEffect(() => lsSet(SPLIT_KEY, split ? '1' : '0'), [split])
@@ -920,6 +939,10 @@ export function StoreProvider({
     setOpenIssueId,
     selectedWorktree,
     setSelectedWorktree,
+    selectedIssueId,
+    setSelectedIssueId,
+    sidebarLayout,
+    setSidebarLayout,
     paneA,
     paneB,
     // Selecting a pane also focuses it — clicking/opening a pane is a reasonable

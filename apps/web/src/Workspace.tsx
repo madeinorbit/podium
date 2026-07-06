@@ -27,13 +27,14 @@ import {
   orphanSessionFor,
   reposToViews,
   sessionDotClass,
+  sessionsForIssueNav,
   sessionsForWorktree,
 } from './derive'
 import { NewPanelMenu } from './NewPanelMenu'
+import { type ContextMenuAnchor, SessionContextMenu } from './SessionContextMenu'
 import { type FileTab, useStore } from './store'
 import type { WorktreeView } from './types'
 import { useWarmSet } from './use-warm-set'
-import { type ContextMenuAnchor, SessionContextMenu } from './SessionContextMenu'
 import { SessionNameEditor, sessionDisplayName, WorkerLabel } from './WorkerLabel'
 
 const FilePanel = lazy(() => import('./FilePanel').then((m) => ({ default: m.FilePanel })))
@@ -81,27 +82,56 @@ export function Workspace(): JSX.Element {
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
 
   const allWorktrees = reposToViews(store.repos).flatMap((r) => r.worktrees)
+  const allWorktreePaths = allWorktrees.map((w) => w.path)
   const worktree: WorktreeView | undefined = allWorktrees.find((w) => w.path === selectedWorktree)
 
+  // Issue-keyed workspace (issue-as-workspace, unified layout only): when an
+  // issue row is selected, the tab strip shows the issue's sessions (explicit
+  // issueId first-class + cwd-contained legacy) instead of a worktree's.
+  const issue =
+    store.sidebarLayout === 'unified' && store.selectedIssueId
+      ? store.issues.find((i) => i.id === store.selectedIssueId && !i.archived)
+      : undefined
+  const issueWorktree = issue?.worktreePath
+    ? allWorktrees.find((w) => w.path === issue.worktreePath)
+    : undefined
+  // Where the "+" menu spawns inside an issue workspace: the issue's worktree,
+  // or the repo's primary (main) worktree for worktree-less issues.
+  const panelTarget: WorktreeView | undefined = issue
+    ? (issueWorktree ??
+      allWorktrees.find((w) => w.repoPath === issue.repoPath && w.isMain) ?? {
+        path: issue.repoPath,
+        repoPath: issue.repoPath,
+        isMain: true,
+      })
+    : worktree
+
   // Unified, ordered tab list (sessions + open files). Default order is pin-aware
-  // sessions then files; a manual drag order (persisted per worktree, may include file
-  // ids) is applied on top. File ids that no longer exist (after reload) are dropped.
-  const sessionList = worktree
-    ? sessionsForWorktree(
-        sessions,
-        worktree.path,
-        allWorktrees.map((w) => w.path),
-      )
-    : []
-  const fileList = worktree ? fileTabs.filter((f) => f.worktreePath === worktree.path) : []
+  // sessions then files; a manual drag order (persisted per worktree — or per
+  // issue under an `issue:<id>` key — may include file ids) is applied on top.
+  // File ids that no longer exist (after reload) are dropped.
+  const sessionList = issue
+    ? sessionsForIssueNav(issue, sessions, allWorktreePaths, { includeShells: true })
+    : worktree
+      ? sessionsForWorktree(sessions, worktree.path, allWorktreePaths)
+      : []
+  const fileList = issue
+    ? issue.worktreePath
+      ? fileTabs.filter((f) => f.worktreePath === issue.worktreePath)
+      : []
+    : worktree
+      ? fileTabs.filter((f) => f.worktreePath === worktree.path)
+      : []
+  const orderKey = issue ? `issue:${issue.id}` : worktree?.path
   const byId = new Map<string, WTab>()
-  for (const s of sessionList) byId.set(s.sessionId, { id: s.sessionId, kind: 'session', session: s })
+  for (const s of sessionList)
+    byId.set(s.sessionId, { id: s.sessionId, kind: 'session', session: s })
   for (const f of fileList) byId.set(f.id, { id: f.id, kind: 'file', file: f })
   const baseIds = [
     ...orderTabs(sessionList, undefined, pins).map((s) => s.sessionId),
     ...fileList.map((f) => f.id),
   ]
-  const manual = worktree ? tabOrders[worktree.path] : undefined
+  const manual = orderKey ? tabOrders[orderKey] : undefined
   const orderedIds =
     manual && manual.length
       ? [...manual.filter((id) => byId.has(id)), ...baseIds.filter((id) => !manual.includes(id))]
@@ -165,7 +195,7 @@ export function Workspace(): JSX.Element {
     setPane('B', null)
   }, [allTabs, paneB, setPane, sessions])
 
-  if (!worktree) {
+  if (!worktree && !issue) {
     // The selected path is no longer a live worktree, but it may still own
     // sessions whose directory was removed out from under them (an orphaned
     // session — e.g. a deleted git worktree). Rather than a dead-end "Select a
@@ -192,7 +222,7 @@ export function Workspace(): JSX.Element {
     if (!over || active.id === over.id) return
     const ids = allTabs.map((t) => t.id)
     const next = arrayMove(ids, ids.indexOf(String(active.id)), ids.indexOf(String(over.id)))
-    void setTabOrder(worktree.path, next)
+    if (orderKey) void setTabOrder(orderKey, next)
   }
 
   return (
@@ -206,7 +236,10 @@ export function Workspace(): JSX.Element {
           modifiers={[restrictToHorizontalAxis, restrictToParentElement]}
           onDragEnd={onDragEnd}
         >
-          <SortableContext items={allTabs.map((t) => t.id)} strategy={horizontalListSortingStrategy}>
+          <SortableContext
+            items={allTabs.map((t) => t.id)}
+            strategy={horizontalListSortingStrategy}
+          >
             <div className="flex min-w-0 flex-1 items-stretch gap-[3px] overflow-x-auto overflow-y-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
               {allTabs.map((t) => (
                 <SortableTab
@@ -220,7 +253,9 @@ export function Workspace(): JSX.Element {
                       ? () => void setPinned('panel', t.id, !pins.panels.includes(t.id))
                       : undefined
                   }
-                  onClose={() => (t.kind === 'session' ? void guardedKill(t.id) : closeFileTab(t.id))}
+                  onClose={() =>
+                    t.kind === 'session' ? void guardedKill(t.id) : closeFileTab(t.id)
+                  }
                 />
               ))}
             </div>
@@ -231,13 +266,21 @@ export function Workspace(): JSX.Element {
               auto-positioned dropdown (Base UI Positioner handles collision/
               clamping), so the parent no longer renders/positions the menu. */}
           <NewPanelMenu
-            worktree={worktree}
+            // biome-ignore lint/style/noNonNullAssertion: the early return above guarantees worktree or issue (which makes panelTarget defined)
+            worktree={panelTarget!}
+            issueId={issue?.id}
             onOpened={(sid) => {
               justOpened.current = sid
               setPane('A', sid)
             }}
           />
-          <Button variant="ghost" size="icon" title="Split" aria-label="Split" onClick={toggleSplit}>
+          <Button
+            variant="ghost"
+            size="icon"
+            title="Split"
+            aria-label="Split"
+            onClick={toggleSplit}
+          >
             <Columns2 size={16} aria-hidden="true" />
           </Button>
         </div>
@@ -381,11 +424,16 @@ function SortableTab({
         >
           {tab.kind === 'session' ? (
             <>
-              <span className={sessionDotClass(tab.session)} /> <WorkerLabel session={tab.session} />
+              <span className={sessionDotClass(tab.session)} />{' '}
+              <WorkerLabel session={tab.session} />
             </>
           ) : (
             <>
-              <FileText size={12} aria-hidden="true" className="flex-none text-muted-foreground/70" />
+              <FileText
+                size={12}
+                aria-hidden="true"
+                className="flex-none text-muted-foreground/70"
+              />
               <span className="truncate">{tabName(tab)}</span>
             </>
           )}
@@ -440,13 +488,7 @@ function Empty(): JSX.Element {
   )
 }
 
-function PanePicker({
-  tabs,
-  onPick,
-}: {
-  tabs: WTab[]
-  onPick: (id: string) => void
-}): JSX.Element {
+function PanePicker({ tabs, onPick }: { tabs: WTab[]; onPick: (id: string) => void }): JSX.Element {
   return (
     <div className="m-auto flex flex-col items-center gap-2 text-[13px] text-muted-foreground/70">
       <div>Pick a panel for this pane:</div>

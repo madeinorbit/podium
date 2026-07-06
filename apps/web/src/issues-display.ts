@@ -8,6 +8,9 @@ export interface IssuesDisplay {
   ordering: IssuesOrdering
   /** true = the old flat view (sub-issues at top level); false = nested (#85). */
   flatten: boolean
+  /** Show agent-origin issues at top level (issue-as-workspace). Default OFF —
+   *  agent tasks only surface as children under their (visible) parent. */
+  showAgentTasks: boolean
   badges: { labels: boolean; type: boolean; estimate: boolean; due: boolean; sessions: boolean }
 }
 
@@ -17,6 +20,7 @@ export const DEFAULT_DISPLAY: IssuesDisplay = {
   layout: 'board',
   ordering: 'updated',
   flatten: false,
+  showAgentTasks: false,
   badges: { labels: true, type: true, estimate: true, due: true, sessions: true },
 }
 
@@ -47,6 +51,8 @@ export function readIssuesDisplay(raw: string | null): IssuesDisplay {
       ? (o.ordering as IssuesOrdering)
       : DEFAULT_DISPLAY.ordering,
     flatten: typeof o.flatten === 'boolean' ? o.flatten : DEFAULT_DISPLAY.flatten,
+    showAgentTasks:
+      typeof o.showAgentTasks === 'boolean' ? o.showAgentTasks : DEFAULT_DISPLAY.showAgentTasks,
     badges: {
       labels: badge('labels'),
       type: badge('type'),
@@ -59,6 +65,34 @@ export function readIssuesDisplay(raw: string | null): IssuesDisplay {
 
 export function writeIssuesDisplay(d: IssuesDisplay): string {
   return JSON.stringify(d)
+}
+
+/**
+ * Board/list scope filter (issue-as-workspace): drafts never show on the board
+ * (they live in the sidebar), and agent-origin issues are hidden unless
+ * `showAgentTasks` — EXCEPT children whose parent survives the filter, which
+ * always ride under it (epic drill-down shows all children).
+ */
+export function filterBoardScope(issues: IssueWire[], showAgentTasks: boolean): IssueWire[] {
+  const noDrafts = issues.filter((i) => !i.draft)
+  if (showAgentTasks) return noDrafts
+  const byId = new Map(noDrafts.map((i) => [i.id, i]))
+  const topLevelVisible = (i: IssueWire): boolean => i.origin !== 'agent'
+  return noDrafts.filter((i) => {
+    if (topLevelVisible(i)) return true
+    // Agent-origin: keep only when some ancestor chain reaches a visible issue —
+    // it then shows as a child under that parent rather than at top level.
+    let cur = i
+    const seen = new Set<string>([i.id])
+    while (cur.parentId) {
+      const parent = byId.get(cur.parentId)
+      if (!parent || seen.has(parent.id)) return false
+      if (topLevelVisible(parent)) return true
+      seen.add(parent.id)
+      cur = parent
+    }
+    return false
+  })
 }
 
 /** Stable ordering for board columns and list groups. Pure — returns a copy. */

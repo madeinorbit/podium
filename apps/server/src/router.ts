@@ -135,12 +135,33 @@ export const appRouter = t.router({
           // Which machine to spawn on. Omitted = resolved by repo affinity / the sole
           // online machine (single-machine behavior is unchanged).
           machineId: z.string().optional(),
+          // Explicit issue attachment (issue-as-workspace). Omitted = derived from
+          // cwd (sole non-archived owning issue) inside createSession.
+          issueId: z.string().optional(),
+          // Low-friction start: create a draft issue vessel first and attach the
+          // new session to it (spec: issue-as-workspace).
+          draftIssue: z.object({ repoPath: z.string() }).optional(),
+          mutationId: z.string().max(128).optional(),
         }),
       )
       // Provenance (issue #60) is stamped HERE, the one human seam: every tRPC
       // sessions.create is an operator action (web UI / CLI). Programmatic creators
       // (issues, superagent) call registry.createSession directly with their own tag.
-      .mutation(({ ctx, input }) => ctx.registry.createSession({ ...input, spawnedBy: 'user' })),
+      .mutation(({ ctx, input }) =>
+        ctx.registry.withMutation(input.mutationId, 'sessions.create', () => {
+          const { draftIssue, mutationId: _m, ...rest } = input
+          const issueId =
+            rest.issueId ??
+            (draftIssue
+              ? ctx.registry.issues.createDraftFor(draftIssue.repoPath, rest.agentKind).id
+              : undefined)
+          return ctx.registry.createSession({
+            ...rest,
+            ...(issueId ? { issueId } : {}),
+            spawnedBy: 'user',
+          })
+        }),
+      ),
     resume: t.procedure
       .input(
         z.object({
@@ -252,6 +273,20 @@ export const appRouter = t.router({
       .mutation(({ ctx, input }) =>
         ctx.registry.withMutation(input.mutationId, 'sessions.setArchived', () =>
           ctx.registry.setArchived(input),
+        ),
+      ),
+    // Move (or clear) a session's explicit issue attachment (issue-as-workspace).
+    setIssueId: t.procedure
+      .input(
+        z.object({
+          sessionId: z.string(),
+          issueId: z.string().nullable(),
+          mutationId: z.string().max(128).optional(),
+        }),
+      )
+      .mutation(({ ctx, input }) =>
+        ctx.registry.withMutation(input.mutationId, 'sessions.setIssueId', () =>
+          ctx.registry.setSessionIssueId(input.sessionId, input.issueId),
         ),
       ),
     setWorkState: t.procedure
@@ -907,6 +942,22 @@ export const appRouter = t.router({
           ),
         ),
       ),
+    // Agent self-organization (issue-as-workspace): re-home the calling session
+    // onto an existing issue or a fresh sub-issue. sessionId comes from the daemon
+    // relay context (runIssueRelay overwrites it) — never trusted from agent input.
+    // Deliberately NOT scope-gated (see PROC_ACTION note) and not hub-forwarded
+    // (sessions are local).
+    attachSession: issueProc
+      .input(
+        z.object({
+          sessionId: z.string(),
+          targetId: z.string().optional(),
+          newSubissue: z
+            .object({ title: z.string().min(1), origin: z.enum(['human', 'agent']).optional() })
+            .optional(),
+        }),
+      )
+      .mutation(({ ctx, input }) => ctx.registry.issues.attachSession(input)),
     archive: issueProc
       .input(z.object({ id: z.string() }))
       .mutation(({ ctx, input }) =>

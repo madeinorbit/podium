@@ -528,8 +528,7 @@ export function sidebarSections(
     pins.panels
       .map((sessionId) => sessions.find((session) => session.sessionId === sessionId))
       .filter(
-        (session): session is SessionMeta =>
-          session !== undefined && !isHeadlessSession(session),
+        (session): session is SessionMeta => session !== undefined && !isHeadlessSession(session),
       ),
   )
 
@@ -872,6 +871,136 @@ export function filterIssueNav(list: IssueNavView[], query: string): IssueNavVie
       v.repoName.toLowerCase().includes(q) ||
       v.issue.stage.toLowerCase().includes(q),
   )
+}
+
+/** Explicit-attachment-first session grouping for an issue row (issue-as-workspace):
+ *  sessions with `issueId === issue.id` are first-class members; sessions with NO
+ *  issueId fall back to cwd containment in the issue's worktree (legacy). A session
+ *  attached to a DIFFERENT issue never shows here even if its cwd is contained.
+ *  Archived + headless sessions are always excluded; shells are excluded by default
+ *  (sidebar policy) — the workspace tab strip opts them back in. */
+export function sessionsForIssueNav(
+  issue: IssueWire,
+  sessions: SessionMeta[],
+  allWorktreePaths: string[],
+  opts: { includeShells?: boolean } = {},
+): SessionMeta[] {
+  const wt = issue.worktreePath
+  // Longest-match containment needs the full root list (a repo root contains its
+  // own .worktrees/* checkouts); make sure the issue's own worktree is in it.
+  const roots = wt && !allWorktreePaths.includes(wt) ? [...allWorktreePaths, wt] : allWorktreePaths
+  return sessions.filter((s) => {
+    if (s.archived || isHeadlessSession(s)) return false
+    if (!opts.includeShells && s.agentKind === 'shell') return false
+    if (s.issueId !== undefined) return s.issueId === issue.id
+    if (!wt) return false
+    return worktreeForCwd(s.cwd, roots) === wt
+  })
+}
+
+/** Row label for a DRAFT issue (placeholder-titled vessel): the attached session's
+ *  display name, falling back to 'New agent'. Mirrors sessionDisplayName's
+ *  name-beats-title rule (WorkerLabel imports from this module, so the tiny
+ *  normalize step is inlined here rather than imported — no cycle). */
+export function draftIssueLabel(
+  issue: IssueWire,
+  sessions: SessionMeta[],
+  allWorktreePaths: string[],
+): string {
+  const first = sessionsForIssueNav(issue, sessions, allWorktreePaths)[0]
+  if (!first) return 'New agent'
+  const title = first.title.replace(/^[\p{So}\p{Sk}·•\s]+/u, '').trim()
+  return first.name?.trim() || title || 'New agent'
+}
+
+/** Resolve the user's default agent kind for the unified split button. 'auto' (or
+ *  unset) resolves to the most recently ACTIVE non-shell session's kind, falling
+ *  back to claude-code. */
+export function resolveDefaultAgent(
+  setting: string | undefined,
+  sessions: SessionMeta[],
+): AgentKind {
+  if (setting && setting !== 'auto') return setting as AgentKind
+  let best: SessionMeta | undefined
+  for (const s of sessions) {
+    if (s.agentKind === 'shell' || isHeadlessSession(s)) continue
+    if (!best || s.lastActiveAt > best.lastActiveAt) best = s
+  }
+  return best && best.agentKind !== 'shell' ? best.agentKind : 'claude-code'
+}
+
+/** lastUsedAt maps aggregated to the repo (for repo ordering / "most recent repo")
+ *  and per-worktree (for worktree ordering). A session's cwd is its worktree path;
+ *  cwds not matching any known worktree aggregate under themselves. Extracted from
+ *  Sidebar so the unified layout's "New <Agent> in <Repo>" shares the exact logic. */
+export function lastUsedMaps(
+  sections: SidebarSections,
+  sessions: SessionMeta[],
+): { byRepo: Map<string, number>; byWorktree: Map<string, number> } {
+  const worktreeToRepo = new Map<string, string>()
+  for (const repo of sections.repos) {
+    for (const wt of repo.worktrees) worktreeToRepo.set(wt.path, repo.path)
+  }
+  for (const repo of sections.pinnedRepos) {
+    for (const wt of repo.worktrees) worktreeToRepo.set(wt.path, repo.path)
+  }
+  for (const wt of sections.pinnedWorktrees) worktreeToRepo.set(wt.path, wt.repoPath)
+  const byRepo = new Map<string, number>()
+  const byWorktree = new Map<string, number>()
+  for (const s of sessions) {
+    const ts = new Date(s.lastActiveAt).getTime()
+    const repoPath = worktreeToRepo.get(s.cwd) ?? s.cwd
+    if (ts > (byRepo.get(repoPath) ?? 0)) byRepo.set(repoPath, ts)
+    if (ts > (byWorktree.get(s.cwd) ?? 0)) byWorktree.set(s.cwd, ts)
+  }
+  return { byRepo, byWorktree }
+}
+
+/** One row of the unified sidebar's WORK LIST: a human-origin issue (drafts
+ *  included) or a worktree not owned by any issue. */
+export type UnifiedWorkRow =
+  | { kind: 'issue'; issue: IssueWire; sessions: SessionMeta[]; activityAt: number }
+  | { kind: 'worktree'; worktree: WorktreeNavView; activityAt: number }
+
+/** The unified WORK LIST: all non-archived human-origin issues (drafts first-class)
+ *  ∪ nav worktrees owned by no issue, most-recently-active first. */
+export function unifiedWorkList(
+  sections: SidebarSections,
+  issues: IssueWire[],
+  sessions: SessionMeta[],
+  allWorktreePaths: string[],
+  now: number = Date.now(),
+): UnifiedWorkRow[] {
+  const rows: UnifiedWorkRow[] = []
+  for (const issue of issues) {
+    if (issue.archived || issue.origin !== 'human') continue
+    const mine = sortSessionsForSidebar(sessionsForIssueNav(issue, sessions, allWorktreePaths), now)
+    const lastSession = mine.reduce((max, s) => Math.max(max, Date.parse(s.lastActiveAt) || 0), 0)
+    rows.push({
+      kind: 'issue',
+      issue,
+      sessions: mine,
+      activityAt: lastSession || Date.parse(issue.updatedAt) || 0,
+    })
+  }
+  // Worktrees not owned by ANY non-archived issue (navWorktree already attaches
+  // owning issues per worktree — a non-empty list means an issue row covers it).
+  const seen = new Set<string>()
+  const navWorktrees = [
+    ...sections.pinnedWorktrees,
+    ...sections.pinnedRepos.flatMap((r) => r.worktrees),
+    ...sections.repos.flatMap((r) => r.worktrees),
+  ]
+  for (const wt of navWorktrees) {
+    if (seen.has(wt.path) || wt.issues.length > 0) continue
+    seen.add(wt.path)
+    const lastSession = wt.sessions.reduce(
+      (max, s) => Math.max(max, Date.parse(s.lastActiveAt) || 0),
+      0,
+    )
+    rows.push({ kind: 'worktree', worktree: wt, activityAt: lastSession })
+  }
+  return rows.sort((a, b) => b.activityAt - a.activityAt)
 }
 
 function orderMap(ids: string[]): Map<string, number> {

@@ -110,7 +110,8 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
   },
   {
     name: 'create',
-    summary: 'Create an issue. --title required; --description --priority --type --parentId --agent --model --effort --start optional.',
+    summary:
+      'Create an issue. --title required; --description --priority --type --parentId --agent --model --effort --start optional.',
     args: z.object({
       ...repoArg,
       title: z.string().min(1),
@@ -142,7 +143,8 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
   },
   {
     name: 'start',
-    summary: 'Start an issue: create its worktree+branch, claim it, spawn its agent. start <id> [--agent claude-code]. Model/effort come from the issue (set via create/update --model/--effort).',
+    summary:
+      'Start an issue: create its worktree+branch, claim it, spawn its agent. start <id> [--agent claude-code]. Model/effort come from the issue (set via create/update --model/--effort).',
     args: z.object({ id: idArg, agent: z.string().min(1).optional() }),
     positionals: ['id'],
     async run(c, a) {
@@ -159,7 +161,8 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
   },
   {
     name: 'update',
-    summary: 'Update fields on an issue (--stage --priority --assignee --title --description --type --agent --model --effort …).',
+    summary:
+      'Update fields on an issue (--stage --priority --assignee --title --description --type --agent --model --effort …).',
     args: z.object({
       id: idArg,
       stage: z.string().optional(),
@@ -187,8 +190,29 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
     },
   },
   {
+    name: 'attach',
+    summary:
+      'Re-home THIS session onto an issue: attach --id <issue> (existing, may be outside your scope) or attach --subissue "<title>" (create a child of your current issue and move there). An abandoned empty draft is cleaned up.',
+    args: z.object({
+      id: idArg.optional(),
+      subissue: z.string().min(1).optional(),
+    }),
+    positionals: ['id'],
+    async run(c, a) {
+      if (!a.id && !a.subissue) throw new Error('attach needs --id <issue> or --subissue "<title>"')
+      // sessionId is stamped server-side from the relay context (the daemon knows
+      // which session is calling); it is never taken from agent-supplied input.
+      const i = (await c.issues.attachSession.mutate({
+        ...(a.id ? { targetId: a.id as string } : {}),
+        ...(a.subissue ? { newSubissue: { title: a.subissue as string } } : {}),
+      } as never)) as { seq: number; title: string }
+      return { text: `attached to #${i.seq} ${i.title}`, data: i }
+    },
+  },
+  {
     name: 'close',
-    summary: 'Close an issue: close <id> [--reason done|superseded|duplicate|wontfix] [--note "handoff"].',
+    summary:
+      'Close an issue: close <id> [--reason done|superseded|duplicate|wontfix] [--note "handoff"].',
     args: z.object({
       id: idArg,
       reason: z.string().optional(),
@@ -245,12 +269,14 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
     async run(c, a) {
       // integrate is its own local-only proc (like cleanup): it must never be
       // hub-forwarded, while the other kinds go through the forwarding action proc.
-      const r = (a.kind === 'integrate'
-        ? await c.issues.integrate.mutate({ id: a.id as string })
-        : await c.issues.action.mutate({
-            id: a.id as string,
-            kind: a.kind as 'rebase' | 'pr' | 'merge',
-          })) as { ok: boolean; output: string }
+      const r = (
+        a.kind === 'integrate'
+          ? await c.issues.integrate.mutate({ id: a.id as string })
+          : await c.issues.action.mutate({
+              id: a.id as string,
+              kind: a.kind as 'rebase' | 'pr' | 'merge',
+            })
+      ) as { ok: boolean; output: string }
       return { text: `${a.kind}: ${r.ok ? 'OK' : 'FAILED'}\n${r.output}`.trim(), data: r }
     },
   },
@@ -270,7 +296,8 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
   },
   {
     name: 'add-session',
-    summary: "Spawn another agent session in a started issue's worktree: add-session <id> [--agent claude-code]. Model/effort follow the issue defaults (update --model/--effort).",
+    summary:
+      "Spawn another agent session in a started issue's worktree: add-session <id> [--agent claude-code]. Model/effort follow the issue defaults (update --model/--effort).",
     args: z.object({ id: idArg, agent: z.string().optional() }),
     positionals: ['id'],
     async run(c, a) {
@@ -293,7 +320,8 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
   },
   {
     name: 'dep-add',
-    summary: 'Add a dependency, <from> depends on <to>: dep-add <fromId> <toId> [--type blocks|related|discovered-from|…].',
+    summary:
+      'Add a dependency, <from> depends on <to>: dep-add <fromId> <toId> [--type blocks|related|discovered-from|…].',
     args: z.object({ fromId: idArg, toId: idArg, type: z.string().optional() }),
     positionals: ['fromId', 'toId'],
     async run(c, a) {
@@ -463,7 +491,8 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
   },
   {
     name: 'reparent',
-    summary: "Set/clear an issue's parent: reparent <id> [--parentId <id>] (omit parentId to clear).",
+    summary:
+      "Set/clear an issue's parent: reparent <id> [--parentId <id>] (omit parentId to clear).",
     args: z.object({ id: idArg, parentId: idArg.optional() }),
     positionals: ['id', 'parentId'],
     async run(c, a) {
@@ -594,7 +623,8 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
   },
   {
     name: 'prime',
-    summary: "Print this session's issue context (bound issue + children/blockers, or ready-work lobby).",
+    summary:
+      "Print this session's issue context (bound issue + children/blockers, or ready-work lobby).",
     args: z.object(optRepo),
     async run(c, a) {
       const text = (await c.issues.prime.query(a as { repoPath?: string })) as string
@@ -640,9 +670,11 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
     args: z.object({ id: idArg, set: z.string().optional() }),
     positionals: ['id'],
     async run(c, a) {
-      const i = (a.set != null
-        ? await c.issues.setState.mutate({ id: a.id as string, text: a.set as string })
-        : await c.issues.get.query({ id: a.id as string })) as {
+      const i = (
+        a.set != null
+          ? await c.issues.setState.mutate({ id: a.id as string, text: a.set as string })
+          : await c.issues.get.query({ id: a.id as string })
+      ) as {
         seq: number
         activityNotes?: string
         notesUpdatedAt?: string
@@ -684,9 +716,11 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
                 : a.clear === true
                   ? { op: 'todo-clear' }
                   : null
-      const i = (op
-        ? await c.issues.panelApply.mutate({ id: a.id as string, ...op } as never)
-        : await c.issues.get.query({ id: a.id as string })) as {
+      const i = (
+        op
+          ? await c.issues.panelApply.mutate({ id: a.id as string, ...op } as never)
+          : await c.issues.get.query({ id: a.id as string })
+      ) as {
         seq: number
         panel?: { todos: { text: string; done: boolean }[] }
       } | null
@@ -716,9 +750,11 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
           : a.remove != null
             ? { op: 'artifact-remove', index: a.remove }
             : null
-      const i = (op
-        ? await c.issues.panelApply.mutate({ id: a.id as string, ...op } as never)
-        : await c.issues.get.query({ id: a.id as string })) as {
+      const i = (
+        op
+          ? await c.issues.panelApply.mutate({ id: a.id as string, ...op } as never)
+          : await c.issues.get.query({ id: a.id as string })
+      ) as {
         seq: number
         panel?: { artifacts: { path: string; title?: string; addedAt: string }[] }
       } | null
@@ -747,9 +783,11 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
           : a.remove != null
             ? { op: 'deferred-remove', index: a.remove }
             : null
-      const i = (op
-        ? await c.issues.panelApply.mutate({ id: a.id as string, ...op } as never)
-        : await c.issues.get.query({ id: a.id as string })) as {
+      const i = (
+        op
+          ? await c.issues.panelApply.mutate({ id: a.id as string, ...op } as never)
+          : await c.issues.get.query({ id: a.id as string })
+      ) as {
         seq: number
         panel?: { deferred: { text: string; addedAt: string }[] }
       } | null
@@ -779,7 +817,7 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
             ? 'BLOCKED'
             : r.ready
               ? 'READY'
-              : r.stage ?? ''
+              : (r.stage ?? '')
       return {
         text: rows.length
           ? rows.map((r) => `${line(r)} — ${mark(r)}`).join('\n')

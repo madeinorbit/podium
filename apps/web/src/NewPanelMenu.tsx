@@ -23,7 +23,7 @@ import { type ConversationHit, useConversationSearch } from './useConversationSe
 
 type IconComponent = React.ComponentType<Record<string, unknown>>
 
-const NEW_AGENTS: { kind: AgentKind; label: string; Icon: IconComponent }[] = [
+export const NEW_AGENTS: { kind: AgentKind; label: string; Icon: IconComponent }[] = [
   { kind: 'claude-code', label: 'New Claude', Icon: ClaudeCodeIcon },
   { kind: 'codex', label: 'New Codex', Icon: OpenAIcon },
   { kind: 'grok', label: 'New Grok', Icon: GrokIcon },
@@ -47,9 +47,13 @@ export function NewPanelMenu({
   open: controlledOpen,
   onOpenChange,
   trigger,
+  issueId,
 }: {
   worktree: WorktreeView
   onOpened: (sessionId: string) => void
+  /** Attach every session spawned from this menu to an issue (issue-as-workspace:
+   *  the "+" inside an issue-keyed workspace). Omitted = today's behavior. */
+  issueId?: string
   /** Controlled open state. Omit to leave the menu self-managed (uncontrolled). */
   open?: boolean
   onOpenChange?: (open: boolean) => void
@@ -143,6 +147,7 @@ export function NewPanelMenu({
       agentKind,
       cwd,
       ...(machineId ? { machineId } : {}),
+      ...(issueId ? { issueId } : {}),
     })
     onOpened(sessionId)
   }

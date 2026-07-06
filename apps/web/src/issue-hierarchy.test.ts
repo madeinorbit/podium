@@ -43,6 +43,8 @@ function issue(over: Partial<IssueWire> = {}): IssueWire {
     archived: false,
     sessions: [],
     sessionSummary: { total: 0, byPhase: {} },
+    origin: 'human' as const,
+    draft: false,
     ...over,
   } as IssueWire
 }

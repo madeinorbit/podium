@@ -77,6 +77,10 @@ export const PROC_ACTION: Record<string, IssueAction> = {
   linearSearch: 'write',
   // write — filing/decomposing is additive; scope gates writes to EXISTING issues, not creation
   create: 'write',
+  // write, DELIBERATELY NOT scope-gated (no SCOPED_TARGET entry): attaching is the
+  // session RE-HOMING itself onto another issue — targeting outside the current
+  // subtree is the whole point (issue-as-workspace), so no --outside-scope needed.
+  attachSession: 'write',
   // manage — structural / destructive / cross-cutting
   archive: 'manage',
   delete: 'manage',

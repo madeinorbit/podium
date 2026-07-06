@@ -28,6 +28,7 @@ import {
   agentColorHex,
   filterSidebarSections,
   isSnoozed,
+  lastUsedMaps,
   partitionStaleSessions,
   partitionWorkItems,
   type RepoNavView,
@@ -48,6 +49,7 @@ import { NewPanelMenu } from './NewPanelMenu'
 import { RepoScanFlow } from './RepoScanFlow'
 import { SearchView } from './SearchView'
 import { type ContextMenuAnchor, SessionContextMenu } from './SessionContextMenu'
+import { SidebarUnified } from './SidebarUnified'
 import { SnoozeControl } from './SnoozeControl'
 import { useStore } from './store'
 import type { PinKind, WorktreeView } from './types'
@@ -58,6 +60,40 @@ const REPO_SORT_LABELS: Record<'alphabetical' | 'lastUsed' | 'custom', string> =
   lastUsed: 'Last used',
   alphabetical: 'A–Z',
   custom: 'Custom',
+}
+
+/** The one aside shell both sidebar layouts share. */
+export const SIDEBAR_ASIDE_CLASS =
+  'flex w-[280px] flex-shrink-0 flex-col overflow-y-auto border-r border-border bg-card text-card-foreground'
+
+/** Temporary Classic | Unified layout switcher (issue-as-workspace rollout). */
+function LayoutSwitcher({
+  layout,
+  onChange,
+}: {
+  layout: 'classic' | 'unified'
+  onChange: (layout: 'classic' | 'unified') => void
+}): JSX.Element {
+  return (
+    <div className="mx-3 mt-2 flex rounded-md border border-input p-0.5 text-[11px]">
+      {(['classic', 'unified'] as const).map((l) => (
+        <button
+          key={l}
+          type="button"
+          className={cn(
+            'flex-1 rounded px-2 py-0.5 capitalize',
+            layout === l
+              ? 'bg-secondary font-medium text-foreground'
+              : 'text-muted-foreground hover:text-foreground',
+          )}
+          aria-pressed={layout === l}
+          onClick={() => onChange(l)}
+        >
+          {l}
+        </button>
+      ))}
+    </div>
+  )
 }
 
 function StatusDot({ session }: { session: SessionMeta }): JSX.Element {
@@ -85,6 +121,8 @@ export function Sidebar(): JSX.Element {
     sidebarSettings,
     setSidebarSettings,
     issues,
+    sidebarLayout,
+    setSidebarLayout,
   } = useStore()
   const now = useNow(60_000)
   const [pickerOpen, setPickerOpen] = useState(false)
@@ -103,27 +141,10 @@ export function Sidebar(): JSX.Element {
   const dragRepoPath = useRef<string | null>(null)
   const [dragOverPath, setDragOverPath] = useState<string | null>(null)
 
-  // Build a lastUsedAt map keyed by REPO path, aggregating across all worktrees.
-  // A session's cwd may be a linked worktree (not the repo root), so we first
-  // build a worktree-path→repo-path index from the view model, then aggregate.
-  const worktreeToRepo = new Map<string, string>()
-  for (const repo of sections.repos) {
-    for (const wt of repo.worktrees) worktreeToRepo.set(wt.path, repo.path)
-  }
-  for (const repo of sections.pinnedRepos) {
-    for (const wt of repo.worktrees) worktreeToRepo.set(wt.path, repo.path)
-  }
-  for (const wt of sections.pinnedWorktrees) worktreeToRepo.set(wt.path, wt.repoPath)
   // lastUsedAt aggregated to the repo (for repo ordering) and kept per-worktree
-  // (for worktree ordering within a repo). A session's cwd is its worktree path.
-  const lastUsedAtMap = new Map<string, number>()
-  const lastUsedByWorktree = new Map<string, number>()
-  for (const s of sessions) {
-    const ts = new Date(s.lastActiveAt).getTime()
-    const repoPath = worktreeToRepo.get(s.cwd) ?? s.cwd
-    if (ts > (lastUsedAtMap.get(repoPath) ?? 0)) lastUsedAtMap.set(repoPath, ts)
-    if (ts > (lastUsedByWorktree.get(s.cwd) ?? 0)) lastUsedByWorktree.set(s.cwd, ts)
-  }
+  // (for worktree ordering within a repo) — shared with the unified layout's
+  // "New <Agent> in <Repo>" button via the derive helper.
+  const { byRepo: lastUsedAtMap, byWorktree: lastUsedByWorktree } = lastUsedMaps(sections, sessions)
 
   // Apply the sort to the non-pinned repos list AND to the worktrees inside each
   // repo — with one repo and many worktrees, repo-only sorting looks like a no-op.
@@ -189,8 +210,21 @@ export function Sidebar(): JSX.Element {
     setView('workspace')
   }
 
+  // Unified layout (issue-as-workspace, temporary switcher): same aside shell,
+  // entirely different content. All hooks above ran unconditionally, so the
+  // branch below is safe.
+  if (sidebarLayout === 'unified') {
+    return (
+      <aside className={SIDEBAR_ASIDE_CLASS}>
+        <LayoutSwitcher layout={sidebarLayout} onChange={setSidebarLayout} />
+        <SidebarUnified />
+      </aside>
+    )
+  }
+
   return (
-    <aside className="flex w-[280px] flex-shrink-0 flex-col overflow-y-auto border-r border-border bg-card text-card-foreground">
+    <aside className={SIDEBAR_ASIDE_CLASS}>
+      <LayoutSwitcher layout={sidebarLayout} onChange={setSidebarLayout} />
       <button
         type="button"
         className={cn(
@@ -523,7 +557,7 @@ export function Sidebar(): JSX.Element {
 
 /** Per-section collapse state, persisted to localStorage. Absent key = the
  *  section's own default (attention/pinned open, working closed). */
-function useCollapsed(key: string, defaultCollapsed: boolean): [boolean, () => void] {
+export function useCollapsed(key: string, defaultCollapsed: boolean): [boolean, () => void] {
   const [collapsed, setCollapsed] = useState<boolean>(() => {
     try {
       const v = localStorage.getItem(key)
@@ -549,7 +583,7 @@ function useCollapsed(key: string, defaultCollapsed: boolean): [boolean, () => v
 /** A collapsible sidebar section: a chevroned uppercase header over its rows.
  *  Collapsed state persists per `storageKey`; `right` renders inline controls
  *  (e.g. the repo-sort select) that stay clickable without toggling. */
-function CollapsibleSection({
+export function CollapsibleSection({
   label,
   storageKey,
   defaultCollapsed = false,
@@ -597,7 +631,7 @@ function CollapsibleSection({
 /** The repo's primary checkout, as a NewPanelMenu target. Prefer the repo's main
  *  worktree (its path === repo.path); reconstruct one if it's been filtered out
  *  of the nav list (e.g. pinned away as its own worktree row). */
-function repoPrimaryWorktree(repo: RepoNavView): WorktreeView {
+export function repoPrimaryWorktree(repo: RepoNavView): WorktreeView {
   const main = repo.worktrees.find((w) => w.isMain) ?? repo.worktrees[0]
   if (main) {
     const { repoName: _repoName, sessions: _sessions, ...view } = main
@@ -845,7 +879,7 @@ interface WorktreeBlockProps {
   onSelectPanel: (worktreePath: string, sessionId: string) => void
 }
 
-function PlainWorktreeBlock({
+export function PlainWorktreeBlock({
   worktree,
   pinned,
   active,
@@ -944,7 +978,7 @@ function PlainWorktreeBlock({
 
 /** Collapsed "Stale" subsection at the bottom of a session group — quiet,
  *  long-inactive sessions tucked away so the active ones stay scannable. */
-function StaleSection({
+export function StaleSection({
   sessions,
   render,
 }: {
@@ -976,7 +1010,7 @@ function StaleSection({
   )
 }
 
-function PanelRow({
+export function PanelRow({
   session,
   pinned,
   active,

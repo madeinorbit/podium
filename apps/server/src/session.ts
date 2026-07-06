@@ -69,6 +69,8 @@ export interface SessionInit {
   spawnedBy?: string
   /** True for a headless harness session (no PTY; concierge unification). */
   headless?: boolean
+  /** Explicit issue attachment (issue-as-workspace). Absent = unattached. */
+  issueId?: string
   /** Called when a meta field changes outside the normal control flow (the
    *  debounced shell `busy` flag) so the registry can rebroadcast the session list. */
   onActivity?: () => void
@@ -121,6 +123,9 @@ export class Session {
   readonly spawnedBy: string | undefined
   /** True for a headless harness session (no PTY) — immutable for the row's life. */
   readonly headless: boolean
+  /** Explicit issue attachment (issue-as-workspace) — mutable: the agent can
+   *  re-home itself (attach) and the user can move a session between issues. */
+  issueId: string | undefined
   /** The machine (daemon) this session runs on. The registry routes this
    *  session's control messages to it; '__local__' until a real machine adopts
    *  it (see SessionRegistry.ensureLocalMachine), so it is reassignable, not readonly. */
@@ -213,6 +218,7 @@ export class Session {
     this.createdAt = init.createdAt
     this.spawnedBy = init.spawnedBy
     this.headless = init.headless ?? false
+    this.issueId = init.issueId
     this.geometry = { ...init.geometry }
     this.toDaemon = init.toDaemon
     this.machineId = init.machineId ?? '__local__'
@@ -697,6 +703,7 @@ export class Session {
       spawnedBy: this.spawnedBy ?? null,
       machineId: this.machineId,
       headless: this.headless,
+      issueId: this.issueId ?? null,
     }
   }
 
@@ -738,6 +745,7 @@ export class Session {
       ...(this.conversationPodiumId ? { conversationPodiumId: this.conversationPodiumId } : {}),
       ...(this.spawnedBy ? { spawnedBy: this.spawnedBy } : {}),
       ...(this.headless ? { headless: true } : {}),
+      ...(this.issueId ? { issueId: this.issueId } : {}),
     }
   }
 

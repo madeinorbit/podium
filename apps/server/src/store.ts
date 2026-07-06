@@ -97,6 +97,9 @@ export interface SessionRow {
   /** True for a headless harness session (no PTY; superagent-driven turns).
    *  Optional so pre-existing row literals stay valid; absent = false. */
   headless?: boolean
+  /** Explicit issue attachment (issue-as-workspace). null/absent = unattached
+   *  (legacy / shells) — cwd-derived worktree grouping applies. */
+  issueId?: string | null
 }
 
 /** One row of the machines table (token_hash is internal — not included here). */
@@ -154,6 +157,12 @@ export interface IssueRow {
   /** Agent-published human-facing panel, stored as raw JSON (parsed in IssueService).
    *  Optional so pre-existing row literals (tests, ingest) stay valid; absent = none. */
   panel?: string | null
+  /** Whose intent this issue captures ('human' | 'agent'). Optional so pre-existing
+   *  row literals stay valid; absent = 'human'. */
+  origin?: string
+  /** Placeholder-titled draft vessel (issue-as-workspace); retitling clears it.
+   *  Optional so pre-existing row literals stay valid; absent = false. */
+  draft?: boolean
 }
 
 export interface IssueCommentRow {
@@ -411,7 +420,7 @@ export class SessionStore {
         `SELECT id, agent_kind, cwd, title, name, origin_kind, conversation_id, resume_kind,
                 resume_value, status, exit_code, durable_label, created_at, last_active_at,
                 archived, work_state, machine_id, last_output_at, last_input_at, last_resumed_at,
-                spawned_by, headless
+                spawned_by, headless, issue_id
          FROM sessions ORDER BY created_at ASC, rowid ASC`,
       )
       .all() as Record<string, unknown>[]
@@ -438,6 +447,7 @@ export class SessionStore {
       lastResumedAt: (r.last_resumed_at as string | null) ?? null,
       spawnedBy: (r.spawned_by as string | null) ?? null,
       headless: r.headless === 1,
+      issueId: (r.issue_id as string | null) ?? null,
     }))
   }
 
@@ -456,8 +466,8 @@ export class SessionStore {
            (id, agent_kind, cwd, title, name, origin_kind, conversation_id, resume_kind,
             resume_value, status, exit_code, durable_label, created_at, last_active_at,
             archived, work_state, machine_id, last_output_at, last_input_at, last_resumed_at,
-            spawned_by, headless)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            spawned_by, headless, issue_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            title = excluded.title,
            name = excluded.name,
@@ -475,7 +485,8 @@ export class SessionStore {
            last_output_at = excluded.last_output_at,
            last_input_at = excluded.last_input_at,
            last_resumed_at = excluded.last_resumed_at,
-           spawned_by = excluded.spawned_by`,
+           spawned_by = excluded.spawned_by,
+           issue_id = excluded.issue_id`,
       )
       .run(
         row.id,
@@ -500,6 +511,7 @@ export class SessionStore {
         row.lastResumedAt ?? null,
         row.spawnedBy ?? null,
         row.headless ? 1 : 0,
+        row.issueId ?? null,
       )
   }
 
@@ -1155,8 +1167,8 @@ export class SessionStore {
             priority, type, assignee, parent_id, design, acceptance, notes, due_at,
             defer_until, closed_reason, superseded_by, duplicate_of, pinned, estimate_min,
             needs_human, human_question, panel,
-            created_at, updated_at, archived)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            created_at, updated_at, archived, origin, draft)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            title = excluded.title, description = excluded.description, stage = excluded.stage,
            worktree_path = excluded.worktree_path, branch = excluded.branch,
@@ -1175,7 +1187,8 @@ export class SessionStore {
            pinned = excluded.pinned, estimate_min = excluded.estimate_min,
            needs_human = excluded.needs_human, human_question = excluded.human_question,
            panel = excluded.panel,
-           updated_at = excluded.updated_at, archived = excluded.archived`,
+           updated_at = excluded.updated_at, archived = excluded.archived,
+           origin = excluded.origin, draft = excluded.draft`,
       )
       .run(
         row.id,
@@ -1220,6 +1233,8 @@ export class SessionStore {
         row.createdAt,
         row.updatedAt,
         row.archived ? 1 : 0,
+        row.origin ?? 'human',
+        row.draft ? 1 : 0,
       )
   }
 
@@ -1267,6 +1282,8 @@ export class SessionStore {
       createdAt: r.created_at as string,
       updatedAt: r.updated_at as string,
       archived: r.archived === 1,
+      origin: (r.origin as string | null) ?? 'human',
+      draft: r.draft === 1,
     }
   }
 
@@ -2212,7 +2229,8 @@ export class SessionStore {
          last_input_at TEXT,
          last_resumed_at TEXT,
          spawned_by TEXT,
-         headless INTEGER NOT NULL DEFAULT 0
+         headless INTEGER NOT NULL DEFAULT 0,
+         issue_id TEXT
        )`,
     )
     // Additive column for headless harness sessions (concierge unification).
@@ -2223,6 +2241,14 @@ export class SessionStore {
       )
     ) {
       this.db.exec('ALTER TABLE sessions ADD COLUMN headless INTEGER NOT NULL DEFAULT 0')
+    }
+    // Additive explicit issue attachment (issue-as-workspace). Structural guard.
+    if (
+      !(this.db.prepare('PRAGMA table_info(sessions)').all() as { name: string }[]).some(
+        (c) => c.name === 'issue_id',
+      )
+    ) {
+      this.db.exec('ALTER TABLE sessions ADD COLUMN issue_id TEXT')
     }
     this.db.exec(
       `CREATE TABLE IF NOT EXISTS tab_order (
@@ -2498,7 +2524,9 @@ export class SessionStore {
          panel TEXT,
          created_at TEXT NOT NULL,
          updated_at TEXT NOT NULL,
-         archived INTEGER NOT NULL DEFAULT 0
+         archived INTEGER NOT NULL DEFAULT 0,
+         origin TEXT NOT NULL DEFAULT 'human',
+         draft INTEGER NOT NULL DEFAULT 0
        )`,
     )
     this.db.exec('CREATE INDEX IF NOT EXISTS idx_issues_repo ON issues(repo_path)')
@@ -2529,6 +2557,8 @@ export class SessionStore {
     addIssueCol('needs_human', 'needs_human INTEGER NOT NULL DEFAULT 0')
     addIssueCol('human_question', 'human_question TEXT')
     addIssueCol('panel', 'panel TEXT')
+    addIssueCol('origin', "origin TEXT NOT NULL DEFAULT 'human'")
+    addIssueCol('draft', 'draft INTEGER NOT NULL DEFAULT 0')
     this.db.exec(
       `CREATE TABLE IF NOT EXISTS issue_labels (
          issue_id TEXT NOT NULL,

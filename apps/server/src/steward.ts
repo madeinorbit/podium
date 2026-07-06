@@ -179,9 +179,11 @@ export class StewardService {
       // and a shell would have the text typed into bash. The nudge itself stays
       // single-line with no backticks and no agent-authored note interpolated —
       // the note lives in the issue comment only.
-      const targets = sessionsForIssue(dependent.worktreePath, this.deps.listSessions()).filter(
-        (s) => (s.status === 'live' || s.status === 'starting') && s.agentKind !== 'shell',
-      )
+      const targets = sessionsForIssue(
+        dependent.worktreePath,
+        this.deps.listSessions(),
+        dependent.id,
+      ).filter((s) => (s.status === 'live' || s.status === 'starting') && s.agentKind !== 'shell')
       for (const s of targets) {
         this.deps.sendTextWhenReady(
           s.sessionId,
@@ -208,9 +210,7 @@ export class StewardService {
       // Colon-anchored so '#5' never matches a prior '#55' comment (see the
       // matching note on handleUnblock — same single-server dedup assumption).
       const marker = `Child #${childSeq} closed:`
-      const already = parent.comments.some(
-        (c) => c.author === 'steward' && c.body.includes(marker),
-      )
+      const already = parent.comments.some((c) => c.author === 'steward' && c.body.includes(marker))
       if (already) continue
       const child = this.deps.issues
         .list(e.repoPath ?? parent.repoPath)
@@ -230,9 +230,11 @@ export class StewardService {
     const fresh = this.deps.issues.get(parentId)
     const total = fresh?.childCount ?? 0
     const remaining = Math.max(0, total - (fresh?.childDoneCount ?? 0))
-    const targets = sessionsForIssue(parent.worktreePath, this.deps.listSessions()).filter(
-      (s) => (s.status === 'live' || s.status === 'starting') && s.agentKind !== 'shell',
-    )
+    const targets = sessionsForIssue(
+      parent.worktreePath,
+      this.deps.listSessions(),
+      parent.id,
+    ).filter((s) => (s.status === 'live' || s.status === 'starting') && s.agentKind !== 'shell')
     for (const s of targets) {
       this.deps.sendTextWhenReady(
         s.sessionId,

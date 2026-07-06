@@ -272,7 +272,7 @@ export function NewIssueDialog({
       }}
     >
       <DialogContent
-        className="flex max-h-[min(720px,calc(100dvh-2rem))] w-full max-w-md flex-col gap-3 overflow-y-auto"
+        className="flex max-h-[min(720px,calc(100dvh-2rem))] w-full max-w-2xl flex-col gap-3 overflow-y-auto sm:max-w-2xl"
         onKeyDown={(e) => {
           if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
             e.preventDefault()
@@ -299,7 +299,7 @@ export function NewIssueDialog({
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             placeholder="Add description…"
-            className="min-h-16 border-none px-0 shadow-none focus-visible:ring-0"
+            className="min-h-40 border-none px-0 shadow-none focus-visible:ring-0"
           />
 
           <div className="flex flex-wrap items-center gap-1.5">

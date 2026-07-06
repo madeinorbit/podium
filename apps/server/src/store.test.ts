@@ -68,6 +68,8 @@ function row(overrides: Partial<SessionRow> = {}): SessionRow {
     spawnedBy: null,
     // And the headless flag (concierge unification): always present, default false.
     headless: false,
+    // And the explicit issue attachment (issue-as-workspace): always present, null = unattached.
+    issueId: null,
     ...overrides,
   }
 }

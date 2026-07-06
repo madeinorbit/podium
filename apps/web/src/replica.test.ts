@@ -93,6 +93,8 @@ function issue(id: string, title = id): IssueWire {
     archived: false,
     sessions: [],
     sessionSummary: { total: 0, byPhase: {} },
+    origin: 'human' as const,
+    draft: false,
   }
 }
 

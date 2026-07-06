@@ -150,7 +150,9 @@ describe('SessionRegistry.capabilityForSession (P1b)', () => {
 // escapes the subtree check. Tie coverage to PROC_ACTION so the omission fails CI, not review.
 describe('scope-gate coverage (P1b)', () => {
   // Procs that mutate but have NO single existing-issue target (additive / not-an-issue):
-  const NO_TARGET = new Set(['create', 'linearSearch'])
+  // attachSession is a deliberate exemption: the session re-homes itself onto an
+  // issue OUTSIDE its subtree by design (issue-as-workspace), so no scope gate.
+  const NO_TARGET = new Set(['create', 'linearSearch', 'attachSession'])
 
   it('every write/manage proc that targets an existing issue is scope-gated', () => {
     const need = Object.entries(PROC_ACTION)

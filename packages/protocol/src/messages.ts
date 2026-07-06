@@ -155,6 +155,11 @@ export const SessionMeta = z.object({
    *  'user' | 'superagent:<threadId>' | 'steward' | 'issue:<issueId>' |
    *  'session:<sessionId>'. Absent = created before this field existed (unknown). */
   spawnedBy: z.string().optional(),
+  /** Explicit issue attachment (issue-as-workspace): the issue this session is
+   *  working on. Wins over cwd-derived worktree grouping. Structured successor
+   *  of the freeform `spawnedBy: 'issue:<id>'`. Absent = unattached (legacy /
+   *  shells) — cwd fallback applies. */
+  issueId: z.string().optional(),
   /** True for a HEADLESS harness session (concierge unification): a persistent
    *  harness session driven turn-by-turn by the daemon with NO PTY. It renders
    *  via the normal transcript pipeline but has no terminal to attach to; the
@@ -750,6 +755,12 @@ export const IssueWire = z.object({
   createdAt: z.string(),
   updatedAt: z.string(),
   archived: z.boolean(),
+  /** Whose INTENT this issue captures (issue-as-workspace). Defaulted at parse
+   *  so pre-field cached payloads still validate. */
+  origin: z.enum(['human', 'agent']).catch('human').default('human'),
+  /** Draft = placeholder-titled vessel created by the low-friction spawn flow;
+   *  retitling clears it. Drafts show in the sidebar but not on the board. */
+  draft: z.boolean().catch(false).default(false),
   // Derived server-side at serialization (not persisted):
   sessions: z.array(SessionMeta),
   sessionSummary: IssueSessionSummary,

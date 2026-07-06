@@ -547,6 +547,8 @@ export class SessionRegistry {
           ...(o.spawnedBy ? { spawnedBy: o.spawnedBy } : {}),
         }),
       repoOp: (op, cwd, args) => this.repoOp(op, cwd, args),
+      getSessionIssueId: (sessionId) => this.getSessionIssueId(sessionId),
+      setSessionIssueId: (sessionId, issueId) => this.setSessionIssueId(sessionId, issueId),
       broadcast: (msg) => {
         // Full issue-list fan-outs funnel through the oplog so delta-cap clients get
         // per-issue changes; everything else (issueUpdated etc.) stays a raw fan-out.
@@ -708,6 +710,7 @@ export class SessionRegistry {
         ...(r.name ? { name: r.name } : {}),
         ...(r.spawnedBy ? { spawnedBy: r.spawnedBy } : {}),
         ...(r.headless ? { headless: true } : {}),
+        ...(r.issueId ? { issueId: r.issueId } : {}),
         archived: r.archived,
         ...(Session.parseWorkState(r.workState)
           ? { workState: Session.parseWorkState(r.workState) }
@@ -1377,6 +1380,10 @@ export class SessionRegistry {
      *  router stamps 'user' (its callers are the human seams); programmatic callers
      *  (issues, superagent) pass their own value. Absent = unknown. */
     spawnedBy?: string
+    /** Explicit issue attachment (issue-as-workspace). Absent = derive: a session
+     *  spawned inside a worktree owned by exactly one non-archived issue is
+     *  "continuing that issue" and gets its id stamped. */
+    issueId?: string
   }): {
     sessionId: string
   } {
@@ -1398,6 +1405,9 @@ export class SessionRegistry {
     // argv delivery is race-free (the CLI reads the prompt at startup); only
     // argv-capable agents get it that way. Others fall through to a draft seed.
     const useArgv = prompt !== undefined && agentSupportsInitialPrompt(agentKind)
+    // Explicit attachment wins; otherwise starting in an issue-owned worktree
+    // means continuing that issue (spec: issue-as-workspace).
+    const issueId = input.issueId ?? this.issues.soleOwnerForCwd(input.cwd) ?? undefined
     const spawned = this.spawn({
       agentKind,
       cwd: input.cwd,
@@ -1408,6 +1418,7 @@ export class SessionRegistry {
       ...(input.model !== undefined ? { model: input.model } : {}),
       ...(input.effort !== undefined ? { effort: input.effort } : {}),
       ...(input.spawnedBy ? { spawnedBy: input.spawnedBy } : {}),
+      ...(issueId ? { issueId } : {}),
     })
     if (prompt !== undefined && !useArgv) {
       this.setSessionDraft({ sessionId: spawned.sessionId, text: prompt })
@@ -1421,7 +1432,10 @@ export class SessionRegistry {
   capabilityForSession(sessionId: string): Capability {
     const s = this.sessions.get(sessionId)
     if (!s) return { role: 'worker', scope: { kind: 'none' } }
-    const issueId = this.issues.issueForCwd(s.cwd)
+    // Explicit attachment wins over cwd containment (issue-as-workspace): an
+    // attached / draft-bound session is scoped to ITS issue even when its cwd
+    // sits in another issue's worktree (or none).
+    const issueId = s.issueId ?? this.issues.issueForCwd(s.cwd)
     return issueId
       ? { role: 'worker', scope: { kind: 'subtree', rootId: issueId } }
       : { role: 'worker', scope: { kind: 'none' } }
@@ -1866,6 +1880,20 @@ export class SessionRegistry {
     session.archived = archived
     this.persist(session)
     this.broadcastSessions()
+  }
+
+  /** Set (or clear with null) a session's explicit issue attachment. */
+  setSessionIssueId(sessionId: string, issueId: string | null): void {
+    const session = this.sessions.get(sessionId)
+    if (!session) return
+    session.issueId = issueId ?? undefined
+    this.persist(session)
+    this.broadcastSessions()
+  }
+
+  /** The session's explicit issue attachment (issue-as-workspace), if any. */
+  getSessionIssueId(sessionId: string): string | null {
+    return this.sessions.get(sessionId)?.issueId ?? null
   }
 
   setWorkState({ sessionId, workState }: { sessionId: string; workState: WorkState | null }): void {
@@ -2463,6 +2491,7 @@ export class SessionRegistry {
     model?: string
     effort?: string
     spawnedBy?: string
+    issueId?: string
   }): { sessionId: string } {
     const sessionId = randomUUID()
     const machineId = input.machineId ?? LOCAL_PLACEHOLDER
@@ -2486,6 +2515,7 @@ export class SessionRegistry {
       durableLabel: `podium-${sessionId}`,
       ...(input.resume ? { resume: input.resume } : {}),
       ...(input.spawnedBy ? { spawnedBy: input.spawnedBy } : {}),
+      ...(input.issueId ? { issueId: input.issueId } : {}),
     })
     this.sessions.set(sessionId, session)
     this.persist(session)
@@ -3154,7 +3184,13 @@ export class SessionRegistry {
         reply({ ok: false, error: `no such procedure: ${msg.router}.${msg.proc}` })
         return
       }
-      reply({ ok: true, result: await fn(msg.input) })
+      // attachSession acts on the CALLING session: take its id from the relay
+      // context (the daemon's /issue/<sessionId> path), never from agent input.
+      const input =
+        msg.router === 'issues' && msg.proc === 'attachSession'
+          ? { ...(msg.input as Record<string, unknown> | undefined), sessionId: msg.sessionId }
+          : msg.input
+      reply({ ok: true, result: await fn(input) })
     } catch (err) {
       reply({ ok: false, error: err instanceof Error ? err.message : String(err) })
     }

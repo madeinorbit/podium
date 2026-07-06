@@ -49,6 +49,7 @@ import {
 import { groupIssuesByStage } from './issue-list'
 import {
   DISPLAY_KEY,
+  filterBoardScope,
   type IssuesDisplay,
   type IssuesLayout,
   type IssuesOrdering,
@@ -119,15 +120,17 @@ export function IssuesView(): JSX.Element {
       else next.add(id)
       return next
     })
-  // Hide archived, then narrow by the filter — both run before the issues are
-  // split into per-stage lanes, so each lane reflects the same view.
-  const active = filterBoardIssues(
+  // Hide archived, drafts, and (unless toggled on) agent-origin issues, then
+  // narrow by the filter — all before the issues are split into per-stage lanes,
+  // so each lane reflects the same view.
+  const scoped = filterBoardScope(
     issues.filter((i) => !i.archived),
-    filter,
+    display.showAgentTasks,
   )
-  // Distinct assignees / labels across the (unfiltered, non-archived) board —
+  const active = filterBoardIssues(scoped, filter)
+  // Distinct assignees / labels across the (unfiltered) board scope —
   // the Filter and Assignee menus offer whatever is actually in use.
-  const scope = issues.filter((i) => !i.archived)
+  const scope = scoped
   const assignees = [...new Set(scope.map((i) => i.assignee).filter(Boolean))].sort() as string[]
   const labels = [...new Set(scope.flatMap((i) => i.labels))].sort()
 
@@ -781,6 +784,13 @@ function DisplayMenu({
             </DropdownMenuRadioItem>
           ))}
         </DropdownMenuRadioGroup>
+        <DropdownMenuSeparator />
+        <DropdownMenuCheckboxItem
+          checked={display.showAgentTasks}
+          onCheckedChange={(c) => onChange({ showAgentTasks: c === true })}
+        >
+          Show agent tasks
+        </DropdownMenuCheckboxItem>
         <DropdownMenuSeparator />
         <DropdownMenuGroup>
           <DropdownMenuLabel>Badges</DropdownMenuLabel>

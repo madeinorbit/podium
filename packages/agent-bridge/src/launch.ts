@@ -14,12 +14,14 @@ export { agentSupportsInitialPrompt }
  * committed guide + hook-injected prime. See docs/agents/podium-issues.md.
  */
 export const ISSUE_SYSTEM_POINTER =
-  'This project uses Podium\'s issue tracker. You have a `podium issue` CLI. ' +
+  "This project uses Podium's issue tracker. You have a `podium issue` CLI. " +
   'Run `podium issue prime` for your current issue, workflow, and ready work. ' +
   'Track durable or discovered work as issues (`podium issue create ...`, link a follow-up with ' +
   '`podium issue dep-add --fromId <new> --toId <current> --type discovered-from`), not markdown TODO files. ' +
   '`podium issue ready` lists unblocked work; ' +
-  '`podium issue claim`/`close` as you go. Editing an issue outside your assigned one needs `--outside-scope`.'
+  '`podium issue claim`/`close` as you go. Editing an issue outside your assigned one needs `--outside-scope`. ' +
+  'If this session is on the wrong issue (or a draft), re-home it: `podium issue attach --id <issue>` ' +
+  'to join an existing issue, or `podium issue attach --subissue "<title>"` for a new piece of work.'
 
 export interface LaunchOptions {
   /** Working directory the agent runs in (a project or worktree path). */

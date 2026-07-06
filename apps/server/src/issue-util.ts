@@ -1,7 +1,17 @@
-import { ISSUE_STAGES, type IssueSessionSummary, type IssueStage, type SessionMeta } from '@podium/protocol'
+import {
+  ISSUE_STAGES,
+  type IssueSessionSummary,
+  type IssueStage,
+  type SessionMeta,
+} from '@podium/protocol'
 
 export function slugifyBranch(seq: number, title: string): string {
-  const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40).replace(/-+$/g, '')
+  const slug = title
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 40)
+    .replace(/-+$/g, '')
   return slug ? `issue/${seq}-${slug}` : `issue/${seq}`
 }
 
@@ -10,8 +20,17 @@ export function isMemberCwd(issueWorktree: string | null, cwd: string): boolean 
   return cwd === issueWorktree || cwd.startsWith(`${issueWorktree}/`)
 }
 
-export function sessionsForIssue(worktreePath: string | null, sessions: SessionMeta[]): SessionMeta[] {
-  return sessions.filter((s) => isMemberCwd(worktreePath, s.cwd))
+/** Sessions belonging to an issue. Precedence (issue-as-workspace): a session
+ *  with an EXPLICIT issueId belongs to that issue only; sessions without one
+ *  fall back to cwd containment in the issue's worktree. */
+export function sessionsForIssue(
+  worktreePath: string | null,
+  sessions: SessionMeta[],
+  issueId?: string,
+): SessionMeta[] {
+  return sessions.filter((s) =>
+    s.issueId ? s.issueId === issueId : isMemberCwd(worktreePath, s.cwd),
+  )
 }
 
 export function summarizeSessions(sessions: SessionMeta[]): IssueSessionSummary {

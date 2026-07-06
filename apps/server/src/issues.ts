@@ -81,6 +81,11 @@ export interface IssueDeps {
   ): Promise<{ ok: boolean; output: string }>
   broadcast(msg: ServerMessage): void
   now?(): string
+  /** The session's explicit issue attachment (issue-as-workspace). Injected by
+   *  the relay; optional so existing test deps literals stay valid. */
+  getSessionIssueId?(sessionId: string): string | null
+  /** Move a session's explicit issue attachment (persist + sessions broadcast). */
+  setSessionIssueId?(sessionId: string, issueId: string | null): void
   defaultRepoBranch?(repoPath: string): Promise<string>
   llm?: typeof llmClient
   linearSearch?(key: string, q: string): Promise<LinearIssue[]>
@@ -101,6 +106,10 @@ export interface CreateIssueInput {
   assignee?: string
   labels?: string[]
   parentId?: string
+  /** Whose intent this issue captures; default 'human'. */
+  origin?: 'human' | 'agent'
+  /** Draft vessel with a placeholder title (issue-as-workspace); default false. */
+  draft?: boolean
 }
 
 export class IssueService {
@@ -150,7 +159,7 @@ export class IssueService {
    *  `deps.listSessions()` calls were the boot-storm hot path (66 sessions × 60
    *  issues per broadcast). Omitting it (single-issue paths) fetches a fresh list. */
   toWire(row: IssueRow, sessionList: SessionMeta[] = this.deps.listSessions()): IssueWire {
-    const sessions = sessionsForIssue(row.worktreePath, sessionList)
+    const sessions = sessionsForIssue(row.worktreePath, sessionList, row.id)
     const labels = this.deps.store.getIssueLabels(row.id)
     const deps = this.deps.store.listIssueDeps(row.id).map((d) => ({ id: d.toId, type: d.type }))
     const dependents = this.deps.store
@@ -215,6 +224,8 @@ export class IssueService {
       archived: row.archived,
       sessions,
       sessionSummary: summarizeSessions(sessions),
+      origin: row.origin === 'agent' ? 'agent' : 'human',
+      draft: row.draft ?? false,
     }
   }
 
@@ -637,6 +648,92 @@ export class IssueService {
     }
     return null
   }
+
+  /** Spawn-time attachment derivation (issue-as-workspace): the id of the issue
+   *  whose worktree contains `cwd` — only when exactly ONE non-archived issue
+   *  owns it, else null (ambiguous / unowned cwd stays unattached). */
+  soleOwnerForCwd(cwd: string): string | null {
+    const owners = [...this.rows.values()].filter(
+      (r) => !r.archived && isMemberCwd(r.worktreePath, cwd),
+    )
+    return owners.length === 1 ? (owners[0]?.id ?? null) : null
+  }
+
+  /** Re-home a session onto another issue (agent self-organization).
+   *  - `newSubissue`: create a child issue first (parent = the session's current
+   *    issue, else `targetId`), then attach to it.
+   *  - else attach to `targetId` (self-attach is a no-op).
+   *  After the move, an abandoned EMPTY draft (no attached sessions, no worktree,
+   *  no children) is deleted. */
+  attachSession(opts: {
+    sessionId: string
+    targetId?: string
+    newSubissue?: { title: string; origin?: 'human' | 'agent' }
+  }): IssueWire {
+    const { getSessionIssueId, setSessionIssueId } = this.deps
+    if (!getSessionIssueId || !setSessionIssueId) {
+      throw new Error('attachSession unavailable: session registry hooks not injected')
+    }
+    const prevId = getSessionIssueId(opts.sessionId)
+    let target: IssueRow | undefined
+    if (opts.newSubissue) {
+      const title = opts.newSubissue.title.trim()
+      if (!title) throw new Error('subissue title is empty')
+      const parentId = prevId ?? (opts.targetId ? this.resolveRef(opts.targetId) : null)
+      if (!parentId) {
+        throw new Error('no parent for the sub-issue: session is unattached and no --id given')
+      }
+      const parent = this.rowOrThrow(parentId)
+      const wire = this.create({
+        repoPath: parent.repoPath,
+        title,
+        startNow: false,
+        parentId,
+        origin: opts.newSubissue.origin ?? 'human',
+      })
+      target = this.rowOrThrow(wire.id)
+    } else {
+      if (!opts.targetId) throw new Error('attach needs --id <issue> or --subissue "<title>"')
+      target = this.rowOrThrow(this.resolveRef(opts.targetId))
+    }
+    if (prevId === target.id) return this.toWire(target) // self-attach: no-op
+    setSessionIssueId(opts.sessionId, target.id)
+    this.emitEvent('issue.session_attached', target.id, {
+      seq: target.seq,
+      sessionId: opts.sessionId,
+      ...(prevId ? { from: prevId } : {}),
+    })
+    // Clean up the abandoned draft vessel it came from, if now completely empty.
+    if (prevId) this.deleteIfEmptyDraft(prevId)
+    this.deps.broadcast({ type: 'issuesChanged', issues: this.allWire() })
+    return this.toWire(this.rowOrThrow(target.id))
+  }
+
+  /** Delete `id` iff it is a draft with no attached sessions, no worktree and no
+   *  children — the empty auto-created vessel left behind by an attach. */
+  private deleteIfEmptyDraft(id: string): void {
+    const row = this.rows.get(id)
+    if (!row || !row.draft || row.worktreePath) return
+    const hasChildren = [...this.rows.values()].some((r) => r.parentId === id)
+    if (hasChildren) return
+    const attached = this.deps.listSessions().some((s) => s.issueId === id && !s.archived)
+    if (attached) return
+    this.delete(id)
+  }
+
+  /** The auto-created vessel for a low-friction agent start: a draft, human-origin
+   *  backlog issue with a placeholder title. The spawn flow stamps its id onto the
+   *  new session. */
+  createDraftFor(repoPath: string, agentKind?: string): IssueWire {
+    return this.create({
+      repoPath,
+      title: 'Draft',
+      startNow: false,
+      draft: true,
+      origin: 'human',
+      ...(agentKind ? { defaultAgent: agentKind } : {}),
+    })
+  }
   allWire(): IssueWire[] {
     return this.list()
   }
@@ -672,8 +769,20 @@ export class IssueService {
           .filter((b): b is IssueRow => b != null && !this.isClosed(b))
           .map((b) => `#${b.seq}`)
         const parent = me.parentId ? this.get(me.parentId) : null
+        if (me.draft) {
+          return [
+            `This session is attached to a draft work item (#${me.seq}).`,
+            "Once you have understood and named the user's request, EITHER:",
+            `  - retitle it if this is new work: podium issue update --id ${me.seq} --title "…" (this makes it a real issue), OR`,
+            '  - attach to an existing issue that already covers it: podium issue attach --id <id>.',
+            'Prefer attaching over duplicating.',
+            '',
+            ...rules,
+          ].join('\n')
+        }
         return [
           `You are working on #${me.seq}: ${me.title}`,
+          'If the user\'s request is NOT a continuation of this issue but a new piece of work, create a sub-issue and move there: podium issue attach --subissue "<title>".',
           me.acceptance ? `Acceptance: ${me.acceptance}` : null,
           me.parentId ? `Parent epic: #${parent?.seq ?? me.parentId}` : null,
           kids.length
@@ -797,6 +906,8 @@ export class IssueService {
       createdAt: ts,
       updatedAt: ts,
       archived: false,
+      origin: input.origin ?? 'human',
+      draft: input.draft ?? false,
     }
     if (input.priority != null) row.priority = input.priority
     if (input.type) row.type = input.type
@@ -848,6 +959,8 @@ export class IssueService {
     if (!row) throw new Error(`unknown issue ${id}`)
     const prevStage = row.stage
     const wasClosed = this.isClosed(row)
+    // Naming a draft promotes it to a real issue (issue-as-workspace).
+    if (row.draft && typeof patch.title === 'string' && patch.title.trim()) row.draft = false
     if ('parentId' in patch) {
       this.setParent(row, patch.parentId == null ? null : this.resolveRef(patch.parentId))
       const { parentId: _ignored, ...rest } = patch
@@ -1222,7 +1335,12 @@ export class IssueService {
         'system:cleanup',
         `cleanup: worktree ${worktreePath} already gone; cleared recorded worktree/branch (${branch})`,
       )
-      this.emitEvent('issue.cleaned', row.id, { seq: row.seq, worktreePath, branch, alreadyGone: true })
+      this.emitEvent('issue.cleaned', row.id, {
+        seq: row.seq,
+        worktreePath,
+        branch,
+        alreadyGone: true,
+      })
       return { ok: true, output: `already gone: ${worktreePath} (columns cleared)`, issue }
     }
     if (!st.ok) {
@@ -1335,7 +1453,9 @@ export class IssueService {
     if (children.length === 0) {
       return refuse(`refusing integrate: #${row.seq} has no children`)
     }
-    const closed = children.filter((c): c is IssueRow & { branch: string } => this.isClosed(c) && !!c.branch)
+    const closed = children.filter(
+      (c): c is IssueRow & { branch: string } => this.isClosed(c) && !!c.branch,
+    )
     if (closed.length === 0) {
       return refuse(
         `refusing integrate: no closed child of #${row.seq} has a recorded branch (close ≥1 started child first)`,
@@ -1566,7 +1686,7 @@ export class IssueService {
     const row = this.rowOrThrow(id)
     if (!row.worktreePath) return this.toWire(row)
     const settings = this.d.getSettings()
-    const members = sessionsForIssue(row.worktreePath, this.d.listSessions()).map((s) => ({
+    const members = sessionsForIssue(row.worktreePath, this.d.listSessions(), row.id).map((s) => ({
       agentKind: s.agentKind,
       phase: s.agentState?.phase ?? 'shell',
       tail: '',

@@ -41,6 +41,8 @@ function hubIssue(id: string, over: Partial<IssueWire> = {}): IssueWire {
     createdAt: '2026-07-01T00:00:00.000Z',
     updatedAt: '2026-07-01T00:00:00.000Z',
     archived: false,
+    origin: 'human' as const,
+    draft: false,
     sessions: [],
     sessionSummary: { total: 0, byPhase: {} },
     ...over,
