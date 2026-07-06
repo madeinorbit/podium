@@ -1,6 +1,7 @@
 import { readdir, realpath, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { dirname, isAbsolute, join } from 'node:path'
+import { readLocalOriginUrl } from './repo-id'
 import type { ScanReposResult, SessionRegistry } from './relay'
 import type { SessionStore } from './store'
 
@@ -93,7 +94,9 @@ export class RepoRegistry {
     if (!p) throw new Error('repo path is empty')
     if (!isAbsolute(p)) throw new Error(`repo path must be absolute: ${p}`)
     const mid = machineId ?? this.sessionReg.defaultMachineId()
-    this.store.addRepo(p, mid)
+    // Best-effort origin capture: reads <p>/.git locally, so it only yields a URL
+    // when the path exists on this host (remote repos get it later via scan).
+    this.store.addRepo(p, mid, readLocalOriginUrl(p) ?? undefined)
   }
 
   async remove(path: string, machineId?: string): Promise<void> {
@@ -127,9 +130,20 @@ export class RepoRegistry {
           includeHome: false,
           maxDepth: 0,
         })
-        // Stamp each repo with the machine that returned it
+        // Record scan-reported origins for registered repos (upgrades path-fallback
+        // repo_ids to origin-derived ones — remote/late origins included).
+        for (const r of result.repositories) {
+          if (r.originUrl) this.store.updateRepoOrigin(machineId, r.path, r.originUrl)
+        }
+        const repoIdByPath = new Map(
+          this.store.listRepos(machineId).map((row) => [row.path, row.repoId]),
+        )
+        // Stamp each repo with the machine that returned it (+ its stable repoId)
         return {
-          repositories: result.repositories.map((r) => ({ ...r, machineId })),
+          repositories: result.repositories.map((r) => {
+            const repoId = repoIdByPath.get(r.path)
+            return { ...r, machineId, ...(repoId ? { repoId } : {}) }
+          }),
           diagnostics: result.diagnostics,
         }
       }),

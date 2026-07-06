@@ -173,6 +173,7 @@ export class IssueService {
     return {
       id: row.id,
       repoPath: row.repoPath,
+      ...(row.repoId ? { repoId: row.repoId } : {}),
       seq: row.seq,
       title: row.title,
       description: row.description,
@@ -892,6 +893,7 @@ export class IssueService {
     const row: IssueRow = {
       id: `iss_${randomUUID()}`,
       repoPath: input.repoPath,
+      repoId: this.deps.store.resolveRepoIdForPath(input.repoPath),
       seq,
       title: input.title,
       description: input.description ?? '',

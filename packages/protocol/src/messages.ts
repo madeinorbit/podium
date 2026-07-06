@@ -242,6 +242,8 @@ export const GitRepositoryWire = z.object({
   worktrees: z.array(GitWorktreeWire).default([]),
   /** Server-stamped on scanReposAll(); the daemon never sets this. */
   machineId: z.string().optional(),
+  /** Server-stamped stable repo identity (#74); the daemon never sets this. */
+  repoId: z.string().optional(),
 })
 export type GitRepositoryWire = z.infer<typeof GitRepositoryWire>
 
@@ -704,6 +706,8 @@ export type IssuePanel = z.infer<typeof IssuePanel>
 export const IssueWire = z.object({
   id: z.string(),
   repoPath: z.string(),
+  /** Stable repo identity (#74) — additive; consumers keep keying on repoPath. */
+  repoId: z.string().optional(),
   seq: z.number().int(),
   title: z.string(),
   description: z.string(),

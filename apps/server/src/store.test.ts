@@ -2,6 +2,7 @@ import { mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { deriveRepoId } from './repo-id'
 import type { SessionRow } from './store'
 import { SessionStore } from './store'
 
@@ -346,19 +347,27 @@ describe('SessionStore schema migration', () => {
     // It gained a machine_id, defaulting to the '__local__' placeholder (multi-machine).
     expect(sessions[0]?.machineId).toBe('__local__')
     // The repos table was re-keyed to (machine_id, path) and the row carried over.
-    expect(store.listRepos()).toEqual([{ machineId: '__local__', path: '/proj', originUrl: null }])
+    expect(store.listRepos()).toEqual([
+      {
+        machineId: '__local__',
+        path: '/proj',
+        originUrl: null,
+        // v8: path-fallback repo_id backfilled (no origin known for this row)
+        repoId: deriveRepoId({ machineId: '__local__', path: '/proj' }),
+      },
+    ])
     // The machines table now exists (listMachines reads it — would throw otherwise).
     expect(store.listMachines()).toEqual([])
     store.close()
 
-    // And the version marker is now at the current schema version (7: needs_human
-    // data layer bumped the coherence marker 6 -> 7; the structural machines
-    // migration above still runs regardless, the number is just at-a-glance).
+    // And the version marker is now at the current schema version (8: repo_id
+    // stable repo identity bumped the coherence marker 7 -> 8; the structural
+    // migrations above still run regardless, the number is just at-a-glance).
     const reopened = new (await import('node:sqlite')).DatabaseSync(file)
     const ver = reopened.prepare('SELECT value FROM meta WHERE key = ?').get('schema_version') as
       | { value: string }
       | undefined
-    expect(ver?.value).toBe('7')
+    expect(ver?.value).toBe('8')
     reopened.close()
   })
 })

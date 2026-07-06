@@ -5,6 +5,7 @@ import { dirname, join } from 'node:path'
 import { normalizeSettings, type PodiumSettings } from '@podium/core'
 import { openDatabase, type SqlDatabase } from '@podium/core/sqlite'
 import { AgentKind, IssueStage } from '@podium/protocol'
+import { deriveRepoId, isPathFallbackRepoId, readLocalOriginUrl } from './repo-id'
 
 export type PinKind = 'panel' | 'worktree' | 'repo'
 
@@ -115,6 +116,8 @@ export interface MachineRecord {
 export interface IssueRow {
   id: string
   repoPath: string
+  /** Stable repo identity (#74) — dual-written; reads/filters/seq stay on repoPath. */
+  repoId?: string | null
   seq: number
   title: string
   description: string
@@ -259,21 +262,26 @@ export class SessionStore {
 
   // ---- repos ----
 
-  /** Full repo rows including machineId and originUrl (multi-machine schema). */
-  listRepos(machineId?: string): { machineId: string; path: string; originUrl: string | null }[] {
+  /** Full repo rows including machineId, originUrl and repoId (multi-machine schema). */
+  listRepos(
+    machineId?: string,
+  ): { machineId: string; path: string; originUrl: string | null; repoId: string | null }[] {
     const rows = (
       machineId
         ? this.db
             .prepare(
-              'SELECT machine_id, path, origin_url FROM repos WHERE machine_id = ? ORDER BY rowid ASC',
+              'SELECT machine_id, path, origin_url, repo_id FROM repos WHERE machine_id = ? ORDER BY rowid ASC',
             )
             .all(machineId)
-        : this.db.prepare('SELECT machine_id, path, origin_url FROM repos ORDER BY rowid ASC').all()
+        : this.db
+            .prepare('SELECT machine_id, path, origin_url, repo_id FROM repos ORDER BY rowid ASC')
+            .all()
     ) as Record<string, unknown>[]
     return rows.map((r) => ({
       machineId: r.machine_id as string,
       path: r.path as string,
       originUrl: (r.origin_url as string | null) ?? null,
+      repoId: (r.repo_id as string | null) ?? null,
     }))
   }
 
@@ -284,17 +292,54 @@ export class SessionStore {
 
   // No path validation here by design — RepoRegistry (the caller) rejects empty/non-absolute paths.
   addRepo(path: string, machineId = '__local__', originUrl?: string): void {
+    // readLocalOriginUrl is a no-op (null) for paths that don't exist on this host,
+    // so remote-machine repos simply get the path-fallback id until a scan reports
+    // their origin (updateRepoOrigin then upgrades it).
+    const origin = originUrl ?? readLocalOriginUrl(path) ?? undefined
     this.db
       .prepare(
-        'INSERT OR IGNORE INTO repos (machine_id, path, origin_url, repo_name, added_at) VALUES (?, ?, ?, ?, ?)',
+        'INSERT OR IGNORE INTO repos (machine_id, path, origin_url, repo_name, repo_id, added_at) VALUES (?, ?, ?, ?, ?, ?)',
       )
       .run(
         machineId,
         path,
-        originUrl ?? null,
+        origin ?? null,
         path.split('/').pop() ?? null,
+        deriveRepoId({ originUrl: origin, machineId, path }),
         new Date().toISOString(),
       )
+  }
+
+  /**
+   * Record a scan-reported origin URL for a registered repo. Upgrades a
+   * path-fallback repo_id to the origin-derived id (and dual-writes the new id
+   * onto issues bucketed under that repo) — but never rewrites an id that was
+   * already origin-derived, so identities stay stable if the remote moves.
+   */
+  updateRepoOrigin(machineId: string, path: string, originUrl: string): void {
+    const row = this.db
+      .prepare('SELECT repo_id FROM repos WHERE machine_id = ? AND path = ?')
+      .get(machineId, path) as { repo_id: string | null } | undefined
+    if (!row) return
+    const newId = deriveRepoId({ originUrl, machineId, path })
+    const upgrade = isPathFallbackRepoId(row.repo_id, machineId, path) && newId !== row.repo_id
+    this.db
+      .prepare('UPDATE repos SET origin_url = ?, repo_id = ? WHERE machine_id = ? AND path = ?')
+      .run(originUrl, upgrade ? newId : row.repo_id, machineId, path)
+    if (upgrade) {
+      this.db
+        .prepare("UPDATE issues SET repo_id = ? WHERE repo_path = ? OR repo_path LIKE ? || '/%'")
+        .run(newId, path, path)
+    }
+  }
+
+  /** repo_id for an issue's repoPath: the longest registered repo root that contains
+   *  it (any machine), else the deterministic '__local__' path-fallback. */
+  resolveRepoIdForPath(repoPath: string): string {
+    const match = this.listRepos()
+      .filter((r) => repoPath === r.path || repoPath.startsWith(`${r.path}/`))
+      .sort((a, b) => b.path.length - a.path.length)[0]
+    return match?.repoId ?? deriveRepoId({ machineId: '__local__', path: repoPath })
   }
 
   removeRepo(path: string, machineId = '__local__'): void {
@@ -1160,7 +1205,7 @@ export class SessionStore {
     this.db
       .prepare(
         `INSERT INTO issues
-           (id, repo_path, seq, title, description, stage, worktree_path, branch, parent_branch,
+           (id, repo_path, repo_id, seq, title, description, stage, worktree_path, branch, parent_branch,
             default_agent, default_model, default_effort,
             linear_id, linear_identifier, linear_url, activity_notes, notes_updated_at,
             suggested_stage, suggested_reason, blocked_by, dependency_note, pr_url,
@@ -1168,8 +1213,9 @@ export class SessionStore {
             defer_until, closed_reason, superseded_by, duplicate_of, pinned, estimate_min,
             needs_human, human_question, panel,
             created_at, updated_at, archived, origin, draft)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
+           repo_id = excluded.repo_id,
            title = excluded.title, description = excluded.description, stage = excluded.stage,
            worktree_path = excluded.worktree_path, branch = excluded.branch,
            parent_branch = excluded.parent_branch, default_agent = excluded.default_agent,
@@ -1193,6 +1239,7 @@ export class SessionStore {
       .run(
         row.id,
         row.repoPath,
+        row.repoId ?? this.resolveRepoIdForPath(row.repoPath),
         row.seq,
         row.title,
         row.description,
@@ -1242,6 +1289,7 @@ export class SessionStore {
     return {
       id: r.id as string,
       repoPath: r.repo_path as string,
+      repoId: (r.repo_id as string | null) ?? null,
       seq: r.seq as number,
       title: r.title as string,
       description: (r.description as string) ?? '',
@@ -2188,6 +2236,7 @@ export class SessionStore {
          path TEXT NOT NULL,
          origin_url TEXT,
          repo_name TEXT,
+         repo_id TEXT,
          added_at TEXT NOT NULL,
          PRIMARY KEY (machine_id, path)
        )`,
@@ -2494,6 +2543,7 @@ export class SessionStore {
       `CREATE TABLE IF NOT EXISTS issues (
          id TEXT PRIMARY KEY,
          repo_path TEXT NOT NULL,
+         repo_id TEXT,
          seq INTEGER NOT NULL,
          title TEXT NOT NULL,
          description TEXT NOT NULL DEFAULT '',
@@ -2547,6 +2597,7 @@ export class SessionStore {
     const addIssueCol = (name: string, ddl: string): void => {
       if (!issueCols.has(name)) this.db.exec(`ALTER TABLE issues ADD COLUMN ${ddl}`)
     }
+    addIssueCol('repo_id', 'repo_id TEXT')
     addIssueCol('default_model', "default_model TEXT NOT NULL DEFAULT 'auto'")
     addIssueCol('default_effort', "default_effort TEXT NOT NULL DEFAULT 'auto'")
     addIssueCol('priority', 'priority INTEGER NOT NULL DEFAULT 2')
@@ -2782,14 +2833,57 @@ export class SessionStore {
     // guard, gains the machines table + machine_id columns, and only then is recorded
     // as 6. The version number is never the migration gate (the guards are structural);
     // it is just an at-a-glance coherence marker.
+    // v7 -> v8: stable repo identity (#74). Structural guard: repos.repo_id may be
+    // missing either on a pre-v8 DB or right after the machine-migration rebuild
+    // above (repos_v5 is created without it), so re-inspect the actual schema here.
+    const repoColsV8 = new Set(
+      (this.db.prepare('PRAGMA table_info(repos)').all() as { name: string }[]).map((c) => c.name),
+    )
+    if (!repoColsV8.has('repo_id')) this.db.exec('ALTER TABLE repos ADD COLUMN repo_id TEXT')
     const v = this.db.prepare('SELECT value FROM meta WHERE key = ?').get('schema_version') as
       | { value: string }
       | undefined
-    if (!v || Number(v.value) < 7)
+    if (!v || Number(v.value) < 8)
       this.db
         .prepare('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)')
-        .run('schema_version', '7')
+        .run('schema_version', '8')
     this.importReposJson()
+    this.backfillRepoIds()
+  }
+
+  /** v8 backfill (idempotent — only touches NULL repo_id rows, so it is safe to run
+   *  every boot and also covers rows inserted by importReposJson above). */
+  private backfillRepoIds(): void {
+    const repos = this.db
+      .prepare('SELECT machine_id, path, origin_url FROM repos WHERE repo_id IS NULL')
+      .all() as { machine_id: string; path: string; origin_url: string | null }[]
+    const setRepo = this.db.prepare(
+      'UPDATE repos SET repo_id = ? WHERE machine_id = ? AND path = ?',
+    )
+    for (const r of repos) {
+      setRepo.run(
+        deriveRepoId({ originUrl: r.origin_url, machineId: r.machine_id, path: r.path }),
+        r.machine_id,
+        r.path,
+      )
+    }
+    const issues = this.db.prepare('SELECT id, repo_path FROM issues WHERE repo_id IS NULL').all() as {
+      id: string
+      repo_path: string
+    }[]
+    const setIssue = this.db.prepare('UPDATE issues SET repo_id = ? WHERE id = ?')
+    for (const i of issues) setIssue.run(this.resolveRepoIdForPath(i.repo_path), i.id)
+    // Self-heal origins for repos whose path exists on this host: pre-v8 rows never
+    // recorded origin_url, so without this they'd sit on path-fallback ids until a
+    // daemon scan happens to run. updateRepoOrigin upgrades fallback ids only (and
+    // dual-writes issues), so this is idempotent — once recorded, the read is skipped.
+    const originless = this.db
+      .prepare('SELECT machine_id, path FROM repos WHERE origin_url IS NULL')
+      .all() as { machine_id: string; path: string }[]
+    for (const r of originless) {
+      const origin = readLocalOriginUrl(r.path)
+      if (origin) this.updateRepoOrigin(r.machine_id, r.path, origin)
+    }
   }
 
   /** One-time import of a legacy ~/.podium/repos.json sitting next to the db. */
