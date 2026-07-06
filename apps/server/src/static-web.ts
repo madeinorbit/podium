@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, statSync } from 'node:fs'
 import { extname, join, normalize, sep } from 'node:path'
-import type { Hono } from 'hono'
+import type { Context, Hono } from 'hono'
 
 /**
  * Backend route prefixes that must never be shadowed by the SPA index.html.
@@ -37,8 +37,65 @@ const CONTENT_TYPES: Record<string, string> = {
   '.map': 'application/json; charset=utf-8',
 }
 
+export interface StaticWebOptions {
+  basePath?: string
+}
+
 function contentType(p: string): string {
   return CONTENT_TYPES[extname(p).toLowerCase()] ?? 'application/octet-stream'
+}
+
+function normalizedBasePath(basePath: string | undefined): string {
+  const raw = basePath?.trim() || '/'
+  if (raw === '/') return '/'
+  const withLeadingSlash = raw.startsWith('/') ? raw : '/' + raw
+  return withLeadingSlash.replace(/\/+$/, '') || '/'
+}
+
+function routePattern(basePath: string): string {
+  return basePath === '/' ? '/*' : basePath + '/*'
+}
+
+function pathInsideBase(pathname: string, basePath: string): string | null {
+  if (basePath === '/') return pathname
+  if (pathname === basePath) return '/'
+  if (pathname.startsWith(basePath + '/')) return pathname.slice(basePath.length) || '/'
+  return null
+}
+
+function isBackendRoute(pathname: string): boolean {
+  return BACKEND_PREFIXES.some((pre) => pathname === pre || pathname.startsWith(pre + '/'))
+}
+
+function wantsMobile(userAgent: string): boolean {
+  return /Android|iPhone|iPod|Mobile/i.test(userAgent) && !/iPad|Tablet/i.test(userAgent)
+}
+
+function hasDesktopCookie(cookie: string): boolean {
+  return cookie.split(';').some((part) => part.trim() === 'podium_desktop=1')
+}
+
+/**
+ * Redirect phone browsers from the desktop root into the dedicated mobile SPA while keeping
+ * /desktop as an explicit escape hatch. The cookie only affects the same Podium origin.
+ */
+export function registerMobileRedirect(app: Hono): void {
+  app.get('/desktop', (c) => {
+    c.header('Set-Cookie', 'podium_desktop=1; Path=/; SameSite=Lax; Max-Age=2592000')
+    return c.redirect('/')
+  })
+
+  app.use('*', async (c, next) => {
+    const pathname = new URL(c.req.url).pathname
+    if (
+      pathname === '/' &&
+      wantsMobile(c.req.header('user-agent') ?? '') &&
+      !hasDesktopCookie(c.req.header('cookie') ?? '')
+    ) {
+      return c.redirect('/mobile')
+    }
+    await next()
+  })
 }
 
 /**
@@ -47,15 +104,21 @@ function contentType(p: string): string {
  * UI, not this route. Returns false (registers nothing) when no build is present, so a
  * source/dev run or an API-only server is unaffected. Call AFTER the API routes.
  */
-export function registerWebStatic(app: Hono, webDir: string): boolean {
+export function registerWebStatic(
+  app: Hono,
+  webDir: string,
+  opts: StaticWebOptions = {},
+): boolean {
   if (!existsSync(join(webDir, 'index.html'))) return false
 
-  app.get('/*', (c) => {
+  const basePath = normalizedBasePath(opts.basePath)
+  const handler = (c: Context) => {
     const pathname = new URL(c.req.url).pathname
-    if (BACKEND_PREFIXES.some((pre) => pathname === pre || pathname.startsWith(`${pre}/`))) {
-      return c.notFound()
-    }
-    const rel = normalize(decodeURIComponent(pathname)).replace(/^(\.\.[/\\])+/, '')
+    const inside = pathInsideBase(pathname, basePath)
+    if (inside === null) return c.notFound()
+    if (isBackendRoute(pathname)) return c.notFound()
+
+    const rel = normalize(decodeURIComponent(inside)).replace(/^(\.\.[/\\])+/, '')
     const filePath = join(webDir, rel)
     if (
       (filePath === webDir || filePath.startsWith(webDir + sep)) &&
@@ -71,6 +134,9 @@ export function registerWebStatic(app: Hono, webDir: string): boolean {
       status: 200,
       headers: { 'Content-Type': 'text/html; charset=utf-8' },
     })
-  })
+  }
+
+  if (basePath !== '/') app.get(basePath, handler)
+  app.get(routePattern(basePath), handler)
   return true
 }

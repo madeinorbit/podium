@@ -1,9 +1,10 @@
 [Unit]
-# The backend (podium-server, :18787) serves the built PWA bundle itself (registerWebStatic
-# over apps/web/dist), on the same origin as /trpc, /auth and the /client + /daemon WS. So
-# there is NO separate web server / vite hop — the TLS terminator (tailscale serve / caddy /
-# nginx) points straight at :18787. This unit only *builds* the bundle so dist stays fresh.
-Description=Podium web build — rebuilds apps/web/dist (served by the backend). Runs at boot and on every redeploy.
+# The backend (podium-server, :18787) serves the built PWA bundles itself (registerWebStatic
+# over apps/web/dist and apps/mobile/dist under /mobile), on the same origin as /trpc,
+# /auth and the /client + /daemon WS. So there is NO separate web server / vite hop — the
+# TLS terminator (tailscale serve / caddy / nginx) points straight at :18787. This unit
+# only *builds* the bundles so dist stays fresh.
+Description=Podium web build — rebuilds apps/web/dist and apps/mobile/dist (served by the backend). Runs at boot and on every redeploy.
 After=network-online.target
 
 [Service]
@@ -15,7 +16,7 @@ RemainAfterExit=yes
 WorkingDirectory=/home/user/src/other/podium
 Environment=HOME=/home/user
 Environment=PATH=/home/user/.local/bin:/home/user/.opencode/bin:/home/user/.bun/bin:/usr/local/bin:/usr/bin:/bin
-ExecStart=/home/user/.local/bin/bun run --filter @podium/web build
+ExecStart=/usr/bin/env bash -lc 'bun run --filter @podium/web build && bun run --filter @podium/mobile build:web'
 
 [Install]
 WantedBy=default.target

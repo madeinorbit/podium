@@ -24,7 +24,7 @@ import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
 import { appRouter } from './router'
 import { registerSetupRoute } from './setup-route'
-import { registerWebStatic } from './static-web'
+import { registerMobileRedirect, registerWebStatic } from './static-web'
 import { SessionStore } from './store'
 import { SuperagentService } from './superagent'
 import { readOwnDaemonMachineId, UpstreamSync } from './upstream'
@@ -270,10 +270,23 @@ export async function startServer(
     }),
   )
 
-  // Serve the built web UI for external clients (browser/phone/other desktop). The
-  // packaged headless bundle sets PODIUM_WEB_DIR; a source run defaults to apps/web/dist.
+  // Serve the built web UIs for external clients (browser/phone/other desktop). The
+  // packaged headless bundle sets PODIUM_WEB_DIR; source runs default to apps/web/dist,
+  // and the Expo mobile web build defaults to apps/mobile/dist under /mobile.
   // In a `bun build --compile` binary import.meta.url is not a file:// URL, so guard the
-  // default — an unset PODIUM_WEB_DIR there simply means "API only", never a crash.
+  // defaults — an unset dir there simply means "API only" for that SPA, never a crash.
+  registerMobileRedirect(app)
+
+  let mobileWebDir = process.env.PODIUM_MOBILE_WEB_DIR
+  if (!mobileWebDir) {
+    try {
+      mobileWebDir = fileURLToPath(new URL('../../mobile/dist', import.meta.url))
+    } catch {
+      mobileWebDir = ''
+    }
+  }
+  if (mobileWebDir) registerWebStatic(app, mobileWebDir, { basePath: '/mobile' })
+
   let webDir = process.env.PODIUM_WEB_DIR
   if (!webDir) {
     try {

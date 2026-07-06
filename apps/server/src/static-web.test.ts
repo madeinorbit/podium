@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Hono } from 'hono'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { registerWebStatic } from './static-web'
+import { registerMobileRedirect, registerWebStatic } from './static-web'
 
 describe('registerWebStatic', () => {
   let dir: string
@@ -49,5 +49,47 @@ describe('registerWebStatic', () => {
     registerWebStatic(app2, dir) // dir from the describe scope (has index.html)
     const res = await app2.request('/health')
     expect(res.status).toBe(404)
+  })
+  it('serves a second SPA under /mobile without shadowing APIs', async () => {
+    const mobile = mkdtempSync(join(tmpdir(), 'podium-mobile-'))
+    try {
+      writeFileSync(join(mobile, 'index.html'), '<!doctype html><title>Podium Mobile</title>')
+      mkdirSync(join(mobile, '_expo'))
+      writeFileSync(join(mobile, '_expo', 'app.js'), 'console.log("mobile")')
+      const app = new Hono()
+      app.get('/trpc/x', (c) => c.text('api'))
+
+      expect(registerWebStatic(app, mobile, { basePath: '/mobile' })).toBe(true)
+
+      expect(await (await app.request('/mobile')).text()).toContain('Podium Mobile')
+      expect(await (await app.request('/mobile/session/s1')).text()).toContain('Podium Mobile')
+      expect(await (await app.request('/mobile/_expo/app.js')).text()).toContain('mobile')
+      expect(await (await app.request('/trpc/x')).text()).toBe('api')
+    } finally {
+      rmSync(mobile, { recursive: true, force: true })
+    }
+  })
+  it('redirects mobile browsers from / to /mobile unless desktop is requested', async () => {
+    const app = new Hono()
+    registerMobileRedirect(app)
+    app.get('/', (c) => c.text('desktop'))
+    const iphone = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) Mobile/15E148'
+
+    const mobileRoot = await app.request('/', { headers: { 'user-agent': iphone } })
+    expect(mobileRoot.status).toBe(302)
+    expect(mobileRoot.headers.get('location')).toBe('/mobile')
+
+    expect(
+      await (
+        await app.request('/', {
+          headers: { 'user-agent': iphone, cookie: 'podium_desktop=1' },
+        })
+      ).text(),
+    ).toBe('desktop')
+
+    const desktopHatch = await app.request('/desktop', { headers: { 'user-agent': iphone } })
+    expect(desktopHatch.status).toBe(302)
+    expect(desktopHatch.headers.get('location')).toBe('/')
+    expect(desktopHatch.headers.get('set-cookie')).toContain('podium_desktop=1')
   })
 })
