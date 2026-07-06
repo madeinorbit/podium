@@ -81,6 +81,7 @@
         "@dnd-kit/sortable": "^10.0.0",
         "@dnd-kit/utilities": "^3.2.2",
         "@fontsource-variable/geist": "^5.2.9",
+        "@podium/client-core": "workspace:*",
         "@podium/core": "workspace:*",
         "@podium/protocol": "workspace:*",
         "@podium/server": "workspace:*",
@@ -125,6 +126,17 @@
       "devDependencies": {
         "tsup": "^8.5.1",
         "typescript": "^6.0.3",
+      },
+    },
+    "packages/client-core": {
+      "name": "@podium/client-core",
+      "version": "0.0.0",
+      "dependencies": {
+        "@podium/protocol": "workspace:*",
+      },
+      "devDependencies": {
+        "typescript": "^6.0.3",
+        "vitest": "^4.1.8",
       },
     },
     "packages/core": {
@@ -685,6 +697,8 @@
     "@playwright/test": ["@playwright/test@1.60.0", "", { "dependencies": { "playwright": "1.60.0" }, "bin": { "playwright": "cli.js" } }, "sha512-O71yZIbAh/PxDMNGns37GHBIfrVkEVyn+AXyIa5dOTfb4/xNvRWV+Vv/NMbNCtODB/pO7vLlF2OTmMVLhmr7Ag=="],
 
     "@podium/agent-bridge": ["@podium/agent-bridge@workspace:packages/agent-bridge"],
+
+    "@podium/client-core": ["@podium/client-core@workspace:packages/client-core"],
 
     "@podium/core": ["@podium/core@workspace:packages/core"],
 
