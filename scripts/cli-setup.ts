@@ -12,9 +12,51 @@ export interface SetupIO {
   print(s: string): void
 }
 
+export interface StartBackendOpts {
+  persistence: 'systemd' | 'detached'
+  mode: HostMode
+  port: number
+}
+export interface StartBackendResult {
+  /** What actually got set up (systemd install can fall back to detached). */
+  effectivePersistence: 'systemd' | 'detached'
+  message: string
+}
+
 export interface SetupDeps {
   /** Injected for testing; defaults to the real scrypt-backed password store. */
   setPassword?: (password: string) => Promise<void>
+  /** Injected for testing; defaults to real systemd-install / detached-spawn. */
+  startBackend?: (opts: StartBackendOpts) => Promise<StartBackendResult>
+}
+
+/** Default backend starter: systemd install (with detached fallback) or a detached spawn. */
+async function realStartBackend(opts: StartBackendOpts): Promise<StartBackendResult> {
+  const { persistence, mode, port } = opts
+  const { startDetachedStack } = await import('./cli-spawn')
+  if (persistence === 'systemd') {
+    const { installSystemd } = await import('./cli-systemd')
+    const res = installSystemd(mode, port)
+    if (res.ok)
+      return {
+        effectivePersistence: 'systemd',
+        message: 'Installed + started as a systemd service — survives reboot.',
+      }
+    const { serverUp } = await startDetachedStack(mode, port)
+    return {
+      effectivePersistence: 'detached',
+      message: `systemd unavailable (${res.reason}); started detached instead — runs until reboot.${
+        serverUp ? '' : ' (server did not come up — check ~/.podium/logs/)'
+      }`,
+    }
+  }
+  const { serverUp } = await startDetachedStack(mode, port)
+  return {
+    effectivePersistence: 'detached',
+    message: serverUp
+      ? 'Started (detached) — runs until reboot. Use `podium status` / `podium stop` to manage.'
+      : 'Server did not come up — check ~/.podium/logs/.',
+  }
 }
 
 /**
@@ -98,14 +140,39 @@ async function passwordStep(
   io.print('No password set. Re-run `podium setup` when ready.')
 }
 
-/** Choose a host mode → set its URL, then its password. */
+/**
+ * Persistence step: after the host is configured, ask whether to survive reboot (systemd) or
+ * run detached, then actually start the backend (server + daemon as two processes) and record
+ * the effective persistence in config.
+ */
+async function persistenceStep(
+  io: SetupIO,
+  port: number,
+  mode: HostMode,
+  startBackend: (opts: StartBackendOpts) => Promise<StartBackendResult>,
+): Promise<void> {
+  const ans = (
+    (await io.prompt('\nKeep Podium running as a systemd service (survives reboot)? [Y/n]: ')) ?? ''
+  )
+    .trim()
+    .toLowerCase()
+  const wantSystemd = ans === '' || ans === 'y' || ans === 'yes'
+  const res = await startBackend({ persistence: wantSystemd ? 'systemd' : 'detached', mode, port })
+  saveConfig({ ...loadConfig(), persistence: res.effectivePersistence })
+  io.print(res.message)
+}
+
+/** Choose a host mode → set its URL, its password, then start it (persistence choice). */
 async function hostStep(
   io: SetupIO,
   port: number,
   mode: HostMode,
   setPassword: (password: string) => Promise<void>,
+  startBackend: (opts: StartBackendOpts) => Promise<StartBackendResult>,
 ): Promise<void> {
-  if (await reachabilityStep(io, port, mode)) await passwordStep(io, setPassword)
+  if (!(await reachabilityStep(io, port, mode))) return
+  await passwordStep(io, setPassword)
+  await persistenceStep(io, port, mode, startBackend)
 }
 
 /** Daemon mode: paste the one-line join code (it carries the server URL + pairing code). */
@@ -140,6 +207,7 @@ async function joinStep(io: SetupIO): Promise<void> {
  */
 export async function runCliSetup(io: SetupIO, port: number, deps: SetupDeps = {}): Promise<void> {
   const setPassword = deps.setPassword ?? realSetPassword
+  const startBackend = deps.startBackend ?? realStartBackend
   const mode = loadConfig().mode
   const hostsServer = mode === 'all-in-one' || mode === 'server'
 
@@ -154,9 +222,9 @@ export async function runCliSetup(io: SetupIO, port: number, deps: SetupDeps = {
   const choice = ((await io.prompt('Choose (blank to cancel): ')) ?? '').trim()
 
   if (choice === '1') {
-    await hostStep(io, port, 'all-in-one', setPassword)
+    await hostStep(io, port, 'all-in-one', setPassword, startBackend)
   } else if (choice === '2') {
-    await hostStep(io, port, 'server', setPassword)
+    await hostStep(io, port, 'server', setPassword, startBackend)
   } else if (choice === '3') {
     await joinStep(io)
   } else if (choice === '4' && hostsServer) {

@@ -40,10 +40,15 @@ export function renderStatus(view: StatusView): string {
     `Podium — mode: ${config.mode ?? '(unset — run `podium setup`)'}` +
       (config.persistence ? `, persistence: ${config.persistence}` : ''),
   )
-  // Which roles are relevant to this deployment mode.
+  // Which roles are relevant to this deployment mode. A host (`all-in-one`) box runs the split —
+  // two processes, `server` + `daemon` — so that's what we report (the `all-in-one` role is only
+  // the desktop in-process sidecar, which doesn't use this CLI). If an `all-in-one` record is
+  // nonetheless live, surface it too.
   const roles: RunRole[] =
     config.mode === 'all-in-one'
-      ? ['all-in-one']
+      ? byRole.has('all-in-one')
+        ? ['all-in-one']
+        : ['server', 'daemon']
       : config.mode === 'server'
         ? ['server']
         : config.mode === 'daemon'

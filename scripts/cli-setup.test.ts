@@ -51,34 +51,57 @@ describe('runCliSetup', () => {
     let i = 0
     return runCliSetup({ prompt: async () => answers[i++] ?? '', print: () => {} }, 18787, {
       setPassword: setPw,
+      // Stub the backend starter so tests never spawn processes; echo the requested persistence.
+      startBackend: async (o) => ({ effectivePersistence: o.persistence, message: '' }),
     })
   }
 
   describe('first run (mode menu)', () => {
     it('host a server here (all-in-one) → set URL then password', async () => {
       const setPw = vi.fn(async () => {})
-      await run(['1', '1', 'https://box.ts.net', 's3cret'], setPw)
+      await run(['1', '1', 'https://box.ts.net', 's3cret', 'n'], setPw)
       expect(loadConfig().mode).toBe('all-in-one')
       expect(loadConfig().publicUrl).toBe('https://box.ts.net')
       expect(setPw).toHaveBeenCalledWith('s3cret')
+      expect(loadConfig().persistence).toBe('detached') // answered "n" to systemd
     })
 
     it('host the relay only (server) persists mode=server', async () => {
-      await run(['2', '1', 'https://relay.ts.net', '', 'open'])
+      await run(['2', '1', 'https://relay.ts.net', '', 'open', 'y'])
       expect(loadConfig().mode).toBe('server')
       expect(loadConfig().publicUrl).toBe('https://relay.ts.net')
+      expect(loadConfig().persistence).toBe('systemd') // answered "y"
     })
 
     it('a blank password leaves the host open only after explicit confirmation', async () => {
       const setPw = vi.fn(async () => {})
-      await run(['1', '1', 'https://box.ts.net', '', 'open'], setPw)
+      await run(['1', '1', 'https://box.ts.net', '', 'open', 'n'], setPw)
       expect(setPw).not.toHaveBeenCalled()
+    })
+
+    it('persistence: a blank answer defaults to systemd and starts the backend', async () => {
+      const startBackend = vi.fn(async (o: { persistence: 'systemd' | 'detached' }) => ({
+        effectivePersistence: o.persistence,
+        message: 'ok',
+      }))
+      let i = 0
+      const answers = ['1', '1', 'https://box.ts.net', 's3cret', ''] // blank persistence → systemd
+      await runCliSetup({ prompt: async () => answers[i++] ?? '', print: () => {} }, 18787, {
+        setPassword: vi.fn(async () => {}),
+        startBackend,
+      })
+      expect(startBackend).toHaveBeenCalledWith({
+        persistence: 'systemd',
+        mode: 'all-in-one',
+        port: 18787,
+      })
+      expect(loadConfig().persistence).toBe('systemd')
     })
 
     it('labels blank password as the no-password confirmation path', async () => {
       const prompts: string[] = []
       let i = 0
-      const answers = ['1', '1', 'https://box.ts.net', '', 'open']
+      const answers = ['1', '1', 'https://box.ts.net', '', 'open', 'n']
       await runCliSetup(
         {
           prompt: async (q) => {
@@ -88,7 +111,10 @@ describe('runCliSetup', () => {
           print: () => {},
         },
         18787,
-        { setPassword: vi.fn(async () => {}) },
+        {
+          setPassword: vi.fn(async () => {}),
+          startBackend: async (o) => ({ effectivePersistence: o.persistence, message: '' }),
+        },
       )
       expect(prompts).toContain('Password (recommended; blank starts no-password confirmation): ')
       expect(prompts).toContain('Type "open" to run without a password: ')
@@ -96,7 +122,7 @@ describe('runCliSetup', () => {
 
     it('re-prompts for a password when no-password confirmation is not typed', async () => {
       const setPw = vi.fn(async () => {})
-      await run(['1', '1', 'https://box.ts.net', '', 'no', 's3cret'], setPw)
+      await run(['1', '1', 'https://box.ts.net', '', 'no', 's3cret', 'n'], setPw)
       expect(setPw).toHaveBeenCalledWith('s3cret')
     })
 

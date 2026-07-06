@@ -24,15 +24,25 @@ const rec = (over: Partial<RunRecord>): RunRecord => ({
 })
 
 describe('renderStatus', () => {
-  it('shows an up all-in-one component with port + uptime', () => {
+  it('a host (all-in-one) box reports the split — server + daemon', () => {
     const out = renderStatus({
-      live: [rec({ role: 'all-in-one', pid: 42, port: 18787 })],
+      live: [rec({ role: 'server', pid: 42, port: 18787 }), rec({ role: 'daemon', pid: 43 })],
       config: { mode: 'all-in-one', persistence: 'detached', port: 18787 },
       nowMs: T0 + 90_000,
     })
     expect(out).toContain('mode: all-in-one, persistence: detached')
-    expect(out).toContain('● all-in-one  up :18787  pid 42  (1m)')
+    expect(out).toContain('● server  up :18787  pid 42  (1m)')
+    expect(out).toContain('● daemon  up  pid 43  (1m)')
     expect(out).toContain('http://localhost:18787')
+  })
+
+  it('an in-process all-in-one record (desktop sidecar) is surfaced directly', () => {
+    const out = renderStatus({
+      live: [rec({ role: 'all-in-one', pid: 42, port: 18787 })],
+      config: { mode: 'all-in-one', port: 18787 },
+      nowMs: T0,
+    })
+    expect(out).toContain('● all-in-one  up :18787')
   })
 
   it('shows a down component when nothing is live for the mode', () => {

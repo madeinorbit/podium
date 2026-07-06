@@ -111,19 +111,16 @@ function main(): void {
     )
   }
 
-  // Any binary that runs a daemon in-process spawns discovery work in a Worker.
-  // `new Worker(new URL('./discovery-worker.ts', import.meta.url))` is NOT auto-embedded by
-  // `bun build --compile` (Bun 1.3.x), so we add the worker as an explicit extra entrypoint
-  // (bundling its whole dep graph). worker-client.ts then spawns it from
-  // DISCOVERY_WORKER_EMBEDDED_PATH — the two share discovery-worker-embed.ts. This applies to
-  // BOTH the standalone daemon AND the `podium` CLI (which runs the daemon in-process for
-  // all-in-one / daemon modes — the path actually shipped by the headless bundle). The server
-  // never runs a daemon, so it doesn't embed the worker.
-  const withWorker = { extraEntrypoints: [DISCOVERY_WORKER_ENTRY] }
-  compile('scripts/server.ts', 'podium-server')
-  compile('scripts/daemon-compiled.ts', 'podium-daemon', withWorker)
-  compile('scripts/cli-compiled.ts', 'podium', withWorker)
-  console.log('[build-bun] done -> dist-bun/podium-server, dist-bun/podium-daemon, dist-bun/podium')
+  // ONE binary ships. The `podium` CLI runs every role — the split components as
+  // `podium server` / `podium daemon` (separate processes), the desktop sidecar as in-process
+  // all-in-one — so the previously-separate standalone `podium-server`/`podium-daemon` compiles
+  // are redundant and dropped (see #98). The CLI runs a daemon in-process (all-in-one / `podium
+  // daemon`), so it must embed the discovery Worker: `new Worker(new URL('./discovery-worker.ts',
+  // import.meta.url))` is NOT auto-embedded by `bun build --compile` (Bun 1.3.x), so we add the
+  // worker as an explicit extra entrypoint; worker-client.ts spawns it from
+  // DISCOVERY_WORKER_EMBEDDED_PATH (shared via discovery-worker-embed.ts).
+  compile('scripts/cli-compiled.ts', 'podium', { extraEntrypoints: [DISCOVERY_WORKER_ENTRY] })
+  console.log('[build-bun] done -> dist-bun/podium')
 
   // --- headless bundle: binaries + web + launcher ---------------------------------
   const headless = `${out}/headless`
@@ -134,12 +131,9 @@ function main(): void {
     )
   }
   mkdirSync(headless, { recursive: true })
-  for (const bin of ['podium-server', 'podium-daemon']) {
-    cpSync(`${out}/${bin}`, `${headless}/${bin}`)
-    chmodSync(`${headless}/${bin}`, 0o755)
-  }
   cpSync(webDist, `${headless}/web`, { recursive: true })
 
+  // The one compiled binary, plus the launcher shim (below) that execs it as `podium-cli`.
   cpSync(`${out}/podium`, `${headless}/podium-cli`)
   chmodSync(`${headless}/podium-cli`, 0o755)
 

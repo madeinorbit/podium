@@ -210,6 +210,34 @@ export async function main(): Promise<void> {
     return
   }
 
+  // Headless-managed install: setup recorded a persistence mode (systemd|detached), which means
+  // this box runs the backend as INDEPENDENT processes, never in-process. A bare `podium` (no
+  // explicit component subcommand) ensures the split is up and reports status, rather than hosting
+  // server+daemon in this PID. The desktop sidecar sets no persistence, so it falls through to the
+  // in-process path below; an explicit `podium server`/`daemon` IS a component and runs below too.
+  const explicitSub = SUBCOMMANDS.some((s) => argv.includes(s)) || argv.includes('all')
+  if (!forceSetup && !explicitSub && config.persistence) {
+    if (config.persistence === 'systemd') {
+      const units =
+        plan.mode === 'server'
+          ? ['podium-server.service']
+          : ['podium-server.service', 'podium-daemon.service']
+      try {
+        const { execFileSync } = await import('node:child_process')
+        execFileSync('systemctl', ['--user', 'start', ...units], { stdio: 'ignore' })
+      } catch (e) {
+        console.error(`podium: could not start systemd units — ${(e as Error).message}`)
+      }
+    } else {
+      const { ensureDetachedUp } = await import('./cli-spawn')
+      const { started } = await ensureDetachedUp(config, port)
+      if (started.length) console.log(`Started: ${started.join(', ')}`)
+    }
+    const { statusCommand } = await import('./cli-lifecycle')
+    statusCommand()
+    return
+  }
+
   const runServer = forceSetup || plan.mode === 'all-in-one' || plan.mode === 'server'
   const runDaemon = !forceSetup && (plan.mode === 'all-in-one' || plan.mode === 'daemon')
 
@@ -275,11 +303,25 @@ export async function main(): Promise<void> {
   }
   if (runDaemon) {
     let daemonOptions: DaemonStartOptions
-    try {
-      daemonOptions = daemonOptionsForPlan(plan, serverPort, localBootstrapToken)
-    } catch (e) {
-      console.error((e as Error).message)
-      process.exit(2)
+    // `podium daemon --local` is the split daemon on a host box: it is NOT in-process with the
+    // server, so it can't be handed the server's in-memory bootstrap token. Instead it
+    // authenticates as the LOCAL machine via the shared secret file both sides read (exactly like
+    // scripts/daemon.ts), and connects to the local server. Without --local this is a remote/join
+    // daemon that auths via the config's pair code / token.
+    if (!forceSetup && plan.mode === 'daemon' && argv.includes('--local')) {
+      const { readOrCreateDaemonSecret } = await import('../apps/server/src/local-machine')
+      daemonOptions = {
+        serverUrl: plan.serverUrl ?? `ws://localhost:${port}`,
+        bootstrapToken: readOrCreateDaemonSecret(),
+        machineId: LOCAL_MACHINE_ID,
+      }
+    } else {
+      try {
+        daemonOptions = daemonOptionsForPlan(plan, serverPort, localBootstrapToken)
+      } catch (e) {
+        console.error((e as Error).message)
+        process.exit(2)
+      }
     }
     const { startDaemon } = await import('../apps/daemon/src/daemon')
     await startDaemon(daemonOptions)
