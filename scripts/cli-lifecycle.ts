@@ -1,0 +1,139 @@
+// `podium status` / `podium stop` / `podium logs` — lifecycle commands over the run registry
+// (packages/core/src/run-registry.ts). Pure rendering (`renderStatus`) is split from the impure
+// command wrappers so it can be unit-tested. Design:
+// docs/superpowers/specs/2026-07-06-headless-process-model-design.md
+import { execFileSync, spawn } from 'node:child_process'
+import { existsSync } from 'node:fs'
+import { join } from 'node:path'
+import { loadConfig, type PodiumConfig } from '../packages/core/src/config'
+import {
+  listLive,
+  logDir,
+  type RunRecord,
+  RunRole,
+  reclaim,
+} from '../packages/core/src/run-registry'
+
+/** Human "3s / 4m / 2h / 1d ago" from an ISO start time. */
+export function humanUptime(startedAtIso: string, nowMs: number): string {
+  const started = Date.parse(startedAtIso)
+  if (Number.isNaN(started)) return 'unknown'
+  const s = Math.max(0, Math.round((nowMs - started) / 1000))
+  if (s < 60) return `${s}s`
+  if (s < 3600) return `${Math.floor(s / 60)}m`
+  if (s < 86400) return `${Math.floor(s / 3600)}h`
+  return `${Math.floor(s / 86400)}d`
+}
+
+export interface StatusView {
+  live: RunRecord[]
+  config: Pick<PodiumConfig, 'mode' | 'persistence' | 'publicUrl' | 'port'>
+  nowMs: number
+}
+
+/** PURE: render the status report from live records + config. */
+export function renderStatus(view: StatusView): string {
+  const { live, config, nowMs } = view
+  const byRole = new Map(live.map((r) => [r.role, r]))
+  const lines: string[] = []
+  lines.push(
+    `Podium — mode: ${config.mode ?? '(unset — run `podium setup`)'}` +
+      (config.persistence ? `, persistence: ${config.persistence}` : ''),
+  )
+  // Which roles are relevant to this deployment mode.
+  const roles: RunRole[] =
+    config.mode === 'all-in-one'
+      ? ['all-in-one']
+      : config.mode === 'server'
+        ? ['server']
+        : config.mode === 'daemon'
+          ? ['daemon']
+          : (RunRole.options as RunRole[]) // unknown mode: show whatever is live
+  for (const role of roles) {
+    const rec = byRole.get(role)
+    if (rec) {
+      const port = rec.port ? ` :${rec.port}` : ''
+      lines.push(`  ● ${role}  up${port}  pid ${rec.pid}  (${humanUptime(rec.startedAt, nowMs)})`)
+    } else {
+      lines.push(`  ○ ${role}  down`)
+    }
+  }
+  const url = config.publicUrl ?? `http://localhost:${config.port ?? 18787}`
+  lines.push(`  URL: ${url}`)
+  return lines.join('\n')
+}
+
+function systemctlUser(args: string[]): void {
+  execFileSync('systemctl', ['--user', ...args], { stdio: 'inherit' })
+}
+
+function hasSystemctl(): boolean {
+  try {
+    execFileSync('systemctl', ['--version'], { stdio: 'ignore' })
+    return true
+  } catch {
+    return false
+  }
+}
+
+/** `podium status` */
+export function statusCommand(): void {
+  const config = loadConfig()
+  console.log(
+    renderStatus({
+      live: listLive(),
+      config,
+      nowMs: Date.now(),
+    }),
+  )
+}
+
+/** `podium stop` — systemd mode stops the units; detached/foreground reclaims each live role. */
+export async function stopCommand(): Promise<void> {
+  const config = loadConfig()
+  if (config.persistence === 'systemd' && hasSystemctl()) {
+    try {
+      systemctlUser(['stop', 'podium-daemon.service', 'podium-server.service'])
+      console.log('Stopped podium-server + podium-daemon (systemd).')
+    } catch (e) {
+      console.error(`podium stop: ${(e as Error).message}`)
+      process.exit(1)
+    }
+    return
+  }
+  const live = listLive()
+  if (live.length === 0) {
+    console.log('Nothing running.')
+    return
+  }
+  for (const rec of live) {
+    await reclaim(rec.role)
+    console.log(`Stopped ${rec.role} (pid ${rec.pid}).`)
+  }
+}
+
+/** `podium logs [-f]` — tails detached component logs; systemd mode points at journalctl. */
+export function logsCommand(argv: string[]): void {
+  const config = loadConfig()
+  if (config.persistence === 'systemd') {
+    console.log(
+      'Under systemd — view logs with:\n' +
+        '  journalctl --user -u podium-server -u podium-daemon -f',
+    )
+    return
+  }
+  const follow = argv.includes('-f') || argv.includes('--follow')
+  const files = ['server', 'daemon', 'all-in-one']
+    .map((r) => join(logDir(), `${r}.log`))
+    .filter((f) => existsSync(f))
+  if (files.length === 0) {
+    console.log(`No logs yet in ${logDir()}.`)
+    return
+  }
+  // Delegate to `tail` for correct follow semantics; inherit stdio so it streams to the terminal.
+  const args = [follow ? '-F' : '-n', follow ? undefined : '200', ...files].filter(
+    (a): a is string => a !== undefined,
+  )
+  const child = spawn('tail', args, { stdio: 'inherit' })
+  child.on('exit', (code) => process.exit(code ?? 0))
+}

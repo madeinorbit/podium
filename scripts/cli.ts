@@ -161,6 +161,23 @@ export async function main(): Promise<void> {
     return
   }
 
+  // `podium status | stop | logs`: lifecycle over the run registry (server + daemon processes).
+  if (argv[0] === 'status') {
+    const { statusCommand } = await import('./cli-lifecycle')
+    statusCommand()
+    return
+  }
+  if (argv[0] === 'stop') {
+    const { stopCommand } = await import('./cli-lifecycle')
+    await stopCommand()
+    return
+  }
+  if (argv[0] === 'logs') {
+    const { logsCommand } = await import('./cli-lifecycle')
+    logsCommand(argv.slice(1))
+    return
+  }
+
   // `podium setup` (or --reconfigure) re-enters the interactive flow: a mode-first menu that
   // can switch this box into all-in-one / server / daemon and edit the URL/password. It's the
   // interactive command, so the only gate is a TTY (headless falls through to serving the web
@@ -195,6 +212,41 @@ export async function main(): Promise<void> {
 
   const runServer = forceSetup || plan.mode === 'all-in-one' || plan.mode === 'server'
   const runDaemon = !forceSetup && (plan.mode === 'all-in-one' || plan.mode === 'daemon')
+
+  // Claim this component's role in the run registry BEFORE binding: reclaim() SIGKILLs a stale
+  // holder (a force-killed desktop orphan, a crashed detached process) so we don't collide on the
+  // port or run two daemons over the same ~/.podium, then write our pidfile for status/stop. The
+  // in-process all-in-one is a single role; the split modes each claim their own.
+  const runRole = forceSetup
+    ? undefined
+    : plan.mode === 'server'
+      ? ('server' as const)
+      : plan.mode === 'daemon'
+        ? ('daemon' as const)
+        : plan.mode === 'all-in-one'
+          ? ('all-in-one' as const)
+          : undefined
+  if (runRole) {
+    // NOTIFY_SOCKET ⇒ started under a systemd Type=notify unit; PODIUM_RUN_MODE=detached is set by
+    // the setup detached-spawn; otherwise it's a plain foreground run (desktop sidecar, dev).
+    const runRecordMode = process.env.NOTIFY_SOCKET
+      ? ('systemd' as const)
+      : process.env.PODIUM_RUN_MODE === 'detached'
+        ? ('detached' as const)
+        : ('foreground' as const)
+    const { registerProcess } = await import('../packages/core/src/run-registry')
+    try {
+      // Daemon-only mode hosts no local port; server/all-in-one record theirs.
+      await registerProcess(runRole, {
+        mode: runRecordMode,
+        ...(runRole === 'daemon' ? {} : { port }),
+      })
+    } catch (e) {
+      // EPERM: a live, unkillable same-role process exists — refuse to double-run.
+      console.error((e as Error).message)
+      process.exit(1)
+    }
+  }
 
   let serverPort = port
   let localBootstrapToken: string | undefined
