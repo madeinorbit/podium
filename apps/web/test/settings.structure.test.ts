@@ -9,15 +9,16 @@ const read = (rel: string) =>
 describe('settings structure', () => {
   it('explains how to configure Telegram notifications', () => {
     const src = read('SettingsView.tsx')
+    // The manual chat-ID hunt (@userinfobot / @RawDataBot / getUpdates) was
+    // replaced by the guided connect flow: create a bot, click Connect
+    // Telegram, send the prefilled start message — Podium fills the chat ID.
     expect(src).toContain('Telegram setup')
     expect(src).toContain('@BotFather')
     expect(src).toContain('/newbot')
-    expect(src).toContain('@userinfobot')
-    expect(src).toContain('@RawDataBot')
-    expect(src).toContain('remove the helper bot')
-    expect(src).toContain('getUpdates')
-    expect(src).toContain('global for this Podium server')
-    expect(src).toContain('both a bot token and chat ID')
+    expect(src).toContain('Connect Telegram')
+    expect(src).toContain('startTelegramSetup')
+    expect(src).toContain('setup code')
+    expect(src).toContain('for this Podium server')
   })
 })
 

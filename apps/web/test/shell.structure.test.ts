@@ -66,8 +66,12 @@ describe('web shell structure', () => {
     expect(src).toContain('useSortable')
     expect(src).toContain('arrayMove')
     expect(src).toContain('setTabOrder')
-    expect(src).toContain('tabbar-tabs')
-    expect(src).toContain('tabbar-actions')
+    // The strip itself scrolls horizontally; drags are clamped to the row.
+    expect(src).toContain('overflow-x-auto')
+    expect(src).toContain('restrictToHorizontalAxis')
+    // The fixed actions (new-panel menu, split) render OUTSIDE the sortable
+    // scrolling strip — after the DndContext closes.
+    expect(src.indexOf('<NewPanelMenu')).toBeGreaterThan(src.indexOf('</DndContext>'))
     // Clicks must keep working: drags only start after the pointer moves.
     expect(src).toContain('activationConstraint')
   })
@@ -107,9 +111,14 @@ describe('web shell structure', () => {
     expect(results).toContain('HIDDEN / SYSTEM')
   })
   it('workspace renders the new-panel menu outside the scrolling tabbar', () => {
+    // NewPanelMenu owns its own trigger and a portalled, auto-positioned
+    // dropdown (the old fixed 'workspace-menu-layer' the parent positioned is
+    // gone) — so the menu never scrolls with, or is clipped by, the tab strip.
     const src = read('Workspace.tsx')
-    expect(src).toContain('workspace-menu-layer')
     expect(src).toContain('NewPanelMenu')
+    const menu = read('NewPanelMenu.tsx')
+    expect(menu).toContain('DropdownMenuTrigger')
+    expect(menu).toContain('DropdownMenuContent')
   })
   it('initial store load does not block on a conversation scan', () => {
     const src = read('store.tsx')
@@ -166,7 +175,9 @@ describe('host health indicators', () => {
     const src = read('ConnectionIndicator.tsx')
     expect(src).toContain('describeHealth')
     expect(src).toContain('onConnectionHealth')
-    expect(src).toContain('conn-tooltip')
+    // The custom conn-tooltip div became the shared Tooltip primitives.
+    expect(src).toContain('TooltipTrigger')
+    expect(src).toContain('TooltipContent')
     expect(src).toContain('ms ping') // the number the tooltip explains
   })
 })

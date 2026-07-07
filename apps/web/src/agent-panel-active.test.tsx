@@ -91,6 +91,7 @@ vi.mock('./store', () => ({
     hub: fakeHub,
     sessions: storeSessions,
     machines: [],
+    pendingSpawnIds: new Set<string>(),
     repos: [],
     trpc: fakeTrpc,
     drafts: {},

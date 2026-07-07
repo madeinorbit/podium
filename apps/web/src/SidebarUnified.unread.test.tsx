@@ -73,8 +73,11 @@ function issue(id: string, title: string, over: Record<string, unknown> = {}) {
   }
 }
 
-vi.mock('./store', () => ({
-  useStore: () => ({
+vi.mock('./store', () => {
+  const useStore = () => ({
+    setSearchOpen: vi.fn(),
+    // ui-state collection (persisted section collapse etc.) — absent key = default.
+    uiState: { get: () => null, set: vi.fn() },
     repos: [{ path: '/repo', kind: 'repository', branch: 'main', worktrees: [] }],
     sessions: [idleSess('s-unread', 'u1'), idleSess('s-read', 'r1')],
     machines: [],
@@ -105,8 +108,13 @@ vi.mock('./store', () => ({
     spawnDraftAgent: vi.fn(),
     markIssueRead,
     markSessionRead,
-  }),
-}))
+  })
+  // The selector-store hook (refactor) reads slices off the same store shape.
+  return {
+    useStore,
+    useStoreSelector: (sel: (s: unknown) => unknown) => sel(useStore() as never),
+  }
+})
 
 vi.mock('./HostIndicators', () => ({ HostIndicators: () => null }))
 vi.mock('@/hooks/use-session-guard', () => ({

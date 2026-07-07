@@ -29,6 +29,7 @@ vi.mock('./store', () => ({
       },
     },
     hub: { onIssues: () => () => {} },
+    machines: [],
     issues: [PARENT, CHILD_LIVE, CHILD_ARCHIVED],
     setSelectedWorktree: vi.fn(),
     setPane: vi.fn(),

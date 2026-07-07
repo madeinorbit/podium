@@ -63,8 +63,11 @@ function issue(id: string, title: string, over: Record<string, unknown> = {}) {
   }
 }
 
-vi.mock('./store', () => ({
-  useStore: () => ({
+vi.mock('./store', () => {
+  const useStore = () => ({
+    setSearchOpen: vi.fn(),
+    // ui-state collection (persisted section collapse etc.) — absent key = default.
+    uiState: { get: () => null, set: vi.fn() },
     repos: [{ path: '/repo', kind: 'repository', branch: 'main', worktrees: [] }],
     sessions: [
       sess('s-work', 'fully', 'working'), // fully-working issue → WORKING
@@ -93,8 +96,13 @@ vi.mock('./store', () => ({
     setView: vi.fn(),
     sidebarSettings: { groupByRepo: false },
     setSidebarSettings: vi.fn(),
-  }),
-}))
+  })
+  // The selector-store hook (refactor) reads slices off the same store shape.
+  return {
+    useStore,
+    useStoreSelector: (sel: (s: unknown) => unknown) => sel(useStore() as never),
+  }
+})
 
 vi.mock('./HostIndicators', () => ({ HostIndicators: () => null }))
 // PanelRow (the lifted working session) pulls in the session guard, which needs a

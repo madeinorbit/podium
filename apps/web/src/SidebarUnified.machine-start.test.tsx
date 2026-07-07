@@ -3,7 +3,10 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SidebarUnified } from './SidebarUnified'
 
-const createSession = vi.fn(async () => ({ sessionId: 'new-session' }))
+// Optimistic spawn (#119): the sidebar goes through store.spawnDraftAgent, which
+// mints client-side ids and paints the row before any server round-trip — the
+// component never calls trpc.sessions.create directly anymore.
+const spawnDraftAgent = vi.fn(() => ({ sessionId: 'new-session', issueId: 'draft-issue' }))
 const settingsGet = vi.fn(async () => ({ sessionDefaults: { agent: 'claude-code' } }))
 const settingsSet = vi.fn(async (settings) => settings)
 const setSelectedWorktree = vi.fn()
@@ -11,8 +14,11 @@ const setSelectedIssueId = vi.fn()
 const setPane = vi.fn()
 const setView = vi.fn()
 
-vi.mock('./store', () => ({
-  useStore: () => ({
+vi.mock('./store', () => {
+  const useStore = () => ({
+    setSearchOpen: vi.fn(),
+    // ui-state collection (persisted section collapse etc.) — absent key = default.
+    uiState: { get: () => null, set: vi.fn() },
     repos: [
       {
         path: '/home/podium-host/podium',
@@ -70,11 +76,8 @@ vi.mock('./store', () => ({
     issues: [],
     trpc: {
       settings: { get: { query: settingsGet }, set: { mutate: settingsSet } },
-      sessions: {
-        create: { mutate: createSession },
-        resumeAndSend: { mutate: vi.fn(async () => ({})) },
-      },
     },
+    spawnDraftAgent,
     selectedWorktree: null,
     setSelectedWorktree,
     selectedIssueId: null,
@@ -86,14 +89,19 @@ vi.mock('./store', () => ({
     setView,
     sidebarSettings: { groupByRepo: false },
     setSidebarSettings: vi.fn(),
-  }),
-}))
+  })
+  // The selector-store hook (refactor) reads slices off the same store shape.
+  return {
+    useStore,
+    useStoreSelector: (sel: (s: unknown) => unknown) => sel(useStore() as never),
+  }
+})
 
 vi.mock('./HostIndicators', () => ({ HostIndicators: () => null }))
 
 afterEach(() => {
   cleanup()
-  createSession.mockClear()
+  spawnDraftAgent.mockClear()
   settingsGet.mockClear()
   settingsSet.mockClear()
   setSelectedWorktree.mockClear()
@@ -108,15 +116,16 @@ describe('SidebarUnified machine-aware agent start', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: /^New Claude in podium$/ }))
 
+    // MRU machine for the repo is vmi34 (the only recent session), so the spawn
+    // targets that machine's primary checkout.
     await waitFor(() =>
-      expect(createSession).toHaveBeenCalledWith({
+      expect(spawnDraftAgent).toHaveBeenCalledWith({
         agentKind: 'claude-code',
-        cwd: '/home/vmi34/podium',
-        draftIssue: { repoPath: '/home/vmi34/podium' },
-        machineId: 'vmi34',
+        target: expect.objectContaining({ path: '/home/vmi34/podium', machineId: 'vmi34' }),
       }),
     )
     expect(setSelectedWorktree).toHaveBeenCalledWith('/home/vmi34/podium')
+    expect(setPane).toHaveBeenCalledWith('A', 'new-session')
   })
 
   it('starts from an agent menu click with the same default repo and machine', async () => {
@@ -126,11 +135,9 @@ describe('SidebarUnified machine-aware agent start', () => {
     fireEvent.click(await screen.findByRole('menuitem', { name: 'New Codex' }))
 
     await waitFor(() =>
-      expect(createSession).toHaveBeenCalledWith({
+      expect(spawnDraftAgent).toHaveBeenCalledWith({
         agentKind: 'codex',
-        cwd: '/home/vmi34/podium',
-        draftIssue: { repoPath: '/home/vmi34/podium' },
-        machineId: 'vmi34',
+        target: expect.objectContaining({ path: '/home/vmi34/podium', machineId: 'vmi34' }),
       }),
     )
   })
