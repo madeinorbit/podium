@@ -568,8 +568,10 @@ export class SessionRegistry {
       setSessionArchived: (sessionId, archived) => this.setArchived({ sessionId, archived }),
       broadcast: (msg) => {
         // Full issue-list fan-outs funnel through the oplog so delta-cap clients get
-        // per-issue changes; everything else (issueUpdated etc.) stays a raw fan-out.
+        // per-issue changes; single-issue updates ride the SAME oplog stream as a
+        // partial record (#22) so a persist never serializes the whole list.
         if (msg.type === 'issuesChanged') this.publishIssues(msg.issues)
+        else if (msg.type === 'issueUpdated') this.publishIssueUpdate(msg.issue)
         else for (const c of this.clients.values()) c.send(msg)
       },
       // Agent mail send-time nudge (issue #103): poke the target issue's live agent
@@ -4064,6 +4066,16 @@ export class SessionRegistry {
       issues.map((i) => ({ id: i.id, value: i })),
     )
     this.fanOutMetadata({ type: 'issuesChanged', issues }, changes)
+  }
+
+  /** Single-issue fan-out (issue #22): one PARTIAL oplog record (an upsert for
+   *  this id only — absence of the other issues must not read as deletion) and a
+   *  split fan-out. Delta-cap clients get the one-change metadataDelta; legacy
+   *  clients get the issueUpdated message they already merge by id. The full
+   *  issuesChanged path (publishIssues) remains for bulk/membership changes. */
+  private publishIssueUpdate(issue: IssueWire): void {
+    const changes = this.oplog.record('issue', [{ id: issue.id, value: issue }], { partial: true })
+    this.fanOutMetadata({ type: 'issueUpdated', issue }, changes)
   }
 
   private broadcastConversations(): void {

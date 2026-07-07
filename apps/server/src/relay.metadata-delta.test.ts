@@ -56,6 +56,27 @@ describe('SessionRegistry metadata deltas', () => {
     expect((changes[0]?.value as IssueWire).title).toBe('first')
   })
 
+  it('a single-issue update fans out one issueUpdated + one oplog change — never the full list (#22)', () => {
+    const registry = makeRegistry()
+    const w = registry.issues.create({ repoPath: '/r', title: 'solo', startNow: false })
+    registry.issues.create({ repoPath: '/r', title: 'bystander', startNow: false })
+    const legacy = client(registry)
+    const delta = client(registry, ['metadataDelta'])
+    const legacyBefore = legacy.inbox.length
+    const deltaBefore = delta.inbox.length
+
+    registry.issues.update(w.id, { notes: 'self-contained edit' })
+
+    // Legacy client: exactly one single-issue message, no full issuesChanged.
+    const legacyNew = legacy.inbox.slice(legacyBefore)
+    expect(legacyNew.map((m) => m.type)).toEqual(['issueUpdated'])
+    // Delta client: exactly one oplog upsert for that issue — the bystander is untouched.
+    const changes = deltas(delta.inbox.slice(deltaBefore))
+    expect(changes).toHaveLength(1)
+    expect(changes[0]).toMatchObject({ entity: 'issue', id: w.id, op: 'upsert' })
+    expect((changes[0] as { value: IssueWire }).value.notes).toBe('self-contained edit')
+  })
+
   it('streams session upserts through the same seam', () => {
     const registry = makeRegistry()
     const delta = client(registry, ['metadataDelta'])

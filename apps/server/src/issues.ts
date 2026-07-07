@@ -1155,14 +1155,25 @@ export class IssueService {
     } catch {}
   }
 
+  /** Persist ONE row and broadcast it as a single-issue delta (issue #22).
+   *  Historically every persist() also broadcast the FULL allWire() list —
+   *  N × toWire (4 store queries each + an O(N) children scan) per mutation,
+   *  O(N²) under load. Mutations whose effect stays within the row now cost one
+   *  toWire; mutations that change OTHER issues' derived wire data (closed flips
+   *  → dependents' blocked/ready + parent childDoneCount, hierarchy/dep edits,
+   *  membership changes) additionally call {@link broadcastList}. */
   private persist(row: IssueRow): IssueWire {
     row.updatedAt = this.now()
     this.rows.set(row.id, row)
     this.deps.store.upsertIssue(row)
     const wire = this.toWire(row)
     this.deps.broadcast({ type: 'issueUpdated', issue: wire })
-    this.deps.broadcast({ type: 'issuesChanged', issues: this.allWire() })
     return wire
+  }
+
+  /** Full-list broadcast for mutations with cross-issue effects (see persist). */
+  private broadcastList(): void {
+    this.deps.broadcast({ type: 'issuesChanged', issues: this.allWire() })
   }
 
   create(input: CreateIssueInput): IssueWire {
@@ -1225,6 +1236,9 @@ export class IssueService {
     // parentId handled after persist via reparent (edge-maintaining): the row
     // must be registered in this.rows first so wouldCycle/rowOrThrow work.
     let wire = this.persist(row)
+    // New list MEMBERSHIP: single-issue deltas only patch known ids on legacy
+    // clients, so a create still fans out the full list once (#22).
+    this.broadcastList()
     this.emitEvent('issue.created', row.id, { seq: row.seq, title: row.title })
     if (input.parentId) wire = this.reparent(row.id, input.parentId)
     if (input.labels?.length) wire = this.setLabels(row.id, input.labels)
@@ -1292,6 +1306,10 @@ export class IssueService {
       Object.assign(row, patch)
     }
     const wire = this.persist(row)
+    // Cross-issue derived effects (#22): a closed-predicate flip changes the
+    // dependents' blocked/ready and the parent's childDoneCount; a reparent
+    // changes both parents' childCount. Those rows' wires must reach clients too.
+    if (wasClosed !== this.isClosed(row) || 'parentId' in patch) this.broadcastList()
     // Transitions into done log as issue.closed below, not stage_changed.
     if (patch.stage != null && patch.stage !== prevStage && patch.stage !== 'done') {
       this.emitEvent('issue.stage_changed', row.id, {
@@ -1567,7 +1585,9 @@ export class IssueService {
       throw new Error(`dependency ${fromId} -> ${toId} would create a cycle`)
     }
     this.deps.store.addIssueDep(fromId, toId, type)
-    return this.persist(row)
+    const wire = this.persist(row)
+    this.broadcastList() // the TARGET's dependents/blocked derivation changed too (#22)
+    return wire
   }
 
   removeDep(fromId: string, toId: string, type?: string): IssueWire {
@@ -1588,7 +1608,9 @@ export class IssueService {
         }
       }
     }
-    return this.persist(row)
+    const wire = this.persist(row)
+    this.broadcastList() // the TARGET's dependents/blocked derivation changed too (#22)
+    return wire
   }
 
   defer(id: string, until: string | null): IssueWire {
@@ -1658,7 +1680,9 @@ export class IssueService {
   reparent(id: string, parentId: string | null): IssueWire {
     const row = this.rowOrThrow(id)
     this.setParent(row, parentId == null ? null : this.resolveRef(parentId))
-    return this.persist(row)
+    const wire = this.persist(row)
+    this.broadcastList() // both parents' childCount/childDoneCount changed (#22)
+    return wire
   }
 
   /** The issue's parent chain, nearest first. Cycle-safe (parent graph is invariant, but
@@ -1737,6 +1761,7 @@ export class IssueService {
     row.assignee = `agent:${row.defaultAgent}`
     const wire = this.persistRow(row)
     if (wasClosed) {
+      this.broadcastList() // reopen flip: dependents' blocked/ready changed (#22)
       this.emitEvent('issue.reopened', row.id, {
         seq: row.seq,
         ...(row.parentId ? { parentId: row.parentId } : {}),

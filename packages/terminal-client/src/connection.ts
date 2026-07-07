@@ -798,7 +798,12 @@ export class SocketHub {
       return
     }
     if (msg.type === 'issueUpdated') {
-      this.issueList = this.issueList.map((i) => (i.id === msg.issue.id ? msg.issue : i))
+      // Upsert, not just replace: single-issue broadcasts are the server's primary
+      // issue delta (#22), so an id we haven't seen yet must join the list rather
+      // than be dropped on the floor.
+      this.issueList = this.issueList.some((i) => i.id === msg.issue.id)
+        ? this.issueList.map((i) => (i.id === msg.issue.id ? msg.issue : i))
+        : [...this.issueList, msg.issue]
       for (const o of this.issueObservers) o(this.issueList)
       for (const o of this.issueUpdatedObservers) o(msg.issue)
       return

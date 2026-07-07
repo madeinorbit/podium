@@ -79,6 +79,34 @@ describe('IssueService CRUD', () => {
   })
 })
 
+describe('IssueService single-issue broadcast (#22)', () => {
+  const broadcasts = (deps: IssueDeps) =>
+    (deps.broadcast as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0] as { type: string })
+
+  it('a self-contained update serializes ONE wire and broadcasts only issueUpdated', () => {
+    const { svc, deps } = harness()
+    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    svc.create({ repoPath: '/r', title: 'B', startNow: false })
+    ;(deps.broadcast as ReturnType<typeof vi.fn>).mockClear()
+    const wires = vi.spyOn(svc, 'toWire')
+    svc.update(a.id, { notes: 'note' })
+    // No full-list serialization: exactly one toWire (the mutated row).
+    expect(wires).toHaveBeenCalledTimes(1)
+    const sent = broadcasts(deps)
+    expect(sent).toHaveLength(1)
+    expect(sent[0]).toMatchObject({ type: 'issueUpdated', issue: { id: a.id, notes: 'note' } })
+  })
+
+  it('a closed-predicate flip additionally fans out the full list (cross-issue derivation)', () => {
+    const { svc, deps } = harness()
+    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    ;(deps.broadcast as ReturnType<typeof vi.fn>).mockClear()
+    svc.close(a.id)
+    const types = broadcasts(deps).map((m) => m.type)
+    expect(types).toEqual(['issueUpdated', 'issuesChanged'])
+  })
+})
+
 describe('IssueService unread (#124)', () => {
   it('a never-read issue with activity is unread; markIssueRead clears it', () => {
     const { svc } = harness()

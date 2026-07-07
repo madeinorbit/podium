@@ -91,8 +91,17 @@ export class MetadataOplog {
    * array = nothing actually changed, e.g. an activity bump that altered no bytes).
    * Elements are compared by their serialized JSON — same cheap byte-equality the
    * sessions broadcast dedup already relies on.
+   *
+   * `opts.partial` (issue #22): `list` is a SUBSET of the entity's truth (e.g. the
+   * one issue a persist() touched), so absence means "not included", never
+   * "deleted" — the remove-diff pass is skipped. Only full-truth calls may emit
+   * removes.
    */
-  record(entity: MetadataEntityKind, list: { id: string; value: unknown }[]): MetadataChange[] {
+  record(
+    entity: MetadataEntityKind,
+    list: { id: string; value: unknown }[],
+    opts: { partial?: boolean } = {},
+  ): MetadataChange[] {
     const prev = this.byEntity(entity)
     const next = new Map<string, string>()
     const rows: {
@@ -121,8 +130,10 @@ export class MetadataOplog {
       }
       if (changed) rows.push({ entity, entityId: id, op: 'upsert', payload: json })
     }
-    for (const id of prev.keys()) {
-      if (!next.has(id)) rows.push({ entity, entityId: id, op: 'remove', payload: null })
+    if (!opts.partial) {
+      for (const id of prev.keys()) {
+        if (!next.has(id)) rows.push({ entity, entityId: id, op: 'remove', payload: null })
+      }
     }
     if (rows.length === 0) return []
     const seqs = this.store.appendChanges(rows, this.now())
