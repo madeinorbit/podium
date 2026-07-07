@@ -7,20 +7,17 @@ import { ConfirmProvider } from '@/hooks/use-confirm'
 import { useIsMobile } from '@/hooks/use-is-mobile'
 import { AppErrorPage } from './AppErrorPage'
 import { AutoContinueDialog } from './AutoContinueDialog'
-import { AutomationsView } from './AutomationsView'
 import { CommandPalette } from './CommandPalette'
 import { ErrorBoundary } from './ErrorBoundary'
-import { HomeView } from './HomeView'
-import { IssuesView } from './IssuesView'
 import { MobileApp } from './MobileApp'
 import { OnboardingWizard } from './OnboardingWizard'
 import { RightDock } from './RightDock'
-import { SettingsView } from './SettingsView'
+import { MainViewOutlet } from './routes'
+import { SearchView } from './SearchView'
 import { Sidebar } from './Sidebar'
 import { StoreProvider, useStore } from './store'
 import { serverConfig } from './trpc'
 import { UpdatePrompt } from './UpdatePrompt'
-import { UsageView } from './UsageView'
 import { Workspace } from './Workspace'
 
 /** Cold-start splash shown while the first backend state fetch is in flight. */
@@ -79,8 +76,16 @@ export function AppShell(): JSX.Element {
 }
 
 function AppBody({ isMobile }: { isMobile: boolean }): JSX.Element {
-  const { repos, reposLoaded, view, superOpen, setSuperOpen, paletteOpen, setPaletteOpen } =
-    useStore()
+  const {
+    repos,
+    reposLoaded,
+    superOpen,
+    setSuperOpen,
+    paletteOpen,
+    setPaletteOpen,
+    searchOpen,
+    setSearchOpen,
+  } = useStore()
   const [dismissed, setDismissed] = useState(false)
 
   // Global Cmd/Ctrl+K toggles the command palette. Registered at shell level so
@@ -116,19 +121,7 @@ function AppBody({ isMobile }: { isMobile: boolean }): JSX.Element {
       ) : (
         <div className="desktop-shell">
           <Sidebar />
-          {view === 'home' ? (
-            <HomeView />
-          ) : view === 'settings' ? (
-            <SettingsView />
-          ) : view === 'usage' ? (
-            <UsageView />
-          ) : view === 'issues' ? (
-            <IssuesView />
-          ) : view === 'automations' ? (
-            <AutomationsView />
-          ) : (
-            <Workspace />
-          )}
+          <MainViewOutlet workspace={<Workspace />} />
           {/* The superagent / BTW thread is a collapsible right dock, so you can watch
               an agent and orchestrate it side by side instead of a full-screen swap. */}
           {superOpen && (
@@ -156,6 +149,9 @@ function AppBody({ isMobile }: { isMobile: boolean }): JSX.Element {
           </div>
         </div>
       )}
+      {/* Route-backed conversation search (/search or ?search=1) — rendered at
+          shell level so both chromes share it and back closes it. */}
+      {searchOpen && <SearchView onClose={() => setSearchOpen(false)} />}
       <AutoContinueDialog />
       <CommandPalette />
     </>

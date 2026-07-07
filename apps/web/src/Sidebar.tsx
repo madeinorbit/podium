@@ -47,7 +47,6 @@ import { StageGlyph } from './issue-glyphs'
 import { isEpic } from './issue-hierarchy'
 import { NewPanelMenu } from './NewPanelMenu'
 import { RepoScanFlow } from './RepoScanFlow'
-import { SearchView } from './SearchView'
 import { type ContextMenuAnchor, SessionContextMenu } from './SessionContextMenu'
 import { SidebarUnified } from './SidebarUnified'
 import { SnoozeControl } from './SnoozeControl'
@@ -180,7 +179,7 @@ export function Sidebar(): JSX.Element {
   } = useStore()
   const now = useNow(60_000)
   const [pickerOpen, setPickerOpen] = useState(false)
-  const [searchOpen, setSearchOpen] = useState(false)
+  const setSearchOpen = useStoreSelector((s) => s.setSearchOpen)
 
   // Inline filter over the repos/worktrees tree (name/branch/path). Distinct from
   // the global SearchView (the magnifier in the tools row), which searches
@@ -604,7 +603,6 @@ export function Sidebar(): JSX.Element {
       {pickerOpen && (
         <RepoScanFlow onClose={() => setPickerOpen(false)} onDone={() => setPickerOpen(false)} />
       )}
-      {searchOpen && <SearchView onClose={() => setSearchOpen(false)} />}
     </ResizableAside>
   )
 }

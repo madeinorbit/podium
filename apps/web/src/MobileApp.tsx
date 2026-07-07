@@ -26,17 +26,13 @@ import {
   sidebarSections,
   type WorktreeNavView,
 } from './derive'
-import { HomeView } from './HomeView'
 import { HostIndicators } from './HostIndicators'
-import { IssuesView } from './IssuesView'
 import { NewPanelMenu } from './NewPanelMenu'
 import { RepoScanFlow } from './RepoScanFlow'
-import { SearchView } from './SearchView'
-import { SettingsView } from './SettingsView'
+import { MainViewOutlet } from './routes'
 import { SuperagentView } from './SuperagentView'
 import { useStore } from './store'
 import type { PinKind } from './types'
-import { UsageView } from './UsageView'
 import { useNow } from './useNow'
 import { WorkerLabel } from './WorkerLabel'
 
@@ -134,7 +130,8 @@ export function MobileApp(): JSX.Element {
   // exclusive — opening one closes the other (#97). Lift the "+" menu's open
   // state here so the two can coordinate (NewPanelMenu is controlled below).
   const [newAgentOpen, setNewAgentOpen] = useState(false)
-  const [searchOpen, setSearchOpen] = useState(false)
+  // Route-backed search overlay; rendered at shell level (AppShell).
+  const { setSearchOpen } = store
   // Hold a freshly-opened (or reload-restored) session in pane A until the store
   // knows it — see the keep-pane-valid effect — otherwise it bounces to tabs[0].
   const justOpened = useRef<string | null>(paneA)
@@ -351,31 +348,29 @@ export function MobileApp(): JSX.Element {
         </div>
       )}
       <div className="relative flex min-h-0 flex-1" onPointerDownCapture={closePanelMenus}>
-        {view === 'home' ? (
-          <HomeView />
-        ) : view === 'settings' ? (
-          <SettingsView />
-        ) : view === 'usage' ? (
-          <UsageView />
-        ) : view === 'issues' ? (
-          <IssuesView />
-        ) : activeFileTab ? (
-          <Suspense
-            fallback={<div className="m-auto text-[13px] text-muted-foreground/70">Loading…</div>}
-          >
-            <FilePanel
-              scope={activeFileTab.scope}
-              path={activeFileTab.path}
-              onClose={() => closeFileTab(activeFileTab.id)}
-            />
-          </Suspense>
-        ) : paneA ? (
-          <AgentPanel sessionId={paneA} />
-        ) : (
-          <div className="m-auto text-[13px] text-muted-foreground/70">
-            No panel - use + to start one.
-          </div>
-        )}
+        <MainViewOutlet
+          workspace={
+            activeFileTab ? (
+              <Suspense
+                fallback={
+                  <div className="m-auto text-[13px] text-muted-foreground/70">Loading…</div>
+                }
+              >
+                <FilePanel
+                  scope={activeFileTab.scope}
+                  path={activeFileTab.path}
+                  onClose={() => closeFileTab(activeFileTab.id)}
+                />
+              </Suspense>
+            ) : paneA ? (
+              <AgentPanel sessionId={paneA} />
+            ) : (
+              <div className="m-auto text-[13px] text-muted-foreground/70">
+                No panel - use + to start one.
+              </div>
+            )
+          }
+        />
         {/* The superagent overlays the content; collapsing it (its header button,
             or the Sparkles toggle above) minimizes — the Sparkles button pulls it
             back up. */}
@@ -518,7 +513,6 @@ export function MobileApp(): JSX.Element {
           onDone={() => setRepoPickerOpen(false)}
         />
       )}
-      {searchOpen && <SearchView onClose={() => setSearchOpen(false)} />}
     </div>
   )
 }

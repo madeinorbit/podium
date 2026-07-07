@@ -35,6 +35,7 @@ import {
 } from './optimistic-spawn'
 import { createOutbox } from './outbox'
 import { createReplica, type Replica, type UiState, useReplicaRows } from './replica'
+import { createRouter, type MainView, type RouteState, routeDefaults } from './router'
 import { createDraftAgent, type SpawnTarget } from './spawn-agent'
 import { makeTrpc, type ServerOrigin, type Trpc } from './trpc'
 import type { PinKind, PinState } from './types'
@@ -104,6 +105,10 @@ export interface Store {
    *  local) so other surfaces (toolbar button, shell shortcut) can open it. */
   paletteOpen: boolean
   setPaletteOpen: (open: boolean) => void
+  /** Whether the conversation-search overlay is open. Route-backed (/search or
+   *  ?search=1), so a deep link opens it and back closes it. */
+  searchOpen: boolean
+  setSearchOpen: (open: boolean) => void
   selectedWorktree: string | null
   setSelectedWorktree: (path: string | null) => void
   /** Issue-keyed workspace selection (unified sidebar only): the issue whose
@@ -213,7 +218,8 @@ export interface Store {
   outboxSize: number
 }
 
-export type MainView = 'home' | 'workspace' | 'settings' | 'usage' | 'issues' | 'automations'
+// The main-view union now lives with the router (URL ↔ view mapping).
+export type { MainView } from './router'
 
 // The context carries a subscription-store HANDLE (stable identity for the
 // provider's lifetime), not the value object — so a provider re-render never
@@ -463,8 +469,58 @@ export function StoreProvider({
   const [machines, setMachines] = useState<MachineWire[]>([])
   const [pins, setPins] = useState<PinState>(EMPTY_PINS)
   const [tabOrders, setTabOrders] = useState<Record<string, string[]>>({})
-  const [view, setView] = useState<MainView>(() => readStoredView(ui))
-  const [settingsTab, setSettingsTab] = useState<string | null>(null)
+  // URL router (issue #15 Phase 4): the main surface is the URL. A plain '/'
+  // start restores the persisted view (same reload behavior the view string
+  // had); unknown URLs fall back to home.
+  const router = useMemo(() => createRouter({ fallbackView: readStoredView(ui) }), [ui])
+  const [route, setRouteState] = useState<RouteState>(() => router.current())
+  useEffect(() => {
+    const off = router.subscribe(setRouteState)
+    router.attach()
+    setRouteState(router.current())
+    return () => {
+      off()
+      router.dispose()
+    }
+  }, [router])
+  const view = route.view
+  const setView = useMemo(
+    () => (v: MainView) => {
+      const cur = router.current()
+      if (cur.view === v) return
+      // Switching surface closes per-surface overlays (issue page, settings
+      // deep-link, search) but keeps the workspace pane context.
+      router.navigate({ ...routeDefaults(v), worktree: cur.worktree, pane: cur.pane })
+    },
+    [router],
+  )
+  const settingsTab = route.settingsTab
+  const setSettingsTab = useMemo(
+    () => (tab: string | null) => {
+      const cur = router.current()
+      if (cur.view === 'settings') {
+        if (cur.settingsTab !== tab) router.replace({ ...cur, settingsTab: tab })
+      } else if (tab !== null) {
+        router.navigate({
+          ...cur,
+          view: 'settings',
+          settingsTab: tab,
+          issueId: null,
+          searchOpen: false,
+        })
+      }
+    },
+    [router],
+  )
+  const searchOpen = route.searchOpen
+  const setSearchOpen = useMemo(
+    () => (open: boolean) => {
+      const cur = router.current()
+      if (cur.searchOpen === open) return
+      router.navigate({ ...cur, searchOpen: open })
+    },
+    [router],
+  )
   const [autoContinuePromptSessionId, setAutoContinuePromptSessionId] = useState<string | null>(
     null,
   )
@@ -497,9 +553,20 @@ export function StoreProvider({
     },
     [ui],
   )
-  const [openIssueId, setOpenIssueId] = useState<string | null>(null)
+  const openIssueId = route.issueId
+  const setOpenIssueId = useMemo(
+    () => (id: string | null) => {
+      const cur = router.current()
+      if (cur.view === 'issues' && cur.issueId === id) return
+      router.navigate({ ...cur, view: 'issues', issueId: id, searchOpen: false })
+    },
+    [router],
+  )
   const [paletteOpen, setPaletteOpen] = useState(false)
-  const [selectedWorktree, setSelectedWorktree] = useState<string | null>(() => ui.get(WT_KEY))
+  // Workspace pane state: a deep-linked ?wt= wins over the persisted selection.
+  const [selectedWorktree, setSelectedWorktree] = useState<string | null>(
+    () => router.current().worktree ?? ui.get(WT_KEY),
+  )
   const [selectedIssueId, setSelectedIssueId] = useState<string | null>(() =>
     ui.get(ISSUE_SEL_KEY),
   )
@@ -513,7 +580,9 @@ export function StoreProvider({
     },
     [ui],
   )
-  const [paneA, setPaneA] = useState<string | null>(() => ui.get(PANE_A_KEY))
+  const [paneA, setPaneA] = useState<string | null>(
+    () => router.current().pane ?? ui.get(PANE_A_KEY),
+  )
   const [paneB, setPaneB] = useState<string | null>(() => ui.get(PANE_B_KEY))
   const [split, setSplit] = useState(() => ui.get(SPLIT_KEY) === '1')
   // Which pane has input focus. Not persisted — it resets to A on reload, which is
@@ -963,6 +1032,24 @@ export function StoreProvider({
     // changes is a no-op (prev === current cwd for every session).
   }, [sessions, repos, selectedWorktree, paneA, paneB, split])
 
+  // URL ⇄ workspace pane state. While the workspace is the surface, mirror the
+  // selection into the query (replace — no history spam) so the URL stays
+  // shareable; on a route change carrying pane state (deep link, back/forward),
+  // apply it to the selection.
+  useEffect(() => {
+    if (route.worktree && route.worktree !== selectedWorktree) {
+      setSelectedWorktree(route.worktree)
+    }
+    if (route.pane && route.pane !== paneA) setPaneA(route.pane)
+    // Only route changes should trigger the URL→state direction.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [route])
+  useEffect(() => {
+    if (route.view !== 'workspace') return
+    if (route.worktree === selectedWorktree && route.pane === paneA) return
+    router.replace({ ...route, worktree: selectedWorktree, pane: paneA })
+  }, [route, router, selectedWorktree, paneA])
+
   // Persist the "where am I" state for next load.
   useEffect(() => ui.set(VIEW_KEY, view), [ui, view])
   useEffect(() => ui.set(WT_KEY, selectedWorktree), [ui, selectedWorktree])
@@ -1098,6 +1185,8 @@ export function StoreProvider({
     setOpenIssueId,
     paletteOpen,
     setPaletteOpen,
+    searchOpen,
+    setSearchOpen,
     selectedWorktree,
     setSelectedWorktree,
     selectedIssueId,
