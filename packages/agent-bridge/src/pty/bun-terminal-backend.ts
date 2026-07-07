@@ -2,7 +2,14 @@ import type { PtyBackend, PtyProcess, PtySpawnOptions } from './types.js'
 
 // All Bun.* access is inside functions so this module loads (but is never selected)
 // under Node.
-declare const Bun: { spawn: (cmd: string[], opts: unknown) => BunPtyProc } | undefined
+declare const Bun:
+  | { spawn: (cmd: string[], opts: unknown) => BunPtyProc; version: string }
+  | undefined
+
+/** This Bun's version string, or '?' when not running under Bun. */
+export function bunVersion(): string {
+  return typeof Bun !== 'undefined' ? Bun.version : '?'
+}
 
 interface BunPtyProc {
   readonly pid: number
@@ -25,8 +32,46 @@ const SIGNALS: Record<string, number> = {
   SIGTERM: 15,
 }
 
-export function hasBunTerminal(): boolean {
+/** Running under Bun with a spawnable process API. Says nothing about the terminal
+ *  PTY API — use {@link hasBunTerminal} for that. */
+export function isUnderBun(): boolean {
   return typeof Bun !== 'undefined' && typeof Bun.spawn === 'function'
+}
+
+let bunTerminalProbe: boolean | undefined
+/**
+ * Feature-DETECT (not version-guess) whether this Bun's `Bun.spawn({terminal})` actually
+ * yields a working PTY handle. A Bun predating the terminal API silently IGNORES the
+ * option and returns a proc with NO `.terminal` — which used to surface much later as
+ * `proc.terminal.resize is undefined` on the first abduco attach, i.e. black remote
+ * terminals after a reconnect. Probing here lets callers fall back / fail loud up front
+ * instead. Cached: spawns a throwaway `true` exactly once.
+ */
+export function hasBunTerminal(): boolean {
+  if (bunTerminalProbe !== undefined) return bunTerminalProbe
+  if (!isUnderBun()) {
+    bunTerminalProbe = false
+    return bunTerminalProbe
+  }
+  try {
+    const p = (Bun as NonNullable<typeof Bun>).spawn(['true'], {
+      terminal: { cols: 80, rows: 24, data() {} },
+    }) as { terminal?: { resize?: unknown; close?: () => void }; kill?: () => void }
+    bunTerminalProbe = !!p.terminal && typeof p.terminal.resize === 'function'
+    try {
+      p.terminal?.close?.()
+    } catch {
+      /* already gone */
+    }
+    try {
+      p.kill?.()
+    } catch {
+      /* already gone */
+    }
+  } catch {
+    bunTerminalProbe = false
+  }
+  return bunTerminalProbe
 }
 
 export function bunTerminalBackend(): PtyBackend {
