@@ -121,6 +121,10 @@ export function IssueContextMenu({
     run(() => trpc.issues.close.mutate({ id: first.id, reason }))
   const defer = (until: string | null): void =>
     run(() => trpc.issues.defer.mutate({ id: first.id, until }))
+  // Unsnooze via the dedicated route (issue #133): ends the snooze and floats the
+  // issue back to the TOP of WORK with the "Unsnoozed" tag, unlike defer(null) which
+  // clears it silently into the middle of the list.
+  const undefer = (): void => run(() => trpc.issues.undefer.mutate({ id: first.id }))
   const duplicateOf = (canonicalId: string): void =>
     run(() => trpc.issues.duplicate.mutate({ id: first.id, canonicalId }))
   const del = (): void => {
@@ -265,9 +269,9 @@ export function IssueContextMenu({
               type="button"
               role="menuitem"
               className={itemCls}
-              onClick={() => defer(null)}
+              onClick={() => undefer()}
             >
-              <AlarmClockOff size={14} aria-hidden="true" /> Undefer
+              <AlarmClockOff size={14} aria-hidden="true" /> Unsnooze
             </button>,
           ]
         : []),

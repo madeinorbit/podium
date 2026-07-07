@@ -1,6 +1,6 @@
 import type { IssueWire, SessionMeta } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
-import { filterIssueNav, issueNavList } from './derive'
+import { filterIssueNav, issueNavList, subIssuesOf } from './derive'
 
 const NOW = Date.parse('2026-06-29T12:00:00.000Z')
 
@@ -120,5 +120,25 @@ describe('filterIssueNav', () => {
   })
   it('matches on stage', () => {
     expect(filterIssueNav(list, 'progress').map((v) => v.issue.id)).toEqual(['a'])
+  })
+})
+
+describe('subIssuesOf (#133)', () => {
+  it("returns a parent's children sorted by seq, INCLUDING archived ones", () => {
+    const all = [
+      issue({ id: 'p', seq: 1 }),
+      issue({ id: 'c2', seq: 3, parentId: 'p' }),
+      issue({ id: 'c1', seq: 2, parentId: 'p' }),
+      issue({ id: 'gone', seq: 4, parentId: 'p', archived: true }),
+      issue({ id: 'other', seq: 5, parentId: 'q' }),
+    ]
+    const kids = subIssuesOf(all, 'p')
+    // Archived child retained (the UI marks it, doesn't drop it) and ordering by seq.
+    expect(kids.map((k) => k.id)).toEqual(['c1', 'c2', 'gone'])
+    expect(kids.find((k) => k.id === 'gone')?.archived).toBe(true)
+  })
+
+  it('returns an empty list when the issue has no children', () => {
+    expect(subIssuesOf([issue({ id: 'p' })], 'p')).toEqual([])
   })
 })

@@ -28,6 +28,15 @@ import type { IssueMessageRow, IssueRow, SessionStore, Subscription } from './st
  *  this long after it was read. Reading starts the clock; unread issues wait. */
 export const AUTO_ARCHIVE_READ_WINDOW_MS = 24 * 60 * 60 * 1000
 
+/** Manual unsnooze backdate (issue #133): `undefer` sets deferUntil this far in the
+ *  past rather than to exactly "now". The sidebar reads snooze state off a coarse
+ *  on-screen clock (useNow, minute granularity) that can lag real time by up to a
+ *  minute, so a deferUntil of exactly-now would read as still-snoozed for up to that
+ *  long. Backdating well past that window flips the issue to returned-from-defer
+ *  (top-of-WORK + "Unsnoozed" tag) immediately. deferUntil is only compared, never
+ *  displayed, so the backdate is invisible. */
+export const UNSNOOZE_BACKDATE_MS = 5 * 60 * 1000
+
 /** One mutation on the agent-published human panel — see IssueService.panelApply. */
 export type IssuePanelOp =
   | { op: 'todo-add'; text: string }
@@ -121,6 +130,11 @@ export interface IssueDeps {
   getSessionIssueId?(sessionId: string): string | null
   /** Move a session's explicit issue attachment (persist + sessions broadcast). */
   setSessionIssueId?(sessionId: string, issueId: string | null): void
+  /** Archive/unarchive a session (persist + sessions broadcast). Injected by the
+   *  relay; optional so existing test deps literals stay valid. Used to cascade an
+   *  issue archive onto its member sessions (issue #133) so archiving an issue never
+   *  leaves a bare, session-less worktree row in the sidebar. */
+  setSessionArchived?(sessionId: string, archived: boolean): void
   defaultRepoBranch?(repoPath: string): Promise<string>
   llm?: typeof llmClient
   linearSearch?(key: string, q: string): Promise<LinearIssue[]>
@@ -1222,6 +1236,7 @@ export class IssueService {
     }
     if (row.archived !== prevArchived && row.archived) {
       this.emitEvent('issue.archived', row.id, { seq: row.seq })
+      this.cascadeArchiveSessions(row)
     }
     if (row.deferUntil !== prevDeferUntil) {
       if (row.deferUntil != null) {
@@ -1296,10 +1311,30 @@ export class IssueService {
     row.archived = true
     const wire = this.persist(row)
     this.emitEvent('issue.auto_archived', row.id, { seq: row.seq, readAt: row.readAt })
+    // Cascade onto member sessions (issue #133): the sweep must not leave a
+    // session-less worktree row behind, same as the manual archive path.
+    this.cascadeArchiveSessions(row)
     // TODO(#127 seam): worktree cleanup hooks here. Auto-archive is where future
     // worktree/branch teardown for a finished issue will attach (see epic #101).
     // Deliberately NOT implemented now — archiving is purely a UI-declutter today.
     return wire
+  }
+
+  /** Cascade an issue archive onto its member sessions (issue #133). Archiving an
+   *  issue must not leave its sessions live — that orphans a bare WORKTREE row in
+   *  the sidebar where the issue used to be. Fires only on archive→true (manual,
+   *  context-menu, and the S5 auto-archive sweep); un-archiving does NOT restore
+   *  sessions. Reuses the session registry's own archive path (setSessionArchived →
+   *  relay.setArchived) so each archived session persists + broadcasts. Skips
+   *  already-archived sessions so a re-archive is a no-op with no redundant
+   *  broadcast. */
+  private cascadeArchiveSessions(row: IssueRow): void {
+    const setArchived = this.deps.setSessionArchived
+    if (!setArchived) return
+    for (const s of sessionsForIssue(row.worktreePath, this.deps.listSessions(), row.id)) {
+      if (s.archived) continue
+      setArchived(s.sessionId, true)
+    }
   }
 
   delete(id: string): void {
@@ -1459,6 +1494,24 @@ export class IssueService {
 
   defer(id: string, until: string | null): IssueWire {
     return this.update(id, { deferUntil: until })
+  }
+
+  /** Manually end a snooze (issue #133). Rather than clearing deferUntil to null —
+   *  which drops the issue quietly back into the middle of WORK with no signal — this
+   *  backdates deferUntil to just-past, landing the issue in the exact "returned from
+   *  defer" state a naturally-lapsed snooze reaches: derived `deferred`/`isIssueSnoozed`
+   *  go false while `issueReturnedFromDefer` goes true, floating it to the TOP of WORK
+   *  with the "Unsnoozed" tag until the operator next opens it (the sidebar clears the
+   *  stale defer on open). Emits issue.unsnoozed directly — routing a past deferUntil
+   *  through update() would misfire issue.snoozed. No-op when the issue isn't deferred. */
+  undefer(id: string): IssueWire {
+    const row = this.rows.get(this.resolveRef(id))
+    if (!row) throw new Error(`unknown issue ${id}`)
+    if (row.deferUntil == null) return this.toWire(row)
+    row.deferUntil = new Date(Date.parse(this.now()) - UNSNOOZE_BACKDATE_MS).toISOString()
+    const wire = this.persist(row)
+    this.emitEvent('issue.unsnoozed', row.id, { seq: row.seq })
+    return wire
   }
 
   setNeedsHuman(id: string, question?: string | null): IssueWire {

@@ -662,11 +662,11 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
   },
   {
     name: 'undefer',
-    summary: "Clear an issue's defer: undefer <id>.",
+    summary: "End an issue's snooze: undefer <id> (floats it back to the top of WORK).",
     args: z.object({ id: idArg }),
     positionals: ['id'],
     async run(c, a) {
-      const i = (await c.issues.defer.mutate({ id: a.id as string, until: null })) as unknown
+      const i = (await c.issues.undefer.mutate({ id: a.id as string })) as unknown
       return { text: `undeferred ${a.id}`, data: i }
     },
   },

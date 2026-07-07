@@ -92,6 +92,7 @@ const FORWARD_INPUTS: Record<string, Record<string, unknown>> = {
   update: { id: HUB_ID, patch: { title: 'T' } },
   close: { id: HUB_ID },
   defer: { id: HUB_ID, until: null },
+  undefer: { id: HUB_ID },
   setNeedsHuman: { id: HUB_ID },
   clearNeedsHuman: { id: HUB_ID },
   addComment: { id: HUB_ID, author: 'op', body: 'hi' },

@@ -1462,6 +1462,14 @@ export const appRouter = t.router({
       .mutation(({ ctx, input }) =>
         issueWrite(ctx, 'defer', input, () => ctx.registry.issues.defer(input.id, input.until)),
       ),
+    // Manual unsnooze (issue #133): ends a snooze and floats the issue back to the
+    // top of WORK with the "Unsnoozed" tag (returned-from-defer), unlike defer(null)
+    // which quietly clears it. Distinct route so it emits issue.unsnoozed cleanly.
+    undefer: issueProc
+      .input(z.object({ id: z.string() }))
+      .mutation(({ ctx, input }) =>
+        issueWrite(ctx, 'undefer', input, () => ctx.registry.issues.undefer(input.id)),
+      ),
     // Mark an issue read (issue #124): stamp read_at = now, flipping derived `unread`.
     // Node-local read-tracking — deliberately NOT issueWrite (never hub-forwarded) and
     // unlisted in PROC_ACTION, so it needs only 'read' authority (reading marks read).

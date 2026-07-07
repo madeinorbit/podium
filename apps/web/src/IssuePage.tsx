@@ -45,6 +45,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { cn } from '@/lib/utils'
+import { subIssuesOf } from './derive'
 import {
   ISSUE_AGENT_KINDS,
   type IssueAgentKind,
@@ -172,9 +173,9 @@ export function IssuePage({
   const repo = issue.repoPath.split('/').filter(Boolean).pop() ?? issue.repoPath
   const fields = issueDetailFields(issue)
   const feed = buildActivityFeed(fields.comments, events)
-  const children = issues
-    .filter((i) => i.parentId === issue.id && !i.archived)
-    .sort((a, b) => a.seq - b.seq)
+  // Archived children stay visible (marked), so archiving a child doesn't vanish it
+  // from its parent's subissue list (issue #133).
+  const children = subIssuesOf(issues, issue.id)
 
   // Escape returns to the board — but not while an editor/menu is open (Esc there
   // cancels the local edit), nor while a form field is focused.
@@ -386,12 +387,20 @@ export function IssuePage({
               <button
                 key={c.id}
                 type="button"
-                className="flex items-center gap-2 rounded px-1.5 py-1 text-left text-[13px] hover:bg-muted/50"
+                className={cn(
+                  'flex items-center gap-2 rounded px-1.5 py-1 text-left text-[13px] hover:bg-muted/50',
+                  c.archived && 'opacity-60',
+                )}
                 onClick={() => onNavigate(c.id)}
               >
                 <StageGlyph stage={c.stage} />
                 <span className="text-[11px] text-muted-foreground">#{c.seq}</span>
                 <span className="min-w-0 flex-1 truncate">{c.title}</span>
+                {c.archived && (
+                  <span className="flex-none rounded border px-1 text-[9px] uppercase tracking-wide text-muted-foreground">
+                    archived
+                  </span>
+                )}
                 <AssigneeAvatar assignee={c.assignee || undefined} size={16} />
               </button>
             ))}
@@ -1138,11 +1147,9 @@ function IssueProperties({
                 size="sm"
                 className="h-7"
                 disabled={busy}
-                onClick={() =>
-                  void run(() => trpc.issues.defer.mutate({ id: issue.id, until: null }))
-                }
+                onClick={() => void run(() => trpc.issues.undefer.mutate({ id: issue.id }))}
               >
-                Undefer
+                Unsnooze
               </Button>
             )}
           </div>

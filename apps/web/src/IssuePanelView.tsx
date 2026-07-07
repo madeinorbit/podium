@@ -12,6 +12,7 @@ import {
   panelNonEmpty,
   worktreeAssetUrl,
 } from './dock-panel'
+import { subIssuesOf } from './derive'
 import { DockSection } from './DockSection'
 import { relativeTime } from './home'
 import { STAGE_LABELS } from './issue-card'
@@ -148,7 +149,12 @@ function SubissueRow({ sub }: { sub: IssueWire }): JSX.Element {
   const a = STAGE_ACCENT[sub.stage]
   const closed = sub.stage === 'done' || Boolean(sub.closedReason)
   return (
-    <div className="flex items-center gap-2 rounded-md px-1 py-1 text-[13px] hover:bg-accent/40">
+    <div
+      className={cn(
+        'flex items-center gap-2 rounded-md px-1 py-1 text-[13px] hover:bg-accent/40',
+        sub.archived && 'opacity-60',
+      )}
+    >
       <span className={cn('size-2 flex-none rounded-full', a.dot)} aria-hidden="true" />
       <span className="font-mono text-[11px] text-muted-foreground/70">#{sub.seq}</span>
       <span
@@ -159,6 +165,11 @@ function SubissueRow({ sub }: { sub: IssueWire }): JSX.Element {
       >
         {sub.title}
       </span>
+      {sub.archived && (
+        <span className="flex-none rounded border px-1 text-[10px] text-muted-foreground uppercase">
+          archived
+        </span>
+      )}
       {sub.blocked && <span className="flex-none text-[10px] text-red-400 uppercase">blocked</span>}
     </div>
   )
@@ -345,16 +356,14 @@ export function IssuePanelView({
     () => issueForPanel({ issues, sessions, cwd, sessionId }),
     [issues, sessions, cwd, sessionId],
   )
-  const children = useMemo(
-    () =>
-      issue
-        ? issues
-            .filter((i) => i.parentId === issue.id && !i.archived)
-            .sort((a, b) => a.seq - b.seq)
-        : [],
-    [issues, issue],
+  // Subissue list keeps archived children visible (marked); the per-child panel
+  // sections below deliberately skip archived children so they don't clutter the
+  // parent view (issue #133).
+  const children = useMemo(() => (issue ? subIssuesOf(issues, issue.id) : []), [issues, issue])
+  const subPanels = useMemo(
+    () => children.filter((c) => !c.archived).filter(panelNonEmpty),
+    [children],
   )
-  const subPanels = useMemo(() => children.filter(panelNonEmpty), [children])
 
   if (!issue) {
     return (

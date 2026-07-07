@@ -476,6 +476,15 @@ export function issueReturnedFromDefer(issue: IssueWire, now: number): boolean {
   return issue.deferUntil != null && Date.parse(issue.deferUntil) <= now
 }
 
+/** A parent/epic's direct children, seq-ordered, INCLUDING archived ones (issue
+ *  #133). The subissue list keeps archived children visible (the UI marks them
+ *  archived) rather than dropping them, so archiving a child doesn't silently
+ *  vanish it from its parent. Scoped to the subissue list — the main board's
+ *  default hide-archived behavior is unchanged. */
+export function subIssuesOf(issues: readonly IssueWire[], parentId: string): IssueWire[] {
+  return issues.filter((i) => i.parentId === parentId).sort((a, b) => a.seq - b.seq)
+}
+
 export function sortSessionsForPins(sessions: SessionMeta[], pins: PinState): SessionMeta[] {
   const panelOrder = orderMap(pins.panels)
   return [...sessions].sort((left, right) =>

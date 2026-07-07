@@ -562,6 +562,7 @@ export class SessionRegistry {
       repoOp: (op, cwd, args) => this.repoOp(op, cwd, args),
       getSessionIssueId: (sessionId) => this.getSessionIssueId(sessionId),
       setSessionIssueId: (sessionId, issueId) => this.setSessionIssueId(sessionId, issueId),
+      setSessionArchived: (sessionId, archived) => this.setArchived({ sessionId, archived }),
       broadcast: (msg) => {
         // Full issue-list fan-outs funnel through the oplog so delta-cap clients get
         // per-issue changes; everything else (issueUpdated etc.) stays a raw fan-out.

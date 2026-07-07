@@ -1,5 +1,6 @@
 import type { AgentKind, IssueWire, SessionMeta } from '@podium/protocol'
 import {
+  AlarmClock,
   ChevronDown,
   ChevronRight,
   Circle,
@@ -25,6 +26,7 @@ import { cn } from '@/lib/utils'
 import {
   draftIssueLabel,
   groupUnifiedWorkRows,
+  isIssueSnoozed,
   isRowUnread,
   issueReturnedFromDefer,
   lastUsedMaps,
@@ -750,6 +752,13 @@ function UnifiedIssueRow({
           <>
             {issue.pinned && (
               <Pin size={11} className="flex-none text-muted-foreground" aria-hidden="true" />
+            )}
+            {isIssueSnoozed(issue, now) && (
+              <AlarmClock
+                size={11}
+                className="flex-none text-muted-foreground"
+                aria-label="Snoozed"
+              />
             )}
             {issueReturnedFromDefer(issue, now) && (
               <span

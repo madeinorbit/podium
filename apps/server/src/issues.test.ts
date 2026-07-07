@@ -6,6 +6,7 @@ import { repoOpCommand } from '../../daemon/src/repo-op'
 
 function harness(sessions: SessionMeta[] = []) {
   const store = new SessionStore(':memory:')
+  const setSessionArchived = vi.fn()
   const deps: IssueDeps = {
     store,
     listSessions: () => sessions,
@@ -13,9 +14,10 @@ function harness(sessions: SessionMeta[] = []) {
     spawnSession: vi.fn(() => ({ sessionId: 's1' })),
     repoOp: vi.fn(async () => ({ ok: true, output: '' })),
     broadcast: vi.fn(),
+    setSessionArchived,
     now: () => '2026-06-30T00:00:00.000Z',
   }
-  return { store, deps, svc: new IssueService(deps) }
+  return { store, deps, svc: new IssueService(deps), setSessionArchived }
 }
 
 const sess = (cwd: string, phase = 'working'): SessionMeta =>
@@ -182,6 +184,98 @@ describe('IssueService.sweepAutoArchive (read-gated auto-archive #127)', () => {
     const archived = h.svc.sweepAutoArchive(readAtMs + 2 * DAY_MS)
     expect(archived.map((w) => w.id)).toContain(dup.id)
     expect(h.svc.get(canonical.id)!.archived).toBe(false) // still open → untouched
+  })
+})
+
+describe('IssueService archive cascade to sessions (#133)', () => {
+  it('archiving an issue archives its member sessions (so no orphan worktree row remains)', () => {
+    const { svc, setSessionArchived } = harness([sess('/r/wt'), sess('/r/wt/pkg'), sess('/elsewhere')])
+    const w = svc.create({ repoPath: '/r', title: 'X', startNow: false })
+    svc.update(w.id, { worktreePath: '/r/wt' })
+    setSessionArchived.mockClear()
+    svc.archive(w.id)
+    // Both member sessions (cwd inside the worktree) are archived; the outsider is not.
+    expect(setSessionArchived).toHaveBeenCalledTimes(2)
+    expect(setSessionArchived).toHaveBeenCalledWith('/r/wt', true)
+    expect(setSessionArchived).toHaveBeenCalledWith('/r/wt/pkg', true)
+    expect(setSessionArchived).not.toHaveBeenCalledWith('/elsewhere', true)
+  })
+
+  it('a context-menu / CLI update({ archived: true }) cascades the same way', () => {
+    const { svc, setSessionArchived } = harness([sess('/r/wt')])
+    const w = svc.create({ repoPath: '/r', title: 'X', startNow: false })
+    svc.update(w.id, { worktreePath: '/r/wt' })
+    setSessionArchived.mockClear()
+    svc.update(w.id, { archived: true })
+    expect(setSessionArchived).toHaveBeenCalledWith('/r/wt', true)
+  })
+
+  it('the S5 auto-archive sweep also archives member sessions so the worktree row disappears', () => {
+    const member = { ...sess('/r/wt'), lastActiveAt: '2026-06-20T00:00:00.000Z' }
+    const { svc, setSessionArchived } = harness([member])
+    const w = svc.create({ repoPath: '/r', title: 'X', startNow: false })
+    svc.update(w.id, { worktreePath: '/r/wt' })
+    svc.close(w.id) // done
+    svc.markIssueRead(w.id) // read at harness now
+    setSessionArchived.mockClear()
+    const nowMs = Date.parse('2026-06-30T00:00:00.000Z')
+    const archived = svc.sweepAutoArchive(nowMs + 25 * 3600_000)
+    expect(archived.map((a) => a.id)).toEqual([w.id])
+    expect(setSessionArchived).toHaveBeenCalledWith('/r/wt', true)
+  })
+
+  it('un-archiving an issue does NOT cascade (sessions stay archived unless restored explicitly)', () => {
+    const { svc, setSessionArchived } = harness([sess('/r/wt')])
+    const w = svc.create({ repoPath: '/r', title: 'X', startNow: false })
+    svc.update(w.id, { worktreePath: '/r/wt' })
+    svc.archive(w.id)
+    setSessionArchived.mockClear()
+    svc.update(w.id, { archived: false })
+    expect(setSessionArchived).not.toHaveBeenCalled()
+  })
+
+  it('skips already-archived member sessions (no redundant archive call)', () => {
+    const live = sess('/r/wt/live')
+    const already = { ...sess('/r/wt/gone'), archived: true }
+    const { svc, setSessionArchived } = harness([live, already])
+    const w = svc.create({ repoPath: '/r', title: 'X', startNow: false })
+    svc.update(w.id, { worktreePath: '/r/wt' })
+    setSessionArchived.mockClear()
+    svc.archive(w.id)
+    expect(setSessionArchived).toHaveBeenCalledTimes(1)
+    expect(setSessionArchived).toHaveBeenCalledWith('/r/wt/live', true)
+    expect(setSessionArchived).not.toHaveBeenCalledWith('/r/wt/gone', true)
+  })
+})
+
+describe('IssueService.undefer (manual unsnooze #133)', () => {
+  const nowMs = Date.parse('2026-06-30T00:00:00.000Z')
+  it('drops a snooze into the returned-from-defer state (past deferUntil, not null) + emits issue.unsnoozed', () => {
+    const { svc, store } = harness()
+    const w = svc.create({ repoPath: '/r', title: 'X', startNow: false })
+    svc.defer(w.id, '2026-07-15') // snooze into the future → deferred
+    expect(svc.get(w.id)!.deferred).toBe(true)
+    const un = svc.undefer(w.id)
+    // NOT cleared to null — set to a PAST instant so the client reads it as
+    // returned-from-defer (top-of-WORK + "Unsnoozed" tag), which a null cannot do.
+    expect(un.deferUntil).not.toBeNull()
+    expect(Date.parse(un.deferUntil!)).toBeLessThan(nowMs)
+    // Backdated comfortably past the sidebar's coarse (minute-granularity) clock so
+    // the transition shows immediately rather than up to a minute later.
+    expect(nowMs - Date.parse(un.deferUntil!)).toBeGreaterThanOrEqual(60_000)
+    // No longer deferred → back in the ready queue.
+    expect(un.deferred).toBe(false)
+    // The correct transition event is logged (unsnoozed), NOT a second snooze.
+    expect(store.listEventsSince(0, { kinds: ['issue.unsnoozed'] }).length).toBe(1)
+    expect(store.listEventsSince(0, { kinds: ['issue.snoozed'] }).length).toBe(1)
+  })
+
+  it('is a no-op when the issue is not deferred (no event, deferUntil stays null)', () => {
+    const { svc, store } = harness()
+    const w = svc.create({ repoPath: '/r', title: 'X', startNow: false })
+    const un = svc.undefer(w.id)
+    expect(un.deferUntil == null).toBe(true)
+    expect(store.listEventsSince(0, { kinds: ['issue.unsnoozed'] }).length).toBe(0)
   })
 })
 
