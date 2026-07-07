@@ -49,12 +49,10 @@ describe('runMigrations', () => {
 
   it('refuses to run when the DB is newer than the code', () => {
     const db = openMemory()
-    const future: Migration[] = [
-      { version: 1, name: 'baseline', up: () => {} },
-      { version: 2, name: 'from-the-future', up: () => {} },
-    ]
+    const baseline: Migration = { version: 1, name: 'baseline', up: () => {} }
+    const future: Migration[] = [baseline, { version: 2, name: 'from-the-future', up: () => {} }]
     runMigrations(db, future)
-    expect(() => runMigrations(db, [future[0]])).toThrowError(
+    expect(() => runMigrations(db, [baseline])).toThrowError(
       /schema version 2 is newer than this build supports \(1\).*downgrade/i,
     )
     // Nothing was applied or removed by the refusal.

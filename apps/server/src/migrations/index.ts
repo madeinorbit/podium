@@ -39,7 +39,7 @@ export const MIGRATIONS: Migration[] = [
 
 /** Highest schema version the running code knows about. */
 export function codeSchemaVersion(migrations: Migration[] = MIGRATIONS): number {
-  return migrations.length === 0 ? 0 : migrations[migrations.length - 1].version
+  return migrations[migrations.length - 1]?.version ?? 0
 }
 
 /** Current version recorded in the database (0 when never migrated). */
