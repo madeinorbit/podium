@@ -40,7 +40,7 @@ import {
 } from '@podium/protocol'
 import { AutoContinueController } from './auto-continue'
 import { knownPathsFor } from './file-relay-policy'
-import { type Capability, SCOPED_TARGET } from './issue-authz'
+import type { Capability } from './issue-authz'
 import { selectMailNudgeSession, sessionsForIssue } from './issue-util'
 import { IssueService } from './issues'
 import { LOCAL_MACHINE_ID, LOCAL_PLACEHOLDER } from './local-machine'
@@ -48,6 +48,9 @@ import type { ModelCatalogSnapshot, ModelProbe } from './model-catalog'
 import { EventBus } from './modules/bus'
 import { ConversationsService } from './modules/conversations/service'
 import { HostsService, type MemoryBreakdown } from './modules/hosts/service'
+import { IssuePublisher } from './modules/issues/publish'
+import { IssueRelayGate } from './modules/issues/relay-gate'
+import { type IssueUpstreamForwarder, UpstreamIssuesService } from './modules/issues/upstream'
 import { MachinesService, sha256 } from './modules/machines/service'
 import {
   DEFAULT_NOTIFICATION_PUSHERS,
@@ -72,14 +75,9 @@ import {
   makeTitleDebouncer,
   titleFromPrompt,
 } from './title-filter'
-import { optimisticComment, optimisticIssuePatch } from './upstream-forwarder'
 
-/** The narrow forwarder seam the registry needs (UpstreamForwarder implements it;
- *  kept minimal so relay tests can stub the write path without a hub). */
-export interface IssueUpstreamForwarder {
-  forward(proc: string, input: Record<string, unknown>): Promise<unknown>
-  entries(): { mutationId: string; proc: string; input: string; attempts: number }[]
-}
+// Re-exported so server.ts/tests keep importing the forwarder seam from './relay'.
+export type { IssueUpstreamForwarder } from './modules/issues/upstream'
 
 /**
  * The upstream-token mint primitive (node⇄hub sync §2.1): a long-lived, revocable
@@ -98,17 +96,6 @@ export function mintUpstreamTokenInto(
   const expiresAt = new Date(nowMs + 10 * 365 * 24 * 60 * 60 * 1000).toISOString()
   store.createClientSession(sha256(token), expiresAt)
   return token
-}
-
-/** Routers/procs a relayed agent may invoke. `issues.*` is capability-gated by the router
- *  middleware (issueCapabilityGuard); everything else must be explicitly listed so a relay
- *  can never reach an ungated router (sessions/spawn/kill/etc.). `null` = any proc on that
- *  router. */
-const RELAY_ALLOWED: Record<string, Set<string> | null> = {
-  // null = every issues.* proc, which includes the agent-mail procs
-  // (mailSend/mailInbox/mailClaim/mailPending, issue #103).
-  issues: null,
-  repos: new Set(['inferFromPath']),
 }
 
 const DEFAULT_GEOMETRY: Geometry = { cols: 80, rows: 24 }
@@ -282,6 +269,12 @@ export class SessionRegistry {
   private readonly oplog: MetadataOplog
   /** Conversation index + upstream mirror + transcript lake (modules/conversations). */
   private readonly conversations: ConversationsService
+  /** Hub-issue mirror + write forwarding (modules/issues). */
+  private readonly upstreamIssuesSvc: UpstreamIssuesService
+  /** Issue wire publishing — oplog record + split fan-out (modules/issues). */
+  private readonly issuePublisher: IssuePublisher
+  /** Relayed agent issue ops — allowlist + capability-scoped caller (modules/issues). */
+  private readonly issueRelayGate: IssueRelayGate
   /** Host health samples + auto-hibernate + memory breakdown (modules/hosts). */
   private readonly hosts: HostsService
   private nextClientNum = 0
@@ -364,6 +357,27 @@ export class SessionRegistry {
     )
     this.activityFlushTimer.unref?.()
     this.oplog = new MetadataOplog(this.store, this.now)
+    // Issue wire plumbing (modules/issues). Constructed BEFORE loadFromStore: the
+    // deps are lazy closures (allWire guards the not-yet-assigned IssueService),
+    // and broadcasts triggered during load must find the publisher in place.
+    this.upstreamIssuesSvc = new UpstreamIssuesService({
+      store: this.store,
+      now: () => this.now(),
+      localIssueExists: (id) => !!this.issues?.get(id),
+      publish: () => this.publishIssues(this.safeIssuesList()),
+      upstreamStale: () => this.upstreamStale,
+    })
+    this.issuePublisher = new IssuePublisher({
+      allWire: () => this.issues?.allWire(),
+      withUpstreamIssues: (local) => this.upstreamIssuesSvc.withUpstreamIssues(local),
+      oplogRecord: (rows, opts) => this.oplog.record('issue', rows, opts),
+      fanOutMetadata: (snapshot, changes) => this.fanOutMetadata(snapshot, changes),
+    })
+    this.issueRelayGate = new IssueRelayGate({
+      makeIssueCaller: () => this.makeIssueCaller,
+      capabilityForSession: (sessionId) => this.capabilityForSession(sessionId),
+      toMachine: (machineId, msg) => this.toMachine(machineId, msg),
+    })
     this.loadFromStore()
     // Constructed AFTER loadFromStore (same slot the inline mirror construction held).
     this.conversations = new ConversationsService(
@@ -888,197 +902,48 @@ export class SessionRegistry {
     this.upstreamStale = stale
     if (this.upstreamSessions.size > 0) this.broadcastSessions()
     this.conversations.rebroadcastUpstream()
-    if (this.upstreamIssues.size > 0) this.publishIssues(this.safeIssuesList())
+    this.upstreamIssuesSvc.rebroadcastUpstream()
   }
 
-  // ---- upstream issue mirror + write forwarding (docs/spec/node-hub-issues.md) ----
-  // Hub issues merge into the node's issue WIRE only (issuesChanged / metadataDelta /
-  // changesSince) — never into IssueService's store or derived logic (§2.1: ready/
-  // blocked/deps arrive hub-computed on the wire). Writes targeting them forward to
-  // the hub through the durable outbox (§2.2); pendingSync overlays keep the UI
-  // truthful while an edit is queued, and hub truth always overwrites (P6a: the
-  // replica never argues).
-  private readonly upstreamIssues = new Map<string, IssueWire>()
-  /** Optimistic overlays for QUEUED forwarded mutations, keyed by issue id. Merged
-   *  at read time; dropped when hub truth arrives AND the outbox no longer holds an
-   *  entry for the issue (so an unrelated hub push can't wipe a pending edit). */
-  private readonly upstreamIssuePatches = new Map<string, Partial<IssueWire>>()
-  private upstreamForwarder: IssueUpstreamForwarder | undefined
+  // ---- upstream issue mirror + write forwarding — delegates to modules/issues ----
 
   setUpstreamForwarder(forwarder: IssueUpstreamForwarder): void {
-    this.upstreamForwarder = forwarder
+    this.upstreamIssuesSvc.setForwarder(forwarder)
   }
 
   /** True when `id` is a hub-mirrored issue — the router's forwarding-detection key. */
   isUpstreamIssue(id: string): boolean {
-    return this.upstreamIssues.has(id)
+    return this.upstreamIssuesSvc.isUpstreamIssue(id)
   }
 
-  /** repoPaths that exist among hub issues — issues.create's "hub-only repo" reject
-   *  check (spec §2.2: create stays local; a hub-only repoPath is detectable here). */
+  /** repoPaths that exist among hub issues (modules/issues). */
   upstreamIssueRepoPaths(): Set<string> {
-    return new Set([...this.upstreamIssues.values()].map((i) => i.repoPath))
+    return this.upstreamIssuesSvc.repoPaths()
   }
 
-  /**
-   * Replace the mirrored issue list with the hub's truth (UpstreamSync push).
-   * Entries are stamped `viaHub` at ingest. Id collisions with a LOCAL issue are
-   * impossible by construction (`iss_<uuid>`) but guarded anyway: the local issue
-   * wins and the anomaly is logged (spec §2.1). Hub truth arriving also retires
-   * optimistic overlays whose outbox entries have drained — the replica never argues.
-   */
+  /** Replace the mirrored issue list with the hub's truth (modules/issues). */
   setUpstreamIssues(list: IssueWire[]): void {
-    this.upstreamIssues.clear()
-    for (const i of list) {
-      if (this.issues?.get(i.id)) {
-        console.warn(
-          `[podium:upstream] hub issue id collides with a local issue — local wins: ${i.id}`,
-        )
-        continue
-      }
-      this.upstreamIssues.set(i.id, { ...i, viaHub: true })
-    }
-    const stillQueued = this.pendingUpstreamTargets()
-    for (const id of [...this.upstreamIssuePatches.keys()]) {
-      if (!stillQueued.has(id)) this.upstreamIssuePatches.delete(id)
-    }
-    this.publishIssues(this.safeIssuesList())
+    this.upstreamIssuesSvc.setUpstreamIssues(list)
   }
 
-  /** Issue ids with at least one mutation still queued in the upstream outbox. */
-  private pendingUpstreamTargets(): Set<string> {
-    const out = new Set<string>()
-    if (!this.upstreamForwarder) return out
-    for (const e of this.upstreamForwarder.entries()) {
-      try {
-        const target = SCOPED_TARGET[e.proc]?.(JSON.parse(e.input) as Record<string, unknown>)
-        if (typeof target === 'string') out.add(target)
-      } catch {
-        // corrupt input JSON — the forwarder drops it on its next drain pass
-      }
-    }
-    return out
-  }
-
-  /** The mirrored issues as served: optimistic overlay + pendingSync while queued,
-   *  upstreamStale applied at read time (same posture as sessions). */
-  private upstreamIssuesList(): IssueWire[] {
-    return [...this.upstreamIssues.values()].map((i) => {
-      const patch = this.upstreamIssuePatches.get(i.id)
-      const merged = patch ? { ...i, ...patch, id: i.id } : i
-      if (!patch && !this.upstreamStale) return merged
-      return {
-        ...merged,
-        ...(patch ? { pendingSync: true } : {}),
-        ...(this.upstreamStale ? { upstreamStale: true } : {}),
-      }
-    })
-  }
-
-  /** Local ∪ upstream issues — the single union seam every issue wire path uses
-   *  (attach snapshot, issuesChanged fan-out, changesSince). Local wins collisions. */
+  /** Local ∪ upstream issues — the single union seam every issue wire path uses. */
   private withUpstreamIssues(local: IssueWire[]): IssueWire[] {
-    if (this.upstreamIssues.size === 0) return local
-    const localIds = new Set(local.map((i) => i.id))
-    return [...local, ...this.upstreamIssuesList().filter((i) => !localIds.has(i.id))]
+    return this.upstreamIssuesSvc.withUpstreamIssues(local)
   }
 
-  /**
-   * Forward one issue mutation to the hub (router hands viaHub targets here instead
-   * of IssueService, spec §2.2). Ensures a mutationId (outbox PK + hub idempotency
-   * key); when the hub is unreachable the result is `{ queued: true }` and the
-   * upstream replica entry is optimistically patched (pendingSync) so the UI
-   * reflects the edit immediately.
-   */
-  async forwardIssueMutation(proc: string, input: Record<string, unknown>): Promise<unknown> {
-    const forwarder = this.upstreamForwarder
-    if (!forwarder) {
-      throw new Error('issue is managed via the hub, but no upstream is configured')
-    }
-    const mutationId =
-      typeof input.mutationId === 'string' && input.mutationId ? input.mutationId : randomUUID()
-    const payload = { ...input, mutationId }
-    const result = await forwarder.forward(proc, payload)
-    if ((result as { queued?: boolean } | null)?.queued === true) {
-      const target = SCOPED_TARGET[proc]?.(payload)
-      if (typeof target === 'string') this.applyUpstreamOptimisticPatch(target, proc, payload)
-    }
-    return result
+  /** Forward one issue mutation to the hub (modules/issues). */
+  forwardIssueMutation(proc: string, input: Record<string, unknown>): Promise<unknown> {
+    return this.upstreamIssuesSvc.forwardIssueMutation(proc, input)
   }
 
-  /** Merge a queued mutation's optimistic effect into the issue's overlay and
-   *  re-publish so pendingSync (and the patched value) hit the wire immediately. */
-  private applyUpstreamOptimisticPatch(
-    issueId: string,
-    proc: string,
-    input: Record<string, unknown>,
-  ): void {
-    if (!this.upstreamIssues.has(issueId)) return
-    const nowIso = new Date(this.now()).toISOString()
-    const prior = this.upstreamIssuePatches.get(issueId) ?? {}
-    const patch = { ...prior, ...optimisticIssuePatch(proc, input, nowIso) }
-    if (proc === 'addComment') {
-      const base = prior.comments ?? this.upstreamIssues.get(issueId)?.comments ?? []
-      patch.comments = [...base, optimisticComment(input, nowIso)]
-    }
-    this.upstreamIssuePatches.set(issueId, patch)
-    this.publishIssues(this.safeIssuesList())
-  }
-
-  /**
-   * A QUEUED forwarded mutation was dropped because the hub definitively rejected
-   * it (issue #25). The user's optimistic edit is LOST — surface it instead of a
-   * log line: retire the optimistic overlay NOW (keeping it would show state the
-   * hub refused), record a durable `issue.upstream_rejected` podium event, and
-   * flag the mirrored issue needsHuman (as an overlay — hub truth overwrites on
-   * its next push, but the durable event keeps the loss auditable). Wired as the
-   * forwarder's onPoisoned.
-   */
+  /** A queued forwarded mutation was definitively rejected by the hub (issue #25). */
   upstreamMutationRejected(proc: string, input: Record<string, unknown>, message: string): void {
-    const target = SCOPED_TARGET[proc]?.(input)
-    const mutationId = typeof input.mutationId === 'string' ? input.mutationId : null
-    if (typeof target === 'string') {
-      this.upstreamIssuePatches.delete(target)
-      const issue = this.upstreamIssues.get(target)
-      try {
-        this.store.appendEvent({
-          ts: new Date(this.now()).toISOString(),
-          kind: 'issue.upstream_rejected',
-          subject: target,
-          repoPath: issue?.repoPath ?? null,
-          payload: {
-            proc,
-            message,
-            ...(mutationId ? { mutationId } : {}),
-            ...(issue ? { seq: issue.seq } : {}),
-          },
-        })
-      } catch {}
-      if (issue) {
-        this.upstreamIssuePatches.set(target, {
-          needsHuman: true,
-          humanQuestion: `hub rejected queued '${proc}': ${message}`,
-        })
-      }
-    }
-    this.publishIssues(this.safeIssuesList())
+    this.upstreamIssuesSvc.mutationRejected(proc, input, message)
   }
 
-  /** Outbox contents changed (enqueue/drain/poison-drop) — recompute pendingSync
-   *  overlays and re-publish. Wired as the forwarder's onQueueChanged. */
+  /** Outbox contents changed — recompute pendingSync overlays and re-publish. */
   upstreamOutboxChanged(): void {
-    const stillQueued = this.pendingUpstreamTargets()
-    let changed = false
-    for (const id of [...this.upstreamIssuePatches.keys()]) {
-      // Keep the overlay VALUE until hub truth arrives (setUpstreamIssues) — only
-      // pendingSync derivation lives here; dropping the value on drain-success
-      // would flash the pre-edit state before the hub's delta lands.
-      if (!stillQueued.has(id) && !this.upstreamIssues.has(id)) {
-        this.upstreamIssuePatches.delete(id)
-        changed = true
-      }
-    }
-    if (changed || this.upstreamIssues.size > 0) this.publishIssues(this.safeIssuesList())
+    this.upstreamIssuesSvc.outboxChanged()
   }
 
   /**
@@ -2568,7 +2433,7 @@ export class SessionRegistry {
   onDaemonMessageFrom(machineId: string, msg: DaemonMessage): void {
     switch (msg.type) {
       case 'issueRelayRequest': {
-        void this.runIssueRelay(machineId, msg)
+        void this.issueRelayGate.run(machineId, msg)
         break
       }
       case 'bind': {
@@ -2969,59 +2834,6 @@ export class SessionRegistry {
     }
   }
 
-  /**
-   * Run a relayed agent issue op against the shared tracker and reply to its daemon.
-   *
-   * The op is invoked through the capability-scoped tRPC caller (makeIssueCaller →
-   * appRouter.createCaller), so the P1a issueCapabilityGuard middleware enforces the subtree
-   * scope on every relayed issue write — the gate is NOT re-implemented here. The capability
-   * itself is minted from the requesting session's cwd (capabilityForSession), and the agent's
-   * `--outside-scope` flag rides through as overrideScope. RELAY_ALLOWED restricts which
-   * router/proc a relay may reach so it can never touch an ungated router (sessions/spawn/kill).
-   */
-  private async runIssueRelay(
-    machineId: string,
-    msg: Extract<DaemonMessage, { type: 'issueRelayRequest' }>,
-  ): Promise<void> {
-    const reply = (r: { ok: boolean; result?: unknown; error?: string }): void =>
-      this.toMachine(machineId, { type: 'issueRelayResult', requestId: msg.requestId, ...r })
-    try {
-      // RELAY_ALLOWED is a plain object; index it only for OWN keys so a router of
-      // 'constructor'/'__proto__'/'toString' can't resolve to an inherited value
-      // (which would throw a confusing TypeError on `.has(...)`) — treat any
-      // non-own key as simply not permitted.
-      if (!Object.hasOwn(RELAY_ALLOWED, msg.router)) {
-        reply({ ok: false, error: `${msg.router}.${msg.proc} is not permitted via relay` })
-        return
-      }
-      const allowed = RELAY_ALLOWED[msg.router]
-      if (allowed === undefined || (allowed !== null && !allowed.has(msg.proc))) {
-        reply({ ok: false, error: `${msg.router}.${msg.proc} is not permitted via relay` })
-        return
-      }
-      const make = this.makeIssueCaller
-      if (!make) {
-        reply({ ok: false, error: 'issue relay is not configured' })
-        return
-      }
-      const caller = make(this.capabilityForSession(msg.sessionId), msg.outsideScope)
-      const fn = caller[msg.router]?.[msg.proc]
-      if (!fn) {
-        reply({ ok: false, error: `no such procedure: ${msg.router}.${msg.proc}` })
-        return
-      }
-      // attachSession acts on the CALLING session: take its id from the relay
-      // context (the daemon's /issue/<sessionId> path), never from agent input.
-      const input =
-        msg.router === 'issues' && msg.proc === 'attachSession'
-          ? { ...(msg.input as Record<string, unknown> | undefined), sessionId: msg.sessionId }
-          : msg.input
-      reply({ ok: true, result: await fn(input) })
-    } catch (err) {
-      reply({ ok: false, error: err instanceof Error ? err.message : String(err) })
-    }
-  }
-
   searchConversations(opts: { query?: string; projectPath?: string; limit?: number }) {
     return this.conversations.searchConversations(opts)
   }
@@ -3351,43 +3163,19 @@ export class SessionRegistry {
     this.publishIssues(this.safeIssuesList())
   }
 
-  /**
-   * Build the issue-list payload, degrading to an empty list if the DERIVED build
-   * throws (e.g. a poison issue row whose member sessions fail to serialize).
-   * An issues-layer throw must never abort an attach, a broadcast, or the daemon
-   * handler that triggered it. `this.issues?` also guards construction-time calls
-   * (broadcastSessions can run via loadFromStore before `this.issues` is set).
-   */
+  /** Safe issue-list build — delegates to modules/issues/publish. */
   private safeIssuesList(): IssueWire[] {
-    try {
-      return this.issues?.allWire() ?? []
-    } catch (err) {
-      console.warn('[podium] issues payload build failed — broadcasting empty issues list', err)
-      return []
-    }
+    return this.issuePublisher.safeIssuesList()
   }
 
-  /** Oplog-record + split fan-out for a full issue list (every issuesChanged path).
-   *  Takes the LOCAL list; the hub-mirrored issues are unioned in HERE, so every
-   *  caller (IssueService broadcast, session rebroadcast, staleness flips) serves
-   *  local ∪ upstream without knowing about the mirror (node-hub-issues §2.1). */
+  /** Full issue-list fan-out (modules/issues/publish). */
   private publishIssues(localIssues: IssueWire[]): void {
-    const issues = this.withUpstreamIssues(localIssues)
-    const changes = this.oplog.record(
-      'issue',
-      issues.map((i) => ({ id: i.id, value: i })),
-    )
-    this.fanOutMetadata({ type: 'issuesChanged', issues }, changes)
+    this.issuePublisher.publishIssues(localIssues)
   }
 
-  /** Single-issue fan-out (issue #22): one PARTIAL oplog record (an upsert for
-   *  this id only — absence of the other issues must not read as deletion) and a
-   *  split fan-out. Delta-cap clients get the one-change metadataDelta; legacy
-   *  clients get the issueUpdated message they already merge by id. The full
-   *  issuesChanged path (publishIssues) remains for bulk/membership changes. */
+  /** Single-issue fan-out, issue #22 (modules/issues/publish). */
   private publishIssueUpdate(issue: IssueWire): void {
-    const changes = this.oplog.record('issue', [{ id: issue.id, value: issue }], { partial: true })
-    this.fanOutMetadata({ type: 'issueUpdated', issue }, changes)
+    this.issuePublisher.publishIssueUpdate(issue)
   }
 
   /**
