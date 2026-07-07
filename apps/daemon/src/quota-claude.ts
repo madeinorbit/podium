@@ -47,21 +47,29 @@ export async function fetchClaudeQuota(
     windows: [] as QuotaWindowWire[],
     fetchedAt: new Date(now).toISOString(),
   }
-  const credPath = join(deps.homeDir ?? homedir(), '.claude', '.credentials.json')
+  const homeDir = deps.homeDir ?? homedir()
+  const credPath = join(homeDir, '.claude', '.credentials.json')
   let token: string | undefined
   let expiresAt: number | undefined
+  let subscriptionType: string | undefined
   try {
     const raw = JSON.parse(await readFile(credPath, 'utf8')) as {
-      claudeAiOauth?: { accessToken?: string; expiresAt?: number }
+      claudeAiOauth?: { accessToken?: string; expiresAt?: number; subscriptionType?: string }
     }
     token = raw.claudeAiOauth?.accessToken
     expiresAt = raw.claudeAiOauth?.expiresAt
+    subscriptionType = raw.claudeAiOauth?.subscriptionType
   } catch {
     return { ...base, status: 'unauthenticated' }
   }
   if (!token) return { ...base, status: 'unauthenticated' }
+  // The account identity (email) lives in ~/.claude.json, separate from the
+  // credential token, so the overlay can label the account and dedupe machines
+  // signed into the same one. Best-effort — absence just omits the account.
+  const account = await readClaudeAccount(homeDir, subscriptionType)
+  const withAcct = account ? { ...base, account } : base
   if (typeof expiresAt === 'number' && expiresAt <= now) {
-    return { ...base, status: 'expired', error: 'token expired (refreshes on next Claude use)' }
+    return { ...withAcct, status: 'expired', error: 'token expired (refreshes on next Claude use)' }
   }
   try {
     const res = await fetchImpl(USAGE_URL, {
@@ -72,12 +80,38 @@ export async function fetchClaudeQuota(
       },
     })
     if (res.status === 401) {
-      return { ...base, status: 'expired', error: 'token expired (refreshes on next Claude use)' }
+      return {
+        ...withAcct,
+        status: 'expired',
+        error: 'token expired (refreshes on next Claude use)',
+      }
     }
-    if (!res.ok) return { ...base, status: 'error', error: `usage endpoint ${res.status}` }
+    if (!res.ok) return { ...withAcct, status: 'error', error: `usage endpoint ${res.status}` }
     const body = (await res.json()) as ClaudeUsageResponse
-    return { ...base, status: 'ok', windows: parseClaudeUsage(body) }
+    return { ...withAcct, status: 'ok', windows: parseClaudeUsage(body) }
   } catch (e) {
-    return { ...base, status: 'error', error: e instanceof Error ? e.message : String(e) }
+    return { ...withAcct, status: 'error', error: e instanceof Error ? e.message : String(e) }
   }
+}
+
+/** The Claude account for the overlay: email from ~/.claude.json (oauthAccount),
+ *  plan from the credential's subscriptionType. Best-effort — returns undefined
+ *  when neither is available so the wire simply omits `account`. */
+async function readClaudeAccount(
+  homeDir: string,
+  plan: string | undefined,
+): Promise<{ email?: string; plan?: string } | undefined> {
+  let email: string | undefined
+  try {
+    const raw = JSON.parse(await readFile(join(homeDir, '.claude.json'), 'utf8')) as {
+      oauthAccount?: { emailAddress?: string }
+    }
+    email = raw.oauthAccount?.emailAddress
+  } catch {
+    // No ~/.claude.json (or unreadable) — fall back to just the plan, if any.
+  }
+  const account: { email?: string; plan?: string } = {}
+  if (email) account.email = email
+  if (plan) account.plan = plan
+  return account.email || account.plan ? account : undefined
 }

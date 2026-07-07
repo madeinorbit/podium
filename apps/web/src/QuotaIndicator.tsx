@@ -6,8 +6,10 @@ import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import {
+  type AccountQuotaGroup,
   agentLabel,
   formatReset,
+  groupQuotaByAccount,
   paceHint,
   paceLabel,
   percentTone,
@@ -35,12 +37,12 @@ const PACE: Record<QuotaPace, string> = {
   hot: 'text-destructive',
 }
 
-/** Highest window utilization across all `ok` agents — the at-a-glance signal. */
-function worstPercent(agents: AgentQuotaWire[]): number {
+/** Highest window utilization across all `ok` accounts — the at-a-glance signal. */
+function worstPercent(groups: AccountQuotaGroup[]): number {
   let worst = 0
-  for (const a of agents) {
-    if (a.status !== 'ok') continue
-    for (const w of a.windows) worst = Math.max(worst, w.usedPercent)
+  for (const g of groups) {
+    if (g.status !== 'ok') continue
+    for (const w of g.windows) worst = Math.max(worst, w.usedPercent)
   }
   return worst
 }
@@ -48,11 +50,12 @@ function worstPercent(agents: AgentQuotaWire[]): number {
 /**
  * Agent-quota status item. Lives in the host status strip (HostIndicators),
  * beside the memory and connection glyphs — a gauge icon + a severity-tinted
- * fullness bar of the most-consumed plan window across every machine's agents.
- * Hover shows the per-agent summary; click opens the full per-window breakdown,
- * grouped by machine (each dev machine runs its agents under its own account).
- * Distinct from Usage & analytics (transcript-harvested token cost) — this is
- * plan rate-limit usage read live from each agent's own quota endpoint.
+ * fullness bar of the most-consumed plan window across every account.
+ * Hover shows the per-account summary; click opens the full per-window breakdown.
+ * Rate limits are per-account, so the breakdown is grouped by account (with the
+ * machine[s] each is used on) and deduped — never the same limit twice. Distinct
+ * from Usage & analytics (transcript-harvested token cost) — this is plan
+ * rate-limit usage read live from each agent's own quota endpoint.
  */
 export function QuotaIndicator({ compact = false }: { compact?: boolean }): JSX.Element | null {
   const { trpc } = useStore()
@@ -79,13 +82,12 @@ export function QuotaIndicator({ compact = false }: { compact?: boolean }): JSX.
     }
   }, [trpc])
 
-  // Nothing to show until the first payload arrives, or when no machine reported
-  // any agent quota.
-  const allAgents = (machines ?? []).flatMap((m) => m.agents)
-  if (!machines || allAgents.length === 0) return null
+  // Nothing to show until the first payload arrives, or when no account is
+  // signed in on any machine (unauthenticated agents are dropped by grouping).
+  const groups = groupQuotaByAccount(machines ?? [])
+  if (!machines || groups.length === 0) return null
 
-  const multiMachine = machines.filter((m) => m.agents.length > 0).length > 1
-  const worst = worstPercent(allAgents)
+  const worst = worstPercent(groups)
   const tone = TONE[percentTone(worst)]
 
   return (
@@ -116,7 +118,7 @@ export function QuotaIndicator({ compact = false }: { compact?: boolean }): JSX.
         />
         <TooltipContent className="max-w-60 flex-col items-start gap-0.5">
           <strong>Agent quota</strong>
-          <QuotaTooltipBody machines={machines} multiMachine={multiMachine} />
+          <QuotaTooltipBody groups={groups} />
           <span className="text-background/70">Click for the breakdown</span>
         </TooltipContent>
       </Tooltip>
@@ -124,23 +126,12 @@ export function QuotaIndicator({ compact = false }: { compact?: boolean }): JSX.
         <DialogContent className="sm:max-w-md" aria-label="Agent quota">
           <DialogTitle>Agent quota</DialogTitle>
           <div className="flex flex-col gap-3">
-            {machines
-              .filter((m) => m.agents.length > 0)
-              .map((m) => (
-                <div key={m.machineId} className="flex flex-col gap-2">
-                  {multiMachine && (
-                    <div className="text-[11px] uppercase tracking-[0.04em] text-muted-foreground/70">
-                      {m.machineName}
-                      {m.hostname && m.hostname !== m.machineName ? ` · ${m.hostname}` : ''}
-                    </div>
-                  )}
-                  {m.agents.map((a) => (
-                    <AgentQuotaCard key={a.agent} a={a} />
-                  ))}
-                </div>
-              ))}
+            {groups.map((g) => (
+              <AccountQuotaCard key={g.key} g={g} />
+            ))}
             <p className="mt-0.5 mb-0 max-w-[60ch] text-xs text-muted-foreground">
-              Read live from each agent's own usage endpoint on each dev machine. Percentages are
+              Read live from each agent's own usage endpoint on each dev machine. Limits are
+              per-account, so machines signed into the same account share one entry. Percentages are
               the share of each rolling plan window consumed. Grok is omitted — it exposes no local
               quota.
             </p>
@@ -151,40 +142,22 @@ export function QuotaIndicator({ compact = false }: { compact?: boolean }): JSX.
   )
 }
 
-/** Tooltip body: per-agent window summary, prefixed by machine name when more
- *  than one machine reported quota so two accounts don't blur together. */
-function QuotaTooltipBody({
-  machines,
-  multiMachine,
-}: {
-  machines: MachineQuotaWire[]
-  multiMachine: boolean
-}): JSX.Element {
-  const withOk = machines
-    .map((m) => ({ machine: m, ok: m.agents.filter((a) => a.status === 'ok') }))
-    .filter((m) => m.ok.length > 0)
-  if (withOk.length === 0) {
+/** Tooltip body: one line per account, with its window summary. */
+function QuotaTooltipBody({ groups }: { groups: AccountQuotaGroup[] }): JSX.Element {
+  const ok = groups.filter((g) => g.status === 'ok')
+  if (ok.length === 0) {
     return <span className="text-background/70">No quota reported — click for detail</span>
   }
   return (
     <>
-      {withOk.map(({ machine, ok }) => (
-        <span key={machine.machineId} className="flex flex-col">
-          {multiMachine && (
-            <span className="text-background/60 uppercase tracking-[0.04em]">
-              {machine.machineName}
-            </span>
-          )}
-          {ok.map((a) => (
-            <span key={a.agent} className="text-background/70">
-              {agentLabel(a.agent)} —{' '}
-              {a.windows.map((w, i) => (
-                <span key={w.key}>
-                  {i > 0 ? ' · ' : ''}
-                  {w.label.replace('-hour', 'h').replace('Weekly', 'wk')}{' '}
-                  {Math.round(w.usedPercent)}%
-                </span>
-              ))}
+      {ok.map((g) => (
+        <span key={g.key} className="text-background/70">
+          {agentLabel(g.agent)}
+          {g.account?.email ? ` (${g.account.email})` : ''} —{' '}
+          {g.windows.map((w, i) => (
+            <span key={w.key}>
+              {i > 0 ? ' · ' : ''}
+              {w.label.replace('-hour', 'h').replace('Weekly', 'wk')} {Math.round(w.usedPercent)}%
             </span>
           ))}
         </span>
@@ -193,24 +166,33 @@ function QuotaTooltipBody({
   )
 }
 
-function AgentQuotaCard({ a }: { a: AgentQuotaWire }): JSX.Element {
+/** One account card: agent + plan, the account email and the machine(s) it's used
+ *  on, then either the per-window bars (ok) or a short status note. */
+function AccountQuotaCard({ g }: { g: AccountQuotaGroup }): JSX.Element {
   const now = Date.now()
   return (
     <div className="rounded-md border border-border px-3 py-2.5">
-      <div className="flex items-center justify-between">
-        <div className="text-sm font-medium text-foreground">{agentLabel(a.agent)}</div>
-        {a.account?.email ? (
-          <div className="text-[11px] text-muted-foreground/70">
-            {a.account.email}
-            {a.account.plan ? ` · ${a.account.plan}` : ''}
-          </div>
-        ) : null}
+      <div className="flex items-center justify-between gap-2">
+        <div className="text-sm font-medium text-foreground">
+          {agentLabel(g.agent)}
+          {g.account?.plan ? (
+            <span className="ml-1.5 text-[11px] font-normal text-muted-foreground/70">
+              {g.account.plan}
+            </span>
+          ) : null}
+        </div>
+        <div className="truncate text-right text-[11px] text-muted-foreground/70">
+          {g.machineNames.join(', ')}
+        </div>
       </div>
-      {a.status !== 'ok' ? (
-        <div className="mt-1.5 text-xs text-muted-foreground/70">{statusNote(a)}</div>
+      {g.account?.email ? (
+        <div className="truncate text-[11px] text-muted-foreground/70">{g.account.email}</div>
+      ) : null}
+      {g.status !== 'ok' ? (
+        <div className="mt-1.5 text-xs text-muted-foreground/70">{statusNote(g)}</div>
       ) : (
         <div className="mt-2 flex flex-col gap-2">
-          {a.windows.map((w) => (
+          {g.windows.map((w) => (
             <QuotaWindowRow key={w.key} w={w} now={now} />
           ))}
         </div>

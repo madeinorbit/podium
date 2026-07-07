@@ -1,7 +1,9 @@
+import type { AgentQuotaWire, MachineQuotaWire } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import {
   agentLabel,
   formatReset,
+  groupQuotaByAccount,
   paceHint,
   paceLabel,
   percentTone,
@@ -17,7 +19,9 @@ describe('formatReset', () => {
   it('renders m / h m / d h, and edge cases', () => {
     expect(formatReset(new Date(now + 40 * 60_000).toISOString(), now)).toBe('resets in 40m')
     expect(formatReset(new Date(now + 134 * 60_000).toISOString(), now)).toBe('resets in 2h 14m')
-    expect(formatReset(new Date(now + (28 * 60 + 5) * 60_000).toISOString(), now)).toBe('resets in 1d 4h')
+    expect(formatReset(new Date(now + (28 * 60 + 5) * 60_000).toISOString(), now)).toBe(
+      'resets in 1d 4h',
+    )
     expect(formatReset(new Date(now - 5_000).toISOString(), now)).toBe('resetting…')
     expect(formatReset('', now)).toBe('')
   })
@@ -36,8 +40,8 @@ describe('agentLabel / statusNote', () => {
   it('labels known agents and notes non-ok statuses', () => {
     expect(agentLabel('claude-code')).toBe('Claude Code')
     expect(agentLabel('codex')).toBe('Codex')
-    expect(statusNote({ agent: 'codex', status: 'unauthenticated', windows: [], fetchedAt: '' })).toBe('Not signed in')
-    expect(statusNote({ agent: 'codex', status: 'ok', windows: [], fetchedAt: '' })).toBe('')
+    expect(statusNote({ status: 'unauthenticated' })).toBe('Not signed in')
+    expect(statusNote({ status: 'ok' })).toBe('')
   })
 })
 
@@ -79,5 +83,87 @@ describe('quotaPace / windowPace', () => {
       now,
     )
     expect(pace).toBe('hot')
+  })
+})
+
+describe('groupQuotaByAccount', () => {
+  const win = (usedPercent: number) => ({
+    key: '5h' as const,
+    label: '5-hour',
+    usedPercent,
+    resetsAt: '',
+    windowMinutes: 300,
+  })
+  const agent = (over: Partial<AgentQuotaWire> = {}): AgentQuotaWire => ({
+    agent: 'claude-code',
+    status: 'ok',
+    windows: [win(40)],
+    fetchedAt: '2026-07-07T00:00:00.000Z',
+    ...over,
+  })
+  const machine = (
+    machineId: string,
+    machineName: string,
+    agents: AgentQuotaWire[],
+  ): MachineQuotaWire => ({ machineId, machineName, hostname: machineName, agents })
+
+  it('keeps distinct accounts as separate cards, each labeled with its machine', () => {
+    const groups = groupQuotaByAccount([
+      machine('m1', 'podium-host', [agent({ account: { email: 'a@x.com', plan: 'max' } })]),
+      machine('m2', 'vmi', [agent({ account: { email: 'b@x.com', plan: 'pro' } })]),
+    ])
+    expect(groups).toHaveLength(2)
+    expect(groups.map((g) => g.account?.email)).toEqual(['a@x.com', 'b@x.com'])
+    expect(groups[0]?.machineNames).toEqual(['podium-host'])
+    expect(groups[1]?.machineNames).toEqual(['vmi'])
+  })
+
+  it('dedupes the same account across machines into one card listing both', () => {
+    const groups = groupQuotaByAccount([
+      machine('m1', 'podium-host', [agent({ account: { email: 'shared@x.com', plan: 'max' } })]),
+      machine('m2', 'vmi', [agent({ account: { email: 'shared@x.com', plan: 'max' } })]),
+    ])
+    expect(groups).toHaveLength(1)
+    expect(groups[0]?.machineNames).toEqual(['podium-host', 'vmi'])
+    expect(groups[0]?.account?.email).toBe('shared@x.com')
+  })
+
+  it('drops agents a machine is not signed into (unauthenticated)', () => {
+    const groups = groupQuotaByAccount([
+      machine('m1', 'podium-host', [
+        agent({ account: { email: 'a@x.com' } }),
+        agent({ agent: 'codex', status: 'unauthenticated', windows: [] }),
+      ]),
+    ])
+    expect(groups).toHaveLength(1)
+    expect(groups[0]?.agent).toBe('claude-code')
+  })
+
+  it('does not merge two machines when neither reports an email (per-machine fallback)', () => {
+    const groups = groupQuotaByAccount([
+      machine('m1', 'podium-host', [agent()]),
+      machine('m2', 'vmi', [agent()]),
+    ])
+    expect(groups).toHaveLength(2)
+  })
+
+  it('prefers a healthy read when one machine is ok and another expired for the same account', () => {
+    const groups = groupQuotaByAccount([
+      machine('m1', 'podium-host', [
+        agent({
+          status: 'expired',
+          windows: [],
+          account: { email: 'a@x.com' },
+          error: 'token expired',
+        }),
+      ]),
+      machine('m2', 'vmi', [
+        agent({ status: 'ok', windows: [win(55)], account: { email: 'a@x.com' } }),
+      ]),
+    ])
+    expect(groups).toHaveLength(1)
+    expect(groups[0]?.status).toBe('ok')
+    expect(groups[0]?.windows[0]?.usedPercent).toBe(55)
+    expect(groups[0]?.machineNames).toEqual(['podium-host', 'vmi'])
   })
 })

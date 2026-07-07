@@ -87,4 +87,47 @@ describe('fetchClaudeQuota', () => {
     })
     expect(r500.status).toBe('error')
   })
+
+  it('populates the account email (from ~/.claude.json) and plan (subscriptionType)', async () => {
+    const home = homeWithCreds({
+      claudeAiOauth: { accessToken: 't', expiresAt: future, subscriptionType: 'max' },
+    })
+    writeFileSync(
+      join(home, '.claude.json'),
+      JSON.stringify({ oauthAccount: { emailAddress: 'me@example.com' } }),
+    )
+    const r = await fetchClaudeQuota({
+      homeDir: home,
+      now,
+      fetchImpl: (async () =>
+        new Response(JSON.stringify(okBody), { status: 200 })) as typeof fetch,
+    })
+    expect(r.status).toBe('ok')
+    expect(r.account).toEqual({ email: 'me@example.com', plan: 'max' })
+  })
+
+  it('still carries the account on an expired token so the overlay can label it', async () => {
+    const home = homeWithCreds({
+      claudeAiOauth: { accessToken: 't', expiresAt: now - 1, subscriptionType: 'max' },
+    })
+    writeFileSync(
+      join(home, '.claude.json'),
+      JSON.stringify({ oauthAccount: { emailAddress: 'me@example.com' } }),
+    )
+    const r = await fetchClaudeQuota({ homeDir: home, now })
+    expect(r.status).toBe('expired')
+    expect(r.account?.email).toBe('me@example.com')
+  })
+
+  it('omits the account when ~/.claude.json is absent and no plan is known', async () => {
+    const home = homeWithCreds({ claudeAiOauth: { accessToken: 't', expiresAt: future } })
+    const r = await fetchClaudeQuota({
+      homeDir: home,
+      now,
+      fetchImpl: (async () =>
+        new Response(JSON.stringify(okBody), { status: 200 })) as typeof fetch,
+    })
+    expect(r.status).toBe('ok')
+    expect(r.account).toBeUndefined()
+  })
 })

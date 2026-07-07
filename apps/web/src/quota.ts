@@ -1,4 +1,4 @@
-import type { AgentKind, AgentQuotaWire, QuotaWindowWire } from '@podium/protocol'
+import type { AgentKind, AgentQuotaWire, MachineQuotaWire, QuotaWindowWire } from '@podium/protocol'
 
 /** "resets in 40m" / "resets in 2h 14m" / "resets in 1d 4h". */
 export function formatReset(resetsAt: string, nowMs: number): string {
@@ -37,7 +37,7 @@ export function agentLabel(agent: AgentKind): string {
   return AGENT_LABELS[agent] ?? agent
 }
 
-export function statusNote(a: AgentQuotaWire): string {
+export function statusNote(a: Pick<AgentQuotaWire, 'status' | 'error'>): string {
   switch (a.status) {
     case 'unauthenticated':
       return 'Not signed in'
@@ -48,6 +48,70 @@ export function statusNote(a: AgentQuotaWire): string {
     default:
       return ''
   }
+}
+
+/**
+ * One rate-limit bucket: an (agent, account) pair. Quota windows belong to an
+ * account, not a machine — two machines signed into the same account share the
+ * same limit — so the overlay groups by account and lists the machine(s) each is
+ * used on, instead of repeating identical limits per machine.
+ */
+export interface AccountQuotaGroup {
+  key: string
+  agent: AgentKind
+  account?: { email?: string; plan?: string }
+  machineNames: string[]
+  status: AgentQuotaWire['status']
+  windows: QuotaWindowWire[]
+  error?: string
+  fetchedAt: string
+}
+
+/**
+ * Fold the per-machine quota into per-account buckets:
+ *  - drop agents a machine isn't signed into (`unauthenticated`) — no card;
+ *  - dedupe (agent, account-email) across machines into one card that lists every
+ *    machine using it (falling back to per-machine when no email is available, so
+ *    we never merge two machines we can't prove share an account);
+ *  - prefer a healthy read: if one machine can read the account and another can't,
+ *    the card shows the readable windows.
+ */
+export function groupQuotaByAccount(machines: MachineQuotaWire[]): AccountQuotaGroup[] {
+  const groups = new Map<string, AccountQuotaGroup>()
+  for (const machine of machines) {
+    for (const agent of machine.agents) {
+      if (agent.status === 'unauthenticated') continue
+      const email = agent.account?.email
+      const key = email
+        ? `${agent.agent}::${email}`
+        : `${agent.agent}::machine:${machine.machineId}`
+      const existing = groups.get(key)
+      if (!existing) {
+        groups.set(key, {
+          key,
+          agent: agent.agent,
+          ...(agent.account ? { account: agent.account } : {}),
+          machineNames: [machine.machineName],
+          status: agent.status,
+          windows: agent.windows,
+          ...(agent.error ? { error: agent.error } : {}),
+          fetchedAt: agent.fetchedAt,
+        })
+        continue
+      }
+      if (!existing.machineNames.includes(machine.machineName)) {
+        existing.machineNames.push(machine.machineName)
+      }
+      if (existing.status !== 'ok' && agent.status === 'ok') {
+        existing.status = 'ok'
+        existing.windows = agent.windows
+        existing.fetchedAt = agent.fetchedAt
+        existing.error = undefined
+        if (agent.account) existing.account = agent.account
+      }
+    }
+  }
+  return [...groups.values()]
 }
 
 /** Share of the rolling window already elapsed (0–100), from reset time + duration. */

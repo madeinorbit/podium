@@ -118,8 +118,8 @@ describe('memory chip is machine-aware', () => {
   })
 })
 
-describe('quota overlay groups by machine', () => {
-  it('shows a section + account for each machine when two are attached', async () => {
+describe('quota overlay groups by account', () => {
+  it('shows a card per distinct account, each labeled with its email + machine', async () => {
     quotaSummary.mockResolvedValue([
       machineQuota('podium-host', 'podium-host', 'podium-host', 'lud@example.com', 30),
       machineQuota('vmi34', 'vmi', 'vmi', 'vmi@example.com', 88),
@@ -127,22 +127,32 @@ describe('quota overlay groups by machine', () => {
     render(<QuotaIndicator />)
     const gauge = await screen.findByRole('button', { name: /agent quota/i })
     fireEvent.click(gauge)
-    // Each account card shows "<email> · <plan>" — both accounts must be visible.
-    await waitFor(() => expect(screen.getByText('lud@example.com · max')).toBeTruthy())
-    expect(screen.getByText('vmi@example.com · max')).toBeTruthy()
-    // Machine headers present (name only when name === hostname).
+    await waitFor(() => expect(screen.getByText('lud@example.com')).toBeTruthy())
+    expect(screen.getByText('vmi@example.com')).toBeTruthy()
+    // Each card is labeled with the machine the account is used on.
     expect(screen.getByText('podium-host')).toBeTruthy()
     expect(screen.getByText('vmi')).toBeTruthy()
   })
 
-  it('single machine: no machine header, just the account card', async () => {
+  it('dedupes a shared account into one card listing both machines', async () => {
+    quotaSummary.mockResolvedValue([
+      machineQuota('podium-host', 'podium-host', 'podium-host', 'shared@example.com', 30),
+      machineQuota('vmi34', 'vmi', 'vmi', 'shared@example.com', 30),
+    ])
+    render(<QuotaIndicator />)
+    const gauge = await screen.findByRole('button', { name: /agent quota/i })
+    fireEvent.click(gauge)
+    // One email, shown once, with both machines on the same card.
+    await waitFor(() => expect(screen.getAllByText('shared@example.com')).toHaveLength(1))
+    expect(screen.getByText('podium-host, vmi')).toBeTruthy()
+  })
+
+  it('single account: renders the account card with its email + machine', async () => {
     quotaSummary.mockResolvedValue([machineQuota('solo', 'solo', 'solo', 'solo@example.com', 20)])
     render(<QuotaIndicator />)
     const gauge = await screen.findByRole('button', { name: /agent quota/i })
     fireEvent.click(gauge)
-    await waitFor(() => expect(screen.getByText('solo@example.com · max')).toBeTruthy())
-    // The machine-name header is only rendered in multi-machine mode; nothing
-    // has the bare machine name "solo" as its text.
-    expect(screen.queryByText('solo')).toBeNull()
+    await waitFor(() => expect(screen.getByText('solo@example.com')).toBeTruthy())
+    expect(screen.getByText('solo')).toBeTruthy()
   })
 })
