@@ -24,6 +24,10 @@ import { type LinearIssue, searchIssues } from './linear'
 import { llmClient } from './llm'
 import type { IssueMessageRow, IssueRow, SessionStore } from './store'
 
+/** Read-gated auto-archive window (issue #127): a done+read issue auto-archives
+ *  this long after it was read. Reading starts the clock; unread issues wait. */
+export const AUTO_ARCHIVE_READ_WINDOW_MS = 24 * 60 * 60 * 1000
+
 /** One mutation on the agent-published human panel — see IssueService.panelApply. */
 export type IssuePanelOp =
   | { op: 'todo-add'; text: string }
@@ -1185,6 +1189,59 @@ export class IssueService {
 
   archive(id: string): IssueWire {
     return this.update(id, { archived: true })
+  }
+
+  /**
+   * Read-gated auto-archive sweep (issue #127). Archive every issue that is
+   * DONE (or otherwise closed), has been READ, and whose read happened at least
+   * `AUTO_ARCHIVE_READ_WINDOW_MS` (24h) ago. This declutters the sidebar (S1 hides
+   * archived) while keeping the result reachable via the board's Archived filter.
+   *
+   * Read-gating is the point: a done-but-unread issue is left alone — the operator
+   * hasn't seen the result yet, and *reading* it is what starts the 24h clock
+   * (see `computeUnread`: any activity after `readAt` re-flips it to unread).
+   *
+   * Cheap + idempotent: already-archived rows are skipped, the four cheap gates
+   * (archived / closed / readAt-set / cutoff) run before the per-row session
+   * lookup, and once a row archives the next sweep skips it (so its
+   * `issue.auto_archived` event is emitted exactly once). `nowMs` is injectable so
+   * tests can pin "now" (mirrors `staleList`); it defaults to the service clock.
+   *
+   * Returns the wires it archived (empty when nothing qualified).
+   */
+  sweepAutoArchive(nowMs: number = Date.parse(this.now())): IssueWire[] {
+    const cutoffReadMs = nowMs - AUTO_ARCHIVE_READ_WINDOW_MS
+    const out: IssueWire[] = []
+    let sessionList: SessionMeta[] | undefined // fetched lazily — only if a row clears the cheap gates
+    for (const row of this.rows.values()) {
+      if (row.archived) continue // idempotent: never re-archive
+      if (!this.isClosed(row)) continue // not done / not closed
+      if (row.readAt == null) continue // never read → still unread, leave it
+      const readMs = Date.parse(row.readAt)
+      if (!Number.isFinite(readMs) || readMs > cutoffReadMs) continue // read too recently
+      // Post-read activity re-marks the issue unread (the operator hasn't seen it):
+      // honour that here so a re-touched done issue isn't archived out from under them.
+      sessionList ??= this.deps.listSessions()
+      const sessions = sessionsForIssue(row.worktreePath, sessionList, row.id)
+      if (this.computeUnread(row, sessions)) continue
+      out.push(this.autoArchive(row))
+    }
+    return out
+  }
+
+  /** Archive `row` as the passive auto-archive sweep (issue #127). Reuses the same
+   *  persist machinery `archive()` funnels through (sets archived + broadcasts
+   *  issueUpdated & issuesChanged) but logs a DISTINCT `issue.auto_archived` event
+   *  instead of the manual `issue.archived` — the activity log (S3) renders it as
+   *  its own line, and nothing downstream mistakes a sweep for a user action. */
+  private autoArchive(row: IssueRow): IssueWire {
+    row.archived = true
+    const wire = this.persist(row)
+    this.emitEvent('issue.auto_archived', row.id, { seq: row.seq, readAt: row.readAt })
+    // TODO(#127 seam): worktree cleanup hooks here. Auto-archive is where future
+    // worktree/branch teardown for a finished issue will attach (see epic #101).
+    // Deliberately NOT implemented now — archiving is purely a UI-declutter today.
+    return wire
   }
 
   delete(id: string): void {

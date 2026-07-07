@@ -146,6 +146,11 @@ const EVENT_RETENTION_MAX_AGE_DAYS = 14
 const EVENT_RETENTION_MAX_ROWS = 50_000
 const EVENT_PRUNE_BOOT_DELAY_MS = 60_000
 const EVENT_PRUNE_INTERVAL_MS = 6 * 60 * 60 * 1000
+// Read-gated auto-archive sweep (issue #127): first pass shortly after boot (so a
+// restart promptly clears issues that crossed the 24h read window while down),
+// then hourly. Hourly is ample for a 24h-granularity rule and the sweep is cheap.
+const AUTO_ARCHIVE_BOOT_DELAY_MS = 90_000
+const AUTO_ARCHIVE_INTERVAL_MS = 60 * 60 * 1000
 const SCAN_TIMEOUT_MS = 10_000
 const FILE_RPC_TIMEOUT_MS = 10_000
 
@@ -497,6 +502,10 @@ export class SessionRegistry {
   // hands off to the 6h interval. Both unref'd so they never hold the process open.
   private eventPruneBootTimer: ReturnType<typeof setTimeout> | undefined
   private eventPruneTimer: ReturnType<typeof setInterval> | undefined
+  // Read-gated auto-archive sweep timers (issue #127) — same boot-delay→interval
+  // shape as the event-prune pair above; both unref'd so neither holds the process.
+  private autoArchiveBootTimer: ReturnType<typeof setTimeout> | undefined
+  private autoArchiveTimer: ReturnType<typeof setInterval> | undefined
 
   constructor(
     private readonly store: SessionStore = new SessionStore(':memory:'),
@@ -617,6 +626,13 @@ export class SessionRegistry {
       this.eventPruneTimer.unref?.()
     }, EVENT_PRUNE_BOOT_DELAY_MS)
     this.eventPruneBootTimer.unref?.()
+    // Read-gated auto-archive (issue #127): first sweep ~90s after boot, then hourly.
+    this.autoArchiveBootTimer = setTimeout(() => {
+      this.runAutoArchiveSweep()
+      this.autoArchiveTimer = setInterval(() => this.runAutoArchiveSweep(), AUTO_ARCHIVE_INTERVAL_MS)
+      this.autoArchiveTimer.unref?.()
+    }, AUTO_ARCHIVE_BOOT_DELAY_MS)
+    this.autoArchiveBootTimer.unref?.()
     // Boot reconciliation: record what changed across the restart (sessions restored
     // by loadFromStore, issues from the store) so a cursor-holding client that
     // reconnects can heal via changesSince instead of silently missing the gap.
@@ -668,10 +684,25 @@ export class SessionRegistry {
     }
   }
 
+  /** One read-gated auto-archive pass (issue #127). Failures are logged, never
+   *  thrown — a broken sweep must not take down the timer or the registry. */
+  private runAutoArchiveSweep(): void {
+    try {
+      const archived = this.issues.sweepAutoArchive()
+      if (archived.length > 0) {
+        console.log(`[podium:issues] auto-archived ${archived.length} read+done issue(s)`)
+      }
+    } catch (err) {
+      console.warn('[podium:issues] auto-archive sweep failed:', err)
+    }
+  }
+
   dispose(): void {
     clearInterval(this.activityFlushTimer)
     if (this.eventPruneBootTimer) clearTimeout(this.eventPruneBootTimer)
     if (this.eventPruneTimer) clearInterval(this.eventPruneTimer)
+    if (this.autoArchiveBootTimer) clearTimeout(this.autoArchiveBootTimer)
+    if (this.autoArchiveTimer) clearInterval(this.autoArchiveTimer)
     // Run any coalesced session broadcast so the oplog records the final state
     // (clients are going away, but the durable log must not drop the tail).
     this.flushBroadcasts()

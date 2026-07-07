@@ -114,6 +114,77 @@ describe('IssueService unread (#124)', () => {
   })
 })
 
+describe('IssueService.sweepAutoArchive (read-gated auto-archive #127)', () => {
+  const DAY_MS = 24 * 60 * 60 * 1000
+  // A done issue read at the fixed harness clock (2026-06-30T00:00:00Z).
+  const readAtMs = Date.parse('2026-06-30T00:00:00.000Z')
+  const doneAndRead = () => {
+    const h = harness()
+    const w = h.svc.create({ repoPath: '/r', title: 'Done thing', startNow: false })
+    h.svc.close(w.id) // stage=done, closedReason=done, updatedAt=harness now
+    h.svc.markIssueRead(w.id) // readAt=harness now, unread→false
+    return { ...h, id: w.id }
+  }
+
+  it('archives a done issue read > 24h ago; emits issue.auto_archived (not issue.archived)', () => {
+    const { svc, store, deps, id } = doneAndRead()
+    const archived = svc.sweepAutoArchive(readAtMs + DAY_MS + 3600_000) // 25h later
+    expect(archived.map((w) => w.id)).toEqual([id])
+    expect(archived[0]!.archived).toBe(true)
+    expect(svc.get(id)!.archived).toBe(true)
+    // The distinct auto-archive event is logged; the manual archive event is NOT.
+    expect(store.listEventsSince(0, { kinds: ['issue.auto_archived'] }).length).toBe(1)
+    expect(store.listEventsSince(0, { kinds: ['issue.archived'] }).length).toBe(0)
+    expect(deps.broadcast).toHaveBeenCalled()
+  })
+
+  it('leaves a done+read issue read < 24h ago alone', () => {
+    const { svc, store, id } = doneAndRead()
+    const archived = svc.sweepAutoArchive(readAtMs + 12 * 3600_000) // only 12h later
+    expect(archived).toEqual([])
+    expect(svc.get(id)!.archived).toBe(false)
+    expect(store.listEventsSince(0, { kinds: ['issue.auto_archived'] }).length).toBe(0)
+  })
+
+  it('leaves a done-but-unread issue alone even long after it was closed', () => {
+    const h = harness()
+    const w = h.svc.create({ repoPath: '/r', title: 'Unseen result', startNow: false })
+    h.svc.close(w.id) // done, but never read → unread
+    expect(h.svc.get(w.id)!.unread).toBe(true)
+    const archived = h.svc.sweepAutoArchive(readAtMs + 10 * DAY_MS)
+    expect(archived).toEqual([])
+    expect(h.svc.get(w.id)!.archived).toBe(false)
+  })
+
+  it('leaves a not-done issue alone even when read long ago', () => {
+    const h = harness()
+    const w = h.svc.create({ repoPath: '/r', title: 'Still open', startNow: false })
+    h.svc.markIssueRead(w.id) // read, but stage is backlog (open)
+    const archived = h.svc.sweepAutoArchive(readAtMs + 10 * DAY_MS)
+    expect(archived).toEqual([])
+    expect(h.svc.get(w.id)!.archived).toBe(false)
+  })
+
+  it('does not re-archive: skips already-archived rows (idempotent, no duplicate event)', () => {
+    const { svc, store, id } = doneAndRead()
+    expect(svc.sweepAutoArchive(readAtMs + 2 * DAY_MS).map((w) => w.id)).toEqual([id])
+    // A second sweep touches nothing and emits no further event.
+    expect(svc.sweepAutoArchive(readAtMs + 3 * DAY_MS)).toEqual([])
+    expect(store.listEventsSince(0, { kinds: ['issue.auto_archived'] }).length).toBe(1)
+  })
+
+  it('treats a closed-by-reason issue (not stage done) as archivable when read > 24h ago', () => {
+    const h = harness()
+    const canonical = h.svc.create({ repoPath: '/r', title: 'canonical', startNow: false })
+    const dup = h.svc.create({ repoPath: '/r', title: 'dup', startNow: false })
+    h.svc.duplicate(dup.id, canonical.id) // closedReason set (stage may not be 'done')
+    h.svc.markIssueRead(dup.id)
+    const archived = h.svc.sweepAutoArchive(readAtMs + 2 * DAY_MS)
+    expect(archived.map((w) => w.id)).toContain(dup.id)
+    expect(h.svc.get(canonical.id)!.archived).toBe(false) // still open → untouched
+  })
+})
+
 describe('IssueService toWire needs_human (P4)', () => {
   it('surfaces needsHuman + humanQuestion set on the row', () => {
     const { svc, store } = harness()
