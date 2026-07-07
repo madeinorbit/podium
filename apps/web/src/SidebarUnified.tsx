@@ -27,8 +27,8 @@ import {
   draftIssueLabel,
   groupUnifiedWorkRows,
   isIssueSnoozed,
-  isRowUnread,
   issueReturnedFromDefer,
+  rowUnreadEmphasized,
   lastUsedMaps,
   machinesWithRepo,
   mostUrgentSession,
@@ -182,10 +182,12 @@ export function SidebarUnified(): JSX.Element {
     // emphasis optimistically. Its member sessions keep their own unread until
     // each is opened. No-op when already read.
     void markIssueRead(issue.id)
-    // A lapsed defer is transient like the session snooze: interacting with the
-    // "Unsnoozed" issue clears the stale defer so the tag doesn't linger. (A
-    // still-snoozed issue is left alone.) No dedicated undefer route — defer(null)
-    // is the clear, matching the context menu's "Undefer".
+    // A lapsed defer is transient like the session snooze: OPENING an "Unsnoozed"
+    // issue clears the stale defer so the tag doesn't linger (email-read semantics).
+    // This is the CLEAR path — deliberately defer(null), which nulls deferUntil so
+    // `issueReturnedFromDefer` goes false. (It's distinct from the menu's "Unsnooze",
+    // issues.undefer, which BACKDATES deferUntil to float the row to the top of WORK
+    // WITH the tag — #133.) A still-snoozed issue is left alone.
     if (issueReturnedFromDefer(issue, now)) {
       void trpc.issues.defer.mutate({ id: issue.id, until: null }).catch(() => {})
     }
@@ -235,7 +237,9 @@ export function SidebarUnified(): JSX.Element {
   }
 
   // One WORK/WORKING row (issue or unowned worktree), shared by both sections.
-  const renderWorkRow = (row: UnifiedWorkRow) =>
+  // `suppressUnread` mutes the email-style unread emphasis for WORKING rows (#138):
+  // active work isn't "new unseen work". WORK/PINNED rows pass it false.
+  const renderWorkRow = (row: UnifiedWorkRow, suppressUnread = false) =>
     row.kind === 'issue' ? (
       <UnifiedIssueRow
         key={`issue:${row.issue.id}`}
@@ -246,6 +250,7 @@ export function SidebarUnified(): JSX.Element {
         active={selectedIssueId === row.issue.id}
         paneA={paneA}
         now={now}
+        suppressUnread={suppressUnread}
         onSelect={() => selectIssue(row.issue)}
         onSelectPanel={(sid) => selectPanelForIssue(row.issue, sid)}
         onPinned={(sid, p) => void setPinned('panel', sid, p)}
@@ -258,13 +263,15 @@ export function SidebarUnified(): JSX.Element {
         active={selectedIssueId === null && selectedWorktree === row.worktree.path}
         paneA={paneA}
         now={now}
+        suppressUnread={suppressUnread}
         onSelect={() => selectWorktree(row.worktree.path)}
         onSelectPanel={(sid) => selectPanel(row.worktree.path, sid)}
         onPinned={(sid, p) => void setPinned('panel', sid, p)}
       />
     )
   // A WORKING entry: a lifted individual session renders as a PanelRow (like
-  // PINNED); a fully-working issue/worktree renders as its normal row.
+  // PINNED); a fully-working issue/worktree renders as its normal row. Everything
+  // here suppresses unread emphasis (#138) — it's actively-in-progress work.
   const renderWorkingEntry = (entry: WorkingEntry) => {
     if (entry.kind === 'session') {
       const s = entry.session
@@ -274,12 +281,13 @@ export function SidebarUnified(): JSX.Element {
           session={s}
           pinned={pins.panels.includes(s.sessionId)}
           active={paneA === s.sessionId}
+          suppressUnread
           onSelect={() => selectPanel(s.cwd, s.sessionId)}
           onPinned={(p) => void setPinned('panel', s.sessionId, p)}
         />
       )
     }
-    return renderWorkRow(entry.row)
+    return renderWorkRow(entry.row, true)
   }
 
   return (
@@ -515,7 +523,7 @@ export function SidebarUnified(): JSX.Element {
           </div>
         )}
         {(() => {
-          if (!sidebarSettings.groupByRepo) return work.map(renderWorkRow)
+          if (!sidebarSettings.groupByRepo) return work.map((r) => renderWorkRow(r))
           return groupUnifiedWorkRows(work).map((group) => (
             <CollapsibleSection
               key={group.key}
@@ -523,7 +531,8 @@ export function SidebarUnified(): JSX.Element {
               storageKey={`podium:sidebar:unified-repo:${group.key}`}
               count={group.rows.length}
             >
-              {group.rows.map(renderWorkRow)}
+              {/* Wrap so Array.map's index isn't passed as `suppressUnread`. */}
+              {group.rows.map((r) => renderWorkRow(r))}
             </CollapsibleSection>
           ))
         })()}
@@ -643,6 +652,7 @@ function UnifiedIssueRow({
   active,
   paneA,
   now,
+  suppressUnread = false,
   onSelect,
   onSelectPanel,
   onPinned,
@@ -656,6 +666,9 @@ function UnifiedIssueRow({
   active: boolean
   paneA: string | null
   now: number
+  /** WORKING placement (#138): mute the unread emphasis on this row and its
+   *  child session rows — active work isn't "new unseen work". */
+  suppressUnread?: boolean
   onSelect: () => void
   onSelectPanel: (sessionId: string) => void
   onPinned: (sessionId: string, pinned: boolean) => void
@@ -663,7 +676,7 @@ function UnifiedIssueRow({
   onOpenIssue: (id: string) => void
 }): JSX.Element {
   const { issue, sessions: mine } = row
-  const unread = isRowUnread(row)
+  const unread = suppressUnread ? false : rowUnreadEmphasized(row)
   const [collapsed, toggle] = useCollapsed(`podium:sidebar:unified-issue:${issue.id}`, false)
   const [menuAnchor, setMenuAnchor] = useState<ContextMenuAnchor | null>(null)
   // A single agent underneath = nothing worth a second line: the parent row's
@@ -699,6 +712,7 @@ function UnifiedIssueRow({
       session={session}
       pinned={false}
       active={active && paneA === session.sessionId}
+      suppressUnread={suppressUnread}
       onSelect={() => onSelectPanel(session.sessionId)}
       onPinned={(p) => onPinned(session.sessionId, p)}
       dotRight
@@ -790,6 +804,7 @@ function UnifiedWorktreeRow({
   active,
   paneA,
   now,
+  suppressUnread = false,
   onSelect,
   onSelectPanel,
   onPinned,
@@ -798,12 +813,15 @@ function UnifiedWorktreeRow({
   active: boolean
   paneA: string | null
   now: number
+  /** WORKING placement (#138): mute the unread emphasis on this row and its
+   *  child session rows — active work isn't "new unseen work". */
+  suppressUnread?: boolean
   onSelect: () => void
   onSelectPanel: (sessionId: string) => void
   onPinned: (sessionId: string, pinned: boolean) => void
 }): JSX.Element {
   const { worktree } = row
-  const unread = isRowUnread(row)
+  const unread = suppressUnread ? false : rowUnreadEmphasized(row)
   const [collapsed, toggle] = useCollapsed(`podium:sidebar:unified-wt:${worktree.path}`, false)
   // A single agent underneath = nothing worth a second line: the parent row's
   // dot IS that agent's indicator. Child rows only exist from 2 agents up.
@@ -815,6 +833,7 @@ function UnifiedWorktreeRow({
       session={session}
       pinned={false}
       active={active && paneA === session.sessionId}
+      suppressUnread={suppressUnread}
       onSelect={() => onSelectPanel(session.sessionId)}
       onPinned={(p) => onPinned(session.sessionId, p)}
       dotRight

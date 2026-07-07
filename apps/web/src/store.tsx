@@ -24,7 +24,8 @@ import { toast } from 'sonner'
 import { formatAppError } from './AppErrorPage'
 import { dedupeSessionsByResume, EMPTY_PINS, planWorktreeMoves, reposToViews } from './derive'
 import { type DockTab, readStoredDockTab } from './dock-panel'
-import { type FileScope, scopeKey, tabIdFor } from './file-scope'
+import { type FileScope, tabIdFor } from './file-scope'
+import { useMarkReadOnView } from './hooks/use-mark-read-on-view'
 import {
   mergeOptimistic,
   optimisticDraftIssue,
@@ -185,9 +186,15 @@ export interface Store {
   /** Mark a session read (issue #124): stamp readAt = now, clearing derived `unread`.
    *  Optimistic + outboxed. Called when the operator opens/focuses the session. */
   markSessionRead: (sessionId: string) => Promise<void>
+  /** Mark a session UNREAD again (issue #138, email-style inverse of markSessionRead):
+   *  stamp readAt = null so derived `unread` flips back to true. Optimistic + outboxed. */
+  markSessionUnread: (sessionId: string) => Promise<void>
   /** Mark an issue read (issue #124): stamp readAt = now, clearing derived `unread`.
    *  Optimistic + outboxed. Called when the operator opens the issue. */
   markIssueRead: (id: string) => Promise<void>
+  /** Mark an issue UNREAD again (issue #138, email-style inverse of markIssueRead):
+   *  stamp readAt = null so derived `unread` flips back to true. Optimistic + outboxed. */
+  markIssueUnread: (id: string) => Promise<void>
   /** Per-session chat composer draft, shared across every view of that session
    *  (chat panes, split view) and preserved across chat/native mode switches.
    *  The native PTY input line is opaque bytes we can't read back, so this is the
@@ -294,7 +301,9 @@ type OutboxKinds = {
   snoozeSet: { sessionId: string; until: string | null }
   snoozeClear: { sessionId: string }
   sessionMarkRead: { sessionId: string }
+  sessionMarkUnread: { sessionId: string }
   issueMarkRead: { id: string }
+  issueMarkUnread: { id: string }
 }
 
 /** Stable empty list so the issues getter doesn't churn identity pre-hydrate. */
@@ -361,7 +370,9 @@ export function StoreProvider({
           snoozeSet: (i) => trpc.snoozes.set.mutate(i),
           snoozeClear: (i) => trpc.snoozes.clear.mutate(i),
           sessionMarkRead: (i) => trpc.sessions.markRead.mutate(i),
+          sessionMarkUnread: (i) => trpc.sessions.markUnread.mutate(i),
           issueMarkRead: (i) => trpc.issues.markRead.mutate(i),
+          issueMarkUnread: (i) => trpc.issues.markUnread.mutate(i),
         },
         // A poison entry (server-side validation reject) can never sync — it's
         // dropped, and the toast is the honesty about that.
@@ -863,6 +874,14 @@ export function StoreProvider({
     },
     [outbox, patchSession],
   )
+  // The email-style inverse (#138): stamp readAt = null so `unread` re-arms.
+  const markSessionUnread = useMemo(
+    () => async (sessionId: string) => {
+      patchSession(sessionId, { readAt: null, unread: true })
+      outbox.enqueue('sessionMarkUnread', { sessionId })
+    },
+    [outbox, patchSession],
+  )
   const markIssueRead = useMemo(
     () => async (id: string) => {
       patchIssue(id, { readAt: new Date().toISOString(), unread: false })
@@ -870,6 +889,24 @@ export function StoreProvider({
     },
     [outbox, patchIssue],
   )
+  const markIssueUnread = useMemo(
+    () => async (id: string) => {
+      patchIssue(id, { readAt: null, unread: true })
+      outbox.enqueue('issueMarkUnread', { id })
+    },
+    [outbox, patchIssue],
+  )
+
+  // Mark the session the operator is actually LOOKING AT read on view (#138). The
+  // explicit switch handlers only fire on a pane *change*, so a session that's
+  // already the open/focused pane (the coordinator session the user keeps coming
+  // back to) never re-marked read and stayed bold. The hook debounces on the
+  // focused session's activity so a streaming session settles first.
+  const focusedPaneSessionId = split ? (focusedPane === 'A' ? paneA : paneB) : paneA
+  const focusedSession = focusedPaneSessionId
+    ? sessions.find((s) => s.sessionId === focusedPaneSessionId)
+    : undefined
+  useMarkReadOnView({ session: focusedSession, markSessionRead })
 
   // Report which sessions this client renders (`visible`) and which one has input
   // focus (`focused`) so the server can prioritize PTY relay for them. While the tab
@@ -1141,7 +1178,9 @@ export function StoreProvider({
     setSnooze,
     clearSnooze,
     markSessionRead,
+    markSessionUnread,
     markIssueRead,
+    markIssueUnread,
     drafts,
     setSessionDraft,
     sidebarSettings,

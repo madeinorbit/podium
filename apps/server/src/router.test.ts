@@ -271,6 +271,26 @@ describe('markRead mutations (#124)', () => {
     expect(s?.unread).toBe(false)
     expect(s?.readAt).not.toBeNull()
   })
+
+  it('issues.markUnread flips a read issue back to unread (#138)', async () => {
+    const { call } = repoCaller()
+    const iss = await call.issues.create({ repoPath: '/r', title: 'X', startNow: false })
+    await call.issues.markRead({ id: iss.id })
+    const un = await call.issues.markUnread({ id: iss.id })
+    expect(un.unread).toBe(true)
+    expect(un.readAt).toBeNull()
+  })
+
+  it('sessions.markUnread flips a read session back to unread (#138)', async () => {
+    const { call, registry } = repoCaller()
+    const { sessionId } = registry.createSession({ agentKind: 'claude-code', cwd: '/p' })
+    await call.sessions.markRead({ sessionId })
+    expect(registry.listSessions().find((s) => s.sessionId === sessionId)?.unread).toBe(false)
+    await call.sessions.markUnread({ sessionId })
+    const s = registry.listSessions().find((x) => x.sessionId === sessionId)
+    expect(s?.unread).toBe(true)
+    expect(s?.readAt).toBeNull()
+  })
 })
 
 describe('repos router', () => {

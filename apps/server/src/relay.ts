@@ -2000,6 +2000,17 @@ export class SessionRegistry {
     this.broadcastSessions()
   }
 
+  /** Mark a session UNREAD again (issue #138, the email-style inverse of
+   *  markSessionRead): clear read_at so the derived `unread` (readAt null ⇒ unread)
+   *  flips back to true, persist + broadcast. No-op for an unknown session. */
+  markSessionUnread(sessionId: string): void {
+    const session = this.sessions.get(sessionId)
+    if (!session) return
+    session.readAt = null
+    this.persist(session)
+    this.broadcastSessions()
+  }
+
   /** Set (or clear with null) a session's explicit issue attachment. */
   setSessionIssueId(sessionId: string, issueId: string | null): void {
     const session = this.sessions.get(sessionId)

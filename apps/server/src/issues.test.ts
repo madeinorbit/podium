@@ -123,6 +123,19 @@ describe('IssueService unread (#124)', () => {
     expect(svc.get(w.id)!.unread).toBe(false)
   })
 
+  it('markIssueUnread nulls readAt so the row re-reads as unread + emits issue.unread (#138)', () => {
+    const { svc, store } = harness()
+    const w = svc.create({ repoPath: '/r', title: 'X', startNow: false })
+    svc.markIssueRead(w.id)
+    expect(svc.get(w.id)!.unread).toBe(false)
+    const un = svc.markIssueUnread(w.id)
+    expect(un.readAt).toBeNull()
+    expect(un.unread).toBe(true)
+    // Freshly-derived wire agrees, and the transition event mirrors issue.read.
+    expect(svc.get(w.id)!.unread).toBe(true)
+    expect(store.listEventsSince(0, { kinds: ['issue.unread'] }).length).toBe(1)
+  })
+
   it('derives unread from the latest of updatedAt / member-session lastActiveAt vs readAt', () => {
     const activeSess = { ...sess('/r/wt'), lastActiveAt: '2026-06-05T00:00:00.000Z' }
     const { svc, store } = harness([activeSess])
@@ -307,6 +320,20 @@ describe('IssueService.undefer (manual unsnooze #133)', () => {
     const un = svc.undefer(w.id)
     expect(un.deferUntil == null).toBe(true)
     expect(store.listEventsSince(0, { kinds: ['issue.unsnoozed'] }).length).toBe(0)
+  })
+
+  // FIX C (#138): opening an unsnoozed issue clears the "Unsnoozed" tag. The
+  // open-path calls defer(null); prove it reliably NULLS the backdated deferUntil
+  // (undefer left it in the past) so `issueReturnedFromDefer` goes false again.
+  it('defer(id, null) clears the backdated deferUntil an undefer leaves behind', () => {
+    const { svc } = harness()
+    const w = svc.create({ repoPath: '/r', title: 'X', startNow: false })
+    svc.defer(w.id, '2026-07-15')
+    const un = svc.undefer(w.id)
+    expect(un.deferUntil).not.toBeNull() // backdated to the past (returned-from-defer)
+    const cleared = svc.defer(w.id, null)
+    expect(cleared.deferUntil == null).toBe(true) // tag source is gone
+    expect(svc.get(w.id)!.deferUntil == null).toBe(true)
   })
 })
 
