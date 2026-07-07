@@ -63,9 +63,39 @@ describe('TRIGGER_RULES', () => {
     const e = { id: 1, ts: 't', kind: 'issue.closed', subject: 'iss_c', repoPath: '/r' }
     expect(
       TRIGGER_RULES['issue.closed']!({ ...e, payload: { seq: 3, parentId: 'iss_p' } }),
-    ).toEqual(['unblock:/r', 'parentnudge:iss_p'])
+    ).toEqual(['unblock:/r', 'parentnudge:closed:iss_p'])
     // No parentId → single unblock key only (no parentnudge batch is formed).
     expect(TRIGGER_RULES['issue.closed']!({ ...e, payload: { seq: 3 } })).toBe('unblock:/r')
+  })
+
+  it('issue.stage_changed→review with a parentId keys a review parent-nudge; other stages ignored', () => {
+    const e = { id: 1, ts: 't', kind: 'issue.stage_changed', subject: 'iss_c', repoPath: '/r' }
+    expect(
+      TRIGGER_RULES['issue.stage_changed']!({
+        ...e,
+        payload: { seq: 3, to: 'review', parentId: 'iss_p' },
+      }),
+    ).toBe('parentnudge:review:iss_p')
+    // to !== review → no key; to === review but no parent → no key.
+    expect(
+      TRIGGER_RULES['issue.stage_changed']!({
+        ...e,
+        payload: { seq: 3, to: 'in_progress', parentId: 'iss_p' },
+      }),
+    ).toBeUndefined()
+    expect(
+      TRIGGER_RULES['issue.stage_changed']!({ ...e, payload: { seq: 3, to: 'review' } }),
+    ).toBeUndefined()
+  })
+
+  it('issue.needs_human always breadcrumbs; with a parentId ALSO keys a parent-nudge', () => {
+    const e = { id: 1, ts: 't', kind: 'issue.needs_human', subject: 'iss_c', repoPath: '/r' }
+    expect(TRIGGER_RULES['issue.needs_human']!({ ...e, payload: { seq: 3 } })).toBe(
+      'needshuman:iss_c',
+    )
+    expect(
+      TRIGGER_RULES['issue.needs_human']!({ ...e, payload: { seq: 3, parentId: 'iss_p' } }),
+    ).toEqual(['needshuman:iss_c', 'parentnudge:needs_human:iss_p'])
   })
 })
 
@@ -413,6 +443,78 @@ describe('StewardService parent-nudge handler', () => {
     const body = stewardComments(issues, parent.id)[0]!.body
     expect(body).toBe(`Child #${c1.seq} closed: ${'x'.repeat(200)}`)
     expect(body).not.toContain('\n')
+  })
+})
+
+describe('StewardService child→review parent nudge', () => {
+  it('a child moving to review notifies the parent (comment + nudge), other stages ignored', async () => {
+    const sessions = [fakeSession({ sessionId: 'plive', cwd: '/r/.worktrees/issue-1-epic' })]
+    const { issues, steward, sendTextWhenReady } = harness({ sessions })
+    const parent = issues.create({ repoPath: '/r', title: 'Epic', startNow: false })
+    issues.update(parent.id, { worktreePath: '/r/.worktrees/issue-1-epic' })
+    const c1 = issues.create({
+      repoPath: '/r',
+      title: 'Child 1',
+      parentId: parent.id,
+      startNow: false,
+    })
+    issues.addComment(c1.id, 'agent', '[completion-note] widget ready for review')
+    issues.update(c1.id, { stage: 'in_progress' }) // backlog→in_progress: NOT a review transition
+    issues.update(c1.id, { stage: 'review' }) // in_progress→review: fires
+    await steward.tick()
+    const posted = stewardComments(issues, parent.id)
+    expect(posted.length).toBe(1)
+    expect(posted[0]!.body).toBe(`Child #${c1.seq} in review: widget ready for review`)
+    expect(sendTextWhenReady).toHaveBeenCalledTimes(1)
+    const [target, text] = sendTextWhenReady.mock.calls[0] as [string, string]
+    expect(target).toBe('plive')
+    expect(text).toContain(`Child issue #${c1.seq} moved to review`)
+    expect(text).not.toContain('\n')
+  })
+
+  it('suppresses the review nudge to the session that caused the transition (#116 carried)', async () => {
+    const sessions = [
+      fakeSession({ sessionId: 'causer', cwd: '/r/.worktrees/issue-1-epic' }),
+      fakeSession({ sessionId: 'other', cwd: '/r/.worktrees/issue-1-epic' }),
+    ]
+    const { issues, steward, sendTextWhenReady } = harness({ sessions })
+    const parent = issues.create({ repoPath: '/r', title: 'Epic', startNow: false })
+    issues.update(parent.id, { worktreePath: '/r/.worktrees/issue-1-epic' })
+    const c1 = issues.create({
+      repoPath: '/r',
+      title: 'Child 1',
+      parentId: parent.id,
+      startNow: false,
+    })
+    issues.update(c1.id, { stage: 'review' }, { actorSessionId: 'causer' })
+    await steward.tick()
+    expect(stewardComments(issues, parent.id).length).toBe(1)
+    const targets = sendTextWhenReady.mock.calls.map((c) => (c as [string, string])[0])
+    expect(targets).toEqual(['other'])
+  })
+})
+
+describe('StewardService child→needs_human parent nudge', () => {
+  it('a child needing a human notifies the parent AND leaves a breadcrumb', async () => {
+    const sessions = [fakeSession({ sessionId: 'plive', cwd: '/r/.worktrees/issue-1-epic' })]
+    const { store, issues, steward, sendTextWhenReady } = harness({ sessions })
+    const parent = issues.create({ repoPath: '/r', title: 'Epic', startNow: false })
+    issues.update(parent.id, { worktreePath: '/r/.worktrees/issue-1-epic' })
+    const c1 = issues.create({
+      repoPath: '/r',
+      title: 'Child 1',
+      parentId: parent.id,
+      startNow: false,
+    })
+    issues.setNeedsHuman(c1.id, 'which database?')
+    await steward.tick()
+    const posted = stewardComments(issues, parent.id)
+    expect(posted.length).toBe(1)
+    expect(posted[0]!.body).toBe(`Child #${c1.seq} needs a human: which database?`)
+    expect(sendTextWhenReady).toHaveBeenCalledTimes(1)
+    expect((sendTextWhenReady.mock.calls[0] as [string, string])[1]).toContain('needs a human')
+    // Breadcrumb still recorded (unchanged from before).
+    expect(store.listEventsSince(0, { kinds: ['steward.observed'] }).length).toBe(1)
   })
 })
 

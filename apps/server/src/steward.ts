@@ -16,24 +16,75 @@ export interface StewardEvent {
 
 /**
  * Event kind → coalescing key(s). Events sharing a key in one poll are handled
- * as ONE batch; kinds with no rule are consumed silently (the cursor moves past
- * them). Pure and data-like so rules are inspectable/testable in isolation.
- * A rule may return several keys — one event can fan out to multiple handlers
- * with different audiences (e.g. a closed child both unblocks dependents AND
- * nudges the parent-issue sessions).
+ * as ONE batch; kinds with no rule (or a rule returning undefined) are consumed
+ * silently (the cursor moves past them). Pure and data-like so rules are
+ * inspectable/testable in isolation. A rule may return several keys — one event
+ * can fan out to multiple handlers with different audiences (e.g. a closed child
+ * both unblocks dependents AND nudges the parent-issue sessions).
  *
- * Follow-up rule slots (NOT this issue):
- * - session.phase → reconcile (issue-stage suggestions off agent phase)
+ * This is the routing half of the subscription model (see the design at
+ * docs/superpowers/specs/2026-07-07-event-subscriptions-design.md): each
+ * `parentnudge:<group>:<parentId>` key selects a default child→parent
+ * subscription in CHILD_PARENT_SUBS. New child→parent notifications are a data
+ * entry there plus a rule line here — no new handler.
+ *
+ * Follow-up rule slots (NOT this phase):
+ * - session.* semantic events (started/finished/errored) → subscription delivery
  * - a periodic tidy tick (stale/doctor sweeps)
  */
-export const TRIGGER_RULES: Record<string, (e: StewardEvent) => string | string[]> = {
+export const TRIGGER_RULES: Record<string, (e: StewardEvent) => string | string[] | undefined> = {
   'issue.closed': (e) => {
     const unblock = `unblock:${e.repoPath ?? ''}`
     const parentId = (e.payload as { parentId?: string } | null)?.parentId
-    return parentId ? [unblock, `parentnudge:${parentId}`] : unblock
+    return parentId ? [unblock, `parentnudge:closed:${parentId}`] : unblock
   },
   'issue.ready': (e) => `unblock:${e.repoPath ?? ''}`,
-  'issue.needs_human': (e) => `needshuman:${e.subject}`,
+  'issue.stage_changed': (e) => {
+    // Only a transition INTO review, and only when the mover has a parent to tell.
+    const p = e.payload as { to?: string; parentId?: string } | null
+    return p?.to === 'review' && p.parentId ? `parentnudge:review:${p.parentId}` : undefined
+  },
+  'issue.needs_human': (e) => {
+    // Always leave the breadcrumb; ALSO notify the parent when the child has one.
+    const breadcrumb = `needshuman:${e.subject}`
+    const parentId = (e.payload as { parentId?: string } | null)?.parentId
+    return parentId ? [breadcrumb, `parentnudge:needs_human:${parentId}`] : breadcrumb
+  },
+}
+
+/** A seeded default child→parent subscription: subscriber = the child's parent,
+ *  source = 'my-children', delivery = a durable comment + a one-line nudge. Adding
+ *  a new child→parent notification is a data entry here, not a new handler. */
+interface ChildParentSub {
+  /** Colon-anchored marker prefix for the parent comment (dedup + replay-safe). */
+  marker: (childSeq: number) => string
+  /** The excerpt appended to the marker (agent-authored, first line, capped). */
+  excerpt: (e: StewardEvent, child: IssueWire | undefined) => string
+  /** The single-line nudge; `counts` is meaningful for close, ignored otherwise. */
+  nudge: (childSeq: number, counts: { remaining: number; total: number }) => string
+}
+
+const NUDGE_TAIL = 'See the steward comment, or run: podium issue prime'
+const firstLineCapped = (s: string): string => (s.split('\n')[0] ?? '').slice(0, 200).trim()
+
+export const CHILD_PARENT_SUBS: Record<string, ChildParentSub> = {
+  closed: {
+    marker: (s) => `Child #${s} closed:`,
+    excerpt: (_e, child) => firstLineCapped(completionNote(child)),
+    nudge: (s, c) =>
+      `Child issue #${s} closed — ${c.remaining} of ${c.total} children remain. ${NUDGE_TAIL}`,
+  },
+  review: {
+    marker: (s) => `Child #${s} in review:`,
+    excerpt: (_e, child) => firstLineCapped(completionNote(child)),
+    nudge: (s) => `Child issue #${s} moved to review — ready for your look. ${NUDGE_TAIL}`,
+  },
+  needs_human: {
+    marker: (s) => `Child #${s} needs a human:`,
+    excerpt: (e) =>
+      firstLineCapped(String((e.payload as { question?: string } | null)?.question ?? '')),
+    nudge: (s) => `Child issue #${s} needs a human. ${NUDGE_TAIL}`,
+  },
 }
 
 /** Everything the steward needs, injected. `issues` is a narrow seam on purpose:
@@ -141,9 +192,12 @@ export class StewardService {
     for (const [key, batch] of batches) {
       try {
         if (key.startsWith('unblock:')) await this.handleUnblock(batch)
-        else if (key.startsWith('parentnudge:'))
-          await this.handleParentNudge(key.slice('parentnudge:'.length), batch)
-        else if (key.startsWith('needshuman:')) this.handleNeedsHuman(batch)
+        else if (key.startsWith('parentnudge:')) {
+          // key = parentnudge:<group>:<parentId>; ids never contain ':'.
+          const rest = key.slice('parentnudge:'.length)
+          const sep = rest.indexOf(':')
+          await this.handleParentNudge(rest.slice(sep + 1), rest.slice(0, sep), batch)
+        } else if (key.startsWith('needshuman:')) this.handleNeedsHuman(batch)
       } catch (err) {
         // Drop, don't wedge: the trigger is lost but the queue keeps moving.
         console.warn(`[podium:steward] handler for ${key} failed:`, err)
@@ -200,19 +254,26 @@ export class StewardService {
     }
   }
 
-  /** A closed child notifies its parent issue: one steward comment per closed
-   *  child (deduped on its colon-anchored marker, same lesson as unblock/#59)
-   *  plus ONE nudge to the parent's live non-shell sessions carrying the latest
-   *  remaining/total counts. The child's note excerpt lives in the COMMENT only
-   *  (capped, single line) — the nudge is a fixed computed-numbers line. */
-  private async handleParentNudge(parentId: string, batch: StewardEvent[]): Promise<void> {
+  /** A child event notifies its parent issue (default 'my-children' subscription):
+   *  one steward comment per child (deduped on its colon-anchored marker, same
+   *  lesson as unblock/#59) plus ONE coalesced nudge to the parent's live non-shell
+   *  sessions. `group` selects the CHILD_PARENT_SUBS entry (closed / review /
+   *  needs_human) that supplies the marker, comment excerpt, and nudge text. The
+   *  excerpt lives in the COMMENT only; the nudge is a fixed single line. */
+  private async handleParentNudge(
+    parentId: string,
+    group: string,
+    batch: StewardEvent[],
+  ): Promise<void> {
+    const sub = CHILD_PARENT_SUBS[group]
+    if (!sub) return
     const parent = this.deps.issues.get(parentId)
     if (!parent) return
     let posted = false
     let lastChildSeq: number | undefined
-    // Sessions that caused a close in this batch already know — the single
+    // Sessions that caused an event in this batch already know — the single
     // coalesced nudge excludes all of them (#116). Collected across the whole
-    // batch (before dedup) so a self-close never self-nudges, even coalesced.
+    // batch (before dedup) so a self-triggered event never self-nudges.
     const causedBy = new Set<string>()
     for (const e of batch) {
       const childSeq = (e.payload as { seq?: number } | null)?.seq
@@ -222,17 +283,15 @@ export class StewardService {
       if (causer) causedBy.add(causer)
       // Colon-anchored so '#5' never matches a prior '#55' comment (see the
       // matching note on handleUnblock — same single-server dedup assumption).
-      const marker = `Child #${childSeq} closed:`
+      const marker = sub.marker(childSeq)
       const already = parent.comments.some((c) => c.author === 'steward' && c.body.includes(marker))
       if (already) continue
       const child = this.deps.issues
         .list(e.repoPath ?? parent.repoPath)
         .find((w) => w.seq === childSeq)
-      // First line only, capped: the excerpt is agent-authored and belongs in
-      // the comment alone — never in the nudge text.
-      const excerpt = (completionNote(child).split('\n')[0] ?? '').slice(0, 200).trim()
-      // Empty excerpt (child wire missing) → bare marker, no trailing space.
+      // Empty excerpt (no note / question) → bare marker, no trailing space.
       // The marker keeps its colon so replay dedup still matches.
+      const excerpt = sub.excerpt(e, child)
       this.deps.issues.addComment(parent.id, 'steward', excerpt ? `${marker} ${excerpt}` : marker)
       posted = true
     }
@@ -254,10 +313,7 @@ export class StewardService {
         !causedBy.has(s.sessionId),
     )
     for (const s of targets) {
-      this.deps.sendTextWhenReady(
-        s.sessionId,
-        `Child issue #${lastChildSeq} closed — ${remaining} of ${total} children remain. See the steward comment, or run: podium issue prime`,
-      )
+      this.deps.sendTextWhenReady(s.sessionId, sub.nudge(lastChildSeq, { remaining, total }))
     }
   }
 

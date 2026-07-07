@@ -1150,6 +1150,11 @@ export class IssueService {
         seq: row.seq,
         from: prevStage,
         to: patch.stage,
+        // Carried so the steward's child→parent subscriptions (e.g. child→review)
+        // stay pure over the event, like issue.closed already does.
+        ...(row.parentId ? { parentId: row.parentId } : {}),
+        // And so those nudges can skip the session that caused the transition (#116).
+        ...(opts?.actorSessionId ? { causedBySessionId: opts.actorSessionId } : {}),
       })
     }
     // update() owns the closed emission: EVERY close path funnels here (close(),
@@ -1324,9 +1329,7 @@ export class IssueService {
     // consume unread status or it silently suppresses stop-hook/prime delivery.
     const markRead = opts?.markRead !== false
     const messages = this.deps.store.listIssueMessages(id)
-    const unreadIds = markRead
-      ? messages.filter((m) => m.status === 'unread').map((m) => m.id)
-      : []
+    const unreadIds = markRead ? messages.filter((m) => m.status === 'unread').map((m) => m.id) : []
     if (unreadIds.length) this.deps.store.markIssueMessagesRead(id, unreadIds, this.now())
     return messages.map((m) => ({
       ...m,
@@ -1419,7 +1422,12 @@ export class IssueService {
     const wire = this.update(id, { needsHuman: true, humanQuestion: question ?? null })
     // Emit only on the false→true flip — a re-flag must not duplicate the event.
     if (!wasFlagged) {
-      this.emitEvent('issue.needs_human', wire.id, { seq: wire.seq, question: question ?? null })
+      this.emitEvent('issue.needs_human', wire.id, {
+        seq: wire.seq,
+        question: question ?? null,
+        // Carried so a child needing a human can notify its parent's sessions.
+        ...(this.rows.get(wire.id)?.parentId ? { parentId: this.rows.get(wire.id)!.parentId } : {}),
+      })
     }
     return wire
   }
