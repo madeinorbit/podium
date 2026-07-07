@@ -172,6 +172,23 @@ export async function main(): Promise<void> {
     return
   }
 
+  // `podium setup --repair` (#21): back up an existing-but-invalid config.json so setup can
+  // start fresh. Never destructive — the broken file is renamed, not deleted.
+  if (argv[0] === 'setup' && argv.includes('--repair')) {
+    const { repairConfig } = await import('./cli-setup')
+    const r = repairConfig()
+    if (r.state === 'ok') {
+      console.log('config.json is valid — nothing to repair.')
+    } else if (r.state === 'missing') {
+      console.log('No config.json yet — run `podium setup` to configure this box.')
+    } else {
+      console.log(`Backed up the invalid config to ${r.backupPath}`)
+      if (r.error) console.log(`(it failed to parse: ${r.error})`)
+      console.log('Run `podium setup` to configure this box fresh.')
+    }
+    return
+  }
+
   // `podium setup --join <token> [--persist systemd|detached]`: NON-interactive join —
   // one command that configures AND starts/persists the daemon through the same engine the
   // interactive flow uses (issue #20). `install.sh --join` delegates here so the systemd

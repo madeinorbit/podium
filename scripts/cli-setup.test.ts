@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -6,6 +6,7 @@ import { loadConfig, saveConfig } from '../packages/core/src/config'
 import { encodeJoin } from '../packages/core/src/join'
 import {
   reconcilePendingPersistence,
+  repairConfig,
   runCliSetup,
   runJoinSetup,
   shouldRunCliSetup,
@@ -169,8 +170,22 @@ describe('runCliSetup', () => {
     })
 
     it('re-prompts on an invalid URL', async () => {
-      await run(['1', '1', 'nope', 'https://box.ts.net'])
+      await run(['1', '1', 'nope', 'https://box.ts.net', 'pw', 'n'])
       expect(loadConfig().publicUrl).toBe('https://box.ts.net')
+    })
+
+    it('Ctrl-C/EOF during the password step leaves the box UNCONFIGURED (#21)', async () => {
+      // URL was pasted, then stdin only ever yields '' (EOF): no password, no explicit
+      // "open" ack → the flow must abort WITHOUT writing mode/publicUrl.
+      await run(['1', '1', 'https://box.ts.net'])
+      expect(loadConfig()).toEqual({})
+    })
+
+    it('declining the no-password ack repeatedly aborts without saving (#21)', async () => {
+      const setPw = vi.fn(async () => {})
+      await run(['1', '1', 'https://box.ts.net', '', 'no', '', 'no', '', 'no', '', 'no', '', 'no'], setPw)
+      expect(setPw).not.toHaveBeenCalled()
+      expect(loadConfig()).toEqual({})
     })
 
     it('gives up (bounded) when the URL prompt only ever returns empty', async () => {
@@ -272,6 +287,40 @@ describe('runCliSetup', () => {
       saveConfig({ mode: 'all-in-one' })
       expect(await reconcilePendingPersistence(18787, { startBackend })).toBeUndefined()
       expect(startBackend).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('corrupt config protection + --repair (#21)', () => {
+    it('runCliSetup refuses to walk the flow over an existing-but-invalid config', async () => {
+      writeFileSync(join(dir, 'config.json'), '{not json')
+      const out: string[] = []
+      const prompt = vi.fn(async () => '1')
+      await runCliSetup({ prompt, print: (s) => out.push(s) }, 18787, {
+        setPassword: vi.fn(async () => {}),
+        startBackend: vi.fn(async () => ({ effectivePersistence: 'systemd' as const, message: '' })),
+      })
+      expect(out.join('\n')).toContain('--repair')
+      expect(prompt).not.toHaveBeenCalled() // bailed before any prompt
+      expect(readFileSync(join(dir, 'config.json'), 'utf8')).toBe('{not json') // untouched
+    })
+
+    it('repairConfig backs up (never deletes) the invalid file', async () => {
+      writeFileSync(join(dir, 'config.json'), '{not json')
+      const r = repairConfig()
+      expect(r.state).toBe('repaired')
+      expect(existsSync(join(dir, 'config.json'))).toBe(false)
+      expect(r.backupPath && readFileSync(r.backupPath, 'utf8')).toBe('{not json')
+      expect(readdirSync(dir).some((f) => f.startsWith('config.json.invalid-'))).toBe(true)
+    })
+
+    it('repairConfig leaves a valid config alone', async () => {
+      saveConfig({ mode: 'all-in-one' })
+      expect(repairConfig()).toEqual({ state: 'ok' })
+      expect(loadConfig().mode).toBe('all-in-one')
+    })
+
+    it('repairConfig reports a fresh box as missing', async () => {
+      expect(repairConfig()).toEqual({ state: 'missing' })
     })
   })
 

@@ -1,5 +1,6 @@
+import { renameSync } from 'node:fs'
 import { setPassword as realSetPassword } from '../apps/server/src/auth-store'
-import { loadConfig, saveConfig } from '../packages/core/src/config'
+import { configPath, inspectConfig, loadConfig, saveConfig } from '../packages/core/src/config'
 import {
   ephemeralTunnelWarning,
   NETWORK_OPTIONS,
@@ -90,9 +91,19 @@ export function shouldRunCliSetup(opts: {
 
 type HostMode = 'all-in-one' | 'server'
 
-/** Reachability step: pick how to expose the relay, run the command, paste the URL; save it
- *  under the chosen host mode. Returns true once a valid URL was saved. */
-async function reachabilityStep(io: SetupIO, port: number, mode: HostMode): Promise<boolean> {
+/**
+ * Reachability step: pick how to expose the relay, run the command, paste the URL. Returns
+ * the validated URL, or undefined when the operator gave up. With `save` (the standalone
+ * "change the URL" menu edit on an already-configured box) it persists immediately; the
+ * full host flow passes save:false and writes config ONCE at the end — so a Ctrl-C midway
+ * can't leave a configured-looking-but-passwordless box (issue #21).
+ */
+async function reachabilityStep(
+  io: SetupIO,
+  port: number,
+  mode: HostMode,
+  opts: { save: boolean } = { save: true },
+): Promise<string | undefined> {
   io.print('Make this instance reachable (encrypted, no domain needed):')
   NETWORK_OPTIONS.forEach((o, i) => {
     io.print(`  ${i + 1}) ${o.label} — ${o.note}`)
@@ -110,24 +121,33 @@ async function reachabilityStep(io: SetupIO, port: number, mode: HostMode): Prom
     const pasted = await io.prompt('\nPaste the resulting URL: ')
     const v = validatePublicUrl(pasted)
     if (v.ok) {
-      saveConfig({ ...loadConfig(), mode, publicUrl: v.normalized })
-      io.print(`\nSaved. This instance is reachable at ${v.normalized}. Restart podium to apply.`)
+      if (opts.save) {
+        saveConfig({ ...loadConfig(), mode, publicUrl: v.normalized })
+        io.print(`\nSaved. This instance is reachable at ${v.normalized}. Restart podium to apply.`)
+      } else {
+        io.print(`\nThis instance will be reachable at ${v.normalized}.`)
+      }
       const warning = ephemeralTunnelWarning(v.normalized)
       if (warning) io.print(`\nWarning: ${warning}`)
-      return true
+      return v.normalized
     }
     io.print(`  ${v.error}`)
   }
   io.print('\nNo valid URL after several attempts — giving up. Re-run `podium setup` when ready.')
-  return false
+  return undefined
 }
 
-/** Password step: a reachable instance should require login, so strongly encourage a
- *  password. Blank = run open only after an explicit confirmation word. */
+/**
+ * Password step: a reachable instance should require login, so strongly encourage a
+ * password. Blank = run open only after an explicit confirmation word — the CLI's
+ * equivalent of the web flow's `acknowledgeNoPassword`. Returns false when neither a
+ * password nor the explicit no-password ack was given, so the host flow ABORTS instead
+ * of quietly configuring an open box (issue #21).
+ */
 async function passwordStep(
   io: SetupIO,
   setPassword: (password: string) => Promise<void>,
-): Promise<void> {
+): Promise<boolean> {
   io.print('\nSet a password to require login (recommended for a public URL).')
   const MAX_ATTEMPTS = 5
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
@@ -137,7 +157,7 @@ async function passwordStep(
     if (pw) {
       await setPassword(pw)
       io.print('Password set — devices must log in to use this instance.')
-      return
+      return true
     }
     io.print('No password means anyone who can reach this URL can use this instance.')
     const confirm = ((await io.prompt('Type "open" to run without a password: ')) ?? '')
@@ -145,11 +165,12 @@ async function passwordStep(
       .toLowerCase()
     if (confirm === 'open') {
       io.print('No password set — anyone who can reach this URL can use this instance.')
-      return
+      return true
     }
     io.print('No-password mode was not confirmed.')
   }
-  io.print('No password set. Re-run `podium setup` when ready.')
+  io.print('No password chosen and no-password mode not confirmed.')
+  return false
 }
 
 /**
@@ -221,7 +242,12 @@ export async function reconcilePendingPersistence(
   return result
 }
 
-/** Choose a host mode → set its URL, its password, then start it (persistence choice). */
+/**
+ * Choose a host mode → collect its URL, then its password, and only THEN write config —
+ * atomically at the end of the decision flow (issue #21). A Ctrl-C/EOF before the password
+ * choice leaves the box exactly as unconfigured as before, instead of a saved mode+URL
+ * with no password (which looked configured AND was open to anyone who could reach it).
+ */
 async function hostStep(
   io: SetupIO,
   port: number,
@@ -229,8 +255,14 @@ async function hostStep(
   setPassword: (password: string) => Promise<void>,
   startBackend: (opts: StartBackendOpts) => Promise<StartBackendResult>,
 ): Promise<void> {
-  if (!(await reachabilityStep(io, port, mode))) return
-  await passwordStep(io, setPassword)
+  const publicUrl = await reachabilityStep(io, port, mode, { save: false })
+  if (!publicUrl) return
+  if (!(await passwordStep(io, setPassword))) {
+    io.print('Nothing saved — re-run `podium setup` to start over.')
+    return
+  }
+  saveConfig({ ...loadConfig(), mode, publicUrl })
+  io.print(`\nSaved. This instance is reachable at ${publicUrl}.`)
   await persistenceStep(io, port, mode, startBackend)
 }
 
@@ -272,7 +304,34 @@ async function joinStep(
  * (`client` mode isn't here — it's a desktop-app convenience; on a server box you just
  * open the URL in a browser.)
  */
+/**
+ * `podium setup --repair` (issue #21): an existing-but-invalid config.json is backed up
+ * (never deleted) so setup can start fresh without silently destroying operator state.
+ * Valid or missing configs are left untouched.
+ */
+export function repairConfig(): {
+  state: 'ok' | 'missing' | 'repaired'
+  backupPath?: string
+  error?: string
+} {
+  const res = inspectConfig()
+  if (res.state === 'ok') return { state: 'ok' }
+  if (res.state === 'missing') return { state: 'missing' }
+  const backupPath = `${configPath()}.invalid-${new Date().toISOString().replace(/[:.]/g, '-')}`
+  renameSync(configPath(), backupPath)
+  return { state: 'repaired', backupPath, ...(res.error ? { error: res.error } : {}) }
+}
+
 export async function runCliSetup(io: SetupIO, port: number, deps: SetupDeps = {}): Promise<void> {
+  // A corrupt config would make every apply step throw mid-flow (they refuse destructive
+  // writes over an existing-but-invalid file, #21) — surface the repair path up front.
+  const inspection = inspectConfig()
+  if (inspection.state === 'corrupt') {
+    io.print(`Your config file (${configPath()}) exists but is invalid: ${inspection.error}`)
+    io.print('Refusing to set up over it. Fix the file, or run `podium setup --repair` to')
+    io.print('back it up and start fresh.')
+    return
+  }
   const setPassword = deps.setPassword ?? realSetPassword
   const startBackend = deps.startBackend ?? startBackendEngine
   const mode = loadConfig().mode

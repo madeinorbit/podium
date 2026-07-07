@@ -1,4 +1,4 @@
-import { loadConfig, type PodiumConfig, saveConfig } from './config'
+import { inspectConfig, loadConfig, type PodiumConfig, saveConfig } from './config'
 import { decodeJoin } from './join'
 
 export type NetworkOption = 'tailscale-funnel' | 'tailscale-serve' | 'cloudflare-tunnel' | 'manual'
@@ -101,6 +101,7 @@ export function applyServerUrl(input: string): {
   pairCode?: string
   warning?: string
 } {
+  assertConfigWritable()
   const prev = loadConfig()
   if (prev.mode !== 'daemon' && prev.mode !== 'client') {
     throw new Error(
@@ -140,10 +141,26 @@ export function consumePairCode(code: string): void {
   saveConfig(rest)
 }
 
+/**
+ * Refuse a destructive write over an EXISTING-but-invalid config.json (issue #21): what
+ * looks like a fresh box to loadConfig may be an operator's broken-but-recoverable config;
+ * every setup mutation goes through here so it can't be silently clobbered.
+ */
+function assertConfigWritable(): void {
+  const res = inspectConfig()
+  if (res.state === 'corrupt') {
+    throw new Error(
+      `config.json exists but is invalid (${res.error}). Refusing to overwrite it — ` +
+        'fix the file, or run `podium setup --repair` to back it up and start fresh.',
+    )
+  }
+}
+
 export function applySetup(input: {
   publicUrl: string
   mode?: 'all-in-one' | 'server'
 }): PodiumConfig {
+  assertConfigWritable()
   const prev = loadConfig()
   // Explicit mode wins (the web reachability step now runs for BOTH all-in-one and server-only).
   // Else preserve an already-chosen host mode — a relay-only `server` box setting its URL later
@@ -173,6 +190,7 @@ export function applySetup(input: {
  * and any stale pairCode.
  */
 export function applyJoin(token: string): { name: string; warning?: string } {
+  assertConfigWritable()
   const p = decodeJoin(token)
   const { publicUrl: _hostOnly, pairCode: _stale, ...prev } = loadConfig()
   saveConfig({
@@ -198,6 +216,7 @@ export function applyMode(input: {
   mode: 'all-in-one' | 'client' | 'server'
   serverUrl?: string
 }): PodiumConfig {
+  assertConfigWritable()
   const serverUrl = input.serverUrl?.trim()
   if (input.mode === 'client' && !serverUrl) {
     throw new Error('client mode needs a server URL')

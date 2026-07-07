@@ -62,19 +62,56 @@ export function configPath(): string {
   return join(stateDir(), 'config.json')
 }
 
-/** Read + validate the config; a missing or corrupt file yields {} (treated as "needs setup"). */
-export function loadConfig(path = configPath()): PodiumConfig {
-  if (!existsSync(path)) return {}
+export interface ConfigInspection {
+  /** missing = fresh box; ok = parsed; corrupt = a file EXISTS but won't parse/validate. */
+  state: 'missing' | 'ok' | 'corrupt'
+  config: PodiumConfig
+  /** The JSON/zod failure, when corrupt. */
+  error?: string
+}
+
+/**
+ * Read the config WITHOUT collapsing "corrupt" into "missing" (issue #21): callers that
+ * would overwrite the file (setup flows) must distinguish a fresh box from a broken file —
+ * silently re-setting-up over a corrupt config destroys whatever the operator had.
+ */
+export function inspectConfig(path = configPath()): ConfigInspection {
+  if (!existsSync(path)) return { state: 'missing', config: {} }
   try {
-    return PodiumConfig.parse(JSON.parse(readFileSync(path, 'utf8')))
-  } catch {
-    return {}
+    return { state: 'ok', config: PodiumConfig.parse(JSON.parse(readFileSync(path, 'utf8'))) }
+  } catch (err) {
+    return {
+      state: 'corrupt',
+      config: {},
+      error: err instanceof Error ? err.message : String(err),
+    }
   }
 }
 
-/** Validate + write the config (pretty JSON). Throws on an invalid config. */
+/** Read + validate the config; a missing file yields {}. A CORRUPT file also yields {}
+ *  (boot must not crash-loop on it) but is logged LOUDLY (#21) — it used to be silent. */
+export function loadConfig(path = configPath()): PodiumConfig {
+  const res = inspectConfig(path)
+  if (res.state === 'corrupt') {
+    console.error(
+      `[podium] ${path} exists but is invalid — treating this box as unconfigured. ` +
+        `Fix the file or run \`podium setup --repair\`. (${res.error})`,
+    )
+  }
+  return res.config
+}
+
+/** Validate + write the config (pretty JSON). Throws on an invalid config — including a
+ *  daemon/client mode without a serverUrl, which would exit-2 crash-loop at boot under
+ *  Restart=always; catch it at SAVE time instead (#21). */
 export function saveConfig(config: PodiumConfig, path = configPath()): void {
   const parsed = PodiumConfig.parse(config)
+  if ((parsed.mode === 'daemon' || parsed.mode === 'client') && !parsed.serverUrl) {
+    throw new Error(
+      `refusing to save a mode=${parsed.mode} config without a serverUrl — the ${parsed.mode} ` +
+        'would crash-loop at boot. Provide a server URL (join code) first.',
+    )
+  }
   mkdirSync(dirname(path), { recursive: true })
   writeFileSync(path, `${JSON.stringify(parsed, null, 2)}\n`)
 }

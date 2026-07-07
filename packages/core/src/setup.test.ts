@@ -204,6 +204,22 @@ describe('setup core', () => {
     })
   })
 
+  describe('destructive re-setup over a corrupt config is refused (#21)', () => {
+    it('every setup mutation throws and leaves the broken file for --repair', () => {
+      const { writeFileSync, readFileSync } = require('node:fs')
+      const configFile = join(dir, 'config.json')
+      writeFileSync(configFile, '{not json')
+      expect(() => applySetup({ publicUrl: 'https://box.ts.net' })).toThrow(/--repair/)
+      expect(() =>
+        applyJoin(encodeJoin({ v: 1, serverUrl: 'wss://relay', pairCode: 'P1' })),
+      ).toThrow(/--repair/)
+      expect(() => applyMode({ mode: 'server' })).toThrow(/--repair/)
+      expect(() => applyServerUrl('wss://new.example')).toThrow(/--repair/)
+      // The broken file is untouched — the operator's data is recoverable.
+      expect(readFileSync(configFile, 'utf8')).toBe('{not json')
+    })
+  })
+
   it('getUpdateChannel defaults to stable when unset', () => {
     expect(getUpdateChannel()).toBe('stable')
   })
