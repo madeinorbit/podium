@@ -91,6 +91,10 @@ export default defineConfig({
       ),
     },
     conditions: ['@podium/source'],
+    // apps/mobile pins react-dom 19.2.3, which bun hoists to the repo root;
+    // without dedupe, root-hoisted libs (base-ui, testing-library) resolve that
+    // copy while our sources get 19.2.7 and react-dom hard-errors on mismatch.
+    dedupe: ['react', 'react-dom'],
   },
   server: { host: '0.0.0.0', port: WEB_PORT, strictPort: true, allowedHosts, proxy },
   preview: { host: '0.0.0.0', port: WEB_PORT, strictPort: true, allowedHosts, proxy },

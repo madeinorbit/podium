@@ -8,6 +8,9 @@ export default defineConfig({
   resolve: {
     alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) },
     conditions: ['@podium/source'],
+    // apps/mobile pins react-dom 19.2.3, which bun hoists to the repo root;
+    // dedupe makes every import resolve the web app's react-dom 19.2.7.
+    dedupe: ['react', 'react-dom'],
   },
   test: {
     environment: 'happy-dom',
