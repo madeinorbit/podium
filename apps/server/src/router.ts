@@ -23,6 +23,7 @@ import {
 } from './cloud-runtime'
 import { authorize, type Capability, PROC_ACTION, SCOPED_TARGET } from './issue-authz'
 import { buildJoinCommand } from './machines-join'
+import { createSpec, getSpec, listSpecs, removeSpec, saveSpec, searchSpecs } from './pspec'
 import type { SessionRegistry } from './relay'
 import { normalizeOriginUrl } from './repo-id'
 import { browseDirectories, type RepoRegistry } from './repo-registry'
@@ -1705,6 +1706,65 @@ export const appRouter = t.router({
         return ctx.registry.listDir(input)
       }),
   }),
+  // pspec — the living spec tree in <repo>/pspec/ (see apps/server/src/pspec.ts).
+  // Prototype scope: local-filesystem repos only (reads/writes on the server host).
+  specs: t.router({
+    list: t.procedure.input(z.object({ repoPath: z.string().min(1) })).query(({ ctx, input }) => {
+      requireRepoRoot(ctx, input.repoPath)
+      return listSpecs(input.repoPath)
+    }),
+    get: t.procedure
+      .input(z.object({ repoPath: z.string().min(1), id: z.string().min(1) }))
+      .query(({ ctx, input }) => {
+        requireRepoRoot(ctx, input.repoPath)
+        return getSpec(input.repoPath, input.id)
+      }),
+    create: t.procedure
+      .input(
+        z.object({ repoPath: z.string().min(1), title: z.string().min(1), parent: z.string() }),
+      )
+      .mutation(({ ctx, input }) => {
+        requireRepoRoot(ctx, input.repoPath)
+        return createSpec(input.repoPath, input)
+      }),
+    save: t.procedure
+      .input(
+        z.object({
+          repoPath: z.string().min(1),
+          id: z.string().min(1),
+          body: z.string().optional(),
+          title: z.string().optional(),
+          parent: z.string().optional(),
+          order: z.number().optional(),
+          status: z.enum(['active', 'superseded', 'draft']).optional(),
+        }),
+      )
+      .mutation(({ ctx, input }) => {
+        requireRepoRoot(ctx, input.repoPath)
+        const { repoPath, ...rest } = input
+        return saveSpec(repoPath, rest)
+      }),
+    remove: t.procedure
+      .input(z.object({ repoPath: z.string().min(1), id: z.string().min(1) }))
+      .mutation(({ ctx, input }) => {
+        requireRepoRoot(ctx, input.repoPath)
+        removeSpec(input.repoPath, input.id)
+        return { ok: true }
+      }),
+    search: t.procedure
+      .input(z.object({ repoPath: z.string().min(1), query: z.string() }))
+      .query(({ ctx, input }) => {
+        requireRepoRoot(ctx, input.repoPath)
+        return searchSpecs(input.repoPath, input.query)
+      }),
+  }),
 })
+
+/** Specs read/write real files in a repo — only registered repo roots are fair game. */
+function requireRepoRoot(ctx: Context, repoPath: string): void {
+  if (!isAllowedRoot(ctx.repos.list(), repoPath)) {
+    throw new TRPCError({ code: 'FORBIDDEN', message: 'root is not a known repository path' })
+  }
+}
 
 export type AppRouter = typeof appRouter

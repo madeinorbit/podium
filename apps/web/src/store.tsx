@@ -212,7 +212,14 @@ export interface Store {
   outboxSize: number
 }
 
-export type MainView = 'home' | 'workspace' | 'settings' | 'usage' | 'issues' | 'automations'
+export type MainView =
+  | 'home'
+  | 'workspace'
+  | 'settings'
+  | 'usage'
+  | 'issues'
+  | 'automations'
+  | 'specs'
 
 const Ctx = createContext<Store | null>(null)
 
@@ -264,7 +271,8 @@ function readStoredView(): MainView {
     v === 'settings' ||
     v === 'usage' ||
     v === 'issues' ||
-    v === 'automations'
+    v === 'automations' ||
+    v === 'specs'
     ? v
     : 'home'
 }

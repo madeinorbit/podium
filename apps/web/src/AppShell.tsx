@@ -1,6 +1,6 @@
 import { PanelRightClose, PanelRightOpen } from 'lucide-react'
 import type { JSX } from 'react'
-import { useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import { Toaster } from '@/components/ui/sonner'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { ConfirmProvider } from '@/hooks/use-confirm'
@@ -22,6 +22,11 @@ import { serverConfig } from './trpc'
 import { UpdatePrompt } from './UpdatePrompt'
 import { UsageView } from './UsageView'
 import { Workspace } from './Workspace'
+
+// Lazy: BlockNote (the spec WYSIWYG editor) is a heavy chunk only Specs needs —
+// keeping it out of the shell bundle also keeps every precached file under
+// workbox's 2 MB per-file cap.
+const SpecsView = lazy(() => import('./SpecsView').then((m) => ({ default: m.SpecsView })))
 
 /** Cold-start splash shown while the first backend state fetch is in flight. */
 function LoadingScreen(): JSX.Element {
@@ -126,6 +131,10 @@ function AppBody({ isMobile }: { isMobile: boolean }): JSX.Element {
             <IssuesView />
           ) : view === 'automations' ? (
             <AutomationsView />
+          ) : view === 'specs' ? (
+            <Suspense fallback={<LoadingScreen />}>
+              <SpecsView />
+            </Suspense>
           ) : (
             <Workspace />
           )}

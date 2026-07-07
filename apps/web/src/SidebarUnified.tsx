@@ -1,6 +1,7 @@
 import type { AgentKind, IssueWire, SessionMeta } from '@podium/protocol'
 import {
   AlarmClock,
+  BookOpenText,
   ChevronDown,
   ChevronRight,
   Circle,
@@ -437,6 +438,18 @@ export function SidebarUnified(): JSX.Element {
         >
           <KanbanSquare size={15} aria-hidden="true" />
           Issues
+        </button>
+        <button
+          type="button"
+          className={cn(
+            'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-[13px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground',
+            view === 'specs' && 'bg-secondary text-foreground',
+          )}
+          aria-pressed={view === 'specs'}
+          onClick={() => setView('specs')}
+        >
+          <BookOpenText size={15} aria-hidden="true" />
+          Specs
         </button>
         <button
           type="button"
