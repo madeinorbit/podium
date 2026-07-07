@@ -726,6 +726,8 @@ export const IssueWire = z.object({
   // Model + reasoning-effort the issue's sessions launch with ('auto' = agent decides).
   defaultModel: z.string(),
   defaultEffort: z.string(),
+  // Machine (daemon) this issue's agents run on; absent = pick by repo affinity.
+  machineId: z.string().optional(),
   linearId: z.string().optional(),
   linearIdentifier: z.string().optional(),
   linearUrl: z.string().optional(),

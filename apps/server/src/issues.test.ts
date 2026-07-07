@@ -308,7 +308,7 @@ describe('IssueService.start', () => {
     expect(started.branch).toBe('issue/1-fix-login')
     expect(started.worktreePath).toBe('/r/.worktrees/issue-1-fix-login')
     expect(deps.repoOp).toHaveBeenCalledWith('worktreeAdd', '/r',
-      { path: '/r/.worktrees/issue-1-fix-login', branch: 'issue/1-fix-login', startPoint: 'main' })
+      { path: '/r/.worktrees/issue-1-fix-login', branch: 'issue/1-fix-login', startPoint: 'main' }, undefined)
     expect(deps.spawnSession).toHaveBeenCalledWith({
       cwd: '/r/.worktrees/issue-1-fix-login',
       agentKind: 'claude-code',
@@ -317,6 +317,26 @@ describe('IssueService.start', () => {
       initialPrompt: 'do the thing',
       spawnedBy: `issue:${created.id}`,
     })
+  })
+
+  it('routes worktree creation and the spawn to the issue machine when pinned', async () => {
+    const { svc, deps } = harness()
+    const created = svc.create({ repoPath: '/r', title: 'Remote', startNow: false, machineId: 'mach-b' })
+    expect(created.machineId).toBe('mach-b')
+    await svc.start(created.id)
+    expect(deps.repoOp).toHaveBeenCalledWith('worktreeAdd', '/r',
+      expect.objectContaining({ branch: 'issue/1-remote' }), 'mach-b')
+    expect(deps.spawnSession).toHaveBeenCalledWith(expect.objectContaining({ machineId: 'mach-b' }))
+    svc.addSession(created.id)
+    expect(deps.spawnSession).toHaveBeenLastCalledWith(expect.objectContaining({ machineId: 'mach-b' }))
+  })
+
+  it('machineId persists through the store and clears via update(null)', () => {
+    const { svc, store } = harness()
+    const w = svc.create({ repoPath: '/r', title: 'X', startNow: false, machineId: 'mach-b' })
+    expect(store.getIssue(w.id)?.machineId).toBe('mach-b')
+    expect(svc.update(w.id, { machineId: null }).machineId).toBeUndefined()
+    expect(store.getIssue(w.id)?.machineId).toBeNull()
   })
 
   it('create(startNow=true) starts immediately', async () => {
