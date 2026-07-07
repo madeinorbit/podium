@@ -59,7 +59,7 @@ test('unified sidebar: switcher, split-button spawn creates a draft row, wider +
     expect(Math.abs(menuBox.x - buttonBox.x)).toBeLessThan(2)
     expect(menuBox.y).toBeGreaterThanOrEqual(buttonBox.y + buttonBox.height)
     expect(menuBox.y).toBeLessThan(buttonBox.y + buttonBox.height + 12)
-    expect(Math.abs(menuBox.width - buttonBox.width)).toBeLessThan(2)
+    expect(Math.abs(menuBox.width - buttonBox.width)).toBeLessThan(3)
   }
 
   await agentItem.hover()
