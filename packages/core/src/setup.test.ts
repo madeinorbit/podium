@@ -7,7 +7,10 @@ import { encodeJoin } from './join'
 import {
   applyJoin,
   applyMode,
+  applyServerUrl,
   applySetup,
+  consumePairCode,
+  ephemeralTunnelWarning,
   getUpdateChannel,
   networkOptionCommand,
   setUpdateChannel,
@@ -82,6 +85,87 @@ describe('setup core', () => {
     expect(() => applyMode({ mode: 'client' })).toThrow()
     expect(loadConfig().mode).toBeUndefined()
   })
+  describe('applyServerUrl — URL rotation without re-setup (#19)', () => {
+    it('patches ONLY serverUrl on a daemon box, preserving every other field', () => {
+      saveConfig({
+        mode: 'daemon',
+        serverUrl: 'wss://old.example',
+        updateChannel: 'edge',
+        persistence: 'systemd',
+        port: 19999,
+      })
+      const res = applyServerUrl('https://new.example')
+      expect(res.serverUrl).toBe('wss://new.example') // http(s) is ws-ified
+      expect(loadConfig()).toEqual({
+        mode: 'daemon',
+        serverUrl: 'wss://new.example',
+        updateChannel: 'edge',
+        persistence: 'systemd',
+        port: 19999,
+      })
+    })
+    it('accepts a pasted join code — takes its URL and fresh pair code', () => {
+      saveConfig({ mode: 'daemon', serverUrl: 'wss://old.example', updateChannel: 'edge' })
+      const token = encodeJoin({ v: 1, serverUrl: 'wss://new.example', pairCode: 'P9' })
+      const res = applyServerUrl(token)
+      expect(res).toMatchObject({ serverUrl: 'wss://new.example', pairCode: 'P9' })
+      expect(loadConfig()).toEqual({
+        mode: 'daemon',
+        serverUrl: 'wss://new.example',
+        pairCode: 'P9',
+        updateChannel: 'edge',
+      })
+    })
+    it('refuses on a host box (mode all-in-one/server/unset) — that is `podium setup`', () => {
+      saveConfig({ mode: 'all-in-one', publicUrl: 'https://box.ts.net' })
+      expect(() => applyServerUrl('wss://new.example')).toThrow(/set-server only applies/)
+      expect(loadConfig().publicUrl).toBe('https://box.ts.net') // untouched
+    })
+    it('rejects garbage that is neither a URL nor a join code, leaving config intact', () => {
+      saveConfig({ mode: 'daemon', serverUrl: 'wss://old.example' })
+      expect(() => applyServerUrl('not a url')).toThrow(/not a server URL or join code/)
+      expect(loadConfig().serverUrl).toBe('wss://old.example')
+    })
+    it('warns when the new URL is a rotating trycloudflare quick tunnel', () => {
+      saveConfig({ mode: 'daemon', serverUrl: 'wss://old.example' })
+      const res = applyServerUrl('wss://rand.trycloudflare.com')
+      expect(res.warning).toMatch(/quick tunnel/i)
+    })
+  })
+
+  describe('consumePairCode (#19)', () => {
+    it('drops the exact consumed code, preserving the rest of the config', () => {
+      saveConfig({ mode: 'daemon', serverUrl: 'wss://relay', pairCode: 'P1', persistence: 'systemd' })
+      consumePairCode('P1')
+      expect(loadConfig()).toEqual({
+        mode: 'daemon',
+        serverUrl: 'wss://relay',
+        persistence: 'systemd',
+      })
+    })
+    it('never drops a NEWER code written by a concurrent re-join', () => {
+      saveConfig({ mode: 'daemon', serverUrl: 'wss://relay', pairCode: 'P2-newer' })
+      consumePairCode('P1-old')
+      expect(loadConfig().pairCode).toBe('P2-newer')
+    })
+  })
+
+  describe('ephemeralTunnelWarning (#19)', () => {
+    it('flags *.trycloudflare.com in any scheme', () => {
+      expect(ephemeralTunnelWarning('https://a-b-c.trycloudflare.com')).toMatch(/quick tunnel/i)
+      expect(ephemeralTunnelWarning('wss://a-b-c.trycloudflare.com')).toMatch(/quick tunnel/i)
+    })
+    it('does not flag stable hosts (incl. lookalike domains)', () => {
+      expect(ephemeralTunnelWarning('https://box.ts.net')).toBeUndefined()
+      expect(ephemeralTunnelWarning('https://nottrycloudflare.com')).toBeUndefined()
+      expect(ephemeralTunnelWarning('garbage')).toBeUndefined()
+    })
+    it('applyJoin surfaces the warning for a quick-tunnel join code', () => {
+      const token = encodeJoin({ v: 1, serverUrl: 'wss://x.trycloudflare.com', pairCode: 'P1' })
+      expect(applyJoin(token).warning).toMatch(/quick tunnel/i)
+    })
+  })
+
   it('getUpdateChannel defaults to stable when unset', () => {
     expect(getUpdateChannel()).toBe('stable')
   })

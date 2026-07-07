@@ -10,6 +10,7 @@
     },
     "./sqlite": "./src/sqlite/index.ts",
     "./config": "./src/config.ts",
+    "./connectivity": "./src/connectivity.ts",
     "./run-registry": "./src/run-registry.ts",
     "./join": "./src/join.ts",
     "./setup": "./src/setup.ts",

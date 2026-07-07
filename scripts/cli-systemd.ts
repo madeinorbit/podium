@@ -8,6 +8,7 @@ import { mkdirSync, writeFileSync } from 'node:fs'
 import { homedir, userInfo } from 'node:os'
 import { join } from 'node:path'
 import type { PodiumConfig } from '../packages/core/src/config'
+import { DAEMON_BLOCKED_EXIT_CODE } from '../packages/core/src/connectivity'
 
 const SERVER_UNIT = 'podium-server.service'
 const DAEMON_UNIT = 'podium-daemon.service'
@@ -66,6 +67,10 @@ Environment=PATH=${DAEMON_PATH}
 ExecStart=${exec}
 Restart=always
 RestartSec=2
+# The daemon exits ${DAEMON_BLOCKED_EXIT_CODE} when the server TERMINALLY rejected it (pairRejected/helloRejected):
+# restarting would just re-hammer the same rejected handshake, so don't (issue #19).
+# \`podium status\` explains the blocked state and how to re-pair.
+RestartPreventExitStatus=${DAEMON_BLOCKED_EXIT_CODE}
 
 [Install]
 WantedBy=default.target

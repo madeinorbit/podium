@@ -6,6 +6,7 @@ import { execFileSync, spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { loadConfig, type PodiumConfig } from '../packages/core/src/config'
+import { type ConnectivityStatus, readConnectivity } from '../packages/core/src/connectivity'
 import {
   listLive,
   logDir,
@@ -29,6 +30,28 @@ export interface StatusView {
   live: RunRecord[]
   config: Pick<PodiumConfig, 'mode' | 'persistence' | 'publicUrl' | 'port'>
   nowMs: number
+  /** Daemon⇄server link state written by the daemon itself (issue #19); absent on
+   *  boxes that run no remote daemon (or before the daemon's first write). */
+  connectivity?: ConnectivityStatus
+}
+
+/** Render the daemon⇄server connectivity line(s) from the daemon-written status file. */
+function renderConnectivity(c: ConnectivityStatus, nowMs: number): string[] {
+  const target = c.serverUrl ? ` → ${c.serverUrl}` : ''
+  const lastSeen = c.lastHelloOkAt ? ` (last contact ${humanUptime(c.lastHelloOkAt, nowMs)} ago)` : ''
+  if (c.state === 'blocked') {
+    return [
+      `  ✖ server link${target}: BLOCKED — ${c.blockedReason ?? 'the server rejected this daemon'}`,
+      '    Re-pair: mint a new join code on the server (Machines → Add machine), then run',
+      '    `podium set-server <join-code>` here and restart the daemon.',
+    ]
+  }
+  if (c.state === 'disconnected') {
+    const err = c.lastError ? ` — ${c.lastError}` : ''
+    const retry = c.retryBackoffMs ? ` (retrying every ~${Math.round(c.retryBackoffMs / 1000)}s)` : ''
+    return [`  ! server link${target}: disconnected${err}${retry}${lastSeen}`]
+  }
+  return [`  ✓ server link${target}: connected${lastSeen}`]
 }
 
 /** PURE: render the status report from live records + config. */
@@ -63,6 +86,10 @@ export function renderStatus(view: StatusView): string {
       lines.push(`  ○ ${role}  down`)
     }
   }
+  // Connectivity truthfulness (#19): a PID only proves the daemon process exists. When the
+  // daemon has written its link state, report it — including the terminal blocked state,
+  // which explains why the unit is down and what to do.
+  if (view.connectivity) lines.push(...renderConnectivity(view.connectivity, nowMs))
   const url = config.publicUrl ?? `http://localhost:${config.port ?? 18787}`
   lines.push(`  URL: ${url}`)
   return lines.join('\n')
@@ -84,11 +111,13 @@ function hasSystemctl(): boolean {
 /** `podium status` */
 export function statusCommand(): void {
   const config = loadConfig()
+  const connectivity = readConnectivity()
   console.log(
     renderStatus({
       live: listLive(),
       config,
       nowMs: Date.now(),
+      ...(connectivity ? { connectivity } : {}),
     }),
   )
 }

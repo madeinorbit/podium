@@ -30,6 +30,15 @@ describe('renderDaemonUnit', () => {
     expect(u).toContain('ExecStart=%h/.local/bin/podium daemon\n')
     expect(u).not.toContain('--server')
   })
+  it('does not crash-loop on a terminally-blocked daemon (#19): exit 78 prevents restart', () => {
+    // DAEMON_BLOCKED_EXIT_CODE — the exit the daemon uses when the server rejected its
+    // handshake for good (pairRejected / helloRejected). Restart=always must not apply.
+    const u = renderDaemonUnit()
+    expect(u).toContain('Restart=always')
+    expect(u).toContain('RestartPreventExitStatus=78')
+    // The server unit has no pairing handshake — no blocked exit to except.
+    expect(renderServerUnit()).not.toContain('RestartPreventExitStatus')
+  })
 })
 
 describe('userUnitDir', () => {

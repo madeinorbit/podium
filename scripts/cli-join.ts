@@ -5,6 +5,6 @@ import { applyJoin } from '../packages/core/src/setup'
  * Thin alias over the shared core `applyJoin` so `podium join-config` and the web setup
  * (`setup.join` tRPC) apply the exact same logic.
  */
-export function applyJoinToken(token: string): { name: string } {
+export function applyJoinToken(token: string): { name: string; warning?: string } {
   return applyJoin(token)
 }

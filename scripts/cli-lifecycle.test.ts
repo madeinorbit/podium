@@ -64,6 +64,61 @@ describe('renderStatus', () => {
     expect(out).toContain('○ daemon  down')
   })
 
+  describe('daemon connectivity truthfulness (#19)', () => {
+    it('a live PID no longer implies "up" — the daemon-written link state is shown', () => {
+      const out = renderStatus({
+        live: [rec({ role: 'daemon', pid: 7 })],
+        config: { mode: 'daemon', persistence: 'systemd' },
+        nowMs: T0 + 65_000,
+        connectivity: {
+          state: 'disconnected',
+          serverUrl: 'wss://relay.example',
+          lastHelloOkAt: new Date(T0).toISOString(),
+          lastError: 'ECONNREFUSED',
+          retryBackoffMs: 5000,
+          updatedAt: new Date(T0 + 60_000).toISOString(),
+        },
+      })
+      expect(out).toContain('● daemon  up') // the process exists…
+      expect(out).toContain('disconnected — ECONNREFUSED') // …but the link is honest
+      expect(out).toContain('wss://relay.example')
+      expect(out).toContain('retrying every ~5s')
+      expect(out).toContain('last contact 1m ago')
+    })
+
+    it('a blocked daemon explains the rejection and the re-pair recovery path', () => {
+      const out = renderStatus({
+        live: [],
+        config: { mode: 'daemon', persistence: 'systemd' },
+        nowMs: T0,
+        connectivity: {
+          state: 'blocked',
+          serverUrl: 'wss://relay.example',
+          blockedReason: 'pairRejected: bad code',
+          updatedAt: new Date(T0).toISOString(),
+        },
+      })
+      expect(out).toContain('BLOCKED — pairRejected: bad code')
+      expect(out).toContain('podium set-server <join-code>')
+    })
+
+    it('a connected daemon reports the server URL and last contact', () => {
+      const out = renderStatus({
+        live: [rec({ role: 'daemon', pid: 7 })],
+        config: { mode: 'daemon' },
+        nowMs: T0 + 3_000,
+        connectivity: {
+          state: 'connected',
+          serverUrl: 'wss://relay.example',
+          lastHelloOkAt: new Date(T0).toISOString(),
+          updatedAt: new Date(T0).toISOString(),
+        },
+      })
+      expect(out).toContain('connected')
+      expect(out).toContain('last contact 3s ago')
+    })
+  })
+
   it('unknown mode falls back to listing every role that is live', () => {
     const out = renderStatus({
       live: [rec({ role: 'daemon', pid: 7 })],

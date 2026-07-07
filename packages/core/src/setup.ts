@@ -66,6 +66,80 @@ export function wssFrom(publicUrl: string): string {
   return publicUrl.replace(/^http(s?):\/\//, (_m, s) => (s ? 'wss://' : 'ws://')).replace(/\/$/, '')
 }
 
+/**
+ * Warn when a server URL is a Cloudflare QUICK tunnel (*.trycloudflare.com): those URLs
+ * rotate on every cloudflared restart, so every joined daemon goes dark until it is pointed
+ * at the new URL (issue #19). Returned (not thrown) — quick tunnels are legitimate for demos.
+ */
+export function ephemeralTunnelWarning(url: string): string | undefined {
+  let host: string
+  try {
+    host = new URL(url.trim()).hostname
+  } catch {
+    return undefined
+  }
+  if (host === 'trycloudflare.com' || host.endsWith('.trycloudflare.com')) {
+    return (
+      'This is a Cloudflare QUICK tunnel URL — it changes every time cloudflared restarts, ' +
+      'and every joined machine will lose contact until you run `podium set-server <new-url>` ' +
+      'on it. Fine for a demo; use Tailscale or a named tunnel for anything durable.'
+    )
+  }
+  return undefined
+}
+
+/**
+ * `podium set-server <url-or-join-code>` — rotate ONLY the server URL a daemon/client box
+ * dials (issue #19: a rotated tunnel URL must not force a re-setup that wholesale-replaces
+ * config). Patches `serverUrl` (and `pairCode` when a join code was pasted) and preserves
+ * everything else — updateChannel, persistence, port, upstream — and never touches
+ * daemon.json (identity/token), so a re-pair is NOT required after a URL rotation.
+ * Accepts ws(s):// or http(s):// (http(s) is ws-ified) or a full join code.
+ */
+export function applyServerUrl(input: string): {
+  serverUrl: string
+  pairCode?: string
+  warning?: string
+} {
+  const prev = loadConfig()
+  if (prev.mode !== 'daemon' && prev.mode !== 'client') {
+    throw new Error(
+      `set-server only applies to a joined (daemon) or client box; this box is ${
+        prev.mode ? `mode=${prev.mode}` : 'not configured'
+      }. Run \`podium setup\` instead.`,
+    )
+  }
+  const trimmed = input.trim()
+  // A pasted join code also works — it carries the new URL (and a fresh pair code, which is
+  // harmless for an already-paired daemon: the stored token wins at handshake time).
+  let serverUrl: string
+  let pairCode: string | undefined
+  try {
+    const p = decodeJoin(trimmed)
+    serverUrl = p.serverUrl
+    pairCode = p.pairCode
+  } catch {
+    const v = validatePublicUrl(trimmed.replace(/^ws(s?):\/\//, (_m, s) => `http${s}://`))
+    if (!v.ok) throw new Error(`not a server URL or join code: ${v.error}`)
+    serverUrl = wssFrom(v.normalized)
+  }
+  saveConfig({ ...prev, serverUrl, ...(pairCode ? { pairCode } : {}) })
+  const warning = ephemeralTunnelWarning(serverUrl)
+  return { serverUrl, ...(pairCode ? { pairCode } : {}), ...(warning ? { warning } : {}) }
+}
+
+/**
+ * Drop a consumed one-shot pair code from config.json after a successful pair (issue #19).
+ * Guarded on the exact code so a NEWER code written by a concurrent re-join is never lost.
+ * A stale code was previously harmless-but-confusing: it made the config look "unpaired".
+ */
+export function consumePairCode(code: string): void {
+  const prev = loadConfig()
+  if (prev.pairCode !== code) return
+  const { pairCode: _consumed, ...rest } = prev
+  saveConfig(rest)
+}
+
 export function applySetup(input: {
   publicUrl: string
   mode?: 'all-in-one' | 'server'
@@ -88,10 +162,11 @@ export function applySetup(input: {
  * a malformed token. Replaces (not merges) config — switching to daemon drops any stale
  * host fields like publicUrl.
  */
-export function applyJoin(token: string): { name: string } {
+export function applyJoin(token: string): { name: string; warning?: string } {
   const p = decodeJoin(token)
   saveConfig({ mode: 'daemon', serverUrl: p.serverUrl, pairCode: p.pairCode })
-  return { name: p.name ?? 'this machine' }
+  const warning = ephemeralTunnelWarning(p.serverUrl)
+  return { name: p.name ?? 'this machine', ...(warning ? { warning } : {}) }
 }
 
 /**

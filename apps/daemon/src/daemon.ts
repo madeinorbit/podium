@@ -58,7 +58,9 @@ import {
   tmuxHasSessionAsync,
   transcriptSourceFor,
 } from '@podium/agent-bridge'
+import { writeConnectivity } from '@podium/core/connectivity'
 import { startLoopMetrics } from '@podium/core/loop-metrics'
+import { consumePairCode } from '@podium/core/setup'
 import {
   type AgentKind,
   type ControlMessage,
@@ -191,6 +193,13 @@ export interface DaemonOptions {
   pairCode?: string
   /** Display name to register on first pair (defaults to the hostname server-side). */
   name?: string
+  /**
+   * Called when the server TERMINALLY rejects this daemon (pairRejected / helloRejected
+   * with no pair-code fallback) — re-pairing is required and reconnecting is pointless.
+   * The CLI entrypoint exits with DAEMON_BLOCKED_EXIT_CODE here so the systemd unit
+   * (RestartPreventExitStatus) stops crash-looping. Library embedders may ignore it.
+   */
+  onBlocked?: (info: { type: string; reason: string }) => void
   /** Override the identity-file directory (tests/isolated state). Defaults per loadIdentity. */
   identityDir?: string
   /** Override the machineId to register as, instead of the one in the identity file. The
@@ -2051,9 +2060,30 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
   // attaches to the machine the server already adopted; remote daemons use the identity.
   const machineId = opts.machineId ?? identity.machineId
 
+  // Connectivity truthfulness (#19): a REMOTE daemon (pair-code / stored-token auth)
+  // records its server-link state next to daemon.json so `podium status` reports actual
+  // connectivity instead of inferring "up" from the PID alone. The bundled LOCAL daemon
+  // (bootstrapToken) skips this — its link is localhost/in-process, and tests boot it
+  // without an isolated state dir. Best-effort: a write failure never affects the link.
+  const connectivityDir = opts.bootstrapToken
+    ? undefined
+    : (opts.identityDir ?? process.env.PODIUM_STATE_DIR ?? join(homedir(), '.podium'))
+  const recordConnectivity = (
+    patch: Omit<Parameters<typeof writeConnectivity>[0], 'serverUrl'>,
+  ): void => {
+    if (!connectivityDir) return
+    try {
+      writeConnectivity({ serverUrl: opts.serverUrl, ...patch }, connectivityDir)
+    } catch (err) {
+      console.warn('[podium:daemon] could not write connectivity status:', err)
+    }
+  }
+
   return new Promise<DaemonHandle>((resolve, reject) => {
     let resolved = false
     let kickedOff = false
+    // Last socket error message, for the connectivity file's `lastError` (#19).
+    let lastSocketError: string | undefined
     // One-shot: if a stored token is rejected but a fresh pair code was supplied, drop the
     // token and re-pair on reconnect (the all-in-one → daemon switch leaves a token minted by
     // the local server that the remote has never seen). Guarded so a bad code can't loop.
@@ -2072,6 +2102,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     // idempotent.
     const startBackground = (): void => {
       authenticated = true
+      recordConnectivity({ state: 'connected', lastHelloOkAt: new Date().toISOString() })
       if (!kickedOff) {
         kickedOff = true
         if (discoveryBackground) {
@@ -2142,10 +2173,20 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
         `[podium:daemon] server rejected this daemon (${type}): ${reason}. ` +
           `Not reconnecting — re-pair the machine (new pair code) and restart the daemon.`,
       )
+      // Terminal blocked marker (#19): `podium status` reads this to explain WHY the
+      // daemon is down and what to do, instead of a bare "down".
+      recordConnectivity({ state: 'blocked', blockedReason: `${type}: ${reason}` })
       closing = true
       disposeAll()
+      // A terminally-blocked daemon must not keep its loopback servers holding the
+      // process (and a test's event loop) alive — handle.close() will never run.
+      void ingest.close().catch(() => {})
+      void issueRelay.close().catch(() => {})
       reject(new Error(`daemon handshake rejected: ${reason}`))
       w.close()
+      // Give the CLI entrypoint its exit hook (distinct exit code → the systemd unit's
+      // RestartPreventExitStatus stops the crash-loop). After the marker is on disk.
+      opts.onBlocked?.({ type, reason })
     }
     function connect(): void {
       if (closing) return
@@ -2180,6 +2221,15 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
           case 'paired':
             // First pairing: persist the minted token so future boots send `hello`.
             saveToken(reply.token, opts.identityDir ? { dir: opts.identityDir } : {})
+            // The one-shot pair code is now consumed — drop it from config.json (#19) so
+            // the config stops looking "unpaired" (guarded on the exact code inside).
+            if (opts.pairCode) {
+              try {
+                consumePairCode(opts.pairCode)
+              } catch (err) {
+                console.warn('[podium:daemon] could not clear consumed pair code:', err)
+              }
+            }
             startBackground()
             break
           case 'helloOk':
@@ -2271,10 +2321,21 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
       // ('error' is followed by 'close', which drives the backoff reconnect.)
       w.on('close', () => {
         if (currentWs === w) currentWs = undefined
+        // Don't clobber a terminal `blocked` marker (or write during a clean shutdown) —
+        // only a live daemon that intends to retry reports `disconnected`.
+        if (!closing) {
+          recordConnectivity({
+            state: 'disconnected',
+            retryBackoffMs: reconnectBackoffMs,
+            ...(lastSocketError ? { lastError: lastSocketError } : {}),
+          })
+        }
         scheduleReconnect()
       })
-      w.on('error', () => {
+      w.on('error', (err) => {
         // Swallow: 'close' handles reconnect, and an unhandled 'error' would crash.
+        // Remember the reason so the connectivity file can explain the disconnect.
+        lastSocketError = err instanceof Error ? err.message : String(err)
       })
     }
     // Don't hang the entrypoint if the server isn't up yet — resolve after a grace

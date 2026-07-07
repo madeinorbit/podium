@@ -1,6 +1,7 @@
 import { setPassword as realSetPassword } from '../apps/server/src/auth-store'
 import { loadConfig, saveConfig } from '../packages/core/src/config'
 import {
+  ephemeralTunnelWarning,
   NETWORK_OPTIONS,
   networkOptionCommand,
   validatePublicUrl,
@@ -109,6 +110,8 @@ async function reachabilityStep(io: SetupIO, port: number, mode: HostMode): Prom
     if (v.ok) {
       saveConfig({ ...loadConfig(), mode, publicUrl: v.normalized })
       io.print(`\nSaved. This instance is reachable at ${v.normalized}. Restart podium to apply.`)
+      const warning = ephemeralTunnelWarning(v.normalized)
+      if (warning) io.print(`\nWarning: ${warning}`)
       return true
     }
     io.print(`  ${v.error}`)
@@ -199,8 +202,9 @@ async function joinStep(
       return
     }
     try {
-      const { name } = applyJoinToken(token)
+      const { name, warning } = applyJoinToken(token)
       io.print(`\nJoined as "${name}".`)
+      if (warning) io.print(`\nWarning: ${warning}`)
       await persistenceStep(io, port, 'daemon', startBackend)
       return
     } catch (e) {

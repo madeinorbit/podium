@@ -140,10 +140,33 @@ export async function main(): Promise<void> {
     }
     const { applyJoinToken } = await import('./cli-join')
     try {
-      const { name } = applyJoinToken(token)
+      const { name, warning } = applyJoinToken(token)
       console.log(`podium configured to join as "${name}"`)
+      if (warning) console.warn(`\nWarning: ${warning}`)
     } catch (e) {
       console.error(`invalid join token: ${(e as Error).message}`)
+      process.exit(2)
+    }
+    return
+  }
+
+  // `podium set-server <url-or-join-code>`: rotate ONLY the server URL a joined daemon /
+  // client dials (issue #19: e.g. a restarted tunnel minted a new URL). Preserves the
+  // machine identity + token (daemon.json) and every other config field, so no re-pair.
+  if (argv[0] === 'set-server') {
+    const target = argv[1]
+    if (!target) {
+      console.error('usage: podium set-server <ws(s)://url | http(s)://url | join-code>')
+      process.exit(2)
+    }
+    const { applyServerUrl } = await import('../packages/core/src/setup')
+    try {
+      const res = applyServerUrl(target)
+      console.log(`podium server URL set to ${res.serverUrl}`)
+      if (res.warning) console.warn(`\nWarning: ${res.warning}`)
+      console.log('Restart the daemon to apply (e.g. `podium stop && podium`).')
+    } catch (e) {
+      console.error((e as Error).message)
       process.exit(2)
     }
     return
@@ -339,7 +362,26 @@ export async function main(): Promise<void> {
       }
     }
     const { startDaemon } = await import('../apps/daemon/src/daemon')
-    await startDaemon(daemonOptions)
+    // A REMOTE daemon whose handshake is terminally rejected must exit with a distinct
+    // code (not crash-loop): the systemd unit's RestartPreventExitStatus matches it and
+    // stops restarting; `podium status` then explains the blocked state (#19).
+    const remoteDaemon = plan.mode === 'daemon' && !argv.includes('--local')
+    await startDaemon({
+      ...daemonOptions,
+      ...(remoteDaemon
+        ? {
+            onBlocked: async ({ type, reason }: { type: string; reason: string }) => {
+              const { DAEMON_BLOCKED_EXIT_CODE } = await import(
+                '../packages/core/src/connectivity'
+              )
+              console.error(
+                `podium daemon: blocked by the server (${type}: ${reason}) — exiting ${DAEMON_BLOCKED_EXIT_CODE}. Run \`podium status\` for recovery steps.`,
+              )
+              process.exit(DAEMON_BLOCKED_EXIT_CODE)
+            },
+          }
+        : {}),
+    })
     console.log(`podium daemon up → ${daemonOptions.serverUrl}`)
   }
 
