@@ -1,60 +1,60 @@
-import { createHash, randomUUID, timingSafeEqual } from 'node:crypto'
-import { mkdirSync, readFileSync } from 'node:fs'
+/**
+ * Durable server-side store. Single writer (the server).
+ *
+ * SessionStore is a thin FACADE over the per-aggregate repositories in
+ * `./store/` — it opens the database, runs the versioned migration chain
+ * (src/migrations/), sequences the per-boot idempotent heals, and delegates
+ * every call. The public API is stable by design: callers (relay, issues,
+ * router, …) depend on this class, never on individual repositories.
+ *
+ * Aggregate map:
+ *  - sessions (+ pins/snoozes/tab_order/session_drafts) → store/sessions.ts
+ *  - issues (+ labels/deps/comments/mail)               → store/issues.ts
+ *  - conversations (index/FTS/registry/mirror/transcript index)
+ *                                                        → store/conversations.ts
+ *  - sync (changes/applied_mutations/queued_messages/upstream_outbox)
+ *                                                        → store/sync.ts
+ *  - auth (client_sessions)                              → store/auth.ts
+ *  - superagent (threads/messages)                       → store/superagent.ts
+ *  - settings/meta                                       → store/settings.ts
+ *  - repos                                               → store/repos.ts
+ *  - machines                                            → store/machines.ts
+ *  - events/steward (podium_events/steward_state/subscriptions)
+ *                                                        → store/events.ts
+ */
+
+import { mkdirSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
-import { normalizeSettings, type PodiumSettings } from '@podium/core'
+import type { PodiumSettings } from '@podium/core'
 import { openDatabase, type SqlDatabase } from '@podium/core/sqlite'
-import { AgentKind, IssueStage } from '@podium/protocol'
 import { MIGRATIONS, runMigrations } from './migrations/index'
-import { deriveRepoId, isPathFallbackRepoId, readLocalOriginUrl } from './repo-id'
+import { AuthRepository } from './store/auth'
+import { ConversationsRepository } from './store/conversations'
+import { EventsRepository } from './store/events'
+import { IssuesRepository } from './store/issues'
+import { MachinesRepository } from './store/machines'
+import { normalizeRepoPath, ReposRepository } from './store/repos'
+import { SessionsRepository } from './store/sessions'
+import { SettingsRepository } from './store/settings'
+import { SuperagentRepository } from './store/superagent'
+import { SyncRepository } from './store/sync'
+import type {
+  ConversationIndexRow,
+  IssueCommentRow,
+  IssueMessageRow,
+  IssueRow,
+  PinKind,
+  PinState,
+  SessionRow,
+  SnoozeMap,
+  Subscription,
+  SuperagentMessageRow,
+  SuperagentThreadRow,
+} from './store/types'
 
-export type PinKind = 'panel' | 'worktree' | 'repo'
-
-export interface PinState {
-  panels: string[]
-  worktrees: string[]
-  repos: string[]
-}
-
-/** sessionId → snooze deadline. `null` = until next message; ISO = timed. */
-export type SnoozeMap = Record<string, string | null>
-
-const PIN_KINDS = new Set<PinKind>(['panel', 'worktree', 'repo'])
-
-/**
- * Parse a JSON text column that should hold `string[]`, tolerating corruption.
- * A single malformed value (bad JSON, or valid JSON of the wrong shape) must not
- * throw out of a row mapper — that would abort the whole table load (and, for the
- * issues table, crash-loop the server at boot, since IssueService loads in its
- * constructor). Quarantine the bad value to `[]` and warn so it stays observable.
- */
-function parseStringArray(raw: unknown, label: string): string[] {
-  if (raw == null) return []
-  try {
-    const v = JSON.parse(raw as string)
-    if (Array.isArray(v) && v.every((x) => typeof x === 'string')) return v
-    console.warn(`[podium] ${label}: expected string[], got ${typeof v} — quarantined to []`)
-    return []
-  } catch (err) {
-    console.warn(`[podium] ${label}: unparseable JSON — quarantined to [] (${String(err)})`)
-    return []
-  }
-}
-
-/**
- * Parse a JSON text column to `T | undefined`, tolerating corruption (see
- * {@link parseStringArray}). Returns `undefined` for a null column or any parse
- * failure, so one corrupt blob can't abort the rest of the load.
- */
-function parseJsonColumn<T>(raw: unknown, label: string): T | undefined {
-  if (raw == null) return undefined
-  try {
-    return JSON.parse(raw as string) as T
-  } catch (err) {
-    console.warn(`[podium] ${label}: unparseable JSON — quarantined (${String(err)})`)
-    return undefined
-  }
-}
+export * from './store/types'
+export { normalizeRepoPath }
 
 /** Default DB file: $PODIUM_STATE_DIR/podium.db, else ~/.podium/podium.db. */
 export function defaultDbPath(): string {
@@ -62,262 +62,18 @@ export function defaultDbPath(): string {
   return join(base, 'podium.db')
 }
 
-export function normalizeRepoPath(path: string): string {
-  const trimmed = path.trim()
-  if (/^\/+$/u.test(trimmed)) return '/'
-  return trimmed.replace(/\/+$/u, '')
-}
-
-export type SessionStatusPersisted = 'starting' | 'live' | 'reconnecting' | 'hibernated' | 'exited'
-
-/** One persisted session row. camelCase mirror of the snake_case `sessions` table. */
-export interface SessionRow {
-  id: string
-  agentKind: string
-  cwd: string
-  title: string
-  /** User-set display name; null = derive from title. */
-  name: string | null
-  originKind: 'spawn' | 'resume'
-  conversationId: string | null
-  resumeKind: string | null
-  resumeValue: string | null
-  status: SessionStatusPersisted
-  exitCode: number | null
-  durableLabel: string
-  createdAt: string
-  lastActiveAt: string
-  /** Last PTY output frame (ISO); null = none recorded. Hibernation signal only — not recency. */
-  lastOutputAt: string | null
-  /** Last controller input — any keys/mouse/paste (ISO); null = none. Hibernation signal only. */
-  lastInputAt: string | null
-  /** Last resume/resurrect (ISO); null = never. Hibernation signal only. */
-  lastResumedAt: string | null
-  /** WHO created the session (issue #60): 'user', 'issue:<id>', 'superagent:<threadId>', …
-   *  null/absent = legacy row from before the field existed. Optional (like machineId)
-   *  so pre-#60 row literals stay valid. */
-  spawnedBy?: string | null
-  archived: boolean
-  /** Kanban column on the home board; null = unsorted. */
-  workState: string | null
-  /** The machine this session runs on. Optional during build-out (Task 5 always emits it). */
-  machineId?: string
-  /** True for a headless harness session (no PTY; superagent-driven turns).
-   *  Optional so pre-existing row literals stay valid; absent = false. */
-  headless?: boolean
-  /** Explicit issue attachment (issue-as-workspace). null/absent = unattached
-   *  (legacy / shells) — cwd-derived worktree grouping applies. */
-  issueId?: string | null
-  /** Email-style read state (issue #124): ISO time the operator last opened this
-   *  session; null/absent = never opened. Optional so pre-existing row literals stay valid. */
-  readAt?: string | null
-}
-
-/** One row of the machines table (token_hash is internal — not included here). */
-export interface MachineRecord {
-  id: string
-  name: string
-  hostname: string
-  createdAt: string
-  lastSeenAt: string
-}
-
-/** One row of the `issues` table (camelCase mirror; `blockedBy` stored as JSON text). */
-export interface IssueRow {
-  id: string
-  repoPath: string
-  /** Stable repo identity (#74) — dual-written; reads/filters/seq stay on repoPath. */
-  repoId?: string | null
-  seq: number
-  title: string
-  description: string
-  stage: string
-  worktreePath: string | null
-  branch: string | null
-  parentBranch: string
-  defaultAgent: string
-  defaultModel: string
-  defaultEffort: string
-  /** Machine (daemon) this issue's agents run on; null = pick by repo affinity. */
-  machineId?: string | null
-  linearId: string | null
-  linearIdentifier: string | null
-  linearUrl: string | null
-  activityNotes: string | null
-  notesUpdatedAt: string | null
-  suggestedStage: string | null
-  suggestedReason: string | null
-  blockedBy: string[]
-  dependencyNote: string | null
-  prUrl: string | null
-  createdAt: string
-  updatedAt: string
-  archived: boolean
-  priority: number
-  type: string
-  assignee: string | null
-  parentId: string | null
-  design: string | null
-  acceptance: string | null
-  notes: string | null
-  dueAt: string | null
-  deferUntil: string | null
-  closedReason: string | null
-  supersededBy: string | null
-  duplicateOf: string | null
-  pinned: boolean
-  estimateMin: number | null
-  needsHuman: boolean
-  humanQuestion: string | null
-  /** Agent-published human-facing panel, stored as raw JSON (parsed in IssueService).
-   *  Optional so pre-existing row literals (tests, ingest) stay valid; absent = none. */
-  panel?: string | null
-  /** Whose intent this issue captures ('human' | 'agent'). Optional so pre-existing
-   *  row literals stay valid; absent = 'human'. */
-  origin?: string
-  /** Placeholder-titled draft vessel (issue-as-workspace); retitling clears it.
-   *  Optional so pre-existing row literals stay valid; absent = false. */
-  draft?: boolean
-  /** Email-style read state (issue #124): ISO time the operator last opened this
-   *  issue; null/absent = never opened. Optional so pre-existing row literals stay valid. */
-  readAt?: string | null
-}
-
-export interface IssueCommentRow {
-  id: string
-  issueId: string
-  author: string
-  body: string
-  createdAt: string
-}
-
-/** One "agent mail" message addressed to an ISSUE (issue #103). Status lifecycle:
- *  unread → read (inbox listing) → claimed (an agent committing to act on it). */
-export interface IssueMessageRow {
-  id: string
-  issueId: string
-  fromAuthor: string
-  body: string
-  createdAt: string
-  status: 'unread' | 'read' | 'claimed'
-  claimedBy: string | null
-  readAt: string | null
-  claimedAt: string | null
-}
-
-/** A durable event subscription (event-subscriptions design, Phase B). The steward
- *  matches enabled rows against every polled event; a match resolves `source` to the
- *  event's subject and delivers per `deliverNudge`/`deliverNotify`. */
-export interface Subscription {
-  id: string
-  /** Who is notified: a session (in-session nudge) or an issue (its member sessions). */
-  subscriberKind: 'session' | 'issue'
-  subscriberId: string
-  /** The subscription-event kind matched (e.g. 'issue.closed', 'session.finished'). */
-  event: string
-  /** What is watched: a dynamic relationship, or an explicit issue / session id. */
-  sourceKind: 'relationship' | 'issue' | 'session'
-  sourceRef: string
-  deliverNudge: boolean
-  deliverNotify: boolean
-  origin: 'default' | 'custom'
-  enabled: boolean
-  createdAt: string
-}
-
-function rowToSubscription(r: Record<string, unknown>): Subscription {
-  return {
-    id: r.id as string,
-    subscriberKind: r.subscriber_kind as Subscription['subscriberKind'],
-    subscriberId: r.subscriber_id as string,
-    event: r.event as string,
-    sourceKind: r.source_kind as Subscription['sourceKind'],
-    sourceRef: r.source_ref as string,
-    deliverNudge: Number(r.deliver_nudge) !== 0,
-    deliverNotify: Number(r.deliver_notify) !== 0,
-    origin: r.origin as Subscription['origin'],
-    enabled: Number(r.enabled) !== 0,
-    createdAt: r.created_at as string,
-  }
-}
-
-/** One row of the conversation index (camelCase mirror of `conversations`). */
-export interface ConversationIndexRow {
-  id: string
-  agentKind: string
-  providerId: string
-  title?: string
-  /** Command-center-set display name (curation; survives re-discovery). */
-  name?: string
-  /** Work-LLM state summary (curation; survives re-discovery). */
-  summary?: string
-  projectPath?: string
-  resumeKind?: string
-  resumeValue?: string
-  createdAt?: string
-  updatedAt?: string
-  messageCount?: number
-  /** Which machine owns this conversation; '__local__' for pre-multi-machine rows. */
-  machineId?: string
-  /** Set when this conversation is a subagent (sidechain) of another — the resume
-   *  picker filters these out so only top-level sessions are offered. */
-  parentConversationId?: string
-}
-
-export interface ToolCallRow {
-  id: string
-  name: string
-  arguments: string
-}
-
-/** One message of a superagent thread (the 'global' orchestrator, or a 'btw_<id>' thread). */
-export interface SuperagentMessageRow {
-  id: number
-  role: 'user' | 'assistant' | 'tool' | 'system'
-  content: string
-  toolCalls?: ToolCallRow[]
-  toolCallId?: string
-  toolName?: string
-  createdAt: string
-}
-
-/** A superagent conversation: the always-there 'global' thread, a per-session 'btw'
- *  thread, or a per-repo 'concierge' intake thread. */
-export interface SuperagentThreadRow {
-  id: string
-  kind: 'global' | 'btw' | 'concierge'
-  originSessionId?: string
-  /** The repo this thread fronts (concierge threads only). */
-  repoPath?: string
-  title?: string
-  /** High-water mark into the origin session's transcript (btw threads), or the
-   *  issue event-log id already digested (concierge threads, stringified). */
-  watermarkItemId?: string
-  watermarkTs?: string
-  /** Harness agent frozen onto the thread at its first headless turn — later
-   *  turns keep the same agent even if the settings default changes. */
-  agentKind?: string
-  /** The Podium headless session rendering this thread (concierge unification). */
-  podiumSessionId?: string
-  /** The harness's own session id — the resume value for every later turn. */
-  harnessSessionId?: string
-  /** PTY session holding the "open in terminal" one-writer lock; sendTurn
-   *  rejects while this session is live (lazily checked, lazily cleared). */
-  terminalSessionId?: string
-  createdAt: string
-  updatedAt: string
-  archived: boolean
-}
-
-/** Durable server-side store: repos + sessions registry. Single writer (the server). */
 export class SessionStore {
   private readonly db: SqlDatabase
-  /** FTS5 is compiled into the bundled SQLite normally; LIKE fallback if not. */
-  private ftsAvailable = false
-  /** transcript_fts created (docs/spec/search-v1.md §2.3). When FTS5 is missing the
-   *  transcript index is skipped entirely — transcripts are too big for a LIKE
-   *  fallback, and search simply omits the source. */
-  private transcriptFtsAvailable = false
+  private readonly reposRepo: ReposRepository
+  private readonly sessionsRepo: SessionsRepository
+  private readonly issuesRepo: IssuesRepository
+  private readonly conversationsRepo: ConversationsRepository
+  private readonly syncRepo: SyncRepository
+  private readonly authRepo: AuthRepository
+  private readonly superagentRepo: SuperagentRepository
+  private readonly settingsRepo: SettingsRepository
+  private readonly machinesRepo: MachinesRepository
+  private readonly eventsRepo: EventsRepository
 
   constructor(private readonly path: string = defaultDbPath()) {
     if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true })
@@ -325,41 +81,59 @@ export class SessionStore {
     this.db.exec('PRAGMA journal_mode = WAL')
     this.db.exec('PRAGMA busy_timeout = 5000')
     // The versioned migration chain owns the schema (stamps schema_version and
-    // refuses to open a DB newer than the code). What follows are per-boot,
-    // idempotent runtime steps — environment-conditional FTS objects and data
-    // heals — never schema DDL (that lives in src/migrations/ only).
+    // refuses to open a DB newer than the code). Schema DDL lives ONLY in
+    // src/migrations/.
     runMigrations(this.db, MIGRATIONS)
-    this.ensureFts()
-    this.repairSubagentSegmentPaths()
-    this.seedGlobalSuperagentThread()
+
+    // Compose the per-aggregate repositories. The two cross-aggregate edges are
+    // injected as late-bound lambdas: issues resolve their stable repo_id via
+    // the repos aggregate, and a repo-identity upgrade dual-writes onto issues.
+    this.sessionsRepo = new SessionsRepository(this.db)
+    this.issuesRepo = new IssuesRepository(this.db, (repoPath) =>
+      this.reposRepo.resolveRepoIdForPath(repoPath),
+    )
+    this.reposRepo = new ReposRepository(this.db, (repoId, repoPath) =>
+      this.issuesRepo.assignRepoIdToIssuesUnder(repoId, repoPath),
+    )
+    this.conversationsRepo = new ConversationsRepository(this.db)
+    this.syncRepo = new SyncRepository(this.db)
+    this.authRepo = new AuthRepository(this.db)
+    this.superagentRepo = new SuperagentRepository(this.db)
+    this.settingsRepo = new SettingsRepository(this.db)
+    this.machinesRepo = new MachinesRepository(this.db)
+    this.eventsRepo = new EventsRepository(this.db)
+
+    // Per-boot, idempotent runtime steps (environment-conditional FTS objects
+    // and data heals) — never schema DDL.
+    this.conversationsRepo.ensureFts()
+    this.conversationsRepo.repairSubagentSegmentPaths()
+    this.superagentRepo.seedGlobalThread()
     this.backfillIssueDeps()
-    this.importReposJson()
+    this.reposRepo.importReposJson(this.path)
     this.backfillRepoIds()
+  }
+
+  /** Per-boot heal (idempotent): mirror legacy blocked_by arrays into issue_deps. */
+  private backfillIssueDeps(): void {
+    this.issuesRepo.backfillIssueDeps()
+  }
+
+  /** Per-boot heal (idempotent): fill NULL repo_ids on repos and issues, then
+   *  self-heal origins for locally readable repos (v8 backfill, #74). */
+  private backfillRepoIds(): void {
+    this.reposRepo.backfillRepoIds()
+    this.issuesRepo.backfillNullRepoIds()
+    this.reposRepo.healLocalOrigins()
+  }
+
+  close(): void {
+    this.db.close()
   }
 
   // ---- repos ----
 
-  /** Full repo rows including machineId, originUrl and repoId (multi-machine schema). */
-  listRepos(
-    machineId?: string,
-  ): { machineId: string; path: string; originUrl: string | null; repoId: string | null }[] {
-    const rows = (
-      machineId
-        ? this.db
-            .prepare(
-              'SELECT machine_id, path, origin_url, repo_id FROM repos WHERE machine_id = ? ORDER BY rowid ASC',
-            )
-            .all(machineId)
-        : this.db
-            .prepare('SELECT machine_id, path, origin_url, repo_id FROM repos ORDER BY rowid ASC')
-            .all()
-    ) as Record<string, unknown>[]
-    return rows.map((r) => ({
-      machineId: r.machine_id as string,
-      path: r.path as string,
-      originUrl: (r.origin_url as string | null) ?? null,
-      repoId: (r.repo_id as string | null) ?? null,
-    }))
+  listRepos(machineId?: string) {
+    return this.reposRepo.listRepos(machineId)
   }
 
   /** Back-compat: flat list of paths across all machines. RepoRegistry.list() uses this. */
@@ -367,419 +141,96 @@ export class SessionStore {
     return this.listRepos(machineId).map((r) => r.path)
   }
 
-  // No path validation here by design — RepoRegistry (the caller) rejects empty/non-absolute paths.
-  addRepo(path: string, machineId = '__local__', originUrl?: string): void {
-    // readLocalOriginUrl is a no-op (null) for paths that don't exist on this host,
-    // so remote-machine repos simply get the path-fallback id until a scan reports
-    // their origin (updateRepoOrigin then upgrades it).
-    const normalizedPath = normalizeRepoPath(path)
-    const origin = originUrl ?? readLocalOriginUrl(normalizedPath) ?? undefined
-    this.db
-      .prepare(
-        'INSERT OR IGNORE INTO repos (machine_id, path, origin_url, repo_name, repo_id, added_at) VALUES (?, ?, ?, ?, ?, ?)',
-      )
-      .run(
-        machineId,
-        normalizedPath,
-        origin ?? null,
-        normalizedPath.split('/').pop() ?? null,
-        deriveRepoId({ originUrl: origin, machineId, path: normalizedPath }),
-        new Date().toISOString(),
-      )
+  addRepo(path: string, machineId?: string, originUrl?: string): void {
+    this.reposRepo.addRepo(path, machineId, originUrl)
   }
 
-  /**
-   * Record a scan-reported origin URL for a registered repo. Upgrades a
-   * path-fallback repo_id to the origin-derived id (and dual-writes the new id
-   * onto issues bucketed under that repo) — but never rewrites an id that was
-   * already origin-derived, so identities stay stable if the remote moves.
-   */
   updateRepoOrigin(machineId: string, path: string, originUrl: string): void {
-    const normalizedPath = normalizeRepoPath(path)
-    const rows = this.db
-      .prepare('SELECT path, repo_id FROM repos WHERE machine_id = ?')
-      .all(machineId) as { path: string; repo_id: string | null }[]
-    const row = rows.find((r) => normalizeRepoPath(r.path) === normalizedPath)
-    if (!row) return
-
-    const newId = deriveRepoId({ originUrl, machineId, path: normalizedPath })
-    const upgrade =
-      isPathFallbackRepoId(row.repo_id, machineId, row.path) ||
-      isPathFallbackRepoId(row.repo_id, machineId, normalizedPath)
-    const repoId = upgrade ? newId : row.repo_id
-
-    let targetPath = row.path
-    if (row.path !== normalizedPath) {
-      const result = this.db
-        .prepare('UPDATE OR IGNORE repos SET path = ? WHERE machine_id = ? AND path = ?')
-        .run(normalizedPath, machineId, row.path) as { changes?: number }
-      if ((result.changes ?? 0) > 0) {
-        targetPath = normalizedPath
-      } else {
-        this.db
-          .prepare('DELETE FROM repos WHERE machine_id = ? AND path = ?')
-          .run(machineId, row.path)
-        targetPath = normalizedPath
-      }
-    }
-
-    this.db
-      .prepare('UPDATE repos SET origin_url = ?, repo_id = ? WHERE machine_id = ? AND path = ?')
-      .run(originUrl, repoId, machineId, targetPath)
-    for (const duplicate of rows) {
-      if (duplicate.path !== targetPath && normalizeRepoPath(duplicate.path) === normalizedPath) {
-        this.db
-          .prepare('DELETE FROM repos WHERE machine_id = ? AND path = ?')
-          .run(machineId, duplicate.path)
-      }
-    }
-    if (upgrade) {
-      const stmt = this.db.prepare(
-        "UPDATE issues SET repo_id = ? WHERE repo_path = ? OR repo_path LIKE ? || '/%'",
-      )
-      for (const repoPath of new Set([row.path, normalizedPath]))
-        stmt.run(newId, repoPath, repoPath)
-    }
+    this.reposRepo.updateRepoOrigin(machineId, path, originUrl)
   }
 
-  /** repo_id for an issue's repoPath: the longest registered repo root that contains
-   *  it (any machine), else the deterministic '__local__' path-fallback. */
   resolveRepoIdForPath(repoPath: string): string {
-    const normalizedRepoPath = normalizeRepoPath(repoPath)
-    const match = this.listRepos()
-      .map((r) => ({ ...r, path: normalizeRepoPath(r.path) }))
-      .filter(
-        (r) =>
-          normalizedRepoPath === r.path ||
-          normalizedRepoPath.startsWith(r.path === '/' ? r.path : `${r.path}/`),
-      )
-      .sort((a, b) => b.path.length - a.path.length)[0]
-    return match?.repoId ?? deriveRepoId({ machineId: '__local__', path: normalizedRepoPath })
+    return this.reposRepo.resolveRepoIdForPath(repoPath)
   }
 
-  removeRepo(path: string, machineId = '__local__'): void {
-    const normalizedPath = normalizeRepoPath(path)
-    const rows = this.db.prepare('SELECT path FROM repos WHERE machine_id = ?').all(machineId) as {
-      path: string
-    }[]
-    const remove = this.db.prepare('DELETE FROM repos WHERE machine_id = ? AND path = ?')
-    for (const row of rows) {
-      if (normalizeRepoPath(row.path) === normalizedPath) remove.run(machineId, row.path)
-    }
+  removeRepo(path: string, machineId?: string): void {
+    this.reposRepo.removeRepo(path, machineId)
   }
 
   // ---- pins ----
+
   listPins(): PinState {
-    const rows = this.db.prepare('SELECT kind, id FROM pins ORDER BY rowid ASC').all() as {
-      kind: PinKind
-      id: string
-    }[]
-    const pins: PinState = { panels: [], worktrees: [], repos: [] }
-    for (const row of rows) {
-      if (row.kind === 'panel') pins.panels.push(row.id)
-      else if (row.kind === 'worktree') pins.worktrees.push(row.id)
-      else if (row.kind === 'repo') pins.repos.push(row.id)
-    }
-    return pins
+    return this.sessionsRepo.listPins()
   }
 
   setPin(kind: PinKind, id: string, pinned: boolean): void {
-    if (!PIN_KINDS.has(kind)) throw new Error(`invalid pin kind: ${kind}`)
-    const cleanId = id.trim()
-    if (!cleanId) throw new Error('pin id is empty')
-    if (pinned) {
-      this.db
-        .prepare('INSERT OR IGNORE INTO pins (kind, id, pinned_at) VALUES (?, ?, ?)')
-        .run(kind, cleanId, new Date().toISOString())
-    } else {
-      this.db.prepare('DELETE FROM pins WHERE kind = ? AND id = ?').run(kind, cleanId)
-    }
+    this.sessionsRepo.setPin(kind, id, pinned)
   }
 
   // ---- snoozes ----
-  /** Active snoozes. Lazily deletes any timed snooze whose deadline has passed
-   *  (the client clock also ignores lapsed ones at render time; this is just
-   *  housekeeping). `null` snoozes (until-next-message) never lapse by time. */
-  listSnoozes(now: number = Date.now()): SnoozeMap {
-    const rows = this.db.prepare('SELECT session_id, snoozed_until FROM snoozes').all() as {
-      session_id: string
-      snoozed_until: string | null
-    }[]
-    const out: SnoozeMap = {}
-    const expired: string[] = []
-    for (const r of rows) {
-      if (r.snoozed_until !== null && Date.parse(r.snoozed_until) <= now) {
-        expired.push(r.session_id)
-        continue
-      }
-      out[r.session_id] = r.snoozed_until
-    }
-    for (const id of expired) this.db.prepare('DELETE FROM snoozes WHERE session_id = ?').run(id)
-    return out
+
+  listSnoozes(now?: number): SnoozeMap {
+    return this.sessionsRepo.listSnoozes(now)
   }
 
-  /** Snooze a session. `until` = null → until next message; ISO string → timed. */
   setSnooze(sessionId: string, until: string | null): void {
-    const id = sessionId.trim()
-    if (!id) throw new Error('snooze session id is empty')
-    this.db
-      .prepare(
-        `INSERT INTO snoozes (session_id, snoozed_until, created_at) VALUES (?, ?, ?)
-         ON CONFLICT(session_id) DO UPDATE SET snoozed_until = excluded.snoozed_until`,
-      )
-      .run(id, until, new Date().toISOString())
+    this.sessionsRepo.setSnooze(sessionId, until)
   }
 
-  /** Un-snooze a session (no-op if not snoozed). */
   clearSnooze(sessionId: string): void {
-    this.db.prepare('DELETE FROM snoozes WHERE session_id = ?').run(sessionId.trim())
+    this.sessionsRepo.clearSnooze(sessionId)
   }
 
   // ---- tab order ----
-  /** Manual tab order per worktree path. Worktrees never reordered are absent. */
+
   listTabOrders(): Record<string, string[]> {
-    const rows = this.db.prepare('SELECT worktree, ids FROM tab_order').all() as {
-      worktree: string
-      ids: string
-    }[]
-    const out: Record<string, string[]> = {}
-    for (const row of rows) {
-      try {
-        const parsed = JSON.parse(row.ids)
-        if (Array.isArray(parsed)) out[row.worktree] = parsed.filter((x) => typeof x === 'string')
-      } catch {
-        // corrupt row -> treat as no saved order
-      }
-    }
-    return out
+    return this.sessionsRepo.listTabOrders()
   }
 
   setTabOrder(worktree: string, sessionIds: string[]): void {
-    const cleanWorktree = worktree.trim()
-    if (!cleanWorktree) throw new Error('worktree path is empty')
-    if (sessionIds.length === 0) {
-      this.db.prepare('DELETE FROM tab_order WHERE worktree = ?').run(cleanWorktree)
-      return
-    }
-    this.db
-      .prepare(
-        `INSERT INTO tab_order (worktree, ids, updated_at) VALUES (?, ?, ?)
-         ON CONFLICT(worktree) DO UPDATE SET ids = excluded.ids, updated_at = excluded.updated_at`,
-      )
-      .run(cleanWorktree, JSON.stringify(sessionIds), new Date().toISOString())
-  }
-
-  /** Drop a session id from every saved tab order (called when the session dies). */
-  private scrubTabOrders(sessionId: string): void {
-    for (const [worktree, ids] of Object.entries(this.listTabOrders())) {
-      if (!ids.includes(sessionId)) continue
-      this.setTabOrder(
-        worktree,
-        ids.filter((id) => id !== sessionId),
-      )
-    }
+    this.sessionsRepo.setTabOrder(worktree, sessionIds)
   }
 
   // ---- sessions ----
+
   loadSessions(): SessionRow[] {
-    const rows = this.db
-      .prepare(
-        `SELECT id, agent_kind, cwd, title, name, origin_kind, conversation_id, resume_kind,
-                resume_value, status, exit_code, durable_label, created_at, last_active_at,
-                archived, work_state, machine_id, last_output_at, last_input_at, last_resumed_at,
-                spawned_by, headless, issue_id, read_at
-         FROM sessions ORDER BY created_at ASC, rowid ASC`,
-      )
-      .all() as Record<string, unknown>[]
-    return rows.map((r) => ({
-      id: r.id as string,
-      agentKind: r.agent_kind as string,
-      cwd: r.cwd as string,
-      title: r.title as string,
-      name: (r.name as string | null) ?? null,
-      originKind: r.origin_kind as 'spawn' | 'resume',
-      conversationId: (r.conversation_id as string | null) ?? null,
-      resumeKind: (r.resume_kind as string | null) ?? null,
-      resumeValue: (r.resume_value as string | null) ?? null,
-      status: r.status as SessionStatusPersisted,
-      exitCode: (r.exit_code as number | null) ?? null,
-      durableLabel: r.durable_label as string,
-      createdAt: r.created_at as string,
-      lastActiveAt: r.last_active_at as string,
-      archived: r.archived === 1,
-      workState: (r.work_state as string | null) ?? null,
-      machineId: (r.machine_id as string | null) ?? '__local__',
-      lastOutputAt: (r.last_output_at as string | null) ?? null,
-      lastInputAt: (r.last_input_at as string | null) ?? null,
-      lastResumedAt: (r.last_resumed_at as string | null) ?? null,
-      spawnedBy: (r.spawned_by as string | null) ?? null,
-      headless: r.headless === 1,
-      issueId: (r.issue_id as string | null) ?? null,
-      readAt: (r.read_at as string | null) ?? null,
-    }))
+    return this.sessionsRepo.loadSessions()
   }
 
   upsertSession(row: SessionRow): void {
-    // Strict on write: never persist an out-of-enum agentKind. That value later fails
-    // the sessionsChanged zod-parse on every client and silently blanks the whole list
-    // (see relay.createSession, which resolves the 'auto' sentinel before it gets here).
-    if (!AgentKind.safeParse(row.agentKind).success) {
-      throw new Error(
-        `upsertSession: refusing to persist invalid agentKind ${JSON.stringify(row.agentKind)} for ${row.id}`,
-      )
-    }
-    this.db
-      .prepare(
-        `INSERT INTO sessions
-           (id, agent_kind, cwd, title, name, origin_kind, conversation_id, resume_kind,
-            resume_value, status, exit_code, durable_label, created_at, last_active_at,
-            archived, work_state, machine_id, last_output_at, last_input_at, last_resumed_at,
-            spawned_by, headless, issue_id, read_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT(id) DO UPDATE SET
-           title = excluded.title,
-           name = excluded.name,
-           origin_kind = excluded.origin_kind,
-           conversation_id = excluded.conversation_id,
-           resume_kind = excluded.resume_kind,
-           resume_value = excluded.resume_value,
-           status = excluded.status,
-           exit_code = excluded.exit_code,
-           durable_label = excluded.durable_label,
-           last_active_at = excluded.last_active_at,
-           archived = excluded.archived,
-           work_state = excluded.work_state,
-           machine_id = excluded.machine_id,
-           last_output_at = excluded.last_output_at,
-           last_input_at = excluded.last_input_at,
-           last_resumed_at = excluded.last_resumed_at,
-           spawned_by = excluded.spawned_by,
-           issue_id = excluded.issue_id,
-           read_at = excluded.read_at`,
-      )
-      .run(
-        row.id,
-        row.agentKind,
-        row.cwd,
-        row.title,
-        row.name,
-        row.originKind,
-        row.conversationId,
-        row.resumeKind,
-        row.resumeValue,
-        row.status,
-        row.exitCode,
-        row.durableLabel,
-        row.createdAt,
-        row.lastActiveAt,
-        row.archived ? 1 : 0,
-        row.workState,
-        row.machineId ?? '__local__',
-        row.lastOutputAt ?? null,
-        row.lastInputAt ?? null,
-        row.lastResumedAt ?? null,
-        row.spawnedBy ?? null,
-        row.headless ? 1 : 0,
-        row.issueId ?? null,
-        row.readAt ?? null,
-      )
+    this.sessionsRepo.upsertSession(row)
   }
 
   deleteSession(id: string): void {
-    this.db.prepare('DELETE FROM sessions WHERE id = ?').run(id)
-    this.db.prepare('DELETE FROM pins WHERE kind = ? AND id = ?').run('panel', id)
-    this.db.prepare('DELETE FROM session_drafts WHERE session_id = ?').run(id)
-    this.db.prepare('DELETE FROM snoozes WHERE session_id = ?').run(id)
-    this.scrubTabOrders(id)
+    this.sessionsRepo.deleteSession(id)
   }
 
   // ---- composer drafts ----
-  // The per-session in-progress chat-composer / native-prompt text (issue #34:
-  // "input into a text field... should be stored while typing so it's never
-  // lost"). Kept in its OWN table, not a column on `sessions`: a draft changes on
-  // every keystroke, while a SessionRow is rewritten on every meta change — sharing
-  // a row would make either write clobber the other. The registry debounces the
-  // writes here (see relay.ts) so SQLite isn't hit per keystroke.
+
   loadDrafts(): Record<string, string> {
-    const rows = this.db.prepare('SELECT session_id, text FROM session_drafts').all() as {
-      session_id: string
-      text: string
-    }[]
-    const out: Record<string, string> = {}
-    for (const r of rows) out[r.session_id] = r.text
-    return out
+    return this.sessionsRepo.loadDrafts()
   }
 
-  /** Draft last-edit times by session — the companion to {@link loadDrafts}, used
-   *  to seed `Session.draftUpdatedAt` at boot so a draft lifts its session in the
-   *  attention ordering after a restart. */
   loadDraftTimes(): Record<string, string> {
-    const rows = this.db.prepare('SELECT session_id, updated_at FROM session_drafts').all() as {
-      session_id: string
-      updated_at: string
-    }[]
-    const out: Record<string, string> = {}
-    for (const r of rows) out[r.session_id] = r.updated_at
-    return out
+    return this.sessionsRepo.loadDraftTimes()
   }
 
-  /** Set (non-empty) or clear (empty/whitespace-only persists as a deleted row) a
-   *  session's draft. Returns the new updated_at when set, or undefined when cleared
-   *  — the registry mirrors it onto `Session.draftUpdatedAt`. */
   setDraft(sessionId: string, text: string): string | undefined {
-    const id = sessionId.trim()
-    if (!id) return undefined
-    if (text) {
-      const updatedAt = new Date().toISOString()
-      this.db
-        .prepare(
-          `INSERT INTO session_drafts (session_id, text, updated_at) VALUES (?, ?, ?)
-           ON CONFLICT(session_id) DO UPDATE SET text = excluded.text, updated_at = excluded.updated_at`,
-        )
-        .run(id, text, updatedAt)
-      return updatedAt
-    }
-    this.db.prepare('DELETE FROM session_drafts WHERE session_id = ?').run(id)
-    return undefined
+    return this.sessionsRepo.setDraft(sessionId, text)
   }
 
-  // ---- settings ----
-  /** The whole settings blob, defaults filled in. A corrupt row reads as defaults. */
+  // ---- settings / meta ----
+
   getSettings(): PodiumSettings {
-    const row = this.db.prepare('SELECT value FROM meta WHERE key = ?').get('settings') as
-      | { value: string }
-      | undefined
-    if (!row) return normalizeSettings(undefined)
-    try {
-      return normalizeSettings(JSON.parse(row.value))
-    } catch {
-      return normalizeSettings(undefined)
-    }
+    return this.settingsRepo.getSettings()
   }
 
   setSettings(settings: PodiumSettings): void {
-    this.db
-      .prepare('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)')
-      .run('settings', JSON.stringify(settings))
+    this.settingsRepo.setSettings(settings)
   }
 
-  // ---- live model catalog (SWR cache, persisted so it survives restarts and the
-  //      first picker-open after a redeploy is instant, not a cold ~2s probe) ----
-  getModelCatalog(): {
-    byAgent: Record<string, Array<{ value: string; label: string; efforts?: string[] }>>
-    fetchedAt: number
-    version?: number
-  } | null {
-    const row = this.db.prepare('SELECT value FROM meta WHERE key = ?').get('model_catalog') as
-      | { value: string }
-      | undefined
-    if (!row) return null
-    try {
-      const parsed = JSON.parse(row.value)
-      return parsed && typeof parsed === 'object' && parsed.byAgent ? parsed : null
-    } catch {
-      return null
-    }
+  getModelCatalog() {
+    return this.settingsRepo.getModelCatalog()
   }
 
   setModelCatalog(snapshot: {
@@ -787,350 +238,118 @@ export class SessionStore {
     fetchedAt: number
     version?: number
   }): void {
-    this.db
-      .prepare('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)')
-      .run('model_catalog', JSON.stringify(snapshot))
+    this.settingsRepo.setModelCatalog(snapshot)
   }
 
   // ---- node⇄hub upstream sync (docs/spec/node-hub-sync.md) ----
-  /** Last hub oplog seq this node applied (meta key). Null until the first catch-up. */
+
   getUpstreamCursor(): number | null {
-    const row = this.db
-      .prepare('SELECT value FROM meta WHERE key = ?')
-      .get('upstream_sync_cursor') as { value: string } | undefined
-    if (!row) return null
-    const n = Number(row.value)
-    return Number.isFinite(n) && n >= 0 ? n : null
+    return this.settingsRepo.getUpstreamCursor()
   }
 
   setUpstreamCursor(cursor: number): void {
-    this.db
-      .prepare('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)')
-      .run('upstream_sync_cursor', String(cursor))
+    this.settingsRepo.setUpstreamCursor(cursor)
   }
 
-  /**
-   * Issues RECEIVED from the hub, stored verbatim as a JSON blob — deliberately NOT
-   * merged into this node's IssueService (two issue stores merge in P7b; this is the
-   * P7b input, kept durable so nothing received is lost across restarts).
-   */
   setUpstreamIssuesJson(json: string): void {
-    this.setUpstreamBlob('upstream_issues', json)
+    this.settingsRepo.setUpstreamIssuesJson(json)
   }
 
   getUpstreamIssuesJson(): string | null {
-    return this.getUpstreamBlob('upstream_issues')
+    return this.settingsRepo.getUpstreamIssuesJson()
   }
 
-  /** Last-known hub sessions/conversations (wire JSON). Durable so a restarted
-   *  UpstreamSync resumes from its persisted cursor with a DELTA applied on top
-   *  of this base — a delta over an empty replica would silently drop entities. */
   setUpstreamSessionsJson(json: string): void {
-    this.setUpstreamBlob('upstream_sessions', json)
+    this.settingsRepo.setUpstreamSessionsJson(json)
   }
 
   getUpstreamSessionsJson(): string | null {
-    return this.getUpstreamBlob('upstream_sessions')
+    return this.settingsRepo.getUpstreamSessionsJson()
   }
 
   setUpstreamConversationsJson(json: string): void {
-    this.setUpstreamBlob('upstream_conversations', json)
+    this.settingsRepo.setUpstreamConversationsJson(json)
   }
 
   getUpstreamConversationsJson(): string | null {
-    return this.getUpstreamBlob('upstream_conversations')
-  }
-
-  private setUpstreamBlob(key: string, json: string): void {
-    this.db.prepare('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)').run(key, json)
-  }
-
-  private getUpstreamBlob(key: string): string | null {
-    const row = this.db.prepare('SELECT value FROM meta WHERE key = ?').get(key) as
-      | { value: string }
-      | undefined
-    return row?.value ?? null
+    return this.settingsRepo.getUpstreamConversationsJson()
   }
 
   // ---- client (human UI) login sessions ----
-  /** Record a login session keyed by the SHA-256 of its cookie token. */
+
   createClientSession(tokenHash: string, expiresAt: string): void {
-    this.db
-      .prepare(
-        'INSERT OR REPLACE INTO client_sessions (token_hash, created_at, expires_at) VALUES (?, ?, ?)',
-      )
-      .run(tokenHash, new Date().toISOString(), expiresAt)
+    this.authRepo.createClientSession(tokenHash, expiresAt)
   }
 
   getClientSession(tokenHash: string): { expiresAt: string } | undefined {
-    const row = this.db
-      .prepare('SELECT expires_at FROM client_sessions WHERE token_hash = ?')
-      .get(tokenHash) as { expires_at: string } | undefined
-    return row ? { expiresAt: row.expires_at } : undefined
+    return this.authRepo.getClientSession(tokenHash)
   }
 
-  /** Push out an existing session's expiry (sliding/rolling renewal). No-op if absent. */
   extendClientSession(tokenHash: string, expiresAt: string): void {
-    this.db
-      .prepare('UPDATE client_sessions SET expires_at = ? WHERE token_hash = ?')
-      .run(expiresAt, tokenHash)
+    this.authRepo.extendClientSession(tokenHash, expiresAt)
   }
 
-  /** True iff the session exists and has not expired as of `nowIso`. */
   isClientSessionValid(tokenHash: string, nowIso: string): boolean {
-    const session = this.getClientSession(tokenHash)
-    return Boolean(session && session.expiresAt > nowIso)
+    return this.authRepo.isClientSessionValid(tokenHash, nowIso)
   }
 
   deleteClientSession(tokenHash: string): void {
-    this.db.prepare('DELETE FROM client_sessions WHERE token_hash = ?').run(tokenHash)
+    this.authRepo.deleteClientSession(tokenHash)
   }
 
-  /** Revoke every client login session ("sign out everywhere"). */
   deleteAllClientSessions(): void {
-    this.db.prepare('DELETE FROM client_sessions').run()
+    this.authRepo.deleteAllClientSessions()
   }
 
-  /** Housekeeping: drop sessions whose expiry has passed. */
   deleteExpiredClientSessions(nowIso: string): void {
-    this.db.prepare('DELETE FROM client_sessions WHERE expires_at <= ?').run(nowIso)
+    this.authRepo.deleteExpiredClientSessions(nowIso)
   }
 
   // ---- conversation index ----
-  /**
-   * Upsert discovered conversations (daemon pushes summaries). User-set name and
-   * work-LLM summary survive re-discovery — discovery never overwrites curation.
-   */
+
   upsertConversations(rows: (ConversationIndexRow & { machineId?: string })[]): void {
-    if (rows.length === 0) return
-    const stmt = this.db.prepare(
-      `INSERT INTO conversations
-         (id, agent_kind, title, project_path, provider_id, resume_kind, resume_value,
-          created_at, updated_at, message_count, machine_id, parent_conversation_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT(id) DO UPDATE SET
-         agent_kind = excluded.agent_kind,
-         provider_id = excluded.provider_id,
-         machine_id = excluded.machine_id,
-         -- COALESCE the optional columns: a later discovery push that omits a
-         -- field (ConversationSummaryWire marks title/resume optional) must not
-         -- null out what an earlier richer push recorded, or search stops
-         -- matching and the hibernate→resume ref is lost.
-         title = COALESCE(excluded.title, conversations.title),
-         project_path = COALESCE(excluded.project_path, conversations.project_path),
-         resume_kind = COALESCE(excluded.resume_kind, conversations.resume_kind),
-         resume_value = COALESCE(excluded.resume_value, conversations.resume_value),
-         created_at = COALESCE(excluded.created_at, conversations.created_at),
-         updated_at = COALESCE(excluded.updated_at, conversations.updated_at),
-         message_count = COALESCE(excluded.message_count, conversations.message_count),
-         parent_conversation_id =
-           COALESCE(excluded.parent_conversation_id, conversations.parent_conversation_id)`,
-    )
-    // One transaction, not N autocommits: the daemon pushes its full conversation
-    // list (potentially thousands) every ~15s, and a commit-per-row turned that
-    // into thousands of WAL syncs on the synchronous main thread. The FTS index
-    // stays current via triggers (see migrate), so no rebuild here.
-    this.db.exec('BEGIN IMMEDIATE')
-    try {
-      for (const r of rows) {
-        stmt.run(
-          r.id,
-          r.agentKind,
-          r.title ?? null,
-          r.projectPath ?? null,
-          r.providerId,
-          r.resumeKind ?? null,
-          r.resumeValue ?? null,
-          r.createdAt ?? null,
-          r.updatedAt ?? null,
-          r.messageCount ?? null,
-          r.machineId ?? '__local__',
-          r.parentConversationId ?? null,
-        )
-      }
-      this.db.exec('COMMIT')
-    } catch (e) {
-      this.db.exec('ROLLBACK')
-      throw e
-    }
+    this.conversationsRepo.upsertConversations(rows)
   }
 
-  /**
-   * Drop conversations the daemon no longer sees (an incremental-discovery delta's
-   * `removed` set). Transactional like {@link upsertConversations}: one BEGIN
-   * IMMEDIATE / COMMIT, ROLLBACK + rethrow on error, so a mid-batch failure never
-   * leaves the index half-pruned. The external-content FTS index stays consistent
-   * automatically — the `conversations_ad` AFTER DELETE trigger (see migrate)
-   * issues the FTS5 'delete' command per affected rowid, so a plain DELETE here is
-   * enough; no manual FTS bookkeeping.
-   */
   deleteConversations(ids: string[]): void {
-    if (ids.length === 0) return
-    const stmt = this.db.prepare('DELETE FROM conversations WHERE id = ?')
-    this.db.exec('BEGIN IMMEDIATE')
-    try {
-      for (const id of ids) stmt.run(id)
-      this.db.exec('COMMIT')
-    } catch (e) {
-      this.db.exec('ROLLBACK')
-      throw e
-    }
+    this.conversationsRepo.deleteConversations(ids)
   }
 
-  /** Persist command-center-generated curation: a good name and/or a state summary. */
   setConversationMeta(id: string, meta: { name?: string; summary?: string }): void {
-    const exists = this.db.prepare('SELECT 1 FROM conversations WHERE id = ?').get(id)
-    if (!exists) {
-      this.db
-        .prepare(
-          `INSERT INTO conversations (id, agent_kind, provider_id) VALUES (?, 'claude-code', 'unknown')`,
-        )
-        .run(id)
-    }
-    if (meta.name !== undefined) {
-      this.db.prepare('UPDATE conversations SET name = ? WHERE id = ?').run(meta.name, id)
-    }
-    if (meta.summary !== undefined) {
-      this.db.prepare('UPDATE conversations SET summary = ? WHERE id = ?').run(meta.summary, id)
-    }
-    // FTS stays current via the UPDATE trigger (see migrate) — no rebuild.
+    this.conversationsRepo.setConversationMeta(id, meta)
   }
 
-  /**
-   * Keyword search over title/name/summary/path. FTS5 (bm25 + recency) where the
-   * runtime has it; LIKE fallback elsewhere. `projectPath` filters to one
-   * worktree/repo subtree. Empty query = recency-ordered browse.
-   */
   searchConversations(opts: {
     query?: string
     projectPath?: string
     limit?: number
   }): ConversationIndexRow[] {
-    const limit = Math.min(200, Math.max(1, opts.limit ?? 50))
-    const pathFilter = opts.projectPath ? ' AND (c.project_path = ? OR c.project_path LIKE ?)' : ''
-    const pathArgs = opts.projectPath ? [opts.projectPath, `${opts.projectPath}/%`] : []
-    // The resume picker offers top-level sessions only — never a subagent
-    // (sidechain) conversation, mirroring `claude --resume`, which lists the
-    // parent conversation, not the Task subagents it spawned.
-    const topLevel = ' AND c.parent_conversation_id IS NULL'
-    const q = opts.query?.trim() ?? ''
-    let rows: Record<string, unknown>[]
-    if (!q) {
-      rows = this.db
-        .prepare(
-          `SELECT c.* FROM conversations c WHERE 1=1${pathFilter}${topLevel}
-           ORDER BY c.updated_at DESC NULLS LAST LIMIT ?`,
-        )
-        .all(...pathArgs, limit) as Record<string, unknown>[]
-    } else if (this.ftsAvailable) {
-      const ftsQuery = q
-        .split(/\s+/)
-        .filter(Boolean)
-        .map((t) => `"${t.replace(/"/g, '""')}"*`)
-        .join(' ')
-      rows = this.db
-        .prepare(
-          // Recency-ordered even while searching — the resume picker mirrors
-          // `claude --resume`, which lists newest-active first regardless of the
-          // query. FTS only narrows the set (the MATCH); it does not reorder it,
-          // so a relevant-but-ancient conversation never jumps above a recent one.
-          `SELECT c.* FROM conversations_fts f
-           JOIN conversations c ON c.rowid = f.rowid
-           WHERE conversations_fts MATCH ?${pathFilter}${topLevel}
-           ORDER BY c.updated_at DESC NULLS LAST LIMIT ?`,
-        )
-        .all(ftsQuery, ...pathArgs, limit) as Record<string, unknown>[]
-    } else {
-      const like = `%${q}%`
-      rows = this.db
-        .prepare(
-          `SELECT c.* FROM conversations c
-           WHERE (c.title LIKE ? OR c.name LIKE ? OR c.summary LIKE ? OR c.project_path LIKE ?)${pathFilter}${topLevel}
-           ORDER BY c.updated_at DESC NULLS LAST LIMIT ?`,
-        )
-        .all(like, like, like, like, ...pathArgs, limit) as Record<string, unknown>[]
-    }
-    return rows.map((r) => ({
-      id: r.id as string,
-      agentKind: r.agent_kind as string,
-      providerId: r.provider_id as string,
-      title: (r.title as string | null) ?? undefined,
-      name: (r.name as string | null) ?? undefined,
-      summary: (r.summary as string | null) ?? undefined,
-      projectPath: (r.project_path as string | null) ?? undefined,
-      resumeKind: (r.resume_kind as string | null) ?? undefined,
-      resumeValue: (r.resume_value as string | null) ?? undefined,
-      createdAt: (r.created_at as string | null) ?? undefined,
-      updatedAt: (r.updated_at as string | null) ?? undefined,
-      messageCount: (r.message_count as number | null) ?? undefined,
-      machineId: (r.machine_id as string | null) ?? undefined,
-    }))
+    return this.conversationsRepo.searchConversations(opts)
   }
 
   // ---- superagent threads ----
-  loadSuperagentMessages(threadId = 'global', limit = 200): SuperagentMessageRow[] {
-    const rows = this.db
-      .prepare(
-        `SELECT id, role, content, tool_calls, tool_call_id, tool_name, created_at
-         FROM superagent_messages WHERE thread_id = ? ORDER BY id DESC LIMIT ?`,
-      )
-      .all(threadId, limit) as Record<string, unknown>[]
-    return rows.reverse().map((r) => ({
-      id: r.id as number,
-      role: r.role as SuperagentMessageRow['role'],
-      content: r.content as string,
-      toolCalls: parseJsonColumn<ToolCallRow[]>(
-        r.tool_calls,
-        `superagent msg ${String(r.id)} tool_calls`,
-      ),
-      toolCallId: (r.tool_call_id as string | null) ?? undefined,
-      toolName: (r.tool_name as string | null) ?? undefined,
-      createdAt: r.created_at as string,
-    }))
+
+  loadSuperagentMessages(threadId?: string, limit?: number): SuperagentMessageRow[] {
+    return this.superagentRepo.loadSuperagentMessages(threadId, limit)
   }
 
   appendSuperagentMessage(
     threadId: string,
     m: Omit<SuperagentMessageRow, 'id' | 'createdAt'>,
   ): SuperagentMessageRow {
-    const createdAt = new Date().toISOString()
-    const result = this.db
-      .prepare(
-        `INSERT INTO superagent_messages
-           (thread_id, role, content, tool_calls, tool_call_id, tool_name, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .run(
-        threadId,
-        m.role,
-        m.content,
-        m.toolCalls ? JSON.stringify(m.toolCalls) : null,
-        m.toolCallId ?? null,
-        m.toolName ?? null,
-        createdAt,
-      )
-    this.db
-      .prepare('UPDATE superagent_threads SET updated_at = ? WHERE id = ?')
-      .run(createdAt, threadId)
-    return { ...m, id: Number(result.lastInsertRowid), createdAt }
+    return this.superagentRepo.appendSuperagentMessage(threadId, m)
   }
 
-  clearSuperagentMessages(threadId = 'global'): void {
-    this.db.prepare('DELETE FROM superagent_messages WHERE thread_id = ?').run(threadId)
+  clearSuperagentMessages(threadId?: string): void {
+    this.superagentRepo.clearSuperagentMessages(threadId)
   }
 
   listSuperagentThreads(): SuperagentThreadRow[] {
-    const rows = this.db
-      .prepare(`SELECT * FROM superagent_threads WHERE archived = 0 ORDER BY updated_at DESC`)
-      .all() as Record<string, unknown>[]
-    return rows.map((r) => this.mapSuperagentThread(r))
+    return this.superagentRepo.listSuperagentThreads()
   }
 
   getSuperagentThread(id: string): SuperagentThreadRow | undefined {
-    const r = this.db.prepare('SELECT * FROM superagent_threads WHERE id = ?').get(id) as
-      | Record<string, unknown>
-      | undefined
-    return r ? this.mapSuperagentThread(r) : undefined
+    return this.superagentRepo.getSuperagentThread(id)
   }
 
   upsertSuperagentThread(t: {
@@ -1140,35 +359,13 @@ export class SessionStore {
     repoPath?: string
     title?: string
   }): void {
-    const now = new Date().toISOString()
-    this.db
-      .prepare(
-        `INSERT INTO superagent_threads (id, kind, origin_session_id, repo_path, title, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT(id) DO UPDATE SET
-           title = COALESCE(excluded.title, title), archived = 0, updated_at = ?`,
-      )
-      .run(
-        t.id,
-        t.kind,
-        t.originSessionId ?? null,
-        t.repoPath ?? null,
-        t.title ?? null,
-        now,
-        now,
-        now,
-      )
+    this.superagentRepo.upsertSuperagentThread(t)
   }
 
   setThreadWatermark(id: string, itemId: string, ts: string | undefined): void {
-    this.db
-      .prepare('UPDATE superagent_threads SET watermark_item_id = ?, watermark_ts = ? WHERE id = ?')
-      .run(itemId, ts ?? null, id)
+    this.superagentRepo.setThreadWatermark(id, itemId, ts)
   }
 
-  /** Patch the headless-session binding columns on a thread. Only the fields
-   *  present in `patch` are written; `terminalSessionId: null` clears the
-   *  terminal one-writer lock. */
   updateSuperagentThreadBinding(
     id: string,
     patch: {
@@ -1178,106 +375,41 @@ export class SessionStore {
       terminalSessionId?: string | null
     },
   ): void {
-    const sets: string[] = []
-    const args: (string | null)[] = []
-    if (patch.agentKind !== undefined) {
-      sets.push('agent_kind = ?')
-      args.push(patch.agentKind)
-    }
-    if (patch.podiumSessionId !== undefined) {
-      sets.push('podium_session_id = ?')
-      args.push(patch.podiumSessionId)
-    }
-    if (patch.harnessSessionId !== undefined) {
-      sets.push('harness_session_id = ?')
-      args.push(patch.harnessSessionId)
-    }
-    if (patch.terminalSessionId !== undefined) {
-      sets.push('terminal_session_id = ?')
-      args.push(patch.terminalSessionId)
-    }
-    if (sets.length === 0) return
-    sets.push('updated_at = ?')
-    args.push(new Date().toISOString())
-    this.db
-      .prepare(`UPDATE superagent_threads SET ${sets.join(', ')} WHERE id = ?`)
-      .run(...args, id)
+    this.superagentRepo.updateSuperagentThreadBinding(id, patch)
   }
 
   archiveSuperagentThread(id: string): void {
-    this.db.prepare('UPDATE superagent_threads SET archived = 1 WHERE id = ?').run(id)
+    this.superagentRepo.archiveSuperagentThread(id)
   }
 
   // ---- machines ----
 
   upsertMachine(m: { id: string; name: string; hostname: string; tokenHash: string }): void {
-    const now = new Date().toISOString()
-    this.db
-      .prepare(
-        `INSERT INTO machines (id, name, hostname, token_hash, created_at, last_seen_at)
-         VALUES (?, ?, ?, ?, ?, ?)
-         ON CONFLICT(id) DO UPDATE SET
-           name = excluded.name,
-           hostname = excluded.hostname,
-           token_hash = excluded.token_hash,
-           last_seen_at = excluded.last_seen_at`,
-      )
-      .run(m.id, m.name, m.hostname, m.tokenHash, now, now)
+    this.machinesRepo.upsertMachine(m)
   }
 
-  listMachines(): MachineRecord[] {
-    return (
-      this.db
-        .prepare(
-          'SELECT id, name, hostname, created_at, last_seen_at FROM machines ORDER BY created_at ASC',
-        )
-        .all() as Record<string, unknown>[]
-    ).map((r) => ({
-      id: r.id as string,
-      name: r.name as string,
-      hostname: r.hostname as string,
-      createdAt: r.created_at as string,
-      lastSeenAt: r.last_seen_at as string,
-    }))
+  listMachines() {
+    return this.machinesRepo.listMachines()
   }
 
-  getMachine(id: string): MachineRecord | undefined {
-    const r = this.db
-      .prepare('SELECT id, name, hostname, created_at, last_seen_at FROM machines WHERE id = ?')
-      .get(id) as Record<string, unknown> | undefined
-    if (!r) return undefined
-    return {
-      id: r.id as string,
-      name: r.name as string,
-      hostname: r.hostname as string,
-      createdAt: r.created_at as string,
-      lastSeenAt: r.last_seen_at as string,
-    }
+  getMachine(id: string) {
+    return this.machinesRepo.getMachine(id)
   }
 
-  /** Constant-time token comparison using sha-256 hex. */
   getMachineByToken(id: string, token: string): boolean {
-    const row = this.db.prepare('SELECT token_hash FROM machines WHERE id = ?').get(id) as
-      | { token_hash: string }
-      | undefined
-    if (!row) return false
-    const a = Buffer.from(createHash('sha256').update(token).digest('hex'))
-    const b = Buffer.from(row.token_hash)
-    return a.length === b.length && timingSafeEqual(a, b)
+    return this.machinesRepo.getMachineByToken(id, token)
   }
 
   renameMachine(id: string, name: string): void {
-    this.db.prepare('UPDATE machines SET name = ? WHERE id = ?').run(name, id)
+    this.machinesRepo.renameMachine(id, name)
   }
 
   deleteMachine(id: string): void {
-    this.db.prepare('DELETE FROM machines WHERE id = ?').run(id)
+    this.machinesRepo.deleteMachine(id)
   }
 
   touchMachine(id: string, hostname: string): void {
-    this.db
-      .prepare('UPDATE machines SET last_seen_at = ?, hostname = ? WHERE id = ?')
-      .run(new Date().toISOString(), hostname, id)
+    this.machinesRepo.touchMachine(id, hostname)
   }
 
   /**
@@ -1286,408 +418,111 @@ export class SessionStore {
    * will match `__local__` any more).
    */
   adoptLocalRows(machineId: string): void {
-    for (const t of ['sessions', 'repos', 'conversations']) {
-      this.db
-        .prepare(`UPDATE ${t} SET machine_id = ? WHERE machine_id = '__local__'`)
-        .run(machineId)
-    }
-  }
-
-  private mapSuperagentThread(r: Record<string, unknown>): SuperagentThreadRow {
-    return {
-      id: r.id as string,
-      kind: r.kind as 'global' | 'btw' | 'concierge',
-      originSessionId: (r.origin_session_id as string | null) ?? undefined,
-      repoPath: (r.repo_path as string | null) ?? undefined,
-      title: (r.title as string | null) ?? undefined,
-      watermarkItemId: (r.watermark_item_id as string | null) ?? undefined,
-      watermarkTs: (r.watermark_ts as string | null) ?? undefined,
-      agentKind: (r.agent_kind as string | null) ?? undefined,
-      podiumSessionId: (r.podium_session_id as string | null) ?? undefined,
-      harnessSessionId: (r.harness_session_id as string | null) ?? undefined,
-      terminalSessionId: (r.terminal_session_id as string | null) ?? undefined,
-      createdAt: r.created_at as string,
-      updatedAt: r.updated_at as string,
-      archived: Boolean(r.archived),
-    }
+    this.sessionsRepo.adoptLocalRows(machineId)
+    this.reposRepo.adoptLocalRows(machineId)
+    this.conversationsRepo.adoptLocalRows(machineId)
   }
 
   // ---- issues ----
 
   upsertIssue(row: IssueRow): void {
-    // Strict on write: stage is a load-bearing enum (the board column + zod-validated
-    // on the wire). defaultAgent is intentionally NOT validated here — 'auto' is a
-    // legal stored sentinel resolved to a concrete kind only at spawn time.
-    if (!IssueStage.safeParse(row.stage).success) {
-      throw new Error(
-        `upsertIssue: refusing to persist invalid stage ${JSON.stringify(row.stage)} for ${row.id}`,
-      )
-    }
-    // Normalize blockedBy so the column is always a clean string[] JSON value.
-    const blockedBy = Array.isArray(row.blockedBy)
-      ? row.blockedBy.filter((x): x is string => typeof x === 'string')
-      : []
-    this.db
-      .prepare(
-        `INSERT INTO issues
-           (id, repo_path, repo_id, seq, title, description, stage, worktree_path, branch, parent_branch,
-            default_agent, default_model, default_effort, machine_id,
-            linear_id, linear_identifier, linear_url, activity_notes, notes_updated_at,
-            suggested_stage, suggested_reason, blocked_by, dependency_note, pr_url,
-            priority, type, assignee, parent_id, design, acceptance, notes, due_at,
-            defer_until, closed_reason, superseded_by, duplicate_of, pinned, estimate_min,
-            needs_human, human_question, panel,
-            created_at, updated_at, archived, origin, draft, read_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT(id) DO UPDATE SET
-           repo_id = excluded.repo_id,
-           title = excluded.title, description = excluded.description, stage = excluded.stage,
-           worktree_path = excluded.worktree_path, branch = excluded.branch,
-           parent_branch = excluded.parent_branch, default_agent = excluded.default_agent,
-           default_model = excluded.default_model, default_effort = excluded.default_effort,
-           machine_id = excluded.machine_id,
-           linear_id = excluded.linear_id, linear_identifier = excluded.linear_identifier,
-           linear_url = excluded.linear_url, activity_notes = excluded.activity_notes,
-           notes_updated_at = excluded.notes_updated_at, suggested_stage = excluded.suggested_stage,
-           suggested_reason = excluded.suggested_reason, blocked_by = excluded.blocked_by,
-           dependency_note = excluded.dependency_note, pr_url = excluded.pr_url,
-           priority = excluded.priority, type = excluded.type, assignee = excluded.assignee,
-           parent_id = excluded.parent_id, design = excluded.design,
-           acceptance = excluded.acceptance, notes = excluded.notes, due_at = excluded.due_at,
-           defer_until = excluded.defer_until, closed_reason = excluded.closed_reason,
-           superseded_by = excluded.superseded_by, duplicate_of = excluded.duplicate_of,
-           pinned = excluded.pinned, estimate_min = excluded.estimate_min,
-           needs_human = excluded.needs_human, human_question = excluded.human_question,
-           panel = excluded.panel,
-           updated_at = excluded.updated_at, archived = excluded.archived,
-           origin = excluded.origin, draft = excluded.draft, read_at = excluded.read_at`,
-      )
-      .run(
-        row.id,
-        row.repoPath,
-        row.repoId ?? this.resolveRepoIdForPath(row.repoPath),
-        row.seq,
-        row.title,
-        row.description,
-        row.stage,
-        row.worktreePath,
-        row.branch,
-        row.parentBranch,
-        row.defaultAgent,
-        row.defaultModel,
-        row.defaultEffort,
-        row.machineId ?? null,
-        row.linearId,
-        row.linearIdentifier,
-        row.linearUrl,
-        row.activityNotes,
-        row.notesUpdatedAt,
-        row.suggestedStage,
-        row.suggestedReason,
-        JSON.stringify(blockedBy),
-        row.dependencyNote,
-        row.prUrl,
-        row.priority,
-        row.type,
-        row.assignee,
-        row.parentId,
-        row.design,
-        row.acceptance,
-        row.notes,
-        row.dueAt,
-        row.deferUntil,
-        row.closedReason,
-        row.supersededBy,
-        row.duplicateOf,
-        row.pinned ? 1 : 0,
-        row.estimateMin,
-        row.needsHuman ? 1 : 0,
-        row.humanQuestion,
-        row.panel ?? null,
-        row.createdAt,
-        row.updatedAt,
-        row.archived ? 1 : 0,
-        row.origin ?? 'human',
-        row.draft ? 1 : 0,
-        row.readAt ?? null,
-      )
-  }
-
-  private mapIssueRow(r: Record<string, unknown>): IssueRow {
-    return {
-      id: r.id as string,
-      repoPath: r.repo_path as string,
-      repoId: (r.repo_id as string | null) ?? null,
-      seq: r.seq as number,
-      title: r.title as string,
-      description: (r.description as string) ?? '',
-      stage: r.stage as string,
-      worktreePath: (r.worktree_path as string | null) ?? null,
-      branch: (r.branch as string | null) ?? null,
-      parentBranch: r.parent_branch as string,
-      defaultAgent: r.default_agent as string,
-      defaultModel: (r.default_model as string | null) ?? 'auto',
-      defaultEffort: (r.default_effort as string | null) ?? 'auto',
-      machineId: (r.machine_id as string | null) ?? null,
-      linearId: (r.linear_id as string | null) ?? null,
-      linearIdentifier: (r.linear_identifier as string | null) ?? null,
-      linearUrl: (r.linear_url as string | null) ?? null,
-      activityNotes: (r.activity_notes as string | null) ?? null,
-      notesUpdatedAt: (r.notes_updated_at as string | null) ?? null,
-      suggestedStage: (r.suggested_stage as string | null) ?? null,
-      suggestedReason: (r.suggested_reason as string | null) ?? null,
-      blockedBy: parseStringArray(r.blocked_by, `issue ${String(r.id)} blocked_by`),
-      dependencyNote: (r.dependency_note as string | null) ?? null,
-      prUrl: (r.pr_url as string | null) ?? null,
-      priority: (r.priority as number) ?? 2,
-      type: (r.type as string) ?? 'task',
-      assignee: (r.assignee as string | null) ?? null,
-      parentId: (r.parent_id as string | null) ?? null,
-      design: (r.design as string | null) ?? null,
-      acceptance: (r.acceptance as string | null) ?? null,
-      notes: (r.notes as string | null) ?? null,
-      dueAt: (r.due_at as string | null) ?? null,
-      deferUntil: (r.defer_until as string | null) ?? null,
-      closedReason: (r.closed_reason as string | null) ?? null,
-      supersededBy: (r.superseded_by as string | null) ?? null,
-      duplicateOf: (r.duplicate_of as string | null) ?? null,
-      pinned: r.pinned === 1,
-      estimateMin: (r.estimate_min as number | null) ?? null,
-      needsHuman: r.needs_human === 1,
-      humanQuestion: (r.human_question as string | null) ?? null,
-      panel: (r.panel as string | null) ?? null,
-      createdAt: r.created_at as string,
-      updatedAt: r.updated_at as string,
-      archived: r.archived === 1,
-      origin: (r.origin as string | null) ?? 'human',
-      draft: r.draft === 1,
-      readAt: (r.read_at as string | null) ?? null,
-    }
+    this.issuesRepo.upsertIssue(row)
   }
 
   getIssue(id: string): IssueRow | null {
-    const r = this.db.prepare('SELECT * FROM issues WHERE id = ?').get(id) as
-      | Record<string, unknown>
-      | undefined
-    return r ? this.mapIssueRow(r) : null
+    return this.issuesRepo.getIssue(id)
   }
 
   listIssueRows(repoPath?: string): IssueRow[] {
-    const rows = (
-      repoPath
-        ? this.db.prepare('SELECT * FROM issues WHERE repo_path = ? ORDER BY seq ASC').all(repoPath)
-        : this.db.prepare('SELECT * FROM issues ORDER BY repo_path ASC, seq ASC').all()
-    ) as Record<string, unknown>[]
-    return rows.map((r) => this.mapIssueRow(r))
+    return this.issuesRepo.listIssueRows(repoPath)
   }
 
   deleteIssue(id: string): void {
-    this.deleteIssueChildRows(id)
-    this.db.prepare('DELETE FROM issues WHERE id = ?').run(id)
-    // Clear dangling scalar back-references on OTHER rows so a deleted id never
-    // lingers as a ghost parent/supersede/duplicate pointer (column-vs-edge
-    // divergence P3b fixed). The dep EDGES were already removed above.
-    this.db.prepare('UPDATE issues SET parent_id = NULL WHERE parent_id = ?').run(id)
-    this.db.prepare('UPDATE issues SET superseded_by = NULL WHERE superseded_by = ?').run(id)
-    this.db.prepare('UPDATE issues SET duplicate_of = NULL WHERE duplicate_of = ?').run(id)
+    this.issuesRepo.deleteIssue(id)
   }
 
   setIssueLabels(issueId: string, labels: string[]): void {
-    const clean = [...new Set(labels.filter((l) => typeof l === 'string' && l.trim()))].map((l) =>
-      l.trim(),
-    )
-    this.db.prepare('DELETE FROM issue_labels WHERE issue_id = ?').run(issueId)
-    const ins = this.db.prepare(
-      'INSERT OR IGNORE INTO issue_labels (issue_id, label) VALUES (?, ?)',
-    )
-    for (const l of clean) ins.run(issueId, l)
+    this.issuesRepo.setIssueLabels(issueId, labels)
   }
 
   getIssueLabels(issueId: string): string[] {
-    return (
-      this.db
-        .prepare('SELECT label FROM issue_labels WHERE issue_id = ? ORDER BY label ASC')
-        .all(issueId) as { label: string }[]
-    ).map((r) => r.label)
+    return this.issuesRepo.getIssueLabels(issueId)
   }
 
   listAllLabels(): string[] {
-    return (
-      this.db.prepare('SELECT DISTINCT label FROM issue_labels ORDER BY label ASC').all() as {
-        label: string
-      }[]
-    ).map((r) => r.label)
+    return this.issuesRepo.listAllLabels()
   }
 
-  addIssueDep(fromId: string, toId: string, type = 'blocks'): void {
-    this.db
-      .prepare('INSERT OR IGNORE INTO issue_deps (from_id, to_id, type) VALUES (?, ?, ?)')
-      .run(fromId, toId, type)
+  addIssueDep(fromId: string, toId: string, type?: string): void {
+    this.issuesRepo.addIssueDep(fromId, toId, type)
   }
 
   removeIssueDep(fromId: string, toId: string, type?: string): void {
-    if (type) {
-      this.db
-        .prepare('DELETE FROM issue_deps WHERE from_id = ? AND to_id = ? AND type = ?')
-        .run(fromId, toId, type)
-    } else {
-      this.db.prepare('DELETE FROM issue_deps WHERE from_id = ? AND to_id = ?').run(fromId, toId)
-    }
+    this.issuesRepo.removeIssueDep(fromId, toId, type)
   }
 
   listIssueDeps(fromId: string): { toId: string; type: string }[] {
-    return (
-      this.db
-        .prepare(
-          'SELECT to_id, type FROM issue_deps WHERE from_id = ? ORDER BY to_id ASC, type ASC',
-        )
-        .all(fromId) as { to_id: string; type: string }[]
-    ).map((r) => ({ toId: r.to_id, type: r.type }))
+    return this.issuesRepo.listIssueDeps(fromId)
   }
 
   listDependents(toId: string): { fromId: string; type: string }[] {
-    return (
-      this.db
-        .prepare(
-          'SELECT from_id, type FROM issue_deps WHERE to_id = ? ORDER BY from_id ASC, type ASC',
-        )
-        .all(toId) as { from_id: string; type: string }[]
-    ).map((r) => ({ fromId: r.from_id, type: r.type }))
+    return this.issuesRepo.listDependents(toId)
   }
 
   addIssueComment(c: IssueCommentRow): void {
-    this.db
-      .prepare(
-        'INSERT INTO issue_comments (id, issue_id, author, body, created_at) VALUES (?, ?, ?, ?, ?)',
-      )
-      .run(c.id, c.issueId, c.author, c.body, c.createdAt)
+    this.issuesRepo.addIssueComment(c)
   }
 
   listIssueComments(issueId: string): IssueCommentRow[] {
-    return (
-      this.db
-        .prepare('SELECT * FROM issue_comments WHERE issue_id = ? ORDER BY created_at ASC, id ASC')
-        .all(issueId) as Record<string, unknown>[]
-    ).map((r) => ({
-      id: r.id as string,
-      issueId: r.issue_id as string,
-      author: r.author as string,
-      body: r.body as string,
-      createdAt: r.created_at as string,
-    }))
+    return this.issuesRepo.listIssueComments(issueId)
+  }
+
+  searchIssueComments(query: string, limit?: number) {
+    return this.issuesRepo.searchIssueComments(query, limit)
   }
 
   // ---- issue mail (issue #103) ----
 
-  private mapIssueMessage(r: Record<string, unknown>): IssueMessageRow {
-    return {
-      id: r.id as string,
-      issueId: r.issue_id as string,
-      fromAuthor: r.from_author as string,
-      body: r.body as string,
-      createdAt: r.created_at as string,
-      status: r.status as IssueMessageRow['status'],
-      claimedBy: (r.claimed_by as string | null) ?? null,
-      readAt: (r.read_at as string | null) ?? null,
-      claimedAt: (r.claimed_at as string | null) ?? null,
-    }
-  }
-
   addIssueMessage(m: IssueMessageRow): void {
-    this.db
-      .prepare(
-        `INSERT INTO issue_messages
-           (id, issue_id, from_author, body, created_at, status, claimed_by, read_at, claimed_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .run(
-        m.id,
-        m.issueId,
-        m.fromAuthor,
-        m.body,
-        m.createdAt,
-        m.status,
-        m.claimedBy,
-        m.readAt,
-        m.claimedAt,
-      )
+    this.issuesRepo.addIssueMessage(m)
   }
 
   getIssueMessage(id: string): IssueMessageRow | null {
-    const r = this.db.prepare('SELECT * FROM issue_messages WHERE id = ?').get(id) as
-      | Record<string, unknown>
-      | undefined
-    return r ? this.mapIssueMessage(r) : null
+    return this.issuesRepo.getIssueMessage(id)
   }
 
   listIssueMessages(
     issueId: string,
     opts?: { status?: IssueMessageRow['status'] },
   ): IssueMessageRow[] {
-    const rows = (
-      opts?.status
-        ? this.db
-            .prepare(
-              'SELECT * FROM issue_messages WHERE issue_id = ? AND status = ? ORDER BY created_at ASC, id ASC',
-            )
-            .all(issueId, opts.status)
-        : this.db
-            .prepare(
-              'SELECT * FROM issue_messages WHERE issue_id = ? ORDER BY created_at ASC, id ASC',
-            )
-            .all(issueId)
-    ) as Record<string, unknown>[]
-    return rows.map((r) => this.mapIssueMessage(r))
+    return this.issuesRepo.listIssueMessages(issueId, opts)
   }
 
   countUnreadIssueMessages(issueId: string): number {
-    const r = this.db
-      .prepare("SELECT COUNT(*) AS n FROM issue_messages WHERE issue_id = ? AND status = 'unread'")
-      .get(issueId) as { n: number }
-    return r.n
+    return this.issuesRepo.countUnreadIssueMessages(issueId)
   }
 
-  /** Mark the given messages read. Only flips 'unread' rows (idempotent; never
-   *  regresses a 'claimed' message back to 'read'). */
   markIssueMessagesRead(issueId: string, ids: string[], readAt: string): void {
-    const upd = this.db.prepare(
-      `UPDATE issue_messages SET status = 'read', read_at = ?
-       WHERE issue_id = ? AND id = ? AND status = 'unread'`,
-    )
-    for (const id of ids) upd.run(readAt, issueId, id)
+    this.issuesRepo.markIssueMessagesRead(issueId, ids, readAt)
   }
 
-  /** Atomic claim: exactly one caller wins; a second claim on the same message
-   *  returns false. Single UPDATE guarded on status, so there is no read-then-write race. */
   claimIssueMessage(id: string, claimedBy: string, claimedAt: string): boolean {
-    const r = this.db
-      .prepare(
-        `UPDATE issue_messages SET status = 'claimed', claimed_by = ?, claimed_at = ?
-         WHERE id = ? AND status != 'claimed'`,
-      )
-      .run(claimedBy, claimedAt, id)
-    return r.changes === 1
+    return this.issuesRepo.claimIssueMessage(id, claimedBy, claimedAt)
   }
 
   deleteIssueMessagesForIssue(issueId: string): void {
-    this.db.prepare('DELETE FROM issue_messages WHERE issue_id = ?').run(issueId)
+    this.issuesRepo.deleteIssueMessagesForIssue(issueId)
   }
 
   deleteIssueChildRows(issueId: string): void {
-    this.db.prepare('DELETE FROM issue_labels WHERE issue_id = ?').run(issueId)
-    this.db.prepare('DELETE FROM issue_deps WHERE from_id = ? OR to_id = ?').run(issueId, issueId)
-    this.db.prepare('DELETE FROM issue_comments WHERE issue_id = ?').run(issueId)
-    this.deleteIssueMessagesForIssue(issueId)
+    this.issuesRepo.deleteIssueChildRows(issueId)
   }
 
   nextIssueSeq(repoPath: string): number {
-    const r = this.db
-      .prepare('SELECT MAX(seq) AS m FROM issues WHERE repo_path = ?')
-      .get(repoPath) as { m: number | null }
-    return (r.m ?? 0) + 1
+    return this.issuesRepo.nextIssueSeq(repoPath)
   }
 
-  // ---- event log ----
+  // ---- event log / steward / subscriptions ----
 
   appendEvent(e: {
     ts: string
@@ -1696,969 +531,232 @@ export class SessionStore {
     repoPath?: string | null
     payload?: unknown
   }): number {
-    const r = this.db
-      .prepare(
-        'INSERT INTO podium_events (ts, kind, subject, repo_path, payload) VALUES (?, ?, ?, ?, ?)',
-      )
-      .run(e.ts, e.kind, e.subject, e.repoPath ?? null, JSON.stringify(e.payload ?? {}))
-    return Number(r.lastInsertRowid)
+    return this.eventsRepo.appendEvent(e)
   }
 
-  listEventsSince(
-    sinceId: number,
-    opts?: { kinds?: string[]; repoPath?: string; limit?: number },
-  ): Array<{
-    id: number
-    ts: string
-    kind: string
-    subject: string
-    repoPath: string | null
-    payload: unknown
-  }> {
-    const where = ['id > ?']
-    const params: unknown[] = [sinceId]
-    if (opts?.kinds?.length) {
-      where.push(`kind IN (${opts.kinds.map(() => '?').join(', ')})`)
-      params.push(...opts.kinds)
-    }
-    if (opts?.repoPath) {
-      where.push('repo_path = ?')
-      params.push(opts.repoPath)
-    }
-    params.push(opts?.limit ?? 200)
-    const rows = this.db
-      .prepare(`SELECT * FROM podium_events WHERE ${where.join(' AND ')} ORDER BY id ASC LIMIT ?`)
-      .all(...(params as never[])) as Record<string, unknown>[]
-    return rows.map((r) => {
-      let payload: unknown = {}
-      try {
-        payload = JSON.parse(r.payload as string)
-      } catch {}
-      return {
-        id: Number(r.id),
-        ts: r.ts as string,
-        kind: r.kind as string,
-        subject: r.subject as string,
-        repoPath: (r.repo_path as string | null) ?? null,
-        payload,
-      }
-    })
+  listEventsSince(sinceId: number, opts?: { kinds?: string[]; repoPath?: string; limit?: number }) {
+    return this.eventsRepo.listEventsSince(sinceId, opts)
   }
 
-  /** The highest event id in the log (0 when empty) — the "now" mark for
-   *  seeding a consumer cursor that must not replay history. */
   maxEventId(): number {
-    const r = this.db.prepare('SELECT MAX(id) AS m FROM podium_events').get() as {
-      m: number | null
-    }
-    return r.m ?? 0
+    return this.eventsRepo.maxEventId()
   }
 
-  /**
-   * Event-log retention (issue #61): delete rows older than maxAgeDays, and always
-   * keep the total row count ≤ maxRows (dropping the oldest beyond the cap even if
-   * young). Returns the number of rows deleted.
-   *
-   * Cursor safety: `id` is AUTOINCREMENT, so ids are never reused after deletion —
-   * a consumer cursor (e.g. the steward's persisted `steward_state` cursor) stays
-   * valid across pruning: listEventsSince(cursor) simply returns whatever retained
-   * rows still lie above it. The one intentional gap: a consumer that was disabled
-   * for longer than the retention window will silently miss the pruned events.
-   * That is BY DESIGN — first-enable seeds the cursor to MAX(id) ("now") anyway,
-   * so replaying deep history was never part of the contract.
-   */
   pruneEvents(opts: { maxAgeDays: number; maxRows: number }): number {
-    // ts is an ISO-8601 string, so lexicographic comparison == chronological.
-    const cutoff = new Date(Date.now() - opts.maxAgeDays * 24 * 60 * 60 * 1000).toISOString()
-    const byAge = this.db.prepare('DELETE FROM podium_events WHERE ts < ?').run(cutoff)
-    // Row cap: keep only the newest maxRows rows (highest ids), regardless of age.
-    const byCap = this.db
-      .prepare(
-        'DELETE FROM podium_events WHERE id NOT IN (SELECT id FROM podium_events ORDER BY id DESC LIMIT ?)',
-      )
-      .run(opts.maxRows)
-    return Number(byAge.changes) + Number(byCap.changes)
+    return this.eventsRepo.pruneEvents(opts)
   }
-
-  // ---- steward state ----
 
   getStewardState(key: string): string | undefined {
-    const row = this.db.prepare('SELECT value FROM steward_state WHERE key = ?').get(key) as
-      | { value: string }
-      | undefined
-    return row?.value
+    return this.eventsRepo.getStewardState(key)
   }
 
   setStewardState(key: string, value: string): void {
-    this.db
-      .prepare('INSERT OR REPLACE INTO steward_state (key, value) VALUES (?, ?)')
-      .run(key, value)
+    this.eventsRepo.setStewardState(key, value)
   }
 
-  // ---- event subscriptions (event-subscriptions design, Phase B) ----
-
   addSubscription(sub: Subscription): void {
-    this.db
-      .prepare(
-        `INSERT INTO subscriptions
-           (id, subscriber_kind, subscriber_id, event, source_kind, source_ref,
-            deliver_nudge, deliver_notify, origin, enabled, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .run(
-        sub.id,
-        sub.subscriberKind,
-        sub.subscriberId,
-        sub.event,
-        sub.sourceKind,
-        sub.sourceRef,
-        sub.deliverNudge ? 1 : 0,
-        sub.deliverNotify ? 1 : 0,
-        sub.origin,
-        sub.enabled ? 1 : 0,
-        sub.createdAt,
-      )
+    this.eventsRepo.addSubscription(sub)
   }
 
   removeSubscription(id: string): void {
-    this.db.prepare('DELETE FROM subscriptions WHERE id = ?').run(id)
+    this.eventsRepo.removeSubscription(id)
   }
 
   listSubscriptions(filter?: { subscriberId?: string }): Subscription[] {
-    const where: string[] = []
-    const params: unknown[] = []
-    if (filter?.subscriberId) {
-      where.push('subscriber_id = ?')
-      params.push(filter.subscriberId)
-    }
-    const sql = `SELECT * FROM subscriptions${where.length ? ` WHERE ${where.join(' AND ')}` : ''} ORDER BY created_at ASC`
-    const rows = this.db.prepare(sql).all(...(params as never[])) as Record<string, unknown>[]
-    return rows.map(rowToSubscription)
+    return this.eventsRepo.listSubscriptions(filter)
   }
 
   listEnabledSubscriptions(): Subscription[] {
-    const rows = this.db
-      .prepare('SELECT * FROM subscriptions WHERE enabled = 1 ORDER BY created_at ASC')
-      .all() as Record<string, unknown>[]
-    return rows.map(rowToSubscription)
+    return this.eventsRepo.listEnabledSubscriptions()
   }
 
-  /** Record a (subscription, event) delivery. Returns true only when the pair was
-   *  NEWLY inserted — a replay (or a same-poll double-match) returns false so the
-   *  steward delivers exactly once. */
   markDelivered(subscriptionId: string, eventId: number): boolean {
-    const r = this.db
-      .prepare(
-        'INSERT OR IGNORE INTO subscription_deliveries (subscription_id, event_id) VALUES (?, ?)',
-      )
-      .run(subscriptionId, eventId)
-    return Number(r.changes) > 0
-  }
-
-  /** One-time, idempotent: mirror legacy issues.blocked_by arrays into issue_deps. */
-  private backfillIssueDeps(): void {
-    const rows = this.db
-      .prepare("SELECT id, blocked_by FROM issues WHERE blocked_by != '[]'")
-      .all() as {
-      id: string
-      blocked_by: string
-    }[]
-    const ins = this.db.prepare(
-      "INSERT OR IGNORE INTO issue_deps (from_id, to_id, type) VALUES (?, ?, 'blocks')",
-    )
-    // blocked_by is populated by the AI assistant with branch names (e.g.
-    // "issue/3-foo"), NOT issue ids. Only mirror an edge when the target resolves
-    // to a real issue id, so phantom branch-name edges never accumulate on
-    // every migrate() at server construction.
-    const exists = this.db.prepare('SELECT 1 FROM issues WHERE id = ?')
-    for (const r of rows) {
-      let ids: unknown
-      try {
-        ids = JSON.parse(r.blocked_by)
-      } catch {
-        ids = []
-      }
-      if (Array.isArray(ids)) {
-        for (const to of ids) if (typeof to === 'string' && to && exists.get(to)) ins.run(r.id, to)
-      }
-    }
+    return this.eventsRepo.markDelivered(subscriptionId, eventId)
   }
 
   // ---- metadata oplog (docs/spec/oplog-read-path.md) ----
 
-  /**
-   * Append a batch of change rows in one transaction and return their assigned seqs
-   * (contiguous — the whole batch commits inside BEGIN IMMEDIATE, so no interleaving).
-   * The caller (MetadataOplog) has already diffed; rows arrive only for real changes.
-   */
   appendChanges(
     rows: { entity: string; entityId: string; op: 'upsert' | 'remove'; payload: string | null }[],
     eventTime: number,
   ): number[] {
-    if (rows.length === 0) return []
-    const insert = this.db.prepare(
-      'INSERT INTO changes (entity, entity_id, op, payload, event_time) VALUES (?, ?, ?, ?, ?)',
-    )
-    const seqs: number[] = []
-    this.db.exec('BEGIN IMMEDIATE')
-    try {
-      for (const r of rows) {
-        insert.run(r.entity, r.entityId, r.op, r.payload, eventTime)
-        seqs.push(this.lastInsertSeq())
-      }
-      this.db.exec('COMMIT')
-    } catch (err) {
-      this.db.exec('ROLLBACK')
-      throw err
-    }
-    return seqs
+    return this.syncRepo.appendChanges(rows, eventTime)
   }
 
-  private lastInsertSeq(): number {
-    return (this.db.prepare('SELECT last_insert_rowid() AS seq').get() as { seq: number }).seq
-  }
-
-  /** Highest assigned seq ever (survives head-pruning via sqlite_sequence). 0 = none. */
   maxChangeSeq(): number {
-    const row = this.db.prepare("SELECT seq FROM sqlite_sequence WHERE name = 'changes'").get() as
-      | { seq: number }
-      | undefined
-    return row?.seq ?? 0
+    return this.syncRepo.maxChangeSeq()
   }
 
-  /** Lowest RETAINED seq, or null when the log is empty. */
   minChangeSeq(): number | null {
-    const row = this.db.prepare('SELECT MIN(seq) AS seq FROM changes').get() as {
-      seq: number | null
-    }
-    return row.seq
+    return this.syncRepo.minChangeSeq()
   }
 
-  /**
-   * Change rows with seq > cursor, in seq order. The CALLER decides whether the
-   * cursor is still within the retained range (see MetadataOplog.changesSince) —
-   * this is a plain range read.
-   */
-  changesSince(
-    cursor: number,
-    limit = 10_000,
-  ): { seq: number; entity: string; entityId: string; op: string; payload: string | null }[] {
-    const rows = this.db
-      .prepare(
-        'SELECT seq, entity, entity_id, op, payload FROM changes WHERE seq > ? ORDER BY seq ASC LIMIT ?',
-      )
-      .all(cursor, limit) as Record<string, unknown>[]
-    return rows.map((r) => ({
-      seq: r.seq as number,
-      entity: r.entity as string,
-      entityId: r.entity_id as string,
-      op: r.op as string,
-      payload: (r.payload as string | null) ?? null,
-    }))
+  changesSince(cursor: number, limit?: number) {
+    return this.syncRepo.changesSince(cursor, limit)
   }
 
-  /**
-   * Head-only retention: drop rows beyond the row budget (keep the newest
-   * `keepRows`) OR older than the age budget — whichever deletes MORE. The old
-   * AND-policy never pruned under sustained write rates (rows aged past 14 days
-   * only after the table had grown unboundedly for weeks). Deletion is still
-   * head-only: we compute the highest seq that satisfies either budget and delete
-   * everything at-or-below it, so the retained seq range stays contiguous (an
-   * aged row can never be removed from the middle of the range).
-   */
   pruneChanges(opts: { keepRows: number; maxAgeMs: number; now: number }): void {
-    const rowCapSeq = this.maxChangeSeq() - opts.keepRows
-    const aged = this.db
-      .prepare('SELECT MAX(seq) AS seq FROM changes WHERE event_time < ?')
-      .get(opts.now - opts.maxAgeMs) as { seq: number | null }
-    const thresholdSeq = Math.max(rowCapSeq, aged.seq ?? 0)
-    if (thresholdSeq <= 0) return
-    this.db.prepare('DELETE FROM changes WHERE seq <= ?').run(thresholdSeq)
+    this.syncRepo.pruneChanges(opts)
   }
 
-  /**
-   * Fold the retained log to the latest state per (entity, id) — the boot seed for
-   * MetadataOplog's diff baseline, so a restart emits deltas for anything that
-   * changed while the server was down instead of silently rebasing.
-   */
-  latestChangeStates(): { entity: string; entityId: string; op: string; payload: string | null }[] {
-    const rows = this.db
-      .prepare(
-        `SELECT c.entity, c.entity_id, c.op, c.payload FROM changes c
-         JOIN (SELECT entity, entity_id, MAX(seq) AS seq FROM changes GROUP BY entity, entity_id) m
-           ON m.entity = c.entity AND m.entity_id = c.entity_id AND m.seq = c.seq`,
-      )
-      .all() as Record<string, unknown>[]
-    return rows.map((r) => ({
-      entity: r.entity as string,
-      entityId: r.entity_id as string,
-      op: r.op as string,
-      payload: (r.payload as string | null) ?? null,
-    }))
+  latestChangeStates() {
+    return this.syncRepo.latestChangeStates()
   }
 
   // ---- outbox write path (docs/spec/outbox-write-path.md) ----
 
-  /** The stored result of an already-applied mutation, or undefined if new. */
   getAppliedMutation(mutationId: string): string | undefined {
-    const row = this.db
-      .prepare('SELECT result FROM applied_mutations WHERE mutation_id = ?')
-      .get(mutationId) as { result: string } | undefined
-    return row?.result
+    return this.syncRepo.getAppliedMutation(mutationId)
   }
 
   recordAppliedMutation(mutationId: string, proc: string, result: string, appliedAt: number): void {
-    this.db
-      .prepare(
-        'INSERT OR IGNORE INTO applied_mutations (mutation_id, proc, result, applied_at) VALUES (?, ?, ?, ?)',
-      )
-      .run(mutationId, proc, result, appliedAt)
+    this.syncRepo.recordAppliedMutation(mutationId, proc, result, appliedAt)
   }
 
   pruneAppliedMutations(opts: { maxAgeMs: number; now: number }): void {
-    this.db
-      .prepare('DELETE FROM applied_mutations WHERE applied_at < ?')
-      .run(opts.now - opts.maxAgeMs)
+    this.syncRepo.pruneAppliedMutations(opts)
   }
 
-  /** Enqueue a message; the id IS the mutationId, so a replayed enqueue is a no-op.
-   *  Returns false when the id already existed (replay). */
   enqueueMessage(row: { id: string; sessionId: string; text: string; queuedAt: number }): boolean {
-    const r = this.db
-      .prepare(
-        'INSERT OR IGNORE INTO queued_messages (id, session_id, text, queued_at) VALUES (?, ?, ?, ?)',
-      )
-      .run(row.id, row.sessionId, row.text, row.queuedAt)
-    return Number(r.changes) > 0
+    return this.syncRepo.enqueueMessage(row)
   }
 
-  /** FIFO head-first queue for one session. */
   listQueuedMessages(sessionId: string): { id: string; text: string; attempts: number }[] {
-    const rows = this.db
-      .prepare(
-        'SELECT id, text, attempts FROM queued_messages WHERE session_id = ? ORDER BY queued_at ASC, rowid ASC',
-      )
-      .all(sessionId) as Record<string, unknown>[]
-    return rows.map((r) => ({
-      id: r.id as string,
-      text: r.text as string,
-      attempts: r.attempts as number,
-    }))
+    return this.syncRepo.listQueuedMessages(sessionId)
   }
 
-  /** Per-session queued counts — the boot seed for Session.queuedMessageCount. */
   queuedMessageCounts(): Map<string, number> {
-    const rows = this.db
-      .prepare('SELECT session_id, COUNT(*) AS n FROM queued_messages GROUP BY session_id')
-      .all() as { session_id: string; n: number }[]
-    return new Map(rows.map((r) => [r.session_id, r.n]))
+    return this.syncRepo.queuedMessageCounts()
   }
 
   deleteQueuedMessage(id: string): void {
-    this.db.prepare('DELETE FROM queued_messages WHERE id = ?').run(id)
+    this.syncRepo.deleteQueuedMessage(id)
   }
 
   bumpQueuedAttempts(id: string): void {
-    this.db.prepare('UPDATE queued_messages SET attempts = attempts + 1 WHERE id = ?').run(id)
+    this.syncRepo.bumpQueuedAttempts(id)
   }
 
-  /** Drop a dead session's queue (kill without resume ref, permanent delete). */
   deleteQueuedMessagesForSession(sessionId: string): void {
-    this.db.prepare('DELETE FROM queued_messages WHERE session_id = ?').run(sessionId)
+    this.syncRepo.deleteQueuedMessagesForSession(sessionId)
   }
 
   // ---- upstream issue-write outbox (docs/spec/node-hub-issues.md §2.2) ----
 
-  /** Enqueue an issue mutation bound for the hub. The mutationId IS the PK, so a
-   *  replayed enqueue is a no-op. Returns false when the id already existed. */
   enqueueUpstreamMutation(row: {
     mutationId: string
     proc: string
     input: string
     queuedAt: number
   }): boolean {
-    const r = this.db
-      .prepare(
-        'INSERT OR IGNORE INTO upstream_outbox (mutation_id, proc, input, queued_at) VALUES (?, ?, ?, ?)',
-      )
-      .run(row.mutationId, row.proc, row.input, row.queuedAt)
-    return Number(r.changes) > 0
+    return this.syncRepo.enqueueUpstreamMutation(row)
   }
 
-  /** The full outbox, FIFO (drain order — serial, oldest first). */
-  listUpstreamOutbox(): { mutationId: string; proc: string; input: string; attempts: number }[] {
-    const rows = this.db
-      .prepare(
-        'SELECT mutation_id, proc, input, attempts FROM upstream_outbox ORDER BY queued_at ASC, rowid ASC',
-      )
-      .all() as Record<string, unknown>[]
-    return rows.map((r) => ({
-      mutationId: r.mutation_id as string,
-      proc: r.proc as string,
-      input: r.input as string,
-      attempts: r.attempts as number,
-    }))
+  listUpstreamOutbox() {
+    return this.syncRepo.listUpstreamOutbox()
   }
 
   deleteUpstreamMutation(mutationId: string): void {
-    this.db.prepare('DELETE FROM upstream_outbox WHERE mutation_id = ?').run(mutationId)
+    this.syncRepo.deleteUpstreamMutation(mutationId)
   }
 
   bumpUpstreamMutationAttempts(mutationId: string): void {
-    this.db
-      .prepare('UPDATE upstream_outbox SET attempts = attempts + 1 WHERE mutation_id = ?')
-      .run(mutationId)
+    this.syncRepo.bumpUpstreamMutationAttempts(mutationId)
   }
 
   // ---- conversation registry (docs/spec/conversation-registry.md) ----
 
-  /** The Podium identity a native conversation maps to, or undefined if unseen. */
   conversationPodiumId(machineId: string, nativeId: string): string | undefined {
-    const row = this.db
-      .prepare('SELECT podium_id FROM conversation_segments WHERE machine_id = ? AND native_id = ?')
-      .get(machineId, nativeId) as { podium_id: string } | undefined
-    return row?.podium_id
+    return this.conversationsRepo.conversationPodiumId(machineId, nativeId)
   }
 
-  /** Recorded transcript-path evidence for a native conversation (absolute path on
-   *  its machine), or undefined when never observed. Consumed as the read-path
-   *  hint so lookups skip cwd derivation AND the bucket sweep. */
   conversationSegmentPath(machineId: string, nativeId: string): string | undefined {
-    const row = this.db
-      .prepare('SELECT path FROM conversation_segments WHERE machine_id = ? AND native_id = ?')
-      .get(machineId, nativeId) as { path: string | null } | undefined
-    return row?.path ?? undefined
+    return this.conversationsRepo.conversationSegmentPath(machineId, nativeId)
   }
 
-  /**
-   * Ensure a native conversation has an identity, minting one when it was never
-   * seen (`linked_by: 'discovery'`). Idempotent: an existing segment never re-mints
-   * (spec: same native id maps to the same identity forever). A parent provided
-   * later fills a NULL parent_podium_id but never overwrites a non-null one —
-   * mis-parenting is the failure mode to avoid.
-   */
   ensureConversationIdentity(opts: {
     machineId: string
     nativeId: string
     providerId: string
     parentPodiumId?: string
     path?: string
-    /** Transcript file size at scan time (discovery evidence). Persisted as
-     *  `reported_bytes` so attach-time dirty reconciliation can use the LAST
-     *  KNOWN size without waiting for a fresh scan (or sweeping everything). */
     sizeBytes?: number
   }): string {
-    const existing = this.conversationPodiumId(opts.machineId, opts.nativeId)
-    if (existing !== undefined) {
-      if (opts.parentPodiumId) {
-        this.db
-          .prepare(
-            'UPDATE conversation_identities SET parent_podium_id = ? WHERE podium_id = ? AND parent_podium_id IS NULL',
-          )
-          .run(opts.parentPodiumId, existing)
-      }
-      if (opts.path || opts.sizeBytes !== undefined) {
-        // COALESCE keeps whichever evidence this call did NOT bring (a size-less
-        // re-observation must not blank a previously reported size, or vice versa).
-        this.db
-          .prepare(
-            'UPDATE conversation_segments SET path = COALESCE(?, path), reported_bytes = COALESCE(?, reported_bytes) WHERE machine_id = ? AND native_id = ?',
-          )
-          .run(opts.path ?? null, opts.sizeBytes ?? null, opts.machineId, opts.nativeId)
-      }
-      return existing
-    }
-    const podiumId = `conv_${randomUUID()}`
-    const now = new Date().toISOString()
-    this.db
-      .prepare(
-        'INSERT INTO conversation_identities (podium_id, parent_podium_id, created_at) VALUES (?, ?, ?)',
-      )
-      .run(podiumId, opts.parentPodiumId ?? null, now)
-    this.db
-      .prepare(
-        `INSERT INTO conversation_segments
-           (machine_id, native_id, provider_id, podium_id, path, reported_bytes, seq_in_conv, linked_by, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, 1, 'discovery', ?)`,
-      )
-      .run(
-        opts.machineId,
-        opts.nativeId,
-        opts.providerId,
-        podiumId,
-        opts.path ?? null,
-        opts.sizeBytes ?? null,
-        now,
-      )
-    return podiumId
+    return this.conversationsRepo.ensureConversationIdentity(opts)
   }
 
-  /**
-   * Live-roll lineage (spec §3.1): the server observed a session's resume ref roll
-   * from `priorNativeId` to `newNativeId` — attach the new native file as the NEXT
-   * SEGMENT of the prior identity (minting the prior's identity if this is the
-   * first time we see it). Returns the shared podium id. If the new id was already
-   * linked (e.g. re-observed after a restart) this is a no-op returning its id.
-   */
   linkConversationSegment(opts: {
     machineId: string
     newNativeId: string
     priorNativeId: string
     providerId: string
   }): string {
-    const already = this.conversationPodiumId(opts.machineId, opts.newNativeId)
-    if (already !== undefined) return already
-    const podiumId = this.ensureConversationIdentity({
-      machineId: opts.machineId,
-      nativeId: opts.priorNativeId,
-      providerId: opts.providerId,
-    })
-    const nextSeq =
-      ((
-        this.db
-          .prepare('SELECT MAX(seq_in_conv) AS m FROM conversation_segments WHERE podium_id = ?')
-          .get(podiumId) as { m: number | null }
-      ).m ?? 0) + 1
-    this.db
-      .prepare(
-        `INSERT INTO conversation_segments
-           (machine_id, native_id, provider_id, podium_id, path, seq_in_conv, linked_by, created_at)
-         VALUES (?, ?, ?, ?, NULL, ?, 'live-roll', ?)`,
-      )
-      .run(
-        opts.machineId,
-        opts.newNativeId,
-        opts.providerId,
-        podiumId,
-        nextSeq,
-        new Date().toISOString(),
-      )
-    return podiumId
+    return this.conversationsRepo.linkConversationSegment(opts)
+  }
+
+  /** Batch lookup for wire enrichment: native id → podium id (per machine). */
+  conversationPodiumIds(machineId: string, nativeIds: string[]): Map<string, string> {
+    return this.conversationsRepo.conversationPodiumIds(machineId, nativeIds)
   }
 
   // ---- transcript mirror (docs/spec/transcript-mirror.md) ----
 
-  /** Segments with known path evidence for one machine — the mirror work list.
-   *  Cheap to call per scan: the caller diffs against in-flight state. */
-  segmentsToMirror(machineId: string): { nativeId: string; path: string; mirroredBytes: number }[] {
-    const rows = this.db
-      .prepare(
-        'SELECT native_id, path, mirrored_bytes FROM conversation_segments WHERE machine_id = ? AND path IS NOT NULL',
-      )
-      .all(machineId) as Record<string, unknown>[]
-    return rows.map((r) => ({
-      nativeId: r.native_id as string,
-      path: r.path as string,
-      mirroredBytes: r.mirrored_bytes as number,
-    }))
+  segmentsToMirror(machineId: string) {
+    return this.conversationsRepo.segmentsToMirror(machineId)
   }
 
-  /** DIRTY subset of {@link segmentsToMirror} (spec §2.3 "Dirty-driven"): segments
-   *  whose last daemon-reported size disagrees with the mirrored cursor, plus
-   *  NULL-reported rows (pre-upgrade / providers that never report a size) which
-   *  count as dirty so one mirror pass can observe their size and quiet them.
-   *  This is the per-scan/attach work list — a fully-mirrored fleet returns []. */
-  segmentsToMirrorDirty(
-    machineId: string,
-  ): { nativeId: string; path: string; mirroredBytes: number }[] {
-    const rows = this.db
-      .prepare(
-        `SELECT native_id, path, mirrored_bytes FROM conversation_segments
-         WHERE machine_id = ? AND path IS NOT NULL
-           AND (reported_bytes IS NULL OR reported_bytes != mirrored_bytes)`,
-      )
-      .all(machineId) as Record<string, unknown>[]
-    return rows.map((r) => ({
-      nativeId: r.native_id as string,
-      path: r.path as string,
-      mirroredBytes: r.mirrored_bytes as number,
-    }))
+  segmentsToMirrorDirty(machineId: string) {
+    return this.conversationsRepo.segmentsToMirrorDirty(machineId)
   }
 
-  /** Record the file size the mirror OBSERVED at eof. Fresher than any scan report
-   *  (the read just happened), and the convergence step for NULL-reported rows:
-   *  after one successful pull, reported == mirrored and the segment goes quiet
-   *  until a scan reports growth. */
   setReportedBytes(machineId: string, nativeId: string, bytes: number): void {
-    this.db
-      .prepare(
-        'UPDATE conversation_segments SET reported_bytes = ? WHERE machine_id = ? AND native_id = ?',
-      )
-      .run(bytes, machineId, nativeId)
+    this.conversationsRepo.setReportedBytes(machineId, nativeId, bytes)
   }
 
-  /** Last daemon-reported transcript size, or undefined when never reported. */
   reportedBytes(machineId: string, nativeId: string): number | undefined {
-    const row = this.db
-      .prepare(
-        'SELECT reported_bytes FROM conversation_segments WHERE machine_id = ? AND native_id = ?',
-      )
-      .get(machineId, nativeId) as { reported_bytes: number | null } | undefined
-    return row?.reported_bytes ?? undefined
+    return this.conversationsRepo.reportedBytes(machineId, nativeId)
   }
 
   mirrorCursor(machineId: string, nativeId: string): number {
-    const row = this.db
-      .prepare(
-        'SELECT mirrored_bytes FROM conversation_segments WHERE machine_id = ? AND native_id = ?',
-      )
-      .get(machineId, nativeId) as { mirrored_bytes: number } | undefined
-    return row?.mirrored_bytes ?? 0
+    return this.conversationsRepo.mirrorCursor(machineId, nativeId)
   }
 
-  /** Advance (or, on rewrite, reset) the mirror cursor AFTER the lake write landed
-   *  (spec invariant 2 — the cursor may lag the lake, never lead it). */
   setMirrorCursor(machineId: string, nativeId: string, bytes: number, at: string): void {
-    this.db
-      .prepare(
-        'UPDATE conversation_segments SET mirrored_bytes = ?, mirrored_at = ? WHERE machine_id = ? AND native_id = ?',
-      )
-      .run(bytes, at, machineId, nativeId)
+    this.conversationsRepo.setMirrorCursor(machineId, nativeId, bytes, at)
   }
 
   // ---- transcript FTS index (docs/spec/search-v1.md §2.3) ----
 
-  /** False when the runtime SQLite lacks FTS5 — the indexer then no-ops and search
-   *  omits the transcript source (no LIKE degradation for transcript bodies). */
   get transcriptIndexAvailable(): boolean {
-    return this.transcriptFtsAvailable
+    return this.conversationsRepo.transcriptIndexAvailable
   }
 
-  /** Segments whose lake copy holds bytes the FTS index hasn't consumed — the
-   *  backfill work list (segmentsToMirror's shape; covers lakes mirrored before
-   *  the indexer existed AND passes a budget stopped early). Cheap per trigger. */
-  segmentsToIndex(
-    machineId: string,
-  ): { nativeId: string; mirroredBytes: number; indexedBytes: number }[] {
-    const rows = this.db
-      .prepare(
-        `SELECT native_id, mirrored_bytes, indexed_bytes FROM conversation_segments
-         WHERE machine_id = ? AND mirrored_bytes > indexed_bytes`,
-      )
-      .all(machineId) as Record<string, unknown>[]
-    return rows.map((r) => ({
-      nativeId: r.native_id as string,
-      mirroredBytes: r.mirrored_bytes as number,
-      indexedBytes: r.indexed_bytes as number,
-    }))
+  segmentsToIndex(machineId: string) {
+    return this.conversationsRepo.segmentsToIndex(machineId)
   }
 
-  /** Bytes of the lake file already parsed into transcript_fts (≤ mirrored_bytes;
-   *  the gap is the indexer's work list). */
   indexedCursor(machineId: string, nativeId: string): number {
-    const row = this.db
-      .prepare(
-        'SELECT indexed_bytes FROM conversation_segments WHERE machine_id = ? AND native_id = ?',
-      )
-      .get(machineId, nativeId) as { indexed_bytes: number } | undefined
-    return row?.indexed_bytes ?? 0
+    return this.conversationsRepo.indexedCursor(machineId, nativeId)
   }
 
-  /** Insert extracted message rows and advance the index cursor in ONE transaction —
-   *  a crash can never leave rows indexed without the cursor (double-index on retry)
-   *  or the cursor advanced without the rows (a silent gap). */
   appendTranscriptIndex(
     machineId: string,
     nativeId: string,
     rows: { content: string; itemUuid?: string; ts?: string }[],
     indexedBytes: number,
   ): void {
-    if (!this.transcriptFtsAvailable) return
-    const insert = this.db.prepare(
-      'INSERT INTO transcript_fts (content, machine_id, native_id, item_uuid, ts) VALUES (?, ?, ?, ?, ?)',
-    )
-    this.db.exec('BEGIN IMMEDIATE')
-    try {
-      for (const r of rows) {
-        insert.run(r.content, machineId, nativeId, r.itemUuid ?? null, r.ts ?? null)
-      }
-      this.db
-        .prepare(
-          'UPDATE conversation_segments SET indexed_bytes = ? WHERE machine_id = ? AND native_id = ?',
-        )
-        .run(indexedBytes, machineId, nativeId)
-      this.db.exec('COMMIT')
-    } catch (e) {
-      this.db.exec('ROLLBACK')
-      throw e
-    }
+    this.conversationsRepo.appendTranscriptIndex(machineId, nativeId, rows, indexedBytes)
   }
 
-  /** One segment's indexed rows in insertion (= transcript) order — a diagnostic /
-   *  test seam; search goes through the MATCH path, never this scan. */
-  transcriptIndexRows(
-    machineId: string,
-    nativeId: string,
-  ): { content: string; itemUuid?: string; ts?: string }[] {
-    if (!this.transcriptFtsAvailable) return []
-    const rows = this.db
-      .prepare(
-        'SELECT content, item_uuid, ts FROM transcript_fts WHERE machine_id = ? AND native_id = ? ORDER BY rowid ASC',
-      )
-      .all(machineId, nativeId) as Record<string, unknown>[]
-    return rows.map((r) => ({
-      content: r.content as string,
-      itemUuid: (r.item_uuid as string | null) ?? undefined,
-      ts: (r.ts as string | null) ?? undefined,
-    }))
+  transcriptIndexRows(machineId: string, nativeId: string) {
+    return this.conversationsRepo.transcriptIndexRows(machineId, nativeId)
   }
 
-  /** BM25-ranked matches over the transcript index, one row per matched message,
-   *  with a snippet() (matches wrapped in `**`) and the joins the search service
-   *  needs: segments → podium id, conversations → display title + recency. `rank`
-   *  is raw SQLite bm25 — smaller (more negative) = better; the caller normalizes.
-   *  Empty when FTS5 is unavailable (the transcript source just goes dark). */
-  searchTranscripts(
-    query: string,
-    limit = 30,
-  ): {
-    machineId: string
-    nativeId: string
-    itemUuid?: string
-    ts?: string
-    snippet: string
-    rank: number
-    podiumId?: string
-    title?: string
-    updatedAt?: string
-  }[] {
-    const q = query.trim()
-    if (!q || !this.transcriptFtsAvailable) return []
-    const ftsQuery = q
-      .split(/\s+/)
-      .filter(Boolean)
-      .map((t) => `"${t.replace(/"/g, '""')}"*`)
-      .join(' ')
-    const rows = this.db
-      .prepare(
-        `SELECT f.machine_id, f.native_id, f.item_uuid, f.ts,
-                snippet(transcript_fts, 0, '**', '**', '…', 12) AS snip,
-                bm25(transcript_fts) AS rank,
-                s.podium_id, c.title, c.name, c.updated_at
-         FROM transcript_fts f
-         LEFT JOIN conversation_segments s
-           ON s.machine_id = f.machine_id AND s.native_id = f.native_id
-         LEFT JOIN conversations c ON c.id = f.native_id
-         WHERE transcript_fts MATCH ?
-         ORDER BY rank LIMIT ?`,
-      )
-      .all(ftsQuery, Math.min(200, Math.max(1, limit))) as Record<string, unknown>[]
-    return rows.map((r) => ({
-      machineId: r.machine_id as string,
-      nativeId: r.native_id as string,
-      itemUuid: (r.item_uuid as string | null) ?? undefined,
-      ts: (r.ts as string | null) ?? undefined,
-      snippet: r.snip as string,
-      rank: r.rank as number,
-      podiumId: (r.podium_id as string | null) ?? undefined,
-      // User-set name wins over the harness title, matching every other surface.
-      title: (r.name as string | null) ?? (r.title as string | null) ?? undefined,
-      updatedAt: (r.updated_at as string | null) ?? undefined,
-    }))
+  searchTranscripts(query: string, limit?: number) {
+    return this.conversationsRepo.searchTranscripts(query, limit)
   }
 
-  /** Substring match over issue comment bodies — comments have no FTS (bounded
-   *  volume), so LIKE is enough for the omni-search's comment source. */
-  searchIssueComments(
-    query: string,
-    limit = 30,
-  ): { issueId: string; body: string; createdAt: string }[] {
-    const q = query.trim()
-    if (!q) return []
-    const rows = this.db
-      .prepare(
-        `SELECT issue_id, body, created_at FROM issue_comments
-         WHERE body LIKE ? ESCAPE '\\' ORDER BY created_at DESC LIMIT ?`,
-      )
-      .all(
-        `%${q.replace(/[\\%_]/g, (c) => `\\${c}`)}%`,
-        Math.min(200, Math.max(1, limit)),
-      ) as Record<string, unknown>[]
-    return rows.map((r) => ({
-      issueId: r.issue_id as string,
-      body: r.body as string,
-      createdAt: r.created_at as string,
-    }))
-  }
-
-  /** Re-mirror (truncate) invalidates the segment's indexed content: drop its FTS
-   *  rows and reset the cursor so the reindex starts from byte 0 as chunks arrive. */
   dropTranscriptIndex(machineId: string, nativeId: string): void {
-    if (this.transcriptFtsAvailable) {
-      this.db
-        .prepare('DELETE FROM transcript_fts WHERE machine_id = ? AND native_id = ?')
-        .run(machineId, nativeId)
-    }
-    this.db
-      .prepare(
-        'UPDATE conversation_segments SET indexed_bytes = 0 WHERE machine_id = ? AND native_id = ?',
-      )
-      .run(machineId, nativeId)
-  }
-
-  /** Batch lookup for wire enrichment: native id → podium id (per machine). */
-  conversationPodiumIds(machineId: string, nativeIds: string[]): Map<string, string> {
-    const out = new Map<string, string>()
-    const q = this.db.prepare(
-      'SELECT podium_id FROM conversation_segments WHERE machine_id = ? AND native_id = ?',
-    )
-    for (const id of nativeIds) {
-      const row = q.get(machineId, id) as { podium_id: string } | undefined
-      if (row) out.set(id, row.podium_id)
-    }
-    return out
-  }
-
-  close(): void {
-    this.db.close()
-  }
-
-  // ---- per-boot runtime steps (schema DDL lives in src/migrations/ only) ----
-
-  /**
-   * (Re)ensure the environment-conditional FTS5 objects. NOT a schema
-   * migration on purpose: whether these exist depends on the runtime SQLite
-   * build having FTS5, so they are probed and (re)created on every boot —
-   * a binary upgrade that gains FTS5 picks them up without any version bump.
-   */
-  private ensureFts(): void {
-    // External-content FTS over the searchable text columns. Hybrid search note:
-    // keyword now; a vector column joins when an embeddings provider is configured.
-    try {
-      this.db.exec(
-        `CREATE VIRTUAL TABLE IF NOT EXISTS conversations_fts USING fts5(
-           title, name, summary, project_path,
-           content='conversations', content_rowid='rowid'
-         )`,
-      )
-      // Triggers keep the external-content index in sync incrementally — every
-      // INSERT/UPDATE/DELETE touches only the affected rowid. This replaces a
-      // full 'rebuild' that previously ran on every ~15s discovery push and on
-      // every metadata edit (O(all rows) each time, on the main thread).
-      this.db.exec(
-        `CREATE TRIGGER IF NOT EXISTS conversations_ai AFTER INSERT ON conversations BEGIN
-           INSERT INTO conversations_fts(rowid, title, name, summary, project_path)
-           VALUES (new.rowid, new.title, new.name, new.summary, new.project_path);
-         END;
-         CREATE TRIGGER IF NOT EXISTS conversations_ad AFTER DELETE ON conversations BEGIN
-           INSERT INTO conversations_fts(conversations_fts, rowid, title, name, summary, project_path)
-           VALUES ('delete', old.rowid, old.title, old.name, old.summary, old.project_path);
-         END;
-         CREATE TRIGGER IF NOT EXISTS conversations_au AFTER UPDATE ON conversations BEGIN
-           INSERT INTO conversations_fts(conversations_fts, rowid, title, name, summary, project_path)
-           VALUES ('delete', old.rowid, old.title, old.name, old.summary, old.project_path);
-           INSERT INTO conversations_fts(rowid, title, name, summary, project_path)
-           VALUES (new.rowid, new.title, new.name, new.summary, new.project_path);
-         END;`,
-      )
-      // One-time heal at boot: re-tokenize so rows written before the triggers
-      // existed (or any drift) are indexed. O(rows) once per process, not per write.
-      this.db.exec("INSERT INTO conversations_fts(conversations_fts) VALUES('rebuild')")
-      this.ftsAvailable = true
-    } catch {
-      this.ftsAvailable = false // LIKE fallback handles search
-    }
-    // Transcript FTS (docs/spec/search-v1.md §2.3): one row per user/assistant
-    // message, fed incrementally by the mirror-driven indexer. Contentful (not
-    // external-content) — the source of truth is the lake file, and snippet()
-    // needs the text stored. No LIKE fallback: without FTS5 the transcript source
-    // is simply absent from search (transcripts are far too big to LIKE-scan).
-    try {
-      this.db.exec(
-        `CREATE VIRTUAL TABLE IF NOT EXISTS transcript_fts USING fts5(
-           content, machine_id UNINDEXED, native_id UNINDEXED,
-           item_uuid UNINDEXED, ts UNINDEXED
-         )`,
-      )
-      this.transcriptFtsAvailable = true
-    } catch {
-      this.transcriptFtsAvailable = false
-    }
-  }
-
-  /** Repair rows poisoned by the pre-#94 discovery bug: a subagent transcript
-   *  summarized under its PARENT's native id clobbered the parent's segment
-   *  path, so reattach boot-seeded from the wrong file. A main transcript is
-   *  always named <native_id>.jsonl; a subagents/ path under any OTHER name is
-   *  never legitimate evidence. NULL just falls back to derivation — the next
-   *  discovery scan re-fills it correctly. Idempotent, runs every boot. */
-  private repairSubagentSegmentPaths(): void {
-    this.db.exec(
-      "UPDATE conversation_segments SET path = NULL WHERE path LIKE '%/subagents/%' AND path NOT LIKE '%/' || native_id || '.jsonl'",
-    )
-  }
-
-  /** Idempotent seed of the always-there 'global' superagent thread. */
-  private seedGlobalSuperagentThread(): void {
-    const saNow = new Date().toISOString()
-    this.db
-      .prepare(
-        `INSERT OR IGNORE INTO superagent_threads (id, kind, created_at, updated_at)
-         VALUES ('global', 'global', ?, ?)`,
-      )
-      .run(saNow, saNow)
-  }
-
-  /** v8 backfill (idempotent — only touches NULL repo_id rows, so it is safe to run
-   *  every boot and also covers rows inserted by importReposJson above). */
-  private backfillRepoIds(): void {
-    const repos = this.db
-      .prepare('SELECT machine_id, path, origin_url FROM repos WHERE repo_id IS NULL')
-      .all() as { machine_id: string; path: string; origin_url: string | null }[]
-    const setRepo = this.db.prepare(
-      'UPDATE repos SET repo_id = ? WHERE machine_id = ? AND path = ?',
-    )
-    for (const r of repos) {
-      setRepo.run(
-        deriveRepoId({ originUrl: r.origin_url, machineId: r.machine_id, path: r.path }),
-        r.machine_id,
-        r.path,
-      )
-    }
-    const issues = this.db
-      .prepare('SELECT id, repo_path FROM issues WHERE repo_id IS NULL')
-      .all() as {
-      id: string
-      repo_path: string
-    }[]
-    const setIssue = this.db.prepare('UPDATE issues SET repo_id = ? WHERE id = ?')
-    for (const i of issues) setIssue.run(this.resolveRepoIdForPath(i.repo_path), i.id)
-    // Self-heal origins for repos whose path exists on this host: pre-v8 rows never
-    // recorded origin_url, so without this they'd sit on path-fallback ids until a
-    // daemon scan happens to run. updateRepoOrigin upgrades fallback ids only (and
-    // dual-writes issues), so this is idempotent — once recorded, the read is skipped.
-    const originless = this.db
-      .prepare('SELECT machine_id, path FROM repos WHERE origin_url IS NULL')
-      .all() as { machine_id: string; path: string }[]
-    for (const r of originless) {
-      const origin = readLocalOriginUrl(r.path)
-      if (origin) this.updateRepoOrigin(r.machine_id, r.path, origin)
-    }
-  }
-
-  /** One-time import of a legacy ~/.podium/repos.json sitting next to the db. */
-  private importReposJson(): void {
-    if (this.path === ':memory:') return
-    const count = (this.db.prepare('SELECT COUNT(*) AS c FROM repos').get() as { c: number }).c
-    if (count > 0) return
-    let raw: string
-    try {
-      raw = readFileSync(join(dirname(this.path), 'repos.json'), 'utf8')
-    } catch {
-      return // no legacy file
-    }
-    let parsed: unknown
-    try {
-      parsed = JSON.parse(raw)
-    } catch {
-      return // corrupt file -> skip
-    }
-    if (!Array.isArray(parsed)) return
-    const insert = this.db.prepare(
-      "INSERT OR IGNORE INTO repos (machine_id, path, origin_url, repo_name, added_at) VALUES ('__local__', ?, NULL, ?, ?)",
-    )
-    const now = new Date().toISOString()
-    for (const p of parsed)
-      if (typeof p === 'string') insert.run(p, p.split('/').pop() ?? null, now)
+    this.conversationsRepo.dropTranscriptIndex(machineId, nativeId)
   }
 }
