@@ -1,5 +1,5 @@
 import { open } from 'node:fs/promises'
-import { claudeRecordToItems } from '@podium/agent-bridge'
+import { claudeRecordToItems } from '@podium/transcript'
 import type { SessionStore } from './store'
 
 /** Pacing knobs, mirroring MirrorServiceOptions (transcript-mirror spec §2.3

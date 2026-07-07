@@ -1,4 +1,3 @@
-import { fileChainSource, fileIdFor, recordToItemsForKind } from '@podium/agent-bridge'
 import type {
   AgentKind,
   ControlMessage,
@@ -8,6 +7,7 @@ import type {
   ServerMessage,
   TranscriptItem,
 } from '@podium/protocol'
+import { fileChainSource, fileIdFor, recordToItemsForKind } from '@podium/transcript'
 import { MirrorService } from '../../mirror'
 import type { SessionStore } from '../../store'
 import { TranscriptIndexer } from '../../transcript-indexer'

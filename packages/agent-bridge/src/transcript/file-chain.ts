@@ -1,20 +1,14 @@
-import { createHash } from 'node:crypto'
 import { stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { type ChainEntry, fileIdFor } from '@podium/transcript'
 import { locateClaudeSessionFile } from '../agent-state/claude-locate.js'
 import { findCodexRolloutPath } from '../agent-state/codex.js'
 import { grokSessionPaths } from '../agent-state/grok.js'
 import { cursorSessionPaths } from '../cursor/paths.js'
 
-export interface ChainEntry {
-  path: string
-  fileId: string
-}
-
-export function fileIdFor(path: string): string {
-  return createHash('sha1').update(path).digest('hex').slice(0, 12)
-}
+// Compat re-exports: the pure chain primitives moved to @podium/transcript;
+// only the per-harness path resolution (below) stays here.
+export { type ChainEntry, fileIdFor } from '@podium/transcript'
 
 /** Ordered oldest→newest JSONL files that make up a session's transcript. */
 export async function resolveFileChain(input: {

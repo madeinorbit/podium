@@ -21,10 +21,7 @@ import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { codexRecordToItems } from './codex.js'
 
-const lines = readFileSync(
-  new URL('./__fixtures__/codex-rollout.jsonl', import.meta.url),
-  'utf8',
-)
+const lines = readFileSync(new URL('./__fixtures__/codex-rollout.jsonl', import.meta.url), 'utf8')
   .split('\n')
   .filter(Boolean)
 
@@ -84,8 +81,7 @@ describe('codexRecordToItems golden fixture', () => {
     const emptyOutputLine = lines.find((l) => {
       const r = JSON.parse(l)
       return (
-        r?.payload?.type === 'function_call_output' &&
-        r?.payload?.call_id === 'call_orphan_empty'
+        r?.payload?.type === 'function_call_output' && r?.payload?.call_id === 'call_orphan_empty'
       )
     })
     expect(emptyOutputLine).toBeTruthy()

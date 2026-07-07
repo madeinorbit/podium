@@ -97,19 +97,42 @@ describe('checkFile rules', () => {
     }
   })
 
-  it('allows grandfathered agent-bridge importers in apps/server', () => {
-    expect(
-      checkFile(
-        'apps/server/src/relay.ts',
-        `import { fileChainSource } from '@podium/agent-bridge'`,
-      ),
-    ).toEqual([])
+  it('rejects agent-bridge importers in apps/server (Phase 3 removed the grandfathers)', () => {
+    for (const file of [
+      'apps/server/src/relay.ts',
+      'apps/server/src/transcript-indexer.ts',
+      'apps/server/src/modules/conversations/service.ts',
+    ]) {
+      const v = checkFile(file, `import { fileChainSource } from '@podium/agent-bridge'`)
+      expect(v).toHaveLength(1)
+      expect(v[0].rule).toBe('agent-bridge-consumers')
+    }
+  })
+
+  it('allows @podium/transcript from apps and packages, and keeps it near-leaf', () => {
     expect(
       checkFile(
         'apps/server/src/transcript-indexer.ts',
-        `import { claudeRecordToItems } from '@podium/agent-bridge'`,
+        `import { claudeRecordToItems } from '@podium/transcript'`,
       ),
     ).toEqual([])
+    expect(
+      checkFile(
+        'packages/transcript/src/source.ts',
+        `import type { TranscriptItem } from '@podium/protocol'`,
+      ),
+    ).toEqual([])
+    const core = checkFile(
+      'packages/transcript/src/source.ts',
+      `import { openDatabase } from '@podium/core/sqlite'`,
+    )
+    expect(core).toHaveLength(1)
+    expect(core[0].rule).toBe('restricted-package-deps')
+    const bridge = checkFile(
+      'packages/transcript/src/file-chain.ts',
+      `import { locateClaudeSessionFile } from '@podium/agent-bridge'`,
+    )
+    expect(bridge.map((v) => v.rule)).toContain('restricted-package-deps')
   })
 
   it('rejects new agent-bridge importers (not grandfathered)', () => {

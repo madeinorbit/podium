@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { OpencodeMessagePartRow } from '../opencode/db.js'
+import type { OpencodeMessagePartRow } from './opencode.js'
 import { classifyOpencodeIdleText, opencodePartToItems } from './opencode.js'
 
 function row(

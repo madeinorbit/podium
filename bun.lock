@@ -12,6 +12,8 @@
         "@testing-library/react": "^16.3.2",
         "@types/node": "^25.9.1",
         "happy-dom": "^20.10.2",
+        "react": "19.2.7",
+        "react-dom": "19.2.7",
         "tsup": "^8.5.1",
         "tsx": "^4.22.4",
         "typescript": "^6.0.3",
@@ -75,9 +77,9 @@
       "dependencies": {
         "@hono/node-server": "^1.13.7",
         "@hono/trpc-server": "^0.3.4",
-        "@podium/agent-bridge": "workspace:*",
         "@podium/core": "workspace:*",
         "@podium/protocol": "workspace:*",
+        "@podium/transcript": "workspace:*",
         "@trpc/client": "^11.0.0",
         "@trpc/server": "^11.0.0",
         "hono": "^4.6.14",
@@ -122,8 +124,8 @@
         "dompurify": "^3.4.9",
         "lucide-react": "^1.18.0",
         "marked": "^18.0.5",
-        "react": "^19.0.0",
-        "react-dom": "^19.0.0",
+        "react": "19.2.7",
+        "react-dom": "19.2.7",
         "shadcn": "^4.11.0",
         "sonner": "^2.0.7",
         "tailwind-merge": "^3.6.0",
@@ -149,6 +151,7 @@
       "dependencies": {
         "@podium/core": "workspace:*",
         "@podium/protocol": "workspace:*",
+        "@podium/transcript": "workspace:*",
         "node-pty": "^1.0.0",
       },
       "devDependencies": {
@@ -202,6 +205,17 @@
         "tsup": "^8.5.1",
         "typescript": "^6.0.3",
         "vitest": "^4.1.8",
+      },
+    },
+    "packages/transcript": {
+      "name": "@podium/transcript",
+      "version": "0.0.0",
+      "dependencies": {
+        "@podium/protocol": "workspace:*",
+      },
+      "devDependencies": {
+        "tsup": "^8.5.1",
+        "typescript": "^6.0.3",
       },
     },
     "tests/e2e": {
@@ -853,6 +867,8 @@
     "@podium/server": ["@podium/server@workspace:apps/server"],
 
     "@podium/terminal-client": ["@podium/terminal-client@workspace:packages/terminal-client"],
+
+    "@podium/transcript": ["@podium/transcript@workspace:packages/transcript"],
 
     "@podium/tsconfig": ["@podium/tsconfig@workspace:tooling/tsconfig"],
 
@@ -2198,7 +2214,7 @@
 
     "react-devtools-core": ["react-devtools-core@6.1.5", "", { "dependencies": { "shell-quote": "^1.6.1", "ws": "^7" } }, "sha512-ePrwPfxAnB+7hgnEr8vpKxL9cmnp7F322t8oqcPshbIQQhDKgFDW4tjhF2wjVbdXF9O/nyuy3sQWd9JGpiLPvA=="],
 
-    "react-dom": ["react-dom@19.2.3", "", { "dependencies": { "scheduler": "^0.27.0" }, "peerDependencies": { "react": "^19.2.3" } }, "sha512-yELu4WmLPw5Mr/lmeEpox5rw3RETacE++JgHqQzd2dg+YbJuat3jH4ingc+WPZhxaoFzdv9y33G+F7Nl5O0GBg=="],
+    "react-dom": ["react-dom@19.2.7", "", { "dependencies": { "scheduler": "^0.27.0" }, "peerDependencies": { "react": "^19.2.7" } }, "sha512-t0BRVXvbiE/o20Hfw669rLbMCDWtYZLvmJigy2f0MxsXF+71pxhR3xOkspmsO8h3ZlNzyibAmtCa3l4lYKk6gQ=="],
 
     "react-fast-compare": ["react-fast-compare@3.2.2", "", {}, "sha512-nsO+KSNgo1SbJqJEYRE9ERzo7YtYbou/OqjSQKxV7jcKox7+usiUVZOAC+XnDOABXggQTno0Y1CpVnuWEc1boQ=="],
 
@@ -2748,7 +2764,7 @@
 
     "@podium/mobile/react": ["react@19.2.3", "", {}, "sha512-Ku/hhYbVjOQnXDZFv2+RibmLFGwFdeeKHFcOTlrt7xplBnya5OGn/hIRDsqDiSUcfORsDC7MPxwork8jBwsIWA=="],
 
-    "@podium/web/react-dom": ["react-dom@19.2.7", "", { "dependencies": { "scheduler": "^0.27.0" }, "peerDependencies": { "react": "^19.2.7" } }, "sha512-t0BRVXvbiE/o20Hfw669rLbMCDWtYZLvmJigy2f0MxsXF+71pxhR3xOkspmsO8h3ZlNzyibAmtCa3l4lYKk6gQ=="],
+    "@podium/mobile/react-dom": ["react-dom@19.2.3", "", { "dependencies": { "scheduler": "^0.27.0" }, "peerDependencies": { "react": "^19.2.3" } }, "sha512-yELu4WmLPw5Mr/lmeEpox5rw3RETacE++JgHqQzd2dg+YbJuat3jH4ingc+WPZhxaoFzdv9y33G+F7Nl5O0GBg=="],
 
     "@quansync/fs/quansync": ["quansync@1.0.0", "", {}, "sha512-5xZacEEufv3HSTPQuchrvV6soaiACMFnq1H8wkVioctoH3TRha9Sz66lOxRwPK/qZj7HPiSveih9yAyh98gvqA=="],
 

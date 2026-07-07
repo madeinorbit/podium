@@ -1,5 +1,20 @@
 import type { TranscriptItem } from '@podium/protocol'
-import type { OpencodeMessagePartRow } from '../opencode/db.js'
+/**
+ * One row of opencode's SQLite `part` join (message + part payloads). The type
+ * lives here — next to the pure part→items mapper — so the parser package needs
+ * no SQLite dependency; @podium/agent-bridge's opencode DB reader produces rows
+ * of this shape and re-exports the type for compatibility.
+ */
+export type OpencodeMessagePartRow = {
+  messageId: string
+  partId: string
+  sessionId: string
+  timeCreated: number
+  timeUpdated: number
+  messageData: string
+  partData: string
+}
+
 import { toolInputPreview } from './claude.js'
 
 /** Normalize one opencode message+part row into Podium chat transcript items. */

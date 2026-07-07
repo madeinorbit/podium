@@ -1,6 +1,6 @@
 import type { TranscriptItem } from '@podium/protocol'
-import { contentToText, isRecord, stringField } from '../discovery/jsonl.js'
 import { toolInputPreview } from './claude.js'
+import { contentToText, isRecord, stringField } from './json-util.js'
 
 /**
  * Normalize one Codex rollout JSONL record (envelope `{ timestamp, type, payload }`)
@@ -100,10 +100,7 @@ function toolCallItem(payload: Record<string, unknown>, ts: string | undefined):
   }
 }
 
-function toolResultItem(
-  payload: Record<string, unknown>,
-  ts: string | undefined,
-): TranscriptItem {
+function toolResultItem(payload: Record<string, unknown>, ts: string | undefined): TranscriptItem {
   const out = payload.output
   const text = (typeof out === 'string' ? out : contentToText(out)).trim()
   const callId = stringField(payload, 'call_id') ?? stringField(payload, 'id')

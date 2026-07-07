@@ -1,5 +1,6 @@
 import { homedir } from 'node:os'
 import { join } from 'node:path'
+import { opencodePartToItems } from '@podium/transcript'
 import { isOpencodeCliAvailable } from '../../opencode/cli.js'
 import {
   listOpencodeSessions,
@@ -7,7 +8,6 @@ import {
   opencodeDataRoot,
   openOpencodeDb,
 } from '../../opencode/db.js'
-import { opencodePartToItems } from '../../transcript/opencode.js'
 import { pathExists } from '../paths.js'
 import type {
   AgentConversation,

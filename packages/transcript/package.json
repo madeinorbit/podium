@@ -1,7 +1,7 @@
 {
-  "name": "@podium/agent-bridge",
+  "name": "@podium/transcript",
   "version": "0.0.0",
-  "description": "Wrap and drive coding-agent CLIs (Claude Code, Codex, Grok) over a PTY: spawn/attach, resize, stream output, inject input, multi-client control, transcript, discovery.",
+  "description": "Per-agent transcript parsing and paging: JSONL record→item mappers (Claude Code, Codex, Cursor, Grok, opencode), cursor codec, bounded slice reader, file-chain ids, live tailer.",
   "license": "Apache-2.0",
   "type": "module",
   "main": "./dist/index.js",
@@ -15,17 +15,13 @@
     }
   },
   "files": [
-    "dist",
-    "vendor"
+    "dist"
   ],
   "publishConfig": {
     "access": "public"
   },
   "dependencies": {
-    "@podium/core": "workspace:*",
-    "@podium/protocol": "workspace:*",
-    "@podium/transcript": "workspace:*",
-    "node-pty": "^1.0.0"
+    "@podium/protocol": "workspace:*"
   },
   "scripts": {
     "build": "tsup",

@@ -2,6 +2,11 @@ import { statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { openDatabase, type SqlDatabase } from '@podium/core/sqlite'
+import type { OpencodeMessagePartRow } from '@podium/transcript'
+
+// The row TYPE lives next to the pure part→items mapper in @podium/transcript;
+// re-exported here for compatibility (this module is the SQLite producer of it).
+export type { OpencodeMessagePartRow } from '@podium/transcript'
 
 export type OpencodeSessionRow = {
   id: string
@@ -11,16 +16,6 @@ export type OpencodeSessionRow = {
   timeUpdated: number
   timeCompacting: number | null
   messageCount: number
-}
-
-export type OpencodeMessagePartRow = {
-  messageId: string
-  partId: string
-  sessionId: string
-  timeCreated: number
-  timeUpdated: number
-  messageData: string
-  partData: string
 }
 
 export function opencodeDataRoot(homeDir?: string): string {

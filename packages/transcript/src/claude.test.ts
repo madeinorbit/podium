@@ -60,7 +60,10 @@ describe('claudeRecordToItems', () => {
             type: 'tool_use',
             id: 'toolu_2',
             name: 'Bash',
-            input: { command: 'node render.mjs', description: 'Render the three chat-view mockups to PNG' },
+            input: {
+              command: 'node render.mjs',
+              description: 'Render the three chat-view mockups to PNG',
+            },
           },
         ],
       },
@@ -76,7 +79,10 @@ describe('claudeRecordToItems', () => {
     const items = claudeRecordToItems({
       type: 'assistant',
       uuid: 'a3',
-      message: { role: 'assistant', content: [{ type: 'tool_use', id: 't', name: 'Read', input: { file_path: '/a.ts' } }] },
+      message: {
+        role: 'assistant',
+        content: [{ type: 'tool_use', id: 't', name: 'Read', input: { file_path: '/a.ts' } }],
+      },
     })
     expect(items[0]).not.toHaveProperty('toolTitle')
   })
@@ -212,7 +218,8 @@ describe('claudeRecordToItems — injected vs real user turns', () => {
       uuid: 'tn1',
       message: {
         role: 'user',
-        content: '<task-notification>\n<task-id>abc</task-id>\nSubagent result…\n</task-notification>',
+        content:
+          '<task-notification>\n<task-id>abc</task-id>\nSubagent result…\n</task-notification>',
       },
     }
     expect(claudeRecordToItems(rec)).toEqual([])
@@ -252,7 +259,8 @@ describe('claudeRecordToItems — injected vs real user turns', () => {
       uuid: 'q1',
       message: {
         role: 'user',
-        content: '<system-reminder>Message sent at Sun 2026-06-14 20:37:24 UTC.</system-reminder>\nYes',
+        content:
+          '<system-reminder>Message sent at Sun 2026-06-14 20:37:24 UTC.</system-reminder>\nYes',
       },
     }
     const items = claudeRecordToItems(rec)
@@ -265,7 +273,10 @@ describe('claudeRecordToItems — injected vs real user turns', () => {
     const rec = {
       type: 'user',
       uuid: 'sr1',
-      message: { role: 'user', content: '<system-reminder>Background context…</system-reminder>\n' },
+      message: {
+        role: 'user',
+        content: '<system-reminder>Background context…</system-reminder>\n',
+      },
     }
     expect(claudeRecordToItems(rec)).toEqual([])
   })
@@ -350,7 +361,11 @@ describe('claudeRecordToItems — AskUserQuestion tool', () => {
       },
     }
     const [item] = claudeRecordToItems(rec)
-    expect(item).toMatchObject({ role: 'tool', toolName: 'AskUserQuestion', toolInput: 'Pick a mode?' })
+    expect(item).toMatchObject({
+      role: 'tool',
+      toolName: 'AskUserQuestion',
+      toolInput: 'Pick a mode?',
+    })
     expect(JSON.parse(item?.toolInputJson ?? '{}').questions[0].options).toHaveLength(2)
   })
 
@@ -374,7 +389,10 @@ describe('claudeRecordToItems toolPaths', () => {
   it('extracts file_path from a tool_use block', () => {
     const items = claudeRecordToItems({
       type: 'assistant',
-      message: { role: 'assistant', content: [{ type: 'tool_use', id: 't1', name: 'Read', input: { file_path: '/repo/a.ts' } }] },
+      message: {
+        role: 'assistant',
+        content: [{ type: 'tool_use', id: 't1', name: 'Read', input: { file_path: '/repo/a.ts' } }],
+      },
     })
     expect(items.some((i) => i.toolPaths?.includes('/repo/a.ts'))).toBe(true)
   })

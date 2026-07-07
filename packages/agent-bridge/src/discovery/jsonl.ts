@@ -1,4 +1,10 @@
 import { open } from 'node:fs/promises'
+import { stringField } from '@podium/transcript'
+
+// Moved to @podium/transcript (the parsers there need them); re-exported for
+// this package's discovery providers, which imported them from here.
+export { contentToText, isRecord, stringField } from '@podium/transcript'
+
 import type { AgentConversationDiagnostic, AgentConversationRole } from './types.js'
 
 type ParseJsonLinesContext = {
@@ -79,40 +85,6 @@ export function mapConversationRole(role: unknown): AgentConversationRole {
     default:
       return 'unknown'
   }
-}
-
-export function contentToText(value: unknown): string {
-  if (typeof value === 'string') return value
-  if (!Array.isArray(value)) return contentPartToText(value)
-
-  return value
-    .map(contentPartToText)
-    .filter((part) => part.length > 0)
-    .join('\n')
-}
-
-function contentPartToText(value: unknown): string {
-  if (typeof value === 'string') return value
-  if (!isRecord(value)) return ''
-
-  if (typeof value.text === 'string') return value.text
-  if (typeof value.content === 'string') return value.content
-  if (Array.isArray(value.content)) return contentToText(value.content)
-
-  if (value.type === 'tool_use' && typeof value.name === 'string') {
-    return `[tool_use:${value.name}]`
-  }
-
-  return ''
-}
-
-export function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
-
-export function stringField(value: Record<string, unknown>, key: string): string | undefined {
-  const field = value[key]
-  return typeof field === 'string' && field.length > 0 ? field : undefined
 }
 
 export function numberField(value: Record<string, unknown>, key: string): number | undefined {

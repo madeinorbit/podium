@@ -7,9 +7,11 @@
  *  1. No app→app imports. Grandfathered allowance: `apps/web` may import from
  *     `@podium/server` **type-only** (the `AppRouter` type for the tRPC client).
  *  2. `@podium/agent-bridge` may only be imported by `apps/daemon`, `scripts/`,
- *     and its own package (including its tests). GRANDFATHERED violations below.
+ *     and its own package (including its tests). Servers read transcripts via
+ *     `@podium/transcript` instead.
  *  3. `@podium/protocol` and `@podium/core` are leaf packages — they import no
- *     other workspace package.
+ *     other workspace package. `@podium/transcript` is a near-leaf: it may
+ *     import only `@podium/protocol`.
  *  4. `packages/*` never import from `apps/*` (by name or by relative path).
  *
  * Run: `bun run lint:boundaries` (wired into `bun run lint`). Exits non-zero
@@ -26,21 +28,15 @@ import { fileURLToPath } from 'node:url'
 // ---------------------------------------------------------------------------
 
 /**
- * apps/server still reaches into @podium/agent-bridge for transcript parsing
- * (claudeRecordToItems / recordToItemsForKind / fileChainSource / fileIdFor).
- * Phase 3 of the offline-sync plan extracts that parsing into a new
- * `@podium/transcript` package and removes these entries. New violations must
- * not be added here.
+ * Empty since Phase 3 extracted transcript parsing into `@podium/transcript`
+ * (apps/server now imports that instead of agent-bridge). Kept so the stale-
+ * entry warning machinery stays exercised. Do NOT add entries — fix the
+ * dependency instead.
  *
  * NOTE: `apps/server/src/model-probe.ts` and `apps/web/src/derive.ts` mention
- * agent-bridge only in comments — they are intentionally NOT grandfathered, so
- * a real import appearing there fails the check.
+ * agent-bridge only in comments — a real import appearing there fails the check.
  */
-const GRANDFATHERED_AGENT_BRIDGE = new Set<string>([
-  // relay.ts's lake-read moved into the conversations module (#13 Phase 2).
-  'apps/server/src/modules/conversations/service.ts',
-  'apps/server/src/transcript-indexer.ts',
-])
+const GRANDFATHERED_AGENT_BRIDGE = new Set<string>([])
 
 /**
  * The one allowed app→app edge: apps/web imports the `AppRouter` *type* from
@@ -63,6 +59,15 @@ const APP_PACKAGES: Record<string, string> = {
 }
 
 const LEAF_PACKAGES = new Set<string>(['packages/protocol', 'packages/core'])
+
+/**
+ * Near-leaf packages: may import ONLY the listed workspace packages (plus node
+ * builtins/external deps). `@podium/transcript` is pure parsing/paging over
+ * protocol types — it must never grow IO/harness dependencies.
+ */
+const RESTRICTED_PACKAGE_DEPS: Record<string, ReadonlySet<string>> = {
+  'packages/transcript': new Set(['packages/protocol']),
+}
 
 export interface ImportRef {
   specifier: string
@@ -183,6 +188,22 @@ export function checkFile(file: string, source: string): Violation[] {
         specifier: ref.specifier,
         rule: 'leaf-package',
         message: `${file}: ${from} is a leaf package and must not import workspace package '${ref.specifier}'`,
+      })
+      continue
+    }
+
+    // Rule 3b: near-leaf packages with an explicit allowed-deps list.
+    const restricted = RESTRICTED_PACKAGE_DEPS[from]
+    if (
+      restricted &&
+      (to.startsWith('packages/') || to.startsWith('apps/')) &&
+      !restricted.has(to)
+    ) {
+      violations.push({
+        file,
+        specifier: ref.specifier,
+        rule: 'restricted-package-deps',
+        message: `${file}: ${from} may only import ${[...restricted].join(', ')} among workspace packages (imports '${ref.specifier}')`,
       })
       continue
     }
