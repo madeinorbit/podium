@@ -51,7 +51,7 @@ import { SearchView } from './SearchView'
 import { type ContextMenuAnchor, SessionContextMenu } from './SessionContextMenu'
 import { SidebarUnified } from './SidebarUnified'
 import { SnoozeControl } from './SnoozeControl'
-import { useStore } from './store'
+import { useStore, useStoreSelector } from './store'
 import type { PinKind, WorktreeView } from './types'
 import { useNow } from './useNow'
 import { SessionNameEditor, sessionDisplayName, WorkerLabel } from './WorkerLabel'
@@ -1094,7 +1094,8 @@ export function PanelRow({
    *  indented and tighter, so the group reads as belonging to its parent. */
   dotRight?: boolean
 }): JSX.Element {
-  const { continueSession, renameSession } = useStore()
+  const continueSession = useStoreSelector((s) => s.continueSession)
+  const renameSession = useStoreSelector((s) => s.renameSession)
   const { guardedKill } = useSessionGuard()
   const badge = agentBadge(session)
   const [editing, setEditing] = useState(false)
@@ -1248,7 +1249,7 @@ export function PanelRow({
 /** Compact repo/branch stamp for a pinned panel: repo bold on top, branch muted
  *  below. Full "repo · branch" on the hover title. */
 function RepoBranchTag({ cwd }: { cwd: string }): JSX.Element | null {
-  const { repos } = useStore()
+  const repos = useStoreSelector((s) => s.repos)
   const rb = repoBranchForCwd(repos, cwd)
   if (!rb) return null
   return (

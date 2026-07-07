@@ -23,6 +23,11 @@
       "@podium/source": "./src/outbox.ts",
       "types": "./src/outbox.ts",
       "import": "./src/outbox.ts"
+    },
+    "./store": {
+      "@podium/source": "./src/store.ts",
+      "types": "./src/store.ts",
+      "import": "./src/store.ts"
     }
   },
   "scripts": {

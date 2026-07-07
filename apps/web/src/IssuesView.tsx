@@ -68,7 +68,7 @@ import { dropTargetStage } from './kanban-dnd'
 import { NewIssueDialog } from './NewIssueDialog'
 import { PropertyMenu } from './PropertyMenu'
 import type { ContextMenuAnchor } from './SessionContextMenu'
-import { useStore } from './store'
+import { useStoreSelector } from './store'
 
 /** Which anchored property menu the keyboard opened, and for which issue. */
 type PropMenuKind = 's' | 'p' | 'a' | 'l'
@@ -89,7 +89,10 @@ type DisplayPatch = Partial<Omit<IssuesDisplay, 'badges'>> & {
  * `issuesChanged`, so the board reconciles itself with no manual refetch.
  */
 export function IssuesView(): JSX.Element {
-  const { issues, openIssueId, setOpenIssueId, trpc } = useStore()
+  const issues = useStoreSelector((s) => s.issues)
+  const openIssueId = useStoreSelector((s) => s.openIssueId)
+  const setOpenIssueId = useStoreSelector((s) => s.setOpenIssueId)
+  const trpc = useStoreSelector((s) => s.trpc)
   // On phones the board's horizontal lanes don't fit — force the list layout.
   const isMobile = useIsMobile()
   // Display options (layout / ordering / badge visibility), persisted so the

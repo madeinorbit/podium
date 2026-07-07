@@ -12,7 +12,8 @@ import { cn } from '@/lib/utils'
 import { CardBoundary } from './CardBoundary'
 import { agentBadge, panelLabel, sessionDotClass } from './derive'
 import { attentionSummary, groupSessions, kanbanColumns, relativeTime, withoutShells } from './home'
-import { useStore } from './store'
+import { shallowEqual } from '@podium/client-core/store'
+import { useStoreSelector } from './store'
 import { sessionDisplayName } from './WorkerLabel'
 
 type HomeMode = 'list' | 'board'
@@ -29,7 +30,7 @@ function SessionDot({ session }: { session: SessionMeta }): JSX.Element {
  * mode is a kanban over the *work's* state, user-sorted by drag.
  */
 export function HomeView(): JSX.Element {
-  const { sessions } = useStore()
+  const sessions = useStoreSelector((s) => s.sessions)
   const isMobile = useIsMobile()
   const [mode, setMode] = useState<HomeMode>(
     () => (localStorage.getItem(MODE_KEY) as HomeMode) || 'list',
@@ -106,7 +107,7 @@ export function HomeView(): JSX.Element {
 }
 
 function PriorityList({ now }: { now: number }): JSX.Element {
-  const { sessions } = useStore()
+  const sessions = useStoreSelector((s) => s.sessions)
   const groups = groupSessions(withoutShells(sessions))
   const empty =
     groups.needsYou.length === 0 && groups.idle.length === 0 && groups.working.length === 0
@@ -163,7 +164,8 @@ function HomeGroup({
 }
 
 function KanbanBoard({ now }: { now: number }): JSX.Element {
-  const { sessions, setWorkState } = useStore()
+  const sessions = useStoreSelector((s) => s.sessions)
+  const setWorkState = useStoreSelector((s) => s.setWorkState)
   const lanes = kanbanColumns(withoutShells(sessions))
   const onDragEnd = (event: DragEndEvent) => {
     const { active, over } = event
@@ -248,17 +250,26 @@ function SessionCard({
   raised?: boolean
   archivedDim?: boolean
 }): JSX.Element {
-  const {
-    machines,
-    setSelectedWorktree,
-    setPane,
-    setView,
-    renameSession,
-    archiveSession,
-    continueSession,
-    hibernateSession,
-    resurrectSession,
-  } = useStore()
+  const { machines, setSelectedWorktree, setPane, setView } = useStoreSelector(
+    (s) => ({
+      machines: s.machines,
+      setSelectedWorktree: s.setSelectedWorktree,
+      setPane: s.setPane,
+      setView: s.setView,
+    }),
+    shallowEqual,
+  )
+  const { renameSession, archiveSession, continueSession, hibernateSession, resurrectSession } =
+    useStoreSelector(
+      (s) => ({
+        renameSession: s.renameSession,
+        archiveSession: s.archiveSession,
+        continueSession: s.continueSession,
+        hibernateSession: s.hibernateSession,
+        resurrectSession: s.resurrectSession,
+      }),
+      shallowEqual,
+    )
   const { guardedArchive } = useSessionGuard()
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState('')

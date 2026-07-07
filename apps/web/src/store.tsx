@@ -9,6 +9,7 @@ import type {
   SessionMeta,
   WorkState,
 } from '@podium/protocol'
+import { createSubscriptionStore, type SubscriptionStore } from '@podium/client-core/store'
 import { SocketHub } from '@podium/terminal-client'
 import type { JSX } from 'react'
 import {
@@ -16,9 +17,11 @@ import {
   type ReactNode,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
 } from 'react'
 import { toast } from 'sonner'
 import { formatAppError } from './AppErrorPage'
@@ -207,7 +210,12 @@ export interface Store {
 
 export type MainView = 'home' | 'workspace' | 'settings' | 'usage' | 'issues' | 'automations'
 
-const Ctx = createContext<Store | null>(null)
+// The context carries a subscription-store HANDLE (stable identity for the
+// provider's lifetime), not the value object — so a provider re-render never
+// re-renders consumers by itself. Consumers subscribe via useSyncExternalStore
+// (useStore / useStoreSelector below) and only re-render when the slice they
+// read actually changed.
+const Ctx = createContext<SubscriptionStore<Store> | null>(null)
 
 // Persist the "where am I" state so a reload (the PWA cold-starts often on
 // mobile) lands back on the same surface. localStorage access is guarded — it
@@ -488,10 +496,13 @@ export function StoreProvider({
   const [superThreadId, setSuperThreadId] = useState('global')
   const [superOpen, setSuperOpen] = useState(() => lsGet(SUPER_OPEN_KEY) === '1')
   const [dockTab, setDockTabState] = useState<DockTab>(() => readStoredDockTab(lsGet(DOCK_TAB_KEY)))
-  const setDockTab = (tab: DockTab) => {
-    setDockTabState(tab)
-    lsSet(DOCK_TAB_KEY, tab)
-  }
+  const setDockTab = useMemo(
+    () => (tab: DockTab) => {
+      setDockTabState(tab)
+      lsSet(DOCK_TAB_KEY, tab)
+    },
+    [],
+  )
   const [superRefreshKey, setSuperRefreshKey] = useState(0)
   const [drafts, setDrafts] = useState<Record<string, string>>({})
   const [sidebarSettings, setSidebarSettingsState] = useState<SidebarSettings>({
@@ -500,10 +511,13 @@ export function StoreProvider({
     groupByRepo: false,
   })
   const [sidebarTab, setSidebarTabState] = useState<'worktrees' | 'issues'>(readStoredSidebarTab)
-  const setSidebarTab = (tab: 'worktrees' | 'issues') => {
-    setSidebarTabState(tab)
-    lsSet(SIDEBAR_TAB_KEY, tab)
-  }
+  const setSidebarTab = useMemo(
+    () => (tab: 'worktrees' | 'issues') => {
+      setSidebarTabState(tab)
+      lsSet(SIDEBAR_TAB_KEY, tab)
+    },
+    [],
+  )
   const [openIssueId, setOpenIssueId] = useState<string | null>(null)
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [selectedWorktree, setSelectedWorktree] = useState<string | null>(() => lsGet(WT_KEY))
@@ -511,16 +525,30 @@ export function StoreProvider({
   const [sidebarLayout, setSidebarLayoutState] = useState<'classic' | 'unified'>(() =>
     lsGet(SIDEBAR_LAYOUT_KEY) === 'unified' ? 'unified' : 'classic',
   )
-  const setSidebarLayout = (layout: 'classic' | 'unified') => {
-    setSidebarLayoutState(layout)
-    lsSet(SIDEBAR_LAYOUT_KEY, layout)
-  }
+  const setSidebarLayout = useMemo(
+    () => (layout: 'classic' | 'unified') => {
+      setSidebarLayoutState(layout)
+      lsSet(SIDEBAR_LAYOUT_KEY, layout)
+    },
+    [],
+  )
   const [paneA, setPaneA] = useState<string | null>(() => lsGet(PANE_A_KEY))
   const [paneB, setPaneB] = useState<string | null>(() => lsGet(PANE_B_KEY))
   const [split, setSplit] = useState(() => lsGet(SPLIT_KEY) === '1')
   // Which pane has input focus. Not persisted — it resets to A on reload, which is
   // the right default (A is always the shown pane when split is off).
   const [focusedPane, setFocusedPane] = useState<'A' | 'B'>('A')
+  // Selecting a pane also focuses it — clicking/opening a pane is a reasonable
+  // proxy for input focus, and the terminal components don't expose a focus seam.
+  const setPane = useMemo(
+    () => (pane: 'A' | 'B', id: string | null) => {
+      if (pane === 'A') setPaneA(id)
+      else setPaneB(id)
+      setFocusedPane(pane)
+    },
+    [],
+  )
+  const toggleSplit = useMemo(() => () => setSplit((s) => !s), [])
   const [panelMode, setPanelMode] =
     useState<Record<string, 'chat' | 'native'>>(readStoredPanelModes)
   // Effective rendered mode per session (what AgentPanel actually shows), reported up
@@ -1112,20 +1140,14 @@ export function StoreProvider({
     setSidebarLayout,
     paneA,
     paneB,
-    // Selecting a pane also focuses it — clicking/opening a pane is a reasonable
-    // proxy for input focus, and the terminal components don't expose a focus seam.
-    setPane: (pane, id) => {
-      if (pane === 'A') setPaneA(id)
-      else setPaneB(id)
-      setFocusedPane(pane)
-    },
+    setPane,
     focusedPane,
     setFocusedPane,
     panelMode,
     setPanelMode: setPanelModeCb,
     setPanelRenderMode: setPanelRenderModeCb,
     split,
-    toggleSplit: () => setSplit((s) => !s),
+    toggleSplit,
     refreshRepos,
     spawnDraftAgent,
     killSession,
@@ -1156,11 +1178,62 @@ export function StoreProvider({
     writeFileScoped,
     listDir,
   }
-  return <Ctx.Provider value={value}>{children}</Ctx.Provider>
+  // Publish into the subscription store (created once; identity is the context
+  // value). publish() shallow-compares, so a provider re-render where nothing
+  // observable changed notifies nobody — and keeps the old snapshot identity.
+  const extStoreRef = useRef<SubscriptionStore<Store> | null>(null)
+  if (extStoreRef.current === null) extStoreRef.current = createSubscriptionStore(value)
+  const extStore = extStoreRef.current
+  useLayoutEffect(() => {
+    extStore.publish(value)
+  })
+  return <Ctx.Provider value={extStore}>{children}</Ctx.Provider>
 }
 
-export function useStore(): Store {
+function useStoreHandle(): SubscriptionStore<Store> {
   const s = useContext(Ctx)
   if (!s) throw new Error('useStore outside StoreProvider')
   return s
+}
+
+/** Compatibility hook: the WHOLE store snapshot. Re-renders whenever any store
+ *  field changes — prefer `useStoreSelector` for hot components. */
+export function useStore(): Store {
+  const handle = useStoreHandle()
+  return useSyncExternalStore(handle.subscribe, handle.getSnapshot)
+}
+
+/**
+ * Slice subscription: re-renders only when `selector(store)` changes (per
+ * `isEqual`, Object.is by default). Selectors may allocate (e.g. pick several
+ * fields into an object) as long as `isEqual` is passed accordingly — the hook
+ * caches the last selected value per snapshot so getSnapshot stays stable.
+ */
+export function useStoreSelector<T>(
+  selector: (s: Store) => T,
+  isEqual: (a: T, b: T) => boolean = Object.is,
+): T {
+  const handle = useStoreHandle()
+  const cache = useRef<{ snap: Store; selected: T } | null>(null)
+  // A new selector closure (inline arrows capture fresh props each render)
+  // must invalidate the cache — but only across renders, never mid-render.
+  const selectorRef = useRef(selector)
+  if (selectorRef.current !== selector) {
+    selectorRef.current = selector
+    cache.current = null
+  }
+  const isEqualRef = useRef(isEqual)
+  isEqualRef.current = isEqual
+  const getSelected = () => {
+    const snap = handle.getSnapshot()
+    const c = cache.current
+    if (c && c.snap === snap) return c.selected
+    const next = selectorRef.current(snap)
+    // Keep the previous selected identity when equal, so useSyncExternalStore's
+    // Object.is check sees "unchanged" and skips the re-render.
+    const selected = c && isEqualRef.current(c.selected, next) ? c.selected : next
+    cache.current = { snap, selected }
+    return selected
+  }
+  return useSyncExternalStore(handle.subscribe, getSelected)
 }
