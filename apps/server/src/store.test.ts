@@ -34,6 +34,35 @@ describe('SessionStore repos', () => {
     b.close()
   })
 
+  it('upgrades a manually-added remote repo when scanner reports a canonical path', () => {
+    const store = new SessionStore(':memory:')
+    const machineId = 'm-vmi'
+    const path = '/home/till/src/podium'
+    const originUrl = 'https://github.com/madeinorbit/podium.git'
+
+    store.addRepo(`${path}/`, machineId)
+    store.updateRepoOrigin(machineId, path, originUrl)
+
+    expect(store.listRepos(machineId)).toEqual([
+      {
+        machineId,
+        path,
+        originUrl,
+        repoId: deriveRepoId({ originUrl, machineId, path }),
+      },
+    ])
+    store.close()
+  })
+
+  it('resolves subpaths under a registered filesystem root repo', () => {
+    const store = new SessionStore(':memory:')
+    store.addRepo('/')
+    const repoId = store.listRepos()[0]?.repoId
+
+    expect(store.resolveRepoIdForPath('/home/till/src/podium')).toBe(repoId)
+    store.close()
+  })
+
   it('exposes loadSessions() as [] on a fresh db (tables exist)', () => {
     const store = new SessionStore(':memory:')
     expect(store.loadSessions()).toEqual([])

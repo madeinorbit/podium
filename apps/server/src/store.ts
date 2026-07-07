@@ -61,6 +61,12 @@ export function defaultDbPath(): string {
   return join(base, 'podium.db')
 }
 
+export function normalizeRepoPath(path: string): string {
+  const trimmed = path.trim()
+  if (/^\/+$/u.test(trimmed)) return '/'
+  return trimmed.replace(/\/+$/u, '')
+}
+
 export type SessionStatusPersisted = 'starting' | 'live' | 'reconnecting' | 'hibernated' | 'exited'
 
 /** One persisted session row. camelCase mirror of the snake_case `sessions` table. */
@@ -309,17 +315,18 @@ export class SessionStore {
     // readLocalOriginUrl is a no-op (null) for paths that don't exist on this host,
     // so remote-machine repos simply get the path-fallback id until a scan reports
     // their origin (updateRepoOrigin then upgrades it).
-    const origin = originUrl ?? readLocalOriginUrl(path) ?? undefined
+    const normalizedPath = normalizeRepoPath(path)
+    const origin = originUrl ?? readLocalOriginUrl(normalizedPath) ?? undefined
     this.db
       .prepare(
         'INSERT OR IGNORE INTO repos (machine_id, path, origin_url, repo_name, repo_id, added_at) VALUES (?, ?, ?, ?, ?, ?)',
       )
       .run(
         machineId,
-        path,
+        normalizedPath,
         origin ?? null,
-        path.split('/').pop() ?? null,
-        deriveRepoId({ originUrl: origin, machineId, path }),
+        normalizedPath.split('/').pop() ?? null,
+        deriveRepoId({ originUrl: origin, machineId, path: normalizedPath }),
         new Date().toISOString(),
       )
   }
@@ -331,33 +338,77 @@ export class SessionStore {
    * already origin-derived, so identities stay stable if the remote moves.
    */
   updateRepoOrigin(machineId: string, path: string, originUrl: string): void {
-    const row = this.db
-      .prepare('SELECT repo_id FROM repos WHERE machine_id = ? AND path = ?')
-      .get(machineId, path) as { repo_id: string | null } | undefined
+    const normalizedPath = normalizeRepoPath(path)
+    const rows = this.db
+      .prepare('SELECT path, repo_id FROM repos WHERE machine_id = ?')
+      .all(machineId) as { path: string; repo_id: string | null }[]
+    const row = rows.find((r) => normalizeRepoPath(r.path) === normalizedPath)
     if (!row) return
-    const newId = deriveRepoId({ originUrl, machineId, path })
-    const upgrade = isPathFallbackRepoId(row.repo_id, machineId, path) && newId !== row.repo_id
+
+    const newId = deriveRepoId({ originUrl, machineId, path: normalizedPath })
+    const upgrade =
+      isPathFallbackRepoId(row.repo_id, machineId, row.path) ||
+      isPathFallbackRepoId(row.repo_id, machineId, normalizedPath)
+    const repoId = upgrade ? newId : row.repo_id
+
+    let targetPath = row.path
+    if (row.path !== normalizedPath) {
+      const result = this.db
+        .prepare('UPDATE OR IGNORE repos SET path = ? WHERE machine_id = ? AND path = ?')
+        .run(normalizedPath, machineId, row.path) as { changes?: number }
+      if ((result.changes ?? 0) > 0) {
+        targetPath = normalizedPath
+      } else {
+        this.db
+          .prepare('DELETE FROM repos WHERE machine_id = ? AND path = ?')
+          .run(machineId, row.path)
+        targetPath = normalizedPath
+      }
+    }
+
     this.db
       .prepare('UPDATE repos SET origin_url = ?, repo_id = ? WHERE machine_id = ? AND path = ?')
-      .run(originUrl, upgrade ? newId : row.repo_id, machineId, path)
+      .run(originUrl, repoId, machineId, targetPath)
+    for (const duplicate of rows) {
+      if (duplicate.path !== targetPath && normalizeRepoPath(duplicate.path) === normalizedPath) {
+        this.db
+          .prepare('DELETE FROM repos WHERE machine_id = ? AND path = ?')
+          .run(machineId, duplicate.path)
+      }
+    }
     if (upgrade) {
-      this.db
-        .prepare("UPDATE issues SET repo_id = ? WHERE repo_path = ? OR repo_path LIKE ? || '/%'")
-        .run(newId, path, path)
+      const stmt = this.db.prepare(
+        "UPDATE issues SET repo_id = ? WHERE repo_path = ? OR repo_path LIKE ? || '/%'",
+      )
+      for (const repoPath of new Set([row.path, normalizedPath]))
+        stmt.run(newId, repoPath, repoPath)
     }
   }
 
   /** repo_id for an issue's repoPath: the longest registered repo root that contains
    *  it (any machine), else the deterministic '__local__' path-fallback. */
   resolveRepoIdForPath(repoPath: string): string {
+    const normalizedRepoPath = normalizeRepoPath(repoPath)
     const match = this.listRepos()
-      .filter((r) => repoPath === r.path || repoPath.startsWith(`${r.path}/`))
+      .map((r) => ({ ...r, path: normalizeRepoPath(r.path) }))
+      .filter(
+        (r) =>
+          normalizedRepoPath === r.path ||
+          normalizedRepoPath.startsWith(r.path === '/' ? r.path : `${r.path}/`),
+      )
       .sort((a, b) => b.path.length - a.path.length)[0]
-    return match?.repoId ?? deriveRepoId({ machineId: '__local__', path: repoPath })
+    return match?.repoId ?? deriveRepoId({ machineId: '__local__', path: normalizedRepoPath })
   }
 
   removeRepo(path: string, machineId = '__local__'): void {
-    this.db.prepare('DELETE FROM repos WHERE machine_id = ? AND path = ?').run(machineId, path)
+    const normalizedPath = normalizeRepoPath(path)
+    const rows = this.db.prepare('SELECT path FROM repos WHERE machine_id = ?').all(machineId) as {
+      path: string
+    }[]
+    const remove = this.db.prepare('DELETE FROM repos WHERE machine_id = ? AND path = ?')
+    for (const row of rows) {
+      if (normalizeRepoPath(row.path) === normalizedPath) remove.run(machineId, row.path)
+    }
   }
 
   // ---- pins ----
@@ -1504,7 +1555,10 @@ export class SessionStore {
     return r ? this.mapIssueMessage(r) : null
   }
 
-  listIssueMessages(issueId: string, opts?: { status?: IssueMessageRow['status'] }): IssueMessageRow[] {
+  listIssueMessages(
+    issueId: string,
+    opts?: { status?: IssueMessageRow['status'] },
+  ): IssueMessageRow[] {
     const rows = (
       opts?.status
         ? this.db
@@ -1513,7 +1567,9 @@ export class SessionStore {
             )
             .all(issueId, opts.status)
         : this.db
-            .prepare('SELECT * FROM issue_messages WHERE issue_id = ? ORDER BY created_at ASC, id ASC')
+            .prepare(
+              'SELECT * FROM issue_messages WHERE issue_id = ? ORDER BY created_at ASC, id ASC',
+            )
             .all(issueId)
     ) as Record<string, unknown>[]
     return rows.map((r) => this.mapIssueMessage(r))
@@ -2988,7 +3044,9 @@ export class SessionStore {
         r.path,
       )
     }
-    const issues = this.db.prepare('SELECT id, repo_path FROM issues WHERE repo_id IS NULL').all() as {
+    const issues = this.db
+      .prepare('SELECT id, repo_path FROM issues WHERE repo_id IS NULL')
+      .all() as {
       id: string
       repo_path: string
     }[]

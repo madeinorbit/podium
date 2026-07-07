@@ -1,9 +1,9 @@
 import { readdir, realpath, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { dirname, isAbsolute, join } from 'node:path'
-import { readLocalOriginUrl } from './repo-id'
 import type { ScanReposResult, SessionRegistry } from './relay'
-import type { SessionStore } from './store'
+import { readLocalOriginUrl } from './repo-id'
+import { normalizeRepoPath, type SessionStore } from './store'
 
 export type DirectoryBrowserEntry = {
   name: string
@@ -84,13 +84,15 @@ export class RepoRegistry {
    *  A root `r` contains `path` iff `path === r` or `path` starts with `r + '/'`,
    *  so `/a` does not match `/ab`. Pure over `list()`. */
   inferFromPath(path: string, machineId?: string): string | undefined {
+    const normalizedPath = normalizeRepoPath(path)
     return this.list(machineId)
-      .filter((r) => path === r || path.startsWith(r.endsWith('/') ? r : `${r}/`))
+      .map((r) => normalizeRepoPath(r))
+      .filter((r) => normalizedPath === r || normalizedPath.startsWith(r === '/' ? r : `${r}/`))
       .sort((a, b) => b.length - a.length)[0]
   }
 
   async add(path: string, machineId?: string): Promise<void> {
-    const p = path.trim()
+    const p = normalizeRepoPath(path)
     if (!p) throw new Error('repo path is empty')
     if (!isAbsolute(p)) throw new Error(`repo path must be absolute: ${p}`)
     const mid = machineId ?? this.sessionReg.defaultMachineId()
@@ -101,7 +103,7 @@ export class RepoRegistry {
 
   async remove(path: string, machineId?: string): Promise<void> {
     const mid = machineId ?? this.sessionReg.defaultMachineId()
-    this.store.removeRepo(path.trim(), mid)
+    this.store.removeRepo(normalizeRepoPath(path), mid)
   }
 
   /**
@@ -136,12 +138,12 @@ export class RepoRegistry {
           if (r.originUrl) this.store.updateRepoOrigin(machineId, r.path, r.originUrl)
         }
         const repoIdByPath = new Map(
-          this.store.listRepos(machineId).map((row) => [row.path, row.repoId]),
+          this.store.listRepos(machineId).map((row) => [normalizeRepoPath(row.path), row.repoId]),
         )
         // Stamp each repo with the machine that returned it (+ its stable repoId)
         return {
           repositories: result.repositories.map((r) => {
-            const repoId = repoIdByPath.get(r.path)
+            const repoId = repoIdByPath.get(normalizeRepoPath(r.path))
             return { ...r, machineId, ...(repoId ? { repoId } : {}) }
           }),
           diagnostics: result.diagnostics,
