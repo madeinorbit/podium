@@ -171,7 +171,9 @@ function PairingCodeDisplay({
   }
 
   return (
-    <div className="space-y-2">
+    // min-w-0: the dialog is a CSS grid, whose items default to min-width:auto — without this a
+    // long, unbreakable URL/token pushes the whole popup wider than its max-width.
+    <div className="min-w-0 space-y-2">
       {publicUrl && (
         // Show which URL the join code points at — the #1 thing that goes wrong (a throwaway
         // tunnel URL). One click to change it in Settings → Network.
@@ -179,8 +181,8 @@ function PairingCodeDisplay({
           <span className="text-[11px] text-muted-foreground uppercase tracking-wide">
             Server URL this code points at
           </span>
-          <div className="flex items-center gap-2">
-            <code className="min-w-0 flex-1 truncate rounded bg-muted px-2 py-1 text-[12px]">
+          <div className="flex items-start gap-2">
+            <code className="min-w-0 flex-1 break-all rounded bg-muted px-2 py-1 text-[12px]">
               {publicUrl}
             </code>
             {onChangeUrl && (

@@ -283,7 +283,9 @@ export function NetworkStep({
     <div
       className={
         embedded
-          ? 'setup-view flex flex-col gap-4'
+          ? // min-w-0: embedded in a CSS-grid dialog, whose items won't shrink below content
+            // width — a long tunnel command would otherwise push the popup out.
+            'setup-view flex min-w-0 flex-col gap-4'
           : 'setup-view mx-auto flex max-w-lg flex-col gap-4 p-6'
       }
     >
