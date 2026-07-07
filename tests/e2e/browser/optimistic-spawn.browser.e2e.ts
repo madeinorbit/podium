@@ -23,10 +23,7 @@ async function openUnified(page: Page): Promise<ReturnType<Page['locator']>> {
   })
   const aside = page.locator('aside').first()
   await aside.waitFor({ state: 'visible', timeout: 60_000 })
-  const unifiedToggle = aside.getByRole('button', { name: 'unified', exact: true })
-  await expect(unifiedToggle).toBeVisible({ timeout: 15_000 })
-  await unifiedToggle.click()
-  await expect(unifiedToggle).toHaveAttribute('aria-pressed', 'true')
+  // The unified layout is THE sidebar now — no switcher to flip.
   return aside
 }
 

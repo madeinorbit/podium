@@ -34,8 +34,6 @@ test('unified WORK list groups by repo and back', async ({ page }) => {
   await openShell(page)
   const aside = page.locator('aside').first()
 
-  await aside.getByRole('button', { name: 'unified', exact: true }).click()
-
   // Seed a WORK row: spawn an agent (creates a draft issue in the harness repo).
   const splitMain = aside.getByRole('button', { name: /^New .+ in .+/ })
   await expect(splitMain).toBeEnabled({ timeout: 20_000 })
