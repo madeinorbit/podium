@@ -5,6 +5,8 @@ import {
 } from '@podium/client-core/transport'
 import type {
   AgentKind,
+  IssueStage,
+  IssueType,
   IssueWire,
   SyncChangesSinceResult,
   TranscriptItem,
@@ -106,6 +108,39 @@ export interface MobileTrpc {
   }
   issues: {
     get: QueryProcedure<{ id: string }, IssueWire | undefined>
+    create: MutationProcedure<
+      {
+        repoPath: string
+        title: string
+        description?: string
+        priority?: number
+        type?: IssueType
+        startNow: boolean
+        mutationId?: string
+      },
+      IssueWire
+    >
+    /** Spawn the issue's default agent on it (issue-as-workspace). */
+    start: MutationProcedure<{ id: string; agentKind?: string }, IssueWire>
+    update: MutationProcedure<{
+      id: string
+      patch: {
+        title?: string
+        description?: string
+        stage?: IssueStage
+        archived?: boolean
+        priority?: number
+        type?: IssueType
+        notes?: string
+      }
+      mutationId?: string
+    }>
+    addComment: MutationProcedure<{
+      id: string
+      author: string
+      body: string
+      mutationId?: string
+    }>
   }
   repos: {
     /** Flat list of registered repo root paths. */
