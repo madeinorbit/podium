@@ -64,6 +64,7 @@ import {
   type TelegramSetupPollResult,
   type TelegramSetupStartResult,
 } from './modules/settings/service'
+import { HeadlessService } from './modules/superagent/headless'
 import { MetadataOplog } from './oplog'
 import { type ClientConn, type Send, Session } from './session'
 import { computePriorities } from './session-priority'
@@ -199,22 +200,6 @@ export class SessionRegistry {
   private readonly pendingRepoScans = new Map<string, (r: ScanReposResult) => void>()
   private readonly pendingRepoOps = new Map<string, (r: OpResult) => void>()
   private readonly pendingHarnessExecs = new Map<string, (r: OpResult) => void>()
-  private readonly pendingHeadlessTurns = new Map<
-    string,
-    {
-      resolve: (r: {
-        ok: boolean
-        error?: string
-        harnessSessionId?: string
-        output?: string
-      }) => void
-      onEvent?: (e: HeadlessTurnEvent) => void
-    }
-  >()
-  private readonly pendingHeadlessBinds = new Map<
-    string,
-    (r: { ok: boolean; error?: string }) => void
-  >()
   private readonly pendingUsage = new Map<
     string,
     (r: { hostname: string; buckets: UsageBucketWire[] }) => void
@@ -275,6 +260,8 @@ export class SessionRegistry {
   private readonly issuePublisher: IssuePublisher
   /** Relayed agent issue ops — allowlist + capability-scoped caller (modules/issues). */
   private readonly issueRelayGate: IssueRelayGate
+  /** Headless harness sessions — superagent-driven, PTY-less (modules/superagent). */
+  private readonly headless: HeadlessService
   /** Host health samples + auto-hibernate + memory breakdown (modules/hosts). */
   private readonly hosts: HostsService
   private nextClientNum = 0
@@ -377,6 +364,18 @@ export class SessionRegistry {
       makeIssueCaller: () => this.makeIssueCaller,
       capabilityForSession: (sessionId) => this.capabilityForSession(sessionId),
       toMachine: (machineId, msg) => this.toMachine(machineId, msg),
+    })
+    this.headless = new HeadlessService({
+      getSession: (sessionId) => this.sessions.get(sessionId),
+      registerSession: (session) => this.sessions.set(session.sessionId, session),
+      resolveMachine: (requested, cwd) => this.machines.resolveMachine(requested, cwd),
+      defaultMachine: () => this.machines.defaultMachine(),
+      toMachine: (machineId, msg) => this.toMachine(machineId, msg),
+      nextRequestId: (prefix) => `${prefix}${this.nextRequestNum++}`,
+      defaultGeometry: () => ({ ...DEFAULT_GEOMETRY }),
+      persist: (session) => this.persist(session),
+      broadcastSessions: () => this.broadcastSessions(),
+      clients: () => this.clients.values(),
     })
     this.loadFromStore()
     // Constructed AFTER loadFromStore (same slot the inline mirror construction held).
@@ -1968,14 +1967,8 @@ export class SessionRegistry {
     )
   }
 
-  // ---- Headless harness sessions (concierge unification) ----
+  // ---- Headless harness sessions — delegates to modules/superagent/headless ----
 
-  /**
-   * Create a headless harness session row: a persistent, PTY-less session the
-   * superagent drives turn-by-turn (registry.headlessTurn). No spawn message is
-   * sent to the daemon — the daemon only ever sees turn requests and transcript
-   * binds. Status is 'live' for as long as the thread exists.
-   */
   createHeadlessSession(input: {
     agentKind: AgentKind
     cwd: string
@@ -1983,57 +1976,17 @@ export class SessionRegistry {
     spawnedBy?: string
     machineId?: string
   }): { sessionId: string } {
-    const sessionId = randomUUID()
-    const machineId = this.machines.resolveMachine(input.machineId, input.cwd)
-    const session = new Session({
-      sessionId,
-      agentKind: input.agentKind,
-      cwd: input.cwd,
-      title: input.title || basename(input.cwd) || input.cwd,
-      origin: { kind: 'spawn' },
-      createdAt: new Date().toISOString(),
-      geometry: { ...DEFAULT_GEOMETRY },
-      machineId,
-      toDaemon: (msg) => this.toMachine(this.sessions.get(sessionId)?.machineId ?? machineId, msg),
-      durableLabel: `podium-${sessionId}`,
-      status: 'live',
-      headless: true,
-      ...(input.spawnedBy ? { spawnedBy: input.spawnedBy } : {}),
-    })
-    this.sessions.set(sessionId, session)
-    this.persist(session)
-    this.broadcastSessions()
-    return { sessionId }
+    return this.headless.createHeadlessSession(input)
   }
 
-  /**
-   * Record the harness's own session id on a headless session once the first
-   * turn reports it — the resume ref every later turn (and the "open in
-   * terminal" escape hatch) reattaches to. Persisted + broadcast, mirroring how
-   * PTY sessions learn their resume refs from the daemon.
-   */
   setHeadlessResume(sessionId: string, resume: ResumeRef): void {
-    const session = this.sessions.get(sessionId)
-    if (!session || !session.headless) return
-    session.resume = resume
-    this.persist(session)
-    this.broadcastSessions()
+    this.headless.setHeadlessResume(sessionId, resume)
   }
 
-  /** Fan a headless turn-activity event out to every connected client
-   *  (turn-start/turn-end markers + the daemon's mid-turn progress events). */
   broadcastHeadlessActivity(sessionId: string, event: HeadlessActivityEvent): void {
-    const msg: ServerMessage = { type: 'headlessActivity', sessionId, event }
-    for (const c of this.clients.values()) c.send(msg)
+    this.headless.broadcastHeadlessActivity(sessionId, event)
   }
 
-  // Server↔daemon plumbing (Phase A).
-
-  /**
-   * One turn of a headless harness session on the owning daemon. Mid-turn
-   * progress (`headlessTurnEvent` frames) streams to `onEvent` before the
-   * result resolves; the transcript tail delivers the canonical items.
-   */
   headlessTurn(
     input: {
       sessionId: string
@@ -2053,87 +2006,20 @@ export class SessionRegistry {
     },
     onEvent?: (event: HeadlessTurnEvent) => void,
   ): Promise<{ ok: boolean; error?: string; harnessSessionId?: string; output?: string }> {
-    const machineId =
-      this.sessions.get(input.sessionId)?.machineId ?? this.machines.defaultMachine()
-    const requestId = `ht${this.nextRequestNum++}`
-    const timeoutMs = (input.timeoutMs ?? 600_000) + 10_000
-    return new Promise((resolve) => {
-      const timer = setTimeout(() => {
-        this.pendingHeadlessTurns.delete(requestId)
-        resolve({ ok: false, error: 'headless turn timed out' })
-      }, timeoutMs)
-      timer.unref?.()
-      this.pendingHeadlessTurns.set(requestId, {
-        resolve: (r) => {
-          clearTimeout(timer)
-          this.pendingHeadlessTurns.delete(requestId)
-          resolve(r)
-        },
-        ...(onEvent ? { onEvent } : {}),
-      })
-      this.toMachine(machineId, {
-        type: 'headlessTurnRequest',
-        requestId,
-        sessionId: input.sessionId,
-        threadId: input.threadId,
-        agent: input.agent,
-        cwd: input.cwd,
-        prompt: input.prompt,
-        ...(input.model && input.model !== 'auto' ? { model: input.model } : {}),
-        ...(input.effort ? { effort: input.effort } : {}),
-        ...(input.systemPrompt ? { systemPrompt: input.systemPrompt } : {}),
-        ...(input.mcpConfig ? { mcpConfig: input.mcpConfig } : {}),
-        ...(input.allowedTools ? { allowedTools: input.allowedTools } : {}),
-        ...(input.permissionMode ? { permissionMode: input.permissionMode } : {}),
-        ...(input.resumeValue ? { resumeValue: input.resumeValue } : {}),
-        ...(input.sessionUuid ? { sessionUuid: input.sessionUuid } : {}),
-        ...(input.timeoutMs ? { timeoutMs: input.timeoutMs } : {}),
-      })
-    })
+    return this.headless.headlessTurn(input, onEvent)
   }
 
-  /** Interrupt a headless session's running turn (fire-and-forget; the turn's
-   *  own headlessTurnResult reports the outcome). */
   headlessInterrupt(sessionId: string): void {
-    const machineId = this.sessions.get(sessionId)?.machineId ?? this.machines.defaultMachine()
-    this.toMachine(machineId, {
-      type: 'headlessInterrupt',
-      requestId: `hi${this.nextRequestNum++}`,
-      sessionId,
-    })
+    this.headless.headlessInterrupt(sessionId)
   }
 
-  /** (Re)establish the daemon-side transcript observers/tails for a headless
-   *  session — the reattach equivalent for sessions with no PTY. */
   headlessBind(input: {
     sessionId: string
     agentKind: AgentKind
     cwd: string
     resumeValue: string
   }): Promise<{ ok: boolean; error?: string }> {
-    const machineId =
-      this.sessions.get(input.sessionId)?.machineId ?? this.machines.defaultMachine()
-    const requestId = `hb${this.nextRequestNum++}`
-    return new Promise((resolve) => {
-      const timer = setTimeout(() => {
-        this.pendingHeadlessBinds.delete(requestId)
-        resolve({ ok: false, error: 'headless bind timed out' })
-      }, 15_000)
-      timer.unref?.()
-      this.pendingHeadlessBinds.set(requestId, (r) => {
-        clearTimeout(timer)
-        this.pendingHeadlessBinds.delete(requestId)
-        resolve(r)
-      })
-      this.toMachine(machineId, {
-        type: 'headlessBind',
-        requestId,
-        sessionId: input.sessionId,
-        agentKind: input.agentKind,
-        cwd: input.cwd,
-        resumeValue: input.resumeValue,
-      })
-    })
+    return this.headless.headlessBind(input)
   }
 
   /**
@@ -2731,23 +2617,15 @@ export class SessionRegistry {
         break
       }
       case 'headlessTurnEvent': {
-        this.pendingHeadlessTurns.get(msg.requestId)?.onEvent?.(msg.event)
+        this.headless.onTurnEvent(msg)
         break
       }
       case 'headlessTurnResult': {
-        this.pendingHeadlessTurns.get(msg.requestId)?.resolve({
-          ok: msg.ok,
-          ...(msg.error !== undefined ? { error: msg.error } : {}),
-          ...(msg.harnessSessionId !== undefined ? { harnessSessionId: msg.harnessSessionId } : {}),
-          ...(msg.output !== undefined ? { output: msg.output } : {}),
-        })
+        this.headless.onTurnResult(msg)
         break
       }
       case 'headlessBindResult': {
-        this.pendingHeadlessBinds.get(msg.requestId)?.({
-          ok: msg.ok,
-          ...(msg.error !== undefined ? { error: msg.error } : {}),
-        })
+        this.headless.onBindResult(msg)
         break
       }
       case 'usageResult': {
