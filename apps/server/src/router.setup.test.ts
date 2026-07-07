@@ -49,6 +49,15 @@ describe('setup tRPC', () => {
     expect(loadConfig().publicUrl).toBe('https://box.ts.net')
     expect(loadConfig().mode).toBe('all-in-one')
   })
+  it('info reports the current mode + publicUrl (for Settings → Network)', async () => {
+    expect(await caller().setup.info()).toEqual({ mode: null, publicUrl: null, serverUrl: null })
+    await caller().setup.complete({ publicUrl: 'https://box.ts.net', acknowledgeNoPassword: true })
+    expect(await caller().setup.info()).toEqual({
+      mode: 'all-in-one',
+      publicUrl: 'https://box.ts.net',
+      serverUrl: null,
+    })
+  })
   it('complete with mode=server persists a reachable relay-only box', async () => {
     await caller().setup.complete({
       publicUrl: 'https://relay.ts.net',

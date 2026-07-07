@@ -23,11 +23,12 @@ import { useStore } from './store'
  * flow that mints a pairing code and shows the daemon command to run.
  */
 export function MachinesPanel(): JSX.Element {
-  const { machines, trpc } = useStore()
+  const { machines, trpc, setSettingsTab } = useStore()
   const [now, setNow] = useState(() => Date.now())
   const [addOpen, setAddOpen] = useState(false)
   const [code, setCode] = useState<string | null>(null)
   const [joinCommand, setJoinCommand] = useState<string | null>(null)
+  const [publicUrl, setPublicUrl] = useState<string | null>(null)
   const [addError, setAddError] = useState<string | null>(null)
   const [addLoading, setAddLoading] = useState(false)
 
@@ -41,14 +42,24 @@ export function MachinesPanel(): JSX.Element {
     setAddLoading(true)
     setAddError(null)
     try {
-      const r = await trpc.machines.pairingCode.mutate()
+      const [r, info] = await Promise.all([
+        trpc.machines.pairingCode.mutate(),
+        trpc.setup.info.query(),
+      ])
       setCode(r.code)
       setJoinCommand(r.joinCommand)
+      setPublicUrl(info.publicUrl)
     } catch (e) {
       setAddError(e instanceof Error ? e.message : String(e))
     } finally {
       setAddLoading(false)
     }
+  }
+
+  // Jump to Settings → Network to change the server's reachable URL.
+  const goChangeUrl = (): void => {
+    setAddOpen(false)
+    setSettingsTab('network')
   }
 
   return (
@@ -92,7 +103,14 @@ export function MachinesPanel(): JSX.Element {
             {addLoading && (
               <p className="text-muted-foreground text-xs">Generating pairing code…</p>
             )}
-            {code && joinCommand && <PairingCodeDisplay code={code} joinCommand={joinCommand} />}
+            {code && joinCommand && (
+              <PairingCodeDisplay
+                code={code}
+                joinCommand={joinCommand}
+                publicUrl={publicUrl}
+                onChangeUrl={goChangeUrl}
+              />
+            )}
             {code && !joinCommand && !addLoading && (
               // No publicUrl yet ⇒ the server can't build a join command. Let the user set up
               // reachability right here (same flow as the CLI / first-run setup), then re-mint —
@@ -134,9 +152,13 @@ export function MachinesPanel(): JSX.Element {
 function PairingCodeDisplay({
   code,
   joinCommand,
+  publicUrl,
+  onChangeUrl,
 }: {
   code: string
   joinCommand: string | null
+  publicUrl?: string | null
+  onChangeUrl?: () => void
 }): JSX.Element {
   const [copied, setCopied] = useState(false)
 
@@ -150,6 +172,31 @@ function PairingCodeDisplay({
 
   return (
     <div className="space-y-2">
+      {publicUrl && (
+        // Show which URL the join code points at — the #1 thing that goes wrong (a throwaway
+        // tunnel URL). One click to change it in Settings → Network.
+        <div className="flex flex-col gap-1">
+          <span className="text-[11px] text-muted-foreground uppercase tracking-wide">
+            Server URL this code points at
+          </span>
+          <div className="flex items-center gap-2">
+            <code className="min-w-0 flex-1 truncate rounded bg-muted px-2 py-1 text-[12px]">
+              {publicUrl}
+            </code>
+            {onChangeUrl && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="flex-none"
+                onClick={onChangeUrl}
+              >
+                Change…
+              </Button>
+            )}
+          </div>
+        </div>
+      )}
       <div className="flex flex-col gap-1">
         <span className="text-[11px] text-muted-foreground uppercase tracking-wide">
           Pairing code

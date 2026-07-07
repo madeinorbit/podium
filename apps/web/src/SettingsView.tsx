@@ -26,6 +26,7 @@ import { effortOptionsForModel } from './agent-models'
 import { issueDefaultAgentKind } from './issue-agents'
 import { MachinesPanel } from './MachinesPanel'
 import { EffortPicker, ModelPicker } from './ModelEffortPicker'
+import { NetworkStep } from './SetupView'
 import { useStore } from './store'
 import { type ThemeMode, type ThemePreset, useTheme } from './theme'
 import { serverConfig, type Trpc } from './trpc'
@@ -41,6 +42,7 @@ export type SettingsTab =
   | 'notifications'
   | 'workflow'
   | 'integrations'
+  | 'network'
   | 'machines'
   | 'security'
   | 'updates'
@@ -71,6 +73,7 @@ export const SETTINGS_TABS: { key: SettingsTab; label: string }[] = [
   { key: 'notifications', label: 'Notifications' },
   { key: 'workflow', label: 'Workflow' },
   { key: 'integrations', label: 'Integrations' },
+  { key: 'network', label: 'Network' },
   { key: 'machines', label: 'Machines' },
   { key: 'security', label: 'Security' },
   { key: 'updates', label: 'Updates' },
@@ -93,12 +96,14 @@ export function SettingsView(): JSX.Element {
   const [telegramSetupNow, setTelegramSetupNow] = useState(() => Date.now())
   // Honor a deep-link target (e.g. from global search) for the initial tab, then
   // clear it so a later plain "open settings" lands on the default.
-  const [tab, setTab] = useState<SettingsTab>(() => {
-    const t = settingsTab
-    return t && SETTINGS_TABS.some((s) => s.key === t) ? (t as SettingsTab) : 'sessions'
-  })
+  const [tab, setTab] = useState<SettingsTab>('sessions')
+  // React to a deep-link target (from global search, or the Machines panel's "Change URL"
+  // button) whenever it's set — on mount AND on later changes — then clear it.
   useEffect(() => {
-    if (settingsTab) setSettingsTab(null)
+    if (settingsTab && SETTINGS_TABS.some((s) => s.key === settingsTab)) {
+      setTab(settingsTab as SettingsTab)
+      setSettingsTab(null)
+    }
   }, [settingsTab, setSettingsTab])
 
   useEffect(() => {
@@ -666,6 +671,7 @@ export function SettingsView(): JSX.Element {
               </Section>
             )}
 
+            {tab === 'network' && <NetworkSection trpc={trpc} />}
             {tab === 'machines' && <MachinesPanel />}
             {tab === 'security' && <LoginPasswordSection trpc={trpc} />}
             {tab === 'updates' && <UpdatesSection />}
@@ -1044,6 +1050,86 @@ export function LoginPasswordSection({ trpc }: { trpc: Trpc }): JSX.Element {
           </div>
         )}
       </div>
+    </Section>
+  )
+}
+
+/**
+ * Network — view + change how this server is reached (its `publicUrl`) after first-run setup.
+ * The join tokens handed to new machines embed this URL, so it's the thing to change when you
+ * switch from a throwaway tunnel to a stable one. Reuses the setup reachability step. Worker
+ * (`daemon`) / viewer (`client`) boxes show which server they connect to instead (change = re-run
+ * setup). Fills the gap where the CLI's `podium setup → change URL` had no web equivalent.
+ */
+function NetworkSection({ trpc }: { trpc: Trpc }): JSX.Element {
+  const [info, setInfo] = useState<{
+    mode: string | null
+    publicUrl: string | null
+    serverUrl: string | null
+  } | null>(null)
+  const [editing, setEditing] = useState(false)
+
+  const load = (): void => {
+    trpc.setup.info
+      .query()
+      .then(setInfo)
+      .catch(() => setInfo(null))
+  }
+  // biome-ignore lint/correctness/useExhaustiveDependencies: load is stable enough; trpc is the dep.
+  useEffect(() => load(), [trpc])
+
+  const isWorker = info?.mode === 'daemon' || info?.mode === 'client'
+
+  if (isWorker) {
+    return (
+      <Section
+        title="Network"
+        hint="This machine connects to a Podium running elsewhere; it isn't reachable on its own."
+      >
+        <Row label="Connected to">
+          <span className="min-w-0 flex-1 truncate text-[13px] text-foreground">
+            {info?.serverUrl ?? <span className="text-muted-foreground">unknown</span>}
+          </span>
+        </Row>
+        <p className="max-w-[60ch] text-[12px] text-muted-foreground">
+          To point this machine at a different server, re-run <code>podium setup</code> on it and
+          paste a new join code.
+        </p>
+      </Section>
+    )
+  }
+
+  return (
+    <Section
+      title="Network"
+      hint="How this server is reached from your browser and other machines. The join tokens you hand out to new machines embed this URL — change it here when you switch to a different address."
+    >
+      <Row label="Reachable URL">
+        <span className="min-w-0 flex-1 truncate text-[13px] text-foreground">
+          {info?.publicUrl ?? <span className="text-muted-foreground">not set</span>}
+        </span>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          className="flex-none"
+          onClick={() => setEditing((v) => !v)}
+        >
+          {editing ? 'Cancel' : info?.publicUrl ? 'Change…' : 'Set up…'}
+        </Button>
+      </Row>
+      {editing && (
+        <div className="mt-3">
+          <NetworkStep
+            embedded
+            trpc={trpc}
+            onSaved={() => {
+              setEditing(false)
+              load()
+            }}
+          />
+        </div>
+      )}
     </Section>
   )
 }

@@ -843,6 +843,16 @@ export const appRouter = t.router({
   // reaches these instead of importing @podium/core/setup directly, which would pull node:fs
   // (via ./config) into the browser bundle.
   setup: t.router({
+    // Current deployment identity, for Settings → Network to show + let the user change how this
+    // server is reached after first-run setup.
+    info: t.procedure.query(() => {
+      const c = loadConfig()
+      return {
+        mode: c.mode ?? null,
+        publicUrl: c.publicUrl ?? null,
+        serverUrl: c.serverUrl ?? null,
+      }
+    }),
     options: t.procedure.query(() => NETWORK_OPTIONS),
     commandFor: t.procedure
       .input(
