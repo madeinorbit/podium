@@ -22,8 +22,25 @@ export const ISSUE_SYSTEM_POINTER =
   '`podium issue claim`/`close` as you go. Editing an issue outside your assigned one needs `--outside-scope`. ' +
   'If this session is on the wrong issue (or a draft), re-home it: `podium issue attach --id <issue>` ' +
   'to join an existing issue, or `podium issue attach --subissue "<title>"` for a new piece of work. ' +
-  'If you discover something another issue\'s agent should know (a fix to merge, a conflict, a dependency), ' +
+  "If you discover something another issue's agent should know (a fix to merge, a conflict, a dependency), " +
   'send it mail: `podium issue mail send <id> --body "…"` — it is delivered to whoever works that issue.'
+
+/**
+ * Companion pointer for the living project spec (pspec, #135). Same delivery as
+ * ISSUE_SYSTEM_POINTER (claude-code --append-system-prompt); other agents rely on
+ * the committed guide docs/agents/podium-specs.md and `podium spec prime`.
+ */
+export const SPEC_SYSTEM_POINTER =
+  'This project keeps a living spec of explicit human decisions in <repo>/pspec/, maintained via the ' +
+  '`podium spec` CLI — run `podium spec prime` for the rules and current tree. ' +
+  'Before non-trivial work, check `podium spec tree`/`podium spec search <text>` and comply with decisions ' +
+  'touching your task; a [spec:SP-xxxx] comment in code means `podium spec show SP-xxxx` first. ' +
+  'When the human states a decision or gives project context, record it in the spec (concise rewrite, ' +
+  'right component; `podium spec create/update`). Record ONLY explicit human decisions — never the obvious ' +
+  'or standard best practice, unless the human contradicts best practice (confirm, then record the why). ' +
+  'Flag contradictions between new input and the existing spec instead of silently overwriting; ' +
+  'ask for clarification when input is ambiguous in a way that matters now. ' +
+  'Reference implemented components in code comments as [spec:SP-xxxx].'
 
 export interface LaunchOptions {
   /** Working directory the agent runs in (a project or worktree path). */
@@ -101,7 +118,7 @@ export function agentLaunchCommand(kind: AgentKind, opts: LaunchOptions): Launch
           ...modelArgs,
           ...effortArgs,
           '--append-system-prompt',
-          ISSUE_SYSTEM_POINTER,
+          `${ISSUE_SYSTEM_POINTER}\n\n${SPEC_SYSTEM_POINTER}`,
           ...promptArgs,
         ],
         cwd,

@@ -114,6 +114,10 @@ const RELAY_ALLOWED: Record<string, Set<string> | null> = {
   // (mailSend/mailInbox/mailClaim/mailPending, issue #103).
   issues: null,
   repos: new Set(['inferFromPath']),
+  // The living spec (pspec, #135): agents read/write pspec/ files they could
+  // touch with their own tools anyway — the specs router adds no privilege
+  // beyond its repo-root allowlist.
+  specs: null,
 }
 
 const DEFAULT_GEOMETRY: Geometry = { cols: 80, rows: 24 }
