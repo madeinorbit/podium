@@ -59,6 +59,18 @@ export async function browseDirectories(
   }
 }
 
+/** The longest repo root among `roots` that contains `path` (cwd → repo inference).
+ *  A root `r` contains `path` iff `path === r` or `path` starts with `r + '/'`,
+ *  so `/a` does not match `/ab`. Pure — shared by RepoRegistry and the in-process
+ *  issue command service (modules/issues/commands). */
+export function inferRepoFromRoots(roots: string[], path: string): string | undefined {
+  const normalizedPath = normalizeRepoPath(path)
+  return roots
+    .map((r) => normalizeRepoPath(r))
+    .filter((r) => normalizedPath === r || normalizedPath.startsWith(r === '/' ? r : `${r}/`))
+    .sort((a, b) => b.length - a.length)[0]
+}
+
 /** Persisted list of absolute repo-root paths, backed by SessionStore. Shared by all
  *  clients so the repo list survives and shows on every device (desktop + phone).
  *
@@ -81,14 +93,9 @@ export class RepoRegistry {
   }
 
   /** The longest registered repo root that contains `path` (cwd → repo inference).
-   *  A root `r` contains `path` iff `path === r` or `path` starts with `r + '/'`,
-   *  so `/a` does not match `/ab`. Pure over `list()`. */
+   *  Pure over `list()` — see {@link inferRepoFromRoots}. */
   inferFromPath(path: string, machineId?: string): string | undefined {
-    const normalizedPath = normalizeRepoPath(path)
-    return this.list(machineId)
-      .map((r) => normalizeRepoPath(r))
-      .filter((r) => normalizedPath === r || normalizedPath.startsWith(r === '/' ? r : `${r}/`))
-      .sort((a, b) => b.length - a.length)[0]
+    return inferRepoFromRoots(this.list(machineId), path)
   }
 
   async add(path: string, machineId?: string): Promise<void> {

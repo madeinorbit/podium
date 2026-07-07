@@ -10,7 +10,7 @@ import {
   setUpdateChannel,
   validatePublicUrl,
 } from '@podium/core/setup'
-import { AgentKind, IssueStage, IssueType, ResumeRef, WorkState } from '@podium/protocol'
+import { AgentKind, ResumeRef, WorkState } from '@podium/protocol'
 import { initTRPC, TRPCError } from '@trpc/server'
 import { z } from 'zod'
 import { clearPassword, hasPassword, setPassword, verifyPassword } from './auth-store'
@@ -21,15 +21,10 @@ import {
   CloudRuntimeUnavailableError,
   disabledCloudRuntimeProvider,
 } from './cloud-runtime'
-import {
-  authorize,
-  type Capability,
-  checkIssueAccess,
-  PROC_ACTION,
-  SCOPED_TARGET,
-} from './issue-authz'
+import { type Capability, checkIssueAccess, PROC_ACTION, SCOPED_TARGET } from './issue-authz'
 import { buildJoinCommand } from './machines-join'
-import type { SessionRegistry } from './relay'
+import { type IssueCaller, issueInputs } from './modules/issues/commands'
+import type { RegistryModules, SessionRegistry } from './relay'
 import { normalizeOriginUrl } from './repo-id'
 import { browseDirectories, type RepoRegistry } from './repo-registry'
 import { isAllowedRoot } from './root-allowlist'
@@ -47,6 +42,24 @@ export interface Context {
   /** Set by the daemon relay when an agent passed --outside-scope, allowing a knowing
    *  write outside its subtree. Undefined for the operator (/trpc) and the superagent. */
   overrideScope?: boolean
+  /** Typed accessor to the composed services (issue #13 Phase 2). Optional so
+   *  existing context builders keep working — mods() falls back to the
+   *  registry's own composition. */
+  modules?: RegistryModules
+}
+
+/** The typed module seam router procs reach services through (ctx.modules when
+ *  the context provides it, else the registry's composed set). */
+function mods(ctx: Context): RegistryModules {
+  return ctx.modules ?? ctx.registry.modules
+}
+
+/** The caller identity the in-process issue command service authorizes against. */
+function issueCaller(ctx: Context): IssueCaller {
+  return {
+    capability: ctx.capability,
+    ...(ctx.overrideScope !== undefined ? { overrideScope: ctx.overrideScope } : {}),
+  }
 }
 
 const t = initTRPC.context<Context>().create()
@@ -121,58 +134,6 @@ const issueCapabilityGuard = t.middleware(async ({ ctx, path, next, getRawInput 
 })
 const issueProc = t.procedure.use(issueCapabilityGuard)
 
-/**
- * viaHub write forwarding (docs/spec/node-hub-issues.md §2.2): a mutation whose target
- * is a hub-mirrored issue is handed to the registry's UpstreamForwarder instead of the
- * local IssueService — `{ queued: true }` when the hub is unreachable (durable outbox +
- * optimistic pendingSync patch), the hub's own result when it is. Runs AFTER the
- * capability guard, so the role gate applies to forwarded writes exactly as to local
- * ones; the scope gate skips hub issues (they are not in the local store), so the gate
- * HERE closes that hole: only the unconstrained operator may act on hub issues —
- * node-side agents/assistants never do (§2.3 out-of-scope: no autonomous actions on
- * viaHub issues). Every write proc in SCOPED_TARGET routes through this helper.
- */
-function issueWrite<R>(
-  ctx: Context,
-  proc: string,
-  input: Record<string, unknown>,
-  local: () => R,
-): R | Promise<Awaited<R> | { queued: true }> {
-  const target = SCOPED_TARGET[proc]?.(input)
-  if (typeof target === 'string' && ctx.registry.isUpstreamIssue(target)) {
-    if (ctx.capability.scope.kind !== 'all') {
-      throw new TRPCError({
-        code: 'FORBIDDEN',
-        message: 'issue is managed via the hub — agents cannot act on hub issues from this node',
-      })
-    }
-    // The hub runs the same router, so its result IS this proc's result shape —
-    // plus the offline `{ queued: true }` outcome (spec §2.2).
-    return ctx.registry.forwardIssueMutation(proc, input) as Promise<Awaited<R> | { queued: true }>
-  }
-  return local()
-}
-
-/** Agent-mail sender/claimer identity: the caller's bound issue (`issue:#<seq>`)
- *  for a subtree-scoped agent, else 'operator'. */
-function mailIdentity(ctx: Context): string {
-  if (ctx.capability.scope.kind === 'subtree') {
-    const me = ctx.registry.issues.get(ctx.capability.scope.rootId)
-    if (me) return `issue:#${me.seq}`
-  }
-  return 'operator'
-}
-
-/** Resolve an omitted mail issue ref to the caller's own bound issue (capability rootId). */
-function mailOwnIssue(ctx: Context, id?: string): string {
-  if (id) return id
-  if (ctx.capability.scope.kind === 'subtree') return ctx.capability.scope.rootId
-  throw new TRPCError({
-    code: 'BAD_REQUEST',
-    message: 'no issue bound to this caller; pass an issue id',
-  })
-}
-
 function cloudProvider(ctx: Context): CloudRuntimeProvider {
   return ctx.cloud ?? disabledCloudRuntimeProvider
 }
@@ -224,67 +185,6 @@ function cloudError(error: unknown): never {
     throw new TRPCError({ code: 'PRECONDITION_FAILED', message: error.message })
   }
   throw error
-}
-
-/** The subscriber a subscription defaults to: the CALLER. A relayed agent's own
- *  session (capability.actorSessionId) when the call is session-bound, else its
- *  subtree root issue. The operator (scope 'all', no actor) has no implicit
- *  subscriber — it manages subscriptions via the Automations UI (Phase C). */
-function deriveSubscriber(ctx: Context): { kind: 'session' | 'issue'; id: string } {
-  if (ctx.capability.actorSessionId) {
-    return { kind: 'session', id: ctx.capability.actorSessionId }
-  }
-  if (ctx.capability.scope.kind === 'subtree') {
-    return { kind: 'issue', id: ctx.capability.scope.rootId }
-  }
-  throw new TRPCError({
-    code: 'BAD_REQUEST',
-    message: 'no subscriber bound to this caller; subscriptions are created by a bound agent',
-  })
-}
-
-/** Enforce that a constrained caller only watches an issue/session source WITHIN
- *  its subtree (mirrors the router's scope gate, which cannot reach into the
- *  `source` shape). Relationship sources are resolved against the caller's own
- *  subtree at match time, so they never reach here. */
-function assertSourceInSubtree(
-  ctx: Context,
-  source: { kind: 'relationship' | 'issue' | 'session'; ref: string },
-): void {
-  if (source.kind === 'issue') {
-    const id = ctx.registry.issues.resolveRef(source.ref)
-    const decision = authorize(
-      ctx.capability,
-      'write',
-      { id, ancestorIds: ctx.registry.issues.ancestorIds(id) },
-      { override: ctx.overrideScope },
-    )
-    if (decision === 'confirm-required') {
-      throw new TRPCError({
-        code: 'PRECONDITION_FAILED',
-        message: `source issue ${id} is outside your subtree; re-run with --outside-scope to confirm`,
-      })
-    }
-    if (decision === 'forbidden') {
-      throw new TRPCError({ code: 'FORBIDDEN', message: 'not allowed to watch that source' })
-    }
-    return
-  }
-  // session source: the caller's own session, or one bound to an in-subtree issue.
-  if (source.ref === ctx.capability.actorSessionId) return
-  const bound = ctx.registry.listSessions().find((s) => s.sessionId === source.ref)?.issueId
-  const ok =
-    bound != null &&
-    authorize(ctx.capability, 'write', {
-      id: bound,
-      ancestorIds: ctx.registry.issues.ancestorIds(bound),
-    }) === 'allow'
-  if (!ok) {
-    throw new TRPCError({
-      code: 'FORBIDDEN',
-      message: 'not allowed to watch a session outside your subtree',
-    })
-  }
 }
 
 export const appRouter = t.router({
@@ -1030,544 +930,202 @@ export const appRouter = t.router({
         return { enabled: false }
       }),
   }),
+  // Every issues proc body lives in the in-process command service
+  // (modules/issues/commands) so the daemon relay and the MCP run the SAME
+  // code + authz as this router; the procs here are thin mounts. The
+  // issueCapabilityGuard middleware still gates the HTTP path exactly as before.
   issues: t.router({
     list: issueProc
-      .input(z.object({ repoPath: z.string().optional() }))
-      .query(({ ctx, input }) => ctx.registry.issues.list(input.repoPath)),
+      .input(issueInputs.list)
+      .query(({ ctx, input }) => mods(ctx).issueCommands.list(issueCaller(ctx), input)),
     prime: issueProc
-      .input(z.object({ repoPath: z.string().optional() }).optional())
-      .query(({ ctx, input }) =>
-        ctx.registry.issues.prime({
-          repoPath: input?.repoPath,
-          boundIssueId:
-            ctx.capability.scope.kind === 'subtree' ? ctx.capability.scope.rootId : null,
-        }),
-      ),
+      .input(issueInputs.prime)
+      .query(({ ctx, input }) => mods(ctx).issueCommands.prime(issueCaller(ctx), input)),
     ready: issueProc
-      .input(z.object({ repoPath: z.string().optional() }))
-      .query(({ ctx, input }) => ctx.registry.issues.readyList(input.repoPath)),
+      .input(issueInputs.ready)
+      .query(({ ctx, input }) => mods(ctx).issueCommands.ready(issueCaller(ctx), input)),
     blocked: issueProc
-      .input(z.object({ repoPath: z.string().optional() }))
-      .query(({ ctx, input }) => ctx.registry.issues.blockedList(input.repoPath)),
+      .input(issueInputs.blocked)
+      .query(({ ctx, input }) => mods(ctx).issueCommands.blocked(issueCaller(ctx), input)),
     graph: issueProc
-      .input(z.object({ repoPath: z.string().optional() }))
-      .query(({ ctx, input }) => ctx.registry.issues.graph(input.repoPath)),
+      .input(issueInputs.graph)
+      .query(({ ctx, input }) => mods(ctx).issueCommands.graph(issueCaller(ctx), input)),
     epicStatus: issueProc
-      .input(z.object({ id: z.string() }))
-      .query(({ ctx, input }) => ctx.registry.issues.epicStatus(input.id)),
+      .input(issueInputs.epicStatus)
+      .query(({ ctx, input }) => mods(ctx).issueCommands.epicStatus(issueCaller(ctx), input)),
     children: issueProc
-      .input(z.object({ id: z.string(), recursive: z.boolean().optional() }))
-      .query(({ ctx, input }) => ctx.registry.issues.children(input.id, input.recursive ?? false)),
-    // Whole-epic survey in one call (issue #82) — read-only, scope-free like all reads.
+      .input(issueInputs.children)
+      .query(({ ctx, input }) => mods(ctx).issueCommands.children(issueCaller(ctx), input)),
     tree: issueProc
-      .input(z.object({ id: z.string() }))
-      .query(({ ctx, input }) => ctx.registry.issues.tree(input.id)),
+      .input(issueInputs.tree)
+      .query(({ ctx, input }) => mods(ctx).issueCommands.tree(issueCaller(ctx), input)),
     setState: issueProc
-      .input(z.object({ id: z.string(), text: z.string() }))
-      .mutation(({ ctx, input }) =>
-        issueWrite(ctx, 'setState', input, () =>
-          ctx.registry.issues.setState(input.id, input.text),
-        ),
-      ),
+      .input(issueInputs.setState)
+      .mutation(({ ctx, input }) => mods(ctx).issueCommands.setState(issueCaller(ctx), input)),
     panelApply: issueProc
-      .input(
-        z.object({
-          id: z.string(),
-          op: z.enum([
-            'todo-add',
-            'todo-done',
-            'todo-undone',
-            'todo-remove',
-            'todo-clear',
-            'artifact-add',
-            'artifact-remove',
-            'deferred-add',
-            'deferred-remove',
-          ]),
-          text: z.string().optional(),
-          index: z.number().int().min(1).optional(),
-          path: z.string().optional(),
-          title: z.string().optional(),
-        }),
-      )
-      .mutation(({ ctx, input }) =>
-        issueWrite(ctx, 'panelApply', input, () =>
-          ctx.registry.issues.panelApply(input.id, {
-            op: input.op,
-            text: input.text,
-            index: input.index,
-            path: input.path,
-            title: input.title,
-          } as never),
-        ),
-      ),
+      .input(issueInputs.panelApply)
+      .mutation(({ ctx, input }) => mods(ctx).issueCommands.panelApply(issueCaller(ctx), input)),
     depReport: issueProc
-      .input(z.object({ id: z.string().optional(), repoPath: z.string().optional() }))
-      .query(({ ctx, input }) => ctx.registry.issues.depReport(input)),
+      .input(issueInputs.depReport)
+      .query(({ ctx, input }) => mods(ctx).issueCommands.depReport(issueCaller(ctx), input)),
     closeEligibleEpics: issueProc
-      .input(z.object({ repoPath: z.string().optional() }))
-      .query(({ ctx, input }) => ctx.registry.issues.closeEligibleEpics(input.repoPath)),
+      .input(issueInputs.closeEligibleEpics)
+      .query(({ ctx, input }) =>
+        mods(ctx).issueCommands.closeEligibleEpics(issueCaller(ctx), input),
+      ),
     findDuplicates: issueProc
-      .input(z.object({ repoPath: z.string().optional(), threshold: z.number().optional() }))
-      .query(({ ctx, input }) =>
-        ctx.registry.issues.findDuplicates(input.repoPath, input.threshold),
-      ),
+      .input(issueInputs.findDuplicates)
+      .query(({ ctx, input }) => mods(ctx).issueCommands.findDuplicates(issueCaller(ctx), input)),
     stale: issueProc
-      .input(z.object({ repoPath: z.string().optional(), days: z.number().optional() }))
-      .query(({ ctx, input }) => ctx.registry.issues.staleList(input.repoPath, input.days)),
+      .input(issueInputs.stale)
+      .query(({ ctx, input }) => mods(ctx).issueCommands.stale(issueCaller(ctx), input)),
     lint: issueProc
-      .input(z.object({ repoPath: z.string().optional() }))
-      .query(({ ctx, input }) => ctx.registry.issues.lint(input.repoPath)),
+      .input(issueInputs.lint)
+      .query(({ ctx, input }) => mods(ctx).issueCommands.lint(issueCaller(ctx), input)),
     doctor: issueProc
-      .input(z.object({ repoPath: z.string().optional() }))
-      .query(({ ctx, input }) => ctx.registry.issues.doctor(input.repoPath)),
+      .input(issueInputs.doctor)
+      .query(({ ctx, input }) => mods(ctx).issueCommands.doctor(issueCaller(ctx), input)),
     preflight: issueProc
-      .input(z.object({ repoPath: z.string().optional() }))
-      .query(({ ctx, input }) => ctx.registry.issues.preflight(input.repoPath)),
+      .input(issueInputs.preflight)
+      .query(({ ctx, input }) => mods(ctx).issueCommands.preflight(issueCaller(ctx), input)),
     search: issueProc
-      .input(
-        z.object({
-          repoPath: z.string().optional(),
-          text: z.string().optional(),
-          status: z.enum(['open', 'closed', 'ready', 'blocked', 'deferred']).optional(),
-          stage: IssueStage.optional(),
-          priority: z.number().int().optional(),
-          type: IssueType.optional(),
-          assignee: z.string().optional(),
-          label: z.string().optional(),
-          parentId: z.string().optional(),
-        }),
-      )
-      .query(({ ctx, input }) => ctx.registry.issues.search(input)),
+      .input(issueInputs.search)
+      .query(({ ctx, input }) => mods(ctx).issueCommands.search(issueCaller(ctx), input)),
     count: issueProc
-      .input(z.object({ repoPath: z.string().optional() }))
-      .query(({ ctx, input }) => ctx.registry.issues.count(input.repoPath)),
+      .input(issueInputs.count)
+      .query(({ ctx, input }) => mods(ctx).issueCommands.count(issueCaller(ctx), input)),
     stats: issueProc
-      .input(z.object({ repoPath: z.string().optional() }))
-      .query(({ ctx, input }) => ctx.registry.issues.stats(input.repoPath)),
+      .input(issueInputs.stats)
+      .query(({ ctx, input }) => mods(ctx).issueCommands.stats(issueCaller(ctx), input)),
     orphans: issueProc
-      .input(z.object({ repoPath: z.string() }))
-      .query(({ ctx, input }) => ctx.registry.issues.orphans(input.repoPath)),
+      .input(issueInputs.orphans)
+      .query(({ ctx, input }) => mods(ctx).issueCommands.orphans(issueCaller(ctx), input)),
     get: issueProc
-      .input(z.object({ id: z.string() }))
-      .query(({ ctx, input }) => ctx.registry.issues.get(input.id)),
+      .input(issueInputs.get)
+      .query(({ ctx, input }) => mods(ctx).issueCommands.get(issueCaller(ctx), input)),
     events: issueProc
-      .input(
-        z.object({
-          since: z.number().int().min(0).default(0),
-          kinds: z.array(z.string()).optional(),
-          repoPath: z.string().optional(),
-          limit: z.number().int().min(1).max(1000).optional(),
-        }),
-      )
-      .query(({ ctx, input }) =>
-        ctx.registry.issues.listEvents(input.since, {
-          ...(input.kinds ? { kinds: input.kinds } : {}),
-          ...(input.repoPath ? { repoPath: input.repoPath } : {}),
-          ...(input.limit != null ? { limit: input.limit } : {}),
-        }),
-      ),
+      .input(issueInputs.events)
+      .query(({ ctx, input }) => mods(ctx).issueCommands.events(issueCaller(ctx), input)),
     create: issueProc
-      .input(
-        z.object({
-          repoPath: z.string(),
-          title: z.string().min(1),
-          description: z.string().optional(),
-          parentBranch: z.string().optional(),
-          defaultAgent: z.string().optional(),
-          defaultModel: z.string().optional(),
-          defaultEffort: z.string().optional(),
-          machineId: z.string().optional(),
-          startNow: z.boolean(),
-          linear: z
-            .object({ id: z.string().optional(), identifier: z.string(), url: z.string() })
-            .optional(),
-          priority: z.number().int().min(0).max(4).optional(),
-          type: IssueType.optional(),
-          assignee: z.string().optional(),
-          labels: z.array(z.string()).optional(),
-          parentId: z.string().optional(),
-          mutationId: z.string().max(128).optional(),
-        }),
-      )
-      .mutation(({ ctx, input }) => {
-        // issues.create ALWAYS creates locally in P7b (creating INTO the hub needs
-        // repo mapping — spec §2.2). A repoPath that exists only among the hub's
-        // mirrored issues is detectable: reject it clearly instead of silently
-        // filing a local issue against a repo this node doesn't have.
-        // (hub check first: with no upstream issues this never touches ctx.repos —
-        // the no-upstream-config inertness invariant, and test stubs stay happy.)
-        if (
-          ctx.registry.upstreamIssueRepoPaths().has(input.repoPath) &&
-          !ctx.repos.list().includes(input.repoPath)
-        ) {
-          throw new TRPCError({
-            code: 'BAD_REQUEST',
-            message: `repo ${input.repoPath} exists only on the hub — create the issue on the hub itself`,
-          })
-        }
-        return ctx.registry.withMutation(input.mutationId, 'issues.create', () =>
-          ctx.registry.issues.createAndMaybeStart(input),
-        )
-      }),
+      .input(issueInputs.create)
+      .mutation(({ ctx, input }) => mods(ctx).issueCommands.create(issueCaller(ctx), input)),
     start: issueProc
-      .input(z.object({ id: z.string(), agentKind: z.string().optional() }))
-      .mutation(({ ctx, input }) =>
-        issueWrite(ctx, 'start', input, () => ctx.registry.issues.start(input.id, input.agentKind)),
-      ),
+      .input(issueInputs.start)
+      .mutation(({ ctx, input }) => mods(ctx).issueCommands.start(issueCaller(ctx), input)),
     update: issueProc
-      .input(
-        z.object({
-          id: z.string(),
-          patch: z.object({
-            title: z.string().optional(),
-            description: z.string().optional(),
-            stage: IssueStage.optional(),
-            parentBranch: z.string().optional(),
-            defaultAgent: z.string().optional(),
-            defaultModel: z.string().optional(),
-            defaultEffort: z.string().optional(),
-            machineId: z.string().nullable().optional(),
-            archived: z.boolean().optional(),
-            priority: z.number().int().min(0).max(4).optional(),
-            type: IssueType.optional(),
-            assignee: z.string().optional(),
-            parentId: z.string().optional(),
-            design: z.string().optional(),
-            acceptance: z.string().optional(),
-            notes: z.string().optional(),
-            dueAt: z.string().optional(),
-            deferUntil: z.string().optional(),
-            closedReason: z.string().optional(),
-            pinned: z.boolean().optional(),
-            estimateMin: z.number().int().optional(),
-          }),
-          mutationId: z.string().max(128).optional(),
-        }),
-      )
-      .mutation(({ ctx, input }) =>
-        issueWrite(ctx, 'update', input, () =>
-          ctx.registry.withMutation(input.mutationId, 'issues.update', () =>
-            ctx.registry.issues.update(input.id, input.patch, {
-              actorSessionId: ctx.capability.actorSessionId,
-            }),
-          ),
-        ),
-      ),
-    // Agent self-organization (issue-as-workspace): re-home the calling session
-    // onto an existing issue or a fresh sub-issue. sessionId comes from the daemon
-    // relay context (runIssueRelay overwrites it) — never trusted from agent input.
-    // Deliberately NOT scope-gated (see PROC_ACTION note) and not hub-forwarded
-    // (sessions are local).
+      .input(issueInputs.update)
+      .mutation(({ ctx, input }) => mods(ctx).issueCommands.update(issueCaller(ctx), input)),
     attachSession: issueProc
-      .input(
-        z.object({
-          sessionId: z.string(),
-          targetId: z.string().optional(),
-          newSubissue: z
-            .object({ title: z.string().min(1), origin: z.enum(['human', 'agent']).optional() })
-            .optional(),
-        }),
-      )
-      .mutation(({ ctx, input }) => ctx.registry.issues.attachSession(input)),
+      .input(issueInputs.attachSession)
+      .mutation(({ ctx, input }) => mods(ctx).issueCommands.attachSession(issueCaller(ctx), input)),
     archive: issueProc
-      .input(z.object({ id: z.string() }))
-      .mutation(({ ctx, input }) =>
-        issueWrite(ctx, 'archive', input, () => ctx.registry.issues.archive(input.id)),
-      ),
+      .input(issueInputs.archive)
+      .mutation(({ ctx, input }) => mods(ctx).issueCommands.archive(issueCaller(ctx), input)),
     delete: issueProc
-      .input(z.object({ id: z.string() }))
-      .mutation(({ ctx, input }) =>
-        issueWrite(ctx, 'delete', input, () => ctx.registry.issues.delete(input.id)),
-      ),
+      .input(issueInputs.delete)
+      .mutation(({ ctx, input }) => mods(ctx).issueCommands.delete(issueCaller(ctx), input)),
     action: issueProc
-      .input(z.object({ id: z.string(), kind: z.enum(['rebase', 'pr', 'merge']) }))
-      .mutation(({ ctx, input }) =>
-        issueWrite(ctx, 'action', input, () => ctx.registry.issues.action(input.id, input.kind)),
-      ),
+      .input(issueInputs.action)
+      .mutation(({ ctx, input }) => mods(ctx).issueCommands.action(issueCaller(ctx), input)),
     cleanup: issueProc
-      .input(z.object({ id: z.string() }))
-      // Deliberately NOT issueWrite-forwarded (P7b write forwarding): cleanup acts on
-      // LOCAL git state — it removes a worktree directory and deletes a branch via
-      // THIS node's daemon. The hub cannot clean this node's worktree, and this node
-      // must not delete another machine's. Hub-mirrored issues get a hard refusal
-      // here instead of falling through to a misleading local 'unknown issue'.
-      .mutation(({ ctx, input }) => {
-        if (ctx.registry.isUpstreamIssue(input.id)) {
-          throw new TRPCError({
-            code: 'PRECONDITION_FAILED',
-            message:
-              'cleanup is local-only: this issue is managed via the hub — run cleanup on the machine that owns its worktree',
-          })
-        }
-        return ctx.registry.issues.cleanup(input.id)
-      }),
+      .input(issueInputs.cleanup)
+      .mutation(({ ctx, input }) => mods(ctx).issueCommands.cleanup(issueCaller(ctx), input)),
     integrate: issueProc
-      .input(z.object({ id: z.string() }))
-      // Like cleanup, deliberately NOT issueWrite-forwarded: integrate rebuilds a
-      // LOCAL integration worktree/branch via THIS node's daemon — the hub cannot
-      // rebuild this node's worktree. Hub-mirrored issues get a hard refusal.
-      // Spawns nothing, so it is not confirmed-gated beyond the write role gate.
-      .mutation(({ ctx, input }) => {
-        if (ctx.registry.isUpstreamIssue(input.id)) {
-          throw new TRPCError({
-            code: 'PRECONDITION_FAILED',
-            message:
-              'integrate is local-only: this issue is managed via the hub — run integrate on the machine that owns its worktrees',
-          })
-        }
-        return ctx.registry.issues.integrate(input.id)
-      }),
+      .input(issueInputs.integrate)
+      .mutation(({ ctx, input }) => mods(ctx).issueCommands.integrate(issueCaller(ctx), input)),
     addSession: issueProc
-      .input(z.object({ id: z.string(), agentKind: z.string().optional() }))
-      .mutation(({ ctx, input }) =>
-        issueWrite(ctx, 'addSession', input, () =>
-          ctx.registry.issues.addSession(input.id, input.agentKind),
-        ),
-      ),
+      .input(issueInputs.addSession)
+      .mutation(({ ctx, input }) => mods(ctx).issueCommands.addSession(issueCaller(ctx), input)),
     addShell: issueProc
-      .input(z.object({ id: z.string() }))
-      .mutation(({ ctx, input }) =>
-        issueWrite(ctx, 'addShell', input, () => ctx.registry.issues.addShell(input.id)),
-      ),
+      .input(issueInputs.addShell)
+      .mutation(({ ctx, input }) => mods(ctx).issueCommands.addShell(issueCaller(ctx), input)),
     applySuggestion: issueProc
-      .input(z.object({ id: z.string() }))
+      .input(issueInputs.applySuggestion)
       .mutation(({ ctx, input }) =>
-        issueWrite(ctx, 'applySuggestion', input, () =>
-          ctx.registry.issues.applySuggestion(input.id),
-        ),
+        mods(ctx).issueCommands.applySuggestion(issueCaller(ctx), input),
       ),
     dismissSuggestion: issueProc
-      .input(z.object({ id: z.string() }))
+      .input(issueInputs.dismissSuggestion)
       .mutation(({ ctx, input }) =>
-        issueWrite(ctx, 'dismissSuggestion', input, () =>
-          ctx.registry.issues.dismissSuggestion(input.id),
-        ),
+        mods(ctx).issueCommands.dismissSuggestion(issueCaller(ctx), input),
       ),
     refreshAssistant: issueProc
-      .input(z.object({ id: z.string() }))
+      .input(issueInputs.refreshAssistant)
       .mutation(({ ctx, input }) =>
-        issueWrite(ctx, 'refreshAssistant', input, () =>
-          ctx.registry.issues.refreshAssistant(input.id),
-        ),
+        mods(ctx).issueCommands.refreshAssistant(issueCaller(ctx), input),
       ),
     setLabels: issueProc
-      .input(z.object({ id: z.string(), labels: z.array(z.string()) }))
-      .mutation(({ ctx, input }) =>
-        issueWrite(ctx, 'setLabels', input, () =>
-          ctx.registry.issues.setLabels(input.id, input.labels),
-        ),
-      ),
+      .input(issueInputs.setLabels)
+      .mutation(({ ctx, input }) => mods(ctx).issueCommands.setLabels(issueCaller(ctx), input)),
     addComment: issueProc
-      .input(
-        z.object({
-          id: z.string(),
-          author: z.string(),
-          body: z.string().min(1),
-          mutationId: z.string().max(128).optional(),
-        }),
-      )
-      .mutation(({ ctx, input }) =>
-        issueWrite(ctx, 'addComment', input, () =>
-          ctx.registry.withMutation(input.mutationId, 'issues.addComment', () =>
-            ctx.registry.issues.addComment(input.id, input.author, input.body),
-          ),
-        ),
-      ),
-    // ---- agent mail (issue #103). Local-only (never hub-forwarded): message ids
-    // and mailboxes live on this node. mailSend is deliberately cross-scope (see
-    // PROC_ACTION comment); mailClaim enforces scope in-proc (see SCOPED_TARGET).
+      .input(issueInputs.addComment)
+      .mutation(({ ctx, input }) => mods(ctx).issueCommands.addComment(issueCaller(ctx), input)),
     mailSend: issueProc
-      .input(z.object({ id: z.string(), body: z.string().min(1) }))
-      .mutation(({ ctx, input }) =>
-        ctx.registry.issues.sendMail(input.id, mailIdentity(ctx), input.body),
-      ),
+      .input(issueInputs.mailSend)
+      .mutation(({ ctx, input }) => mods(ctx).issueCommands.mailSend(issueCaller(ctx), input)),
     mailInbox: issueProc
-      // A mutation (listing marks the returned unread messages read), but authz-wise
-      // a 'read' — mailbox bookkeeping, not issue mutation.
-      .input(z.object({ id: z.string().optional() }).optional())
-      .mutation(({ ctx, input }) => {
-        const id = mailOwnIssue(ctx, input?.id)
-        // Only the recipient consumes unread status: an agent reading its own
-        // mailbox (scope root = the issue). Operator/other-agent peeks must not
-        // mark mail read, or delivery to the real recipient is suppressed.
-        const markRead =
-          ctx.capability.scope.kind === 'subtree' &&
-          ctx.registry.issues.resolveRef(id) === ctx.capability.scope.rootId
-        return ctx.registry.issues.mailInbox(id, { markRead })
-      }),
-    mailClaim: issueProc.input(z.object({ messageId: z.string() })).mutation(({ ctx, input }) => {
-      const msg = ctx.registry.issues.mailMessage(input.messageId)
-      if (!msg) {
-        throw new TRPCError({
-          code: 'NOT_FOUND',
-          message: `unknown mail message ${input.messageId}`,
-        })
-      }
-      // Proc-level scope gate: the middleware cannot resolve message→issue from
-      // the input (SCOPED_TARGET.mailClaim), so the SAME shared check (#25) runs
-      // here against the message's issue — identical codes and messages.
-      checkIssueAccess(ctx, ctx.registry.issues, 'mailClaim', 'write', msg.issueId)
-      return ctx.registry.issues.mailClaim(input.messageId, mailIdentity(ctx))
-    }),
+      .input(issueInputs.mailInbox)
+      .mutation(({ ctx, input }) => mods(ctx).issueCommands.mailInbox(issueCaller(ctx), input)),
+    mailClaim: issueProc
+      .input(issueInputs.mailClaim)
+      .mutation(({ ctx, input }) => mods(ctx).issueCommands.mailClaim(issueCaller(ctx), input)),
     mailPending: issueProc
-      .input(z.object({ id: z.string().optional() }).optional())
-      .query(({ ctx, input }) => ctx.registry.issues.mailPending(mailOwnIssue(ctx, input?.id))),
+      .input(issueInputs.mailPending)
+      .query(({ ctx, input }) => mods(ctx).issueCommands.mailPending(issueCaller(ctx), input)),
     depAdd: issueProc
-      .input(z.object({ fromId: z.string(), toId: z.string(), type: z.string().optional() }))
-      .mutation(({ ctx, input }) =>
-        issueWrite(ctx, 'depAdd', input, () =>
-          ctx.registry.issues.addDep(input.fromId, input.toId, input.type),
-        ),
-      ),
+      .input(issueInputs.depAdd)
+      .mutation(({ ctx, input }) => mods(ctx).issueCommands.depAdd(issueCaller(ctx), input)),
     depRemove: issueProc
-      .input(z.object({ fromId: z.string(), toId: z.string(), type: z.string().optional() }))
-      .mutation(({ ctx, input }) =>
-        issueWrite(ctx, 'depRemove', input, () =>
-          ctx.registry.issues.removeDep(input.fromId, input.toId, input.type),
-        ),
-      ),
+      .input(issueInputs.depRemove)
+      .mutation(({ ctx, input }) => mods(ctx).issueCommands.depRemove(issueCaller(ctx), input)),
     defer: issueProc
-      .input(z.object({ id: z.string(), until: z.string().nullable() }))
-      .mutation(({ ctx, input }) =>
-        issueWrite(ctx, 'defer', input, () => ctx.registry.issues.defer(input.id, input.until)),
-      ),
-    // Manual unsnooze (issue #133): ends a snooze and floats the issue back to the
-    // top of WORK with the "Unsnoozed" tag (returned-from-defer), unlike defer(null)
-    // which quietly clears it. Distinct route so it emits issue.unsnoozed cleanly.
+      .input(issueInputs.defer)
+      .mutation(({ ctx, input }) => mods(ctx).issueCommands.defer(issueCaller(ctx), input)),
     undefer: issueProc
-      .input(z.object({ id: z.string() }))
-      .mutation(({ ctx, input }) =>
-        issueWrite(ctx, 'undefer', input, () => ctx.registry.issues.undefer(input.id)),
-      ),
-    // Mark an issue read (issue #124): stamp read_at = now, flipping derived `unread`.
-    // Node-local read-tracking — deliberately NOT issueWrite (never hub-forwarded) and
-    // unlisted in PROC_ACTION, so it needs only 'read' authority (reading marks read).
+      .input(issueInputs.undefer)
+      .mutation(({ ctx, input }) => mods(ctx).issueCommands.undefer(issueCaller(ctx), input)),
     markRead: issueProc
-      .input(z.object({ id: z.string(), mutationId: z.string().max(128).optional() }))
-      .mutation(({ ctx, input }) =>
-        ctx.registry.withMutation(input.mutationId, 'issues.markRead', () =>
-          ctx.registry.issues.markIssueRead(input.id),
-        ),
-      ),
+      .input(issueInputs.markRead)
+      .mutation(({ ctx, input }) => mods(ctx).issueCommands.markRead(issueCaller(ctx), input)),
     setNeedsHuman: issueProc
-      .input(z.object({ id: z.string(), question: z.string().optional() }))
-      .mutation(({ ctx, input }) =>
-        issueWrite(ctx, 'setNeedsHuman', input, () =>
-          ctx.registry.issues.setNeedsHuman(input.id, input.question ?? null),
-        ),
-      ),
+      .input(issueInputs.setNeedsHuman)
+      .mutation(({ ctx, input }) => mods(ctx).issueCommands.setNeedsHuman(issueCaller(ctx), input)),
     clearNeedsHuman: issueProc
-      .input(z.object({ id: z.string() }))
+      .input(issueInputs.clearNeedsHuman)
       .mutation(({ ctx, input }) =>
-        issueWrite(ctx, 'clearNeedsHuman', input, () =>
-          ctx.registry.issues.clearNeedsHuman(input.id),
-        ),
+        mods(ctx).issueCommands.clearNeedsHuman(issueCaller(ctx), input),
       ),
     reparent: issueProc
-      .input(z.object({ id: z.string(), parentId: z.string().nullable() }))
-      .mutation(({ ctx, input }) =>
-        issueWrite(ctx, 'reparent', input, () =>
-          ctx.registry.issues.reparent(input.id, input.parentId),
-        ),
-      ),
+      .input(issueInputs.reparent)
+      .mutation(({ ctx, input }) => mods(ctx).issueCommands.reparent(issueCaller(ctx), input)),
     claim: issueProc
-      .input(z.object({ id: z.string(), assignee: z.string() }))
-      .mutation(({ ctx, input }) =>
-        issueWrite(ctx, 'claim', input, () => ctx.registry.issues.claim(input.id, input.assignee)),
-      ),
+      .input(issueInputs.claim)
+      .mutation(({ ctx, input }) => mods(ctx).issueCommands.claim(issueCaller(ctx), input)),
     close: issueProc
-      .input(
-        z.object({
-          id: z.string(),
-          reason: z.string().optional(),
-          mutationId: z.string().max(128).optional(),
-        }),
-      )
-      .mutation(({ ctx, input }) =>
-        issueWrite(ctx, 'close', input, () =>
-          ctx.registry.withMutation(input.mutationId, 'issues.close', () =>
-            ctx.registry.issues.close(input.id, input.reason, {
-              actorSessionId: ctx.capability.actorSessionId,
-            }),
-          ),
-        ),
-      ),
+      .input(issueInputs.close)
+      .mutation(({ ctx, input }) => mods(ctx).issueCommands.close(issueCaller(ctx), input)),
     supersede: issueProc
-      .input(z.object({ oldId: z.string(), newId: z.string() }))
-      .mutation(({ ctx, input }) =>
-        issueWrite(ctx, 'supersede', input, () =>
-          ctx.registry.issues.supersede(input.oldId, input.newId),
-        ),
-      ),
+      .input(issueInputs.supersede)
+      .mutation(({ ctx, input }) => mods(ctx).issueCommands.supersede(issueCaller(ctx), input)),
     duplicate: issueProc
-      .input(z.object({ id: z.string(), canonicalId: z.string() }))
-      .mutation(({ ctx, input }) =>
-        issueWrite(ctx, 'duplicate', input, () =>
-          ctx.registry.issues.duplicate(input.id, input.canonicalId),
-        ),
-      ),
+      .input(issueInputs.duplicate)
+      .mutation(({ ctx, input }) => mods(ctx).issueCommands.duplicate(issueCaller(ctx), input)),
     linearSearch: issueProc
-      .input(z.object({ query: z.string() }))
-      .query(({ ctx, input }) => ctx.registry.issues.linearSearch(input.query)),
-    // ---- event subscriptions (event-subscriptions design, Phase B). Local-only
-    // (subscriptions live on this node). The subscriber defaults to the CALLER — a
-    // relayed agent's own session (capability.actorSessionId) or, if the call is
-    // not session-bound, its subtree root issue. A constrained caller may only watch
-    // a source inside its subtree; the operator is unconstrained. Custom origin.
+      .input(issueInputs.linearSearch)
+      .query(({ ctx, input }) => mods(ctx).issueCommands.linearSearch(issueCaller(ctx), input)),
     subscriptionAdd: issueProc
-      .input(
-        z.object({
-          event: z.string().min(1),
-          source: z.object({
-            kind: z.enum(['relationship', 'issue', 'session']),
-            ref: z.string().min(1),
-          }),
-          deliver: z
-            .object({ nudge: z.boolean().optional(), notify: z.boolean().optional() })
-            .optional(),
-        }),
-      )
-      .mutation(({ ctx, input }) => {
-        const subscriber = deriveSubscriber(ctx)
-        // Constrained callers may only watch a source WITHIN their subtree; the
-        // operator (scope 'all') is unconstrained. Relationship sources resolve
-        // dynamically against the subscriber's own subtree, so they are always in-scope.
-        if (ctx.capability.scope.kind !== 'all' && input.source.kind !== 'relationship') {
-          assertSourceInSubtree(ctx, input.source)
-        }
-        return ctx.registry.issues.subscriptionAdd({
-          subscriberKind: subscriber.kind,
-          subscriberId: subscriber.id,
-          event: input.event,
-          sourceKind: input.source.kind,
-          sourceRef: input.source.ref,
-          ...(input.deliver?.nudge != null ? { deliverNudge: input.deliver.nudge } : {}),
-          ...(input.deliver?.notify != null ? { deliverNotify: input.deliver.notify } : {}),
-        })
-      }),
-    subscriptionRemove: issueProc.input(z.object({ id: z.string() })).mutation(({ ctx, input }) => {
-      // Constrained callers may only remove their OWN subscriptions.
-      if (ctx.capability.scope.kind !== 'all') {
-        const subscriber = deriveSubscriber(ctx)
-        const owned = ctx.registry.issues
-          .subscriptionList({ subscriberId: subscriber.id })
-          .some((s) => s.id === input.id)
-        if (!owned) {
-          throw new TRPCError({
-            code: 'FORBIDDEN',
-            message: 'not allowed to remove a subscription you do not own',
-          })
-        }
-      }
-      return ctx.registry.issues.subscriptionRemove(input.id)
-    }),
-    subscriptionList: issueProc.query(({ ctx }) => {
-      // Operator sees every subscription; a constrained caller sees only its own.
-      if (ctx.capability.scope.kind === 'all') return ctx.registry.issues.subscriptionList()
-      const subscriber = deriveSubscriber(ctx)
-      return ctx.registry.issues.subscriptionList({ subscriberId: subscriber.id })
-    }),
+      .input(issueInputs.subscriptionAdd)
+      .mutation(({ ctx, input }) =>
+        mods(ctx).issueCommands.subscriptionAdd(issueCaller(ctx), input),
+      ),
+    subscriptionRemove: issueProc
+      .input(issueInputs.subscriptionRemove)
+      .mutation(({ ctx, input }) =>
+        mods(ctx).issueCommands.subscriptionRemove(issueCaller(ctx), input),
+      ),
+    subscriptionList: issueProc.query(({ ctx }) =>
+      mods(ctx).issueCommands.subscriptionList(issueCaller(ctx)),
+    ),
   }),
   files: t.router({
     read: t.procedure

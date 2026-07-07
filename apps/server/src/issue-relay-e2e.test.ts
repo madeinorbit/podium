@@ -4,7 +4,6 @@ import { runIssueCli } from '../../../scripts/issue-cli'
 import { createIssueRelayHub, startIssueRelayServer } from '../../daemon/src/issue-relay'
 import { type IssueTrpc, makeRelayIssueClient } from './issue-client'
 import { SessionRegistry } from './relay'
-import { appRouter } from './router'
 
 /**
  * End-to-end proof that an agent's `podium issue` call flows the WHOLE chain with every
@@ -46,18 +45,9 @@ describe('agent issue relay end-to-end (CLI → daemon relay → server capabili
     B = registry.issues.create({ repoPath, title: 'unrelated B', startNow: false })
     sA = registry.createSession({ cwd: wtA, agentKind: 'shell' }).sessionId
 
-    // Install the capability-scoped tRPC caller factory exactly like server.ts wiring, so the
-    // P1a issueCapabilityGuard middleware runs on every relayed op (the gate is NOT re-implemented).
-    registry.makeIssueCaller = (capability, overrideScope) =>
-      appRouter.createCaller({
-        registry,
-        repos: {} as never,
-        superagent: {} as never,
-        capability,
-        overrideScope,
-      }) as unknown as {
-        [router: string]: Record<string, (i: unknown) => Promise<unknown>> | undefined
-      }
+    // The capability-scoped command service is built into the registry (issue #13
+    // Phase 2 step 4) — the P1a gate (checkIssueAccess) runs on every relayed op
+    // with no extra wiring.
 
     // REAL daemon relay hub, its `send` feeding the server's REAL WS dispatch. This is the
     // daemon→server direction (the daemon initiates an issueRelayRequest on the agent's behalf).
@@ -108,9 +98,9 @@ describe('agent issue relay end-to-end (CLI → daemon relay → server capabili
   // 4. update on B (outside sA's subtree) is a scope violation → rejected by the P1a gate.
   //    `update --priority 1` maps to issues.update({ id, patch: { priority: 1 } }).
   it('update outside the subtree is rejected', async () => {
-    await expect(
-      runIssueCli(['update', '--id', B.id, '--priority', '1'], client),
-    ).rejects.toThrow(/outside your subtree/)
+    await expect(runIssueCli(['update', '--id', B.id, '--priority', '1'], client)).rejects.toThrow(
+      /outside your subtree/,
+    )
   })
 
   // 5. the same update through the --outside-scope client (overrideScope) succeeds.

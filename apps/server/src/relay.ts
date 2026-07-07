@@ -36,6 +36,7 @@ import { EventBus } from './modules/bus'
 import { ConversationsService } from './modules/conversations/service'
 import { WriteFunnel } from './modules/funnel'
 import { HostsService, type MemoryBreakdown } from './modules/hosts/service'
+import { IssueCommandService } from './modules/issues/commands'
 import { IssuePublisher } from './modules/issues/publish'
 import { IssueRelayGate } from './modules/issues/relay-gate'
 import { type IssueUpstreamForwarder, UpstreamIssuesService } from './modules/issues/upstream'
@@ -64,6 +65,7 @@ import {
   type TelegramSetupStartResult,
 } from './modules/settings/service'
 import { HeadlessService } from './modules/superagent/headless'
+import { inferRepoFromRoots } from './repo-registry'
 import type { ClientConn, Send, Session } from './session'
 import { StewardService } from './steward'
 import { type PinKind, SessionStore } from './store'
@@ -120,6 +122,26 @@ interface SessionRegistryOptions {
   modelProbe?: ModelProbe
 }
 
+/** The composed module set behind SessionRegistry (issue #13 Phase 2): the typed
+ *  seam router procs (ctx.modules) and internal wiring reach services through,
+ *  instead of ever growing new delegates on the facade. */
+export interface RegistryModules {
+  bus: EventBus
+  funnel: WriteFunnel
+  sessions: SessionsService
+  machines: MachinesService
+  rpc: DaemonRpcService
+  conversations: ConversationsService
+  hosts: HostsService
+  settings: SettingsService
+  headless: HeadlessService
+  notify: NotifyService
+  issues: IssueService
+  upstreamIssues: UpstreamIssuesService
+  issuePublisher: IssuePublisher
+  issueCommands: IssueCommandService
+}
+
 /**
  * Composition root + public facade over the server's modules (issue #13 Phase 2).
  * The session lifecycle/data planes live in modules/sessions; daemon sockets and
@@ -149,14 +171,6 @@ export class SessionRegistry {
   private readonly settingsService: SettingsService
   /** Server-side issue tracker — constructed after loadFromStore() in the constructor. */
   readonly issues: IssueService
-  /** Injected by server.ts: builds a tRPC caller bound to a capability — the scope-gate
-   *  seam. A relayed agent op is run through this so the issueCapabilityGuard middleware
-   *  enforces the subtree scope; it is NOT re-implemented here. Left undefined in tests that
-   *  don't exercise the relay. */
-  makeIssueCaller?: (
-    capability: Capability,
-    overrideScope?: boolean,
-  ) => { [router: string]: Record<string, (i: unknown) => Promise<unknown>> | undefined }
   /** Steward trigger queue over the event log; polls only while settings-enabled. */
   private steward!: StewardService
   /** Conversation index + upstream mirror + transcript lake (modules/conversations). */
@@ -167,6 +181,12 @@ export class SessionRegistry {
   private readonly issuePublisher: IssuePublisher
   /** Relayed agent issue ops — allowlist + capability-scoped caller (modules/issues). */
   private readonly issueRelayGate: IssueRelayGate
+  /** In-process issue command surface: every issues proc body, with router-equal
+   *  authz — serves the daemon relay + MCP without touching the router. */
+  readonly issueCommands: IssueCommandService
+  /** Typed accessor to the composed services (issue #13 Phase 2) — the router's
+   *  ctx.modules seam and the facade's own composition, in dependency order. */
+  readonly modules: RegistryModules
   /** Headless harness sessions — superagent-driven, PTY-less (modules/superagent). */
   private readonly headless: HeadlessService
   /** Host health samples + auto-hibernate + memory breakdown (modules/hosts). */
@@ -288,8 +308,20 @@ export class SessionRegistry {
       withUpstreamIssues: (local) => this.upstreamIssuesSvc.withUpstreamIssues(local),
       publish: (rows, snapshot, opts) => this.funnel.publish('issue', rows, snapshot, opts),
     })
+    this.issueCommands = new IssueCommandService({
+      issues: () => this.issues,
+      isUpstreamIssue: (id) => this.upstreamIssuesSvc.isUpstreamIssue(id),
+      forwardIssueMutation: (proc, input) =>
+        this.upstreamIssuesSvc.forwardIssueMutation(proc, input),
+      upstreamIssueRepoPaths: () => this.upstreamIssuesSvc.repoPaths(),
+      withMutation: (mutationId, proc, fn) => this.sessionsSvc.withMutation(mutationId, proc, fn),
+      listSessions: () => this.listSessions(),
+      repoPaths: () => this.store.listRepoPaths(),
+      inferRepoFromPath: (path) => inferRepoFromRoots(this.store.listRepoPaths(), path),
+    })
     this.issueRelayGate = new IssueRelayGate({
-      makeIssueCaller: () => this.makeIssueCaller,
+      caller: (capability, overrideScope) =>
+        this.issueCommands.callerFor(capability, overrideScope),
       capabilityForSession: (sessionId) => this.capabilityForSession(sessionId),
       toMachine: (machineId, msg) => this.machines.toMachine(machineId, msg),
     })
@@ -431,6 +463,22 @@ export class SessionRegistry {
     // Conversations are deliberately NOT reconciled here: they are daemon-fed, and
     // an empty list at boot means "not scanned yet", not "all gone" — recording it
     // would spam remove-all/re-upsert pairs around every restart.
+    this.modules = {
+      bus: this.bus,
+      funnel: this.funnel,
+      sessions: this.sessionsSvc,
+      machines: this.machines,
+      rpc: this.rpc,
+      conversations: this.conversations,
+      hosts: this.hosts,
+      settings: this.settingsService,
+      headless: this.headless,
+      notify: this.notify,
+      issues: this.issues,
+      upstreamIssues: this.upstreamIssuesSvc,
+      issuePublisher: this.issuePublisher,
+      issueCommands: this.issueCommands,
+    }
     this.funnel.record(
       'session',
       this.listSessions().map((s) => ({ id: s.sessionId, value: s })),

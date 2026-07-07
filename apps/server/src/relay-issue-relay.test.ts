@@ -1,24 +1,8 @@
 import type { ControlMessage } from '@podium/protocol'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { SessionRegistry } from './relay'
-import { appRouter } from './router'
 
 type RelayResult = Extract<ControlMessage, { type: 'issueRelayResult' }>
-
-// Install a caller factory identical to server.ts wiring: build a tRPC caller bound to the
-// minted capability so the P1a issueCapabilityGuard middleware runs on every relayed op.
-function wireCaller(registry: SessionRegistry): void {
-  registry.makeIssueCaller = (capability, overrideScope) =>
-    appRouter.createCaller({
-      registry,
-      repos: {} as never,
-      superagent: {} as never,
-      capability,
-      overrideScope,
-    }) as unknown as {
-      [router: string]: Record<string, (i: unknown) => Promise<unknown>> | undefined
-    }
-}
 
 // Capture the issueRelayResult the registry sends back to a machine. attachDaemon registers
 // a daemon's control-message send fn (confirmed in wsServer.ts); the relay reply routes to it.
@@ -31,8 +15,8 @@ function captureReply(registry: SessionRegistry, machineId: string): Promise<Rel
 }
 
 // P1b-server: the server end of the daemon-relayed capability seam. A relayed agent op is run
-// through the capability-scoped tRPC caller (so the scope gate is enforced, not re-implemented),
-// gated by an allowlist, with the capability minted from the requesting session's cwd.
+// through the capability-scoped in-process command service (so the scope gate is enforced, not
+// re-implemented), gated by an allowlist, with the capability minted from the session's cwd.
 describe('server issue relay handler (P1b)', () => {
   const registries: SessionRegistry[] = []
   const machineId = 'm1'
@@ -52,7 +36,6 @@ describe('server issue relay handler (P1b)', () => {
     const wtA = registry.issues.get(A.id)?.worktreePath as string
     B = registry.issues.create({ repoPath, title: 'unrelated', startNow: false })
     sA = registry.createSession({ cwd: wtA, agentKind: 'shell' }).sessionId
-    wireCaller(registry)
   })
 
   afterEach(() => {

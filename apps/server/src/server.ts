@@ -202,19 +202,6 @@ export async function startServer(
   const repos = new RepoRegistry(registry, store)
   const superagent = new SuperagentService(registry, repos, store)
   const cloud = createCloudRuntimeProviderFromEnv()
-  // The daemon issue-relay seam: run a relayed agent op through a capability-scoped tRPC
-  // caller so the issueCapabilityGuard middleware enforces the agent's subtree scope. Injected
-  // here (not in relay.ts) to keep relay.ts free of the appRouter import cycle.
-  registry.makeIssueCaller = (capability, overrideScope) =>
-    appRouter.createCaller({
-      registry,
-      repos,
-      superagent,
-      capability,
-      overrideScope,
-    }) as unknown as {
-      [router: string]: Record<string, (i: unknown) => Promise<unknown>> | undefined
-    }
   const app = new Hono()
   app.get('/health', (c) => c.text('ok'))
   registerVersionRoute(app)
@@ -269,7 +256,14 @@ export async function startServer(
       // above) already authenticated the human, so the tracker grants full authority — no
       // separate tracker credential. Constrained agents don't come through here; they are
       // relayed via their daemon and carry their own capability (agent integration).
-      createContext: () => ({ registry, repos, superagent, cloud, capability: OPERATOR }),
+      createContext: () => ({
+        registry,
+        repos,
+        superagent,
+        cloud,
+        capability: OPERATOR,
+        modules: registry.modules,
+      }),
     }),
   )
 
@@ -341,13 +335,12 @@ export async function startServer(
       server = serve({ fetch: app.fetch, port: requestedPort, hostname: host }, (info) => {
         if (settled) return
         settled = true
-        // The in-process MCP issue surface is the trusted superagent orchestrator. It calls the
-        // router DIRECTLY (not the cookie-gated HTTP /trpc, which would 401 it) as the OPERATOR.
-        // The shared command registry expects an IssueTrpc client (.<router>.<proc>.mutate/query);
-        // adapt a createCaller caller to that shape. This is also the seam for per-agent
-        // capabilities later: pass a constrained capability instead of OPERATOR.
-        const caller = appRouter.createCaller({ registry, repos, superagent, capability: OPERATOR })
-        issueTools.setClient(callerAsIssueTrpc(caller))
+        // The in-process MCP issue surface is the trusted superagent orchestrator. It calls
+        // the issue command service DIRECTLY (not the cookie-gated HTTP /trpc, which would
+        // 401 it) as the OPERATOR — router-equal authz, no router caller involved. This is
+        // also the seam for per-agent capabilities later: pass a constrained capability
+        // instead of OPERATOR.
+        issueTools.setClient(registry.issueCommands.asIssueTrpc(OPERATOR))
         // Bridge the issue tools into the superagent's API tool loop (issue #64):
         // concierge (and global) threads drive the tracker through the same
         // in-process OPERATOR caller. Constraining this to an agent capability is
