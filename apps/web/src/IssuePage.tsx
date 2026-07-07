@@ -7,16 +7,26 @@ import {
 } from '@podium/protocol'
 import {
   ArrowLeft,
+  ArrowRight,
+  CheckCircle2,
   ChevronDown,
   ChevronUp,
+  Circle,
+  CircleDot,
   Copy,
   ExternalLink,
   Flag,
+  FlagOff,
   GitBranch,
+  GitMerge,
+  Link2,
+  type LucideIcon,
   MoreHorizontal,
+  Play,
   Plus,
   RefreshCw,
   Trash2,
+  Unlock,
   X,
 } from 'lucide-react'
 import type { ComponentProps, JSX, ReactNode } from 'react'
@@ -45,6 +55,11 @@ import {
 } from './issue-agents'
 import { STAGE_LABELS } from './issue-card'
 import { issueDetailFields } from './issue-detail-fields'
+import {
+  buildActivityFeed,
+  type IssueEvent,
+  type IssueEventIcon,
+} from './issue-events'
 import { AssigneeAvatar, PriorityGlyph, StageGlyph } from './issue-glyphs'
 import { issueNeighbors } from './issue-page'
 import { groupRelations } from './issue-relations'
@@ -75,7 +90,7 @@ export function IssuePage({
   onBack: () => void
   onNavigate: (id: string) => void
 }): JSX.Element {
-  const { trpc, issues } = useStore()
+  const { trpc, issues, hub } = useStore()
   const [toast, setToast] = useState('')
   const [busy, setBusy] = useState(false)
   const [commentBody, setCommentBody] = useState('')
@@ -83,6 +98,7 @@ export function IssuePage({
   const [editingDesc, setEditingDesc] = useState(false)
   const [addingChild, setAddingChild] = useState(false)
   const [childTitle, setChildTitle] = useState('')
+  const [events, setEvents] = useState<IssueEvent[]>([])
 
   // Reset transient compose/edit state on issue switch so a half-typed comment or
   // an open editor never carries across to the next issue.
@@ -95,6 +111,49 @@ export function IssuePage({
     setChildTitle('')
     setToast('')
   }, [issue.id])
+
+  // Load this issue's state-transition events for the activity feed (interleaved
+  // with comments below). The events route is repo-scoped and cursor-paged
+  // (ascending from `since`), so on open we drain to the end, then advance the
+  // cursor and let each `issuesChanged` broadcast pull only the new tail. This is
+  // best-effort: a fetch error just leaves the comment-only feed intact.
+  // Deps are the issue identity only — `trpc`/`hub` are stable store singletons,
+  // so keying on them would just risk a refetch loop if their identity churned.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reload only on issue switch; trpc/hub are stable
+  useEffect(() => {
+    let cancelled = false
+    let since = 0
+    const absorb = (rows: IssueEvent[]): void => {
+      if (cancelled || rows.length === 0) return
+      since = rows.reduce((m, r) => Math.max(m, r.id), since)
+      const mine = rows.filter((r) => r.subject === issue.id)
+      if (mine.length > 0)
+        setEvents((prev) => {
+          const seen = new Set(prev.map((e) => e.id))
+          const added = mine.filter((e) => !seen.has(e.id))
+          return added.length > 0 ? [...prev, ...added] : prev
+        })
+    }
+    const drain = (): void => {
+      trpc.issues.events
+        .query({ since, repoPath: issue.repoPath, limit: 1000 })
+        .then((rows) => {
+          if (cancelled) return
+          absorb(rows as IssueEvent[])
+          if (rows.length === 1000) drain() // a full page means more remain
+        })
+        .catch(() => {
+          // best-effort — keep whatever we already have
+        })
+    }
+    setEvents([])
+    drain()
+    const off = hub.onIssues(() => drain())
+    return () => {
+      cancelled = true
+      off()
+    }
+  }, [issue.id, issue.repoPath])
 
   // Run a mutation, surfacing any thrown error verbatim as an inline toast.
   const run = async (fn: () => Promise<unknown>): Promise<void> => {
@@ -112,6 +171,7 @@ export function IssuePage({
   const { prev, next } = issueNeighbors(orderedIds, issue.id)
   const repo = issue.repoPath.split('/').filter(Boolean).pop() ?? issue.repoPath
   const fields = issueDetailFields(issue)
+  const feed = buildActivityFeed(fields.comments, events)
   const children = issues
     .filter((i) => i.parentId === issue.id && !i.archived)
     .sort((a, b) => a.seq - b.seq)
@@ -420,22 +480,28 @@ export function IssuePage({
               </div>
             )}
 
-            {fields.comments.length > 0 && (
-              <div className="flex flex-col gap-2">
-                {fields.comments.map((c) => (
-                  <div
-                    key={`${c.author}|${c.createdAt}|${c.body}`}
-                    className="flex flex-col gap-0.5 rounded-lg border border-border bg-muted/40 p-2"
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="font-medium text-[12px] text-foreground">{c.author}</span>
-                      <span className="text-[11px] text-muted-foreground">{c.createdAt}</span>
+            {feed.length > 0 && (
+              <div className="flex flex-col gap-2" data-testid="activity-feed">
+                {feed.map((item) =>
+                  item.kind === 'comment' ? (
+                    <div
+                      key={item.id}
+                      className="flex flex-col gap-0.5 rounded-lg border border-border bg-muted/40 p-2"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-medium text-[12px] text-foreground">
+                          {item.author}
+                        </span>
+                        <span className="text-[11px] text-muted-foreground">{item.ts}</span>
+                      </div>
+                      <p className="whitespace-pre-wrap break-words text-[13px] text-muted-foreground">
+                        {item.body}
+                      </p>
                     </div>
-                    <p className="whitespace-pre-wrap break-words text-[13px] text-muted-foreground">
-                      {c.body}
-                    </p>
-                  </div>
-                ))}
+                  ) : (
+                    <ActivityEvent key={item.id} icon={item.line.icon} text={item.line.text} ts={item.ts} />
+                  ),
+                )}
               </div>
             )}
 
@@ -502,6 +568,45 @@ export function IssuePage({
           {toast}
         </div>
       )}
+    </div>
+  )
+}
+
+/** Glyph per event-line kind (the pure formatter returns a stable `icon` key so
+ *  it stays JSX-free and unit-testable; the mapping to a real icon lives here). */
+const EVENT_ICONS: Record<IssueEventIcon, LucideIcon> = {
+  created: CircleDot,
+  moved: ArrowRight,
+  closed: CheckCircle2,
+  started: Play,
+  attached: Link2,
+  cleaned: Trash2,
+  flagged: Flag,
+  cleared: FlagOff,
+  ready: Unlock,
+  integration: GitMerge,
+  generic: Circle,
+}
+
+/** One compact, muted state-transition line in the activity feed. */
+function ActivityEvent({
+  icon,
+  text,
+  ts,
+}: {
+  icon: IssueEventIcon
+  text: string
+  ts: string
+}): JSX.Element {
+  const Icon = EVENT_ICONS[icon] ?? EVENT_ICONS.generic
+  return (
+    <div
+      className="flex items-center gap-2 px-1 py-0.5 text-[12px] text-muted-foreground"
+      data-testid="activity-event"
+    >
+      <Icon size={13} aria-hidden="true" className="shrink-0 opacity-70" />
+      <span className="min-w-0 flex-1 break-words">{text}</span>
+      <span className="shrink-0 text-[11px] opacity-70">{ts}</span>
     </div>
   )
 }

@@ -13,12 +13,15 @@ vi.mock('./store', () => ({
     trpc: {
       settings: { get: { query: vi.fn(async () => ({ gitWorkflow: { mergeStyle: 'ff-only' } })) } },
       issues: {
+        // Activity feed loads transition events on mount; no events in this fixture.
+        events: { query: vi.fn(async () => []) },
         addSession: { mutate: addSession },
         addShell: { mutate: addShell },
         start: { mutate: start },
         update: { mutate: update },
       },
     },
+    hub: { onIssues: () => () => {} },
     issues: [],
     setSelectedWorktree: vi.fn(),
     setPane: vi.fn(),
