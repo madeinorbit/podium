@@ -77,6 +77,8 @@ function serverSession(id: string, over: Partial<SessionMeta> = {}): SessionMeta
     lastActiveAt: '2026-07-01T00:00:00.000Z',
     origin: { kind: 'spawn' },
     archived: false,
+    readAt: null,
+    unread: false,
     ...over,
   }
 }

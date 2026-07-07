@@ -60,6 +60,9 @@ export function optimisticStartingSession(args: OptimisticSpawnArgs): SessionMet
     lastActiveAt: args.nowIso,
     origin: { kind: 'spawn' },
     archived: false,
+    // Just spawned by this user → they're looking at it: read, not unread.
+    readAt: args.nowIso,
+    unread: false,
     issueId: args.issueId,
     spawnedBy: 'user',
   }
@@ -107,6 +110,9 @@ export function optimisticDraftIssue(args: {
     createdAt: args.nowIso,
     updatedAt: args.nowIso,
     archived: false,
+    // Just created by this user → read, not unread (mirrors the session above).
+    readAt: args.nowIso,
+    unread: false,
     origin: 'human',
     draft: true,
     // Derived server-side; the sidebar reads membership from the global session
