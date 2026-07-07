@@ -14,7 +14,8 @@ import { OnboardingWizard } from './OnboardingWizard'
 import { RightDock } from './RightDock'
 import { MainViewOutlet } from './routes'
 import { SearchView } from './SearchView'
-import { Sidebar } from './Sidebar'
+import { ResizableAside } from './sidebar-common'
+import { SidebarUnified } from './SidebarUnified'
 import { StoreProvider, useStore } from './store'
 import { serverConfig } from './trpc'
 import { UpdatePrompt } from './UpdatePrompt'
@@ -120,7 +121,9 @@ function AppBody({ isMobile }: { isMobile: boolean }): JSX.Element {
         <MobileApp />
       ) : (
         <div className="desktop-shell">
-          <Sidebar />
+          <ResizableAside>
+            <SidebarUnified />
+          </ResizableAside>
           <MainViewOutlet workspace={<Workspace />} />
           {/* The superagent / BTW thread is a collapsible right dock, so you can watch
               an agent and orchestrate it side by side instead of a full-screen swap. */}

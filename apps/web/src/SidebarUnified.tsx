@@ -1,14 +1,19 @@
 import type { AgentKind, IssueWire, SessionMeta } from '@podium/protocol'
 import {
   AlarmClock,
+  BarChart3,
   ChevronDown,
   ChevronRight,
   Circle,
+  FolderPlus,
   GitBranch,
+  Home,
   KanbanSquare,
   Pin,
   Plus,
   RotateCw,
+  Search,
+  Settings as SettingsIcon,
 } from 'lucide-react'
 import type { JSX, MouseEvent as ReactMouseEvent, ReactNode } from 'react'
 import { useEffect, useRef, useState } from 'react'
@@ -54,9 +59,10 @@ import { IssueStatusIcon } from './IssueStatusIcon'
 import { isEpic } from './issue-hierarchy'
 import { NewIssueDialog } from './NewIssueDialog'
 import { NEW_AGENTS } from './NewPanelMenu'
+import { RepoScanFlow } from './RepoScanFlow'
 import type { ContextMenuAnchor } from './SessionContextMenu'
-import { CollapsibleSection, PanelRow, StaleSection, useCollapsed } from './Sidebar'
-import { useStore } from './store'
+import { CollapsibleSection, PanelRow, StaleSection, useCollapsed } from './sidebar-common'
+import { useStore, useStoreSelector } from './store'
 import { useNow } from './useNow'
 
 /** Icon component for an agent kind (shared with the "+" menu's agent list). */
@@ -96,8 +102,10 @@ export function SidebarUnified(): JSX.Element {
     markIssueRead,
     markSessionRead,
   } = useStore()
+  const setSearchOpen = useStoreSelector((s) => s.setSearchOpen)
   const now = useNow(60_000)
   const [newIssueOpen, setNewIssueOpen] = useState(false)
+  const [repoScanOpen, setRepoScanOpen] = useState(false)
   // Anchor for the agent/repo menu: the WHOLE bordered button container, so the
   // dropdown opens directly under it, left-aligned, at the button's exact width
   // (the popup's w-(--anchor-width) tracks the Positioner anchor).
@@ -416,8 +424,21 @@ export function SidebarUnified(): JSX.Element {
         </button>
       </div>
 
-      {/* App-surface nav: full-width links to the big non-workspace views. */}
+      {/* App-surface nav: full-width links to the big non-workspace views.
+          (The classic sidebar is gone — this is THE navigation now.) */}
       <div className="mx-3 mt-2 flex flex-col gap-0.5">
+        <button
+          type="button"
+          className={cn(
+            'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-[13px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground',
+            view === 'home' && 'bg-secondary text-foreground',
+          )}
+          aria-pressed={view === 'home'}
+          onClick={() => setView('home')}
+        >
+          <Home size={15} aria-hidden="true" />
+          Command center
+        </button>
         <button
           type="button"
           className={cn(
@@ -442,6 +463,53 @@ export function SidebarUnified(): JSX.Element {
           <RotateCw size={15} aria-hidden="true" />
           Automations
         </button>
+        {/* App-level tools: analytics, settings, conversation search, add repo. */}
+        <div className="mt-0.5 flex items-center gap-1">
+          <button
+            type="button"
+            className={cn(
+              'flex flex-1 items-center justify-center rounded-md border border-input px-2 py-1 text-muted-foreground hover:border-primary hover:text-foreground',
+              view === 'usage' && 'border-primary bg-secondary text-foreground',
+            )}
+            aria-pressed={view === 'usage'}
+            title="Usage & analytics"
+            aria-label="Usage & analytics"
+            onClick={() => setView('usage')}
+          >
+            <BarChart3 size={15} aria-hidden="true" />
+          </button>
+          <button
+            type="button"
+            className={cn(
+              'flex flex-1 items-center justify-center rounded-md border border-input px-2 py-1 text-muted-foreground hover:border-primary hover:text-foreground',
+              view === 'settings' && 'border-primary bg-secondary text-foreground',
+            )}
+            aria-pressed={view === 'settings'}
+            title="Settings"
+            aria-label="Settings"
+            onClick={() => setView('settings')}
+          >
+            <SettingsIcon size={15} aria-hidden="true" />
+          </button>
+          <button
+            type="button"
+            className="flex flex-1 items-center justify-center rounded-md border border-input px-2 py-1 text-muted-foreground hover:border-primary hover:text-foreground"
+            title="Search conversations"
+            aria-label="Search conversations"
+            onClick={() => setSearchOpen(true)}
+          >
+            <Search size={15} aria-hidden="true" />
+          </button>
+          <button
+            type="button"
+            className="flex flex-1 items-center justify-center rounded-md border border-input px-2 py-1 text-muted-foreground hover:border-primary hover:text-foreground"
+            title="Add repo"
+            aria-label="Add repo"
+            onClick={() => setRepoScanOpen(true)}
+          >
+            <FolderPlus size={15} aria-hidden="true" />
+          </button>
+        </div>
       </div>
 
       <div className="mt-1 flex-1 overflow-y-auto pb-3">
@@ -530,6 +598,9 @@ export function SidebarUnified(): JSX.Element {
       </div>
       <HostIndicators />
       {newIssueOpen && <NewIssueDialog onClose={() => setNewIssueOpen(false)} />}
+      {repoScanOpen && (
+        <RepoScanFlow onClose={() => setRepoScanOpen(false)} onDone={() => setRepoScanOpen(false)} />
+      )}
     </>
   )
 }

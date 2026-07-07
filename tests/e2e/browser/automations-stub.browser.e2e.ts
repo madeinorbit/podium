@@ -8,7 +8,6 @@ import { RELAY } from './_harness'
 
 test('unified sidebar links + automations prototype', async ({ page }) => {
   await page.addInitScript(() => {
-    localStorage.setItem('podium.sidebarLayout', 'unified')
     localStorage.setItem('podium.view', 'home')
   })
   await page.goto(`/?server=${RELAY}&e2e=1`)

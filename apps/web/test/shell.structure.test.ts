@@ -17,7 +17,7 @@ describe('web shell structure', () => {
     expect(src).not.toContain('ConnectScreen')
     expect(src).toContain('ErrorBoundary')
     expect(src).toContain('AppErrorPage')
-    expect(src).toContain('<Sidebar')
+    expect(src).toContain('<SidebarUnified')
     expect(src).toContain('<Workspace')
   })
   it('store exposes the live server feeds', () => {
@@ -42,10 +42,9 @@ describe('web shell structure', () => {
     expect(src).toContain('pins.list')
     expect(src).toContain('pins.set')
   })
-  it('sidebar renders pin-aware moved sections and pin controls', () => {
-    const src = read('Sidebar.tsx')
+  it('sidebar renders pin-aware sections and pin controls', () => {
+    const src = read('SidebarUnified.tsx')
     expect(src).toContain('sidebarSections')
-    expect(src).toContain('PinButton')
     expect(src).toContain('"PINNED"')
     expect(src).toContain('setPinned')
   })
@@ -73,14 +72,14 @@ describe('web shell structure', () => {
     expect(src).toContain('activationConstraint')
   })
   it('repo add flow uses the scan flow on desktop and mobile', () => {
-    expect(read('Sidebar.tsx')).toContain('RepoScanFlow')
+    expect(read('SidebarUnified.tsx')).toContain('RepoScanFlow')
     expect(read('MobileApp.tsx')).toContain('RepoScanFlow')
   })
   it('sidebar work panels navigate directly to the panel when clicked', () => {
-    const src = read('Sidebar.tsx')
     // Each panel row is an interactive button (not an inert div) that focuses the
     // session: select its worktree and point pane A at it.
-    expect(src).toContain("className={active ? 'panel-row active' : 'panel-row'}")
+    expect(read('sidebar-common.tsx')).toContain('onClick={onSelect}')
+    const src = read('SidebarUnified.tsx')
     expect(src).toContain('setSelectedWorktree(worktreePath)')
     expect(src).toContain("setPane('A', sessionId)")
   })
@@ -153,7 +152,7 @@ describe('host health indicators', () => {
     expect(src).toContain('hostMetrics')
   })
   it('the strip is mounted in the desktop sidebar and the mobile header', () => {
-    expect(read('Sidebar.tsx')).toContain('<HostIndicators')
+    expect(read('SidebarUnified.tsx')).toContain('<HostIndicators')
     expect(read('MobileApp.tsx')).toContain('<HostIndicators')
   })
   it('the connection indicator shows on the hysteresis signal; memory chips per host', () => {

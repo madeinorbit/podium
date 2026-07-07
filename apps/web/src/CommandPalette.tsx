@@ -117,8 +117,6 @@ function PaletteDialog({
     setSelectedWorktree,
     setSelectedIssueId,
     setOpenIssueId,
-    setSidebarLayout,
-    sidebarLayout,
     superOpen,
     setSuperOpen,
     setSnooze,
@@ -281,13 +279,6 @@ function PaletteDialog({
       })
     }
     out.push({
-      id: 'global:toggle-sidebar-layout',
-      group: 'global',
-      label: `Switch to ${sidebarLayout === 'classic' ? 'unified' : 'classic'} sidebar`,
-      keywords: ['sidebar', 'layout', 'toggle'],
-      run: () => setSidebarLayout(sidebarLayout === 'classic' ? 'unified' : 'classic'),
-    })
-    out.push({
       id: 'global:toggle-right-panel',
       group: 'global',
       label: superOpen ? 'Close right panel' : 'Open right panel',
@@ -371,7 +362,6 @@ function PaletteDialog({
     paneA,
     spawnTargets,
     defaultAgent,
-    sidebarLayout,
     superOpen,
   ])
 

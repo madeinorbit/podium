@@ -94,10 +94,9 @@ export function Workspace(): JSX.Element {
   // Issue-keyed workspace (issue-as-workspace, unified layout only): when an
   // issue row is selected, the tab strip shows the issue's sessions (explicit
   // issueId first-class + cwd-contained legacy) instead of a worktree's.
-  const issue =
-    store.sidebarLayout === 'unified' && store.selectedIssueId
-      ? store.issues.find((i) => i.id === store.selectedIssueId && !i.archived)
-      : undefined
+  const issue = store.selectedIssueId
+    ? store.issues.find((i) => i.id === store.selectedIssueId && !i.archived)
+    : undefined
   const issueWorktree = issue?.worktreePath
     ? allWorktrees.find((w) => w.path === issue.worktreePath)
     : undefined

@@ -93,10 +93,6 @@ export interface Store {
   /** Open the session's btw thread and ask the superagent for a concise tl;dr of
    *  the agent's last answer (passed in for context). */
   tldrSession: (sessionId: string, answerText: string) => Promise<void>
-  /** Which sidebar tab is active: the repo/worktree tree or the issues list.
-   *  Persisted so a reload lands on the same tab. */
-  sidebarTab: 'worktrees' | 'issues'
-  setSidebarTab: (tab: 'worktrees' | 'issues') => void
   /** The issue whose detail drawer is open (from the kanban card or the sidebar
    *  Issues tab), or null when closed. Ephemeral — not persisted. */
   openIssueId: string | null
@@ -116,9 +112,6 @@ export interface Store {
    *  Classic sidebar never sets it; unified worktree rows clear it. */
   selectedIssueId: string | null
   setSelectedIssueId: (id: string | null) => void
-  /** Temporary sidebar layout switcher (issue-as-workspace rollout). Persisted. */
-  sidebarLayout: 'classic' | 'unified'
-  setSidebarLayout: (layout: 'classic' | 'unified') => void
   paneA: string | null // sessionId in pane A
   paneB: string | null // sessionId in pane B (null = no split)
   setPane: (pane: 'A' | 'B', sessionId: string | null) => void
@@ -233,10 +226,8 @@ const Ctx = createContext<SubscriptionStore<Store> | null>(null)
 // replica's ONE versioned ui-state collection (replica.uiState()); the old
 // ad-hoc localStorage keys are migrated in there once and removed.
 const VIEW_KEY = 'podium.view'
-const SIDEBAR_TAB_KEY = 'podium.sidebarTab'
 const WT_KEY = 'podium.selectedWorktree'
 const ISSUE_SEL_KEY = 'podium.selectedIssueId'
-const SIDEBAR_LAYOUT_KEY = 'podium.sidebarLayout'
 /** An open file-editor tab. `id` is `file:<scopeKey>:<path>`; `worktreePath` (the
  *  containment root) scopes it to a worktree's tab strip. `scope` carries how the
  *  daemon read/write is addressed (a session today, or a worktree directly). */
@@ -265,9 +256,6 @@ function readStoredView(ui: UiState): MainView {
     v === 'automations'
     ? v
     : 'home'
-}
-function readStoredSidebarTab(ui: UiState): 'worktrees' | 'issues' {
-  return ui.get(SIDEBAR_TAB_KEY) === 'issues' ? 'issues' : 'worktrees'
 }
 /** The persisted per-session panel-mode map. A corrupt/missing blob reads as empty. */
 function readStoredPanelModes(ui: UiState): Record<string, 'chat' | 'native'> {
@@ -543,16 +531,6 @@ export function StoreProvider({
     repoOrder: [],
     groupByRepo: false,
   })
-  const [sidebarTab, setSidebarTabState] = useState<'worktrees' | 'issues'>(() =>
-    readStoredSidebarTab(ui),
-  )
-  const setSidebarTab = useMemo(
-    () => (tab: 'worktrees' | 'issues') => {
-      setSidebarTabState(tab)
-      ui.set(SIDEBAR_TAB_KEY, tab)
-    },
-    [ui],
-  )
   const openIssueId = route.issueId
   const setOpenIssueId = useMemo(
     () => (id: string | null) => {
@@ -569,16 +547,6 @@ export function StoreProvider({
   )
   const [selectedIssueId, setSelectedIssueId] = useState<string | null>(() =>
     ui.get(ISSUE_SEL_KEY),
-  )
-  const [sidebarLayout, setSidebarLayoutState] = useState<'classic' | 'unified'>(() =>
-    ui.get(SIDEBAR_LAYOUT_KEY) === 'unified' ? 'unified' : 'classic',
-  )
-  const setSidebarLayout = useMemo(
-    () => (layout: 'classic' | 'unified') => {
-      setSidebarLayoutState(layout)
-      ui.set(SIDEBAR_LAYOUT_KEY, layout)
-    },
-    [ui],
   )
   const [paneA, setPaneA] = useState<string | null>(
     () => router.current().pane ?? ui.get(PANE_A_KEY),
@@ -1179,8 +1147,6 @@ export function StoreProvider({
     superRefreshKey,
     startBtw,
     tldrSession,
-    sidebarTab,
-    setSidebarTab,
     openIssueId,
     setOpenIssueId,
     paletteOpen,
@@ -1191,8 +1157,6 @@ export function StoreProvider({
     setSelectedWorktree,
     selectedIssueId,
     setSelectedIssueId,
-    sidebarLayout,
-    setSidebarLayout,
     paneA,
     paneB,
     setPane,
