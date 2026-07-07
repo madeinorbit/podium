@@ -565,6 +565,15 @@ export const appRouter = t.router({
           ctx.registry.markSessionRead(input.sessionId),
         ),
       ),
+    // Mark a session UNREAD again (issue #138): clear read_at, flipping derived
+    // `unread` back to true. Mirrors markRead exactly (email-style inverse action).
+    markUnread: t.procedure
+      .input(z.object({ sessionId: z.string(), mutationId: z.string().max(128).optional() }))
+      .mutation(({ ctx, input }) =>
+        ctx.registry.withMutation(input.mutationId, 'sessions.markUnread', () =>
+          ctx.registry.markSessionUnread(input.sessionId),
+        ),
+      ),
     // Move (or clear) a session's explicit issue attachment (issue-as-workspace).
     setIssueId: t.procedure
       .input(
@@ -1478,6 +1487,16 @@ export const appRouter = t.router({
       .mutation(({ ctx, input }) =>
         ctx.registry.withMutation(input.mutationId, 'issues.markRead', () =>
           ctx.registry.issues.markIssueRead(input.id),
+        ),
+      ),
+    // Mark an issue UNREAD again (issue #138): clear read_at, flipping derived
+    // `unread` back to true. Node-local like markRead (NOT issueWrite / never
+    // hub-forwarded; unlisted in PROC_ACTION) — read-tracking needs only 'read'.
+    markUnread: issueProc
+      .input(z.object({ id: z.string(), mutationId: z.string().max(128).optional() }))
+      .mutation(({ ctx, input }) =>
+        ctx.registry.withMutation(input.mutationId, 'issues.markUnread', () =>
+          ctx.registry.issues.markIssueUnread(input.id),
         ),
       ),
     setNeedsHuman: issueProc

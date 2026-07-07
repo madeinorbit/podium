@@ -57,4 +57,13 @@ describe('sessionMenuEligibility', () => {
     expect(sessionMenuEligibility(meta({ status: 'exited' })).canClose).toBe(false)
     expect(sessionMenuEligibility(meta({ status: 'hibernated' })).canClose).toBe(false)
   })
+
+  it('offers mark-unread on a read session and mark-read on an unread one (#138)', () => {
+    const read = sessionMenuEligibility(meta({ unread: false }))
+    expect(read.canMarkUnread).toBe(true)
+    expect(read.canMarkRead).toBe(false)
+    const unread = sessionMenuEligibility(meta({ unread: true }))
+    expect(unread.canMarkUnread).toBe(false)
+    expect(unread.canMarkRead).toBe(true)
+  })
 })

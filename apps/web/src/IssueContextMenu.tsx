@@ -10,6 +10,8 @@ import {
   ChevronRight,
   Copy,
   ExternalLink,
+  Mail,
+  MailOpen,
   Pin,
   PinOff,
   Tag,
@@ -55,7 +57,7 @@ export function IssueContextMenu({
   /** Open the issue page for a single target. */
   onOpen: (id: string) => void
 }): JSX.Element | null {
-  const { trpc } = useStore()
+  const { trpc, markIssueRead, markIssueUnread } = useStore()
   const ref = useRef<HTMLDivElement | null>(null)
   const [pos, setPos] = useState<ContextMenuAnchor>(anchor)
   const [sub, setSub] = useState<{ kind: SubKind; top: number } | null>(null)
@@ -305,6 +307,30 @@ export function IssueContextMenu({
           }}
         >
           <ExternalLink size={14} aria-hidden="true" /> Open
+        </button>
+      )}
+      {/* Email-style read toggle (#138): mark a read row unread (or an unread one
+          read) — mutually exclusive, single-target. Store actions are optimistic. */}
+      {elig.canMarkUnread && (
+        <button
+          type="button"
+          role="menuitem"
+          className={itemCls}
+          {...leafHover}
+          onClick={() => run(() => markIssueUnread(first.id))}
+        >
+          <Mail size={14} aria-hidden="true" /> Mark as unread
+        </button>
+      )}
+      {elig.canMarkRead && (
+        <button
+          type="button"
+          role="menuitem"
+          className={itemCls}
+          {...leafHover}
+          onClick={() => run(() => markIssueRead(first.id))}
+        >
+          <MailOpen size={14} aria-hidden="true" /> Mark as read
         </button>
       )}
       {elig.canSetStage && subTrigger('stage', <StageGlyph stage={first.stage} />, 'Set stage')}

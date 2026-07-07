@@ -2099,6 +2099,36 @@ describe('SessionRegistry read state (#124)', () => {
     expect(pushed.at(-1)?.sessions.find((s) => s.sessionId === sessionId)?.unread).toBe(false)
     reg.dispose()
   })
+
+  it('markSessionUnread nulls readAt so the session re-reads as unread + broadcasts (#138)', () => {
+    const store = new SessionStore(':memory:')
+    const reg = new SessionRegistry(store)
+    reg.attachDaemon('local', () => {})
+    const { sessionId } = reg.createSession({ agentKind: 'claude-code', cwd: '/p' })
+    reg.onDaemonMessageFrom('local', bind(sessionId))
+    reg.markSessionRead(sessionId)
+    expect(reg.listSessions()[0]?.unread).toBe(false)
+
+    const c = sink()
+    reg.attachClient(c.send)
+    c.sent.length = 0
+    reg.markSessionUnread(sessionId)
+    reg.flushBroadcasts()
+
+    const after = reg.listSessions()[0]
+    expect(after?.readAt).toBeNull()
+    expect(after?.unread).toBe(true)
+    // Durable: a fresh registry over the same store reads readAt back as null.
+    const reg2 = new SessionRegistry(store)
+    expect(reg2.listSessions()[0]?.readAt).toBeNull()
+    // And the change was broadcast to clients.
+    const pushed = c.sent.filter(
+      (m): m is Extract<ServerMessage, { type: 'sessionsChanged' }> => m.type === 'sessionsChanged',
+    )
+    expect(pushed.at(-1)?.sessions.find((s) => s.sessionId === sessionId)?.unread).toBe(true)
+    reg.dispose()
+    reg2.dispose()
+  })
 })
 
 describe('SessionRegistry snooze', () => {

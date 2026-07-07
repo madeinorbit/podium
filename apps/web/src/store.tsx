@@ -185,9 +185,15 @@ export interface Store {
   /** Mark a session read (issue #124): stamp readAt = now, clearing derived `unread`.
    *  Optimistic + outboxed. Called when the operator opens/focuses the session. */
   markSessionRead: (sessionId: string) => Promise<void>
+  /** Mark a session UNREAD again (issue #138, email-style inverse of markSessionRead):
+   *  stamp readAt = null so derived `unread` flips back to true. Optimistic + outboxed. */
+  markSessionUnread: (sessionId: string) => Promise<void>
   /** Mark an issue read (issue #124): stamp readAt = now, clearing derived `unread`.
    *  Optimistic + outboxed. Called when the operator opens the issue. */
   markIssueRead: (id: string) => Promise<void>
+  /** Mark an issue UNREAD again (issue #138, email-style inverse of markIssueRead):
+   *  stamp readAt = null so derived `unread` flips back to true. Optimistic + outboxed. */
+  markIssueUnread: (id: string) => Promise<void>
   /** Per-session chat composer draft, shared across every view of that session
    *  (chat panes, split view) and preserved across chat/native mode switches.
    *  The native PTY input line is opaque bytes we can't read back, so this is the
@@ -294,7 +300,9 @@ type OutboxKinds = {
   snoozeSet: { sessionId: string; until: string | null }
   snoozeClear: { sessionId: string }
   sessionMarkRead: { sessionId: string }
+  sessionMarkUnread: { sessionId: string }
   issueMarkRead: { id: string }
+  issueMarkUnread: { id: string }
 }
 
 /** Stable empty list so the issues getter doesn't churn identity pre-hydrate. */
@@ -361,7 +369,9 @@ export function StoreProvider({
           snoozeSet: (i) => trpc.snoozes.set.mutate(i),
           snoozeClear: (i) => trpc.snoozes.clear.mutate(i),
           sessionMarkRead: (i) => trpc.sessions.markRead.mutate(i),
+          sessionMarkUnread: (i) => trpc.sessions.markUnread.mutate(i),
           issueMarkRead: (i) => trpc.issues.markRead.mutate(i),
+          issueMarkUnread: (i) => trpc.issues.markUnread.mutate(i),
         },
         // A poison entry (server-side validation reject) can never sync — it's
         // dropped, and the toast is the honesty about that.
@@ -863,10 +873,25 @@ export function StoreProvider({
     },
     [outbox, patchSession],
   )
+  // The email-style inverse (#138): stamp readAt = null so `unread` re-arms.
+  const markSessionUnread = useMemo(
+    () => async (sessionId: string) => {
+      patchSession(sessionId, { readAt: null, unread: true })
+      outbox.enqueue('sessionMarkUnread', { sessionId })
+    },
+    [outbox, patchSession],
+  )
   const markIssueRead = useMemo(
     () => async (id: string) => {
       patchIssue(id, { readAt: new Date().toISOString(), unread: false })
       outbox.enqueue('issueMarkRead', { id })
+    },
+    [outbox, patchIssue],
+  )
+  const markIssueUnread = useMemo(
+    () => async (id: string) => {
+      patchIssue(id, { readAt: null, unread: true })
+      outbox.enqueue('issueMarkUnread', { id })
     },
     [outbox, patchIssue],
   )
@@ -1141,7 +1166,9 @@ export function StoreProvider({
     setSnooze,
     clearSnooze,
     markSessionRead,
+    markSessionUnread,
     markIssueRead,
+    markIssueUnread,
     drafts,
     setSessionDraft,
     sidebarSettings,

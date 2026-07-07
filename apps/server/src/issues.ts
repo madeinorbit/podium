@@ -1260,6 +1260,19 @@ export class IssueService {
     return wire
   }
 
+  /** Mark this issue UNREAD again (issue #138, the email-style inverse of
+   *  markIssueRead): clear read_at so the derived `unread` (readAt null ⇒ unread)
+   *  flips back to true, persist + broadcast, and log issue.unread. Mirrors
+   *  markIssueRead exactly; read state stays GLOBAL (single-operator, no per-user row). */
+  markIssueUnread(id: string): IssueWire {
+    const row = this.rows.get(this.resolveRef(id))
+    if (!row) throw new Error(`unknown issue ${id}`)
+    row.readAt = null
+    const wire = this.persist(row)
+    this.emitEvent('issue.unread', row.id, { seq: row.seq })
+    return wire
+  }
+
   archive(id: string): IssueWire {
     return this.update(id, { archived: true })
   }

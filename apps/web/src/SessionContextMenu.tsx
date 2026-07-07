@@ -4,6 +4,8 @@ import {
   AlarmClockOff,
   Archive,
   ArchiveRestore,
+  Mail,
+  MailOpen,
   MessageSquareText,
   Moon,
   Pencil,
@@ -36,6 +38,8 @@ export function sessionMenuEligibility(session: SessionMeta): {
   canHibernate: boolean
   canResume: boolean
   canClose: boolean
+  canMarkRead: boolean
+  canMarkUnread: boolean
 } {
   const phase = session.agentState?.phase
   const working = phase === 'working' || phase === 'compacting'
@@ -44,6 +48,10 @@ export function sessionMenuEligibility(session: SessionMeta): {
     canHibernate: status === 'live' && session.resumable === true && !working,
     canResume: status === 'hibernated' || (status === 'exited' && session.resumable === true),
     canClose: status === 'live' || status === 'starting' || status === 'reconnecting',
+    // Email-style read toggle (#138): a currently-read session offers "mark unread";
+    // an unread one offers "mark read". (`unread` is always a boolean on the wire.)
+    canMarkRead: session.unread === true,
+    canMarkUnread: !session.unread,
   }
 }
 
@@ -69,8 +77,16 @@ export function SessionContextMenu({
   /** Enter inline rename mode in the host (sidebar row / tab). */
   onRename: () => void
 }): JSX.Element {
-  const { setPinned, setSnooze, clearSnooze, hibernateSession, resurrectSession, startBtw } =
-    useStore()
+  const {
+    setPinned,
+    setSnooze,
+    clearSnooze,
+    hibernateSession,
+    resurrectSession,
+    startBtw,
+    markSessionRead,
+    markSessionUnread,
+  } = useStore()
   const { guardedKill, guardedArchive } = useSessionGuard()
   const now = useNow(60_000)
   const ref = useRef<HTMLDivElement | null>(null)
@@ -109,7 +125,8 @@ export function SessionContextMenu({
 
   const id = session.sessionId
   const snoozed = isSnoozed(session, now)
-  const { canHibernate, canResume, canClose } = sessionMenuEligibility(session)
+  const { canHibernate, canResume, canClose, canMarkRead, canMarkUnread } =
+    sessionMenuEligibility(session)
 
   const run = (fn: () => void | Promise<void>): void => {
     void fn()
@@ -141,6 +158,28 @@ export function SessionContextMenu({
         {pinned ? <PinOff size={14} aria-hidden="true" /> : <Pin size={14} aria-hidden="true" />}
         {pinned ? 'Unpin' : 'Pin'}
       </button>
+      {/* Email-style read toggle (#138): mark a read session unread (or an unread
+          one read) — mutually exclusive. Store actions are optimistic. */}
+      {canMarkUnread && (
+        <button
+          type="button"
+          role="menuitem"
+          className={itemCls}
+          onClick={() => run(() => markSessionUnread(id))}
+        >
+          <Mail size={14} aria-hidden="true" /> Mark as unread
+        </button>
+      )}
+      {canMarkRead && (
+        <button
+          type="button"
+          role="menuitem"
+          className={itemCls}
+          onClick={() => run(() => markSessionRead(id))}
+        >
+          <MailOpen size={14} aria-hidden="true" /> Mark as read
+        </button>
+      )}
 
       <div className="my-1 h-px bg-border" role="separator" />
       {snoozed ? (

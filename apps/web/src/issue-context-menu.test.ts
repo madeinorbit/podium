@@ -30,7 +30,19 @@ describe('issueMenuEligibility', () => {
       canDelete: true,
       canArchive: true,
       canUnarchive: false,
+      // A read issue offers "mark unread"; only an unread one offers "mark read".
+      canMarkRead: false,
+      canMarkUnread: true,
     })
+  })
+
+  it('offers mark-unread on a read issue and mark-read on an unread one (#138)', () => {
+    const read = issueMenuEligibility([makeIssue({ unread: false })])
+    expect(read.canMarkUnread).toBe(true)
+    expect(read.canMarkRead).toBe(false)
+    const unread = issueMenuEligibility([makeIssue({ unread: true })])
+    expect(unread.canMarkUnread).toBe(false)
+    expect(unread.canMarkRead).toBe(true)
   })
 
   it('offers archive on an active issue and unarchive on an archived one', () => {
@@ -78,6 +90,9 @@ describe('issueMenuEligibility', () => {
     expect(e.canPin).toBe(false)
     expect(e.canArchive).toBe(false)
     expect(e.canUnarchive).toBe(false)
+    // Read-state actions are single-target too.
+    expect(e.canMarkRead).toBe(false)
+    expect(e.canMarkUnread).toBe(false)
   })
 })
 

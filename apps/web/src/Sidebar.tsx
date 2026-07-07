@@ -1079,6 +1079,7 @@ export function PanelRow({
   onPinned,
   attention = false,
   dotRight = false,
+  suppressUnread = false,
 }: {
   session: SessionMeta
   pinned: boolean
@@ -1093,6 +1094,9 @@ export function PanelRow({
    *  (same pr-3 + a w-2 slot centering the smaller dot). Rows are also more
    *  indented and tighter, so the group reads as belonging to its parent. */
   dotRight?: boolean
+  /** WORKING-section rows (#138): a session that's actively in progress is not
+   *  "new unseen work", so its unread emphasis is suppressed even when unread. */
+  suppressUnread?: boolean
 }): JSX.Element {
   const { continueSession, renameSession } = useStore()
   const { guardedKill } = useSessionGuard()
@@ -1134,8 +1138,9 @@ export function PanelRow({
               : 'text-muted-foreground hover:bg-accent hover:text-foreground',
             // Email-style unread emphasis (#126): an unread, un-selected session
             // reads at full strength + medium weight, lifting it out of the muted
-            // baseline. Marking it read on open clears this optimistically.
-            !active && session.unread && 'font-medium text-foreground',
+            // baseline. Marking it read on open clears this optimistically. Rows in
+            // the WORKING section suppress it (#138): active work isn't "unseen".
+            !active && session.unread && !suppressUnread && 'font-medium text-foreground',
           )}
           onClick={onSelect}
           // Double-click the row to rename — matches the tab strip.
