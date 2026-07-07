@@ -42,9 +42,10 @@ import type { PinKind, PinState } from './types'
 export interface Store {
   hub: SocketHub
   trpc: Trpc
-  /** Persistent local replica (docs/spec/thin-client-replica.md): entity mirror
-   *  + offline transcript windows. `replica.available` is false when storage is
-   *  unusable (private mode) — everything then behaves like the in-memory client. */
+  /** Local replica (docs/spec/thin-client-replica.md): the ONE entity read
+   *  path (sessions/issues/conversations) + offline transcript windows. When
+   *  durable storage is unusable (private mode) the same collections run in
+   *  memory — `replica.persistent` is false and a reload cold-starts. */
   replica: Replica
   repos: GitRepositoryWire[]
   reposLoading: boolean
@@ -305,8 +306,6 @@ type OutboxKinds = {
   issueMarkRead: { id: string }
 }
 
-/** Stable empty list so the issues getter doesn't churn identity pre-hydrate. */
-const NO_ISSUES: IssueWire[] = []
 /** Stable empty set so `pendingSpawnIds` keeps identity when nothing is pending. */
 const EMPTY_STRING_SET: ReadonlySet<string> = new Set()
 
@@ -355,11 +354,9 @@ export function StoreProvider({
   const outbox = useMemo(
     () =>
       createOutbox<OutboxKinds>({
-        // One persistence layer (P6b Part 2): the queue persists into a replica
-        // collection (cross-tab consistent via storage events) instead of its
-        // own hand-rolled localStorage blob; the drain/retry/poison logic is
-        // unchanged. Falls back to the legacy guarded backing when the replica
-        // is unavailable.
+        // One persistence layer: the queue persists into a replica collection
+        // (cross-tab consistent via storage events; in-memory in private mode);
+        // the drain/retry/poison logic is unchanged.
         storage: replica.outboxStorage(),
         executors: {
           resumeAndSend: (i) => trpc.sessions.resumeAndSend.mutate(i),
@@ -395,23 +392,18 @@ export function StoreProvider({
   const [reposLoading, setReposLoading] = useState(false)
   const [reposLoaded, setReposLoaded] = useState(false)
   const [repoDiagnostics, setRepoDiagnostics] = useState<GitDiscoveryDiagnosticWire[]>([])
-  // Entity state, single-sourced (P6b Part 1): with a usable replica, sessions/
-  // issues are TanStack DB live queries over its collections — the hub writes
-  // ONLY into the replica (onMetadataApplied above) and the queries re-render
-  // from there. When persistence is unavailable (private browsing) the replica
-  // is inert and the LEGACY path below (hub subscriptions → useState) carries
-  // the same state, exactly like the pre-replica client (spec invariant 4).
+  // Entity state, single-sourced: sessions/issues are TanStack DB live queries
+  // over the replica's collections — the hub writes ONLY into the replica
+  // (onMetadataApplied above) and the queries re-render from there. In private
+  // browsing the same collections run in memory (replica.ts), so there is no
+  // parallel entity path.
   const liveSessionRows = useReplicaRows(replica, 'sessions')
   const liveIssueRows = useReplicaRows(replica, 'issues')
-  const [legacySessions, setLegacySessions] = useState<SessionMeta[]>([])
-  const [legacyIssues, setLegacyIssues] = useState<IssueWire[]>([])
-  // Same dedupe the legacy path applies at its setState seam; memoized so list
-  // identity only changes when the underlying rows do (no per-render churn).
-  const baseSessions = useMemo(
-    () => (replica.available ? dedupeSessionsByResume(liveSessionRows ?? []) : legacySessions),
-    [replica, liveSessionRows, legacySessions],
-  )
-  const baseIssues = replica.available ? (liveIssueRows ?? NO_ISSUES) : legacyIssues
+  // Collapse duplicate rows for the same underlying conversation (e.g. a Codex
+  // thread surfaced twice on resume); memoized so list identity only changes
+  // when the underlying rows do (no per-render churn).
+  const baseSessions = useMemo(() => dedupeSessionsByResume(liveSessionRows), [liveSessionRows])
+  const baseIssues = liveIssueRows
   // Optimistic spawn overlay (#119): client-minted session + draft-issue rows
   // shown INSTANTLY on "New <Agent>", merged over server truth below and pruned
   // once the real row (same id) lands. Ephemeral (not persisted / not outboxed):
@@ -451,36 +443,26 @@ export function StoreProvider({
     const known = new Set(baseSessions.map((s) => s.sessionId))
     return new Set(optimisticSessions.map((s) => s.sessionId).filter((id) => !known.has(id)))
   }, [optimisticSessions, baseSessions])
-  // Optimistic local apply for curation mutations, path-matched to where entity
-  // state lives: a replica-collection upsert (the live query re-renders, and the
-  // optimism even survives an offline reload alongside its queued outbox entry)
-  // or the legacy setState. Server truth reconciles either way.
+  // Optimistic local apply for curation mutations: a replica-collection upsert
+  // (the live query re-renders, and with durable storage the optimism even
+  // survives an offline reload alongside its queued outbox entry). Server truth
+  // reconciles via the same collections.
   const liveSessionRowsRef = useRef<SessionMeta[]>([])
-  liveSessionRowsRef.current = liveSessionRows ?? []
+  liveSessionRowsRef.current = liveSessionRows
   const patchSession = useMemo(
     () => (sessionId: string, patch: Partial<SessionMeta>) => {
-      if (replica.available) {
-        const row = liveSessionRowsRef.current.find((s) => s.sessionId === sessionId)
-        if (row) replica.applyChanges('sessions', [{ ...row, ...patch }], [])
-      } else {
-        setLegacySessions((all) =>
-          all.map((s) => (s.sessionId === sessionId ? { ...s, ...patch } : s)),
-        )
-      }
+      const row = liveSessionRowsRef.current.find((s) => s.sessionId === sessionId)
+      if (row) replica.applyChanges('sessions', [{ ...row, ...patch }], [])
     },
     [replica],
   )
   // Same optimistic-apply seam for a single issue (issue #124: markIssueRead).
   const liveIssueRowsRef = useRef<IssueWire[]>([])
-  liveIssueRowsRef.current = liveIssueRows ?? []
+  liveIssueRowsRef.current = liveIssueRows
   const patchIssue = useMemo(
     () => (id: string, patch: Partial<IssueWire>) => {
-      if (replica.available) {
-        const row = liveIssueRowsRef.current.find((i) => i.id === id)
-        if (row) replica.applyChanges('issues', [{ ...row, ...patch }], [])
-      } else {
-        setLegacyIssues((all) => all.map((i) => (i.id === id ? { ...i, ...patch } : i)))
-      }
+      const row = liveIssueRowsRef.current.find((i) => i.id === id)
+      if (row) replica.applyChanges('issues', [{ ...row, ...patch }], [])
     },
     [replica],
   )
@@ -992,20 +974,9 @@ export function StoreProvider({
   useEffect(() => lsSet(PANEL_MODE_KEY, JSON.stringify(panelMode)), [panelMode])
 
   useEffect(() => {
-    // LEGACY entity path only (replica unavailable): mirror hub events into
-    // useState, collapsing duplicate rows for the same underlying conversation
-    // (e.g. a Codex thread surfaced twice on resume) before they reach any view.
-    // With a usable replica these callbacks are inert — the hub's single write
-    // seam is onMetadataApplied → replica, and the live queries render from there.
-    const offSessions = hub.onSessions((s) => {
-      if (!replica.available) setLegacySessions(dedupeSessionsByResume(s))
-    })
-    const offIssues = hub.onIssues((i) => {
-      if (!replica.available) setLegacyIssues(i)
-    })
-    const offIssueUpd = hub.onIssueUpdated((u) => {
-      if (!replica.available) setLegacyIssues((xs) => xs.map((i) => (i.id === u.id ? u : i)))
-    })
+    // The hub's single entity write seam is onMetadataApplied → replica; the
+    // live queries render from there. Only ephemeral state (host metrics,
+    // machines, drafts) still mirrors hub events into useState.
     const offHostMetrics = hub.onHostMetrics(setHostMetrics)
     // Repos are only scannable through a connected daemon, so a machine coming online
     // (e.g. the split daemon reconnecting after a restart) can make previously-empty
@@ -1055,13 +1026,11 @@ export function StoreProvider({
     // resolves before the deferred connect below, and `seedMetadata` refuses to
     // clobber server truth if a heal somehow lands first. `hydrate` never throws
     // (a poisoned replica clears itself and cold-starts).
-    if (replica.available) {
-      void replica.hydrate().then((snap) => {
-        if (snap.sessions.length + snap.issues.length + snap.conversations.length > 0) {
-          hub.seedMetadata(snap)
-        }
-      })
-    }
+    void replica.hydrate().then((snap) => {
+      if (snap.sessions.length + snap.issues.length + snap.conversations.length > 0) {
+        hub.seedMetadata(snap)
+      }
+    })
     const connectTimer = setTimeout(() => {
       try {
         hub.connect()
@@ -1083,9 +1052,6 @@ export function StoreProvider({
     }
     return () => {
       clearTimeout(connectTimer)
-      offSessions()
-      offIssues()
-      offIssueUpd()
       offHostMetrics()
       offMachines()
       offDraft()

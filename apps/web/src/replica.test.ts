@@ -1,6 +1,6 @@
 import type { IssueWire, SessionMeta, TranscriptItem } from '@podium/protocol'
 import { beforeEach, describe, expect, it } from 'vitest'
-import { OUTBOX_LS_KEY, type OutboxEntry } from './outbox'
+import { Outbox, OUTBOX_LS_KEY, type OutboxEntry } from './outbox'
 import {
   createReplica,
   REPLICA_TRANSCRIPT_CONVERSATION_CAP,
@@ -112,7 +112,7 @@ describe('replica adapter', () => {
   it('round-trips snapshots, changes, and the cursor across instances', async () => {
     const { storage } = makeStorage()
     const a = createReplica({ storage, keyPrefix: prefix })
-    expect(a.available).toBe(true)
+    expect(a.persistent).toBe(true)
     a.applySnapshot('sessions', [session('s1'), session('s2')])
     a.applySnapshot('issues', [issue('i1')])
     a.setCursor(7)
@@ -208,7 +208,7 @@ describe('replica adapter', () => {
     expect(b.transcriptWindow('conv-5')?.items[0]?.id).toBe('fresh')
   })
 
-  it('unavailable storage degrades to a fully inert adapter (invariant 4)', async () => {
+  it('unusable storage degrades to a WORKING in-memory replica (private mode, invariant 4)', async () => {
     const throwing: NonNullable<ReplicaInit['storage']> = {
       getItem: () => {
         throw new Error('denied')
@@ -221,16 +221,29 @@ describe('replica adapter', () => {
       },
     }
     const r = createReplica({ storage: throwing, keyPrefix: prefix })
-    expect(r.available).toBe(false)
-    // Every operation is a no-op that never throws.
-    const h = await r.hydrate()
-    expect(h).toEqual({ sessions: [], issues: [], conversations: [], cursor: null })
+    expect(r.persistent).toBe(false)
+    // Same seam, in-memory backing: every operation still works for the tab's
+    // lifetime — no parallel "inert" path.
+    const cold = await r.hydrate()
+    expect(cold).toEqual({ sessions: [], issues: [], conversations: [], cursor: null })
     r.applySnapshot('sessions', [session('s1')])
     r.applyChanges('issues', [issue('i1')], [])
     r.setCursor(1)
     r.putTranscriptWindow('c', [item('a')])
-    expect(r.getCursor()).toBeNull()
-    expect(r.transcriptWindow('c')).toBeUndefined()
+    await settle()
+    expect(r.getCursor()).toBe(1)
+    expect(r.transcriptWindow('c')?.items[0]?.id).toBe('a')
+    const h = await r.hydrate()
+    expect(h.sessions.map((x) => x.sessionId)).toEqual(['s1'])
+    expect(h.issues.map((x) => x.id)).toEqual(['i1'])
+    // …but nothing reaches the broken storage: a NEW instance over it is cold.
+    const again = createReplica({ storage: throwing, keyPrefix: prefix })
+    expect(await again.hydrate()).toEqual({
+      sessions: [],
+      issues: [],
+      conversations: [],
+      cursor: null,
+    })
   })
 
   it('re-applying an identical snapshot issues no storage writes', async () => {
@@ -303,8 +316,7 @@ describe('replica outbox storage', () => {
     expect(tabA.load().map((e) => e.mutationId)).toEqual(['cross'])
   })
 
-  it('falls back to the guarded legacy backing when the replica is unavailable', () => {
-    localStorage.clear() // the fallback reads the real (happy-dom) localStorage
+  it('private mode: the outbox stores AND drains in memory behind the same seam', async () => {
     const r = createReplica({
       storage: {
         getItem: () => null,
@@ -315,10 +327,27 @@ describe('replica outbox storage', () => {
       },
       keyPrefix: prefix,
     })
-    expect(r.available).toBe(false)
-    const s = r.outboxStorage()
-    // Private-mode degradation: everything is a best-effort no-op, never a throw.
-    expect(s.load()).toEqual([])
-    expect(() => s.save([entry('m1')])).not.toThrow()
+    expect(r.persistent).toBe(false)
+    const storage = r.outboxStorage()
+    // Queue while "offline": entries live in the in-memory collection.
+    storage.save([entry('m1'), entry('m2')])
+    expect(storage.load().map((e) => e.mutationId)).toEqual(['m1', 'm2'])
+
+    // Drive a real Outbox over this storage: connectivity returns and the
+    // queue drains FIFO through the executor, emptying the in-memory backing.
+    const executed: string[] = []
+    const outbox = new Outbox<{ rename: { sessionId: string; name: string } }>({
+      storage,
+      executors: {
+        rename: async (input) => {
+          executed.push(input.mutationId)
+        },
+      },
+      isOnline: () => true,
+    })
+    await outbox.drain()
+    expect(executed).toEqual(['m1', 'm2'])
+    expect(storage.load()).toEqual([])
+    outbox.dispose()
   })
 })

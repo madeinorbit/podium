@@ -21,10 +21,10 @@
  *   (spec invariant 3) easy to uphold: `setCursor` chains behind the last data
  *   write's persistence promise before touching storage.
  * - The lib already cold-starts on corrupt blobs (its loader swallows and
- *   returns empty — spec invariant 2) and falls back to in-memory storage when
- *   localStorage is unavailable; we additionally probe availability up front
- *   and expose `available` so callers keep today's behavior when persistence
- *   is off (spec invariant 4).
+ *   returns empty — spec invariant 2). When localStorage is unusable (private
+ *   mode / quota) we probe up front and run the SAME collections over an
+ *   in-memory storage adapter — one code path, persistence becomes best-effort
+ *   (`persistent` is false; a reload cold-starts, spec invariant 4).
  * An IndexedDB/SQLite persister can later replace this behind the same
  * interface. Follow-on: per-delta persistence rewrites each touched collection
  * blob whole (inherent to a JSON-blob backing); acceptable at current sizes.
@@ -44,7 +44,7 @@ import {
   type OutboxEntry,
   type OutboxStorage,
 } from '@podium/client-core/outbox'
-import { localStorageBacking, OUTBOX_LS_KEY } from './outbox'
+import { OUTBOX_LS_KEY } from './outbox'
 
 /** Wire row type per replica collection kind. */
 export interface ReplicaRows {
@@ -70,9 +70,11 @@ export interface TranscriptWindow {
 }
 
 export interface Replica {
-  /** False when persistent storage is unusable (private mode, quota): every
-   *  method is inert and callers behave exactly like today's in-memory client. */
-  readonly available: boolean
+  /** False when durable storage is unusable (private mode, quota). The replica
+   *  still WORKS — the same collections, live queries, and outbox run over an
+   *  in-memory storage adapter behind the same seam — it just forgets on
+   *  reload, like the old in-memory client. There is no parallel code path. */
+  readonly persistent: boolean
   /** Load everything persisted. NEVER throws — a poisoned replica clears
    *  itself and resolves as a cold client (spec invariant 2). */
   hydrate(): Promise<ReplicaHydrateResult>
@@ -93,15 +95,14 @@ export interface Replica {
   putTranscriptWindow(conversationKey: string, items: TranscriptItem[]): void
   /** The underlying entity collection for `kind` — the live-query seam consumed
    *  ONLY by `useReplicaRows` below (typed `unknown` so no TanStack type leaks
-   *  through the interface). Present even when `available` is false; the hook
-   *  simply doesn't subscribe then. */
+   *  through the interface). */
   collection(kind: ReplicaKind): unknown
   /** P6b outbox consolidation: an `OutboxStorage` backed by a replica collection
    *  (`<prefix>.outbox.v1`), so the offline queue shares the ONE persistence
    *  layer and gets cross-tab consistency from the lib's `storage` events. The
-   *  legacy `podium.outbox.v1` JSON blob is migrated in on first use. When the
-   *  replica is unavailable it falls back to the legacy guarded localStorage
-   *  backing (which itself degrades to best-effort no-ops). */
+   *  legacy `podium.outbox.v1` JSON blob is migrated in on first use. In
+   *  private mode the queue lives in the in-memory storage — it drains while
+   *  the tab lives and is lost on reload (best-effort, like everything else). */
   outboxStorage(): OutboxStorage
 }
 
@@ -150,8 +151,23 @@ function replaceContents(draft: Record<string, unknown>, value: Record<string, u
  *  unique id (same storageKey) so tests can build several without colliding. */
 let instanceSeq = 0
 
+/** Map-backed StorageApi for the private-mode fallback — same seam, no DOM. */
+function memoryStorage(): StorageApi {
+  const data = new Map<string, string>()
+  return {
+    getItem: (k) => data.get(k) ?? null,
+    setItem: (k, v) => void data.set(k, v),
+    removeItem: (k) => void data.delete(k),
+  }
+}
+
+const NOOP_STORAGE_EVENTS: StorageEventApi = {
+  addEventListener: () => {},
+  removeEventListener: () => {},
+}
+
 class TanstackReplica implements Replica {
-  readonly available: boolean
+  readonly persistent: boolean
   private readonly storage: StorageApi
   private readonly storageEventApi: StorageEventApi
   private readonly prefix: string
@@ -174,20 +190,17 @@ class TanstackReplica implements Replica {
     this.now = init.now ?? Date.now
     const storage =
       init.storage ?? (typeof window !== 'undefined' ? window.localStorage : undefined)
-    this.available = probeStorage(storage)
-    // Unavailable storage → inert adapter: park a throwing stub behind the
-    // guards (every public method checks `available` first).
-    this.storage = storage ?? {
-      getItem: () => null,
-      setItem: () => {},
-      removeItem: () => {},
-    }
-    // Default cross-tab wiring only when we're really on window.localStorage.
-    this.storageEventApi =
-      init.storageEventApi ??
-      (init.storage === undefined && typeof window !== 'undefined'
-        ? window
-        : { addEventListener: () => {}, removeEventListener: () => {} })
+    this.persistent = probeStorage(storage)
+    // Unusable storage (private mode / quota / SSR) → the SAME collections run
+    // over an in-memory adapter: everything works, nothing survives a reload.
+    this.storage = this.persistent && storage ? storage : memoryStorage()
+    // Cross-tab wiring only when we're really on a shared window.localStorage.
+    this.storageEventApi = this.persistent
+      ? (init.storageEventApi ??
+        (init.storage === undefined && typeof window !== 'undefined'
+          ? window
+          : NOOP_STORAGE_EVENTS))
+      : NOOP_STORAGE_EVENTS
     this.nonce = ++instanceSeq
     this.cols = {
       sessions: this.makeCollection<SessionMeta>('sessions', (s) => s.sessionId),
@@ -195,16 +208,14 @@ class TanstackReplica implements Replica {
       conversations: this.makeCollection<ConversationSummaryWire>('conversations', (c) => c.id),
       transcripts: this.makeCollection<TranscriptRow>('transcripts', (t) => t.key),
     }
-    if (this.available) {
-      // Keep the collections' sync alive for the app's lifetime: a permanent
-      // no-op subscriber prevents the no-subscriber GC from dropping state
-      // between the store's hydrate and ChatView's cache reads.
-      for (const col of Object.values(this.cols)) {
-        try {
-          col.subscribeChanges(() => {})
-        } catch {
-          // never let replica plumbing break boot
-        }
+    // Keep the collections' sync alive for the app's lifetime: a permanent
+    // no-op subscriber prevents the no-subscriber GC from dropping state
+    // between the store's hydrate and ChatView's cache reads.
+    for (const col of Object.values(this.cols)) {
+      try {
+        col.subscribeChanges(() => {})
+      } catch {
+        // never let replica plumbing break boot
       }
     }
   }
@@ -216,7 +227,6 @@ class TanstackReplica implements Replica {
       conversations: [],
       cursor: null,
     }
-    if (!this.available) return empty
     try {
       await Promise.all(Object.values(this.cols).map((c) => c.preload()))
       return {
@@ -234,7 +244,6 @@ class TanstackReplica implements Replica {
   }
 
   applySnapshot<K extends ReplicaKind>(kind: K, rows: ReplicaRows[K][]): void {
-    if (!this.available) return
     try {
       const col = this.cols[kind]
       const keyOf = this.keyFor(kind)
@@ -254,7 +263,6 @@ class TanstackReplica implements Replica {
     upserts: ReplicaRows[K][],
     removeIds: string[],
   ): void {
-    if (!this.available) return
     try {
       const col = this.cols[kind]
       const present = removeIds.filter((id) => col.has(id))
@@ -266,7 +274,6 @@ class TanstackReplica implements Replica {
   }
 
   getCursor(): number | null {
-    if (!this.available) return null
     try {
       const raw = this.storage.getItem(this.cursorKey)
       if (raw === null) return null
@@ -278,7 +285,6 @@ class TanstackReplica implements Replica {
   }
 
   setCursor(cursor: number): void {
-    if (!this.available) return
     // Persist-after-data: wait for every entity write issued before this call.
     const fence = this.lastWrite
     void fence.then(() => {
@@ -291,7 +297,6 @@ class TanstackReplica implements Replica {
   }
 
   transcriptWindow(conversationKey: string): TranscriptWindow | undefined {
-    if (!this.available) return undefined
     try {
       const row = this.cols.transcripts.get(conversationKey) as TranscriptRow | undefined
       return row ? { items: row.items, savedAt: row.savedAt } : undefined
@@ -301,7 +306,6 @@ class TanstackReplica implements Replica {
   }
 
   putTranscriptWindow(conversationKey: string, items: TranscriptItem[]): void {
-    if (!this.available) return
     try {
       const col = this.cols.transcripts
       const row: TranscriptRow = {
@@ -338,12 +342,6 @@ class TanstackReplica implements Replica {
 
   outboxStorage(): OutboxStorage {
     if (this.outboxBacking) return this.outboxBacking
-    if (!this.available) {
-      // Inert replica (private browsing) → today's guarded localStorage backing,
-      // which itself no-ops when storage throws. Behavior identical to P3.
-      this.outboxBacking = localStorageBacking()
-      return this.outboxBacking
-    }
     const col = this.makeCollection<OutboxRow>('outbox', (r) => r.mutationId)
     try {
       // Permanent no-op subscriber: starts the collection's (synchronous)
@@ -498,24 +496,25 @@ export function createReplica(init: ReplicaInit = {}): Replica {
 }
 
 /**
- * React live-query over one replica collection (P6b Part 1): the rows re-render
- * on every collection change — the store derives its entity arrays from this
- * instead of mirroring hub events into useState. Returns `undefined` while the
- * replica is unavailable (private browsing), which tells the store to keep the
- * legacy hub-subscription path. Lives here so ALL TanStack APIs (including the
- * React binding) stay behind the one adapter module (spec §2.1).
+ * React live-query over one replica collection: the rows re-render on every
+ * collection change — the store derives its entity arrays from this instead of
+ * mirroring hub events into useState. The replica is ALWAYS live (in-memory in
+ * private browsing), so this is the one entity read path. Lives here so ALL
+ * TanStack APIs (including the React binding) stay behind the one adapter
+ * module (spec §2.1).
  */
+const EMPTY_ROWS: never[] = []
+
 export function useReplicaRows<K extends ReplicaKind>(
   replica: Replica,
   kind: K,
-): ReplicaRows[K][] | undefined {
+): ReplicaRows[K][] {
   const { data } = useLiveQuery(
     () =>
-      replica.available
-        ? // biome-ignore lint/suspicious/noExplicitAny: adapter-internal cast from the untyped collection seam
-          (replica.collection(kind) as Collection<ReplicaRows[K], string, any>)
-        : null,
+      // biome-ignore lint/suspicious/noExplicitAny: adapter-internal cast from the untyped collection seam
+      replica.collection(kind) as Collection<ReplicaRows[K], string, any>,
     [replica, kind],
   )
-  return data as ReplicaRows[K][] | undefined
+  // Stable empty identity so downstream memos don't churn pre-hydrate.
+  return data === undefined || data.length === 0 ? EMPTY_ROWS : (data as ReplicaRows[K][])
 }

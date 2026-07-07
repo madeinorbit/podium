@@ -247,9 +247,11 @@ describe('store ↔ replica', () => {
     expect(h.issues[0]?.unread).toBe(false)
   })
 
-  it('replica unavailable (private browsing): the legacy hub-subscription path carries sessions', async () => {
-    // Make the replica's availability probe fail while leaving every other
-    // localStorage key usable — exactly the private-mode degradation contract.
+  it('replica non-persistent (private browsing): the SAME replica path carries sessions in memory', async () => {
+    // Make the replica's persistence probe fail while leaving every other
+    // localStorage key usable — the private-mode degradation contract. There is
+    // no legacy hub→useState path anymore: entities still flow hub →
+    // onMetadataApplied → (in-memory) replica → live queries.
     const realSetItem = localStorage.setItem.bind(localStorage)
     vi.spyOn(localStorage as Storage, 'setItem').mockImplementation(
       (key: string, value: string) => {
@@ -262,27 +264,30 @@ describe('store ↔ replica', () => {
     await settle()
     expect(latest.sessions).toEqual([])
 
-    // The network answers: state must arrive via hub observers → legacy useState
-    // (the replica is inert and its live queries stay disabled).
     act(() => sockets[0]?.onopen?.({}))
     await settle()
     expect(changesSinceCalls).toEqual([null])
     changesSinceResolve?.({
       kind: 'snapshot',
-      sessions: [session('s-legacy', 'legacy path')],
+      sessions: [session('s-mem', 'memory path')],
       issues: [],
       conversations: [],
       diagnostics: [],
       cursor: 4,
     })
     await settle()
-    expect(latest.sessions.map((s) => s.title)).toEqual(['legacy path'])
+    expect(latest.sessions.map((s) => s.title)).toEqual(['memory path'])
 
-    // Optimistic writes flow through the legacy setState seam too.
+    // Optimistic writes flow through the same replica seam (in memory).
     await act(async () => {
-      await latestStore?.renameSession('s-legacy', 'renamed')
+      await latestStore?.renameSession('s-mem', 'renamed')
     })
     await settle()
     expect(latest.sessions[0]?.name).toBe('renamed')
+
+    // …and none of it leaked into durable storage.
+    expect(
+      Object.keys(localStorage).filter((k) => k.startsWith('podium.replica')),
+    ).toEqual([])
   })
 })
