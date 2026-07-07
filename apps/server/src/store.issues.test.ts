@@ -413,6 +413,19 @@ describe('subscriptions store (Phase B)', () => {
     expect(store.listEnabledSubscriptions().map((s) => s.id)).toEqual(['sub_on'])
   })
 
+  it('setSubscriptionEnabled toggles the flag and getSubscription reflects it', () => {
+    const store = new SessionStore(':memory:')
+    store.addSubscription(sub({ id: 'sub_t', enabled: true }))
+    expect(store.setSubscriptionEnabled('sub_t', false)).toBe(true)
+    expect(store.getSubscription('sub_t')?.enabled).toBe(false)
+    expect(store.listEnabledSubscriptions().map((s) => s.id)).toEqual([])
+    expect(store.setSubscriptionEnabled('sub_t', true)).toBe(true)
+    expect(store.getSubscription('sub_t')?.enabled).toBe(true)
+    // Unknown id → no row updated.
+    expect(store.setSubscriptionEnabled('nope', false)).toBe(false)
+    expect(store.getSubscription('nope')).toBeUndefined()
+  })
+
   it('markDelivered is idempotent per (subscription, event)', () => {
     const store = new SessionStore(':memory:')
     expect(store.markDelivered('sub_a', 5)).toBe(true)

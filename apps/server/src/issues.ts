@@ -980,6 +980,17 @@ export class IssueService {
     return this.deps.store.listSubscriptions(filter)
   }
 
+  /** Toggle a subscription on/off (Automations UI). Custom subscriptions only affect
+   *  the additive dispatcher pass, so disabling one never touches the built-in
+   *  handlers — it is safe and reversible. */
+  subscriptionSetEnabled(id: string, enabled: boolean): { updated: boolean } {
+    return { updated: this.deps.store.setSubscriptionEnabled(id, enabled) }
+  }
+
+  subscriptionGet(id: string): Subscription | undefined {
+    return this.deps.store.getSubscription(id)
+  }
+
   /** The agent-facing context string injected at session start / on demand. Bound = the agent's
    *  issue + its open children + blockers; unbound = a lobby of ready work. Ends with the rules. */
   prime(opts: { repoPath?: string; boundIssueId?: string | null }): string {

@@ -181,6 +181,9 @@ describe('scope-gate coverage (P1b)', () => {
     // input has no single existing-issue target the guard could extract).
     'subscriptionAdd',
     'subscriptionRemove',
+    // subscriptionSetEnabled targets a subscription id, not an issue; the
+    // own-or-operator check runs in the proc itself.
+    'subscriptionSetEnabled',
   ])
 
   it('every write/manage proc that targets an existing issue is scope-gated', () => {
@@ -390,5 +393,43 @@ describe('issues.subscription* authz (Phase B)', () => {
     await expect(scopedTo(A.id).issues.subscriptionRemove({ id: sa.id })).resolves.toMatchObject({
       removed: true,
     })
+  })
+
+  it('the operator creates a subscription for an EXPLICIT subscriber (Automations UI)', async () => {
+    const s = await callerWith(OPERATOR).issues.subscriptionAdd({
+      event: 'issue.stage_changed:review',
+      source: { kind: 'relationship', ref: 'my-children' },
+      subscriber: { kind: 'issue', id: B.id },
+    })
+    expect(s.subscriberKind).toBe('issue')
+    expect(s.subscriberId).toBe(B.id)
+  })
+
+  it('the explicit subscriber is IGNORED for a constrained caller (subscribes itself)', async () => {
+    const s = await scopedTo(A.id).issues.subscriptionAdd({
+      event: 'session.finished',
+      source: { kind: 'relationship', ref: 'my-children' },
+      subscriber: { kind: 'issue', id: B.id }, // attempt to target B — must be ignored
+    })
+    expect(s.subscriberId).toBe(A.id)
+  })
+
+  it('operator toggles any subscription; a subtree caller only its own', async () => {
+    const sa = await scopedTo(A.id).issues.subscriptionAdd({
+      event: 'issue.closed',
+      source: { kind: 'issue', ref: A.id },
+    })
+    // Operator toggles it off, then a foreign subtree caller is refused.
+    await expect(
+      callerWith(OPERATOR).issues.subscriptionSetEnabled({ id: sa.id, enabled: false }),
+    ).resolves.toMatchObject({ updated: true })
+    expect((await callerWith(OPERATOR).issues.subscriptionList())[0]!.enabled).toBe(false)
+    await expect(
+      scopedTo(B.id).issues.subscriptionSetEnabled({ id: sa.id, enabled: true }),
+    ).rejects.toThrow(/do not own/)
+    // The owner may re-enable it.
+    await expect(
+      scopedTo(A.id).issues.subscriptionSetEnabled({ id: sa.id, enabled: true }),
+    ).resolves.toMatchObject({ updated: true })
   })
 })

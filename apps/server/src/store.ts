@@ -1834,6 +1834,21 @@ export class SessionStore {
     return rows.map(rowToSubscription)
   }
 
+  /** Flip a subscription's enabled flag. Returns true when a row was updated. */
+  setSubscriptionEnabled(id: string, enabled: boolean): boolean {
+    const r = this.db
+      .prepare('UPDATE subscriptions SET enabled = ? WHERE id = ?')
+      .run(enabled ? 1 : 0, id)
+    return r.changes > 0
+  }
+
+  getSubscription(id: string): Subscription | undefined {
+    const row = this.db.prepare('SELECT * FROM subscriptions WHERE id = ?').get(id) as
+      | Record<string, unknown>
+      | undefined
+    return row ? rowToSubscription(row) : undefined
+  }
+
   /** Record a (subscription, event) delivery. Returns true only when the pair was
    *  NEWLY inserted — a replay (or a same-poll double-match) returns false so the
    *  steward delivers exactly once. */

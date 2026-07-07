@@ -1565,10 +1565,17 @@ export const appRouter = t.router({
           deliver: z
             .object({ nudge: z.boolean().optional(), notify: z.boolean().optional() })
             .optional(),
+          // Operator-only: the Automations UI creates a subscription for an explicit
+          // subscriber (which issue/session to notify). Ignored for constrained agents,
+          // who always subscribe themselves via deriveSubscriber.
+          subscriber: z.object({ kind: z.enum(['session', 'issue']), id: z.string() }).optional(),
         }),
       )
       .mutation(({ ctx, input }) => {
-        const subscriber = deriveSubscriber(ctx)
+        const subscriber =
+          input.subscriber && ctx.capability.scope.kind === 'all'
+            ? input.subscriber
+            : deriveSubscriber(ctx)
         // Constrained callers may only watch a source WITHIN their subtree; the
         // operator (scope 'all') is unconstrained. Relationship sources resolve
         // dynamically against the subscriber's own subtree, so they are always in-scope.
@@ -1607,6 +1614,24 @@ export const appRouter = t.router({
       const subscriber = deriveSubscriber(ctx)
       return ctx.registry.issues.subscriptionList({ subscriberId: subscriber.id })
     }),
+    subscriptionSetEnabled: issueProc
+      .input(z.object({ id: z.string(), enabled: z.boolean() }))
+      .mutation(({ ctx, input }) => {
+        // Constrained callers may only toggle their OWN subscriptions.
+        if (ctx.capability.scope.kind !== 'all') {
+          const subscriber = deriveSubscriber(ctx)
+          const owned = ctx.registry.issues
+            .subscriptionList({ subscriberId: subscriber.id })
+            .some((s) => s.id === input.id)
+          if (!owned) {
+            throw new TRPCError({
+              code: 'FORBIDDEN',
+              message: 'not allowed to toggle a subscription you do not own',
+            })
+          }
+        }
+        return ctx.registry.issues.subscriptionSetEnabled(input.id, input.enabled)
+      }),
   }),
   files: t.router({
     read: t.procedure
