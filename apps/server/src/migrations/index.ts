@@ -1,11 +1,14 @@
 /**
- * Forward-only schema migration runner (Phase 0 scaffold).
+ * Forward-only schema migration runner.
  *
- * Coexistence contract: `runMigrations` executes BEFORE the legacy
- * `SessionStore.migrate()` DDL and, for now, only records the schema version —
- * migration 001 is a no-op baseline marker so existing databases adopt the
- * `schema_version` table without any structural change. Phase 1 converts the
- * legacy `migrate()` DDL into numbered migrations here.
+ * The migration chain OWNS the schema (Phase 1): a fresh database is built
+ * entirely by the numbered migrations below, and an existing database (legacy
+ * DDL path, stamped baseline 1) converges onto the identical schema through
+ * migration 002's defensive guards. convergence.test.ts pins that both paths
+ * produce byte-identical sqlite_master output. The only schema objects NOT
+ * versioned here are the environment-conditional FTS5 tables/triggers — the
+ * conversations repository (re)ensures those per boot, because their existence
+ * depends on the runtime SQLite build.
  *
  * Rules:
  *  - Migrations are numbered, forward-only, and each runs in its own
@@ -16,6 +19,7 @@
  */
 
 import type { SqlDatabase } from '@podium/core/sqlite'
+import { up as coreSchema } from './002-core-schema'
 
 export interface Migration {
   /** Positive, unique, strictly increasing across the list. */
@@ -31,10 +35,11 @@ export const MIGRATIONS: Migration[] = [
   {
     version: 1,
     name: 'baseline',
-    // No-op marker: existing databases (built by the legacy SessionStore.migrate()
-    // DDL) and fresh ones both stamp version 1. Phase 1 moves real DDL here.
+    // No-op marker: databases built by the legacy SessionStore.migrate() DDL
+    // stamped version 1 with no structural change; 002 owns the real DDL.
     up: () => {},
   },
+  { version: 2, name: 'core-schema', up: coreSchema },
 ]
 
 /** Highest schema version the running code knows about. */
