@@ -4,7 +4,10 @@ function itemKey(item: TranscriptItem): string {
   return item.cursor ?? item.id
 }
 
-export function mergeTranscriptItems(prev: TranscriptItem[], delta: TranscriptItem[]): TranscriptItem[] {
+export function mergeTranscriptItems(
+  prev: TranscriptItem[],
+  delta: TranscriptItem[],
+): TranscriptItem[] {
   if (delta.length === 0) return prev
   const seen = new Set(prev.map(itemKey))
   const merged = [...prev]

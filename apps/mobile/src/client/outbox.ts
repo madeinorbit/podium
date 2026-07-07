@@ -1,9 +1,9 @@
 import {
-  Outbox,
-  parseOutboxEntries,
   type OnlineEvents,
+  Outbox,
   type OutboxInit,
   type OutboxStorage,
+  parseOutboxEntries,
 } from '@podium/client-core/outbox'
 
 export const MOBILE_OUTBOX_LS_KEY = 'podium.mobile.outbox.v1'

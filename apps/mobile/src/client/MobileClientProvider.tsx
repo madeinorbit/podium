@@ -1,12 +1,25 @@
 import { groupSessions, withoutShells } from '@podium/client-core/focus'
-import type { IssueWire, SessionMeta, TranscriptItem } from '@podium/protocol'
 import type { ServerConfig } from '@podium/client-core/transport'
+import type {
+  HeadlessActivityEvent,
+  IssueWire,
+  SessionMeta,
+  TranscriptItem,
+  WorkState,
+} from '@podium/protocol'
 import { SocketHub } from '@podium/terminal-client/connection'
-import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useState } from 'react'
+import {
+  createContext,
+  type ReactNode,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+} from 'react'
 import { EMPTY_METADATA, type MobileMetadataState } from './metadata'
 import { createMobileOutbox } from './outbox'
-import { makeMobileTrpc, readServerConfig, type TranscriptPage } from './trpc'
-
+import { type MobileTrpc, makeMobileTrpc, readServerConfig, type TranscriptPage } from './trpc'
 
 type MobileOutboxKinds = {
   resumeAndSend: { sessionId: string; text: string }
@@ -14,15 +27,27 @@ type MobileOutboxKinds = {
 
 export interface MobileClientValue extends MobileMetadataState {
   serverConfig: ServerConfig
+  trpc: MobileTrpc
   sessionById(sessionId: string): SessionMeta | undefined
   issueById(issueId: string): IssueWire | undefined
-  readTranscript(sessionId: string): Promise<TranscriptPage>
+  readTranscript(sessionId: string, anchor?: string): Promise<TranscriptPage>
   subscribeTranscript(
     sessionId: string,
     since: string | undefined,
     cb: (items: TranscriptItem[], meta: { reset: boolean }) => void,
   ): () => void
+  subscribeHeadless(sessionId: string, cb: (e: HeadlessActivityEvent) => void): () => void
+  /** Queue a chat message (offline-safe, idempotent; wakes a parked session). */
   sendMessage(sessionId: string, text: string): Promise<void>
+  answerQuestion(sessionId: string, choices: { optionIndices: number[] }[]): Promise<void>
+  setArchived(sessionId: string, archived: boolean): Promise<void>
+  setWorkState(sessionId: string, workState: WorkState | null): Promise<void>
+  killSession(sessionId: string): Promise<void>
+  continueSession(sessionId: string): Promise<void>
+  renameSession(sessionId: string, name: string): Promise<void>
+  snooze(sessionId: string, until: string | null): Promise<void>
+  clearSnooze(sessionId: string): Promise<void>
+  /** Round-robin triage order: needsYou, then idle, then working. */
   focusSessionIds: string[]
   outboxSize: number
 }
@@ -110,14 +135,28 @@ export function MobileClientProvider({ children }: { children: ReactNode }) {
   }, [metadata.sessions])
 
   const readTranscript = useCallback(
-    (sessionId: string) =>
-      trpc.sessions.transcriptRead.query({ sessionId, direction: 'before', limit: 80 }) as Promise<TranscriptPage>,
+    (sessionId: string, anchor?: string) =>
+      trpc.sessions.transcriptRead.query({
+        sessionId,
+        ...(anchor ? { anchor } : {}),
+        direction: 'before',
+        limit: 80,
+      }),
     [trpc],
   )
 
   const subscribeTranscript = useCallback(
-    (sessionId: string, since: string | undefined, cb: (items: TranscriptItem[], meta: { reset: boolean }) => void) =>
-      hub.subscribeTranscript(sessionId, since, cb),
+    (
+      sessionId: string,
+      since: string | undefined,
+      cb: (items: TranscriptItem[], meta: { reset: boolean }) => void,
+    ) => hub.subscribeTranscript(sessionId, since, cb),
+    [hub],
+  )
+
+  const subscribeHeadless = useCallback(
+    (sessionId: string, cb: (e: HeadlessActivityEvent) => void) =>
+      hub.subscribeHeadless(sessionId, cb),
     [hub],
   )
 
@@ -130,19 +169,103 @@ export function MobileClientProvider({ children }: { children: ReactNode }) {
     [outbox],
   )
 
+  const answerQuestion = useCallback(
+    async (sessionId: string, choices: { optionIndices: number[] }[]) => {
+      await trpc.sessions.answerAskUserQuestion.mutate({ sessionId, choices })
+    },
+    [trpc],
+  )
+
+  const setArchived = useCallback(
+    async (sessionId: string, archived: boolean) => {
+      await trpc.sessions.setArchived.mutate({ sessionId, archived })
+    },
+    [trpc],
+  )
+
+  const setWorkState = useCallback(
+    async (sessionId: string, workState: WorkState | null) => {
+      await trpc.sessions.setWorkState.mutate({ sessionId, workState })
+    },
+    [trpc],
+  )
+
+  const killSession = useCallback(
+    async (sessionId: string) => {
+      await trpc.sessions.kill.mutate({ sessionId })
+    },
+    [trpc],
+  )
+
+  const continueSession = useCallback(
+    async (sessionId: string) => {
+      await trpc.sessions.continue.mutate({ sessionId })
+    },
+    [trpc],
+  )
+
+  const renameSession = useCallback(
+    async (sessionId: string, name: string) => {
+      await trpc.sessions.rename.mutate({ sessionId, name })
+    },
+    [trpc],
+  )
+
+  const snooze = useCallback(
+    async (sessionId: string, until: string | null) => {
+      await trpc.snoozes.set.mutate({ sessionId, until })
+    },
+    [trpc],
+  )
+
+  const clearSnooze = useCallback(
+    async (sessionId: string) => {
+      await trpc.snoozes.clear.mutate({ sessionId })
+    },
+    [trpc],
+  )
+
   const value = useMemo<MobileClientValue>(
     () => ({
       ...metadata,
       serverConfig: config,
+      trpc,
       sessionById: (sessionId) => metadata.sessions.find((s) => s.sessionId === sessionId),
       issueById: (issueId) => metadata.issues.find((i) => i.id === issueId),
       focusSessionIds,
       outboxSize,
       readTranscript,
       subscribeTranscript,
+      subscribeHeadless,
       sendMessage,
+      answerQuestion,
+      setArchived,
+      setWorkState,
+      killSession,
+      continueSession,
+      renameSession,
+      snooze,
+      clearSnooze,
     }),
-    [config, focusSessionIds, metadata, outboxSize, readTranscript, sendMessage, subscribeTranscript],
+    [
+      config,
+      trpc,
+      focusSessionIds,
+      metadata,
+      outboxSize,
+      readTranscript,
+      subscribeTranscript,
+      subscribeHeadless,
+      sendMessage,
+      answerQuestion,
+      setArchived,
+      setWorkState,
+      killSession,
+      continueSession,
+      renameSession,
+      snooze,
+      clearSnooze,
+    ],
   )
 
   return <MobileClientContext.Provider value={value}>{children}</MobileClientContext.Provider>

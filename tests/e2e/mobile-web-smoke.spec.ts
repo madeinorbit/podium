@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, type Page, test } from '@playwright/test'
 
 const baseURL = process.env.PLAYWRIGHT_BASE_URL
 
@@ -32,7 +32,7 @@ if (baseURL) {
     await page.goto('/', { waitUntil: 'domcontentloaded' })
     await expectMobileRoute(page)
     await expect(page).toHaveTitle(/Podium Mobile/i)
-    await expect(page.getByText('Focus', { exact: true })).toBeVisible({ timeout: 30_000 })
+    await expect(page.getByText('Inbox', { exact: true }).first()).toBeVisible({ timeout: 30_000 })
 
     await page.goto('/mobile/settings', { waitUntil: 'domcontentloaded' })
     await expect(page.getByText('Settings', { exact: true })).toBeVisible()
@@ -48,7 +48,9 @@ if (baseURL) {
       waitUntil: 'domcontentloaded',
     })
     await expect(page.getByText('Session', { exact: true })).toBeVisible()
-    await expect(page.locator('body')).not.toContainText(/Podium could not start|Application error/i)
+    await expect(page.locator('body')).not.toContainText(
+      /Podium could not start|Application error/i,
+    )
 
     await page.goto('/mobile/settings', { waitUntil: 'domcontentloaded' })
     await page.getByRole('button', { name: 'Open desktop' }).click()

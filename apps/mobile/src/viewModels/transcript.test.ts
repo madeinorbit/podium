@@ -13,8 +13,14 @@ function item(overrides: Partial<TranscriptItem> & { id: string }): TranscriptIt
 describe('mobile transcript helpers', () => {
   it('merges live transcript deltas without duplicating cursors', () => {
     const merged = mergeTranscriptItems(
-      [item({ id: 'a', cursor: 'c1', text: 'old' }), item({ id: 'b', cursor: 'c2', text: 'current' })],
-      [item({ id: 'b2', cursor: 'c2', text: 'current duplicate' }), item({ id: 'c', cursor: 'c3', text: 'new' })],
+      [
+        item({ id: 'a', cursor: 'c1', text: 'old' }),
+        item({ id: 'b', cursor: 'c2', text: 'current' }),
+      ],
+      [
+        item({ id: 'b2', cursor: 'c2', text: 'current duplicate' }),
+        item({ id: 'c', cursor: 'c3', text: 'new' }),
+      ],
     )
 
     expect(merged.map((entry) => entry.text)).toEqual(['old', 'current', 'new'])
@@ -32,7 +38,9 @@ describe('mobile transcript helpers', () => {
         }),
       ),
     ).toBe('Run typecheck')
-    expect(transcriptDisplayText(item({ id: 'result', role: 'tool', toolResult: 'all good' }))).toBe('all good')
+    expect(
+      transcriptDisplayText(item({ id: 'result', role: 'tool', toolResult: 'all good' })),
+    ).toBe('all good')
     expect(transcriptDisplayText(item({ id: 'empty', role: 'system' }))).toBe('Event')
   })
 })

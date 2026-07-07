@@ -1,4 +1,4 @@
-import { createElement, type ComponentType } from 'react'
+import { type ComponentType, createElement } from 'react'
 
 interface IconProps {
   as: ComponentType<any>

@@ -1,167 +1,235 @@
-import { relativeTime } from '@podium/client-core/focus'
-import type { TranscriptItem } from '@podium/protocol'
-import { useRouter } from 'expo-router'
-import { ChevronLeft, Send, SquareTerminal } from 'lucide-react-native'
-import { Icon } from '../components/Icon'
-import { useEffect, useMemo, useState } from 'react'
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
+import type { TranscriptItem, WorkState } from '@podium/protocol'
+import { useLocalSearchParams, useRouter } from 'expo-router'
+import { MoreVertical, SquareTerminal } from 'lucide-react-native'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text } from 'react-native'
 import { useMobileClient } from '../client/MobileClientProvider'
-import { mergeTranscriptItems, transcriptDisplayText } from '../viewModels/transcript'
+import { ActionSheet, type SheetAction } from '../components/ActionSheet'
+import { Composer } from '../components/Composer'
+import { Icon } from '../components/Icon'
+import { Screen } from '../components/Screen'
+import { TranscriptList } from '../components/TranscriptList'
+import { EmptyState } from '../components/ui'
+import { color, font } from '../theme/theme'
+import { sessionTitle } from '../viewModels/sessionCard'
+import { mergeTranscriptItems } from '../viewModels/transcript'
 
-export function SessionScreen({ sessionId }: { sessionId: string }) {
+const WORK_STATES: (WorkState | null)[] = [
+  'planning',
+  'implementing',
+  'testing',
+  'done',
+  'icebox',
+  null,
+]
+
+function phaseLabel(phase: string | undefined, status: string): string {
+  switch (phase) {
+    case 'needs_user':
+      return 'needs you'
+    case 'working':
+    case 'errored':
+    case 'idle':
+    case 'compacting':
+      return phase
+    default:
+      return status
+  }
+}
+
+export function SessionScreen() {
+  const params = useLocalSearchParams<{ sessionId: string | string[] }>()
+  const sessionId = Array.isArray(params.sessionId) ? params.sessionId[0] : params.sessionId
   const router = useRouter()
-  const { sessionById, issueById, sendMessage, focusSessionIds, readTranscript, subscribeTranscript } = useMobileClient()
-  const [draft, setDraft] = useState('')
-  const [sending, setSending] = useState(false)
+  const client = useMobileClient()
+  const session = sessionId ? client.sessionById(sessionId) : undefined
+
   const [items, setItems] = useState<TranscriptItem[]>([])
-  const [loadingTranscript, setLoadingTranscript] = useState(true)
-  const [transcriptError, setTranscriptError] = useState<string | null>(null)
-  const session = sessionById(sessionId)
-  const issue = session?.issueId ? issueById(session.issueId) : undefined
-  const nextId = useMemo(() => {
-    const idx = focusSessionIds.indexOf(sessionId)
-    if (idx < 0 || focusSessionIds.length < 2) return null
-    return focusSessionIds[(idx + 1) % focusSessionIds.length] ?? null
-  }, [focusSessionIds, sessionId])
+  const [loaded, setLoaded] = useState(false)
+  const [menuOpen, setMenuOpen] = useState(false)
+  const [workMenuOpen, setWorkMenuOpen] = useState(false)
+  const { readTranscript, subscribeTranscript } = client
 
   useEffect(() => {
-    let active = true
-    let off: (() => void) | undefined
-    setLoadingTranscript(true)
-    setTranscriptError(null)
+    if (!sessionId) return
+    let alive = true
+    let unsubscribe: (() => void) | null = null
     setItems([])
+    setLoaded(false)
+    const attach = (since: string | undefined) => {
+      if (!alive) return
+      unsubscribe = subscribeTranscript(sessionId, since, (delta, meta) => {
+        setItems((prev) => (meta.reset ? delta : mergeTranscriptItems(prev, delta)))
+      })
+    }
     readTranscript(sessionId)
       .then((page) => {
-        if (!active) return
+        if (!alive) return
         setItems(page.items)
-        off = subscribeTranscript(sessionId, page.tail, (delta, meta) => {
-          if (meta.reset) {
-            void readTranscript(sessionId)
-              .then((fresh) => {
-                if (active) setItems(fresh.items)
-              })
-              .catch(() => undefined)
-            return
-          }
-          setItems((prev) => mergeTranscriptItems(prev, delta))
-        })
+        setLoaded(true)
+        attach(page.tail)
       })
-      .catch((error: unknown) => {
-        if (!active) return
-        setTranscriptError(error instanceof Error ? error.message : 'Transcript is unavailable.')
-      })
-      .finally(() => {
-        if (active) setLoadingTranscript(false)
+      .catch(() => {
+        if (!alive) return
+        setLoaded(true)
+        attach(undefined)
       })
     return () => {
-      active = false
-      off?.()
+      alive = false
+      unsubscribe?.()
     }
-  }, [readTranscript, sessionId, subscribeTranscript])
+  }, [readTranscript, subscribeTranscript, sessionId])
 
-  if (!session) {
+  const nextSession = useCallback(() => {
+    if (!sessionId) return
+    const ids = client.focusSessionIds
+    if (ids.length === 0) return
+    const at = ids.indexOf(sessionId)
+    const next = ids[(at + 1) % ids.length]
+    if (next && next !== sessionId) router.replace(`/session/${next}`)
+  }, [client.focusSessionIds, router, sessionId])
+
+  const title = session ? sessionTitle(session) : 'Session'
+
+  const menuActions = useMemo<SheetAction[]>(() => {
+    if (!session) return []
+    const actions: SheetAction[] = [
+      {
+        label: session.archived ? 'Unarchive' : 'Archive',
+        onPress: () => void client.setArchived(session.sessionId, !session.archived),
+      },
+      { label: 'Set work state…', onPress: () => setWorkMenuOpen(true) },
+      {
+        label: 'Snooze until next message',
+        onPress: () => void client.snooze(session.sessionId, null),
+      },
+    ]
+    if (session.snoozedUntil !== undefined) {
+      actions.push({
+        label: 'Clear snooze',
+        onPress: () => void client.clearSnooze(session.sessionId),
+      })
+    }
+    if (session.agentState?.phase === 'errored') {
+      actions.push({
+        label: 'Continue after error',
+        onPress: () => void client.continueSession(session.sessionId),
+      })
+    }
+    if (
+      session.status === 'live' ||
+      session.status === 'starting' ||
+      session.status === 'reconnecting'
+    ) {
+      actions.push({
+        label: 'Kill session',
+        destructive: true,
+        onPress: () => void client.killSession(session.sessionId),
+      })
+    }
+    return actions
+  }, [client, session])
+
+  if (!sessionId || !session) {
     return (
-      <View style={styles.screen}>
-        <Pressable style={styles.back} onPress={() => router.back()} accessibilityRole="button" accessibilityLabel="Back">
-          <Icon as={ChevronLeft} size={20} color="#e5e7eb" />
-          <Text style={styles.backText}>Focus</Text>
-        </Pressable>
-        <Text style={styles.missing}>Session not found.</Text>
-      </View>
+      <Screen title="Session" onBack={() => router.back()}>
+        <EmptyState
+          title="Session not found."
+          body={
+            client.connected
+              ? 'It may have been removed on the server.'
+              : 'Still connecting — it may appear in a moment.'
+          }
+        />
+      </Screen>
     )
   }
 
-  const submit = async () => {
-    const text = draft.trim()
-    if (!text || sending) return
-    setSending(true)
-    try {
-      await sendMessage(session.sessionId, text)
-      setDraft('')
-    } finally {
-      setSending(false)
-    }
-  }
-
   return (
-    <View style={styles.screen}>
-      <View style={styles.topbar}>
-        <Pressable style={styles.back} onPress={() => router.back()} accessibilityRole="button">
-          <Icon as={ChevronLeft} size={20} color="#e5e7eb" />
-          <Text style={styles.backText}>Focus</Text>
-        </Pressable>
-        {nextId ? (
-          <Pressable style={styles.next} onPress={() => router.replace('/session/' + nextId)} accessibilityRole="button" accessibilityLabel="Next session">
+    <Screen
+      title={title}
+      subtitle={
+        session
+          ? `${session.agentKind} · ${phaseLabel(session.agentState?.phase, session.status)}${session.queuedMessageCount ? ` · ${session.queuedMessageCount} queued` : ''}`
+          : undefined
+      }
+      onBack={() => router.back()}
+      backLabel="Back"
+      right={
+        <>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Next session"
+            onPress={nextSession}
+            hitSlop={8}
+          >
             <Text style={styles.nextText}>Next</Text>
           </Pressable>
-        ) : null}
-      </View>
-      <View style={styles.header}>
-        <Text numberOfLines={2} style={styles.title}>
-          {session.title || session.cwd}
-        </Text>
-        <Text style={styles.meta}>
-          {session.agentKind} - {session.status} - {relativeTime(session.lastActiveAt, Date.now())}
-        </Text>
-        {issue ? (
-          <Text numberOfLines={1} style={styles.issue}>
-            #{issue.seq} {issue.title}
-          </Text>
-        ) : null}
-      </View>
-      <ScrollView contentContainerStyle={styles.timeline}>
-        {loadingTranscript ? <Text style={styles.timelineText}>Loading transcript...</Text> : null}
-        {transcriptError ? <Text style={styles.warning}>{transcriptError}</Text> : null}
-        {!loadingTranscript && !transcriptError && items.length === 0 ? (
-          <Text style={styles.timelineText}>No transcript yet.</Text>
-        ) : null}
-        {items.map((item) => (
-          <View key={item.cursor ?? item.id} style={item.role === 'user' ? styles.userBubble : styles.agentBubble}>
-            <Text style={styles.role}>{item.role}</Text>
-            <Text style={styles.timelineText}>{transcriptDisplayText(item)}</Text>
-          </View>
-        ))}
-      </ScrollView>
-      <View style={styles.composerRow}>
-        <Pressable style={styles.terminalButton} onPress={() => router.push('/session/' + sessionId + '/terminal')} accessibilityRole="button" accessibilityLabel="Open terminal">
-          <Icon as={SquareTerminal} size={20} color="#d1d5db" />
-        </Pressable>
-        <TextInput
-          value={draft}
-          onChangeText={setDraft}
-          placeholder="Reply to this agent"
-          placeholderTextColor="#64748b"
-          style={styles.input}
-          multiline
+          {Platform.OS === 'web' ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Open terminal"
+              onPress={() => router.push(`/session/${sessionId}/terminal`)}
+              hitSlop={8}
+            >
+              <Icon as={SquareTerminal} size={20} color={color.textDim} />
+            </Pressable>
+          ) : null}
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Session actions"
+            onPress={() => setMenuOpen(true)}
+            hitSlop={8}
+          >
+            <Icon as={MoreVertical} size={20} color={color.textDim} />
+          </Pressable>
+        </>
+      }
+    >
+      <KeyboardAvoidingView
+        style={styles.flex}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      >
+        {loaded && items.length === 0 ? (
+          <EmptyState title="No transcript yet" body="Send a message to get things moving." />
+        ) : (
+          <TranscriptList
+            items={items}
+            live={session?.status === 'live'}
+            onAnswer={(choices) => client.answerQuestion(sessionId, choices)}
+          />
+        )}
+        <Composer
+          placeholder="Message the agent…"
+          onSend={(text) => void client.sendMessage(sessionId, text)}
         />
-        <Pressable style={styles.sendButton} onPress={submit} disabled={sending || !draft.trim()} accessibilityRole="button" accessibilityLabel="Send message">
-          <Icon as={Send} size={18} color="#101114" />
-        </Pressable>
-      </View>
-    </View>
+      </KeyboardAvoidingView>
+      <ActionSheet
+        visible={menuOpen}
+        title={title}
+        actions={menuActions}
+        onClose={() => setMenuOpen(false)}
+      />
+      <ActionSheet
+        visible={workMenuOpen}
+        title="Work state"
+        actions={WORK_STATES.map((ws) => ({
+          label: ws ? ws[0].toUpperCase() + ws.slice(1) : 'Unsorted',
+          onPress: () => void client.setWorkState(sessionId, ws),
+        }))}
+        onClose={() => setWorkMenuOpen(false)}
+      />
+    </Screen>
   )
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: '#101114', paddingTop: 48 },
-  topbar: { height: 44, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  back: { minHeight: 40, flexDirection: 'row', alignItems: 'center', gap: 4 },
-  backText: { color: '#e5e7eb', fontSize: 15, fontWeight: '600' },
-  next: { minHeight: 36, borderRadius: 18, paddingHorizontal: 14, justifyContent: 'center', backgroundColor: '#e5e7eb' },
-  nextText: { color: '#111827', fontWeight: '700' },
-  header: { paddingHorizontal: 18, paddingBottom: 12 },
-  title: { color: '#f8fafc', fontSize: 22, fontWeight: '800', lineHeight: 28 },
-  meta: { color: '#94a3b8', fontSize: 13, marginTop: 4 },
-  issue: { color: '#93c5fd', fontSize: 13, marginTop: 4 },
-  timeline: { padding: 18, gap: 12 },
-  timelineText: { color: '#cbd5e1', fontSize: 15, lineHeight: 22 },
-  warning: { color: '#fde68a', fontSize: 14, lineHeight: 20 },
-  role: { color: '#94a3b8', fontSize: 11, fontWeight: '700', textTransform: 'uppercase', marginBottom: 4 },
-  userBubble: { alignSelf: 'flex-end', maxWidth: '88%', borderRadius: 8, backgroundColor: '#1d4ed8', padding: 12 },
-  agentBubble: { alignSelf: 'flex-start', maxWidth: '94%', borderRadius: 8, backgroundColor: '#181a20', padding: 12, borderWidth: 1, borderColor: '#2f333a' },
-  composerRow: { padding: 12, borderTopWidth: 1, borderTopColor: '#272b33', flexDirection: 'row', alignItems: 'flex-end', gap: 8 },
-  terminalButton: { width: 42, height: 42, borderRadius: 8, alignItems: 'center', justifyContent: 'center', backgroundColor: '#20242c' },
-  input: { flex: 1, maxHeight: 120, minHeight: 42, borderRadius: 8, backgroundColor: '#181a20', color: '#f8fafc', paddingHorizontal: 12, paddingVertical: 10, fontSize: 15 },
-  sendButton: { width: 42, height: 42, borderRadius: 8, alignItems: 'center', justifyContent: 'center', backgroundColor: '#f8fafc' },
-  missing: { color: '#f8fafc', fontSize: 18, padding: 18 },
+  flex: {
+    flex: 1,
+  },
+  nextText: {
+    color: color.accent,
+    fontSize: font.body,
+    fontWeight: '600',
+  },
 })

@@ -1,5 +1,5 @@
 import { SocketHub } from '@podium/terminal-client/connection'
-import { mountSession, type MountedSession } from '@podium/terminal-client/session-mount'
+import { type MountedSession, mountSession } from '@podium/terminal-client/session-mount'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Text, View } from 'react-native'
 import { readServerConfig } from '../client/trpc'
@@ -48,9 +48,16 @@ export function TerminalPane({ sessionId }: { sessionId: string }) {
 
   return (
     <View style={{ flex: 1 }}>
-      {!connected ? <Text style={{ color: '#94a3b8', padding: 12 }}>Connecting terminal...</Text> : null}
-      {connected && !ready ? <Text style={{ color: '#94a3b8', padding: 12 }}>Attaching terminal...</Text> : null}
-      <div ref={el} style={{ flex: 1, minHeight: 420, height: 'calc(100vh - 92px)', width: '100%' }} />
+      {!connected ? (
+        <Text style={{ color: '#94a3b8', padding: 12 }}>Connecting terminal...</Text>
+      ) : null}
+      {connected && !ready ? (
+        <Text style={{ color: '#94a3b8', padding: 12 }}>Attaching terminal...</Text>
+      ) : null}
+      <div
+        ref={el}
+        style={{ flex: 1, minHeight: 420, height: 'calc(100vh - 92px)', width: '100%' }}
+      />
     </View>
   )
 }

@@ -1,8 +1,13 @@
 import { useRouter } from 'expo-router'
-import { ChevronLeft, Monitor } from 'lucide-react-native'
-import { Icon } from '../components/Icon'
+import { Monitor } from 'lucide-react-native'
+import { useState } from 'react'
 import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
+import { logout } from '../client/auth'
 import { useMobileClient } from '../client/MobileClientProvider'
+import { Icon } from '../components/Icon'
+import { Screen } from '../components/Screen'
+import { SectionHeader } from '../components/ui'
+import { color, font, radius, space } from '../theme/theme'
 
 function openDesktop() {
   if (typeof document !== 'undefined') {
@@ -15,50 +20,139 @@ function openDesktop() {
 
 export function SettingsScreen() {
   const router = useRouter()
-  const { connected, conversations, cursor, issues, outboxSize, serverConfig, sessions } = useMobileClient()
+  const { connected, conversations, cursor, issues, outboxSize, serverConfig, sessions } =
+    useMobileClient()
+  const [loggedOut, setLoggedOut] = useState(false)
+
+  const doLogout = async () => {
+    await logout(serverConfig.httpOrigin)
+    setLoggedOut(true)
+    if (typeof window !== 'undefined') window.location.reload()
+  }
 
   return (
-    <View style={styles.screen}>
-      <View style={styles.topbar}>
-        <Pressable style={styles.back} onPress={() => router.back()} accessibilityRole="button" accessibilityLabel="Back">
-          <Icon as={ChevronLeft} size={20} color="#e5e7eb" />
-          <Text style={styles.backText}>Focus</Text>
-        </Pressable>
-        <Text style={styles.title}>Settings</Text>
-      </View>
+    <Screen title="Settings" onBack={() => router.back()}>
       <ScrollView contentContainerStyle={styles.content}>
         {Platform.OS === 'web' ? (
-          <Pressable style={styles.action} onPress={openDesktop} accessibilityRole="button" accessibilityLabel="Open desktop">
-            <Icon as={Monitor} size={18} color="#111827" />
+          <Pressable
+            style={({ pressed }) => [styles.action, pressed && styles.actionPressed]}
+            onPress={openDesktop}
+            accessibilityRole="button"
+            accessibilityLabel="Open desktop"
+          >
+            <Icon as={Monitor} size={18} color={color.accentText} />
             <Text style={styles.actionText}>Open desktop</Text>
           </Pressable>
         ) : null}
+
+        <SectionHeader label="Connection" />
         <View style={styles.panel}>
-          <Text style={styles.panelTitle}>Diagnostics</Text>
-          <Text style={styles.row}>Platform: {Platform.OS}</Text>
-          <Text style={styles.row}>Connection: {connected ? 'live' : 'reconnecting'}</Text>
-          <Text style={styles.row}>Server: {serverConfig.httpOrigin}</Text>
-          <Text style={styles.row}>Sessions: {sessions.length}</Text>
-          <Text style={styles.row}>Issues: {issues.length}</Text>
-          <Text style={styles.row}>Conversations: {conversations.length}</Text>
-          <Text style={styles.row}>Outbox: {outboxSize}</Text>
-          <Text style={styles.row}>Cursor: {cursor ?? 'none'}</Text>
+          <Row label="Server" value={serverConfig.httpOrigin} />
+          <Row label="Status" value={connected ? 'live' : 'reconnecting'} />
+          <Row label="Platform" value={Platform.OS} />
+          <Row label="Sync cursor" value={String(cursor ?? 'none')} />
         </View>
+
+        <SectionHeader label="Data" />
+        <View style={styles.panel}>
+          <Row label="Sessions" value={String(sessions.length)} />
+          <Row label="Issues" value={String(issues.length)} />
+          <Row label="Conversations" value={String(conversations.length)} />
+          <Row label="Queued sends" value={String(outboxSize)} />
+        </View>
+
+        <SectionHeader label="Account" />
+        <Pressable
+          style={({ pressed }) => [styles.logout, pressed && styles.actionPressed]}
+          onPress={() => void doLogout()}
+          accessibilityRole="button"
+          accessibilityLabel="Log out"
+        >
+          <Text style={styles.logoutText}>{loggedOut ? 'Logged out' : 'Log out'}</Text>
+        </Pressable>
+        <Text style={styles.hint}>
+          Notifications: set an ntfy topic or a Telegram bot in the desktop app's settings to get
+          pushed when an agent needs you.
+        </Text>
       </ScrollView>
+    </Screen>
+  )
+}
+
+function Row({ label, value }: { label: string; value: string }) {
+  return (
+    <View style={styles.row}>
+      <Text style={styles.rowLabel}>{label}</Text>
+      <Text style={styles.rowValue} numberOfLines={1}>
+        {value}
+      </Text>
     </View>
   )
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: '#101114', paddingTop: 48 },
-  topbar: { height: 52, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', gap: 14 },
-  back: { minHeight: 40, flexDirection: 'row', alignItems: 'center', gap: 4 },
-  backText: { color: '#e5e7eb', fontSize: 15, fontWeight: '600' },
-  title: { color: '#f8fafc', fontSize: 22, fontWeight: '800' },
-  content: { padding: 18, gap: 14 },
-  action: { minHeight: 44, borderRadius: 8, backgroundColor: '#f8fafc', flexDirection: 'row', gap: 8, alignItems: 'center', justifyContent: 'center' },
-  actionText: { color: '#111827', fontWeight: '800', fontSize: 15 },
-  panel: { borderRadius: 8, borderWidth: 1, borderColor: '#2f333a', backgroundColor: '#181a20', padding: 14, gap: 8 },
-  panelTitle: { color: '#f8fafc', fontSize: 17, fontWeight: '800', marginBottom: 4 },
-  row: { color: '#cbd5e1', fontSize: 14, lineHeight: 20 },
+  content: {
+    padding: space.lg,
+    paddingBottom: space.xxl,
+  },
+  action: {
+    minHeight: 44,
+    borderRadius: radius.sm,
+    backgroundColor: color.accent,
+    flexDirection: 'row',
+    gap: space.sm,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  actionPressed: {
+    opacity: 0.85,
+  },
+  actionText: {
+    color: color.accentText,
+    fontWeight: '700',
+    fontSize: font.body,
+  },
+  panel: {
+    borderRadius: radius.md,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: color.border,
+    backgroundColor: color.card,
+    paddingHorizontal: space.md,
+    paddingVertical: space.xs,
+  },
+  row: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: space.md,
+    paddingVertical: space.sm + 2,
+  },
+  rowLabel: {
+    color: color.textDim,
+    fontSize: font.small,
+  },
+  rowValue: {
+    color: color.text,
+    fontSize: font.small,
+    flexShrink: 1,
+  },
+  logout: {
+    minHeight: 44,
+    borderRadius: radius.sm,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: color.danger,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  logoutText: {
+    color: color.danger,
+    fontWeight: '700',
+    fontSize: font.body,
+  },
+  hint: {
+    color: color.textFaint,
+    fontSize: font.small,
+    lineHeight: 19,
+    marginTop: space.lg,
+  },
 })
