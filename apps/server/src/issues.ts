@@ -176,6 +176,41 @@ export interface CreateIssueInput {
   id?: string
 }
 
+/** The row fields update() accepts — every mutation entry point (router, CLI/MCP
+ *  registry, board drag) converges on update() with one of these. */
+export type IssuePatch = Partial<
+  Pick<
+    IssueRow,
+    | 'title'
+    | 'description'
+    | 'stage'
+    | 'worktreePath'
+    | 'branch'
+    | 'parentBranch'
+    | 'defaultAgent'
+    | 'defaultModel'
+    | 'defaultEffort'
+    | 'machineId'
+    | 'archived'
+    | 'priority'
+    | 'type'
+    | 'assignee'
+    | 'parentId'
+    | 'design'
+    | 'acceptance'
+    | 'notes'
+    | 'dueAt'
+    | 'deferUntil'
+    | 'closedReason'
+    | 'supersededBy'
+    | 'duplicateOf'
+    | 'pinned'
+    | 'estimateMin'
+    | 'needsHuman'
+    | 'humanQuestion'
+  >
+>
+
 export class IssueService {
   /** Hydrated row cache; null until the first {@link init}/lazy access. Kept out
    *  of the constructor so constructing the service can never crash-loop the
@@ -1196,40 +1231,41 @@ export class IssueService {
     return wire
   }
 
+  /**
+   * Stage-machine normalization (issue #24): the closed state has ONE source of
+   * truth. Historically "closed" was a bimodal derived predicate
+   * (stage === 'done' || closedReason != null), which allowed three broken states:
+   * a bare closedReason patch closing an issue while stage stayed backlog, a
+   * stage-only "reopen" that left closedReason set (the issue stayed derived-closed
+   * and invisible to open/ready forever), and a silent re-close (no second
+   * issue.closed event because the predicate never flipped back). Normalization
+   * rules, applied to every patch (all entry points converge on update()):
+   *   - setting closedReason (non-null) moves stage to 'done' — closing IS done;
+   *   - setting stage to a non-done stage on a closed issue is a REAL reopen:
+   *     closedReason (and the supersededBy/duplicateOf close markers) clear;
+   *   - a patch that sets BOTH a non-null closedReason and a non-done stage is
+   *     nonsensical and rejected.
+   * Deliberately permissive otherwise — coherence, not a workflow straitjacket.
+   */
+  private normalizeClosedPatch(row: IssueRow, patch: IssuePatch): IssuePatch {
+    const reopening = patch.stage != null && patch.stage !== 'done'
+    if (patch.closedReason != null && reopening) {
+      throw new Error(
+        `cannot set closedReason '${patch.closedReason}' together with stage '${patch.stage}' — closing an issue moves it to 'done'`,
+      )
+    }
+    if (patch.closedReason != null && patch.stage == null) {
+      return { ...patch, stage: 'done' }
+    }
+    if (reopening && this.isClosed(row) && patch.closedReason === undefined) {
+      return { ...patch, closedReason: null, supersededBy: null, duplicateOf: null }
+    }
+    return patch
+  }
+
   update(
     id: string,
-    patch: Partial<
-      Pick<
-        IssueRow,
-        | 'title'
-        | 'description'
-        | 'stage'
-        | 'worktreePath'
-        | 'branch'
-        | 'parentBranch'
-        | 'defaultAgent'
-        | 'defaultModel'
-        | 'defaultEffort'
-        | 'machineId'
-        | 'archived'
-        | 'priority'
-        | 'type'
-        | 'assignee'
-        | 'parentId'
-        | 'design'
-        | 'acceptance'
-        | 'notes'
-        | 'dueAt'
-        | 'deferUntil'
-        | 'closedReason'
-        | 'supersededBy'
-        | 'duplicateOf'
-        | 'pinned'
-        | 'estimateMin'
-        | 'needsHuman'
-        | 'humanQuestion'
-      >
-    >,
+    patch: IssuePatch,
     /** The session that initiated this mutation, when known (agent CLI relay).
      *  Threaded onto the issue.closed / issue.ready events it emits so the steward
      *  can skip nudging the very session that caused them (self-nudge is noise). */
@@ -1239,6 +1275,7 @@ export class IssueService {
     if (!row) throw new Error(`unknown issue ${id}`)
     const prevStage = row.stage
     const wasClosed = this.isClosed(row)
+    patch = this.normalizeClosedPatch(row, patch)
     // Attention-state before-values (issue #124): every pin/defer/archive path funnels
     // through update() (dedicated methods just call it), so a single before/after diff
     // here is the one place these transitions are detected and their events emitted.
@@ -1268,9 +1305,18 @@ export class IssueService {
         ...(opts?.actorSessionId ? { causedBySessionId: opts.actorSessionId } : {}),
       })
     }
-    // update() owns the closed emission: EVERY close path funnels here (close(),
-    // supersede/duplicate, board drag-to-done, CLI `update --stage done`), and the
-    // false→true flip check means a re-close never re-emits.
+    // update() owns the closed/reopened emissions: EVERY close path funnels here
+    // (close(), supersede/duplicate, board drag-to-done, CLI `update --stage done`).
+    // Both derive from actual closed-predicate FLIPS: a same-state re-close stays
+    // silent, while a close after a real reopen fires issue.closed again (#24 —
+    // normalizeClosedPatch guarantees a reopen actually flips the predicate).
+    if (wasClosed && !this.isClosed(row)) {
+      this.emitEvent('issue.reopened', row.id, {
+        seq: row.seq,
+        ...(row.parentId ? { parentId: row.parentId } : {}),
+        ...(opts?.actorSessionId ? { causedBySessionId: opts.actorSessionId } : {}),
+      })
+    }
     if (!wasClosed && this.isClosed(row)) {
       this.emitEvent('issue.closed', row.id, {
         seq: row.seq,
@@ -1675,11 +1721,27 @@ export class IssueService {
       row.machineId ?? undefined,
     )
     if (!res.ok) throw new Error(`worktree add failed: ${res.output}`)
+    // Starting a CLOSED issue is an explicit reopen (#24): clear the closed
+    // markers so the issue doesn't get a live worktree while staying
+    // derived-closed (invisible to ready/open). Emitted as issue.reopened so
+    // the closed-predicate flip is observable like every other reopen path.
+    const wasClosed = this.isClosed(row)
+    if (wasClosed) {
+      row.closedReason = null
+      row.supersededBy = null
+      row.duplicateOf = null
+    }
     row.branch = branch
     row.worktreePath = path
     row.stage = 'in_progress'
     row.assignee = `agent:${row.defaultAgent}`
     const wire = this.persistRow(row)
+    if (wasClosed) {
+      this.emitEvent('issue.reopened', row.id, {
+        seq: row.seq,
+        ...(row.parentId ? { parentId: row.parentId } : {}),
+      })
+    }
     this.emitEvent('issue.started', row.id, {
       seq: row.seq,
       branch: row.branch,
@@ -2141,9 +2203,14 @@ export class IssueService {
 
   applySuggestion(id: string): IssueWire {
     const row = this.rowOrThrow(id)
-    if (row.suggestedStage) row.stage = row.suggestedStage
+    const stage = row.suggestedStage
     row.suggestedStage = null
     row.suggestedReason = null
+    // Route the stage move through update() so the #24 closed-state normalization
+    // (and its closed/reopened event flips) applies — a suggested reopen must not
+    // recreate the stage-only bimodal state. update() persists the cleared
+    // suggestion fields along with the stage.
+    if (stage) return this.update(row.id, { stage })
     return this.persistRow(row)
   }
   dismissSuggestion(id: string): IssueWire {

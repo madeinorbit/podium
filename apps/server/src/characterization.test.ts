@@ -271,21 +271,23 @@ describe('characterization: issue lifecycle equivalence across entry points (con
 })
 
 // ---------------------------------------------------------------------------
-// Contract 2 (cont.) — the closedReason/stage bimodality AS IT BEHAVES TODAY.
-// "Closed" is a DERIVED predicate: stage === 'done' || closedReason != null.
-// These tests characterize the weird corners of that bimodality; they are NOT
-// an endorsement — a redesign that fixes them must consciously update these.
+// Contract 2 (cont.) — the closed state after the #24 stage-machine fix.
+// "Closed" remains a derived predicate (stage === 'done' || closedReason != null),
+// but update() now NORMALIZES every patch so the two fields can never diverge:
+// a closedReason moves stage to done, a non-done stage clears closedReason (a
+// real reopen), and close/reopen events derive from actual predicate flips.
+// These tests pin the NEW behavior (they replaced the pre-#24 "known-weird"
+// bimodality pins).
 // ---------------------------------------------------------------------------
 
-describe('characterization: closedReason/stage bimodality (contract 2, known-weird)', () => {
-  it('a bare closedReason patch closes the issue WITHOUT moving its stage', () => {
+describe('characterization: closed-state normalization (contract 2, issue #24)', () => {
+  it('a bare closedReason patch moves the stage to done (#24)', () => {
     const reg = new SessionRegistry()
     try {
       const w = reg.issues.create({ repoPath: '/r', title: 'bimodal', startNow: false })
       const patched = reg.issues.update(w.id, { closedReason: 'wontfix' })
-      // KNOWN-WEIRD: the issue now counts as closed everywhere (stats, filters,
-      // ready/blocked derivation) while its stage still says 'backlog'.
-      expect(patched.stage).toBe('backlog')
+      // #24: closing via reason IS closing — stage follows to 'done'.
+      expect(patched.stage).toBe('done')
       expect(patched.closedReason).toBe('wontfix')
       expect(reg.issues.search({ repoPath: '/r', status: 'closed' }).map((i) => i.id)).toEqual([
         w.id,
@@ -296,12 +298,16 @@ describe('characterization: closedReason/stage bimodality (contract 2, known-wei
       const closed = reg.sessionStore.listEventsSince(0).filter((e) => e.kind === 'issue.closed')
       expect(closed).toHaveLength(1)
       expect(closed[0]?.payload).toMatchObject({ seq: w.seq, reason: 'wontfix' })
+      // A contradictory patch (non-null reason + non-done stage) is nonsensical.
+      expect(() =>
+        reg.issues.update(w.id, { stage: 'in_progress', closedReason: 'wontfix' }),
+      ).toThrow(/closedReason/)
     } finally {
       reg.dispose()
     }
   })
 
-  it('reopening via a stage patch leaves closedReason set — the issue STAYS closed', () => {
+  it('reopening via a stage patch clears closedReason — a REAL reopen (#24)', () => {
     const reg = new SessionRegistry()
     try {
       const w = reg.issues.create({ repoPath: '/r', title: 'reopen me', startNow: false })
@@ -309,33 +315,35 @@ describe('characterization: closedReason/stage bimodality (contract 2, known-wei
       // The obvious "reopen": drag the card back to in_progress.
       const reopened = reg.issues.update(w.id, { stage: 'in_progress' })
       expect(reopened.stage).toBe('in_progress')
-      // KNOWN-WEIRD: closedReason survives the stage move, so the derived
-      // closed-predicate still holds — the "reopened" issue is invisible to
-      // open/ready filters and still counts as closed in stats.
-      expect(reopened.closedReason).toBe('done')
-      expect(reg.issues.search({ repoPath: '/r', status: 'open' })).toEqual([])
-      expect(reg.issues.stats('/r')).toMatchObject({ closed: 1, open: 0 })
-      // A true reopen requires explicitly clearing the reason too.
-      const cleared = reg.issues.update(w.id, { closedReason: null })
-      expect(cleared.closedReason).toBeUndefined()
+      // #24: closedReason clears with the stage move, so the reopened issue is
+      // open/ready-visible again — no explicit closedReason:null needed.
+      expect(reopened.closedReason).toBeUndefined()
       expect(reg.issues.search({ repoPath: '/r', status: 'open' }).map((i) => i.id)).toEqual([w.id])
+      expect(reg.issues.stats('/r')).toMatchObject({ closed: 0, open: 1 })
+      // The reopen is observable: issue.reopened fires on the true→false flip.
+      const reopenedEvents = reg.sessionStore
+        .listEventsSince(0)
+        .filter((e) => e.kind === 'issue.reopened')
+      expect(reopenedEvents).toHaveLength(1)
+      expect(reopenedEvents[0]?.payload).toMatchObject({ seq: w.seq })
     } finally {
       reg.dispose()
     }
   })
 
-  it('re-closing after a stage-only "reopen" emits NO second issue.closed event', () => {
+  it('re-closing after a stage reopen emits a SECOND issue.closed event (#24)', () => {
     const reg = new SessionRegistry()
     try {
-      const w = reg.issues.create({ repoPath: '/r', title: 'silent re-close', startNow: false })
+      const w = reg.issues.create({ repoPath: '/r', title: 'audible re-close', startNow: false })
       reg.issues.close(w.id)
-      reg.issues.update(w.id, { stage: 'in_progress' }) // stage-only reopen, reason stays
+      reg.issues.update(w.id, { stage: 'in_progress' }) // real reopen: reason clears
       reg.issues.update(w.id, { stage: 'done' }) // drag back to done
-      // KNOWN-WEIRD: issue.closed fires on the DERIVED false→true flip only.
-      // Because closedReason never cleared, the predicate never flipped false,
-      // so the second close is event-silent (watchers miss it).
+      // #24: the reopen flipped the derived predicate false, so the re-close
+      // flips it true again and issue.closed fires a second time.
       const closed = reg.sessionStore.listEventsSince(0).filter((e) => e.kind === 'issue.closed')
-      expect(closed).toHaveLength(1)
+      expect(closed).toHaveLength(2)
+      // The second close came from a bare stage patch — reason defaults to 'done'.
+      expect(closed[1]?.payload).toMatchObject({ seq: w.seq, reason: 'done' })
       // The stage churn IS visible as stage_changed (done→in_progress only;
       // transitions INTO done never emit stage_changed).
       const stages = reg.sessionStore

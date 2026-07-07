@@ -358,6 +358,19 @@ describe('IssueService.start', () => {
     expect(deps.requireMachineForRepo).not.toHaveBeenCalled()
   })
 
+  it('starting a closed issue reopens it explicitly: closed markers clear + issue.reopened (#24)', async () => {
+    const { svc, store } = harness()
+    const created = svc.create({ repoPath: '/r', title: 'Closed then started', startNow: false })
+    svc.close(created.id, 'wontfix')
+    const started = await svc.start(created.id)
+    expect(started.stage).toBe('in_progress')
+    expect(started.closedReason).toBeUndefined()
+    expect(started.ready).toBe(true)
+    expect(svc.search({ repoPath: '/r', status: 'open' }).map((i) => i.id)).toEqual([created.id])
+    const reopened = store.listEventsSince(0).filter((e) => e.kind === 'issue.reopened')
+    expect(reopened).toHaveLength(1)
+  })
+
   it('machineId persists through the store and clears via update(null)', () => {
     const { svc, store } = harness()
     const w = svc.create({ repoPath: '/r', title: 'X', startNow: false, machineId: 'mach-b' })
