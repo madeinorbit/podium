@@ -47,7 +47,7 @@ import { selectMailNudgeSession, sessionsForIssue } from './issue-util'
 import { IssueService } from './issues'
 import { LOCAL_MACHINE_ID } from './local-machine'
 import { MirrorService } from './mirror'
-import { ModelCatalog, type ModelCatalogSnapshot, type ModelProbe } from './model-catalog'
+import type { ModelCatalogSnapshot, ModelProbe } from './model-catalog'
 import { EventBus } from './modules/bus'
 import {
   DEFAULT_NOTIFICATION_PUSHERS,
@@ -55,7 +55,12 @@ import {
   NotifyService,
   type SessionNoticeInfo,
 } from './modules/notify/service'
-import type { TelegramConfig } from './notify'
+import {
+  SettingsService,
+  type TelegramSetupClient,
+  type TelegramSetupPollResult,
+  type TelegramSetupStartResult,
+} from './modules/settings/service'
 import { MetadataOplog } from './oplog'
 import { PairingManager } from './pairing'
 import { type ClientConn, type Send, Session } from './session'
@@ -178,23 +183,6 @@ export interface OpResult {
   output: string
 }
 
-const TELEGRAM_SETUP_TTL_MS = 5 * 60 * 1000
-
-interface TelegramSetupUpdate {
-  updateId: number
-  chatId: string | number
-  chatType: string
-  chatLabel?: string
-  text: string
-}
-
-interface TelegramSetupClient {
-  getMe(botToken: string): Promise<{ username: string }>
-  getUpdates(botToken: string): Promise<TelegramSetupUpdate[]>
-  sendMessage(config: TelegramConfig, text: string): Promise<void>
-  acknowledgeUpdates?(botToken: string, offset: number): Promise<void>
-}
-
 interface SessionRegistryOptions {
   telegramSetup?: TelegramSetupClient
   generateTelegramSetupCode?: () => string
@@ -205,131 +193,6 @@ interface SessionRegistryOptions {
   /** Live model-list probe (grok/cursor/opencode `models`). Injected in tests so the
    *  catalog never shells out; defaults to the real CLI probe. */
   modelProbe?: ModelProbe
-}
-
-interface PendingTelegramSetup {
-  code: string
-  botUsername: string
-  expiresAtMs: number
-}
-
-export interface TelegramSetupStartResult {
-  setupId: string
-  code: string
-  botUsername: string
-  telegramUrl: string
-  expiresAt: string
-}
-
-export type TelegramSetupPollResult =
-  | { status: 'pending'; expiresAt: string }
-  | { status: 'expired' }
-  | {
-      status: 'connected'
-      chatId: string
-      chatType: string
-      chatLabel?: string
-      settings: PodiumSettings
-    }
-
-function telegramApiUrl(botToken: string, method: string): string {
-  return `https://api.telegram.org/bot${botToken.trim()}/${method}`
-}
-
-type TelegramApiBody = {
-  ok?: boolean
-  description?: string
-  result?: unknown
-}
-
-async function telegramJson(
-  botToken: string,
-  method: string,
-  init?: RequestInit,
-): Promise<TelegramApiBody> {
-  const res = await fetch(telegramApiUrl(botToken, method), init)
-  const body = (await res.json().catch(() => ({}))) as TelegramApiBody
-  if (res.ok && body.ok === true) return body
-  const description = typeof body.description === 'string' ? body.description : `HTTP ${res.status}`
-  throw new Error(description)
-}
-
-function telegramUpdateChatLabel(chat: {
-  username?: unknown
-  title?: unknown
-  first_name?: unknown
-}): string | undefined {
-  if (typeof chat.username === 'string' && chat.username) return `@${chat.username}`
-  if (typeof chat.title === 'string' && chat.title) return chat.title
-  if (typeof chat.first_name === 'string' && chat.first_name) return chat.first_name
-  return undefined
-}
-
-function parseTelegramSetupUpdates(result: unknown): TelegramSetupUpdate[] {
-  if (!Array.isArray(result)) return []
-  const updates: TelegramSetupUpdate[] = []
-  for (const update of result) {
-    if (!update || typeof update !== 'object') continue
-    const u = update as { update_id?: unknown; message?: unknown; channel_post?: unknown }
-    const msg = (u.message ?? u.channel_post) as { chat?: unknown; text?: unknown } | undefined
-    const chat = msg?.chat as
-      | { id?: unknown; type?: unknown; username?: unknown; title?: unknown; first_name?: unknown }
-      | undefined
-    if (typeof u.update_id !== 'number') continue
-    if (!chat || (typeof chat.id !== 'number' && typeof chat.id !== 'string')) continue
-    if (typeof chat.type !== 'string') continue
-    if (typeof msg?.text !== 'string') continue
-    updates.push({
-      updateId: u.update_id,
-      chatId: chat.id,
-      chatType: chat.type,
-      chatLabel: telegramUpdateChatLabel(chat),
-      text: msg.text,
-    })
-  }
-  return updates
-}
-
-const DEFAULT_TELEGRAM_SETUP_CLIENT: TelegramSetupClient = {
-  async getMe(botToken) {
-    const body = await telegramJson(botToken, 'getMe')
-    const result = body.result as { username?: unknown } | undefined
-    if (typeof result?.username !== 'string' || !result.username) {
-      throw new Error('Telegram bot username was missing')
-    }
-    return { username: result.username }
-  },
-  async getUpdates(botToken) {
-    const allowedUpdates = encodeURIComponent(JSON.stringify(['message', 'channel_post']))
-    const body = await telegramJson(botToken, `getUpdates?allowed_updates=${allowedUpdates}`)
-    return parseTelegramSetupUpdates(body.result)
-  },
-  async sendMessage(config, text) {
-    await telegramJson(config.botToken, 'sendMessage', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ chat_id: config.chatId.trim(), text }),
-    })
-  },
-  async acknowledgeUpdates(botToken, offset) {
-    await telegramJson(botToken, `getUpdates?offset=${offset}`)
-  },
-}
-
-function defaultTelegramSetupCode(): string {
-  return `PODIUM${randomUUID().replaceAll('-', '').slice(0, 8).toUpperCase()}`
-}
-
-function telegramSetupUrl(botUsername: string, code: string): string {
-  return `https://t.me/${botUsername}?start=${encodeURIComponent(code)}`
-}
-
-function telegramTextHasCode(text: string, code: string): boolean {
-  const want = code.toUpperCase()
-  return text
-    .trim()
-    .split(/\s+/)
-    .some((part) => part.toUpperCase() === want)
 }
 
 /** Registry of all sessions + the per-machine daemon links + all client connections. Routes by sessionId. */
@@ -350,7 +213,8 @@ export class SessionRegistry {
   private readonly pairing = new PairingManager()
   private readonly sessions = new Map<string, Session>()
   private readonly clients = new Map<string, ClientConn>()
-  private readonly telegramSetups = new Map<string, PendingTelegramSetup>()
+  /** Settings + model catalog + telegram-setup flow (modules/settings). */
+  private readonly settingsService: SettingsService
   /** Server-side issue tracker — constructed after loadFromStore() in the constructor. */
   readonly issues: IssueService
   /** Injected by server.ts: builds a tRPC caller bound to a capability — the scope-gate
@@ -444,9 +308,6 @@ export class SessionRegistry {
   // Durable metadata change log fed at the broadcast seam (docs/spec/oplog-read-path.md).
   // Assigned in the constructor before loadFromStore (which can trigger broadcasts).
   private readonly oplog: MetadataOplog
-  // SWR cache of live per-agent model lists (grok/cursor/opencode). Query-driven:
-  // nothing probes until a client asks via getModelCatalog().
-  private readonly modelCatalog: ModelCatalog
   // Transcript lake mirror (docs/spec/transcript-mirror.md) — constructed only when
   // options.mirrorLakeDir is set; undefined means zero mirror traffic (tests default).
   private readonly mirror: MirrorService | undefined
@@ -469,8 +330,6 @@ export class SessionRegistry {
   // churn must not re-flood the daemon with the whole map every time).
   private readonly lastPriority = new Map<string, number>()
 
-  private readonly telegramSetup: TelegramSetupClient
-  private readonly generateTelegramSetupCode: () => string
   private readonly now: () => number
   // Single registry-wide timer that persists only sessions whose activity counters
   // advanced since the last tick — keeps the per-frame / per-keystroke path off the DB.
@@ -489,9 +348,15 @@ export class SessionRegistry {
     private readonly notificationPushers: NotificationPushers = DEFAULT_NOTIFICATION_PUSHERS,
     options: SessionRegistryOptions = {},
   ) {
-    this.telegramSetup = options.telegramSetup ?? DEFAULT_TELEGRAM_SETUP_CLIENT
-    this.generateTelegramSetupCode = options.generateTelegramSetupCode ?? defaultTelegramSetupCode
     this.now = options.now ?? Date.now
+    this.settingsService = new SettingsService(this.store, this.bus, {
+      ...(options.telegramSetup ? { telegramSetup: options.telegramSetup } : {}),
+      ...(options.generateTelegramSetupCode
+        ? { generateTelegramSetupCode: options.generateTelegramSetupCode }
+        : {}),
+      ...(options.modelProbe ? { modelProbe: options.modelProbe } : {}),
+      now: this.now,
+    })
     this.notify = new NotifyService(
       {
         getSettings: () => this.store.getSettings(),
@@ -512,13 +377,6 @@ export class SessionRegistry {
       this.bus,
     )
     this.activityFlushTimer.unref?.()
-    this.modelCatalog = new ModelCatalog(options.modelProbe, {
-      now: this.now,
-      // Persist the catalog so the first picker-open after a restart/redeploy serves
-      // the last-known list instantly (then refreshes), instead of a cold ~2s probe.
-      load: () => this.store.getModelCatalog(),
-      save: (snapshot) => this.store.setModelCatalog(snapshot),
-    })
     this.oplog = new MetadataOplog(this.store, this.now)
     this.loadFromStore()
     if (options.mirrorLakeDir) {
@@ -615,6 +473,25 @@ export class SessionRegistry {
         if (!s) return undefined
         return { live: s.status === 'live' || s.status === 'starting', state: s.agentState }
       },
+    })
+    // Auto-continue re-arm on the settings flip — was inline in setSettings; the
+    // reaction needs the sessions map, so it lives here as a bus subscriber
+    // (registered AFTER NotifyService so the notification replay keeps firing first).
+    this.bus.on('settings.changed', ({ previous, next }) => {
+      const wasEnabled = previous.autoContinue.enabled
+      const nowEnabled = next.autoContinue.enabled
+      if (nowEnabled === wasEnabled) return
+      const ids = nowEnabled
+        ? [...this.sessions.values()]
+            .filter(
+              (s) =>
+                (s.status === 'live' || s.status === 'starting') &&
+                s.agentState?.phase === 'errored' &&
+                s.agentState.error?.retryable === true,
+            )
+            .map((s) => s.sessionId)
+        : []
+      this.autoContinue.onSettingsChanged(nowEnabled, ids)
     })
     this.steward = new StewardService({
       store: this.store,
@@ -1406,101 +1283,30 @@ export class SessionRegistry {
     this.store.setTabOrder(worktree, sessionIds)
   }
 
-  /** Live per-agent model lists (SWR — returns cached instantly, refreshes in the
-   *  background). The web merges these over its static catalog. */
+  // ---- settings / model catalog / telegram setup — delegates to modules/settings ----
+
   getModelCatalog(): ModelCatalogSnapshot {
-    return this.modelCatalog.get()
+    return this.settingsService.getModelCatalog()
   }
 
-  /** Force a fresh probe and return the updated snapshot (explicit "refresh now"). */
-  async refreshModelCatalog(): Promise<ModelCatalogSnapshot> {
-    await this.modelCatalog.refresh()
-    return this.modelCatalog.get()
+  refreshModelCatalog(): Promise<ModelCatalogSnapshot> {
+    return this.settingsService.refreshModelCatalog()
   }
 
   getSettings(): PodiumSettings {
-    return this.store.getSettings()
+    return this.settingsService.getSettings()
   }
 
   setSettings(settings: PodiumSettings): PodiumSettings {
-    const previous = this.store.getSettings()
-    const wasEnabled = previous.autoContinue.enabled
-    this.store.setSettings(settings)
-    // Bus subscribers (NotifyService) replay blocked states to newly configured
-    // external targets — same ordering as the old direct call.
-    this.bus.emit('settings.changed', { previous, next: settings })
-    const nowEnabled = settings.autoContinue.enabled
-    if (nowEnabled !== wasEnabled) {
-      const ids = nowEnabled
-        ? [...this.sessions.values()]
-            .filter(
-              (s) =>
-                (s.status === 'live' || s.status === 'starting') &&
-                s.agentState?.phase === 'errored' &&
-                s.agentState.error?.retryable === true,
-            )
-            .map((s) => s.sessionId)
-        : []
-      this.autoContinue.onSettingsChanged(nowEnabled, ids)
-    }
-    return settings
+    return this.settingsService.setSettings(settings)
   }
 
-  async startTelegramSetup(): Promise<TelegramSetupStartResult> {
-    const botToken = this.store.getSettings().notifications.telegramBotToken.trim()
-    if (!botToken) throw new Error('Telegram bot token is required before setup')
-
-    const { username } = await this.telegramSetup.getMe(botToken)
-    const code = this.generateTelegramSetupCode()
-    const setupId = randomUUID()
-    const expiresAtMs = this.now() + TELEGRAM_SETUP_TTL_MS
-    this.telegramSetups.set(setupId, { code, botUsername: username, expiresAtMs })
-    return {
-      setupId,
-      code,
-      botUsername: username,
-      telegramUrl: telegramSetupUrl(username, code),
-      expiresAt: new Date(expiresAtMs).toISOString(),
-    }
+  startTelegramSetup(): Promise<TelegramSetupStartResult> {
+    return this.settingsService.startTelegramSetup()
   }
 
-  async pollTelegramSetup(setupId: string): Promise<TelegramSetupPollResult> {
-    const setup = this.telegramSetups.get(setupId)
-    if (!setup) return { status: 'expired' }
-    if (this.now() > setup.expiresAtMs) {
-      this.telegramSetups.delete(setupId)
-      return { status: 'expired' }
-    }
-
-    const current = this.store.getSettings()
-    const botToken = current.notifications.telegramBotToken.trim()
-    if (!botToken) throw new Error('Telegram bot token is required before setup')
-
-    const updates = await this.telegramSetup.getUpdates(botToken)
-    const match = updates.find((update) => telegramTextHasCode(update.text, setup.code))
-    if (!match) return { status: 'pending', expiresAt: new Date(setup.expiresAtMs).toISOString() }
-
-    const chatId = String(match.chatId)
-    const next = this.setSettings({
-      ...current,
-      notifications: {
-        ...current.notifications,
-        telegramChatId: chatId,
-      },
-    })
-    this.telegramSetups.delete(setupId)
-    await this.telegramSetup.sendMessage(
-      { botToken, chatId },
-      'Telegram notifications are connected to Podium.',
-    )
-    await this.telegramSetup.acknowledgeUpdates?.(botToken, match.updateId + 1)
-    return {
-      status: 'connected',
-      chatId,
-      chatType: match.chatType,
-      ...(match.chatLabel ? { chatLabel: match.chatLabel } : {}),
-      settings: next,
-    }
+  pollTelegramSetup(setupId: string): Promise<TelegramSetupPollResult> {
+    return this.settingsService.pollTelegramSetup(setupId)
   }
 
   /** Agent kind may be omitted — the settings default decides ('auto' = Claude Code).
