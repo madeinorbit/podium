@@ -1161,6 +1161,42 @@ describe('IssueService.resolveRef (display seq → internal id)', () => {
     expect(() => svc.resolveRef('1')).toThrow(/ambiguous issue ref #1/)
   })
 
+  it('resolves repo-qualified refs — the exact form the ambiguity error prints', () => {
+    const { svc } = harness()
+    const a = svc.create({ repoPath: '/home/u/r1', title: 'A', startNow: false })
+    const b = svc.create({ repoPath: '/home/u/r2', title: 'B', startNow: false })
+    // full repoPath#seq (copy-pasted from the ambiguity error) resolves
+    expect(svc.resolveRef(`/home/u/r1#${a.seq}`)).toBe(a.id)
+    expect(svc.resolveRef(`/home/u/r2#${b.seq}`)).toBe(b.id)
+    // trailing path segment works when unique
+    expect(svc.resolveRef(`r1#${a.seq}`)).toBe(a.id)
+    // unknown repo-qualified refs fall through unchanged (caller's unknown-issue error fires)
+    expect(svc.resolveRef('/nope#1')).toBe('/nope#1')
+  })
+
+  it('the ambiguity error is copy-paste actionable: its printed refs resolve', () => {
+    const { svc } = harness()
+    const a = svc.create({ repoPath: '/home/u/r1', title: 'A', startNow: false })
+    svc.create({ repoPath: '/home/u/r2', title: 'B', startNow: false })
+    let message = ''
+    try {
+      svc.resolveRef('1')
+    } catch (e) {
+      message = (e as Error).message
+    }
+    const printed = message.match(/\S+#\d+/g) ?? []
+    expect(printed.length).toBeGreaterThanOrEqual(2)
+    // every ref the error tells the user about must itself resolve
+    expect(svc.resolveRef(printed[0]!)).toBe(a.id)
+  })
+
+  it('a suffix ref matching several repos throws instead of guessing', () => {
+    const { svc } = harness()
+    svc.create({ repoPath: '/a/podium', title: 'A', startNow: false })
+    svc.create({ repoPath: '/b/podium', title: 'B', startNow: false })
+    expect(() => svc.resolveRef('podium#1')).toThrow(/ambiguous issue ref podium#1/)
+  })
+
   it('every id-taking mutation accepts a display seq and persists the INTERNAL id', () => {
     const { svc, store } = harness()
     const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })

@@ -764,12 +764,30 @@ export class IssueService {
   }
 
   /** Resolve an issue reference to the internal id. Accepts the internal `iss_…` id
-   *  (passthrough) or a display seq (`10` / `#10` — what list/prime/search print).
-   *  Seq is only unique per repo: a seq matching issues in several repos is ambiguous
-   *  and throws (callers must pass the full id). Unresolvable refs return the input
-   *  unchanged so the caller's normal unknown-issue error fires. */
+   *  (passthrough), a display seq (`10` / `#10` — what list/prime/search print), or a
+   *  repo-qualified ref (`<repoPath>#10`, the form the ambiguity error prints; a
+   *  trailing path suffix like `podium#10` works when it matches exactly one repo).
+   *  Seq is only unique per repo: a bare seq matching issues in several repos is
+   *  ambiguous and throws. Unresolvable refs return the input unchanged so the
+   *  caller's normal unknown-issue error fires. */
   resolveRef(ref: string): string {
     if (ref.startsWith('iss_') || this.rows.has(ref)) return ref
+    const qualified = /^(.+)#(\d+)$/.exec(ref.trim())
+    if (qualified) {
+      const [, repo, seqStr] = qualified
+      const seq = Number(seqStr)
+      const matches = [...this.rows.values()].filter(
+        (r) =>
+          r.seq === seq &&
+          (r.repoPath === repo || r.repoPath.endsWith(`/${repo}`)),
+      )
+      if (matches.length === 1) return matches[0]!.id
+      if (matches.length > 1) {
+        const where = matches.map((r) => `${r.repoPath}#${r.seq} (${r.id})`).join(', ')
+        throw new Error(`ambiguous issue ref ${ref} (matches ${where})`)
+      }
+      return ref
+    }
     const m = /^#?(\d+)$/.exec(ref.trim())
     if (!m) return ref
     const seq = Number(m[1])
@@ -777,7 +795,9 @@ export class IssueService {
     if (matches.length === 1) return matches[0]!.id
     if (matches.length > 1) {
       const where = matches.map((r) => `${r.repoPath}#${r.seq}`).join(', ')
-      throw new Error(`ambiguous issue ref #${seq} (matches ${where}); pass the full id`)
+      throw new Error(
+        `ambiguous issue ref #${seq} (matches ${where}); qualify it as <repoPath>#${seq}`,
+      )
     }
     return ref
   }
