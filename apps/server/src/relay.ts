@@ -1,5 +1,5 @@
 import { randomBytes, randomUUID } from 'node:crypto'
-import { basename, isAbsolute, join } from 'node:path'
+import { basename } from 'node:path'
 import type { PodiumSettings } from '@podium/core'
 import type {
   DirListResultMessage,
@@ -15,13 +15,10 @@ import {
   CAP_METADATA_DELTA,
   type ClientMessage,
   type ControlMessage,
-  type ConversationDiagnosticWire,
   type ConversationSummaryWire,
   type DaemonHandshake,
   type DaemonMessage,
   type Geometry,
-  type GitDiscoveryDiagnosticWire,
-  type GitRepositoryWire,
   type HarnessAgent,
   type HeadlessActivityEvent,
   type HeadlessTurnEvent,
@@ -39,7 +36,6 @@ import {
   type WorkState,
 } from '@podium/protocol'
 import { AutoContinueController } from './auto-continue'
-import { knownPathsFor } from './file-relay-policy'
 import type { Capability } from './issue-authz'
 import { selectMailNudgeSession, sessionsForIssue } from './issue-util'
 import { IssueService } from './issues'
@@ -51,6 +47,12 @@ import { HostsService, type MemoryBreakdown } from './modules/hosts/service'
 import { IssuePublisher } from './modules/issues/publish'
 import { IssueRelayGate } from './modules/issues/relay-gate'
 import { type IssueUpstreamForwarder, UpstreamIssuesService } from './modules/issues/upstream'
+import {
+  DaemonRpcService,
+  type OpResult,
+  type ScanReposResult,
+  type ScanResult,
+} from './modules/machines/rpc'
 import { MachinesService, sha256 } from './modules/machines/service'
 import {
   DEFAULT_NOTIFICATION_PUSHERS,
@@ -79,6 +81,9 @@ import {
 
 // Re-exported so server.ts/tests keep importing the forwarder seam from './relay'.
 export type { IssueUpstreamForwarder } from './modules/issues/upstream'
+// Re-exported so repo-registry/superagent/tests keep importing the daemon-RPC
+// result shapes from './relay'.
+export type { OpResult, ScanReposResult, ScanResult } from './modules/machines/rpc'
 
 /**
  * The upstream-token mint primitive (node⇄hub sync §2.1): a long-lived, revocable
@@ -135,26 +140,8 @@ const EVENT_PRUNE_INTERVAL_MS = 6 * 60 * 60 * 1000
 // then hourly. Hourly is ample for a 24h-granularity rule and the sweep is cheap.
 const AUTO_ARCHIVE_BOOT_DELAY_MS = 90_000
 const AUTO_ARCHIVE_INTERVAL_MS = 60 * 60 * 1000
-const SCAN_TIMEOUT_MS = 10_000
-const FILE_RPC_TIMEOUT_MS = 10_000
-
-export interface ScanResult {
-  conversations: ConversationSummaryWire[]
-  diagnostics: ConversationDiagnosticWire[]
-}
-
-export interface ScanReposResult {
-  repositories: GitRepositoryWire[]
-  diagnostics: GitDiscoveryDiagnosticWire[]
-}
 
 export type { MemoryBreakdown }
-
-/** Outcome of a daemon-executed operation (git op / harness one-shot). */
-export interface OpResult {
-  ok: boolean
-  output: string
-}
 
 interface SessionRegistryOptions {
   telegramSetup?: TelegramSetupClient
@@ -196,39 +183,8 @@ export class SessionRegistry {
   private autoContinue!: AutoContinueController
   /** Steward trigger queue over the event log; polls only while settings-enabled. */
   private steward!: StewardService
-  private readonly pendingScans = new Map<string, (r: ScanResult) => void>()
-  private readonly pendingRepoScans = new Map<string, (r: ScanReposResult) => void>()
-  private readonly pendingRepoOps = new Map<string, (r: OpResult) => void>()
-  private readonly pendingHarnessExecs = new Map<string, (r: OpResult) => void>()
-  private readonly pendingUsage = new Map<
-    string,
-    (r: { hostname: string; buckets: UsageBucketWire[] }) => void
-  >()
-  private readonly pendingAgentQuota = new Map<
-    string,
-    (r: { hostname: string; agents: AgentQuotaWire[] }) => void
-  >()
-  private readonly pendingTranscriptReads = new Map<
-    string,
-    (r: { items: TranscriptItem[]; head?: string; tail?: string; hasMore: boolean }) => void
-  >()
-  private readonly pendingUploads = new Map<string, (r: { path: string; error?: string }) => void>()
-  private readonly pendingFileReads = new Map<
-    string,
-    (r: Omit<FileReadResultMessage, 'type' | 'requestId'>) => void
-  >()
-  private readonly pendingFileAssets = new Map<
-    string,
-    (r: Omit<FileAssetResultMessage, 'type' | 'requestId'>) => void
-  >()
-  private readonly pendingFileWrites = new Map<
-    string,
-    (r: Omit<FileWriteResultMessage, 'type' | 'requestId'>) => void
-  >()
-  private readonly pendingDirLists = new Map<
-    string,
-    (r: Omit<DirListResultMessage, 'type' | 'requestId'>) => void
-  >()
+  /** Daemon request/response plumbing — pending maps + requestId mint (modules/machines). */
+  private readonly rpc: DaemonRpcService
   /**
    * In-progress composer/prompt text per session. The live value lives here (read
    * by attachClient to replay on connect); it is also debounced to the store so it
@@ -265,10 +221,6 @@ export class SessionRegistry {
   /** Host health samples + auto-hibernate + memory breakdown (modules/hosts). */
   private readonly hosts: HostsService
   private nextClientNum = 0
-  // Shared by scan() ('r' prefix) and scanRepos() ('rr' prefix). Each scan
-  // variant must use a distinct string prefix so ids never collide across the
-  // separate pending maps.
-  private nextRequestNum = 0
   // Last per-session output-relay priority pushed to the daemon. pushPriorities
   // diffs against this so only CHANGED sessions are re-sent (a viewState/attach
   // churn must not re-flood the daemon with the whole map every time).
@@ -302,6 +254,19 @@ export class SessionRegistry {
       },
       broadcastSessions: () => this.broadcastSessions(),
       clients: () => this.clients.values(),
+    })
+    this.rpc = new DaemonRpcService({
+      store: this.store,
+      toMachine: (machineId, msg) => this.machines.toMachine(machineId, msg),
+      defaultMachine: () => this.machines.defaultMachine(),
+      resolveMachine: (requested, cwd) => this.machines.resolveMachine(requested, cwd),
+      hasDaemon: (machineId) => this.machines.hasDaemon(machineId),
+      machineName: (id) => this.machines.machineName(id),
+      onlineMachineIds: () => this.machines.onlineMachineIds(),
+      getSession: (sessionId) => this.sessions.get(sessionId),
+      // Lazy: the conversations service is constructed after loadFromStore below.
+      readTranscriptFromLake: (session, input) =>
+        this.conversations.readTranscriptFromLake(session, input),
     })
     this.settingsService = new SettingsService(this.store, this.bus, {
       ...(options.telegramSetup ? { telegramSetup: options.telegramSetup } : {}),
@@ -338,7 +303,7 @@ export class SessionRegistry {
         sessions: () => this.sessions.values(),
         hibernateSession: (input) => this.hibernateSession(input),
         daemonRequest: (pending, prefix, timeoutMs, onTimeout, buildMsg, machineId) =>
-          this.daemonRequest(pending, prefix, timeoutMs, onTimeout, buildMsg, machineId),
+          this.rpc.request(pending, prefix, timeoutMs, onTimeout, buildMsg, machineId),
       },
       this.bus,
     )
@@ -371,7 +336,7 @@ export class SessionRegistry {
       resolveMachine: (requested, cwd) => this.machines.resolveMachine(requested, cwd),
       defaultMachine: () => this.machines.defaultMachine(),
       toMachine: (machineId, msg) => this.toMachine(machineId, msg),
-      nextRequestId: (prefix) => `${prefix}${this.nextRequestNum++}`,
+      nextRequestId: (prefix) => this.rpc.nextRequestId(prefix),
       defaultGeometry: () => ({ ...DEFAULT_GEOMETRY }),
       persist: (session) => this.persist(session),
       broadcastSessions: () => this.broadcastSessions(),
@@ -386,7 +351,7 @@ export class SessionRegistry {
         oplogRecord: (rows) => this.oplog.record('conversation', rows),
         fanOutMetadata: (snapshot, changes, opts) => this.fanOutMetadata(snapshot, changes, opts),
         daemonRequest: (pending, prefix, timeoutMs, onTimeout, buildMsg, machineId) =>
-          this.daemonRequest(pending, prefix, timeoutMs, onTimeout, buildMsg, machineId),
+          this.rpc.request(pending, prefix, timeoutMs, onTimeout, buildMsg, machineId),
       },
       options.mirrorLakeDir ? { mirrorLakeDir: options.mirrorLakeDir } : {},
     )
@@ -743,7 +708,7 @@ export class SessionRegistry {
         cwd: s.cwd,
         geometry: s.geometry,
         ...(s.resume ? { resume: s.resume } : {}),
-        ...(this.transcriptPathHint(s) ?? {}),
+        ...(this.rpc.transcriptPathHint(s) ?? {}),
         // Spawn-time floor for observer-based harnesses (codex): lets a reattached
         // observer discover a lazily-created rollout it never saw before the restart.
         ...(Number.isFinite(Date.parse(s.createdAt))
@@ -1761,160 +1726,50 @@ export class SessionRegistry {
     this.maybeReapDraftIssue(issueId)
   }
 
-  /**
-   * Shared request/response plumbing for daemon round-trips: mint a prefixed
-   * requestId, register a resolver keyed by it, send the control message, and
-   * resolve a fallback on timeout. Every `*Result` daemon message looks its
-   * resolver up in the matching pending map. One place to get unref/cleanup
-   * right instead of six near-identical copies.
-   */
-  private daemonRequest<T>(
-    pending: Map<string, (r: T) => void>,
-    prefix: string,
-    timeoutMs: number,
-    onTimeout: () => T,
-    buildMsg: (requestId: string) => ControlMessage,
-    machineId: string = this.machines.defaultMachine(),
-  ): Promise<T> {
-    const requestId = `${prefix}${this.nextRequestNum++}`
-    return new Promise<T>((resolve) => {
-      const timer = setTimeout(() => {
-        pending.delete(requestId)
-        resolve(onTimeout())
-      }, timeoutMs)
-      timer.unref?.()
-      pending.set(requestId, (r) => {
-        clearTimeout(timer)
-        resolve(r)
-      })
-      this.toMachine(machineId, buildMsg(requestId))
-    })
-  }
-
   /** The default machine for host-scoped requests (modules/machines) — used by
    *  RepoRegistry when no machineId is provided. */
   defaultMachineId(): string {
     return this.machines.defaultMachine()
   }
 
+  // ---- daemon round-trips — delegates to modules/machines/rpc ----
+
   scan(): Promise<ScanResult> {
-    return this.daemonRequest(
-      this.pendingScans,
-      'r',
-      SCAN_TIMEOUT_MS,
-      () => ({
-        conversations: [],
-        diagnostics: [{ severity: 'error', message: 'discovery scan timed out' }],
-      }),
-      (requestId) => ({ type: 'scanRequest', requestId }),
-    )
+    return this.rpc.scan()
   }
 
   scanRepos(
     roots: string[],
     opts: { includeHome?: boolean; maxDepth?: number } = {},
   ): Promise<ScanReposResult> {
-    return this.daemonRequest(
-      this.pendingRepoScans,
-      'rr',
-      SCAN_TIMEOUT_MS,
-      () => ({
-        repositories: [],
-        diagnostics: [{ severity: 'error', path: '', message: 'repos scan timed out' }],
-      }),
-      (requestId) => ({
-        type: 'scanReposRequest',
-        requestId,
-        roots,
-        ...(opts.includeHome === undefined ? {} : { includeHome: opts.includeHome }),
-        ...(opts.maxDepth === undefined ? {} : { maxDepth: opts.maxDepth }),
-      }),
-    )
+    return this.rpc.scanRepos(roots, opts)
   }
 
-  /**
-   * Per-machine variant of scanRepos: sends the request to a specific machine.
-   * Used by RepoRegistry to fan out to each online daemon. Requestids are globally
-   * unique (shared counter) so concurrent per-machine requests are safe across the
-   * single pendingRepoScans map.
-   */
+  /** Per-machine variant of scanRepos — RepoRegistry fans out to each online daemon. */
   scanReposForMachine(
     roots: string[],
     machineId: string,
     opts: { includeHome?: boolean; maxDepth?: number } = {},
   ): Promise<ScanReposResult> {
-    return this.daemonRequest(
-      this.pendingRepoScans,
-      'rr',
-      SCAN_TIMEOUT_MS,
-      () => ({
-        repositories: [],
-        diagnostics: [{ severity: 'error', path: '', message: 'repos scan timed out' }],
-      }),
-      (requestId) => ({
-        type: 'scanReposRequest',
-        requestId,
-        roots,
-        ...(opts.includeHome === undefined ? {} : { includeHome: opts.includeHome }),
-        ...(opts.maxDepth === undefined ? {} : { maxDepth: opts.maxDepth }),
-      }),
-      machineId,
-    )
+    return this.rpc.scanRepos(roots, opts, machineId)
   }
 
   /** Token-usage buckets from the daemon's transcript harvest (empty on timeout). */
   usage(sinceMs?: number): Promise<{ hostname: string; buckets: UsageBucketWire[] }> {
-    return this.daemonRequest(
-      this.pendingUsage,
-      'us',
-      20_000,
-      () => ({ hostname: '', buckets: [] }),
-      (requestId) => ({
-        type: 'usageRequest',
-        requestId,
-        ...(sinceMs !== undefined ? { sinceMs } : {}),
-      }),
-    )
+    return this.rpc.usage(sinceMs)
   }
 
-  /** Per-agent plan-quota (5h/weekly windows), read live read-only on one daemon
-   *  host. Empty agents on timeout. Distinct from `usage` (token-cost analytics).
-   *  `machineId` targets a specific machine; omitted → the default online machine. */
+  /** Per-agent plan-quota on one daemon host (modules/machines/rpc). */
   agentQuota(
     refresh?: boolean,
     machineId?: string,
   ): Promise<{ hostname: string; agents: AgentQuotaWire[] }> {
-    return this.daemonRequest(
-      this.pendingAgentQuota,
-      'aq',
-      20_000,
-      () => ({ hostname: '', agents: [] }),
-      (requestId) => ({
-        type: 'agentQuotaRequest',
-        requestId,
-        ...(refresh !== undefined ? { refresh } : {}),
-      }),
-      machineId ?? this.machines.defaultMachine(),
-    )
+    return this.rpc.agentQuota(refresh, machineId)
   }
 
-  /**
-   * Fan out `agentQuota` to every online daemon and tag each reply with its
-   * machineId + machineName — the overlay groups by machine because each machine
-   * runs its agents under its own account. Empty when no daemon is online.
-   *
-   * Single-machine invariant: one online daemon → a single entry whose `agents`
-   * equal today's `agentQuota().agents`, so the one-machine overlay is unchanged.
-   */
-  async agentQuotaAll(refresh?: boolean): Promise<MachineQuotaWire[]> {
-    const machineIds = this.onlineMachineIds()
-    if (machineIds.length === 0) return []
-    return Promise.all(
-      machineIds.map(async (machineId) => {
-        const { hostname, agents } = await this.agentQuota(refresh, machineId)
-        return { machineId, machineName: this.machineName(machineId), hostname, agents }
-      }),
-    )
+  /** Per-agent plan-quota fanned out to every online daemon (modules/machines/rpc). */
+  agentQuotaAll(refresh?: boolean): Promise<MachineQuotaWire[]> {
+    return this.rpc.agentQuotaAll(refresh)
   }
 
   /** Allowlisted git op on a dev machine (superagent tools). */
@@ -1924,14 +1779,7 @@ export class SessionRegistry {
     args?: Record<string, string>,
     machineId?: string,
   ): Promise<OpResult> {
-    return this.daemonRequest(
-      this.pendingRepoOps,
-      'ro',
-      35_000,
-      () => ({ ok: false, output: 'no daemon answered the git request in time' }),
-      (requestId) => ({ type: 'repoOpRequest', requestId, op, cwd, ...(args ? { args } : {}) }),
-      machineId ?? this.machines.resolveMachine(undefined, cwd),
-    )
+    return this.rpc.repoOp(op, cwd, args, machineId)
   }
 
   /** One-shot `claude -p` / `codex exec` / `grok -p` on a dev machine. */
@@ -1943,28 +1791,9 @@ export class SessionRegistry {
     systemPrompt?: string
     mcpConfig?: string
     allowedTools?: string[]
-    /** Kill budget for the CLI run, ms (daemon default 240s). The server-side
-     *  wait adds 10s slack over it so the daemon's own timeout reports first. */
     timeoutMs?: number
   }): Promise<OpResult> {
-    return this.daemonRequest(
-      this.pendingHarnessExecs,
-      'hx',
-      (input.timeoutMs ?? 240_000) + 10_000,
-      () => ({ ok: false, output: 'harness run timed out' }),
-      (requestId) => ({
-        type: 'harnessExecRequest',
-        requestId,
-        agent: input.agent,
-        prompt: input.prompt,
-        ...(input.model && input.model !== 'auto' ? { model: input.model } : {}),
-        ...(input.cwd ? { cwd: input.cwd } : {}),
-        ...(input.systemPrompt ? { systemPrompt: input.systemPrompt } : {}),
-        ...(input.mcpConfig ? { mcpConfig: input.mcpConfig } : {}),
-        ...(input.allowedTools ? { allowedTools: input.allowedTools } : {}),
-        ...(input.timeoutMs ? { timeoutMs: input.timeoutMs } : {}),
-      }),
-    )
+    return this.rpc.harnessExec(input)
   }
 
   // ---- Headless harness sessions — delegates to modules/superagent/headless ----
@@ -2022,36 +1851,14 @@ export class SessionRegistry {
     return this.headless.headlessBind(input)
   }
 
-  /**
-   * Route an image upload to the owning daemon. The daemon writes the decoded
-   * base64 bytes to ~/.podium/uploads/<sessionId>/<id>.<ext> and returns the
-   * absolute path. Resolves with that path so the caller can insert it into a
-   * prompt — Claude Code reads images by path.
-   */
+  /** Route an image upload to the owning daemon (modules/machines/rpc). */
   uploadImage(input: {
     sessionId: string
     filename: string
     mimeType: string
     dataBase64: string
   }): Promise<{ path: string; error?: string }> {
-    // The upload is written to (and read back by) the machine that runs the session,
-    // so the returned path is valid in that session's prompt.
-    const session = this.sessions.get(input.sessionId)
-    return this.daemonRequest(
-      this.pendingUploads,
-      'iu',
-      30_000,
-      () => ({ path: '' }),
-      (requestId) => ({
-        type: 'imageUploadRequest',
-        requestId,
-        sessionId: input.sessionId,
-        filename: input.filename,
-        mimeType: input.mimeType,
-        dataBase64: input.dataBase64,
-      }),
-      session?.machineId,
-    )
+    return this.rpc.uploadImage(input)
   }
 
   /** Ask a daemon who owns the used memory (modules/hosts). */
@@ -2481,11 +2288,7 @@ export class SessionRegistry {
       }
       case 'scanResult': {
         this.conversations.onDiscovery(machineId, msg.conversations, msg.diagnostics, msg.removed)
-        const resolve = this.pendingScans.get(msg.requestId)
-        if (resolve) {
-          this.pendingScans.delete(msg.requestId)
-          resolve({ conversations: msg.conversations, diagnostics: msg.diagnostics })
-        }
+        this.rpc.onScanResult(msg)
         break
       }
       case 'conversationsChanged': {
@@ -2493,11 +2296,7 @@ export class SessionRegistry {
         break
       }
       case 'scanReposResult': {
-        const resolve = this.pendingRepoScans.get(msg.requestId)
-        if (resolve) {
-          this.pendingRepoScans.delete(msg.requestId)
-          resolve({ repositories: msg.repositories, diagnostics: msg.diagnostics })
-        }
+        this.rpc.onScanReposResult(msg)
         break
       }
       case 'hostMetrics': {
@@ -2601,19 +2400,11 @@ export class SessionRegistry {
         break
       }
       case 'repoOpResult': {
-        const resolve = this.pendingRepoOps.get(msg.requestId)
-        if (resolve) {
-          this.pendingRepoOps.delete(msg.requestId)
-          resolve({ ok: msg.ok, output: msg.output })
-        }
+        this.rpc.onRepoOpResult(msg)
         break
       }
       case 'harnessExecResult': {
-        const resolve = this.pendingHarnessExecs.get(msg.requestId)
-        if (resolve) {
-          this.pendingHarnessExecs.delete(msg.requestId)
-          resolve({ ok: msg.ok, output: msg.output })
-        }
+        this.rpc.onHarnessExecResult(msg)
         break
       }
       case 'headlessTurnEvent': {
@@ -2629,32 +2420,15 @@ export class SessionRegistry {
         break
       }
       case 'usageResult': {
-        const resolve = this.pendingUsage.get(msg.requestId)
-        if (resolve) {
-          this.pendingUsage.delete(msg.requestId)
-          resolve({ hostname: msg.hostname, buckets: msg.buckets })
-        }
+        this.rpc.onUsageResult(msg)
         break
       }
       case 'agentQuotaResult': {
-        const resolve = this.pendingAgentQuota.get(msg.requestId)
-        if (resolve) {
-          this.pendingAgentQuota.delete(msg.requestId)
-          resolve({ hostname: msg.hostname, agents: msg.agents })
-        }
+        this.rpc.onAgentQuotaResult(msg)
         break
       }
       case 'transcriptReadResult': {
-        const resolve = this.pendingTranscriptReads.get(msg.requestId)
-        if (resolve) {
-          this.pendingTranscriptReads.delete(msg.requestId)
-          resolve({
-            items: msg.items,
-            ...(msg.head !== undefined ? { head: msg.head } : {}),
-            ...(msg.tail !== undefined ? { tail: msg.tail } : {}),
-            hasMore: msg.hasMore,
-          })
-        }
+        this.rpc.onTranscriptReadResult(msg)
         break
       }
       case 'transcriptMirrorResult': {
@@ -2662,11 +2436,7 @@ export class SessionRegistry {
         break
       }
       case 'imageUploadResult': {
-        const resolve = this.pendingUploads.get(msg.requestId)
-        if (resolve) {
-          this.pendingUploads.delete(msg.requestId)
-          resolve({ path: msg.path, ...(msg.error !== undefined ? { error: msg.error } : {}) })
-        }
+        this.rpc.onImageUploadResult(msg)
         break
       }
       case 'memoryBreakdownResult': {
@@ -2674,39 +2444,19 @@ export class SessionRegistry {
         break
       }
       case 'fileReadResult': {
-        const resolve = this.pendingFileReads.get(msg.requestId)
-        if (resolve) {
-          this.pendingFileReads.delete(msg.requestId)
-          const { type: _t, requestId: _r, ...payload } = msg
-          resolve(payload)
-        }
+        this.rpc.onFileReadResult(msg)
         break
       }
       case 'fileWriteResult': {
-        const resolve = this.pendingFileWrites.get(msg.requestId)
-        if (resolve) {
-          this.pendingFileWrites.delete(msg.requestId)
-          const { type: _t, requestId: _r, ...payload } = msg
-          resolve(payload)
-        }
+        this.rpc.onFileWriteResult(msg)
         break
       }
       case 'fileAssetResult': {
-        const resolve = this.pendingFileAssets.get(msg.requestId)
-        if (resolve) {
-          this.pendingFileAssets.delete(msg.requestId)
-          const { type: _t, requestId: _r, ...payload } = msg
-          resolve(payload)
-        }
+        this.rpc.onFileAssetResult(msg)
         break
       }
       case 'dirListResult': {
-        const resolve = this.pendingDirLists.get(msg.requestId)
-        if (resolve) {
-          this.pendingDirLists.delete(msg.requestId)
-          const { type: _t, requestId: _r, ...payload } = msg
-          resolve(payload)
-        }
+        this.rpc.onDirListResult(msg)
         break
       }
     }
@@ -2720,74 +2470,15 @@ export class SessionRegistry {
     return this.sessions.get(sessionId)?.transcriptItems() ?? []
   }
 
-  /**
-   * Transcript for the chat view — a pure daemon round-trip; disk is the source of
-   * truth. Reads the requested window of `limit` items relative to `anchor` (a
-   * cursor) in `direction` ('before' = older, 'after' = newer; no anchor = the
-   * latest window). The daemon resolves the on-disk transcript from the session's
-   * agentKind/cwd/resume and serves the slice — so a LIVE session with an empty
-   * recent-delta cache (e.g. right after a server restart) still loads its history
-   * straight off disk, instead of the old short-circuit that returned an empty
-   * buffer. Resolves an empty, hasMore:false page when the session is unknown or no
-   * daemon answers.
-   */
-  /** The recorded segment path for a session's conversation, shaped for message
-   *  spreads (`{pathHint}` or undefined). Lookup only — never derives. */
-  private transcriptPathHint(session: {
-    machineId: string
-    resume?: { value: string }
-  }): { pathHint: string } | undefined {
-    const nativeId = session.resume?.value
-    if (!nativeId) return undefined
-    const path = this.store.conversationSegmentPath(session.machineId, nativeId)
-    return path ? { pathHint: path } : undefined
-  }
-
-  async readTranscript(input: {
+  /** Transcript window for the chat view — daemon-first, lake fallback
+   *  (modules/machines/rpc). */
+  readTranscript(input: {
     sessionId: string
     anchor?: string
     direction: 'before' | 'after'
     limit: number
   }): Promise<{ items: TranscriptItem[]; head?: string; tail?: string; hasMore: boolean }> {
-    const session = this.sessions.get(input.sessionId)
-    if (!session) return { items: [], hasMore: false }
-    // Daemon-first (docs/spec/search-v1.md §2.2): the native file is fresher than
-    // the mirror. But a machine with no live daemon socket can't answer at all —
-    // skip straight to the lake rather than stalling the chat view for the full
-    // request timeout to learn that.
-    const fromDaemon = this.machines.hasDaemon(session.machineId)
-      ? await this.daemonRequest<{
-          items: TranscriptItem[]
-          head?: string
-          tail?: string
-          hasMore: boolean
-        }>(
-          this.pendingTranscriptReads,
-          'tr',
-          SCAN_TIMEOUT_MS,
-          () => ({ items: [], hasMore: false }),
-          (requestId) => ({
-            type: 'transcriptRead',
-            requestId,
-            sessionId: input.sessionId,
-            agentKind: session.agentKind,
-            cwd: session.cwd,
-            ...(session.resume ? { resume: session.resume } : {}),
-            // Segment evidence beats cwd derivation: the recorded absolute path (from
-            // discovery scans) survives worktree moves; the daemon still falls back to
-            // derivation + sweep when absent/stale (conversation registry §3.3).
-            ...(this.transcriptPathHint(session) ?? {}),
-            ...(input.anchor ? { anchor: input.anchor } : {}),
-            direction: input.direction,
-            limit: input.limit,
-          }),
-          session.machineId, // the transcript file lives on the session's machine
-        )
-      : undefined
-    if (fromDaemon && fromDaemon.items.length > 0) return fromDaemon
-    // Empty/timeout daemon answer (or no daemon): serve from the mirrored copy.
-    const fromLake = await this.conversations.readTranscriptFromLake(session, input)
-    return fromLake ?? fromDaemon ?? { items: [], hasMore: false }
+    return this.rpc.readTranscript(input)
   }
 
   listDir(input: {
@@ -2795,95 +2486,19 @@ export class SessionRegistry {
     root: string
     path?: string
   }): Promise<Omit<DirListResultMessage, 'type' | 'requestId'>> {
-    const path = input.path ?? input.root
-    return this.daemonRequest(
-      this.pendingDirLists,
-      'dl',
-      FILE_RPC_TIMEOUT_MS,
-      () => ({ ok: false, path, entries: [], error: 'timeout' }),
-      (requestId) => ({ type: 'dirListRequest', requestId, root: input.root, path }),
-      input.machineId ?? this.defaultMachineId(),
-    )
+    return this.rpc.listDir(input)
   }
 
   readFile(
     input: { sessionId: string; path: string } | { machineId?: string; root: string; path: string },
   ): Promise<Omit<FileReadResultMessage, 'type' | 'requestId'>> {
-    if ('sessionId' in input) {
-      const session = this.sessions.get(input.sessionId)
-      if (!session) return Promise.resolve({ ok: false, path: input.path, error: 'no session' })
-      const knownPath = knownPathsFor(session.transcriptItems()).has(input.path)
-      return this.daemonRequest(
-        this.pendingFileReads,
-        'fr',
-        FILE_RPC_TIMEOUT_MS,
-        () => ({ ok: false, path: input.path, error: 'timeout' }),
-        (requestId) => ({
-          type: 'fileReadRequest',
-          requestId,
-          cwd: session.cwd,
-          path: input.path,
-          knownPath,
-        }),
-        session.machineId,
-      )
-    }
-    return this.daemonRequest(
-      this.pendingFileReads,
-      'fr',
-      FILE_RPC_TIMEOUT_MS,
-      () => ({ ok: false, path: input.path, error: 'timeout' }),
-      (requestId) => ({
-        type: 'fileReadRequest',
-        requestId,
-        cwd: input.root,
-        path: input.path,
-        knownPath: false,
-      }),
-      input.machineId ?? this.defaultMachineId(),
-    )
+    return this.rpc.readFile(input)
   }
 
   readAsset(
     input: { sessionId: string; path: string } | { machineId?: string; root: string; path: string },
   ): Promise<Omit<FileAssetResultMessage, 'type' | 'requestId'>> {
-    if ('sessionId' in input) {
-      const session = this.sessions.get(input.sessionId)
-      if (!session) return Promise.resolve({ ok: false, path: input.path, error: 'no session' })
-      const knownPath = knownPathsFor(session.transcriptItems()).has(input.path)
-      return this.daemonRequest(
-        this.pendingFileAssets,
-        'fa',
-        FILE_RPC_TIMEOUT_MS,
-        () => ({ ok: false, path: input.path, error: 'timeout' }),
-        (requestId) => ({
-          type: 'fileAssetRequest',
-          requestId,
-          cwd: session.cwd,
-          path: input.path,
-          knownPath,
-        }),
-        session.machineId, // the asset lives in the session's cwd on its machine
-      )
-    }
-    // Worktree-scoped variant (issue panel artifacts, worktree md images): same
-    // daemon sandbox as fileReadRequest — cwd = the worktree root. Artifact paths
-    // may be worktree-relative; the daemon realpaths them, so absolutize here.
-    const absPath = isAbsolute(input.path) ? input.path : join(input.root, input.path)
-    return this.daemonRequest(
-      this.pendingFileAssets,
-      'fa',
-      FILE_RPC_TIMEOUT_MS,
-      () => ({ ok: false, path: input.path, error: 'timeout' }),
-      (requestId) => ({
-        type: 'fileAssetRequest',
-        requestId,
-        cwd: input.root,
-        path: absPath,
-        knownPath: false,
-      }),
-      input.machineId ?? this.defaultMachineId(),
-    )
+    return this.rpc.readAsset(input)
   }
 
   writeFile(
@@ -2891,34 +2506,7 @@ export class SessionRegistry {
       | { sessionId: string; path: string; content: string; baseHash?: string }
       | { machineId?: string; root: string; path: string; content: string; baseHash?: string },
   ): Promise<Omit<FileWriteResultMessage, 'type' | 'requestId'>> {
-    const build = (requestId: string, cwd: string) => ({
-      type: 'fileWriteRequest' as const,
-      requestId,
-      cwd,
-      path: input.path,
-      content: input.content,
-      ...(input.baseHash ? { baseHash: input.baseHash } : {}),
-    })
-    if ('sessionId' in input) {
-      const session = this.sessions.get(input.sessionId)
-      if (!session) return Promise.resolve({ ok: false, error: 'no session' })
-      return this.daemonRequest(
-        this.pendingFileWrites,
-        'fw',
-        FILE_RPC_TIMEOUT_MS,
-        () => ({ ok: false, error: 'timeout' }),
-        (requestId) => build(requestId, session.cwd),
-        session.machineId,
-      )
-    }
-    return this.daemonRequest(
-      this.pendingFileWrites,
-      'fw',
-      FILE_RPC_TIMEOUT_MS,
-      () => ({ ok: false, error: 'timeout' }),
-      (requestId) => build(requestId, input.root),
-      input.machineId ?? this.defaultMachineId(),
-    )
+    return this.rpc.writeFile(input)
   }
 
   setConversationMeta(input: { id: string; name?: string; summary?: string }): void {
