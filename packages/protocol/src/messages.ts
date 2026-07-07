@@ -105,6 +105,13 @@ export const SessionMeta = z.object({
   origin: SessionOrigin,
   agentState: AgentRuntimeState.optional(),
   archived: z.boolean(),
+  /** Email-style read state (issue #124). Global (single-operator) — the ISO time
+   *  the operator last opened this session, or null if never opened. */
+  readAt: z.string().nullable().catch(null).default(null),
+  /** Server-DERIVED: there is activity the operator hasn't seen —
+   *  `lastActiveAt > readAt`, or `readAt` is null (never opened). Defaulted so a
+   *  pre-field cached payload still validates (unread → false). */
+  unread: z.boolean().catch(false).default(false),
   workState: WorkState.optional(),
   /** True when a resume ref is known — hibernate→resume is possible. */
   resumable: z.boolean().optional(),
@@ -759,6 +766,14 @@ export const IssueWire = z.object({
   createdAt: z.string(),
   updatedAt: z.string(),
   archived: z.boolean(),
+  /** Email-style read state (issue #124). Global (single-operator) — the ISO time
+   *  the operator last opened this issue, or null if never opened. */
+  readAt: z.string().nullable().catch(null).default(null),
+  /** Server-DERIVED: there is activity newer than `readAt` — the issue's most
+   *  recent activity (latest of updatedAt / member-session lastActiveAt) postdates
+   *  `readAt`, or `readAt` is null and the issue has ever had activity. Defaulted so
+   *  a pre-field cached payload still validates (unread → false). */
+  unread: z.boolean().catch(false).default(false),
   /** Whose INTENT this issue captures (issue-as-workspace). Defaulted at parse
    *  so pre-field cached payloads still validate. */
   origin: z.enum(['human', 'agent']).catch('human').default('human'),

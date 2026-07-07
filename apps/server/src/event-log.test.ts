@@ -165,6 +165,51 @@ describe('IssueService event emission', () => {
     expect(store.listEventsSince(0, { kinds: ['issue.needs_human_cleared'] }).length).toBe(1)
   })
 
+  // Attention-state transitions S3 renders (issue #124).
+  it('markIssueRead emits issue.read', () => {
+    const { svc, store } = harness()
+    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    svc.markIssueRead(a.id)
+    const evs = store.listEventsSince(0, { kinds: ['issue.read'] })
+    expect(evs.length).toBe(1)
+    expect(evs[0]).toMatchObject({ subject: a.id, payload: { seq: a.seq } })
+  })
+
+  it('pin change emits issue.pinned with the new value (both directions)', () => {
+    const { svc, store } = harness()
+    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    svc.update(a.id, { pinned: true })
+    svc.update(a.id, { pinned: true }) // no change — no duplicate event
+    svc.update(a.id, { pinned: false })
+    const evs = store.listEventsSince(0, { kinds: ['issue.pinned'] })
+    expect(evs.length).toBe(2)
+    expect(evs[0]).toMatchObject({ subject: a.id, payload: { seq: a.seq, pinned: true } })
+    expect(evs[1]).toMatchObject({ subject: a.id, payload: { seq: a.seq, pinned: false } })
+  })
+
+  it('defer/undefer emit issue.snoozed / issue.unsnoozed', () => {
+    const { svc, store } = harness()
+    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    svc.defer(a.id, '2999-01-01')
+    svc.defer(a.id, null)
+    const snoozed = store.listEventsSince(0, { kinds: ['issue.snoozed'] })
+    expect(snoozed.length).toBe(1)
+    expect(snoozed[0]).toMatchObject({ subject: a.id, payload: { seq: a.seq, until: '2999-01-01' } })
+    const unsnoozed = store.listEventsSince(0, { kinds: ['issue.unsnoozed'] })
+    expect(unsnoozed.length).toBe(1)
+    expect(unsnoozed[0]).toMatchObject({ subject: a.id, payload: { seq: a.seq } })
+  })
+
+  it('archive emits issue.archived once (on the false->true flip)', () => {
+    const { svc, store } = harness()
+    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    svc.archive(a.id)
+    svc.archive(a.id) // already archived — no duplicate event
+    const evs = store.listEventsSince(0, { kinds: ['issue.archived'] })
+    expect(evs.length).toBe(1)
+    expect(evs[0]).toMatchObject({ subject: a.id, payload: { seq: a.seq } })
+  })
+
   it('start emits issue.started with branch + worktreePath', async () => {
     const { svc, store } = harness()
     const a = svc.create({ repoPath: '/r', title: 'Fix login', startNow: false })

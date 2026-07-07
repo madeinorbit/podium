@@ -79,6 +79,8 @@ describe('SocketHub', () => {
       lastActiveAt: '2026-06-03T00:00:00.000Z',
       origin: { kind: 'spawn' as const },
       archived: false,
+      readAt: null,
+      unread: false,
     }
     sock.recv({ type: 'sessionsChanged', sessions: [meta] })
     expect(hub.sessions()).toEqual([meta])
@@ -186,6 +188,8 @@ describe('SocketHub', () => {
       lastActiveAt: '2026-06-03T00:00:00.000Z',
       origin: { kind: 'spawn' as const },
       archived: false,
+      readAt: null,
+      unread: false,
     }
     const titles: string[] = []
     hub.onSessions((s) => {

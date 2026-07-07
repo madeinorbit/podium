@@ -25,6 +25,8 @@ function meta(over: Partial<SessionMeta>): SessionMeta {
     lastActiveAt: '2026-06-03T00:00:00.000Z',
     origin: { kind: 'spawn' },
     archived: false,
+    readAt: null,
+    unread: false,
     ...over,
   }
 }

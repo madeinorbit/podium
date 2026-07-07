@@ -496,6 +496,14 @@ export const appRouter = t.router({
           ctx.registry.setArchived(input),
         ),
       ),
+    // Mark a session read (issue #124): stamp read_at = now, flipping derived `unread`.
+    markRead: t.procedure
+      .input(z.object({ sessionId: z.string(), mutationId: z.string().max(128).optional() }))
+      .mutation(({ ctx, input }) =>
+        ctx.registry.withMutation(input.mutationId, 'sessions.markRead', () =>
+          ctx.registry.markSessionRead(input.sessionId),
+        ),
+      ),
     // Move (or clear) a session's explicit issue attachment (issue-as-workspace).
     setIssueId: t.procedure
       .input(
@@ -1379,6 +1387,16 @@ export const appRouter = t.router({
       .input(z.object({ id: z.string(), until: z.string().nullable() }))
       .mutation(({ ctx, input }) =>
         issueWrite(ctx, 'defer', input, () => ctx.registry.issues.defer(input.id, input.until)),
+      ),
+    // Mark an issue read (issue #124): stamp read_at = now, flipping derived `unread`.
+    // Node-local read-tracking — deliberately NOT issueWrite (never hub-forwarded) and
+    // unlisted in PROC_ACTION, so it needs only 'read' authority (reading marks read).
+    markRead: issueProc
+      .input(z.object({ id: z.string(), mutationId: z.string().max(128).optional() }))
+      .mutation(({ ctx, input }) =>
+        ctx.registry.withMutation(input.mutationId, 'issues.markRead', () =>
+          ctx.registry.issues.markIssueRead(input.id),
+        ),
       ),
     setNeedsHuman: issueProc
       .input(z.object({ id: z.string(), question: z.string().optional() }))

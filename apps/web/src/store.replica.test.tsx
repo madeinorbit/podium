@@ -1,8 +1,9 @@
-import type { SessionMeta, SyncChangesSinceResult } from '@podium/protocol'
+import type { IssueWire, SessionMeta, SyncChangesSinceResult } from '@podium/protocol'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createReplica } from './replica'
+import { makeIssue } from './test-issue'
 
 // ---------------------------------------------------------------------------
 // Store ↔ replica wiring (docs/spec/thin-client-replica.md §2.2): hydrate-first
@@ -33,7 +34,11 @@ const fakeTrpc = {
   pins: { list: { query: async () => ({ panels: [], worktrees: [], repos: [] }) } },
   tabs: { listOrders: { query: async () => ({}) } },
   settings: { get: { query: async () => ({ sidebar: { repoSort: 'lastUsed', repoOrder: [] } }) } },
-  sessions: { rename: { mutate: async () => ({}) } },
+  sessions: {
+    rename: { mutate: async () => ({}) },
+    markRead: { mutate: async () => ({}) },
+  },
+  issues: { markRead: { mutate: async () => ({}) } },
 }
 
 vi.mock('./trpc', () => ({ makeTrpc: () => fakeTrpc }))
@@ -72,14 +77,16 @@ function session(id: string, title = id): SessionMeta {
     lastActiveAt: '2026-07-01T00:00:00.000Z',
     origin: { kind: 'spawn' },
     archived: false,
+    readAt: null,
+    unread: false,
   }
 }
 
-let latest: { sessions: SessionMeta[] } = { sessions: [] }
+let latest: { sessions: SessionMeta[]; issues: IssueWire[] } = { sessions: [], issues: [] }
 let latestStore: ReturnType<typeof useStore> | null = null
 function Probe(): null {
   const store = useStore()
-  latest = { sessions: store.sessions }
+  latest = { sessions: store.sessions, issues: store.issues }
   latestStore = store
   return null
 }
@@ -93,7 +100,7 @@ beforeEach(() => {
   changesSinceCalls.length = 0
   changesSinceResolve = undefined
   sockets.length = 0
-  latest = { sessions: [] }
+  latest = { sessions: [], issues: [] }
   latestStore = null
   realWS = globalThis.WebSocket
   globalThis.WebSocket = FakeWS as unknown as typeof WebSocket
@@ -194,6 +201,50 @@ describe('store ↔ replica', () => {
     const reread = createReplica()
     const h = await reread.hydrate()
     expect(h.sessions[0]?.name).toBe('renamed')
+  })
+
+  // Unread foundation (issue #124): markSessionRead / markIssueRead optimistically
+  // patch readAt + unread (the round-trip rides the outbox) and the patch persists.
+  it('markSessionRead optimistically clears unread and persists', async () => {
+    const previous = createReplica()
+    previous.applySnapshot('sessions', [{ ...session('s1'), unread: true, readAt: null }])
+    previous.setCursor(3)
+    await settle()
+
+    render()
+    await settle()
+    expect(latest.sessions[0]?.unread).toBe(true)
+
+    await act(async () => {
+      await latestStore?.markSessionRead('s1')
+    })
+    await settle()
+    expect(latest.sessions[0]?.unread).toBe(false)
+    expect(latest.sessions[0]?.readAt).not.toBeNull()
+    const reread = createReplica()
+    const h = await reread.hydrate()
+    expect(h.sessions[0]?.unread).toBe(false)
+  })
+
+  it('markIssueRead optimistically clears unread and persists', async () => {
+    const previous = createReplica()
+    previous.applySnapshot('issues', [makeIssue({ id: 'iss_1', unread: true, readAt: null })])
+    previous.setCursor(3)
+    await settle()
+
+    render()
+    await settle()
+    expect(latest.issues[0]?.unread).toBe(true)
+
+    await act(async () => {
+      await latestStore?.markIssueRead('iss_1')
+    })
+    await settle()
+    expect(latest.issues[0]?.unread).toBe(false)
+    expect(latest.issues[0]?.readAt).not.toBeNull()
+    const reread = createReplica()
+    const h = await reread.hydrate()
+    expect(h.issues[0]?.unread).toBe(false)
   })
 
   it('replica unavailable (private browsing): the legacy hub-subscription path carries sessions', async () => {

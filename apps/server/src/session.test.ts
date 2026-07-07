@@ -38,6 +38,23 @@ function makeClient(id: string): ClientConn & { sent: ServerMessage[] } {
   }
 }
 
+describe('Session unread (#124)', () => {
+  it('toMeta surfaces readAt (null when never opened) and derives unread', () => {
+    const s = makeSession()
+    // Never opened: readAt null, and lastActiveAt (defaults to createdAt) counts as
+    // unseen activity → unread.
+    expect(s.toMeta().readAt).toBeNull()
+    expect(s.toMeta().unread).toBe(true)
+    // Opened AFTER the last activity → read.
+    s.readAt = '2026-06-03T01:00:00.000Z'
+    expect(s.toMeta().readAt).toBe('2026-06-03T01:00:00.000Z')
+    expect(s.toMeta().unread).toBe(false)
+    // Opened BEFORE the last activity → unread again.
+    s.readAt = '2026-06-02T00:00:00.000Z'
+    expect(s.toMeta().unread).toBe(true)
+  })
+})
+
 describe('Session', () => {
   it('first attached client becomes controller and gets an attached snapshot', () => {
     const s = makeSession()

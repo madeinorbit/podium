@@ -38,7 +38,8 @@ describe('repo_id schema (v8, #74)', () => {
     const v = db(s).prepare("SELECT value FROM meta WHERE key = 'schema_version'").get() as {
       value: string
     }
-    expect(v.value).toBe('8')
+    // Coherence marker: 9 after email-style read state (#124) bumped it 8 -> 9.
+    expect(v.value).toBe('9')
     s.close()
   })
 

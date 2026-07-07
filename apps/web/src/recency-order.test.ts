@@ -31,6 +31,8 @@ function meta(over: Partial<SessionMeta> & { sessionId: string }): SessionMeta {
     lastActiveAt: SAME,
     origin: { kind: 'spawn' },
     archived: false,
+    readAt: null,
+    unread: false,
     ...over,
   }
 }

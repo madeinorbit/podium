@@ -100,6 +100,8 @@ function row(overrides: Partial<SessionRow> = {}): SessionRow {
     headless: false,
     // And the explicit issue attachment (issue-as-workspace): always present, null = unattached.
     issueId: null,
+    // And email-style read state (issue #124): always present, null = never opened.
+    readAt: null,
     ...overrides,
   }
 }
@@ -188,6 +190,29 @@ describe('SessionStore sessions', () => {
     const { spawnedBy: _omit, ...legacy } = row({ id: 's2', durableLabel: 'podium-s2' })
     store.upsertSession(legacy)
     expect(store.loadSessions()[0]?.spawnedBy).toBeNull()
+    store.close()
+  })
+
+  // Email-style read state (issue #124): read_at persists like the other additive columns.
+  it('fresh DB has the read_at column', () => {
+    const store = new SessionStore(':memory:')
+    // @ts-expect-error reach the private db for a schema assertion
+    const cols = (store.db.prepare('PRAGMA table_info(sessions)').all() as { name: string }[]).map(
+      (c) => c.name,
+    )
+    expect(cols).toContain('read_at')
+    store.close()
+  })
+
+  it('round-trips read_at; a row that never had it reads null', () => {
+    const store = new SessionStore(':memory:')
+    store.upsertSession(
+      row({ id: 's_read', durableLabel: 'podium-s_read', readAt: '2026-07-07T00:00:00.000Z' }),
+    )
+    store.upsertSession(row({ id: 's_unread', durableLabel: 'podium-s_unread' }))
+    const loaded = store.loadSessions()
+    expect(loaded.find((s) => s.id === 's_read')?.readAt).toBe('2026-07-07T00:00:00.000Z')
+    expect(loaded.find((s) => s.id === 's_unread')?.readAt).toBeNull()
     store.close()
   })
 })
@@ -389,14 +414,14 @@ describe('SessionStore schema migration', () => {
     expect(store.listMachines()).toEqual([])
     store.close()
 
-    // And the version marker is now at the current schema version (8: repo_id
-    // stable repo identity bumped the coherence marker 7 -> 8; the structural
+    // And the version marker is now at the current schema version (9: email-style
+    // read state (#124) bumped the coherence marker 8 -> 9; the structural
     // migrations above still run regardless, the number is just at-a-glance).
     const reopened = new (await import('node:sqlite')).DatabaseSync(file)
     const ver = reopened.prepare('SELECT value FROM meta WHERE key = ?').get('schema_version') as
       | { value: string }
       | undefined
-    expect(ver?.value).toBe('8')
+    expect(ver?.value).toBe('9')
     reopened.close()
   })
 })

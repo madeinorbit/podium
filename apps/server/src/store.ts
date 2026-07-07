@@ -107,6 +107,9 @@ export interface SessionRow {
   /** Explicit issue attachment (issue-as-workspace). null/absent = unattached
    *  (legacy / shells) — cwd-derived worktree grouping applies. */
   issueId?: string | null
+  /** Email-style read state (issue #124): ISO time the operator last opened this
+   *  session; null/absent = never opened. Optional so pre-existing row literals stay valid. */
+  readAt?: string | null
 }
 
 /** One row of the machines table (token_hash is internal — not included here). */
@@ -172,6 +175,9 @@ export interface IssueRow {
   /** Placeholder-titled draft vessel (issue-as-workspace); retitling clears it.
    *  Optional so pre-existing row literals stay valid; absent = false. */
   draft?: boolean
+  /** Email-style read state (issue #124): ISO time the operator last opened this
+   *  issue; null/absent = never opened. Optional so pre-existing row literals stay valid. */
+  readAt?: string | null
 }
 
 export interface IssueCommentRow {
@@ -530,7 +536,7 @@ export class SessionStore {
         `SELECT id, agent_kind, cwd, title, name, origin_kind, conversation_id, resume_kind,
                 resume_value, status, exit_code, durable_label, created_at, last_active_at,
                 archived, work_state, machine_id, last_output_at, last_input_at, last_resumed_at,
-                spawned_by, headless, issue_id
+                spawned_by, headless, issue_id, read_at
          FROM sessions ORDER BY created_at ASC, rowid ASC`,
       )
       .all() as Record<string, unknown>[]
@@ -558,6 +564,7 @@ export class SessionStore {
       spawnedBy: (r.spawned_by as string | null) ?? null,
       headless: r.headless === 1,
       issueId: (r.issue_id as string | null) ?? null,
+      readAt: (r.read_at as string | null) ?? null,
     }))
   }
 
@@ -576,8 +583,8 @@ export class SessionStore {
            (id, agent_kind, cwd, title, name, origin_kind, conversation_id, resume_kind,
             resume_value, status, exit_code, durable_label, created_at, last_active_at,
             archived, work_state, machine_id, last_output_at, last_input_at, last_resumed_at,
-            spawned_by, headless, issue_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            spawned_by, headless, issue_id, read_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            title = excluded.title,
            name = excluded.name,
@@ -596,7 +603,8 @@ export class SessionStore {
            last_input_at = excluded.last_input_at,
            last_resumed_at = excluded.last_resumed_at,
            spawned_by = excluded.spawned_by,
-           issue_id = excluded.issue_id`,
+           issue_id = excluded.issue_id,
+           read_at = excluded.read_at`,
       )
       .run(
         row.id,
@@ -622,6 +630,7 @@ export class SessionStore {
         row.spawnedBy ?? null,
         row.headless ? 1 : 0,
         row.issueId ?? null,
+        row.readAt ?? null,
       )
   }
 
@@ -1277,8 +1286,8 @@ export class SessionStore {
             priority, type, assignee, parent_id, design, acceptance, notes, due_at,
             defer_until, closed_reason, superseded_by, duplicate_of, pinned, estimate_min,
             needs_human, human_question, panel,
-            created_at, updated_at, archived, origin, draft)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            created_at, updated_at, archived, origin, draft, read_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            repo_id = excluded.repo_id,
            title = excluded.title, description = excluded.description, stage = excluded.stage,
@@ -1299,7 +1308,7 @@ export class SessionStore {
            needs_human = excluded.needs_human, human_question = excluded.human_question,
            panel = excluded.panel,
            updated_at = excluded.updated_at, archived = excluded.archived,
-           origin = excluded.origin, draft = excluded.draft`,
+           origin = excluded.origin, draft = excluded.draft, read_at = excluded.read_at`,
       )
       .run(
         row.id,
@@ -1347,6 +1356,7 @@ export class SessionStore {
         row.archived ? 1 : 0,
         row.origin ?? 'human',
         row.draft ? 1 : 0,
+        row.readAt ?? null,
       )
   }
 
@@ -1397,6 +1407,7 @@ export class SessionStore {
       archived: r.archived === 1,
       origin: (r.origin as string | null) ?? 'human',
       draft: r.draft === 1,
+      readAt: (r.read_at as string | null) ?? null,
     }
   }
 
@@ -2441,7 +2452,8 @@ export class SessionStore {
          last_resumed_at TEXT,
          spawned_by TEXT,
          headless INTEGER NOT NULL DEFAULT 0,
-         issue_id TEXT
+         issue_id TEXT,
+         read_at TEXT
        )`,
     )
     // Additive column for headless harness sessions (concierge unification).
@@ -2460,6 +2472,15 @@ export class SessionStore {
       )
     ) {
       this.db.exec('ALTER TABLE sessions ADD COLUMN issue_id TEXT')
+    }
+    // Additive email-style read state (issue #124). Structural guard; legacy rows read
+    // NULL (never opened) and behave as unread until first marked read.
+    if (
+      !(this.db.prepare('PRAGMA table_info(sessions)').all() as { name: string }[]).some(
+        (c) => c.name === 'read_at',
+      )
+    ) {
+      this.db.exec('ALTER TABLE sessions ADD COLUMN read_at TEXT')
     }
     this.db.exec(
       `CREATE TABLE IF NOT EXISTS tab_order (
@@ -2747,7 +2768,8 @@ export class SessionStore {
          updated_at TEXT NOT NULL,
          archived INTEGER NOT NULL DEFAULT 0,
          origin TEXT NOT NULL DEFAULT 'human',
-         draft INTEGER NOT NULL DEFAULT 0
+         draft INTEGER NOT NULL DEFAULT 0,
+         read_at TEXT
        )`,
     )
     this.db.exec('CREATE INDEX IF NOT EXISTS idx_issues_repo ON issues(repo_path)')
@@ -2781,6 +2803,8 @@ export class SessionStore {
     addIssueCol('panel', 'panel TEXT')
     addIssueCol('origin', "origin TEXT NOT NULL DEFAULT 'human'")
     addIssueCol('draft', 'draft INTEGER NOT NULL DEFAULT 0')
+    // Email-style read state (issue #124): nullable ISO timestamp, null = never opened.
+    addIssueCol('read_at', 'read_at TEXT')
     this.db.exec(
       `CREATE TABLE IF NOT EXISTS issue_labels (
          issue_id TEXT NOT NULL,
@@ -3017,13 +3041,16 @@ export class SessionStore {
       (this.db.prepare('PRAGMA table_info(repos)').all() as { name: string }[]).map((c) => c.name),
     )
     if (!repoColsV8.has('repo_id')) this.db.exec('ALTER TABLE repos ADD COLUMN repo_id TEXT')
+    // v8 -> v9: email-style read state (issue #124) — additive read_at columns on
+    // issues + sessions. Structural guards above do the real migration; this marker is
+    // just the at-a-glance coherence bump.
     const v = this.db.prepare('SELECT value FROM meta WHERE key = ?').get('schema_version') as
       | { value: string }
       | undefined
-    if (!v || Number(v.value) < 8)
+    if (!v || Number(v.value) < 9)
       this.db
         .prepare('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)')
-        .run('schema_version', '8')
+        .run('schema_version', '9')
     this.importReposJson()
     this.backfillRepoIds()
   }
