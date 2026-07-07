@@ -331,6 +331,33 @@ describe('IssueService.start', () => {
     expect(deps.spawnSession).toHaveBeenLastCalledWith(expect.objectContaining({ machineId: 'mach-b' }))
   })
 
+  it('pre-flights the machine pin: a failing requireMachineForRepo aborts before any work', async () => {
+    const { svc, deps } = harness()
+    deps.requireMachineForRepo = vi.fn(() => {
+      throw new Error("machine 'laptop' is offline — bring its daemon online or clear the issue's machine pin")
+    })
+    const created = svc.create({ repoPath: '/r', title: 'Remote', startNow: false, machineId: 'mach-b' })
+    await expect(svc.start(created.id)).rejects.toThrow(/machine 'laptop' is offline/)
+    expect(deps.requireMachineForRepo).toHaveBeenCalledWith('mach-b', '/r')
+    expect(deps.repoOp).not.toHaveBeenCalled()
+    expect(deps.spawnSession).not.toHaveBeenCalled()
+    // addSession on a started issue is guarded too
+    deps.requireMachineForRepo = vi.fn()
+    await svc.start(created.id)
+    ;(deps.requireMachineForRepo as ReturnType<typeof vi.fn>).mockImplementation(() => {
+      throw new Error("machine 'laptop' has no repo registered at /r")
+    })
+    expect(() => svc.addSession(created.id)).toThrow(/no repo registered/)
+  })
+
+  it('unpinned issues skip the machine pre-flight', async () => {
+    const { svc, deps } = harness()
+    deps.requireMachineForRepo = vi.fn(() => { throw new Error('should not be called') })
+    const created = svc.create({ repoPath: '/r', title: 'Local', startNow: false })
+    await svc.start(created.id)
+    expect(deps.requireMachineForRepo).not.toHaveBeenCalled()
+  })
+
   it('machineId persists through the store and clears via update(null)', () => {
     const { svc, store } = harness()
     const w = svc.create({ repoPath: '/r', title: 'X', startNow: false, machineId: 'mach-b' })

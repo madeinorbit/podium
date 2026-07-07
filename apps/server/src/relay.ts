@@ -561,6 +561,8 @@ export class SessionRegistry {
           ...(o.machineId ? { machineId: o.machineId } : {}),
         }),
       repoOp: (op, cwd, args, machineId) => this.repoOp(op, cwd, args, machineId),
+      requireMachineForRepo: (machineId, repoPath) =>
+        this.requireMachineForRepo(machineId, repoPath),
       getSessionIssueId: (sessionId) => this.getSessionIssueId(sessionId),
       setSessionIssueId: (sessionId, issueId) => this.setSessionIssueId(sessionId, issueId),
       setSessionArchived: (sessionId, archived) => this.setArchived({ sessionId, archived }),
@@ -1265,6 +1267,30 @@ export class SessionRegistry {
   private resolveMachine(requested: string | undefined, cwd: string): string {
     if (requested && this.daemons.has(requested)) return requested
     return this.pickMachineForRepo(undefined, cwd)
+  }
+
+  /**
+   * Guard an explicit machine pin BEFORE any work is routed to it. Without this,
+   * an offline machine silently queues the request until the 35s daemonRequest
+   * timeout ("no daemon answered…") — and the queued op may still run when the
+   * machine reconnects; a machine without the repo fails later with raw git-speak.
+   * Throwing here gives the caller an actionable message instead.
+   */
+  requireMachineForRepo(machineId: string, repoPath: string): void {
+    const name = this.machineName(machineId)
+    if (!this.daemons.has(machineId)) {
+      throw new Error(
+        `machine '${name}' is offline — bring its daemon online or clear the issue's machine pin`,
+      )
+    }
+    const hasRepo = this.store
+      .listRepos(machineId)
+      .some((r) => repoPath === r.path || repoPath.startsWith(`${r.path}/`))
+    if (!hasRepo) {
+      throw new Error(
+        `machine '${name}' has no repo registered at ${repoPath} — clone/register the repo on that machine or clear the issue's machine pin`,
+      )
+    }
   }
 
   /**
