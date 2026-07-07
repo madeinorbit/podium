@@ -5,6 +5,7 @@ import { dirname, join } from 'node:path'
 import { normalizeSettings, type PodiumSettings } from '@podium/core'
 import { openDatabase, type SqlDatabase } from '@podium/core/sqlite'
 import { AgentKind, IssueStage } from '@podium/protocol'
+import { MIGRATIONS, runMigrations } from './migrations/index'
 import { deriveRepoId, isPathFallbackRepoId, readLocalOriginUrl } from './repo-id'
 
 export type PinKind = 'panel' | 'worktree' | 'repo'
@@ -321,6 +322,10 @@ export class SessionStore {
   constructor(private readonly path: string = defaultDbPath()) {
     if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true })
     this.db = openDatabase(path)
+    // Versioned migration runner first (stamps schema_version, refuses to open a
+    // DB newer than the code), then the legacy idempotent DDL — Phase 1 converts
+    // the latter into numbered migrations (see src/migrations/).
+    runMigrations(this.db, MIGRATIONS)
     this.migrate()
   }
 
