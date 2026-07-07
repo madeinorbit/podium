@@ -1,3 +1,4 @@
+import type { ControlMessage } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import type { CloudAgentRequest, CloudRuntime, CloudRuntimeProvider } from './cloud-runtime'
 import { OPERATOR } from './issue-authz'
@@ -6,9 +7,24 @@ import { RepoRegistry } from './repo-registry'
 import { appRouter } from './router'
 import { SuperagentService } from './superagent'
 
-function caller(cloud?: CloudRuntimeProvider) {
+const geometry = { cols: 80, rows: 24 }
+
+const bind = (sessionId: string, cwd: string, agentKind: 'claude-code' | 'codex') =>
+  ({
+    type: 'bind',
+    sessionId,
+    cmd: agentKind === 'codex' ? 'codex' : 'claude',
+    cwd,
+    agentKind,
+    geometry,
+  }) as const
+
+function caller(
+  cloud?: CloudRuntimeProvider,
+  onDaemon: (message: ControlMessage) => void = () => {},
+) {
   const registry = new SessionRegistry()
-  registry.attachDaemon('local', () => {})
+  registry.attachDaemon('local', onDaemon)
   const repos = new RepoRegistry(registry, registry.sessionStore)
   const superagent = new SuperagentService(registry, repos, registry.sessionStore)
   const call = appRouter.createCaller({ registry, repos, superagent, cloud, capability: OPERATOR })
@@ -132,6 +148,49 @@ describe('cloud router', () => {
         },
       },
     ])
+  })
+
+  it('can hibernate the local session after creating the cloud agent', async () => {
+    const cloud = captureCloudProvider()
+    const daemon: ControlMessage[] = []
+    const { call, registry } = caller(cloud.provider, (message) => daemon.push(message))
+    registry.sessionStore.addRepo(
+      '/workspace/podium',
+      'local',
+      'https://github.com/madeinorbit/podium.git',
+    )
+    const { sessionId } = registry.createSession({
+      agentKind: 'claude-code',
+      cwd: '/workspace/podium',
+      spawnedBy: 'user',
+    })
+    registry.onDaemonMessageFrom('local', bind(sessionId, '/workspace/podium', 'claude-code'))
+    registry.onDaemonMessageFrom('local', {
+      type: 'sessionResumeRef',
+      sessionId,
+      resume: { kind: 'claude-session', value: 'claude-resume-1' },
+    })
+
+    const runtime = await call.cloud.moveSession({
+      sessionId,
+      tenantId: 'tenant_1',
+      hibernateLocal: true,
+    })
+
+    expect(runtime.id).toBe('cloud-runtime-1')
+    expect(daemon).toContainEqual({ type: 'kill', sessionId })
+    expect(registry.listSessions().find((s) => s.sessionId === sessionId)?.status).toBe(
+      'hibernated',
+    )
+    expect(cloud.createdAgents.at(-1)).toMatchObject({
+      sourceSession: {
+        sessionId,
+        agent: 'claude-code',
+        resumeRef: 'claude-resume-1',
+        cwd: '/workspace/podium',
+        machineId: 'local',
+      },
+    })
   })
 
   it('rejects moving a session without a resume ref', async () => {

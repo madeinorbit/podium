@@ -80,6 +80,7 @@ const cloudMoveSessionInput = z.object({
   tenantId: z.string().min(1),
   size: cloudRuntimeSizeInput.optional(),
   repo: cloudRepoInput.optional(),
+  hibernateLocal: z.boolean().optional(),
 })
 const cloudRuntimeIdInput = z.object({ id: z.string().min(1) })
 
@@ -267,9 +268,24 @@ export const appRouter = t.router({
       if (!session.resume?.value) {
         throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'session has no resume ref' })
       }
+      if (input.hibernateLocal) {
+        if (session.status !== 'live') {
+          throw new TRPCError({
+            code: 'PRECONDITION_FAILED',
+            message: 'local session cannot be hibernated: not running',
+          })
+        }
+        const phase = session.agentState?.phase
+        if (phase === 'working' || phase === 'compacting') {
+          throw new TRPCError({
+            code: 'PRECONDITION_FAILED',
+            message: 'local session cannot be hibernated: agent is working',
+          })
+        }
+      }
 
       try {
-        return await cloudProvider(ctx).createCloudAgent({
+        const runtime = await cloudProvider(ctx).createCloudAgent({
           tenantId: input.tenantId,
           displayName: session.name?.trim() || session.title || `${agent} session`,
           ...(input.size ? { size: input.size } : {}),
@@ -284,6 +300,18 @@ export const appRouter = t.router({
             ...(session.machineId ? { machineId: session.machineId } : {}),
           },
         })
+
+        if (input.hibernateLocal) {
+          const parked = ctx.registry.hibernateSession({ sessionId: session.sessionId })
+          if (!parked.ok) {
+            throw new TRPCError({
+              code: 'PRECONDITION_FAILED',
+              message: `local session could not be hibernated: ${parked.reason ?? 'unknown reason'}`,
+            })
+          }
+        }
+
+        return runtime
       } catch (error) {
         cloudError(error)
       }
