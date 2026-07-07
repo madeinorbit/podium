@@ -1,0 +1,178 @@
+import { describe, expect, it } from 'vitest'
+import { checkFile, clauseIsTypeOnly, extractImports } from './check-boundaries'
+
+describe('extractImports', () => {
+  it('extracts value, type-only, side-effect, export-from and dynamic imports', () => {
+    const src = [
+      `import { a } from '@podium/core'`,
+      `import type { AppRouter } from '@podium/server'`,
+      `import '@podium/protocol'`,
+      `export { b } from '@podium/agent-bridge'`,
+      `const m = await import('@podium/terminal-client')`,
+      `const n = require('@podium/client-core')`,
+    ].join('\n')
+    const refs = extractImports(src)
+    expect(refs.map((r) => r.specifier)).toEqual([
+      '@podium/core',
+      '@podium/server',
+      '@podium/protocol',
+      '@podium/agent-bridge',
+      '@podium/terminal-client',
+      '@podium/client-core',
+    ])
+    expect(refs.map((r) => r.typeOnly)).toEqual([false, true, false, false, false, false])
+  })
+
+  it('handles multiline import clauses', () => {
+    const src = `import {\n  fileChainSource,\n  fileIdFor,\n} from '@podium/agent-bridge'`
+    expect(extractImports(src)).toEqual([{ specifier: '@podium/agent-bridge', typeOnly: false }])
+  })
+
+  it('ignores specifiers that only appear in comments', () => {
+    // Mirrors apps/server/src/model-probe.ts and apps/web/src/derive.ts, which
+    // mention agent-bridge in prose only.
+    const src = [
+      `// Kept in apps/server (rather than @podium/agent-bridge) so ...`,
+      `/* see '@podium/agent-bridge' agentLaunchCommand */`,
+      `import { z } from 'zod'`,
+    ].join('\n')
+    expect(extractImports(src)).toEqual([{ specifier: 'zod', typeOnly: false }])
+  })
+})
+
+describe('clauseIsTypeOnly', () => {
+  it('detects import type clauses', () => {
+    expect(clauseIsTypeOnly('type { AppRouter }')).toBe(true)
+    expect(clauseIsTypeOnly('type Foo')).toBe(true)
+    expect(clauseIsTypeOnly('{ type A, type B }')).toBe(true)
+  })
+  it('rejects value or mixed clauses', () => {
+    expect(clauseIsTypeOnly('{ AppRouter }')).toBe(false)
+    expect(clauseIsTypeOnly('{ type A, b }')).toBe(false)
+    expect(clauseIsTypeOnly('Foo')).toBe(false)
+    expect(clauseIsTypeOnly('* as ns')).toBe(false)
+  })
+})
+
+describe('checkFile rules', () => {
+  it('allows the grandfathered type-only web→server AppRouter import', () => {
+    const v = checkFile('apps/web/src/trpc.ts', `import type { AppRouter } from '@podium/server'`)
+    expect(v).toEqual([])
+  })
+
+  it('rejects a runtime web→server import', () => {
+    const v = checkFile('apps/web/src/trpc.ts', `import { appRouter } from '@podium/server'`)
+    expect(v).toHaveLength(1)
+    expect(v[0].rule).toBe('no-app-to-app')
+    expect(v[0].message).toContain('type-only')
+  })
+
+  it('rejects any other app→app import, even type-only', () => {
+    const v = checkFile('apps/server/src/x.ts', `import type { Y } from '@podium/daemon'`)
+    expect(v).toHaveLength(1)
+    expect(v[0].rule).toBe('no-app-to-app')
+  })
+
+  it('rejects relative imports that cross into another app (non-test files)', () => {
+    const v = checkFile('apps/server/src/x.ts', `import { repoOp } from '../../daemon/src/repo-op'`)
+    expect(v).toHaveLength(1)
+    expect(v[0].rule).toBe('no-app-to-app')
+  })
+
+  it('exempts e2e test files from the app→app rule', () => {
+    const v = checkFile(
+      'apps/server/src/issue-relay-e2e.test.ts',
+      `import { issueRelay } from '../../daemon/src/issue-relay'`,
+    )
+    expect(v).toEqual([])
+  })
+
+  it('allows agent-bridge imports from daemon, scripts and its own tests', () => {
+    for (const file of [
+      'apps/daemon/src/daemon.ts',
+      'scripts/daemon.ts',
+      'packages/agent-bridge/test/pty-behavior/abduco.bun.test.ts',
+    ]) {
+      expect(checkFile(file, `import { x } from '@podium/agent-bridge'`)).toEqual([])
+    }
+  })
+
+  it('allows grandfathered agent-bridge importers in apps/server', () => {
+    expect(
+      checkFile(
+        'apps/server/src/relay.ts',
+        `import { fileChainSource } from '@podium/agent-bridge'`,
+      ),
+    ).toEqual([])
+    expect(
+      checkFile(
+        'apps/server/src/transcript-indexer.ts',
+        `import { claudeRecordToItems } from '@podium/agent-bridge'`,
+      ),
+    ).toEqual([])
+  })
+
+  it('rejects new agent-bridge importers (not grandfathered)', () => {
+    const v = checkFile(
+      'apps/server/src/model-probe.ts',
+      `import { agentLaunchCommand } from '@podium/agent-bridge'`,
+    )
+    expect(v).toHaveLength(1)
+    expect(v[0].rule).toBe('agent-bridge-consumers')
+    const web = checkFile('apps/web/src/derive.ts', `import { x } from '@podium/agent-bridge'`)
+    expect(web).toHaveLength(1)
+    expect(web[0].rule).toBe('agent-bridge-consumers')
+  })
+
+  it('rejects subpath imports of agent-bridge too', () => {
+    const v = checkFile('apps/web/src/x.ts', `import { y } from '@podium/agent-bridge/pty'`)
+    expect(v).toHaveLength(1)
+    expect(v[0].rule).toBe('agent-bridge-consumers')
+  })
+
+  it('keeps protocol and core as leaf packages', () => {
+    const p = checkFile('packages/protocol/src/index.ts', `import { z } from '@podium/core'`)
+    expect(p).toHaveLength(1)
+    expect(p[0].rule).toBe('leaf-package')
+    const c = checkFile(
+      'packages/core/src/settings.ts',
+      `import type { T } from '@podium/protocol'`,
+    )
+    expect(c).toHaveLength(1)
+    expect(c[0].rule).toBe('leaf-package')
+    // Intra-package and external imports are fine.
+    expect(
+      checkFile('packages/core/src/index.ts', `import { z } from 'zod'\nimport './settings.js'`),
+    ).toEqual([])
+  })
+
+  it('rejects packages importing from apps, by name or relative path', () => {
+    const byName = checkFile(
+      'packages/client-core/src/x.ts',
+      `import type { AppRouter } from '@podium/server'`,
+    )
+    expect(byName).toHaveLength(1)
+    expect(byName[0].rule).toBe('packages-no-apps')
+    const relativePath = checkFile(
+      'packages/client-core/src/x.ts',
+      `import { store } from '../../../apps/server/src/store'`,
+    )
+    expect(relativePath).toHaveLength(1)
+    expect(relativePath[0].rule).toBe('packages-no-apps')
+  })
+
+  it('permits normal app→package and package→package edges', () => {
+    expect(
+      checkFile(
+        'apps/web/src/store.tsx',
+        `import { groupSessions } from '@podium/client-core/focus'\nimport type { SessionMeta } from '@podium/protocol'`,
+      ),
+    ).toEqual([])
+    expect(
+      checkFile(
+        'packages/client-core/src/transport.ts',
+        `import { WIRE_VERSION } from '@podium/protocol'`,
+      ),
+    ).toEqual([])
+  })
+})
