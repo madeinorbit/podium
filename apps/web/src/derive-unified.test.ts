@@ -7,6 +7,7 @@ import {
   isIssueSnoozed,
   isRowUnread,
   issueReturnedFromDefer,
+  rowUnreadEmphasized,
   mostUrgentSession,
   partitionUnifiedWork,
   type RepoNavView,
@@ -366,6 +367,54 @@ describe('isRowUnread (sidebar unread emphasis)', () => {
 
   it('a sessionless worktree row is read', () => {
     expect(isRowUnread(wtRow([]))).toBe(false)
+  })
+})
+
+describe('rowUnreadEmphasized (#138: suppress unread while actively working)', () => {
+  const issueRow = (
+    over: Partial<IssueWire>,
+    sessions: SessionMeta[] = [],
+  ): Extract<UnifiedWorkRow, { kind: 'issue' }> => ({
+    kind: 'issue',
+    issue: issue(over),
+    sessions,
+    activityAt: NOW,
+    rank: 0,
+  })
+  const wtRow = (sessions: SessionMeta[]): Extract<UnifiedWorkRow, { kind: 'worktree' }> => ({
+    kind: 'worktree',
+    worktree: navWt('/r/a/.worktrees/x', { isMain: false, sessions }),
+    activityAt: NOW,
+    rank: 0,
+  })
+
+  it('emphasizes an unread issue row with no working session', () => {
+    expect(
+      rowUnreadEmphasized(issueRow({ unread: true } as Partial<IssueWire>, [idle('a', '/w')])),
+    ).toBe(true)
+  })
+
+  it('suppresses an unread issue row that has a currently-working session', () => {
+    expect(
+      rowUnreadEmphasized(issueRow({ unread: true } as Partial<IssueWire>, [working('a', '/w')])),
+    ).toBe(false)
+  })
+
+  it('suppresses an unread worktree row that has a currently-working session', () => {
+    expect(
+      rowUnreadEmphasized(
+        wtRow([
+          idle('a', '/w', { unread: true } as Partial<SessionMeta>),
+          working('b', '/w'),
+        ]),
+      ),
+    ).toBe(false)
+  })
+
+  it('leaves a read row un-emphasized regardless of working state', () => {
+    expect(
+      rowUnreadEmphasized(issueRow({ unread: false } as Partial<IssueWire>, [working('a', '/w')])),
+    ).toBe(false)
   })
 })
 

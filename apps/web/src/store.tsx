@@ -24,7 +24,8 @@ import { toast } from 'sonner'
 import { formatAppError } from './AppErrorPage'
 import { dedupeSessionsByResume, EMPTY_PINS, planWorktreeMoves, reposToViews } from './derive'
 import { type DockTab, readStoredDockTab } from './dock-panel'
-import { type FileScope, scopeKey, tabIdFor } from './file-scope'
+import { type FileScope, tabIdFor } from './file-scope'
+import { useMarkReadOnView } from './hooks/use-mark-read-on-view'
 import {
   mergeOptimistic,
   optimisticDraftIssue,
@@ -895,6 +896,17 @@ export function StoreProvider({
     },
     [outbox, patchIssue],
   )
+
+  // Mark the session the operator is actually LOOKING AT read on view (#138). The
+  // explicit switch handlers only fire on a pane *change*, so a session that's
+  // already the open/focused pane (the coordinator session the user keeps coming
+  // back to) never re-marked read and stayed bold. The hook debounces on the
+  // focused session's activity so a streaming session settles first.
+  const focusedPaneSessionId = split ? (focusedPane === 'A' ? paneA : paneB) : paneA
+  const focusedSession = focusedPaneSessionId
+    ? sessions.find((s) => s.sessionId === focusedPaneSessionId)
+    : undefined
+  useMarkReadOnView({ session: focusedSession, markSessionRead })
 
   // Report which sessions this client renders (`visible`) and which one has input
   // focus (`focused`) so the server can prioritize PTY relay for them. While the tab

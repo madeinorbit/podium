@@ -85,6 +85,11 @@ vi.mock('./store', () => ({
       // 'part' partially working → the working session lifts individually to WORKING.
       sess('working-child', 'part', 'working', { unread: true }),
       sess('idle-child', 'part', 'idle', { unread: true }),
+      // 'pin' is pinned + fully working → EXEMPT from the WORKING move-out, so it
+      // stays in WORK with its working children. Only the isSessionWorking gate
+      // (not the WORKING-section suppressUnread prop) can mute these.
+      sess('pin-a', 'pin', 'working', { unread: true }),
+      sess('pin-b', 'pin', 'working', { unread: true }),
     ],
     machines: [],
     pins: { panels: [], worktrees: [], repos: [] },
@@ -93,6 +98,7 @@ vi.mock('./store', () => ({
       issue('wk', 'Working issue', { unread: true }),
       issue('wr', 'Work issue', { unread: true }),
       issue('part', 'Partially working', { unread: true }),
+      issue('pin', 'Pinned working', { unread: true, pinned: true }),
     ],
     trpc: {
       settings: {
@@ -143,5 +149,14 @@ describe('SidebarUnified WORKING rows suppress unread emphasis (#138 FIX B)', ()
     // base row already carries `hover:text-foreground`, so text-foreground alone
     // isn't distinguishing).
     expect(lifted?.className).not.toContain('font-medium')
+  })
+
+  it('a currently-working session kept in WORK (pinned issue) is not emphasized', () => {
+    render(<SidebarUnified />)
+    // The pinned fully-working issue stays in WORK — its row label…
+    expect(screen.getByText('Pinned working').className).not.toContain('font-semibold')
+    // …and its working child sessions are muted by the isSessionWorking gate,
+    // even though suppressUnread is false (WORK path, not WORKING).
+    expect(screen.getByText('pin-a').closest('button')?.className).not.toContain('font-medium')
   })
 })

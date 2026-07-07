@@ -27,6 +27,7 @@ import {
   agentBadge,
   agentColorHex,
   filterSidebarSections,
+  isSessionWorking,
   isSnoozed,
   lastUsedMaps,
   partitionStaleSessions,
@@ -1138,9 +1139,15 @@ export function PanelRow({
               : 'text-muted-foreground hover:bg-accent hover:text-foreground',
             // Email-style unread emphasis (#126): an unread, un-selected session
             // reads at full strength + medium weight, lifting it out of the muted
-            // baseline. Marking it read on open clears this optimistically. Rows in
-            // the WORKING section suppress it (#138): active work isn't "unseen".
-            !active && session.unread && !suppressUnread && 'font-medium text-foreground',
+            // baseline. Marking it read on open clears this optimistically. Suppressed
+            // (#138) for WORKING-section rows AND for any currently-working session
+            // anywhere — active work isn't "unseen", and a working session re-flips
+            // unread on every output, so emphasis would flicker back constantly.
+            !active &&
+              session.unread &&
+              !suppressUnread &&
+              !isSessionWorking(session) &&
+              'font-medium text-foreground',
           )}
           onClick={onSelect}
           // Double-click the row to rename — matches the tab strip.

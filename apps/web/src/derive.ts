@@ -1200,6 +1200,18 @@ export function isRowUnread(row: UnifiedWorkRow): boolean {
   return row.kind === 'issue' ? row.issue.unread : row.worktree.sessions.some((s) => s.unread)
 }
 
+/** Whether a unified row should actually RENDER the unread (email-style) emphasis.
+ *  Extends `isRowUnread` with the #138 rule: a row that has a currently-working
+ *  session is active work, not "new unseen work" — and a working session re-flips
+ *  `unread` on every output — so its emphasis is suppressed wherever it renders
+ *  (WORK or WORKING). Read rows and rows with only idle/waiting sessions are
+ *  unaffected. Applies to the row LABEL; child session rows gate on
+ *  `isSessionWorking` in PanelRow. */
+export function rowUnreadEmphasized(row: UnifiedWorkRow): boolean {
+  if (!isRowUnread(row)) return false
+  return !rowSessions(row).some(isSessionWorking)
+}
+
 const rowRank = (sessions: SessionMeta[], now: number): number =>
   sessions.reduce((min, s) => Math.min(min, sessionUrgencyRank(s, now)), UNIFIED_ROW_EMPTY_RANK)
 

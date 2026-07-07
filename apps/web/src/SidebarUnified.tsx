@@ -27,8 +27,8 @@ import {
   draftIssueLabel,
   groupUnifiedWorkRows,
   isIssueSnoozed,
-  isRowUnread,
   issueReturnedFromDefer,
+  rowUnreadEmphasized,
   lastUsedMaps,
   machinesWithRepo,
   mostUrgentSession,
@@ -676,7 +676,7 @@ function UnifiedIssueRow({
   onOpenIssue: (id: string) => void
 }): JSX.Element {
   const { issue, sessions: mine } = row
-  const unread = suppressUnread ? false : isRowUnread(row)
+  const unread = suppressUnread ? false : rowUnreadEmphasized(row)
   const [collapsed, toggle] = useCollapsed(`podium:sidebar:unified-issue:${issue.id}`, false)
   const [menuAnchor, setMenuAnchor] = useState<ContextMenuAnchor | null>(null)
   // A single agent underneath = nothing worth a second line: the parent row's
@@ -821,7 +821,7 @@ function UnifiedWorktreeRow({
   onPinned: (sessionId: string, pinned: boolean) => void
 }): JSX.Element {
   const { worktree } = row
-  const unread = suppressUnread ? false : isRowUnread(row)
+  const unread = suppressUnread ? false : rowUnreadEmphasized(row)
   const [collapsed, toggle] = useCollapsed(`podium:sidebar:unified-wt:${worktree.path}`, false)
   // A single agent underneath = nothing worth a second line: the parent row's
   // dot IS that agent's indicator. Child rows only exist from 2 agents up.
