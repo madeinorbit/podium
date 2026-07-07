@@ -548,8 +548,9 @@ export class SessionRegistry {
           ...(o.effort !== undefined ? { effort: o.effort } : {}),
           ...(o.initialPrompt ? { initialPrompt: o.initialPrompt } : {}),
           ...(o.spawnedBy ? { spawnedBy: o.spawnedBy } : {}),
+          ...(o.machineId ? { machineId: o.machineId } : {}),
         }),
-      repoOp: (op, cwd, args) => this.repoOp(op, cwd, args),
+      repoOp: (op, cwd, args, machineId) => this.repoOp(op, cwd, args, machineId),
       getSessionIssueId: (sessionId) => this.getSessionIssueId(sessionId),
       setSessionIssueId: (sessionId, issueId) => this.setSessionIssueId(sessionId, issueId),
       broadcast: (msg) => {
@@ -2282,13 +2283,19 @@ export class SessionRegistry {
   }
 
   /** Allowlisted git op on a dev machine (superagent tools). */
-  repoOp(op: RepoOp, cwd: string, args?: Record<string, string>): Promise<OpResult> {
+  repoOp(
+    op: RepoOp,
+    cwd: string,
+    args?: Record<string, string>,
+    machineId?: string,
+  ): Promise<OpResult> {
     return this.daemonRequest(
       this.pendingRepoOps,
       'ro',
       35_000,
       () => ({ ok: false, output: 'no daemon answered the git request in time' }),
       (requestId) => ({ type: 'repoOpRequest', requestId, op, cwd, ...(args ? { args } : {}) }),
+      machineId ?? this.resolveMachine(undefined, cwd),
     )
   }
 

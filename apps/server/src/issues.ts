@@ -104,11 +104,13 @@ export interface IssueDeps {
     effort?: string
     initialPrompt?: string
     spawnedBy?: string
+    machineId?: string
   }): { sessionId: string }
   repoOp(
     op: RepoOp,
     cwd: string,
     args?: Record<string, string>,
+    machineId?: string,
   ): Promise<{ ok: boolean; output: string }>
   broadcast(msg: ServerMessage): void
   now?(): string
@@ -133,6 +135,8 @@ export interface CreateIssueInput {
   defaultAgent?: string
   defaultModel?: string
   defaultEffort?: string
+  /** Machine (daemon) the issue's agents run on; absent = repo affinity. */
+  machineId?: string
   startNow: boolean
   linear?: { id?: string; identifier: string; url: string }
   priority?: number
@@ -218,6 +222,7 @@ export class IssueService {
       defaultAgent: row.defaultAgent,
       defaultModel: row.defaultModel,
       defaultEffort: row.defaultEffort,
+      ...(row.machineId ? { machineId: row.machineId } : {}),
       ...(row.linearId ? { linearId: row.linearId } : {}),
       ...(row.linearIdentifier ? { linearIdentifier: row.linearIdentifier } : {}),
       ...(row.linearUrl ? { linearUrl: row.linearUrl } : {}),
@@ -1011,6 +1016,7 @@ export class IssueService {
       defaultModel: input.defaultModel || this.deps.getSettings().sessionDefaults.model || 'auto',
       defaultEffort:
         input.defaultEffort || this.deps.getSettings().sessionDefaults.effort || 'auto',
+      machineId: input.machineId ?? null,
       linearId: input.linear?.id ?? null,
       linearIdentifier: input.linear?.identifier ?? null,
       linearUrl: input.linear?.url ?? null,
@@ -1070,6 +1076,7 @@ export class IssueService {
         | 'defaultAgent'
         | 'defaultModel'
         | 'defaultEffort'
+        | 'machineId'
         | 'archived'
         | 'priority'
         | 'type'
@@ -1386,11 +1393,12 @@ export class IssueService {
     if (agentKind) row.defaultAgent = agentKind
     const branch = this.slug(row.seq, row.title)
     const path = this.worktreePathFor(row.repoPath, branch)
-    const res = await this.d.repoOp('worktreeAdd', row.repoPath, {
-      path,
-      branch,
-      startPoint: row.parentBranch,
-    })
+    const res = await this.d.repoOp(
+      'worktreeAdd',
+      row.repoPath,
+      { path, branch, startPoint: row.parentBranch },
+      row.machineId ?? undefined,
+    )
     if (!res.ok) throw new Error(`worktree add failed: ${res.output}`)
     row.branch = branch
     row.worktreePath = path
@@ -1412,6 +1420,7 @@ export class IssueService {
       effort: row.defaultEffort,
       ...(row.description.trim() ? { initialPrompt: row.description } : {}),
       spawnedBy: `issue:${row.id}`,
+      ...(row.machineId ? { machineId: row.machineId } : {}),
     })
     return wire
   }
@@ -1837,6 +1846,7 @@ export class IssueService {
       model: row.defaultModel,
       effort: row.defaultEffort,
       spawnedBy: `issue:${row.id}`,
+      ...(row.machineId ? { machineId: row.machineId } : {}),
     })
     return this.toWire(row)
   }

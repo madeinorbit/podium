@@ -736,7 +736,7 @@ function IssueProperties({
   run: (fn: () => Promise<unknown>) => Promise<void>
   onNavigate: (id: string) => void
 }): JSX.Element {
-  const { trpc, issues, setSelectedWorktree, setPane, setView } = useStore()
+  const { trpc, issues, machines, setSelectedWorktree, setPane, setView } = useStore()
   const [mergeStyle, setMergeStyle] = useState<MergeStyle>('ff-only')
   const [deferDate, setDeferDate] = useState('')
   // Relation add is two steps: pick a dep type, then a target issue.
@@ -1199,6 +1199,40 @@ function IssueProperties({
               void run(() => trpc.issues.update.mutate({ id: issue.id, patch: { defaultEffort } }))
             }
           />
+          {/* Machine pin — which daemon runs this issue's agents ('auto' = repo affinity). */}
+          {machines.length > 1 && (
+            <PropertyMenu
+              selectedValue={issue.machineId ?? 'auto'}
+              options={[
+                { value: 'auto', label: 'auto machine' },
+                ...machines.map((m) => ({
+                  value: m.id,
+                  label: m.online ? m.name : `${m.name} (offline)`,
+                })),
+              ]}
+              onSelect={(v) =>
+                void run(() =>
+                  trpc.issues.update.mutate({
+                    id: issue.id,
+                    patch: { machineId: v === 'auto' ? null : v },
+                  }),
+                )
+              }
+              trigger={
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={busy}
+                  className="h-7 gap-1 px-2 text-[12px]"
+                >
+                  {issue.machineId
+                    ? (machines.find((m) => m.id === issue.machineId)?.name ?? issue.machineId)
+                    : 'auto machine'}
+                </Button>
+              }
+            />
+          )}
         </div>
         {issue.sessions.length > 0 && (
           <div className="flex flex-col gap-1">

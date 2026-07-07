@@ -61,6 +61,7 @@ interface ShowWire {
   defaultAgent?: string | null
   defaultModel?: string | null
   defaultEffort?: string | null
+  machineId?: string | null
 }
 
 /** The single-issue `show` rendering — shared verbatim by single and bulk show. */
@@ -71,6 +72,7 @@ function renderShow(i: ShowWire): string {
     i.defaultAgent || i.defaultModel || i.defaultEffort
       ? `agent=${i.defaultAgent ?? 'auto'} model=${i.defaultModel ?? 'auto'} effort=${i.defaultEffort ?? 'auto'}`
       : null,
+    i.machineId ? `machine=${i.machineId}` : null,
     i.labels?.length ? `labels=${i.labels.join(',')}` : null,
     i.branch ? `branch=${i.branch}` : null,
     i.needsHuman ? `NEEDS HUMAN${i.humanQuestion ? `: ${i.humanQuestion}` : ''}` : null,
@@ -207,7 +209,7 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
   {
     name: 'create',
     summary:
-      'Create an issue. --title required; --description --priority --type --parentId --agent --model --effort --start optional.',
+      'Create an issue. --title required; --description --priority --type --parentId --agent --model --effort --machine --start optional.',
     args: z.object({
       ...repoArg,
       title: z.string().min(1),
@@ -218,6 +220,7 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
       agent: z.string().min(1).optional(),
       model: z.string().min(1).optional(),
       effort: z.string().min(1).optional(),
+      machine: z.string().min(1).optional(),
       start: z.boolean().optional(),
     }),
     async run(c, a) {
@@ -232,6 +235,7 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
         ...(a.agent ? { defaultAgent: a.agent as string } : {}),
         ...(a.model ? { defaultModel: a.model as string } : {}),
         ...(a.effort ? { defaultEffort: a.effort as string } : {}),
+        ...(a.machine ? { machineId: a.machine as string } : {}),
       })) as { seq: number; title: string; worktreePath?: string | null }
       const started = a.start === true && i.worktreePath ? ` (started in ${i.worktreePath})` : ''
       return { text: `created #${i.seq} ${i.title}${started}`, data: i }
@@ -258,7 +262,7 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
   {
     name: 'update',
     summary:
-      'Update fields on an issue (--stage --priority --assignee --title --description --type --agent --model --effort …).',
+      'Update fields on an issue (--stage --priority --assignee --title --description --type --agent --model --effort --machine …).',
     args: z.object({
       id: idArg,
       stage: z.string().optional(),
@@ -270,6 +274,7 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
       agent: z.string().min(1).optional(),
       model: z.string().min(1).optional(),
       effort: z.string().min(1).optional(),
+      machine: z.string().min(1).optional(),
     }),
     positionals: ['id'],
     async run(c, a) {
@@ -279,6 +284,8 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
       if (a.agent != null) patch.defaultAgent = a.agent
       if (a.model != null) patch.defaultModel = a.model
       if (a.effort != null) patch.defaultEffort = a.effort
+      // 'none' clears the pin (back to repo-affinity routing).
+      if (a.machine != null) patch.machineId = a.machine === 'none' ? null : a.machine
       const i = (await c.issues.update.mutate({ id: a.id as string, patch: patch as never })) as {
         seq: number
       }

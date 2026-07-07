@@ -128,6 +128,8 @@ export interface IssueRow {
   defaultAgent: string
   defaultModel: string
   defaultEffort: string
+  /** Machine (daemon) this issue's agents run on; null = pick by repo affinity. */
+  machineId?: string | null
   linearId: string | null
   linearIdentifier: string | null
   linearUrl: string | null
@@ -1220,20 +1222,21 @@ export class SessionStore {
       .prepare(
         `INSERT INTO issues
            (id, repo_path, repo_id, seq, title, description, stage, worktree_path, branch, parent_branch,
-            default_agent, default_model, default_effort,
+            default_agent, default_model, default_effort, machine_id,
             linear_id, linear_identifier, linear_url, activity_notes, notes_updated_at,
             suggested_stage, suggested_reason, blocked_by, dependency_note, pr_url,
             priority, type, assignee, parent_id, design, acceptance, notes, due_at,
             defer_until, closed_reason, superseded_by, duplicate_of, pinned, estimate_min,
             needs_human, human_question, panel,
             created_at, updated_at, archived, origin, draft)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            repo_id = excluded.repo_id,
            title = excluded.title, description = excluded.description, stage = excluded.stage,
            worktree_path = excluded.worktree_path, branch = excluded.branch,
            parent_branch = excluded.parent_branch, default_agent = excluded.default_agent,
            default_model = excluded.default_model, default_effort = excluded.default_effort,
+           machine_id = excluded.machine_id,
            linear_id = excluded.linear_id, linear_identifier = excluded.linear_identifier,
            linear_url = excluded.linear_url, activity_notes = excluded.activity_notes,
            notes_updated_at = excluded.notes_updated_at, suggested_stage = excluded.suggested_stage,
@@ -1264,6 +1267,7 @@ export class SessionStore {
         row.defaultAgent,
         row.defaultModel,
         row.defaultEffort,
+        row.machineId ?? null,
         row.linearId,
         row.linearIdentifier,
         row.linearUrl,
@@ -1314,6 +1318,7 @@ export class SessionStore {
       defaultAgent: r.default_agent as string,
       defaultModel: (r.default_model as string | null) ?? 'auto',
       defaultEffort: (r.default_effort as string | null) ?? 'auto',
+      machineId: (r.machine_id as string | null) ?? null,
       linearId: (r.linear_id as string | null) ?? null,
       linearIdentifier: (r.linear_identifier as string | null) ?? null,
       linearUrl: (r.linear_url as string | null) ?? null,
@@ -2660,6 +2665,7 @@ export class SessionStore {
          default_agent TEXT NOT NULL,
          default_model TEXT NOT NULL DEFAULT 'auto',
          default_effort TEXT NOT NULL DEFAULT 'auto',
+         machine_id TEXT,
          linear_id TEXT,
          linear_identifier TEXT,
          linear_url TEXT,
@@ -2706,6 +2712,7 @@ export class SessionStore {
     addIssueCol('repo_id', 'repo_id TEXT')
     addIssueCol('default_model', "default_model TEXT NOT NULL DEFAULT 'auto'")
     addIssueCol('default_effort', "default_effort TEXT NOT NULL DEFAULT 'auto'")
+    addIssueCol('machine_id', 'machine_id TEXT')
     addIssueCol('priority', 'priority INTEGER NOT NULL DEFAULT 2')
     addIssueCol('type', "type TEXT NOT NULL DEFAULT 'task'")
     addIssueCol('assignee', 'assignee TEXT')
