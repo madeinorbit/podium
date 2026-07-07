@@ -23,10 +23,11 @@ export function RepoScanFlow({
   onDone: (addedCount: number) => void
   intro?: ReactNode
 }): JSX.Element {
-  const { trpc, refreshRepos } = useStore()
+  const { trpc, refreshRepos, machines } = useStore()
   const [results, setResults] = useState<Results | null>(null)
   const [adding, setAdding] = useState(false)
   const [addError, setAddError] = useState<string | null>(null)
+  const [selectedMachineId, setSelectedMachineId] = useState<string | undefined>(undefined)
 
   async function scanFolder(path: string): Promise<void> {
     const res = await trpc.discovery.scanFolder.mutate({ path })
@@ -35,10 +36,14 @@ export function RepoScanFlow({
     setResults({ path, candidates: rankRepoCandidates(res.repositories) })
   }
 
+  function repoMachineInput(): { machineId?: string } {
+    return selectedMachineId ? { machineId: selectedMachineId } : {}
+  }
+
   // Direct single-folder add. The picker closes itself afterward (its onClose),
   // and refreshRepos has already updated the sidebar, so no onDone is needed here.
   async function addThisFolder(path: string): Promise<void> {
-    await trpc.repos.add.mutate({ path })
+    await trpc.repos.add.mutate({ path, ...repoMachineInput() })
     await refreshRepos()
   }
 
@@ -46,7 +51,7 @@ export function RepoScanFlow({
     setAdding(true)
     setAddError(null)
     try {
-      const res = await trpc.repos.addMany.mutate({ paths })
+      const res = await trpc.repos.addMany.mutate({ paths, ...repoMachineInput() })
       await refreshRepos()
       if (res.failed.length > 0) {
         setAddError(
@@ -83,6 +88,9 @@ export function RepoScanFlow({
       onClose={onClose}
       onPick={addThisFolder}
       onScan={scanFolder}
+      machines={machines}
+      selectedMachineId={selectedMachineId}
+      onMachineChange={setSelectedMachineId}
       {...(intro ? { intro } : {})}
     />
   )
