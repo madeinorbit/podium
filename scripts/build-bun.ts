@@ -14,6 +14,10 @@ import { chmodSync, cpSync, existsSync, mkdirSync, readFileSync, writeFileSync }
 import { fileURLToPath } from 'node:url'
 import { DISCOVERY_WORKER_ENTRY } from '../apps/daemon/src/discovery-worker-embed.js'
 import { buildVendoredAbduco } from '../packages/agent-bridge/src/abduco-bin.js'
+import {
+  bunVersion,
+  hasBunTerminal,
+} from '../packages/agent-bridge/src/pty/bun-terminal-backend.js'
 
 /**
  * The POSIX-sh launcher shim written to `headless/podium`. It exports PODIUM_HOME (so
@@ -53,6 +57,17 @@ exec "$DIR/podium-cli" "$@"
 }
 
 function main(): void {
+  // Refuse to compile with a Bun whose terminal PTY API is missing (feature-detected, not
+  // version-guessed). The compiled daemon's ONLY PTY is Bun's terminal — `bun build --compile`
+  // can't embed node-pty's native addon — so an old build Bun would silently ship a binary
+  // whose remote terminals render black (proc.terminal undefined on attach). This is the guard
+  // that answers "why was the build allowed to use an old Bun": now it isn't.
+  if (!hasBunTerminal())
+    throw new Error(
+      `build-bun: Bun ${bunVersion()} lacks a working terminal PTY API (Bun.spawn({terminal}) → ` +
+        `proc.terminal); need Bun >= 1.3.5. The compiled daemon would render remote terminals black. ` +
+        `Upgrade Bun (\`bun upgrade\`) and rebuild.`,
+    )
   const root = fileURLToPath(new URL('..', import.meta.url))
   const out = `${root}dist-bun`
   mkdirSync(out, { recursive: true })
