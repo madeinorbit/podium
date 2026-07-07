@@ -176,29 +176,25 @@ describe('appRouter', () => {
     const registry = new SessionRegistry()
     registry.attachDaemon('local', () => {})
     let polled = ''
-    ;(
-      registry as unknown as {
-        startTelegramSetup: () => Promise<{
-          setupId: string
-          code: string
-          botUsername: string
-          telegramUrl: string
-          expiresAt: string
-        }>
-        pollTelegramSetup: (setupId: string) => Promise<{ status: 'pending'; expiresAt: string }>
-      }
-    ).startTelegramSetup = async () => ({
+    // The router reaches settings through the typed modules seam — stub there.
+    const settings = registry.modules.settings as unknown as {
+      startTelegramSetup: () => Promise<{
+        setupId: string
+        code: string
+        botUsername: string
+        telegramUrl: string
+        expiresAt: string
+      }>
+      pollTelegramSetup: (setupId: string) => Promise<{ status: 'pending'; expiresAt: string }>
+    }
+    settings.startTelegramSetup = async () => ({
       setupId: 'setup-1',
       code: 'PODIUM123',
       botUsername: 'mwpodium_bot',
       telegramUrl: 'https://t.me/mwpodium_bot?start=PODIUM123',
       expiresAt: '2026-06-12T10:05:00.000Z',
     })
-    ;(
-      registry as unknown as {
-        pollTelegramSetup: (setupId: string) => Promise<{ status: 'pending'; expiresAt: string }>
-      }
-    ).pollTelegramSetup = async (setupId) => {
+    settings.pollTelegramSetup = async (setupId) => {
       polled = setupId
       return { status: 'pending', expiresAt: '2026-06-12T10:05:00.000Z' }
     }

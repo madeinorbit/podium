@@ -52,7 +52,7 @@ describe('empty-draft reap on session death', () => {
     reg.setArchived({ sessionId, archived: true })
     expect(reg.issues.get(draft.id)).toBeNull()
     // The surviving (archived) session must not dangle on a deleted issue.
-    expect(reg.getSessionIssueId(sessionId)).toBeNull()
+    expect(reg.modules.sessions.getSessionIssueId(sessionId)).toBeNull()
   })
 
   it('agent exit of the last attached session deletes the draft and detaches the dead session', () => {
@@ -61,7 +61,7 @@ describe('empty-draft reap on session death', () => {
     reg.onDaemonMessageFrom('local', bind(sessionId))
     reg.onDaemonMessageFrom('local', { type: 'agentExit', sessionId, code: 0 })
     expect(reg.issues.get(draft.id)).toBeNull()
-    expect(reg.getSessionIssueId(sessionId)).toBeNull()
+    expect(reg.modules.sessions.getSessionIssueId(sessionId)).toBeNull()
     // Exited row itself survives (resurrectable) — only the empty draft goes.
     expect(reg.listSessions().map((s) => s.sessionId)).toEqual([sessionId])
   })
@@ -80,7 +80,7 @@ describe('empty-draft reap on session death', () => {
     // The hibernate kill produces an agentExit like any death — still no reap.
     reg.onDaemonMessageFrom('local', { type: 'agentExit', sessionId, code: 0 })
     expect(reg.issues.get(draft.id)).not.toBeNull()
-    expect(reg.getSessionIssueId(sessionId)).toBe(draft.id)
+    expect(reg.modules.sessions.getSessionIssueId(sessionId)).toBe(draft.id)
   })
 
   it('draft with a second live session is kept when one dies', () => {
@@ -94,7 +94,7 @@ describe('empty-draft reap on session death', () => {
     reg.onDaemonMessageFrom('local', bind(second))
     reg.killSession({ sessionId })
     expect(reg.issues.get(draft.id)).not.toBeNull()
-    expect(reg.getSessionIssueId(second)).toBe(draft.id)
+    expect(reg.modules.sessions.getSessionIssueId(second)).toBe(draft.id)
   })
 
   it('non-draft issue is never reaped', () => {
@@ -145,7 +145,7 @@ describe('boot-time leaked-draft sweep', () => {
     store.upsertSession({ ...row, status: 'exited' })
     const reg2 = new SessionRegistry(new SessionStore(file))
     expect(reg2.issues.get(draft.id)).toBeNull()
-    expect(reg2.getSessionIssueId(sessionId)).toBeNull()
+    expect(reg2.modules.sessions.getSessionIssueId(sessionId)).toBeNull()
   })
 
   it('keeps drafts with live (reconnecting) or hibernated sessions across boot', () => {

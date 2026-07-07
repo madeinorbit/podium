@@ -46,6 +46,17 @@ package and lets each release independently.
 | xterm.js, mobile key toolbar, touch/scroll policy, reconnect | `@podium/terminal-client` |
 | Domain entities + zod schemas | `@podium/core` |
 | tRPC routers, auth, persistence, conversation index, daemon fan-out | `apps/server` |
+| Typed in-process event bus (module→module signals) | `apps/server` `src/modules/bus.ts` |
+| THE write funnel — authorize → repo write → oplog append → broadcast; owns the metadata oplog | `apps/server` `src/modules/funnel.ts` (every publish pipeline ends here) |
+| Session lifecycle, PTY frame relay, client/daemon ws data planes, queued sends, coalesced broadcast | `apps/server` `src/modules/sessions/` |
+| Daemon sockets/pairing/auth, machine admin + routing; daemon request/response plumbing | `apps/server` `src/modules/machines/` (`service.ts`, `rpc.ts`) |
+| Issue wire publishing, hub-issue mirror + write forwarding, daemon relay gate, in-process issue command surface (router-equal authz) | `apps/server` `src/modules/issues/` |
+| Conversation index + upstream mirror + transcript lake | `apps/server` `src/modules/conversations/` |
+| Host health, auto-hibernate, memory breakdown | `apps/server` `src/modules/hosts/` |
+| Attention notifications (ntfy/telegram/in-app) | `apps/server` `src/modules/notify/` |
+| Settings, model catalog, telegram setup | `apps/server` `src/modules/settings/` |
+| Headless (PTY-less) harness sessions | `apps/server` `src/modules/superagent/` |
+| Module composition (acyclic, dependency order: bus → machines/rpc → settings/notify/hosts → issues wire → sessions → conversations → issues → commands) + the facade older callers hold | `apps/server` `src/relay.ts` (`SessionRegistry`; router procs use the typed `ctx.modules` seam instead) |
 | React screens, command-center grid, modes | `apps/web` |
 | Per-machine agent lifecycle + discovery orchestration | `apps/daemon` |
 | Shared TS config | `tooling/tsconfig` |

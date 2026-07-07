@@ -143,12 +143,14 @@ export interface RegistryModules {
 }
 
 /**
- * Composition root + public facade over the server's modules (issue #13 Phase 2).
- * The session lifecycle/data planes live in modules/sessions; daemon sockets and
- * machine admin in modules/machines (+ rpc); conversations, issues wire plumbing,
- * hosts, notify, settings and headless harnesses in their modules. This class
- * wires them together with constructor-injected closures and keeps thin delegates
- * so every existing caller (router/wsServer/server/superagent/tests) is unchanged.
+ * Composition root + facade over the server's modules (issue #13 Phase 2). The
+ * constructor IS the composition: it builds the module graph in dependency order
+ * (bus → machines/rpc → settings/notify/hosts → issue wire plumbing → sessions →
+ * conversations → issues → commands) and exposes it as the typed `modules` set —
+ * the router reaches services through ctx.modules, new code should too. The
+ * remaining methods are thin delegates kept for callers that hold a registry
+ * (wsServer/server/superagent/RepoRegistry/tests); they add no behavior and
+ * shrink as call sites migrate to `modules.<name>.<method>`.
  */
 export class SessionRegistry {
   /** Typed in-process event bus — modules subscribe here (issue #13 Phase 2). */
@@ -385,8 +387,9 @@ export class SessionRegistry {
       repoOp: (op, cwd, args, machineId) => this.repoOp(op, cwd, args, machineId),
       requireMachineForRepo: (machineId, repoPath) =>
         this.requireMachineForRepo(machineId, repoPath),
-      getSessionIssueId: (sessionId) => this.getSessionIssueId(sessionId),
-      setSessionIssueId: (sessionId, issueId) => this.setSessionIssueId(sessionId, issueId),
+      getSessionIssueId: (sessionId) => this.sessionsSvc.getSessionIssueId(sessionId),
+      setSessionIssueId: (sessionId, issueId) =>
+        this.sessionsSvc.setSessionIssueId(sessionId, issueId),
       setSessionArchived: (sessionId, archived) => this.setArchived({ sessionId, archived }),
       broadcast: (msg) => {
         // Full issue-list fan-outs funnel through the oplog so delta-cap clients get
@@ -801,16 +804,6 @@ export class SessionRegistry {
     this.sessionsSvc.markSessionRead(sessionId)
   }
 
-  /** Set (or clear with null) a session's explicit issue attachment. */
-  setSessionIssueId(sessionId: string, issueId: string | null): void {
-    this.sessionsSvc.setSessionIssueId(sessionId, issueId)
-  }
-
-  /** The session's explicit issue attachment (issue-as-workspace), if any. */
-  getSessionIssueId(sessionId: string): string | null {
-    return this.sessionsSvc.getSessionIssueId(sessionId)
-  }
-
   setWorkState(input: { sessionId: string; workState: WorkState | null }): void {
     this.sessionsSvc.setWorkState(input)
   }
@@ -861,11 +854,6 @@ export class SessionRegistry {
     opts: { includeHome?: boolean; maxDepth?: number } = {},
   ): Promise<ScanReposResult> {
     return this.rpc.scanRepos(roots, opts, machineId)
-  }
-
-  /** Token-usage buckets from the daemon's transcript harvest (empty on timeout). */
-  usage(sinceMs?: number): Promise<{ hostname: string; buckets: UsageBucketWire[] }> {
-    return this.rpc.usage(sinceMs)
   }
 
   /** Per-agent plan-quota on one daemon host (modules/machines/rpc). */
@@ -951,25 +939,6 @@ export class SessionRegistry {
     this.headless.headlessInterrupt(sessionId)
   }
 
-  headlessBind(input: {
-    sessionId: string
-    agentKind: AgentKind
-    cwd: string
-    resumeValue: string
-  }): Promise<{ ok: boolean; error?: string }> {
-    return this.headless.headlessBind(input)
-  }
-
-  /** Route an image upload to the owning daemon (modules/machines/rpc). */
-  uploadImage(input: {
-    sessionId: string
-    filename: string
-    mimeType: string
-    dataBase64: string
-  }): Promise<{ path: string; error?: string }> {
-    return this.rpc.uploadImage(input)
-  }
-
   /** Ask a daemon who owns the used memory (modules/hosts). */
   memoryBreakdown(roots: string[], machineId?: string): Promise<MemoryBreakdown | undefined> {
     return this.hosts.memoryBreakdown(roots, machineId)
@@ -996,10 +965,6 @@ export class SessionRegistry {
 
   searchConversations(opts: { query?: string; projectPath?: string; limit?: number }) {
     return this.conversations.searchConversations(opts)
-  }
-
-  transcriptFor(sessionId: string): TranscriptItem[] {
-    return this.sessionsSvc.transcriptFor(sessionId)
   }
 
   /** Transcript window for the chat view — daemon-first, lake fallback
@@ -1031,14 +996,6 @@ export class SessionRegistry {
     input: { sessionId: string; path: string } | { machineId?: string; root: string; path: string },
   ): Promise<Omit<FileAssetResultMessage, 'type' | 'requestId'>> {
     return this.rpc.readAsset(input)
-  }
-
-  writeFile(
-    input:
-      | { sessionId: string; path: string; content: string; baseHash?: string }
-      | { machineId?: string; root: string; path: string; content: string; baseHash?: string },
-  ): Promise<Omit<FileWriteResultMessage, 'type' | 'requestId'>> {
-    return this.rpc.writeFile(input)
   }
 
   setConversationMeta(input: { id: string; name?: string; summary?: string }): void {
@@ -1077,10 +1034,6 @@ export class SessionRegistry {
 
   renameMachine(id: string, name: string): void {
     this.machines.renameMachine(id, name)
-  }
-
-  revokeMachine(id: string): void {
-    this.machines.revokeMachine(id)
   }
 
   /** Provision the local machine at SERVER STARTUP (modules/machines). */

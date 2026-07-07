@@ -126,10 +126,10 @@ const issueCapabilityGuard = t.middleware(async ({ ctx, path, next, getRawInput 
     // Resolve display refs (#seq) to the internal id BEFORE the subtree check —
     // scope.rootId is an internal id, so comparing the raw ref would false-negative
     // on the agent's own bound issue.
-    targetId = typeof rawTarget === 'string' ? ctx.registry.issues.resolveRef(rawTarget) : rawTarget
+    targetId = typeof rawTarget === 'string' ? mods(ctx).issues.resolveRef(rawTarget) : rawTarget
   }
   // The shared decision + throw shape (#25) — also used by the in-proc mailClaim gate.
-  checkIssueAccess(ctx, ctx.registry.issues, proc, action, targetId)
+  checkIssueAccess(ctx, mods(ctx).issues, proc, action, targetId)
   return next()
 })
 const issueProc = t.procedure.use(issueCapabilityGuard)
@@ -205,7 +205,9 @@ export const appRouter = t.router({
       }
     }),
     moveSession: t.procedure.input(cloudMoveSessionInput).mutation(async ({ ctx, input }) => {
-      const session = ctx.registry.listSessions().find((s) => s.sessionId === input.sessionId)
+      const session = mods(ctx)
+        .sessions.listSessions()
+        .find((s) => s.sessionId === input.sessionId)
       if (!session) {
         throw new TRPCError({ code: 'NOT_FOUND', message: 'session not found' })
       }
@@ -247,7 +249,7 @@ export const appRouter = t.router({
         })
 
         if (input.hibernateLocal) {
-          const parked = ctx.registry.hibernateSession({ sessionId: session.sessionId })
+          const parked = mods(ctx).sessions.hibernateSession({ sessionId: session.sessionId })
           if (!parked.ok) {
             throw new TRPCError({
               code: 'PRECONDITION_FAILED',
@@ -280,7 +282,7 @@ export const appRouter = t.router({
     }),
   }),
   sessions: t.router({
-    list: t.procedure.query(({ ctx }) => ctx.registry.listSessions()),
+    list: t.procedure.query(({ ctx }) => mods(ctx).sessions.listSessions()),
     create: t.procedure
       .input(
         z.object({
@@ -310,18 +312,18 @@ export const appRouter = t.router({
       // sessions.create is an operator action (web UI / CLI). Programmatic creators
       // (issues, superagent) call registry.createSession directly with their own tag.
       .mutation(({ ctx, input }) =>
-        ctx.registry.withMutation(input.mutationId, 'sessions.create', () => {
+        mods(ctx).sessions.withMutation(input.mutationId, 'sessions.create', () => {
           const { draftIssue, mutationId: _m, ...rest } = input
           const issueId =
             rest.issueId ??
             (draftIssue
-              ? ctx.registry.issues.createDraftFor(
+              ? mods(ctx).issues.createDraftFor(
                   draftIssue.repoPath,
                   rest.agentKind,
                   draftIssue.issueId,
                 ).id
               : undefined)
-          return ctx.registry.createSession({
+          return mods(ctx).sessions.createSession({
             ...rest,
             ...(issueId ? { issueId } : {}),
             spawnedBy: 'user',
@@ -342,13 +344,15 @@ export const appRouter = t.router({
       // Same human seam as create (issue #60): a tRPC resume is an operator action.
       // Only the fresh-spawn fallback uses this — a resume that lands on an existing
       // row keeps that row's original provenance (see resumeSession).
-      .mutation(({ ctx, input }) => ctx.registry.resumeSession({ ...input, spawnedBy: 'user' })),
+      .mutation(({ ctx, input }) =>
+        mods(ctx).sessions.resumeSession({ ...input, spawnedBy: 'user' }),
+      ),
     kill: t.procedure
       .input(z.object({ sessionId: z.string() }))
-      .mutation(({ ctx, input }) => ctx.registry.killSession(input)),
+      .mutation(({ ctx, input }) => mods(ctx).sessions.killSession(input)),
     continue: t.procedure
       .input(z.object({ sessionId: z.string() }))
-      .mutation(({ ctx, input }) => ctx.registry.continueSession(input)),
+      .mutation(({ ctx, input }) => mods(ctx).sessions.continueSession(input)),
     // Chat-view send path: routes around controller gating on purpose — a chat
     // message is an explicit user act, not a competing keyboard.
     sendText: t.procedure
@@ -362,8 +366,8 @@ export const appRouter = t.router({
         }),
       )
       .mutation(({ ctx, input }) =>
-        ctx.registry.withMutation(input.mutationId, 'sessions.sendText', () =>
-          ctx.registry.sendText(input),
+        mods(ctx).sessions.withMutation(input.mutationId, 'sessions.sendText', () =>
+          mods(ctx).sessions.sendText(input),
         ),
       ),
     // Chat-view answer to a live AskUserQuestion prompt: type the chosen option
@@ -378,7 +382,7 @@ export const appRouter = t.router({
             .min(1),
         }),
       )
-      .mutation(({ ctx, input }) => ctx.registry.answerAskUserQuestion(input)),
+      .mutation(({ ctx, input }) => mods(ctx).sessions.answerAskUserQuestion(input)),
     // Chat compose for a parked session: wake it if needed, then deliver the
     // message once the resumed CLI is ready (auto-resume on submit).
     resumeAndSend: t.procedure
@@ -390,8 +394,8 @@ export const appRouter = t.router({
         }),
       )
       .mutation(({ ctx, input }) =>
-        ctx.registry.withMutation(input.mutationId, 'sessions.resumeAndSend', () =>
-          ctx.registry.resumeAndSend(input),
+        mods(ctx).sessions.withMutation(input.mutationId, 'sessions.resumeAndSend', () =>
+          mods(ctx).sessions.resumeAndSend(input),
         ),
       ),
     // On-demand transcript window for the chat view — a pure disk read via the
@@ -408,13 +412,13 @@ export const appRouter = t.router({
           limit: z.number().int().positive().max(2000),
         }),
       )
-      .query(({ ctx, input }) => ctx.registry.readTranscript(input)),
+      .query(({ ctx, input }) => mods(ctx).rpc.readTranscript(input)),
     hibernate: t.procedure
       .input(z.object({ sessionId: z.string() }))
-      .mutation(({ ctx, input }) => ctx.registry.hibernateSession(input)),
+      .mutation(({ ctx, input }) => mods(ctx).sessions.hibernateSession(input)),
     resurrect: t.procedure
       .input(z.object({ sessionId: z.string() }))
-      .mutation(({ ctx, input }) => ctx.registry.resurrectSession(input)),
+      .mutation(({ ctx, input }) => mods(ctx).sessions.resurrectSession(input)),
     rename: t.procedure
       .input(
         z.object({
@@ -424,8 +428,8 @@ export const appRouter = t.router({
         }),
       )
       .mutation(({ ctx, input }) =>
-        ctx.registry.withMutation(input.mutationId, 'sessions.rename', () =>
-          ctx.registry.renameSession(input),
+        mods(ctx).sessions.withMutation(input.mutationId, 'sessions.rename', () =>
+          mods(ctx).sessions.renameSession(input),
         ),
       ),
     setArchived: t.procedure
@@ -437,16 +441,16 @@ export const appRouter = t.router({
         }),
       )
       .mutation(({ ctx, input }) =>
-        ctx.registry.withMutation(input.mutationId, 'sessions.setArchived', () =>
-          ctx.registry.setArchived(input),
+        mods(ctx).sessions.withMutation(input.mutationId, 'sessions.setArchived', () =>
+          mods(ctx).sessions.setArchived(input),
         ),
       ),
     // Mark a session read (issue #124): stamp read_at = now, flipping derived `unread`.
     markRead: t.procedure
       .input(z.object({ sessionId: z.string(), mutationId: z.string().max(128).optional() }))
       .mutation(({ ctx, input }) =>
-        ctx.registry.withMutation(input.mutationId, 'sessions.markRead', () =>
-          ctx.registry.markSessionRead(input.sessionId),
+        mods(ctx).sessions.withMutation(input.mutationId, 'sessions.markRead', () =>
+          mods(ctx).sessions.markSessionRead(input.sessionId),
         ),
       ),
     // Move (or clear) a session's explicit issue attachment (issue-as-workspace).
@@ -459,8 +463,8 @@ export const appRouter = t.router({
         }),
       )
       .mutation(({ ctx, input }) =>
-        ctx.registry.withMutation(input.mutationId, 'sessions.setIssueId', () =>
-          ctx.registry.setSessionIssueId(input.sessionId, input.issueId),
+        mods(ctx).sessions.withMutation(input.mutationId, 'sessions.setIssueId', () =>
+          mods(ctx).sessions.setSessionIssueId(input.sessionId, input.issueId),
         ),
       ),
     setWorkState: t.procedure
@@ -472,8 +476,8 @@ export const appRouter = t.router({
         }),
       )
       .mutation(({ ctx, input }) =>
-        ctx.registry.withMutation(input.mutationId, 'sessions.setWorkState', () =>
-          ctx.registry.setWorkState(input),
+        mods(ctx).sessions.withMutation(input.mutationId, 'sessions.setWorkState', () =>
+          mods(ctx).sessions.setWorkState(input),
         ),
       ),
     // Image upload: the client sends a base64-encoded image; the daemon writes
@@ -489,7 +493,7 @@ export const appRouter = t.router({
         }),
       )
       .mutation(async ({ ctx, input }) => {
-        const result = await ctx.registry.uploadImage(input)
+        const result = await mods(ctx).rpc.uploadImage(input)
         if (result.error) {
           throw new TRPCError({
             code: 'INTERNAL_SERVER_ERROR',
@@ -511,7 +515,7 @@ export const appRouter = t.router({
     // falls back to snapshot. The client heals every WS (re)connect through this.
     changesSince: t.procedure
       .input(z.object({ cursor: z.number().int().nonnegative().nullable() }))
-      .query(({ ctx, input }) => ctx.registry.syncChangesSince(input.cursor)),
+      .query(({ ctx, input }) => mods(ctx).sessions.syncChangesSince(input.cursor)),
   }),
   pins: t.router({
     list: t.procedure.query(({ ctx }) => ctx.registry.listPins()),
@@ -541,16 +545,16 @@ export const appRouter = t.router({
         }),
       )
       .mutation(({ ctx, input }) =>
-        ctx.registry.withMutation(input.mutationId, 'snoozes.set', () => {
-          ctx.registry.setSnooze(input)
+        mods(ctx).sessions.withMutation(input.mutationId, 'snoozes.set', () => {
+          mods(ctx).sessions.setSnooze(input)
           return ctx.registry.listSnoozes()
         }),
       ),
     clear: t.procedure
       .input(z.object({ sessionId: z.string(), mutationId: z.string().max(128).optional() }))
       .mutation(({ ctx, input }) =>
-        ctx.registry.withMutation(input.mutationId, 'snoozes.clear', () => {
-          ctx.registry.clearSnooze(input.sessionId)
+        mods(ctx).sessions.withMutation(input.mutationId, 'snoozes.clear', () => {
+          mods(ctx).sessions.clearSnooze(input.sessionId)
           return ctx.registry.listSnoozes()
         }),
       ),
@@ -610,7 +614,7 @@ export const appRouter = t.router({
           limit: z.number().int().positive().max(200).optional(),
         }),
       )
-      .query(({ ctx, input }) => ctx.registry.searchConversations(input)),
+      .query(({ ctx, input }) => mods(ctx).conversations.searchConversations(input)),
     // Curation written by the command center (user rename / work-LLM summary).
     setMeta: t.procedure
       .input(
@@ -620,7 +624,7 @@ export const appRouter = t.router({
           summary: z.string().max(2000).optional(),
         }),
       )
-      .mutation(({ ctx, input }) => ctx.registry.setConversationMeta(input)),
+      .mutation(({ ctx, input }) => mods(ctx).conversations.setConversationMeta(input)),
   }),
   search: t.router({
     // Omni-search (docs/spec/search-v1.md §2.4): one ranked, typed result list
@@ -636,16 +640,16 @@ export const appRouter = t.router({
       .query(({ ctx, input }) => searchAll(ctx.registry.sessionStore, ctx.registry, input)),
   }),
   settings: t.router({
-    get: t.procedure.query(({ ctx }) => ctx.registry.getSettings()),
+    get: t.procedure.query(({ ctx }) => mods(ctx).settings.getSettings()),
     // Whole-object set: the client always round-trips the full blob, so there is
     // no partial-merge ambiguity. PodiumSettings fills defaults for missing keys.
     set: t.procedure
       .input(PodiumSettings)
-      .mutation(({ ctx, input }) => ctx.registry.setSettings(input)),
-    telegramSetupStart: t.procedure.mutation(({ ctx }) => ctx.registry.startTelegramSetup()),
+      .mutation(({ ctx, input }) => mods(ctx).settings.setSettings(input)),
+    telegramSetupStart: t.procedure.mutation(({ ctx }) => mods(ctx).settings.startTelegramSetup()),
     telegramSetupPoll: t.procedure
       .input(z.object({ setupId: z.string() }))
-      .mutation(({ ctx, input }) => ctx.registry.pollTelegramSetup(input.setupId)),
+      .mutation(({ ctx, input }) => mods(ctx).settings.pollTelegramSetup(input.setupId)),
   }),
   tabs: t.router({
     listOrders: t.procedure.query(({ ctx }) => ctx.registry.listTabOrders()),
@@ -721,22 +725,22 @@ export const appRouter = t.router({
   usage: t.router({
     // Hour×model token buckets for the last 7 days, harvested from harness
     // transcripts on the dev machine. Window math (5h/weekly/cost) is client-side.
-    summary: t.procedure.query(({ ctx }) => ctx.registry.usage()),
+    summary: t.procedure.query(({ ctx }) => mods(ctx).rpc.usage()),
   }),
   quota: t.router({
     // Per-agent plan-quota (5h/weekly % used + reset times), read live on the
     // daemon host from each agent's own usage endpoint. Fans out to every online
     // machine (each runs its agents under its own account) — one entry per
     // machine. Distinct from `usage`, transcript-harvested token-cost analytics.
-    summary: t.procedure.query(({ ctx }) => ctx.registry.agentQuotaAll()),
+    summary: t.procedure.query(({ ctx }) => mods(ctx).rpc.agentQuotaAll()),
   }),
   models: t.router({
     // Live per-agent model lists (grok/cursor/opencode `models`). Stale-while-
     // revalidate: `catalog` returns instantly (cached, possibly empty on first ever
     // call) and refreshes in the background; the web merges these over its static
     // catalog and re-reads on the next open. `refresh` forces + awaits a fresh probe.
-    catalog: t.procedure.query(({ ctx }) => ctx.registry.getModelCatalog()),
-    refresh: t.procedure.mutation(({ ctx }) => ctx.registry.refreshModelCatalog()),
+    catalog: t.procedure.query(({ ctx }) => mods(ctx).settings.getModelCatalog()),
+    refresh: t.procedure.mutation(({ ctx }) => mods(ctx).settings.refreshModelCatalog()),
   }),
   hosts: t.router({
     // Who owns the used memory right now. Roots are derived server-side — the
@@ -760,7 +764,7 @@ export const appRouter = t.router({
         const roots = [
           ...new Set(repositories.flatMap((r) => [r.path, ...r.worktrees.map((w) => w.path)])),
         ]
-        const breakdown = await ctx.registry.memoryBreakdown(roots, machineId)
+        const breakdown = await mods(ctx).hosts.memoryBreakdown(roots, machineId)
         if (!breakdown) {
           throw new TRPCError({
             code: 'TIMEOUT',
@@ -771,7 +775,7 @@ export const appRouter = t.router({
       }),
   }),
   discovery: t.router({
-    scan: t.procedure.mutation(({ ctx }) => ctx.registry.scan()),
+    scan: t.procedure.mutation(({ ctx }) => mods(ctx).rpc.scan()),
     // Load path: enrich only the already-registered repos with branch/worktree metadata.
     // Fans out to each online machine; each result is stamped with its machineId.
     // Single-machine: identical to the old scanRepos(list()) path (maxDepth:0 inspects
@@ -791,21 +795,21 @@ export const appRouter = t.router({
   machines: t.router({
     // Registered machines (online flag + last-seen), shown in Settings → Machines and
     // the machine dropdown. Single-machine: just the one 'local' machine.
-    list: t.procedure.query(({ ctx }) => ctx.registry.listMachines()),
+    list: t.procedure.query(({ ctx }) => mods(ctx).machines.listMachines()),
     rename: t.procedure
       .input(z.object({ id: z.string(), name: z.string().min(1).max(80) }))
       .mutation(({ ctx, input }) => {
-        ctx.registry.renameMachine(input.id, input.name)
-        return ctx.registry.listMachines()
+        mods(ctx).machines.renameMachine(input.id, input.name)
+        return mods(ctx).machines.listMachines()
       }),
     revoke: t.procedure.input(z.object({ id: z.string() })).mutation(({ ctx, input }) => {
-      ctx.registry.revokeMachine(input.id)
-      return ctx.registry.listMachines()
+      mods(ctx).machines.revokeMachine(input.id)
+      return mods(ctx).machines.listMachines()
     }),
     // Mint a short-lived pairing code the user types into a new machine's daemon to
     // join it to this server.
     pairingCode: t.procedure.mutation(({ ctx }) => {
-      const code = ctx.registry.mintPairingCode()
+      const code = mods(ctx).machines.mintPairingCode()
       const publicUrl = loadConfig().publicUrl
       return {
         code,
@@ -1139,7 +1143,7 @@ export const appRouter = t.router({
         if ('root' in input && !isAllowedRoot(ctx.repos.list(), input.root)) {
           throw new TRPCError({ code: 'FORBIDDEN', message: 'root is not a known repository path' })
         }
-        return ctx.registry.readFile(input)
+        return mods(ctx).rpc.readFile(input)
       }),
     write: t.procedure
       .input(
@@ -1163,7 +1167,7 @@ export const appRouter = t.router({
         if ('root' in input && !isAllowedRoot(ctx.repos.list(), input.root)) {
           throw new TRPCError({ code: 'FORBIDDEN', message: 'root is not a known repository path' })
         }
-        return ctx.registry.writeFile(input)
+        return mods(ctx).rpc.writeFile(input)
       }),
     list: t.procedure
       .input(
@@ -1177,7 +1181,7 @@ export const appRouter = t.router({
         if (!isAllowedRoot(ctx.repos.list(), input.root)) {
           throw new TRPCError({ code: 'FORBIDDEN', message: 'root is not a known repository path' })
         }
-        return ctx.registry.listDir(input)
+        return mods(ctx).rpc.listDir(input)
       }),
   }),
 })
