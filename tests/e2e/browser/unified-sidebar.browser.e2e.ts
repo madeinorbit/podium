@@ -2,16 +2,16 @@ import { expect, type Page, test } from '@playwright/test'
 import { RELAY } from './_harness'
 
 /**
- * Runtime verification of the unified sidebar (issue-as-workspace) against the
- * REAL Live UI on the harness relay: the temporary Classic|Unified switcher, the
- * `New <Agent> in <Repo>` split button with its two-level agent→repo menu, the
- * spawn-with-draft-issue flow producing a draft row live from the broadcasts,
- * and the widened New Issue dialog opened from the sidebar `+`.
+ * Runtime verification of the unified sidebar — now THE sidebar (the classic
+ * layout and its temporary switcher were removed) — against the REAL Live UI
+ * on the harness relay: the `New <Agent> in <Repo>` split button with its
+ * two-level agent→repo menu, the spawn-with-draft-issue flow producing a draft
+ * row live from the broadcasts, and the widened New Issue dialog opened from
+ * the sidebar `+`.
  *
- * Desktop-only: the switcher lives in the <aside> Sidebar, which the mobile
- * layout (MobileApp) does not render.
+ * Desktop-only: the <aside> Sidebar is not rendered by the mobile layout.
  */
-test.skip(({ isMobile }) => isMobile, 'desktop test (the switcher lives in the <aside> Sidebar)')
+test.skip(({ isMobile }) => isMobile, 'desktop test (the <aside> Sidebar is desktop-only)')
 
 async function openShell(page: Page): Promise<void> {
   await page.goto(`/?server=${RELAY}&e2e=1`)
@@ -21,23 +21,22 @@ async function openShell(page: Page): Promise<void> {
   await page.locator('aside').first().waitFor({ state: 'visible', timeout: 60_000 })
 }
 
-test('unified sidebar: switcher, split-button spawn creates a draft row, wider + dialog', async ({
+test('unified sidebar: split-button spawn creates a draft row, wider + dialog', async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1280, height: 900 })
   await openShell(page)
   const aside = page.locator('aside').first()
 
-  // ---- Classic is the default; flip the temporary switcher to Unified ----
-  const unifiedToggle = aside.getByRole('button', { name: 'unified', exact: true })
-  await expect(unifiedToggle).toBeVisible({ timeout: 10_000 })
-  await unifiedToggle.click()
-  await expect(unifiedToggle).toHaveAttribute('aria-pressed', 'true')
-
-  // Unified layout drops the Command center AND Superagent rows — the New-agent
-  // button (wearing the classic style) is the one top row.
-  await expect(aside.getByRole('button', { name: /Command center/ })).toHaveCount(0)
+  // Unified is THE sidebar now: no layout switcher, no classic Superagent row —
+  // the New-agent split button is the one top action row, and the app nav
+  // (Command center, Issues, Automations) lives right under it.
+  await expect(aside.getByRole('button', { name: 'unified', exact: true })).toHaveCount(0)
+  await expect(aside.getByRole('button', { name: 'classic', exact: true })).toHaveCount(0)
   await expect(aside.getByRole('button', { name: /Superagent/ })).toHaveCount(0)
+  await expect(aside.getByRole('button', { name: /Command center/ })).toBeVisible({
+    timeout: 10_000,
+  })
 
   // ---- The button renders `New <Agent> in <Repo>` once repos load ----
   const splitMain = aside.getByRole('button', { name: /^New .+ in .+/ })
@@ -94,13 +93,6 @@ test('unified sidebar: switcher, split-button spawn creates a draft row, wider +
   // max-w-2xl = 672px; the old max-w-md was 448px. Assert we're clearly wider.
   expect(box?.width ?? 0).toBeGreaterThan(600)
   await page.keyboard.press('Escape')
-
-  // ---- Classic still renders (switch back) ----
-  const classicToggle = aside.getByRole('button', { name: 'classic', exact: true })
-  await classicToggle.click()
-  await expect(aside.getByRole('button', { name: /Command center/ })).toBeVisible({
-    timeout: 10_000,
-  })
 })
 
 test('sidebar width is draggable via the right-edge handle and persists', async ({ page }) => {

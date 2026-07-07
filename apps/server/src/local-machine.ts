@@ -18,6 +18,10 @@ export function stateDir(): string {
  */
 export const LOCAL_MACHINE_ID = 'local'
 
+/** Placeholder machineId for sessions/rows created before a real machine adopts
+ *  them (single-machine boot, pre-provisioning). `ensureLocalMachine` rewrites these. */
+export const LOCAL_PLACEHOLDER = '__local__'
+
 /**
  * Read (or create-once) the persistent shared secret that the **local, same-host
  * daemon** presents to authenticate without pairing.

@@ -26,7 +26,6 @@ import {
   type HarnessAgent,
   type HeadlessActivityEvent,
   type HeadlessTurnEvent,
-  type HostMetricsWire,
   type IssueWire,
   type MachineQuotaWire,
   type MachineWire,
@@ -45,10 +44,11 @@ import { knownPathsFor } from './file-relay-policy'
 import { type Capability, SCOPED_TARGET } from './issue-authz'
 import { selectMailNudgeSession, sessionsForIssue } from './issue-util'
 import { IssueService } from './issues'
-import { LOCAL_MACHINE_ID } from './local-machine'
+import { LOCAL_MACHINE_ID, LOCAL_PLACEHOLDER } from './local-machine'
 import { MirrorService } from './mirror'
 import type { ModelCatalogSnapshot, ModelProbe } from './model-catalog'
 import { EventBus } from './modules/bus'
+import { HostsService, type MemoryBreakdown } from './modules/hosts/service'
 import {
   DEFAULT_NOTIFICATION_PUSHERS,
   type NotificationPushers,
@@ -107,9 +107,6 @@ export function mintUpstreamTokenInto(
   return token
 }
 
-/** Placeholder machineId for sessions/rows created before a real machine adopts
- *  them (single-machine boot, pre-provisioning). ensureLocalMachine rewrites these. */
-const LOCAL_PLACEHOLDER = '__local__'
 
 /** Routers/procs a relayed agent may invoke. `issues.*` is capability-gated by the router
  *  middleware (issueCapabilityGuard); everything else must be explicitly listed so a relay
@@ -171,11 +168,7 @@ export interface ScanReposResult {
   diagnostics: GitDiscoveryDiagnosticWire[]
 }
 
-/** The daemon's memoryBreakdownResult, minus wire plumbing (type/requestId). */
-export type MemoryBreakdown = Omit<
-  Extract<DaemonMessage, { type: 'memoryBreakdownResult' }>,
-  'type' | 'requestId'
->
+export type { MemoryBreakdown }
 
 /** Outcome of a daemon-executed operation (git op / harness one-shot). */
 export interface OpResult {
@@ -231,7 +224,6 @@ export class SessionRegistry {
   private steward!: StewardService
   private readonly pendingScans = new Map<string, (r: ScanResult) => void>()
   private readonly pendingRepoScans = new Map<string, (r: ScanReposResult) => void>()
-  private readonly pendingBreakdowns = new Map<string, (r: MemoryBreakdown | undefined) => void>()
   private readonly pendingRepoOps = new Map<string, (r: OpResult) => void>()
   private readonly pendingHarnessExecs = new Map<string, (r: OpResult) => void>()
   private readonly pendingHeadlessTurns = new Map<
@@ -317,9 +309,8 @@ export class SessionRegistry {
   // their last serialization so cap clients still get a snapshot when ONLY diagnostics
   // changed (rare: scan problems), without re-sending the list on every conversation delta.
   private lastDiagnosticsBroadcast = ''
-  // Latest health sample per daemon host, keyed by machineId — each connected
-  // machine reports its own sample, scoped to it so a detach drops only its row.
-  private readonly latestHostMetrics = new Map<string, HostMetricsWire>()
+  /** Host health samples + auto-hibernate + memory breakdown (modules/hosts). */
+  private readonly hosts: HostsService
   private nextClientNum = 0
   // Shared by scan() ('r' prefix) and scanRepos() ('rr' prefix). Each scan
   // variant must use a distinct string prefix so ids never collide across the
@@ -374,6 +365,18 @@ export class SessionRegistry {
           })),
       },
       this.notificationPushers,
+      this.bus,
+    )
+    this.hosts = new HostsService(
+      {
+        getSettings: () => this.store.getSettings(),
+        clients: () => this.clients.values(),
+        machineName: (id) => this.machineName(id),
+        sessions: () => this.sessions.values(),
+        hibernateSession: (input) => this.hibernateSession(input),
+        daemonRequest: (pending, prefix, timeoutMs, onTimeout, buildMsg, machineId) =>
+          this.daemonRequest(pending, prefix, timeoutMs, onTimeout, buildMsg, machineId),
+      },
       this.bus,
     )
     this.activityFlushTimer.unref?.()
@@ -778,14 +781,15 @@ export class SessionRegistry {
       })
     }
     this.broadcastMachines()
+    this.bus.emit('machine.connected', { machineId })
   }
   detachDaemon(machineId: string): void {
     this.daemons.delete(machineId)
     this.invalidateMachineCache()
-    // This machine's host sample is only as live as its socket — drop it so a dead
-    // machine's numbers never linger as truth. Keyed by machineId, so other machines'
-    // samples are untouched.
-    if (this.latestHostMetrics.delete(machineId)) this.broadcastHostMetrics()
+    // Emitted HERE (not at the end) to preserve the pre-module ordering: the hosts
+    // module drops this machine's health sample + rebroadcasts BEFORE the session
+    // sweep below, exactly where the inline delete used to sit.
+    this.bus.emit('machine.disconnected', { machineId })
     // The daemon that held THIS machine's sessions' PTY bridges is gone (daemon
     // restart/crash; durable masters survive in their own scopes). Drop only THIS
     // machine's live/starting sessions to 'reconnecting' so the next daemon to attach
@@ -1971,54 +1975,6 @@ export class SessionRegistry {
     return { ok: true }
   }
 
-  // At most one hibernation per cooldown window PER MACHINE — memory readings need
-  // time to reflect the previous kill before deciding to take down another agent.
-  // Each machine has its own memory budget, so the cooldown and the candidate pool
-  // are both scoped to the machine whose sample triggered this (sample.machineId).
-  private readonly lastAutoHibernateMsByMachine = new Map<string, number>()
-  private maybeAutoHibernate(sample: HostMetricsWire): void {
-    const cfg = this.store.getSettings().hibernation
-    if (!cfg.enabled) return
-    const machineId = sample.machineId ?? LOCAL_PLACEHOLDER
-    const m = sample.memory
-    if (m.totalBytes <= 0) return
-    const usedPct = ((m.totalBytes - m.availableBytes) / m.totalBytes) * 100
-    if (usedPct < cfg.memoryPct) return
-    const now = Date.now()
-    if (now - (this.lastAutoHibernateMsByMachine.get(machineId) ?? 0) < 60_000) return
-    const idleCutoff = now - cfg.idleMinutes * 60_000
-    // A foreground turn can end (phase → idle) while a background agent or
-    // `&`-spawned task keeps running — and a running agent paints its TUI, so
-    // recent PTY output is the giveaway. Require the PTY to have been quiet for a
-    // full minute before parking, so we never hibernate work that's still going.
-    const OUTPUT_QUIET_MS = 60_000
-    const candidates = [...this.sessions.values()]
-      .filter(
-        (s) =>
-          // Only this machine's sessions are bound by this machine's memory budget.
-          s.machineId === machineId &&
-          s.status === 'live' &&
-          s.resume !== undefined &&
-          // Only agents that are demonstrably done/idle. needs_user keeps its
-          // pending question; working agents are obviously off-limits.
-          (s.agentState?.phase === 'idle' || s.agentState?.phase === 'ended') &&
-          // "Idle since" is the latest of genuine agent activity (lastActiveAt),
-          // the last resume, and the last user input — any of them resets the idle
-          // timer WITHOUT restamping lastActiveAt (which owns recency ordering).
-          Math.max(Date.parse(s.lastActiveAt), s.lastResumedAtMs, s.lastInputAtMs) <= idleCutoff &&
-          // A running TUI repaints, so recent output means work is still going.
-          now - s.lastOutputAtMs >= OUTPUT_QUIET_MS,
-      )
-      .sort((a, b) => a.lastActiveAt.localeCompare(b.lastActiveAt))
-    const target = candidates[0]
-    if (!target) return
-    this.lastAutoHibernateMsByMachine.set(machineId, now)
-    console.info(
-      `[podium] memory ${usedPct.toFixed(0)}% on ${sample.hostname} ≥ ${cfg.memoryPct}% — hibernating idle session ${target.sessionId}`,
-    )
-    this.hibernateSession({ sessionId: target.sessionId })
-  }
-
   /** issue-as-workspace draft cleanup: after a session dies (kill/remove/exit/
    *  archive), reap its draft issue if the draft is now empty — draft, no
    *  worktree, no children, and every attached session dead (exited/archived) or
@@ -2484,18 +2440,9 @@ export class SessionRegistry {
     )
   }
 
-  /** Ask a daemon who owns the used memory. Resolves undefined when no daemon
-   *  answers in time. `machineId` targets a specific machine (the one whose chip
-   *  was clicked); omitted → the default online machine. */
+  /** Ask a daemon who owns the used memory (modules/hosts). */
   memoryBreakdown(roots: string[], machineId?: string): Promise<MemoryBreakdown | undefined> {
-    return this.daemonRequest<MemoryBreakdown | undefined>(
-      this.pendingBreakdowns,
-      'mb',
-      SCAN_TIMEOUT_MS,
-      () => undefined,
-      (requestId) => ({ type: 'memoryBreakdownRequest', requestId, roots }),
-      machineId ?? this.defaultMachine(),
-    )
+    return this.hosts.memoryBreakdown(roots, machineId)
   }
 
   private spawn(input: {
@@ -2629,7 +2576,7 @@ export class SessionRegistry {
       diagnostics: this.latestConversationDiagnostics,
     })
     send({ type: 'machinesChanged', machines: this.listMachines() })
-    if (this.latestHostMetrics.size > 0) send(this.hostMetricsMessage())
+    this.hosts.snapshotFor(send)
     return id
   }
 
@@ -2954,13 +2901,7 @@ export class SessionRegistry {
       }
       case 'hostMetrics': {
         const { type: _type, ...rest } = msg
-        // Tag the sample with the reporting machine so clients can attribute it and
-        // the per-machine cooldown/candidate scoping works. Keyed by machineId so a
-        // detach drops only this machine's row.
-        const sample: HostMetricsWire = { ...rest, machineId, name: this.machineName(machineId) }
-        this.latestHostMetrics.set(machineId, sample)
-        this.broadcastHostMetrics()
-        this.maybeAutoHibernate(sample)
+        this.hosts.onHostMetrics(machineId, rest)
         break
       }
       case 'sessionResumeRef': {
@@ -3145,12 +3086,7 @@ export class SessionRegistry {
         break
       }
       case 'memoryBreakdownResult': {
-        const resolve = this.pendingBreakdowns.get(msg.requestId)
-        if (resolve) {
-          this.pendingBreakdowns.delete(msg.requestId)
-          const { type: _type, requestId: _requestId, ...breakdown } = msg
-          resolve(breakdown)
-        }
+        this.hosts.onMemoryBreakdownResult(msg)
         break
       }
       case 'fileReadResult': {
@@ -3917,12 +3853,4 @@ export class SessionRegistry {
     }
   }
 
-  private hostMetricsMessage(): ServerMessage {
-    return { type: 'hostMetricsChanged', hosts: [...this.latestHostMetrics.values()] }
-  }
-
-  private broadcastHostMetrics(): void {
-    const msg = this.hostMetricsMessage()
-    for (const c of this.clients.values()) c.send(msg)
-  }
 }

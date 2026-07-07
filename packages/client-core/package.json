@@ -28,6 +28,11 @@
       "@podium/source": "./src/store.ts",
       "types": "./src/store.ts",
       "import": "./src/store.ts"
+    },
+    "./viewmodels": {
+      "@podium/source": "./src/viewmodels/index.ts",
+      "types": "./src/viewmodels/index.ts",
+      "import": "./src/viewmodels/index.ts"
     }
   },
   "scripts": {
