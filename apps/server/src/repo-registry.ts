@@ -137,15 +137,31 @@ export class RepoRegistry {
         for (const r of result.repositories) {
           if (r.originUrl) this.store.updateRepoOrigin(machineId, r.path, r.originUrl)
         }
+        const storedRows = this.store.listRepos(machineId)
         const repoIdByPath = new Map(
-          this.store.listRepos(machineId).map((row) => [normalizeRepoPath(row.path), row.repoId]),
+          storedRows.map((row) => [normalizeRepoPath(row.path), row.repoId]),
         )
-        // Stamp each repo with the machine that returned it (+ its stable repoId)
+        const seenPaths = new Set(result.repositories.map((r) => normalizeRepoPath(r.path)))
+        // Stamp each repo with the machine that returned it (+ its stable repoId).
+        const scanned = result.repositories.map((r) => {
+          const repoId = repoIdByPath.get(normalizeRepoPath(r.path))
+          return { ...r, machineId, ...(repoId ? { repoId } : {}) }
+        })
+        // Keep registered roots visible even when the daemon scan times out or returns
+        // no metadata. The path is still a valid spawn target for this machine, and
+        // diagnostics continue to surface the scan failure separately.
+        const registeredFallbacks = storedRows
+          .filter((row) => !seenPaths.has(normalizeRepoPath(row.path)))
+          .map((row) => ({
+            path: normalizeRepoPath(row.path),
+            kind: 'repository' as const,
+            ...(row.originUrl ? { originUrl: row.originUrl } : {}),
+            worktrees: [],
+            machineId,
+            ...(row.repoId ? { repoId: row.repoId } : {}),
+          }))
         return {
-          repositories: result.repositories.map((r) => {
-            const repoId = repoIdByPath.get(normalizeRepoPath(r.path))
-            return { ...r, machineId, ...(repoId ? { repoId } : {}) }
-          }),
+          repositories: [...scanned, ...registeredFallbacks],
           diagnostics: result.diagnostics,
         }
       }),

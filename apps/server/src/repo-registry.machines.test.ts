@@ -96,6 +96,44 @@ describe('RepoRegistry.scanReposAll()', () => {
     expect(result.repositories).toHaveLength(2)
   })
 
+  it('keeps a registered machine repo visible when that machine scan times out', async () => {
+    const { reg, repos, store, m1Out, m2Out } = regWithTwoDaemons()
+    store.addRepo('/a', 'm1', 'https://github.com/acme/a.git')
+    store.addRepo('/b', 'm2', 'https://github.com/acme/b.git')
+
+    const scanPromise = repos.scanReposAll()
+    const m1Req = m1Out.find((m) => m.type === 'scanReposRequest')
+    const m2Req = m2Out.find((m) => m.type === 'scanReposRequest')
+    expect(m1Req).toBeDefined()
+    expect(m2Req).toBeDefined()
+
+    reg.onDaemonMessageFrom('m1', {
+      type: 'scanReposResult',
+      requestId: (m1Req as Extract<ControlMessage, { type: 'scanReposRequest' }>).requestId,
+      repositories: [{ path: '/a', kind: 'repository', branch: 'main', worktrees: [] }],
+      diagnostics: [],
+    } as DaemonMessage)
+    reg.onDaemonMessageFrom('m2', {
+      type: 'scanReposResult',
+      requestId: (m2Req as Extract<ControlMessage, { type: 'scanReposRequest' }>).requestId,
+      repositories: [],
+      diagnostics: [{ severity: 'error', path: '', message: 'repos scan timed out' }],
+    } as DaemonMessage)
+
+    const result = await scanPromise
+    const byMachine = new Map(result.repositories.map((r) => [r.machineId, r]))
+    const stored = store.listRepos('m2')[0]
+
+    expect(byMachine.get('m2')).toMatchObject({
+      path: '/b',
+      kind: 'repository',
+      machineId: 'm2',
+      originUrl: 'https://github.com/acme/b.git',
+      repoId: stored?.repoId,
+      worktrees: [],
+    })
+  })
+
   it('single-machine invariant: with one daemon scanReposAll equals scanRepos for that machine', async () => {
     // Single machine setup
     const store = new SessionStore(':memory:')
