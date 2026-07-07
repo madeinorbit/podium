@@ -587,6 +587,11 @@ export class SessionRegistry {
         else void this.queueText({ sessionId: target.sessionId, text })
       },
     })
+    // Explicit hydration at the composition root (issue rows are loaded HERE,
+    // not in the IssueService constructor): a corrupt row is quarantined by the
+    // store's row-level guard, so boot proceeds minus that row instead of
+    // crash-looping the server.
+    this.issues.init()
     // Boot-time reconciliation: reap draft issues leaked before the kill-path
     // reaper existed (sessions killed/removed while attached to an empty draft).
     // Sessions are already hydrated (loadFromStore ran above), so the emptiness

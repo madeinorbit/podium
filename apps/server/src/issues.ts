@@ -177,16 +177,38 @@ export interface CreateIssueInput {
 }
 
 export class IssueService {
-  private readonly rows = new Map<string, IssueRow>()
-  constructor(private readonly deps: IssueDeps) {
-    this.reload()
+  /** Hydrated row cache; null until the first {@link init}/lazy access. Kept out
+   *  of the constructor so constructing the service can never crash-loop the
+   *  server boot on bad data (the composition root calls init() explicitly;
+   *  everything else lazily hydrates on first touch). */
+  private hydrated: Map<string, IssueRow> | null = null
+  constructor(private readonly deps: IssueDeps) {}
+
+  /** The in-memory row map, lazily hydrated. Row-level quarantine lives in the
+   *  store (listIssueRows skips + logs + counts corrupt rows), so hydration is
+   *  total: a corrupt row costs that row, never the boot. */
+  private get rows(): Map<string, IssueRow> {
+    if (this.hydrated === null) this.hydrate()
+    return this.hydrated as Map<string, IssueRow>
+  }
+
+  /** Explicit hydration for the composition root (relay) — same load the lazy
+   *  path performs, done eagerly so boot surfaces load logs immediately. */
+  init(): this {
+    this.hydrate()
+    return this
   }
 
   /** Clear and re-hydrate the in-memory row map from the store. Lets tests (and
    *  future external mutators) refresh `this.rows` after a direct store write. */
   reload(): void {
-    this.rows.clear()
-    for (const r of this.deps.store.listIssueRows()) this.rows.set(r.id, r)
+    this.hydrate()
+  }
+
+  private hydrate(): void {
+    const map = new Map<string, IssueRow>()
+    for (const r of this.deps.store.listIssueRows()) map.set(r.id, r)
+    this.hydrated = map
   }
 
   /** Worktree paths of all issues (for cwd-based worker-role resolution). */

@@ -13,6 +13,10 @@ import { parseStringArray } from './helpers'
 import type { IssueCommentRow, IssueMessageRow, IssueRow } from './types'
 
 export class IssuesRepository {
+  /** Rows skipped by the last {@link listIssueRows} because they were
+   *  structurally corrupt (row-level quarantine). Diagnostic counter. */
+  quarantinedRowCount = 0
+
   constructor(
     private readonly db: SqlDatabase,
     /** Repos-aggregate lookup: stable repo_id for an issue's repoPath. */
@@ -177,13 +181,44 @@ export class IssuesRepository {
     return r ? this.mapIssueRow(r) : null
   }
 
+  /**
+   * All issue rows (optionally one repo), with ROW-LEVEL QUARANTINE: a row
+   * that is structurally corrupt (or whose mapping throws for any reason) is
+   * skipped, logged and counted — never propagated. This is the boot-hydration
+   * read (IssueService), where one corrupt row aborting the whole load would
+   * crash-loop the server. Individual JSON columns additionally self-quarantine
+   * to safe defaults (see parseStringArray), which keeps the row.
+   */
   listIssueRows(repoPath?: string): IssueRow[] {
     const rows = (
       repoPath
         ? this.db.prepare('SELECT * FROM issues WHERE repo_path = ? ORDER BY seq ASC').all(repoPath)
         : this.db.prepare('SELECT * FROM issues ORDER BY repo_path ASC, seq ASC').all()
     ) as Record<string, unknown>[]
-    return rows.map((r) => this.mapIssueRow(r))
+    const out: IssueRow[] = []
+    this.quarantinedRowCount = 0
+    for (const r of rows) {
+      try {
+        // Load-bearing TEXT columns must actually be strings: a NULL id (SQLite
+        // allows NULL in a TEXT PRIMARY KEY) or NULL stage/title row would poison
+        // every downstream consumer — quarantine it instead of mapping it.
+        if (
+          typeof r.id !== 'string' ||
+          typeof r.repo_path !== 'string' ||
+          typeof r.stage !== 'string' ||
+          typeof r.title !== 'string'
+        ) {
+          throw new Error('structurally corrupt row (non-string id/repo_path/stage/title)')
+        }
+        out.push(this.mapIssueRow(r))
+      } catch (err) {
+        this.quarantinedRowCount += 1
+        console.error(
+          `[podium] issues: quarantined corrupt row ${JSON.stringify(r.id ?? null)} — skipped (${String(err)})`,
+        )
+      }
+    }
+    return out
   }
 
   deleteIssue(id: string): void {
