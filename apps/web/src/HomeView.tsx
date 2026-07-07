@@ -31,10 +31,9 @@ function SessionDot({ session }: { session: SessionMeta }): JSX.Element {
  */
 export function HomeView(): JSX.Element {
   const sessions = useStoreSelector((s) => s.sessions)
+  const ui = useStoreSelector((s) => s.uiState)
   const isMobile = useIsMobile()
-  const [mode, setMode] = useState<HomeMode>(
-    () => (localStorage.getItem(MODE_KEY) as HomeMode) || 'list',
-  )
+  const [mode, setMode] = useState<HomeMode>(() => (ui.get(MODE_KEY) as HomeMode) || 'list')
   const [showArchived, setShowArchived] = useState(false)
   // The relative timestamps drift; refresh them once a minute.
   const [now, setNow] = useState(() => Date.now())
@@ -45,7 +44,7 @@ export function HomeView(): JSX.Element {
 
   const pickMode = (m: HomeMode) => {
     setMode(m)
-    localStorage.setItem(MODE_KEY, m)
+    ui.set(MODE_KEY, m)
   }
   const archived = withoutShells(sessions).filter((s) => s.archived)
 

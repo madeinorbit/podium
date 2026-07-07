@@ -78,15 +78,12 @@ const SIDEBAR_WIDTH_DEFAULT = 280
  * localStorage.
  */
 function ResizableAside({ children }: { children: ReactNode }): JSX.Element {
+  const ui = useStoreSelector((s) => s.uiState)
   const [width, setWidth] = useState<number>(() => {
-    try {
-      const v = Number(localStorage.getItem(SIDEBAR_WIDTH_KEY))
-      return Number.isFinite(v) && v >= SIDEBAR_WIDTH_MIN && v <= SIDEBAR_WIDTH_MAX
-        ? v
-        : SIDEBAR_WIDTH_DEFAULT
-    } catch {
-      return SIDEBAR_WIDTH_DEFAULT
-    }
+    const v = Number(ui.get(SIDEBAR_WIDTH_KEY))
+    return Number.isFinite(v) && v >= SIDEBAR_WIDTH_MIN && v <= SIDEBAR_WIDTH_MAX
+      ? v
+      : SIDEBAR_WIDTH_DEFAULT
   })
   const onHandlePointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
     e.preventDefault()
@@ -101,11 +98,7 @@ function ResizableAside({ children }: { children: ReactNode }): JSX.Element {
     const up = () => {
       handle.removeEventListener('pointermove', move)
       setWidth((w) => {
-        try {
-          localStorage.setItem(SIDEBAR_WIDTH_KEY, String(w))
-        } catch {
-          // ignore
-        }
+        ui.set(SIDEBAR_WIDTH_KEY, String(w))
         return w
       })
     }
@@ -616,25 +609,18 @@ export function Sidebar(): JSX.Element {
   )
 }
 
-/** Per-section collapse state, persisted to localStorage. Absent key = the
- *  section's own default (attention/pinned open, working closed). */
+/** Per-section collapse state, persisted via the ui-state collection. Absent
+ *  key = the section's own default (attention/pinned open, working closed). */
 export function useCollapsed(key: string, defaultCollapsed: boolean): [boolean, () => void] {
+  const ui = useStoreSelector((s) => s.uiState)
   const [collapsed, setCollapsed] = useState<boolean>(() => {
-    try {
-      const v = localStorage.getItem(key)
-      return v === null ? defaultCollapsed : v === 'true'
-    } catch {
-      return defaultCollapsed
-    }
+    const v = ui.get(key)
+    return v === null ? defaultCollapsed : v === 'true'
   })
   const toggle = () => {
     setCollapsed((c) => {
       const next = !c
-      try {
-        localStorage.setItem(key, next ? 'true' : 'false')
-      } catch {
-        // ignore
-      }
+      ui.set(key, next ? 'true' : 'false')
       return next
     })
   }

@@ -93,17 +93,18 @@ export function IssuesView(): JSX.Element {
   const openIssueId = useStoreSelector((s) => s.openIssueId)
   const setOpenIssueId = useStoreSelector((s) => s.setOpenIssueId)
   const trpc = useStoreSelector((s) => s.trpc)
+  const ui = useStoreSelector((s) => s.uiState)
   // On phones the board's horizontal lanes don't fit — force the list layout.
   const isMobile = useIsMobile()
   // Display options (layout / ordering / badge visibility), persisted so the
   // board looks the same across reloads. Field-by-field fallback on read.
   const [display, setDisplay] = useState<IssuesDisplay>(() =>
-    readIssuesDisplay(localStorage.getItem(DISPLAY_KEY)),
+    readIssuesDisplay(ui.get(DISPLAY_KEY)),
   )
   const updateDisplay = (patch: DisplayPatch): void => {
     const next = { ...display, ...patch, badges: { ...display.badges, ...(patch.badges ?? {}) } }
     setDisplay(next)
-    localStorage.setItem(DISPLAY_KEY, writeIssuesDisplay(next))
+    ui.set(DISPLAY_KEY, writeIssuesDisplay(next))
   }
   // `null` = composer closed; an object opens it, optionally pre-setting the lane.
   const [creating, setCreating] = useState<null | { stage?: IssueStage }>(null)

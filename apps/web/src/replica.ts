@@ -104,7 +104,40 @@ export interface Replica {
    *  private mode the queue lives in the in-memory storage — it drains while
    *  the tab lives and is lost on reload (best-effort, like everything else). */
   outboxStorage(): OutboxStorage
+  /** ONE UI persistence mechanism (issue #15 Phase 4): a versioned key→value
+   *  collection (`<prefix>.uistate.v1`) replacing the ad-hoc localStorage keys.
+   *  Known legacy keys are migrated in once and the old keys removed. */
+  uiState(): UiState
 }
+
+/** Synchronous UI-state kv over the ui-state collection. Never throws. */
+export interface UiState {
+  get(key: string): string | null
+  /** `null` deletes the key. */
+  set(key: string, value: string | null): void
+  /** Fires on any ui-state change (including cross-tab storage events). */
+  subscribe(cb: () => void): () => void
+}
+
+/** Exact legacy localStorage keys folded into the ui-state collection. */
+export const LEGACY_UI_KEYS = [
+  'podium.view',
+  'podium.sidebarTab',
+  'podium.selectedWorktree',
+  'podium.selectedIssueId',
+  'podium.sidebarLayout',
+  'podium.dockTab',
+  'podium.paneA',
+  'podium.paneB',
+  'podium.split',
+  'podium.superOpen',
+  'podium.panelMode',
+  'podium.homeMode',
+  'podium.issues.display',
+] as const
+
+/** Legacy key PREFIXES (dynamic suffixes: collapsed sections, sidebar width). */
+export const LEGACY_UI_PREFIXES = ['podium:sidebar:'] as const
 
 /** Spec §2.3: "last ~200 items per conversation, LRU cap ~50 conversations". */
 export const REPLICA_TRANSCRIPT_ITEM_CAP = 200
@@ -115,6 +148,10 @@ export const REPLICA_KEY_PREFIX = 'podium.replica'
 export interface ReplicaInit {
   /** Storage seam (mirrors outbox.ts): tests inject a fake; defaults to window.localStorage. */
   storage?: StorageApi
+  /** Key enumerator for the one-time ui-state migration (prefix-matched legacy
+   *  keys can't be probed individually). Defaults to Object.keys(localStorage)
+   *  when running on the real window.localStorage; empty otherwise. */
+  enumerateKeys?: () => string[]
   /** Cross-tab sync events; defaults to window. Tests usually omit both. */
   storageEventApi?: StorageEventApi
   /** Key namespace, `podium.replica` by default (keys get `.<kind>.v1` suffixes). */
@@ -127,6 +164,12 @@ interface TranscriptRow {
   key: string
   savedAt: number
   items: TranscriptItem[]
+}
+
+/** One persisted UI preference. */
+interface UiRow {
+  key: string
+  value: string
 }
 
 /** Persisted outbox entry (P6b): the OutboxEntry plus a stable FIFO ordinal. */
@@ -179,6 +222,9 @@ class TanstackReplica implements Replica {
   /** Lazily-built outbox backing (P6b) — separate from `cols` so a poisoned
    *  entity replica's clearAll never wipes queued writes. */
   private outboxBacking: OutboxStorage | undefined
+  /** Lazily-built ui-state backing — separate from `cols` for the same reason. */
+  private uiBacking: UiState | undefined
+  private readonly enumerateKeys: () => string[]
   /** Settles when every entity write issued so far has persisted — the fence
    *  `setCursor` waits behind (spec invariant 3). */
   private lastWrite: Promise<unknown> = Promise.resolve()
@@ -201,6 +247,11 @@ class TanstackReplica implements Replica {
           ? window
           : NOOP_STORAGE_EVENTS))
       : NOOP_STORAGE_EVENTS
+    this.enumerateKeys =
+      init.enumerateKeys ??
+      (this.persistent && init.storage === undefined && typeof window !== 'undefined'
+        ? () => Object.keys(window.localStorage)
+        : () => [])
     this.nonce = ++instanceSeq
     this.cols = {
       sessions: this.makeCollection<SessionMeta>('sessions', (s) => s.sessionId),
@@ -409,6 +460,79 @@ class TanstackReplica implements Replica {
       },
     }
     return this.outboxBacking
+  }
+
+  uiState(): UiState {
+    if (this.uiBacking) return this.uiBacking
+    const col = this.makeCollection<UiRow>('uistate', (r) => r.key)
+    try {
+      // Start (and pin) the collection's synchronous storage sync.
+      col.subscribeChanges(() => {})
+      // One-time migration: fold every known ad-hoc localStorage key into the
+      // collection (existing rows win), then retire the old keys.
+      const legacy = new Map<string, string>()
+      const consider = (k: string): void => {
+        try {
+          const v = this.storage.getItem(k)
+          if (v !== null) legacy.set(k, v)
+        } catch {
+          // unreadable key — skip
+        }
+      }
+      for (const k of LEGACY_UI_KEYS) consider(k)
+      for (const k of this.enumerateKeys()) {
+        if (LEGACY_UI_PREFIXES.some((p) => k.startsWith(p))) consider(k)
+      }
+      const inserts: UiRow[] = []
+      for (const [key, value] of legacy) {
+        if (!col.has(key)) inserts.push({ key, value })
+      }
+      if (inserts.length > 0) this.track(col.insert(inserts))
+      for (const key of legacy.keys()) {
+        try {
+          this.storage.removeItem(key)
+        } catch {
+          // removal is best-effort — the collection row is authoritative now
+        }
+      }
+    } catch (err) {
+      console.warn('[podium] ui-state migration failed', err)
+    }
+    this.uiBacking = {
+      get: (key) => {
+        try {
+          return (col.get(key) as UiRow | undefined)?.value ?? null
+        } catch {
+          return null
+        }
+      },
+      set: (key, value) => {
+        try {
+          if (value === null) {
+            if (col.has(key)) this.track(col.delete(key))
+          } else if (col.has(key)) {
+            this.track(
+              col.update(key, (draft: UiRow) => {
+                draft.value = value
+              }),
+            )
+          } else {
+            this.track(col.insert({ key, value }))
+          }
+        } catch (err) {
+          console.warn('[podium] ui-state set failed', err)
+        }
+      },
+      subscribe: (cb) => {
+        try {
+          const sub = col.subscribeChanges(() => cb())
+          return () => sub.unsubscribe()
+        } catch {
+          return () => {}
+        }
+      },
+    }
+    return this.uiBacking
   }
 
   // ---- internals ----

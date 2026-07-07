@@ -34,7 +34,7 @@ import {
   optimisticStartingSession,
 } from './optimistic-spawn'
 import { createOutbox } from './outbox'
-import { createReplica, type Replica, useReplicaRows } from './replica'
+import { createReplica, type Replica, type UiState, useReplicaRows } from './replica'
 import { createDraftAgent, type SpawnTarget } from './spawn-agent'
 import { makeTrpc, type ServerOrigin, type Trpc } from './trpc'
 import type { PinKind, PinState } from './types'
@@ -202,6 +202,10 @@ export interface Store {
   sidebarSettings: SidebarSettings
   /** Persist a new sidebar sort/order — optimistic update + server round-trip. */
   setSidebarSettings: (next: Partial<SidebarSettings>) => Promise<void>
+  /** ONE UI persistence mechanism: the replica's versioned ui-state collection
+   *  (see replica.uiState()) — components persist prefs through this, never
+   *  through ad-hoc localStorage keys. */
+  uiState: UiState
   /** Server HTTP origin — used to build asset URLs (e.g. markdown images). */
   httpOrigin: string
   /** Count of not-yet-synced outbox entries (offline-authored writes waiting to
@@ -219,8 +223,9 @@ export type MainView = 'home' | 'workspace' | 'settings' | 'usage' | 'issues' | 
 const Ctx = createContext<SubscriptionStore<Store> | null>(null)
 
 // Persist the "where am I" state so a reload (the PWA cold-starts often on
-// mobile) lands back on the same surface. localStorage access is guarded — it
-// throws in private-mode/SSR.
+// mobile) lands back on the same surface. All UI persistence goes through the
+// replica's ONE versioned ui-state collection (replica.uiState()); the old
+// ad-hoc localStorage keys are migrated in there once and removed.
 const VIEW_KEY = 'podium.view'
 const SIDEBAR_TAB_KEY = 'podium.sidebarTab'
 const WT_KEY = 'podium.selectedWorktree'
@@ -242,23 +247,8 @@ const PANE_B_KEY = 'podium.paneB'
 const SPLIT_KEY = 'podium.split'
 const SUPER_OPEN_KEY = 'podium.superOpen'
 const PANEL_MODE_KEY = 'podium.panelMode'
-function lsGet(key: string): string | null {
-  try {
-    return localStorage.getItem(key)
-  } catch {
-    return null
-  }
-}
-function lsSet(key: string, value: string | null): void {
-  try {
-    if (value === null) localStorage.removeItem(key)
-    else localStorage.setItem(key, value)
-  } catch {
-    // storage unavailable — persistence is best-effort
-  }
-}
-function readStoredView(): MainView {
-  const v = lsGet(VIEW_KEY)
+function readStoredView(ui: UiState): MainView {
+  const v = ui.get(VIEW_KEY)
   // 'superagent' is no longer a full view (it's a dock now) — a returning user who
   // left on it lands on home instead of a dead surface.
   return v === 'home' ||
@@ -270,12 +260,12 @@ function readStoredView(): MainView {
     ? v
     : 'home'
 }
-function readStoredSidebarTab(): 'worktrees' | 'issues' {
-  return lsGet(SIDEBAR_TAB_KEY) === 'issues' ? 'issues' : 'worktrees'
+function readStoredSidebarTab(ui: UiState): 'worktrees' | 'issues' {
+  return ui.get(SIDEBAR_TAB_KEY) === 'issues' ? 'issues' : 'worktrees'
 }
 /** The persisted per-session panel-mode map. A corrupt/missing blob reads as empty. */
-function readStoredPanelModes(): Record<string, 'chat' | 'native'> {
-  const raw = lsGet(PANEL_MODE_KEY)
+function readStoredPanelModes(ui: UiState): Record<string, 'chat' | 'native'> {
+  const raw = ui.get(PANEL_MODE_KEY)
   if (!raw) return {}
   try {
     const parsed = JSON.parse(raw) as unknown
@@ -324,6 +314,9 @@ export function StoreProvider({
   // entity hydration happens async in the mount effect below. When storage is
   // unavailable the replica is inert and everything behaves exactly like today.
   const replica = useMemo(() => createReplica(), [])
+  // The ONE UI persistence mechanism: a versioned ui-state collection in the
+  // replica (in-memory in private mode — same seam, best-effort durability).
+  const ui = useMemo(() => replica.uiState(), [replica])
   const hub = useMemo(
     () =>
       new SocketHub({
@@ -470,20 +463,22 @@ export function StoreProvider({
   const [machines, setMachines] = useState<MachineWire[]>([])
   const [pins, setPins] = useState<PinState>(EMPTY_PINS)
   const [tabOrders, setTabOrders] = useState<Record<string, string[]>>({})
-  const [view, setView] = useState<MainView>(readStoredView)
+  const [view, setView] = useState<MainView>(() => readStoredView(ui))
   const [settingsTab, setSettingsTab] = useState<string | null>(null)
   const [autoContinuePromptSessionId, setAutoContinuePromptSessionId] = useState<string | null>(
     null,
   )
   const [superThreadId, setSuperThreadId] = useState('global')
-  const [superOpen, setSuperOpen] = useState(() => lsGet(SUPER_OPEN_KEY) === '1')
-  const [dockTab, setDockTabState] = useState<DockTab>(() => readStoredDockTab(lsGet(DOCK_TAB_KEY)))
+  const [superOpen, setSuperOpen] = useState(() => ui.get(SUPER_OPEN_KEY) === '1')
+  const [dockTab, setDockTabState] = useState<DockTab>(() =>
+    readStoredDockTab(ui.get(DOCK_TAB_KEY)),
+  )
   const setDockTab = useMemo(
     () => (tab: DockTab) => {
       setDockTabState(tab)
-      lsSet(DOCK_TAB_KEY, tab)
+      ui.set(DOCK_TAB_KEY, tab)
     },
-    [],
+    [ui],
   )
   const [superRefreshKey, setSuperRefreshKey] = useState(0)
   const [drafts, setDrafts] = useState<Record<string, string>>({})
@@ -492,31 +487,35 @@ export function StoreProvider({
     repoOrder: [],
     groupByRepo: false,
   })
-  const [sidebarTab, setSidebarTabState] = useState<'worktrees' | 'issues'>(readStoredSidebarTab)
+  const [sidebarTab, setSidebarTabState] = useState<'worktrees' | 'issues'>(() =>
+    readStoredSidebarTab(ui),
+  )
   const setSidebarTab = useMemo(
     () => (tab: 'worktrees' | 'issues') => {
       setSidebarTabState(tab)
-      lsSet(SIDEBAR_TAB_KEY, tab)
+      ui.set(SIDEBAR_TAB_KEY, tab)
     },
-    [],
+    [ui],
   )
   const [openIssueId, setOpenIssueId] = useState<string | null>(null)
   const [paletteOpen, setPaletteOpen] = useState(false)
-  const [selectedWorktree, setSelectedWorktree] = useState<string | null>(() => lsGet(WT_KEY))
-  const [selectedIssueId, setSelectedIssueId] = useState<string | null>(() => lsGet(ISSUE_SEL_KEY))
+  const [selectedWorktree, setSelectedWorktree] = useState<string | null>(() => ui.get(WT_KEY))
+  const [selectedIssueId, setSelectedIssueId] = useState<string | null>(() =>
+    ui.get(ISSUE_SEL_KEY),
+  )
   const [sidebarLayout, setSidebarLayoutState] = useState<'classic' | 'unified'>(() =>
-    lsGet(SIDEBAR_LAYOUT_KEY) === 'unified' ? 'unified' : 'classic',
+    ui.get(SIDEBAR_LAYOUT_KEY) === 'unified' ? 'unified' : 'classic',
   )
   const setSidebarLayout = useMemo(
     () => (layout: 'classic' | 'unified') => {
       setSidebarLayoutState(layout)
-      lsSet(SIDEBAR_LAYOUT_KEY, layout)
+      ui.set(SIDEBAR_LAYOUT_KEY, layout)
     },
-    [],
+    [ui],
   )
-  const [paneA, setPaneA] = useState<string | null>(() => lsGet(PANE_A_KEY))
-  const [paneB, setPaneB] = useState<string | null>(() => lsGet(PANE_B_KEY))
-  const [split, setSplit] = useState(() => lsGet(SPLIT_KEY) === '1')
+  const [paneA, setPaneA] = useState<string | null>(() => ui.get(PANE_A_KEY))
+  const [paneB, setPaneB] = useState<string | null>(() => ui.get(PANE_B_KEY))
+  const [split, setSplit] = useState(() => ui.get(SPLIT_KEY) === '1')
   // Which pane has input focus. Not persisted — it resets to A on reload, which is
   // the right default (A is always the shown pane when split is off).
   const [focusedPane, setFocusedPane] = useState<'A' | 'B'>('A')
@@ -531,8 +530,9 @@ export function StoreProvider({
     [],
   )
   const toggleSplit = useMemo(() => () => setSplit((s) => !s), [])
-  const [panelMode, setPanelMode] =
-    useState<Record<string, 'chat' | 'native'>>(readStoredPanelModes)
+  const [panelMode, setPanelMode] = useState<Record<string, 'chat' | 'native'>>(() =>
+    readStoredPanelModes(ui),
+  )
   // Effective rendered mode per session (what AgentPanel actually shows), reported up
   // the viewState channel. Not persisted — it's re-reported on mount from live state.
   const [panelRenderModes, setPanelRenderModes] = useState<Record<string, 'chat' | 'native'>>({})
@@ -964,14 +964,14 @@ export function StoreProvider({
   }, [sessions, repos, selectedWorktree, paneA, paneB, split])
 
   // Persist the "where am I" state for next load.
-  useEffect(() => lsSet(VIEW_KEY, view), [view])
-  useEffect(() => lsSet(WT_KEY, selectedWorktree), [selectedWorktree])
-  useEffect(() => lsSet(ISSUE_SEL_KEY, selectedIssueId), [selectedIssueId])
-  useEffect(() => lsSet(PANE_A_KEY, paneA), [paneA])
-  useEffect(() => lsSet(PANE_B_KEY, paneB), [paneB])
-  useEffect(() => lsSet(SPLIT_KEY, split ? '1' : '0'), [split])
-  useEffect(() => lsSet(SUPER_OPEN_KEY, superOpen ? '1' : '0'), [superOpen])
-  useEffect(() => lsSet(PANEL_MODE_KEY, JSON.stringify(panelMode)), [panelMode])
+  useEffect(() => ui.set(VIEW_KEY, view), [ui, view])
+  useEffect(() => ui.set(WT_KEY, selectedWorktree), [ui, selectedWorktree])
+  useEffect(() => ui.set(ISSUE_SEL_KEY, selectedIssueId), [ui, selectedIssueId])
+  useEffect(() => ui.set(PANE_A_KEY, paneA), [ui, paneA])
+  useEffect(() => ui.set(PANE_B_KEY, paneB), [ui, paneB])
+  useEffect(() => ui.set(SPLIT_KEY, split ? '1' : '0'), [ui, split])
+  useEffect(() => ui.set(SUPER_OPEN_KEY, superOpen ? '1' : '0'), [ui, superOpen])
+  useEffect(() => ui.set(PANEL_MODE_KEY, JSON.stringify(panelMode)), [ui, panelMode])
 
   useEffect(() => {
     // The hub's single entity write seam is onMetadataApplied → replica; the
@@ -1134,6 +1134,7 @@ export function StoreProvider({
     setSessionDraft,
     sidebarSettings,
     setSidebarSettings,
+    uiState: ui,
     httpOrigin: config.httpOrigin,
     outboxSize,
     fileTabs,
