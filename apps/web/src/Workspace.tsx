@@ -15,7 +15,7 @@ import {
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import type { SessionMeta } from '@podium/protocol'
-import { Columns2, FileText, Pin, X } from 'lucide-react'
+import { Archive, Columns2, FileText, Pin, X } from 'lucide-react'
 import { type JSX, lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { useSessionGuard } from '@/hooks/use-session-guard'
@@ -23,6 +23,8 @@ import { cn } from '@/lib/utils'
 import { AgentPanel } from './AgentPanel'
 import {
   agentColorHex,
+  archivedSessionsForIssue,
+  archivedSessionsForWorktreePath,
   orderTabs,
   orphanSessionFor,
   reposToViews,
@@ -80,6 +82,9 @@ export function Workspace(): JSX.Element {
   // A small drag threshold keeps plain clicks (select/pin/close) working — the
   // drag only starts once the pointer has actually moved.
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
+  // Archived member sessions are hidden from the strip until the user reveals them
+  // (the "N archived" control at the end of the strip reopens them as tabs).
+  const [showArchived, setShowArchived] = useState(false)
 
   const allWorktrees = reposToViews(store.repos).flatMap((r) => r.worktrees)
   const allWorktreePaths = allWorktrees.map((w) => w.path)
@@ -110,11 +115,19 @@ export function Workspace(): JSX.Element {
   // sessions then files; a manual drag order (persisted per worktree — or per
   // issue under an `issue:<id>` key — may include file ids) is applied on top.
   // File ids that no longer exist (after reload) are dropped.
-  const sessionList = issue
+  const liveSessionList = issue
     ? sessionsForIssueNav(issue, sessions, allWorktreePaths, { includeShells: true })
     : worktree
       ? sessionsForWorktree(sessions, worktree.path, allWorktreePaths)
       : []
+  // Archived members of the viewed issue/worktree — kept out of the strip until
+  // revealed, then appended so they reopen as (readable) tabs.
+  const archivedMembers = issue
+    ? archivedSessionsForIssue(issue, sessions, allWorktreePaths)
+    : worktree
+      ? archivedSessionsForWorktreePath(sessions, worktree.path, allWorktreePaths)
+      : []
+  const sessionList = showArchived ? [...liveSessionList, ...archivedMembers] : liveSessionList
   const fileList = issue
     ? issue.worktreePath
       ? fileTabs.filter((f) => f.worktreePath === issue.worktreePath)
@@ -258,6 +271,20 @@ export function Workspace(): JSX.Element {
                   }
                 />
               ))}
+              {/* Reveal/hide archived member sessions as tabs — only shown when the
+                  viewed issue/worktree actually has any. */}
+              {archivedMembers.length > 0 && (
+                <button
+                  type="button"
+                  className="my-1 flex flex-none items-center gap-1 self-center rounded px-2 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground"
+                  aria-pressed={showArchived}
+                  title={showArchived ? 'Hide archived sessions' : 'Show archived sessions'}
+                  onClick={() => setShowArchived((v) => !v)}
+                >
+                  <Archive size={12} aria-hidden="true" />
+                  {showArchived ? 'Hide archived' : `${archivedMembers.length} archived`}
+                </button>
+              )}
             </div>
           </SortableContext>
         </DndContext>

@@ -5,10 +5,11 @@ import {
   Circle,
   GitBranch,
   KanbanSquare,
+  Pin,
   Plus,
   RotateCw,
 } from 'lucide-react'
-import type { JSX, ReactNode } from 'react'
+import type { JSX, MouseEvent as ReactMouseEvent, ReactNode } from 'react'
 import { useEffect, useRef, useState } from 'react'
 import {
   DropdownMenu,
@@ -24,11 +25,13 @@ import { cn } from '@/lib/utils'
 import {
   draftIssueLabel,
   groupUnifiedWorkRows,
+  issueReturnedFromDefer,
   lastUsedMaps,
   machinesWithRepo,
   mostUrgentSession,
   panelLabel,
   partitionStaleSessions,
+  partitionUnifiedWork,
   partitionWorkItems,
   pickPaneSession,
   type RepoNavView,
@@ -40,13 +43,15 @@ import {
   sidebarSections,
   spawnTargetForRepo,
   type UnifiedWorkRow,
-  unifiedWorkList,
+  type WorkingEntry,
 } from './derive'
 import { HostIndicators } from './HostIndicators'
-import { StageGlyph } from './issue-glyphs'
+import { IssueContextMenu } from './IssueContextMenu'
+import { IssueStatusIcon } from './IssueStatusIcon'
 import { isEpic } from './issue-hierarchy'
 import { NewIssueDialog } from './NewIssueDialog'
 import { NEW_AGENTS } from './NewPanelMenu'
+import type { ContextMenuAnchor } from './SessionContextMenu'
 import { CollapsibleSection, PanelRow, StaleSection, useCollapsed } from './Sidebar'
 import { useStore } from './store'
 import { useNow } from './useNow'
@@ -75,6 +80,7 @@ export function SidebarUnified(): JSX.Element {
     setSelectedWorktree,
     selectedIssueId,
     setSelectedIssueId,
+    setOpenIssueId,
     paneA,
     setPane,
     fileTabs,
@@ -130,7 +136,8 @@ export function SidebarUnified(): JSX.Element {
       a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }),
   )
   const allWorktreePaths = repoNavs.flatMap((r) => r.worktrees.map((w) => w.path))
-  const workRows = unifiedWorkList(sections, issues, sessions, allWorktreePaths, now)
+  // WORKING (move-out) + the WORK list minus whatever moved to WORKING.
+  const { working, work } = partitionUnifiedWork(sections, issues, sessions, allWorktreePaths, now)
   const workItems = partitionWorkItems(sessions, new Set(pins.panels), now)
 
   /** Spawn `agentKind` in `repo`'s primary worktree inside a fresh draft issue.
@@ -166,6 +173,13 @@ export function SidebarUnified(): JSX.Element {
 
   const selectIssue = (issue: IssueWire) => {
     setSelectedIssueId(issue.id)
+    // A lapsed defer is transient like the session snooze: interacting with the
+    // "Unsnoozed" issue clears the stale defer so the tag doesn't linger. (A
+    // still-snoozed issue is left alone.) No dedicated undefer route — defer(null)
+    // is the clear, matching the context menu's "Undefer".
+    if (issueReturnedFromDefer(issue, now)) {
+      void trpc.issues.defer.mutate({ id: issue.id, until: null }).catch(() => {})
+    }
     if (issue.worktreePath) setSelectedWorktree(issue.worktreePath)
     // Open a pane too (#108): keep the current one if it already belongs to this
     // issue (session or file tab), else the issue's most recently active session.
@@ -196,6 +210,59 @@ export function SidebarUnified(): JSX.Element {
     setSelectedWorktree(worktreePath)
     setPane('A', sessionId)
     setView('workspace')
+  }
+  // Open the issue PAGE (the right-click "Open" action), leaving the workspace.
+  const openIssuePage = (id: string) => {
+    setOpenIssueId(id)
+    setView('issues')
+  }
+
+  // One WORK/WORKING row (issue or unowned worktree), shared by both sections.
+  const renderWorkRow = (row: UnifiedWorkRow) =>
+    row.kind === 'issue' ? (
+      <UnifiedIssueRow
+        key={`issue:${row.issue.id}`}
+        row={row}
+        allWorktreePaths={allWorktreePaths}
+        sessions={sessions}
+        issues={issues}
+        active={selectedIssueId === row.issue.id}
+        paneA={paneA}
+        now={now}
+        onSelect={() => selectIssue(row.issue)}
+        onSelectPanel={(sid) => selectPanelForIssue(row.issue, sid)}
+        onPinned={(sid, p) => void setPinned('panel', sid, p)}
+        onOpenIssue={openIssuePage}
+      />
+    ) : (
+      <UnifiedWorktreeRow
+        key={`wt:${row.worktree.path}`}
+        row={row}
+        active={selectedIssueId === null && selectedWorktree === row.worktree.path}
+        paneA={paneA}
+        now={now}
+        onSelect={() => selectWorktree(row.worktree.path)}
+        onSelectPanel={(sid) => selectPanel(row.worktree.path, sid)}
+        onPinned={(sid, p) => void setPinned('panel', sid, p)}
+      />
+    )
+  // A WORKING entry: a lifted individual session renders as a PanelRow (like
+  // PINNED); a fully-working issue/worktree renders as its normal row.
+  const renderWorkingEntry = (entry: WorkingEntry) => {
+    if (entry.kind === 'session') {
+      const s = entry.session
+      return (
+        <PanelRow
+          key={`working:${s.sessionId}`}
+          session={s}
+          pinned={pins.panels.includes(s.sessionId)}
+          active={paneA === s.sessionId}
+          onSelect={() => selectPanel(s.cwd, s.sessionId)}
+          onPinned={(p) => void setPinned('panel', s.sessionId, p)}
+        />
+      )
+    }
+    return renderWorkRow(entry.row)
   }
 
   return (
@@ -361,8 +428,21 @@ export function SidebarUnified(): JSX.Element {
       </div>
 
       <div className="mt-1 flex-1 overflow-y-auto pb-3">
-        {/* PINNED stays; NEEDS YOUR ATTENTION / WORKING are gone — the WORK list
-            below is status-ordered instead. */}
+        {/* WORKING — fully-working issues/worktrees and working sessions lifted
+            out of partially-working rows; everything here is REMOVED from WORK. */}
+        {working.length > 0 && (
+          <div className="min-w-0">
+            <CollapsibleSection
+              label="WORKING"
+              storageKey="podium:sidebar:collapsed:working"
+              count={working.length}
+            >
+              {working.map(renderWorkingEntry)}
+            </CollapsibleSection>
+          </div>
+        )}
+
+        {/* PINNED — pinned session panels. */}
         {workItems.pinnedPanels.length > 0 && (
           <div className="min-w-0">
             <CollapsibleSection
@@ -412,40 +492,14 @@ export function SidebarUnified(): JSX.Element {
             </SelectContent>
           </Select>
         </div>
-        {workRows.length === 0 && (
+        {work.length === 0 && working.length === 0 && (
           <div className="p-3 text-xs text-muted-foreground/70">
             Nothing yet — start an agent or create an issue above.
           </div>
         )}
         {(() => {
-          const renderWorkRow = (row: UnifiedWorkRow) =>
-            row.kind === 'issue' ? (
-              <UnifiedIssueRow
-                key={`issue:${row.issue.id}`}
-                row={row}
-                allWorktreePaths={allWorktreePaths}
-                sessions={sessions}
-                active={selectedIssueId === row.issue.id}
-                paneA={paneA}
-                now={now}
-                onSelect={() => selectIssue(row.issue)}
-                onSelectPanel={(sid) => selectPanelForIssue(row.issue, sid)}
-                onPinned={(sid, p) => void setPinned('panel', sid, p)}
-              />
-            ) : (
-              <UnifiedWorktreeRow
-                key={`wt:${row.worktree.path}`}
-                row={row}
-                active={selectedIssueId === null && selectedWorktree === row.worktree.path}
-                paneA={paneA}
-                now={now}
-                onSelect={() => selectWorktree(row.worktree.path)}
-                onSelectPanel={(sid) => selectPanel(row.worktree.path, sid)}
-                onPinned={(sid, p) => void setPinned('panel', sid, p)}
-              />
-            )
-          if (!sidebarSettings.groupByRepo) return workRows.map(renderWorkRow)
-          return groupUnifiedWorkRows(workRows).map((group) => (
+          if (!sidebarSettings.groupByRepo) return work.map(renderWorkRow)
+          return groupUnifiedWorkRows(work).map((group) => (
             <CollapsibleSection
               key={group.key}
               label={group.label}
@@ -477,6 +531,7 @@ function UnifiedRowShell({
   collapsed,
   onToggle,
   onSelect,
+  onContextMenu,
   dotSession,
   extras,
   children,
@@ -489,6 +544,8 @@ function UnifiedRowShell({
   collapsed: boolean
   onToggle: () => void
   onSelect: () => void
+  /** Right-click the row's select button (opens the issue context menu). */
+  onContextMenu?: (e: ReactMouseEvent) => void
   dotSession: SessionMeta | undefined
   extras?: ReactNode
   children?: ReactNode
@@ -525,6 +582,7 @@ function UnifiedRowShell({
               : 'text-foreground hover:bg-accent',
           )}
           onClick={onSelect}
+          onContextMenu={onContextMenu}
         >
           {icon}
           <span className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap">
@@ -553,6 +611,7 @@ function UnifiedRowShell({
 function UnifiedIssueRow({
   row,
   sessions: _all,
+  issues,
   allWorktreePaths,
   active,
   paneA,
@@ -560,9 +619,12 @@ function UnifiedIssueRow({
   onSelect,
   onSelectPanel,
   onPinned,
+  onOpenIssue,
 }: {
   row: Extract<UnifiedWorkRow, { kind: 'issue' }>
   sessions: SessionMeta[]
+  /** Whole issue list — the context menu's label pool / duplicate targets. */
+  issues: IssueWire[]
   allWorktreePaths: string[]
   active: boolean
   paneA: string | null
@@ -570,9 +632,12 @@ function UnifiedIssueRow({
   onSelect: () => void
   onSelectPanel: (sessionId: string) => void
   onPinned: (sessionId: string, pinned: boolean) => void
+  /** Open the issue PAGE (the context menu's "Open"). */
+  onOpenIssue: (id: string) => void
 }): JSX.Element {
   const { issue, sessions: mine } = row
   const [collapsed, toggle] = useCollapsed(`podium:sidebar:unified-issue:${issue.id}`, false)
+  const [menuAnchor, setMenuAnchor] = useState<ContextMenuAnchor | null>(null)
   // A single agent underneath = nothing worth a second line: the parent row's
   // dot IS that agent's indicator. Child rows only exist from 2 agents up.
   const showChildren = mine.length >= 2
@@ -582,6 +647,24 @@ function UnifiedIssueRow({
   const draftAgentOnly = issue.draft && mine.length > 0 && !issue.worktreePath
   const AgentIcon = draftAgentOnly ? agentIconFor(mine[0]?.agentKind ?? 'claude-code') : undefined
   const label = issue.draft ? draftIssueLabel(issue, _all, allWorktreePaths) : issue.title
+  const onContextMenu = (e: ReactMouseEvent) => {
+    e.preventDefault()
+    setMenuAnchor({ x: e.clientX, y: e.clientY })
+  }
+  // The right-click menu (mirrors the board / SessionContextMenu pattern):
+  // cursor-anchored portal, acts on this one issue, rendered alongside the row.
+  const menu = menuAnchor ? (
+    <IssueContextMenu
+      issues={[issue]}
+      allIssues={issues}
+      anchor={menuAnchor}
+      onClose={() => setMenuAnchor(null)}
+      onOpen={(id) => {
+        setMenuAnchor(null)
+        onOpenIssue(id)
+      }}
+    />
+  ) : null
   const renderRow = (session: SessionMeta) => (
     <PanelRow
       key={session.sessionId}
@@ -596,48 +679,71 @@ function UnifiedIssueRow({
   if (draftAgentOnly) {
     const first = mine[0]
     return (
-      <UnifiedRowShell
-        testId="unified-issue-row"
-        icon={
-          AgentIcon ? (
-            <AgentIcon size={13} aria-hidden="true" className="flex-none text-muted-foreground" />
-          ) : (
-            <StageGlyph stage={issue.stage} size={13} />
-          )
-        }
-        label={label}
-        active={active && paneA === first?.sessionId}
-        expandable={false}
-        collapsed={true}
-        onToggle={() => {}}
-        // A draft is just its agent — clicking the row opens the session itself.
-        onSelect={() => (first ? onSelectPanel(first.sessionId) : onSelect())}
-        dotSession={urgent}
-      />
+      <>
+        <UnifiedRowShell
+          testId="unified-issue-row"
+          icon={
+            AgentIcon ? (
+              <AgentIcon size={13} aria-hidden="true" className="flex-none text-muted-foreground" />
+            ) : (
+              <IssueStatusIcon stage={issue.stage} size={16} />
+            )
+          }
+          label={label}
+          active={active && paneA === first?.sessionId}
+          expandable={false}
+          collapsed={true}
+          onToggle={() => {}}
+          // A draft is just its agent — clicking the row opens the session itself.
+          onSelect={() => (first ? onSelectPanel(first.sessionId) : onSelect())}
+          onContextMenu={onContextMenu}
+          dotSession={urgent}
+        />
+        {menu}
+      </>
     )
   }
   return (
-    <UnifiedRowShell
-      testId="unified-issue-row"
-      icon={<StageGlyph stage={issue.stage} size={13} />}
-      label={label}
-      active={active}
-      expandable={showChildren}
-      collapsed={showChildren ? collapsed : true}
-      onToggle={toggle}
-      onSelect={onSelect}
-      dotSession={urgent}
-      extras={
-        isEpic(issue) ? (
-          <span className="flex-none rounded border border-violet-500/50 px-1 text-[9px] leading-4 text-violet-600 dark:text-violet-400">
-            epic
-          </span>
-        ) : undefined
-      }
-    >
-      {visible.map(renderRow)}
-      <StaleSection sessions={stale} render={renderRow} />
-    </UnifiedRowShell>
+    <>
+      <UnifiedRowShell
+        testId="unified-issue-row"
+        // Neutral leading glyph: a task icon with the stage demoted to a corner
+        // badge, so a real issue row doesn't read as a distracting stage colour.
+        icon={<IssueStatusIcon stage={issue.stage} size={16} />}
+        label={label}
+        active={active}
+        expandable={showChildren}
+        collapsed={showChildren ? collapsed : true}
+        onToggle={toggle}
+        onSelect={onSelect}
+        onContextMenu={onContextMenu}
+        dotSession={urgent}
+        extras={
+          <>
+            {issue.pinned && (
+              <Pin size={11} className="flex-none text-muted-foreground" aria-hidden="true" />
+            )}
+            {issueReturnedFromDefer(issue, now) && (
+              <span
+                className="flex-none rounded border border-amber-500/40 px-1 text-[9px] font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-400"
+                title="Snooze ended — back in your queue"
+              >
+                Unsnoozed
+              </span>
+            )}
+            {isEpic(issue) && (
+              <span className="flex-none rounded border border-violet-500/50 px-1 text-[9px] leading-4 text-violet-600 dark:text-violet-400">
+                epic
+              </span>
+            )}
+          </>
+        }
+      >
+        {visible.map(renderRow)}
+        <StaleSection sessions={stale} render={renderRow} />
+      </UnifiedRowShell>
+      {menu}
+    </>
   )
 }
 

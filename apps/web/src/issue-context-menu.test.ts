@@ -28,7 +28,18 @@ describe('issueMenuEligibility', () => {
       canDuplicate: true,
       canPin: true,
       canDelete: true,
+      canArchive: true,
+      canUnarchive: false,
     })
+  })
+
+  it('offers archive on an active issue and unarchive on an archived one', () => {
+    const active = issueMenuEligibility([makeIssue()])
+    expect(active.canArchive).toBe(true)
+    expect(active.canUnarchive).toBe(false)
+    const archived = issueMenuEligibility([makeIssue({ archived: true })])
+    expect(archived.canArchive).toBe(false)
+    expect(archived.canUnarchive).toBe(true)
   })
 
   it('drops close / defer / assign-agent on a closed issue', () => {
@@ -65,6 +76,8 @@ describe('issueMenuEligibility', () => {
     expect(e.canDefer).toBe(false)
     expect(e.canDuplicate).toBe(false)
     expect(e.canPin).toBe(false)
+    expect(e.canArchive).toBe(false)
+    expect(e.canUnarchive).toBe(false)
   })
 })
 

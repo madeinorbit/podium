@@ -9,6 +9,8 @@ export interface BoardFilter {
   label?: string
   status?: 'open' | 'closed' | 'ready' | 'blocked' | 'deferred'
   stage?: IssueStage
+  /** Reveal archived issues. Off/unset → archived stay hidden (board default). */
+  archived?: boolean
 }
 
 /**
@@ -20,6 +22,8 @@ export interface BoardFilter {
 export function filterBoardIssues(issues: IssueWire[], f: BoardFilter): IssueWire[] {
   const text = f.text?.toLowerCase()
   return issues.filter((i) => {
+    // Archived issues stay reachable but hidden until the Archived filter is on.
+    if (i.archived && !f.archived) return false
     if (f.priority != null && i.priority !== f.priority) return false
     if (f.type && i.type !== f.type) return false
     if (f.assignee && i.assignee !== f.assignee) return false
@@ -45,6 +49,7 @@ export function filterChips(f: BoardFilter): { key: keyof BoardFilter; label: st
   if (f.label) chips.push({ key: 'label', label: `Label: ${f.label}` })
   if (f.status) chips.push({ key: 'status', label: `Status: ${f.status}` })
   if (f.stage) chips.push({ key: 'stage', label: `Stage: ${STAGE_LABELS[f.stage]}` })
+  if (f.archived) chips.push({ key: 'archived', label: 'Archived' })
   return chips
 }
 

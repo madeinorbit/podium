@@ -30,6 +30,8 @@ export function issueMenuEligibility(issues: readonly IssueWire[]): {
   canDuplicate: boolean
   canPin: boolean
   canDelete: boolean
+  canArchive: boolean
+  canUnarchive: boolean
 } {
   const any = issues.length > 0
   const single = issues.length === 1
@@ -49,6 +51,10 @@ export function issueMenuEligibility(issues: readonly IssueWire[]): {
     canDuplicate: single && first?.duplicateOf == null,
     canPin: single,
     canDelete: any,
+    // Archive removes an issue from the board/sidebar without deleting it; the
+    // pair is single-target and mutually exclusive on the issue's `archived`.
+    canArchive: single && first?.archived === false,
+    canUnarchive: single && first?.archived === true,
   }
 }
 

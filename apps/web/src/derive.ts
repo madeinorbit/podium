@@ -113,7 +113,8 @@ export function reposToViews(repos: GitRepositoryWire[]): RepoView[] {
   const groups = new Map<string, GitRepositoryWire[]>()
   for (const r of candidates) {
     const origin = normalizeOriginUrl(r.originUrl)
-    const key = r.repoId ?? (origin !== '' ? origin : `__no_remote__:${r.machineId ?? ''}:${r.path}`)
+    const key =
+      r.repoId ?? (origin !== '' ? origin : `__no_remote__:${r.machineId ?? ''}:${r.path}`)
     const existing = groups.get(key)
     if (existing) {
       existing.push(r)
@@ -458,6 +459,21 @@ export function snoozeUntilTomorrow5am(now: number): string {
   const target = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 5, 0, 0, 0)
   if (target.getTime() <= now) target.setDate(target.getDate() + 1)
   return target.toISOString()
+}
+
+/** Is the issue snoozed (deferred) *right now*? Mirrors the session `isSnoozed`:
+ *  a `deferUntil` in the future. `deferUntil` may be a date (`YYYY-MM-DD`, from the
+ *  board defer presets) or an ISO instant (the 1-hour preset) — both parse. */
+export function isIssueSnoozed(issue: IssueWire, now: number): boolean {
+  return issue.deferUntil != null && Date.parse(issue.deferUntil) > now
+}
+
+/** Did a *timed* defer just lapse — its deadline has passed but it hasn't been
+ *  cleared yet? The mirror of `returnedFromSnooze` for issues: the sidebar marks
+ *  such an issue "Unsnoozed" and floats it back to the top, and selecting it
+ *  clears the stale defer (transient tag). */
+export function issueReturnedFromDefer(issue: IssueWire, now: number): boolean {
+  return issue.deferUntil != null && Date.parse(issue.deferUntil) <= now
 }
 
 export function sortSessionsForPins(sessions: SessionMeta[], pins: PinState): SessionMeta[] {
@@ -940,6 +956,42 @@ export function pickPaneSession(
   return best?.sessionId ?? null
 }
 
+/** The ARCHIVED members of an issue — same membership rule as
+ *  {@link sessionsForIssueNav} (explicit `issueId` first, else cwd containment)
+ *  but inverted on `archived`. Drives the tab strip's "N archived" reveal so a
+ *  hidden-away session stays reopenable. Headless sessions never count. */
+export function archivedSessionsForIssue(
+  issue: IssueWire,
+  sessions: SessionMeta[],
+  allWorktreePaths: string[],
+): SessionMeta[] {
+  const wt = issue.worktreePath
+  const roots = wt && !allWorktreePaths.includes(wt) ? [...allWorktreePaths, wt] : allWorktreePaths
+  return sessions.filter((s) => {
+    if (!s.archived || isHeadlessSession(s)) return false
+    if (s.issueId !== undefined) return s.issueId === issue.id
+    if (!wt) return false
+    return worktreeForCwd(s.cwd, roots) === wt
+  })
+}
+
+/** The ARCHIVED sessions contained in a worktree path — the inverse of
+ *  {@link sessionsForWorktree} on `archived`, for the tab strip's reveal. */
+export function archivedSessionsForWorktreePath(
+  sessions: SessionMeta[],
+  worktreePath: string,
+  allWorktreePaths?: string[],
+): SessionMeta[] {
+  return sessions.filter(
+    (s) =>
+      s.archived &&
+      !isHeadlessSession(s) &&
+      (allWorktreePaths
+        ? worktreeForCwd(s.cwd, allWorktreePaths) === worktreePath
+        : s.cwd === worktreePath),
+  )
+}
+
 /** Row label for a DRAFT issue (placeholder-titled vessel): the attached session's
  *  display name, falling back to 'New agent'. Mirrors sessionDisplayName's
  *  name-beats-title rule (WorkerLabel imports from this module, so the tiny
@@ -1026,8 +1078,12 @@ export function spawnTargetForRepo(
   repoName: string
 } {
   const viewFor = (worktree: WorktreeNavView | WorktreeView): WorktreeView => {
-    const { repoName: _repoName, sessions: _sessions, issues: _issues, ...view } =
-      worktree as WorktreeNavView
+    const {
+      repoName: _repoName,
+      sessions: _sessions,
+      issues: _issues,
+      ...view
+    } = worktree as WorktreeNavView
     return view
   }
 
@@ -1130,32 +1186,29 @@ const rowRank = (sessions: SessionMeta[], now: number): number =>
   sessions.reduce((min, s) => Math.min(min, sessionUrgencyRank(s, now)), UNIFIED_ROW_EMPTY_RANK)
 
 /**
- * The unified WORK LIST — one flat list, ordered by aggregated status instead of
- * separate NEEDS-ATTENTION/WORKING sections. Contents:
- *   - non-archived human-origin issues that are ACTIVE — attached sessions, or a
- *     worktree, or a stage that isn't backlog/done (the whole backlog stays out);
- *   - draft issues with sessions (the "new agent" vessels);
- *   - nav worktrees owned by no issue that have at least one (non-shell) session.
- * Order: rank asc (min child session urgency; session-less rows sink), then
- * most-recent child activity desc, then issue.updatedAt desc.
+ * Build the unified WORK LIST rows (unsorted). Contents:
+ *   - non-archived human-origin issues (drafts included) that have ≥1 live
+ *     (non-archived, non-shell) member session — a worktree or a non-backlog
+ *     stage alone is NOT enough; the unified list is live work, not a tree;
+ *   - nav worktrees owned by no issue that have ≥1 (non-shell) session.
+ * Sessions attached to a live issue only render under that issue's row, so an
+ * agent-created worktree whose issue never stamped worktreePath won't show twice.
  */
-export function unifiedWorkList(
+function buildUnifiedRows(
   sections: SidebarSections,
   issues: IssueWire[],
   sessions: SessionMeta[],
   allWorktreePaths: string[],
-  now: number = Date.now(),
+  now: number,
 ): UnifiedWorkRow[] {
   const rows: UnifiedWorkRow[] = []
   for (const issue of issues) {
     if (issue.archived) continue
     const mine = sortSessionsForSidebar(sessionsForIssueNav(issue, sessions, allWorktreePaths), now)
-    const active =
-      mine.length > 0 ||
-      issue.worktreePath !== null ||
-      (issue.stage !== 'backlog' && issue.stage !== 'done')
-    const wanted = issue.draft ? mine.length > 0 : issue.origin === 'human' && active
-    if (!wanted) continue
+    // Require ≥1 live session — a worktree or non-backlog stage no longer floats a
+    // session-less issue into the list.
+    if (mine.length === 0) continue
+    if (!issue.draft && issue.origin !== 'human') continue
     const lastSession = mine.reduce((max, s) => Math.max(max, Date.parse(s.lastActiveAt) || 0), 0)
     rows.push({
       kind: 'issue',
@@ -1165,12 +1218,6 @@ export function unifiedWorkList(
       rank: rowRank(mine, now),
     })
   }
-  // Worktrees not owned by ANY non-archived issue (navWorktree already attaches
-  // owning issues per worktree — a non-empty list means an issue row covers it).
-  // Session-less worktrees stay out: the unified list is work, not a repo tree.
-  // Sessions ATTACHED to a live issue already appear under that issue's row, so
-  // they don't count toward (or render in) a worktree row — an agent-created
-  // worktree whose issue never stamped worktreePath must not show up twice.
   const liveIssueIds = new Set(issues.filter((i) => !i.archived).map((i) => i.id))
   const seen = new Set<string>()
   const navWorktrees = [
@@ -1194,13 +1241,143 @@ export function unifiedWorkList(
       rank: rowRank(unowned, now),
     })
   }
-  return rows.sort((a, b) => {
+  return rows
+}
+
+/** Band for the WORK list: pinned or returned-from-defer issues float to the top
+ *  (0), snoozed issues sink to the bottom (2), everything else sits in the middle
+ *  (1). Worktree rows have no such state, so they're always the middle band. */
+function unifiedRowBand(row: UnifiedWorkRow, now: number): number {
+  if (row.kind === 'issue') {
+    if (row.issue.pinned || issueReturnedFromDefer(row.issue, now)) return 0
+    if (isIssueSnoozed(row.issue, now)) return 2
+  }
+  return 1
+}
+
+function issueUpdatedAt(row: UnifiedWorkRow): number {
+  return row.kind === 'issue' ? Date.parse(row.issue.updatedAt) || 0 : 0
+}
+
+/** WORK-list order: band asc (pinned/returned top, snoozed bottom), then child
+ *  urgency rank asc, then most-recent child activity desc, then issue updatedAt. */
+function sortUnifiedWorkRows(rows: UnifiedWorkRow[], now: number): UnifiedWorkRow[] {
+  return [...rows].sort((a, b) => {
+    const db = unifiedRowBand(a, now) - unifiedRowBand(b, now)
+    if (db !== 0) return db
     if (a.rank !== b.rank) return a.rank - b.rank
     if (a.activityAt !== b.activityAt) return b.activityAt - a.activityAt
-    const au = a.kind === 'issue' ? Date.parse(a.issue.updatedAt) || 0 : 0
-    const bu = b.kind === 'issue' ? Date.parse(b.issue.updatedAt) || 0 : 0
-    return bu - au
+    return issueUpdatedAt(b) - issueUpdatedAt(a)
   })
+}
+
+/**
+ * The unified WORK LIST — one flat list, ordered by aggregated status. Pinned
+ * and just-unsnoozed issues float to the top; still-snoozed issues sink to the
+ * bottom; the middle is ordered by aggregated child-session urgency then recency.
+ * (For the WORKING move-out split, see {@link partitionUnifiedWork}.)
+ */
+export function unifiedWorkList(
+  sections: SidebarSections,
+  issues: IssueWire[],
+  sessions: SessionMeta[],
+  allWorktreePaths: string[],
+  now: number = Date.now(),
+): UnifiedWorkRow[] {
+  return sortUnifiedWorkRows(
+    buildUnifiedRows(sections, issues, sessions, allWorktreePaths, now),
+    now,
+  )
+}
+
+/** One entry in the WORKING section (move-out semantics): a fully-working issue
+ *  or worktree row, or an individual working session lifted out of a partially-
+ *  working row. */
+export type WorkingEntry =
+  | { kind: 'issue'; row: Extract<UnifiedWorkRow, { kind: 'issue' }> }
+  | { kind: 'worktree'; row: Extract<UnifiedWorkRow, { kind: 'worktree' }> }
+  | { kind: 'session'; session: SessionMeta }
+
+export interface UnifiedWorkPartition {
+  /** WORKING rows/sessions, most-recently-active first. */
+  working: WorkingEntry[]
+  /** The WORK list (banded order), minus whatever moved to WORKING. */
+  work: UnifiedWorkRow[]
+}
+
+function rowSessions(row: UnifiedWorkRow): SessionMeta[] {
+  return row.kind === 'issue' ? row.sessions : row.worktree.sessions
+}
+
+/** Rebuild a WORK row around a filtered session set, recomputing its rank +
+ *  activity so ordering stays coherent after working sessions are lifted out. */
+function rowWithSessions(row: UnifiedWorkRow, keep: SessionMeta[], now: number): UnifiedWorkRow {
+  const activityAt = keep.reduce((max, s) => Math.max(max, Date.parse(s.lastActiveAt) || 0), 0)
+  if (row.kind === 'issue') {
+    return {
+      ...row,
+      sessions: keep,
+      rank: rowRank(keep, now),
+      activityAt: activityAt || Date.parse(row.issue.updatedAt) || 0,
+    }
+  }
+  return {
+    ...row,
+    worktree: { ...row.worktree, sessions: keep },
+    rank: rowRank(keep, now),
+    activityAt,
+  }
+}
+
+function workingEntryActivity(e: WorkingEntry): number {
+  return e.kind === 'session' ? Date.parse(e.session.lastActiveAt) || 0 : e.row.activityAt
+}
+
+/**
+ * Split the unified work into a WORKING section (move-out) and the WORK list:
+ *   - an issue/worktree whose EVERY member session is working moves whole into
+ *     WORKING (as its row) and out of WORK;
+ *   - a partially-working row stays in WORK holding only its non-working
+ *     sessions, and its working sessions are lifted into WORKING as individual
+ *     rows — no duplication, a session shows in exactly one place;
+ *   - a pinned issue is EXEMPT: pinning floats it to the top of WORK, so it stays
+ *     there whole even when fully working.
+ * WORK keeps the banded order; WORKING reads most-recently-active first.
+ */
+export function partitionUnifiedWork(
+  sections: SidebarSections,
+  issues: IssueWire[],
+  sessions: SessionMeta[],
+  allWorktreePaths: string[],
+  now: number = Date.now(),
+): UnifiedWorkPartition {
+  const rows = buildUnifiedRows(sections, issues, sessions, allWorktreePaths, now)
+  const working: WorkingEntry[] = []
+  const work: UnifiedWorkRow[] = []
+  for (const row of rows) {
+    if (row.kind === 'issue' && row.issue.pinned) {
+      work.push(row)
+      continue
+    }
+    const mine = rowSessions(row)
+    const runningNow = mine.filter(isSessionWorking)
+    if (runningNow.length > 0 && runningNow.length === mine.length) {
+      working.push(row.kind === 'issue' ? { kind: 'issue', row } : { kind: 'worktree', row })
+    } else if (runningNow.length > 0) {
+      work.push(
+        rowWithSessions(
+          row,
+          mine.filter((s) => !isSessionWorking(s)),
+          now,
+        ),
+      )
+      for (const s of runningNow) working.push({ kind: 'session', session: s })
+    } else {
+      work.push(row)
+    }
+  }
+  working.sort((a, b) => workingEntryActivity(b) - workingEntryActivity(a))
+  return { working, work: sortUnifiedWorkRows(work, now) }
 }
 
 export interface UnifiedWorkGroup {

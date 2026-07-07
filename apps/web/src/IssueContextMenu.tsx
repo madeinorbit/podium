@@ -3,6 +3,8 @@ import { ISSUE_STAGES } from '@podium/protocol'
 import {
   AlarmClock,
   AlarmClockOff,
+  Archive,
+  ArchiveRestore,
   Bot,
   Check,
   ChevronRight,
@@ -17,6 +19,7 @@ import {
 import { type JSX, type ReactNode, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { toast } from 'sonner'
+import { snoozeUntil1h } from './derive'
 import { issueAgentOptions } from './issue-agents'
 import { STAGE_LABELS } from './issue-card'
 import { deferDateFromNow, issueMenuEligibility, toggleLabelAcross } from './issue-context-menu'
@@ -229,6 +232,15 @@ export function IssueContextMenu({
           )),
     defer: [
       <button
+        key="hour"
+        type="button"
+        role="menuitem"
+        className={itemCls}
+        onClick={() => defer(snoozeUntil1h(Date.now()))}
+      >
+        <AlarmClock size={14} aria-hidden="true" /> For 1 hour
+      </button>,
+      <button
         key="tomorrow"
         type="button"
         role="menuitem"
@@ -326,9 +338,11 @@ export function IssueContextMenu({
       {(elig.canDefer || elig.canUndefer) &&
         subTrigger('defer', <AlarmClock size={14} aria-hidden="true" />, 'Snooze / defer')}
 
-      {(elig.canPin || elig.canDuplicate || elig.canDelete) && (
-        <div className="my-1 h-px bg-border" role="separator" />
-      )}
+      {(elig.canPin ||
+        elig.canArchive ||
+        elig.canUnarchive ||
+        elig.canDuplicate ||
+        elig.canDelete) && <div className="my-1 h-px bg-border" role="separator" />}
       {elig.canPin && (
         <button
           type="button"
@@ -345,6 +359,29 @@ export function IssueContextMenu({
             <Pin size={14} aria-hidden="true" />
           )}
           {first.pinned ? 'Unpin' : 'Pin'}
+        </button>
+      )}
+      {(elig.canArchive || elig.canUnarchive) && (
+        <button
+          type="button"
+          role="menuitem"
+          className={itemCls}
+          {...leafHover}
+          onClick={() =>
+            run(() =>
+              trpc.issues.update.mutate({
+                id: first.id,
+                patch: { archived: !first.archived },
+              }),
+            )
+          }
+        >
+          {first.archived ? (
+            <ArchiveRestore size={14} aria-hidden="true" />
+          ) : (
+            <Archive size={14} aria-hidden="true" />
+          )}
+          {first.archived ? 'Unarchive' : 'Archive'}
         </button>
       )}
       {elig.canDuplicate &&
