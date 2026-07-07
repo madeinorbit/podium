@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Hono } from 'hono'
@@ -22,9 +22,32 @@ describe('setup route', () => {
   it('GET reports needsSetup true when unconfigured', async () => {
     const res = await app.request('/setup/config')
     expect(res.status).toBe(200)
-    const body = (await res.json()) as { needsSetup: boolean; config: unknown }
+    const body = (await res.json()) as { needsSetup: boolean; mode: string | null }
     expect(body.needsSetup).toBe(true)
-    expect(body.config).toEqual({})
+    expect(body.mode).toBeNull()
+  })
+
+  it('never leaks the config over the unauthenticated route — no token/pairCode/URLs', async () => {
+    writeFileSync(
+      join(dir, 'config.json'),
+      JSON.stringify({
+        mode: 'daemon',
+        serverUrl: 'wss://hub.example',
+        pairCode: 'SECRET-CODE',
+        upstream: { url: 'wss://hub.example', token: 'SECRET-TOKEN' },
+      }),
+    )
+    const res = await app.request('/setup/config')
+    expect(res.status).toBe(200)
+    const raw = await res.text()
+    expect(raw).not.toContain('SECRET-TOKEN')
+    expect(raw).not.toContain('SECRET-CODE')
+    expect(raw).not.toContain('hub.example')
+    const body = JSON.parse(raw) as Record<string, unknown>
+    // exactly the setup-gating fields, nothing else
+    expect(Object.keys(body).sort()).toEqual(['mode', 'needsSetup'])
+    expect(body.mode).toBe('daemon')
+    expect(body.needsSetup).toBe(false)
   })
   it('is read-only — writes go through the setup.* tRPC, so POST is not handled', async () => {
     const res = await app.request('/setup/config', {
