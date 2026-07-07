@@ -1395,6 +1395,7 @@ export function sessionDotClass(s: SessionMeta): string {
     DOT_TONE_CLASS[tone],
     parked && 'parked',
     tone === 'working' && !parked && 'dot-working',
+    (s.status === 'starting' || s.status === 'reconnecting') && !parked && 'dot-starting',
   )
 }
 

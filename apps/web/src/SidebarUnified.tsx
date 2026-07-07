@@ -1,5 +1,13 @@
 import type { AgentKind, IssueWire, SessionMeta } from '@podium/protocol'
-import { Circle, ChevronDown, ChevronRight, GitBranch, KanbanSquare, Plus, RotateCw } from 'lucide-react'
+import {
+  ChevronDown,
+  ChevronRight,
+  Circle,
+  GitBranch,
+  KanbanSquare,
+  Plus,
+  RotateCw,
+} from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
 import { useEffect, useRef, useState } from 'react'
 import {
@@ -17,8 +25,8 @@ import {
   draftIssueLabel,
   groupUnifiedWorkRows,
   lastUsedMaps,
-  mostUrgentSession,
   machinesWithRepo,
+  mostUrgentSession,
   panelLabel,
   partitionStaleSessions,
   partitionWorkItems,
@@ -40,7 +48,6 @@ import { isEpic } from './issue-hierarchy'
 import { NewIssueDialog } from './NewIssueDialog'
 import { NEW_AGENTS } from './NewPanelMenu'
 import { CollapsibleSection, PanelRow, StaleSection, useCollapsed } from './Sidebar'
-import { spawnDraftAgent } from './spawn-agent'
 import { useStore } from './store'
 import { useNow } from './useNow'
 
@@ -76,6 +83,7 @@ export function SidebarUnified(): JSX.Element {
     sidebarSettings,
     setSidebarSettings,
     machines,
+    spawnDraftAgent,
   } = useStore()
   const now = useNow(60_000)
   const [newIssueOpen, setNewIssueOpen] = useState(false)
@@ -109,7 +117,9 @@ export function SidebarUnified(): JSX.Element {
   )
   // The spawn target is the repo's primary checkout on the default machine
   // (MRU for this repo, then first online machine with the repo).
-  const defaultMachine = defaultRepo ? resolveTargetMachine(defaultRepo, sessions, machines) : undefined
+  const defaultMachine = defaultRepo
+    ? resolveTargetMachine(defaultRepo, sessions, machines)
+    : undefined
   const defaultTarget = defaultRepo ? spawnTargetForRepo(defaultRepo, defaultMachine) : undefined
   const defaultAgent = resolveDefaultAgent(agentSetting, sessions)
   // Menu repos read most-recently-used first (name tiebreak) — same order the
@@ -123,26 +133,15 @@ export function SidebarUnified(): JSX.Element {
   const workRows = unifiedWorkList(sections, issues, sessions, allWorktreePaths, now)
   const workItems = partitionWorkItems(sessions, new Set(pins.panels), now)
 
-  // A just-spawned draft session: once its broadcast lands with the server-minted
-  // draft issueId, select that issue row (the id isn't known synchronously).
-  const pendingSelect = useRef<string | null>(null)
-  useEffect(() => {
-    const sid = pendingSelect.current
-    if (!sid) return
-    const s = sessions.find((x) => x.sessionId === sid)
-    if (s?.issueId) {
-      setSelectedIssueId(s.issueId)
-      pendingSelect.current = null
-    }
-  }, [sessions, setSelectedIssueId])
-
-  /** Spawn `agentKind` in `repo`'s primary worktree inside a fresh draft issue. */
-  async function spawn(agentKind: AgentKind, repo: RepoNavView, machineId?: string): Promise<void> {
+  /** Spawn `agentKind` in `repo`'s primary worktree inside a fresh draft issue.
+   *  Optimistic (#119): the store paints the 'starting' row + draft vessel
+   *  instantly, so we navigate synchronously with the client-minted ids — no
+   *  waiting on the create round-trip or its broadcast. */
+  function spawn(agentKind: AgentKind, repo: RepoNavView, machineId?: string): void {
     const targetMachine = machineId ?? resolveTargetMachine(repo, sessions, machines)
     const { worktree: wt } = spawnTargetForRepo(repo, targetMachine)
-    const sessionId = await spawnDraftAgent({ trpc, target: wt, agentKind })
-    pendingSelect.current = sessionId
-    // Same post-create plumbing as NewPanelMenu consumers: select + open.
+    const { sessionId, issueId } = spawnDraftAgent({ target: wt, agentKind })
+    setSelectedIssueId(issueId)
     setSelectedWorktree(wt.path)
     setPane('A', sessionId)
     setView('workspace')

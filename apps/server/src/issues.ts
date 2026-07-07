@@ -144,6 +144,10 @@ export interface CreateIssueInput {
   origin?: 'human' | 'agent'
   /** Draft vessel with a placeholder title (issue-as-workspace); default false. */
   draft?: boolean
+  /** Client-supplied id (optimistic UI): used verbatim instead of minting a fresh
+   *  `iss_${uuid}`, so an optimistic client row reconciles onto the real issue
+   *  without a swap. Absent = mint one (unchanged default behavior). */
+  id?: string
 }
 
 export class IssueService {
@@ -850,7 +854,7 @@ export class IssueService {
   /** The auto-created vessel for a low-friction agent start: a draft, human-origin
    *  backlog issue with a placeholder title. The spawn flow stamps its id onto the
    *  new session. */
-  createDraftFor(repoPath: string, agentKind?: string): IssueWire {
+  createDraftFor(repoPath: string, agentKind?: string, id?: string): IssueWire {
     return this.create({
       repoPath,
       title: 'Draft',
@@ -858,6 +862,7 @@ export class IssueService {
       draft: true,
       origin: 'human',
       ...(agentKind ? { defaultAgent: agentKind } : {}),
+      ...(id ? { id } : {}),
     })
   }
   allWire(): IssueWire[] {
@@ -995,7 +1000,7 @@ export class IssueService {
     const seq = this.deps.store.nextIssueSeq(input.repoPath)
     const ts = this.now()
     const row: IssueRow = {
-      id: `iss_${randomUUID()}`,
+      id: input.id ?? `iss_${randomUUID()}`,
       repoPath: input.repoPath,
       repoId: this.deps.store.resolveRepoIdForPath(input.repoPath),
       seq,

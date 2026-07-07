@@ -57,6 +57,51 @@ describe('appRouter', () => {
     expect(list.find((s) => s.sessionId === sessionId)?.spawnedBy).toBe('user')
   })
 
+  it('sessions.create honors a client-provided sessionId verbatim (optimistic row reconciliation)', async () => {
+    const { call } = caller()
+    const clientId = 'client-picked-session-id'
+    const { sessionId } = await call.sessions.create({
+      agentKind: 'claude-code',
+      cwd: '/p',
+      sessionId: clientId,
+    })
+    expect(sessionId).toBe(clientId)
+    const list = await call.sessions.list()
+    expect(list).toMatchObject([{ sessionId: clientId, cwd: '/p' }])
+  })
+
+  it('sessions.create mints a random sessionId when omitted (unchanged default behavior)', async () => {
+    const { call } = caller()
+    const { sessionId } = await call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
+    expect(sessionId).toMatch(/^[0-9a-f-]{36}$/)
+  })
+
+  it('sessions.create with draftIssue.issueId honors the client id for both the draft issue and the session (optimistic reconciliation)', async () => {
+    const { call, registry } = caller()
+    const clientIssueId = 'iss_client-picked-draft-id'
+    const { sessionId } = await call.sessions.create({
+      agentKind: 'claude-code',
+      cwd: '/p',
+      draftIssue: { repoPath: '/p', issueId: clientIssueId },
+    })
+    expect(registry.issues.get(clientIssueId)?.id).toBe(clientIssueId)
+    expect(registry.issues.get(clientIssueId)?.draft).toBe(true)
+    const list = await call.sessions.list()
+    expect(list.find((s) => s.sessionId === sessionId)?.issueId).toBe(clientIssueId)
+  })
+
+  it('sessions.create with a draftIssue omitting issueId mints an iss_-prefixed id (unchanged default behavior)', async () => {
+    const { call } = caller()
+    const { sessionId } = await call.sessions.create({
+      agentKind: 'claude-code',
+      cwd: '/p',
+      draftIssue: { repoPath: '/p' },
+    })
+    const list = await call.sessions.list()
+    const issueId = list.find((s) => s.sessionId === sessionId)?.issueId
+    expect(issueId).toMatch(/^iss_[0-9a-f-]{36}$/)
+  })
+
   it('sessions.kill removes the session', async () => {
     const { call } = caller()
     const { sessionId } = await call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })

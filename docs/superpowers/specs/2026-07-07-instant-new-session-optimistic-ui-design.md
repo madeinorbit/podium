@@ -33,11 +33,22 @@ replica → broadcast → reconcile machinery already handles.
 
 - **Client generates ids.** `spawnDraftAgent` mints `sessionId` and `draftIssueId` with
   `crypto.randomUUID()` up front.
-- **Optimistic pre-insert.** Before any network call, upsert an optimistic `SessionMeta`
-  (`status: 'starting'`, the given `sessionId`, `issueId = draftIssueId`, `agentKind`, `cwd`) into
-  the replica `sessions` collection, and an optimistic draft `IssueWire` (id = `draftIssueId`,
-  matching the server's `createDraftFor` shape: draft title, repoPath/worktreePath, agentKind) into
-  the `issues` collection. The live queries re-render the sidebar synchronously.
+- **Optimistic pre-insert via an ephemeral overlay.** The replica's `applySnapshot` is
+  *full-replace* (rows absent from an incoming server snapshot are deleted), so writing the
+  optimistic row directly into the replica would flicker: any unrelated metadata broadcast arriving
+  before the create round-trips would wipe the not-yet-server-known row. Instead the store keeps an
+  **ephemeral optimistic overlay** (React state: `Map<id, SessionMeta>` + `Map<id, IssueWire>`)
+  merged on top of the base `sessions`/`issues` rows in their existing `useMemo`s. Overlay entries
+  survive intervening snapshots and are **pruned when the real row (same id) appears in the base**
+  (a reconcile effect), or on create error. The overlay is ephemeral (not persisted, not routed
+  through the outbox): an offline create can't spawn a process, so there's nothing to durably queue.
+- **Valid builders.** The overlay rows are built by pure functions — `optimisticStartingSession(…)`
+  → a full `SessionMeta` (`status: 'starting'`, given `sessionId`, `issueId`, `agentKind`, `cwd`,
+  `origin: {kind:'spawn'}`, default geometry, `archived:false`, …) and `optimisticDraftIssue(…)` →
+  a full draft `IssueWire` mirroring the server's `issues.createDraftFor`/`create` defaults
+  (`title:'Draft'`, `draft:true`, `worktreePath:null`, `stage:'backlog'`, `type:'task'`,
+  `origin:'human'`, empty arrays, …). Each builder is unit-tested by asserting the protocol zod
+  schema `.parse()`s its output, so a future required field can't silently produce an invalid row.
 - **Navigate synchronously.** Select the issue + open the pane + switch to workspace view
   immediately, using the known ids — no `await`. The existing `pendingSelect` ref (which waited for
   the server-minted `issueId`) is removed; the id is known up front now.

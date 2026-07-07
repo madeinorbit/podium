@@ -49,6 +49,32 @@ describe('IssueService CRUD', () => {
     expect(svc.update(w.id, { stage: 'in_progress' }).stage).toBe('in_progress')
     expect(svc.archive(w.id).archived).toBe(true)
   })
+
+  it('create honors a client-provided id verbatim (optimistic draft reconciliation)', () => {
+    const { svc } = harness()
+    const wire = svc.create({ repoPath: '/r', title: 'X', startNow: false, id: 'iss_client-supplied' })
+    expect(wire.id).toBe('iss_client-supplied')
+    expect(svc.get('iss_client-supplied')?.id).toBe('iss_client-supplied')
+  })
+
+  it('create mints an iss_-prefixed uuid when no id is given (unchanged default behavior)', () => {
+    const { svc } = harness()
+    const wire = svc.create({ repoPath: '/r', title: 'X', startNow: false })
+    expect(wire.id).toMatch(/^iss_[0-9a-f-]{36}$/)
+  })
+
+  it('createDraftFor threads a client-provided id through to create()', () => {
+    const { svc } = harness()
+    const wire = svc.createDraftFor('/r', 'claude-code', 'iss_draft-client-id')
+    expect(wire.id).toBe('iss_draft-client-id')
+    expect(wire.draft).toBe(true)
+  })
+
+  it('createDraftFor mints an id when omitted (unchanged default behavior)', () => {
+    const { svc } = harness()
+    const wire = svc.createDraftFor('/r')
+    expect(wire.id).toMatch(/^iss_[0-9a-f-]{36}$/)
+  })
 })
 
 describe('IssueService toWire needs_human (P4)', () => {

@@ -72,6 +72,32 @@ body {
   }
 }
 
+/* Booting (blue) status dot: a "loading" indicator distinct from the calm
+   static blue used for a ready/idle session — the agent process is starting
+   or briefly reconnecting, not yet ready. Unlike `.dot-working`'s outward
+   breathing ring (which reads as "alive and running"), this pulses the dot's
+   own opacity/scale in place, closer to a spinner's "in progress" cadence. */
+.dot-starting {
+  animation: dot-starting-pulse 0.9s ease-in-out infinite;
+}
+@keyframes dot-starting-pulse {
+  0%,
+  100% {
+    transform: scale(0.85);
+    opacity: 0.5;
+  }
+  50% {
+    transform: scale(1.15);
+    opacity: 1;
+  }
+}
+/* Respect a reduced-motion preference — show the dot, drop the pulse. */
+@media (prefers-reduced-motion: reduce) {
+  .dot-starting {
+    animation: none;
+  }
+}
+
 /* ---- shells ---- */
 .desktop-shell {
   display: flex;

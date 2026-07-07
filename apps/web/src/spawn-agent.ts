@@ -9,30 +9,39 @@ export interface SpawnTarget {
 }
 
 /**
- * Spawn `agentKind` into `target` inside a fresh draft issue — the ONE
- * "New <Agent> in <Repo>" spawn path, shared by the unified sidebar button and
- * the command palette's free-text fallback. `firstPrompt` (palette fallback) is
- * delivered via resumeAndSend, which queues until the agent is ready and falls
- * back to a plain send when it's already live.
+ * The network half of the "New <Agent> in <Repo>" spawn: create the session (in a
+ * fresh draft-issue vessel) on the server, then deliver an optional first prompt.
+ *
+ * The caller mints `sessionId` + `issueId` client-side and passes them here so the
+ * server reuses them verbatim (issue #119) — that's what lets the store paint an
+ * optimistic row that reconciles by id when the broadcast lands. This function does
+ * NOT touch UI state; `store.spawnDraftAgent` wraps it with the optimistic overlay
+ * (instant row + rollback-on-failure). Rejects if the create fails, so the wrapper
+ * can roll back. `firstPrompt` (command-palette fallback) is delivered via
+ * resumeAndSend, which queues until the agent is ready and falls back to a plain
+ * send when it's already live.
  */
-export async function spawnDraftAgent(args: {
+export async function createDraftAgent(args: {
   trpc: Trpc
+  sessionId: string
+  issueId: string
   target: SpawnTarget
   agentKind: AgentKind
   firstPrompt?: string
-}): Promise<string> {
-  const { trpc, target, agentKind, firstPrompt } = args
-  const { sessionId } = await trpc.sessions.create.mutate({
-    agentKind,
-    cwd: target.path,
-    draftIssue: { repoPath: target.repoPath },
-    ...(target.machineId ? { machineId: target.machineId } : {}),
+}): Promise<void> {
+  await args.trpc.sessions.create.mutate({
+    sessionId: args.sessionId,
+    agentKind: args.agentKind,
+    cwd: args.target.path,
+    draftIssue: { repoPath: args.target.repoPath, issueId: args.issueId },
+    ...(args.target.machineId ? { machineId: args.target.machineId } : {}),
   })
-  const text = firstPrompt?.trim()
+  const text = args.firstPrompt?.trim()
   if (text) {
     // Best-effort: the session exists either way; a failed first-prompt delivery
     // must not fail the spawn (the user lands in the session and can retype).
-    await trpc.sessions.resumeAndSend.mutate({ sessionId, text }).catch(() => {})
+    await args.trpc.sessions.resumeAndSend
+      .mutate({ sessionId: args.sessionId, text })
+      .catch(() => {})
   }
-  return sessionId
 }

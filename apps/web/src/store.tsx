@@ -1,5 +1,6 @@
 import { type Sidebar as SidebarSettings, shouldPromptAutoContinue } from '@podium/core'
 import type {
+  AgentKind,
   GitDiscoveryDiagnosticWire,
   GitRepositoryWire,
   HostMetricsWire,
@@ -24,8 +25,14 @@ import { formatAppError } from './AppErrorPage'
 import { dedupeSessionsByResume, EMPTY_PINS, planWorktreeMoves, reposToViews } from './derive'
 import { type DockTab, readStoredDockTab } from './dock-panel'
 import { type FileScope, scopeKey, tabIdFor } from './file-scope'
+import {
+  mergeOptimistic,
+  optimisticDraftIssue,
+  optimisticStartingSession,
+} from './optimistic-spawn'
 import { createOutbox } from './outbox'
 import { createReplica, type Replica, useReplicaRows } from './replica'
+import { createDraftAgent, type SpawnTarget } from './spawn-agent'
 import { makeTrpc, type ServerOrigin, type Trpc } from './trpc'
 import type { PinKind, PinState } from './types'
 
@@ -140,6 +147,16 @@ export interface Store {
   /** Enrich the registered repos with branch/worktree metadata (fast — no
    *  filesystem walk). Discovery scanning happens explicitly via the scan flow. */
   refreshRepos: () => Promise<void>
+  /** Start a new agent optimistically (#119): mints client ids, paints a
+   *  'starting' session + its draft-issue vessel INSTANTLY (an overlay over the
+   *  server rows), then fires `sessions.create` in the background reusing those
+   *  ids so the broadcast reconciles by id — and rolls the optimistic rows back
+   *  if the create never lands. Returns the ids synchronously so the caller
+   *  navigates without waiting on the round-trip. */
+  spawnDraftAgent: (args: { target: SpawnTarget; agentKind: AgentKind; firstPrompt?: string }) => {
+    sessionId: string
+    issueId: string
+  }
   killSession: (sessionId: string) => Promise<void>
   /** Nudge an errored agent to retry ("continue⏎" into its PTY). */
   continueSession: (sessionId: string) => Promise<void>
@@ -366,11 +383,40 @@ export function StoreProvider({
   const [legacyIssues, setLegacyIssues] = useState<IssueWire[]>([])
   // Same dedupe the legacy path applies at its setState seam; memoized so list
   // identity only changes when the underlying rows do (no per-render churn).
-  const sessions = useMemo(
+  const baseSessions = useMemo(
     () => (replica.available ? dedupeSessionsByResume(liveSessionRows ?? []) : legacySessions),
     [replica, liveSessionRows, legacySessions],
   )
-  const issues = replica.available ? (liveIssueRows ?? NO_ISSUES) : legacyIssues
+  const baseIssues = replica.available ? (liveIssueRows ?? NO_ISSUES) : legacyIssues
+  // Optimistic spawn overlay (#119): client-minted session + draft-issue rows
+  // shown INSTANTLY on "New <Agent>", merged over server truth below and pruned
+  // once the real row (same id) lands. Ephemeral (not persisted / not outboxed):
+  // a create must spawn a process, which can't happen offline, so there's nothing
+  // durable to queue — this only hides the online round-trip latency.
+  const [optimisticSessions, setOptimisticSessions] = useState<SessionMeta[]>([])
+  const [optimisticIssues, setOptimisticIssues] = useState<IssueWire[]>([])
+  const sessions = useMemo(
+    () => mergeOptimistic(baseSessions, optimisticSessions, (s) => s.sessionId),
+    [baseSessions, optimisticSessions],
+  )
+  const issues = useMemo(
+    () => mergeOptimistic(baseIssues, optimisticIssues, (i) => i.id),
+    [baseIssues, optimisticIssues],
+  )
+  // Reconcile: drop an optimistic row once server truth for its id arrives (the
+  // merge already lets the base win; this keeps the overlay from growing).
+  useEffect(() => {
+    if (optimisticSessions.length === 0) return
+    const known = new Set(baseSessions.map((s) => s.sessionId))
+    const keep = optimisticSessions.filter((s) => !known.has(s.sessionId))
+    if (keep.length !== optimisticSessions.length) setOptimisticSessions(keep)
+  }, [baseSessions, optimisticSessions])
+  useEffect(() => {
+    if (optimisticIssues.length === 0) return
+    const known = new Set(baseIssues.map((i) => i.id))
+    const keep = optimisticIssues.filter((i) => !known.has(i.id))
+    if (keep.length !== optimisticIssues.length) setOptimisticIssues(keep)
+  }, [baseIssues, optimisticIssues])
   // Optimistic local apply for curation mutations, path-matched to where entity
   // state lives: a replica-collection upsert (the live query re-renders, and the
   // optimism even survives an offline reload alongside its queued outbox entry)
@@ -717,6 +763,57 @@ export function StoreProvider({
     },
     [outbox, patchSession],
   )
+  const spawnDraftAgent = useMemo(
+    () =>
+      (args: {
+        target: SpawnTarget
+        agentKind: AgentKind
+        firstPrompt?: string
+      }): { sessionId: string; issueId: string } => {
+        // Client-minted ids (server reuses them verbatim) so the optimistic rows
+        // reconcile by id when the broadcast lands — no temp-id swap, no flicker.
+        const sessionId = crypto.randomUUID()
+        const issueId = `iss_${crypto.randomUUID()}`
+        const nowIso = new Date().toISOString()
+        setOptimisticSessions((all) => [
+          ...all,
+          optimisticStartingSession({
+            sessionId,
+            issueId,
+            agentKind: args.agentKind,
+            cwd: args.target.path,
+            nowIso,
+          }),
+        ])
+        setOptimisticIssues((all) => [
+          ...all,
+          optimisticDraftIssue({
+            issueId,
+            repoPath: args.target.repoPath,
+            agentKind: args.agentKind,
+            nowIso,
+          }),
+        ])
+        // Fire the create in the background; roll the optimistic rows back if it
+        // never reaches the server (the real broadcast otherwise supersedes them).
+        void createDraftAgent({
+          trpc,
+          sessionId,
+          issueId,
+          target: args.target,
+          agentKind: args.agentKind,
+          firstPrompt: args.firstPrompt,
+        }).catch((err) => {
+          setOptimisticSessions((all) => all.filter((s) => s.sessionId !== sessionId))
+          setOptimisticIssues((all) => all.filter((i) => i.id !== issueId))
+          toast.error(
+            `Couldn't start the agent — ${err instanceof Error ? err.message : 'unknown error'}`,
+          )
+        })
+        return { sessionId, issueId }
+      },
+    [trpc],
+  )
 
   // Report which sessions this client renders (`visible`) and which one has input
   // focus (`focused`) so the server can prioritize PTY relay for them. While the tab
@@ -973,6 +1070,7 @@ export function StoreProvider({
     split,
     toggleSplit: () => setSplit((s) => !s),
     refreshRepos,
+    spawnDraftAgent,
     killSession,
     continueSession,
     autoContinuePromptSessionId,

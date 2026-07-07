@@ -28,7 +28,7 @@ import {
 import { STAGE_LABELS } from './issue-card'
 import { NewIssueDialog } from './NewIssueDialog'
 import { sessionMenuEligibility } from './SessionContextMenu'
-import { type SpawnTarget, spawnDraftAgent } from './spawn-agent'
+import type { SpawnTarget } from './spawn-agent'
 import { useStore } from './store'
 
 const GROUP_LABELS: Record<PaletteGroupId, string> = {
@@ -177,8 +177,10 @@ function PaletteDialog({
     void run()
   }
 
-  const openSession = (sessionId: string, cwd: string): void => {
-    setSelectedIssueId(null)
+  const openSession = (sessionId: string, cwd: string, issueId?: string): void => {
+    // A draft spawn passes its issue id so the draft-agent row is selected; plain
+    // session navigation passes none (worktree selection, issue cleared).
+    setSelectedIssueId(issueId ?? null)
     setSelectedWorktree(cwd)
     setPane('A', sessionId)
     setView('workspace')
@@ -254,13 +256,10 @@ function PaletteDialog({
         group: 'global',
         label: `New ${panelLabel(defaultAgent)} agent in ${target.path.split('/').pop()}`,
         keywords: ['session', 'spawn', 'start', 'new agent'],
-        run: async () => {
-          const sessionId = await spawnDraftAgent({
-            trpc,
-            target,
-            agentKind: defaultAgent,
-          })
-          openSession(sessionId, target.path)
+        run: () => {
+          // Optimistic (#119): the store paints the row instantly; navigate now.
+          const { sessionId, issueId } = store.spawnDraftAgent({ target, agentKind: defaultAgent })
+          openSession(sessionId, target.path, issueId)
         },
       })
     }
@@ -396,14 +395,13 @@ function PaletteDialog({
 
   const runFallback = (target: SpawnTarget): void => {
     const text = query.trim()
-    execute(async () => {
-      const sessionId = await spawnDraftAgent({
-        trpc,
+    execute(() => {
+      const { sessionId, issueId } = store.spawnDraftAgent({
         target,
         agentKind: defaultAgent,
         firstPrompt: text || undefined,
       })
-      openSession(sessionId, target.path)
+      openSession(sessionId, target.path, issueId)
     })
   }
 

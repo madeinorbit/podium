@@ -86,6 +86,28 @@ describe('SessionRegistry', () => {
     expect(metaOf(anon, reg2)?.spawnedBy).toBeUndefined()
   })
 
+  it('createSession honors a client-provided sessionId verbatim (optimistic row reconciliation)', () => {
+    const reg = new SessionRegistry()
+    const daemon: ControlMessage[] = []
+    reg.attachDaemon('local', (m) => daemon.push(m))
+    const clientId = 'client-picked-id-123'
+    const { sessionId } = reg.createSession({
+      agentKind: 'claude-code',
+      cwd: '/proj',
+      sessionId: clientId,
+    })
+    expect(sessionId).toBe(clientId)
+    expect(reg.listSessions()).toMatchObject([{ sessionId: clientId, cwd: '/proj' }])
+    expect(daemon).toContainEqual(expect.objectContaining({ type: 'spawn', sessionId: clientId }))
+  })
+
+  it('createSession mints a random uuid when sessionId is omitted (unchanged default behavior)', () => {
+    const reg = new SessionRegistry()
+    reg.attachDaemon('local', () => {})
+    const { sessionId } = reg.createSession({ agentKind: 'claude-code', cwd: '/proj' })
+    expect(sessionId).toMatch(/^[0-9a-f-]{36}$/)
+  })
+
   it('restamps session cwd when the agent moves into a worktree (hook cwd change)', () => {
     const reg = new SessionRegistry()
     reg.attachDaemon('local', () => {})

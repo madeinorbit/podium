@@ -1418,6 +1418,10 @@ export class SessionRegistry {
      *  spawned inside a worktree owned by exactly one non-archived issue is
      *  "continuing that issue" and gets its id stamped. */
     issueId?: string
+    /** Client-supplied id (optimistic UI): use this verbatim instead of minting a
+     *  fresh uuid, so an optimistic client row reconciles onto the real session
+     *  without a swap. Absent = mint one (unchanged default behavior). */
+    sessionId?: string
   }): {
     sessionId: string
   } {
@@ -1453,6 +1457,7 @@ export class SessionRegistry {
       ...(input.effort !== undefined ? { effort: input.effort } : {}),
       ...(input.spawnedBy ? { spawnedBy: input.spawnedBy } : {}),
       ...(issueId ? { issueId } : {}),
+      ...(input.sessionId ? { sessionId: input.sessionId } : {}),
     })
     if (prompt !== undefined && !useArgv) {
       this.setSessionDraft({ sessionId: spawned.sessionId, text: prompt })
@@ -2547,8 +2552,10 @@ export class SessionRegistry {
     effort?: string
     spawnedBy?: string
     issueId?: string
+    /** Client-supplied id (optimistic UI); absent = mint one (unchanged default). */
+    sessionId?: string
   }): { sessionId: string } {
-    const sessionId = randomUUID()
+    const sessionId = input.sessionId ?? randomUUID()
     const machineId = input.machineId ?? LOCAL_PLACEHOLDER
     const session = new Session({
       sessionId,

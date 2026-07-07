@@ -349,9 +349,14 @@ export const appRouter = t.router({
           // Explicit issue attachment (issue-as-workspace). Omitted = derived from
           // cwd (sole non-archived owning issue) inside createSession.
           issueId: z.string().optional(),
+          // Client-supplied id (optimistic UI): the web client can render an
+          // optimistic row before the round-trip completes, then reconcile it
+          // seamlessly when the server's broadcast lands using this same id.
+          // Omitted = the server mints one (unchanged default behavior).
+          sessionId: z.string().optional(),
           // Low-friction start: create a draft issue vessel first and attach the
           // new session to it (spec: issue-as-workspace).
-          draftIssue: z.object({ repoPath: z.string() }).optional(),
+          draftIssue: z.object({ repoPath: z.string(), issueId: z.string().optional() }).optional(),
           mutationId: z.string().max(128).optional(),
         }),
       )
@@ -364,7 +369,11 @@ export const appRouter = t.router({
           const issueId =
             rest.issueId ??
             (draftIssue
-              ? ctx.registry.issues.createDraftFor(draftIssue.repoPath, rest.agentKind).id
+              ? ctx.registry.issues.createDraftFor(
+                  draftIssue.repoPath,
+                  rest.agentKind,
+                  draftIssue.issueId,
+                ).id
               : undefined)
           return ctx.registry.createSession({
             ...rest,
