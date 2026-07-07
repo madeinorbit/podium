@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { renderDaemonUnit, renderServerUnit, userUnitDir } from './cli-systemd'
 
@@ -38,6 +40,19 @@ describe('renderDaemonUnit', () => {
     expect(u).toContain('RestartPreventExitStatus=78')
     // The server unit has no pairing handshake — no blocked exit to except.
     expect(renderServerUnit()).not.toContain('RestartPreventExitStatus')
+  })
+})
+
+describe('install.sh fallback unit lockstep (#20)', () => {
+  it('the heredoc unit in install.sh is byte-identical to renderDaemonUnit()', () => {
+    // install.sh --join normally DELEGATES to `podium setup --join` (which renders the unit
+    // via renderDaemonUnit); its fallback heredoc must never drift from that source of truth.
+    const sh = readFileSync(fileURLToPath(new URL('../install.sh', import.meta.url)), 'utf8')
+    const m = sh.match(
+      /cat > "\$UNIT_DIR\/podium-daemon\.service" <<'EOF'\n([\s\S]*?)EOF\n/,
+    )
+    expect(m, 'install.sh no longer contains the fallback daemon-unit heredoc').toBeTruthy()
+    expect(m?.[1]).toBe(renderDaemonUnit())
   })
 })
 

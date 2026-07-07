@@ -29,6 +29,14 @@ export const PodiumConfig = z.object({
    */
   persistence: z.enum(['systemd', 'detached']).optional(),
   /**
+   * Persistence INTENT recorded by a setup surface that cannot start/persist the backend
+   * itself — the web `setup.complete`/`setup.join` run inside the serving process, which
+   * can't safely self-daemonize (stopping the old backend would kill the process handling
+   * the request). The next `podium` invocation reconciles it: starts the backend under this
+   * persistence and replaces the field with `persistence` (issue #20).
+   */
+  pendingPersistence: z.enum(['systemd', 'detached']).optional(),
+  /**
    * Node⇄hub sync (docs/spec/node-hub-sync.md §2.1): when present, this server is a NODE
    * that mirrors the hub at `url` (http(s):// or ws(s):// base) through the thin-client
    * protocol, authenticating with `token` — a hub-minted long-lived client-session token

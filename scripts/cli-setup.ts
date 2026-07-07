@@ -33,8 +33,10 @@ export interface SetupDeps {
 }
 
 /** Default backend starter: systemd install (with detached fallback) or a detached spawn. Works
- *  for host modes (start the server + daemon split) AND a joined worker (start just the daemon). */
-async function realStartBackend(opts: StartBackendOpts): Promise<StartBackendResult> {
+ *  for host modes (start the server + daemon split) AND a joined worker (start just the daemon).
+ *  Exported as THE one start-backend engine (issue #20) — interactive setup, the
+ *  non-interactive `podium setup --join`, and the pending-persistence reconcile all share it. */
+export async function startBackendEngine(opts: StartBackendOpts): Promise<StartBackendResult> {
   const { persistence, mode, port } = opts
   const { startDetachedStack } = await import('./cli-spawn')
   // Tear down any previously-running backend first, so switching modes (or reconfiguring) never
@@ -168,8 +170,55 @@ async function persistenceStep(
     .toLowerCase()
   const wantSystemd = ans === '' || ans === 'y' || ans === 'yes'
   const res = await startBackend({ persistence: wantSystemd ? 'systemd' : 'detached', mode, port })
-  saveConfig({ ...loadConfig(), persistence: res.effectivePersistence })
+  savePersistence(res.effectivePersistence)
   io.print(res.message)
+}
+
+/** Record the EFFECTIVE persistence and clear any recorded intent — it's fulfilled now. */
+function savePersistence(persistence: 'systemd' | 'detached'): void {
+  const { pendingPersistence: _fulfilled, ...rest } = loadConfig()
+  saveConfig({ ...rest, persistence })
+}
+
+/**
+ * Non-interactive join (issue #20): `podium setup --join <token> --persist systemd|detached`.
+ * Applies the join token (PATCHING config — updateChannel etc. survive) and starts/persists
+ * the daemon through the SAME engine the interactive flow uses. `install.sh --join` delegates
+ * here instead of hand-writing a drifting unit file.
+ */
+export async function runJoinSetup(
+  token: string,
+  persistence: 'systemd' | 'detached',
+  port: number,
+  deps: SetupDeps = {},
+): Promise<{ name: string; warning?: string; result: StartBackendResult }> {
+  const startBackend = deps.startBackend ?? startBackendEngine
+  const { name, warning } = applyJoinToken(token)
+  const result = await startBackend({ persistence, mode: 'daemon', port })
+  savePersistence(result.effectivePersistence)
+  return { name, ...(warning ? { warning } : {}), result }
+}
+
+/**
+ * Reconcile a recorded-but-unfulfilled persistence intent (issue #20): the web setup
+ * (`setup.complete` / `setup.join`) cannot start or persist the backend from inside the
+ * serving process, so it records `pendingPersistence`; the next `podium` invocation lands
+ * here, starts the backend under that persistence (non-interactive — safe headless), and
+ * records the effective result. Returns undefined when there is nothing to reconcile.
+ */
+export async function reconcilePendingPersistence(
+  port: number,
+  deps: SetupDeps = {},
+): Promise<StartBackendResult | undefined> {
+  const config = loadConfig()
+  const pending = config.pendingPersistence
+  if (!pending || config.persistence) return undefined
+  const mode = config.mode
+  if (mode !== 'all-in-one' && mode !== 'server' && mode !== 'daemon') return undefined
+  const startBackend = deps.startBackend ?? startBackendEngine
+  const result = await startBackend({ persistence: pending, mode, port })
+  savePersistence(result.effectivePersistence)
+  return result
 }
 
 /** Choose a host mode → set its URL, its password, then start it (persistence choice). */
@@ -225,7 +274,7 @@ async function joinStep(
  */
 export async function runCliSetup(io: SetupIO, port: number, deps: SetupDeps = {}): Promise<void> {
   const setPassword = deps.setPassword ?? realSetPassword
-  const startBackend = deps.startBackend ?? realStartBackend
+  const startBackend = deps.startBackend ?? startBackendEngine
   const mode = loadConfig().mode
   const hostsServer = mode === 'all-in-one' || mode === 'server'
 

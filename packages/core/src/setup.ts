@@ -150,21 +150,40 @@ export function applySetup(input: {
   // (e.g. from Settings → Machines) must stay `server`. First run (mode unset) defaults to
   // all-in-one, the main-instance path.
   const mode = input.mode ?? (prev.mode === 'server' ? 'server' : 'all-in-one')
-  const cfg: PodiumConfig = { ...prev, mode, publicUrl: input.publicUrl }
+  const cfg: PodiumConfig = {
+    ...prev,
+    mode,
+    publicUrl: input.publicUrl,
+    // Web setup can't start/persist the backend from inside the serving process — record
+    // the intent; the next `podium` invocation reconciles it (issue #20). A box that
+    // already chose a persistence keeps it.
+    ...(prev.persistence ? {} : { pendingPersistence: 'systemd' as const }),
+  }
   saveConfig(cfg)
   return cfg
 }
 
 /**
- * Apply a one-paste join code (carries the server URL + pairing code) → a self-contained
- * daemon config. The single source of truth for "join a server", shared by the CLI
- * (`podium join-config` / `podium setup`) and the web setup's `setup.join` tRPC. Throws on
- * a malformed token. Replaces (not merges) config — switching to daemon drops any stale
- * host fields like publicUrl.
+ * Apply a one-paste join code (carries the server URL + pairing code) → a daemon config.
+ * The single source of truth for "join a server", shared by the CLI (`podium join-config`
+ * / `podium setup`) and the web setup's `setup.join` tRPC. Throws on a malformed token.
+ * PATCHES the existing config (issue #20 — a wholesale replace made `install.sh --channel
+ * edge --join …` silently revert to stable): preserves updateChannel, port, persistence,
+ * updateFeed, upstream; drops only the host-mode fields a daemon must not keep (publicUrl)
+ * and any stale pairCode.
  */
 export function applyJoin(token: string): { name: string; warning?: string } {
   const p = decodeJoin(token)
-  saveConfig({ mode: 'daemon', serverUrl: p.serverUrl, pairCode: p.pairCode })
+  const { publicUrl: _hostOnly, pairCode: _stale, ...prev } = loadConfig()
+  saveConfig({
+    ...prev,
+    mode: 'daemon',
+    serverUrl: p.serverUrl,
+    pairCode: p.pairCode,
+    // See applySetup: web/join-config surfaces can't start the backend themselves; record
+    // the intent for the next `podium` invocation. CLI setup overwrites it right after.
+    ...(prev.persistence ? {} : { pendingPersistence: 'systemd' as const }),
+  })
   const warning = ephemeralTunnelWarning(p.serverUrl)
   return { name: p.name ?? 'this machine', ...(warning ? { warning } : {}) }
 }

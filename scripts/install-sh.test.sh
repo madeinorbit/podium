@@ -8,7 +8,26 @@ export PODIUM_STATE_DIR="$HOME/.podium"
 
 # --- build a fake signed release into $WORK/release ---
 REL="$WORK/release"; mkdir -p "$REL/headless"
-printf '#!/bin/sh\nif [ "$1" = "channel" ]; then mkdir -p "$PODIUM_STATE_DIR"; printf "%%s\\n" "$2" > "$PODIUM_STATE_DIR/update-channel"; fi\necho podium-stub "$@"\n' > "$REL/headless/podium"; chmod +x "$REL/headless/podium"
+# Stub binary: emulates the subcommands install.sh drives. `setup --join` mirrors the real
+# binary's installSystemd (writes the daemon unit) so the delegation path is observable;
+# PODIUM_STUB_JOIN_FAIL forces it to fail so the fallback path can be tested.
+cat > "$REL/headless/podium" <<'SH'
+#!/bin/sh
+case "$1" in
+  channel) mkdir -p "$PODIUM_STATE_DIR"; printf '%s\n' "$2" > "$PODIUM_STATE_DIR/update-channel" ;;
+  setup)
+    if [ -n "${PODIUM_STUB_JOIN_FAIL:-}" ]; then echo "stub: setup fails" >&2; exit 1; fi
+    UD="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"; mkdir -p "$UD"
+    printf '%s\n' "# stub unit written by podium setup --join" > "$UD/podium-daemon.service"
+    [ -n "${PODIUM_STUB_LOG:-}" ] && echo "stub-setup $*" >> "$PODIUM_STUB_LOG"
+    ;;
+  join-config)
+    [ -n "${PODIUM_STUB_LOG:-}" ] && echo "stub-join-config $*" >> "$PODIUM_STUB_LOG"
+    ;;
+esac
+echo podium-stub "$@"
+SH
+chmod +x "$REL/headless/podium"
 echo "9.9.9" > "$REL/headless/VERSION"
 ( cd "$REL" && tar -czf podium-headless-linux-x64.tar.gz headless )
 # sign with a throwaway ed25519 key; write its pubkey where install.sh expects an override
@@ -68,12 +87,23 @@ printf '#!/bin/sh\nexit 0\n' > "$STUB/loginctl"; chmod +x "$STUB/loginctl"
 export PATH="$STUB:$PATH"
 UNIT="$HOME/.config/systemd/user"
 
-echo "== join enables the auto-update timer =="
+echo "== join delegates to podium setup --join (one engine, one unit source) =="
 rm -rf "$HOME/.local/share/podium" "$HOME/.local/bin/podium" "$HOME/.config/systemd"
-sh "$ROOT/install.sh" --join TESTTOKEN
+env PODIUM_STUB_LOG="$WORK/stub.log" sh "$ROOT/install.sh" --join TESTTOKEN
+grep -F 'stub-setup setup --join TESTTOKEN --persist systemd' "$WORK/stub.log" >/dev/null \
+  || { echo "FAIL: join did not delegate to podium setup --join --persist systemd"; exit 1; }
 test -f "$UNIT/podium-daemon.service"       || { echo FAIL: join did not write daemon unit; exit 1; }
 test -f "$UNIT/podium-update-user.service"  || { echo FAIL: join did not write update service; exit 1; }
 test -f "$UNIT/podium-update-user.timer"    || { echo FAIL: join did not write update timer; exit 1; }
+
+echo "== join falls back to a manual unit when podium setup fails =="
+rm -rf "$HOME/.local/share/podium" "$HOME/.local/bin/podium" "$HOME/.config/systemd" "$WORK/stub.log"
+env PODIUM_STUB_JOIN_FAIL=1 PODIUM_STUB_LOG="$WORK/stub.log" sh "$ROOT/install.sh" --join TESTTOKEN
+grep -F 'stub-join-config join-config TESTTOKEN' "$WORK/stub.log" >/dev/null \
+  || { echo "FAIL: fallback did not run join-config"; exit 1; }
+test -f "$UNIT/podium-daemon.service"       || { echo FAIL: fallback did not write daemon unit; exit 1; }
+grep -F 'RestartPreventExitStatus=78' "$UNIT/podium-daemon.service" >/dev/null \
+  || { echo "FAIL: fallback unit drifted from renderDaemonUnit (no RestartPreventExitStatus)"; exit 1; }
 
 echo "== --no-auto-update skips the timer =="
 rm -rf "$HOME/.local/share/podium" "$HOME/.local/bin/podium" "$HOME/.config/systemd"

@@ -53,21 +53,59 @@ describe('setup core', () => {
   })
   it('applySetup persists mode + publicUrl (first run → all-in-one)', () => {
     applySetup({ publicUrl: 'https://box.ts.net' })
-    expect(loadConfig()).toEqual({ mode: 'all-in-one', publicUrl: 'https://box.ts.net' })
+    expect(loadConfig()).toEqual({
+      mode: 'all-in-one',
+      publicUrl: 'https://box.ts.net',
+      // Web setup can't start the backend itself — it records the intent (#20).
+      pendingPersistence: 'systemd',
+    })
   })
   it('applySetup preserves a relay-only `server` mode when the URL is set later', () => {
     saveConfig({ mode: 'server' })
     applySetup({ publicUrl: 'https://relay.ts.net' })
-    expect(loadConfig()).toEqual({ mode: 'server', publicUrl: 'https://relay.ts.net' })
+    expect(loadConfig()).toMatchObject({ mode: 'server', publicUrl: 'https://relay.ts.net' })
   })
   it('applySetup takes an explicit mode (web server-only reachability, fresh config)', () => {
     applySetup({ publicUrl: 'https://relay.ts.net', mode: 'server' })
-    expect(loadConfig()).toEqual({ mode: 'server', publicUrl: 'https://relay.ts.net' })
+    expect(loadConfig()).toMatchObject({ mode: 'server', publicUrl: 'https://relay.ts.net' })
   })
-  it('applyJoin writes a self-contained daemon config from a join token', () => {
+  it('applySetup records no persistence intent when one was already fulfilled', () => {
+    saveConfig({ mode: 'all-in-one', persistence: 'detached' })
+    applySetup({ publicUrl: 'https://box.ts.net' })
+    expect(loadConfig().pendingPersistence).toBeUndefined()
+    expect(loadConfig().persistence).toBe('detached')
+  })
+  it('applyJoin writes a daemon config from a join token', () => {
     const token = encodeJoin({ v: 1, serverUrl: 'wss://relay', pairCode: 'P1', name: 'box' })
     expect(applyJoin(token)).toEqual({ name: 'box' })
-    expect(loadConfig()).toEqual({ mode: 'daemon', serverUrl: 'wss://relay', pairCode: 'P1' })
+    expect(loadConfig()).toEqual({
+      mode: 'daemon',
+      serverUrl: 'wss://relay',
+      pairCode: 'P1',
+      pendingPersistence: 'systemd',
+    })
+  })
+  it('applyJoin PATCHES config: updateChannel/port/persistence survive; host fields drop (#20)', () => {
+    // The install.sh --channel edge --join regression: the join must not revert the channel.
+    saveConfig({
+      mode: 'all-in-one',
+      publicUrl: 'https://old-host.ts.net',
+      pairCode: 'STALE',
+      updateChannel: 'edge',
+      port: 19999,
+      persistence: 'systemd',
+    })
+    const token = encodeJoin({ v: 1, serverUrl: 'wss://relay', pairCode: 'P2' })
+    applyJoin(token)
+    expect(loadConfig()).toEqual({
+      mode: 'daemon',
+      serverUrl: 'wss://relay',
+      pairCode: 'P2', // fresh code replaces the stale one
+      updateChannel: 'edge', // preserved
+      port: 19999, // preserved
+      persistence: 'systemd', // preserved → no pendingPersistence recorded
+      // publicUrl dropped: a daemon box hosts nothing
+    })
   })
   it('applyJoin throws on a malformed token', () => {
     expect(() => applyJoin('garbage!')).toThrow()

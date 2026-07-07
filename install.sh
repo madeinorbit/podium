@@ -99,12 +99,22 @@ if [ -z "$JOIN" ]; then
   exit 0
 fi
 
-# --- join mode: configure + enable the daemon ---
-"$BIN/podium" join-config "$JOIN"
+# --- join mode: delegate to the CLI so config + unit text have ONE source of truth
+#     (`podium setup --join` runs the same engine as interactive setup and renders the
+#     daemon unit via renderDaemonUnit — issue #20). Non-interactive; safe piped. ---
+JOIN_FALLBACK=""
+if ! "$BIN/podium" setup --join "$JOIN" --persist systemd; then
+  echo "podium: automated join failed; falling back to manual unit install" >&2
+  JOIN_FALLBACK=1
+  "$BIN/podium" join-config "$JOIN"
+fi
 UNIT_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"; mkdir -p "$UNIT_DIR"
-cat > "$UNIT_DIR/podium-daemon.service" <<EOF
+if [ -n "$JOIN_FALLBACK" ]; then
+  # Fallback unit — MUST stay byte-identical to renderDaemonUnit() in scripts/cli-systemd.ts;
+  # the lockstep test in scripts/cli-systemd.test.ts enforces it.
+  cat > "$UNIT_DIR/podium-daemon.service" <<'EOF'
 [Unit]
-Description=Podium agent daemon
+Description=Podium per-machine agent daemon
 After=network-online.target
 Wants=network-online.target
 
@@ -112,13 +122,19 @@ Wants=network-online.target
 Type=notify
 NotifyAccess=all
 WatchdogSec=30
+Environment=PATH=%h/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin
 ExecStart=%h/.local/bin/podium daemon
 Restart=always
 RestartSec=2
+# The daemon exits 78 when the server TERMINALLY rejected it (pairRejected/helloRejected):
+# restarting would just re-hammer the same rejected handshake, so don't (issue #19).
+# `podium status` explains the blocked state and how to re-pair.
+RestartPreventExitStatus=78
 
 [Install]
 WantedBy=default.target
 EOF
+fi
 # --- auto-update timer: `podium update` on a daily cadence, restart the daemon only when it
 #     actually swapped in a new bundle (exit 10). Opt out with --no-auto-update. ---
 if [ -n "$AUTO_UPDATE" ]; then
@@ -149,8 +165,12 @@ fi
 if command -v systemctl >/dev/null 2>&1; then
   systemctl --user daemon-reload || true
   loginctl enable-linger "$(id -un)" 2>/dev/null || true
-  systemctl --user enable --now podium-daemon || \
-    echo "Could not start the user service automatically; run: systemctl --user enable --now podium-daemon"
+  # The delegated `podium setup --join` already enabled+started the daemon unit; only the
+  # fallback path needs to do it here.
+  if [ -n "$JOIN_FALLBACK" ]; then
+    systemctl --user enable --now podium-daemon || \
+      echo "Could not start the user service automatically; run: systemctl --user enable --now podium-daemon"
+  fi
   if [ -n "$AUTO_UPDATE" ]; then
     systemctl --user enable --now podium-update-user.timer || \
       echo "Could not enable auto-update; run: systemctl --user enable --now podium-update-user.timer"

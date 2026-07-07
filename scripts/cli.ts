@@ -172,6 +172,36 @@ export async function main(): Promise<void> {
     return
   }
 
+  // `podium setup --join <token> [--persist systemd|detached]`: NON-interactive join —
+  // one command that configures AND starts/persists the daemon through the same engine the
+  // interactive flow uses (issue #20). `install.sh --join` delegates here so the systemd
+  // unit text has a single source of truth (renderDaemonUnit).
+  if (argv[0] === 'setup' && argv.includes('--join')) {
+    const token = argv[argv.indexOf('--join') + 1]
+    if (!token) {
+      console.error('usage: podium setup --join <TOKEN> [--persist systemd|detached]')
+      process.exit(2)
+    }
+    const persistIdx = argv.indexOf('--persist')
+    const persist = persistIdx >= 0 ? argv[persistIdx + 1] : 'systemd'
+    if (persist !== 'systemd' && persist !== 'detached') {
+      console.error(`podium setup --persist must be systemd or detached (got '${persist}')`)
+      process.exit(2)
+    }
+    const { runJoinSetup } = await import('./cli-setup')
+    const port = Number(process.env.PODIUM_PORT) || config.port || 18787
+    try {
+      const { name, warning, result } = await runJoinSetup(token, persist, port)
+      console.log(`podium joined as "${name}".`)
+      console.log(result.message)
+      if (warning) console.warn(`\nWarning: ${warning}`)
+    } catch (e) {
+      console.error(`podium setup --join failed: ${(e as Error).message}`)
+      process.exit(2)
+    }
+    return
+  }
+
   // `podium issue <command>`: drive the native issue tracker over the running server's API.
   if (argv[0] === 'issue') {
     const { issueCliMain } = await import('./issue-cli')
@@ -218,7 +248,26 @@ export async function main(): Promise<void> {
   // keeps the in-process fallback (the desktop sidecar, which sets no persistence).
   const bareInvocation = !SUBCOMMANDS.some((s) => argv.includes(s)) && !argv.includes('all')
   const incompleteHeadlessConfig =
-    bareInvocation && !!config.mode && config.mode !== 'client' && !config.persistence
+    bareInvocation &&
+    !!config.mode &&
+    config.mode !== 'client' &&
+    !config.persistence &&
+    !config.pendingPersistence
+
+  // A web setup on a headless box recorded a persistence INTENT it couldn't fulfill itself
+  // (the serving process can't self-daemonize — issue #20). Reconcile it here, non-
+  // interactively, so the box ends up with the same systemd/detached persistence a CLI
+  // setup would have left — works over SSH without a TTY.
+  if (!forceSetup && bareInvocation && !config.persistence && config.pendingPersistence) {
+    const { reconcilePendingPersistence } = await import('./cli-setup')
+    const res = await reconcilePendingPersistence(port)
+    if (res) {
+      console.log(res.message)
+      const { statusCommand } = await import('./cli-lifecycle')
+      statusCommand()
+      return
+    }
+  }
 
   const { runCliSetup, shouldRunCliSetup } = await import('./cli-setup')
   if (

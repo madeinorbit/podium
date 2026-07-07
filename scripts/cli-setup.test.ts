@@ -4,7 +4,12 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { loadConfig, saveConfig } from '../packages/core/src/config'
 import { encodeJoin } from '../packages/core/src/join'
-import { runCliSetup, shouldRunCliSetup } from './cli-setup'
+import {
+  reconcilePendingPersistence,
+  runCliSetup,
+  runJoinSetup,
+  shouldRunCliSetup,
+} from './cli-setup'
 
 describe('shouldRunCliSetup (when `podium setup` launches the terminal flow)', () => {
   it('does not launch setup for a bare `podium` on an already-configured box', () => {
@@ -147,6 +152,8 @@ describe('runCliSetup', () => {
       expect(loadConfig().mode).toBe('daemon')
       expect(loadConfig().serverUrl).toBe('wss://relay.example')
       expect(loadConfig().persistence).toBe('detached')
+      // The intent was fulfilled in-flow — no leftover pendingPersistence (#20).
+      expect(loadConfig().pendingPersistence).toBeUndefined()
       // The join now STARTS the daemon rather than telling the user to restart.
       expect(startBackend).toHaveBeenCalledWith({
         persistence: 'detached',
@@ -182,6 +189,89 @@ describe('runCliSetup', () => {
       expect(loadConfig().publicUrl).toBeUndefined()
       expect(calls).toBeLessThan(50)
       expect(out.join('\n')).toContain('giving up')
+    })
+  })
+
+  describe('runJoinSetup — non-interactive `podium setup --join` (#20)', () => {
+    it('applies the token, starts the daemon with the asked persistence, and records the result', async () => {
+      saveConfig({ updateChannel: 'edge' }) // install.sh --channel edge wrote this first
+      const startBackend = vi.fn(async (o: { persistence: 'systemd' | 'detached' }) => ({
+        effectivePersistence: o.persistence,
+        message: 'started',
+      }))
+      const token = encodeJoin({ v: 1, serverUrl: 'wss://relay.example', pairCode: 'P1', name: 'vps' })
+      const res = await runJoinSetup(token, 'systemd', 18787, { startBackend })
+      expect(res.name).toBe('vps')
+      expect(startBackend).toHaveBeenCalledWith({
+        persistence: 'systemd',
+        mode: 'daemon',
+        port: 18787,
+      })
+      expect(loadConfig()).toEqual({
+        mode: 'daemon',
+        serverUrl: 'wss://relay.example',
+        pairCode: 'P1',
+        updateChannel: 'edge', // #20: the join no longer reverts the channel
+        persistence: 'systemd',
+      })
+    })
+    it('records the EFFECTIVE persistence when systemd falls back to detached', async () => {
+      const token = encodeJoin({ v: 1, serverUrl: 'wss://relay.example', pairCode: 'P1' })
+      await runJoinSetup(token, 'systemd', 18787, {
+        startBackend: async () => ({ effectivePersistence: 'detached', message: 'fallback' }),
+      })
+      expect(loadConfig().persistence).toBe('detached')
+      expect(loadConfig().pendingPersistence).toBeUndefined()
+    })
+    it('throws on a malformed token without touching config', async () => {
+      saveConfig({ updateChannel: 'edge' })
+      await expect(
+        runJoinSetup('garbage!', 'systemd', 18787, {
+          startBackend: vi.fn(async () => ({
+            effectivePersistence: 'systemd' as const,
+            message: '',
+          })),
+        }),
+      ).rejects.toThrow()
+      expect(loadConfig()).toEqual({ updateChannel: 'edge' })
+    })
+  })
+
+  describe('reconcilePendingPersistence — web setup finished, next `podium` starts the backend (#20)', () => {
+    it('starts the backend under the recorded intent and flips it to persistence', async () => {
+      // What the web setup.complete leaves behind on a headless box.
+      saveConfig({
+        mode: 'all-in-one',
+        publicUrl: 'https://box.ts.net',
+        pendingPersistence: 'systemd',
+      })
+      const startBackend = vi.fn(async (o: { persistence: 'systemd' | 'detached' }) => ({
+        effectivePersistence: o.persistence,
+        message: 'up',
+      }))
+      const res = await reconcilePendingPersistence(18787, { startBackend })
+      expect(res?.message).toBe('up')
+      expect(startBackend).toHaveBeenCalledWith({
+        persistence: 'systemd',
+        mode: 'all-in-one',
+        port: 18787,
+      })
+      expect(loadConfig()).toEqual({
+        mode: 'all-in-one',
+        publicUrl: 'https://box.ts.net',
+        persistence: 'systemd',
+      })
+    })
+    it('no-ops when nothing is pending or persistence is already set', async () => {
+      const startBackend = vi.fn(async () => ({
+        effectivePersistence: 'systemd' as const,
+        message: '',
+      }))
+      saveConfig({ mode: 'all-in-one', persistence: 'detached' })
+      expect(await reconcilePendingPersistence(18787, { startBackend })).toBeUndefined()
+      saveConfig({ mode: 'all-in-one' })
+      expect(await reconcilePendingPersistence(18787, { startBackend })).toBeUndefined()
+      expect(startBackend).not.toHaveBeenCalled()
     })
   })
 
