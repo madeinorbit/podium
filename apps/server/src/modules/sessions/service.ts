@@ -23,7 +23,6 @@ import { AutoContinueController } from '../../auto-continue'
 import type { Capability } from '../../issue-authz'
 import type { IssueService } from '../../issues'
 import { LOCAL_MACHINE_ID, LOCAL_PLACEHOLDER } from '../../local-machine'
-import { MetadataOplog } from '../../oplog'
 import { type ClientConn, type Send, Session } from '../../session'
 import { computePriorities } from '../../session-priority'
 import type { SessionStore } from '../../store'
@@ -35,6 +34,7 @@ import {
 } from '../../title-filter'
 import type { EventBus } from '../bus'
 import type { ConversationsService } from '../conversations/service'
+import type { WriteFunnel } from '../funnel'
 import type { HostsService } from '../hosts/service'
 import type { DaemonRpcService } from '../machines/rpc'
 import type { MachinesService } from '../machines/service'
@@ -72,6 +72,9 @@ interface SessionsServiceDeps {
   store: SessionStore
   now(): number
   bus: EventBus
+  /** THE write funnel (modules/funnel): every broadcast pipeline ends in its
+   *  oplog-append → fan-out tail. */
+  funnel: WriteFunnel
   machines: MachinesService
   rpc: DaemonRpcService
   hosts: HostsService
@@ -113,8 +116,8 @@ export class SessionsService {
   private readonly headless: HeadlessService
   /** Backend auto-continue loop — re-arms retryable errored agents. */
   private readonly autoContinue: AutoContinueController
-  // Durable metadata change log fed at the broadcast seam (docs/spec/oplog-read-path.md).
-  private readonly oplog: MetadataOplog
+  /** The write funnel — owns the durable metadata oplog (docs/spec/oplog-read-path.md). */
+  private readonly funnel: WriteFunnel
 
   /**
    * In-progress composer/prompt text per session. The live value lives here (read
@@ -154,7 +157,7 @@ export class SessionsService {
     this.hosts = deps.hosts
     this.headless = deps.headless
     this.activityFlushTimer.unref?.()
-    this.oplog = new MetadataOplog(this.store, this.now)
+    this.funnel = deps.funnel
     this.autoContinue = new AutoContinueController({
       isEnabled: () => this.store.getSettings().autoContinue.enabled,
       sendContinue: (sessionId) => {
@@ -1071,23 +1074,38 @@ export class SessionsService {
     return result
   }
 
-  /** Set (or clear with '') the user-facing session name. */
-  renameSession({ sessionId, name }: { sessionId: string; name: string }): void {
+  /**
+   * The write funnel's session-metadata face: apply the field write, persist the
+   * row (repository write), then enter the coalesced broadcast — whose trailing
+   * run is the funnel's oplog-append → fan-out tail. Every plain metadata
+   * mutation (rename/archive/read/issue attachment/work state) goes through
+   * here instead of hand-rolling persist+broadcast.
+   */
+  private mutateSessionMeta(sessionId: string, write: (session: Session) => void): void {
     const session = this.sessions.get(sessionId)
     if (!session) return
-    session.name = name.trim()
-    this.persist(session)
+    this.funnel.run({
+      write: () => {
+        write(session)
+        this.persist(session)
+      },
+    })
     this.broadcastSessions()
   }
 
+  /** Set (or clear with '') the user-facing session name. */
+  renameSession({ sessionId, name }: { sessionId: string; name: string }): void {
+    this.mutateSessionMeta(sessionId, (session) => {
+      session.name = name.trim()
+    })
+  }
+
   setArchived({ sessionId, archived }: { sessionId: string; archived: boolean }): void {
-    const session = this.sessions.get(sessionId)
-    if (!session) return
-    session.archived = archived
-    this.persist(session)
-    this.broadcastSessions()
+    this.mutateSessionMeta(sessionId, (session) => {
+      session.archived = archived
+    })
     // Archiving can leave its draft issue with no living sessions — reap it.
-    if (archived) this.maybeReapDraftIssue(session.issueId)
+    if (archived) this.maybeReapDraftIssue(this.sessions.get(sessionId)?.issueId)
   }
 
   /** Mark a session read (issue #124): stamp read_at = now, persist + broadcast. The
@@ -1095,22 +1113,18 @@ export class SessionsService {
    *  latest timestamp) and re-arms on the next activity. Read state is GLOBAL —
    *  single-operator, no per-user row. No-op for an unknown session. */
   markSessionRead(sessionId: string): void {
-    const session = this.sessions.get(sessionId)
-    if (!session) return
-    // ISO like lastActiveAt/createdAt — the wire contract (readAt: string) and the
-    // lexical unread compare both require it (this.now() is epoch ms).
-    session.readAt = new Date(this.now()).toISOString()
-    this.persist(session)
-    this.broadcastSessions()
+    this.mutateSessionMeta(sessionId, (session) => {
+      // ISO like lastActiveAt/createdAt — the wire contract (readAt: string) and the
+      // lexical unread compare both require it (this.now() is epoch ms).
+      session.readAt = new Date(this.now()).toISOString()
+    })
   }
 
   /** Set (or clear with null) a session's explicit issue attachment. */
   setSessionIssueId(sessionId: string, issueId: string | null): void {
-    const session = this.sessions.get(sessionId)
-    if (!session) return
-    session.issueId = issueId ?? undefined
-    this.persist(session)
-    this.broadcastSessions()
+    this.mutateSessionMeta(sessionId, (session) => {
+      session.issueId = issueId ?? undefined
+    })
   }
 
   /** The session's explicit issue attachment (issue-as-workspace), if any. */
@@ -1119,11 +1133,9 @@ export class SessionsService {
   }
 
   setWorkState({ sessionId, workState }: { sessionId: string; workState: WorkState | null }): void {
-    const session = this.sessions.get(sessionId)
-    if (!session) return
-    session.workState = workState ?? undefined
-    this.persist(session)
-    this.broadcastSessions()
+    this.mutateSessionMeta(sessionId, (session) => {
+      session.workState = workState ?? undefined
+    })
   }
 
   /**
@@ -1939,29 +1951,19 @@ export class SessionsService {
     const key = JSON.stringify(sessions)
     if (key === this.lastSessionsBroadcast) return
     this.lastSessionsBroadcast = key
-    // Record the change into the oplog FIRST (durable before fan-out, spec §2.5),
-    // then split the fan-out: delta-cap clients get only the rows that changed,
-    // legacy clients get the full list exactly as before.
-    const changes = this.oplog.record(
+    // Enter the write funnel's tail: oplog append FIRST (durable before fan-out,
+    // spec §2.5), then the split fan-out — delta-cap clients get only the rows
+    // that changed, legacy clients get the full list exactly as before.
+    this.funnel.publish(
       'session',
       sessions.map((s) => ({ id: s.sessionId, value: s })),
+      { type: 'sessionsChanged', sessions },
     )
-    this.fanOutMetadata({ type: 'sessionsChanged', sessions }, changes)
     // Session changes also change issues' DERIVED member data (sessions/summary),
     // so keep issue clients live. The publisher builds the payload ONCE (allWire()
     // is O(issues × sessions)); sessionsChanged was already sent above, so even if
     // the issues build fails it can't take the session list down with it.
     this.deps.publishIssues()
-  }
-
-  /** Durable metadata-change record (docs/spec/oplog-read-path.md) — the single
-   *  oplog seam every entity's publish path funnels through. */
-  oplogRecord(
-    entity: MetadataEntityKind,
-    rows: { id: string; value: unknown }[],
-    opts: { partial?: boolean } = {},
-  ): MetadataChange[] {
-    return this.oplog.record(entity, rows, opts)
   }
 
   /**
@@ -1995,15 +1997,15 @@ export class SessionsService {
    * lists, so nothing falls between the snapshot and the subsequent delta stream.
    */
   syncChangesSince(cursor: number | null): SyncChangesSinceResult {
-    const changes = this.oplog.changesSince(cursor)
-    if (changes) return { kind: 'delta', changes, cursor: this.oplog.cursor() }
+    const changes = this.funnel.changesSince(cursor)
+    if (changes) return { kind: 'delta', changes, cursor: this.funnel.cursor() }
     return {
       kind: 'snapshot',
       sessions: this.listSessions(),
       issues: this.deps.issuesWire(),
       conversations: this.conversations().allConversations(),
       diagnostics: this.conversations().diagnostics(),
-      cursor: this.oplog.cursor(),
+      cursor: this.funnel.cursor(),
     }
   }
 }

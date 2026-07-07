@@ -34,6 +34,7 @@ import { LOCAL_PLACEHOLDER } from './local-machine'
 import type { ModelCatalogSnapshot, ModelProbe } from './model-catalog'
 import { EventBus } from './modules/bus'
 import { ConversationsService } from './modules/conversations/service'
+import { WriteFunnel } from './modules/funnel'
 import { HostsService, type MemoryBreakdown } from './modules/hosts/service'
 import { IssuePublisher } from './modules/issues/publish'
 import { IssueRelayGate } from './modules/issues/relay-gate'
@@ -138,6 +139,9 @@ export class SessionRegistry {
   private readonly machines: MachinesService
   /** Daemon request/response plumbing — pending maps + requestId mint (modules/machines). */
   private readonly rpc: DaemonRpcService
+  /** THE write funnel (modules/funnel): authorize → repo write → oplog append →
+   *  broadcast. Owns the durable metadata oplog; every publish pipeline ends here. */
+  private readonly funnel: WriteFunnel
   /** Core session lifecycle + client/daemon data planes + broadcast pipeline
    *  (modules/sessions). */
   private readonly sessionsSvc: SessionsService
@@ -270,11 +274,19 @@ export class SessionRegistry {
       publish: () => this.publishIssues(this.safeIssuesList()),
       upstreamStale: () => this.upstreamStale,
     })
+    // The write funnel: owns the metadata oplog; its fan-out reaches the client
+    // set via modules/sessions (lazy closure — sessionsSvc is assigned below and
+    // no broadcast can run before the constructor finishes wiring).
+    this.funnel = new WriteFunnel({
+      store: this.store,
+      now: () => this.now(),
+      bus: this.bus,
+      fanOut: (snapshot, changes, opts) => this.sessionsSvc.fanOutMetadata(snapshot, changes, opts),
+    })
     this.issuePublisher = new IssuePublisher({
       allWire: () => this.issues?.allWire(),
       withUpstreamIssues: (local) => this.upstreamIssuesSvc.withUpstreamIssues(local),
-      oplogRecord: (rows, opts) => this.sessionsSvc.oplogRecord('issue', rows, opts),
-      fanOutMetadata: (snapshot, changes) => this.fanOutMetadata(snapshot, changes),
+      publish: (rows, snapshot, opts) => this.funnel.publish('issue', rows, snapshot, opts),
     })
     this.issueRelayGate = new IssueRelayGate({
       makeIssueCaller: () => this.makeIssueCaller,
@@ -300,6 +312,7 @@ export class SessionRegistry {
       store: this.store,
       now: () => this.now(),
       bus: this.bus,
+      funnel: this.funnel,
       machines: this.machines,
       rpc: this.rpc,
       hosts: this.hosts,
@@ -316,8 +329,8 @@ export class SessionRegistry {
       {
         store: this.store,
         now: () => this.now(),
-        oplogRecord: (rows) => this.sessionsSvc.oplogRecord('conversation', rows),
-        fanOutMetadata: (snapshot, changes, opts) => this.fanOutMetadata(snapshot, changes, opts),
+        publish: (rows, snapshot, opts) =>
+          this.funnel.publish('conversation', rows, snapshot, opts),
         daemonRequest: (pending, prefix, timeoutMs, onTimeout, buildMsg, machineId) =>
           this.rpc.request(pending, prefix, timeoutMs, onTimeout, buildMsg, machineId),
       },
@@ -418,11 +431,11 @@ export class SessionRegistry {
     // Conversations are deliberately NOT reconciled here: they are daemon-fed, and
     // an empty list at boot means "not scanned yet", not "all gone" — recording it
     // would spam remove-all/re-upsert pairs around every restart.
-    this.sessionsSvc.oplogRecord(
+    this.funnel.record(
       'session',
       this.listSessions().map((s) => ({ id: s.sessionId, value: s })),
     )
-    this.sessionsSvc.oplogRecord(
+    this.funnel.record(
       'issue',
       this.safeIssuesList().map((i) => ({ id: i.id, value: i })),
     )
@@ -1051,15 +1064,6 @@ export class SessionRegistry {
   /** Single-issue fan-out, issue #22 (modules/issues/publish). */
   private publishIssueUpdate(issue: IssueWire): void {
     this.issuePublisher.publishIssueUpdate(issue)
-  }
-
-  /** The split fan-out (spec §2.3) — modules/sessions owns the client set. */
-  private fanOutMetadata(
-    snapshot: ServerMessage,
-    changes: Parameters<SessionsService['fanOutMetadata']>[1],
-    opts: { snapshotToCapClients?: boolean } = {},
-  ): void {
-    this.sessionsSvc.fanOutMetadata(snapshot, changes, opts)
   }
 
   /** Cursor catch-up for `sync.changesSince` (spec §2.3) — modules/sessions. */

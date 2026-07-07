@@ -17,12 +17,10 @@ const MIRROR_READ_TIMEOUT_MS = 10_000
 export interface ConversationsDeps {
   store: SessionStore
   now(): number
-  /** Record a conversation-entity change set into the durable metadata oplog. */
-  oplogRecord(rows: { id: string; value: ConversationSummaryWire }[]): MetadataChange[]
-  /** The registry's split fan-out (snapshot to legacy clients, delta to cap clients). */
-  fanOutMetadata(
+  /** The write funnel's conversation face: oplog append → broadcast (bus + WS). */
+  publish(
+    rows: { id: string; value: ConversationSummaryWire }[],
     snapshot: ServerMessage,
-    changes: MetadataChange[],
     opts?: { snapshotToCapClients?: boolean },
   ): void
   /** The registry's shared daemon request/response plumbing. */
@@ -229,7 +227,6 @@ export class ConversationsService {
       conversations,
       diagnostics: this.latestConversationDiagnostics,
     }
-    const changes = this.deps.oplogRecord(conversations.map((c) => ({ id: c.id, value: c })))
     // Diagnostics don't ride the delta stream (they're scan-level, not per-entity):
     // when they changed, cap clients need the snapshot too. Applying it as a full
     // replace on the client is safe — it's built from the same state as any delta
@@ -237,7 +234,11 @@ export class ConversationsService {
     const diagKey = JSON.stringify(this.latestConversationDiagnostics)
     const diagnosticsChanged = diagKey !== this.lastDiagnosticsBroadcast
     this.lastDiagnosticsBroadcast = diagKey
-    this.deps.fanOutMetadata(msg, changes, { snapshotToCapClients: diagnosticsChanged })
+    this.deps.publish(
+      conversations.map((c) => ({ id: c.id, value: c })),
+      msg,
+      { snapshotToCapClients: diagnosticsChanged },
+    )
   }
 
   searchConversations(opts: { query?: string; projectPath?: string; limit?: number }) {
