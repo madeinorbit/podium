@@ -20,6 +20,9 @@ describe('renderDaemonUnit', () => {
     )
     expect(u).toContain('After=network-online.target podium-server.service')
     expect(u).toContain('Type=notify')
+    expect(u).toContain(
+      'Environment=PATH=%h/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin',
+    )
     expect(u).toContain('Restart=always')
   })
   it('join case (no serverUrl) uses config-driven bare `podium daemon`', () => {

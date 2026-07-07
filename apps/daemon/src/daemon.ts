@@ -1,9 +1,9 @@
 import { execFile, spawnSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
-import { mkdir, open, readdir, realpath, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdir, open, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { homedir, hostname, tmpdir } from 'node:os'
-import { dirname, join, sep } from 'node:path'
+import { dirname, join } from 'node:path'
 import { promisify } from 'node:util'
 
 const execFileAsync = promisify(execFile)
@@ -77,6 +77,7 @@ import {
 } from '@podium/protocol'
 import WebSocket, { type RawData } from 'ws'
 import { type ActiveRefresh, createActiveRefresh } from './active-refresh'
+import { ensurePodiumCodexHooks, PODIUM_CODEX_HOOK_URL_ENV } from './codex-hooks'
 import {
   listDirSandboxed,
   readAssetSandboxed,
@@ -85,7 +86,6 @@ import {
 } from './file-access'
 import { buildHarnessExec } from './harness-exec.js'
 import { type HeadlessTurnHandle, runHeadlessTurn } from './headless-drivers.js'
-import { ensurePodiumCodexHooks, PODIUM_CODEX_HOOK_URL_ENV } from './codex-hooks'
 import { startHookIngest } from './hook-ingest'
 import { sampleHostMemory } from './host-metrics'
 import { loadIdentity, saveToken } from './identity'
@@ -99,10 +99,10 @@ import {
   startLoopAttribution,
   timeTask,
 } from './loop-attribution'
+import { composeResponders, createMailInjector } from './mail-injector'
 import type { MemoryAttribution } from './memory-breakdown'
 import { OutputScheduler, type Tier } from './output-scheduler'
 import { createPrimeInjector } from './prime-injector'
-import { composeResponders, createMailInjector } from './mail-injector'
 import { makeQuotaFetcher } from './quota-fetch'
 import { repoOpCommand } from './repo-op'
 import { decideOnProtocolMismatch, decidePostUpdate } from './self-update'
@@ -862,8 +862,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
         // when its binding disagrees — every later POST is a cheap map hit.
         if (isCodex && codexBoundThreads.get(sessionId) !== harnessSessionId) {
           const cwd =
-            codexObserverCwds.get(sessionId) ??
-            (typeof fields?.cwd === 'string' ? fields.cwd : '')
+            codexObserverCwds.get(sessionId) ?? (typeof fields?.cwd === 'string' ? fields.cwd : '')
           startCodexStateObserver(sessionId, cwd, harnessSessionId)
           codexBoundThreads.set(sessionId, harnessSessionId)
         }
@@ -1074,8 +1073,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
       // reattached observer must still be able to discover by cwd — floored at
       // the session's original spawn time so it can't latch onto an older
       // sibling's rollout. Spawn passes its own start; reattach the persisted one.
-      const codexFloor =
-        init.grokStartedAt ?? ('createdAtMs' in msg ? msg.createdAtMs : undefined)
+      const codexFloor = init.grokStartedAt ?? ('createdAtMs' in msg ? msg.createdAtMs : undefined)
       startCodexStateObserver(msg.sessionId, msg.cwd, msg.resume?.value, codexFloor)
     } else if (msg.agentKind === 'opencode') {
       startOpencodeStateObserver(msg.sessionId, msg.cwd, msg.resume?.value, init.grokStartedAt)
@@ -2162,10 +2160,11 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
           w.close()
         }
       })
-      // The FIRST inbound frame is the handshake reply: intercept it before the
-      // persistent control loop (gated by `authenticated`). On accept, persist any
-      // minted token, start background work, and resolve; on reject, tear down.
-      w.once('message', (raw: RawData) => {
+      // The FIRST inbound frame is the handshake reply. Use ONE permanent listener and
+      // branch on authenticated state instead of registering a second listener from inside
+      // the handshake callback: ws/Bun can dispatch a listener added during the same emit,
+      // which makes helloOk reach the control parser and can drop the next daemon request.
+      const handleHandshakeReply = (raw: RawData): void => {
         let reply: DaemonHandshakeReply
         try {
           reply = parseDaemonHandshakeReply(raw.toString())
@@ -2182,11 +2181,9 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
             // First pairing: persist the minted token so future boots send `hello`.
             saveToken(reply.token, opts.identityDir ? { dir: opts.identityDir } : {})
             startBackground()
-            w.on('message', handleControlMessage)
             break
           case 'helloOk':
             startBackground()
-            w.on('message', handleControlMessage)
             break
           case 'helloRejected':
             // A stored token the server won't accept — revoked, OR (common right after an
@@ -2209,13 +2206,14 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
             stopNoReconnect(reply.type, reply.reason, w)
             break
         }
+      }
+      w.on('message', (raw: RawData) => {
+        if (!authenticated) {
+          handleHandshakeReply(raw)
+          return
+        }
+        handleControlMessage(raw)
       })
-      // NOTE: handleControlMessage is attached inside the handshake-reply cases above
-      // (after startBackground), NOT here. Attaching it before the reply is consumed
-      // meant the `once` handler flipped `authenticated` true synchronously, then this
-      // persistent listener re-processed the SAME helloOk frame and logged it as a
-      // malformed control frame. Attaching post-handshake means it only ever sees the
-      // control frames the server sends after helloOk.
       // Server refused the upgrade with 426 = wire-protocol mismatch: our WIRE_VERSION
       // no longer matches the server's. Self-heal instead of hot-looping the same
       // rejected handshake forever:
@@ -2238,8 +2236,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
       if (!process.versions.bun) {
         w.on('unexpected-response', (_req, res) => {
           if (res.statusCode !== 426) return
-          const installed =
-            !!process.env.PODIUM_HOME || /(?:^|[\\/])podium$/.test(process.execPath)
+          const installed = !!process.env.PODIUM_HOME || /(?:^|[\\/])podium$/.test(process.execPath)
           const { action } = decideOnProtocolMismatch({ installed })
           if (action === 'self-update') {
             console.error(

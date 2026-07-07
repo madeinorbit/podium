@@ -11,6 +11,8 @@ import type { PodiumConfig } from '../packages/core/src/config'
 
 const SERVER_UNIT = 'podium-server.service'
 const DAEMON_UNIT = 'podium-daemon.service'
+const DAEMON_PATH =
+  '%h/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin'
 
 /** `~/.config/systemd/user` (respects XDG_CONFIG_HOME). */
 export function userUnitDir(): string {
@@ -60,6 +62,7 @@ Wants=network-online.target
 Type=notify
 NotifyAccess=all
 WatchdogSec=30
+Environment=PATH=${DAEMON_PATH}
 ExecStart=${exec}
 Restart=always
 RestartSec=2

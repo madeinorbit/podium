@@ -19,7 +19,7 @@ import type {
   DaemonHandshakeReply,
 } from '@podium/protocol'
 import { type DaemonMessage, encode, parseDaemonMessage } from '@podium/protocol'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { WebSocketServer, type WebSocket as WS } from 'ws'
 import {
   controlFrameByteLength,
@@ -441,6 +441,75 @@ describe('daemon multi-bridge', () => {
     expect(found?.branch).toBe('main')
     expect(Array.isArray(found?.worktrees)).toBe(true)
   }, 10_000)
+
+  it('processes control frames sent immediately after helloOk', async () => {
+    const wss = new WebSocketServer({ port: 0 })
+    await new Promise<void>((r) => wss.once('listening', () => r()))
+    const port = (wss.address() as { port: number }).port
+    const root = await mkdtemp(join(tmpdir(), 'podium-immediate-control-'))
+    await writeFile(join(root, 'file.txt'), 'ok\n')
+    const received: DaemonMessage[] = []
+    const malformedControlWarnings: unknown[][] = []
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation((...args) => {
+      if (String(args[0]).includes('dropped malformed inbound control frame')) {
+        malformedControlWarnings.push(args)
+      }
+    })
+    const connected = new Promise<void>((r) => {
+      wss.once('connection', (ws) => {
+        let authed = false
+        ws.on('message', (raw) => {
+          if (!authed) {
+            authed = true
+            const ok: DaemonHandshakeReply = { type: 'helloOk', name: 'test' }
+            ws.send(encode(ok))
+            ws.send(
+              encode({
+                type: 'dirListRequest',
+                requestId: 'dl-immediate',
+                root,
+                path: root,
+              }),
+            )
+            r()
+            return
+          }
+          received.push(parseDaemonMessage(raw.toString()))
+        })
+      })
+    })
+    const daemon = await startDaemon({
+      serverUrl: `ws://localhost:${port}`,
+      bootstrapToken: 'test',
+      hooks: { port: 0, settingsDir: mkdtempSync(join(tmpdir(), 'podium-hooks-')) },
+      tmux: false,
+      discovery: { background: false, cachePath: ':memory:' },
+      metrics: { background: false },
+      launch: (_kind, opts) => ({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
+    })
+    await connected
+    try {
+      const start = Date.now()
+      while (!received.some((m) => m.type === 'dirListResult')) {
+        if (Date.now() - start > 1000) throw new Error('dirListResult timed out')
+        await new Promise((r) => setTimeout(r, 20))
+      }
+    } finally {
+      await daemon.close()
+      await new Promise<void>((r) => wss.close(() => r()))
+      warnSpy.mockRestore()
+    }
+    expect(malformedControlWarnings).toEqual([])
+    const result = received.find(
+      (m): m is Extract<DaemonMessage, { type: 'dirListResult' }> => m.type === 'dirListResult',
+    )
+    expect(result).toMatchObject({
+      requestId: 'dl-immediate',
+      ok: true,
+      path: root,
+    })
+    expect(result?.entries.some((e) => e.name === 'file.txt')).toBe(true)
+  })
 
   it('scanReposRequest with no roots discovers repositories under HOME', async () => {
     const home = await mkdtemp(join(tmpdir(), 'podium-home-repos-'))
