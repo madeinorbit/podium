@@ -37,7 +37,10 @@ export function HostIndicators({ compact = false }: { compact?: boolean }): JSX.
   const { hostMetrics, outboxSize } = useStore()
   const { health, visible: connVisible } = useStableConnection()
   const hibernation = useHibernationSetting()
-  const [infoTab, setInfoTab] = useState<HostInfoTab | null>(null)
+  // The open host-info modal, plus which machine it's about. A memory chip opens
+  // its own machine; the connection glyph is machine-agnostic (its tab lists all
+  // hosts), so it opens without a specific machine.
+  const [info, setInfo] = useState<{ tab: HostInfoTab; machineId?: string } | null>(null)
   const showHostname = !compact && hostMetrics.length > 1
   // The visible icon only shows the detail on hover; a persistent polite live
   // region announces degraded/down transitions to assistive tech (empty while
@@ -86,7 +89,7 @@ export function HostIndicators({ compact = false }: { compact?: boolean }): JSX.
                     compact && cn('min-w-[30px] justify-center px-1', tone.compact),
                   )}
                   aria-label={`${mem.title} — click for the breakdown`}
-                  onClick={() => setInfoTab('memory')}
+                  onClick={() => setInfo({ tab: 'memory', machineId: host.machineId })}
                 >
                   {showHostname && (
                     <span className="max-w-[9ch] overflow-hidden text-ellipsis text-muted-foreground/70">
@@ -117,7 +120,7 @@ export function HostIndicators({ compact = false }: { compact?: boolean }): JSX.
         )
       })}
       {connVisible && (
-        <ConnectionIndicator health={health} onOpen={() => setInfoTab('connection')} />
+        <ConnectionIndicator health={health} onOpen={() => setInfo({ tab: 'connection' })} />
       )}
       {/* Offline-authored writes waiting in the client outbox. Appears only while
           something is actually pending — a permanent "0 pending" would be noise. */}
@@ -145,7 +148,13 @@ export function HostIndicators({ compact = false }: { compact?: boolean }): JSX.
         </Tooltip>
       )}
       <QuotaIndicator compact={compact} />
-      {infoTab && <HostInfoView initialTab={infoTab} onClose={() => setInfoTab(null)} />}
+      {info && (
+        <HostInfoView
+          initialTab={info.tab}
+          machineId={info.machineId}
+          onClose={() => setInfo(null)}
+        />
+      )}
     </div>
   )
 }

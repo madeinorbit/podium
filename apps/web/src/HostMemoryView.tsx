@@ -52,14 +52,18 @@ export type HostInfoTab = 'connection' | 'memory'
 /**
  * Host info panel: one modal with a Connection tab and a Memory tab, opened from
  * either the connection indicator or the memory chip (mobile and desktop share
- * it). `initialTab` selects which one is shown first based on what was tapped.
+ * it). `initialTab` selects which one is shown first based on what was tapped;
+ * `machineId` is the daemon machine whose chip was clicked, so the Memory tab
+ * shows THAT machine (not always the first one).
  */
 export function HostInfoView({
   onClose,
   initialTab = 'memory',
+  machineId,
 }: {
   onClose: () => void
   initialTab?: HostInfoTab
+  machineId?: string
 }): JSX.Element {
   const [tab, setTab] = useState<HostInfoTab>(initialTab)
   const isMobile = useIsMobile()
@@ -93,7 +97,7 @@ export function HostInfoView({
             <ConnectionPanel />
           </TabsContent>
           <TabsContent value="memory" className="overflow-y-auto">
-            <MemoryPanel onClose={onClose} />
+            <MemoryPanel onClose={onClose} machineId={machineId} />
           </TabsContent>
         </Tabs>
       </DialogContent>
@@ -148,7 +152,13 @@ function ConnectionPanel(): JSX.Element {
 /** Memory tab: the headline GB number shows immediately from the host metrics the
  *  store already has; the per-process breakdown (a heavier /proc walk) fills in
  *  underneath once the daemon answers, so the modal never opens on a blank "…". */
-function MemoryPanel({ onClose }: { onClose: () => void }): JSX.Element {
+function MemoryPanel({
+  onClose,
+  machineId,
+}: {
+  onClose: () => void
+  machineId?: string
+}): JSX.Element {
   const { trpc, sessions, hostMetrics, setView, setSettingsTab } = useStore()
   const hibernation = useHibernationSetting()
   const [data, setData] = useState<Breakdown | null>(null)
@@ -156,9 +166,13 @@ function MemoryPanel({ onClose }: { onClose: () => void }): JSX.Element {
 
   useEffect(() => {
     let alive = true
+    // Reset when switching machines so we never show one machine's breakdown
+    // under another machine's headline during the first refresh.
+    setData(null)
+    setError(null)
     const refresh = async (): Promise<void> => {
       try {
-        const r = await trpc.hosts.memoryBreakdown.mutate()
+        const r = await trpc.hosts.memoryBreakdown.mutate(machineId ? { machineId } : undefined)
         if (!alive) return
         setData(r)
         setError(null)
@@ -172,7 +186,7 @@ function MemoryPanel({ onClose }: { onClose: () => void }): JSX.Element {
       alive = false
       clearInterval(timer)
     }
-  }, [trpc])
+  }, [trpc, machineId])
 
   const sessionLabel = (sessionId: string): string => {
     const s = sessions.find((s) => s.sessionId === sessionId)
@@ -181,8 +195,11 @@ function MemoryPanel({ onClose }: { onClose: () => void }): JSX.Element {
   }
 
   // Instant headline from the live host-metrics sample (already streamed to the
-  // store), so "12.3/32 GB used" is on screen the moment the modal opens.
-  const headline = !data && hostMetrics[0] ? hostMemoryView(hostMetrics[0]) : null
+  // store), so "12.3/32 GB used" is on screen the moment the modal opens. Pick
+  // the clicked machine's sample (fall back to the first host if its metric
+  // hasn't arrived yet) so the headline matches the breakdown below.
+  const headlineHost = hostMetrics.find((h) => h.machineId === machineId) ?? hostMetrics[0]
+  const headline = !data && headlineHost ? hostMemoryView(headlineHost) : null
 
   // Current memory pressure for the hibernation explainer — prefer the
   // breakdown's own sample, fall back to the streamed headline metric.
@@ -213,7 +230,9 @@ function MemoryPanel({ onClose }: { onClose: () => void }): JSX.Element {
         </div>
       )}
       {error && (
-        <div className="text-xs text-muted-foreground/70">Could not load the breakdown: {error}</div>
+        <div className="text-xs text-muted-foreground/70">
+          Could not load the breakdown: {error}
+        </div>
       )}
       {!error && !data && (
         <div className="text-xs text-muted-foreground/70">Loading the per-process breakdown…</div>
@@ -260,9 +279,7 @@ function HibernationNote({
             <>
               Memory is past the {hibernation.memoryPct}% threshold, so agents idle for{' '}
               {hibernation.idleMinutes} min are being hibernated to free memory
-              {idleSessionCount > 0
-                ? ` (${idleSessionCount} hibernated). `
-                : '. '}
+              {idleSessionCount > 0 ? ` (${idleSessionCount} hibernated). ` : '. '}
               One click resumes them.
             </>
           ) : (

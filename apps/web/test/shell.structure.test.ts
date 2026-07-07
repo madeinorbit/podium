@@ -178,9 +178,13 @@ describe('memory breakdown view', () => {
     expect(src).toContain('<button')
     expect(src).toContain('<HostInfoView')
   })
-  it('fetches via the hosts endpoint and refreshes while open', () => {
+  it('fetches the clicked machine breakdown via the hosts endpoint and refreshes while open', () => {
     const src = read('HostMemoryView.tsx')
-    expect(src).toContain('trpc.hosts.memoryBreakdown.mutate()')
+    // Machine-aware: the breakdown is requested for the clicked machine (#136),
+    // not always the first online daemon.
+    expect(src).toContain(
+      'trpc.hosts.memoryBreakdown.mutate(machineId ? { machineId } : undefined)',
+    )
     expect(src).toContain('setInterval')
     expect(src).toContain('clearInterval')
   })

@@ -780,9 +780,10 @@ export const appRouter = t.router({
   }),
   quota: t.router({
     // Per-agent plan-quota (5h/weekly % used + reset times), read live on the
-    // daemon host from each agent's own usage endpoint. Distinct from `usage`,
-    // which is transcript-harvested token-cost analytics.
-    summary: t.procedure.query(({ ctx }) => ctx.registry.agentQuota()),
+    // daemon host from each agent's own usage endpoint. Fans out to every online
+    // machine (each runs its agents under its own account) — one entry per
+    // machine. Distinct from `usage`, transcript-harvested token-cost analytics.
+    summary: t.procedure.query(({ ctx }) => ctx.registry.agentQuotaAll()),
   }),
   models: t.router({
     // Live per-agent model lists (grok/cursor/opencode `models`). Stale-while-
@@ -796,23 +797,33 @@ export const appRouter = t.router({
     // Who owns the used memory right now. Roots are derived server-side — the
     // registered repos plus their worktrees (worktrees often live OUTSIDE the
     // repo path as siblings, so the repo path alone would miss their dev servers).
-    memoryBreakdown: t.procedure.mutation(async ({ ctx }) => {
-      const { repositories } = await ctx.registry.scanRepos(ctx.repos.list(), {
-        includeHome: false,
-        maxDepth: 0,
-      })
-      const roots = [
-        ...new Set(repositories.flatMap((r) => [r.path, ...r.worktrees.map((w) => w.path)])),
-      ]
-      const breakdown = await ctx.registry.memoryBreakdown(roots)
-      if (!breakdown) {
-        throw new TRPCError({
-          code: 'TIMEOUT',
-          message: 'no daemon answered the memory breakdown request',
-        })
-      }
-      return breakdown
-    }),
+    memoryBreakdown: t.procedure
+      .input(z.object({ machineId: z.string().optional() }).optional())
+      .mutation(async ({ ctx, input }) => {
+        const machineId = input?.machineId
+        // Roots are derived server-side — the target machine's registered repos
+        // plus their worktrees (worktrees often live OUTSIDE the repo path as
+        // siblings, so the repo path alone would miss their dev servers). Scoping
+        // to the clicked machine's repos keeps foreign paths out of its /proc walk.
+        const repoPaths = ctx.repos.list(machineId)
+        const { repositories } = machineId
+          ? await ctx.registry.scanReposForMachine(repoPaths, machineId, {
+              includeHome: false,
+              maxDepth: 0,
+            })
+          : await ctx.registry.scanRepos(repoPaths, { includeHome: false, maxDepth: 0 })
+        const roots = [
+          ...new Set(repositories.flatMap((r) => [r.path, ...r.worktrees.map((w) => w.path)])),
+        ]
+        const breakdown = await ctx.registry.memoryBreakdown(roots, machineId)
+        if (!breakdown) {
+          throw new TRPCError({
+            code: 'TIMEOUT',
+            message: 'no daemon answered the memory breakdown request',
+          })
+        }
+        return breakdown
+      }),
   }),
   discovery: t.router({
     scan: t.procedure.mutation(({ ctx }) => ctx.registry.scan()),

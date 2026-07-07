@@ -28,6 +28,7 @@ import {
   type HeadlessTurnEvent,
   type HostMetricsWire,
   type IssueWire,
+  type MachineQuotaWire,
   type MachineWire,
   type MetadataChange,
   type RepoOp,
@@ -2318,9 +2319,13 @@ export class SessionRegistry {
     )
   }
 
-  /** Per-agent plan-quota (5h/weekly windows), read live read-only on the daemon
-   *  host. Empty agents on timeout. Distinct from `usage` (token-cost analytics). */
-  agentQuota(refresh?: boolean): Promise<{ hostname: string; agents: AgentQuotaWire[] }> {
+  /** Per-agent plan-quota (5h/weekly windows), read live read-only on one daemon
+   *  host. Empty agents on timeout. Distinct from `usage` (token-cost analytics).
+   *  `machineId` targets a specific machine; omitted → the default online machine. */
+  agentQuota(
+    refresh?: boolean,
+    machineId?: string,
+  ): Promise<{ hostname: string; agents: AgentQuotaWire[] }> {
     return this.daemonRequest(
       this.pendingAgentQuota,
       'aq',
@@ -2330,6 +2335,26 @@ export class SessionRegistry {
         type: 'agentQuotaRequest',
         requestId,
         ...(refresh !== undefined ? { refresh } : {}),
+      }),
+      machineId ?? this.defaultMachine(),
+    )
+  }
+
+  /**
+   * Fan out `agentQuota` to every online daemon and tag each reply with its
+   * machineId + machineName — the overlay groups by machine because each machine
+   * runs its agents under its own account. Empty when no daemon is online.
+   *
+   * Single-machine invariant: one online daemon → a single entry whose `agents`
+   * equal today's `agentQuota().agents`, so the one-machine overlay is unchanged.
+   */
+  async agentQuotaAll(refresh?: boolean): Promise<MachineQuotaWire[]> {
+    const machineIds = this.onlineMachineIds()
+    if (machineIds.length === 0) return []
+    return Promise.all(
+      machineIds.map(async (machineId) => {
+        const { hostname, agents } = await this.agentQuota(refresh, machineId)
+        return { machineId, machineName: this.machineName(machineId), hostname, agents }
       }),
     )
   }
@@ -2576,14 +2601,17 @@ export class SessionRegistry {
     )
   }
 
-  /** Ask the daemon who owns the used memory. Resolves undefined when no daemon answers in time. */
-  memoryBreakdown(roots: string[]): Promise<MemoryBreakdown | undefined> {
+  /** Ask a daemon who owns the used memory. Resolves undefined when no daemon
+   *  answers in time. `machineId` targets a specific machine (the one whose chip
+   *  was clicked); omitted → the default online machine. */
+  memoryBreakdown(roots: string[], machineId?: string): Promise<MemoryBreakdown | undefined> {
     return this.daemonRequest<MemoryBreakdown | undefined>(
       this.pendingBreakdowns,
       'mb',
       SCAN_TIMEOUT_MS,
       () => undefined,
       (requestId) => ({ type: 'memoryBreakdownRequest', requestId, roots }),
+      machineId ?? this.defaultMachine(),
     )
   }
 

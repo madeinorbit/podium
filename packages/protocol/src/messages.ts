@@ -1436,6 +1436,18 @@ export const AgentQuotaWire = z.object({
 })
 export type AgentQuotaWire = z.infer<typeof AgentQuotaWire>
 
+// One dev machine's quota, tagged with which machine it came from. The overlay
+// groups by machine because each machine runs its agents under its own account.
+// The daemon↔server wire (AgentQuotaRequest/Result) stays single-machine; the
+// server fans out one request per online machine and tags each reply.
+export const MachineQuotaWire = z.object({
+  machineId: z.string(),
+  machineName: z.string(),
+  hostname: z.string(),
+  agents: z.array(AgentQuotaWire),
+})
+export type MachineQuotaWire = z.infer<typeof MachineQuotaWire>
+
 export const AgentQuotaRequestMessage = z.object({
   type: z.literal('agentQuotaRequest'),
   requestId: z.string(),
