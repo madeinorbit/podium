@@ -9,9 +9,9 @@
  *  2. `@podium/agent-bridge` may only be imported by `apps/daemon`, `scripts/`,
  *     and its own package (including its tests). Servers read transcripts via
  *     `@podium/transcript` instead.
- *  3. `@podium/protocol` and `@podium/core` are leaf packages — they import no
- *     other workspace package. `@podium/transcript` is a near-leaf: it may
- *     import only `@podium/protocol`.
+ *  3. `@podium/protocol`, `@podium/core` and `@podium/domain` are leaf packages
+ *     — they import no other workspace package. `@podium/transcript` is a
+ *     near-leaf: it may import only `@podium/protocol`.
  *  4. `packages/*` never import from `apps/*` (by name or by relative path).
  *
  * Run: `bun run lint:boundaries` (wired into `bun run lint`). Exits non-zero
@@ -58,7 +58,7 @@ const APP_PACKAGES: Record<string, string> = {
   '@podium/web': 'apps/web',
 }
 
-const LEAF_PACKAGES = new Set<string>(['packages/protocol', 'packages/core'])
+const LEAF_PACKAGES = new Set<string>(['packages/protocol', 'packages/core', 'packages/domain'])
 
 /**
  * Near-leaf packages: may import ONLY the listed workspace packages (plus node

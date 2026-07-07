@@ -153,6 +153,18 @@ describe('checkFile rules', () => {
     expect(v[0].rule).toBe('agent-bridge-consumers')
   })
 
+  it('keeps domain a leaf package', () => {
+    const d = checkFile(
+      'packages/domain/src/issue-stage.ts',
+      `import type { IssueWire } from '@podium/protocol'`,
+    )
+    expect(d).toHaveLength(1)
+    expect(d[0].rule).toBe('leaf-package')
+    expect(
+      checkFile('apps/server/src/issues.ts', `import { isIssueClosed } from '@podium/domain'`),
+    ).toEqual([])
+  })
+
   it('keeps protocol and core as leaf packages', () => {
     const p = checkFile('packages/protocol/src/index.ts', `import { z } from '@podium/core'`)
     expect(p).toHaveLength(1)

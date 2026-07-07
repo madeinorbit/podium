@@ -13,6 +13,7 @@ export default defineConfig({
       '@podium/agent-bridge': fileURLToPath(
         new URL('./packages/agent-bridge/src/index.ts', import.meta.url),
       ),
+      '@podium/domain': fileURLToPath(new URL('./packages/domain/src/index.ts', import.meta.url)),
       '@podium/protocol': fileURLToPath(
         new URL('./packages/protocol/src/index.ts', import.meta.url),
       ),

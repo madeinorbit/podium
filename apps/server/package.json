@@ -10,6 +10,7 @@
     "@hono/node-server": "^1.13.7",
     "@hono/trpc-server": "^0.3.4",
     "@podium/core": "workspace:*",
+    "@podium/domain": "workspace:*",
     "@podium/protocol": "workspace:*",
     "@podium/transcript": "workspace:*",
     "@trpc/client": "^11.0.0",

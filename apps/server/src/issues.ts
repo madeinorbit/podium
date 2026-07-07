@@ -1,5 +1,11 @@
 import { randomUUID } from 'node:crypto'
 import type { PodiumSettings } from '@podium/core'
+import {
+  isIssueBlocked,
+  isIssueClosed,
+  isIssueDeferred,
+  normalizeClosedPatch,
+} from '@podium/domain'
 import type {
   DoctorReport,
   DuplicateCandidate,
@@ -256,11 +262,11 @@ export class IssueService {
   }
 
   private isClosed(row: IssueRow): boolean {
-    return row.stage === 'done' || row.closedReason != null
+    return isIssueClosed(row)
   }
 
   private isDeferred(row: IssueRow): boolean {
-    return row.deferUntil != null && row.deferUntil > this.now()
+    return isIssueDeferred(row, this.now())
   }
 
   /** Email-style unread (issue #124): there is activity the operator hasn't seen.
@@ -280,14 +286,11 @@ export class IssueService {
 
   /** blocked = open AND ≥1 `blocks` dep whose target issue is not closed. */
   private computeBlocked(row: IssueRow): boolean {
-    if (this.isClosed(row)) return false
-    return this.deps.store
+    const blocksTargets = this.deps.store
       .listIssueDeps(row.id)
       .filter((d) => d.type === 'blocks')
-      .some((d) => {
-        const target = this.rows.get(d.toId)
-        return target ? !this.isClosed(target) : false
-      })
+      .map((d) => this.rows.get(d.toId))
+    return isIssueBlocked(row, blocksTargets)
   }
 
   /** Serialize one issue. `sessionList` lets multi-issue serializers (list/allWire/
@@ -834,9 +837,7 @@ export class IssueService {
       const [, repo, seqStr] = qualified
       const seq = Number(seqStr)
       const matches = [...this.rows.values()].filter(
-        (r) =>
-          r.seq === seq &&
-          (r.repoPath === repo || r.repoPath.endsWith(`/${repo}`)),
+        (r) => r.seq === seq && (r.repoPath === repo || r.repoPath.endsWith(`/${repo}`)),
       )
       if (matches.length === 1) return matches[0]!.id
       if (matches.length > 1) {
@@ -1245,36 +1246,10 @@ export class IssueService {
     return wire
   }
 
-  /**
-   * Stage-machine normalization (issue #24): the closed state has ONE source of
-   * truth. Historically "closed" was a bimodal derived predicate
-   * (stage === 'done' || closedReason != null), which allowed three broken states:
-   * a bare closedReason patch closing an issue while stage stayed backlog, a
-   * stage-only "reopen" that left closedReason set (the issue stayed derived-closed
-   * and invisible to open/ready forever), and a silent re-close (no second
-   * issue.closed event because the predicate never flipped back). Normalization
-   * rules, applied to every patch (all entry points converge on update()):
-   *   - setting closedReason (non-null) moves stage to 'done' — closing IS done;
-   *   - setting stage to a non-done stage on a closed issue is a REAL reopen:
-   *     closedReason (and the supersededBy/duplicateOf close markers) clear;
-   *   - a patch that sets BOTH a non-null closedReason and a non-done stage is
-   *     nonsensical and rejected.
-   * Deliberately permissive otherwise — coherence, not a workflow straitjacket.
-   */
+  /** Stage-machine normalization (issue #24) — the rules live in @podium/domain's
+   *  `normalizeClosedPatch` (see its doc for the three broken states it prevents). */
   private normalizeClosedPatch(row: IssueRow, patch: IssuePatch): IssuePatch {
-    const reopening = patch.stage != null && patch.stage !== 'done'
-    if (patch.closedReason != null && reopening) {
-      throw new Error(
-        `cannot set closedReason '${patch.closedReason}' together with stage '${patch.stage}' — closing an issue moves it to 'done'`,
-      )
-    }
-    if (patch.closedReason != null && patch.stage == null) {
-      return { ...patch, stage: 'done' }
-    }
-    if (reopening && this.isClosed(row) && patch.closedReason === undefined) {
-      return { ...patch, closedReason: null, supersededBy: null, duplicateOf: null }
-    }
-    return patch
+    return normalizeClosedPatch(row, patch)
   }
 
   update(

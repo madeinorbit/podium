@@ -78,6 +78,7 @@
         "@hono/node-server": "^1.13.7",
         "@hono/trpc-server": "^0.3.4",
         "@podium/core": "workspace:*",
+        "@podium/domain": "workspace:*",
         "@podium/protocol": "workspace:*",
         "@podium/transcript": "workspace:*",
         "@trpc/client": "^11.0.0",
@@ -177,6 +178,14 @@
         "zod": "^3.24.0",
       },
       "devDependencies": {
+        "typescript": "^6.0.3",
+      },
+    },
+    "packages/domain": {
+      "name": "@podium/domain",
+      "version": "0.0.0",
+      "devDependencies": {
+        "tsup": "^8.5.1",
         "typescript": "^6.0.3",
       },
     },
@@ -855,6 +864,8 @@
     "@podium/daemon": ["@podium/daemon@workspace:apps/daemon"],
 
     "@podium/desktop": ["@podium/desktop@workspace:apps/desktop"],
+
+    "@podium/domain": ["@podium/domain@workspace:packages/domain"],
 
     "@podium/e2e": ["@podium/e2e@workspace:tests/e2e"],
 
