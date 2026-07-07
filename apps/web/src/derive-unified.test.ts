@@ -125,6 +125,28 @@ describe('spawnTargetForRepo', () => {
     expect(t.worktree).toEqual({ path: '/r/a', repoPath: '/r/a', isMain: true })
     expect(t.repoName).toBe('a')
   })
+
+  it('uses the selected machine main checkout when one is provided', () => {
+    const podium-host = navWt('/home/podium-host/podium', {
+      repoPath: '/home/podium-host/podium',
+      machineId: 'podium-host',
+    })
+    const vmi = navWt('/home/vmi34/podium', {
+      repoPath: '/home/vmi34/podium',
+      machineId: 'vmi34',
+    })
+    const t = spawnTargetForRepo(
+      { path: '/home/podium-host/podium', name: 'podium', worktrees: [podium-host, vmi] },
+      'vmi34',
+    )
+    expect(t.worktree).toMatchObject({
+      path: '/home/vmi34/podium',
+      repoPath: '/home/vmi34/podium',
+      machineId: 'vmi34',
+      isMain: true,
+    })
+    expect(t.repoName).toBe('podium')
+  })
 })
 
 describe('sessionUrgencyRank / mostUrgentSession', () => {

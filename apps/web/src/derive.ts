@@ -106,14 +106,14 @@ export function reposToViews(repos: GitRepositoryWire[]): RepoView[] {
   const linkedWorktreePaths = new Set(repos.flatMap((r) => r.worktrees.map((w) => w.path)))
   const candidates = repos.filter((r) => !linkedWorktreePaths.has(r.path))
 
-  // Group by normalized origin URL so that the same repo cloned on multiple machines
-  // collapses into one RepoView. Repos without a remote (empty normalizedOrigin) are
-  // keyed by (machineId, path) so they stay separate — two unrelated local repos that
-  // happen to have no remote must never be merged.
+  // Group by the server-stamped repoId when present. That lets the server's
+  // stable cross-machine identity win even when an older/remote scan lacks an
+  // originUrl on the wire. Fall back to normalized origin, then (machineId,path)
+  // for local repos without a remote so unrelated originless repos never merge.
   const groups = new Map<string, GitRepositoryWire[]>()
   for (const r of candidates) {
     const origin = normalizeOriginUrl(r.originUrl)
-    const key = origin !== '' ? origin : `__no_remote__:${r.machineId ?? ''}:${r.path}`
+    const key = r.repoId ?? (origin !== '' ? origin : `__no_remote__:${r.machineId ?? ''}:${r.path}`)
     const existing = groups.get(key)
     if (existing) {
       existing.push(r)
@@ -128,7 +128,8 @@ export function reposToViews(repos: GitRepositoryWire[]): RepoView[] {
     // The group is always non-empty (we only insert when we have a repo to key).
     if (group.length === 0) continue
     const first: GitRepositoryWire = group[0] as GitRepositoryWire
-    const originUrl = normalizeOriginUrl(first.originUrl) || undefined
+    const originUrl = group.map((r) => normalizeOriginUrl(r.originUrl)).find((u) => u !== '')
+    const repoId = group.find((r) => r.repoId !== undefined)?.repoId
 
     const worktrees: WorktreeView[] = []
     const machines: { machineId: string; path: string }[] = []
@@ -165,17 +166,28 @@ export function reposToViews(repos: GitRepositoryWire[]): RepoView[] {
       worktrees,
       machines,
       ...(originUrl !== undefined ? { originUrl } : {}),
-      ...(first.repoId !== undefined ? { repoId: first.repoId } : {}),
+      ...(repoId !== undefined ? { repoId } : {}),
     })
   }
 
   return views
 }
 
+/** Machines that have this repo, regardless of online status. */
+export function machinesWithRepo(
+  repo: { machines?: { machineId: string; path: string }[] },
+  machines: MachineWire[],
+): MachineWire[] {
+  const repoMachineIds = new Set((repo.machines ?? []).map((m) => m.machineId))
+  return machines.filter((m) => repoMachineIds.has(m.id))
+}
+
 /** Online machines that have this repo (intersection of repo.machines and online machines). */
-export function machinesForRepo(repo: RepoView, machines: MachineWire[]): MachineWire[] {
-  const repoMachineIds = new Set(repo.machines.map((m) => m.machineId))
-  return machines.filter((m) => m.online && repoMachineIds.has(m.id))
+export function machinesForRepo(
+  repo: { machines?: { machineId: string; path: string }[] },
+  machines: MachineWire[],
+): MachineWire[] {
+  return machinesWithRepo(repo, machines).filter((m) => m.online)
 }
 
 /** The machineId of the most recently created session among the given machines;
@@ -200,7 +212,7 @@ export function lastUsedMachine(
  *  Prefers the most-recently-used machine that also has the repo;
  *  falls back to the first online machine that has the repo; else undefined. */
 export function resolveTargetMachine(
-  repo: RepoView,
+  repo: { machines?: { machineId: string; path: string }[] },
   sessions: SessionMeta[],
   machines: MachineWire[],
 ): string | undefined {
@@ -404,6 +416,9 @@ export interface RepoNavView {
   path: string
   name: string
   worktrees: WorktreeNavView[]
+  machines?: { machineId: string; path: string }[]
+  originUrl?: string
+  repoId?: string
 }
 
 export interface SidebarSections {
@@ -555,6 +570,9 @@ export function sidebarSections(
     worktrees: repo.worktrees
       .filter((worktree) => !pinnedWorktreePaths.has(worktree.path))
       .map((worktree) => navWorktree(repo, worktree)),
+    machines: repo.machines,
+    ...(repo.originUrl !== undefined ? { originUrl: repo.originUrl } : {}),
+    ...(repo.repoId !== undefined ? { repoId: repo.repoId } : {}),
   })
 
   return {
@@ -1000,10 +1018,43 @@ export function lastUsedMaps(
  *  works in, not whichever clone happened to be scanned first. Pick the main with
  *  the most recent session activity (`byWorktree` from {@link lastUsedMaps});
  *  with no activity anywhere, prefer the RepoView's canonical path; else first. */
-export function spawnTargetForRepo(repo: RepoNavView): {
+export function spawnTargetForRepo(
+  repo: RepoNavView,
+  machineId?: string,
+): {
   worktree: WorktreeView
   repoName: string
 } {
+  const viewFor = (worktree: WorktreeNavView | WorktreeView): WorktreeView => {
+    const { repoName: _repoName, sessions: _sessions, issues: _issues, ...view } =
+      worktree as WorktreeNavView
+    return view
+  }
+
+  if (machineId !== undefined) {
+    const machinePath = repo.machines?.find((m) => m.machineId === machineId)?.path
+    const chosen =
+      repo.worktrees.find(
+        (w) =>
+          w.machineId === machineId &&
+          w.isMain &&
+          (machinePath === undefined || w.path === machinePath),
+      ) ?? repo.worktrees.find((w) => w.machineId === machineId && w.isMain)
+    if (chosen) return { worktree: viewFor(chosen), repoName: repo.name }
+    if (machinePath !== undefined) {
+      return {
+        worktree: {
+          path: machinePath,
+          repoPath: machinePath,
+          isMain: true,
+          machineId,
+          ...(repo.repoId !== undefined ? { repoId: repo.repoId } : {}),
+        },
+        repoName: repo.name,
+      }
+    }
+  }
+
   // The primary worktree is the repo's OWN main checkout (path === repo.path) —
   // never a sibling clone that origin-grouping folded into this RepoView, and
   // never a linked worktree. The label is always the repo's registered name.
@@ -1014,12 +1065,16 @@ export function spawnTargetForRepo(repo: RepoNavView): {
     // Filtered out of the nav (e.g. pinned away) or a clone-canonical mismatch —
     // reconstruct the repo's own main checkout, same fallback as repoPrimaryWorktree.
     return {
-      worktree: { path: repo.path, repoPath: repo.path, isMain: true },
+      worktree: {
+        path: repo.path,
+        repoPath: repo.path,
+        isMain: true,
+        ...(repo.repoId !== undefined ? { repoId: repo.repoId } : {}),
+      },
       repoName: repo.name,
     }
   }
-  const { repoName: _repoName, sessions: _sessions, issues: _issues, ...view } = chosen
-  return { worktree: view, repoName: repo.name }
+  return { worktree: viewFor(chosen), repoName: repo.name }
 }
 
 /**

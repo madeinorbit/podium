@@ -14,7 +14,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
-import { machinesForRepo, reposToViews, resolveTargetMachine } from './derive'
+import { machinesForRepo, machinesWithRepo, reposToViews, resolveTargetMachine } from './derive'
 import { relativeTime } from './home'
 import { ClaudeCodeIcon, CursorIcon, GrokIcon, OpenAIcon, OpenCodeIcon } from './icons/AgentIcons'
 import { useStore } from './store'
@@ -227,10 +227,9 @@ export function NewPanelMenu({
   }
 
   // Multi-machine path.
+  const repoMachines = machinesWithRepo(repoView, machines)
   const eligible = machinesForRepo(repoView, machines)
   const eligibleIds = new Set(eligible.map((m) => m.id))
-  // Set of machine IDs that have the repo on ANY machine entry (online or not).
-  const repoMachineIds = new Set(repoView.machines.map((m) => m.machineId))
 
   return (
     // modal={false}: keep mobile keyboard pinning working.
@@ -258,14 +257,10 @@ export function NewPanelMenu({
           Machines
         </div>
         <TooltipProvider>
-          {machines.map((machine) => {
+          {repoMachines.map((machine) => {
             const isEligible = eligibleIds.has(machine.id)
             if (!isEligible) {
-              // Distinguish: offline machine that has the repo vs machine without the repo.
-              const machineHasRepo = repoMachineIds.has(machine.id)
-              const tooltipText = machineHasRepo
-                ? `${machine.name} is offline`
-                : `${machine.name} doesn't have this repo`
+              const tooltipText = `${machine.name} is offline`
               return (
                 <Tooltip key={machine.id}>
                   {/*

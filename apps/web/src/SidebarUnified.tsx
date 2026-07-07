@@ -1,5 +1,5 @@
 import type { AgentKind, IssueWire, SessionMeta } from '@podium/protocol'
-import { ChevronDown, ChevronRight, GitBranch, KanbanSquare, Plus, RotateCw } from 'lucide-react'
+import { Circle, ChevronDown, ChevronRight, GitBranch, KanbanSquare, Plus, RotateCw } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
 import { useEffect, useRef, useState } from 'react'
 import {
@@ -18,12 +18,14 @@ import {
   groupUnifiedWorkRows,
   lastUsedMaps,
   mostUrgentSession,
+  machinesWithRepo,
   panelLabel,
   partitionStaleSessions,
   partitionWorkItems,
   pickPaneSession,
   type RepoNavView,
   resolveDefaultAgent,
+  resolveTargetMachine,
   sessionDotClass,
   sessionsForIssueNav,
   sessionsForWorktree,
@@ -73,6 +75,7 @@ export function SidebarUnified(): JSX.Element {
     setView,
     sidebarSettings,
     setSidebarSettings,
+    machines,
   } = useStore()
   const now = useNow(60_000)
   const [newIssueOpen, setNewIssueOpen] = useState(false)
@@ -104,9 +107,10 @@ export function SidebarUnified(): JSX.Element {
       best === undefined || (byRepo.get(r.path) ?? 0) > (byRepo.get(best.path) ?? 0) ? r : best,
     undefined,
   )
-  // The spawn target is always the repo's OWN primary worktree; the label is
-  // the registered repo name (never a clone or worktree basename).
-  const defaultTarget = defaultRepo ? spawnTargetForRepo(defaultRepo) : undefined
+  // The spawn target is the repo's primary checkout on the default machine
+  // (MRU for this repo, then first online machine with the repo).
+  const defaultMachine = defaultRepo ? resolveTargetMachine(defaultRepo, sessions, machines) : undefined
+  const defaultTarget = defaultRepo ? spawnTargetForRepo(defaultRepo, defaultMachine) : undefined
   const defaultAgent = resolveDefaultAgent(agentSetting, sessions)
   // Menu repos read most-recently-used first (name tiebreak) — same order the
   // default <Repo> pick uses, so the top menu entry IS the default.
@@ -133,8 +137,9 @@ export function SidebarUnified(): JSX.Element {
   }, [sessions, setSelectedIssueId])
 
   /** Spawn `agentKind` in `repo`'s primary worktree inside a fresh draft issue. */
-  async function spawn(agentKind: AgentKind, repo: RepoNavView): Promise<void> {
-    const { worktree: wt } = spawnTargetForRepo(repo)
+  async function spawn(agentKind: AgentKind, repo: RepoNavView, machineId?: string): Promise<void> {
+    const targetMachine = machineId ?? resolveTargetMachine(repo, sessions, machines)
+    const { worktree: wt } = spawnTargetForRepo(repo, targetMachine)
     const sessionId = await spawnDraftAgent({ trpc, target: wt, agentKind })
     pendingSelect.current = sessionId
     // Same post-create plumbing as NewPanelMenu consumers: select + open.
@@ -242,7 +247,14 @@ export function SidebarUnified(): JSX.Element {
             <DropdownMenuContent align="start" sideOffset={4} anchor={newAgentAnchorRef}>
               {NEW_AGENTS.map(({ kind, label, Icon }) => (
                 <DropdownMenuSub key={kind}>
-                  <DropdownMenuSubTrigger className="flex items-center gap-1.5">
+                  <DropdownMenuSubTrigger
+                    className="flex items-center gap-1.5"
+                    onClick={() => {
+                      if (!defaultRepo) return
+                      void persistDefaultAgent(kind)
+                      void spawn(kind, defaultRepo)
+                    }}
+                  >
                     <Icon size={14} aria-hidden="true" className="text-muted-foreground" />
                     {label}
                   </DropdownMenuSubTrigger>
@@ -250,17 +262,59 @@ export function SidebarUnified(): JSX.Element {
                     {menuRepos.length === 0 && (
                       <DropdownMenuItem disabled>No repos</DropdownMenuItem>
                     )}
-                    {menuRepos.map((repo) => (
-                      <DropdownMenuItem
-                        key={repo.path}
-                        onClick={() => {
-                          void persistDefaultAgent(kind)
-                          void spawn(kind, repo)
-                        }}
-                      >
-                        {repo.name}
-                      </DropdownMenuItem>
-                    ))}
+                    {menuRepos.map((repo) => {
+                      const repoMachines = machinesWithRepo(repo, machines)
+                      if (repoMachines.length <= 1) {
+                        return (
+                          <DropdownMenuItem
+                            key={repo.path}
+                            onClick={() => {
+                              void persistDefaultAgent(kind)
+                              void spawn(kind, repo)
+                            }}
+                          >
+                            {repo.name}
+                          </DropdownMenuItem>
+                        )
+                      }
+                      return (
+                        <DropdownMenuSub key={repo.path}>
+                          <DropdownMenuSubTrigger
+                            onClick={() => {
+                              void persistDefaultAgent(kind)
+                              void spawn(kind, repo)
+                            }}
+                          >
+                            {repo.name}
+                          </DropdownMenuSubTrigger>
+                          <DropdownMenuSubContent>
+                            {repoMachines.map((machine) => (
+                              <DropdownMenuItem
+                                key={machine.id}
+                                disabled={!machine.online}
+                                onClick={() => {
+                                  void persistDefaultAgent(kind)
+                                  void spawn(kind, repo, machine.id)
+                                }}
+                              >
+                                <Circle
+                                  size={6}
+                                  className={
+                                    machine.online
+                                      ? 'fill-emerald-500 text-emerald-500'
+                                      : 'text-muted-foreground/40'
+                                  }
+                                  aria-hidden="true"
+                                />
+                                <span className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap">
+                                  {machine.name}
+                                </span>
+                              </DropdownMenuItem>
+                            ))}
+                          </DropdownMenuSubContent>
+                        </DropdownMenuSub>
+                      )
+                    })}
                   </DropdownMenuSubContent>
                 </DropdownMenuSub>
               ))}

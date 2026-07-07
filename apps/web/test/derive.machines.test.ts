@@ -9,6 +9,7 @@ const makeRepo = (
   opts: {
     originUrl?: string
     machineId?: string
+    repoId?: string
     branch?: string
     worktrees?: { path: string; branch?: string }[]
   } = {},
@@ -18,6 +19,7 @@ const makeRepo = (
   branch: opts.branch ?? 'main',
   originUrl: opts.originUrl,
   machineId: opts.machineId,
+  repoId: opts.repoId,
   worktrees: opts.worktrees ?? [],
 })
 
@@ -49,6 +51,16 @@ const makeSession = (machineId: string | undefined, createdAt: string): SessionM
 // --- reposToViews: multi-machine merging ---
 
 describe('reposToViews (multi-machine)', () => {
+  it('collapses two repos with the same server repoId even when origin URLs are missing', () => {
+    const repos: GitRepositoryWire[] = [
+      makeRepo('/home/podium-host/podium', { machineId: 'podium-host', repoId: 'repo_podium' }),
+      makeRepo('/home/vmi34/podium', { machineId: 'vmi34', repoId: 'repo_podium' }),
+    ]
+    const views = reposToViews(repos)
+    expect(views).toHaveLength(1)
+    expect(views[0].machines.map((m) => m.machineId).sort()).toEqual(['podium-host', 'vmi34'])
+  })
+
   it('collapses two repos with the same origin onto different machines into one RepoView', () => {
     const repos: GitRepositoryWire[] = [
       makeRepo('/home/m1/app', { originUrl: 'git@github.com:acme/app.git', machineId: 'm1' }),
