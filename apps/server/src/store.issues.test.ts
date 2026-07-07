@@ -203,7 +203,8 @@ describe('issue read state persistence (#124)', () => {
   it('persists and reads back read_at; a row that never had it reads null', () => {
     const store = new SessionStore(':memory:')
     store.upsertIssue(baseRow({ id: 'iss_read', readAt: '2026-07-07T00:00:00.000Z' }))
-    store.upsertIssue(baseRow({ id: 'iss_unread' }))
+    // Distinct seq — UNIQUE(repo_path, seq) is enforced since migration 004.
+    store.upsertIssue(baseRow({ id: 'iss_unread', seq: 2 }))
     expect(store.getIssue('iss_read')!.readAt).toBe('2026-07-07T00:00:00.000Z')
     expect(store.getIssue('iss_unread')!.readAt).toBeNull()
     store.close()

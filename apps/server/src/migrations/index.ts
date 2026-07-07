@@ -20,6 +20,8 @@
 
 import type { SqlDatabase } from '@podium/core/sqlite'
 import { up as coreSchema } from './002-core-schema'
+import { up as hardeningIndexes } from './003-hardening-indexes'
+import { up as issuesUniqueRepoSeq } from './004-issues-unique-repo-seq'
 
 export interface Migration {
   /** Positive, unique, strictly increasing across the list. */
@@ -40,6 +42,8 @@ export const MIGRATIONS: Migration[] = [
     up: () => {},
   },
   { version: 2, name: 'core-schema', up: coreSchema },
+  { version: 3, name: 'hardening-indexes', up: hardeningIndexes },
+  { version: 4, name: 'issues-unique-repo-seq', up: issuesUniqueRepoSeq },
 ]
 
 /** Highest schema version the running code knows about. */
