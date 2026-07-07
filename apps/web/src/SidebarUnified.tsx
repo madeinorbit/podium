@@ -25,6 +25,7 @@ import { cn } from '@/lib/utils'
 import {
   draftIssueLabel,
   groupUnifiedWorkRows,
+  isRowUnread,
   issueReturnedFromDefer,
   lastUsedMaps,
   machinesWithRepo,
@@ -90,6 +91,8 @@ export function SidebarUnified(): JSX.Element {
     setSidebarSettings,
     machines,
     spawnDraftAgent,
+    markIssueRead,
+    markSessionRead,
   } = useStore()
   const now = useNow(60_000)
   const [newIssueOpen, setNewIssueOpen] = useState(false)
@@ -173,6 +176,10 @@ export function SidebarUnified(): JSX.Element {
 
   const selectIssue = (issue: IssueWire) => {
     setSelectedIssueId(issue.id)
+    // Opening an issue marks IT read (email-style, #126): clear the row's unread
+    // emphasis optimistically. Its member sessions keep their own unread until
+    // each is opened. No-op when already read.
+    void markIssueRead(issue.id)
     // A lapsed defer is transient like the session snooze: interacting with the
     // "Unsnoozed" issue clears the stale defer so the tag doesn't linger. (A
     // still-snoozed issue is left alone.) No dedicated undefer route — defer(null)
@@ -195,6 +202,8 @@ export function SidebarUnified(): JSX.Element {
   const selectPanelForIssue = (issue: IssueWire, sessionId: string) => {
     selectIssue(issue)
     setPane('A', sessionId)
+    // Opening a specific member session marks THAT session read too (#126).
+    void markSessionRead(sessionId)
   }
   const selectWorktree = (path: string) => {
     setSelectedIssueId(null)
@@ -202,13 +211,19 @@ export function SidebarUnified(): JSX.Element {
     // Same pane-opening rule as selectIssue, keyed by the worktree's sessions.
     const members = sessionsForWorktree(sessions, path, allWorktreePaths)
     const rowFileIds = fileTabs.filter((f) => f.worktreePath === path).map((f) => f.id)
-    setPane('A', pickPaneSession(members, paneA, rowFileIds))
+    const opened = pickPaneSession(members, paneA, rowFileIds)
+    setPane('A', opened)
+    // A worktree has no unread flag of its own — opening it opens one session, so
+    // mark THAT session read (#126). Other unread sessions keep the row emphasized.
+    if (opened && members.some((s) => s.sessionId === opened)) void markSessionRead(opened)
     setView('workspace')
   }
   const selectPanel = (worktreePath: string, sessionId: string) => {
     setSelectedIssueId(null)
     setSelectedWorktree(worktreePath)
     setPane('A', sessionId)
+    // Opening a session marks it read (#126).
+    void markSessionRead(sessionId)
     setView('workspace')
   }
   // Open the issue PAGE (the right-click "Open" action), leaving the workspace.
@@ -527,6 +542,7 @@ function UnifiedRowShell({
   icon,
   label,
   active,
+  unread = false,
   expandable,
   collapsed,
   onToggle,
@@ -540,6 +556,8 @@ function UnifiedRowShell({
   icon: ReactNode
   label: string
   active: boolean
+  /** Email-style unread emphasis (#126): the label reads bold until opened. */
+  unread?: boolean
   expandable: boolean
   collapsed: boolean
   onToggle: () => void
@@ -585,7 +603,14 @@ function UnifiedRowShell({
           onContextMenu={onContextMenu}
         >
           {icon}
-          <span className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap">
+          <span
+            className={cn(
+              'min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap',
+              // Unread rows read bolder (email-style); active rows are already
+              // medium, so unread bumps a touch further to stay distinguishable.
+              unread && 'font-semibold',
+            )}
+          >
             {label}
           </span>
           {extras}
@@ -636,6 +661,7 @@ function UnifiedIssueRow({
   onOpenIssue: (id: string) => void
 }): JSX.Element {
   const { issue, sessions: mine } = row
+  const unread = isRowUnread(row)
   const [collapsed, toggle] = useCollapsed(`podium:sidebar:unified-issue:${issue.id}`, false)
   const [menuAnchor, setMenuAnchor] = useState<ContextMenuAnchor | null>(null)
   // A single agent underneath = nothing worth a second line: the parent row's
@@ -691,6 +717,7 @@ function UnifiedIssueRow({
           }
           label={label}
           active={active && paneA === first?.sessionId}
+          unread={unread}
           expandable={false}
           collapsed={true}
           onToggle={() => {}}
@@ -712,6 +739,7 @@ function UnifiedIssueRow({
         icon={<IssueStatusIcon stage={issue.stage} size={16} />}
         label={label}
         active={active}
+        unread={unread}
         expandable={showChildren}
         collapsed={showChildren ? collapsed : true}
         onToggle={toggle}
@@ -766,6 +794,7 @@ function UnifiedWorktreeRow({
   onPinned: (sessionId: string, pinned: boolean) => void
 }): JSX.Element {
   const { worktree } = row
+  const unread = isRowUnread(row)
   const [collapsed, toggle] = useCollapsed(`podium:sidebar:unified-wt:${worktree.path}`, false)
   // A single agent underneath = nothing worth a second line: the parent row's
   // dot IS that agent's indicator. Child rows only exist from 2 agents up.
@@ -788,6 +817,7 @@ function UnifiedWorktreeRow({
       icon={<GitBranch size={13} aria-hidden="true" className="flex-none text-muted-foreground" />}
       label={worktree.branch ?? worktree.path.split('/').pop() ?? worktree.path}
       active={active}
+      unread={unread}
       expandable={showChildren}
       collapsed={showChildren ? collapsed : true}
       onToggle={toggle}
