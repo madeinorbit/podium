@@ -103,6 +103,54 @@ describe('issue protocol types', () => {
     expect(mirrored.pendingSync).toBe(true)
   })
 
+  // Unread state (issue #124): readAt + unread are additive, defaulted so pre-field
+  // cached payloads still validate (readAt → null, unread → false).
+  it('defaults readAt=null and unread=false for a pre-field IssueWire payload', () => {
+    const base = {
+      id: 'iss_1',
+      repoPath: '/r',
+      seq: 1,
+      title: 'X',
+      description: '',
+      stage: 'backlog',
+      worktreePath: null,
+      branch: null,
+      parentBranch: 'main',
+      defaultAgent: 'claude-code',
+      defaultModel: 'auto',
+      defaultEffort: 'auto',
+      blockedBy: [],
+      priority: 2,
+      type: 'task',
+      pinned: false,
+      needsHuman: false,
+      labels: [],
+      deps: [],
+      dependents: [],
+      comments: [],
+      ready: true,
+      blocked: false,
+      deferred: false,
+      childCount: 0,
+      childDoneCount: 0,
+      createdAt: 't',
+      updatedAt: 't',
+      archived: false,
+      sessions: [],
+      sessionSummary: { total: 0, byPhase: {} },
+    }
+    const parsed = IssueWire.parse(base)
+    expect(parsed.readAt).toBeNull()
+    expect(parsed.unread).toBe(false)
+    // Present + malformed values both resolve to the documented shape.
+    const present = IssueWire.parse({ ...base, readAt: '2026-06-03T00:00:00.000Z', unread: true })
+    expect(present.readAt).toBe('2026-06-03T00:00:00.000Z')
+    expect(present.unread).toBe(true)
+    const malformed = IssueWire.parse({ ...base, readAt: 5, unread: 'nope' })
+    expect(malformed.readAt).toBeNull()
+    expect(malformed.unread).toBe(false)
+  })
+
   it('accepts the new write RepoOps', () => {
     expect(RepoOp.parse('rebase')).toBe('rebase')
     expect(RepoOp.parse('mergeFfOnly')).toBe('mergeFfOnly')

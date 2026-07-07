@@ -743,6 +743,7 @@ export class SessionRegistry {
         ...(r.headless ? { headless: true } : {}),
         ...(r.issueId ? { issueId: r.issueId } : {}),
         archived: r.archived,
+        readAt: r.readAt ?? null,
         ...(Session.parseWorkState(r.workState)
           ? { workState: Session.parseWorkState(r.workState) }
           : {}),
@@ -1916,6 +1917,20 @@ export class SessionRegistry {
     this.broadcastSessions()
     // Archiving can leave its draft issue with no living sessions — reap it.
     if (archived) this.maybeReapDraftIssue(session.issueId)
+  }
+
+  /** Mark a session read (issue #124): stamp read_at = now, persist + broadcast. The
+   *  derived `unread` in the session meta flips to false immediately (read_at is now the
+   *  latest timestamp) and re-arms on the next activity. Read state is GLOBAL —
+   *  single-operator, no per-user row. No-op for an unknown session. */
+  markSessionRead(sessionId: string): void {
+    const session = this.sessions.get(sessionId)
+    if (!session) return
+    // ISO like lastActiveAt/createdAt — the wire contract (readAt: string) and the
+    // lexical unread compare both require it (this.now() is epoch ms).
+    session.readAt = new Date(this.now()).toISOString()
+    this.persist(session)
+    this.broadcastSessions()
   }
 
   /** Set (or clear with null) a session's explicit issue attachment. */

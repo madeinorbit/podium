@@ -51,6 +51,43 @@ describe('IssueService CRUD', () => {
   })
 })
 
+describe('IssueService unread (#124)', () => {
+  it('a never-read issue with activity is unread; markIssueRead clears it', () => {
+    const { svc } = harness()
+    const w = svc.create({ repoPath: '/r', title: 'X', startNow: false })
+    expect(w.unread).toBe(true)
+    expect(w.readAt).toBeNull()
+    const read = svc.markIssueRead(w.id)
+    expect(read.readAt).toBe('2026-06-30T00:00:00.000Z')
+    expect(read.unread).toBe(false)
+    // The freshly-derived wire reflects it too.
+    expect(svc.get(w.id)!.unread).toBe(false)
+  })
+
+  it('derives unread from the latest of updatedAt / member-session lastActiveAt vs readAt', () => {
+    const activeSess = { ...sess('/r/wt'), lastActiveAt: '2026-06-05T00:00:00.000Z' }
+    const { svc, store } = harness([activeSess])
+    const w = svc.create({ repoPath: '/r', title: 'X', startNow: false })
+    svc.update(w.id, { worktreePath: '/r/wt' })
+    const row = store.getIssue(w.id)!
+    // readAt AFTER all activity → read.
+    expect(
+      svc.toWire({ ...row, updatedAt: '2026-06-01T00:00:00.000Z', readAt: '2026-06-06T00:00:00.000Z' })
+        .unread,
+    ).toBe(false)
+    // A member session went active AFTER readAt → unread again.
+    expect(
+      svc.toWire({ ...row, updatedAt: '2026-06-01T00:00:00.000Z', readAt: '2026-06-04T00:00:00.000Z' })
+        .unread,
+    ).toBe(true)
+    // updatedAt itself postdates readAt → unread.
+    expect(
+      svc.toWire({ ...row, updatedAt: '2026-06-10T00:00:00.000Z', readAt: '2026-06-06T00:00:00.000Z' })
+        .unread,
+    ).toBe(true)
+  })
+})
+
 describe('IssueService toWire needs_human (P4)', () => {
   it('surfaces needsHuman + humanQuestion set on the row', () => {
     const { svc, store } = harness()

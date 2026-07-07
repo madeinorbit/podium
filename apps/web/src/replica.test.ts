@@ -57,6 +57,8 @@ function session(id: string, title = id): SessionMeta {
     lastActiveAt: '2026-07-01T00:00:00.000Z',
     origin: { kind: 'spawn' },
     archived: false,
+    readAt: null,
+    unread: false,
   }
 }
 
@@ -91,6 +93,8 @@ function issue(id: string, title = id): IssueWire {
     createdAt: '2026-07-01T00:00:00.000Z',
     updatedAt: '2026-07-01T00:00:00.000Z',
     archived: false,
+    readAt: null,
+    unread: false,
     sessions: [],
     sessionSummary: { total: 0, byPhase: {} },
     origin: 'human' as const,

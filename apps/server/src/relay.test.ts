@@ -2017,6 +2017,51 @@ describe('reconnect identity (hello reclaim)', () => {
   })
 })
 
+describe('SessionRegistry read state (#124)', () => {
+  it('a fresh session is unread; markSessionRead clears it and persists across reload', () => {
+    const store = new SessionStore(':memory:')
+    const reg = new SessionRegistry(store)
+    reg.attachDaemon('local', () => {})
+    const { sessionId } = reg.createSession({ agentKind: 'claude-code', cwd: '/p' })
+    reg.onDaemonMessageFrom('local', bind(sessionId))
+
+    const before = reg.listSessions()[0]
+    expect(before?.readAt).toBeNull()
+    expect(before?.unread).toBe(true)
+
+    reg.markSessionRead(sessionId)
+    const after = reg.listSessions()[0]
+    expect(after?.readAt).not.toBeNull()
+    expect(after?.unread).toBe(false)
+
+    // read_at is durable — a fresh registry over the same store reads it back.
+    const reg2 = new SessionRegistry(store)
+    expect(reg2.listSessions()[0]?.readAt).toBe(after?.readAt)
+    reg.dispose()
+    reg2.dispose()
+  })
+
+  it('markSessionRead broadcasts a fresh sessionsChanged marking it read', () => {
+    const reg = new SessionRegistry()
+    reg.attachDaemon('local', () => {})
+    const { sessionId } = reg.createSession({ agentKind: 'claude-code', cwd: '/p' })
+    reg.onDaemonMessageFrom('local', bind(sessionId))
+    const c = sink()
+    reg.attachClient(c.send)
+    c.sent.length = 0
+
+    reg.markSessionRead(sessionId)
+    reg.flushBroadcasts()
+
+    const pushed = c.sent.filter(
+      (m): m is Extract<ServerMessage, { type: 'sessionsChanged' }> => m.type === 'sessionsChanged',
+    )
+    expect(pushed.length).toBeGreaterThan(0)
+    expect(pushed.at(-1)?.sessions.find((s) => s.sessionId === sessionId)?.unread).toBe(false)
+    reg.dispose()
+  })
+})
+
 describe('SessionRegistry snooze', () => {
   const agentState = (sessionId: string, phase: AgentPhase, extra: Record<string, unknown> = {}) =>
     ({

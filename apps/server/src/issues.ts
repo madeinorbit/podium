@@ -176,6 +176,21 @@ export class IssueService {
     return row.deferUntil != null && row.deferUntil > this.now()
   }
 
+  /** Email-style unread (issue #124): there is activity the operator hasn't seen.
+   *  Activity = the latest of the issue's updatedAt and any member session's
+   *  lastActiveAt (the same recency notion the sidebar uses). readAt null = never
+   *  opened → unread (updatedAt always exists). Kept cheap: no event-log scan, since
+   *  every meaningful mutation already bumps updatedAt. */
+  private computeUnread(row: IssueRow, sessions: SessionMeta[]): boolean {
+    if (row.readAt == null) return true
+    const readMs = Date.parse(row.readAt)
+    if (!Number.isFinite(readMs)) return true
+    const times = [Date.parse(row.updatedAt), ...sessions.map((s) => Date.parse(s.lastActiveAt))]
+    let lastActivity = Number.NEGATIVE_INFINITY
+    for (const t of times) if (Number.isFinite(t) && t > lastActivity) lastActivity = t
+    return lastActivity > readMs
+  }
+
   /** blocked = open AND ≥1 `blocks` dep whose target issue is not closed. */
   private computeBlocked(row: IssueRow): boolean {
     if (this.isClosed(row)) return false
@@ -257,6 +272,8 @@ export class IssueService {
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
       archived: row.archived,
+      readAt: row.readAt ?? null,
+      unread: this.computeUnread(row, sessions),
       sessions,
       sessionSummary: summarizeSessions(sessions),
       origin: row.origin === 'agent' ? 'agent' : 'human',
@@ -1094,6 +1111,12 @@ export class IssueService {
     if (!row) throw new Error(`unknown issue ${id}`)
     const prevStage = row.stage
     const wasClosed = this.isClosed(row)
+    // Attention-state before-values (issue #124): every pin/defer/archive path funnels
+    // through update() (dedicated methods just call it), so a single before/after diff
+    // here is the one place these transitions are detected and their events emitted.
+    const prevPinned = row.pinned
+    const prevArchived = row.archived
+    const prevDeferUntil = row.deferUntil
     // Naming a draft promotes it to a real issue (issue-as-workspace).
     if (row.draft && typeof patch.title === 'string' && patch.title.trim()) row.draft = false
     if ('parentId' in patch) {
@@ -1125,6 +1148,33 @@ export class IssueService {
       })
       this.emitReadyAfterClose(row)
     }
+    // Attention-state transitions S3 renders (issue #124). Emit only on an actual
+    // change so a re-pin / re-archive / re-defer-to-same-time never duplicates.
+    if (row.pinned !== prevPinned) {
+      this.emitEvent('issue.pinned', row.id, { seq: row.seq, pinned: row.pinned })
+    }
+    if (row.archived !== prevArchived && row.archived) {
+      this.emitEvent('issue.archived', row.id, { seq: row.seq })
+    }
+    if (row.deferUntil !== prevDeferUntil) {
+      if (row.deferUntil != null) {
+        this.emitEvent('issue.snoozed', row.id, { seq: row.seq, until: row.deferUntil })
+      } else {
+        this.emitEvent('issue.unsnoozed', row.id, { seq: row.seq })
+      }
+    }
+    return wire
+  }
+
+  /** Mark this issue read (issue #124): stamp read_at = now, persist + broadcast, and
+   *  log issue.read. Derived `unread` in the wire flips to false immediately (readAt is
+   *  now the latest timestamp). Read state is GLOBAL — single-operator, no per-user row. */
+  markIssueRead(id: string): IssueWire {
+    const row = this.rows.get(this.resolveRef(id))
+    if (!row) throw new Error(`unknown issue ${id}`)
+    row.readAt = this.now()
+    const wire = this.persist(row)
+    this.emitEvent('issue.read', row.id, { seq: row.seq })
     return wire
   }
 

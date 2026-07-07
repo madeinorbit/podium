@@ -71,6 +71,9 @@ export interface SessionInit {
   headless?: boolean
   /** Explicit issue attachment (issue-as-workspace). Absent = unattached. */
   issueId?: string
+  /** Email-style read state (issue #124): ISO time the operator last opened this
+   *  session. Absent/null = never opened (unread). */
+  readAt?: string | null
   /** Called when a meta field changes outside the normal control flow (the
    *  debounced shell `busy` flag) so the registry can rebroadcast the session list. */
   onActivity?: () => void
@@ -142,6 +145,9 @@ export class Session {
   /** User-set name; empty = fall back to the live title. */
   name = ''
   archived = false
+  /** Email-style read state (issue #124): ISO time the operator last opened this
+   *  session; null = never opened. Persisted via toRow() (read_at column). */
+  readAt: string | null = null
   workState: WorkState | undefined
   cmd = ''
   status: 'starting' | 'live' | 'reconnecting' | 'hibernated' | 'exited' = 'starting'
@@ -239,6 +245,7 @@ export class Session {
     if (init.exitCode !== undefined) this.exitCode = init.exitCode
     if (init.name) this.name = init.name
     if (init.archived) this.archived = init.archived
+    if (init.readAt != null) this.readAt = init.readAt
     if (init.workState) this.workState = init.workState
     this.onActivity = init.onActivity
   }
@@ -705,6 +712,7 @@ export class Session {
       machineId: this.machineId,
       headless: this.headless,
       issueId: this.issueId ?? null,
+      readAt: this.readAt,
     }
   }
 
@@ -730,6 +738,11 @@ export class Session {
       lastActiveAt: this.lastActiveAt,
       origin: this.origin,
       archived: this.archived,
+      // Email-style read state (issue #124). unread = there is activity the operator
+      // hasn't seen: never opened (readAt null), or lastActiveAt postdates readAt.
+      // Both are ISO-8601, so the lexical compare is chronological.
+      readAt: this.readAt,
+      unread: this.readAt == null || this.lastActiveAt > this.readAt,
       // The registry overwrites machineName in listSessions() from the machines
       // table; an empty default keeps toMeta() self-contained for callers that
       // read it directly (e.g. tests on a Session in isolation).

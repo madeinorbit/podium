@@ -132,6 +132,22 @@ describe('IssueRow rich fields round-trip (P1)', () => {
   })
 })
 
+// Email-style read state (issue #124) persists like any other additive column.
+describe('issue read state persistence (#124)', () => {
+  it('fresh DB has the read_at column', () => {
+    expect(issueColumns(new SessionStore(':memory:')).has('read_at')).toBe(true)
+  })
+
+  it('persists and reads back read_at; a row that never had it reads null', () => {
+    const store = new SessionStore(':memory:')
+    store.upsertIssue(baseRow({ id: 'iss_read', readAt: '2026-07-07T00:00:00.000Z' }))
+    store.upsertIssue(baseRow({ id: 'iss_unread' }))
+    expect(store.getIssue('iss_read')!.readAt).toBe('2026-07-07T00:00:00.000Z')
+    expect(store.getIssue('iss_unread')!.readAt).toBeNull()
+    store.close()
+  })
+})
+
 describe('needs_human data layer (P4)', () => {
   it('fresh DB has needs_human + human_question columns', () => {
     const cols = issueColumns(new SessionStore(':memory:'))

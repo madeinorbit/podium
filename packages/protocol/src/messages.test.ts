@@ -38,6 +38,8 @@ describe('shared schemas', () => {
       lastActiveAt: '2026-06-03T00:00:00.000Z',
       origin: { kind: 'spawn' as const },
       archived: false,
+      readAt: null,
+      unread: false,
     }
     expect(SessionMeta.parse(meta)).toEqual(meta)
   })
@@ -60,6 +62,8 @@ describe('shared schemas', () => {
       lastActiveAt: '2026-06-03T00:00:00.000Z',
       origin: { kind: 'spawn' as const },
       archived: false,
+      readAt: null,
+      unread: false,
       spawnedBy: 'issue:iss_abc',
     }
     expect(SessionMeta.parse(meta)).toEqual(meta)
@@ -82,6 +86,8 @@ describe('shared schemas', () => {
       lastActiveAt: '2026-06-03T00:00:00.000Z',
       origin: { kind: 'resume' as const, conversationId: 'conv-9' },
       archived: true,
+      readAt: null,
+      unread: false,
       workState: 'done' as const,
     }
     expect(SessionMeta.parse(meta)).toEqual(meta)
@@ -102,9 +108,51 @@ describe('shared schemas', () => {
       lastActiveAt: '2026-06-03T00:00:00.000Z',
       origin: { kind: 'spawn' as const },
       archived: false,
+      readAt: null,
+      unread: false,
       name: 'soft keyboard work',
     }
     expect(SessionMeta.parse(meta)).toEqual(meta)
+  })
+
+  // Unread state (issue #124): readAt + unread are additive, defaulted so pre-field
+  // cached payloads still validate (readAt → null, unread → false).
+  const baseMeta = {
+    sessionId: 's_unread',
+    agentKind: 'claude-code' as const,
+    title: 't',
+    cwd: '/w',
+    status: 'live' as const,
+    controllerId: null,
+    geometry: { cols: 80, rows: 24 },
+    epoch: 0,
+    clientCount: 0,
+    createdAt: '2026-06-03T00:00:00.000Z',
+    lastActiveAt: '2026-06-03T00:00:00.000Z',
+    origin: { kind: 'spawn' as const },
+    archived: false,
+  }
+
+  it('SessionMeta defaults readAt=null and unread=false for a pre-field payload', () => {
+    const parsed = SessionMeta.parse(baseMeta)
+    expect(parsed.readAt).toBeNull()
+    expect(parsed.unread).toBe(false)
+  })
+
+  it('SessionMeta carries readAt + unread when present', () => {
+    const parsed = SessionMeta.parse({
+      ...baseMeta,
+      readAt: '2026-06-03T01:00:00.000Z',
+      unread: true,
+    })
+    expect(parsed.readAt).toBe('2026-06-03T01:00:00.000Z')
+    expect(parsed.unread).toBe(true)
+  })
+
+  it('SessionMeta tolerates malformed cached readAt/unread via catch', () => {
+    const parsed = SessionMeta.parse({ ...baseMeta, readAt: 123, unread: 'yes' })
+    expect(parsed.readAt).toBeNull()
+    expect(parsed.unread).toBe(false)
   })
 
   it('parses AgentKind and ResumeRef', () => {
@@ -189,6 +237,8 @@ describe('ServerMessage', () => {
     lastActiveAt: '2026-06-03T00:00:00.000Z',
     origin: { kind: 'spawn' as const },
     archived: false,
+    readAt: null,
+    unread: false,
   }
   const conversation = {
     id: 'conv-1',

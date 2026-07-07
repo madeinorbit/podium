@@ -17,6 +17,8 @@ function session(overrides: Partial<SessionMeta> & { sessionId: string }): Sessi
     lastActiveAt: '2026-07-01T00:00:00.000Z',
     origin: { kind: 'spawn' },
     archived: false,
+    readAt: null,
+    unread: false,
     ...rest,
     sessionId,
   }
@@ -51,6 +53,8 @@ function issue(overrides: Partial<IssueWire> & { id: string; seq: number; title:
     createdAt: '2026-07-01T00:00:00.000Z',
     updatedAt: '2026-07-01T00:00:00.000Z',
     archived: false,
+    readAt: null,
+    unread: false,
     origin: 'human',
     draft: false,
     sessions: [],

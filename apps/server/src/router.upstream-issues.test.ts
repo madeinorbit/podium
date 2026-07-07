@@ -45,6 +45,8 @@ function hubIssue(id: string): IssueWire {
     createdAt: 't',
     updatedAt: 't',
     archived: false,
+    readAt: null,
+    unread: false,
     origin: 'human' as const,
     draft: false,
     sessions: [],

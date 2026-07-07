@@ -161,6 +161,12 @@ export interface Store {
   setSnooze: (sessionId: string, until: string | null) => Promise<void>
   /** Un-snooze a session (return it to the normal attention flow). */
   clearSnooze: (sessionId: string) => Promise<void>
+  /** Mark a session read (issue #124): stamp readAt = now, clearing derived `unread`.
+   *  Optimistic + outboxed. Called when the operator opens/focuses the session. */
+  markSessionRead: (sessionId: string) => Promise<void>
+  /** Mark an issue read (issue #124): stamp readAt = now, clearing derived `unread`.
+   *  Optimistic + outboxed. Called when the operator opens the issue. */
+  markIssueRead: (id: string) => Promise<void>
   /** Per-session chat composer draft, shared across every view of that session
    *  (chat panes, split view) and preserved across chat/native mode switches.
    *  The native PTY input line is opaque bytes we can't read back, so this is the
@@ -266,6 +272,8 @@ type OutboxKinds = {
   setWorkState: { sessionId: string; workState: WorkState | null }
   snoozeSet: { sessionId: string; until: string | null }
   snoozeClear: { sessionId: string }
+  sessionMarkRead: { sessionId: string }
+  issueMarkRead: { id: string }
 }
 
 /** Stable empty list so the issues getter doesn't churn identity pre-hydrate. */
@@ -329,6 +337,8 @@ export function StoreProvider({
           setWorkState: (i) => trpc.sessions.setWorkState.mutate(i),
           snoozeSet: (i) => trpc.snoozes.set.mutate(i),
           snoozeClear: (i) => trpc.snoozes.clear.mutate(i),
+          sessionMarkRead: (i) => trpc.sessions.markRead.mutate(i),
+          issueMarkRead: (i) => trpc.issues.markRead.mutate(i),
         },
         // A poison entry (server-side validation reject) can never sync — it's
         // dropped, and the toast is the honesty about that.
@@ -386,6 +396,20 @@ export function StoreProvider({
         setLegacySessions((all) =>
           all.map((s) => (s.sessionId === sessionId ? { ...s, ...patch } : s)),
         )
+      }
+    },
+    [replica],
+  )
+  // Same optimistic-apply seam for a single issue (issue #124: markIssueRead).
+  const liveIssueRowsRef = useRef<IssueWire[]>([])
+  liveIssueRowsRef.current = liveIssueRows ?? []
+  const patchIssue = useMemo(
+    () => (id: string, patch: Partial<IssueWire>) => {
+      if (replica.available) {
+        const row = liveIssueRowsRef.current.find((i) => i.id === id)
+        if (row) replica.applyChanges('issues', [{ ...row, ...patch }], [])
+      } else {
+        setLegacyIssues((all) => all.map((i) => (i.id === id ? { ...i, ...patch } : i)))
       }
     },
     [replica],
@@ -717,6 +741,22 @@ export function StoreProvider({
     },
     [outbox, patchSession],
   )
+  // Mark a session / issue read (issue #124): optimistically stamp readAt = now and
+  // clear unread, then durably round-trip via the outbox. Server truth reconciles.
+  const markSessionRead = useMemo(
+    () => async (sessionId: string) => {
+      patchSession(sessionId, { readAt: new Date().toISOString(), unread: false })
+      outbox.enqueue('sessionMarkRead', { sessionId })
+    },
+    [outbox, patchSession],
+  )
+  const markIssueRead = useMemo(
+    () => async (id: string) => {
+      patchIssue(id, { readAt: new Date().toISOString(), unread: false })
+      outbox.enqueue('issueMarkRead', { id })
+    },
+    [outbox, patchIssue],
+  )
 
   // Report which sessions this client renders (`visible`) and which one has input
   // focus (`focused`) so the server can prioritize PTY relay for them. While the tab
@@ -985,6 +1025,8 @@ export function StoreProvider({
     setWorkState,
     setSnooze,
     clearSnooze,
+    markSessionRead,
+    markIssueRead,
     drafts,
     setSessionDraft,
     sidebarSettings,
