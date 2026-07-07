@@ -137,11 +137,19 @@ function maxSeq(rows: OutboxRow[]): number {
   return max
 }
 
-/** In-place full replace of a draft's contents with `value` (update drafts are
- *  proxies over the stored object; leftover stale fields must be deleted). */
+/** In-place full replace of a draft's contents with `value`.
+ *
+ *  Update drafts are TanStack DB change-tracking proxies over the stored object.
+ *  Crucially they record ASSIGNMENTS but ignore `delete draft[k]` — so a field
+ *  that goes present→absent (an issue's `deferUntil` cleared on unsnooze, or any
+ *  optional nulled) can't be removed by deletion; the stale value would survive
+ *  and the row never reconciles (#170: a cleared snooze whose "Unsnoozed" tag
+ *  never went away). Assigning `undefined` IS tracked and serializes away (JSON
+ *  drops it, `x != null` reads it as cleared), so overwrite dropped keys with
+ *  undefined instead of deleting them. */
 function replaceContents(draft: Record<string, unknown>, value: Record<string, unknown>): void {
   for (const k of Object.keys(draft)) {
-    if (!(k in value)) delete draft[k]
+    if (!(k in value)) draft[k] = undefined
   }
   Object.assign(draft, value)
 }
