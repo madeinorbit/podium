@@ -1,6 +1,5 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { basename, isAbsolute, join } from 'node:path'
-import { fileChainSource, fileIdFor, recordToItemsForKind } from '@podium/agent-bridge'
 import type { PodiumSettings } from '@podium/core'
 import type {
   DirListResultMessage,
@@ -45,9 +44,9 @@ import { type Capability, SCOPED_TARGET } from './issue-authz'
 import { selectMailNudgeSession, sessionsForIssue } from './issue-util'
 import { IssueService } from './issues'
 import { LOCAL_MACHINE_ID, LOCAL_PLACEHOLDER } from './local-machine'
-import { MirrorService } from './mirror'
 import type { ModelCatalogSnapshot, ModelProbe } from './model-catalog'
 import { EventBus } from './modules/bus'
+import { ConversationsService } from './modules/conversations/service'
 import { HostsService, type MemoryBreakdown } from './modules/hosts/service'
 import {
   DEFAULT_NOTIFICATION_PUSHERS,
@@ -73,7 +72,6 @@ import {
   makeTitleDebouncer,
   titleFromPrompt,
 } from './title-filter'
-import { TranscriptIndexer } from './transcript-indexer'
 import { optimisticComment, optimisticIssuePatch } from './upstream-forwarder'
 
 /** sha-256 hex of a secret — matches the store's token-hash scheme. */
@@ -193,7 +191,7 @@ export class SessionRegistry {
   /** Typed in-process event bus — modules subscribe here (issue #13 Phase 2). */
   readonly bus = new EventBus()
   /** Attention notifications (ntfy/telegram/in-app) — subscribes to the bus. */
-  private readonly notify: NotifyService
+  readonly notify: NotifyService
   // machineId -> control-message sender for that daemon. Replaces the single
   // socket: each connected machine has its own send, so a session's control
   // messages route to the daemon that actually runs it.
@@ -254,10 +252,6 @@ export class SessionRegistry {
     string,
     (r: { items: TranscriptItem[]; head?: string; tail?: string; hasMore: boolean }) => void
   >()
-  private readonly pendingMirrorReads = new Map<
-    string,
-    (r: { data: string; fileSize: number; eof: boolean; error?: string }) => void
-  >()
   private readonly pendingUploads = new Map<string, (r: { path: string; error?: string }) => void>()
   private readonly pendingFileReads = new Map<
     string,
@@ -288,8 +282,6 @@ export class SessionRegistry {
   // coalesces a burst of keystrokes into a single SQLite write.
   private readonly draftWriteTimers = new Map<string, ReturnType<typeof setTimeout>>()
   private static readonly DRAFT_WRITE_DEBOUNCE_MS = 750
-  private latestConversations: ConversationSummaryWire[] = []
-  private latestConversationDiagnostics: ConversationDiagnosticWire[] = []
   // Last session-list payload broadcast to clients. broadcastSessions() fires on many
   // events (activity bumps, attach/detach, resume refs) that often don't change any
   // visible field; skipping a byte-identical re-broadcast avoids re-serializing the
@@ -300,15 +292,8 @@ export class SessionRegistry {
   // Durable metadata change log fed at the broadcast seam (docs/spec/oplog-read-path.md).
   // Assigned in the constructor before loadFromStore (which can trigger broadcasts).
   private readonly oplog: MetadataOplog
-  // Transcript lake mirror (docs/spec/transcript-mirror.md) — constructed only when
-  // options.mirrorLakeDir is set; undefined means zero mirror traffic (tests default).
-  private readonly mirror: MirrorService | undefined
-  // Mirror-fed FTS indexer (docs/spec/search-v1.md §2.3) — exists iff the mirror does.
-  private readonly transcriptIndexer: TranscriptIndexer | undefined
-  // Diagnostics ride the conversationsChanged snapshot, not the delta stream — track
-  // their last serialization so cap clients still get a snapshot when ONLY diagnostics
-  // changed (rare: scan problems), without re-sending the list on every conversation delta.
-  private lastDiagnosticsBroadcast = ''
+  /** Conversation index + upstream mirror + transcript lake (modules/conversations). */
+  private readonly conversations: ConversationsService
   /** Host health samples + auto-hibernate + memory breakdown (modules/hosts). */
   private readonly hosts: HostsService
   private nextClientNum = 0
@@ -382,26 +367,18 @@ export class SessionRegistry {
     this.activityFlushTimer.unref?.()
     this.oplog = new MetadataOplog(this.store, this.now)
     this.loadFromStore()
-    if (options.mirrorLakeDir) {
-      // The FTS indexer feeds off the mirror's chunk hooks (search-v1 §2.3) — it
-      // exists only alongside the lake, and MirrorService stays indexing-free.
-      const indexer = new TranscriptIndexer(this.store)
-      this.transcriptIndexer = indexer
-      this.mirror = new MirrorService(
-        this.store,
-        options.mirrorLakeDir,
-        (machineId, req) => this.mirrorRead(machineId, req),
-        this.now,
-        {
-          onBytes: (machineId, nativeId, lakePath) =>
-            indexer.onBytes(machineId, nativeId, lakePath),
-          onTruncate: (machineId, nativeId) => indexer.onTruncate(machineId, nativeId),
-        },
-      )
-    } else {
-      this.mirror = undefined
-      this.transcriptIndexer = undefined
-    }
+    // Constructed AFTER loadFromStore (same slot the inline mirror construction held).
+    this.conversations = new ConversationsService(
+      {
+        store: this.store,
+        now: () => this.now(),
+        oplogRecord: (rows) => this.oplog.record('conversation', rows),
+        fanOutMetadata: (snapshot, changes, opts) => this.fanOutMetadata(snapshot, changes, opts),
+        daemonRequest: (pending, prefix, timeoutMs, onTimeout, buildMsg, machineId) =>
+          this.daemonRequest(pending, prefix, timeoutMs, onTimeout, buildMsg, machineId),
+      },
+      options.mirrorLakeDir ? { mirrorLakeDir: options.mirrorLakeDir } : {},
+    )
     this.issues = new IssueService({
       store: this.store,
       listSessions: () => this.listSessions(),
@@ -721,7 +698,7 @@ export class SessionRegistry {
     }
     // Attach trigger (transcript-mirror spec §2.3): catch-up sweep after server/daemon
     // downtime — re-enqueue this machine's unmirrored segments. No-op without a lake dir.
-    this.triggerLakeSweep(machineId)
+    this.conversations.triggerLakeSweep(machineId)
     // A freshly-(re)connected daemon knows no session's relay priority. Clear the
     // delta cache so every current session re-sends as a change, then push the full
     // map — otherwise a daemon restart would leave the scheduler at its default
@@ -865,7 +842,6 @@ export class SessionRegistry {
   // surfaces: never in this.sessions (so PTY/command paths can't touch them), never
   // pushed back upstream (viaHub provenance), and retained-but-stale on hub loss.
   private readonly upstreamSessions = new Map<string, SessionMeta>()
-  private readonly upstreamConversations = new Map<string, ConversationSummaryWire>()
   private upstreamStale = false
   /** machineIds that ARE this node (its daemon may also be paired with the hub in
    *  some topologies) — hub entries for them are echoes and are dropped at ingest. */
@@ -908,17 +884,9 @@ export class SessionRegistry {
     this.broadcastSessions()
   }
 
-  /** Replace the mirrored conversation list (same pipeline as sessions). Conversations
-   *  carry no machineId on the wire, so the echo filter here is id-based: a locally
-   *  known conversation id wins over the hub copy. */
+  /** Replace the mirrored conversation list (modules/conversations). */
   setUpstreamConversations(list: ConversationSummaryWire[]): void {
-    this.upstreamConversations.clear()
-    const localIds = new Set(this.latestConversations.map((c) => c.id))
-    for (const c of list) {
-      if (localIds.has(c.id)) continue
-      this.upstreamConversations.set(c.id, c)
-    }
-    this.broadcastConversations()
+    this.conversations.setUpstreamConversations(list)
   }
 
   /**
@@ -930,18 +898,8 @@ export class SessionRegistry {
     if (this.upstreamStale === stale) return
     this.upstreamStale = stale
     if (this.upstreamSessions.size > 0) this.broadcastSessions()
-    if (this.upstreamConversations.size > 0) this.broadcastConversations()
+    this.conversations.rebroadcastUpstream()
     if (this.upstreamIssues.size > 0) this.publishIssues(this.safeIssuesList())
-  }
-
-  /** Local ∪ upstream conversations — what attach/broadcast/changesSince serve. */
-  private allConversations(): ConversationSummaryWire[] {
-    if (this.upstreamConversations.size === 0) return this.latestConversations
-    const localIds = new Set(this.latestConversations.map((c) => c.id))
-    return [
-      ...this.latestConversations,
-      ...[...this.upstreamConversations.values()].filter((c) => !localIds.has(c.id)),
-    ]
   }
 
   // ---- upstream issue mirror + write forwarding (docs/spec/node-hub-issues.md) ----
@@ -2572,8 +2530,8 @@ export class SessionRegistry {
     }
     send({
       type: 'conversationsChanged',
-      conversations: this.allConversations(),
-      diagnostics: this.latestConversationDiagnostics,
+      conversations: this.conversations.allConversations(),
+      diagnostics: this.conversations.diagnostics(),
     })
     send({ type: 'machinesChanged', machines: this.listMachines() })
     this.hosts.snapshotFor(send)
@@ -2866,14 +2824,7 @@ export class SessionRegistry {
         break
       }
       case 'scanResult': {
-        // Index FIRST so latestConversations (and the broadcast) carry podiumId.
-        this.latestConversations = this.indexConversations(
-          msg.conversations,
-          machineId,
-          msg.removed ?? [],
-        )
-        this.latestConversationDiagnostics = msg.diagnostics
-        this.broadcastConversations()
+        this.conversations.onDiscovery(machineId, msg.conversations, msg.diagnostics, msg.removed)
         const resolve = this.pendingScans.get(msg.requestId)
         if (resolve) {
           this.pendingScans.delete(msg.requestId)
@@ -2882,13 +2833,7 @@ export class SessionRegistry {
         break
       }
       case 'conversationsChanged': {
-        this.latestConversations = this.indexConversations(
-          msg.conversations,
-          machineId,
-          msg.removed ?? [],
-        )
-        this.latestConversationDiagnostics = msg.diagnostics
-        this.broadcastConversations()
+        this.conversations.onDiscovery(machineId, msg.conversations, msg.diagnostics, msg.removed)
         break
       }
       case 'scanReposResult': {
@@ -3065,16 +3010,7 @@ export class SessionRegistry {
         break
       }
       case 'transcriptMirrorResult': {
-        const resolve = this.pendingMirrorReads.get(msg.requestId)
-        if (resolve) {
-          this.pendingMirrorReads.delete(msg.requestId)
-          resolve({
-            data: msg.data,
-            fileSize: msg.fileSize,
-            eof: msg.eof,
-            ...(msg.error !== undefined ? { error: msg.error } : {}),
-          })
-        }
+        this.conversations.onTranscriptMirrorResult(msg)
         break
       }
       case 'imageUploadResult': {
@@ -3181,89 +3117,8 @@ export class SessionRegistry {
     }
   }
 
-  /** Every discovery push lands in the durable index — search sees machines' full
-   *  history. Tagged with the reporting machineId so a conversation is attributable
-   *  to (and resumable on) the machine that owns its on-disk transcript. `removed`
-   *  drops conversations the daemon reports as deleted (incremental delta indexing). */
-  /**
-   * Persist scanned conversations and attach registry identities (docs/spec/
-   * conversation-registry.md §3.1): every native conversation maps to a stable
-   * podium id — minted on first sight, resolved thereafter — and subagent parents
-   * resolve to parent PODIUM ids. Returns the wire list enriched with `podiumId`
-   * so broadcasts carry stable identity alongside the native id.
-   */
-  private indexConversations(
-    conversations: ConversationSummaryWire[],
-    machineId: string,
-    removed: string[] = [],
-  ): ConversationSummaryWire[] {
-    // Parents first, so a child's mint can point at its parent's identity. A
-    // parent that is itself in this batch resolves in the first loop; one that
-    // isn't (child-only rescan) is ensured on demand in the second.
-    const podiumIds = new Map<string, string>()
-    for (const c of conversations) {
-      if (c.parentConversationId) continue
-      podiumIds.set(
-        c.id,
-        this.store.ensureConversationIdentity({
-          machineId,
-          nativeId: c.id,
-          providerId: c.providerId,
-          ...(c.path ? { path: c.path } : {}),
-          ...(c.sizeBytes !== undefined ? { sizeBytes: c.sizeBytes } : {}),
-        }),
-      )
-    }
-    for (const c of conversations) {
-      if (!c.parentConversationId) continue
-      const parentPodiumId =
-        podiumIds.get(c.parentConversationId) ??
-        this.store.ensureConversationIdentity({
-          machineId,
-          nativeId: c.parentConversationId,
-          providerId: c.providerId,
-        })
-      podiumIds.set(
-        c.id,
-        this.store.ensureConversationIdentity({
-          machineId,
-          nativeId: c.id,
-          providerId: c.providerId,
-          parentPodiumId,
-          ...(c.path ? { path: c.path } : {}),
-          ...(c.sizeBytes !== undefined ? { sizeBytes: c.sizeBytes } : {}),
-        }),
-      )
-    }
-    this.store.upsertConversations(
-      conversations.map((c) => ({
-        id: c.id,
-        agentKind: c.agentKind,
-        providerId: c.providerId,
-        machineId,
-        ...(c.title !== undefined ? { title: c.title } : {}),
-        ...(c.projectPath !== undefined ? { projectPath: c.projectPath } : {}),
-        ...(c.resume ? { resumeKind: c.resume.kind, resumeValue: c.resume.value } : {}),
-        ...(c.createdAt !== undefined ? { createdAt: c.createdAt } : {}),
-        ...(c.updatedAt !== undefined ? { updatedAt: c.updatedAt } : {}),
-        ...(c.messageCount !== undefined ? { messageCount: c.messageCount } : {}),
-        ...(c.parentConversationId !== undefined
-          ? { parentConversationId: c.parentConversationId }
-          : {}),
-      })),
-    )
-    if (removed.length) this.store.deleteConversations(removed)
-    // Scan trigger (transcript-mirror spec §2.3): the segments just upserted may have
-    // grown/appeared — pull their new bytes into the lake. No-op without a lake dir.
-    this.triggerLakeSweep(machineId)
-    return conversations.map((c) => {
-      const podiumId = podiumIds.get(c.id)
-      return podiumId ? { ...c, podiumId } : c
-    })
-  }
-
   searchConversations(opts: { query?: string; projectPath?: string; limit?: number }) {
-    return this.store.searchConversations(opts)
+    return this.conversations.searchConversations(opts)
   }
 
   transcriptFor(sessionId: string) {
@@ -3336,77 +3191,8 @@ export class SessionRegistry {
       : undefined
     if (fromDaemon && fromDaemon.items.length > 0) return fromDaemon
     // Empty/timeout daemon answer (or no daemon): serve from the mirrored copy.
-    const fromLake = await this.readTranscriptFromLake(session, input)
+    const fromLake = await this.conversations.readTranscriptFromLake(session, input)
     return fromLake ?? fromDaemon ?? { items: [], hasMore: false }
-  }
-
-  /** Lake-fallback transcript read (docs/spec/search-v1.md §2.2): serve the window
-   *  from the server's mirrored copy when the daemon couldn't (detached machine,
-   *  pruned native file, timeout). The lake file IS the native JSONL byte-verbatim,
-   *  so the harness's own record→items mapper applies unchanged. Cursors are
-   *  stamped against the LAKE path's fileId, so an anchor minted by a daemon read
-   *  won't match here — the slice then serves its default window, the standard
-   *  drifted-anchor degradation. Resolves undefined when there is nothing mirrored
-   *  (no lake, no resume value, cursor at 0, or an unparseable/empty file). */
-  private async readTranscriptFromLake(
-    session: { machineId: string; agentKind: AgentKind; resume?: { value: string } },
-    input: { anchor?: string; direction: 'before' | 'after'; limit: number },
-  ): Promise<
-    { items: TranscriptItem[]; head?: string; tail?: string; hasMore: boolean } | undefined
-  > {
-    const nativeId = session.resume?.value
-    if (!this.mirror || !nativeId) return undefined
-    if (this.store.mirrorCursor(session.machineId, nativeId) <= 0) return undefined
-    const path = this.mirror.lakePath(session.machineId, nativeId)
-    const source = fileChainSource(
-      [{ path, fileId: fileIdFor(path) }],
-      recordToItemsForKind(session.agentKind),
-    )
-    const slice = await source.readSlice({
-      ...(input.anchor ? { anchor: input.anchor } : {}),
-      direction: input.direction,
-      limit: input.limit,
-    })
-    return slice.items.length > 0 ? slice : undefined
-  }
-
-  /** The lake maintenance pass behind every scan/attach trigger: mirror-pull the
-   *  machine's DIRTY segments (spec §2.3 "Dirty-driven": reported size ≠ mirrored
-   *  cursor — NOT a full sweep, which cost one daemon eof-check round trip per
-   *  segment even when fully caught up) AND FTS-backfill segments whose lake copy
-   *  is ahead of the index cursor. Both self-noop cheaply when caught up. On
-   *  attach, before any scan, the LAST-KNOWN reported sizes persisted in the store
-   *  cover the offline gap; the first scan (~15s later) refreshes them. */
-  private triggerLakeSweep(machineId: string): void {
-    const mirror = this.mirror
-    if (!mirror) return
-    mirror.enqueueDirty(machineId)
-    this.transcriptIndexer?.backfillMachine(machineId, (nativeId) =>
-      mirror.lakePath(machineId, nativeId),
-    )
-  }
-
-  /** One transcript-mirror ranged read against a specific machine — MirrorService's
-   *  read seam. A timeout resolves an error result (never rejects), so the pull loop
-   *  backs the segment off instead of hanging (docs/spec/transcript-mirror.md §2.3). */
-  private mirrorRead(
-    machineId: string,
-    req: { path: string; offset: number; maxBytes: number },
-  ): Promise<{ data: string; fileSize: number; eof: boolean; error?: string }> {
-    return this.daemonRequest(
-      this.pendingMirrorReads,
-      'mr',
-      SCAN_TIMEOUT_MS,
-      () => ({ data: '', fileSize: 0, eof: false, error: 'timeout' }),
-      (requestId) => ({
-        type: 'transcriptMirrorRead',
-        requestId,
-        path: req.path,
-        offset: req.offset,
-        maxBytes: req.maxBytes,
-      }),
-      machineId,
-    )
   }
 
   listDir(input: {
@@ -3541,7 +3327,7 @@ export class SessionRegistry {
   }
 
   setConversationMeta(input: { id: string; name?: string; summary?: string }): void {
-    this.store.setConversationMeta(input.id, input)
+    this.conversations.setConversationMeta(input)
   }
 
   /** Projection of a Session to the fields an attention notice needs. */
@@ -3787,29 +3573,6 @@ export class SessionRegistry {
     this.fanOutMetadata({ type: 'issueUpdated', issue }, changes)
   }
 
-  private broadcastConversations(): void {
-    // Local ∪ upstream: hub-mirrored conversations ride the same snapshot + oplog
-    // pipeline as local ones (node-hub-sync §2.3), so node clients see them live.
-    const conversations = this.allConversations()
-    const msg: ServerMessage = {
-      type: 'conversationsChanged',
-      conversations,
-      diagnostics: this.latestConversationDiagnostics,
-    }
-    const changes = this.oplog.record(
-      'conversation',
-      conversations.map((c) => ({ id: c.id, value: c })),
-    )
-    // Diagnostics don't ride the delta stream (they're scan-level, not per-entity):
-    // when they changed, cap clients need the snapshot too. Applying it as a full
-    // replace on the client is safe — it's built from the same state as any delta
-    // in flight, and later deltas re-apply idempotently by id.
-    const diagKey = JSON.stringify(this.latestConversationDiagnostics)
-    const diagnosticsChanged = diagKey !== this.lastDiagnosticsBroadcast
-    this.lastDiagnosticsBroadcast = diagKey
-    this.fanOutMetadata(msg, changes, { snapshotToCapClients: diagnosticsChanged })
-  }
-
   /**
    * The split fan-out (spec §2.3): legacy clients always get the full-list snapshot
    * (exactly the pre-oplog behavior); delta-cap clients get a `metadataDelta` batch,
@@ -3847,8 +3610,8 @@ export class SessionRegistry {
       kind: 'snapshot',
       sessions: this.listSessions(),
       issues: this.withUpstreamIssues(this.safeIssuesList()),
-      conversations: this.allConversations(),
-      diagnostics: this.latestConversationDiagnostics,
+      conversations: this.conversations.allConversations(),
+      diagnostics: this.conversations.diagnostics(),
       cursor: this.oplog.cursor(),
     }
   }

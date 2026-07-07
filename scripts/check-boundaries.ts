@@ -37,7 +37,8 @@ import { fileURLToPath } from 'node:url'
  * a real import appearing there fails the check.
  */
 const GRANDFATHERED_AGENT_BRIDGE = new Set<string>([
-  'apps/server/src/relay.ts',
+  // relay.ts's lake-read moved into the conversations module (#13 Phase 2).
+  'apps/server/src/modules/conversations/service.ts',
   'apps/server/src/transcript-indexer.ts',
 ])
 
