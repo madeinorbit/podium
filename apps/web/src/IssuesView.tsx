@@ -126,17 +126,17 @@ export function IssuesView(): JSX.Element {
       else next.add(id)
       return next
     })
-  // Hide archived, drafts, and (unless toggled on) agent-origin issues, then
-  // narrow by the filter — all before the issues are split into per-stage lanes,
-  // so each lane reflects the same view.
-  const scoped = filterBoardScope(
+  // Menus (assignees/labels), rollups, and duplicate targets read the live,
+  // non-archived scope — archived issues never seed those, only reappear on the
+  // board when explicitly revealed.
+  const scope = filterBoardScope(
     issues.filter((i) => !i.archived),
     display.showAgentTasks,
   )
-  const active = filterBoardIssues(scoped, filter)
-  // Distinct assignees / labels across the (unfiltered) board scope —
-  // the Filter and Assignee menus offer whatever is actually in use.
-  const scope = scoped
+  // The board view: drafts/agent-origin gating stays, but archived issues ride in
+  // the base scope and are gated by `filterBoardIssues` (the Archived filter) —
+  // hidden by default, revealed when the toggle is on, so they stay reachable.
+  const active = filterBoardIssues(filterBoardScope(issues, display.showAgentTasks), filter)
   const assignees = [...new Set(scope.map((i) => i.assignee).filter(Boolean))].sort() as string[]
   const labels = [...new Set(scope.flatMap((i) => i.labels))].sort()
 
@@ -757,6 +757,14 @@ function FilterMenu({
             )}
           </DropdownMenuSubContent>
         </DropdownMenuSub>
+        <DropdownMenuSeparator />
+        {/* Reveal archived issues (kept off the board by default). */}
+        <DropdownMenuCheckboxItem
+          checked={!!filter.archived}
+          onCheckedChange={(c) => set({ archived: c === true ? true : undefined })}
+        >
+          Show archived
+        </DropdownMenuCheckboxItem>
       </DropdownMenuContent>
     </DropdownMenu>
   )

@@ -25,6 +25,19 @@ describe('filterBoardIssues', () => {
   it('filters by stage', () => {
     expect(filterBoardIssues(xs, { stage: 'review' }).map((i) => i.id)).toEqual(['b'])
   })
+
+  it('hides archived by default and reveals them only when archived is on', () => {
+    const ys = [
+      makeIssue({ id: 'live', archived: false }),
+      makeIssue({ id: 'gone', archived: true }),
+    ]
+    expect(filterBoardIssues(ys, {}).map((i) => i.id)).toEqual(['live'])
+    expect(
+      filterBoardIssues(ys, { archived: true })
+        .map((i) => i.id)
+        .sort(),
+    ).toEqual(['gone', 'live'])
+  })
 })
 
 describe('filter chips', () => {
@@ -36,10 +49,19 @@ describe('filter chips', () => {
       status: 'open',
       label: 'ui',
       stage: 'review',
+      archived: true,
     })
-    expect(chips.map((c) => c.key).sort()).toEqual(['label', 'priority', 'stage', 'status', 'type'])
+    expect(chips.map((c) => c.key).sort()).toEqual([
+      'archived',
+      'label',
+      'priority',
+      'stage',
+      'status',
+      'type',
+    ])
     expect(chips.find((c) => c.key === 'priority')?.label).toBe('Priority: P1')
     expect(chips.find((c) => c.key === 'stage')?.label).toBe('Stage: Review')
+    expect(chips.find((c) => c.key === 'archived')?.label).toBe('Archived')
   })
   it('clearChip removes exactly that dimension', () => {
     const f = clearChip({ priority: 1, type: 'bug' }, 'priority')

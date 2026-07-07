@@ -1,14 +1,19 @@
 import type { IssueWire, SessionMeta } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import {
+  archivedSessionsForIssue,
+  archivedSessionsForWorktreePath,
   groupUnifiedWorkRows,
+  isIssueSnoozed,
+  issueReturnedFromDefer,
   mostUrgentSession,
+  partitionUnifiedWork,
   type RepoNavView,
   repoUsageAt,
   type SidebarSections,
   sessionUrgencyRank,
   spawnTargetForRepo,
-  UNIFIED_ROW_EMPTY_RANK,
+  type UnifiedWorkRow,
   unifiedWorkList,
   type WorktreeNavView,
 } from './derive'
@@ -178,34 +183,39 @@ describe('sessionUrgencyRank / mostUrgentSession', () => {
 })
 
 describe('unifiedWorkList (content filter + status ordering)', () => {
-  it('excludes backlog/done issues with no sessions and no worktree', () => {
+  it('hides every issue with no live session — worktree/stage alone is not enough', () => {
     const rows = unifiedWorkList(
       emptySections([]),
       [
         issue({ id: 'b1', stage: 'backlog' }),
         issue({ id: 'd1', stage: 'done' }),
-        issue({ id: 'p1', stage: 'planning' }),
+        issue({ id: 'p1', stage: 'planning' }), // non-backlog stage, but no session → hidden now
+        issue({ id: 'wt1', stage: 'backlog', worktreePath: '/r/a/.worktrees/wt1' }), // worktree, no session → hidden
       ],
       [],
-      [],
+      ['/r/a/.worktrees/wt1'],
       NOW,
     )
-    expect(rows.map((r) => (r.kind === 'issue' ? r.issue.id : ''))).toEqual(['p1'])
+    expect(rows).toEqual([])
   })
 
-  it('includes a backlog issue that has a worktree or sessions', () => {
+  it('includes an issue only when it has ≥1 non-archived live session', () => {
     const wt = '/r/a/.worktrees/i1'
     const rows = unifiedWorkList(
       emptySections([]),
       [
-        issue({ id: 'w1', stage: 'backlog', worktreePath: wt }),
-        issue({ id: 's1', stage: 'backlog' }),
+        issue({ id: 'w1', stage: 'backlog', worktreePath: wt }), // worktree, no session → hidden
+        issue({ id: 's1', stage: 'backlog' }), // has a session → shown
+        issue({ id: 'a1', stage: 'in_progress' }), // only an ARCHIVED session → hidden
       ],
-      [sess('x', '/elsewhere', { issueId: 's1' })],
+      [
+        sess('x', '/elsewhere', { issueId: 's1' }),
+        sess('y', '/elsewhere', { issueId: 'a1', archived: true }),
+      ],
       [wt],
       NOW,
     )
-    expect(rows.map((r) => (r.kind === 'issue' ? r.issue.id : '')).sort()).toEqual(['s1', 'w1'])
+    expect(rows.map((r) => (r.kind === 'issue' ? r.issue.id : ''))).toEqual(['s1'])
   })
 
   it('includes drafts only when they have sessions; non-human issues stay out', () => {
@@ -264,11 +274,10 @@ describe('unifiedWorkList (content filter + status ordering)', () => {
     ).toEqual(['s2', 's3'])
   })
 
-  it('orders by rank asc (attention incl. finished first, working, stale, session-less last)', () => {
+  it('orders by rank asc (attention incl. finished first, then working)', () => {
     const iNeeds = issue({ id: 'needs' })
     const iWork = issue({ id: 'work' })
     const iIdle = issue({ id: 'idle' })
-    const iEmpty = issue({ id: 'empty', stage: 'planning' })
     const sessions = [
       needsYou('sn', '/x', { issueId: 'needs' }),
       working('sw', '/x'),
@@ -280,23 +289,15 @@ describe('unifiedWorkList (content filter + status ordering)', () => {
       ...sessions[2],
       lastActiveAt: new Date(NOW - 2 * HOUR).toISOString(),
     } as SessionMeta
-    const rows = unifiedWorkList(
-      emptySections([]),
-      [iEmpty, iIdle, iWork, iNeeds],
-      sessions,
-      [],
-      NOW,
-    )
+    const rows = unifiedWorkList(emptySections([]), [iIdle, iWork, iNeeds], sessions, [], NOW)
     expect(rows.map((r) => (r.kind === 'issue' ? r.issue.id : ''))).toEqual([
       'needs',
       'idle',
       'work',
-      'empty',
     ])
-    expect(rows[3]?.rank).toBe(UNIFIED_ROW_EMPTY_RANK)
   })
 
-  it('within a rank, most-recent child activity wins; empty rows tiebreak on updatedAt', () => {
+  it('within a rank, most-recent child activity wins', () => {
     const older = issue({ id: 'old' })
     const newer = issue({ id: 'new' })
     const sessions = [
@@ -305,11 +306,131 @@ describe('unifiedWorkList (content filter + status ordering)', () => {
     ]
     const rows = unifiedWorkList(emptySections([]), [older, newer], sessions, [], NOW)
     expect(rows.map((r) => (r.kind === 'issue' ? r.issue.id : ''))).toEqual(['new', 'old'])
+  })
 
-    const e1 = issue({ id: 'e1', stage: 'planning', updatedAt: '2026-06-10T00:00:00.000Z' })
-    const e2 = issue({ id: 'e2', stage: 'planning', updatedAt: '2026-06-25T00:00:00.000Z' })
-    const empties = unifiedWorkList(emptySections([]), [e1, e2], [], [], NOW)
-    expect(empties.map((r) => (r.kind === 'issue' ? r.issue.id : ''))).toEqual(['e2', 'e1'])
+  it('floats pinned & returned-from-defer to the top band, sinks snoozed to the bottom', () => {
+    const pin = issue({ id: 'pin', pinned: true })
+    const ret = issue({ id: 'ret', deferUntil: new Date(NOW - HOUR).toISOString() })
+    const norm = issue({ id: 'norm' })
+    const snz = issue({ id: 'snz', deferUntil: new Date(NOW + HOUR).toISOString() })
+    const sessions = [
+      idle('a', '/x', { issueId: 'pin' }),
+      idle('b', '/x', { issueId: 'ret' }),
+      idle('c', '/x', { issueId: 'norm' }),
+      idle('d', '/x', { issueId: 'snz' }),
+    ]
+    const rows = unifiedWorkList(emptySections([]), [norm, snz, ret, pin], sessions, [], NOW)
+    const ids = rows.map((r) => (r.kind === 'issue' ? r.issue.id : ''))
+    expect(ids.slice(0, 2).sort()).toEqual(['pin', 'ret']) // top band
+    expect(ids[2]).toBe('norm') // middle band
+    expect(ids[3]).toBe('snz') // bottom band
+  })
+})
+
+describe('isIssueSnoozed / issueReturnedFromDefer', () => {
+  it('snoozed while deferUntil is in the future', () => {
+    const future = new Date(NOW + HOUR).toISOString()
+    expect(isIssueSnoozed(issue({ deferUntil: future }), NOW)).toBe(true)
+    expect(issueReturnedFromDefer(issue({ deferUntil: future }), NOW)).toBe(false)
+  })
+  it('returned-from-defer once deferUntil has lapsed but is still set', () => {
+    const past = new Date(NOW - HOUR).toISOString()
+    expect(isIssueSnoozed(issue({ deferUntil: past }), NOW)).toBe(false)
+    expect(issueReturnedFromDefer(issue({ deferUntil: past }), NOW)).toBe(true)
+  })
+  it('neither when deferUntil is unset', () => {
+    expect(isIssueSnoozed(issue(), NOW)).toBe(false)
+    expect(issueReturnedFromDefer(issue(), NOW)).toBe(false)
+  })
+})
+
+describe('partitionUnifiedWork (WORKING move-out)', () => {
+  const owned = (id: string, mk: (i: string, c: string) => SessionMeta, issueId: string) =>
+    ({ ...mk(id, '/x'), issueId }) as SessionMeta
+
+  it('moves a fully-working issue to WORKING and out of WORK', () => {
+    const s = owned('w', working, 'i')
+    const { working: w, work } = partitionUnifiedWork(
+      emptySections([]),
+      [issue({ id: 'i' })],
+      [s],
+      [],
+      NOW,
+    )
+    expect(work).toEqual([])
+    expect(w.map((e) => e.kind)).toEqual(['issue'])
+    expect(w[0]?.kind === 'issue' ? w[0].row.issue.id : '').toBe('i')
+  })
+
+  it('lifts working sessions from a partial issue; the issue stays in WORK with the rest', () => {
+    const needs = owned('n', needsYou, 'i')
+    const work1 = owned('w', working, 'i')
+    const { working: w, work } = partitionUnifiedWork(
+      emptySections([]),
+      [issue({ id: 'i' })],
+      [needs, work1],
+      [],
+      NOW,
+    )
+    expect(work.map((r) => r.kind)).toEqual(['issue'])
+    const row = work[0] as Extract<UnifiedWorkRow, { kind: 'issue' }>
+    expect(row.sessions.map((s) => s.sessionId)).toEqual(['n']) // working one removed
+    expect(w.map((e) => e.kind)).toEqual(['session'])
+    expect(w[0]?.kind === 'session' ? w[0].session.sessionId : '').toBe('w')
+  })
+
+  it('keeps a fully non-working issue entirely in WORK', () => {
+    const { working: w, work } = partitionUnifiedWork(
+      emptySections([]),
+      [issue({ id: 'i' })],
+      [owned('a', idle, 'i')],
+      [],
+      NOW,
+    )
+    expect(w).toEqual([])
+    expect(work.map((r) => r.kind)).toEqual(['issue'])
+  })
+
+  it('exempts a pinned issue from move-out (stays in WORK even when fully working)', () => {
+    const { working: w, work } = partitionUnifiedWork(
+      emptySections([]),
+      [issue({ id: 'i', pinned: true })],
+      [owned('w', working, 'i')],
+      [],
+      NOW,
+    )
+    expect(w).toEqual([])
+    expect(work.map((r) => (r.kind === 'issue' ? r.issue.id : ''))).toEqual(['i'])
+  })
+
+  it('moves a fully-working unowned worktree to WORKING', () => {
+    const wt = navWt('/r/a/.worktrees/x', {
+      isMain: false,
+      sessions: [working('s', '/r/a/.worktrees/x')],
+    })
+    const { working: w, work } = partitionUnifiedWork(emptySections([wt]), [], [], [], NOW)
+    expect(work).toEqual([])
+    expect(w.map((e) => e.kind)).toEqual(['worktree'])
+  })
+})
+
+describe('archivedSessionsForIssue / archivedSessionsForWorktreePath', () => {
+  it('returns only the archived members of an issue (issueId or containment)', () => {
+    const live = sess('l', '/wt', { issueId: 'i' })
+    const arch = sess('a', '/wt', { issueId: 'i', archived: true })
+    const other = sess('o', '/wt', { issueId: 'j', archived: true })
+    const got = archivedSessionsForIssue(
+      issue({ id: 'i', worktreePath: '/wt' }),
+      [live, arch, other],
+      ['/wt'],
+    )
+    expect(got.map((s) => s.sessionId)).toEqual(['a'])
+  })
+  it('returns archived sessions contained in a worktree path', () => {
+    const live = sess('l', '/wt')
+    const arch = sess('a', '/wt', { archived: true })
+    const got = archivedSessionsForWorktreePath([live, arch], '/wt', ['/wt'])
+    expect(got.map((s) => s.sessionId)).toEqual(['a'])
   })
 })
 
@@ -326,7 +447,7 @@ describe('groupUnifiedWorkRows', () => {
         issue({ id: 'i1', repoPath: '/machine1/a', repoId: 'repo-a' } as Partial<IssueWire>),
         issue({ id: 'i2', repoPath: '/machine2/a', repoId: 'repo-a' } as Partial<IssueWire>),
       ],
-      [],
+      [idle('s1', '/x', { issueId: 'i1' }), idle('s2', '/x', { issueId: 'i2' })],
     )
     const groups = groupUnifiedWorkRows(rows)
     expect(groups).toHaveLength(1)
@@ -341,7 +462,11 @@ describe('groupUnifiedWorkRows', () => {
       repoName: 'b',
       sessions: [idle('s1', '/r/b/.worktrees/x')],
     })
-    const rows = rowsFor([issue({ id: 'i1', repoPath: '/r/a' })], [], [wt])
+    const rows = rowsFor(
+      [issue({ id: 'i1', repoPath: '/r/a' })],
+      [idle('s0', '/x', { issueId: 'i1' })],
+      [wt],
+    )
     const groups = groupUnifiedWorkRows(rows)
     expect(groups.map((g) => g.key).sort()).toEqual(['/r/a', '/r/b'])
     expect(groups.find((g) => g.key === '/r/a')?.label).toBe('a')

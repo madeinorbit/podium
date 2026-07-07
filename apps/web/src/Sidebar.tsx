@@ -15,7 +15,7 @@ import {
   SquarePlus,
   X,
 } from 'lucide-react'
-import type { DragEvent, JSX, PointerEvent as ReactPointerEvent, ReactNode } from 'react'
+import type { DragEvent, JSX, ReactNode, PointerEvent as ReactPointerEvent } from 'react'
 import { useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -1159,7 +1159,7 @@ export function PanelRow({
               className="flex-none rounded border border-amber-500/40 px-1 text-[9px] font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-400"
               title="Snooze ended — back in your queue"
             >
-              Returned
+              Unsnoozed
             </span>
           )}
           {/* The agent's /color identity accent — a short vertical line right of
