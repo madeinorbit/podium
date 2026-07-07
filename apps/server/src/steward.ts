@@ -160,6 +160,8 @@ export class StewardService {
       if (e.kind !== 'issue.ready') continue // issue.closed only coalesces the batch
       const closedSeq = (e.payload as { unblockedBy?: number } | null)?.unblockedBy
       if (closedSeq == null) continue
+      // The session that closed the blocker already knows — skip self-nudge (#116).
+      const causedBy = (e.payload as { causedBySessionId?: string } | null)?.causedBySessionId
       const dependent = this.deps.issues.get(e.subject)
       if (!dependent) continue
       // Colon-anchored so '#5' never matches a prior '#55' comment. Single-server
@@ -183,7 +185,12 @@ export class StewardService {
         dependent.worktreePath,
         this.deps.listSessions(),
         dependent.id,
-      ).filter((s) => (s.status === 'live' || s.status === 'starting') && s.agentKind !== 'shell')
+      ).filter(
+        (s) =>
+          (s.status === 'live' || s.status === 'starting') &&
+          s.agentKind !== 'shell' &&
+          s.sessionId !== causedBy,
+      )
       for (const s of targets) {
         this.deps.sendTextWhenReady(
           s.sessionId,
@@ -203,10 +210,16 @@ export class StewardService {
     if (!parent) return
     let posted = false
     let lastChildSeq: number | undefined
+    // Sessions that caused a close in this batch already know — the single
+    // coalesced nudge excludes all of them (#116). Collected across the whole
+    // batch (before dedup) so a self-close never self-nudges, even coalesced.
+    const causedBy = new Set<string>()
     for (const e of batch) {
       const childSeq = (e.payload as { seq?: number } | null)?.seq
       if (childSeq == null) continue
       lastChildSeq = childSeq
+      const causer = (e.payload as { causedBySessionId?: string } | null)?.causedBySessionId
+      if (causer) causedBy.add(causer)
       // Colon-anchored so '#5' never matches a prior '#55' comment (see the
       // matching note on handleUnblock — same single-server dedup assumption).
       const marker = `Child #${childSeq} closed:`
@@ -234,7 +247,12 @@ export class StewardService {
       parent.worktreePath,
       this.deps.listSessions(),
       parent.id,
-    ).filter((s) => (s.status === 'live' || s.status === 'starting') && s.agentKind !== 'shell')
+    ).filter(
+      (s) =>
+        (s.status === 'live' || s.status === 'starting') &&
+        s.agentKind !== 'shell' &&
+        !causedBy.has(s.sessionId),
+    )
     for (const s of targets) {
       this.deps.sendTextWhenReady(
         s.sessionId,

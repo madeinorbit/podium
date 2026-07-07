@@ -1511,8 +1511,8 @@ export class SessionRegistry {
     // sits in another issue's worktree (or none).
     const issueId = s.issueId ?? this.issues.issueForCwd(s.cwd)
     return issueId
-      ? { role: 'worker', scope: { kind: 'subtree', rootId: issueId } }
-      : { role: 'worker', scope: { kind: 'none' } }
+      ? { role: 'worker', scope: { kind: 'subtree', rootId: issueId }, actorSessionId: sessionId }
+      : { role: 'worker', scope: { kind: 'none' }, actorSessionId: sessionId }
   }
 
   resumeSession(input: {

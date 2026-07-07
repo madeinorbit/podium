@@ -992,7 +992,7 @@ export class IssueService {
    *  was `closed`): open rows in the same repo with a `blocks` dep on it whose wire
    *  `ready` is now true. Never throws — the close already persisted, and a sqlite
    *  read error in this fanout must not make the succeeded mutation look failed. */
-  private emitReadyAfterClose(closed: IssueRow): void {
+  private emitReadyAfterClose(closed: IssueRow, actorSessionId?: string): void {
     try {
       const sessionList = this.deps.listSessions()
       for (const r of this.rows.values()) {
@@ -1001,7 +1001,11 @@ export class IssueService {
           .listIssueDeps(r.id)
           .some((d) => d.type === 'blocks' && d.toId === closed.id)
         if (blocksClosed && this.toWire(r, sessionList).ready) {
-          this.emitEvent('issue.ready', r.id, { seq: r.seq, unblockedBy: closed.seq })
+          this.emitEvent('issue.ready', r.id, {
+            seq: r.seq,
+            unblockedBy: closed.seq,
+            ...(actorSessionId ? { causedBySessionId: actorSessionId } : {}),
+          })
         }
       }
     } catch {}
@@ -1115,6 +1119,10 @@ export class IssueService {
         | 'humanQuestion'
       >
     >,
+    /** The session that initiated this mutation, when known (agent CLI relay).
+     *  Threaded onto the issue.closed / issue.ready events it emits so the steward
+     *  can skip nudging the very session that caused them (self-nudge is noise). */
+    opts?: { actorSessionId?: string },
   ): IssueWire {
     const row = this.rows.get(this.resolveRef(id))
     if (!row) throw new Error(`unknown issue ${id}`)
@@ -1154,8 +1162,9 @@ export class IssueService {
         // Carried so the steward's trigger rules stay pure over the event
         // (parent-nudge keys on parentId without a service lookup).
         ...(row.parentId ? { parentId: row.parentId } : {}),
+        ...(opts?.actorSessionId ? { causedBySessionId: opts.actorSessionId } : {}),
       })
-      this.emitReadyAfterClose(row)
+      this.emitReadyAfterClose(row, opts?.actorSessionId)
     }
     // Attention-state transitions S3 renders (issue #124). Emit only on an actual
     // change so a re-pin / re-archive / re-defer-to-same-time never duplicates.
@@ -1466,8 +1475,10 @@ export class IssueService {
     return this.update(id, { assignee, stage: 'in_progress' })
   }
 
-  close(id: string, reason = 'done'): IssueWire {
-    return this.update(id, { stage: 'done', closedReason: reason }) // update() emits issue.closed
+  close(id: string, reason = 'done', opts?: { actorSessionId?: string }): IssueWire {
+    // update() emits issue.closed; actorSessionId rides through so the steward
+    // can skip nudging the session that requested the close.
+    return this.update(id, { stage: 'done', closedReason: reason }, opts)
   }
 
   supersede(oldId: string, newId: string): IssueWire {

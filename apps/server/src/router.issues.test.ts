@@ -12,8 +12,13 @@ function inputSchema(path: string) {
 describe('issues router inputs (P1)', () => {
   it('create accepts priority/type/labels/parentId', () => {
     const parsed = inputSchema('issues.create').parse({
-      repoPath: '/r', title: 'A', startNow: false,
-      priority: 0, type: 'bug', labels: ['ui'], parentId: 'iss_e',
+      repoPath: '/r',
+      title: 'A',
+      startNow: false,
+      priority: 0,
+      type: 'bug',
+      labels: ['ui'],
+      parentId: 'iss_e',
     })
     expect(parsed.priority).toBe(0)
     expect(parsed.type).toBe('bug')
@@ -26,7 +31,9 @@ describe('issues router inputs (P1)', () => {
 
   it('close accepts an optional reason', () => {
     expect(inputSchema('issues.close').parse({ id: 'a' }).id).toBe('a')
-    expect(inputSchema('issues.close').parse({ id: 'a', reason: 'duplicate' }).reason).toBe('duplicate')
+    expect(inputSchema('issues.close').parse({ id: 'a', reason: 'duplicate' }).reason).toBe(
+      'duplicate',
+    )
   })
 })
 
@@ -133,11 +140,21 @@ describe('SessionRegistry.capabilityForSession (P1b)', () => {
 
     const { sessionId: sid } = registry.createSession({ cwd: wt, agentKind: 'shell' })
     const cap = registry.capabilityForSession(sid)
-    expect(cap).toEqual({ role: 'worker', scope: { kind: 'subtree', rootId: i.id } })
+    // actorSessionId is stamped so close/unblock events can name their causer (#116).
+    expect(cap).toEqual({
+      role: 'worker',
+      scope: { kind: 'subtree', rootId: i.id },
+      actorSessionId: sid,
+    })
 
     const { sessionId: sid2 } = registry.createSession({ cwd: '/unowned', agentKind: 'shell' })
-    expect(registry.capabilityForSession(sid2)).toEqual({ role: 'worker', scope: { kind: 'none' } })
+    expect(registry.capabilityForSession(sid2)).toEqual({
+      role: 'worker',
+      scope: { kind: 'none' },
+      actorSessionId: sid2,
+    })
 
+    // No session behind the id → no actor to name.
     expect(registry.capabilityForSession('no-such-session')).toEqual({
       role: 'worker',
       scope: { kind: 'none' },

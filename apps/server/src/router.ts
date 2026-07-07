@@ -1201,7 +1201,9 @@ export const appRouter = t.router({
       .mutation(({ ctx, input }) =>
         issueWrite(ctx, 'update', input, () =>
           ctx.registry.withMutation(input.mutationId, 'issues.update', () =>
-            ctx.registry.issues.update(input.id, input.patch),
+            ctx.registry.issues.update(input.id, input.patch, {
+              actorSessionId: ctx.capability.actorSessionId,
+            }),
           ),
         ),
       ),
@@ -1446,7 +1448,9 @@ export const appRouter = t.router({
       .mutation(({ ctx, input }) =>
         issueWrite(ctx, 'close', input, () =>
           ctx.registry.withMutation(input.mutationId, 'issues.close', () =>
-            ctx.registry.issues.close(input.id, input.reason),
+            ctx.registry.issues.close(input.id, input.reason, {
+              actorSessionId: ctx.capability.actorSessionId,
+            }),
           ),
         ),
       ),

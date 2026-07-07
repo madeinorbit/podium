@@ -39,6 +39,10 @@ export type AuthDecision = 'allow' | 'forbidden' | 'confirm-required'
 export interface Capability {
   role: IssueRole
   scope: IssueScope
+  /** The session behind this call, when the caller is an agent (relay path).
+   *  Undefined for the operator/web. Threaded onto close/unblock events so the
+   *  steward can skip nudging the very session that caused them (#116). */
+  actorSessionId?: string
 }
 
 /** The human operator (and, for now, the trusted in-process MCP): unconstrained. */

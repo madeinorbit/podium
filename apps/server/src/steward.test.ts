@@ -1,8 +1,8 @@
-import { describe, expect, it, vi } from 'vitest'
 import type { SessionMeta } from '@podium/protocol'
+import { describe, expect, it, vi } from 'vitest'
+import { type IssueDeps, IssueService } from './issues'
+import { type StewardDeps, StewardService, TRIGGER_RULES } from './steward'
 import { SessionStore } from './store'
-import { IssueService, type IssueDeps } from './issues'
-import { StewardService, TRIGGER_RULES, type StewardDeps } from './steward'
 
 function harness(opts: { enabled?: boolean; sessions?: SessionMeta[]; seedCursor?: boolean } = {}) {
   const store = new SessionStore(':memory:')
@@ -61,9 +61,9 @@ describe('TRIGGER_RULES', () => {
 
   it('issue.closed with a parentId fans out to unblock AND parentnudge keys', () => {
     const e = { id: 1, ts: 't', kind: 'issue.closed', subject: 'iss_c', repoPath: '/r' }
-    expect(TRIGGER_RULES['issue.closed']!({ ...e, payload: { seq: 3, parentId: 'iss_p' } })).toEqual(
-      ['unblock:/r', 'parentnudge:iss_p'],
-    )
+    expect(
+      TRIGGER_RULES['issue.closed']!({ ...e, payload: { seq: 3, parentId: 'iss_p' } }),
+    ).toEqual(['unblock:/r', 'parentnudge:iss_p'])
     // No parentId → single unblock key only (no parentnudge batch is formed).
     expect(TRIGGER_RULES['issue.closed']!({ ...e, payload: { seq: 3 } })).toBe('unblock:/r')
   })
@@ -73,7 +73,12 @@ describe('StewardService cursor', () => {
   it('consumes events exactly once and persists the cursor across re-instantiation', async () => {
     const { store, deps, steward } = harness()
     store.appendEvent({ ts: 't', kind: 'issue.created', subject: 'iss_a', repoPath: '/r' })
-    const id2 = store.appendEvent({ ts: 't', kind: 'issue.created', subject: 'iss_b', repoPath: '/r' })
+    const id2 = store.appendEvent({
+      ts: 't',
+      kind: 'issue.created',
+      subject: 'iss_b',
+      repoPath: '/r',
+    })
     await steward.tick()
     expect(store.getStewardState('cursor')).toBe(String(id2))
     // Crash-resume: a fresh instance over the same store starts past the batch.
@@ -232,6 +237,26 @@ describe('StewardService unblock handler', () => {
     expect(sendTextWhenReady).not.toHaveBeenCalled()
     expect(stewardComments(issues, b.id).length).toBe(1)
   })
+
+  it('suppresses the nudge to the session that caused the close, still nudges others', async () => {
+    const sessions = [
+      // The agent that closed the blocker: it already knows — must NOT be nudged.
+      fakeSession({ sessionId: 'causer', cwd: '/r/.worktrees/issue-2-b' }),
+      fakeSession({ sessionId: 'other', cwd: '/r/.worktrees/issue-2-b' }),
+    ]
+    const { issues, steward, sendTextWhenReady } = harness({ sessions })
+    const a = issues.create({ repoPath: '/r', title: 'A', startNow: false })
+    const b = issues.create({ repoPath: '/r', title: 'B', startNow: false })
+    issues.update(b.id, { worktreePath: '/r/.worktrees/issue-2-b' })
+    issues.addDep(b.id, a.id, 'blocks')
+    issues.close(a.id, 'done', { actorSessionId: 'causer' })
+    await steward.tick()
+    // Comment/audit trail is unchanged — the note still lands on the dependent.
+    expect(stewardComments(issues, b.id).length).toBe(1)
+    // Only the non-actor live session is nudged.
+    const targets = sendTextWhenReady.mock.calls.map((c) => (c as [string, string])[0])
+    expect(targets).toEqual(['other'])
+  })
 })
 
 describe('StewardService parent-nudge handler', () => {
@@ -240,7 +265,12 @@ describe('StewardService parent-nudge handler', () => {
     const { issues, steward, sendTextWhenReady } = harness({ sessions })
     const parent = issues.create({ repoPath: '/r', title: 'Epic', startNow: false }) // seq 1
     issues.update(parent.id, { worktreePath: '/r/.worktrees/issue-1-epic' })
-    const c1 = issues.create({ repoPath: '/r', title: 'Child 1', parentId: parent.id, startNow: false })
+    const c1 = issues.create({
+      repoPath: '/r',
+      title: 'Child 1',
+      parentId: parent.id,
+      startNow: false,
+    })
     issues.create({ repoPath: '/r', title: 'Child 2', parentId: parent.id, startNow: false })
     issues.create({ repoPath: '/r', title: 'Child 3', parentId: parent.id, startNow: false })
     issues.addComment(c1.id, 'agent', '[completion-note] shipped the widget\nsecond line ignored')
@@ -265,8 +295,18 @@ describe('StewardService parent-nudge handler', () => {
     const { issues, steward, sendTextWhenReady } = harness({ sessions })
     const parent = issues.create({ repoPath: '/r', title: 'Epic', startNow: false })
     issues.update(parent.id, { worktreePath: '/r/.worktrees/issue-1-epic' })
-    const c1 = issues.create({ repoPath: '/r', title: 'Child 1', parentId: parent.id, startNow: false })
-    const c2 = issues.create({ repoPath: '/r', title: 'Child 2', parentId: parent.id, startNow: false })
+    const c1 = issues.create({
+      repoPath: '/r',
+      title: 'Child 1',
+      parentId: parent.id,
+      startNow: false,
+    })
+    const c2 = issues.create({
+      repoPath: '/r',
+      title: 'Child 2',
+      parentId: parent.id,
+      startNow: false,
+    })
     issues.create({ repoPath: '/r', title: 'Child 3', parentId: parent.id, startNow: false })
     issues.close(c1.id)
     issues.close(c2.id)
@@ -287,7 +327,12 @@ describe('StewardService parent-nudge handler', () => {
     const { store, issues, steward, sendTextWhenReady } = harness({ sessions })
     const parent = issues.create({ repoPath: '/r', title: 'Epic', startNow: false })
     issues.update(parent.id, { worktreePath: '/r/.worktrees/issue-1-epic' })
-    const c1 = issues.create({ repoPath: '/r', title: 'Child 1', parentId: parent.id, startNow: false })
+    const c1 = issues.create({
+      repoPath: '/r',
+      title: 'Child 1',
+      parentId: parent.id,
+      startNow: false,
+    })
     issues.close(c1.id)
     await steward.tick()
     expect(stewardComments(issues, parent.id).length).toBe(1)
@@ -308,6 +353,31 @@ describe('StewardService parent-nudge handler', () => {
     expect(issues.list('/r').flatMap((w) => w.comments)).toEqual([])
   })
 
+  it('suppresses the nudge to the session that caused the child close, comment still lands', async () => {
+    const sessions = [
+      // The orchestrator session that closed the child itself — no self-nudge.
+      fakeSession({ sessionId: 'causer', cwd: '/r/.worktrees/issue-1-epic' }),
+      fakeSession({ sessionId: 'other', cwd: '/r/.worktrees/issue-1-epic' }),
+    ]
+    const { issues, steward, sendTextWhenReady } = harness({ sessions })
+    const parent = issues.create({ repoPath: '/r', title: 'Epic', startNow: false })
+    issues.update(parent.id, { worktreePath: '/r/.worktrees/issue-1-epic' })
+    const c1 = issues.create({
+      repoPath: '/r',
+      title: 'Child 1',
+      parentId: parent.id,
+      startNow: false,
+    })
+    issues.create({ repoPath: '/r', title: 'Child 2', parentId: parent.id, startNow: false })
+    issues.close(c1.id, 'done', { actorSessionId: 'causer' })
+    await steward.tick()
+    // The parent comment is unchanged.
+    expect(stewardComments(issues, parent.id).length).toBe(1)
+    // The causer is excluded from the single coalesced nudge; 'other' still gets it.
+    const targets = sendTextWhenReady.mock.calls.map((c) => (c as [string, string])[0])
+    expect(targets).toEqual(['other'])
+  })
+
   it('shell and exited sessions in the parent worktree get nothing', async () => {
     const sessions = [
       fakeSession({ sessionId: 'parked', cwd: '/r/.worktrees/issue-1-epic', status: 'exited' }),
@@ -316,7 +386,12 @@ describe('StewardService parent-nudge handler', () => {
     const { issues, steward, sendTextWhenReady } = harness({ sessions })
     const parent = issues.create({ repoPath: '/r', title: 'Epic', startNow: false })
     issues.update(parent.id, { worktreePath: '/r/.worktrees/issue-1-epic' })
-    const c1 = issues.create({ repoPath: '/r', title: 'Child 1', parentId: parent.id, startNow: false })
+    const c1 = issues.create({
+      repoPath: '/r',
+      title: 'Child 1',
+      parentId: parent.id,
+      startNow: false,
+    })
     issues.close(c1.id)
     await steward.tick()
     expect(sendTextWhenReady).not.toHaveBeenCalled()
@@ -326,7 +401,12 @@ describe('StewardService parent-nudge handler', () => {
   it('note excerpt is first-line-only and capped at 200 chars', async () => {
     const { issues, steward } = harness()
     const parent = issues.create({ repoPath: '/r', title: 'Epic', startNow: false })
-    const c1 = issues.create({ repoPath: '/r', title: 'Child 1', parentId: parent.id, startNow: false })
+    const c1 = issues.create({
+      repoPath: '/r',
+      title: 'Child 1',
+      parentId: parent.id,
+      startNow: false,
+    })
     issues.addComment(c1.id, 'agent', `[completion-note] ${'x'.repeat(500)}\nmore lines`)
     issues.close(c1.id)
     await steward.tick()
