@@ -48,13 +48,14 @@ import { IssueService } from './issues'
 import { LOCAL_MACHINE_ID } from './local-machine'
 import { MirrorService } from './mirror'
 import { ModelCatalog, type ModelCatalogSnapshot, type ModelProbe } from './model-catalog'
+import { EventBus } from './modules/bus'
 import {
-  type AttentionNotice,
-  attentionNotice,
-  pushNtfy,
-  pushTelegram,
-  type TelegramConfig,
-} from './notify'
+  DEFAULT_NOTIFICATION_PUSHERS,
+  type NotificationPushers,
+  NotifyService,
+  type SessionNoticeInfo,
+} from './modules/notify/service'
+import type { TelegramConfig } from './notify'
 import { MetadataOplog } from './oplog'
 import { PairingManager } from './pairing'
 import { type ClientConn, type Send, Session } from './session'
@@ -177,16 +178,6 @@ export interface OpResult {
   output: string
 }
 
-interface NotificationPushers {
-  ntfy(topic: string, notice: AttentionNotice): void
-  telegram(config: TelegramConfig, notice: AttentionNotice): void
-}
-
-const DEFAULT_NOTIFICATION_PUSHERS: NotificationPushers = {
-  ntfy: pushNtfy,
-  telegram: pushTelegram,
-}
-
 const TELEGRAM_SETUP_TTL_MS = 5 * 60 * 1000
 
 interface TelegramSetupUpdate {
@@ -240,25 +231,6 @@ export type TelegramSetupPollResult =
       chatLabel?: string
       settings: PodiumSettings
     }
-
-type NotificationSettings = PodiumSettings['notifications']
-
-function telegramConfig(settings: NotificationSettings): TelegramConfig {
-  return {
-    botToken: settings.telegramBotToken,
-    chatId: settings.telegramChatId,
-  }
-}
-
-function isTelegramEnabled(settings: NotificationSettings): boolean {
-  const telegram = telegramConfig(settings)
-  return telegram.botToken.trim() !== '' && telegram.chatId.trim() !== ''
-}
-
-function normalizedTelegramKey(settings: NotificationSettings): string {
-  const telegram = telegramConfig(settings)
-  return `${telegram.botToken.trim()}\n${telegram.chatId.trim()}`
-}
 
 function telegramApiUrl(botToken: string, method: string): string {
   return `https://api.telegram.org/bot${botToken.trim()}/${method}`
@@ -362,6 +334,10 @@ function telegramTextHasCode(text: string, code: string): boolean {
 
 /** Registry of all sessions + the per-machine daemon links + all client connections. Routes by sessionId. */
 export class SessionRegistry {
+  /** Typed in-process event bus — modules subscribe here (issue #13 Phase 2). */
+  readonly bus = new EventBus()
+  /** Attention notifications (ntfy/telegram/in-app) — subscribes to the bus. */
+  private readonly notify: NotifyService
   // machineId -> control-message sender for that daemon. Replaces the single
   // socket: each connected machine has its own send, so a session's control
   // messages route to the daemon that actually runs it.
@@ -516,6 +492,25 @@ export class SessionRegistry {
     this.telegramSetup = options.telegramSetup ?? DEFAULT_TELEGRAM_SETUP_CLIENT
     this.generateTelegramSetupCode = options.generateTelegramSetupCode ?? defaultTelegramSetupCode
     this.now = options.now ?? Date.now
+    this.notify = new NotifyService(
+      {
+        getSettings: () => this.store.getSettings(),
+        appendEvent: (e) => this.store.appendEvent(e),
+        now: () => this.now(),
+        clients: () => this.clients.values(),
+        sessionInfo: (sessionId) => {
+          const s = this.sessions.get(sessionId)
+          return s ? SessionRegistry.noticeInfo(s) : undefined
+        },
+        sessionStates: () =>
+          [...this.sessions.values()].map((s) => ({
+            info: SessionRegistry.noticeInfo(s),
+            state: s.agentState,
+          })),
+      },
+      this.notificationPushers,
+      this.bus,
+    )
     this.activityFlushTimer.unref?.()
     this.modelCatalog = new ModelCatalog(options.modelProbe, {
       now: this.now,
@@ -1431,7 +1426,9 @@ export class SessionRegistry {
     const previous = this.store.getSettings()
     const wasEnabled = previous.autoContinue.enabled
     this.store.setSettings(settings)
-    this.notifyAttentionForNewExternalTargets(previous.notifications, settings.notifications)
+    // Bus subscribers (NotifyService) replay blocked states to newly configured
+    // external targets — same ordering as the old direct call.
+    this.bus.emit('settings.changed', { previous, next: settings })
     const nowEnabled = settings.autoContinue.enabled
     if (nowEnabled !== wasEnabled) {
       const ids = nowEnabled
@@ -3044,7 +3041,9 @@ export class SessionRegistry {
         }
         for (const c of this.clients.values()) c.send(update)
         this.issues.onSessionActivity(msg.sessionId)
-        this.notifyAttention(session, prev, msg.state)
+        // Synchronous fan-out to bus subscribers (NotifyService) — same ordering
+        // as the old direct notifyAttention call.
+        this.bus.emit('session.stateChanged', { sessionId: msg.sessionId, prev, next: msg.state })
         if (
           session.snoozedUntil !== undefined &&
           SessionRegistry.isAttentionPhase(prev) &&
@@ -3803,85 +3802,14 @@ export class SessionRegistry {
     this.store.setConversationMeta(input.id, input)
   }
 
-  private attentionNoticeName(session: Session): string {
-    return session.name || session.title || session.cwd.split('/').pop() || 'agent'
-  }
-
-  private notifyAttentionForNewExternalTargets(
-    previous: NotificationSettings,
-    next: NotificationSettings,
-  ): void {
-    const previousNtfy = previous.ntfyTopic.trim()
-    const nextNtfy = next.ntfyTopic.trim()
-    const sendNtfy = nextNtfy !== '' && previousNtfy !== nextNtfy
-    const sendTelegram =
-      isTelegramEnabled(next) &&
-      (!isTelegramEnabled(previous) ||
-        normalizedTelegramKey(previous) !== normalizedTelegramKey(next))
-    if (!sendNtfy && !sendTelegram) return
-
-    const telegram = telegramConfig(next)
-    for (const session of this.sessions.values()) {
-      const state = session.agentState
-      if (!state) continue
-      const notice = attentionNotice(this.attentionNoticeName(session), undefined, state)
-      if (!notice) continue
-      if (sendNtfy) this.notificationPushers.ntfy(nextNtfy, notice)
-      if (sendTelegram) this.notificationPushers.telegram(telegram, notice)
-    }
-  }
-
-  /**
-   * Smart-routed attention notifications. Web clients always get the event
-   * (each shows it only while hidden); the mobile push (ntfy) fires only when
-   * NO Podium window is visible anywhere — if you're looking at a desktop, the
-   * phone stays quiet.
-   */
-  private notifyAttention(
-    session: Session,
-    prev: AgentRuntimeState | undefined,
-    next: AgentRuntimeState,
-  ): void {
-    // Durable event log: one row per REAL phase transition (the caller fires on
-    // every agentState message, including same-phase refreshes). prev==null is the
-    // first seed after a server restart (agentState isn't restored from the DB) —
-    // skip it or every redeploy logs a phantom row per live session. Best-effort.
-    if (prev != null && prev.phase !== next.phase) {
-      try {
-        this.store.appendEvent({
-          ts: new Date(this.now()).toISOString(),
-          kind: 'session.phase',
-          subject: session.sessionId,
-          payload: {
-            phase: next.phase,
-            ...(next.idle?.kind ? { verdict: next.idle.kind } : {}),
-            agentKind: session.agentKind,
-            cwd: session.cwd,
-          },
-        })
-      } catch {}
-    }
-    const settings = this.store.getSettings().notifications
-    const name = this.attentionNoticeName(session)
-    const notice = attentionNotice(name, prev, next)
-    if (!notice) return
-    if (settings.web) {
-      const event: ServerMessage = {
-        type: 'attentionEvent',
-        sessionId: session.sessionId,
-        title: notice.title,
-        body: notice.body,
-      }
-      for (const c of this.clients.values()) c.send(event)
-    }
-    const telegram = telegramConfig(settings)
-    const telegramEnabled = isTelegramEnabled(settings)
-    if (settings.ntfyTopic || telegramEnabled) {
-      const someoneWatching = [...this.clients.values()].some((c) => c.visible)
-      if (!someoneWatching) {
-        if (settings.ntfyTopic) this.notificationPushers.ntfy(settings.ntfyTopic, notice)
-        if (telegramEnabled) this.notificationPushers.telegram(telegram, notice)
-      }
+  /** Projection of a Session to the fields an attention notice needs. */
+  private static noticeInfo(session: Session): SessionNoticeInfo {
+    return {
+      sessionId: session.sessionId,
+      ...(session.name ? { name: session.name } : {}),
+      ...(session.title ? { title: session.title } : {}),
+      cwd: session.cwd,
+      agentKind: session.agentKind,
     }
   }
 
