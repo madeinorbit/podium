@@ -62,12 +62,13 @@ export default defineConfig({
       workbox: {
         // Precache the built shell so an installed app cold-starts instantly.
         globPatterns: ['**/*.{js,css,html,svg,png,ico,woff2}'],
-        // SPA fallback for navigations — but never shadow the live API/WS
-        // routes, which must always reach the backend through the proxy.
+        // SPA fallback for navigations — but never shadow the live API/WS routes
+        // or the dedicated Expo mobile SPA served by the backend under /mobile.
         navigateFallback: '/index.html',
         navigateFallbackDenylist: [
           /^\/trpc/,
           /^\/health/,
+          /^\/mobile/,
           /^\/files/,
           /^\/setup/,
           /^\/auth/,

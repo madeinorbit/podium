@@ -22,6 +22,7 @@ describe('installable PWA wiring', () => {
     const cfg = readWeb('vite.config.ts')
     expect(cfg).toContain("navigateFallback: '/index.html'")
     expect(cfg).toContain('navigateFallbackDenylist')
+    expect(cfg).toContain('/^\\/mobile/')
     expect(cfg).toContain('/^\\/trpc/')
     expect(cfg).toContain('/^\\/daemon/')
   })
