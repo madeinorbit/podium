@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { SessionStore } from './store'
 import type { IssueRow } from './store'
+import { SessionStore } from './store'
 
 function issueColumns(store: SessionStore): Set<string> {
   // @ts-expect-error reach the private db for a schema assertion
@@ -20,9 +20,20 @@ describe('issues schema migration (P1)', () => {
   it('fresh DB has all new rich-field columns', () => {
     const cols = issueColumns(new SessionStore(':memory:'))
     for (const c of [
-      'priority', 'type', 'assignee', 'parent_id', 'design', 'acceptance', 'notes',
-      'due_at', 'defer_until', 'closed_reason', 'superseded_by', 'duplicate_of',
-      'pinned', 'estimate_min',
+      'priority',
+      'type',
+      'assignee',
+      'parent_id',
+      'design',
+      'acceptance',
+      'notes',
+      'due_at',
+      'defer_until',
+      'closed_reason',
+      'superseded_by',
+      'duplicate_of',
+      'pinned',
+      'estimate_min',
     ]) {
       expect(cols.has(c), `missing column ${c}`).toBe(true)
     }
@@ -42,17 +53,21 @@ describe('issues child tables (P1)', () => {
     // @ts-expect-error private db — seed legacy rows with a blocked_by array.
     // iss_b must exist for the dep to resolve (backfill only writes edges to
     // real issue ids).
-    store.db.prepare(
-      `INSERT INTO issues (id, repo_path, seq, title, stage, parent_branch, default_agent,
+    store.db
+      .prepare(
+        `INSERT INTO issues (id, repo_path, seq, title, stage, parent_branch, default_agent,
          blocked_by, created_at, updated_at)
        VALUES ('iss_a','/r',1,'A','backlog','main','claude-code','["iss_b"]','t','t')`,
-    ).run()
+      )
+      .run()
     // @ts-expect-error private db
-    store.db.prepare(
-      `INSERT INTO issues (id, repo_path, seq, title, stage, parent_branch, default_agent,
+    store.db
+      .prepare(
+        `INSERT INTO issues (id, repo_path, seq, title, stage, parent_branch, default_agent,
          blocked_by, created_at, updated_at)
        VALUES ('iss_b','/r',2,'B','backlog','main','claude-code','[]','t','t')`,
-    ).run()
+      )
+      .run()
     // @ts-expect-error private method
     store.backfillIssueDeps()
     // @ts-expect-error private db
@@ -66,17 +81,21 @@ describe('issues child tables (P1)', () => {
     // codebase blocked_by is populated by the AI assistant with branch names, so
     // the backfill must only write edges that resolve to a real issue id.
     // @ts-expect-error private db
-    store.db.prepare(
-      `INSERT INTO issues (id, repo_path, seq, title, stage, parent_branch, default_agent,
+    store.db
+      .prepare(
+        `INSERT INTO issues (id, repo_path, seq, title, stage, parent_branch, default_agent,
          blocked_by, created_at, updated_at)
        VALUES ('iss_a','/r',1,'A','backlog','main','claude-code','["iss_b","issue/3-foo"]','t','t')`,
-    ).run()
+      )
+      .run()
     // @ts-expect-error private db
-    store.db.prepare(
-      `INSERT INTO issues (id, repo_path, seq, title, stage, parent_branch, default_agent,
+    store.db
+      .prepare(
+        `INSERT INTO issues (id, repo_path, seq, title, stage, parent_branch, default_agent,
          blocked_by, created_at, updated_at)
        VALUES ('iss_b','/r',2,'B','backlog','main','claude-code','[]','t','t')`,
-    ).run()
+      )
+      .run()
     // @ts-expect-error private method
     store.backfillIssueDeps()
     // @ts-expect-error private db
@@ -88,16 +107,47 @@ describe('issues child tables (P1)', () => {
 
 function baseRow(over: Partial<IssueRow> = {}): IssueRow {
   return {
-    id: 'iss_x', repoPath: '/r', seq: 1, title: 'X', description: '', stage: 'backlog',
-    worktreePath: null, branch: null, parentBranch: 'main', defaultAgent: 'claude-code',
-    defaultModel: 'auto', defaultEffort: 'auto',
-    linearId: null, linearIdentifier: null, linearUrl: null, activityNotes: null,
-    notesUpdatedAt: null, suggestedStage: null, suggestedReason: null, blockedBy: [],
-    dependencyNote: null, prUrl: null, createdAt: 't', updatedAt: 't', archived: false,
-    priority: 2, type: 'task', assignee: null, parentId: null, design: null, acceptance: null,
-    notes: null, dueAt: null, deferUntil: null, closedReason: null, supersededBy: null,
-    duplicateOf: null, pinned: false, estimateMin: null,
-    needsHuman: false, humanQuestion: null,
+    id: 'iss_x',
+    repoPath: '/r',
+    seq: 1,
+    title: 'X',
+    description: '',
+    stage: 'backlog',
+    worktreePath: null,
+    branch: null,
+    parentBranch: 'main',
+    defaultAgent: 'claude-code',
+    defaultModel: 'auto',
+    defaultEffort: 'auto',
+    linearId: null,
+    linearIdentifier: null,
+    linearUrl: null,
+    activityNotes: null,
+    notesUpdatedAt: null,
+    suggestedStage: null,
+    suggestedReason: null,
+    blockedBy: [],
+    dependencyNote: null,
+    prUrl: null,
+    createdAt: 't',
+    updatedAt: 't',
+    archived: false,
+    priority: 2,
+    type: 'task',
+    assignee: null,
+    parentId: null,
+    design: null,
+    acceptance: null,
+    notes: null,
+    dueAt: null,
+    deferUntil: null,
+    closedReason: null,
+    supersededBy: null,
+    duplicateOf: null,
+    pinned: false,
+    estimateMin: null,
+    needsHuman: false,
+    humanQuestion: null,
     ...over,
   }
 }
@@ -105,12 +155,24 @@ function baseRow(over: Partial<IssueRow> = {}): IssueRow {
 describe('IssueRow rich fields round-trip (P1)', () => {
   it('persists and reads back new fields', () => {
     const store = new SessionStore(':memory:')
-    store.upsertIssue(baseRow({
-      priority: 0, type: 'bug', assignee: 'agent:claude', parentId: 'iss_epic',
-      design: 'D', acceptance: 'A', notes: 'N', dueAt: '2026-07-01', deferUntil: '2026-07-05',
-      closedReason: 'duplicate', supersededBy: 'iss_new', duplicateOf: 'iss_canon',
-      pinned: true, estimateMin: 30,
-    }))
+    store.upsertIssue(
+      baseRow({
+        priority: 0,
+        type: 'bug',
+        assignee: 'agent:claude',
+        parentId: 'iss_epic',
+        design: 'D',
+        acceptance: 'A',
+        notes: 'N',
+        dueAt: '2026-07-01',
+        deferUntil: '2026-07-05',
+        closedReason: 'duplicate',
+        supersededBy: 'iss_new',
+        duplicateOf: 'iss_canon',
+        pinned: true,
+        estimateMin: 30,
+      }),
+    )
     const r = store.getIssue('iss_x')!
     expect(r.priority).toBe(0)
     expect(r.type).toBe('bug')
@@ -208,9 +270,27 @@ describe('issue deps (P1)', () => {
 describe('issue comments (P1)', () => {
   it('adds and lists comments oldest-first', () => {
     const store = new SessionStore(':memory:')
-    store.addIssueComment({ id: 'c1', issueId: 'iss_a', author: 'mike', body: 'first', createdAt: 't1' })
-    store.addIssueComment({ id: 'c2', issueId: 'iss_a', author: 'agent', body: 'second', createdAt: 't2' })
-    store.addIssueComment({ id: 'c3', issueId: 'iss_b', author: 'x', body: 'other', createdAt: 't1' })
+    store.addIssueComment({
+      id: 'c1',
+      issueId: 'iss_a',
+      author: 'mike',
+      body: 'first',
+      createdAt: 't1',
+    })
+    store.addIssueComment({
+      id: 'c2',
+      issueId: 'iss_a',
+      author: 'agent',
+      body: 'second',
+      createdAt: 't2',
+    })
+    store.addIssueComment({
+      id: 'c3',
+      issueId: 'iss_b',
+      author: 'x',
+      body: 'other',
+      createdAt: 't1',
+    })
     const cs = store.listIssueComments('iss_a')
     expect(cs.map((c) => c.body)).toEqual(['first', 'second'])
     expect(cs[0]!.author).toBe('mike')
@@ -219,8 +299,15 @@ describe('issue comments (P1)', () => {
 
 describe('issue mail store (agent mail #103)', () => {
   const msg = (id: string, issueId = 'iss_a', createdAt = 't1') => ({
-    id, issueId, fromAuthor: 'issue:#2', body: `body ${id}`, createdAt,
-    status: 'unread' as const, claimedBy: null, readAt: null, claimedAt: null,
+    id,
+    issueId,
+    fromAuthor: 'issue:#2',
+    body: `body ${id}`,
+    createdAt,
+    status: 'unread' as const,
+    claimedBy: null,
+    readAt: null,
+    claimedAt: null,
   })
 
   it('creates the issue_messages table', () => {
@@ -238,7 +325,9 @@ describe('issue mail store (agent mail #103)', () => {
     expect(store.countUnreadIssueMessages('iss_a')).toBe(2)
     store.markIssueMessagesRead('iss_a', ['msg_a'], 'tr')
     expect(store.countUnreadIssueMessages('iss_a')).toBe(1)
-    expect(store.listIssueMessages('iss_a', { status: 'unread' }).map((m) => m.id)).toEqual(['msg_b'])
+    expect(store.listIssueMessages('iss_a', { status: 'unread' }).map((m) => m.id)).toEqual([
+      'msg_b',
+    ])
   })
 
   it('claim is atomic: second claim returns false and does not overwrite the winner', () => {
@@ -270,5 +359,65 @@ describe('issue mail store (agent mail #103)', () => {
     store.deleteIssueChildRows('iss_a')
     expect(store.listIssueMessages('iss_a')).toEqual([])
     expect(store.listIssueMessages('iss_other').length).toBe(1)
+  })
+})
+
+describe('subscriptions store (Phase B)', () => {
+  const sub = (
+    over: Partial<import('./store').Subscription> = {},
+  ): import('./store').Subscription => ({
+    id: 'sub_a',
+    subscriberKind: 'issue',
+    subscriberId: 'iss_p',
+    event: 'issue.closed',
+    sourceKind: 'relationship',
+    sourceRef: 'my-children',
+    deliverNudge: true,
+    deliverNotify: false,
+    origin: 'custom',
+    enabled: true,
+    createdAt: 't1',
+    ...over,
+  })
+
+  it('creates the subscriptions and subscription_deliveries tables', () => {
+    const t = tableNames(new SessionStore(':memory:'))
+    expect(t.has('subscriptions')).toBe(true)
+    expect(t.has('subscription_deliveries')).toBe(true)
+  })
+
+  it('adds, lists (round-trips booleans), filters, and removes', () => {
+    const store = new SessionStore(':memory:')
+    store.addSubscription(sub())
+    store.addSubscription(
+      sub({ id: 'sub_b', subscriberId: 'iss_other', deliverNotify: true, createdAt: 't2' }),
+    )
+    const all = store.listSubscriptions()
+    expect(all.map((s) => s.id)).toEqual(['sub_a', 'sub_b'])
+    expect(all[0]).toMatchObject({
+      deliverNudge: true,
+      deliverNotify: false,
+      enabled: true,
+      origin: 'custom',
+    })
+    expect(all[1]!.deliverNotify).toBe(true)
+    expect(store.listSubscriptions({ subscriberId: 'iss_p' }).map((s) => s.id)).toEqual(['sub_a'])
+    store.removeSubscription('sub_a')
+    expect(store.listSubscriptions().map((s) => s.id)).toEqual(['sub_b'])
+  })
+
+  it('listEnabledSubscriptions omits disabled rows', () => {
+    const store = new SessionStore(':memory:')
+    store.addSubscription(sub({ id: 'sub_on', enabled: true }))
+    store.addSubscription(sub({ id: 'sub_off', enabled: false, createdAt: 't2' }))
+    expect(store.listEnabledSubscriptions().map((s) => s.id)).toEqual(['sub_on'])
+  })
+
+  it('markDelivered is idempotent per (subscription, event)', () => {
+    const store = new SessionStore(':memory:')
+    expect(store.markDelivered('sub_a', 5)).toBe(true)
+    expect(store.markDelivered('sub_a', 5)).toBe(false) // replay: already delivered
+    expect(store.markDelivered('sub_a', 6)).toBe(true) // a different event delivers
+    expect(store.markDelivered('sub_b', 5)).toBe(true) // a different sub delivers
   })
 })

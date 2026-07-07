@@ -242,6 +242,67 @@ function cloudError(error: unknown): never {
   throw error
 }
 
+/** The subscriber a subscription defaults to: the CALLER. A relayed agent's own
+ *  session (capability.actorSessionId) when the call is session-bound, else its
+ *  subtree root issue. The operator (scope 'all', no actor) has no implicit
+ *  subscriber — it manages subscriptions via the Automations UI (Phase C). */
+function deriveSubscriber(ctx: Context): { kind: 'session' | 'issue'; id: string } {
+  if (ctx.capability.actorSessionId) {
+    return { kind: 'session', id: ctx.capability.actorSessionId }
+  }
+  if (ctx.capability.scope.kind === 'subtree') {
+    return { kind: 'issue', id: ctx.capability.scope.rootId }
+  }
+  throw new TRPCError({
+    code: 'BAD_REQUEST',
+    message: 'no subscriber bound to this caller; subscriptions are created by a bound agent',
+  })
+}
+
+/** Enforce that a constrained caller only watches an issue/session source WITHIN
+ *  its subtree (mirrors the router's scope gate, which cannot reach into the
+ *  `source` shape). Relationship sources are resolved against the caller's own
+ *  subtree at match time, so they never reach here. */
+function assertSourceInSubtree(
+  ctx: Context,
+  source: { kind: 'relationship' | 'issue' | 'session'; ref: string },
+): void {
+  if (source.kind === 'issue') {
+    const id = ctx.registry.issues.resolveRef(source.ref)
+    const decision = authorize(
+      ctx.capability,
+      'write',
+      { id, ancestorIds: ctx.registry.issues.ancestorIds(id) },
+      { override: ctx.overrideScope },
+    )
+    if (decision === 'confirm-required') {
+      throw new TRPCError({
+        code: 'PRECONDITION_FAILED',
+        message: `source issue ${id} is outside your subtree; re-run with --outside-scope to confirm`,
+      })
+    }
+    if (decision === 'forbidden') {
+      throw new TRPCError({ code: 'FORBIDDEN', message: 'not allowed to watch that source' })
+    }
+    return
+  }
+  // session source: the caller's own session, or one bound to an in-subtree issue.
+  if (source.ref === ctx.capability.actorSessionId) return
+  const bound = ctx.registry.listSessions().find((s) => s.sessionId === source.ref)?.issueId
+  const ok =
+    bound != null &&
+    authorize(ctx.capability, 'write', {
+      id: bound,
+      ancestorIds: ctx.registry.issues.ancestorIds(bound),
+    }) === 'allow'
+  if (!ok) {
+    throw new TRPCError({
+      code: 'FORBIDDEN',
+      message: 'not allowed to watch a session outside your subtree',
+    })
+  }
+}
+
 export const appRouter = t.router({
   cloud: t.router({
     capabilities: t.procedure.query(({ ctx }) => cloudProvider(ctx).capabilities()),
@@ -1471,6 +1532,64 @@ export const appRouter = t.router({
     linearSearch: issueProc
       .input(z.object({ query: z.string() }))
       .query(({ ctx, input }) => ctx.registry.issues.linearSearch(input.query)),
+    // ---- event subscriptions (event-subscriptions design, Phase B). Local-only
+    // (subscriptions live on this node). The subscriber defaults to the CALLER — a
+    // relayed agent's own session (capability.actorSessionId) or, if the call is
+    // not session-bound, its subtree root issue. A constrained caller may only watch
+    // a source inside its subtree; the operator is unconstrained. Custom origin.
+    subscriptionAdd: issueProc
+      .input(
+        z.object({
+          event: z.string().min(1),
+          source: z.object({
+            kind: z.enum(['relationship', 'issue', 'session']),
+            ref: z.string().min(1),
+          }),
+          deliver: z
+            .object({ nudge: z.boolean().optional(), notify: z.boolean().optional() })
+            .optional(),
+        }),
+      )
+      .mutation(({ ctx, input }) => {
+        const subscriber = deriveSubscriber(ctx)
+        // Constrained callers may only watch a source WITHIN their subtree; the
+        // operator (scope 'all') is unconstrained. Relationship sources resolve
+        // dynamically against the subscriber's own subtree, so they are always in-scope.
+        if (ctx.capability.scope.kind !== 'all' && input.source.kind !== 'relationship') {
+          assertSourceInSubtree(ctx, input.source)
+        }
+        return ctx.registry.issues.subscriptionAdd({
+          subscriberKind: subscriber.kind,
+          subscriberId: subscriber.id,
+          event: input.event,
+          sourceKind: input.source.kind,
+          sourceRef: input.source.ref,
+          ...(input.deliver?.nudge != null ? { deliverNudge: input.deliver.nudge } : {}),
+          ...(input.deliver?.notify != null ? { deliverNotify: input.deliver.notify } : {}),
+        })
+      }),
+    subscriptionRemove: issueProc.input(z.object({ id: z.string() })).mutation(({ ctx, input }) => {
+      // Constrained callers may only remove their OWN subscriptions.
+      if (ctx.capability.scope.kind !== 'all') {
+        const subscriber = deriveSubscriber(ctx)
+        const owned = ctx.registry.issues
+          .subscriptionList({ subscriberId: subscriber.id })
+          .some((s) => s.id === input.id)
+        if (!owned) {
+          throw new TRPCError({
+            code: 'FORBIDDEN',
+            message: 'not allowed to remove a subscription you do not own',
+          })
+        }
+      }
+      return ctx.registry.issues.subscriptionRemove(input.id)
+    }),
+    subscriptionList: issueProc.query(({ ctx }) => {
+      // Operator sees every subscription; a constrained caller sees only its own.
+      if (ctx.capability.scope.kind === 'all') return ctx.registry.issues.subscriptionList()
+      const subscriber = deriveSubscriber(ctx)
+      return ctx.registry.issues.subscriptionList({ subscriberId: subscriber.id })
+    }),
   }),
   files: t.router({
     read: t.procedure

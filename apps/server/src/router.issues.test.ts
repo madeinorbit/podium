@@ -176,6 +176,11 @@ describe('scope-gate coverage (P1b)', () => {
     // mailSend is deliberately cross-scope (append-only mailbox; see issue-authz.ts) —
     // like create, a write with no EXISTING-target extractor.
     'mailSend',
+    // subscription add/remove act on the CALLER's own subscriptions (subscriber =
+    // the caller); the source-within-subtree check runs in the proc itself (the
+    // input has no single existing-issue target the guard could extract).
+    'subscriptionAdd',
+    'subscriptionRemove',
   ])
 
   it('every write/manage proc that targets an existing issue is scope-gated', () => {
@@ -292,5 +297,98 @@ describe('issues.mail* (agent mail #103)', () => {
     const again = await scopedToA().issues.mailClaim({ messageId: m.id })
     expect(again.claimed).toBe(false)
     expect(again.message.claimedBy).toBe('operator')
+  })
+})
+
+// Event subscriptions (Phase B): subscriber defaults to the caller; a subtree caller
+// may only watch sources within its subtree and only see/remove its own rows.
+describe('issues.subscription* authz (Phase B)', () => {
+  const registries: SessionRegistry[] = []
+  let registry: SessionRegistry
+  let A: { id: string; seq: number }
+  let B: { id: string; seq: number }
+
+  beforeEach(async () => {
+    registry = new SessionRegistry()
+    registries.push(registry)
+    const setup = appRouter.createCaller({
+      registry,
+      repos: {} as never,
+      superagent: {} as never,
+      capability: OPERATOR,
+    })
+    A = await setup.issues.create({ repoPath: '/r', title: 'root A', startNow: false })
+    B = await setup.issues.create({ repoPath: '/r', title: 'root B', startNow: false })
+  })
+
+  afterEach(() => {
+    for (const r of registries.splice(0)) r.dispose()
+  })
+
+  const callerWith = (capability: Capability, overrideScope = false) =>
+    appRouter.createCaller({
+      registry,
+      repos: {} as never,
+      superagent: {} as never,
+      capability,
+      overrideScope,
+    })
+  const scopedTo = (id: string) =>
+    callerWith({ role: 'worker', scope: { kind: 'subtree', rootId: id } })
+
+  it('a subtree caller subscribes ITSELF (issue subscriber = its root)', async () => {
+    const s = await scopedTo(A.id).issues.subscriptionAdd({
+      event: 'issue.closed',
+      source: { kind: 'issue', ref: A.id },
+    })
+    expect(s.subscriberKind).toBe('issue')
+    expect(s.subscriberId).toBe(A.id)
+    expect(s.origin).toBe('custom')
+    expect(s.enabled).toBe(true)
+  })
+
+  it('a subtree caller cannot watch an issue source outside its subtree', async () => {
+    await expect(
+      scopedTo(A.id).issues.subscriptionAdd({
+        event: 'issue.closed',
+        source: { kind: 'issue', ref: B.id },
+      }),
+    ).rejects.toThrow(/outside your subtree/)
+  })
+
+  it('a relationship source is always in-scope', async () => {
+    await expect(
+      scopedTo(A.id).issues.subscriptionAdd({
+        event: 'session.finished',
+        source: { kind: 'relationship', ref: 'my-children' },
+      }),
+    ).resolves.toBeTruthy()
+  })
+
+  it("subscriptionList returns only the caller's own rows; operator sees all", async () => {
+    await scopedTo(A.id).issues.subscriptionAdd({
+      event: 'issue.closed',
+      source: { kind: 'issue', ref: A.id },
+    })
+    await scopedTo(B.id).issues.subscriptionAdd({
+      event: 'issue.closed',
+      source: { kind: 'issue', ref: B.id },
+    })
+    expect((await scopedTo(A.id).issues.subscriptionList()).length).toBe(1)
+    expect((await scopedTo(B.id).issues.subscriptionList()).length).toBe(1)
+    expect((await callerWith(OPERATOR).issues.subscriptionList()).length).toBe(2)
+  })
+
+  it('a subtree caller may only remove its OWN subscription', async () => {
+    const sa = await scopedTo(A.id).issues.subscriptionAdd({
+      event: 'issue.closed',
+      source: { kind: 'issue', ref: A.id },
+    })
+    await expect(scopedTo(B.id).issues.subscriptionRemove({ id: sa.id })).rejects.toThrow(
+      /do not own/,
+    )
+    await expect(scopedTo(A.id).issues.subscriptionRemove({ id: sa.id })).resolves.toMatchObject({
+      removed: true,
+    })
   })
 })

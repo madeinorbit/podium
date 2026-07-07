@@ -22,7 +22,7 @@ import { isMemberCwd, sessionsForIssue, slugifyBranch, summarizeSessions } from 
 import { buildAssistantMessages, parseAssistantJson } from './issueAssistant'
 import { type LinearIssue, searchIssues } from './linear'
 import { llmClient } from './llm'
-import type { IssueMessageRow, IssueRow, SessionStore } from './store'
+import type { IssueMessageRow, IssueRow, SessionStore, Subscription } from './store'
 
 /** Read-gated auto-archive window (issue #127): a done+read issue auto-archives
  *  this long after it was read. Reading starts the clock; unread issues wait. */
@@ -896,6 +896,50 @@ export class IssueService {
     opts?: { kinds?: string[]; repoPath?: string; limit?: number },
   ): ReturnType<SessionStore['listEventsSince']> {
     return this.deps.store.listEventsSince(sinceId, opts)
+  }
+
+  // ---- event subscriptions (event-subscriptions design, Phase B) ----
+
+  /** Create a subscription. The subscriber (who is notified) and the source (what is
+   *  watched) are resolved by the caller; here we mint the id/timestamp and default
+   *  it enabled. `sourceRef` for an issue/session source is stored as given — an
+   *  issue ref is resolved to its internal id so relationship/subject matching is
+   *  stable across #seq churn. */
+  subscriptionAdd(input: {
+    subscriberKind: Subscription['subscriberKind']
+    subscriberId: string
+    event: string
+    sourceKind: Subscription['sourceKind']
+    sourceRef: string
+    deliverNudge?: boolean
+    deliverNotify?: boolean
+    origin?: Subscription['origin']
+  }): Subscription {
+    const sub: Subscription = {
+      id: `sub_${randomUUID()}`,
+      subscriberKind: input.subscriberKind,
+      subscriberId: input.subscriberId,
+      event: input.event,
+      sourceKind: input.sourceKind,
+      sourceRef: input.sourceKind === 'issue' ? this.resolveRef(input.sourceRef) : input.sourceRef,
+      deliverNudge: input.deliverNudge ?? true,
+      deliverNotify: input.deliverNotify ?? false,
+      origin: input.origin ?? 'custom',
+      enabled: true,
+      createdAt: this.now(),
+    }
+    this.deps.store.addSubscription(sub)
+    return sub
+  }
+
+  subscriptionRemove(id: string): { removed: boolean } {
+    const existed = this.deps.store.listSubscriptions().some((s) => s.id === id)
+    this.deps.store.removeSubscription(id)
+    return { removed: existed }
+  }
+
+  subscriptionList(filter?: { subscriberId?: string }): Subscription[] {
+    return this.deps.store.listSubscriptions(filter)
   }
 
   /** The agent-facing context string injected at session start / on demand. Bound = the agent's

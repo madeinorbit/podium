@@ -514,6 +514,84 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
     },
   },
   {
+    // Event subscriptions (Phase B): THIS agent asks to be told when an event fires.
+    // subscription add <event> --source-kind relationship|issue|session --source-ref <ref>
+    //   [--nudge] [--notify] · subscription list · subscription remove <id>.
+    name: 'subscription',
+    summary:
+      'Subscribe THIS agent to events: subscription add <event> --source-kind relationship|issue|session --source-ref <ref> [--nudge] [--notify] · subscription list · subscription remove <id>. Events: issue.closed, issue.stage_changed:review, session.finished/errored/waiting. Relationship refs: my-children, my-subtree.',
+    args: z.object({
+      sub: z.enum(['add', 'remove', 'list']),
+      ref: z.string().optional(),
+      sourceKind: z.enum(['relationship', 'issue', 'session']).optional(),
+      sourceRef: z.string().optional(),
+      nudge: z.boolean().optional(),
+      notify: z.boolean().optional(),
+    }),
+    positionals: ['sub', 'ref'],
+    async run(c, a) {
+      switch (a.sub as string) {
+        case 'add': {
+          if (!a.ref)
+            throw new Error(
+              'subscription add needs an event: subscription add <event> --source-kind … --source-ref …',
+            )
+          if (!a.sourceKind || !a.sourceRef)
+            throw new Error('subscription add needs --source-kind and --source-ref')
+          const deliver =
+            a.nudge != null || a.notify != null
+              ? {
+                  ...(a.nudge != null ? { nudge: a.nudge as boolean } : {}),
+                  ...(a.notify != null ? { notify: a.notify as boolean } : {}),
+                }
+              : undefined
+          const s = (await c.issues.subscriptionAdd.mutate({
+            event: a.ref as string,
+            source: { kind: a.sourceKind as never, ref: a.sourceRef as string },
+            ...(deliver ? { deliver } : {}),
+          })) as { id: string; event: string; sourceKind: string; sourceRef: string }
+          return {
+            text: `subscribed ${s.id}: ${s.event} <- ${s.sourceKind}:${s.sourceRef}`,
+            data: s,
+          }
+        }
+        case 'remove': {
+          if (!a.ref) throw new Error('subscription remove needs an id: subscription remove <id>')
+          const r = (await c.issues.subscriptionRemove.mutate({ id: a.ref as string })) as {
+            removed: boolean
+          }
+          return {
+            text: r.removed ? `removed ${a.ref}` : `no such subscription: ${a.ref}`,
+            data: r,
+          }
+        }
+        case 'list': {
+          const rows = (await c.issues.subscriptionList.query()) as {
+            id: string
+            event: string
+            sourceKind: string
+            sourceRef: string
+            enabled: boolean
+            deliverNudge: boolean
+            deliverNotify: boolean
+          }[]
+          const fmt = (s: (typeof rows)[number]) => {
+            const deliver =
+              [s.deliverNudge && 'nudge', s.deliverNotify && 'notify'].filter(Boolean).join(',') ||
+              'none'
+            return `${s.id} ${s.event} <- ${s.sourceKind}:${s.sourceRef}${s.enabled ? '' : ' (disabled)'} [${deliver}]`
+          }
+          return {
+            text: rows.length ? rows.map(fmt).join('\n') : '(no subscriptions)',
+            data: rows,
+          }
+        }
+        default:
+          throw new Error(`unknown subscription subcommand: ${a.sub}`)
+      }
+    },
+  },
+  {
     name: 'search',
     summary: 'Search issues (--text --status --priority --type --label …).',
     args: z.object({

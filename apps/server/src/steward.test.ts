@@ -568,3 +568,179 @@ describe('StewardService gating and resilience', () => {
     warn.mockRestore()
   })
 })
+
+describe('StewardService stored subscriptions (Phase B)', () => {
+  const seedSub = (
+    over: Partial<import('./store').Subscription>,
+  ): import('./store').Subscription => ({
+    id: 'sub_x',
+    subscriberKind: 'issue',
+    subscriberId: 'iss_p',
+    event: 'issue.closed',
+    sourceKind: 'issue',
+    sourceRef: 'iss_x',
+    deliverNudge: true,
+    deliverNotify: false,
+    origin: 'custom',
+    enabled: true,
+    createdAt: 't',
+    ...over,
+  })
+
+  it('an issue-event subscription fires once and dedups on cursor-rewind replay', async () => {
+    const sessions = [fakeSession({ sessionId: 'psess', cwd: '/r/.worktrees/p' })]
+    const { store, issues, steward, sendTextWhenReady } = harness({ sessions })
+    const p = issues.create({ repoPath: '/r', title: 'Watcher', startNow: false })
+    issues.update(p.id, { worktreePath: '/r/.worktrees/p' })
+    const x = issues.create({ repoPath: '/r', title: 'Target', startNow: false })
+    store.addSubscription(seedSub({ id: 'sub_1', subscriberId: p.id, sourceRef: x.id }))
+    issues.close(x.id)
+    await steward.tick()
+    expect(sendTextWhenReady).toHaveBeenCalledTimes(1)
+    const [target, text] = sendTextWhenReady.mock.calls[0] as [string, string]
+    expect(target).toBe('psess')
+    expect(text).not.toContain('`')
+    expect(text).not.toContain('\n')
+    // Crash-replay: the same close event is re-read but never re-delivered.
+    store.setStewardState('cursor', '0')
+    await steward.tick()
+    expect(sendTextWhenReady).toHaveBeenCalledTimes(1)
+  })
+
+  it('a session.finished subscription nudges the subscriber session', async () => {
+    const sessions = [
+      fakeSession({ sessionId: 'watcher', cwd: '/w' }),
+      fakeSession({ sessionId: 'worker', cwd: '/x' }),
+    ]
+    const { store, steward, sendTextWhenReady } = harness({ sessions })
+    store.addSubscription(
+      seedSub({
+        id: 'sub_s',
+        subscriberKind: 'session',
+        subscriberId: 'watcher',
+        event: 'session.finished',
+        sourceKind: 'session',
+        sourceRef: 'worker',
+      }),
+    )
+    // Non-finished phases are ignored; only idle+done derives session.finished.
+    store.appendEvent({
+      ts: 't',
+      kind: 'session.phase',
+      subject: 'worker',
+      payload: { phase: 'active' },
+    })
+    store.appendEvent({
+      ts: 't',
+      kind: 'session.phase',
+      subject: 'worker',
+      payload: { phase: 'idle', verdict: 'done' },
+    })
+    await steward.tick()
+    expect(sendTextWhenReady).toHaveBeenCalledTimes(1)
+    expect((sendTextWhenReady.mock.calls[0] as [string, string])[0]).toBe('watcher')
+  })
+
+  it("resolves a 'my-children' relationship source for a child session.finished", async () => {
+    const sessions: SessionMeta[] = []
+    const { store, issues, steward, sendTextWhenReady } = harness({ sessions })
+    const epic = issues.create({ repoPath: '/r', title: 'Epic', startNow: false })
+    issues.update(epic.id, { worktreePath: '/r/.worktrees/epic' })
+    const child = issues.create({
+      repoPath: '/r',
+      title: 'Child',
+      parentId: epic.id,
+      startNow: false,
+    })
+    const outsider = issues.create({ repoPath: '/r', title: 'Outsider', startNow: false })
+    // Sessions bound (issueId) to the child vs an unrelated issue; the parent's own
+    // session receives the nudge. Pushed after creation so ids are known.
+    sessions.push(
+      fakeSession({ sessionId: 'psess', cwd: '/r/.worktrees/epic', issueId: epic.id }),
+      fakeSession({ sessionId: 'kid', cwd: '/k', issueId: child.id }),
+      fakeSession({ sessionId: 'stranger', cwd: '/s', issueId: outsider.id }),
+    )
+    store.addSubscription(
+      seedSub({
+        id: 'sub_rel',
+        subscriberId: epic.id,
+        event: 'session.finished',
+        sourceKind: 'relationship',
+        sourceRef: 'my-children',
+      }),
+    )
+    // A non-child session finishing does NOT deliver.
+    store.appendEvent({
+      ts: 't',
+      kind: 'session.phase',
+      subject: 'stranger',
+      payload: { phase: 'idle', verdict: 'done' },
+    })
+    await steward.tick()
+    expect(sendTextWhenReady).not.toHaveBeenCalled()
+    // The child session finishing DOES — its bound issue's parent is the subscriber.
+    store.appendEvent({
+      ts: 't',
+      kind: 'session.phase',
+      subject: 'kid',
+      payload: { phase: 'idle', verdict: 'done' },
+    })
+    await steward.tick()
+    expect(sendTextWhenReady).toHaveBeenCalledTimes(1)
+    expect((sendTextWhenReady.mock.calls[0] as [string, string])[0]).toBe('psess')
+  })
+
+  it('a disabled subscription is silent', async () => {
+    const sessions = [fakeSession({ sessionId: 'psess', cwd: '/r/.worktrees/p' })]
+    const { store, issues, steward, sendTextWhenReady } = harness({ sessions })
+    const p = issues.create({ repoPath: '/r', title: 'Watcher', startNow: false })
+    issues.update(p.id, { worktreePath: '/r/.worktrees/p' })
+    const x = issues.create({ repoPath: '/r', title: 'Target', startNow: false })
+    store.addSubscription(
+      seedSub({ id: 'sub_off', subscriberId: p.id, sourceRef: x.id, enabled: false }),
+    )
+    issues.close(x.id)
+    await steward.tick()
+    expect(sendTextWhenReady).not.toHaveBeenCalled()
+  })
+
+  it('suppresses the nudge to the session that caused the source event (#116)', async () => {
+    const sessions = [
+      fakeSession({ sessionId: 'causer', cwd: '/r/.worktrees/p' }),
+      fakeSession({ sessionId: 'other', cwd: '/r/.worktrees/p' }),
+    ]
+    const { store, issues, steward, sendTextWhenReady } = harness({ sessions })
+    const p = issues.create({ repoPath: '/r', title: 'Watcher', startNow: false })
+    issues.update(p.id, { worktreePath: '/r/.worktrees/p' })
+    const x = issues.create({ repoPath: '/r', title: 'Target', startNow: false })
+    store.addSubscription(seedSub({ id: 'sub_c', subscriberId: p.id, sourceRef: x.id }))
+    issues.close(x.id, 'done', { actorSessionId: 'causer' })
+    await steward.tick()
+    const targets = sendTextWhenReady.mock.calls.map((c) => (c as [string, string])[0])
+    expect(targets).toEqual(['other'])
+  })
+
+  it('deliverNotify appends a steward.notify breadcrumb', async () => {
+    const { store, issues, steward, sendTextWhenReady } = harness()
+    const p = issues.create({ repoPath: '/r', title: 'Watcher', startNow: false })
+    const x = issues.create({ repoPath: '/r', title: 'Target', startNow: false })
+    store.addSubscription(
+      seedSub({
+        id: 'sub_n',
+        subscriberId: p.id,
+        sourceRef: x.id,
+        deliverNudge: false,
+        deliverNotify: true,
+      }),
+    )
+    issues.close(x.id)
+    await steward.tick()
+    expect(sendTextWhenReady).not.toHaveBeenCalled()
+    const crumbs = store.listEventsSince(0, { kinds: ['steward.notify'] })
+    expect(crumbs.length).toBe(1)
+    expect(crumbs[0]).toMatchObject({
+      subject: p.id,
+      payload: { subscriptionId: 'sub_n', event: 'issue.closed' },
+    })
+  })
+})

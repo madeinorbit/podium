@@ -100,6 +100,13 @@ export const PROC_ACTION: Record<string, IssueAction> = {
   // behalf of the reader, not issue mutation — viewers may check mail.
   mailInbox: 'read',
   mailPending: 'read',
+  // event subscriptions (Phase B): add/remove operate on the CALLER's own
+  // subscriptions (subscriber = the caller), so like mailSend they are 'write'
+  // with no existing-issue target — the source-within-subtree check lives in the
+  // proc itself (no SCOPED_TARGET entry). list is a read of the caller's own rows.
+  subscriptionAdd: 'write',
+  subscriptionRemove: 'write',
+  subscriptionList: 'read',
   // manage — structural / destructive / cross-cutting
   archive: 'manage',
   delete: 'manage',

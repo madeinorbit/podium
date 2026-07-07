@@ -202,6 +202,42 @@ export interface IssueMessageRow {
   claimedAt: string | null
 }
 
+/** A durable event subscription (event-subscriptions design, Phase B). The steward
+ *  matches enabled rows against every polled event; a match resolves `source` to the
+ *  event's subject and delivers per `deliverNudge`/`deliverNotify`. */
+export interface Subscription {
+  id: string
+  /** Who is notified: a session (in-session nudge) or an issue (its member sessions). */
+  subscriberKind: 'session' | 'issue'
+  subscriberId: string
+  /** The subscription-event kind matched (e.g. 'issue.closed', 'session.finished'). */
+  event: string
+  /** What is watched: a dynamic relationship, or an explicit issue / session id. */
+  sourceKind: 'relationship' | 'issue' | 'session'
+  sourceRef: string
+  deliverNudge: boolean
+  deliverNotify: boolean
+  origin: 'default' | 'custom'
+  enabled: boolean
+  createdAt: string
+}
+
+function rowToSubscription(r: Record<string, unknown>): Subscription {
+  return {
+    id: r.id as string,
+    subscriberKind: r.subscriber_kind as Subscription['subscriberKind'],
+    subscriberId: r.subscriber_id as string,
+    event: r.event as string,
+    sourceKind: r.source_kind as Subscription['sourceKind'],
+    sourceRef: r.source_ref as string,
+    deliverNudge: Number(r.deliver_nudge) !== 0,
+    deliverNotify: Number(r.deliver_notify) !== 0,
+    origin: r.origin as Subscription['origin'],
+    enabled: Number(r.enabled) !== 0,
+    createdAt: r.created_at as string,
+  }
+}
+
 /** One row of the conversation index (camelCase mirror of `conversations`). */
 export interface ConversationIndexRow {
   id: string
@@ -1741,6 +1777,66 @@ export class SessionStore {
       .run(key, value)
   }
 
+  // ---- event subscriptions (event-subscriptions design, Phase B) ----
+
+  addSubscription(sub: Subscription): void {
+    this.db
+      .prepare(
+        `INSERT INTO subscriptions
+           (id, subscriber_kind, subscriber_id, event, source_kind, source_ref,
+            deliver_nudge, deliver_notify, origin, enabled, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        sub.id,
+        sub.subscriberKind,
+        sub.subscriberId,
+        sub.event,
+        sub.sourceKind,
+        sub.sourceRef,
+        sub.deliverNudge ? 1 : 0,
+        sub.deliverNotify ? 1 : 0,
+        sub.origin,
+        sub.enabled ? 1 : 0,
+        sub.createdAt,
+      )
+  }
+
+  removeSubscription(id: string): void {
+    this.db.prepare('DELETE FROM subscriptions WHERE id = ?').run(id)
+  }
+
+  listSubscriptions(filter?: { subscriberId?: string }): Subscription[] {
+    const where: string[] = []
+    const params: unknown[] = []
+    if (filter?.subscriberId) {
+      where.push('subscriber_id = ?')
+      params.push(filter.subscriberId)
+    }
+    const sql = `SELECT * FROM subscriptions${where.length ? ` WHERE ${where.join(' AND ')}` : ''} ORDER BY created_at ASC`
+    const rows = this.db.prepare(sql).all(...(params as never[])) as Record<string, unknown>[]
+    return rows.map(rowToSubscription)
+  }
+
+  listEnabledSubscriptions(): Subscription[] {
+    const rows = this.db
+      .prepare('SELECT * FROM subscriptions WHERE enabled = 1 ORDER BY created_at ASC')
+      .all() as Record<string, unknown>[]
+    return rows.map(rowToSubscription)
+  }
+
+  /** Record a (subscription, event) delivery. Returns true only when the pair was
+   *  NEWLY inserted — a replay (or a same-poll double-match) returns false so the
+   *  steward delivers exactly once. */
+  markDelivered(subscriptionId: string, eventId: number): boolean {
+    const r = this.db
+      .prepare(
+        'INSERT OR IGNORE INTO subscription_deliveries (subscription_id, event_id) VALUES (?, ?)',
+      )
+      .run(subscriptionId, eventId)
+    return Number(r.changes) > 0
+  }
+
   /** One-time, idempotent: mirror legacy issues.blocked_by arrays into issue_deps. */
   private backfillIssueDeps(): void {
     const rows = this.db
@@ -2866,6 +2962,38 @@ export class SessionStore {
       `CREATE TABLE IF NOT EXISTS steward_state (
          key   TEXT PRIMARY KEY,
          value TEXT NOT NULL
+       )`,
+    )
+    // Durable event subscriptions (event-subscriptions design, Phase B): an agent
+    // (or the seeded defaults) subscribes a subscriber to an event whose source
+    // resolves to the event's subject. The steward matches enabled rows on every
+    // poll and delivers per deliver_nudge/deliver_notify.
+    this.db.exec(
+      `CREATE TABLE IF NOT EXISTS subscriptions (
+         id              TEXT PRIMARY KEY,
+         subscriber_kind TEXT NOT NULL,
+         subscriber_id   TEXT NOT NULL,
+         event           TEXT NOT NULL,
+         source_kind     TEXT NOT NULL,
+         source_ref      TEXT NOT NULL,
+         deliver_nudge   INTEGER NOT NULL DEFAULT 1,
+         deliver_notify  INTEGER NOT NULL DEFAULT 0,
+         origin          TEXT NOT NULL DEFAULT 'custom',
+         enabled         INTEGER NOT NULL DEFAULT 1,
+         created_at      TEXT NOT NULL
+       )`,
+    )
+    this.db.exec(
+      'CREATE INDEX IF NOT EXISTS idx_subscriptions_subscriber ON subscriptions(subscriber_id)',
+    )
+    // Idempotent, replay-safe delivery ledger: one row per (subscription, event)
+    // actually delivered. markDelivered's INSERT OR IGNORE is the dedup — a
+    // cursor-rewind replay re-matches but never re-delivers.
+    this.db.exec(
+      `CREATE TABLE IF NOT EXISTS subscription_deliveries (
+         subscription_id TEXT NOT NULL,
+         event_id        INTEGER NOT NULL,
+         PRIMARY KEY (subscription_id, event_id)
        )`,
     )
     this.backfillIssueDeps()

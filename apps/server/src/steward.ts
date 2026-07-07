@@ -2,7 +2,7 @@ import type { PodiumSettings } from '@podium/core'
 import type { IssueWire, SessionMeta } from '@podium/protocol'
 import { sessionsForIssue } from './issue-util'
 import type { IssueService } from './issues'
-import type { SessionStore } from './store'
+import type { SessionStore, Subscription } from './store'
 
 /** One row read back from the durable event log (`podium_events`). */
 export interface StewardEvent {
@@ -67,6 +67,16 @@ interface ChildParentSub {
 const NUDGE_TAIL = 'See the steward comment, or run: podium issue prime'
 const firstLineCapped = (s: string): string => (s.split('\n')[0] ?? '').slice(0, 200).trim()
 
+/** The single-line nudge a stored subscription delivers. Deliberately generic and
+ *  backtick-free (defense in depth, like the fixed handlers) — a per-subscription
+ *  message template is Phase C. First-line-capped so a subject can never inject a
+ *  newline. */
+function subscriptionNudge(sub: Subscription, e: StewardEvent): string {
+  return firstLineCapped(
+    `Subscription: ${sub.event} fired for ${e.subject}. Run: podium issue prime`,
+  ).replace(/`/g, '')
+}
+
 export const CHILD_PARENT_SUBS: Record<string, ChildParentSub> = {
   closed: {
     marker: (s) => `Child #${s} closed:`,
@@ -87,15 +97,49 @@ export const CHILD_PARENT_SUBS: Record<string, ChildParentSub> = {
   },
 }
 
+/**
+ * The subscription-event kind(s) a raw log event qualifies as, or [] if it is not
+ * subscribable (see the event-subscriptions design). Two derivations:
+ *  - `session.phase` → a SEMANTIC session kind so subscriptions stay filter-free:
+ *    idle+done → 'session.finished', errored → 'session.errored',
+ *    needs_user → 'session.waiting'. All other phases (started/stopped/…) are ignored.
+ *  - `issue.*` → the raw kind; `issue.stage_changed` ALSO yields the
+ *    `issue.stage_changed:<to>` variant so a subscription can target `:review`.
+ * Everything else (steward.* breadcrumbs, etc.) is not subscribable.
+ */
+export function subscriptionEventKinds(e: StewardEvent): string[] {
+  if (e.kind === 'session.phase') {
+    const p = e.payload as { phase?: string; verdict?: string } | null
+    if (p?.phase === 'idle' && p.verdict === 'done') return ['session.finished']
+    if (p?.phase === 'errored') return ['session.errored']
+    if (p?.phase === 'needs_user') return ['session.waiting']
+    return []
+  }
+  if (e.kind.startsWith('issue.')) {
+    if (e.kind === 'issue.stage_changed') {
+      const to = (e.payload as { to?: string } | null)?.to
+      return to ? ['issue.stage_changed', `issue.stage_changed:${to}`] : ['issue.stage_changed']
+    }
+    return [e.kind]
+  }
+  return []
+}
+
 /** Everything the steward needs, injected. `issues` is a narrow seam on purpose:
  *  mutations run in-process as author 'steward' today, and a capability-gated
  *  caller can replace the same surface later without touching the registry. */
 export interface StewardDeps {
   store: Pick<
     SessionStore,
-    'listEventsSince' | 'getStewardState' | 'setStewardState' | 'appendEvent' | 'maxEventId'
+    | 'listEventsSince'
+    | 'getStewardState'
+    | 'setStewardState'
+    | 'appendEvent'
+    | 'maxEventId'
+    | 'listEnabledSubscriptions'
+    | 'markDelivered'
   >
-  issues: Pick<IssueService, 'get' | 'list' | 'addComment'>
+  issues: Pick<IssueService, 'get' | 'list' | 'addComment' | 'ancestorIds'>
   listSessions: () => SessionMeta[]
   /** Durable-queue a nudge into a live session (relay.queueText). */
   sendTextWhenReady: (sessionId: string, text: string) => void
@@ -203,7 +247,129 @@ export class StewardService {
         console.warn(`[podium:steward] handler for ${key} failed:`, err)
       }
     }
+    // Second pass: the durable subscription model over the SAME polled events. The
+    // hard-coded rules above are the seeded defaults; stored subscriptions layer on
+    // top without disturbing them. Dedup is per (subscription, event) via the store,
+    // so a cursor-rewind replay re-matches but never re-delivers.
+    this.dispatchSubscriptions(events)
     this.deps.store.setStewardState(CURSOR_KEY, String(events[events.length - 1]!.id))
+  }
+
+  /**
+   * Match each polled event against the enabled stored subscriptions and deliver.
+   * Per-subscription try/catch keeps the same drop-don't-wedge guarantee as the
+   * fixed handlers — one bad subscription never stalls the queue or blocks the
+   * cursor advance.
+   */
+  private dispatchSubscriptions(events: StewardEvent[]): void {
+    const subs = this.deps.store.listEnabledSubscriptions()
+    if (subs.length === 0) return
+    const sessions = this.deps.listSessions()
+    for (const e of events) {
+      const kinds = subscriptionEventKinds(e)
+      if (kinds.length === 0) continue
+      const isSession = e.kind === 'session.phase'
+      // Session events carry a sessionId subject; resolve its bound issue so an
+      // issue/relationship source can match on the work, not the raw session id.
+      const srcSession = isSession ? sessions.find((s) => s.sessionId === e.subject) : undefined
+      const srcIssueId = isSession ? (srcSession?.issueId ?? null) : e.subject
+      for (const sub of subs) {
+        if (!kinds.includes(sub.event)) continue
+        try {
+          if (this.sourceMatches(sub, { isSession, subject: e.subject, srcIssueId }, sessions)) {
+            this.deliverSubscription(sub, e, sessions)
+          }
+        } catch (err) {
+          console.warn(`[podium:steward] subscription ${sub.id} failed:`, err)
+        }
+      }
+    }
+  }
+
+  /** Does the subscription's `source` resolve to include this event's subject?
+   *  - session source: exact sessionId (session events only).
+   *  - issue source: the event issue itself, or (for session events) the session's
+   *    bound issue.
+   *  - relationship source: resolved against the SUBSCRIBER's issue — 'my-children'
+   *    (event issue's parent is the subscriber) / 'my-subtree' (subscriber is an
+   *    ancestor). 'my-blockers'/'my-parent' are not yet resolvable here (TODO). */
+  private sourceMatches(
+    sub: Subscription,
+    ev: { isSession: boolean; subject: string; srcIssueId: string | null },
+    sessions: SessionMeta[],
+  ): boolean {
+    if (sub.sourceKind === 'session') {
+      return ev.isSession && sub.sourceRef === ev.subject
+    }
+    if (sub.sourceKind === 'issue') {
+      return ev.srcIssueId != null && sub.sourceRef === ev.srcIssueId
+    }
+    // relationship
+    if (ev.srcIssueId == null) return false
+    const anchor = this.subscriberIssueId(sub, sessions)
+    if (!anchor) return false
+    if (sub.sourceRef === 'my-children') {
+      return this.deps.issues.get(ev.srcIssueId)?.parentId === anchor
+    }
+    if (sub.sourceRef === 'my-subtree') {
+      return this.deps.issues.ancestorIds(ev.srcIssueId).includes(anchor)
+    }
+    // my-blockers / my-parent: not trivially resolvable at this layer yet.
+    return false
+  }
+
+  /** The issue a subscription's relationship source is anchored on: the subscriber
+   *  issue itself, or (for a session subscriber) that session's bound issue. */
+  private subscriberIssueId(sub: Subscription, sessions: SessionMeta[]): string | undefined {
+    if (sub.subscriberKind === 'issue') return sub.subscriberId
+    return sessions.find((s) => s.sessionId === sub.subscriberId)?.issueId ?? undefined
+  }
+
+  /** Deliver a matched subscription exactly once (markDelivered dedup). nudge →
+   *  the subscriber's live/starting non-shell sessions (minus the causer, #116);
+   *  notify → a durable `steward.notify` breadcrumb (the UI consumer is Phase C).
+   *  The nudge stays single-line with no backticks, mirroring the fixed handlers. */
+  private deliverSubscription(sub: Subscription, e: StewardEvent, sessions: SessionMeta[]): void {
+    // Idempotent, replay-safe: only a NEWLY-recorded delivery proceeds.
+    if (!this.deps.store.markDelivered(sub.id, e.id)) return
+    if (sub.deliverNudge) {
+      const causer = (e.payload as { causedBySessionId?: string } | null)?.causedBySessionId
+      const text = subscriptionNudge(sub, e)
+      const targets = this.subscriberNudgeTargets(sub, sessions).filter(
+        (s) =>
+          (s.status === 'live' || s.status === 'starting') &&
+          s.agentKind !== 'shell' &&
+          s.sessionId !== causer,
+      )
+      for (const s of targets) this.deps.sendTextWhenReady(s.sessionId, text)
+    }
+    if (sub.deliverNotify) {
+      this.deps.store.appendEvent({
+        ts: this.now(),
+        kind: 'steward.notify',
+        subject: sub.subscriberId,
+        repoPath: e.repoPath,
+        payload: {
+          subscriptionId: sub.id,
+          event: sub.event,
+          of: e.id,
+          sourceKind: e.kind,
+          eventSubject: e.subject,
+        },
+      })
+    }
+  }
+
+  /** The sessions a subscriber's nudge reaches: the one session for a `session`
+   *  subscriber, or the member sessions of an `issue` subscriber's worktree (same
+   *  no-resurrect/no-shell filtering the caller applies). */
+  private subscriberNudgeTargets(sub: Subscription, sessions: SessionMeta[]): SessionMeta[] {
+    if (sub.subscriberKind === 'session') {
+      return sessions.filter((s) => s.sessionId === sub.subscriberId)
+    }
+    const issue = this.deps.issues.get(sub.subscriberId)
+    if (!issue) return []
+    return sessionsForIssue(issue.worktreePath, sessions, issue.id)
   }
 
   /** For each newly-ready dependent: post an 'Unblocked by #<seq>' comment and
