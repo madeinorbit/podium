@@ -184,6 +184,9 @@ export async function startServer(
       token: upstreamConfig.token,
       store,
       onQueueChanged: () => registry.upstreamOutboxChanged(),
+      // A queued mutation the hub definitively rejects must be SURFACED, not just
+      // logged (#25): durable issue.upstream_rejected event + overlay retirement.
+      onPoisoned: (proc, input, message) => registry.upstreamMutationRejected(proc, input, message),
     })
     registry.setUpstreamForwarder(upstreamForwarder)
     const forwarder = upstreamForwarder

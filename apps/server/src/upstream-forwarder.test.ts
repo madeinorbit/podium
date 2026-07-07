@@ -166,13 +166,15 @@ describe('UpstreamForwarder.drain', () => {
     forwarder.stop()
   })
 
-  it('poison: a definitively rejected entry is dropped and the queue keeps draining', async () => {
+  it('poison: a definitively rejected entry is dropped, SURFACED via onPoisoned, and the queue keeps draining (#25)', async () => {
     const store = new SessionStore(':memory:')
     const seen: string[] = []
+    const poisoned: { proc: string; input: Record<string, unknown>; message: string }[] = []
     const forwarder = new UpstreamForwarder({
       store,
       retryMs: 20,
       sleep: async () => {},
+      onPoisoned: (proc, input, message) => poisoned.push({ proc, input, message }),
       call: async (_proc, input) => {
         seen.push(String(input.mutationId))
         if (input.mutationId === 'p1')
@@ -187,6 +189,12 @@ describe('UpstreamForwarder.drain', () => {
     await forwarder.drain()
     expect(seen).toEqual(['p1', 'p2']) // poison seen once, next entry proceeded
     expect(store.listUpstreamOutbox()).toHaveLength(0)
+    // The drop is surfaced, once, with the entry's own identity — not just logged.
+    expect(poisoned).toHaveLength(1)
+    expect(poisoned[0]).toMatchObject({
+      proc: 'delete',
+      input: { id: 'iss_poison', mutationId: 'p1' },
+    })
     forwarder.stop()
   })
 

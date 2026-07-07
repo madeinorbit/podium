@@ -1202,6 +1202,45 @@ export class SessionRegistry {
     this.publishIssues(this.safeIssuesList())
   }
 
+  /**
+   * A QUEUED forwarded mutation was dropped because the hub definitively rejected
+   * it (issue #25). The user's optimistic edit is LOST — surface it instead of a
+   * log line: retire the optimistic overlay NOW (keeping it would show state the
+   * hub refused), record a durable `issue.upstream_rejected` podium event, and
+   * flag the mirrored issue needsHuman (as an overlay — hub truth overwrites on
+   * its next push, but the durable event keeps the loss auditable). Wired as the
+   * forwarder's onPoisoned.
+   */
+  upstreamMutationRejected(proc: string, input: Record<string, unknown>, message: string): void {
+    const target = SCOPED_TARGET[proc]?.(input)
+    const mutationId = typeof input.mutationId === 'string' ? input.mutationId : null
+    if (typeof target === 'string') {
+      this.upstreamIssuePatches.delete(target)
+      const issue = this.upstreamIssues.get(target)
+      try {
+        this.store.appendEvent({
+          ts: new Date(this.now()).toISOString(),
+          kind: 'issue.upstream_rejected',
+          subject: target,
+          repoPath: issue?.repoPath ?? null,
+          payload: {
+            proc,
+            message,
+            ...(mutationId ? { mutationId } : {}),
+            ...(issue ? { seq: issue.seq } : {}),
+          },
+        })
+      } catch {}
+      if (issue) {
+        this.upstreamIssuePatches.set(target, {
+          needsHuman: true,
+          humanQuestion: `hub rejected queued '${proc}': ${message}`,
+        })
+      }
+    }
+    this.publishIssues(this.safeIssuesList())
+  }
+
   /** Outbox contents changed (enqueue/drain/poison-drop) — recompute pendingSync
    *  overlays and re-publish. Wired as the forwarder's onQueueChanged. */
   upstreamOutboxChanged(): void {

@@ -251,6 +251,51 @@ describe('upstream issue write forwarding (spec §2.2)', () => {
     expect(entry?.pendingSync).toBeUndefined()
   })
 
+  it('a hub-rejected queued mutation is surfaced: overlay retired + durable event + needsHuman marker (#25)', async () => {
+    const { registry, store } = makeNode()
+    const fwd = stubForwarder()
+    registry.setUpstreamForwarder(fwd)
+    registry.setUpstreamIssues([hubIssue('iss_hub1')])
+    // The edit queues (hub unreachable) and shows optimistically.
+    await registry.forwardIssueMutation('update', {
+      id: 'iss_hub1',
+      patch: { title: 'edit the hub refuses' },
+    })
+    expect(attachIssues(registry).find((i) => i.id === 'iss_hub1')?.title).toBe(
+      'edit the hub refuses',
+    )
+    const mutationId = String(fwd.forwarded[0]?.input.mutationId)
+    // The hub comes back and definitively rejects the queued entry (simulated 400):
+    // the forwarder drops it and fires onPoisoned → upstreamMutationRejected.
+    fwd.clear()
+    registry.upstreamMutationRejected(
+      'update',
+      { id: 'iss_hub1', patch: { title: 'edit the hub refuses' }, mutationId },
+      'BAD_REQUEST: title rejected',
+    )
+    registry.upstreamOutboxChanged() // the forwarder's onQueueChanged follows onPoisoned
+    const entry = attachIssues(registry).find((i) => i.id === 'iss_hub1')
+    // The lost edit no longer shows — the overlay was retired immediately.
+    expect(entry?.title).toBe('hub iss_hub1')
+    // The loss is visible on the issue…
+    expect(entry?.needsHuman).toBe(true)
+    expect(entry?.humanQuestion).toContain('BAD_REQUEST: title rejected')
+    // …and durably recorded as a podium event.
+    const events = store.listEventsSince(0).filter((e) => e.kind === 'issue.upstream_rejected')
+    expect(events).toHaveLength(1)
+    expect(events[0]?.subject).toBe('iss_hub1')
+    expect(events[0]?.payload).toMatchObject({
+      proc: 'update',
+      mutationId,
+      message: 'BAD_REQUEST: title rejected',
+    })
+    // The next hub truth push clears the marker (the event remains the audit trail).
+    registry.setUpstreamIssues([hubIssue('iss_hub1')])
+    const healed = attachIssues(registry).find((i) => i.id === 'iss_hub1')
+    expect(healed?.needsHuman).toBe(false)
+    expect(healed?.pendingSync).toBeUndefined()
+  })
+
   it('pendingSync flips hit the live wire (clients see the queue state without re-attach)', async () => {
     const { registry } = makeNode()
     const fwd = stubForwarder()

@@ -191,6 +191,34 @@ describe('scope-gate coverage (P1b)', () => {
     const missing = need.filter((p) => !Object.hasOwn(SCOPED_TARGET, p))
     expect(missing).toEqual([])
   })
+
+  // The other half of the completeness pair (#25): every issues.* MUTATION the
+  // router actually exposes must be declared in PROC_ACTION (unlisted ⇒ 'read',
+  // which would silently open a write to viewers). A new proc fails HERE, not in
+  // review. Enumerated from the router itself so the two can't drift.
+  const READ_AUTHORITY_MUTATIONS = new Set([
+    // markRead is a mutation in transport only — reading an issue marks it read,
+    // so it deliberately carries 'read' authority (see the router proc comment).
+    'markRead',
+  ])
+
+  it('every issues.* mutation exposed by the router is declared in PROC_ACTION', () => {
+    const procedures = (
+      appRouter as unknown as {
+        _def: { procedures: Record<string, { _def: { type: string } }> }
+      }
+    )._def.procedures
+    const mutations = Object.entries(procedures)
+      .filter(([name, p]) => name.startsWith('issues.') && p._def.type === 'mutation')
+      .map(([name]) => name.slice('issues.'.length))
+    expect(mutations.length).toBeGreaterThan(20) // the enumeration actually works
+    const missing = mutations.filter(
+      (p) => !Object.hasOwn(PROC_ACTION, p) && !READ_AUTHORITY_MUTATIONS.has(p),
+    )
+    expect(missing).toEqual([])
+    // And nothing hides behind the exemption list while ALSO being declared.
+    for (const p of READ_AUTHORITY_MUTATIONS) expect(PROC_ACTION[p]).toBeUndefined()
+  })
 })
 
 // Agent mail procs (#103): mailSend is deliberately cross-scope; mailClaim enforces

@@ -48,6 +48,12 @@ export interface UpstreamForwarderOptions {
   /** Fired whenever the outbox contents changed (enqueue/drain/poison-drop) so the
    *  registry can re-publish issue pendingSync flags. */
   onQueueChanged?: () => void
+  /** Fired when a QUEUED mutation is dropped because the hub definitively rejected
+   *  it (issue #25): the user's optimistic edit is LOST, and silently logging it
+   *  left the overlay showing state the hub refused. The registry surfaces it
+   *  (durable podium event + overlay retirement). `input` is the entry's parsed
+   *  input (mutationId included); `message` is the hub's rejection message. */
+  onPoisoned?: (proc: string, input: Record<string, unknown>, message: string) => void
   /** Yield between drained entries (watchdog pacing rule). */
   paceMs?: number
   /** Flat retry interval while entries remain queued. */
@@ -141,6 +147,9 @@ export class UpstreamForwarder {
   private readonly store: UpstreamOutboxStore
   private readonly call: (proc: string, input: Record<string, unknown>) => Promise<unknown>
   private readonly onQueueChanged: (() => void) | undefined
+  private readonly onPoisoned:
+    | ((proc: string, input: Record<string, unknown>, message: string) => void)
+    | undefined
   private readonly paceMs: number
   private readonly retryMs: number
   private readonly sleep: (ms: number) => Promise<void>
@@ -157,6 +166,7 @@ export class UpstreamForwarder {
   constructor(opts: UpstreamForwarderOptions) {
     this.store = opts.store
     this.onQueueChanged = opts.onQueueChanged
+    this.onPoisoned = opts.onPoisoned
     this.paceMs = opts.paceMs ?? DRAIN_PACE_MS
     this.retryMs = opts.retryMs ?? RETRY_MS
     this.sleep =
@@ -261,6 +271,15 @@ export class UpstreamForwarder {
               (err as Error).message,
             )
             this.store.deleteUpstreamMutation(entry.mutationId)
+            // Surface the loss BEFORE the queue-changed republish so the retired
+            // overlay and the rejection marker land in one wire update (#25).
+            try {
+              this.onPoisoned?.(
+                entry.proc,
+                { ...input, mutationId: entry.mutationId },
+                (err as Error).message,
+              )
+            } catch {}
             this.onQueueChanged?.()
           } else {
             this.store.bumpUpstreamMutationAttempts(entry.mutationId)

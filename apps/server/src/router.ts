@@ -21,7 +21,13 @@ import {
   CloudRuntimeUnavailableError,
   disabledCloudRuntimeProvider,
 } from './cloud-runtime'
-import { authorize, type Capability, PROC_ACTION, SCOPED_TARGET } from './issue-authz'
+import {
+  authorize,
+  type Capability,
+  checkIssueAccess,
+  PROC_ACTION,
+  SCOPED_TARGET,
+} from './issue-authz'
 import { buildJoinCommand } from './machines-join'
 import type { SessionRegistry } from './relay'
 import { normalizeOriginUrl } from './repo-id'
@@ -99,40 +105,18 @@ export { SCOPED_TARGET } from './issue-authz'
 const issueCapabilityGuard = t.middleware(async ({ ctx, path, next, getRawInput }) => {
   const proc = path.split('.').pop() ?? ''
   const action = PROC_ACTION[proc] ?? 'read'
-
-  // Role gate (no input needed): authorize with no issue = role decision.
-  if (authorize(ctx.capability, action) === 'forbidden') {
-    throw new TRPCError({ code: 'FORBIDDEN', message: `not allowed to '${proc}' issues` })
-  }
-
-  // Scope gate: only for constrained caps writing an existing target issue.
+  // Target extraction: only for constrained caps writing an existing target issue.
   const extract = ctx.capability.scope.kind !== 'all' ? SCOPED_TARGET[proc] : undefined
+  let targetId: string | undefined
   if (extract) {
     const rawTarget = extract((await getRawInput()) as Record<string, unknown>)
     // Resolve display refs (#seq) to the internal id BEFORE the subtree check —
     // scope.rootId is an internal id, so comparing the raw ref would false-negative
     // on the agent's own bound issue.
-    const targetId =
-      typeof rawTarget === 'string' ? ctx.registry.issues.resolveRef(rawTarget) : rawTarget
-    if (targetId && ctx.registry.issues.get(targetId)) {
-      const ancestorIds = ctx.registry.issues.ancestorIds(targetId)
-      const decision = authorize(
-        ctx.capability,
-        action,
-        { id: targetId, ancestorIds },
-        { override: ctx.overrideScope },
-      )
-      if (decision === 'confirm-required') {
-        throw new TRPCError({
-          code: 'PRECONDITION_FAILED',
-          message: `issue ${targetId} is outside your subtree; re-run with --outside-scope to confirm`,
-        })
-      }
-      if (decision === 'forbidden') {
-        throw new TRPCError({ code: 'FORBIDDEN', message: `not allowed to '${proc}' issues` })
-      }
-    }
+    targetId = typeof rawTarget === 'string' ? ctx.registry.issues.resolveRef(rawTarget) : rawTarget
   }
+  // The shared decision + throw shape (#25) — also used by the in-proc mailClaim gate.
+  checkIssueAccess(ctx, ctx.registry.issues, proc, action, targetId)
   return next()
 })
 const issueProc = t.procedure.use(issueCapabilityGuard)
@@ -1420,26 +1404,10 @@ export const appRouter = t.router({
           message: `unknown mail message ${input.messageId}`,
         })
       }
-      // Proc-level scope gate, mirroring issueCapabilityGuard: the guard cannot
-      // resolve message→issue from the input (SCOPED_TARGET.mailClaim), so the
-      // same authorize() decision runs here against the message's issue.
-      if (ctx.capability.scope.kind !== 'all') {
-        const decision = authorize(
-          ctx.capability,
-          'write',
-          { id: msg.issueId, ancestorIds: ctx.registry.issues.ancestorIds(msg.issueId) },
-          { override: ctx.overrideScope },
-        )
-        if (decision === 'confirm-required') {
-          throw new TRPCError({
-            code: 'PRECONDITION_FAILED',
-            message: `issue ${msg.issueId} is outside your subtree; re-run with --outside-scope to confirm`,
-          })
-        }
-        if (decision === 'forbidden') {
-          throw new TRPCError({ code: 'FORBIDDEN', message: "not allowed to 'mailClaim' issues" })
-        }
-      }
+      // Proc-level scope gate: the middleware cannot resolve message→issue from
+      // the input (SCOPED_TARGET.mailClaim), so the SAME shared check (#25) runs
+      // here against the message's issue — identical codes and messages.
+      checkIssueAccess(ctx, ctx.registry.issues, 'mailClaim', 'write', msg.issueId)
       return ctx.registry.issues.mailClaim(input.messageId, mailIdentity(ctx))
     }),
     mailPending: issueProc
