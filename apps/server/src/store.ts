@@ -1667,10 +1667,14 @@ export class SessionStore {
     this.deleteIssueMessagesForIssue(issueId)
   }
 
-  nextIssueSeq(repoPath: string): number {
-    const r = this.db
-      .prepare('SELECT MAX(seq) AS m FROM issues WHERE repo_path = ?')
-      .get(repoPath) as { m: number | null }
+  /** Next `#N` for a repo, scoped by the stable `repo_id` (not `repo_path`) so every
+   *  checkout of one origin shares a single seq sequence — two machines with different
+   *  paths can no longer mint colliding numbers (#140). Callers resolve the path to a
+   *  repo_id via {@link resolveRepoIdForPath} before allocating. */
+  nextIssueSeq(repoId: string): number {
+    const r = this.db.prepare('SELECT MAX(seq) AS m FROM issues WHERE repo_id = ?').get(repoId) as {
+      m: number | null
+    }
     return (r.m ?? 0) + 1
   }
 
@@ -2875,6 +2879,9 @@ export class SessionStore {
        )`,
     )
     this.db.exec('CREATE INDEX IF NOT EXISTS idx_issues_repo ON issues(repo_path)')
+    // repo_id is the identity/scoping key (#140): seq allocation, listing, and #N
+    // resolution all filter on it, so give it its own index alongside repo_path's.
+    this.db.exec('CREATE INDEX IF NOT EXISTS idx_issues_repo_id ON issues(repo_id)')
     // Additive rich-tracker columns (structural guard — no version marker bump). Fresh
     // DBs already have them from the CREATE above; live DBs gain them in place.
     const issueCols = new Set(
@@ -3188,6 +3195,75 @@ export class SessionStore {
         .run('schema_version', '9')
     this.importReposJson()
     this.backfillRepoIds()
+    // seq is now allocated/resolved per repo_id, so pre-existing rows where one origin
+    // was checked out at two paths (independent per-path sequences → colliding #N) must
+    // be de-collided. Idempotent (touches only live collisions), so — like the backfill
+    // above — it simply runs after every boot and no-ops once the DB is clean; no
+    // version gate needed. Runs AFTER the backfill so every row already has a repo_id.
+    this.renumberCollidingIssueSeqs()
+  }
+
+  /**
+   * Make `seq` unique per `repo_id` by renumbering the loser of each `(repo_id, seq)`
+   * collision. For each repo_id the canonical path is the one with the most issues
+   * (tie-break: path ascending); within a colliding seq the kept row is the one on the
+   * canonical path (then earliest created_at, then id), and every other row is bumped
+   * to append after that repo_id's current MAX(seq). Idempotent: a DB with no
+   * collisions is untouched. Returns the number of issues renumbered. Public for tests.
+   */
+  renumberCollidingIssueSeqs(): number {
+    const rows = this.db
+      .prepare('SELECT id, repo_id, repo_path, seq, created_at FROM issues')
+      .all() as {
+      id: string
+      repo_id: string | null
+      repo_path: string
+      seq: number
+      created_at: string
+    }[]
+    const byRepo = new Map<string, typeof rows>()
+    for (const r of rows) {
+      const rid = r.repo_id ?? this.resolveRepoIdForPath(r.repo_path)
+      const g = byRepo.get(rid)
+      if (g) g.push(r)
+      else byRepo.set(rid, [r])
+    }
+    const updates: { id: string; seq: number }[] = []
+    for (const group of byRepo.values()) {
+      const counts = new Map<string, number>()
+      for (const r of group) counts.set(r.repo_path, (counts.get(r.repo_path) ?? 0) + 1)
+      const canonPath = [...counts.entries()].sort(
+        (a, b) => b[1] - a[1] || a[0].localeCompare(b[0]),
+      )[0]![0]
+      const bySeq = new Map<number, typeof group>()
+      for (const r of group) {
+        const g = bySeq.get(r.seq)
+        if (g) g.push(r)
+        else bySeq.set(r.seq, [r])
+      }
+      let maxSeq = group.reduce((m, r) => Math.max(m, r.seq), 0)
+      for (const clash of bySeq.values()) {
+        if (clash.length < 2) continue
+        const ordered = [...clash].sort(
+          (a, b) =>
+            (a.repo_path === canonPath ? 0 : 1) - (b.repo_path === canonPath ? 0 : 1) ||
+            a.created_at.localeCompare(b.created_at) ||
+            a.id.localeCompare(b.id),
+        )
+        for (const loser of ordered.slice(1)) updates.push({ id: loser.id, seq: ++maxSeq })
+      }
+    }
+    if (updates.length === 0) return 0
+    const stmt = this.db.prepare('UPDATE issues SET seq = ? WHERE id = ?')
+    this.db.exec('BEGIN IMMEDIATE')
+    try {
+      for (const u of updates) stmt.run(u.seq, u.id)
+      this.db.exec('COMMIT')
+    } catch (e) {
+      this.db.exec('ROLLBACK')
+      throw e
+    }
+    return updates.length
   }
 
   /** v8 backfill (idempotent — only touches NULL repo_id rows, so it is safe to run

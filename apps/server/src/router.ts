@@ -111,9 +111,16 @@ const issueCapabilityGuard = t.middleware(async ({ ctx, path, next, getRawInput 
     const rawTarget = extract((await getRawInput()) as Record<string, unknown>)
     // Resolve display refs (#seq) to the internal id BEFORE the subtree check —
     // scope.rootId is an internal id, so comparing the raw ref would false-negative
-    // on the agent's own bound issue.
+    // on the agent's own bound issue. Scope the resolution to the bound issue's repo
+    // (by repo_id) so a bare `#N` disambiguates to the agent's own repo (#140).
+    const scopeRepoPath =
+      ctx.capability.scope.kind === 'subtree'
+        ? (ctx.registry.issues.get(ctx.capability.scope.rootId)?.repoPath ?? undefined)
+        : undefined
     const targetId =
-      typeof rawTarget === 'string' ? ctx.registry.issues.resolveRef(rawTarget) : rawTarget
+      typeof rawTarget === 'string'
+        ? ctx.registry.issues.resolveRef(rawTarget, scopeRepoPath)
+        : rawTarget
     if (targetId && ctx.registry.issues.get(targetId)) {
       const ancestorIds = ctx.registry.issues.ancestorIds(targetId)
       const decision = authorize(

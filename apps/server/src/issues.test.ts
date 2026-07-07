@@ -25,6 +25,37 @@ const sess = (cwd: string, phase = 'working'): SessionMeta =>
      geometry: { cols: 80, rows: 24 }, epoch: 0, clientCount: 0, createdAt: 't', lastActiveAt: 't',
      origin: { kind: 'spawn' }, archived: false, agentState: { phase, since: 't', openTaskCount: 0 } }) as unknown as SessionMeta
 
+describe('IssueService repo_id scoping (#140)', () => {
+  it('unifies one origin checked out at two paths into a single #N sequence', () => {
+    const { store, deps } = harness()
+    const origin = 'git@github.com:acme/app.git'
+    store.addRepo('/home/alice/app', 'm-alice', origin)
+    store.addRepo('/home/bob/app', 'm-bob', origin) // same origin ⇒ same repo_id
+    const svc = new IssueService(deps)
+    const a = svc.create({ repoPath: '/home/alice/app', title: 'from alice', startNow: false })
+    const b = svc.create({ repoPath: '/home/bob/app', title: 'from bob', startNow: false })
+    expect(a.seq).toBe(1)
+    expect(b.seq).toBe(2) // shared sequence — NOT two colliding #1s
+    // list from either checkout returns the unified set
+    expect(svc.list('/home/alice/app').map((i) => i.id).sort()).toEqual([a.id, b.id].sort())
+    expect(svc.list('/home/bob/app').map((i) => i.id).sort()).toEqual([a.id, b.id].sort())
+  })
+
+  it('resolveRef scopes a shared #N to the caller repo; unscoped stays ambiguous', () => {
+    const { store, deps } = harness()
+    store.addRepo('/repoA', 'mA', 'git@github.com:o/a.git')
+    store.addRepo('/repoB', 'mB', 'git@github.com:o/b.git') // distinct origins
+    const svc = new IssueService(deps)
+    const a = svc.create({ repoPath: '/repoA', title: 'A1', startNow: false })
+    const b = svc.create({ repoPath: '/repoB', title: 'B1', startNow: false })
+    expect(a.seq).toBe(1)
+    expect(b.seq).toBe(1) // different repos, each starts at #1
+    expect(svc.resolveRef('#1', '/repoA')).toBe(a.id) // scoped to caller's repo
+    expect(svc.resolveRef('#1', '/repoB')).toBe(b.id)
+    expect(() => svc.resolveRef('#1')).toThrow(/ambiguous issue ref #1/) // cross-repo, no scope
+  })
+})
+
 describe('IssueService CRUD', () => {
   it('creates a backlog issue (startNow=false), assigns seq, broadcasts', () => {
     const { svc, deps } = harness()

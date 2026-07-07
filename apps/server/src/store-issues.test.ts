@@ -36,16 +36,47 @@ describe('store issues', () => {
     expect(got?.blockedBy).toEqual(['iss_2'])
   })
 
-  it('lists by repo and increments seq per repo', () => {
+  it('lists by repo and increments seq per repo_id', () => {
     const s = new SessionStore(':memory:')
-    expect(s.nextIssueSeq('/r')).toBe(1)
+    const rid = (p: string) => s.resolveRepoIdForPath(p)
+    expect(s.nextIssueSeq(rid('/r'))).toBe(1)
     s.upsertIssue({ ...base(), id: 'a', repoPath: '/r', seq: 1 })
     s.upsertIssue({ ...base(), id: 'b', repoPath: '/r', seq: 2 })
     s.upsertIssue({ ...base(), id: 'c', repoPath: '/other', seq: 1 })
-    expect(s.nextIssueSeq('/r')).toBe(3)
-    expect(s.nextIssueSeq('/other')).toBe(2)
+    expect(s.nextIssueSeq(rid('/r'))).toBe(3)
+    expect(s.nextIssueSeq(rid('/other'))).toBe(2)
     expect(s.listIssueRows('/r').map((i) => i.id).sort()).toEqual(['a', 'b'])
     expect(s.listIssueRows().length).toBe(3)
+  })
+
+  it('allocates seq per repo_id — shared across checkout paths of one origin (#140)', () => {
+    const s = new SessionStore(':memory:')
+    const repoId = 'repo_shared_origin'
+    // Two checkouts of the SAME repo at DIFFERENT paths (e.g. two machines).
+    s.upsertIssue({ ...base(), id: 'a', repoPath: '/home/alice/proj', repoId, seq: 1 })
+    s.upsertIssue({ ...base(), id: 'b', repoPath: '/home/bob/proj', repoId, seq: 2 })
+    // One repo_id → one sequence; the next number is 3, not a per-path duplicate.
+    expect(s.nextIssueSeq(repoId)).toBe(3)
+  })
+
+  it('renumbers colliding seqs so seq is unique per repo_id, idempotently (#140)', () => {
+    const s = new SessionStore(':memory:')
+    const repoId = 'repo_dup'
+    // Same origin, two paths; canonical (majority) path /home/user + a loser path /home/till
+    // that minted colliding #4 (and a non-colliding #1).
+    s.upsertIssue({ ...base(), id: 'm3', repoPath: '/home/user/p', repoId, seq: 3 })
+    s.upsertIssue({ ...base(), id: 'm4', repoPath: '/home/user/p', repoId, seq: 4 })
+    s.upsertIssue({ ...base(), id: 'm5', repoPath: '/home/user/p', repoId, seq: 5 })
+    s.upsertIssue({ ...base(), id: 't4', repoPath: '/home/till/p', repoId, seq: 4 })
+    s.upsertIssue({ ...base(), id: 't1', repoPath: '/home/till/p', repoId, seq: 1 })
+    const n = s.renumberCollidingIssueSeqs()
+    expect(n).toBe(1) // only the colliding loser moves
+    expect(s.getIssue('m4')?.seq).toBe(4) // canonical path keeps #4
+    expect(s.getIssue('t4')?.seq).toBe(6) // loser appended after max(5) => 6
+    expect(s.getIssue('t1')?.seq).toBe(1) // non-colliding kept
+    const seqs = s.listIssueRows().map((i) => i.seq)
+    expect(new Set(seqs).size).toBe(seqs.length) // unique per repo_id
+    expect(s.renumberCollidingIssueSeqs()).toBe(0) // idempotent
   })
 
   it('deletes', () => {
