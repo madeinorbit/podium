@@ -112,6 +112,10 @@ export interface IssueDeps {
     args?: Record<string, string>,
     machineId?: string,
   ): Promise<{ ok: boolean; output: string }>
+  /** Pre-flight for an explicit machine pin: throws (actionable message) when the
+   *  machine is offline or lacks the repo. Injected by the relay; optional so
+   *  existing test deps literals stay valid. */
+  requireMachineForRepo?(machineId: string, repoPath: string): void
   broadcast(msg: ServerMessage): void
   now?(): string
   /** The session's explicit issue attachment (issue-as-workspace). Injected by
@@ -1391,6 +1395,7 @@ export class IssueService {
     const row = this.rowOrThrow(id)
     if (row.worktreePath) return this.toWire(row) // already started
     if (agentKind) row.defaultAgent = agentKind
+    if (row.machineId) this.d.requireMachineForRepo?.(row.machineId, row.repoPath)
     const branch = this.slug(row.seq, row.title)
     const path = this.worktreePathFor(row.repoPath, branch)
     const res = await this.d.repoOp(
@@ -1840,6 +1845,7 @@ export class IssueService {
   addSession(id: string, agentKind?: string): IssueWire {
     const row = this.rowOrThrow(id)
     if (!row.worktreePath) throw new Error('issue not started')
+    if (row.machineId) this.d.requireMachineForRepo?.(row.machineId, row.repoPath)
     this.d.spawnSession({
       cwd: row.worktreePath,
       agentKind: agentKind ?? row.defaultAgent,
