@@ -59,7 +59,9 @@ describe('appRouter', () => {
 
   it('sessions.create honors a client-provided sessionId verbatim (optimistic row reconciliation)', async () => {
     const { call } = caller()
-    const clientId = 'client-picked-session-id'
+    // The web client mints a v4 uuid (crypto.randomUUID); the input is uuid-bounded
+    // so a malformed id can't reach the durableLabel / systemd-scope layer.
+    const clientId = '11111111-1111-4111-8111-111111111111'
     const { sessionId } = await call.sessions.create({
       agentKind: 'claude-code',
       cwd: '/p',
@@ -68,6 +70,13 @@ describe('appRouter', () => {
     expect(sessionId).toBe(clientId)
     const list = await call.sessions.list()
     expect(list).toMatchObject([{ sessionId: clientId, cwd: '/p' }])
+  })
+
+  it('sessions.create rejects a non-uuid sessionId (guards the durableLabel/scope path)', async () => {
+    const { call } = caller()
+    await expect(
+      call.sessions.create({ agentKind: 'claude-code', cwd: '/p', sessionId: '../../evil' }),
+    ).rejects.toThrow()
   })
 
   it('sessions.create mints a random sessionId when omitted (unchanged default behavior)', async () => {

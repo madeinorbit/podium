@@ -840,7 +840,9 @@ export class SessionRegistry {
         ...(this.transcriptPathHint(s) ?? {}),
         // Spawn-time floor for observer-based harnesses (codex): lets a reattached
         // observer discover a lazily-created rollout it never saw before the restart.
-        ...(Number.isFinite(Date.parse(s.createdAt)) ? { createdAtMs: Date.parse(s.createdAt) } : {}),
+        ...(Number.isFinite(Date.parse(s.createdAt))
+          ? { createdAtMs: Date.parse(s.createdAt) }
+          : {}),
       })
     }
     // Headless sessions have no PTY to reattach; instead re-establish their
@@ -2555,6 +2557,13 @@ export class SessionRegistry {
     /** Client-supplied id (optimistic UI); absent = mint one (unchanged default). */
     sessionId?: string
   }): { sessionId: string } {
+    // A server-minted uuid was unique by construction; a client-supplied id is
+    // not. Reject a collision rather than let `sessions.set` overwrite the live
+    // Session (orphaning its PTY/daemon binding) or re-fire a spawn. `withMutation`
+    // already dedupes a genuine retry before we get here, so a hit is a real clash.
+    if (input.sessionId && this.sessions.has(input.sessionId)) {
+      throw new Error(`refusing to reuse an existing session id: ${input.sessionId}`)
+    }
     const sessionId = input.sessionId ?? randomUUID()
     const machineId = input.machineId ?? LOCAL_PLACEHOLDER
     const session = new Session({

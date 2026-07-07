@@ -108,6 +108,23 @@ describe('SessionRegistry', () => {
     expect(sessionId).toMatch(/^[0-9a-f-]{36}$/)
   })
 
+  it('createSession refuses a client sessionId that already exists (never clobbers a live session)', () => {
+    // Server-minted uuids were unique by construction; a client-supplied id is not,
+    // so a collision must be rejected rather than overwrite the live Session (which
+    // would orphan its PTY/daemon binding) or re-fire a spawn.
+    const reg = new SessionRegistry()
+    reg.attachDaemon('local', () => {})
+    const clientId = 'dup-id-xyz'
+    reg.createSession({ agentKind: 'claude-code', cwd: '/proj', sessionId: clientId })
+    expect(() =>
+      reg.createSession({ agentKind: 'claude-code', cwd: '/other', sessionId: clientId }),
+    ).toThrow()
+    // The original session is intact — not overwritten by the second cwd.
+    const mine = reg.listSessions().filter((s) => s.sessionId === clientId)
+    expect(mine).toHaveLength(1)
+    expect(mine[0]?.cwd).toBe('/proj')
+  })
+
   it('restamps session cwd when the agent moves into a worktree (hook cwd change)', () => {
     const reg = new SessionRegistry()
     reg.attachDaemon('local', () => {})

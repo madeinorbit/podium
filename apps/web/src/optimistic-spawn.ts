@@ -76,6 +76,10 @@ export function optimisticDraftIssue(args: {
   return {
     id: args.issueId,
     repoPath: args.repoPath,
+    // Placeholders reconciled by the broadcast: the real row carries a server seq
+    // (>= 1) and server-clock timestamps. Invisible today — the draft-agent row
+    // labels from the session title and sorts to the top regardless — but a future
+    // view that renders issue.seq for drafts would see a 0 -> N jump on reconcile.
     seq: 0,
     title: 'Draft',
     description: '',

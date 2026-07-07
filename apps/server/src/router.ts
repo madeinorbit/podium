@@ -352,8 +352,9 @@ export const appRouter = t.router({
           // Client-supplied id (optimistic UI): the web client can render an
           // optimistic row before the round-trip completes, then reconcile it
           // seamlessly when the server's broadcast lands using this same id.
-          // Omitted = the server mints one (unchanged default behavior).
-          sessionId: z.string().optional(),
+          // Omitted = the server mints one (unchanged default behavior). uuid-bounded
+          // because it feeds durableLabel → the systemd-run scope / abduco socket name.
+          sessionId: z.string().uuid().optional(),
           // Low-friction start: create a draft issue vessel first and attach the
           // new session to it (spec: issue-as-workspace).
           draftIssue: z.object({ repoPath: z.string(), issueId: z.string().optional() }).optional(),
