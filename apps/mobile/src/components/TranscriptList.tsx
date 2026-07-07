@@ -45,10 +45,13 @@ export function TranscriptList({
   items,
   live,
   onAnswer,
+  onLoadOlder,
 }: {
   items: TranscriptItem[]
   live: boolean
   onAnswer: (choices: { optionIndices: number[] }[]) => Promise<void>
+  /** Called when the user scrolls back to the oldest loaded item (paging). */
+  onLoadOlder?: () => void
 }) {
   const rows = useMemo(() => buildRows(items), [items])
   const pending = useMemo(() => latestPendingQuestion(items), [items])
@@ -64,6 +67,8 @@ export function TranscriptList({
       data={data}
       keyExtractor={(row) => row.key}
       contentContainerStyle={styles.content}
+      onEndReached={onLoadOlder ? () => onLoadOlder() : undefined}
+      onEndReachedThreshold={0.2}
       renderItem={({ item: row }) => {
         if (row.kind === 'question') {
           const isLivePending = live && pending != null && itemKey(pending) === row.key

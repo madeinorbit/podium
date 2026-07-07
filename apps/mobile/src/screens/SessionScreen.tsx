@@ -1,7 +1,7 @@
 import type { TranscriptItem, WorkState } from '@podium/protocol'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { MoreVertical, SquareTerminal } from 'lucide-react-native'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text } from 'react-native'
 import { useMobileClient } from '../client/MobileClientProvider'
 import { ActionSheet, type SheetAction } from '../components/ActionSheet'
@@ -12,7 +12,7 @@ import { TranscriptList } from '../components/TranscriptList'
 import { EmptyState } from '../components/ui'
 import { color, font } from '../theme/theme'
 import { sessionTitle } from '../viewModels/sessionCard'
-import { mergeTranscriptItems } from '../viewModels/transcript'
+import { mergeTranscriptItems, prependTranscriptItems } from '../viewModels/transcript'
 
 const WORK_STATES: (WorkState | null)[] = [
   'planning',
@@ -49,6 +49,12 @@ export function SessionScreen() {
   const [menuOpen, setMenuOpen] = useState(false)
   const [workMenuOpen, setWorkMenuOpen] = useState(false)
   const { readTranscript, subscribeTranscript } = client
+  // Scroll-back paging state. Refs, not state: paging must not retrigger the
+  // load/subscribe effect, and onEndReached can fire in bursts.
+  const paging = useRef<{ head?: string; hasMore: boolean; loading: boolean }>({
+    hasMore: false,
+    loading: false,
+  })
 
   useEffect(() => {
     if (!sessionId) return
@@ -56,6 +62,7 @@ export function SessionScreen() {
     let unsubscribe: (() => void) | null = null
     setItems([])
     setLoaded(false)
+    paging.current = { hasMore: false, loading: false }
     const attach = (since: string | undefined) => {
       if (!alive) return
       unsubscribe = subscribeTranscript(sessionId, since, (delta, meta) => {
@@ -67,6 +74,7 @@ export function SessionScreen() {
         if (!alive) return
         setItems(page.items)
         setLoaded(true)
+        paging.current = { head: page.head, hasMore: page.hasMore, loading: false }
         attach(page.tail)
       })
       .catch(() => {
@@ -79,6 +87,20 @@ export function SessionScreen() {
       unsubscribe?.()
     }
   }, [readTranscript, subscribeTranscript, sessionId])
+
+  const loadOlder = useCallback(() => {
+    const p = paging.current
+    if (!sessionId || !p.hasMore || p.loading || !p.head) return
+    p.loading = true
+    readTranscript(sessionId, p.head)
+      .then((page) => {
+        paging.current = { head: page.head, hasMore: page.hasMore, loading: false }
+        setItems((prev) => prependTranscriptItems(prev, page.items))
+      })
+      .catch(() => {
+        paging.current.loading = false
+      })
+  }, [readTranscript, sessionId])
 
   const nextSession = useCallback(() => {
     if (!sessionId) return
@@ -197,6 +219,7 @@ export function SessionScreen() {
             items={items}
             live={session?.status === 'live'}
             onAnswer={(choices) => client.answerQuestion(sessionId, choices)}
+            onLoadOlder={loadOlder}
           />
         )}
         <Composer

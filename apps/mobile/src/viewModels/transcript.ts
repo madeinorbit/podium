@@ -20,6 +20,17 @@ export function mergeTranscriptItems(
   return merged
 }
 
+/** Prepend an OLDER page (scroll-back paging); dedupes against what's loaded. */
+export function prependTranscriptItems(
+  prev: TranscriptItem[],
+  older: TranscriptItem[],
+): TranscriptItem[] {
+  if (older.length === 0) return prev
+  const seen = new Set(prev.map(itemKey))
+  const fresh = older.filter((item) => !seen.has(itemKey(item)))
+  return fresh.length === 0 ? prev : [...fresh, ...prev]
+}
+
 export function transcriptDisplayText(item: TranscriptItem): string {
   const text = item.text.trim()
   if (text) return text

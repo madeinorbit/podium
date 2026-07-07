@@ -1,8 +1,10 @@
 import type { IssueStage, IssueWire } from '@podium/protocol'
 import { useRouter } from 'expo-router'
+import { Plus } from 'lucide-react-native'
 import { useMemo, useState } from 'react'
 import { Pressable, SectionList, StyleSheet, Text, View } from 'react-native'
 import { useMobileClient } from '../client/MobileClientProvider'
+import { Icon } from '../components/Icon'
 import { Screen } from '../components/Screen'
 import { EmptyState, Pill } from '../components/ui'
 import { color, font, radius, space } from '../theme/theme'
@@ -52,14 +54,24 @@ export function IssuesScreen() {
     <Screen
       title="Issues"
       right={
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={showDone ? 'Hide done issues' : 'Show done issues'}
-          onPress={() => setShowDone((v) => !v)}
-          hitSlop={8}
-        >
-          <Text style={styles.toggle}>{showDone ? 'Hide done' : 'Show done'}</Text>
-        </Pressable>
+        <>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={showDone ? 'Hide done issues' : 'Show done issues'}
+            onPress={() => setShowDone((v) => !v)}
+            hitSlop={8}
+          >
+            <Text style={styles.toggle}>{showDone ? 'Hide done' : 'Show done'}</Text>
+          </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="New issue"
+            onPress={() => router.push('/new-issue')}
+            hitSlop={8}
+          >
+            <Icon as={Plus} size={22} color={color.text} />
+          </Pressable>
+        </>
       }
     >
       <SectionList

@@ -1,6 +1,6 @@
 import type { TranscriptItem } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
-import { mergeTranscriptItems, transcriptDisplayText } from './transcript'
+import { mergeTranscriptItems, prependTranscriptItems, transcriptDisplayText } from './transcript'
 
 function item(overrides: Partial<TranscriptItem> & { id: string }): TranscriptItem {
   return {
@@ -24,6 +24,21 @@ describe('mobile transcript helpers', () => {
     )
 
     expect(merged.map((entry) => entry.text)).toEqual(['old', 'current', 'new'])
+  })
+
+  it('prepends older pages without duplicating the overlap', () => {
+    const prepended = prependTranscriptItems(
+      [item({ id: 'b', cursor: 'c2', text: 'current' })],
+      [
+        item({ id: 'a', cursor: 'c1', text: 'older' }),
+        item({ id: 'b', cursor: 'c2', text: 'dup' }),
+      ],
+    )
+    expect(prepended.map((entry) => entry.text)).toEqual(['older', 'current'])
+    // No fresh items → the same array back (no re-render churn).
+    expect(prependTranscriptItems(prepended, [item({ id: 'a', cursor: 'c1', text: 'x' })])).toBe(
+      prepended,
+    )
   })
 
   it('renders tool transcript rows with the useful human-facing text', () => {
