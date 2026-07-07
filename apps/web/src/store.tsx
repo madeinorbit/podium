@@ -52,6 +52,10 @@ export interface Store {
   sessions: SessionMeta[]
   /** Issues (work items) broadcast by the server — full list, refreshed on every mutation. */
   issues: IssueWire[]
+  /** Session ids painted optimistically that the server hasn't confirmed yet (#119).
+   *  AgentPanel gates its terminal attach on this — attaching to a not-yet-created
+   *  session is dropped and never retried, so it must wait for reconciliation. */
+  pendingSpawnIds: ReadonlySet<string>
   /** Latest health sample per daemon host; empty until a daemon reports (or after it drops). */
   hostMetrics: HostMetricsWire[]
   /** Connected machines registered with this Podium server; refreshed via machinesChanged. */
@@ -295,6 +299,8 @@ type OutboxKinds = {
 
 /** Stable empty list so the issues getter doesn't churn identity pre-hydrate. */
 const NO_ISSUES: IssueWire[] = []
+/** Stable empty set so `pendingSpawnIds` keeps identity when nothing is pending. */
+const EMPTY_STRING_SET: ReadonlySet<string> = new Set()
 
 export function StoreProvider({
   config,
@@ -427,6 +433,16 @@ export function StoreProvider({
     const keep = optimisticIssues.filter((i) => !known.has(i.id))
     if (keep.length !== optimisticIssues.length) setOptimisticIssues(keep)
   }, [baseIssues, optimisticIssues])
+  // Session ids shown optimistically but NOT yet confirmed by the server. The
+  // terminal must not attach to these: the session doesn't exist server-side yet,
+  // so `hub.attach` is dropped and (since the sessionId never changes) never
+  // re-sent — leaving the pane black until a manual remount. AgentPanel gates its
+  // mount on this and attaches the instant the real session reconciles in (#119).
+  const pendingSpawnIds = useMemo(() => {
+    if (optimisticSessions.length === 0) return EMPTY_STRING_SET
+    const known = new Set(baseSessions.map((s) => s.sessionId))
+    return new Set(optimisticSessions.map((s) => s.sessionId).filter((id) => !known.has(id)))
+  }, [optimisticSessions, baseSessions])
   // Optimistic local apply for curation mutations, path-matched to where entity
   // state lives: a replica-collection upsert (the live query re-renders, and the
   // optimism even survives an offline reload alongside its queued outbox entry)
@@ -1062,6 +1078,7 @@ export function StoreProvider({
     repoDiagnostics,
     sessions,
     issues,
+    pendingSpawnIds,
     hostMetrics,
     machines,
     pins,

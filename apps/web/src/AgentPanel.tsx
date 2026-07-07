@@ -118,6 +118,7 @@ export function AgentPanel({
   const {
     hub,
     sessions,
+    pendingSpawnIds,
     machines,
     repos,
     trpc,
@@ -132,6 +133,12 @@ export function AgentPanel({
   } = useStore()
   const { guardedArchive } = useSessionGuard()
   const session = sessions.find((s) => s.sessionId === sessionId)
+  // An optimistically-spawned session doesn't exist server-side yet (#119): the
+  // terminal's one-shot `hub.attach` would be dropped and never retried, leaving
+  // the pane black. Hold the mount until the real session reconciles in — the
+  // "Starting…" overlay covers the wait, and the mount effect (which depends on
+  // this) fires the instant it flips true.
+  const spawnConfirmed = !pendingSpawnIds.has(sessionId)
   const termRef = useRef<HTMLDivElement | null>(null)
   const toolbarRef = useRef<HTMLDivElement | null>(null)
   const mountedRef = useRef<MountedSession | null>(null)
@@ -266,6 +273,10 @@ export function AgentPanel({
     // then too. Crucially this effect no longer depends on effectiveMode, so a
     // mode flip doesn't re-run it.
     if (hibernated || exited) return
+    // Don't attach to a session the server hasn't confirmed yet (#119): the attach
+    // would be dropped and never retried. This effect re-runs when spawnConfirmed
+    // flips true (the reconcile), attaching against the now-real session.
+    if (!spawnConfirmed) return
     if (!termRef.current) return
     setReady(false)
     setAtBottom(true)
@@ -429,7 +440,7 @@ export function AgentPanel({
       mounted.dispose()
       mountedRef.current = null
     }
-  }, [hub, sessionId, hibernated, exited, session?.agentKind, setSessionDraft])
+  }, [hub, sessionId, hibernated, exited, spawnConfirmed, session?.agentKind, setSessionDraft])
 
   // Re-arm the chat→native draft flush whenever the panel ENTERS native mode
   // while the terminal stays mounted (Task 6's warm toggle). The flush itself is
