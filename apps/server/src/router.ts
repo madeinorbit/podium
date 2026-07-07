@@ -15,6 +15,8 @@ import { initTRPC, TRPCError } from '@trpc/server'
 import { z } from 'zod'
 import { clearPassword, hasPassword, setPassword, verifyPassword } from './auth-store'
 import {
+  type CloudAgentKind,
+  type CloudRepoRequest,
   type CloudRuntimeProvider,
   CloudRuntimeUnavailableError,
   disabledCloudRuntimeProvider,
@@ -22,6 +24,7 @@ import {
 import { authorize, type Capability, PROC_ACTION, SCOPED_TARGET } from './issue-authz'
 import { buildJoinCommand } from './machines-join'
 import type { SessionRegistry } from './relay'
+import { normalizeOriginUrl } from './repo-id'
 import { browseDirectories, type RepoRegistry } from './repo-registry'
 import { isAllowedRoot } from './root-allowlist'
 import { searchAll } from './search'
@@ -48,19 +51,35 @@ const cloudRepoInput = z.object({
   name: z.string().min(1),
   ref: z.string().min(1).optional(),
 })
+const cloudRuntimeSizeInput = z.enum(['small', 'medium', 'large'])
+const cloudSourceSessionInput = z.object({
+  sessionId: z.string().min(1),
+  agent: z.enum(['claude-code', 'codex']),
+  resumeRef: z.string().min(1).optional(),
+  cwd: z.string().min(1).optional(),
+  machineId: z.string().min(1).optional(),
+})
 const cloudAgentInput = z.object({
   tenantId: z.string().min(1),
   displayName: z.string().min(1),
+  size: cloudRuntimeSizeInput.optional(),
   repo: cloudRepoInput,
   issueId: z.string().optional(),
   purpose: z.string().optional(),
+  sourceSession: cloudSourceSessionInput.optional(),
 })
 const cloudMachineInput = z.object({
   tenantId: z.string().min(1),
   displayName: z.string().min(1),
-  size: z.enum(['small', 'medium', 'large']),
+  size: cloudRuntimeSizeInput,
   repo: cloudRepoInput.optional(),
   purpose: z.string().optional(),
+})
+const cloudMoveSessionInput = z.object({
+  sessionId: z.string().min(1),
+  tenantId: z.string().min(1),
+  size: cloudRuntimeSizeInput.optional(),
+  repo: cloudRepoInput.optional(),
 })
 const cloudRuntimeIdInput = z.object({ id: z.string().min(1) })
 
@@ -173,6 +192,48 @@ function cloudProvider(ctx: Context): CloudRuntimeProvider {
   return ctx.cloud ?? disabledCloudRuntimeProvider
 }
 
+function cloudAgentKind(agentKind: string): CloudAgentKind {
+  if (agentKind === 'claude-code' || agentKind === 'codex') return agentKind
+  throw new TRPCError({
+    code: 'BAD_REQUEST',
+    message: `agent kind ${agentKind} cannot be moved to cloud yet`,
+  })
+}
+
+function githubRepoFromOrigin(originUrl: string | null | undefined): CloudRepoRequest | null {
+  const normalized = normalizeOriginUrl(originUrl)
+  const match = normalized?.match(/^github\.com\/([^/]+)\/([^/]+)$/)
+  const owner = match?.[1]
+  const name = match?.[2]
+  if (!owner || !name) return null
+  return { provider: 'github', owner, name }
+}
+
+function inferCloudRepoForSession(
+  ctx: Context,
+  session: ReturnType<SessionRegistry['listSessions']>[number],
+): CloudRepoRequest {
+  const repoPath = ctx.repos.inferFromPath(session.cwd, session.machineId)
+  if (!repoPath) {
+    throw new TRPCError({
+      code: 'PRECONDITION_FAILED',
+      message: 'session cwd is not inside a registered repo; pass repo explicitly',
+    })
+  }
+
+  const repoRow =
+    ctx.registry.sessionStore.listRepos(session.machineId).find((row) => row.path === repoPath) ??
+    ctx.registry.sessionStore.listRepos().find((row) => row.path === repoPath)
+  const repo = githubRepoFromOrigin(repoRow?.originUrl)
+  if (!repo) {
+    throw new TRPCError({
+      code: 'PRECONDITION_FAILED',
+      message: 'registered repo has no GitHub origin; pass repo explicitly',
+    })
+  }
+  return repo
+}
+
 function cloudError(error: unknown): never {
   if (error instanceof CloudRuntimeUnavailableError) {
     throw new TRPCError({ code: 'PRECONDITION_FAILED', message: error.message })
@@ -193,6 +254,36 @@ export const appRouter = t.router({
     createAgent: t.procedure.input(cloudAgentInput).mutation(async ({ ctx, input }) => {
       try {
         return await cloudProvider(ctx).createCloudAgent(input)
+      } catch (error) {
+        cloudError(error)
+      }
+    }),
+    moveSession: t.procedure.input(cloudMoveSessionInput).mutation(async ({ ctx, input }) => {
+      const session = ctx.registry.listSessions().find((s) => s.sessionId === input.sessionId)
+      if (!session) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'session not found' })
+      }
+      const agent = cloudAgentKind(session.agentKind)
+      if (!session.resume?.value) {
+        throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'session has no resume ref' })
+      }
+
+      try {
+        return await cloudProvider(ctx).createCloudAgent({
+          tenantId: input.tenantId,
+          displayName: session.name?.trim() || session.title || `${agent} session`,
+          ...(input.size ? { size: input.size } : {}),
+          repo: input.repo ?? inferCloudRepoForSession(ctx, session),
+          ...(session.issueId ? { issueId: session.issueId } : {}),
+          purpose: 'move-session',
+          sourceSession: {
+            sessionId: session.sessionId,
+            agent,
+            resumeRef: session.resume.value,
+            cwd: session.cwd,
+            ...(session.machineId ? { machineId: session.machineId } : {}),
+          },
+        })
       } catch (error) {
         cloudError(error)
       }
@@ -1189,38 +1280,36 @@ export const appRouter = t.router({
           ctx.registry.issues.resolveRef(id) === ctx.capability.scope.rootId
         return ctx.registry.issues.mailInbox(id, { markRead })
       }),
-    mailClaim: issueProc
-      .input(z.object({ messageId: z.string() }))
-      .mutation(({ ctx, input }) => {
-        const msg = ctx.registry.issues.mailMessage(input.messageId)
-        if (!msg) {
+    mailClaim: issueProc.input(z.object({ messageId: z.string() })).mutation(({ ctx, input }) => {
+      const msg = ctx.registry.issues.mailMessage(input.messageId)
+      if (!msg) {
+        throw new TRPCError({
+          code: 'NOT_FOUND',
+          message: `unknown mail message ${input.messageId}`,
+        })
+      }
+      // Proc-level scope gate, mirroring issueCapabilityGuard: the guard cannot
+      // resolve message→issue from the input (SCOPED_TARGET.mailClaim), so the
+      // same authorize() decision runs here against the message's issue.
+      if (ctx.capability.scope.kind !== 'all') {
+        const decision = authorize(
+          ctx.capability,
+          'write',
+          { id: msg.issueId, ancestorIds: ctx.registry.issues.ancestorIds(msg.issueId) },
+          { override: ctx.overrideScope },
+        )
+        if (decision === 'confirm-required') {
           throw new TRPCError({
-            code: 'NOT_FOUND',
-            message: `unknown mail message ${input.messageId}`,
+            code: 'PRECONDITION_FAILED',
+            message: `issue ${msg.issueId} is outside your subtree; re-run with --outside-scope to confirm`,
           })
         }
-        // Proc-level scope gate, mirroring issueCapabilityGuard: the guard cannot
-        // resolve message→issue from the input (SCOPED_TARGET.mailClaim), so the
-        // same authorize() decision runs here against the message's issue.
-        if (ctx.capability.scope.kind !== 'all') {
-          const decision = authorize(
-            ctx.capability,
-            'write',
-            { id: msg.issueId, ancestorIds: ctx.registry.issues.ancestorIds(msg.issueId) },
-            { override: ctx.overrideScope },
-          )
-          if (decision === 'confirm-required') {
-            throw new TRPCError({
-              code: 'PRECONDITION_FAILED',
-              message: `issue ${msg.issueId} is outside your subtree; re-run with --outside-scope to confirm`,
-            })
-          }
-          if (decision === 'forbidden') {
-            throw new TRPCError({ code: 'FORBIDDEN', message: "not allowed to 'mailClaim' issues" })
-          }
+        if (decision === 'forbidden') {
+          throw new TRPCError({ code: 'FORBIDDEN', message: "not allowed to 'mailClaim' issues" })
         }
-        return ctx.registry.issues.mailClaim(input.messageId, mailIdentity(ctx))
-      }),
+      }
+      return ctx.registry.issues.mailClaim(input.messageId, mailIdentity(ctx))
+    }),
     mailPending: issueProc
       .input(z.object({ id: z.string().optional() }).optional())
       .query(({ ctx, input }) => ctx.registry.issues.mailPending(mailOwnIssue(ctx, input?.id))),

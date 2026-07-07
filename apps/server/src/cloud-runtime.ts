@@ -19,10 +19,21 @@ export interface CloudRepoRequest {
   ref?: string | undefined
 }
 
+export type CloudRuntimeSize = 'small' | 'medium' | 'large'
+export type CloudAgentKind = 'claude-code' | 'codex'
+
+export interface CloudAgentSourceSession {
+  sessionId: string
+  agent: CloudAgentKind
+  resumeRef?: string | undefined
+  cwd?: string | undefined
+  machineId?: string | undefined
+}
+
 export interface CloudMachineRequest {
   tenantId: string
   displayName: string
-  size: 'small' | 'medium' | 'large'
+  size: CloudRuntimeSize
   repo?: CloudRepoRequest | undefined
   purpose?: string | undefined
 }
@@ -30,9 +41,11 @@ export interface CloudMachineRequest {
 export interface CloudAgentRequest {
   tenantId: string
   displayName: string
+  size?: CloudRuntimeSize | undefined
   repo: CloudRepoRequest
   issueId?: string | undefined
   purpose?: string | undefined
+  sourceSession?: CloudAgentSourceSession | undefined
 }
 
 export interface CloudRuntime {
