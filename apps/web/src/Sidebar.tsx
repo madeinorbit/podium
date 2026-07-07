@@ -1132,6 +1132,10 @@ export function PanelRow({
             active
               ? 'bg-accent font-medium text-accent-foreground'
               : 'text-muted-foreground hover:bg-accent hover:text-foreground',
+            // Email-style unread emphasis (#126): an unread, un-selected session
+            // reads at full strength + medium weight, lifting it out of the muted
+            // baseline. Marking it read on open clears this optimistically.
+            !active && session.unread && 'font-medium text-foreground',
           )}
           onClick={onSelect}
           // Double-click the row to rename — matches the tab strip.

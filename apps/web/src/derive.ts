@@ -1182,6 +1182,15 @@ export type UnifiedWorkRow =
   | { kind: 'issue'; issue: IssueWire; sessions: SessionMeta[]; activityAt: number; rank: number }
   | { kind: 'worktree'; worktree: WorktreeNavView; activityAt: number; rank: number }
 
+/** Whether a unified WORK/WORKING row should render with unread (email-style)
+ *  emphasis. An issue row follows the issue's own server-derived `unread` flag
+ *  (which already aggregates member-session activity), so marking the issue read
+ *  clears it. A worktree row owns no `unread` field of its own, so it's unread
+ *  iff any of its sessions is. (#126, built on the #124 unread foundation.) */
+export function isRowUnread(row: UnifiedWorkRow): boolean {
+  return row.kind === 'issue' ? row.issue.unread : row.worktree.sessions.some((s) => s.unread)
+}
+
 const rowRank = (sessions: SessionMeta[], now: number): number =>
   sessions.reduce((min, s) => Math.min(min, sessionUrgencyRank(s, now)), UNIFIED_ROW_EMPTY_RANK)
 

@@ -5,6 +5,7 @@ import {
   archivedSessionsForWorktreePath,
   groupUnifiedWorkRows,
   isIssueSnoozed,
+  isRowUnread,
   issueReturnedFromDefer,
   mostUrgentSession,
   partitionUnifiedWork,
@@ -324,6 +325,47 @@ describe('unifiedWorkList (content filter + status ordering)', () => {
     expect(ids.slice(0, 2).sort()).toEqual(['pin', 'ret']) // top band
     expect(ids[2]).toBe('norm') // middle band
     expect(ids[3]).toBe('snz') // bottom band
+  })
+})
+
+describe('isRowUnread (sidebar unread emphasis)', () => {
+  const issueRow = (over: Partial<IssueWire>): Extract<UnifiedWorkRow, { kind: 'issue' }> => ({
+    kind: 'issue',
+    issue: issue(over),
+    sessions: [],
+    activityAt: NOW,
+    rank: 0,
+  })
+  const wtRow = (sessions: SessionMeta[]): Extract<UnifiedWorkRow, { kind: 'worktree' }> => ({
+    kind: 'worktree',
+    worktree: navWt('/r/a/.worktrees/x', { isMain: false, sessions }),
+    activityAt: NOW,
+    rank: 0,
+  })
+
+  it('an issue row follows the issue own server-derived unread flag', () => {
+    expect(isRowUnread(issueRow({ unread: true } as Partial<IssueWire>))).toBe(true)
+    expect(isRowUnread(issueRow({ unread: false } as Partial<IssueWire>))).toBe(false)
+  })
+
+  it('a worktree row is unread iff ANY of its sessions is unread', () => {
+    expect(
+      isRowUnread(
+        wtRow([
+          idle('a', '/r/a/.worktrees/x', { unread: false } as Partial<SessionMeta>),
+          idle('b', '/r/a/.worktrees/x', { unread: true } as Partial<SessionMeta>),
+        ]),
+      ),
+    ).toBe(true)
+    expect(
+      isRowUnread(
+        wtRow([idle('a', '/r/a/.worktrees/x', { unread: false } as Partial<SessionMeta>)]),
+      ),
+    ).toBe(false)
+  })
+
+  it('a sessionless worktree row is read', () => {
+    expect(isRowUnread(wtRow([]))).toBe(false)
   })
 })
 

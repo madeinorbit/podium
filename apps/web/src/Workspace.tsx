@@ -67,6 +67,7 @@ export function Workspace(): JSX.Element {
     toggleSplit,
     fileTabs,
     closeFileTab,
+    markSessionRead,
   } = store
   // Closing a session tab routes through the active-session guard (#115) so a
   // working agent prompts for confirmation; file tabs close immediately.
@@ -260,7 +261,12 @@ export function Workspace(): JSX.Element {
                   tab={t}
                   active={t.id === paneA}
                   pinned={t.kind === 'session' && pins.panels.includes(t.id)}
-                  onSelect={() => setPane('A', t.id)}
+                  onSelect={() => {
+                    // Opening a session tab marks it read (#126) so the sidebar
+                    // row's unread emphasis clears in step with what's on screen.
+                    if (t.kind === 'session') void markSessionRead(t.id)
+                    setPane('A', t.id)
+                  }}
                   onTogglePin={
                     t.kind === 'session'
                       ? () => void setPinned('panel', t.id, !pins.panels.includes(t.id))
@@ -357,7 +363,14 @@ export function Workspace(): JSX.Element {
         )}
         {split && !paneB && (
           <div className="flex min-w-0 flex-1 border-l border-border" style={{ order: 1 }}>
-            <PanePicker tabs={allTabs} onPick={(id) => setPane('B', id)} />
+            <PanePicker
+              tabs={allTabs}
+              onPick={(id) => {
+                // Opening a session into the split pane marks it read too (#126).
+                if (byId.get(id)?.kind === 'session') void markSessionRead(id)
+                setPane('B', id)
+              }}
+            />
           </div>
         )}
       </div>
