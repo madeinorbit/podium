@@ -30,13 +30,13 @@ export default defineConfig({
   webServer: [
     {
       // Relay + daemon, which ALSO serves the built web UI on its own origin (:8799) —
-      // matching production since the backend-serves-web change (b7c02a3). We build the web
-      // first, then serve it same-origin from the relay, so the browser opens its WebSocket
+      // matching production since the backend-serves-web change (b7c02a3). We build protocol for
+      // test-process imports, then build the web and serve it same-origin from the relay, so the browser opens its WebSocket
       // same-origin. (A separate cross-origin preview server has its client WS upgrade
       // refused, so the old two-server split no longer connects.) The specs load from the
       // baseURL (:8799) and pass `?server=ws://localhost:8799`; @podium/source runs TS source.
       command:
-        'bun run --filter @podium/web build && node --conditions=@podium/source --import tsx serve-harness.ts',
+        'bun run --filter @podium/protocol build && bun run --filter @podium/web build && node --conditions=@podium/source --import tsx serve-harness.ts',
       url: 'http://localhost:8799/health',
       reuseExistingServer: false,
       timeout: 180_000,
