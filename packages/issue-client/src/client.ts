@@ -29,6 +29,8 @@ type IssueProcName =
   | 'cleanup'
   | 'clearNeedsHuman'
   | 'close'
+  // Lazy comment fetch (#175): bodies no longer ride IssueWire.
+  | 'comments'
   | 'count'
   | 'create'
   | 'defer'

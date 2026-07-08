@@ -64,8 +64,27 @@ interface ShowWire {
   machineId?: string | null
 }
 
-/** The single-issue `show` rendering — shared verbatim by single and bulk show. */
-function renderShow(i: ShowWire): string {
+/** One comment as the show renderer prints it (issues.comments payload, #175). */
+interface ShowComment {
+  author: string
+  body: string
+  createdAt: string
+}
+
+/** Fetch an issue's comment thread via the lazy issues.comments proc (#175 —
+ *  bodies no longer ride IssueWire). Best-effort: a server without the proc
+ *  (pre-#175) or a fetch error just renders the issue without its thread. */
+async function fetchComments(c: IssueTrpc, id: string): Promise<ShowComment[]> {
+  try {
+    return (await c.issues.comments.query({ id })) as ShowComment[]
+  } catch {
+    return []
+  }
+}
+
+/** The single-issue `show` rendering — shared verbatim by single and bulk show.
+ *  `comments` is fetched separately (#175); empty ⇒ no comments section. */
+function renderShow(i: ShowWire, comments: ShowComment[] = []): string {
   const meta = [
     `stage=${i.stage} P${i.priority} ready=${i.ready} blocked=${i.blocked}`,
     i.assignee ? `assignee=${i.assignee}` : null,
@@ -79,7 +98,12 @@ function renderShow(i: ShowWire): string {
   ]
     .filter(Boolean)
     .join('\n')
-  return `#${i.seq} ${i.title}\n${meta}\n\n${i.description}`
+  const thread = comments.length
+    ? `\n\ncomments (${comments.length}):\n${comments
+        .map((cm) => `- ${cm.author} (${cm.createdAt}): ${cm.body}`)
+        .join('\n')}`
+    : ''
+  return `#${i.seq} ${i.title}\n${meta}\n\n${i.description}${thread}`
 }
 
 /** One node of the issues.tree payload (issue #82) as the CLI renders it. */
@@ -152,24 +176,36 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
       if (refs.length === 1) {
         const i = (await c.issues.get.query({ id: refs[0]! })) as ShowWire | null
         if (!i) throw new Error(`unknown issue ${refs[0]}`)
-        return { text: renderShow(i), data: i }
+        // #175: the thread comes from the lazy comments proc (the wire only
+        // carries commentCount); data keeps embedding it for --json consumers.
+        const comments = await fetchComments(c, i.id)
+        return { text: renderShow(i, comments), data: { ...i, comments } }
       }
       // Bulk: per-id failures (unknown/ambiguous ref) become an inline error
       // entry instead of failing the whole call — a 24-child survey should not
       // die on one stale ref. data = array (issue wires ⊕ {ref,error} entries).
       const results = await Promise.all(
-        refs.map(async (ref): Promise<ShowWire | { ref: string; error: string }> => {
-          try {
-            const i = (await c.issues.get.query({ id: ref })) as ShowWire | null
-            return i ?? { ref, error: `unknown issue ${ref}` }
-          } catch (err) {
-            return { ref, error: err instanceof Error ? err.message : String(err) }
-          }
-        }),
+        refs.map(
+          async (
+            ref,
+          ): Promise<
+            (ShowWire & { comments: ShowComment[] }) | { ref: string; error: string }
+          > => {
+            try {
+              const i = (await c.issues.get.query({ id: ref })) as ShowWire | null
+              if (!i) return { ref, error: `unknown issue ${ref}` }
+              return { ...i, comments: await fetchComments(c, i.id) }
+            } catch (err) {
+              return { ref, error: err instanceof Error ? err.message : String(err) }
+            }
+          },
+        ),
       )
       const text = results
         .map((r) =>
-          'error' in r && !('seq' in r) ? `${r.ref}: ERROR ${r.error}` : renderShow(r as ShowWire),
+          'error' in r && !('seq' in r)
+            ? `${r.ref}: ERROR ${r.error}`
+            : renderShow(r as ShowWire, (r as { comments?: ShowComment[] }).comments ?? []),
         )
         .join('\n\n')
       return { text, data: results }

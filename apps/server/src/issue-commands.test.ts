@@ -20,6 +20,7 @@ function mockClient(overrides: Record<string, unknown> = {}): { client: IssueTrp
       ready: proc('ready'),
       list: proc('list'),
       get: proc('get'),
+      comments: proc('comments'),
       create: proc('create'),
       update: proc('update'),
       close: proc('close'),
@@ -257,6 +258,55 @@ describe('ISSUE_COMMANDS registry', () => {
       defaultModel: 'gpt-5.2-codex',
       defaultEffort: 'high',
     })
+  })
+
+  // #175: comment bodies left IssueWire — show fetches the thread via the lazy
+  // issues.comments proc and renders it; data embeds it for --json consumers.
+  it('show fetches comments via issues.comments and renders the thread', async () => {
+    const { client, calls } = mockClient({
+      get: {
+        id: 'iss_1',
+        seq: 1,
+        title: 'T',
+        description: 'd',
+        stage: 'backlog',
+        priority: 2,
+        ready: true,
+        blocked: false,
+      },
+      comments: [{ id: 'cmt_1', author: 'mike', body: 'looks good', createdAt: 'ts' }],
+    })
+    const out = await cmd('show').run(client, { id: '1' })
+    expect(calls).toContainEqual({ path: 'comments', kind: 'query', input: { id: 'iss_1' } })
+    expect(out.text).toContain('comments (1):')
+    expect(out.text).toContain('- mike (ts): looks good')
+    expect(out.data).toMatchObject({
+      seq: 1,
+      comments: [{ author: 'mike', body: 'looks good' }],
+    })
+  })
+
+  it('show degrades gracefully against a server without issues.comments (pre-#175)', async () => {
+    const fake = {
+      issues: {
+        get: {
+          query: async () => ({
+            id: 'iss_1',
+            seq: 1,
+            title: 'T',
+            description: 'd',
+            stage: 'backlog',
+            priority: 2,
+            ready: true,
+            blocked: false,
+          }),
+        },
+        // no `comments` proc — the fetch throws and show renders without a thread
+      },
+    } as unknown as IssueTrpc
+    const out = await cmd('show').run(fake, { id: '1' })
+    expect(out.text).toContain('#1 T')
+    expect(out.text).not.toContain('comments (')
   })
 
   it('show throws on a missing issue (non-zero exit, not a 0-exit string)', async () => {
