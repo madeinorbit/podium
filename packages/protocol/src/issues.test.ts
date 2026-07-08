@@ -151,6 +151,57 @@ describe('issue protocol types', () => {
     expect(malformed.unread).toBe(false)
   })
 
+  // #175: comment bodies left the wire. `comments` is a deprecated optional
+  // (old payloads/hubs may still send it); `commentCount` is the additive
+  // replacement, also optional so pre-#175 payloads keep parsing (wire v1).
+  it('parses an IssueWire without comments and with commentCount (#175)', () => {
+    const base = {
+      id: 'iss_1',
+      repoPath: '/r',
+      seq: 1,
+      title: 'X',
+      description: '',
+      stage: 'backlog',
+      worktreePath: null,
+      branch: null,
+      parentBranch: 'main',
+      defaultAgent: 'claude-code',
+      defaultModel: 'auto',
+      defaultEffort: 'auto',
+      blockedBy: [],
+      priority: 2,
+      type: 'task',
+      pinned: false,
+      needsHuman: false,
+      labels: [],
+      deps: [],
+      dependents: [],
+      ready: true,
+      blocked: false,
+      deferred: false,
+      childCount: 0,
+      childDoneCount: 0,
+      createdAt: 't',
+      updatedAt: 't',
+      archived: false,
+      sessions: [],
+      sessionSummary: { total: 0, byPhase: {} },
+    }
+    // Current server shape: no comments array, a count instead.
+    const counted = IssueWire.parse({ ...base, commentCount: 3 })
+    expect(counted.commentCount).toBe(3)
+    expect(counted.comments).toBeUndefined()
+    // Pre-#175 payload: embedded comments, no count — still parses (leniency).
+    const legacy = IssueWire.parse({
+      ...base,
+      comments: [{ id: 'cmt_1', author: 'me', body: 'hi', createdAt: 't' }],
+    })
+    expect(legacy.commentCount).toBeUndefined()
+    expect(legacy.comments).toHaveLength(1)
+    // Bare payload with neither field parses too.
+    expect(() => IssueWire.parse(base)).not.toThrow()
+  })
+
   it('accepts the new write RepoOps', () => {
     expect(RepoOp.parse('rebase')).toBe('rebase')
     expect(RepoOp.parse('mergeFfOnly')).toBe('mergeFfOnly')

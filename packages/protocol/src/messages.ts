@@ -877,7 +877,15 @@ export const IssueWire = z.object({
   labels: z.array(z.string()),
   deps: z.array(IssueDepWire),
   dependents: z.array(IssueDepWire),
-  comments: z.array(IssueComment),
+  /** DEPRECATED (#175): comment bodies left the wire — fetch them lazily via the
+   *  `issues.comments` proc. Kept optional (never populated by a current server)
+   *  so pre-#175 payloads (cached snapshots, older hubs) still parse; consumers
+   *  treat absence as "no embedded comments" and read `commentCount` instead. */
+  comments: z.array(IssueComment).optional(),
+  /** Number of comments on the issue (#175) — the cheap wire stand-in for the
+   *  removed `comments` array. Optional so pre-#175 payloads parse; absent ⇒
+   *  fall back to `comments?.length ?? 0`. */
+  commentCount: z.number().int().optional(),
   ready: z.boolean(),
   blocked: z.boolean(),
   deferred: z.boolean(),
