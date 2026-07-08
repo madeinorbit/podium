@@ -1,12 +1,12 @@
 import { renameSync } from 'node:fs'
-import { setPassword as realSetPassword } from '@podium/core/auth-store'
-import { configPath, inspectConfig, loadConfig, saveConfig } from '@podium/core/config'
+import { setPassword as realSetPassword } from '@podium/runtime/auth-store'
+import { configPath, inspectConfig, loadConfig, saveConfig } from '@podium/runtime/config'
 import {
   ephemeralTunnelWarning,
   NETWORK_OPTIONS,
   networkOptionCommand,
   validatePublicUrl,
-} from '@podium/core/setup'
+} from '@podium/runtime/setup'
 import { applyJoinToken } from './cli-join'
 
 export interface SetupIO {

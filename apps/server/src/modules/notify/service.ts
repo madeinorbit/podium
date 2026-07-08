@@ -1,5 +1,5 @@
-import type { PodiumSettings } from '@podium/core'
-import type { AgentRuntimeState, ServerMessage } from '@podium/protocol'
+import type { PodiumSettings } from '@podium/runtime'
+import type { AgentRuntimeState, LiveServerMessage, ServerMessage } from '@podium/protocol'
 import {
   type AttentionNotice,
   attentionNotice,
@@ -8,7 +8,6 @@ import {
   type TelegramConfig,
 } from '../../notify'
 import type { EventBus } from '../bus'
-import type { LiveServerMessage } from '../message-class'
 
 export interface NotificationPushers {
   ntfy(topic: string, notice: AttentionNotice): void

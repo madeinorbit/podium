@@ -23,6 +23,26 @@ export function isIssueDeferred(row: { deferUntil?: string | null }, nowIso: str
   return row.deferUntil != null && row.deferUntil > nowIso
 }
 
+/** The epoch-ms sibling of {@link isIssueDeferred} — same "deferred until a
+ *  future instant" predicate, but taking a JS timestamp (`Date.now()`) rather
+ *  than an ISO string. Server code holds an ISO "now" (oplog/service clocks);
+ *  client viewmodels hold an epoch-ms "now" (`Date.now()` / a render tick) — both
+ *  read the SAME `deferUntil` field, so this is the one other home for the
+ *  predicate rather than a second reimplementation. `deferUntil` may be a bare
+ *  date (`YYYY-MM-DD`, the board's defer presets) or a full ISO instant; both
+ *  parse via `Date.parse`. */
+export function isIssueSnoozed(row: { deferUntil?: string | null }, now: number): boolean {
+  return row.deferUntil != null && Date.parse(row.deferUntil) > now
+}
+
+/** Did a *timed* defer just lapse — its deadline has passed but it hasn't been
+ *  cleared yet? The issue mirror of {@link isIssueSnoozed} going false: the
+ *  sidebar marks such an issue "Unsnoozed" and floats it back to the top, and
+ *  selecting it clears the stale defer (transient tag). */
+export function issueReturnedFromDefer(row: { deferUntil?: string | null }, now: number): boolean {
+  return row.deferUntil != null && Date.parse(row.deferUntil) <= now
+}
+
 /**
  * blocked = open AND ≥1 `blocks` dep whose target issue is not closed.
  * The caller resolves the row's `blocks` dep targets (undefined = dangling

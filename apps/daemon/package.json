@@ -6,7 +6,7 @@
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.3.201",
     "@podium/agent-bridge": "workspace:*",
-    "@podium/core": "workspace:*",
+    "@podium/runtime": "workspace:*",
     "@podium/protocol": "workspace:*",
     "@podium/transcript": "workspace:*",
     "ws": "^8.18.0"

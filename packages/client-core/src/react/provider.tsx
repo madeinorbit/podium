@@ -1,4 +1,3 @@
-import { type Sidebar as SidebarSettings, shouldPromptAutoContinue } from '@podium/core'
 import type {
   AgentKind,
   ConversationSummaryWire,
@@ -10,6 +9,7 @@ import type {
   SessionMeta,
   WorkState,
 } from '@podium/protocol'
+import { type Sidebar as SidebarSettings, shouldPromptAutoContinue } from '@podium/runtime'
 import { SocketHub } from '@podium/terminal-client'
 import type { JSX } from 'react'
 import {

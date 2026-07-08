@@ -5,44 +5,55 @@
  * modules — the boundary lint and the web shim (apps/web/src/derive.ts, which
  * re-exports everything plus the css-classname helpers) enforce the split.
  */
+import {
+  dedupeSessionsByResume,
+  isHeadlessSession,
+  isIssueSnoozed,
+  isSnoozed,
+  issueReturnedFromDefer,
+  lastUsedMachine,
+  machinesForRepo,
+  machinesWithRepo,
+  normalizeOriginUrl,
+  resolveTargetMachine,
+  returnedFromSnooze,
+  snoozeUntil1h,
+  snoozeUntilTomorrow5am,
+  withoutHeadless,
+  worktreeForCwd,
+} from '@podium/domain'
 import type {
   AgentKind,
   GitRepositoryWire,
   HostMetricsWire,
   IssueWire,
-  MachineWire,
   SessionMeta,
 } from '@podium/protocol'
 import { attentionGroup, compareRecency } from '../focus'
 import type { PinState, RepoView, WorktreeView } from './types'
 
-/**
- * Normalize a git remote URL to `host/path` for cross-machine repo identity.
- * Copied from @podium/core (packages/core/src/git.ts) rather than imported:
- * @podium/core's root barrel pulls node-only modules (process, fs), and this
- * package must stay platform-neutral for the mobile client.
- */
-function normalizeOriginUrl(raw: string | undefined): string {
-  if (!raw) return ''
-  let s = raw.trim()
-  if (!s) return ''
-  // scp-style: git@host:path  ->  host/path
-  const scp = s.match(/^[^/@]+@([^:/]+):(.+)$/)
-  if (scp) {
-    s = `${scp[1]}/${scp[2]}`
-  } else {
-    const m = s.match(/^[a-z][a-z0-9+.-]*:\/\/(.+)$/i)
-    if (m?.[1])
-      s = m[1].replace(/^[^/@]+@/, '') // drop scheme + userinfo
-    else return s.replace(/\.git$/, '').replace(/\/+$/, '') // not a recognizable URL
-  }
-  // s is now host[:port]/path
-  s = s.replace(/\/+$/, '').replace(/\.git$/, '')
-  const slash = s.indexOf('/')
-  if (slash === -1) return s.toLowerCase()
-  const host = s.slice(0, slash).replace(/:\d+$/, '').toLowerCase()
-  const path = s.slice(slash + 1).replace(/\.git$/, '')
-  return `${host}/${path}`
+// Entity-pure predicates live in @podium/domain (#194) — client-core imports
+// them (above) rather than redefining them, and re-exports the same bindings
+// (not new `export const`/`export function` declarations — see
+// scripts/check-boundaries.ts rule 7, which flags exactly that shape) so
+// existing `@podium/client-core/viewmodels` / `./derive` call sites keep
+// working unchanged.
+export {
+  dedupeSessionsByResume,
+  isHeadlessSession,
+  isIssueSnoozed,
+  isSnoozed,
+  issueReturnedFromDefer,
+  lastUsedMachine,
+  machinesForRepo,
+  machinesWithRepo,
+  normalizeOriginUrl,
+  resolveTargetMachine,
+  returnedFromSnooze,
+  snoozeUntil1h,
+  snoozeUntilTomorrow5am,
+  withoutHeadless,
+  worktreeForCwd,
 }
 
 export type MemorySeverity = 'ok' | 'warn' | 'critical'
@@ -208,83 +219,10 @@ export function reposToViews(repos: GitRepositoryWire[]): RepoView[] {
   return views
 }
 
-/** Machines that have this repo, regardless of online status. */
-export function machinesWithRepo(
-  repo: { machines?: { machineId: string; path: string }[] },
-  machines: MachineWire[],
-): MachineWire[] {
-  const repoMachineIds = new Set((repo.machines ?? []).map((m) => m.machineId))
-  return machines.filter((m) => repoMachineIds.has(m.id))
-}
-
-/** Online machines that have this repo (intersection of repo.machines and online machines). */
-export function machinesForRepo(
-  repo: { machines?: { machineId: string; path: string }[] },
-  machines: MachineWire[],
-): MachineWire[] {
-  return machinesWithRepo(repo, machines).filter((m) => m.online)
-}
-
-/** The machineId of the most recently created session among the given machines;
- *  undefined if none of the sessions belong to those machines. */
-export function lastUsedMachine(
-  sessions: SessionMeta[],
-  machines: MachineWire[],
-): string | undefined {
-  const machineIds = new Set(machines.map((m) => m.id))
-  let best: SessionMeta | undefined
-  for (const s of sessions) {
-    if (s.machineId !== undefined && machineIds.has(s.machineId)) {
-      if (best === undefined || s.createdAt > best.createdAt) {
-        best = s
-      }
-    }
-  }
-  return best?.machineId
-}
-
-/** The recommended machine to open an agent on for this repo.
- *  Prefers the most-recently-used machine that also has the repo;
- *  falls back to the first online machine that has the repo; else undefined. */
-export function resolveTargetMachine(
-  repo: { machines?: { machineId: string; path: string }[] },
-  sessions: SessionMeta[],
-  machines: MachineWire[],
-): string | undefined {
-  const eligible = machinesForRepo(repo, machines)
-  if (eligible.length === 0) return undefined
-  const mru = lastUsedMachine(sessions, eligible)
-  if (mru !== undefined) return mru
-  return eligible[0]?.id
-}
-
-/** The worktree that CONTAINS `cwd`: the longest root with `cwd === root` or
- *  `cwd` under `root/`. Longest-match matters because a repo root contains its
- *  own `.worktrees/*` checkouts — a session in one belongs to the worktree, not
- *  the parent repo. Null when no root contains the cwd. */
-export function worktreeForCwd(cwd: string, worktreePaths: string[]): string | null {
-  let best: string | null = null
-  for (const root of worktreePaths) {
-    if (cwd !== root && !cwd.startsWith(root.endsWith('/') ? root : `${root}/`)) continue
-    if (best === null || root.length > best.length) best = root
-  }
-  return best
-}
-
-/**
- * A HEADLESS session (concierge unification): a superagent thread's harness
- * session with no PTY. It renders ONLY inside the superagent panel's embedded
- * ChatView (which is handed its sessionId explicitly) — every generic session
- * surface (tabs, sidebar, home board, work items, issue counts) must skip it.
- */
-export function isHeadlessSession(s: SessionMeta): boolean {
-  return s.headless === true
-}
-
-/** Drop headless sessions from a generic session enumeration. */
-export function withoutHeadless(sessions: SessionMeta[]): SessionMeta[] {
-  return sessions.some(isHeadlessSession) ? sessions.filter((s) => !isHeadlessSession(s)) : sessions
-}
+// machinesWithRepo/machinesForRepo/lastUsedMachine/resolveTargetMachine
+// (machine-affinity identity) and worktreeForCwd/isHeadlessSession/
+// withoutHeadless (worktree + session identity) are entity-pure — imported
+// from @podium/domain above and re-exported, not redefined here (#194).
 
 /** Sessions shown in a worktree's tab strip / sidebar — archived ones stay out.
  *  With `allWorktreePaths`, membership is by CONTAINMENT (worktreeForCwd), so a
@@ -465,50 +403,10 @@ export interface SidebarSections {
 
 export const EMPTY_PINS: PinState = { panels: [], worktrees: [], repos: [] }
 
-/** Is the session snoozed *right now*? `undefined` snoozedUntil = never; `null`
- *  (until next message) = always; an ISO string = until that instant. */
-export function isSnoozed(s: SessionMeta, now: number): boolean {
-  if (s.snoozedUntil === undefined) return false
-  if (s.snoozedUntil === null) return true
-  return now < Date.parse(s.snoozedUntil)
-}
-
-/** Did a *timed* snooze just lapse — its deadline has passed but it hasn't been
- *  cleared yet (no message sent since)? The session has re-surfaced in NEEDS YOUR
- *  ATTENTION (and `compareRecency` lifts it by that deadline); the sidebar marks it
- *  so the user sees it's back. `null` (until-next-message) snoozes never expire by
- *  time, so they're never "returned" this way. */
-export function returnedFromSnooze(s: SessionMeta, now: number): boolean {
-  return typeof s.snoozedUntil === 'string' && Date.parse(s.snoozedUntil) <= now
-}
-
-/** ISO deadline one hour from `now`. */
-export function snoozeUntil1h(now: number): string {
-  return new Date(now + 3_600_000).toISOString()
-}
-
-/** ISO deadline at the next 5:00am local strictly after `now`. */
-export function snoozeUntilTomorrow5am(now: number): string {
-  const d = new Date(now)
-  const target = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 5, 0, 0, 0)
-  if (target.getTime() <= now) target.setDate(target.getDate() + 1)
-  return target.toISOString()
-}
-
-/** Is the issue snoozed (deferred) *right now*? Mirrors the session `isSnoozed`:
- *  a `deferUntil` in the future. `deferUntil` may be a date (`YYYY-MM-DD`, from the
- *  board defer presets) or an ISO instant (the 1-hour preset) — both parse. */
-export function isIssueSnoozed(issue: IssueWire, now: number): boolean {
-  return issue.deferUntil != null && Date.parse(issue.deferUntil) > now
-}
-
-/** Did a *timed* defer just lapse — its deadline has passed but it hasn't been
- *  cleared yet? The mirror of `returnedFromSnooze` for issues: the sidebar marks
- *  such an issue "Unsnoozed" and floats it back to the top, and selecting it
- *  clears the stale defer (transient tag). */
-export function issueReturnedFromDefer(issue: IssueWire, now: number): boolean {
-  return issue.deferUntil != null && Date.parse(issue.deferUntil) <= now
-}
+// isSnoozed/returnedFromSnooze/snoozeUntil1h/snoozeUntilTomorrow5am (session
+// snooze) and isIssueSnoozed/issueReturnedFromDefer (issue defer — dedupes
+// against @podium/domain's isIssueDeferred) are entity-pure — imported from
+// @podium/domain above and re-exported, not redefined here (#194).
 
 /** A parent/epic's direct children, seq-ordered, INCLUDING archived ones (issue
  *  #133). The subissue list keeps archived children visible (the UI marks them
@@ -704,52 +602,9 @@ export function partitionWorkItems(
   return { attention, working, pinnedPanels }
 }
 
-/**
- * Collapse duplicate session rows that point at the SAME underlying agent
- * conversation (same resume ref) — e.g. a Codex thread that surfaced twice on
- * resume. Keeps the most useful row per ref (live > starting/reconnecting >
- * hibernated > exited; ties break to the most-recently-active) and preserves
- * order. Sessions with no resume ref are distinct and never merged.
- */
-export function dedupeSessionsByResume(sessions: SessionMeta[]): SessionMeta[] {
-  const rank = (s: SessionMeta): number => {
-    switch (s.status) {
-      case 'live':
-        return 3
-      case 'starting':
-      case 'reconnecting':
-        return 2
-      case 'hibernated':
-        return 1
-      default:
-        return 0 // exited
-    }
-  }
-  const better = (a: SessionMeta, b: SessionMeta): SessionMeta => {
-    if (rank(a) !== rank(b)) return rank(a) > rank(b) ? a : b
-    return a.lastActiveAt >= b.lastActiveAt ? a : b
-  }
-  const indexByRef = new Map<string, number>()
-  const out: SessionMeta[] = []
-  for (const s of sessions) {
-    // A headless session shares its resume ref with its "open in terminal" PTY
-    // twin by design (same harness conversation) — never collapse the two rows.
-    if (!s.resume || isHeadlessSession(s)) {
-      out.push(s)
-      continue
-    }
-    const key = `${s.resume.kind}:${s.resume.value}`
-    const at = indexByRef.get(key)
-    const existing = at === undefined ? undefined : out[at]
-    if (at === undefined || existing === undefined) {
-      indexByRef.set(key, out.length)
-      out.push(s)
-    } else {
-      out[at] = better(existing, s)
-    }
-  }
-  return out
-}
+// dedupeSessionsByResume (collapsing duplicate rows for the same underlying
+// agent conversation) is entity-pure — imported from @podium/domain above and
+// re-exported, not redefined here (#194).
 
 /** A session is "stale" when it's been inactive longer than this. */
 export const STALE_INACTIVE_MS = 16 * 60 * 60 * 1000

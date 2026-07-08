@@ -15,7 +15,7 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
-    "@podium/core": "workspace:*",
+    "@podium/runtime": "workspace:*",
     "@podium/issue-client": "workspace:*"
   },
   "devDependencies": {

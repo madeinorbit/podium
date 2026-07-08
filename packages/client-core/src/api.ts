@@ -16,7 +16,6 @@
  * store reads them; inputs match exactly what it sends.
  */
 
-import type { PodiumSettings } from '@podium/core'
 import type {
   AgentKind,
   GitDiscoveryDiagnosticWire,
@@ -24,6 +23,7 @@ import type {
   SyncChangesSinceResult,
   WorkState,
 } from '@podium/protocol'
+import type { PodiumSettings } from '@podium/runtime'
 import type { PinKind, PinState } from './viewmodels/types'
 
 export interface ApiQuery<I, O> {

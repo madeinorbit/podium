@@ -4,7 +4,7 @@ import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 // Fixture-only: hand-build a pre-multi-machine ("v3-shape") db. The store under
-// test always goes through the @podium/core/sqlite shim; this direct driver use
+// test always goes through the @podium/runtime/sqlite shim; this direct driver use
 // mirrors store.test.ts's own v1-migration fixture and never touches the shim.
 import { DatabaseSync } from 'node:sqlite'
 import { describe, expect, it } from 'vitest'

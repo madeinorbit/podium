@@ -10,7 +10,7 @@
  * keeps both lineages byte-converged on sqlite_master.
  */
 
-import type { SqlDatabase } from '@podium/core/sqlite'
+import type { SqlDatabase } from '@podium/runtime/sqlite'
 
 export function up(db: SqlDatabase): void {
   db.exec('CREATE INDEX IF NOT EXISTS idx_issues_repo_id ON issues(repo_id)')

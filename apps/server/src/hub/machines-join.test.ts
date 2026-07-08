@@ -1,4 +1,4 @@
-import { decodeJoin } from '@podium/core/join'
+import { decodeJoin } from '@podium/runtime/join'
 import { describe, expect, it } from 'vitest'
 import { buildJoinCommand } from './machines-join'
 

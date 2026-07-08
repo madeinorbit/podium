@@ -23,7 +23,7 @@
     "host:backend": "bun --conditions=@podium/source --watch scripts/host.ts",
     "typecheck": "bun run --filter '*' typecheck",
     "test": "vitest run --passWithNoTests && bun run test:bun",
-    "test:bun": "bun test --conditions=@podium/source apps/daemon/test packages/core/test/sqlite.bun.test.ts scripts/lifecycle.integration.bun.test.ts --test-name-pattern ''",
+    "test:bun": "bun test --conditions=@podium/source apps/daemon/test packages/runtime/test/sqlite.bun.test.ts scripts/lifecycle.integration.bun.test.ts --test-name-pattern ''",
     "lint": "biome check . && bun run lint:boundaries",
     "lint:boundaries": "bun scripts/check-boundaries.ts",
     "format": "biome format --write .",

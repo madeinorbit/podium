@@ -4,8 +4,8 @@
  * cursor + received-state blobs (docs/spec/node-hub-sync.md).
  */
 
-import { normalizeSettings, type PodiumSettings } from '@podium/core'
-import type { SqlDatabase } from '@podium/core/sqlite'
+import { normalizeSettings, type PodiumSettings } from '@podium/runtime'
+import type { SqlDatabase } from '@podium/runtime/sqlite'
 
 export class SettingsRepository {
   constructor(private readonly db: SqlDatabase) {}

@@ -1,5 +1,5 @@
 /**
- * Attribution layer for the daemon event loop, paired with `@podium/core`'s
+ * Attribution layer for the daemon event loop, paired with `@podium/runtime`'s
  * `startLoopMetrics`. When the loop-metrics probe detects a long tick it calls
  * {@link reportLongTick}, which dumps WHAT the loop was busy with in the ~1s
  * around the stall: per-window activity counters (PTY frames, control messages,

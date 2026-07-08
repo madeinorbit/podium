@@ -1,14 +1,14 @@
 // Run ONLY under `bun test` — proves the multi-machine store + migration behave
 // identically on bun:sqlite (vitest excludes *.bun.test.ts; store.machines.test.ts
 // is the node:sqlite mirror of this). The pre-multi-machine fixture is built through
-// the same @podium/core/sqlite shim (bun:sqlite here) rather than a direct driver.
+// the same @podium/runtime/sqlite shim (bun:sqlite here) rather than a direct driver.
 
 import { describe, expect, it } from 'bun:test'
 import { createHash } from 'node:crypto'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { openDatabase } from '@podium/core/sqlite'
+import { openDatabase } from '@podium/runtime/sqlite'
 import { SessionStore } from '../src/store'
 
 const hash = (t: string) => createHash('sha256').update(t).digest('hex')

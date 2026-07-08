@@ -1,3 +1,8 @@
+/**
+ * Attention-tier math for the daemon's PTY output scheduler (#194: moved from
+ * apps/server/src/session-priority.ts — pure, platform-neutral, belongs in
+ * domain alongside the other session-identity predicates).
+ */
 export interface PriorityClient {
   attached: ReadonlySet<string>
   viewVisible: ReadonlySet<string>
@@ -14,7 +19,10 @@ export function computePriorities(
   for (const sid of sessionIds) {
     let best: 0 | 1 | 2 | 3 = 3
     for (const c of clients) {
-      if (c.focused === sid) { best = 0; break }
+      if (c.focused === sid) {
+        best = 0
+        break
+      }
       if (c.viewVisible.has(sid)) best = best < 1 ? best : 1
       else if (c.attached.has(sid)) best = best < 2 ? best : 2
     }

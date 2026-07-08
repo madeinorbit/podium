@@ -9,11 +9,11 @@
  * This process does no PTY work. Run under Node (tsx) today, or under Bun:
  *   node_modules/.bin/tsx --conditions=@podium/source scripts/server.ts
  *   bun --conditions=@podium/source scripts/server.ts
- * Persistence resolves to node:sqlite/bun:sqlite per runtime (@podium/core/sqlite).
+ * Persistence resolves to node:sqlite/bun:sqlite per runtime (@podium/runtime/sqlite).
  */
 
-import { installProcessSafetyNet } from '@podium/core/process-safety'
-import { startWatchdog } from '@podium/core/sd-notify'
+import { installProcessSafetyNet } from '@podium/runtime/process-safety'
+import { startWatchdog } from '@podium/runtime/sd-notify'
 import { startServer } from '../apps/server/src/server'
 
 // Crash net BEFORE anything else: an un-caught rejection (a dead socket's send, a

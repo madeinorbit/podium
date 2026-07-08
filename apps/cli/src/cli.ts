@@ -6,8 +6,8 @@
  * and asks for a restart.
  */
 
-import { loadConfig, needsSetup, type PodiumConfig, type PodiumMode } from '@podium/core/config'
-import { LOCAL_MACHINE_ID } from '@podium/core/local-machine'
+import { loadConfig, needsSetup, type PodiumConfig, type PodiumMode } from '@podium/runtime/config'
+import { LOCAL_MACHINE_ID } from '@podium/runtime/local-machine'
 
 export interface LaunchPlan {
   mode: PodiumMode
@@ -114,7 +114,7 @@ export async function main(loadHost: () => Promise<HostModules>): Promise<void> 
   const config = loadConfig()
 
   // Crash net BEFORE anything else (mirror scripts/daemon.ts, audit P0-1).
-  const { installProcessSafetyNet } = await import('@podium/core/process-safety')
+  const { installProcessSafetyNet } = await import('@podium/runtime/process-safety')
   installProcessSafetyNet('podium')
 
   // `podium update`: self-update the headless bundle from the configured feed, then exit.
@@ -170,7 +170,7 @@ export async function main(loadHost: () => Promise<HostModules>): Promise<void> 
       console.error('usage: podium set-server <ws(s)://url | http(s)://url | join-code>')
       process.exit(2)
     }
-    const { applyServerUrl } = await import('@podium/core/setup')
+    const { applyServerUrl } = await import('@podium/runtime/setup')
     try {
       const res = applyServerUrl(target)
       console.log(`podium server URL set to ${res.serverUrl}`)
@@ -383,7 +383,7 @@ export async function main(loadHost: () => Promise<HostModules>): Promise<void> 
       : process.env.PODIUM_RUN_MODE === 'detached'
         ? ('detached' as const)
         : ('foreground' as const)
-    const { registerProcess } = await import('@podium/core/run-registry')
+    const { registerProcess } = await import('@podium/runtime/run-registry')
     try {
       // Daemon-only mode hosts no local port; server/all-in-one record theirs.
       await registerProcess(runRole, {
@@ -431,7 +431,7 @@ export async function main(loadHost: () => Promise<HostModules>): Promise<void> 
     // scripts/daemon.ts), and connects to the local server. Without --local this is a remote/join
     // daemon that auths via the config's pair code / token.
     if (!forceSetup && plan.mode === 'daemon' && argv.includes('--local')) {
-      const { readOrCreateDaemonSecret } = await import('@podium/core/local-machine')
+      const { readOrCreateDaemonSecret } = await import('@podium/runtime/local-machine')
       daemonOptions = {
         serverUrl: plan.serverUrl ?? `ws://localhost:${port}`,
         bootstrapToken: readOrCreateDaemonSecret(),
@@ -456,7 +456,7 @@ export async function main(loadHost: () => Promise<HostModules>): Promise<void> 
       ...(remoteDaemon
         ? {
             onBlocked: async ({ type, reason }: { type: string; reason: string }) => {
-              const { DAEMON_BLOCKED_EXIT_CODE } = await import('@podium/core/connectivity')
+              const { DAEMON_BLOCKED_EXIT_CODE } = await import('@podium/runtime/connectivity')
               console.error(
                 `podium daemon: blocked by the server (${type}: ${reason}) — exiting ${DAEMON_BLOCKED_EXIT_CODE}. Run \`podium status\` for recovery steps.`,
               )
@@ -469,7 +469,7 @@ export async function main(loadHost: () => Promise<HostModules>): Promise<void> 
   }
 
   // Watchdog pet (no-op off a Type=notify unit) — mirror scripts/daemon.ts.
-  const { startWatchdog } = await import('@podium/core/sd-notify')
+  const { startWatchdog } = await import('@podium/runtime/sd-notify')
   const stopWatchdog = startWatchdog()
   const shutdown = (): void => {
     stopWatchdog?.()

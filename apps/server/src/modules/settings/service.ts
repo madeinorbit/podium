@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import type { PodiumSettings } from '@podium/core'
+import type { PodiumSettings } from '@podium/runtime'
 import { ModelCatalog, type ModelCatalogSnapshot, type ModelProbe } from '../../model-catalog'
 import type { TelegramConfig } from '../../notify'
 import type { SessionStore } from '../../store'

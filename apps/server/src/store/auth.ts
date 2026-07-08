@@ -6,7 +6,7 @@
  * to re-login.
  */
 
-import type { SqlDatabase } from '@podium/core/sqlite'
+import type { SqlDatabase } from '@podium/runtime/sqlite'
 
 export class AuthRepository {
   constructor(private readonly db: SqlDatabase) {}

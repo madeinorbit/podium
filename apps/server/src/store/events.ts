@@ -5,7 +5,7 @@
  * event-subscriptions design Phase B).
  */
 
-import type { SqlDatabase } from '@podium/core/sqlite'
+import type { SqlDatabase } from '@podium/runtime/sqlite'
 import type { Subscription } from './types'
 
 function rowToSubscription(r: Record<string, unknown>): Subscription {

@@ -7,8 +7,8 @@ import { type ChildProcess, spawn } from 'node:child_process'
 import { mkdirSync, openSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import type { PodiumConfig } from '@podium/core/config'
-import { liveRecord, logDir, type RunRole } from '@podium/core/run-registry'
+import type { PodiumConfig } from '@podium/runtime/config'
+import { liveRecord, logDir, type RunRole } from '@podium/runtime/run-registry'
 
 /** True when running inside a `bun build --compile` binary (execPath IS `podium`). */
 const COMPILED = import.meta.url.includes('/$bunfs/')

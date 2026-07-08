@@ -1,14 +1,14 @@
-import type { PodiumSettings } from '@podium/core'
+import type { PodiumSettings } from '@podium/runtime'
 import type {
   AgentRuntimeState,
   ControlMessage,
   DaemonMessage,
   HostMetricsWire,
+  LiveServerMessage,
   ServerMessage,
 } from '@podium/protocol'
 import { LOCAL_PLACEHOLDER } from '../../local-machine'
 import type { EventBus } from '../bus'
-import type { LiveServerMessage } from '../message-class'
 
 /** The daemon's memoryBreakdownResult, minus wire plumbing (type/requestId). */
 export type MemoryBreakdown = Omit<

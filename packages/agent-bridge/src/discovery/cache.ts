@@ -1,7 +1,7 @@
 import { mkdirSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
-import { openDatabase, type SqlDatabase } from '@podium/core/sqlite'
+import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
 import type { AgentConversationSummary, AgentKind, ConversationFileStat } from './types.js'
 
 // Bump whenever summary DERIVATION changes, not just the row shape — cached

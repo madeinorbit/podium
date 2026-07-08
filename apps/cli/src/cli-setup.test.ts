@@ -1,8 +1,8 @@
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { loadConfig, saveConfig } from '@podium/core/config'
-import { encodeJoin } from '@podium/core/join'
+import { loadConfig, saveConfig } from '@podium/runtime/config'
+import { encodeJoin } from '@podium/runtime/join'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   reconcilePendingPersistence,

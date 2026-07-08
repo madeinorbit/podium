@@ -4,7 +4,7 @@
  * 'concierge' intake threads).
  */
 
-import type { SqlDatabase } from '@podium/core/sqlite'
+import type { SqlDatabase } from '@podium/runtime/sqlite'
 import { parseJsonColumn } from './helpers'
 import type { SuperagentMessageRow, SuperagentThreadRow, ToolCallRow } from './types'
 

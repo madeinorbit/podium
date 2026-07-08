@@ -8,7 +8,7 @@
  *    (steward per-repo polling) — only `kind` was indexed.
  */
 
-import type { SqlDatabase } from '@podium/core/sqlite'
+import type { SqlDatabase } from '@podium/runtime/sqlite'
 
 export function up(db: SqlDatabase): void {
   db.exec('CREATE INDEX IF NOT EXISTS idx_issues_parent ON issues(parent_id)')

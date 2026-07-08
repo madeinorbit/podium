@@ -1,4 +1,4 @@
-import { loadConfig, needsSetup } from '@podium/core/config'
+import { loadConfig, needsSetup } from '@podium/runtime/config'
 import type { Hono } from 'hono'
 
 /**

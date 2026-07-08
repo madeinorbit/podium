@@ -18,7 +18,7 @@ able to flip the live host node→bun on a copy of the existing state.
 |---|---|
 | PTY layer on Bun.Terminal | Backend-parameterized behavioral suite, 12 behaviors, green on both node-pty (vitest) and Bun.Terminal (`bun test`). |
 | Durable abduco path on Bun.Terminal | `abduco.bun.test.ts`: create + `sh -c 'exec abduco -a'` attach + chrome strip + OSC title + input + detach-survive + reattach repaint + kill, 2/2. |
-| SQLite on Bun | `@podium/core/sqlite` shim (node:sqlite ⇄ bun:sqlite); shared spec green on both; full `SessionStore` round-trip on bun:sqlite. |
+| SQLite on Bun | `@podium/runtime/sqlite` shim (node:sqlite ⇄ bun:sqlite); shared spec green on both; full `SessionStore` round-trip on bun:sqlite. |
 | Whole stack boots on Bun | `bun scripts/server.ts` serves `/health`; `bun scripts/daemon.ts` connects over WS; zero errors. |
 | Single-file binary | `bun build --compile` → `dist-bun/podium-server` + `podium-daemon` (98 MB each, standalone ELF). Both run with **no bun/node installed**. |
 | abduco in the binary | Daemon embeds a prebuilt abduco and materializes it to the cache on first start — clean-machine test (no abduco on PATH, fresh state) materialized a working `abduco-0.6` binary. |

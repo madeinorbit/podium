@@ -1,4 +1,4 @@
-import { applyJoin } from '@podium/core/setup'
+import { applyJoin } from '@podium/runtime/setup'
 
 /**
  * Decode a join token and persist a daemon config. Returns the resolved machine name.

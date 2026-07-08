@@ -50,8 +50,8 @@ export interface EventMap {
   'attention.raised': { sessionId: string; title: string; body: string }
   /** Settings were replaced via setSettings (previous → next). */
   'settings.changed': {
-    previous: import('@podium/core').PodiumSettings
-    next: import('@podium/core').PodiumSettings
+    previous: import('@podium/runtime').PodiumSettings
+    next: import('@podium/runtime').PodiumSettings
   }
   /** Durable metadata oplog rows were appended (post-record, pre/post-fanout). */
   'oplog.appended': { changes: MetadataChange[] }

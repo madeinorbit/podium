@@ -1,13 +1,13 @@
 // `podium status` / `podium stop` / `podium logs` — lifecycle commands over the run registry
-// (packages/core/src/run-registry.ts). Pure rendering (`renderStatus`) is split from the impure
+// (packages/runtime/src/run-registry.ts). Pure rendering (`renderStatus`) is split from the impure
 // command wrappers so it can be unit-tested. Design:
 // docs/superpowers/specs/2026-07-06-headless-process-model-design.md
 import { execFileSync, spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
-import { loadConfig, type PodiumConfig } from '@podium/core/config'
-import { type ConnectivityStatus, readConnectivity } from '@podium/core/connectivity'
-import { listLive, logDir, type RunRecord, RunRole, reclaim } from '@podium/core/run-registry'
+import { loadConfig, type PodiumConfig } from '@podium/runtime/config'
+import { type ConnectivityStatus, readConnectivity } from '@podium/runtime/connectivity'
+import { listLive, logDir, type RunRecord, RunRole, reclaim } from '@podium/runtime/run-registry'
 
 /** Human "3s / 4m / 2h / 1d ago" from an ISO start time. */
 export function humanUptime(startedAtIso: string, nowMs: number): string {

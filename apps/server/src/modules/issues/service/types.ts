@@ -1,4 +1,4 @@
-import type { PodiumSettings } from '@podium/core'
+import type { PodiumSettings } from '@podium/runtime'
 import type { IssueWire, RepoOp, SessionMeta } from '@podium/protocol'
 import type { LinearIssue } from '../../../linear'
 import type { llmClient } from '../../../llm'

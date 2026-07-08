@@ -4,6 +4,10 @@
  * left as-is (case-sensitive on most forges). `.git` suffix, trailing slash, scheme,
  * userinfo, and port are all stripped. Non-URL input is returned trimmed (so a
  * remote-less repo still only matches itself).
+ *
+ * Canonical home (#194): moved from @podium/runtime/git.ts (which now re-exports it)
+ * so browser-safe consumers (client-core's viewmodels, shared with the mobile
+ * app) can import it directly instead of hand-copying it.
  */
 export function normalizeOriginUrl(raw: string | undefined): string {
   if (!raw) return ''

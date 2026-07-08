@@ -1,10 +1,16 @@
 import { describe, expect, it } from 'vitest'
-import { checkFile, clauseIsTypeOnly, extractImports } from './check-boundaries'
+import {
+  checkFile,
+  checkRuntimeBarrelPurity,
+  clauseIsTypeOnly,
+  extractImports,
+  loadDomainExportNames,
+} from './check-boundaries'
 
 describe('extractImports', () => {
   it('extracts value, type-only, side-effect, export-from and dynamic imports', () => {
     const src = [
-      `import { a } from '@podium/core'`,
+      `import { a } from '@podium/runtime'`,
       `import type { AppRouter } from '@podium/server'`,
       `import '@podium/protocol'`,
       `export { b } from '@podium/agent-bridge'`,
@@ -13,7 +19,7 @@ describe('extractImports', () => {
     ].join('\n')
     const refs = extractImports(src)
     expect(refs.map((r) => r.specifier)).toEqual([
-      '@podium/core',
+      '@podium/runtime',
       '@podium/server',
       '@podium/protocol',
       '@podium/agent-bridge',
@@ -124,7 +130,7 @@ describe('checkFile rules', () => {
     ).toEqual([])
     const core = checkFile(
       'packages/transcript/src/source.ts',
-      `import { openDatabase } from '@podium/core/sqlite'`,
+      `import { openDatabase } from '@podium/runtime/sqlite'`,
     )
     expect(core).toHaveLength(1)
     expect(core[0].rule).toBe('restricted-package-deps')
@@ -162,7 +168,7 @@ describe('checkFile rules', () => {
     expect(
       checkFile(
         'apps/cli/src/issue-cli.ts',
-        `import { ISSUE_COMMANDS, makeRelayIssueClient } from '@podium/issue-client'\nimport { loadConfig } from '@podium/core/config'`,
+        `import { ISSUE_COMMANDS, makeRelayIssueClient } from '@podium/issue-client'\nimport { loadConfig } from '@podium/runtime/config'`,
       ),
     ).toEqual([])
   })
@@ -193,19 +199,33 @@ describe('checkFile rules', () => {
     ).toEqual([])
   })
 
-  it('keeps protocol and core as leaf packages', () => {
-    const p = checkFile('packages/protocol/src/index.ts', `import { z } from '@podium/core'`)
+  it('keeps protocol a leaf package', () => {
+    const p = checkFile('packages/protocol/src/index.ts', `import { z } from '@podium/runtime'`)
     expect(p).toHaveLength(1)
     expect(p[0].rule).toBe('leaf-package')
+  })
+
+  it('restricts @podium/runtime to the protocol/domain leaves', () => {
+    // Allowed: protocol and domain (e.g. domain's normalizeOriginUrl).
+    expect(
+      checkFile('packages/runtime/src/settings.ts', `import type { T } from '@podium/protocol'`),
+    ).toEqual([])
+    expect(
+      checkFile(
+        'packages/runtime/src/git.ts',
+        `export { normalizeOriginUrl } from '@podium/domain'`,
+      ),
+    ).toEqual([])
+    // Disallowed: any other workspace package.
     const c = checkFile(
-      'packages/core/src/settings.ts',
-      `import type { T } from '@podium/protocol'`,
+      'packages/runtime/src/settings.ts',
+      `import { something } from '@podium/client-core'`,
     )
     expect(c).toHaveLength(1)
-    expect(c[0].rule).toBe('leaf-package')
+    expect(c[0].rule).toBe('restricted-package-deps')
     // Intra-package and external imports are fine.
     expect(
-      checkFile('packages/core/src/index.ts', `import { z } from 'zod'\nimport './settings.js'`),
+      checkFile('packages/runtime/src/index.ts', `import { z } from 'zod'\nimport './settings.js'`),
     ).toEqual([])
   })
 
@@ -302,7 +322,124 @@ describe('server role tiers (core → hub → cloud, apps/server/src/roles.ts)',
   it('ignores files outside apps/server/src and non-relative specifiers', () => {
     expect(checkFile('apps/web/src/hub/x.ts', `import { y } from './thing'`)).toEqual([])
     expect(
-      checkFile('apps/server/src/relay.ts', `import { loadConfig } from '@podium/core/config'`),
+      checkFile('apps/server/src/relay.ts', `import { loadConfig } from '@podium/runtime/config'`),
     ).toEqual([])
+  })
+})
+
+describe('rule 7 — @podium/domain single-home for its predicates', () => {
+  const domainNames = new Set(['isSnoozed', 'worktreeForCwd'])
+
+  it('flags a packages/* file that REDECLARES a domain-exported name', () => {
+    const v = checkFile(
+      'packages/client-core/src/viewmodels/derive.ts',
+      `export function isSnoozed(s, now) { return false }`,
+      domainNames,
+    )
+    expect(v).toHaveLength(1)
+    expect(v[0].rule).toBe('domain-single-home')
+    expect(v[0].message).toContain('isSnoozed')
+
+    const c = checkFile(
+      'packages/client-core/src/viewmodels/derive.ts',
+      `export const worktreeForCwd = (cwd, paths) => null`,
+      domainNames,
+    )
+    expect(c).toHaveLength(1)
+    expect(c[0].rule).toBe('domain-single-home')
+  })
+
+  it('allows re-exporting the imported binding under the same name', () => {
+    expect(
+      checkFile(
+        'packages/client-core/src/viewmodels/derive.ts',
+        `import { isSnoozed } from '@podium/domain'\nexport { isSnoozed }`,
+        domainNames,
+      ),
+    ).toEqual([])
+    expect(
+      checkFile(
+        'packages/client-core/src/viewmodels/derive.ts',
+        `export { isSnoozed } from '@podium/domain'`,
+        domainNames,
+      ),
+    ).toEqual([])
+  })
+
+  it('is a no-op with an empty domain-names set (existing checkFile callers unaffected)', () => {
+    expect(
+      checkFile(
+        'packages/client-core/src/viewmodels/derive.ts',
+        `export function isSnoozed(s, now) { return false }`,
+      ),
+    ).toEqual([])
+  })
+
+  it('exempts @podium/domain itself and test files', () => {
+    expect(
+      checkFile(
+        'packages/domain/src/snooze.ts',
+        `export function isSnoozed(row, now) { return false }`,
+        domainNames,
+      ),
+    ).toEqual([])
+    expect(
+      checkFile(
+        'packages/client-core/src/viewmodels/derive.test.ts',
+        `export function isSnoozed(s, now) { return false }`,
+        domainNames,
+      ),
+    ).toEqual([])
+  })
+
+  it('never flags apps/* — the rule patrols the package layer only', () => {
+    expect(
+      checkFile(
+        'apps/web/src/derive.ts',
+        `export function isSnoozed(s, now) { return false }`,
+        domainNames,
+      ),
+    ).toEqual([])
+  })
+
+  it('loadDomainExportNames reads the real @podium/domain source', () => {
+    const repoRoot = new URL('..', import.meta.url).pathname
+    const names = loadDomainExportNames(repoRoot)
+    expect(names.has('isSnoozed')).toBe(true)
+    expect(names.has('worktreeForCwd')).toBe(true)
+    expect(names.has('isIssueClosed')).toBe(true)
+  })
+})
+
+describe('rule 8 — @podium/runtime browser-safety', () => {
+  it('rejects apps/web importing any @podium/runtime subpath', () => {
+    const v = checkFile('apps/web/src/x.ts', `import { z } from '@podium/runtime/config'`)
+    expect(v).toHaveLength(1)
+    expect(v[0].rule).toBe('runtime-browser-safety')
+    expect(v[0].message).toContain('subpath')
+  })
+
+  it('allows apps/web bare-importing @podium/runtime', () => {
+    expect(
+      checkFile('apps/web/src/x.ts', `import { normalizeOriginUrl } from '@podium/runtime'`),
+    ).toEqual([])
+  })
+
+  it('lets every other workspace use @podium/runtime subpaths freely', () => {
+    expect(
+      checkFile('apps/server/src/x.ts', `import { loadConfig } from '@podium/runtime/config'`),
+    ).toEqual([])
+    expect(
+      checkFile('apps/daemon/src/x.ts', `import { openDatabase } from '@podium/runtime/sqlite'`),
+    ).toEqual([])
+  })
+
+  it('checkRuntimeBarrelPurity passes clean against the real repo (git/settings are node-free)', () => {
+    const repoRoot = new URL('..', import.meta.url).pathname
+    expect(checkRuntimeBarrelPurity(repoRoot)).toEqual([])
+  })
+
+  it('checkRuntimeBarrelPurity is a no-op when the barrel file cannot be read', () => {
+    expect(checkRuntimeBarrelPurity('/nonexistent/repo/root')).toEqual([])
   })
 })

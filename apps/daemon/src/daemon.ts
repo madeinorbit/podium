@@ -11,9 +11,9 @@ import {
   killAbducoSession,
   killTmuxServer,
 } from '@podium/agent-bridge'
-import { writeConnectivity } from '@podium/core/connectivity'
-import { startLoopMetrics } from '@podium/core/loop-metrics'
-import { consumePairCode } from '@podium/core/setup'
+import { writeConnectivity } from '@podium/runtime/connectivity'
+import { startLoopMetrics } from '@podium/runtime/loop-metrics'
+import { consumePairCode } from '@podium/runtime/setup'
 import {
   type ControlMessage,
   type DaemonHandshake,

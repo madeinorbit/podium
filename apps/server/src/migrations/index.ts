@@ -18,7 +18,7 @@
  *  - Re-running is idempotent: already-applied versions are skipped.
  */
 
-import type { SqlDatabase } from '@podium/core/sqlite'
+import type { SqlDatabase } from '@podium/runtime/sqlite'
 import { up as coreSchema } from './002-core-schema'
 import { up as hardeningIndexes } from './003-hardening-indexes'
 import { up as issuesUniqueRepoSeq } from './004-issues-unique-repo-seq'

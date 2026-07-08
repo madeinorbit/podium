@@ -20,20 +20,23 @@ package and lets each release independently.
 ## Dependency direction
 
 ```
-@podium/web              ->  @podium/terminal-client, @podium/core
+@podium/web              ->  @podium/terminal-client, @podium/client-core, @podium/runtime
 @podium/web              ~>  @podium/server   (type-only AppRouter; planned, no runtime dep)
-@podium/server           ->  @podium/core, @podium/protocol
-@podium/daemon           ->  @podium/agent-bridge, @podium/protocol, @podium/core
+@podium/server           ->  @podium/runtime, @podium/domain, @podium/protocol
+@podium/daemon           ->  @podium/agent-bridge, @podium/protocol, @podium/runtime
+@podium/client-core      ->  @podium/protocol, @podium/domain, @podium/runtime, @podium/terminal-client
 @podium/agent-bridge     ->  @podium/protocol
 @podium/terminal-client  ->  @podium/protocol
 @podium/protocol         ->  (leaf — no internal deps)
-@podium/core             ->  (leaf — no internal deps)
+@podium/domain           ->  (leaf — no internal deps, no @podium/protocol dep either)
+@podium/runtime          ->  @podium/protocol, @podium/domain (near-leaf; nothing else)
 ```
 
 - Apps depend on packages, never the reverse.
 - No app→app runtime dependency; `apps/web` imports only the `AppRouter` *type* from
   `apps/server`.
-- `@podium/protocol` and `@podium/core` are leaf packages.
+- `@podium/protocol` and `@podium/domain` are leaf packages. `@podium/runtime` is a
+  near-leaf: it may depend only on those two leaves.
 
 ### Server role tiers: core → hub → cloud
 
@@ -66,11 +69,12 @@ server's own `src/hub/import-boundary.test.ts`, both reading the `src/roles.ts` 
 | Agent state detection (provider interface, reducer, per-agent providers) | `@podium/agent-bridge` `src/agent-state/`; HTTP hook ingest + spawn injection in `apps/daemon` |
 | Browser↔server message types (input, output frame, resize, takeover, transcript) | `@podium/protocol` |
 | xterm.js, mobile key toolbar, touch/scroll policy, reconnect | `@podium/terminal-client` |
-| Domain entities + zod schemas | `@podium/core` |
+| Pure domain logic (issue stage machine, authz, snooze/defer, worktree/machine identity, session dedup + priority) | `@podium/domain` |
+| Node-runtime plumbing (config, sqlite shims, git identity, connectivity, auth-store, …) | `@podium/runtime` |
 | tRPC routers, auth, persistence, conversation index, daemon fan-out | `apps/server` |
 | Typed in-process event bus (module→module signals) | `apps/server` `src/modules/bus.ts` |
 | THE write funnel — authorize → repo write → oplog append → broadcast; owns the metadata oplog | `apps/server` `src/modules/funnel.ts` (every publish pipeline ends here; issue mutations enter via `funnel.run`) |
-| Server→client message classification (durable = funnel-only vs live-only raw fan-out; total over `ServerMessage`) | `apps/server` `src/modules/message-class.ts` |
+| Wire message sync-class taxonomy (durable / live / command / bulk; total over Client/Server/Control/DaemonMessage) | `@podium/protocol` `src/messages/message-class.ts` |
 | Session lifecycle, PTY frame relay, client/daemon ws data planes, queued sends, coalesced broadcast | `apps/server` `src/modules/sessions/` |
 | Daemon sockets/pairing/auth, machine admin + routing; daemon request/response plumbing | `apps/server` `src/modules/machines/` (`service.ts`, `rpc.ts`) |
 | The issue tracker itself (`IssueService`: CRUD + stage machine, reads/reports, archive/drafts, mail, git workflow + assistant) | `apps/server` `src/modules/issues/service/` (seam-per-file class chain) |

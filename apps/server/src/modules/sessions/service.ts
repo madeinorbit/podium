@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { basename } from 'node:path'
+import { computePriorities } from '@podium/domain'
 import {
   AGENT_CAPABILITIES,
   AgentKind,
@@ -12,6 +13,7 @@ import {
   type DaemonMessage,
   type Geometry,
   type IssueWire,
+  type LiveServerMessage,
   type MetadataChange,
   type MetadataEntityKind,
   type ResumeRef,
@@ -26,7 +28,6 @@ import type { Capability } from '../../issue-authz'
 import { selectMailNudgeSession, sessionsForIssue } from '../../issue-util'
 import { LOCAL_MACHINE_ID, LOCAL_PLACEHOLDER } from '../../local-machine'
 import { type ClientConn, type Send, Session } from './session'
-import { computePriorities } from '../../session-priority'
 import type { SessionStore } from '../../store'
 import {
   isGenericClaudeTitle,
@@ -41,7 +42,6 @@ import type { HostsService } from '../hosts/service'
 import type { IssueService } from '../issues/service'
 import type { DaemonRpcService } from '../machines/rpc'
 import type { MachinesService } from '../machines/service'
-import type { LiveServerMessage } from '../message-class'
 import type { HeadlessService } from '../superagent/headless'
 
 export const DEFAULT_GEOMETRY: Geometry = { cols: 80, rows: 24 }

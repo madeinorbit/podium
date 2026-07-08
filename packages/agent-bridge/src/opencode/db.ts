@@ -1,7 +1,7 @@
 import { statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import { openDatabase, type SqlDatabase } from '@podium/core/sqlite'
+import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
 import type { OpencodeMessagePartRow } from '@podium/transcript'
 
 // The row TYPE lives next to the pure part→items mapper in @podium/transcript;

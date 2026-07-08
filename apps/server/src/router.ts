@@ -1,5 +1,5 @@
-import { PodiumSettings } from '@podium/core'
-import { loadConfig } from '@podium/core/config'
+import { PodiumSettings } from '@podium/runtime'
+import { loadConfig } from '@podium/runtime/config'
 import {
   applyJoin,
   applyMode,
@@ -9,7 +9,7 @@ import {
   networkOptionCommand,
   setUpdateChannel,
   validatePublicUrl,
-} from '@podium/core/setup'
+} from '@podium/runtime/setup'
 import { AgentKind, agentSupportsCloud, isAgentKind, ResumeRef, WorkState } from '@podium/protocol'
 import { initTRPC, TRPCError } from '@trpc/server'
 import { z } from 'zod'
@@ -859,7 +859,7 @@ export const appRouter = t.router({
     }),
   }),
   // First-run "make this instance reachable" flow (Tailscale-first). The web setup screen
-  // reaches these instead of importing @podium/core/setup directly, which would pull node:fs
+  // reaches these instead of importing @podium/runtime/setup directly, which would pull node:fs
   // (via ./config) into the browser bundle.
   setup: t.router({
     // Current deployment identity, for Settings → Network to show + let the user change how this

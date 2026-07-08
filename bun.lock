@@ -24,8 +24,8 @@
       "name": "@podium/cli",
       "version": "0.0.0",
       "dependencies": {
-        "@podium/core": "workspace:*",
         "@podium/issue-client": "workspace:*",
+        "@podium/runtime": "workspace:*",
       },
       "devDependencies": {
         "typescript": "^6.0.3",
@@ -37,8 +37,8 @@
       "dependencies": {
         "@anthropic-ai/claude-agent-sdk": "^0.3.201",
         "@podium/agent-bridge": "workspace:*",
-        "@podium/core": "workspace:*",
         "@podium/protocol": "workspace:*",
+        "@podium/runtime": "workspace:*",
         "@podium/transcript": "workspace:*",
         "ws": "^8.18.0",
       },
@@ -93,10 +93,10 @@
       "dependencies": {
         "@hono/node-server": "^1.13.7",
         "@hono/trpc-server": "^0.3.4",
-        "@podium/core": "workspace:*",
         "@podium/domain": "workspace:*",
         "@podium/issue-client": "workspace:*",
         "@podium/protocol": "workspace:*",
+        "@podium/runtime": "workspace:*",
         "@podium/transcript": "workspace:*",
         "@trpc/client": "^11.0.0",
         "@trpc/server": "^11.0.0",
@@ -132,8 +132,8 @@
         "@dnd-kit/utilities": "^3.2.2",
         "@fontsource-variable/geist": "^5.2.9",
         "@podium/client-core": "workspace:*",
-        "@podium/core": "workspace:*",
         "@podium/protocol": "workspace:*",
+        "@podium/runtime": "workspace:*",
         "@podium/server": "workspace:*",
         "@podium/terminal-client": "workspace:*",
         "@tanstack/db": "^0.6.14",
@@ -170,8 +170,8 @@
       "name": "@podium/agent-bridge",
       "version": "0.0.0",
       "dependencies": {
-        "@podium/core": "workspace:*",
         "@podium/protocol": "workspace:*",
+        "@podium/runtime": "workspace:*",
         "@podium/transcript": "workspace:*",
         "node-pty": "^1.0.0",
       },
@@ -184,8 +184,9 @@
       "name": "@podium/client-core",
       "version": "0.0.0",
       "dependencies": {
-        "@podium/core": "workspace:*",
+        "@podium/domain": "workspace:*",
         "@podium/protocol": "workspace:*",
+        "@podium/runtime": "workspace:*",
         "@podium/terminal-client": "workspace:*",
         "@tanstack/db": "^0.6.14",
         "@tanstack/react-db": "^0.1.92",
@@ -199,16 +200,6 @@
       },
       "peerDependencies": {
         "react": ">=19",
-      },
-    },
-    "packages/core": {
-      "name": "@podium/core",
-      "version": "0.0.0",
-      "dependencies": {
-        "zod": "^3.24.0",
-      },
-      "devDependencies": {
-        "typescript": "^6.0.3",
       },
     },
     "packages/domain": {
@@ -238,6 +229,17 @@
       },
       "devDependencies": {
         "tsup": "^8.5.1",
+        "typescript": "^6.0.3",
+      },
+    },
+    "packages/runtime": {
+      "name": "@podium/runtime",
+      "version": "0.0.0",
+      "dependencies": {
+        "@podium/domain": "workspace:*",
+        "zod": "^3.24.0",
+      },
+      "devDependencies": {
         "typescript": "^6.0.3",
       },
     },
@@ -918,8 +920,6 @@
 
     "@podium/client-core": ["@podium/client-core@workspace:packages/client-core"],
 
-    "@podium/core": ["@podium/core@workspace:packages/core"],
-
     "@podium/daemon": ["@podium/daemon@workspace:apps/daemon"],
 
     "@podium/desktop": ["@podium/desktop@workspace:apps/desktop"],
@@ -935,6 +935,8 @@
     "@podium/mobile": ["@podium/mobile@workspace:apps/mobile"],
 
     "@podium/protocol": ["@podium/protocol@workspace:packages/protocol"],
+
+    "@podium/runtime": ["@podium/runtime@workspace:packages/runtime"],
 
     "@podium/server": ["@podium/server@workspace:apps/server"],
 

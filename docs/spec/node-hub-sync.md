@@ -20,7 +20,7 @@ module boundary ("day one rule", §4) was never actually enforced.
 ### 2.1 Config
 
 `~/.podium/config.json` gains `upstream?: { url: string, token: string }`
-(parsed in @podium/core config alongside mode/serverUrl; absent = today's
+(parsed in @podium/runtime config alongside mode/serverUrl; absent = today's
 behavior, byte-identical). `token` is a hub-minted client-session token (P7a
 provisioning: `podium upstream mint` — a tiny CLI/proc on the HUB that inserts a
 long-lived client_sessions row and prints the token; pairing UX comes later).

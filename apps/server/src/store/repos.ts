@@ -9,7 +9,7 @@
 
 import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import type { SqlDatabase } from '@podium/core/sqlite'
+import type { SqlDatabase } from '@podium/runtime/sqlite'
 import { deriveRepoId, isPathFallbackRepoId, readLocalOriginUrl } from '../repo-id'
 
 export function normalizeRepoPath(path: string): string {
