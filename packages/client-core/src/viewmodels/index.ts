@@ -1,2 +1,5 @@
-export * from './types'
 export * from './derive'
+export * from './dock-panel'
+export * from './file-scope'
+export * from './optimistic-spawn'
+export * from './types'
