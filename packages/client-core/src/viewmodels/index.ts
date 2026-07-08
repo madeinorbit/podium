@@ -1,4 +1,5 @@
 export * from './ask-question'
+export * from './chat'
 export * from './derive'
 export * from './dock-panel'
 export * from './file-scope'

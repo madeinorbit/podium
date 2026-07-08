@@ -1,3 +1,4 @@
+import { shouldPinOnReset } from '@podium/client-core/viewmodels'
 import type { TranscriptItem } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import {
@@ -10,7 +11,6 @@ import {
   ticksFromOffsets,
   toolBatchTitle,
 } from '../src/chat'
-import { shouldPinOnReset } from '../src/ChatView'
 
 const item = (over: Partial<TranscriptItem>): TranscriptItem => ({
   id: Math.random().toString(36).slice(2),
