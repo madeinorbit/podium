@@ -495,11 +495,13 @@ export function StoreProvider({
     [router],
   )
   const settingsTab = route.settingsTab
+  // Tab changes are real history entries (/settings/:tab): back/forward moves
+  // between the tabs you visited, and a deep link lands directly on its tab.
   const setSettingsTab = useMemo(
     () => (tab: string | null) => {
       const cur = router.current()
       if (cur.view === 'settings') {
-        if (cur.settingsTab !== tab) router.replace({ ...cur, settingsTab: tab })
+        if (cur.settingsTab !== tab) router.navigate({ ...cur, settingsTab: tab })
       } else if (tab !== null) {
         router.navigate({
           ...cur,

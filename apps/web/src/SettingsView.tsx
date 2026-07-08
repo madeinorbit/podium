@@ -103,17 +103,14 @@ export function SettingsView(): JSX.Element {
   const [savedAt, setSavedAt] = useState(0)
   const [telegramSetup, setTelegramSetup] = useState<TelegramSetupState>({ status: 'idle' })
   const [telegramSetupNow, setTelegramSetupNow] = useState(() => Date.now())
-  // Honor a deep-link target (e.g. from global search) for the initial tab, then
-  // clear it so a later plain "open settings" lands on the default.
-  const [tab, setTab] = useState<SettingsTab>('sessions')
-  // React to a deep-link target (from global search, or the Machines panel's "Change URL"
-  // button) whenever it's set — on mount AND on later changes — then clear it.
-  useEffect(() => {
-    if (settingsTab && SETTINGS_TABS.some((s) => s.key === settingsTab)) {
-      setTab(settingsTab as SettingsTab)
-      setSettingsTab(null)
-    }
-  }, [settingsTab, setSettingsTab])
+  // The tab is the URL (/settings/:tab, issue #15 Phase 4): deep links (global
+  // search, the Machines panel's "Change URL") land directly on their tab, tab
+  // clicks push history entries (setSettingsTab), and back/forward moves
+  // between visited tabs. A plain /settings shows the default tab.
+  const tab: SettingsTab =
+    settingsTab && SETTINGS_TABS.some((s) => s.key === settingsTab)
+      ? (settingsTab as SettingsTab)
+      : 'sessions'
 
   useEffect(() => {
     let cancelled = false
@@ -269,7 +266,7 @@ export function SettingsView(): JSX.Element {
                   t.key === tab && 'bg-accent text-foreground',
                 )}
                 aria-current={t.key === tab}
-                onClick={() => setTab(t.key)}
+                onClick={() => setSettingsTab(t.key)}
               >
                 {t.label}
               </button>

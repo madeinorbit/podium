@@ -144,6 +144,24 @@ describe('createRouter', () => {
     expect(seen).toEqual(['issues', 'issues', 'issues', 'home', 'issues'])
   })
 
+  it('settings tab changes are history entries: back/forward move between tabs', () => {
+    // The store's setSettingsTab pushes (never replaces) tab changes, so each
+    // visited tab is a real /settings/:tab history entry.
+    const win = fakeWindow('/settings')
+    const router = createRouter({ win })
+    router.navigate({ ...router.current(), settingsTab: 'appearance' })
+    router.navigate({ ...router.current(), settingsTab: 'network' })
+    expect(win.url()).toBe('/settings/network')
+
+    win.back()
+    expect(router.current()).toMatchObject({ view: 'settings', settingsTab: 'appearance' })
+    expect(win.url()).toBe('/settings/appearance')
+    win.back()
+    expect(router.current()).toMatchObject({ view: 'settings', settingsTab: null })
+    win.forward()
+    expect(router.current()).toMatchObject({ view: 'settings', settingsTab: 'appearance' })
+  })
+
   it('falls back to home on an unknown initial URL (replace, not push)', () => {
     const win = fakeWindow('/definitely-not-a-route')
     const router = createRouter({ win })
