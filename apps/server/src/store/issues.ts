@@ -370,36 +370,6 @@ export class IssuesRepository {
     ).map((r) => ({ fromId: r.from_id, type: r.type }))
   }
 
-  /** One-time, idempotent per-boot heal: mirror legacy issues.blocked_by arrays
-   *  into issue_deps edges. */
-  backfillIssueDeps(): void {
-    const rows = this.db
-      .prepare("SELECT id, blocked_by FROM issues WHERE blocked_by != '[]'")
-      .all() as {
-      id: string
-      blocked_by: string
-    }[]
-    const ins = this.db.prepare(
-      "INSERT OR IGNORE INTO issue_deps (from_id, to_id, type) VALUES (?, ?, 'blocks')",
-    )
-    // blocked_by is populated by the AI assistant with branch names (e.g.
-    // "issue/3-foo"), NOT issue ids. Only mirror an edge when the target resolves
-    // to a real issue id, so phantom branch-name edges never accumulate on
-    // every boot.
-    const exists = this.db.prepare('SELECT 1 FROM issues WHERE id = ?')
-    for (const r of rows) {
-      let ids: unknown
-      try {
-        ids = JSON.parse(r.blocked_by)
-      } catch {
-        ids = []
-      }
-      if (Array.isArray(ids)) {
-        for (const to of ids) if (typeof to === 'string' && to && exists.get(to)) ins.run(r.id, to)
-      }
-    }
-  }
-
   // ---- comments ----
 
   addIssueComment(c: IssueCommentRow): void {

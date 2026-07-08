@@ -145,3 +145,31 @@ describe('migration 006: legacy-data sanitation', () => {
     }
   })
 })
+
+describe('migration 007: single parent storage', () => {
+  it('drops the mirrored parent-child dep rows; real dep types survive', () => {
+    const file = tmpDb('parent.db')
+    {
+      const db = openDatabase(file)
+      for (const sql of LEGACY_SCHEMA_SQL) db.exec(sql)
+      db.prepare('INSERT INTO schema_version (version, name, applied_at) VALUES (1, ?, ?)').run(
+        'baseline',
+        't',
+      )
+      db.exec(
+        `INSERT INTO issues (id, repo_path, seq, title, stage, parent_id, default_agent, created_at, updated_at)
+         VALUES ('iss_epic', '/r', 1, 'epic', 'backlog', NULL, 'claude-code', 't', 't'),
+                ('iss_kid', '/r', 2, 'kid', 'backlog', 'iss_epic', 'claude-code', 't', 't')`,
+      )
+      db.exec(
+        `INSERT INTO issue_deps (from_id, to_id, type)
+         VALUES ('iss_kid', 'iss_epic', 'parent-child'), ('iss_kid', 'iss_epic', 'blocks')`,
+      )
+      db.close()
+    }
+    const s = new SessionStore(file)
+    expect(s.listIssueDeps('iss_kid')).toEqual([{ toId: 'iss_epic', type: 'blocks' }])
+    expect(s.getIssue('iss_kid')?.parentId).toBe('iss_epic') // the column is the storage
+    s.close()
+  })
+})

@@ -48,61 +48,6 @@ describe('issues child tables (P1)', () => {
     expect(t.has('issue_comments')).toBe(true)
   })
 
-  it('backfills blocked_by into issue_deps as type=blocks', () => {
-    const store = new SessionStore(':memory:')
-    // @ts-expect-error private db — seed legacy rows with a blocked_by array.
-    // iss_b must exist for the dep to resolve (backfill only writes edges to
-    // real issue ids).
-    store.db
-      .prepare(
-        `INSERT INTO issues (id, repo_path, seq, title, stage, parent_branch, default_agent,
-         blocked_by, created_at, updated_at)
-       VALUES ('iss_a','/r',1,'A','backlog','main','claude-code','["iss_b"]','t','t')`,
-      )
-      .run()
-    // @ts-expect-error private db
-    store.db
-      .prepare(
-        `INSERT INTO issues (id, repo_path, seq, title, stage, parent_branch, default_agent,
-         blocked_by, created_at, updated_at)
-       VALUES ('iss_b','/r',2,'B','backlog','main','claude-code','[]','t','t')`,
-      )
-      .run()
-    // @ts-expect-error private method
-    store.backfillIssueDeps()
-    // @ts-expect-error private db
-    const deps = store.db.prepare('SELECT from_id, to_id, type FROM issue_deps').all()
-    expect(deps).toEqual([{ from_id: 'iss_a', to_id: 'iss_b', type: 'blocks' }])
-  })
-
-  it('backfill skips blocked_by entries that are not existing issue ids', () => {
-    const store = new SessionStore(':memory:')
-    // iss_a is blocked by a real issue (iss_b) AND a branch-name string. In this
-    // codebase blocked_by is populated by the AI assistant with branch names, so
-    // the backfill must only write edges that resolve to a real issue id.
-    // @ts-expect-error private db
-    store.db
-      .prepare(
-        `INSERT INTO issues (id, repo_path, seq, title, stage, parent_branch, default_agent,
-         blocked_by, created_at, updated_at)
-       VALUES ('iss_a','/r',1,'A','backlog','main','claude-code','["iss_b","issue/3-foo"]','t','t')`,
-      )
-      .run()
-    // @ts-expect-error private db
-    store.db
-      .prepare(
-        `INSERT INTO issues (id, repo_path, seq, title, stage, parent_branch, default_agent,
-         blocked_by, created_at, updated_at)
-       VALUES ('iss_b','/r',2,'B','backlog','main','claude-code','[]','t','t')`,
-      )
-      .run()
-    // @ts-expect-error private method
-    store.backfillIssueDeps()
-    // @ts-expect-error private db
-    const deps = store.db.prepare('SELECT from_id, to_id, type FROM issue_deps').all()
-    // Only the resolvable issue-id edge survives; the branch-name string is dropped.
-    expect(deps).toEqual([{ from_id: 'iss_a', to_id: 'iss_b', type: 'blocks' }])
-  })
 })
 
 function baseRow(over: Partial<IssueRow> = {}): IssueRow {

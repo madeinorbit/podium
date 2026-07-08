@@ -113,14 +113,8 @@ export class SessionStore {
     this.conversationsRepo.ensureFts()
     this.conversationsRepo.repairSubagentSegmentPaths()
     this.superagentRepo.seedGlobalThread()
-    this.backfillIssueDeps()
     this.reposRepo.importReposJson(this.path)
     this.backfillRepoIds()
-  }
-
-  /** Per-boot heal (idempotent): mirror legacy blocked_by arrays into issue_deps. */
-  private backfillIssueDeps(): void {
-    this.issuesRepo.backfillIssueDeps()
   }
 
   /** Per-boot heal (idempotent): fill NULL repo_ids on repos and issues, then

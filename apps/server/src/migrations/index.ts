@@ -24,6 +24,7 @@ import { up as hardeningIndexes } from './003-hardening-indexes'
 import { up as issuesUniqueRepoSeq } from './004-issues-unique-repo-seq'
 import { up as issuesRepoIdIdentity } from './005-issues-repo-id-identity'
 import { up as issuesFksChecks } from './006-issues-fks-checks'
+import { up as issueDepsSingleParent } from './007-issue-deps-single-parent'
 
 export interface Migration {
   /** Positive, unique, strictly increasing across the list. */
@@ -48,6 +49,7 @@ export const MIGRATIONS: Migration[] = [
   { version: 4, name: 'issues-unique-repo-seq', up: issuesUniqueRepoSeq },
   { version: 5, name: 'issues-repo-id-identity', up: issuesRepoIdIdentity },
   { version: 6, name: 'issues-fks-checks', up: issuesFksChecks },
+  { version: 7, name: 'issue-deps-single-parent', up: issueDepsSingleParent },
 ]
 
 /** Highest schema version the running code knows about. */

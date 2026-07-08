@@ -20,8 +20,8 @@
  * they are (re)ensured per boot by the conversations repository, because
  * their existence depends on the runtime SQLite having FTS5.
  *
- * Data heals that legacy migrate() ran on every boot (issue-dep backfill,
- * repos.json import, repo_id backfill, subagent-path repair, the global
+ * Data heals that legacy migrate() ran on every boot (repos.json import,
+ * repo_id backfill, subagent-path repair, the global
  * superagent thread seed) stay per-boot steps in the repositories — they are
  * idempotent data operations, not schema.
  */

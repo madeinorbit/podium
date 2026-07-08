@@ -300,12 +300,19 @@ export class IssueService {
   toWire(row: IssueRow, sessionList: SessionMeta[] = this.deps.listSessions()): IssueWire {
     const sessions = sessionsForIssue(row.worktreePath, sessionList, row.id)
     const labels = this.deps.store.getIssueLabels(row.id)
-    const deps = this.deps.store.listIssueDeps(row.id).map((d) => ({ id: d.toId, type: d.type }))
-    const dependents = this.deps.store
-      .listDependents(row.id)
-      .map((d) => ({ id: d.fromId, type: d.type }))
-    const comments = this.deps.store.listIssueComments(row.id)
     const children = [...this.rows.values()].filter((r) => r.parentId === row.id)
+    // Wire deps/dependents keep carrying the parent-child edges for client
+    // compatibility, but they are SYNTHESIZED from parent_id / children —
+    // issue_deps stores only real dependency types (#164).
+    const deps = [
+      ...this.deps.store.listIssueDeps(row.id).map((d) => ({ id: d.toId, type: d.type })),
+      ...(row.parentId ? [{ id: row.parentId, type: 'parent-child' }] : []),
+    ]
+    const dependents = [
+      ...this.deps.store.listDependents(row.id).map((d) => ({ id: d.fromId, type: d.type })),
+      ...children.map((c) => ({ id: c.id, type: 'parent-child' })),
+    ]
+    const comments = this.deps.store.listIssueComments(row.id)
     const blocked = this.computeBlocked(row)
     const deferred = this.isDeferred(row)
     const ready = !this.isClosed(row) && !deferred && !blocked
@@ -415,9 +422,12 @@ export class IssueService {
         blocked: w.blocked,
       }
     })
-    const edges = rows.flatMap((r) =>
-      this.deps.store.listIssueDeps(r.id).map((d) => ({ from: r.id, to: d.toId, type: d.type })),
-    )
+    // Real dependency edges from the store + the hierarchy edge synthesized
+    // from parent_id (single parent storage, #164).
+    const edges = rows.flatMap((r) => [
+      ...this.deps.store.listIssueDeps(r.id).map((d) => ({ from: r.id, to: d.toId, type: d.type })),
+      ...(r.parentId ? [{ from: r.id, to: r.parentId, type: 'parent-child' }] : []),
+    ])
     return { nodes, edges }
   }
 
@@ -626,18 +636,16 @@ export class IssueService {
       .map((row) => {
         const closed = this.isClosed(row)
         const blocked = this.computeBlocked(row)
-        // parent-child edges are hierarchy, not scheduling — the report is about
-        // readiness, so only real dependency types appear.
+        // Hierarchy is not scheduling: parent-child never appears here — it
+        // lives in issues.parent_id, not in issue_deps (#164).
         const deps = this.deps.store
           .listIssueDeps(row.id)
-          .filter((d) => d.type !== 'parent-child')
           .flatMap((d) => {
             const target = this.rows.get(d.toId)
             return target ? [ref(target, d.type)] : []
           })
         const dependents = this.deps.store
           .listDependents(row.id)
-          .filter((d) => d.type !== 'parent-child')
           .flatMap((d) => {
             const source = this.rows.get(d.fromId)
             return source ? [ref(source, d.type)] : []
@@ -715,12 +723,14 @@ export class IssueService {
     for (const r of rows) {
       for (const d of this.deps.store.listIssueDeps(r.id)) {
         if (!ids.has(d.toId)) danglingDeps.push({ from: r.id, to: d.toId, type: d.type })
-        if (d.type === 'blocks' || d.type === 'parent-child') {
+        if (d.type === 'blocks') {
           adj.set(r.id, [...(adj.get(r.id) ?? []), d.toId])
         }
       }
+      // Hierarchy edge synthesized from parent_id (single parent storage, #164).
+      if (r.parentId) adj.set(r.id, [...(adj.get(r.id) ?? []), r.parentId])
     }
-    // cycle detection over blocks+parent-child edges (DFS colouring).
+    // cycle detection over blocks edges + parent links (DFS colouring).
     const cycles: string[][] = []
     const colour = new Map<string, number>() // 0=white,1=grey,2=black
     const stack: string[] = []
@@ -1533,7 +1543,8 @@ export class IssueService {
     return this.deps.store.getIssueMessage(messageId)
   }
 
-  /** Cycle check over `blocks` + `parent-child` edges, following from->to. */
+  /** Cycle check over `blocks` edges + the parent link (synthesized from
+   *  issues.parent_id — single parent storage, #164), following from->to. */
   private wouldCycle(fromId: string, toId: string): boolean {
     const seen = new Set<string>()
     const stack = [toId]
@@ -1543,17 +1554,18 @@ export class IssueService {
       if (seen.has(cur)) continue
       seen.add(cur)
       for (const d of this.deps.store.listIssueDeps(cur)) {
-        if (d.type === 'blocks' || d.type === 'parent-child') stack.push(d.toId)
+        if (d.type === 'blocks') stack.push(d.toId)
       }
+      const parentId = this.rows.get(cur)?.parentId
+      if (parentId) stack.push(parentId)
     }
     return false
   }
 
   addDep(fromId: string, toId: string, type = 'blocks'): IssueWire {
-    // parent-child is owned exclusively by reparent/setParent (the single
-    // cycle-checked path that keeps the parent_id column and the edge in sync).
-    // Block it here BEFORE any store write so an arbitrary-type caller can't add
-    // the hierarchy edge without ever touching the column (column/edge divergence).
+    // The hierarchy lives ONLY in issues.parent_id (#164) — reparent owns it.
+    // Reject the type here so an arbitrary-type caller can't reintroduce
+    // parent-child rows into issue_deps.
     if (type === 'parent-child') throw new Error('parent-child is managed by reparent, not addDep')
     fromId = this.resolveRef(fromId)
     toId = this.resolveRef(toId)
@@ -1570,23 +1582,14 @@ export class IssueService {
   }
 
   removeDep(fromId: string, toId: string, type?: string): IssueWire {
-    // parent-child is owned exclusively by reparent/setParent. Reject an explicit
-    // parent-child removal, and on the bulk (no-type) path delete only non-parent-child
-    // edges so the hierarchy edge is never silently dropped out from under the column.
+    // The hierarchy lives ONLY in issues.parent_id (#164) — reparent owns it,
+    // and no parent-child rows exist in issue_deps for the bulk path to guard.
     if (type === 'parent-child')
       throw new Error('parent-child is managed by reparent, not removeDep')
     fromId = this.resolveRef(fromId)
     toId = this.resolveRef(toId)
     const row = this.rowOrThrow(fromId)
-    if (type) {
-      this.deps.store.removeIssueDep(fromId, toId, type)
-    } else {
-      for (const d of this.deps.store.listIssueDeps(fromId)) {
-        if (d.toId === toId && d.type !== 'parent-child') {
-          this.deps.store.removeIssueDep(fromId, toId, d.type)
-        }
-      }
-    }
+    this.deps.store.removeIssueDep(fromId, toId, type)
     const wire = this.persist(row)
     this.broadcastList() // the TARGET's dependents/blocked derivation changed too (#22)
     return wire
@@ -1636,23 +1639,20 @@ export class IssueService {
     return wire
   }
 
-  /** The single cycle-checked path that keeps the parent_id column and the
-   *  parent-child edge in sync. Mutates row.parentId; caller persists. */
+  /** The single cycle-checked reparent path. issues.parent_id is the ONLY
+   *  parent storage (#164 — the mirrored 'parent-child' issue_deps rows are
+   *  gone; graph/tree/cycle consumers synthesize the edge from the column).
+   *  Mutates row.parentId; caller persists. wouldCycle returns true the
+   *  instant it reaches row.id (before expanding that node), so row's
+   *  still-current old parent link is never traversed and can't skew it. */
   private setParent(row: IssueRow, newParentId: string | null): void {
     if (newParentId === row.parentId) return
-    // Check-then-mutate: no store edge may be touched before the cycle check
-    // passes, or a throw here would leave the edge gone while row.parentId (and
-    // persist) still point at the old parent — a column/edge divergence. wouldCycle
-    // returns true the instant it reaches row.id (before expanding that node), so
-    // the still-present old outgoing edge is never traversed and can't skew it.
     if (newParentId) {
       this.rowOrThrow(newParentId)
       if (newParentId === row.id || this.wouldCycle(row.id, newParentId)) {
         throw new Error(`reparent ${row.id} -> ${newParentId} would create a cycle`)
       }
     }
-    if (row.parentId) this.deps.store.removeIssueDep(row.id, row.parentId, 'parent-child')
-    if (newParentId) this.deps.store.addIssueDep(row.id, newParentId, 'parent-child')
     row.parentId = newParentId
   }
 
