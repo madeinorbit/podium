@@ -1716,7 +1716,7 @@ describe('hibernation', () => {
     // New registry on the SAME store — simulates a restart.
     const reg2 = new SessionRegistry(store)
     // biome-ignore lint/suspicious/noExplicitAny: inspect the rehydrated session
-    const seeded = (reg2 as any).sessions.get(sessionId)
+    const seeded = (reg2 as any).modules.sessions.sessions.get(sessionId)
     expect(seeded.lastOutputAtMs).toBeGreaterThan(0)
   })
 
@@ -1833,7 +1833,7 @@ describe('hibernation', () => {
     // agentState bumps lastActiveAt to now — rewind it via the store round-trip.
     // (The idle cutoff compares lastActiveAt; simulate an hour of silence.)
     // biome-ignore lint/suspicious/noExplicitAny: test reaches into the private map on purpose
-    const internal = (reg as any).sessions.get(sessionId)
+    const internal = (reg as any).modules.sessions.sessions.get(sessionId)
     internal.lastActiveAt = new Date(Date.now() - 3_600_000).toISOString()
 
     reg.modules.sessions.onDaemonMessageFrom('local', {
@@ -1871,7 +1871,7 @@ describe('hibernation', () => {
       },
     })
     // biome-ignore lint/suspicious/noExplicitAny: reach into the private map on purpose
-    const internal = (reg as any).sessions.get(sessionId)
+    const internal = (reg as any).modules.sessions.sessions.get(sessionId)
     internal.lastActiveAt = new Date(Date.now() - 3_600_000).toISOString()
     reg.modules.sessions.hibernateSession({ sessionId })
     reg.modules.sessions.resurrectSession({ sessionId })
@@ -1906,7 +1906,7 @@ describe('hibernation', () => {
       },
     })
     // biome-ignore lint/suspicious/noExplicitAny: reach into the private map on purpose
-    const internal = (reg as any).sessions.get(sessionId)
+    const internal = (reg as any).modules.sessions.sessions.get(sessionId)
     internal.lastActiveAt = new Date(Date.now() - 3_600_000).toISOString()
     // Controller types just now — recent input must veto hibernation.
     const c = sink()
@@ -2318,7 +2318,7 @@ describe('output-relay priority + frame batch', () => {
       focused: sessionId,
       modes: { [sessionId]: 'chat' },
     })
-    const client = (reg as any).clients.get(id)
+    const client = (reg as any).modules.sessions.clients.get(id)
     expect(client.viewModes).toEqual({ [sessionId]: 'chat' })
   })
 
@@ -2337,7 +2337,7 @@ describe('output-relay priority + frame batch', () => {
       modes: { [sessionId]: 'native' },
     })
     reg.modules.sessions.onClientMessage(id, { type: 'viewState', visible: [sessionId], focused: sessionId })
-    const client = (reg as any).clients.get(id)
+    const client = (reg as any).modules.sessions.clients.get(id)
     expect(client.viewModes).toEqual({})
   })
 
@@ -2346,7 +2346,7 @@ describe('output-relay priority + frame batch', () => {
     reg.modules.sessions.attachDaemon('local', () => {})
     const c = sink()
     const id = reg.modules.sessions.attachClient(c.send)
-    expect((reg as any).clients.get(id).viewModes).toEqual({})
+    expect((reg as any).modules.sessions.clients.get(id).viewModes).toEqual({})
   })
 
   it('computes per-session priority across ALL sessions (clients iterable is materialized, not exhausted)', () => {
