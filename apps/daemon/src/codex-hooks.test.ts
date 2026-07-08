@@ -1,7 +1,7 @@
 import { execFile, spawn } from 'node:child_process'
-import { createServer } from 'node:http'
 import { existsSync } from 'node:fs'
 import { copyFile, mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
+import { createServer } from 'node:http'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
@@ -113,7 +113,9 @@ describe('computeCodexTrustedHash', () => {
   it('is stable and shaped like codex-rs command_hook_hash', () => {
     const h = computeCodexTrustedHash({ eventLabel: 'stop', command: 'echo hi', timeoutSec: 5 })
     expect(h).toMatch(/^sha256:[0-9a-f]{64}$/)
-    expect(h).toBe(computeCodexTrustedHash({ eventLabel: 'stop', command: 'echo hi', timeoutSec: 5 }))
+    expect(h).toBe(
+      computeCodexTrustedHash({ eventLabel: 'stop', command: 'echo hi', timeoutSec: 5 }),
+    )
     expect(h).not.toBe(computeCodexTrustedHash({ eventLabel: 'stop', command: 'echo hi' }))
   })
 })
@@ -164,15 +166,19 @@ describe('codex hooks real-binary smoke', () => {
         // stdio.stdin MUST be closed ('ignore') — `codex exec` appends stdin to
         // the prompt and blocks until EOF on an open pipe.
         await new Promise<void>((resolve, reject) => {
-          const child = spawn('codex', ['exec', '--skip-git-repo-check', 'Reply with exactly: done'], {
-            stdio: ['ignore', 'ignore', 'ignore'],
-            cwd: dir,
-            env: {
-              ...process.env,
-              CODEX_HOME: join(dir, '.codex'),
-              PODIUM_CODEX_HOOK_URL: `http://127.0.0.1:${port}/hooks/test`,
+          const child = spawn(
+            'codex',
+            ['exec', '--skip-git-repo-check', 'Reply with exactly: done'],
+            {
+              stdio: ['ignore', 'ignore', 'ignore'],
+              cwd: dir,
+              env: {
+                ...process.env,
+                CODEX_HOME: join(dir, '.codex'),
+                PODIUM_CODEX_HOOK_URL: `http://127.0.0.1:${port}/hooks/test`,
+              },
             },
-          })
+          )
           const timer = setTimeout(() => {
             child.kill('SIGKILL')
             reject(new Error('codex exec timed out'))
