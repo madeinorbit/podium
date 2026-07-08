@@ -1147,12 +1147,14 @@ export function PanelRow({
             // it read on open clears this optimistically. Suppressed (#138) for
             // WORKING-section rows AND for any currently-working session anywhere —
             // active work isn't "unseen", and a working session re-flips unread on
-            // every output, so emphasis would flicker back constantly. On a selected
-            // row the accent-foreground colour already wins; only add text-foreground
-            // when unselected.
+            // every output, so emphasis would flicker back constantly. Also suppressed
+            // for a snoozed session — deliberately set aside, not "unseen work". On a
+            // selected row the accent-foreground colour already wins; only add
+            // text-foreground when unselected.
             session.unread &&
               !suppressUnread &&
               !isSessionWorking(session) &&
+              !snoozed &&
               (active ? 'font-medium' : 'font-medium text-foreground'),
           )}
           onClick={onSelect}
