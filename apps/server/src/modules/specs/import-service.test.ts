@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { ConversationSummaryWire, TranscriptItem } from '@podium/protocol'
@@ -94,7 +94,7 @@ describe('SpecImportService', () => {
     rmSync(stateDir, { recursive: true, force: true })
   })
 
-  it('imports decisions onto a spec-import branch and is incremental on rerun', async () => {
+  it('imports decisions onto a spec-import branch and is incremental on rerun (llm mode)', async () => {
     const readItems = vi.fn(async () => items)
     const svc = new SpecImportService({
       repoRoots: () => [repo],
@@ -103,7 +103,7 @@ describe('SpecImportService', () => {
       llm: () => fakeLlm,
       stateDir: () => stateDir,
     })
-    svc.start({ repoPath: repo })
+    svc.start({ repoPath: repo, mode: 'llm' })
     await settle(svc, repo)
     const status = svc.status({ repoPath: repo })
     expect(status.phase).toBe('done')
@@ -116,7 +116,7 @@ describe('SpecImportService', () => {
     expect(sh(repo, 'status', '--porcelain').trim()).toBe('')
 
     // Rerun with the same conversation: nothing new to process.
-    svc.start({ repoPath: repo })
+    svc.start({ repoPath: repo, mode: 'llm' })
     await settle(svc, repo)
     expect(svc.status({ repoPath: repo }).message).toContain('no new sessions')
     expect(readItems).toHaveBeenCalledTimes(1)
@@ -130,11 +130,68 @@ describe('SpecImportService', () => {
       llm: () => fakeLlm,
       stateDir: () => stateDir,
     })
-    svc.start({ repoPath: repo })
+    svc.start({ repoPath: repo, mode: 'llm' })
     await settle(svc, repo)
     const status = svc.status({ repoPath: repo })
     expect(status.phase).toBe('done')
     expect(status.branch).toMatch(/^spec-import\/.*-2$/)
+  })
+
+  it('agent mode: prepares artifacts, runs the agent in an isolated worktree, keeps its commits', async () => {
+    const agent = vi.fn(async (input: { cwd: string; prompt: string }) => {
+      // The playbook must carry the task structure + prepared artifact paths.
+      expect(input.prompt).toContain('SPEC IMPORT')
+      expect(input.prompt).toContain('facts.json')
+      expect(input.prompt).toContain('VERIFY')
+      expect(input.prompt).toContain('subagent')
+      // Simulate the agent writing a spec component and committing in its worktree.
+      writeFileSync(
+        join(input.cwd, 'pspec-agent-note.txt'),
+        'agent was here',
+      )
+      sh(input.cwd, 'add', '.')
+      sh(input.cwd, 'commit', '-qm', 'spec: import from session history [podium spec import]')
+      return { ok: true, output: 'imported 1 fact' }
+    })
+    const svc = new SpecImportService({
+      repoRoots: () => [repo],
+      conversationsFor: () => [conv('c3', 100)],
+      readItems: async () => items,
+      llm: () => fakeLlm,
+      agent,
+      stateDir: () => stateDir,
+    })
+    svc.start({ repoPath: repo }) // agent is the default mode when wired
+    await settle(svc, repo)
+    const status = svc.status({ repoPath: repo })
+    expect(status.phase).toBe('done')
+    expect(agent).toHaveBeenCalledTimes(1)
+    // Branch keeps the agent's commit; the worktree sandbox is gone.
+    expect(sh(repo, 'log', '--oneline', `main..${status.branch!}`)).toContain('spec: import')
+    // Facts + digests were persisted for the agent to read; the worktree sandbox is gone.
+    const repoDir = readdirSync(stateDir).find((d) => d.includes('spec-import-repo'))
+    expect(repoDir).toBeDefined()
+    expect(existsSync(join(stateDir, repoDir!, 'worktree'))).toBe(false)
+    expect(readdirSync(join(stateDir, repoDir!))).toEqual(
+      expect.arrayContaining(['facts.json', 'digests', 'state.json']),
+    )
+  })
+
+  it('prepare mode stops after artifacts, touching no branches', async () => {
+    const svc = new SpecImportService({
+      repoRoots: () => [repo],
+      conversationsFor: () => [conv('c4', 100)],
+      readItems: async () => items,
+      llm: () => fakeLlm,
+      stateDir: () => stateDir,
+    })
+    const before = sh(repo, 'branch', '--list').trim()
+    svc.start({ repoPath: repo, mode: 'prepare' })
+    await settle(svc, repo)
+    const status = svc.status({ repoPath: repo })
+    expect(status.phase).toBe('done')
+    expect(status.message).toContain('prepared')
+    expect(sh(repo, 'branch', '--list').trim()).toBe(before)
   })
 
   it('rejects unknown repo roots', () => {

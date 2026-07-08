@@ -159,6 +159,54 @@ export function applyImportOps(
 }
 
 /**
+ * The import agent's full task (#172). Given to a headless harness agent
+ * running in an ISOLATED worktree on the import branch, with the prepared
+ * artifacts (facts + digests) on disk. The agent owns correctness: it verifies
+ * candidate facts against the actual codebase before writing them, which a
+ * plain chat completion cannot do. Bulk work is delegated to fast-model
+ * subagents so the main context stays small.
+ */
+export function importAgentPlaybook(input: {
+  repoName: string
+  branch: string
+  factsPath: string
+  digestDir: string
+  factCount: number
+  sessionCount: number
+}): string {
+  return `You are performing a one-shot SPEC IMPORT for the repository "${input.repoName}".
+
+You are in an ISOLATED git worktree on branch \`${input.branch}\`. Work and commit ONLY here. Never push, never switch branches, never touch other checkouts.
+
+## Inputs (already prepared — do not re-derive them)
+- \`${input.factsPath}\` — ${input.factCount} candidate spec fact(s) machine-extracted from ${input.sessionCount} past agent session(s). Shape: {featureArea, kind: decision|constraint|behavior, statement, why?, quote?, conversationId?, date?}.
+- \`${input.digestDir}/\` — per-session decision digests (compressed transcripts): the evidence behind each fact. Consult them only when a fact is ambiguous.
+
+## The spec format (pspec v1)
+One HTML file per spec component at \`pspec/<id>.html\`. Each file is exactly:
+<!-- pspec v1 — edit via Podium Specs; id is stable, referenced from code as [spec:<id>] -->
+<section data-spec="<id>" data-title="<title>" data-parent="<parent-id>" data-order="<n>" data-status="active|draft|superseded" data-updated="<unix-ms>">
+...body HTML...
+</section>
+Ids match SP-[a-z0-9]{4,12}; the project root is SP-root (data-parent=""). Components interlink with <a href="#spec:SP-xxxx">. Bodies are simple self-contained HTML (<p>, <ul>, <li>, <strong>; inline SVG allowed).
+
+## Duty of care (the spec's contract)
+- The spec records ONLY explicit human decisions and human-provided context — as concise as possible, well formatted, in the right component.
+- Never record the obvious or common industry practice — EXCEPT where the human's input contradicts best practice; then record the deviation WITH its why.
+- On contradiction between facts, the newer date wins; record the loser with data-status="superseded" (or a short "Superseded" note with its date) rather than deleting it.
+- Features form a natural hierarchy: feature components as tree nodes, decisions/constraints as content under them. Keep the tree shallow and the bodies short.
+
+## Procedure — follow these steps in order
+1. ORIENT: read the existing \`pspec/\` tree (may be empty) and \`${input.factsPath}\`.
+2. VERIFY: check each fact against the CURRENT codebase — does the code confirm, contradict, or not evidence it? Batch this: spawn fast/cheap-model subagents (e.g. a haiku-class model), ~10 facts per subagent, each returning fact-id → confirmed|contradicted|unverifiable + a one-line evidence pointer (file:line). Do not skip verification; do not do it all in your own context.
+3. RESOLVE: contradicted facts — if the code changed AFTER the decision's date, the fact is likely superseded by later work: record it as superseded, not active. Unverifiable facts stay importable if the digest clearly shows the human deciding it; drop hearsay.
+4. STRUCTURE: group surviving facts into feature components (layered). Reuse existing components where they fit; create new ones with fresh random ids otherwise. Set parent/order attributes consistently; no cycles; every component reachable from SP-root.
+5. WRITE the \`pspec/*.html\` files. Each decision is one short bullet: statement — "why: …" if present — "(session <conversationId>, <date>)". Interlink related components.
+6. SELF-REVIEW against this checklist, fixing anything that fails: only human decisions present; nothing obvious/best-practice restated; conflicts marked superseded with dates; every file parses as a single <section> with valid attributes; ids unique; parents exist.
+7. COMMIT everything under pspec/ with message: "spec: import from session history [podium spec import]". Do NOT modify source code files in this import (no [spec:] comment insertion — that happens in normal issue work). Finally print a one-paragraph summary: components created/updated, facts imported/superseded/dropped and why.`
+}
+
+/**
  * Commit `components` as the full pspec/ tree on `branch`, parented on the
  * current commit of `baseRef` — pure plumbing, no working tree involved.
  */

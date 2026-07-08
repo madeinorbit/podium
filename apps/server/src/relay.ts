@@ -1,4 +1,4 @@
-import { randomBytes } from 'node:crypto'
+import { randomBytes, randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 import type { PodiumSettings } from '@podium/core'
 import type {
@@ -450,6 +450,27 @@ export class SessionRegistry {
       llm: () => {
         const settings = this.store.getSettings()
         return llmClient({ ...settings.superagent, kind: 'api' }, settings.apiKeys)
+      },
+      // The main import phase: a real harness agent in the isolated import
+      // worktree — it verifies facts against the codebase (fast-model subagents
+      // for bulk checks) before writing the spec; see importAgentPlaybook.
+      agent: async (input) => {
+        const { sessionId } = this.headless.createHeadlessSession({
+          agentKind: 'claude-code',
+          cwd: input.cwd,
+          title: input.title,
+        })
+        return this.headless.headlessTurn({
+          sessionId,
+          threadId: `spec-import:${sessionId}`,
+          agent: 'claude-code',
+          cwd: input.cwd,
+          prompt: input.prompt,
+          // Unattended by design; the worktree isolates every write.
+          permissionMode: 'bypassPermissions',
+          sessionUuid: randomUUID(),
+          timeoutMs: input.timeoutMs,
+        })
       },
       stateDir: () => join(stateDir(), 'spec-import'),
     })

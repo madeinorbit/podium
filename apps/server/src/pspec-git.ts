@@ -29,6 +29,28 @@ async function gitOrNull(repoPath: string, args: string[]): Promise<string | nul
   }
 }
 
+/** Create an isolated worktree for `branch` (created at HEAD if missing) at
+ *  `dir` — the import agent's sandbox; the user's checkout is never touched. */
+export async function addWorktree(repoPath: string, dir: string, branch: string): Promise<void> {
+  if (await branchExists(repoPath, branch)) {
+    await git(repoPath, ['worktree', 'add', dir, branch])
+  } else {
+    await git(repoPath, ['worktree', 'add', '-b', branch, dir, 'HEAD'])
+  }
+}
+
+/** Remove a worktree, keeping its branch. */
+export async function removeWorktree(repoPath: string, dir: string): Promise<void> {
+  await gitOrNull(repoPath, ['worktree', 'remove', '--force', dir])
+}
+
+/** Commits on `branch` that its base (merge-base with canon) doesn't have. */
+export async function branchCommitCount(repoPath: string, branch: string): Promise<number> {
+  const canon = await canonRef(repoPath)
+  const out = await gitOrNull(repoPath, ['rev-list', '--count', `${canon}..${branch}`])
+  return Number(out?.trim() ?? '0') || 0
+}
+
 /** Whether a local branch exists. */
 export async function branchExists(repoPath: string, branch: string): Promise<boolean> {
   return (

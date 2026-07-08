@@ -35,11 +35,17 @@ as structured output: `{featureArea, kind: decision|constraint|behavior, stateme
 conversationId, date}`. Prompt embeds the spec duty-of-care rules (only explicit human
 decisions/context).
 
-### A4. Reduce phase (single agent)
+### A4. Import phase (a real agent — revised 2026-07-08)
 
-Input: current `spec tree` + fact list. Clusters facts into feature components (layered),
-resolves conflicts by recency (newer wins; older recorded as superseded with date). Writes via
-the `podium spec` CLI so pspec invariants hold. On rerun, merges new facts into the existing tree.
+The prepared artifacts (digests + facts.json) are handed to a HARNESS AGENT running headless in
+an isolated worktree on the import branch, driven by a structured playbook
+(`importAgentPlaybook`): orient → VERIFY each fact against the current codebase (fanned out to
+fast/cheap-model subagents, ~10 facts each) → resolve superseded decisions by date vs code
+reality → structure the layered tree → write pspec/*.html → self-review checklist → commit.
+Rationale: correctness requires code navigation; a chat completion cannot check whether a
+recorded decision still holds. The single-shot LLM reduce (recency-wins, `applyImportOps`,
+plumbing commit) is retained as `--mode llm` for servers without a daemon/harness;
+`--mode prepare` stops after artifact preparation.
 
 ### A5. Review via git
 

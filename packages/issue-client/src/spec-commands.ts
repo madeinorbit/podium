@@ -242,12 +242,14 @@ export const SPEC_COMMANDS: SpecCommand[] = [
   {
     name: 'import',
     summary:
-      'bootstrap/refresh the spec from past sessions (rerunnable; result lands on a spec-import/<date> branch for review)',
-    args: z.object({ ...repoArg }),
+      'bootstrap/refresh the spec from past sessions via an import agent (rerunnable; lands on a spec-import/<date> branch for review). --mode llm skips the agent (no codebase verification); --mode prepare only distills sessions + extracts candidate facts',
+    args: z.object({ ...repoArg, mode: z.enum(['agent', 'llm', 'prepare']).optional() }),
     run: async (client, a) => {
       const repoPath = a.repoPath as string
       const specs = client.specs as unknown as {
-        importStart: { mutate(i: { repoPath: string }): Promise<{ phase: string }> }
+        importStart: {
+          mutate(i: { repoPath: string; mode?: string }): Promise<{ phase: string }>
+        }
         importStatus: {
           query(i: { repoPath: string }): Promise<{
             phase: string
@@ -259,7 +261,10 @@ export const SPEC_COMMANDS: SpecCommand[] = [
           }>
         }
       }
-      await specs.importStart.mutate({ repoPath })
+      await specs.importStart.mutate({
+        repoPath,
+        ...(a.mode != null ? { mode: a.mode as string } : {}),
+      })
       // Poll until the run settles; the server does the heavy lifting.
       for (;;) {
         await new Promise((r) => setTimeout(r, 2000))
