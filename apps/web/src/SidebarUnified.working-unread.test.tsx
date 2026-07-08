@@ -55,6 +55,7 @@ function issue(id: string, title: string, over: Record<string, unknown> = {}) {
     sessions: [],
     sessionSummary: { total: 0, byPhase: {} },
     origin: 'human',
+    audience: 'human',
     draft: false,
     childCount: 0,
     childDoneCount: 0,

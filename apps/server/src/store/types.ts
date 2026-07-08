@@ -130,6 +130,11 @@ export interface IssueRow {
   /** Whose intent this issue captures ('human' | 'agent'). Optional so pre-existing
    *  row literals stay valid; absent = 'human'. */
   origin?: string
+  /** Who this issue is FOR ('human' | 'agent') — parallel to origin (#198). 'human'
+   *  = a top-level item the human tracks; 'agent' = the agent's internal working
+   *  detail, hidden from the top-level board. Optional so pre-existing row literals
+   *  stay valid; absent = 'human'. */
+  audience?: string
   /** Placeholder-titled draft vessel (issue-as-workspace); retitling clears it.
    *  Optional so pre-existing row literals stay valid; absent = false. */
   draft?: boolean

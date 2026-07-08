@@ -905,6 +905,12 @@ export const IssueWire = z.object({
   /** Whose INTENT this issue captures (issue-as-workspace). Defaulted at parse
    *  so pre-field cached payloads still validate. */
   origin: z.enum(['human', 'agent']).catch('human').default('human'),
+  /** Who this issue is FOR (issue #198) — parallel to `origin`. 'human' = a
+   *  top-level item the human tracks (always on the board); 'agent' = the agent's
+   *  internal working detail, hidden from the top level and nested under its
+   *  nearest human-audience ancestor. Defaulted at parse so pre-field cached
+   *  payloads still validate (→ 'human', i.e. visible — nothing vanishes). */
+  audience: z.enum(['human', 'agent']).catch('human').default('human'),
   /** Draft = placeholder-titled vessel created by the low-friction spawn flow;
    *  retitling clears it. Drafts show in the sidebar but not on the board. */
   draft: z.boolean().catch(false).default(false),

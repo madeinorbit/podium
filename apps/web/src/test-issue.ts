@@ -23,6 +23,8 @@ export const makeIssue = (over: Partial<IssueWire> = {}): IssueWire =>
     createdAt: 't',
     updatedAt: 't',
     archived: false,
+    origin: 'human',
+    audience: 'human',
     priority: 2,
     type: 'task',
     pinned: false,

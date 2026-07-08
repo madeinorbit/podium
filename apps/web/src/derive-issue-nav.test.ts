@@ -1,6 +1,11 @@
 import type { IssueWire, SessionMeta } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
-import { draftIssueLabel, pickPaneSession, resolveDefaultAgent, sessionsForIssueNav } from './derive'
+import {
+  draftIssueLabel,
+  pickPaneSession,
+  resolveDefaultAgent,
+  sessionsForIssueNav,
+} from './derive'
 import { filterBoardScope } from './issues-display'
 
 const NOW = Date.parse('2026-07-06T12:00:00.000Z')
@@ -145,8 +150,8 @@ describe('filterBoardScope', () => {
     expect(filterBoardScope(list, false).map((i) => i.id)).toEqual(['k'])
   })
 
-  it('hides agent-origin issues by default, shows them with the toggle', () => {
-    const list = [issue({ id: 'h' }), issue({ id: 'a', origin: 'agent' })]
+  it('hides internal issues by default, shows them with the toggle', () => {
+    const list = [issue({ id: 'h' }), issue({ id: 'a', audience: 'agent' })]
     expect(filterBoardScope(list, false).map((i) => i.id)).toEqual(['h'])
     expect(
       filterBoardScope(list, true)
@@ -155,12 +160,12 @@ describe('filterBoardScope', () => {
     ).toEqual(['a', 'h'])
   })
 
-  it('keeps an agent-origin CHILD whose parent is visible (rides under the epic)', () => {
+  it('keeps an internal CHILD whose parent is visible (rides under the epic)', () => {
     const list = [
       issue({ id: 'epic' }),
-      issue({ id: 'kid', origin: 'agent', parentId: 'epic' }),
-      issue({ id: 'stray', origin: 'agent' }),
-      issue({ id: 'orphan', origin: 'agent', parentId: 'missing' }),
+      issue({ id: 'kid', audience: 'agent', parentId: 'epic' }),
+      issue({ id: 'stray', audience: 'agent' }),
+      issue({ id: 'orphan', audience: 'agent', parentId: 'missing' }),
     ]
     expect(
       filterBoardScope(list, false)
@@ -172,8 +177,8 @@ describe('filterBoardScope', () => {
   it('keeps a deep agent chain reachable from a human ancestor', () => {
     const list = [
       issue({ id: 'root' }),
-      issue({ id: 'mid', origin: 'agent', parentId: 'root' }),
-      issue({ id: 'leaf', origin: 'agent', parentId: 'mid' }),
+      issue({ id: 'mid', audience: 'agent', parentId: 'root' }),
+      issue({ id: 'leaf', audience: 'agent', parentId: 'mid' }),
     ]
     expect(
       filterBoardScope(list, false)

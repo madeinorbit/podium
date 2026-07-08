@@ -1,5 +1,6 @@
 import { ISSUE_STAGES, type IssueStage, IssueType, type IssueWire } from '@podium/protocol'
 import {
+  Bot,
   Check,
   CircleUser,
   Flag,
@@ -50,7 +51,9 @@ import {
 } from './issue-hierarchy'
 import { groupIssuesByStage } from './issue-list'
 import {
+  computeEpicProgress,
   DISPLAY_KEY,
+  type EpicProgress,
   filterBoardScope,
   type IssuesDisplay,
   type IssuesLayout,
@@ -185,6 +188,10 @@ export function IssuesView(): JSX.Element {
   const stageCounts = display.flatten
     ? new Map<string, { stage: IssueStage; count: number }[]>()
     : childStageCounts(scope)
+  // #198: whole-subtree rollup per board root — done/total across descendants and
+  // whether an agent is live anywhere under it, so the human tracks a human-facing
+  // epic's progress without opening it. Same non-archived scope rationale as above.
+  const epicProgress = new Map(boardIssues.map((i) => [i.id, computeEpicProgress(scope, i.id)]))
 
   // The per-stage ordered lanes / rows — computed once so the board render, the
   // list render, and the keyboard nav all agree on order. `listIds` flattens the
@@ -423,6 +430,7 @@ export function IssuesView(): JSX.Element {
               issues={laneIssues}
               badges={display.badges}
               stageCounts={stageCounts}
+              epicProgress={epicProgress}
               onOpen={setOpenIssueId}
               onMoveIssue={moveIssue}
               onCreateIn={(s) => setCreating({ stage: s })}
@@ -865,6 +873,7 @@ function IssueColumn({
   issues,
   badges,
   stageCounts,
+  epicProgress,
   onOpen,
   onMoveIssue,
   onCreateIn,
@@ -880,6 +889,7 @@ function IssueColumn({
   issues: IssueWire[]
   badges: IssuesDisplay['badges']
   stageCounts: Map<string, { stage: IssueStage; count: number }[]>
+  epicProgress: Map<string, EpicProgress | null>
   onOpen: (id: string) => void
   onMoveIssue: (id: string, stage: IssueStage) => void
   onCreateIn: (stage: IssueStage) => void
@@ -936,6 +946,7 @@ function IssueColumn({
                 issue={issue}
                 badges={badges}
                 stageCounts={stageCounts.get(issue.id)}
+                progress={epicProgress.get(issue.id) ?? null}
                 onOpen={onOpen}
                 onSetAssignee={onSetAssignee}
                 assignees={assignees}
@@ -1003,6 +1014,7 @@ function IssueCard({
   issue,
   badges,
   stageCounts,
+  progress,
   onOpen,
   onSetAssignee,
   assignees,
@@ -1015,6 +1027,8 @@ function IssueCard({
   badges: IssuesDisplay['badges']
   /** Direct-child stage rollup (nested board only) — see childStageCounts. */
   stageCounts?: { stage: IssueStage; count: number }[]
+  /** Whole-subtree rollup for a human-facing epic (#198); null = no descendants. */
+  progress?: EpicProgress | null
   onOpen: (id: string) => void
   onSetAssignee: (id: string, assignee: string) => void
   assignees: string[]
@@ -1044,7 +1058,18 @@ function IssueCard({
         onContextMenu={(e) => onContextMenu(issue.id, e)}
       >
         <div className="flex items-center justify-between">
-          <span className="text-[11px] text-muted-foreground tabular-nums">{m.seqLabel}</span>
+          <span className="flex items-center gap-1 text-[11px] text-muted-foreground tabular-nums">
+            {m.seqLabel}
+            {/* #198: provenance — an agent cut this human-facing issue. Quiet;
+                the board surfaces it (audience: human), this just says who filed it. */}
+            {issue.origin === 'agent' && (
+              <Bot
+                size={11}
+                className="text-muted-foreground/70"
+                aria-label="Created by an agent"
+              />
+            )}
+          </span>
           {/* biome-ignore lint/a11y/noStaticElementInteractions: stops card-open when picking assignee */}
           {/* biome-ignore lint/a11y/useKeyWithClickEvents: the inner menu trigger handles keyboard */}
           <span onClick={(e) => e.stopPropagation()}>
@@ -1089,6 +1114,19 @@ function IssueCard({
           {m.subProgress && (
             <span className="text-[11px] text-muted-foreground tabular-nums">
               {m.subProgress.done}/{m.subProgress.total}
+            </span>
+          )}
+          {/* #198: whole-subtree "how far along" — a live-agent pulse when an agent
+              is working anywhere under this epic (incl. deep internal children the
+              lane rollups don't reach), titled with the subtree done/total. */}
+          {progress && progress.liveAgents > 0 && (
+            <span
+              className="inline-flex items-center gap-1 text-[11px] text-emerald-600 tabular-nums dark:text-emerald-400"
+              title={`${progress.liveAgents} agent${progress.liveAgents === 1 ? '' : 's'} working · ${progress.done}/${progress.total} done in subtree`}
+              data-testid="epic-live-agents"
+            >
+              <span className="size-1.5 animate-pulse rounded-full bg-emerald-500" aria-hidden />
+              {progress.liveAgents}
             </span>
           )}
           {/* Nested board: the lanes hold roots only, so this card must say

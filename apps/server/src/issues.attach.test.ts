@@ -63,6 +63,7 @@ describe('origin/draft on create + wire', () => {
       title: 'Draft',
       startNow: false,
       origin: 'agent',
+      audience: 'agent',
       draft: true,
     })
     expect(b.origin).toBe('agent')
@@ -76,6 +77,7 @@ describe('origin/draft on create + wire', () => {
       title: 'Draft',
       startNow: false,
       origin: 'agent',
+      audience: 'agent',
       draft: true,
     })
     const row = store.getIssue(b.id)!

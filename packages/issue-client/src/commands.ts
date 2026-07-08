@@ -188,9 +188,7 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
         refs.map(
           async (
             ref,
-          ): Promise<
-            (ShowWire & { comments: ShowComment[] }) | { ref: string; error: string }
-          > => {
+          ): Promise<(ShowWire & { comments: ShowComment[] }) | { ref: string; error: string }> => {
             try {
               const i = (await c.issues.get.query({ id: ref })) as ShowWire | null
               if (!i) return { ref, error: `unknown issue ${ref}` }
@@ -247,7 +245,7 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
   {
     name: 'create',
     summary:
-      'Create an issue. --title required; --description --priority --type --parentId --agent --model --effort --machine --start optional.',
+      'Create an issue. --title required; --description --priority --type --parentId --audience --agent --model --effort --machine --start optional. --audience human puts it on the human board; default for agent-created issues is internal (audience agent).',
     args: z.object({
       ...repoArg,
       title: z.string().min(1),
@@ -255,6 +253,7 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
       priority: z.coerce.number().int().min(0).max(4).optional(),
       type: z.string().optional(),
       parentId: idArg.optional(),
+      audience: z.enum(['human', 'agent']).optional(),
       agent: z.string().min(1).optional(),
       model: z.string().min(1).optional(),
       effort: z.string().min(1).optional(),
@@ -270,13 +269,15 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
         ...(a.priority != null ? { priority: a.priority as number } : {}),
         ...(a.type ? { type: a.type as never } : {}),
         ...(a.parentId ? { parentId: a.parentId as string } : {}),
+        ...(a.audience ? { audience: a.audience as 'human' | 'agent' } : {}),
         ...(a.agent ? { defaultAgent: a.agent as string } : {}),
         ...(a.model ? { defaultModel: a.model as string } : {}),
         ...(a.effort ? { defaultEffort: a.effort as string } : {}),
         ...(a.machine ? { machineId: a.machine as string } : {}),
-      })) as { seq: number; title: string; worktreePath?: string | null }
+      })) as { seq: number; title: string; worktreePath?: string | null; warning?: string }
       const started = a.start === true && i.worktreePath ? ` (started in ${i.worktreePath})` : ''
-      return { text: `created #${i.seq} ${i.title}${started}`, data: i }
+      const warn = i.warning ? `\n⚠ ${i.warning}` : ''
+      return { text: `created #${i.seq} ${i.title}${started}${warn}`, data: i }
     },
   },
   {
