@@ -1,0 +1,7 @@
+{
+  "extends": "../../tooling/tsconfig/react.json",
+  "include": ["src"],
+  "compilerOptions": {
+    "types": ["node"]
+  }
+}

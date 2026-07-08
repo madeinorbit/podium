@@ -1,6 +1,6 @@
 import type { TranscriptItem } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
-import { latestPendingQuestion, parseAskQuestions } from './askQuestion'
+import { latestPendingQuestion, parseAskQuestions } from './ask-question'
 
 function ask(id: string, overrides: Partial<TranscriptItem> = {}): TranscriptItem {
   return {
@@ -19,7 +19,7 @@ describe('ask question view model', () => {
   it('parses questions with options from toolInputJson', () => {
     const questions = parseAskQuestions(ask('q1').toolInputJson)
     expect(questions).toHaveLength(1)
-    expect(questions[0].options.map((o) => o.label)).toEqual(['Left', 'Right'])
+    expect(questions[0]?.options.map((o) => o.label)).toEqual(['Left', 'Right'])
   })
 
   it('returns empty on malformed input', () => {

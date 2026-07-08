@@ -1,9 +1,13 @@
 import type { TranscriptItem } from '@podium/protocol'
 
+/** Identity key for a transcript item: the opaque cursor when present (stable
+ *  across re-reads), else the synthesized `id` (a few items have no cursor). */
 function itemKey(item: TranscriptItem): string {
   return item.cursor ?? item.id
 }
 
+/** Append live-tail items onto a held list, skipping any already present
+ *  (by cursor/id). Order preserved; a no-op delta returns `prev` unchanged. */
 export function mergeTranscriptItems(
   prev: TranscriptItem[],
   delta: TranscriptItem[],
@@ -31,6 +35,8 @@ export function prependTranscriptItems(
   return fresh.length === 0 ? prev : [...fresh, ...prev]
 }
 
+/** The text to show for one transcript item, falling back through the tool
+ *  fields (title/result/input/name) when there's no prose. */
 export function transcriptDisplayText(item: TranscriptItem): string {
   const text = item.text.trim()
   if (text) return text

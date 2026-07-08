@@ -64,6 +64,7 @@
         "@podium/client-core": "workspace:*",
         "@podium/protocol": "workspace:*",
         "@podium/terminal-client": "workspace:*",
+        "@podium/terminal-client-react": "workspace:*",
         "@react-native-async-storage/async-storage": "2.2.0",
         "@trpc/client": "^11.18.0",
         "expo": "~57.0.2",
@@ -136,6 +137,7 @@
         "@podium/runtime": "workspace:*",
         "@podium/server": "workspace:*",
         "@podium/terminal-client": "workspace:*",
+        "@podium/terminal-client-react": "workspace:*",
         "@tanstack/db": "^0.6.14",
         "@tanstack/react-db": "^0.1.92",
         "@trpc/client": "^11.0.0",
@@ -272,6 +274,23 @@
         "tsup": "^8.5.1",
         "typescript": "^6.0.3",
         "vitest": "^4.1.8",
+      },
+    },
+    "packages/terminal-client-react": {
+      "name": "@podium/terminal-client-react",
+      "version": "0.0.0",
+      "dependencies": {
+        "@podium/terminal-client": "workspace:*",
+      },
+      "devDependencies": {
+        "@types/node": "^24.0.0",
+        "@types/react": "^19.0.0",
+        "react": "19.2.7",
+        "typescript": "^6.0.3",
+        "vitest": "^4.1.8",
+      },
+      "peerDependencies": {
+        "react": ">=19",
       },
     },
     "packages/transcript": {
@@ -958,6 +977,8 @@
     "@podium/sync": ["@podium/sync@workspace:packages/sync"],
 
     "@podium/terminal-client": ["@podium/terminal-client@workspace:packages/terminal-client"],
+
+    "@podium/terminal-client-react": ["@podium/terminal-client-react@workspace:packages/terminal-client-react"],
 
     "@podium/transcript": ["@podium/transcript@workspace:packages/transcript"],
 
@@ -2965,6 +2986,8 @@
 
     "@podium/mobile/react-dom": ["react-dom@19.2.3", "", { "dependencies": { "scheduler": "^0.27.0" }, "peerDependencies": { "react": "^19.2.3" } }, "sha512-yELu4WmLPw5Mr/lmeEpox5rw3RETacE++JgHqQzd2dg+YbJuat3jH4ingc+WPZhxaoFzdv9y33G+F7Nl5O0GBg=="],
 
+    "@podium/terminal-client-react/@types/node": ["@types/node@24.13.3", "", { "dependencies": { "undici-types": "~7.18.0" } }, "sha512-Dh8vAsV36ig5wa9OX4pXvMc9D3Veibfw2wix0CUwYODLD8nkj9UsLjASr49nPg+2eKzxhBV+v7L8pXvT4e639Q=="],
+
     "@quansync/fs/quansync": ["quansync@1.0.0", "", {}, "sha512-5xZacEEufv3HSTPQuchrvV6soaiACMFnq1H8wkVioctoH3TRha9Sz66lOxRwPK/qZj7HPiSveih9yAyh98gvqA=="],
 
     "@react-native/codegen/hermes-parser": ["hermes-parser@0.36.0", "", { "dependencies": { "hermes-estree": "0.36.0" } }, "sha512-GdpwMmH5x6IpC1cijvcvYnlPB60Mh6kTSF/NFdYV/j56gYdi+0RIakYs+eqOV+bbO0SW7mgVVGSsTJxyPQfo3w=="],
@@ -3258,6 +3281,8 @@
     "@jest/types/chalk/ansi-styles": ["ansi-styles@4.3.0", "", { "dependencies": { "color-convert": "^2.0.1" } }, "sha512-zbB9rCJAT1rbjiVDb2hqKFHNYLxgtk8NURxZ3IZwD3F6NtxbXZQCnnSi1Lkx+IDohdPlFp222wVALIheZJQSEg=="],
 
     "@podium/client-core/@types/node/undici-types": ["undici-types@7.18.2", "", {}, "sha512-AsuCzffGHJybSaRrmr5eHr81mwJU3kjw6M+uprWvCXiNeN9SOGwQ3Jn8jb8m3Z6izVgknn1R0FTCEAP2QrLY/w=="],
+
+    "@podium/terminal-client-react/@types/node/undici-types": ["undici-types@7.18.2", "", {}, "sha512-AsuCzffGHJybSaRrmr5eHr81mwJU3kjw6M+uprWvCXiNeN9SOGwQ3Jn8jb8m3Z6izVgknn1R0FTCEAP2QrLY/w=="],
 
     "@react-native/codegen/hermes-parser/hermes-estree": ["hermes-estree@0.36.0", "", {}, "sha512-A1+8zn5oss2CFP7pKsOaxorQG6FNIz1WU1VDqruLPPZl3LVgeE2C5xfFg8Ow6/Ow4mSslLLtYP1J3n38eKyW9w=="],
 

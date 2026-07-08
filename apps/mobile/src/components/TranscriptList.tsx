@@ -1,8 +1,8 @@
+import { isAskUserQuestion, latestPendingQuestion } from '@podium/client-core/viewmodels'
 import type { TranscriptItem } from '@podium/protocol'
 import { useMemo, useRef } from 'react'
 import { FlatList, StyleSheet, Text, View } from 'react-native'
 import { color, font, radius, space } from '../theme/theme'
-import { isAskUserQuestion, latestPendingQuestion } from '../viewModels/askQuestion'
 import { AskQuestionCard } from './AskQuestionCard'
 
 function itemKey(item: TranscriptItem): string {

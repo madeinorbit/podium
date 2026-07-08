@@ -1,5 +1,6 @@
-import { describe, it, expect } from 'vitest'
-import { hasImageItems, buildImagePrompt } from './ChatView'
+import { buildImagePrompt } from '@podium/client-core/viewmodels'
+import { describe, expect, it } from 'vitest'
+import { hasImageItems } from './chat/image-items'
 
 describe('buildImagePrompt', () => {
   it('returns text unchanged when no paths', () => {

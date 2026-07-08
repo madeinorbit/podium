@@ -1,4 +1,5 @@
 import { compareRecency, withoutShells } from '@podium/client-core/focus'
+import { sessionCardModel } from '@podium/client-core/viewmodels'
 import type { SessionMeta } from '@podium/protocol'
 import { useRouter } from 'expo-router'
 import { Plus } from 'lucide-react-native'
@@ -10,7 +11,6 @@ import { HeaderButton, Screen } from '../components/Screen'
 import { SessionCard } from '../components/SessionCard'
 import { EmptyState } from '../components/ui'
 import { color, font, radius, space } from '../theme/theme'
-import { sessionCardModel } from '../viewModels/sessionCard'
 
 type Filter = 'active' | 'all' | 'archived'
 

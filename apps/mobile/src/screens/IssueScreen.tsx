@@ -1,4 +1,5 @@
 import { relativeTime, withoutShells } from '@podium/client-core/focus'
+import { sessionCardModel } from '@podium/client-core/viewmodels'
 import { ISSUE_STAGES } from '@podium/protocol'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { useMemo, useState } from 'react'
@@ -10,7 +11,6 @@ import { Screen } from '../components/Screen'
 import { SessionCard } from '../components/SessionCard'
 import { EmptyState, Pill, SectionHeader } from '../components/ui'
 import { color, font, radius, space } from '../theme/theme'
-import { sessionCardModel } from '../viewModels/sessionCard'
 
 export function IssueScreen() {
   const params = useLocalSearchParams<{ issueId: string | string[] }>()
