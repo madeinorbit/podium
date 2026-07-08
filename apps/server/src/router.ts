@@ -27,6 +27,7 @@ import { type IssueCaller, issueInputs } from './modules/issues/commands'
 import type { RegistryModules, SessionRegistry } from './relay'
 import { normalizeOriginUrl } from './repo-id'
 import { browseDirectories, type RepoRegistry } from './repo-registry'
+import type { ServerRoleConfig } from './roles'
 import { isAllowedRoot } from './root-allowlist'
 import { searchAll } from './search'
 import type { SuperagentService } from './superagent'
@@ -46,6 +47,10 @@ export interface Context {
    *  existing context builders keep working — mods() falls back to the
    *  registry's own composition. */
   modules?: RegistryModules
+  /** Runtime role composition (roles.ts): hub-only procs 404 when the hub role
+   *  is off. Optional so existing context builders keep the historical shape
+   *  (absent = core + hub, exactly as before roles existed). */
+  role?: ServerRoleConfig
 }
 
 /** The typed module seam router procs reach services through (ctx.modules when
@@ -133,6 +138,21 @@ const issueCapabilityGuard = t.middleware(async ({ ctx, path, next, getRawInput 
   return next()
 })
 const issueProc = t.procedure.use(issueCapabilityGuard)
+
+/** Hub-role gate (roles.ts): fleet admin + pairing procs exist on the wire only
+ *  when this process runs the hub role. NOT_FOUND (→ HTTP 404), not FORBIDDEN —
+ *  on a node the surface is absent, not permission-gated. Context builders that
+ *  set no role (tests, in-process callers) keep the historical core+hub shape. */
+const hubRoleGuard = t.middleware(({ ctx, next }) => {
+  if (ctx.role && !ctx.role.hub) {
+    throw new TRPCError({
+      code: 'NOT_FOUND',
+      message: 'not available: this server does not run the hub role',
+    })
+  }
+  return next()
+})
+const hubProc = t.procedure.use(hubRoleGuard)
 
 function cloudProvider(ctx: Context): CloudRuntimeProvider {
   return ctx.cloud ?? disabledCloudRuntimeProvider
@@ -796,21 +816,23 @@ export const appRouter = t.router({
   }),
   machines: t.router({
     // Registered machines (online flag + last-seen), shown in Settings → Machines and
-    // the machine dropdown. Single-machine: just the one 'local' machine.
+    // the machine dropdown. Single-machine: just the one 'local' machine. CORE —
+    // a node reads its own (and its hub-mirrored) fleet; only ADMITTING and
+    // administering machines is the hub's job (hubProc below).
     list: t.procedure.query(({ ctx }) => mods(ctx).machines.listMachines()),
-    rename: t.procedure
+    rename: hubProc
       .input(z.object({ id: z.string(), name: z.string().min(1).max(80) }))
       .mutation(({ ctx, input }) => {
         mods(ctx).machines.renameMachine(input.id, input.name)
         return mods(ctx).machines.listMachines()
       }),
-    revoke: t.procedure.input(z.object({ id: z.string() })).mutation(({ ctx, input }) => {
+    revoke: hubProc.input(z.object({ id: z.string() })).mutation(({ ctx, input }) => {
       mods(ctx).machines.revokeMachine(input.id)
       return mods(ctx).machines.listMachines()
     }),
     // Mint a short-lived pairing code the user types into a new machine's daemon to
     // join it to this server.
-    pairingCode: t.procedure.mutation(({ ctx }) => {
+    pairingCode: hubProc.mutation(({ ctx }) => {
       const code = mods(ctx).machines.mintPairingCode()
       const publicUrl = loadConfig().publicUrl
       return {

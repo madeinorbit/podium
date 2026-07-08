@@ -23,6 +23,7 @@ import { registerMcpRoute } from './mcp-route'
 import { probeAllModels } from './model-probe'
 import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
+import { resolveServerRole, type ServerRoleConfig } from './roles'
 import { appRouter } from './router'
 import { registerSetupRoute } from './setup-route'
 import { registerMobileRedirect, registerWebStatic } from './static-web'
@@ -130,11 +131,16 @@ export function registerVersionRoute(app: Hono): void {
 }
 
 export async function startServer(
-  opts: { port?: number; host?: string } = {},
+  opts: { port?: number; host?: string; role?: Partial<ServerRoleConfig> } = {},
 ): Promise<ServerHandle> {
   // Headless seam: a non-interactive deploy can set the login password via PODIUM_PASSWORD.
   // One-shot (won't overwrite an existing one); must run before the open-exposure check below.
   await applyEnvPassword()
+  // Role composition (roles.ts): which optional module groups this process
+  // activates. Explicit opts win; else `upstream` in config.json makes this a
+  // NODE (hub surfaces off); else the historical all-in-one shape: core + hub.
+  const config = loadConfig()
+  const role = resolveServerRole(opts.role, config)
   const store = new SessionStore()
   // The transcript lake lives in the state dir next to podium.db (transcript-mirror
   // spec §2.1). Passing the dir opts the registry into mirroring; tests that construct
@@ -143,7 +149,9 @@ export async function startServer(
     mirrorLakeDir: join(stateDir(), 'transcripts'),
     // Inbound daemon pairing is a HUB capability, injected here (the composition
     // root) so core (relay/machines) never imports hub/pairing — see roles.ts.
-    pairing: new PairingManager(),
+    // Node role = no manager = `pair` handshakes rejected, minting throws; the
+    // local daemon's `hello` path is untouched.
+    ...(role.hub ? { pairing: new PairingManager() } : {}),
     // Live model enumeration shells out to the agent CLIs, so it's only wired in the
     // real process; tests get the empty default and never spawn a CLI. The claude list
     // matches the agent's auth: an Anthropic API key (env or the existing
@@ -175,7 +183,7 @@ export async function startServer(
   // protocol. No upstream config = the constructor never runs = zero new behavior.
   let upstreamSync: UpstreamSync | undefined
   let upstreamForwarder: UpstreamForwarder | undefined
-  const upstreamConfig = loadConfig().upstream
+  const upstreamConfig = config.upstream
   if (upstreamConfig) {
     const ownMachineId = readOwnDaemonMachineId()
     if (ownMachineId) registry.setUpstreamOwnMachineIds([ownMachineId])
@@ -267,6 +275,9 @@ export async function startServer(
         cloud,
         capability: OPERATOR,
         modules: registry.modules,
+        // Hub-only procs (machines fleet admin + pairing) 404 when the hub
+        // role is off — see the hubProc guard in router.ts.
+        role,
       }),
     }),
   )

@@ -66,3 +66,35 @@ export function serverRoleOf(relPath: string): ServerModuleRole {
 export function isCompositionRoot(relPath: string): boolean {
   return COMPOSITION_ROOTS.has(relPath)
 }
+
+// ---------------------------------------------------------------------------
+// Runtime role composition (distinct from the static import grouping above):
+// which module groups this PROCESS activates. Core is always on — it has no
+// flag. The cloud tier has no flag either: it arrives as `plugins` on
+// startServer from a private build entrypoint, never as OSS code.
+// ---------------------------------------------------------------------------
+
+/** Which optional module groups a server process activates. */
+export interface ServerRoleConfig {
+  /**
+   * Hub surfaces: inbound daemon pairing (`pair` handshake + machines.pairingCode)
+   * and fleet admin (machines.rename/revoke). Off = this server is a plain NODE:
+   * other machines cannot join it; its own local daemon (hello) and everything
+   * core — including dialing an upstream hub — is unaffected.
+   */
+  hub: boolean
+}
+
+/**
+ * Resolve the process role: an explicit config wins; otherwise the presence of
+ * `config.upstream` decides — a server dialing an upstream hub is a NODE, and a
+ * node is not a rendezvous point (the architecture's "node = same binary with
+ * the upstream sync client enabled and inbound pairing disabled"). No upstream
+ * = today's all-in-one/hub deployment: core + hub, the historical behavior.
+ */
+export function resolveServerRole(
+  explicit: Partial<ServerRoleConfig> | undefined,
+  config: { upstream?: unknown },
+): ServerRoleConfig {
+  return { hub: explicit?.hub ?? !config.upstream }
+}
