@@ -1,17 +1,36 @@
 import { homedir } from 'node:os'
-import { fileChainSource, recordToItemsForKind, type TranscriptSource } from '@podium/transcript'
-import { harnessAdapterFor } from '../harness/registry.js'
-
-// Compat re-exports: the storage-neutral source layer moved to @podium/transcript;
-// the opencode SQLite binding lives in its harness adapter.
-export {
+import {
+  type ChainEntry,
   fileChainSource,
+  fileIdFor,
   recordToItemsForKind,
-  sliceItemsByAnchor,
-  stampOpencodeItems,
   type TranscriptSource,
 } from '@podium/transcript'
-export { opencodeDbSource } from '../harness/adapters/opencode.js'
+import { harnessAdapterFor } from './registry.js'
+
+/** Ordered oldest→newest JSONL files that make up a session's transcript.
+ *  Dispatches to the harness adapter's `transcript.chainPaths` — each file-based
+ *  harness resolves the SPECIFIC conversation by its resume value (a cwd bucket
+ *  holds many DISTINCT conversations, so globbing would merge unrelated
+ *  sessions). No resume value, an unknown kind, or a non-file harness
+ *  (opencode's SQLite store) ⇒ []. */
+export async function resolveFileChain(input: {
+  agentKind: string
+  cwd: string
+  resumeValue?: string
+  pathHint?: string
+  homeDir?: string
+}): Promise<ChainEntry[]> {
+  const chainPaths = harnessAdapterFor(input.agentKind)?.transcript.chainPaths
+  if (!chainPaths) return []
+  const paths = await chainPaths({
+    cwd: input.cwd,
+    ...(input.resumeValue !== undefined ? { resumeValue: input.resumeValue } : {}),
+    ...(input.pathHint !== undefined ? { pathHint: input.pathHint } : {}),
+    homeDir: input.homeDir ?? homedir(),
+  })
+  return paths.map((p) => ({ path: p, fileId: fileIdFor(p) }))
+}
 
 /**
  * Resolve the right `TranscriptSource` for a session by harness — a lookup into

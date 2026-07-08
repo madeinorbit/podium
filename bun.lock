@@ -39,6 +39,7 @@
         "@podium/agent-bridge": "workspace:*",
         "@podium/core": "workspace:*",
         "@podium/protocol": "workspace:*",
+        "@podium/transcript": "workspace:*",
         "ws": "^8.18.0",
       },
       "devDependencies": {

@@ -1,4 +1,4 @@
-import { it, expect } from 'vitest'
+import { expect, it } from 'vitest'
 import { issueRelayEnv } from './daemon'
 
 it('issueRelayEnv binds the session id into env + relay URL', () => {
