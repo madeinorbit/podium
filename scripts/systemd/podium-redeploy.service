@@ -8,10 +8,17 @@ After=podium-server.service podium-daemon.service
 
 [Service]
 Type=oneshot
+# bun must be resolvable for the dependency-install gate in redeploy-wait.sh (#176).
+Environment=PATH=%h/.bun/bin:%h/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 # Close the redeploy/checkout race: a HEAD reflog write (our trigger) can land before
 # git finishes the working-tree checkout, so wait for git to release .git/index.lock
 # (the working tree is fully written then) before restarting. Bounded so a stuck lock
 # can't wedge the redeploy.
+# redeploy-wait.sh ALSO runs `bun install --frozen-lockfile --linker=hoisted` when
+# bun.lock or any package.json changed since the last deployed HEAD (state in
+# .git/podium-redeploy-head; first run always installs). If the install fails, it
+# exits non-zero and this ExecStartPre failure aborts the unit — services are NOT
+# restarted against a broken node_modules (#173/#176).
 ExecStartPre=/usr/bin/env bash /home/user/src/other/podium/scripts/redeploy-wait.sh /home/user/src/other/podium
 # server first (the daemon reconnects to it with backoff); durable abduco/tmux masters
 # survive the daemon restart in their own scopes, so live agents are not dropped.
