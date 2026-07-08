@@ -8,7 +8,7 @@
  */
 
 import { randomUUID } from 'node:crypto'
-import type { SqlDatabase } from '@podium/core/sqlite'
+import type { SqlDatabase } from '@podium/runtime/sqlite'
 import type { ConversationIndexRow } from './types'
 
 export class ConversationsRepository {

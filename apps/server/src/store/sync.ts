@@ -6,7 +6,7 @@
  * (`upstream_outbox`, docs/spec/node-hub-issues.md §2.2).
  */
 
-import type { SqlDatabase } from '@podium/core/sqlite'
+import type { SqlDatabase } from '@podium/runtime/sqlite'
 
 export class SyncRepository {
   constructor(private readonly db: SqlDatabase) {}

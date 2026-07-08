@@ -4,7 +4,7 @@ import { checkFile, clauseIsTypeOnly, extractImports } from './check-boundaries'
 describe('extractImports', () => {
   it('extracts value, type-only, side-effect, export-from and dynamic imports', () => {
     const src = [
-      `import { a } from '@podium/core'`,
+      `import { a } from '@podium/runtime'`,
       `import type { AppRouter } from '@podium/server'`,
       `import '@podium/protocol'`,
       `export { b } from '@podium/agent-bridge'`,
@@ -13,7 +13,7 @@ describe('extractImports', () => {
     ].join('\n')
     const refs = extractImports(src)
     expect(refs.map((r) => r.specifier)).toEqual([
-      '@podium/core',
+      '@podium/runtime',
       '@podium/server',
       '@podium/protocol',
       '@podium/agent-bridge',
@@ -124,7 +124,7 @@ describe('checkFile rules', () => {
     ).toEqual([])
     const core = checkFile(
       'packages/transcript/src/source.ts',
-      `import { openDatabase } from '@podium/core/sqlite'`,
+      `import { openDatabase } from '@podium/runtime/sqlite'`,
     )
     expect(core).toHaveLength(1)
     expect(core[0].rule).toBe('restricted-package-deps')
@@ -162,7 +162,7 @@ describe('checkFile rules', () => {
     expect(
       checkFile(
         'apps/cli/src/issue-cli.ts',
-        `import { ISSUE_COMMANDS, makeRelayIssueClient } from '@podium/issue-client'\nimport { loadConfig } from '@podium/core/config'`,
+        `import { ISSUE_COMMANDS, makeRelayIssueClient } from '@podium/issue-client'\nimport { loadConfig } from '@podium/runtime/config'`,
       ),
     ).toEqual([])
   })
@@ -194,29 +194,32 @@ describe('checkFile rules', () => {
   })
 
   it('keeps protocol a leaf package', () => {
-    const p = checkFile('packages/protocol/src/index.ts', `import { z } from '@podium/core'`)
+    const p = checkFile('packages/protocol/src/index.ts', `import { z } from '@podium/runtime'`)
     expect(p).toHaveLength(1)
     expect(p[0].rule).toBe('leaf-package')
   })
 
-  it('restricts core (runtime plumbing) to the protocol/domain leaves', () => {
+  it('restricts @podium/runtime to the protocol/domain leaves', () => {
     // Allowed: protocol and domain (e.g. domain's normalizeOriginUrl).
     expect(
-      checkFile('packages/core/src/settings.ts', `import type { T } from '@podium/protocol'`),
+      checkFile('packages/runtime/src/settings.ts', `import type { T } from '@podium/protocol'`),
     ).toEqual([])
     expect(
-      checkFile('packages/core/src/git.ts', `export { normalizeOriginUrl } from '@podium/domain'`),
+      checkFile(
+        'packages/runtime/src/git.ts',
+        `export { normalizeOriginUrl } from '@podium/domain'`,
+      ),
     ).toEqual([])
     // Disallowed: any other workspace package.
     const c = checkFile(
-      'packages/core/src/settings.ts',
+      'packages/runtime/src/settings.ts',
       `import { something } from '@podium/client-core'`,
     )
     expect(c).toHaveLength(1)
     expect(c[0].rule).toBe('restricted-package-deps')
     // Intra-package and external imports are fine.
     expect(
-      checkFile('packages/core/src/index.ts', `import { z } from 'zod'\nimport './settings.js'`),
+      checkFile('packages/runtime/src/index.ts', `import { z } from 'zod'\nimport './settings.js'`),
     ).toEqual([])
   })
 
@@ -313,7 +316,7 @@ describe('server role tiers (core → hub → cloud, apps/server/src/roles.ts)',
   it('ignores files outside apps/server/src and non-relative specifiers', () => {
     expect(checkFile('apps/web/src/hub/x.ts', `import { y } from './thing'`)).toEqual([])
     expect(
-      checkFile('apps/server/src/relay.ts', `import { loadConfig } from '@podium/core/config'`),
+      checkFile('apps/server/src/relay.ts', `import { loadConfig } from '@podium/runtime/config'`),
     ).toEqual([])
   })
 })

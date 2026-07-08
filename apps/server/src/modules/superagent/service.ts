@@ -10,8 +10,8 @@
  */
 import { randomUUID } from 'node:crypto'
 import { homedir } from 'node:os'
-import { superagentHarnessAgent } from '@podium/core'
-import { HARNESS_MCP_SUPPORT } from '@podium/core'
+import { superagentHarnessAgent } from '@podium/runtime'
+import { HARNESS_MCP_SUPPORT } from '@podium/runtime'
 import { HarnessAgent } from '@podium/protocol'
 import type { McpToolProvider } from '../../mcp-route'
 import type { RegistryModules } from '../../relay'

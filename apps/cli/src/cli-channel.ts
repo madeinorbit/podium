@@ -1,4 +1,4 @@
-import { getUpdateChannel, setUpdateChannel } from '@podium/core/setup'
+import { getUpdateChannel, setUpdateChannel } from '@podium/runtime/setup'
 
 /** `podium channel` -> show; `podium channel stable|edge` -> set. Returns the resulting channel. */
 export function applyChannel(arg?: string): { channel: 'stable' | 'edge' } {

@@ -1,7 +1,7 @@
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { openDatabase } from '@podium/core/sqlite'
+import { openDatabase } from '@podium/runtime/sqlite'
 import type { ControlMessage, MetadataChange, ServerMessage } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import { runIssueCli } from '../../../scripts/issue-cli'

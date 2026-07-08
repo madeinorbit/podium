@@ -1,4 +1,4 @@
-import type { LlmBackend, PodiumSettings } from '@podium/core'
+import type { LlmBackend, PodiumSettings } from '@podium/runtime'
 import { type CodexAuth, codexLoginPresent, resolveCodexAuth } from './codex-auth'
 
 /**

@@ -12,7 +12,7 @@
  * untouched) with instructions rather than guessing.
  */
 
-import type { SqlDatabase } from '@podium/core/sqlite'
+import type { SqlDatabase } from '@podium/runtime/sqlite'
 
 export function up(db: SqlDatabase): void {
   const dupes = db

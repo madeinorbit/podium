@@ -28,7 +28,7 @@
 import { mkdirSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
-import { openDatabase, type SqlDatabase } from '@podium/core/sqlite'
+import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
 import { MIGRATIONS, runMigrations } from './migrations/index'
 import { AuthRepository } from './store/auth'
 import { ConversationsRepository } from './store/conversations'

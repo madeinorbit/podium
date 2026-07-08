@@ -10,7 +10,7 @@
  * the same information on every row (setParent always wrote both).
  */
 
-import type { SqlDatabase } from '@podium/core/sqlite'
+import type { SqlDatabase } from '@podium/runtime/sqlite'
 
 export function up(db: SqlDatabase): void {
   db.exec("DELETE FROM issue_deps WHERE type = 'parent-child'")

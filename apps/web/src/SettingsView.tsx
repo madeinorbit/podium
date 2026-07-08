@@ -6,7 +6,7 @@ import {
   type HarnessAgent,
   type LlmBackend,
   type PodiumSettings,
-} from '@podium/core'
+} from '@podium/runtime'
 import { CheckCircle2, ExternalLink, Loader2 } from 'lucide-react'
 import type { JSX } from 'react'
 import { useEffect, useState } from 'react'
@@ -1196,7 +1196,7 @@ function AppearanceSection(): JSX.Element {
 
 /** Self-update channel selector. Persists immediately via the setup tRPC (not part of
  *  the settings blob) — mirroring AppearanceSection, which also applies on its own. The
- *  channel type is inlined so the web bundle never imports @podium/core (node:fs). */
+ *  channel type is inlined so the web bundle never imports @podium/runtime (node:fs). */
 function UpdatesSection(): JSX.Element {
   const trpc = useStoreSelector((s) => s.trpc)
   const [channel, setChannel] = useState<'stable' | 'edge' | null>(null)

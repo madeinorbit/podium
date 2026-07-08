@@ -1,4 +1,4 @@
-import type { PodiumMode } from '@podium/core'
+import type { PodiumMode } from '@podium/runtime'
 import { type ReactNode, useEffect, useMemo, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -43,8 +43,8 @@ const DEFAULT_PORT = 18787
 /**
  * Warn when a URL is a Cloudflare QUICK tunnel (*.trycloudflare.com): those URLs rotate on
  * every cloudflared restart, so every joined machine goes dark until it is re-pointed.
- * Mirrors @podium/core/setup's ephemeralTunnelWarning — duplicated (tiny, pure) because the
- * web bundle must not import @podium/core/setup (it pulls node:fs via ./config).
+ * Mirrors @podium/runtime/setup's ephemeralTunnelWarning — duplicated (tiny, pure) because the
+ * web bundle must not import @podium/runtime/setup (it pulls node:fs via ./config).
  */
 export function quickTunnelWarning(url: string): string | undefined {
   let host: string
@@ -63,7 +63,7 @@ export function quickTunnelWarning(url: string): string | undefined {
   return undefined
 }
 
-// Derived from the tRPC client so the web bundle never imports @podium/core/setup.
+// Derived from the tRPC client so the web bundle never imports @podium/runtime/setup.
 type NetOption = Parameters<Trpc['setup']['commandFor']['query']>[0]['option']
 type NetOptionInfo = Awaited<ReturnType<Trpc['setup']['options']['query']>>[number]
 

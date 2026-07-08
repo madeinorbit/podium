@@ -1,6 +1,6 @@
 import { readdir, stat } from 'node:fs/promises'
 import { isAbsolute, join } from 'node:path'
-import { openDatabase, type SqlDatabase } from '@podium/core/sqlite'
+import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
 import { compactText, dateFromEpochMillis, isRecord } from '../jsonl.js'
 import type { AgentConversationDiagnostic, AgentConversationGitMetadata } from '../types.js'
 

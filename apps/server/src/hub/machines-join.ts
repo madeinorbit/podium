@@ -1,5 +1,5 @@
-import { encodeJoin } from '@podium/core/join'
-import { wssFrom } from '@podium/core/setup'
+import { encodeJoin } from '@podium/runtime/join'
+import { wssFrom } from '@podium/runtime/setup'
 
 /** Where the one-line installer lives — `curl … | sh` fetches and runs it. */
 const INSTALL = 'https://github.com/madeinorbit/podium/releases/latest/download/install.sh'

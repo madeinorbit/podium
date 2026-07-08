@@ -5,7 +5,7 @@
  * docs keep working. It is the ONE place that injects the in-process host
  * modules (apps/server + apps/daemon) into the CLI — apps/cli itself never
  * imports app code (boundary rule: the CLI depends only on @podium/protocol,
- * @podium/domain, @podium/core and @podium/issue-client).
+ * @podium/domain, @podium/runtime and @podium/issue-client).
  */
 
 import type { HostModules } from '../apps/cli/src/cli'

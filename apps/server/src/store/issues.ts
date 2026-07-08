@@ -7,7 +7,7 @@
  * resolved by the repos aggregate; the resolver is injected.
  */
 
-import type { SqlDatabase } from '@podium/core/sqlite'
+import type { SqlDatabase } from '@podium/runtime/sqlite'
 import { IssueStage } from '@podium/protocol'
 import { parseStringArray } from './helpers'
 import type { IssueCommentRow, IssueMessageRow, IssueRow } from './types'

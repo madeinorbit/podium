@@ -4,9 +4,9 @@ import { configDefaults, defineConfig } from 'vitest/config'
 export default defineConfig({
   resolve: {
     alias: {
-      // NOTE: do NOT alias '@podium/core' — Vite string aliases match by prefix, which
-      // would rewrite the '@podium/core/sqlite' subpath import (in apps/server/store.ts)
-      // to '<index.ts>/sqlite' and break it. Bare '@podium/core' resolves fine via the
+      // NOTE: do NOT alias '@podium/runtime' — Vite string aliases match by prefix, which
+      // would rewrite the '@podium/runtime/sqlite' subpath import (in apps/server/store.ts)
+      // to '<index.ts>/sqlite' and break it. Bare '@podium/runtime' resolves fine via the
       // workspace exports map; scripts/cli.ts imports core by relative path for the
       // bun-compile, so no alias is needed.
       '@': fileURLToPath(new URL('./apps/web/src', import.meta.url)),

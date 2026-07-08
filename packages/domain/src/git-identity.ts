@@ -5,7 +5,7 @@
  * userinfo, and port are all stripped. Non-URL input is returned trimmed (so a
  * remote-less repo still only matches itself).
  *
- * Canonical home (#194): moved from @podium/core/git.ts (which now re-exports it)
+ * Canonical home (#194): moved from @podium/runtime/git.ts (which now re-exports it)
  * so browser-safe consumers (client-core's viewmodels, shared with the mobile
  * app) can import it directly instead of hand-copying it.
  */

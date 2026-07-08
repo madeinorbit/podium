@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { DEFAULT_SETTINGS } from '../../../packages/core/src/settings'
+import { DEFAULT_SETTINGS } from '../../../packages/runtime/src/settings'
 import { RELAY } from './_harness'
 
 test.skip(

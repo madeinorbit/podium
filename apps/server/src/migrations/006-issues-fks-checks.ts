@@ -24,7 +24,7 @@
  * are cleared/deleted exactly as the app-level scrubs would eventually have.
  */
 
-import type { SqlDatabase } from '@podium/core/sqlite'
+import type { SqlDatabase } from '@podium/runtime/sqlite'
 import { ISSUE_STAGES, IssueType } from '@podium/protocol'
 
 const STAGES = ISSUE_STAGES

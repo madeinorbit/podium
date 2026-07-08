@@ -1,4 +1,4 @@
-import type { PodiumSettings } from '@podium/core'
+import type { PodiumSettings } from '@podium/runtime'
 import type { IssueComment, IssueWire, SessionMeta } from '@podium/protocol'
 import { sessionsForIssue } from './issue-util'
 import type { IssueService } from './modules/issues/service'

@@ -1,4 +1,4 @@
-import type { RunRecord } from '@podium/core/run-registry'
+import type { RunRecord } from '@podium/runtime/run-registry'
 import { describe, expect, it } from 'vitest'
 import { humanUptime, renderStatus } from './cli-lifecycle'
 

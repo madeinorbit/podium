@@ -1,4 +1,4 @@
-import type { PodiumConfig } from '@podium/core/config'
+import type { PodiumConfig } from '@podium/runtime/config'
 import type { Hono } from 'hono'
 import type { EventBus } from './modules/bus'
 import type { RegistryModules } from './relay'

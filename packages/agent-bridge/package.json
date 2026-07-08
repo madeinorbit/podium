@@ -22,7 +22,7 @@
     "access": "public"
   },
   "dependencies": {
-    "@podium/core": "workspace:*",
+    "@podium/runtime": "workspace:*",
     "@podium/protocol": "workspace:*",
     "@podium/transcript": "workspace:*",
     "node-pty": "^1.0.0"

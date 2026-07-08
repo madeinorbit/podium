@@ -1,8 +1,8 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { loadConfig, saveConfig } from '@podium/core/config'
-import { encodeJoin } from '@podium/core/join'
+import { loadConfig, saveConfig } from '@podium/runtime/config'
+import { encodeJoin } from '@podium/runtime/join'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { applyJoinToken } from './cli-join'
 

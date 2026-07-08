@@ -12,7 +12,7 @@
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { openDatabase } from '@podium/core/sqlite'
+import { openDatabase } from '@podium/runtime/sqlite'
 import { describe, expect, it } from 'vitest'
 import { SessionStore } from '../store'
 import { LEGACY_SCHEMA_SQL } from './legacy-schema.fixture'

@@ -4,7 +4,7 @@
  * by session/worktree and cascaded on session delete).
  */
 
-import type { SqlDatabase } from '@podium/core/sqlite'
+import type { SqlDatabase } from '@podium/runtime/sqlite'
 import { AgentKind } from '@podium/protocol'
 import type { PinKind, PinState, SessionRow, SessionStatusPersisted, SnoozeMap } from './types'
 

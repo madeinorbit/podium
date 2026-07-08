@@ -26,7 +26,7 @@
  * idempotent data operations, not schema.
  */
 
-import type { SqlDatabase } from '@podium/core/sqlite'
+import type { SqlDatabase } from '@podium/runtime/sqlite'
 
 export function up(db: SqlDatabase): void {
   db.exec(

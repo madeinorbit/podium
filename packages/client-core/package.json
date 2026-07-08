@@ -62,7 +62,7 @@
   "dependencies": {
     "@podium/protocol": "workspace:*",
     "@podium/domain": "workspace:*",
-    "@podium/core": "workspace:*",
+    "@podium/runtime": "workspace:*",
     "@podium/terminal-client": "workspace:*",
     "@tanstack/db": "^0.6.14",
     "@tanstack/react-db": "^0.1.92"

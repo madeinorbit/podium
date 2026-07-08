@@ -1,4 +1,4 @@
-import { normalizeSettings } from '@podium/core'
+import { normalizeSettings } from '@podium/runtime'
 import { describe, expect, it } from 'vitest'
 import { backendWithRunKind } from './SettingsView'
 

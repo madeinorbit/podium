@@ -27,7 +27,7 @@
  * row never trips the index.
  */
 
-import type { SqlDatabase } from '@podium/core/sqlite'
+import type { SqlDatabase } from '@podium/runtime/sqlite'
 import { deriveRepoId } from '../repo-id'
 import { normalizeRepoPath } from '../store/repos'
 

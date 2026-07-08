@@ -20,7 +20,8 @@ wrapper (`@podium/agent-bridge`) and a browser terminal presentation client
 | `packages/protocol` | ★ Shared agent/terminal wire protocol. |
 | `packages/agent-bridge` | ★ Coding-agent CLI process wrapper (server-side PTY). |
 | `packages/terminal-client` | ★ Browser terminal presentation client. |
-| `packages/core` | Internal domain model + zod schemas. |
+| `packages/domain` | Pure Podium domain logic (issue stage machine, authz, snooze/identity predicates). |
+| `packages/runtime` | Node-runtime plumbing: config, sqlite shims, git identity, connectivity, auth-store. |
 | `tooling/tsconfig` | Shared TypeScript base configs. |
 
 ★ = published to npm under `@podium/*`. See `ARCHITECTURE.md` for what-goes-where and the

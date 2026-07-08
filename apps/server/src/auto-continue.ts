@@ -1,4 +1,4 @@
-import { AUTO_CONTINUE_BASE_DELAY_MS, AUTO_CONTINUE_MAX_DELAY_MS } from '@podium/core'
+import { AUTO_CONTINUE_BASE_DELAY_MS, AUTO_CONTINUE_MAX_DELAY_MS } from '@podium/runtime'
 import type { AgentRuntimeState } from '@podium/protocol'
 
 /** Everything the controller needs from the relay, injected so the loop is
