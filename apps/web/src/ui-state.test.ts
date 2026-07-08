@@ -62,6 +62,85 @@ describe('replica ui-state collection', () => {
     expect(data.has(`${prefix}.uistate.v1`)).toBe(true)
   })
 
+  it('migrates the remaining ad-hoc families: panel-mode default, dock sections, per-file maps', () => {
+    const { storage, data } = makeStorage({
+      'podium.panelModeDefault': 'chat',
+      'podium.dock.section.git': '0',
+      'podium.dock.section.files': '1',
+      'podium.htmlmode:file:a:/x.html': 'split',
+      'podium.htmlmode:file:b:/y.html': 'source',
+      'podium.mdmode:file:a:/notes.md': 'source',
+    })
+    const ui = createReplica({
+      storage,
+      keyPrefix: prefix,
+      enumerateKeys: () => [...data.keys()],
+    }).uiState()
+
+    // Exact + prefix keys migrate under their own names…
+    expect(ui.get('podium.panelModeDefault')).toBe('chat')
+    expect(ui.get('podium.dock.section.git')).toBe('0')
+    expect(ui.get('podium.dock.section.files')).toBe('1')
+    // …the per-file families fold into ONE JSON-map row each…
+    expect(JSON.parse(ui.get('podium.htmlmode') ?? '{}')).toEqual({
+      'file:a:/x.html': 'split',
+      'file:b:/y.html': 'source',
+    })
+    expect(JSON.parse(ui.get('podium.mdmode') ?? '{}')).toEqual({
+      'file:a:/notes.md': 'source',
+    })
+    // …and every old key is removed.
+    for (const k of [
+      'podium.panelModeDefault',
+      'podium.dock.section.git',
+      'podium.dock.section.files',
+      'podium.htmlmode:file:a:/x.html',
+      'podium.htmlmode:file:b:/y.html',
+      'podium.mdmode:file:a:/notes.md',
+    ]) {
+      expect(data.has(k)).toBe(false)
+    }
+  })
+
+  it('theme keys are MIRRORED into ui-state but stay in localStorage (anti-flash fast path)', () => {
+    const { storage, data } = makeStorage({
+      'podium.theme.preset': 'shadcn',
+      'podium.theme.mode': 'light',
+    })
+    const ui = createReplica({
+      storage,
+      keyPrefix: prefix,
+      enumerateKeys: () => [...data.keys()],
+    }).uiState()
+    expect(ui.get('podium.theme.preset')).toBe('shadcn')
+    expect(ui.get('podium.theme.mode')).toBe('light')
+    // index.html's anti-flash script and the pre-store ThemeProvider read these
+    // raw — migration must NOT retire them.
+    expect(data.get('podium.theme.preset')).toBe('shadcn')
+    expect(data.get('podium.theme.mode')).toBe('light')
+  })
+
+  it('a per-file map entry already in the collection wins over a stale legacy key', async () => {
+    const { storage, data } = makeStorage()
+    const a = createReplica({ storage, keyPrefix: prefix, enumerateKeys: () => [] }).uiState()
+    a.set('podium.htmlmode', JSON.stringify({ 'file:a:/x.html': 'preview' }))
+    await new Promise((r) => setTimeout(r, 0))
+    // Stale legacy keys reappear: one colliding, one new.
+    data.set('podium.htmlmode:file:a:/x.html', 'split')
+    data.set('podium.htmlmode:file:c:/z.html', 'source')
+    const b = createReplica({
+      storage,
+      keyPrefix: prefix,
+      enumerateKeys: () => [...data.keys()],
+    }).uiState()
+    expect(JSON.parse(b.get('podium.htmlmode') ?? '{}')).toEqual({
+      'file:a:/x.html': 'preview', // collection entry wins
+      'file:c:/z.html': 'source', // unseen entry folds in
+    })
+    expect(data.has('podium.htmlmode:file:a:/x.html')).toBe(false)
+    expect(data.has('podium.htmlmode:file:c:/z.html')).toBe(false)
+  })
+
   it('kv semantics: set/get/delete round-trip and persist across instances', async () => {
     const { storage, data } = makeStorage()
     const a = createReplica({ storage, keyPrefix: prefix, enumerateKeys: () => [] }).uiState()

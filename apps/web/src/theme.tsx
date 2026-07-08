@@ -1,5 +1,6 @@
 import type { JSX, ReactNode } from 'react'
 import { createContext, useContext, useEffect, useState } from 'react'
+import { useStoreSelector } from './store'
 
 export type ThemePreset = 'shadcn' | 'podium'
 export type ThemeMode = 'light' | 'dark' | 'system'
@@ -14,6 +15,11 @@ export function resolveDark(mode: ThemeMode, prefersDark: boolean): boolean {
   return mode === 'system' ? prefersDark : mode === 'dark'
 }
 
+// Theme keys live in RAW localStorage on purpose (not only ui-state): they're
+// read BEFORE the store exists — by index.html's anti-flash script (pre-React)
+// and by ThemeProvider (which wraps StoreProvider) — so the fast path must not
+// depend on the replica. ThemeUiStateMirror below write-throughs every change
+// into the ui-state collection so the one UI persistence layer stays complete.
 export const THEME_PRESET_KEY = 'podium.theme.preset'
 export const THEME_MODE_KEY = 'podium.theme.mode'
 
@@ -101,4 +107,19 @@ export function useTheme(): ThemeContextValue {
   const v = useContext(Ctx)
   if (!v) throw new Error('useTheme outside ThemeProvider')
   return v
+}
+
+/**
+ * Mirrors the (localStorage-authoritative) theme into the replica's ui-state
+ * collection. Mounted INSIDE StoreProvider (theme itself initializes before the
+ * store exists — see the key comment above). Render-less.
+ */
+export function ThemeUiStateMirror(): null {
+  const { preset, mode } = useTheme()
+  const ui = useStoreSelector((s) => s.uiState)
+  useEffect(() => {
+    ui.set(THEME_PRESET_KEY, preset)
+    ui.set(THEME_MODE_KEY, mode)
+  }, [ui, preset, mode])
+  return null
 }

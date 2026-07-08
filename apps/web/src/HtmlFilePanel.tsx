@@ -4,6 +4,7 @@ import { Columns2, Eye, Pencil, Save, X } from 'lucide-react'
 import { type JSX, useEffect, useMemo, useRef, useState } from 'react'
 import { scopedAssetUrl } from './asset-url'
 import { canSave } from './editor-save'
+import { HTML_MODE_MAP_KEY, readFilePanelMode, writeFilePanelMode } from './file-panel-mode'
 import { type FileScope, scopeKey } from './file-scope'
 import { useIsMobile } from './hooks/use-is-mobile'
 import {
@@ -15,17 +16,6 @@ import { useStoreSelector } from './store'
 import { useFileDocument } from './useFileDocument'
 
 type Mode = 'preview' | 'source' | 'split'
-
-const MODE_KEY = (id: string): string => `podium.htmlmode:${id}`
-
-function loadMode(id: string): Mode {
-  try {
-    const v = localStorage.getItem(MODE_KEY(id))
-    return v === 'preview' || v === 'source' || v === 'split' ? v : 'preview'
-  } catch {
-    return 'preview'
-  }
-}
 
 function dirOf(path: string): string {
   return path.replace(/\/[^/]*$/, '') || '/'
@@ -40,25 +30,23 @@ export function HtmlFilePanel({
   path: string
   onClose: () => void
 }): JSX.Element {
-  const { httpOrigin, readFileScoped } = useStoreSelector(
-    (s) => ({ httpOrigin: s.httpOrigin, readFileScoped: s.readFileScoped }),
+  const { httpOrigin, readFileScoped, uiState } = useStoreSelector(
+    (s) => ({ httpOrigin: s.httpOrigin, readFileScoped: s.readFileScoped, uiState: s.uiState }),
     shallowEqual,
   )
   const doc = useFileDocument(scope, path)
   const mobile = useIsMobile()
   const tabId = `file:${scopeKey(scope)}:${path}`
-  const [mode, setMode] = useState<Mode>(() => loadMode(tabId))
+  const [mode, setMode] = useState<Mode>(
+    () => readFilePanelMode(uiState, HTML_MODE_MAP_KEY, tabId) ?? 'preview',
+  )
   const [cssTextByPath, setCssTextByPath] = useState<Record<string, string>>({})
   const viewRef = useRef<EditorView | null>(null)
   const fileDir = dirOf(path)
 
   useEffect(() => {
-    try {
-      localStorage.setItem(MODE_KEY(tabId), mode)
-    } catch {
-      /* best-effort */
-    }
-  }, [tabId, mode])
+    writeFilePanelMode(uiState, HTML_MODE_MAP_KEY, tabId, mode)
+  }, [uiState, tabId, mode])
 
   useEffect(() => {
     if (mobile && mode === 'split') setMode('source')

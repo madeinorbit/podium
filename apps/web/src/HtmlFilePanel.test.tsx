@@ -29,6 +29,7 @@ vi.mock('./store', () => {
   const useStore = () => ({
     httpOrigin: 'http://podium.test',
     readFileScoped: onReadFile,
+    uiState: { get: () => null, set: () => {}, subscribe: () => () => {} },
   })
   // The selector-store hook reads slices off the same store shape.
   return {

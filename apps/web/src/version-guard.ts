@@ -7,7 +7,10 @@ import { WIRE_VERSION } from '@podium/protocol'
  * evicting the service worker + all caches so the browser fetches the fresh shell.
  */
 
-/** sessionStorage key holding how many hard-reloads this tab has already forced this session. */
+/** sessionStorage key holding how many hard-reloads this tab has already forced this session.
+ *  DELIBERATELY not in the replica's ui-state collection: this loop guard must work exactly
+ *  when everything else is broken (stale shell, poisoned replica, wedged storage collections)
+ *  — it runs before the store exists and must never depend on it. */
 const RELOAD_COUNTER_KEY = 'podium.vreload'
 /** After this many reloads without resolving the mismatch, stop looping and surface an error. */
 const MAX_RELOADS = 2

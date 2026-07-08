@@ -88,6 +88,7 @@ const stableStoreFns = {
   openFile: vi.fn(),
   setPanelMode: vi.fn(),
   setPanelRenderMode: vi.fn(),
+  uiState: { get: () => null, set: () => {}, subscribe: () => () => {} },
   resurrectSession: vi.fn(async () => {}),
   killSession: vi.fn(async () => {}),
 }

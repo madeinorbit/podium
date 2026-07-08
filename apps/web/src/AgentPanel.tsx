@@ -59,12 +59,13 @@ const E2E = typeof window !== 'undefined' && new URLSearchParams(window.location
 type PanelMode = 'native' | 'chat'
 
 /**
- * localStorage key for the per-device default mode pick (#35). The last mode a
+ * ui-state key for the per-device default mode pick (#35). The last mode a
  * user picked anywhere becomes the device default for sessions that have no
  * remembered per-session mode yet; per-session overrides live in the store
- * (`panelMode`, persisted under `podium.panelMode`).
+ * (`panelMode`, persisted under `podium.panelMode`). The legacy localStorage
+ * key of the same name migrates into ui-state once (replica.uiState()).
  */
-const MODE_KEY = 'podium.panelModeDefault'
+export const PANEL_MODE_DEFAULT_KEY = 'podium.panelModeDefault'
 
 /**
  * Determine the default panel mode for a session that has no persisted
@@ -72,8 +73,8 @@ const MODE_KEY = 'podium.panelModeDefault'
  *
  * Priority:
  * 1. The per-device default pick (the last mode the user picked anywhere,
- *    saved under MODE_KEY) — chat reads best on a phone, the real PTY is the
- *    desktop default.
+ *    saved under PANEL_MODE_DEFAULT_KEY) — chat reads best on a phone, the
+ *    real PTY is the desktop default.
  * 2. The `startScreen` setting:
  *    - 'native'  → native terminal (always)
  *    - 'chat'    → chat view (if capable; else native)
@@ -85,6 +86,7 @@ export function initialPanelMode({
   chatCapable,
   isMobile,
   saved,
+  deviceDefault,
 }: {
   startScreen: 'native' | 'chat' | 'auto'
   chatCapable: boolean
@@ -92,11 +94,12 @@ export function initialPanelMode({
   /** The persisted per-session mode (from the store, #35) when known — wins over
    *  the per-device default and the startScreen setting. */
   saved?: PanelMode | null
+  /** The per-device default pick (ui-state PANEL_MODE_DEFAULT_KEY), if any. */
+  deviceDefault?: string | null
 }): PanelMode {
   if (!chatCapable) return 'native'
   if (saved === 'native' || saved === 'chat') return saved
-  const devdefault = typeof localStorage !== 'undefined' ? localStorage.getItem(MODE_KEY) : null
-  if (devdefault === 'native' || devdefault === 'chat') return devdefault
+  if (deviceDefault === 'native' || deviceDefault === 'chat') return deviceDefault
   if (startScreen === 'auto') return isMobile ? 'chat' : 'native'
   if (startScreen === 'chat') return 'chat'
   return 'native'
@@ -131,6 +134,7 @@ export function AgentPanel({
     panelMode,
     setPanelMode,
     setPanelRenderMode,
+    uiState,
   } = useStoreSelector(
     (s) => ({
       hub: s.hub,
@@ -147,6 +151,7 @@ export function AgentPanel({
       panelMode: s.panelMode,
       setPanelMode: s.setPanelMode,
       setPanelRenderMode: s.setPanelRenderMode,
+      uiState: s.uiState,
     }),
     shallowEqual,
   )
@@ -181,16 +186,18 @@ export function AgentPanel({
       })
   }, [trpc])
 
-  // Per-session mode is restored from the store (persisted to localStorage) so a
+  // Per-session mode is restored from the store (persisted via ui-state) so a
   // reload returns this session to the view it was last left in (#35). A session
   // the user never toggled falls back to the configurable default: the per-device
-  // pick (MODE_KEY) → the `startScreen` setting → chat-on-mobile/native-on-desktop.
+  // pick (PANEL_MODE_DEFAULT_KEY) → the `startScreen` setting →
+  // chat-on-mobile/native-on-desktop.
   const isMobile = typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches
   const mode: PanelMode = initialPanelMode({
     startScreen,
     chatCapable,
     isMobile,
     saved: panelMode[sessionId],
+    deviceDefault: uiState.get(PANEL_MODE_DEFAULT_KEY),
   })
   // The hibernated/exited-forces-chat rule still wins over any persisted 'native'.
   const effectiveMode: PanelMode = chatCapable ? mode : 'native'
@@ -205,7 +212,7 @@ export function AgentPanel({
     // Persist the per-session override in the store (#35)…
     setPanelMode(sessionId, m)
     // …and remember the latest pick as the per-device default for not-yet-seen sessions.
-    if (typeof localStorage !== 'undefined') localStorage.setItem(MODE_KEY, m)
+    uiState.set(PANEL_MODE_DEFAULT_KEY, m)
   }
 
   const hibernated = session?.status === 'hibernated'

@@ -18,6 +18,7 @@ import { SearchView } from './SearchView'
 import { SidebarUnified } from './SidebarUnified'
 import { ResizableAside } from './sidebar-common'
 import { StoreProvider, useStoreSelector } from './store'
+import { ThemeUiStateMirror } from './theme'
 import { serverConfig } from './trpc'
 import { UpdatePrompt } from './UpdatePrompt'
 import { Workspace } from './Workspace'
@@ -56,6 +57,8 @@ export function AppShell(): JSX.Element {
         // for connection/boot failures and titles itself accordingly.
         <ErrorBoundary resetKey={config.wsClientUrl} onRetry={() => setAppError(null)}>
           <StoreProvider config={config} onFatalError={setAppError}>
+            {/* Theme initializes pre-store (anti-flash) — this mirrors it into ui-state. */}
+            <ThemeUiStateMirror />
             <ConfirmProvider>
               <AppBody isMobile={isMobile} />
             </ConfirmProvider>

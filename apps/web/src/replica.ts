@@ -134,10 +134,26 @@ export const LEGACY_UI_KEYS = [
   'podium.panelMode',
   'podium.homeMode',
   'podium.issues.display',
+  'podium.panelModeDefault',
 ] as const
 
-/** Legacy key PREFIXES (dynamic suffixes: collapsed sections, sidebar width). */
-export const LEGACY_UI_PREFIXES = ['podium:sidebar:'] as const
+/** Legacy key PREFIXES (dynamic suffixes: collapsed sections, sidebar width,
+ *  dock-section open state). Each matched key migrates under its own name. */
+export const LEGACY_UI_PREFIXES = ['podium:sidebar:', 'podium.dock.section.'] as const
+
+/** Legacy PER-FILE key families (`podium.htmlmode:<tabId>` etc.) folded into ONE
+ *  ui-state row per family: a JSON map { [tabId]: value }. Unbounded per-key
+ *  families would otherwise litter the kv space; a map row reads/writes whole. */
+export const LEGACY_UI_MAP_PREFIXES: Record<string, string> = {
+  'podium.htmlmode:': 'podium.htmlmode',
+  'podium.mdmode:': 'podium.mdmode',
+}
+
+/** Keys MIRRORED into ui-state but NOT removed from localStorage: the theme is
+ *  read before React (index.html's anti-flash script) and before the store
+ *  exists (ThemeProvider wraps StoreProvider), so the raw localStorage fast
+ *  path must keep working. ThemeProvider write-through keeps both in sync. */
+export const MIRRORED_UI_KEYS = ['podium.theme.preset', 'podium.theme.mode'] as const
 
 /** Spec §2.3: "last ~200 items per conversation, LRU cap ~50 conversations". */
 export const REPLICA_TRANSCRIPT_ITEM_CAP = 200
@@ -555,15 +571,68 @@ class TanstackReplica implements Replica {
         }
       }
       for (const k of LEGACY_UI_KEYS) consider(k)
+      const mapPrefixes = Object.keys(LEGACY_UI_MAP_PREFIXES)
+      /** Per-family fold: target row key → { [suffix]: value }. */
+      const mapFolds = new Map<string, Record<string, string>>()
+      const foldedKeys: string[] = []
       for (const k of this.enumerateKeys()) {
         if (LEGACY_UI_PREFIXES.some((p) => k.startsWith(p))) consider(k)
+        const mapPrefix = mapPrefixes.find((p) => k.startsWith(p))
+        if (mapPrefix) {
+          try {
+            const v = this.storage.getItem(k)
+            if (v !== null) {
+              const target = LEGACY_UI_MAP_PREFIXES[mapPrefix] as string
+              const fold = mapFolds.get(target) ?? {}
+              fold[k.slice(mapPrefix.length)] = v
+              mapFolds.set(target, fold)
+              foldedKeys.push(k)
+            }
+          } catch {
+            // unreadable key — skip
+          }
+        }
       }
       const inserts: UiRow[] = []
       for (const [key, value] of legacy) {
         if (!col.has(key)) inserts.push({ key, value })
       }
+      // Per-file families become ONE JSON-map row each. Entries already in the
+      // collection's map win (same never-clobber rule as plain keys).
+      const mapUpdates: UiRow[] = []
+      for (const [target, fold] of mapFolds) {
+        const existingRow = col.get(target) as UiRow | undefined
+        let existing: Record<string, string> = {}
+        try {
+          const parsed: unknown = existingRow ? JSON.parse(existingRow.value) : {}
+          if (parsed && typeof parsed === 'object') existing = parsed as Record<string, string>
+        } catch {
+          // corrupt map row — rebuilt from the fold below
+        }
+        const merged = { ...fold, ...existing }
+        const value = JSON.stringify(merged)
+        if (!existingRow) inserts.push({ key: target, value })
+        else if (existingRow.value !== value) mapUpdates.push({ key: target, value })
+      }
+      // Theme keys are mirrored, not moved: index.html's anti-flash script and
+      // the pre-store ThemeProvider read them straight from localStorage.
+      for (const k of MIRRORED_UI_KEYS) {
+        try {
+          const v = this.storage.getItem(k)
+          if (v !== null && !col.has(k)) inserts.push({ key: k, value: v })
+        } catch {
+          // unreadable key — skip
+        }
+      }
       if (inserts.length > 0) this.track(col.insert(inserts))
-      for (const key of legacy.keys()) {
+      for (const u of mapUpdates) {
+        this.track(
+          col.update(u.key, (draft: UiRow) => {
+            draft.value = u.value
+          }),
+        )
+      }
+      for (const key of [...legacy.keys(), ...foldedKeys]) {
         try {
           this.storage.removeItem(key)
         } catch {

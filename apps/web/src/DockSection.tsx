@@ -2,16 +2,16 @@ import { ChevronRight } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
 import { useCallback, useState } from 'react'
 import { cn } from '@/lib/utils'
+import type { UiState } from './replica'
+import { useStoreSelector } from './store'
 
+// ui-state key family for per-section open state; the legacy localStorage keys
+// of the same names migrate in once (replica LEGACY_UI_PREFIXES).
 const KEY_PREFIX = 'podium.dock.section.'
 
-function readOpen(key: string, fallback: boolean): boolean {
-  try {
-    const raw = localStorage.getItem(KEY_PREFIX + key)
-    return raw === null ? fallback : raw === '1'
-  } catch {
-    return fallback
-  }
+function readOpen(ui: UiState, key: string, fallback: boolean): boolean {
+  const raw = ui.get(KEY_PREFIX + key)
+  return raw === null ? fallback : raw === '1'
 }
 
 /** Collapsible dock section: micro-label header with a count chip and a
@@ -33,17 +33,14 @@ export function DockSection({
   defaultOpen?: boolean
   children: ReactNode
 }): JSX.Element {
-  const [open, setOpen] = useState(() => readOpen(storageKey, defaultOpen))
+  const ui = useStoreSelector((s) => s.uiState)
+  const [open, setOpen] = useState(() => readOpen(ui, storageKey, defaultOpen))
   const toggle = useCallback(() => {
     setOpen((o) => {
-      try {
-        localStorage.setItem(KEY_PREFIX + storageKey, o ? '0' : '1')
-      } catch {
-        /* private mode */
-      }
+      ui.set(KEY_PREFIX + storageKey, o ? '0' : '1')
       return !o
     })
-  }, [storageKey])
+  }, [ui, storageKey])
 
   return (
     <section className="border-b border-border/60">

@@ -4,11 +4,13 @@ import { EditorView as CMView } from '@codemirror/view'
 import { Columns2, Eye, Pencil, Save, X } from 'lucide-react'
 import { type JSX, useEffect, useRef, useState } from 'react'
 import { canSave } from './editor-save'
-import { scopeKey, type FileScope } from './file-scope'
+import { MD_MODE_MAP_KEY, readFilePanelMode, writeFilePanelMode } from './file-panel-mode'
+import { type FileScope, scopeKey } from './file-scope'
 import { useIsMobile } from './hooks/use-is-mobile'
 import { MarkdownPreview } from './MarkdownPreview'
-import { lineForTop, topForLine, type BlockPos } from './scroll-sync'
 import { SourceEditor } from './SourceEditor'
+import { type BlockPos, lineForTop, topForLine } from './scroll-sync'
+import { useStoreSelector } from './store'
 import { useFileDocument } from './useFileDocument'
 
 type Mode = 'preview' | 'source' | 'split'
@@ -16,16 +18,6 @@ type Mode = 'preview' | 'source' | 'split'
 function isMarkdown(path: string): boolean {
   const ext = path.split('.').pop()?.toLowerCase()
   return ext === 'md' || ext === 'markdown'
-}
-
-const MODE_KEY = (id: string): string => `podium.mdmode:${id}`
-function loadMode(id: string, fallback: Mode): Mode {
-  try {
-    const v = localStorage.getItem(MODE_KEY(id))
-    return v === 'preview' || v === 'source' || v === 'split' ? v : fallback
-  } catch {
-    return fallback
-  }
 }
 
 /** One open file rendered as a workspace panel. Markdown files default to a rendered
@@ -41,21 +33,20 @@ export function MarkdownFilePanel({
   onClose: () => void
 }): JSX.Element {
   const doc = useFileDocument(scope, path)
+  const uiState = useStoreSelector((s) => s.uiState)
   const md = isMarkdown(path)
   const mobile = useIsMobile()
   const tabId = `file:${scopeKey(scope)}:${path}`
-  const [mode, setMode] = useState<Mode>(() => loadMode(tabId, md ? 'preview' : 'source'))
+  const [mode, setMode] = useState<Mode>(
+    () => readFilePanelMode(uiState, MD_MODE_MAP_KEY, tabId) ?? (md ? 'preview' : 'source'),
+  )
   const viewRef = useRef<EditorView | null>(null)
   const previewScrollRef = useRef<HTMLDivElement | null>(null)
 
   // Persist mode per tab; collapse split → source on mobile (no room for two panes).
   useEffect(() => {
-    try {
-      localStorage.setItem(MODE_KEY(tabId), mode)
-    } catch {
-      /* best-effort */
-    }
-  }, [tabId, mode])
+    writeFilePanelMode(uiState, MD_MODE_MAP_KEY, tabId, mode)
+  }, [uiState, tabId, mode])
   useEffect(() => {
     if (mobile && mode === 'split') setMode('source')
   }, [mobile, mode])
@@ -85,7 +76,9 @@ export function MarkdownFilePanel({
     const onEditorScroll = (): void => {
       if (lock) return
       lock = true
-      const line = view.state.doc.lineAt(view.lineBlockAtHeight(view.scrollDOM.scrollTop).from).number
+      const line = view.state.doc.lineAt(
+        view.lineBlockAtHeight(view.scrollDOM.scrollTop).from,
+      ).number
       preview.scrollTop = topForLine(blocks(), line)
       requestAnimationFrame(release)
     }
@@ -128,7 +121,11 @@ export function MarkdownFilePanel({
         </span>
         {md && (
           <div className="flex items-center gap-0.5 rounded-md border border-border p-0.5">
-            <ModeButton active={mode === 'preview'} onClick={() => setMode('preview')} title="Preview">
+            <ModeButton
+              active={mode === 'preview'}
+              onClick={() => setMode('preview')}
+              title="Preview"
+            >
               <Eye size={13} />
             </ModeButton>
             <ModeButton active={mode === 'source'} onClick={() => setMode('source')} title="Source">
@@ -151,7 +148,12 @@ export function MarkdownFilePanel({
         >
           <Save size={14} />
         </button>
-        <button type="button" onClick={handleClose} aria-label="Close" className="text-muted-foreground">
+        <button
+          type="button"
+          onClick={handleClose}
+          aria-label="Close"
+          className="text-muted-foreground"
+        >
           <X size={16} />
         </button>
       </div>
