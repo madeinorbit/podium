@@ -65,23 +65,6 @@ export const color = {
   toolText: '#6c7690',
 } as const
 
-/** Claude's /color identity palette → display hex (SessionMeta.agentColor). */
-export const AGENT_COLORS: Record<string, string> = {
-  red: '#ff8f8f',
-  blue: '#7cb5ff',
-  green: '#5fd6a0',
-  yellow: '#ffd166',
-  purple: '#c9a0ff',
-  orange: '#ffab70',
-  pink: '#ff9bc8',
-  cyan: '#6fdbe8',
-}
-
-export function agentColorHex(name: string | undefined): string | null {
-  if (!name || name === 'default') return null
-  return AGENT_COLORS[name] ?? null
-}
-
 export const space = {
   xs: 4,
   sm: 8,

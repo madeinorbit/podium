@@ -150,8 +150,8 @@ export function IssueScreen() {
           <Text style={styles.customLinkText}>Custom session…</Text>
         </Pressable>
 
-        <SectionHeader label={`Comments (${issue.comments.length})`} />
-        {issue.comments.map((comment) => (
+        <SectionHeader label={`Comments (${(issue.comments ?? []).length})`} />
+        {(issue.comments ?? []).map((comment) => (
           <View key={comment.id} style={styles.comment}>
             <View style={styles.commentHead}>
               <Text style={styles.commentAuthor}>{comment.author}</Text>

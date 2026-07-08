@@ -94,9 +94,10 @@ describe('session card view model', () => {
       issueLabel: '#80 Expo mobile client',
       summary: 'Pick the navigation model',
       group: 'needsYou',
+      dotTone: 'attention',
       queuedCount: 2,
     })
-    expect(model.subtitle).toContain('claude-code')
+    expect(model.subtitle).toContain('Claude')
     expect(model.subtitle).toContain('2h ago')
   })
 

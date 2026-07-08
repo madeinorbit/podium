@@ -1,3 +1,10 @@
+import {
+  agentBadge,
+  chatActivity,
+  panelLabel,
+  snoozeUntil1h,
+  snoozeUntilTomorrow5am,
+} from '@podium/client-core/viewmodels'
 import type { TranscriptItem, WorkState } from '@podium/protocol'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { MoreVertical, SquareTerminal } from 'lucide-react-native'
@@ -10,7 +17,7 @@ import { Icon } from '../components/Icon'
 import { HeaderButton, Screen } from '../components/Screen'
 import { TranscriptList } from '../components/TranscriptList'
 import { EmptyState } from '../components/ui'
-import { color, font } from '../theme/theme'
+import { color, font, space } from '../theme/theme'
 import { sessionTitle } from '../viewModels/sessionCard'
 import { mergeTranscriptItems, prependTranscriptItems } from '../viewModels/transcript'
 
@@ -22,20 +29,6 @@ const WORK_STATES: (WorkState | null)[] = [
   'icebox',
   null,
 ]
-
-function phaseLabel(phase: string | undefined, status: string): string {
-  switch (phase) {
-    case 'needs_user':
-      return 'needs you'
-    case 'working':
-    case 'errored':
-    case 'idle':
-    case 'compacting':
-      return phase
-    default:
-      return status
-  }
-}
 
 export function SessionScreen() {
   const params = useLocalSearchParams<{ sessionId: string | string[] }>()
@@ -125,6 +118,14 @@ export function SessionScreen() {
         label: 'Snooze until next message',
         onPress: () => void client.snooze(session.sessionId, null),
       },
+      {
+        label: 'Snooze for 1 hour',
+        onPress: () => void client.snooze(session.sessionId, snoozeUntil1h(Date.now())),
+      },
+      {
+        label: 'Snooze until tomorrow',
+        onPress: () => void client.snooze(session.sessionId, snoozeUntilTomorrow5am(Date.now())),
+      },
     ]
     if (session.snoozedUntil !== undefined) {
       actions.push({
@@ -172,7 +173,7 @@ export function SessionScreen() {
       title={title}
       subtitle={
         session
-          ? `${session.agentKind} · ${phaseLabel(session.agentState?.phase, session.status)}${session.queuedMessageCount ? ` · ${session.queuedMessageCount} queued` : ''}`
+          ? `${panelLabel(session.agentKind)} · ${agentBadge(session)?.label ?? session.status}${session.queuedMessageCount ? ` · ${session.queuedMessageCount} queued` : ''}`
           : undefined
       }
       onBack={() => router.back()}
@@ -215,6 +216,17 @@ export function SessionScreen() {
             onLoadOlder={loadOlder}
           />
         )}
+        {(() => {
+          const activity = chatActivity(session, false)
+          if (!activity) return null
+          return (
+            <Text
+              style={[styles.activity, activity.tone === 'attention' && styles.activityAttention]}
+            >
+              {activity.label}
+            </Text>
+          )
+        })()}
         <Composer
           placeholder="Message the agent…"
           onSend={(text) => void client.sendMessage(sessionId, text)}
@@ -242,6 +254,18 @@ export function SessionScreen() {
 const styles = StyleSheet.create({
   flex: {
     flex: 1,
+  },
+  activity: {
+    color: color.working,
+    fontSize: font.tiny,
+    fontWeight: '700',
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+    paddingHorizontal: space.xl,
+    paddingBottom: space.xs,
+  },
+  activityAttention: {
+    color: color.needsYou,
   },
   nextText: {
     color: color.accent,

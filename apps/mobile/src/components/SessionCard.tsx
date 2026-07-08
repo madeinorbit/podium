@@ -1,25 +1,19 @@
-import type { AttentionGroup } from '@podium/client-core/focus'
+import { agentColorHex, type DotTone } from '@podium/client-core/viewmodels'
 import { StyleSheet, Text, View } from 'react-native'
-import {
-  type AttentionTone,
-  agentColorHex,
-  color,
-  elevation,
-  font,
-  radius,
-  space,
-  tone,
-} from '../theme/theme'
+import { type AttentionTone, color, elevation, font, radius, space, tone } from '../theme/theme'
 import type { SessionCardModel } from '../viewModels/sessionCard'
 import { PressableScale } from './PressableScale'
 import { Pill, StatusDot } from './ui'
 
 export type { SessionCardModel }
 
-const GROUP_TONE: Record<AttentionGroup, AttentionTone> = {
-  needsYou: 'needsYou',
-  idle: 'idle',
+/** Shared dot semantics (sessionDotTone) → this theme's tone palette. */
+const DOT_TONE: Record<DotTone, AttentionTone> = {
   working: 'working',
+  attention: 'needsYou',
+  error: 'danger',
+  ready: 'accent',
+  neutral: 'idle',
 }
 
 /**
@@ -39,7 +33,7 @@ export function SessionCard({
   onPress: () => void
   children?: React.ReactNode
 }) {
-  const toneKey = GROUP_TONE[model.group]
+  const toneKey = DOT_TONE[model.dotTone]
   const needsYou = model.group === 'needsYou'
   const identity = agentColorHex(agentColor) ?? color.accent
   const initial = (model.title.trim()[0] ?? '?').toUpperCase()

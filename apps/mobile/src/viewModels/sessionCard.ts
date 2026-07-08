@@ -4,6 +4,7 @@ import {
   attentionSummary,
   relativeTime,
 } from '@podium/client-core/focus'
+import { type DotTone, panelLabel, sessionDotTone } from '@podium/client-core/viewmodels'
 import type { IssueWire, SessionMeta } from '@podium/protocol'
 
 export interface SessionCardModel {
@@ -13,6 +14,8 @@ export interface SessionCardModel {
   issueLabel: string | null
   summary: string | null
   group: AttentionGroup
+  /** Canonical status-dot semantics, shared with the web (sessionDotTone). */
+  dotTone: DotTone
   queuedCount?: number
 }
 
@@ -31,10 +34,11 @@ export function sessionCardModel(
   return {
     sessionId: session.sessionId,
     title: sessionTitle(session),
-    subtitle: `${session.agentKind} · ${session.status} · ${relativeTime(session.lastActiveAt, now)}`,
+    subtitle: `${panelLabel(session.agentKind)} · ${session.status} · ${relativeTime(session.lastActiveAt, now)}`,
     issueLabel: issue ? `#${issue.seq} ${issue.title}` : null,
     summary: attentionSummary(session),
     group: attentionGroup(session),
+    dotTone: sessionDotTone(session),
     queuedCount: session.queuedMessageCount,
   }
 }
