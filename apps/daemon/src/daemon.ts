@@ -1,124 +1,55 @@
-import { execFile, spawnSync } from 'node:child_process'
-import { randomUUID } from 'node:crypto'
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
-import { mkdir, open, readdir, rm, stat, writeFile } from 'node:fs/promises'
-import { homedir, hostname, tmpdir } from 'node:os'
-import { dirname, join } from 'node:path'
-import { promisify } from 'node:util'
-
-const execFileAsync = promisify(execFile)
+import { spawnSync } from 'node:child_process'
+import { stat } from 'node:fs/promises'
+import { homedir, hostname } from 'node:os'
+import { join } from 'node:path'
 
 import {
-  type AgentRuntimeState,
   type AgentSession,
-  type AgentStateEvent,
-  type AgentStateProvider,
-  abducoHasSessionAsync,
   agentLaunchCommand,
-  agentStateProviderFor,
-  attachAbducoAgent,
-  attachTmuxAgent,
-  type CursorStateObserver,
-  claudeProjectSlug,
-  cursorSessionPaths,
-  discoveryRoots,
-  type GitDiscoveryDiagnostic,
-  type GitRepositorySummary,
-  type GrokStateObserver,
-  grokSessionPaths,
-  initialAgentState,
   isAbducoAvailable,
   isTmuxAvailable,
   killAbducoSession,
-  killAbducoSessionAsync,
   killTmuxServer,
-  killTmuxServerAsync,
-  locateClaudeSessionFile,
-  type OpencodeStateObserver,
-  observeCodexState,
-  observeCursorState,
-  observeGrokState,
-  observeOpencodeState,
-  reduceAgentState,
-  resolveCursorBin,
-  resolveFileChain,
-  resolveOpencodeBin,
-  resolveWithinRoots,
-  scanGitRepositories,
-  spawnAbducoAgent,
-  spawnAgent,
-  spawnTmuxAgent,
-  tmuxHasSessionAsync,
-  transcriptSourceFor,
 } from '@podium/agent-bridge'
-import {
-  codexRecordToItems,
-  cursorRecordToItems,
-  grokRecordToItems,
-  type SliceResult,
-  type TranscriptSource,
-  type TranscriptTailer,
-  tailTranscript,
-} from '@podium/transcript'
 import { writeConnectivity } from '@podium/core/connectivity'
 import { startLoopMetrics } from '@podium/core/loop-metrics'
 import { consumePairCode } from '@podium/core/setup'
 import {
-  AGENT_CAPABILITIES,
-  type AgentKind,
   type ControlMessage,
-  type ConversationDiagnosticWire,
-  type ConversationSummaryWire,
   type DaemonHandshake,
   type DaemonHandshakeReply,
-  type DaemonMessage,
   encode,
-  type GitDiscoveryDiagnosticWire,
-  type GitRepositoryWire,
-  type HarnessAgent,
   parseControlMessage,
   parseDaemonHandshakeReply,
-  type TranscriptItem,
   WIRE_VERSION,
 } from '@podium/protocol'
 import WebSocket, { type RawData } from 'ws'
-import { type ActiveRefresh, createActiveRefresh } from './active-refresh'
-import { ensurePodiumCodexHooks, PODIUM_CODEX_HOOK_URL_ENV } from './codex-hooks'
-import {
-  listDirSandboxed,
-  readAssetSandboxed,
-  readFileSandboxed,
-  writeFileSandboxed,
-} from './file-access'
-import { buildHarnessExec } from './harness-exec.js'
-import { type HeadlessTurnHandle, runHeadlessTurn } from './headless-drivers.js'
+import { ensurePodiumCodexHooks } from './codex-hooks'
+import type { DaemonContext, DurableBackend } from './control/context'
+import { dispatchControlMessage } from './control/registry'
+import { createDiscoveryLoop, DEFAULT_DISCOVERY_SCAN_INTERVAL_MS } from './discovery-loop'
+import type { HeadlessTurnHandle } from './headless-drivers.js'
 import { startHookIngest } from './hook-ingest'
 import { sampleHostMemory } from './host-metrics'
 import { loadIdentity, saveToken } from './identity'
 import { createIssueRelayHub, startIssueRelayServer } from './issue-relay'
-import {
-  countControl,
-  countFrame,
-  countTail,
-  countWorker,
-  reportLongTick,
-  startLoopAttribution,
-  timeTask,
-} from './loop-attribution'
+import { countControl, reportLongTick, startLoopAttribution } from './loop-attribution'
 import { composeResponders, createMailInjector } from './mail-injector'
-import type { MemoryAttribution } from './memory-breakdown'
-import { OutputScheduler, type Tier } from './output-scheduler'
+import { OutputScheduler } from './output-scheduler'
 import { createPrimeInjector } from './prime-injector'
 import { makeQuotaFetcher } from './quota-fetch'
-import { repoOpCommand } from './repo-op'
 import { decideOnProtocolMismatch, decidePostUpdate } from './self-update'
-import { uploadFilePath } from './upload'
-import { uploadsToGc } from './uploads-gc'
-import { scanClaudeUsage } from './usage-scan'
+import { createSessionObservers } from './session-observers'
+import { sweepUploads, UPLOADS_GC_INTERVAL_MS } from './session-uploads'
 import { DiscoveryWorkerClient } from './worker-client'
 import { createCwdResolver, createSessionCwdTracker } from './worktree-resolve'
 
-const DEFAULT_DISCOVERY_SCAN_INTERVAL_MS = 15_000
+export type { DurableBackend } from './control/context'
+export { issueRelayEnv } from './control/session'
+// Re-exported from their new module homes for the daemon's public surface
+// (index.ts) and the unit tests that exercise them directly.
+export { normalizeAgentKind } from './control/transcripts'
+
 const DEFAULT_HOST_METRICS_INTERVAL_MS = 5_000
 
 // A control frame this large is never legitimate — the biggest real payload (an image
@@ -126,20 +57,6 @@ const DEFAULT_HOST_METRICS_INTERVAL_MS = 5_000
 // toString()+JSON.parse would stall the daemon loop and back up the socket (audit P0-4).
 // 64 MB leaves generous headroom over real uploads/pastes/file writes.
 const MAX_CONTROL_FRAME_BYTES = 64 * 1024 * 1024
-
-/**
- * Env vars bound into EVERY spawned agent so its `podium issue` CLI can reach the
- * daemon's loopback relay for this exact session. PODIUM_SESSION_ID is bound at
- * spawn (never a CLI arg the agent could spoof); PODIUM_ISSUE_RELAY is the relay
- * URL with the session id baked into the path (issueRelay.endpointFor(sessionId)).
- * Pure so it's unit-testable without standing up the daemon.
- */
-export function issueRelayEnv(sessionId: string, endpoint: string): Record<string, string> {
-  // PODIUM_SESSION_ID is a deliberate informational/identity var: the `podium issue`
-  // CLI reads the session id from PODIUM_ISSUE_RELAY's path, so this isn't consumed
-  // by the relay path today — it's exposed for the agent itself and future consumers.
-  return { PODIUM_SESSION_ID: sessionId, PODIUM_ISSUE_RELAY: endpoint }
-}
 
 // Malformed inbound frames and failed outbound sends are dropped so they can't wedge
 // the daemon's control loop — but the drop is logged (never silent), throttled so a
@@ -171,9 +88,6 @@ export interface DaemonDiscoveryOptions {
   /** Background quick-scan interval. Defaults to 15s. */
   scanIntervalMs?: number
 }
-
-/** What holds the agent's PTY across daemon restarts. `none` = bare node-pty. */
-export type DurableBackend = 'abduco' | 'tmux' | 'none'
 
 export interface DaemonOptions {
   serverUrl: string
@@ -293,30 +207,6 @@ export function createLimiter(max: number): <T>(fn: () => Promise<T>) => Promise
     })
 }
 
-/**
- * Resolve a session's TRUE harness for the transcript-source layer, which routes
- * on `agentKind` alone. A session's real harness can hide behind its `resume.kind`
- * — e.g. a shell that the server later reclassifies, or a kind the server didn't
- * stamp precisely — so prefer the resume kind when it names a known harness; this
- * closes the mis-route gap where an opencode/grok/codex/cursor session arrived
- * with a generic `agentKind` and got read as the wrong source (empty chat). Falls
- * back to `agentKind` when the resume kind is absent or unrecognized.
- */
-export function normalizeAgentKind(agentKind: AgentKind, resumeKind?: string): AgentKind {
-  switch (resumeKind) {
-    case 'opencode-session':
-      return 'opencode'
-    case 'grok-session':
-      return 'grok'
-    case 'codex-thread':
-      return 'codex'
-    case 'cursor-chat':
-      return 'cursor'
-    default:
-      return agentKind
-  }
-}
-
 export interface DaemonHandle {
   /** Where the hook ingest is actually listening (fixed port unless it was taken). */
   readonly hookPort: number
@@ -330,40 +220,6 @@ export interface DaemonHandle {
   close(opts?: { reapSessions?: boolean }): Promise<void>
 }
 
-type SpawnControl = Extract<ControlMessage, { type: 'spawn' }>
-type ReattachControl = Extract<ControlMessage, { type: 'reattach' }>
-/**
- * What a discovery pass moved: the worker runs the scan against discovery.db and
- * returns just the delta (`changed`/`removed`) plus any diagnostics, so the daemon
- * forwards a delta instead of re-broadcasting the full conversation list every 15s.
- */
-type ConversationDelta = {
-  changed: ConversationSummaryWire[]
-  removed: string[]
-  diagnostics: ConversationDiagnosticWire[]
-}
-
-function repoToWire(r: GitRepositorySummary): GitRepositoryWire {
-  return {
-    path: r.path,
-    kind: r.kind,
-    ...(r.branch !== undefined ? { branch: r.branch } : {}),
-    ...(r.headSha !== undefined ? { headSha: r.headSha } : {}),
-    ...(r.originUrl !== undefined ? { originUrl: r.originUrl } : {}),
-    worktrees: (r.worktrees ?? []).map((w) => ({
-      path: w.path,
-      ...(w.branch !== undefined ? { branch: w.branch } : {}),
-      ...(w.headSha !== undefined ? { headSha: w.headSha } : {}),
-      ...(w.locked !== undefined ? { locked: w.locked } : {}),
-      ...(w.prunable !== undefined ? { prunable: w.prunable } : {}),
-    })),
-  }
-}
-
-function gitDiagnosticToWire(d: GitDiscoveryDiagnostic): GitDiscoveryDiagnosticWire {
-  return { severity: d.severity, path: d.path, message: d.message }
-}
-
 export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
   const launch = opts.launch ?? agentLaunchCommand
   const backend = resolveDurableBackend(opts, {
@@ -375,438 +231,16 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
       '[podium] neither abduco nor tmux found — sessions will not survive a daemon restart',
     )
   }
-  // Agent state observation: harness hooks POST here; provider translates the
-  // payload into normalized events; the reducer folds them; changes go to the
-  // server as `agentState`. Started before the WS so spawns can never race it.
   const settingsDir =
     opts.hooks?.settingsDir ??
     join(process.env.PODIUM_STATE_DIR ?? join(homedir(), '.podium'), 'hooks')
-  const trackers = new Map<string, { provider: AgentStateProvider; state: AgentRuntimeState }>()
-  // Live structured-transcript tails, keyed by Podium session id. Claude tails
-  // the path reported by hook payloads; Grok tails its session chat_history.jsonl
-  // once the observer learns the harness session id. Resume paths are derivable
-  // for both harnesses, so reattached chat gets history before new activity.
-  const tails = new Map<string, TranscriptTailer>()
-  const grokStateObservers = new Map<string, GrokStateObserver>()
-  // Codex state arrives on TWO channels: native hooks (codex ≥0.142, fast +
-  // authoritative, the only source for PermissionRequest) POSTed to the shared
-  // ingest, and the rollout observer below (binding, titles, and the fallback
-  // for codex builds/sessions without hooks). These maps let the hook path pin
-  // the observer to the thread the hook payload names without restarting a
-  // correctly-bound observer on every POST.
-  const codexStateObservers = new Map<string, { stop(): void }>()
-  const codexBoundThreads = new Map<string, string>()
-  const codexObserverCwds = new Map<string, string>()
-  const opencodeStateObservers = new Map<string, OpencodeStateObserver>()
-  const cursorStateObservers = new Map<string, CursorStateObserver>()
-  // Event-driven active conversation-index refresh. Instantiated below once
-  // `publishConversations` + `workerClient` exist; the tail callback marks a
-  // transcript dirty so the worker re-summarizes JUST that file (coalesced) instead
-  // of waiting for the next periodic scan. Holder is set before any tail can fire.
-  let activeRefresh: ActiveRefresh | undefined
-  const ensureTranscriptTail = (
-    sessionId: string,
-    path: string,
-    recordToItems?: (record: unknown) => TranscriptItem[],
-  ): void => {
-    const existing = tails.get(sessionId)
-    if (existing?.path === path) return
-    existing?.stop()
-    tails.set(
-      sessionId,
-      tailTranscript(
-        path,
-        (items, meta) => {
-          if (items.length === 0 && !meta.reset) return
-          countTail()
-          send({
-            type: 'transcriptDelta',
-            sessionId,
-            items,
-            ...(meta.tail ? { tail: meta.tail } : {}),
-            ...(meta.reset ? { reset: true } : {}),
-          })
-          // The tail fired because this transcript file was appended to — mark it
-          // dirty so the worker re-summarizes JUST it (coalesced, ~1s) and keeps the
-          // search index near-real-time, instead of waiting for the periodic scan.
-          activeRefresh?.markConversationDirty(path)
-        },
-        {
-          ...(recordToItems ? { recordToItems } : {}),
-          // The agent's `/color` accent rides the same transcript tail.
-          onColor: (color) => send({ type: 'agentColor', sessionId, color }),
-        },
-      ),
-    )
-  }
-  const stopTranscriptTail = (sessionId: string): void => {
-    tails.get(sessionId)?.stop()
-    tails.delete(sessionId)
-  }
-  const stopGrokStateObserver = (sessionId: string): void => {
-    grokStateObservers.get(sessionId)?.stop()
-    grokStateObservers.delete(sessionId)
-  }
-  const stopCodexStateObserver = (sessionId: string): void => {
-    codexStateObservers.get(sessionId)?.stop()
-    codexStateObservers.delete(sessionId)
-    codexBoundThreads.delete(sessionId)
-    codexObserverCwds.delete(sessionId)
-  }
-  const stopOpencodeStateObserver = (sessionId: string): void => {
-    opencodeStateObservers.get(sessionId)?.stop()
-    opencodeStateObservers.delete(sessionId)
-  }
-  const stopCursorStateObserver = (sessionId: string): void => {
-    cursorStateObservers.get(sessionId)?.stop()
-    cursorStateObservers.delete(sessionId)
-  }
-  const applyAgentStateEvents = (sessionId: string, events: AgentStateEvent[]): void => {
-    const tracker = trackers.get(sessionId)
-    if (!tracker) return
-    for (const event of events) {
-      const next = reduceAgentState(tracker.state, event, new Date().toISOString())
-      if (next === tracker.state) continue
-      tracker.state = next
-      send({ type: 'agentState', sessionId, state: next })
-    }
-  }
-  const startGrokStateObserver = (
-    sessionId: string,
-    cwd: string,
-    resumeValue: string | undefined,
-    // On a fresh spawn, pass the actual spawn timestamp so discovery skips older
-    // sibling sessions in the same cwd. On reattach, pass undefined → observeGrokState
-    // defaults watermarkMs to 0 (no floor), so the latest-by-activity session
-    // is found even if it predates this daemon process start.
-    startedAtMs?: number,
-  ): void => {
-    stopGrokStateObserver(sessionId)
-    grokStateObservers.set(
-      sessionId,
-      observeGrokState({
-        cwd,
-        ...(resumeValue ? { resumeValue } : {}),
-        ...(opts.discovery?.homeDir ? { homeDir: opts.discovery.homeDir } : {}),
-        ...(startedAtMs !== undefined ? { startedAtMs } : {}),
-        onSession: (grokSessionId) => {
-          send({
-            type: 'sessionResumeRef',
-            sessionId,
-            resume: { kind: 'grok-session', value: grokSessionId },
-          })
-          tailGrokTranscript(sessionId, cwd, grokSessionId)
-        },
-        onEvents: (events) => applyAgentStateEvents(sessionId, events),
-      }),
-    )
-  }
-  // Eagerly tail a claude-code session's resume transcript — the JSONL the harness
-  // is already writing. The chat view then has history before the first hook fires.
-  // Essential on reattach: a fresh daemon's tails map is empty and an idle survivor
-  // fires no hook to register one, so chat would stay blank while the PTY scrollback
-  // (native view) still shows the whole conversation.
-  const tailResumeTranscript = (
-    sessionId: string,
-    cwd: string,
-    resumeValue: string,
-    pathHint?: string,
-  ): void => {
-    // Honor a discovery homeDir override (tests / isolated HOME) so the live tail
-    // reads the SAME location the on-demand read source does — otherwise a daemon
-    // run against an isolated home would tail the real ~/.claude and find nothing.
-    const home = opts.discovery?.homeDir ?? homedir()
-    void (async () => {
-      // Locate, don't derive: after a worktree move the file lives in the ORIGINAL
-      // cwd's bucket (docs/spec/conversation-registry.md §3.3). Fall back to the
-      // derived path when nothing exists yet — a fresh resume creates the file a
-      // moment later and the tailer waits on it.
-      const located = await locateClaudeSessionFile({
-        cwd,
-        resumeValue,
-        ...(pathHint ? { pathHint } : {}),
-        homeDir: home,
-      })
-      ensureTranscriptTail(
-        sessionId,
-        located ??
-          join(home, '.claude', 'projects', claudeProjectSlug(cwd), `${resumeValue}.jsonl`),
-      )
-    })()
-  }
-  // Start a claude-code session's transcript tail. With a resume ref we know the
-  // exact file (derivable path). WITHOUT one — a fresh spawn that hasn't yet
-  // reported a session id, or a reattach where the server never learned the resume
-  // value — discover the newest .jsonl in the cwd bucket and tail that, so chat has
-  // history from the start instead of waiting for the first hook (and so an idle
-  // survivor that fires no hook still gets a tail). Hooks remain a fast-path: when
-  // a hook lands, its transcript_path re-points ensureTranscriptTail at the live
-  // file (the discovered one is the same file in the common case).
-  const startClaudeTranscriptTail = (
-    sessionId: string,
-    cwd: string,
-    resumeValue?: string,
-    pathHint?: string,
-  ): void => {
-    if (resumeValue) {
-      tailResumeTranscript(sessionId, cwd, resumeValue, pathHint)
-      return
-    }
-    void (async () => {
-      const chain = await resolveFileChain({
-        agentKind: 'claude-code',
-        cwd,
-        ...(opts.discovery?.homeDir ? { homeDir: opts.discovery.homeDir } : {}),
-      })
-      const newest = chain.at(-1)
-      if (newest) ensureTranscriptTail(sessionId, newest.path)
-    })()
-  }
-  const tailGrokTranscript = (sessionId: string, cwd: string, grokConversationId: string): void => {
-    ensureTranscriptTail(
-      sessionId,
-      grokSessionPaths({
-        cwd,
-        sessionId: grokConversationId,
-        ...(opts.discovery?.homeDir ? { homeDir: opts.discovery.homeDir } : {}),
-      }).chatHistoryPath,
-      grokRecordToItems,
-    )
-  }
-  const tailCodexTranscript = (sessionId: string, rolloutPath: string): void => {
-    // Codex's rollout file carries both the conversation and state — the same
-    // path the observer found feeds the chat tail.
-    ensureTranscriptTail(sessionId, rolloutPath, codexRecordToItems)
-  }
-  // startedAtMs scopes the rollout search: a fresh spawn passes its start time so
-  // discovery can't latch onto a stale sibling rollout in the same cwd. Reattach
-  // passes undefined → the observer searches without a freshness floor and finds
-  // the live session's existing (idle, older-mtime) rollout. Mirrors how the Grok
-  // observer scopes its search on spawn but not on reattach.
-  const tailCursorTranscript = (sessionId: string, cwd: string, chatId: string): void => {
-    ensureTranscriptTail(
-      sessionId,
-      cursorSessionPaths({
-        cwd,
-        chatId,
-        ...(opts.discovery?.homeDir ? { homeDir: opts.discovery.homeDir } : {}),
-      }).transcriptPath,
-      cursorRecordToItems,
-    )
-  }
-  const startCursorStateObserver = (
-    sessionId: string,
-    cwd: string,
-    resumeValue: string | undefined,
-    startedAtMs = Date.now(),
-  ): void => {
-    stopCursorStateObserver(sessionId)
-    cursorStateObservers.set(
-      sessionId,
-      observeCursorState({
-        cwd,
-        ...(resumeValue ? { resumeValue } : {}),
-        ...(opts.discovery?.homeDir ? { homeDir: opts.discovery.homeDir } : {}),
-        startedAtMs,
-        onSession: (chatId) => {
-          send({
-            type: 'sessionResumeRef',
-            sessionId,
-            resume: { kind: 'cursor-chat', value: chatId },
-          })
-          tailCursorTranscript(sessionId, cwd, chatId)
-        },
-        onEvents: (events) => applyAgentStateEvents(sessionId, events),
-      }),
-    )
-  }
-  const startOpencodeStateObserver = (
-    sessionId: string,
-    cwd: string,
-    resumeValue: string | undefined,
-    startedAtMs = Date.now(),
-  ): void => {
-    stopOpencodeStateObserver(sessionId)
-    opencodeStateObservers.set(
-      sessionId,
-      observeOpencodeState({
-        cwd,
-        ...(resumeValue ? { resumeValue } : {}),
-        ...(opts.discovery?.homeDir ? { homeDir: opts.discovery.homeDir } : {}),
-        startedAtMs,
-        onSession: (opencodeSessionId) => {
-          send({
-            type: 'sessionResumeRef',
-            sessionId,
-            resume: { kind: 'opencode-session', value: opencodeSessionId },
-          })
-        },
-        onEvents: (events) => applyAgentStateEvents(sessionId, events),
-        onTranscriptItems: (items, reset) => {
-          if (items.length === 0 && !reset) return
-          // Items are already cursor-stamped (stampOpencodeItems) by the observer,
-          // so the live delta carries the same cursors the on-demand read produces.
-          const tail = items.at(-1)?.cursor
-          send({
-            type: 'transcriptDelta',
-            sessionId,
-            items,
-            ...(reset ? { reset: true } : {}),
-            ...(tail ? { tail } : {}),
-          })
-        },
-      }),
-    )
-  }
-  const startCodexStateObserver = (
-    sessionId: string,
-    cwd: string,
-    // A reattach/resume passes the session's known codex-thread id so the observer
-    // pins its OWN rollout instead of re-discovering by cwd+mtime (which collapses
-    // sibling sessions in the same repo onto the newest rollout). A fresh spawn
-    // passes undefined → discovery scoped by startedAtMs.
-    resumeValue: string | undefined,
-    startedAtMs?: number,
-  ): void => {
-    stopCodexStateObserver(sessionId)
-    codexObserverCwds.set(sessionId, cwd)
-    codexStateObservers.set(
-      sessionId,
-      observeCodexState({
-        cwd,
-        ...(resumeValue ? { resumeValue } : {}),
-        ...(opts.discovery?.homeDir ? { homeDir: opts.discovery.homeDir } : {}),
-        ...(startedAtMs !== undefined ? { startedAtMs } : {}),
-        onSession: (rolloutId, rolloutPath) => {
-          codexBoundThreads.set(sessionId, rolloutId)
-          // Recording a resume ref marks the session resumable (→ hibernate
-          // button); the first transcript frame marks it chat-capable (→ chat
-          // switcher + BTW button).
-          send({
-            type: 'sessionResumeRef',
-            sessionId,
-            resume: { kind: 'codex-thread', value: rolloutId },
-          })
-          tailCodexTranscript(sessionId, rolloutPath)
-        },
-        // Codex's OSC terminal title is just the cwd basename (suppressed in
-        // wireBridge); the observer derives a real title from the thread instead.
-        onTitle: (title) => send({ type: 'title', sessionId, title }),
-        onEvents: (events) => applyAgentStateEvents(sessionId, events),
-      }),
-    )
-  }
-  // Build a TranscriptSource for the session named by a transcript-read request.
-  // The factory routes on the TRUE harness (normalizeAgentKind, since a session's
-  // real harness can hide behind resume.kind) and resolves the file chain / DB
-  // session from cwd + resume value. Centralizes the per-read source resolution so
-  // both the on-demand read and the reattach re-seed share one path.
-  const sourceForRead = (msg: {
-    agentKind: AgentKind
-    cwd: string
-    resume?: { kind: string; value: string }
-    pathHint?: string
-  }): Promise<TranscriptSource> => {
-    const agentKind = normalizeAgentKind(msg.agentKind, msg.resume?.kind)
-    return transcriptSourceFor({
-      agentKind,
-      cwd: msg.cwd,
-      ...(msg.resume?.value ? { resumeValue: msg.resume.value } : {}),
-      ...(msg.pathHint ? { pathHint: msg.pathHint } : {}),
-      ...(opts.discovery?.homeDir ? { homeDir: opts.discovery.homeDir } : {}),
-    })
-  }
+  const homeDir = opts.discovery?.homeDir
 
-  // Unified cursor-anchored read (replaces the old parked-tail + scroll-back-page
-  // handlers): resolve the right TranscriptSource and serve a SliceResult for ANY
-  // harness, opencode included (the source layer hides the storage difference).
-  // No anchor + 'before' = newest window; an anchor + 'before' pages older; 'after'
-  // pages newer. Items carry cursors that interoperate with the live deltas.
-  const readTranscript = async (
-    msg: Extract<ControlMessage, { type: 'transcriptRead' }>,
-  ): Promise<void> => {
-    let res: SliceResult = { items: [], hasMore: false }
-    try {
-      const source = await sourceForRead(msg)
-      res = await source.readSlice({
-        ...(msg.anchor ? { anchor: msg.anchor } : {}),
-        direction: msg.direction,
-        limit: msg.limit,
-      })
-    } catch (err) {
-      // A read failure (missing file/DB, decode error) must still answer the
-      // server's pending request — reply with an empty page rather than hang it.
-      console.warn(`[podium] transcript read failed for ${msg.sessionId}:`, err)
-    }
-    send({
-      type: 'transcriptReadResult',
-      requestId: msg.requestId,
-      sessionId: msg.sessionId,
-      items: res.items,
-      ...(res.head ? { head: res.head } : {}),
-      ...(res.tail ? { tail: res.tail } : {}),
-      hasMore: res.hasMore,
-    })
-  }
-  // Transcript-mirror ranged read (docs/spec/transcript-mirror.md §2.3): serve a byte
-  // range of a native transcript so the server can keep a verbatim lake copy. Guarded
-  // to discovery-provider roots via realpath prefix check — the mirror can never be
-  // used as an arbitrary file reader (spec invariant 3). Must-answer posture (like
-  // readTranscript): every requestId gets a reply, an error one rather than a hang.
-  const readTranscriptMirror = async (
-    msg: Extract<ControlMessage, { type: 'transcriptMirrorRead' }>,
-  ): Promise<void> => {
-    const reply = (r: { data: string; fileSize: number; eof: boolean; error?: string }): void =>
-      send({ type: 'transcriptMirrorResult', requestId: msg.requestId, ...r })
-    const refuse = (error: string): void => reply({ data: '', fileSize: 0, eof: false, error })
-    try {
-      const real = await resolveWithinRoots(
-        msg.path,
-        discoveryRoots(opts.discovery?.homeDir ?? homedir()),
-      )
-      if (!real) {
-        refuse('denied') // outside every discovery root, or vanished — never read
-        return
-      }
-      const handle = await open(real, 'r')
-      try {
-        const fileSize = (await handle.stat()).size
-        if (msg.offset >= fileSize) {
-          reply({ data: '', fileSize, eof: true })
-          return
-        }
-        const buf = Buffer.alloc(Math.min(msg.maxBytes, fileSize - msg.offset))
-        const { bytesRead } = await handle.read(buf, 0, buf.length, msg.offset)
-        reply({
-          data: buf.subarray(0, bytesRead).toString('base64'),
-          fileSize,
-          eof: msg.offset + bytesRead >= fileSize,
-        })
-      } finally {
-        await handle.close()
-      }
-    } catch (err) {
-      refuse(String(err))
-    }
-  }
-  // Hook cwds are the agent's LIVE shell directory (they follow every `cd`), but
-  // the server groups sessions by this value — forwarding raw cwds makes a session
-  // vanish from its worktree the moment the agent cds into a subdirectory. The
-  // tracker resolves each cwd to its git worktree root and forwards only genuine
-  // worktree moves (EnterWorktree, cd into another checkout). Defined before
-  // startHookIngest (whose onPayload feeds it) via the same `send` closure.
-  const sessionCwdTracker = createSessionCwdTracker({
-    resolver: createCwdResolver(),
-    send: (sessionId, cwd, explicit) =>
-      send({ type: 'sessionCwd', sessionId, cwd, ...(explicit ? { explicit: true } : {}) }),
-  })
   // `currentWs` is the live socket; `send()` always targets it, so frames keep flowing
-  // to a new connection after a reconnect. Declared/defined ahead of startHookIngest
-  // because the issue-relay hub captures `send` at construction, and the prime injector
-  // (which startHookIngest's `respondTo` drives on hook events) is built from that hub —
-  // so all three must exist before the ingest starts.
+  // to a new connection after a reconnect. Everything below (observers, relay hub,
+  // injectors, discovery loop) captures this one `send`.
   let currentWs: WebSocket | undefined
-  const send = (msg: DaemonMessage): void => {
+  const send: DaemonContext['send'] = (msg) => {
     const w = currentWs
     if (!w || w.readyState !== WebSocket.OPEN) return
     // Mirror the server's safeSend: a send/encode throw (socket transitioning to
@@ -818,10 +252,51 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
       warnDroppedControlFrame(err, 'outbound')
     }
   }
+
+  // The /proc memory walk AND the conversation discovery scan both run on the
+  // worker thread so neither stalls the interactive daemon loop; stopped in
+  // disposeAll(). The worker owns discovery.db exclusively, so the every-15s
+  // scan never touches the loop.
+  const workerClient = opts.workerClient ?? new DiscoveryWorkerClient()
+  if (process.env.PODIUM_LOOP_PROFILE) {
+    startLoopAttribution()
+    startLoopMetrics({ label: 'daemon', onLongTick: reportLongTick })
+  }
+  const discoveryLoop = createDiscoveryLoop({
+    workerClient,
+    send,
+    homeDir,
+    cachePath: opts.discovery?.cachePath,
+    background: opts.discovery?.background ?? true,
+    intervalMs: opts.discovery?.scanIntervalMs ?? DEFAULT_DISCOVERY_SCAN_INTERVAL_MS,
+  })
+
+  // Hook cwds are the agent's LIVE shell directory (they follow every `cd`), but
+  // the server groups sessions by this value — forwarding raw cwds makes a session
+  // vanish from its worktree the moment the agent cds into a subdirectory. The
+  // tracker resolves each cwd to its git worktree root and forwards only genuine
+  // worktree moves (EnterWorktree, cd into another checkout).
+  const sessionCwdTracker = createSessionCwdTracker({
+    resolver: createCwdResolver(),
+    send: (sessionId, cwd, explicit) =>
+      send({ type: 'sessionCwd', sessionId, cwd, ...(explicit ? { explicit: true } : {}) }),
+  })
+
+  // Agent state observation: harness hooks POST to the ingest; the provider
+  // translates payloads into normalized events; the reducer folds them; changes
+  // go to the server as `agentState`. The observers registry owns all of that
+  // per-session state. Started before the WS so spawns can never race it.
+  const observers = createSessionObservers({
+    send,
+    homeDir,
+    onTranscriptDirty: (path) => discoveryLoop.markConversationDirty(path),
+    cwdTracker: sessionCwdTracker,
+  })
+
   // Correlates daemon-initiated issue-relay requests (the loopback server originates
-  // them) with the server's issueRelayResult. Built here in the startDaemon scope so
-  // BOTH handleControlMessage (the result-dispatch case) and the loopback server can
-  // reach the one hub; it captures `send` so requests ride the live WS.
+  // them) with the server's issueRelayResult. Built here so BOTH the control registry
+  // (the result-dispatch handler) and the loopback server reach the one hub; it
+  // captures `send` so requests ride the live WS.
   const issueRelayHub = createIssueRelayHub(send)
   // Injects the session's capability-scoped `prime` as additionalContext on the first
   // SessionStart/UserPromptSubmit after (re)start; re-arms on PreCompact. Driven by
@@ -844,152 +319,24 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     // Bounded, timeout-safe: prime injection first (SessionStart/UserPromptSubmit),
     // then mail delivery at Stop; first non-null wins.
     respondTo,
-    onPayload: (sessionId, payload) => {
-      const tracker = trackers.get(sessionId)
-      if (!tracker) return
-      // Claude AND Codex (≥0.142 native hooks) both post here with the same core
-      // shape: session_id + transcript_path + hook_event_name. Route per harness.
-      const isCodex = codexObserverCwds.has(sessionId)
-      // Every hook payload carries transcript_path — the authoritative pointer
-      // to the live JSONL (resumes roll into a fresh file; this follows).
-      const fields = payload as Record<string, unknown> | null
-      const transcriptPath = fields?.transcript_path
-      if (typeof transcriptPath === 'string' && transcriptPath) {
-        if (isCodex) ensureTranscriptTail(sessionId, transcriptPath, codexRecordToItems)
-        else ensureTranscriptTail(sessionId, transcriptPath)
-      }
-      // The hook payload's session_id is the harness's own conversation id — the
-      // authoritative resume ref (don't reverse-engineer it from the filename,
-      // which couples us to the harness's on-disk layout). Lets the server
-      // hibernate a fresh spawn and resume it later.
-      const harnessSessionId = fields?.session_id
-      if (typeof harnessSessionId === 'string' && harnessSessionId) {
-        send({
-          type: 'sessionResumeRef',
-          sessionId,
-          resume: { kind: isCodex ? 'codex-thread' : 'claude-session', value: harnessSessionId },
-        })
-        // Deterministic binding: the hook names the thread this pane REALLY runs,
-        // ending any discovery ambiguity (lazy rollout creation, cwd siblings, a
-        // mid-session /new rolling to a fresh thread). Re-pin the observer only
-        // when its binding disagrees — every later POST is a cheap map hit.
-        if (isCodex && codexBoundThreads.get(sessionId) !== harnessSessionId) {
-          const cwd =
-            codexObserverCwds.get(sessionId) ?? (typeof fields?.cwd === 'string' ? fields.cwd : '')
-          startCodexStateObserver(sessionId, cwd, harnessSessionId)
-          codexBoundThreads.set(sessionId, harnessSessionId)
-        }
-      }
-      // The agent's live working directory — follows EnterWorktree and `cd`. The
-      // tracker resolves it to the containing worktree root and tells the server
-      // only when THAT changes, so the sidebar re-groups on real worktree moves
-      // but not on subdirectory cds within the same checkout.
-      const hookCwd = fields?.cwd
-      if (typeof hookCwd === 'string' && hookCwd) {
-        void sessionCwdTracker.onHookCwd(sessionId, hookCwd)
-      }
-      void tracker.provider
-        .translate(payload)
-        .then((events) => applyAgentStateEvents(sessionId, events))
-        .catch((err) => console.warn(`[podium] hook translate failed for ${sessionId}:`, err))
-    },
+    onPayload: (sessionId, payload) => observers.onHookPayload(sessionId, payload),
   })
   // Install/refresh the global codex hook instrumentation once per boot —
   // idempotent, preserves foreign hooks, and skips when codex isn't present.
   // Best-effort: codex sessions degrade to the rollout observer without it.
   if (opts.installCodexHooks) {
     void ensurePodiumCodexHooks({
-      ...(opts.discovery?.homeDir ? { homeDir: opts.discovery.homeDir } : {}),
+      ...(homeDir ? { homeDir } : {}),
     })
       .then((r) => {
         if (r.changed) console.log('[podium] codex hooks installed/refreshed')
       })
       .catch((err) => console.warn('[podium] codex hooks install failed:', err))
   }
-  // Reconnecting client: the daemon may start before the server (separate
-  // processes / `After=` ordering) and must survive a server restart without
-  // dropping its abduco attaches. `currentWs` (declared above alongside `send`) is
-  // the live socket; these vars drive the backoff reconnect that re-points it.
-  let reconnectTimer: ReturnType<typeof setTimeout> | undefined
-  let reconnectBackoffMs = RECONNECT_MIN_MS
-  let closing = false
-  const bridges = new Map<string, AgentSession>()
-  const reattachGate = createLimiter(REATTACH_CONCURRENCY)
-  // The /proc memory walk AND the conversation discovery scan both run on the
-  // worker thread so neither stalls the interactive daemon loop; stopped in
-  // disposeAll(). The worker now owns discovery.db exclusively (no daemon-main
-  // ConversationDiscoveryCache), so the every-15s scan never touches the loop.
-  const workerClient = opts.workerClient ?? new DiscoveryWorkerClient()
-  if (process.env.PODIUM_LOOP_PROFILE) {
-    startLoopAttribution()
-    startLoopMetrics({ label: 'daemon', onLongTick: reportLongTick })
-  }
-  const discoveryBackground = opts.discovery?.background ?? true
-  const discoveryIntervalMs = opts.discovery?.scanIntervalMs ?? DEFAULT_DISCOVERY_SCAN_INTERVAL_MS
-  let discoveryTimer: ReturnType<typeof setTimeout> | undefined
-  // Coalesce overlapping scans: a 15s tick that fires while a worker job is still
-  // in flight (or an on-demand scanRequest racing the timer) shares the one result.
-  let discoveryInFlight: Promise<ConversationDelta> | undefined
-  const metricsBackground = opts.metrics?.background ?? true
-  const metricsIntervalMs = opts.metrics?.intervalMs ?? DEFAULT_HOST_METRICS_INTERVAL_MS
-  let metricsTimer: ReturnType<typeof setInterval> | undefined
-  let uploadsGcTimer: ReturnType<typeof setInterval> | undefined
-
-  const UPLOADS_TTL_MS = 24 * 3600_000 // 24 hours
-  const UPLOADS_GC_INTERVAL_MS = 3600_000 // 1 hour
-
-  /** Collect all files under ~/.podium/uploads and delete those older than the TTL.
-   *  Async fs throughout: the sweep walks every upload across all sessions on an
-   *  hourly timer, and a sync readdir/stat storm on the daemon loop would stall every
-   *  session's I/O for the duration (audit P2-17). */
-  const sweepUploads = async (): Promise<void> => {
-    const uploadsDir = join(homedir(), '.podium', 'uploads')
-    try {
-      const sessionDirs = await readdir(uploadsDir)
-      const files: { path: string; mtimeMs: number }[] = []
-      for (const sessionDir of sessionDirs) {
-        const sessionPath = join(uploadsDir, sessionDir)
-        try {
-          const entries = await readdir(sessionPath)
-          for (const entry of entries) {
-            const filePath = join(sessionPath, entry)
-            try {
-              const st = await stat(filePath)
-              if (st.isFile()) files.push({ path: filePath, mtimeMs: st.mtimeMs })
-            } catch {
-              // file may have already been removed
-            }
-          }
-        } catch {
-          // session dir may have disappeared
-        }
-      }
-      const toDelete = uploadsToGc(files, Date.now(), UPLOADS_TTL_MS)
-      for (const p of toDelete) {
-        try {
-          await rm(p)
-        } catch {
-          // best effort
-        }
-      }
-    } catch {
-      // uploads dir may not exist yet
-    }
-  }
-
-  /** Remove a session's upload directory when the session is closed/killed. */
-  const removeSessionUploads = (sessionId: string): void => {
-    const sessionUploadsDir = join(homedir(), '.podium', 'uploads', sessionId)
-    try {
-      rmSync(sessionUploadsDir, { recursive: true, force: true })
-    } catch {
-      // best effort
-    }
-  }
 
   // Loopback HTTP endpoint an agent's `podium issue` CLI posts to. Its port is
-  // injected into the agent env at spawn (Task 3); each request rides the hub
-  // over the live WS and blocks until the server answers.
+  // injected into the agent env at spawn; each request rides the hub over the
+  // live WS and blocks until the server answers.
   const issueRelay = await startIssueRelayServer({
     ...(opts.issueRelay?.port !== undefined ? { port: opts.issueRelay.port } : {}),
     relay: async (req) => {
@@ -1017,218 +364,10 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     flush: (sessionId, frames) => send({ type: 'agentFrameBatch', sessionId, frames }),
   })
 
-  // Seed agent state for a session whose CLI is already running but hasn't fired a
-  // hook yet. Claude Code emits no SessionStart at interactive boot, so both a
-  // fresh spawn and a post-restart reattach would otherwise sit at phase 'unknown'
-  // — which the home board reads as 'working', flagging an idle survivor as active.
-  // bootEvents reports idle (a resume value classifies the live transcript for a
-  // richer verdict). Guarded on phase still 'unknown' so a real hook that already
-  // landed always wins; best-effort, hooks remain authoritative.
-  const seedBootState = async (
-    sessionId: string,
-    provider: AgentStateProvider,
-    cwd: string,
-    resumeValue?: string,
-    pathHint?: string,
-  ): Promise<void> => {
-    if (!provider.bootEvents) return
-    let events: AgentStateEvent[]
-    try {
-      events = await provider.bootEvents({
-        cwd,
-        ...(resumeValue ? { resumeValue } : {}),
-        ...(pathHint ? { pathHint } : {}),
-      })
-    } catch {
-      return
-    }
-    const tracker = trackers.get(sessionId)
-    if (!tracker) return
-    for (const event of events) {
-      if (tracker.state.phase !== 'unknown') return
-      const next = reduceAgentState(tracker.state, event, new Date().toISOString())
-      if (next === tracker.state) continue
-      tracker.state = next
-      send({ type: 'agentState', sessionId, state: next })
-    }
-  }
-
-  // (Re)build the per-session observers a fresh daemon must stand up right after
-  // wiring the PTY bridge: the agent-state tracker, the harness state observer
-  // (Grok has no hook channel), the resume transcript tail (Claude chat history
-  // before the first hook), and a seeded phase. Spawn AND reattach both call this
-  // so the two paths can't silently diverge — that drift left idle survivors shown
-  // 'working' with an empty chat after a redeploy. `seedOnFrame` waits for the
-  // first PTY frame (a fresh spawn's CLI isn't up yet); reattach seeds now (the
-  // survivor is already at its prompt). `grokStartedAt` scopes Grok's session
-  // search (a fresh spawn's start time; omitted on reattach → watermarkMs:0,
-  // so discovery binds the latest-by-activity session regardless of its age).
-  /** The reattach message's recorded-path evidence; spawns don't carry one. */
-  const pathHintOf = (msg: SpawnControl | ReattachControl): string | undefined =>
-    'pathHint' in msg ? msg.pathHint : undefined
-
-  // Per-harness observer wiring — the daemon-side half of the #158 adapter
-  // registry (the closures live here, next to the observers they start). The
-  // exhaustive Record makes a new harness kind a type error until it declares
-  // its observer binding.
-  const sessionObserverBindings: Record<
-    HarnessAgent,
-    (
-      msg: SpawnControl | ReattachControl,
-      init: { seedOnFrame: boolean; grokStartedAt?: number },
-    ) => void
-  > = {
-    grok: (msg, init) => {
-      startGrokStateObserver(msg.sessionId, msg.cwd, msg.resume?.value, init.grokStartedAt)
-    },
-    codex: (msg, init) => {
-      // Codex creates its rollout lazily (often at the first prompt), so a
-      // reattached observer must still be able to discover by cwd — floored at
-      // the session's original spawn time so it can't latch onto an older
-      // sibling's rollout. Spawn passes its own start; reattach the persisted one.
-      const codexFloor = init.grokStartedAt ?? ('createdAtMs' in msg ? msg.createdAtMs : undefined)
-      startCodexStateObserver(msg.sessionId, msg.cwd, msg.resume?.value, codexFloor)
-    },
-    opencode: (msg, init) => {
-      startOpencodeStateObserver(msg.sessionId, msg.cwd, msg.resume?.value, init.grokStartedAt)
-    },
-    cursor: (msg, init) => {
-      startCursorStateObserver(msg.sessionId, msg.cwd, msg.resume?.value, init.grokStartedAt)
-      if (msg.resume) tailCursorTranscript(msg.sessionId, msg.cwd, msg.resume.value)
-    },
-    'claude-code': (msg) => {
-      // Ungated: start the tail even without a resume ref (discover the newest
-      // file in the cwd bucket). A hook later re-points the tail if needed.
-      // Reattach carries the server's recorded segment path — evidence beats
-      // cwd derivation after a worktree move (conversation registry §3.3).
-      startClaudeTranscriptTail(msg.sessionId, msg.cwd, msg.resume?.value, pathHintOf(msg))
-    },
-  }
-
-  const initSessionObservers = (
-    msg: SpawnControl | ReattachControl,
-    session: AgentSession,
-    provider: AgentStateProvider | undefined,
-    init: { seedOnFrame: boolean; grokStartedAt?: number },
-  ): void => {
-    if (provider) {
-      trackers.set(msg.sessionId, {
-        provider,
-        state: initialAgentState(new Date().toISOString()),
-      })
-    }
-    // Registry lookup; 'shell' has no binding (no transcript, no observers).
-    const bindObservers = (
-      sessionObserverBindings as Partial<
-        Record<AgentKind, (typeof sessionObserverBindings)[HarnessAgent]>
-      >
-    )[msg.agentKind]
-    bindObservers?.(msg, init)
-    if (provider?.bootEvents) {
-      // const capture so the narrowing survives into the onFrame closure.
-      const bootProvider = provider
-      const seed = (): void => {
-        void seedBootState(msg.sessionId, bootProvider, msg.cwd, msg.resume?.value, pathHintOf(msg))
-      }
-      if (init.seedOnFrame) {
-        const offFirstFrame = session.onFrame(() => {
-          offFirstFrame()
-          seed()
-        })
-      } else {
-        seed()
-      }
-    }
-  }
-
-  // Send the conversation delta. The common case every 15s is "nothing moved": an
-  // all-empty delta produces NO broadcast at all, so an idle host doesn't fan a
-  // pointless conversationsChanged frame out to every client every tick. (A genuinely
-  // empty full snapshot — zero conversations on the host — is correctly skipped too.)
-  const publishConversations = (delta: ConversationDelta): void => {
-    if (delta.changed.length === 0 && delta.removed.length === 0 && delta.diagnostics.length === 0)
-      return
-    countWorker()
-    timeTask(`publishConv(${delta.changed.length})`, () =>
-      send({
-        type: 'conversationsChanged',
-        conversations: delta.changed,
-        removed: delta.removed,
-        diagnostics: delta.diagnostics,
-      }),
-    )
-  }
-
-  // Now that `publishConversations` + `workerClient` exist, wire the event-driven
-  // active refresh declared near the tails. The paths-flush runs the SAME
-  // `indexRefresh` worker job (off the interactive loop) scoped to the dirty files;
-  // it shares kind `'indexRefresh'` with the periodic/full scans, so the worker
-  // client may coalesce it onto an in-flight scan and return a superset — still a
-  // correct upsert (see createActiveRefresh's note). Failures are loud, never silent.
-  activeRefresh = createActiveRefresh({
-    runPathsRefresh: (paths) =>
-      workerClient.runJob('indexRefresh', {
-        paths,
-        ...(opts.discovery?.homeDir ? { homeDir: opts.discovery.homeDir } : {}),
-        ...(opts.discovery?.cachePath ? { cachePath: opts.discovery.cachePath } : {}),
-      }) as Promise<ConversationDelta>,
-    publish: publishConversations,
-    onError: (err) =>
-      console.warn(
-        `[podium:daemon] active index refresh failed: ${err instanceof Error ? err.message : String(err)}`,
-      ),
-  })
-
-  // Run the discovery scan on the worker thread (off the interactive loop) and
-  // return the delta. The worker owns discovery.db, so the scan's SQLite reads/
-  // writes — the old ~800ms loop block — never touch the daemon's event loop.
-  // A worker failure (crash, timeout) surfaces as an error diagnostic, never silent.
-  //
-  // `full: true` asks the worker for the ENTIRE conversation list (mapped into
-  // `changed`), not just the cache-miss delta. Connect-time and on-demand scans use
-  // it so a snapshot upserts everything — repopulating a cold/reset server index
-  // even when the daemon's warm discovery.db cache reports nothing as "changed".
-  // The periodic loop omits it and forwards only the delta.
-  const runDiscoveryDelta = (full = false): Promise<ConversationDelta> => {
-    if (discoveryInFlight) return discoveryInFlight
-    discoveryInFlight = (async () => {
-      try {
-        return (await workerClient.runJob('indexRefresh', {
-          ...(opts.discovery?.homeDir ? { homeDir: opts.discovery.homeDir } : {}),
-          ...(opts.discovery?.cachePath ? { cachePath: opts.discovery.cachePath } : {}),
-          ...(full ? { full: true } : {}),
-        })) as ConversationDelta
-      } catch (err) {
-        return {
-          changed: [],
-          removed: [],
-          diagnostics: [
-            { severity: 'error', message: err instanceof Error ? err.message : String(err) },
-          ],
-        }
-      } finally {
-        discoveryInFlight = undefined
-      }
-    })()
-    return discoveryInFlight
-  }
-
-  // `full: true` (connect-time + on-demand) requests the entire conversation list so
-  // the publish repopulates a cold server index; the periodic loop omits it (delta only).
-  const refreshAndPublishConversations = async (full = false): Promise<ConversationDelta> => {
-    const delta = await runDiscoveryDelta(full)
-    publishConversations(delta)
-    return delta
-  }
-
-  const scheduleDiscoveryScan = (): void => {
-    if (!discoveryBackground) return
-    discoveryTimer = setTimeout(() => {
-      void refreshAndPublishConversations().finally(scheduleDiscoveryScan)
-    }, discoveryIntervalMs)
-    discoveryTimer.unref?.()
-  }
-
+  const metricsBackground = opts.metrics?.background ?? true
+  const metricsIntervalMs = opts.metrics?.intervalMs ?? DEFAULT_HOST_METRICS_INTERVAL_MS
+  let metricsTimer: ReturnType<typeof setInterval> | undefined
+  let uploadsGcTimer: ReturnType<typeof setInterval> | undefined
   const pushHostMetrics = (): void => {
     send({
       type: 'hostMetrics',
@@ -1238,352 +377,37 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     })
   }
 
-  const memoryBreakdown = async (requestId: string, roots: string[]): Promise<void> => {
-    const memory = sampleHostMemory()
-    const supported = process.platform === 'linux' // the walk needs /proc
-    let agents: MemoryAttribution['agents'] = []
-    let projects: MemoryAttribution['projects'] = []
-    if (supported) {
-      try {
-        const result = (await workerClient.runJob('memoryBreakdown', {
-          sessions: [...bridges.entries()].map(([sessionId, session]) => ({
-            sessionId,
-            label: `podium-${sessionId}`,
-            pid: session.pid,
-          })),
-          roots,
-          selfPid: process.pid,
-        })) as MemoryAttribution
-        agents = result.agents
-        projects = result.projects
-      } catch (err) {
-        console.warn(
-          `[podium:daemon] memoryBreakdown job failed: ${err instanceof Error ? err.message : String(err)}`,
-        )
-      }
-    }
-    const attributed =
-      agents.reduce((sum, a) => sum + a.bytes, 0) + projects.reduce((sum, p) => sum + p.bytes, 0)
-    const usedBytes = Math.max(0, memory.totalBytes - memory.availableBytes)
-    send({
-      type: 'memoryBreakdownResult',
-      requestId,
-      hostname: hostname(),
-      sampledAt: new Date().toISOString(),
-      supported,
-      memory,
-      agents,
-      projects,
-      otherBytes: Math.max(0, usedBytes - attributed),
-    })
-  }
-
-  const wireBridge = (sessionId: string, session: AgentSession, agentKind: AgentKind): void => {
-    bridges.set(sessionId, session)
-    session.onFrame((frame) => {
-      countFrame(frame.data.length)
-      outputScheduler.enqueue(sessionId, frame.data)
-    })
-    // Codex sets its OSC title to the cwd basename (+ a spinner glyph that churns at
-    // frame-rate), which would clobber the real title the codex observer derives
-    // (capabilities.oscTitle: false). Every other harness sets a meaningful OSC
-    // title, so forward it for them.
-    if (AGENT_CAPABILITIES[agentKind].oscTitle) {
-      session.onTitle((title) => send({ type: 'title', sessionId, title }))
-    }
-    session.onExit((code) => {
-      bridges.delete(sessionId)
-      outputScheduler.remove(sessionId)
-      trackers.delete(sessionId)
-      sessionCwdTracker.clear(sessionId)
-      primeInjector.reset(sessionId)
-      stopGrokStateObserver(sessionId)
-      stopCodexStateObserver(sessionId)
-      stopOpencodeStateObserver(sessionId)
-      stopCursorStateObserver(sessionId)
-      // The agent's gone — stop polling its (now frozen) transcript file.
-      stopTranscriptTail(sessionId)
-      // The attach CLIENT exiting is NOT the AGENT exiting. disposeAll() on a
-      // daemon shutdown/redeploy SIGKILLs the client; a user detach or a client
-      // crash do the same. For a durable backend the master + agent live on in
-      // their own systemd scope (the whole point of abduco) — so reporting
-      // agentExit here would persist a live session as 'exited', and boot never
-      // reattaches an 'exited' row, orphaning a still-running agent. Only a
-      // vanished master is a real exit. (`abducoHasSession` runs `abduco`, which
-      // reaps the socket as it lists, so a just-exited master reads as gone.)
-      const label = `podium-${sessionId}`
-      void (async () => {
-        if (backend === 'abduco' && (await abducoHasSessionAsync(label))) return
-        if (backend === 'tmux' && (await tmuxHasSessionAsync(label))) return
-        // The agent has truly exited (master is gone). Uploads are one-shot prompt
-        // inputs that were already consumed before the agent finished processing
-        // them, so it's safe to remove the per-session upload dir on any real exit
-        // (natural finish, hibernate, or kill). kill also calls removeSessionUploads
-        // directly, so the two are harmlessly idempotent (rmSync force:true is a no-op
-        // on a missing dir). The hourly TTL sweep remains a backstop for edge cases.
-        removeSessionUploads(sessionId)
-        send({ type: 'agentExit', sessionId, code })
-      })()
-    })
-  }
-
-  const spawn = (msg: SpawnControl): void => {
-    try {
-      const spawnStartedAt = Date.now()
-      const cmd = launch(msg.agentKind, {
-        cwd: msg.cwd,
-        ...(msg.resume ? { resume: msg.resume } : {}),
-        ...(msg.model ? { model: msg.model } : {}),
-        ...(msg.effort ? { effort: msg.effort } : {}),
-        ...(msg.initialPrompt ? { initialPrompt: msg.initialPrompt } : {}),
-      })
-      const label = `podium-${msg.sessionId}`
-      const provider = agentStateProviderFor(msg.agentKind)
-      let extraArgs: string[] = []
-      if (provider) {
-        mkdirSync(settingsDir, { recursive: true })
-        const instr = provider.instrumentation({
-          endpointUrl: ingest.endpointFor(msg.sessionId),
-          settingsPath: join(settingsDir, `${msg.sessionId}.json`),
-        })
-        if (instr.file) writeFileSync(instr.file.path, instr.file.contents)
-        extraArgs = instr.args
-      }
-      const spawnOpts = {
-        label,
-        cmd: cmd.cmd,
-        args: [...cmd.args, ...extraArgs],
-        cwd: cmd.cwd,
-        cols: msg.geometry.cols,
-        rows: msg.geometry.rows,
-        env: {
-          // Bind the loopback issue-relay + session id into every agent's env so its
-          // `podium issue` CLI can reach the daemon for this exact session.
-          ...issueRelayEnv(msg.sessionId, issueRelay.endpointFor(msg.sessionId)),
-          // Subagent model rides as env — Claude Code reads it; harmless elsewhere.
-          ...(msg.subagentModel ? { CLAUDE_CODE_SUBAGENT_MODEL: msg.subagentModel } : {}),
-          // 'global-env' hook installs (codex): hooks.json is installed GLOBALLY
-          // (per CODEX_HOME, not per spawn); the per-session ingest URL rides the
-          // env instead. The hook command exits 0 instantly when the var is
-          // absent, so runs outside Podium are unaffected.
-          ...(AGENT_CAPABILITIES[msg.agentKind].hookInstall === 'global-env'
-            ? { [PODIUM_CODEX_HOOK_URL_ENV]: ingest.endpointFor(msg.sessionId) }
-            : {}),
-        },
-      }
-      const session =
-        backend === 'abduco'
-          ? spawnAbducoAgent(spawnOpts)
-          : backend === 'tmux'
-            ? spawnTmuxAgent(spawnOpts)
-            : spawnAgent(spawnOpts)
-      wireBridge(msg.sessionId, session, msg.agentKind)
-      // Stand up the agent-state tracker, harness observer, resume transcript tail
-      // and seeded phase. A fresh spawn's CLI isn't up yet, so seed on the first
-      // frame. Same call on reattach keeps the two paths from drifting.
-      initSessionObservers(msg, session, provider, {
-        seedOnFrame: true,
-        grokStartedAt: spawnStartedAt,
-      })
-      send({
-        type: 'bind',
-        sessionId: msg.sessionId,
-        cmd: cmd.cmd,
-        cwd: cmd.cwd,
-        agentKind: msg.agentKind,
-        geometry: msg.geometry,
-      })
-    } catch (err) {
-      send({
-        type: 'spawnError',
-        sessionId: msg.sessionId,
-        message: err instanceof Error ? err.message : String(err),
-      })
-    }
-  }
-
-  const scan = async (requestId: string): Promise<void> => {
-    // On-demand (user-triggered) scan requests a FULL snapshot so a manual rescan can
-    // recover a cold/reset server index — not just whatever moved since the last tick.
-    // It runs on the worker + publishes to all clients; the requester additionally gets
-    // a scanResult tagged with its requestId so its pending request resolves. Both carry
-    // the (now full-list) changed + removed fields.
-    const delta = await refreshAndPublishConversations(true)
-    send({
-      type: 'scanResult',
-      requestId,
-      conversations: delta.changed,
-      removed: delta.removed,
-      diagnostics: delta.diagnostics,
-    })
-  }
-
-  const scanRepos = async (
-    requestId: string,
-    roots: string[],
-    opts: { includeHome?: boolean; maxDepth?: number } = {},
-  ): Promise<void> => {
-    const repositories: GitRepositoryWire[] = []
-    const diagnostics: GitDiscoveryDiagnosticWire[] = []
-
-    const addResult = (result: Awaited<ReturnType<typeof scanGitRepositories>>): void => {
-      for (const repo of result.repositories) repositories.push(repoToWire(repo))
-      for (const d of result.diagnostics) diagnostics.push(gitDiagnosticToWire(d))
-    }
-
-    try {
-      addResult(
-        await scanGitRepositories({
-          roots,
-          homeDir: process.env.HOME || undefined,
-          ...(opts.includeHome === undefined ? {} : { includeHome: opts.includeHome }),
-          ...(opts.maxDepth === undefined ? {} : { maxDepth: opts.maxDepth }),
-        }),
-      )
-    } catch (err) {
-      diagnostics.push({
-        severity: 'error',
-        path: '',
-        message: err instanceof Error ? err.message : String(err),
-      })
-    }
-    send({ type: 'scanReposResult', requestId, repositories, diagnostics })
-  }
-
-  // Reattach is the hot path on (re)connect: a burst of ~30 arrives at once. Each is
-  // independent, so handle them off the synchronous message switch — async existence
-  // checks (never a blocking fork+exec on the loop), idempotent (a reconnect re-sends
-  // reattach for sessions we already hold — re-confirm the bind instead of spawning a
-  // duplicate client), and gated so the spawn fan-out can't fork everything in one tick.
-  const handleReattach = async (msg: ReattachControl): Promise<void> => {
-    const existing = bridges.get(msg.sessionId)
-    if (existing) {
-      const cmd =
-        backend === 'tmux' ? `tmux -L ${msg.durableLabel} attach` : `abduco -a ${msg.durableLabel}`
-      send({
-        type: 'bind',
-        sessionId: msg.sessionId,
-        cmd,
-        cwd: msg.cwd,
-        agentKind: msg.agentKind,
-        geometry: msg.geometry,
-      })
-      existing.redraw()
-      // Re-push agent state for the same reason we re-seed the transcript below: a
-      // freshly restarted SERVER (the daemon survived) starts with NO agentState for
-      // this session, and an idle survivor fires no hook to re-establish it — so it
-      // would fall through the home board's `live → working` fallback and read as
-      // WORKING. We still hold the live tracker, so resend its current phase. Skip
-      // 'unknown' (nothing to assert) — a cold tracker is re-seeded by the fresh-bridge
-      // branch below, not here.
-      const tracker = trackers.get(msg.sessionId)
-      if (tracker && tracker.state.phase !== 'unknown') {
-        send({ type: 'agentState', sessionId: msg.sessionId, state: tracker.state })
-      }
-      // Re-seed the transcript even though we already hold the bridge: a freshly
-      // restarted SERVER (the daemon survived) has an empty per-session buffer, and
-      // this already-held branch otherwise does no transcript work, so chat would
-      // stay blank. The live tail (if any) only re-emits on its NEXT file change, so
-      // read the newest window now and push it as a reset delta. Best-effort; a read
-      // failure just leaves the buffer to refill from live deltas.
-      void (async () => {
-        try {
-          const source = await sourceForRead(msg)
-          const res = await source.readSlice({ direction: 'before', limit: 2000 })
-          if (res.items.length > 0) {
-            send({
-              type: 'transcriptDelta',
-              sessionId: msg.sessionId,
-              items: res.items,
-              reset: true,
-              ...(res.tail ? { tail: res.tail } : {}),
-            })
-          }
-        } catch (err) {
-          console.warn(`[podium] reattach re-seed failed for ${msg.sessionId}:`, err)
-        }
-      })()
-      return
-    }
-    await reattachGate(async () => {
-      if (bridges.has(msg.sessionId)) return // raced with another reattach for this id
-      // A reattached shell sits idle at its prompt and ignores the SIGWINCH repaint
-      // nudge, so without a Ctrl-L it shows blank until the user types. TUIs repaint
-      // on resize, so only shells take the hard path.
-      const attach = {
-        label: msg.durableLabel,
-        cols: msg.geometry.cols,
-        rows: msg.geometry.rows,
-        hardRepaint: msg.agentKind === 'shell',
-      }
-      let found: { session: AgentSession; cmd: string } | undefined
-      // Backend-agnostic: try whichever durable host owns the label, so sessions
-      // created under tmux before an abduco upgrade still reattach (no flag day).
-      if (backend !== 'none' && (await abducoHasSessionAsync(msg.durableLabel))) {
-        found = { session: attachAbducoAgent(attach), cmd: `abduco -a ${msg.durableLabel}` }
-      } else if (backend !== 'none' && (await tmuxHasSessionAsync(msg.durableLabel))) {
-        found = { session: attachTmuxAgent(attach), cmd: `tmux -L ${msg.durableLabel} attach` }
-      }
-      if (!found) {
-        send({
-          type: 'reattachFailed',
-          sessionId: msg.sessionId,
-          reason: backend === 'none' ? 'durable backend unavailable' : 'session not found',
-        })
-        return
-      }
-      wireBridge(msg.sessionId, found.session, msg.agentKind)
-      // The settings file from the original spawn still points at our fixed port,
-      // so a reattached agent keeps reporting. A fresh daemon (post-redeploy) lost
-      // all in-memory per-session state — rebuild it via the same path spawn uses.
-      // A survivor is already at its prompt and fires no hook until the user acts,
-      // so seed immediately (an idle session would otherwise read 'unknown' →
-      // 'working') and re-tail its transcript (else chat stays empty while the
-      // native view still has scrollback).
-      initSessionObservers(msg, found.session, agentStateProviderFor(msg.agentKind), {
-        seedOnFrame: false,
-      })
-      send({
-        type: 'bind',
-        sessionId: msg.sessionId,
-        cmd: found.cmd,
-        cwd: msg.cwd,
-        agentKind: msg.agentKind,
-        geometry: msg.geometry,
-      })
-    })
-  }
-
-  const handleImageUpload = async (
-    msg: Extract<ControlMessage, { type: 'imageUploadRequest' }>,
-  ): Promise<void> => {
-    // Session ownership is intentionally NOT validated here: a client may upload
-    // an image before the agent PTY is live (e.g. pre-spawn or during reconnect).
-    // Async fs: decoding+writing a multi-MB base64 image synchronously blocked the
-    // whole daemon loop for the duration of the write (audit P0-4).
-    try {
-      const id = randomUUID()
-      const filePath = uploadFilePath(homedir(), msg.sessionId, id, msg.mimeType)
-      await mkdir(dirname(filePath), { recursive: true })
-      await writeFile(filePath, Buffer.from(msg.dataBase64, 'base64'))
-      send({ type: 'imageUploadResult', requestId: msg.requestId, path: filePath })
-    } catch (err) {
-      // Return an empty path + error so the router can throw INTERNAL_SERVER_ERROR
-      // (a write failure, not a timeout).
-      console.warn('[podium] image upload failed:', err)
-      send({
-        type: 'imageUploadResult',
-        requestId: msg.requestId,
-        path: '',
-        error: String(err),
-      })
-    }
+  // THE explicit handler context (#195): every control-frame handler receives
+  // this object instead of closing over startDaemon's scope.
+  const ctx: DaemonContext = {
+    send,
+    backend,
+    launch,
+    settingsDir,
+    homeDir,
+    bridges: new Map<string, AgentSession>(),
+    outputScheduler,
+    observers,
+    sessionCwdTracker,
+    primeInjector,
+    reattachGate: createLimiter(REATTACH_CONCURRENCY),
+    runningHeadlessTurns: new Map<string, HeadlessTurnHandle>(),
+    hookEndpointFor: (sessionId) => ingest.endpointFor(sessionId),
+    issueRelayEndpointFor: (sessionId) => issueRelay.endpointFor(sessionId),
+    issueRelayHub,
+    workerClient,
+    refreshAndPublishConversations: (full) => discoveryLoop.refreshAndPublishConversations(full),
+    // Per-agent plan-quota reader (live, read-only, TTL-cached). Same homeDir
+    // override the discovery scans use, so tests can point it at a fixture home.
+    quotaFetcher: makeQuotaFetcher({ ...(homeDir ? { homeDir } : {}) }),
+    usageMemo: {},
   }
 
   // The control loop only runs after the handshake reply resolves the daemon (see the
   // connect Promise below): startBackground() flips `authenticated` true. Until then the
-  // first inbound frame is the handshake reply, handled separately by the once('message')
-  // interceptor. Each (re)connect resets this so every socket re-authenticates.
+  // first inbound frame is the handshake reply, handled separately by the permanent
+  // message listener's pre-auth branch. Each (re)connect resets this so every socket
+  // re-authenticates.
   let authenticated = false
 
   const handleControlMessage = (raw: RawData): void => {
@@ -1606,482 +430,53 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
       warnDroppedControlFrame(err)
       return
     }
-    switch (msg.type) {
-      case 'spawn':
-        spawn(msg)
-        break
-      case 'reattach':
-        void handleReattach(msg)
-        break
-      case 'kill': {
-        const session = bridges.get(msg.sessionId)
-        trackers.delete(msg.sessionId)
-        stopGrokStateObserver(msg.sessionId)
-        stopCodexStateObserver(msg.sessionId)
-        stopOpencodeStateObserver(msg.sessionId)
-        stopCursorStateObserver(msg.sessionId)
-        stopTranscriptTail(msg.sessionId)
-        if (session) {
-          session.dispose()
-          bridges.delete(msg.sessionId)
-          outputScheduler.remove(msg.sessionId)
-        }
-        // Reap the durable host unconditionally — NOT only when a bridge exists.
-        // After a daemon restart a session can be live server-side with no local
-        // bridge (attachDaemon only re-binds 'reconnecting' sessions); if kill
-        // skipped the reap there, hibernate/kill would leave the abduco/tmux
-        // master (and its agent) running. Both reapers are cheap no-ops when the
-        // label isn't theirs. Async twins (audit P0-4): the sync reapers fork+exec
-        // `abduco`/`tmux` on the loop, and kills arrive in bursts (superagent,
-        // auto-hibernation) — serializing those would stall every other session.
-        if (backend !== 'none') {
-          void killAbducoSessionAsync(`podium-${msg.sessionId}`)
-          void killTmuxServerAsync(`podium-${msg.sessionId}`)
-        }
-        removeSessionUploads(msg.sessionId)
-        break
-      }
-      case 'input':
-        bridges.get(msg.sessionId)?.write(msg.data)
-        break
-      case 'resize':
-        bridges.get(msg.sessionId)?.resize(msg.cols, msg.rows)
-        break
-      case 'redraw':
-        bridges.get(msg.sessionId)?.redraw()
-        break
-      case 'sessionPriority':
-        outputScheduler.setPriority(msg.sessionId, msg.priority as Tier)
-        break
-      case 'scanRequest':
-        void scan(msg.requestId)
-        break
-      case 'scanReposRequest':
-        void scanRepos(msg.requestId, msg.roots, {
-          ...(msg.includeHome === undefined ? {} : { includeHome: msg.includeHome }),
-          ...(msg.maxDepth === undefined ? {} : { maxDepth: msg.maxDepth }),
-        })
-        break
-      case 'memoryBreakdownRequest':
-        void memoryBreakdown(msg.requestId, msg.roots)
-        break
-      case 'repoOpRequest':
-        void runRepoOp(msg)
-        break
-      case 'issueRelayResult':
-        issueRelayHub.onResult(msg)
-        break
-      case 'harnessExecRequest':
-        void runHarnessExec(msg)
-        break
-      case 'headlessTurnRequest':
-        runHeadlessTurnRequest(msg)
-        break
-      case 'headlessInterrupt':
-        runningHeadlessTurns.get(msg.sessionId)?.interrupt()
-        break
-      case 'headlessBind':
-        try {
-          bindHeadlessSession(msg.sessionId, msg.agentKind, msg.cwd, msg.resumeValue)
-          send({ type: 'headlessBindResult', requestId: msg.requestId, ok: true })
-        } catch (err) {
-          send({
-            type: 'headlessBindResult',
-            requestId: msg.requestId,
-            ok: false,
-            error: err instanceof Error ? err.message : String(err),
-          })
-        }
-        break
-      case 'usageRequest':
-        void runUsageScan(msg)
-        break
-      case 'agentQuotaRequest':
-        void runAgentQuotaScan(msg)
-        break
-      case 'transcriptRead':
-        void readTranscript(msg)
-        break
-      case 'transcriptMirrorRead':
-        void readTranscriptMirror(msg)
-        break
-      case 'imageUploadRequest':
-        void handleImageUpload(msg)
-        break
-      case 'fileReadRequest':
-        // .catch (audit P0-1): a sandboxed-read reject (ENOENT race, EACCES, decode
-        // failure) would otherwise be an unhandled rejection AND leave the server's
-        // pending resolver hanging until its 10s timeout. Reply with an error result.
-        void readFileSandboxed({ cwd: msg.cwd, path: msg.path, knownPath: msg.knownPath })
-          .then((r) => send({ type: 'fileReadResult', requestId: msg.requestId, ...r }))
-          .catch((err) =>
-            send({
-              type: 'fileReadResult',
-              requestId: msg.requestId,
-              ok: false,
-              path: msg.path,
-              error: String(err),
-            }),
-          )
-        break
-      case 'fileAssetRequest':
-        void readAssetSandboxed({ cwd: msg.cwd, path: msg.path, knownPath: msg.knownPath })
-          .then((r) => send({ type: 'fileAssetResult', requestId: msg.requestId, ...r }))
-          .catch((err) =>
-            send({
-              type: 'fileAssetResult',
-              requestId: msg.requestId,
-              ok: false,
-              path: msg.path,
-              error: String(err),
-            }),
-          )
-        break
-      case 'fileWriteRequest':
-        void writeFileSandboxed({
-          cwd: msg.cwd,
-          path: msg.path,
-          content: msg.content,
-          ...(msg.baseHash ? { baseHash: msg.baseHash } : {}),
-        })
-          .then((r) => send({ type: 'fileWriteResult', requestId: msg.requestId, ...r }))
-          .catch((err) =>
-            send({
-              type: 'fileWriteResult',
-              requestId: msg.requestId,
-              ok: false,
-              error: String(err),
-            }),
-          )
-        break
-      case 'dirListRequest':
-        void listDirSandboxed({ root: msg.root, path: msg.path })
-          .then((r) => send({ type: 'dirListResult', requestId: msg.requestId, ...r }))
-          .catch((err) =>
-            send({
-              type: 'dirListResult',
-              requestId: msg.requestId,
-              ok: false,
-              path: msg.path,
-              entries: [],
-              error: String(err),
-            }),
-          )
-        break
-    }
+    dispatchControlMessage(ctx, msg)
   }
 
-  // Per-agent plan-quota reader (live, read-only, TTL-cached). Same homeDir override
-  // the discovery scans use, so tests can point it at a fixture home.
-  const quotaFetcher = makeQuotaFetcher({
-    ...(opts.discovery?.homeDir ? { homeDir: opts.discovery.homeDir } : {}),
-  })
-
-  // A usage scan reads every recently-active transcript — memo it so the status
-  // chip's poll doesn't redo the walk per client. The TTL must exceed the chip's
-  // poll interval (UsageView polls every 90s); at 60s the memo was always stale
-  // by the next poll, so every poll re-read every recent transcript end to end.
-  const USAGE_MEMO_TTL_MS = 120_000
-  let usageMemo:
-    | { atMs: number; sinceMs: number; buckets: import('@podium/protocol').UsageBucketWire[] }
-    | undefined
-  const runUsageScan = async (
-    msg: Extract<ControlMessage, { type: 'usageRequest' }>,
-  ): Promise<void> => {
-    const sinceMs = msg.sinceMs ?? Date.now() - 7 * 24 * 3_600_000
-    let buckets: import('@podium/protocol').UsageBucketWire[]
-    if (
-      usageMemo &&
-      Date.now() - usageMemo.atMs < USAGE_MEMO_TTL_MS &&
-      usageMemo.sinceMs <= sinceMs
-    ) {
-      buckets = usageMemo.buckets.filter((b) => Date.parse(b.hour) >= sinceMs - 3_600_000)
-    } else {
-      try {
-        buckets = await scanClaudeUsage({
-          sinceMs,
-          ...(opts.discovery?.homeDir ? { homeDir: opts.discovery.homeDir } : {}),
-        })
-      } catch {
-        buckets = []
-      }
-      usageMemo = { atMs: Date.now(), sinceMs, buckets }
-    }
-    send({ type: 'usageResult', requestId: msg.requestId, hostname: hostname(), buckets })
-  }
-
-  const runAgentQuotaScan = async (
-    msg: Extract<ControlMessage, { type: 'agentQuotaRequest' }>,
-  ): Promise<void> => {
-    const agents = await quotaFetcher.getAgentQuota(msg.refresh ?? false)
-    send({ type: 'agentQuotaResult', requestId: msg.requestId, hostname: hostname(), agents })
-  }
-
-  /** Allowlisted git operations for the superagent — each op is a fixed argv. */
-  const runRepoOp = async (
-    msg: Extract<ControlMessage, { type: 'repoOpRequest' }>,
-  ): Promise<void> => {
-    const cmd = repoOpCommand(msg.op, msg.args ?? {})
-    if ('error' in cmd) {
-      send({ type: 'repoOpResult', requestId: msg.requestId, ok: false, output: cmd.error })
-      return
-    }
-    try {
-      const runArgs = cmd.bin === 'git' ? ['-C', msg.cwd, ...cmd.argv] : cmd.argv
-      const opts =
-        cmd.bin === 'git'
-          ? { timeout: 120_000, maxBuffer: 1024 * 1024 }
-          : { cwd: msg.cwd, timeout: 120_000, maxBuffer: 1024 * 1024 }
-      const { stdout, stderr } = await execFileAsync(cmd.bin, runArgs, opts)
-      send({
-        type: 'repoOpResult',
-        requestId: msg.requestId,
-        ok: true,
-        output: `${stdout}${stderr ? `\n${stderr}` : ''}`.trim(),
-      })
-    } catch (err) {
-      send({
-        type: 'repoOpResult',
-        requestId: msg.requestId,
-        ok: false,
-        output: err instanceof Error ? err.message : String(err),
-      })
-    }
-  }
-
-  /** One-shot `claude -p` / `codex exec` / `grok -p` for the harness-backed superagent. */
-  const runHarnessExec = async (
-    msg: Extract<ControlMessage, { type: 'harnessExecRequest' }>,
-  ): Promise<void> => {
-    // Claude's --mcp-config must be a file path, so write the JSON to a temp
-    // file for the run and clean it up afterwards. Codex takes the raw JSON
-    // instead (translated to `-c` overrides in buildHarnessExec) — no file.
-    let mcpConfigPath: string | undefined
-    if (msg.mcpConfig && msg.agent === 'claude-code') {
-      mcpConfigPath = join(tmpdir(), `podium-mcp-${randomUUID()}.json`)
-      try {
-        writeFileSync(mcpConfigPath, msg.mcpConfig)
-      } catch {
-        mcpConfigPath = undefined
-      }
-    }
-    try {
-      // Inside the try: buildHarnessExec THROWS on a malformed codex MCP config
-      // (refusing a silent tool-less run) — that must surface as a failed turn.
-      const { cmd, args, stdin } = buildHarnessExec(
-        msg.agent,
-        {
-          prompt: msg.prompt,
-          ...(msg.model ? { model: msg.model } : {}),
-          ...(msg.systemPrompt ? { systemPrompt: msg.systemPrompt } : {}),
-          ...(mcpConfigPath ? { mcpConfigPath } : {}),
-          ...(msg.mcpConfig ? { mcpConfig: msg.mcpConfig } : {}),
-          ...(msg.allowedTools ? { allowedTools: msg.allowedTools } : {}),
-        },
-        { opencode: resolveOpencodeBin, cursor: resolveCursorBin },
-      )
-      // promisified execFile still exposes the child: deliver the prompt on
-      // stdin (claude — variadic --allowedTools would eat an argv prompt) and
-      // ALWAYS close the pipe, or stdin-appending CLIs (codex) block on EOF.
-      // Timeout/maxBuffer kill-budget semantics are execFileAsync's, unchanged.
-      const pending = execFileAsync(cmd, args, {
-        timeout: msg.timeoutMs ?? 240_000,
-        maxBuffer: 4 * 1024 * 1024,
-        ...(msg.cwd ? { cwd: msg.cwd } : {}),
-      })
-      pending.child.stdin?.end(stdin ?? '')
-      const { stdout } = await pending
-      send({
-        type: 'harnessExecResult',
-        requestId: msg.requestId,
-        ok: true,
-        output: stdout.trim(),
-      })
-    } catch (err) {
-      send({
-        type: 'harnessExecResult',
-        requestId: msg.requestId,
-        ok: false,
-        output: err instanceof Error ? err.message : String(err),
-      })
-    } finally {
-      if (mcpConfigPath) {
-        try {
-          rmSync(mcpConfigPath, { force: true })
-        } catch {
-          // best-effort temp cleanup
-        }
-      }
-    }
-  }
-
-  // ---- Headless harness sessions (concierge unification, Phase A) ----
-  // One live turn per session; concurrent sends on a thread are rejected so two
-  // writers can never race the same harness session.
-  const runningHeadlessTurns = new Map<string, HeadlessTurnHandle>()
-
-  /** Stand up the per-kind transcript observers/tails for a headless session —
-   *  the same setup initSessionObservers does on reattach, minus the PTY and
-   *  state tracker (headless sessions have no hook channel; observers that call
-   *  applyAgentStateEvents no-op without a tracker). */
-  // Per-harness headless bindings — same registry contract as the session
-  // observer table above (exhaustive over HarnessAgent).
-  const headlessBindings: Record<
-    HarnessAgent,
-    (sessionId: string, cwd: string, resumeValue: string) => void
-  > = {
-    'claude-code': (sessionId, cwd, resumeValue) => {
-      startClaudeTranscriptTail(sessionId, cwd, resumeValue)
-    },
-    codex: (sessionId, cwd, resumeValue) => {
-      // The observer pins the rollout by thread id and re-resolves the tailed
-      // path (resume may mint a new rollout file).
-      startCodexStateObserver(sessionId, cwd, resumeValue)
-    },
-    grok: (sessionId, cwd, resumeValue) => {
-      startGrokStateObserver(sessionId, cwd, resumeValue)
-    },
-    opencode: (sessionId, cwd, resumeValue) => {
-      startOpencodeStateObserver(sessionId, cwd, resumeValue)
-    },
-    cursor: (sessionId, cwd, resumeValue) => {
-      startCursorStateObserver(sessionId, cwd, resumeValue)
-      tailCursorTranscript(sessionId, cwd, resumeValue)
-    },
-  }
-
-  const bindHeadlessSession = (
-    sessionId: string,
-    agentKind: AgentKind,
-    cwd: string,
-    resumeValue: string,
-  ): void => {
-    const bind = (
-      headlessBindings as Partial<Record<AgentKind, (typeof headlessBindings)[HarnessAgent]>>
-    )[agentKind]
-    if (!bind) throw new Error(`agent kind ${agentKind} has no headless transcript binding`)
-    bind(sessionId, cwd, resumeValue)
-  }
-
-  const runHeadlessTurnRequest = (
-    msg: Extract<ControlMessage, { type: 'headlessTurnRequest' }>,
-  ): void => {
-    if (runningHeadlessTurns.has(msg.sessionId)) {
-      send({
-        type: 'headlessTurnResult',
-        requestId: msg.requestId,
-        ok: false,
-        error: 'turn already running',
-      })
-      return
-    }
-    let handle: HeadlessTurnHandle
-    try {
-      handle = runHeadlessTurn(
-        {
-          agent: msg.agent,
-          cwd: msg.cwd,
-          prompt: msg.prompt,
-          ...(msg.model ? { model: msg.model } : {}),
-          ...(msg.effort ? { effort: msg.effort } : {}),
-          ...(msg.systemPrompt ? { systemPrompt: msg.systemPrompt } : {}),
-          ...(msg.mcpConfig ? { mcpConfig: msg.mcpConfig } : {}),
-          ...(msg.allowedTools ? { allowedTools: msg.allowedTools } : {}),
-          ...(msg.permissionMode ? { permissionMode: msg.permissionMode } : {}),
-          ...(msg.resumeValue ? { resumeValue: msg.resumeValue } : {}),
-          ...(msg.sessionUuid ? { sessionUuid: msg.sessionUuid } : {}),
-          ...(msg.timeoutMs ? { timeoutMs: msg.timeoutMs } : {}),
-        },
-        (event) =>
-          send({
-            type: 'headlessTurnEvent',
-            requestId: msg.requestId,
-            sessionId: msg.sessionId,
-            event,
-          }),
-        { opencode: resolveOpencodeBin, cursor: resolveCursorBin },
-      )
-    } catch (err) {
-      send({
-        type: 'headlessTurnResult',
-        requestId: msg.requestId,
-        ok: false,
-        error: err instanceof Error ? err.message : String(err),
-      })
-      return
-    }
-    runningHeadlessTurns.set(msg.sessionId, handle)
-    void handle.done
-      .then(({ harnessSessionId, output }) => {
-        // First turn: start the transcript tail immediately so streaming-to-chat
-        // works from turn 1 without waiting for a bind round-trip.
-        if (!msg.resumeValue) {
-          try {
-            bindHeadlessSession(msg.sessionId, msg.agent, msg.cwd, harnessSessionId)
-          } catch {
-            // tail setup is best-effort here; a later headlessBind can retry
-          }
-        }
-        send({
-          type: 'headlessTurnResult',
-          requestId: msg.requestId,
-          ok: true,
-          harnessSessionId,
-          output,
-        })
-      })
-      .catch((err) =>
-        send({
-          type: 'headlessTurnResult',
-          requestId: msg.requestId,
-          ok: false,
-          error: err instanceof Error ? err.message : String(err),
-        }),
-      )
-      .finally(() => runningHeadlessTurns.delete(msg.sessionId))
-  }
+  // Reconnecting client: the daemon may start before the server (separate
+  // processes / `After=` ordering) and must survive a server restart without
+  // dropping its abduco attaches. These vars drive the backoff reconnect that
+  // re-points `currentWs`.
+  let reconnectTimer: ReturnType<typeof setTimeout> | undefined
+  let reconnectBackoffMs = RECONNECT_MIN_MS
+  let closing = false
 
   const disposeAll = (reapSessions = false): void => {
-    if (discoveryTimer) clearTimeout(discoveryTimer)
+    discoveryLoop.stop()
     if (metricsTimer) clearInterval(metricsTimer)
     if (uploadsGcTimer) clearInterval(uploadsGcTimer)
-    activeRefresh?.stop()
-    // discovery.db now lives entirely in the worker; stopping it terminates the
+    // discovery.db lives entirely in the worker; stopping it terminates the
     // worker thread (and with it the cache's SQLite connection).
     workerClient.stop()
     outputScheduler.stop()
     // For durable sessions (abduco/tmux), dispose() only takes down the attach client,
     // so the agent survives the daemon going down — do NOT kill the masters here
     // unless the caller explicitly asked for a full reap (test harness teardown).
-    for (const [sessionId, session] of bridges) {
+    for (const [sessionId, session] of ctx.bridges) {
       session.dispose()
       if (reapSessions && backend !== 'none') {
         killAbducoSession(`podium-${sessionId}`)
         killTmuxServer(`podium-${sessionId}`)
       }
     }
-    bridges.clear()
-    for (const id of [...grokStateObservers.keys()]) stopGrokStateObserver(id)
-    for (const id of [...codexStateObservers.keys()]) stopCodexStateObserver(id)
-    for (const id of [...opencodeStateObservers.keys()]) stopOpencodeStateObserver(id)
-    for (const id of [...cursorStateObservers.keys()]) stopCursorStateObserver(id)
-    trackers.clear()
+    ctx.bridges.clear()
+    observers.disposeObservers()
   }
 
   const handle: DaemonHandle = {
     hookPort: ingest.port,
     issueRelayPort: issueRelay.port,
-    async close(opts) {
+    async close(closeOpts) {
       closing = true // stop the reconnect loop from resurrecting the socket
       if (reconnectTimer) {
         clearTimeout(reconnectTimer)
         reconnectTimer = undefined
       }
-      for (const id of [...tails.keys()]) stopTranscriptTail(id)
+      observers.stopAllTails()
       await ingest.close()
       await issueRelay.close()
       return new Promise<void>((resolve) => {
-        disposeAll(opts?.reapSessions ?? false)
+        disposeAll(closeOpts?.reapSessions ?? false)
         const w = currentWs
         if (!w || w.readyState === WebSocket.CLOSED) {
           resolve()
@@ -2136,24 +531,14 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     // only sends control frames after our helloOk). Flips `authenticated` true so the
     // control loop accepts frames; kicks off discovery/metrics/uploads-GC exactly once
     // across reconnects (a reconnect must not double-start the intervals). The server
-    // re-sends reattach for live sessions on every (re)connect; handleReattach is
+    // re-sends reattach for live sessions on every (re)connect; the reattach handler is
     // idempotent.
     const startBackground = (): void => {
       authenticated = true
       recordConnectivity({ state: 'connected', lastHelloOkAt: new Date().toISOString() })
       if (!kickedOff) {
         kickedOff = true
-        if (discoveryBackground) {
-          // Run one FULL snapshot on the worker at connect (emits the entire current
-          // conversation list, not just what moved), then settle into the periodic
-          // delta loop. The full snapshot is required because the server index can be
-          // COLD — a fresh server, or a reset/schema-migrated podium.db — while the
-          // daemon's discovery.db cache is WARM (survives a daemon restart); a delta
-          // off a warm cache would be empty and leave the cold index permanently bare.
-          // The full scan still runs on the worker, so this never blocks the loop.
-          void refreshAndPublishConversations(true)
-          scheduleDiscoveryScan()
-        }
+        discoveryLoop.start()
         if (metricsBackground) {
           pushHostMetrics() // first sample immediately — the UI shouldn't wait a full interval
           metricsTimer = setInterval(pushHostMetrics, metricsIntervalMs)
