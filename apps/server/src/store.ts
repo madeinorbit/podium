@@ -373,8 +373,9 @@ export class SessionStore {
     id: string,
     patch: {
       agentKind?: string
-      podiumSessionId?: string
-      harnessSessionId?: string
+      // null clears the binding — forces a fresh session on a harness switch (#199).
+      podiumSessionId?: string | null
+      harnessSessionId?: string | null
       terminalSessionId?: string | null
     },
   ): void {

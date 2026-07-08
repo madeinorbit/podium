@@ -631,6 +631,11 @@ export const appRouter = t.router({
     clear: t.procedure
       .input(z.object({ threadId: z.string().default('global') }))
       .mutation(({ ctx, input }) => ctx.superagent.clear(input.threadId)),
+    // Reset the thread's harness session — the next turn starts a fresh one
+    // (recovery for a wedged/stale harness; keeps the thread + history).
+    restart: t.procedure
+      .input(z.object({ threadId: z.string().default('global') }))
+      .mutation(({ ctx, input }) => ctx.superagent.restartThread(input)),
     // Ensure (or re-open) a btw thread for a chat session. The transcript seed /
     // re-open delta is prepended to the thread's next sendTurn.
     startBtw: t.procedure

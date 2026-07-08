@@ -127,8 +127,10 @@ export class SuperagentRepository {
     id: string,
     patch: {
       agentKind?: string
-      podiumSessionId?: string
-      harnessSessionId?: string
+      // null clears the binding — used on a harness switch to force a fresh
+      // session on the next turn (#199).
+      podiumSessionId?: string | null
+      harnessSessionId?: string | null
       terminalSessionId?: string | null
     },
   ): void {

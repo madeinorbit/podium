@@ -396,6 +396,7 @@ export function SettingsView(): JSX.Element {
                   backend={settings.superagent}
                   onChange={(superagent) => patch({ superagent })}
                 />
+                <RestartSuperagentButton trpc={trpc} />
               </Section>
             )}
 
@@ -1280,6 +1281,44 @@ function Row({ label, children }: { label: string; children: React.ReactNode }):
  * Shared editor for the superagent / work-LLM execution backends, including the
  * billing explainer the spec demands when picking a harness.
  */
+/** Reset the global superagent's harness session — the next message starts a
+ *  fresh one (#199). Escape hatch for a wedged/stale orchestrator harness. */
+function RestartSuperagentButton({ trpc }: { trpc: Trpc }): JSX.Element {
+  const [busy, setBusy] = useState(false)
+  const [done, setDone] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  return (
+    <div className="mt-4">
+      <Button
+        variant="outline"
+        size="sm"
+        disabled={busy}
+        onClick={async () => {
+          setBusy(true)
+          setDone(false)
+          setError(null)
+          try {
+            await trpc.superagent.restart.mutate({ threadId: 'global' })
+            setDone(true)
+          } catch (e) {
+            setError(e instanceof Error ? e.message : String(e))
+          } finally {
+            setBusy(false)
+          }
+        }}
+      >
+        {busy ? 'Restarting…' : 'Restart superagent'}
+      </Button>
+      <p className="mt-1.5 mb-0.5 max-w-[60ch] text-[12px] text-muted-foreground">
+        Starts a fresh harness session on your next message (keeps the conversation
+        history). Use if the orchestrator seems stuck on a stale session.
+        {done ? ' Done — your next message starts fresh.' : ''}
+        {error ? <span className="text-warning"> {error}</span> : null}
+      </p>
+    </div>
+  )
+}
+
 function BackendEditor({
   backend,
   onChange,
@@ -1287,6 +1326,11 @@ function BackendEditor({
   backend: LlmBackend
   onChange: (b: LlmBackend) => void
 }): JSX.Element {
+  const modelCatalog = useModelCatalog()
+  const harnessAgentKind = issueDefaultAgentKind(backend.harnessAgent)
+  const showHarnessEffort =
+    effortOptionsForModel(harnessAgentKind, backend.harnessModel, modelCatalog[harnessAgentKind])
+      .length > 0
   return (
     <>
       <Row label="Run on">
@@ -1384,11 +1428,22 @@ function BackendEditor({
           <Row label="Model">
             <ModelPicker
               variant="field"
-              agentKind={issueDefaultAgentKind(backend.harnessAgent)}
+              agentKind={harnessAgentKind}
               value={backend.harnessModel}
               onChange={(harnessModel) => onChange({ ...backend, harnessModel })}
             />
           </Row>
+          {showHarnessEffort && (
+            <Row label="Effort">
+              <EffortPicker
+                variant="field"
+                agentKind={harnessAgentKind}
+                model={backend.harnessModel}
+                value={backend.harnessEffort}
+                onChange={(harnessEffort) => onChange({ ...backend, harnessEffort })}
+              />
+            </Row>
+          )}
           {backend.harnessAgent === 'claude-code' ? (
             <p className="mt-1.5 mb-0.5 max-w-[60ch] text-[12px] text-warning">
               Heads up: Claude Code's programmatic mode (

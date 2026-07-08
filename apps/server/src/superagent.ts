@@ -370,6 +370,44 @@ export function buildBtwRecap(items: TranscriptItem[]): string {
 }
 
 /**
+ * Context handoff when the superagent's harness changes mid-thread (#199). The
+ * new harness has no native session, so seed its first turn with a deterministic
+ * digest of the OUTGOING harness's transcript: recap + every user message +
+ * a recent full-detail tail (same shape as buildBtwSeed). Best-effort — the new
+ * agent lacks the old harness's internal scratch state, but it picks up the
+ * conversation instead of starting cold. Budget-capped, trimming the tail first.
+ */
+export function buildHandoffSeed(opts: {
+  from: HarnessAgent
+  to: HarnessAgent
+  items: TranscriptItem[]
+  maxChars?: number
+  tailN?: number
+}): string {
+  const { from, to, items } = opts
+  const maxChars = opts.maxChars ?? 20_000
+  const tailN = opts.tailN ?? 20
+  const users = items.filter((i) => i.role === 'user' && i.text.trim())
+  const head =
+    `[HANDOFF]\n` +
+    `You are continuing this conversation; the harness was switched from ${from} ` +
+    `to ${to}. You do not have the previous session's internal state — this digest ` +
+    `is your context. Pick up where it left off.\n` +
+    `\n${buildBtwRecap(items)}\n`
+  const userBlock =
+    `\nUser's messages (oldest→newest):\n` +
+    users.map((u) => `- [${u.ts ?? '?'}] ${u.text.slice(0, 2000)}`).join('\n')
+  let tail = items.slice(-tailN)
+  let body = ''
+  while (tail.length > 0) {
+    body = `\n\nRecent activity (last ${tail.length} items):\n${tail.map(lineForItem).join('\n')}`
+    if (head.length + userBlock.length + body.length <= maxChars) break
+    tail = tail.slice(Math.ceil(tail.length / 4))
+  }
+  return head + userBlock + body
+}
+
+/**
  * The opening context for a new btw thread: a deterministic recap, an optional
  * summary, every user message verbatim (cheap + high-signal), and a recent
  * full-detail tail. Each line carries the item id + timestamp so the agent knows
@@ -595,7 +633,7 @@ export class SuperagentService {
     threadId: string
     text: string
   }): Promise<{ threadId: string; podiumSessionId: string }> {
-    const thread = this.store.getSuperagentThread(threadId)
+    let thread = this.store.getSuperagentThread(threadId)
     if (!thread) throw new Error(`unknown thread: ${threadId}`)
     if (this.turnInFlight.has(threadId)) {
       throw new Error('a turn is already running on this thread — stop it or wait for it to finish')
@@ -606,15 +644,37 @@ export class SuperagentService {
     let sessionId: string
     try {
       const settings = this.store.getSettings()
-      // Freeze the agent onto the thread on first contact; later turns keep it
-      // even if the settings default changes (the harness session is agent-bound).
+      const intended = superagentHarnessAgent(settings)
       const frozen = HarnessAgent.safeParse(thread.agentKind)
-      const agent: HarnessAgent = frozen.success ? frozen.data : superagentHarnessAgent(settings)
-      if (!frozen.success) this.store.updateSuperagentThreadBinding(threadId, { agentKind: agent })
+      // Freeze the agent onto the thread on first contact. On later turns, if the
+      // user has since changed the superagent harness, SWITCH (#199): the harness
+      // owns its native session so we can't retarget it — start a fresh one and
+      // hand off context digested from the outgoing harness's transcript.
+      let agent: HarnessAgent
+      let handoff: string | undefined
+      if (!frozen.success) {
+        agent = intended
+        this.store.updateSuperagentThreadBinding(threadId, { agentKind: agent })
+      } else if (frozen.data !== intended) {
+        agent = intended
+        handoff = await this.buildHandoff(thread, frozen.data, intended)
+        // Drop the harness resume + headless row so this becomes a fresh first
+        // turn on the new harness (re-fetch the row to reflect the reset).
+        this.store.updateSuperagentThreadBinding(threadId, {
+          agentKind: agent,
+          harnessSessionId: null,
+          podiumSessionId: null,
+        })
+        const refreshed = this.store.getSuperagentThread(threadId)
+        if (refreshed) thread = refreshed
+      } else {
+        agent = frozen.data
+      }
       const cwd = this.threadCwd(thread)
       // Ensure the headless Podium session (recreate if the row was deleted).
-      const existing = thread.podiumSessionId
-        ? this.registry.listSessions().find((s) => s.sessionId === thread.podiumSessionId)
+      const boundSessionId = thread.podiumSessionId
+      const existing = boundSessionId
+        ? this.registry.listSessions().find((s) => s.sessionId === boundSessionId)
         : undefined
       if (existing) {
         sessionId = existing.sessionId
@@ -631,7 +691,9 @@ export class SuperagentService {
       // messages, no harness session) re-primes through the seed the same way.
       const firstTurn = !thread.harnessSessionId
       const context = await this.composeContext(thread, firstTurn)
-      const prompt = context ? `${context}\n\n${text}` : text
+      // Handoff (harness switch) leads, then the kind-specific seed/delta.
+      const preamble = [handoff, context].filter(Boolean).join('\n\n')
+      const prompt = preamble ? `${preamble}\n\n${text}` : text
       const systemPrompt =
         thread.kind === 'concierge'
           ? conciergeSystemPrompt(thread.repoPath ?? conciergeRepoPath(threadId) ?? '?')
@@ -647,6 +709,9 @@ export class SuperagentService {
           threadId,
           agent,
           model: backend.kind === 'harness' ? backend.harnessModel : 'auto',
+          ...(backend.harnessEffort && backend.harnessEffort !== 'auto'
+            ? { effort: backend.harnessEffort }
+            : {}),
           cwd,
           prompt,
           systemPrompt,
@@ -687,6 +752,24 @@ export class SuperagentService {
       throw err
     }
     return { threadId, podiumSessionId: sessionId }
+  }
+
+  /** Manually reset the thread's harness session: the next turn mints a fresh one
+   *  (#199). Recovery escape hatch for a wedged/stale harness — keeps the thread
+   *  and its history; a deliberate reset starts the new session cold (unlike an
+   *  automatic harness switch, which hands off context). */
+  restartThread({ threadId }: { threadId: string }): void {
+    const thread = this.store.getSuperagentThread(threadId)
+    if (!thread) throw new Error(`unknown thread: ${threadId}`)
+    if (this.turnInFlight.has(threadId)) {
+      throw new Error('a turn is running on this thread — wait for it to finish')
+    }
+    const lockError = this.terminalLockError(thread)
+    if (lockError) throw new Error(lockError)
+    this.store.updateSuperagentThreadBinding(threadId, {
+      harnessSessionId: null,
+      podiumSessionId: null,
+    })
   }
 
   /** Interrupt the thread's running headless turn (fire-and-forget; the turn's
@@ -805,6 +888,28 @@ export class SuperagentService {
   /** The machine-authored context block for a turn: the concierge seed / issue-
    *  event delta, or the btw seed / origin-transcript delta. Advances the
    *  thread watermark as a side effect. Undefined = nothing to prepend. */
+  /** Digest the outgoing harness's transcript into a handoff seed for the new
+   *  harness on a mid-thread switch (#199). Best-effort: never blocks the turn. */
+  private async buildHandoff(
+    thread: SuperagentThreadRow,
+    from: HarnessAgent,
+    to: HarnessAgent,
+  ): Promise<string | undefined> {
+    const src = thread.podiumSessionId
+    if (!src) return undefined
+    try {
+      const { items } = await this.registry.readTranscript({
+        sessionId: src,
+        direction: 'before',
+        limit: 2000,
+      })
+      if (items.length === 0) return undefined
+      return buildHandoffSeed({ from, to, items })
+    } catch {
+      return undefined
+    }
+  }
+
   private async composeContext(
     thread: SuperagentThreadRow,
     firstTurn: boolean,

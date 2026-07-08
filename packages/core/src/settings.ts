@@ -81,6 +81,10 @@ export const LlmBackend = z.object({
   kind: z.enum(['harness', 'api']).default('api'),
   harnessAgent: HarnessAgent.default('claude-code'),
   harnessModel: z.string().default('auto'),
+  /** Reasoning effort for the harness ('auto' = no flag). Mapped to each CLI's
+   *  effort flag at spawn, like SessionDefaults.effort. Ignored by the api path
+   *  until the one-shot effort primitive lands (stream B). */
+  harnessEffort: z.string().default('auto'),
   provider: ApiProvider.default('openrouter'),
   model: z.string().default('anthropic/claude-sonnet-4.5'),
 })
