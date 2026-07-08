@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import { describe, expect, it, vi } from 'vitest'
+import { PairingManager } from './hub/pairing'
 import { SessionRegistry } from './relay'
 import { SessionStore } from './store'
 import { wireDaemonSocket } from './wsServer'
@@ -120,7 +121,8 @@ describe('daemon socket auth', () => {
 
   it('a pair frame redeems a code, replies paired with a token, then helloOk + attach', () => {
     const store = new SessionStore(':memory:')
-    const reg = new SessionRegistry(store)
+    // Pairing is a hub-role capability, injected the way server assembly does it.
+    const reg = new SessionRegistry(store, undefined, { pairing: new PairingManager() })
     const attach = vi.spyOn(reg, 'attachDaemon')
     const code = reg.mintPairingCode()
     const ws = fakeWs()

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { PairingManager } from './hub/pairing'
 import { OPERATOR } from './issue-authz'
 import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
@@ -10,7 +11,8 @@ function machineCaller() {
   const store = new SessionStore(':memory:')
   // Pre-register a machine so listMachines returns it
   store.upsertMachine({ id: 'm1', name: 'machine-one', hostname: 'host-one', tokenHash: 'h1' })
-  const registry = new SessionRegistry(store)
+  // Pairing is a hub-role capability, injected the way server assembly does it.
+  const registry = new SessionRegistry(store, undefined, { pairing: new PairingManager() })
   registry.ensureLocalMachine()
   registry.attachDaemon('local', () => {})
   const repos = new RepoRegistry(registry, registry.sessionStore)

@@ -1,15 +1,24 @@
 # apps/server/src/hub/ — hub-only modules
 
-The core/hub module boundary (docs/spec/node-hub-sync.md §2.4, the architecture's
-"day one rule"): code that only makes sense when this server acts as a HUB for
-other machines/nodes (pairing, fleet management, node provisioning) lives here.
+The core/hub module boundary (docs/offline-sync-architecture.md §4,
+docs/spec/node-hub-sync.md §2.4): code that only makes sense when this server
+acts as a HUB — the rendezvous point other machines and nodes dial into
+(inbound daemon pairing, fleet management, node provisioning) — lives here.
+Everything else under `apps/server/src` is `core`: what a single-user node
+needs, including DIALING an upstream hub (`upstream.ts` is core; *accepting*
+new machines is hub).
 
-**The rule: core (`apps/server/src/*` outside this folder) never imports from
-`hub/`.** Hub modules may import core freely. Enforced by a unit test — see
-`import-boundary.ts` / `import-boundary.test.ts` — not a linter plugin.
+**The rule: core never imports from `hub/`; nothing imports `cloud/`** (the
+private SaaS module composes in at build time, never by path). Hub modules may
+import core freely. The mapping and its exemptions — composition roots
+(`server.ts`, `router.ts`, `index.ts`) and test files — are declared in
+`../roles.ts`; this package's vitest suite (`import-boundary.ts` /
+`import-boundary.test.ts`) enforces it.
 
-Status: `PairingManager` (`../pairing.ts`) is the natural first resident, but it
-is currently constructed inside `relay.ts` (core — `SessionRegistry.pairing`,
-used by `authenticateDaemon`), so moving the file today would itself create the
-core→hub import this folder forbids. The move is a follow-on: inject the
-pairing manager into the registry from server assembly, then relocate the file.
+Residents:
+
+- `pairing.ts` — short-lived single-use pairing codes for new daemons. Core
+  (`modules/machines/service.ts`) consumes it through the structural
+  `PairingCodes` interface; server assembly injects a `PairingManager` only
+  when the hub role is active.
+- `machines-join.ts` — the copy-paste join command minted for a new machine.

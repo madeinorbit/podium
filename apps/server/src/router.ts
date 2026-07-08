@@ -21,8 +21,8 @@ import {
   CloudRuntimeUnavailableError,
   disabledCloudRuntimeProvider,
 } from './cloud-runtime'
+import { buildJoinCommand } from './hub/machines-join'
 import { type Capability, checkIssueAccess, PROC_ACTION, SCOPED_TARGET } from './issue-authz'
-import { buildJoinCommand } from './machines-join'
 import { type IssueCaller, issueInputs } from './modules/issues/commands'
 import type { RegistryModules, SessionRegistry } from './relay'
 import { normalizeOriginUrl } from './repo-id'

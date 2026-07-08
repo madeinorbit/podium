@@ -14,6 +14,7 @@ import { clientAuthGuard, isRequestAuthed, registerAuthRoute } from './auth-rout
 import { applyEnvPassword, hasPassword } from './auth-store'
 import { createCloudRuntimeProviderFromEnv } from './cloud-runtime'
 import { registerAssetRoute } from './file-asset-route'
+import { PairingManager } from './hub/pairing'
 import { OPERATOR } from './issue-authz'
 import type { IssueTrpc } from './issue-client'
 import { IssueToolProvider } from './issue-mcp'
@@ -140,6 +141,9 @@ export async function startServer(
   // SessionRegistry without it produce no mirror traffic.
   const registry = new SessionRegistry(store, undefined, {
     mirrorLakeDir: join(stateDir(), 'transcripts'),
+    // Inbound daemon pairing is a HUB capability, injected here (the composition
+    // root) so core (relay/machines) never imports hub/pairing — see roles.ts.
+    pairing: new PairingManager(),
     // Live model enumeration shells out to the agent CLIs, so it's only wired in the
     // real process; tests get the empty default and never spawn a CLI. The claude list
     // matches the agent's auth: an Anthropic API key (env or the existing

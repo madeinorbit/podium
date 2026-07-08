@@ -46,7 +46,7 @@ import {
   type ScanReposResult,
   type ScanResult,
 } from './modules/machines/rpc'
-import { MachinesService, sha256 } from './modules/machines/service'
+import { MachinesService, type PairingCodes, sha256 } from './modules/machines/service'
 import {
   DEFAULT_NOTIFICATION_PUSHERS,
   type NotificationPushers,
@@ -120,6 +120,10 @@ interface SessionRegistryOptions {
   /** Live model-list probe (grok/cursor/opencode `models`). Injected in tests so the
    *  catalog never shells out; defaults to the real CLI probe. */
   modelProbe?: ModelProbe
+  /** Inbound daemon pairing codes — a HUB-role capability injected from server
+   *  assembly (core never imports hub/pairing; see roles.ts). Absent = pairing
+   *  disabled: mint throws, `pair` handshakes are rejected, `hello` unaffected. */
+  pairing?: PairingCodes
 }
 
 /** The composed module set behind SessionRegistry (issue #13 Phase 2): the typed
@@ -226,6 +230,7 @@ export class SessionRegistry {
     this.now = options.now ?? Date.now
     this.machines = new MachinesService({
       store: this.store,
+      ...(options.pairing ? { pairing: options.pairing } : {}),
       retargetPlaceholderSessions: (machineId) => {
         for (const s of this.sessions.values()) {
           if (s.machineId === LOCAL_PLACEHOLDER) s.machineId = machineId

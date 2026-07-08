@@ -1,7 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto'
 import type { ControlMessage, DaemonHandshake, MachineWire, ServerMessage } from '@podium/protocol'
 import { LOCAL_MACHINE_ID, LOCAL_PLACEHOLDER } from '../../local-machine'
-import { PairingManager } from '../../pairing'
 import type { Send } from '../../session'
 import type { MachineRecord, SessionStore } from '../../store'
 
@@ -10,8 +9,22 @@ export function sha256(s: string): string {
   return createHash('sha256').update(s).digest('hex')
 }
 
+/**
+ * The pairing-code surface this core module consumes WITHOUT importing the hub
+ * module that implements it (`hub/pairing.ts` — core never imports hub, see
+ * `roles.ts`). The composition root injects a `PairingManager` when the server
+ * runs the hub role; absent = inbound pairing is disabled (node role): minting
+ * throws and `pair` handshakes are rejected, while `hello` auth is unaffected.
+ */
+export interface PairingCodes {
+  mint(): string
+  redeem(code: string): boolean
+}
+
 export interface MachinesDeps {
   store: SessionStore
+  /** Hub-role inbound daemon pairing (injected from server assembly; see {@link PairingCodes}). */
+  pairing?: PairingCodes
   /** Retarget in-memory sessions still on the `'__local__'` placeholder onto the
    *  adopting machine (the registry owns the sessions map). */
   retargetPlaceholderSessions(machineId: string): void
@@ -34,9 +47,6 @@ export class MachinesService {
   // offline (e.g. the local daemon during boot, or a survivor session's reattach
   // before its machine re-attaches). Flushed in order on attach (flushQueued).
   private readonly pendingByMachine = new Map<string, ControlMessage[]>()
-  // Short-lived pairing codes for new daemons (wsServer redeems these on handshake).
-  private readonly pairing = new PairingManager()
-
   /**
    * In-memory mirror of the machines table. listSessions() resolves machineName
    * PER SESSION (and allWire() transitively per issue), so an uncached lookup is
@@ -98,9 +108,12 @@ export class MachinesService {
 
   // ---- machine admin + daemon pairing/auth ----
 
-  /** Issue a short-lived, single-use pairing code for a new daemon (UI shows it). */
+  /** Issue a short-lived, single-use pairing code for a new daemon (UI shows it).
+   *  Hub role only — without an injected pairing manager this server does not
+   *  accept new machines, so minting is a caller error, surfaced loudly. */
   mintPairingCode(): string {
-    return this.pairing.mint()
+    if (!this.deps.pairing) throw new Error('inbound pairing is disabled on this server')
+    return this.deps.pairing.mint()
   }
 
   /**
@@ -115,7 +128,12 @@ export class MachinesService {
     frame: DaemonHandshake,
   ): { ok: true; machineId: string; name: string; token?: string } | { ok: false; reason: string } {
     if (frame.type === 'pair') {
-      if (!this.pairing.redeem(frame.code)) return { ok: false, reason: 'invalid or expired code' }
+      // No pairing manager = node role: this server is not a rendezvous point,
+      // so new machines can't join it. Returning daemons (`hello`) still work.
+      if (!this.deps.pairing) return { ok: false, reason: 'pairing is disabled on this server' }
+      if (!this.deps.pairing.redeem(frame.code)) {
+        return { ok: false, reason: 'invalid or expired code' }
+      }
       const name = frame.name ?? frame.hostname
       const token = randomUUID()
       this.deps.store.upsertMachine({

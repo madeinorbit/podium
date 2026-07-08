@@ -1,11 +1,18 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join, relative } from 'node:path'
+import { isCompositionRoot, serverRoleOf } from '../roles'
 
 /**
- * The core→hub import walker (docs/spec/node-hub-sync.md §2.4). Walks every .ts
- * file under `srcDir` OUTSIDE `hub/` and reports any import/re-export that
- * resolves into `hub/` — the boundary rule is "core never imports hub", and this
- * cheap test-enforced walk is the whole enforcement mechanism (no lint plugin).
+ * The core→hub import walker (docs/spec/node-hub-sync.md §2.4, roles manifest in
+ * `../roles.ts`). Walks every .ts file under `srcDir` whose role is CORE and
+ * reports any import/re-export that resolves into a hub-role path — the boundary
+ * rule is "core never imports hub". Exemptions come from the manifest:
+ * composition roots (server.ts/router.ts/index.ts — they ACTIVATE hub surfaces)
+ * and test files (they may construct hub modules to inject them).
+ *
+ * The repo-wide lint (`scripts/check-boundaries.ts`) enforces the same rule —
+ * plus the cloud tier — from the same manifest; this in-tree walker keeps the
+ * rule enforced by the server's own vitest suite too.
  *
  * Matches static `import`/`export ... from` and dynamic `import(...)` specifiers
  * that are relative paths containing a `hub/` segment (e.g. `./hub/pairing`,
@@ -18,14 +25,16 @@ export function findCoreToHubImports(srcDir: string): string[] {
   const walk = (dir: string): void => {
     for (const name of readdirSync(dir)) {
       const path = join(dir, name)
-      const rel = relative(srcDir, path)
-      if (rel === 'hub' || rel.startsWith(`hub${'/'}`)) continue // hub may import anything
+      const rel = relative(srcDir, path).split('\\').join('/')
+      if (serverRoleOf(rel) !== 'core') continue // hub may import core freely
       const st = statSync(path)
       if (st.isDirectory()) {
         walk(path)
         continue
       }
       if (!/\.(ts|tsx|mts|cts)$/.test(name)) continue
+      if (isCompositionRoot(rel)) continue // assembly may bridge roles
+      if (/\.(test|spec)\.(ts|tsx|mts|cts)$/.test(name)) continue // tests may inject hub modules
       const text = readFileSync(path, 'utf8')
       specifierRe.lastIndex = 0
       for (const m of text.matchAll(specifierRe)) {

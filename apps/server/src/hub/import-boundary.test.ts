@@ -30,6 +30,18 @@ describe('core→hub import boundary', () => {
     expect(findCoreToHubImports(dir)).toEqual(['relay.ts imports ./hub/pairing'])
   })
 
+  it('exempts composition roots and test files (roles.ts manifest)', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'podium-hub-boundary-'))
+    fixtures.push(dir)
+    mkdirSync(join(dir, 'hub'))
+    writeFileSync(join(dir, 'hub', 'pairing.ts'), 'export const x = 1\n')
+    // server.ts is the composition root: it ACTIVATES hub modules by role.
+    writeFileSync(join(dir, 'server.ts'), "import { x } from './hub/pairing'\nexport const y = x\n")
+    // A core-located test may construct hub modules to inject them.
+    writeFileSync(join(dir, 'relay.test.ts'), "import { x } from './hub/pairing'\nvoid x\n")
+    expect(findCoreToHubImports(dir)).toEqual([])
+  })
+
   it('catches re-exports and dynamic imports too', () => {
     const dir = mkdtempSync(join(tmpdir(), 'podium-hub-boundary-'))
     fixtures.push(dir)
