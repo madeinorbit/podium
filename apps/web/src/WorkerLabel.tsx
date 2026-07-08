@@ -47,6 +47,8 @@ export function SessionNameEditor({
         className ??
         'min-w-0 flex-1 rounded-sm border border-primary/60 bg-background px-1 py-0 text-xs text-foreground outline-none'
       }
+      // Select-all on open so the first keystroke replaces the whole name.
+      onFocus={(e) => e.currentTarget.select()}
       onClick={(e) => e.stopPropagation()}
       onPointerDown={(e) => e.stopPropagation()}
       onKeyDown={(e) => {

@@ -253,20 +253,26 @@ export function PanelRow({
           className={cn(
             'flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 py-[3px] pr-3 text-left text-xs',
             dotRight ? 'pl-10' : 'pl-7',
+            // Selection is the accent background ALONE — never a heavier font
+            // (#170), so it can't be confused with UNREAD's weight signal.
             active
-              ? 'bg-accent font-medium text-accent-foreground'
+              ? 'bg-accent text-accent-foreground'
               : 'text-muted-foreground hover:bg-accent hover:text-foreground',
-            // Email-style unread emphasis (#126): an unread, un-selected session
-            // reads at full strength + medium weight, lifting it out of the muted
-            // baseline. Marking it read on open clears this optimistically. Suppressed
-            // (#138) for WORKING-section rows AND for any currently-working session
-            // anywhere — active work isn't "unseen", and a working session re-flips
-            // unread on every output, so emphasis would flicker back constantly.
-            !active &&
-              session.unread &&
+            // Email-style unread emphasis (#126): an unread session reads at
+            // medium weight, lifting it out of the muted baseline — INDEPENDENT of
+            // selection, so a selected+unread row is still bold (on accent). Marking
+            // it read on open clears this optimistically. Suppressed (#138) for
+            // WORKING-section rows AND for any currently-working session anywhere —
+            // active work isn't "unseen", and a working session re-flips unread on
+            // every output, so emphasis would flicker back constantly. Also suppressed
+            // for a snoozed session — deliberately set aside, not "unseen work". On a
+            // selected row the accent-foreground colour already wins; only add
+            // text-foreground when unselected.
+            session.unread &&
               !suppressUnread &&
               !isSessionWorking(session) &&
-              'font-medium text-foreground',
+              !snoozed &&
+              (active ? 'font-medium' : 'font-medium text-foreground'),
           )}
           onClick={onSelect}
           // Double-click the row to rename — matches the tab strip.

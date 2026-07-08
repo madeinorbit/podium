@@ -147,6 +147,38 @@ describe('replica adapter', () => {
     expect(h.issues.map((i) => `${i.id}:${i.title}`)).toEqual(['i2:kept'])
   })
 
+  it('applySnapshot drops a field that goes present→absent (unsnooze clear #170)', async () => {
+    // The unsnooze bug: an issue's `deferUntil` was set (snoozed), then the server
+    // cleared it — the wire OMITS deferUntil. An in-place merge can't remove a key
+    // (TanStack's update draft ignores `delete`), so the stale deferUntil would
+    // survive and the "Unsnoozed" tag never cleared. A key-dropping row must be
+    // fully replaced.
+    const { storage } = makeStorage()
+    const a = createReplica({ storage, keyPrefix: prefix })
+    const snoozed: IssueWire = { ...issue('i1'), deferUntil: '2026-07-07T00:00:00.000Z' }
+    a.applySnapshot('issues', [snoozed])
+    await settle()
+    // Server clears the snooze → the wire no longer carries deferUntil at all.
+    a.applySnapshot('issues', [issue('i1')])
+    await settle()
+    const b = createReplica({ storage, keyPrefix: prefix })
+    const h = await b.hydrate()
+    const got = h.issues.find((i) => i.id === 'i1')
+    expect(got).toBeDefined()
+    expect(got?.deferUntil ?? null).toBeNull()
+  })
+
+  it('applyChanges (optimistic) also drops a removed field', async () => {
+    const { storage } = makeStorage()
+    const a = createReplica({ storage, keyPrefix: prefix })
+    a.applySnapshot('issues', [{ ...issue('i1'), deferUntil: '2026-07-07T00:00:00.000Z' }])
+    await settle()
+    a.applyChanges('issues', [issue('i1')], [])
+    await settle()
+    const h = await createReplica({ storage, keyPrefix: prefix }).hydrate()
+    expect(h.issues.find((i) => i.id === 'i1')?.deferUntil ?? null).toBeNull()
+  })
+
   it('a corrupt storage blob cold-starts instead of throwing', async () => {
     const { storage, data } = makeStorage()
     data.set(`${prefix}.sessions.v1`, '{not json!!')

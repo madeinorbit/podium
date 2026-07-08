@@ -20,6 +20,7 @@ export function isIssueClosed(issue: IssueWire): boolean {
  */
 export function issueMenuEligibility(issues: readonly IssueWire[]): {
   canOpen: boolean
+  canRename: boolean
   canSetStage: boolean
   canSetPriority: boolean
   canAssignAgent: boolean
@@ -41,6 +42,8 @@ export function issueMenuEligibility(issues: readonly IssueWire[]): {
   const openSingle = single && first !== undefined && !isIssueClosed(first)
   return {
     canOpen: single,
+    // Rename is single-target and applies to any issue, open or closed (#170).
+    canRename: single,
     canSetStage: any,
     canSetPriority: any,
     canAssignAgent: openSingle,
