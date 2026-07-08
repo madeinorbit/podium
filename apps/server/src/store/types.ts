@@ -72,7 +72,10 @@ export interface MachineRecord {
 export interface IssueRow {
   id: string
   repoPath: string
-  /** Stable repo identity (#74) — dual-written; reads/filters/seq stay on repoPath. */
+  /** Stable repo identity (#74/#164) — the issue's repo KEY: repo-scoped reads
+   *  and seq allocation key on it (UNIQUE(repo_id, seq)). repoPath remains the
+   *  display/lookup attribute maintained by the repo registry. Nullable only as
+   *  defense in depth (the boot heal re-fills NULLs; every write resolves it). */
   repoId?: string | null
   seq: number
   title: string

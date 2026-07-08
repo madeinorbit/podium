@@ -190,9 +190,20 @@ export class IssuesRepository {
    * to safe defaults (see parseStringArray), which keeps the row.
    */
   listIssueRows(repoPath?: string): IssueRow[] {
+    // Repo-scoped reads key on the stable repo_id (issue #164): the given path
+    // resolves to its logical repo, so two registered clones of one repository
+    // (or an issue filed under a sub-path of the root) list together. The
+    // NULL-repo_id fallback keeps legacy rows the boot heal hasn't stamped yet
+    // visible under their exact path.
     const rows = (
       repoPath
-        ? this.db.prepare('SELECT * FROM issues WHERE repo_path = ? ORDER BY seq ASC').all(repoPath)
+        ? this.db
+            .prepare(
+              `SELECT * FROM issues
+               WHERE repo_id = ? OR (repo_id IS NULL AND repo_path = ?)
+               ORDER BY seq ASC`,
+            )
+            .all(this.resolveRepoIdForPath(repoPath), repoPath)
         : this.db.prepare('SELECT * FROM issues ORDER BY repo_path ASC, seq ASC').all()
     ) as Record<string, unknown>[]
     const out: IssueRow[] = []
@@ -232,19 +243,57 @@ export class IssuesRepository {
     this.db.prepare('UPDATE issues SET duplicate_of = NULL WHERE duplicate_of = ?').run(id)
   }
 
+  /** Next human-facing issue number, allocated per LOGICAL repo (repo_id,
+   *  issue #164) so two clones of the same repository share one counter. The
+   *  NULL-repo_id arm covers legacy rows not yet stamped by the boot heal.
+   *  UNIQUE(repo_id, seq) enforces the invariant at the SQL layer. */
   nextIssueSeq(repoPath: string): number {
+    const repoId = this.resolveRepoIdForPath(repoPath)
     const r = this.db
-      .prepare('SELECT MAX(seq) AS m FROM issues WHERE repo_path = ?')
-      .get(repoPath) as { m: number | null }
+      .prepare(
+        `SELECT MAX(seq) AS m FROM issues
+         WHERE repo_id = ? OR (repo_id IS NULL AND repo_path = ?)`,
+      )
+      .get(repoId, repoPath) as { m: number | null }
     return (r.m ?? 0) + 1
   }
 
-  /** Repo-identity dual-write (#74): stamp repoId onto issues under repoPath.
-   *  Called by the repos aggregate when a path-fallback id upgrades. */
+  /** Repo-identity upgrade (#74): stamp repoId onto issues under repoPath.
+   *  Called by the repos aggregate when a path-fallback id upgrades to the
+   *  origin-derived one. Collision-safe under UNIQUE(repo_id, seq): when the
+   *  upgrade merges two path-keyed buckets into one logical repo, any seq
+   *  already taken in the target bucket is renumbered to the next free seq
+   *  (oldest row first keeps its number), loudly logged. */
   assignRepoIdToIssuesUnder(repoId: string, repoPath: string): void {
-    this.db
-      .prepare("UPDATE issues SET repo_id = ? WHERE repo_path = ? OR repo_path LIKE ? || '/%'")
-      .run(repoId, repoPath, repoPath)
+    const rows = this.db
+      .prepare(
+        `SELECT id, seq FROM issues
+         WHERE (repo_path = ? OR repo_path LIKE ? || '/%')
+           AND (repo_id IS NULL OR repo_id != ?)
+         ORDER BY created_at ASC, rowid ASC`,
+      )
+      .all(repoPath, repoPath, repoId) as { id: string; seq: number }[]
+    if (rows.length === 0) return
+    const max = this.db
+      .prepare('SELECT MAX(seq) AS m FROM issues WHERE repo_id = ?')
+      .get(repoId) as { m: number | null }
+    let next = (max.m ?? 0) + 1
+    const taken = this.db.prepare('SELECT id FROM issues WHERE repo_id = ? AND seq = ?')
+    const upd = this.db.prepare('UPDATE issues SET repo_id = ?, seq = ? WHERE id = ?')
+    for (const r of rows) {
+      let seq = r.seq
+      const holder = taken.get(repoId, seq) as { id: string } | undefined
+      if (holder && holder.id !== r.id) {
+        while (taken.get(repoId, next)) next += 1
+        seq = next
+        next += 1
+        console.warn(
+          `[podium] issues: repo-id upgrade merged buckets — seq #${r.seq} already taken in ` +
+            `${repoId}; reassigning issue ${r.id} to seq ${seq} (issue ids are unchanged)`,
+        )
+      }
+      upd.run(repoId, seq, r.id)
+    }
   }
 
   /** Per-boot heal: fill NULL repo_id via the injected resolver (idempotent). */

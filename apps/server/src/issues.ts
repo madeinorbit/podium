@@ -836,8 +836,12 @@ export class IssueService {
     if (qualified) {
       const [, repo, seqStr] = qualified
       const seq = Number(seqStr)
+      // Repo qualifier matches the display path (exact or trailing suffix like
+      // `podium#10`) OR the stable repo_id (#164) — path stays a lookup attribute.
       const matches = [...this.rows.values()].filter(
-        (r) => r.seq === seq && (r.repoPath === repo || r.repoPath.endsWith(`/${repo}`)),
+        (r) =>
+          r.seq === seq &&
+          (r.repoPath === repo || r.repoPath.endsWith(`/${repo}`) || r.repoId === repo),
       )
       if (matches.length === 1) return matches[0]!.id
       if (matches.length > 1) {
