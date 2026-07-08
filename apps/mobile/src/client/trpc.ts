@@ -67,10 +67,7 @@ interface MobileTrpcExtras {
   superagent: {
     listThreads: QueryProcedure<void, SuperagentThread[]>
     history: QueryProcedure<{ threadId: string }, SuperagentMessage[]>
-    sendTurn: MutationProcedure<
-      { threadId: string; text: string },
-      { threadId: string; podiumSessionId?: string }
-    >
+    // sendTurn + startBtw are served by the shared PodiumClientApi seam.
     interruptTurn: MutationProcedure<{ threadId: string }>
     clear: MutationProcedure<{ threadId: string }>
   }

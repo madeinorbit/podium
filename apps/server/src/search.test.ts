@@ -9,6 +9,13 @@ import { searchAll } from './search'
 import { SessionStore } from './store'
 import { SuperagentService } from './modules/superagent'
 
+// The search surface a registry exposes — listSessions moved to the sessions
+// module (#191); the issue reads stay on registry.issues.
+const searchRegOf = (r: SessionRegistry) => ({
+  listSessions: () => r.modules.sessions.listSessions(),
+  issues: r.issues,
+})
+
 // Omni-search (docs/spec/search-v1.md §2.4): one query, ranked typed hits across
 // sessions, issues (+comments), conversations, lake-indexed transcripts and the
 // settings catalog.
@@ -82,7 +89,7 @@ describe('searchAll', () => {
 
   it('returns typed hits from every matching source in one call', () => {
     const { store, registry, sessionId, issue, commentIssue } = seed()
-    const results = searchAll(store, registry, { text: 'capacitor' })
+    const results = searchAll(store, searchRegOf(registry), { text: 'capacitor' })
 
     const kinds = new Map(results.map((r) => [r.kind, r]))
     expect(kinds.get('session')?.sessionId).toBe(sessionId)
@@ -106,7 +113,7 @@ describe('searchAll', () => {
 
   it('ranks sanely: title-matching session/issue above the transcript hit', () => {
     const { store, registry } = seed()
-    const results = searchAll(store, registry, { text: 'capacitor' })
+    const results = searchAll(store, searchRegOf(registry), { text: 'capacitor' })
     const rank = (kind: string) => results.findIndex((r) => r.kind === kind)
     expect(rank('session')).toBeGreaterThanOrEqual(0)
     expect(rank('transcript')).toBeGreaterThanOrEqual(0)
@@ -117,7 +124,7 @@ describe('searchAll', () => {
 
   it('transcript hits carry an FTS snippet with match markers and registry refs', () => {
     const { store, registry } = seed()
-    const hit = searchAll(store, registry, { text: 'capacitor' }).find(
+    const hit = searchAll(store, searchRegOf(registry), { text: 'capacitor' }).find(
       (r) => r.kind === 'transcript',
     )
     expect(hit?.snippet).toContain('**capacitor**')
@@ -133,7 +140,7 @@ describe('searchAll', () => {
       sessionId,
       resume: { kind: 'claude-session', value: 'native-tx' },
     })
-    const hit = searchAll(store, registry, { text: 'engine.ts' }).find(
+    const hit = searchAll(store, searchRegOf(registry), { text: 'engine.ts' }).find(
       (r) => r.kind === 'transcript',
     )
     expect(hit?.sessionId).toBe(sessionId)
@@ -141,7 +148,7 @@ describe('searchAll', () => {
 
   it('matches the settings catalog by label', () => {
     const { store, registry } = seed()
-    const results = searchAll(store, registry, { text: 'notifications' })
+    const results = searchAll(store, searchRegOf(registry), { text: 'notifications' })
     const setting = results.find((r) => r.kind === 'setting')
     expect(setting?.settingKey).toBe('notifications')
     expect(setting?.title).toBe('Settings › Notifications')
@@ -149,7 +156,7 @@ describe('searchAll', () => {
 
   it('respects the limit across the fused list', () => {
     const { store, registry } = seed()
-    const results = searchAll(store, registry, { text: 'capacitor', limit: 2 })
+    const results = searchAll(store, searchRegOf(registry), { text: 'capacitor', limit: 2 })
     expect(results.length).toBe(2)
     // The limit trims the tail, not the head: the best hits survive.
     expect(results[0]?.score).toBeGreaterThanOrEqual(results[1]?.score ?? 0)
@@ -157,7 +164,7 @@ describe('searchAll', () => {
 
   it('returns nothing for blank text (the router schema rejects it upstream too)', () => {
     const { store, registry } = seed()
-    expect(searchAll(store, registry, { text: '   ' })).toEqual([])
+    expect(searchAll(store, searchRegOf(registry), { text: '   ' })).toEqual([])
   })
 })
 

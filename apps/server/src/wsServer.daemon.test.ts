@@ -32,7 +32,7 @@ describe('daemon socket auth', () => {
       tokenHash: sha256('tok'),
     })
     const reg = new SessionRegistry(store)
-    const attach = vi.spyOn(reg, 'attachDaemon')
+    const attach = vi.spyOn(reg.modules.sessions, 'attachDaemon')
     const ws = fakeWs()
     wireDaemonSocket(ws as never, reg)
 
@@ -63,8 +63,8 @@ describe('daemon socket auth', () => {
       tokenHash: sha256('sekret'),
     })
     const reg = new SessionRegistry(store)
-    const attach = vi.spyOn(reg, 'attachDaemon')
-    const onMsg = vi.spyOn(reg, 'onDaemonMessageFrom')
+    const attach = vi.spyOn(reg.modules.sessions, 'attachDaemon')
+    const onMsg = vi.spyOn(reg.modules.sessions, 'onDaemonMessageFrom')
     const ws = fakeWs()
     wireDaemonSocket(ws as never, reg)
 
@@ -105,7 +105,7 @@ describe('daemon socket auth', () => {
   it('rejects an unknown hello with helloRejected and does not attach', () => {
     const store = new SessionStore(':memory:')
     const reg = new SessionRegistry(store)
-    const attach = vi.spyOn(reg, 'attachDaemon')
+    const attach = vi.spyOn(reg.modules.sessions, 'attachDaemon')
     const ws = fakeWs()
     wireDaemonSocket(ws as never, reg)
 
@@ -123,7 +123,7 @@ describe('daemon socket auth', () => {
     const store = new SessionStore(':memory:')
     // Pairing is a hub-role capability, injected the way server assembly does it.
     const reg = new SessionRegistry(store, undefined, { pairing: new PairingManager() })
-    const attach = vi.spyOn(reg, 'attachDaemon')
+    const attach = vi.spyOn(reg.modules.sessions, 'attachDaemon')
     const code = reg.modules.machines.mintPairingCode()
     const ws = fakeWs()
     wireDaemonSocket(ws as never, reg)
@@ -152,7 +152,7 @@ describe('daemon socket auth', () => {
     const store = new SessionStore(':memory:')
     store.machines.upsertMachine({ id: 'm1', name: 'h', hostname: 'h', tokenHash: sha256('tok') })
     const reg = new SessionRegistry(store)
-    const detach = vi.spyOn(reg, 'detachDaemon')
+    const detach = vi.spyOn(reg.modules.sessions, 'detachDaemon')
     const ws = fakeWs()
     wireDaemonSocket(ws as never, reg)
     ws.emit(

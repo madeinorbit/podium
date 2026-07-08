@@ -45,7 +45,7 @@ describe('bind-storm regression', () => {
   it('a 50-bind storm stays off SQLite for machine names and coalesces the pipeline', () => {
     const { registry, store, bound, inbox } = makeStorm({ sessions: 50, issues: 30 })
     const listMachines = vi.spyOn(store.machines, 'listMachines')
-    const listSessions = vi.spyOn(registry, 'listSessions')
+    const listSessions = vi.spyOn(registry.modules.sessions, 'listSessions')
 
     for (const s of bound) registry.modules.sessions.onDaemonMessageFrom(s.machineId, bind(s.sessionId, s.cwd))
     registry.modules.sessions.flushBroadcasts()

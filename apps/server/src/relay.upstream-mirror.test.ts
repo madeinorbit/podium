@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import type { ConversationSummaryWire, ServerMessage, SessionMeta } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import { SessionRegistry } from './relay'
+import { UPSTREAM_COMMAND_REJECTION } from './modules/sessions/service'
 import { SessionStore } from './store'
 
 // Registry-level tests for the upstream mirror (docs/spec/node-hub-sync.md §2.3):
@@ -130,7 +131,7 @@ describe('upstream mirror (registry surface)', () => {
   it('rejects every command path on a viaHub session with the spec reason', () => {
     const { registry } = makeNode()
     registry.modules.sessions.setUpstreamSessions([hubSession('hub-1')])
-    const reason = SessionRegistry.UPSTREAM_COMMAND_REJECTION
+    const reason = UPSTREAM_COMMAND_REJECTION
 
     expect(registry.modules.sessions.sendText({ sessionId: 'hub-1', text: 'hi' })).toEqual({
       ok: false,

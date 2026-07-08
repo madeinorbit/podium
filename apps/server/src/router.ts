@@ -188,7 +188,7 @@ function githubRepoFromOrigin(originUrl: string | null | undefined): CloudRepoRe
 
 function inferCloudRepoForSession(
   ctx: Context,
-  session: ReturnType<SessionRegistry['listSessions']>[number],
+  session: ReturnType<RegistryModules['sessions']['listSessions']>[number],
 ): CloudRepoRequest {
   const repoPath = ctx.repos.inferFromPath(session.cwd, session.machineId)
   if (!repoPath) {
@@ -671,7 +671,13 @@ export const appRouter = t.router({
           limit: z.number().int().positive().max(100).optional(),
         }),
       )
-      .query(({ ctx, input }) => searchAll(ctx.registry.sessionStore, ctx.registry, input)),
+      .query(({ ctx, input }) =>
+        searchAll(
+          ctx.registry.sessionStore,
+          { listSessions: () => mods(ctx).sessions.listSessions(), issues: ctx.registry.issues },
+          input,
+        ),
+      ),
   }),
   settings: t.router({
     get: t.procedure.query(({ ctx }) => mods(ctx).settings.getSettings()),
@@ -789,12 +795,11 @@ export const appRouter = t.router({
         // siblings, so the repo path alone would miss their dev servers). Scoping
         // to the clicked machine's repos keeps foreign paths out of its /proc walk.
         const repoPaths = ctx.repos.list(machineId)
-        const { repositories } = machineId
-          ? await ctx.registry.scanReposForMachine(repoPaths, machineId, {
-              includeHome: false,
-              maxDepth: 0,
-            })
-          : await ctx.registry.modules.rpc.scanRepos(repoPaths, { includeHome: false, maxDepth: 0 })
+        const { repositories } = await ctx.registry.modules.rpc.scanRepos(
+          repoPaths,
+          { includeHome: false, maxDepth: 0 },
+          machineId ?? undefined,
+        )
         const roots = [
           ...new Set(repositories.flatMap((r) => [r.path, ...r.worktrees.map((w) => w.path)])),
         ]

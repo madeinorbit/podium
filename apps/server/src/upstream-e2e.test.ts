@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { createTRPCClient, httpBatchLink } from '@trpc/client'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { OPERATOR } from './issue-authz'
-import { SessionRegistry } from './relay'
+import { SessionRegistry, upstreamMirrorFor } from './relay'
 import { type AppRouter, appRouter } from './router'
 import { startServer } from './server'
 import { SessionStore } from './store'
@@ -85,7 +85,7 @@ describe('node⇄hub upstream sync e2e (live hub server)', () => {
     sync = new UpstreamSync({
       url: `http://127.0.0.1:${hub.port}`,
       token,
-      mirror: nodeRegistry,
+      mirror: upstreamMirrorFor(nodeRegistry.modules),
       store: nodeStore.settings,
       backoff: { minMs: 50, maxMs: 250 },
       onConnected: () => void forwarder.drain(),
@@ -176,7 +176,7 @@ describe('node⇄hub upstream sync e2e (live hub server)', () => {
     sync = new UpstreamSync({
       url: `http://127.0.0.1:${hub.port}`,
       token,
-      mirror: nodeRegistry,
+      mirror: upstreamMirrorFor(nodeRegistry.modules),
       store: nodeStore.settings, // same store — the persisted cursor is the resume point
       backoff: { minMs: 50, maxMs: 250 },
       onConnected: () => void forwarder.drain(),

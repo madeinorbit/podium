@@ -22,7 +22,7 @@ import { readOrCreateDaemonSecret, stateDir } from './local-machine'
 import { registerMcpRoute } from './mcp-route'
 import { probeAllModels } from './model-probe'
 import type { PodiumPlugin } from './plugins'
-import { SessionRegistry } from './relay'
+import { SessionRegistry, upstreamMirrorFor } from './relay'
 import { RepoRegistry } from './repo-registry'
 import { resolveServerRole, type ServerRoleConfig } from './roles'
 import { appRouter } from './router'
@@ -212,7 +212,7 @@ export async function startServer(
     upstreamSync = new UpstreamSync({
       url: upstreamConfig.url,
       token: upstreamConfig.token,
-      mirror: registry,
+      mirror: upstreamMirrorFor(registry.modules),
       store: store.settings,
       onConnected: () => void forwarder.drain(),
     })
@@ -242,7 +242,7 @@ export async function startServer(
   app.use('/auth/*', cors())
   registerAuthRoute(app, { store: store.auth })
   app.use('/files/*', guard)
-  registerAssetRoute(app, registry)
+  registerAssetRoute(app, { readAsset: (a) => registry.modules.rpc.readAsset(a) })
   // In-process MCP server exposing the superagent's orchestrator tools to a
   // harness-backed superagent (Claude via --mcp-config). Token-gated.
   // One `podium` MCP surface composes the superagent's tools (first, so they win

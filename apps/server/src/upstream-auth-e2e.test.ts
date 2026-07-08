@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { SessionRegistry } from './relay'
+import { SessionRegistry, upstreamMirrorFor } from './relay'
 import { startServer } from './server'
 import { SessionStore } from './store'
 import { UpstreamSync } from './upstream'
@@ -44,7 +44,7 @@ describe('upstream sync token auth e2e (password-gated hub)', () => {
     const sync = new UpstreamSync({
       url: `http://127.0.0.1:${hub.port}`,
       token,
-      mirror: registry,
+      mirror: upstreamMirrorFor(registry.modules),
       store: store.settings,
       backoff: { minMs: 25, maxMs: 100 },
     })

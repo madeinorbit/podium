@@ -201,7 +201,7 @@ export class SessionsService {
     // live agent gets a durable queued send; no live agents → nothing (the mail
     // surfaces via prime / the stop-hook).
     this.bus.on('issue.mailSent', ({ seq, worktreePath }) => {
-      const members = sessionsForIssue(worktreePath, this.listSessions())
+      const members = sessionsForIssue(worktreePath ?? null, this.listSessions())
       const target = selectMailNudgeSession(members)
       if (!target) return
       const text = `You have mail on issue #${seq}: run 'podium issue mail inbox' (claim with 'podium issue mail claim <id>' only if you will act on it).`

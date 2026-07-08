@@ -1,5 +1,10 @@
 import { randomBytes } from 'node:crypto'
-import type { AgentKind } from '@podium/protocol'
+import type {
+  AgentKind,
+  ConversationSummaryWire,
+  IssueWire,
+  SessionMeta,
+} from '@podium/protocol'
 import { LOCAL_PLACEHOLDER } from './local-machine'
 import type { ModelProbe } from './model-catalog'
 import { EventBus } from './modules/bus'
@@ -91,6 +96,25 @@ export interface RegistryModules {
   issuePublisher: IssuePublisher
   issueCommands: IssueCommandService
   specs: SpecsService
+}
+
+/**
+ * The upstream-mirror surface (node⇄hub sync) is spread across the modules that
+ * own each entity — sessions (live-session list + hub-staleness flag),
+ * conversations (summaries), and upstreamIssues (the issue mirror). This composes
+ * them back into the single `UpstreamMirror` seam `UpstreamSync` consumes, so the
+ * spread stays an internal detail of the module graph.
+ */
+export function upstreamMirrorFor(modules: RegistryModules) {
+  return {
+    setUpstreamSessions: (list: SessionMeta[]) => modules.sessions.setUpstreamSessions(list),
+    setUpstreamConversations: (list: ConversationSummaryWire[]) =>
+      modules.conversations.setUpstreamConversations(list),
+    setUpstreamIssues: (list: IssueWire[]) => modules.upstreamIssues.setUpstreamIssues(list),
+    setUpstreamStale: (stale: boolean) => {
+      modules.sessions.setUpstreamStale(stale)
+    },
+  }
 }
 
 /** Projection of a Session to the fields an attention notice needs. */

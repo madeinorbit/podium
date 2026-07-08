@@ -106,6 +106,9 @@ export interface PodiumClientApi {
   }
   superagent: {
     startBtw: ApiMutation<{ sessionId: string }>
-    send: ApiMutation<{ threadId: string; text: string }>
+    sendTurn: ApiMutation<
+      { threadId: string; text: string },
+      { threadId: string; podiumSessionId?: string }
+    >
   }
 }

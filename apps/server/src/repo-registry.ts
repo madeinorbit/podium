@@ -135,10 +135,11 @@ export class RepoRegistry {
     const perMachine = await Promise.all(
       machineIds.map(async (machineId) => {
         const roots = this.store.repos.listRepoPaths(machineId)
-        const result = await this.sessionReg.scanReposForMachine(roots, machineId, {
-          includeHome: false,
-          maxDepth: 0,
-        })
+        const result = await this.sessionReg.modules.rpc.scanRepos(
+          roots,
+          { includeHome: false, maxDepth: 0 },
+          machineId,
+        )
         // Record scan-reported origins for registered repos (upgrades path-fallback
         // repo_ids to origin-derived ones — remote/late origins included).
         for (const r of result.repositories) {
