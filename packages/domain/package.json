@@ -1,7 +1,7 @@
 {
   "name": "@podium/domain",
   "version": "0.0.0",
-  "description": "Pure Podium domain logic: the issue closed/stage machine, ready/blocked/deferred derivation, and the issue authorization policy (roles, scopes, authorize). No IO, no sqlite, no node imports — a leaf package like @podium/protocol.",
+  "description": "Pure Podium domain logic: the issue closed/stage machine, ready/blocked/deferred derivation, the issue authorization policy (roles, scopes, authorize), session/issue snooze predicates, git remote identity, worktree/repo/machine-affinity identity, session dedup + attention-priority math. No IO, no sqlite, no node imports, no @podium/protocol dependency — a zero-dependency leaf package.",
   "license": "Apache-2.0",
   "type": "module",
   "main": "./dist/index.js",

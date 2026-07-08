@@ -193,16 +193,27 @@ describe('checkFile rules', () => {
     ).toEqual([])
   })
 
-  it('keeps protocol and core as leaf packages', () => {
+  it('keeps protocol a leaf package', () => {
     const p = checkFile('packages/protocol/src/index.ts', `import { z } from '@podium/core'`)
     expect(p).toHaveLength(1)
     expect(p[0].rule).toBe('leaf-package')
+  })
+
+  it('restricts core (runtime plumbing) to the protocol/domain leaves', () => {
+    // Allowed: protocol and domain (e.g. domain's normalizeOriginUrl).
+    expect(
+      checkFile('packages/core/src/settings.ts', `import type { T } from '@podium/protocol'`),
+    ).toEqual([])
+    expect(
+      checkFile('packages/core/src/git.ts', `export { normalizeOriginUrl } from '@podium/domain'`),
+    ).toEqual([])
+    // Disallowed: any other workspace package.
     const c = checkFile(
       'packages/core/src/settings.ts',
-      `import type { T } from '@podium/protocol'`,
+      `import { something } from '@podium/client-core'`,
     )
     expect(c).toHaveLength(1)
-    expect(c[0].rule).toBe('leaf-package')
+    expect(c[0].rule).toBe('restricted-package-deps')
     // Intra-package and external imports are fine.
     expect(
       checkFile('packages/core/src/index.ts', `import { z } from 'zod'\nimport './settings.js'`),

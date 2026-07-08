@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { basename } from 'node:path'
+import { computePriorities } from '@podium/domain'
 import {
   AGENT_CAPABILITIES,
   AgentKind,
@@ -27,7 +28,6 @@ import type { Capability } from '../../issue-authz'
 import { selectMailNudgeSession, sessionsForIssue } from '../../issue-util'
 import { LOCAL_MACHINE_ID, LOCAL_PLACEHOLDER } from '../../local-machine'
 import { type ClientConn, type Send, Session } from './session'
-import { computePriorities } from '../../session-priority'
 import type { SessionStore } from '../../store'
 import {
   isGenericClaudeTitle,

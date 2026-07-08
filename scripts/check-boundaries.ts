@@ -9,9 +9,13 @@
  *  2. `@podium/agent-bridge` may only be imported by `apps/daemon`, `scripts/`,
  *     and its own package (including its tests). Servers read transcripts via
  *     `@podium/transcript` instead.
- *  3. `@podium/protocol`, `@podium/core` and `@podium/domain` are leaf packages
- *     — they import no other workspace package. `@podium/transcript` is a
- *     near-leaf: it may import only `@podium/protocol`.
+ *  3. `@podium/protocol` and `@podium/domain` are leaf packages — they import
+ *     no other workspace package (domain additionally imports no external
+ *     runtime deps at all — see rule 3c). `@podium/transcript` is a near-leaf:
+ *     it may import only `@podium/protocol`. `@podium/core` is a near-leaf
+ *     runtime-plumbing package: it may import only `@podium/protocol` and
+ *     `@podium/domain` (e.g. domain's `normalizeOriginUrl`) — never another
+ *     app or a non-leaf package.
  *  4. `packages/*` never import from `apps/*` (by name or by relative path).
  *  5. `apps/cli` is a normal app under rule 1: it must not import apps/server
  *     or apps/daemon (no allowance). The runnable entry that injects the
@@ -68,15 +72,19 @@ const APP_PACKAGES: Record<string, string> = {
   '@podium/web': 'apps/web',
 }
 
-const LEAF_PACKAGES = new Set<string>(['packages/protocol', 'packages/core', 'packages/domain'])
+const LEAF_PACKAGES = new Set<string>(['packages/protocol', 'packages/domain'])
 
 /**
  * Near-leaf packages: may import ONLY the listed workspace packages (plus node
  * builtins/external deps). `@podium/transcript` is pure parsing/paging over
- * protocol types — it must never grow IO/harness dependencies.
+ * protocol types — it must never grow IO/harness dependencies. `@podium/core`
+ * is node-runtime plumbing (config, sqlite shims, git, connectivity,
+ * auth-store, …) — it may reach into the pure leaves (protocol, domain) but
+ * must never depend on another app or a non-leaf package.
  */
 const RESTRICTED_PACKAGE_DEPS: Record<string, ReadonlySet<string>> = {
   'packages/transcript': new Set(['packages/protocol']),
+  'packages/core': new Set(['packages/protocol', 'packages/domain']),
   // The issue-client seam (IssueTrpc + the shared command table) sits between
   // apps/cli and apps/server — it must never import app code or IO packages.
   'packages/issue-client': new Set(['packages/protocol', 'packages/domain']),
