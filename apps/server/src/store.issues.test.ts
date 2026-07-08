@@ -152,9 +152,15 @@ function baseRow(over: Partial<IssueRow> = {}): IssueRow {
   }
 }
 
+/** Seed bare parent issues — FKs (migration 006) require referenced rows to exist. */
+function seedIssues(store: SessionStore, ...ids: string[]): void {
+  ids.forEach((id, i) => store.upsertIssue(baseRow({ id, seq: 100 + i })))
+}
+
 describe('IssueRow rich fields round-trip (P1)', () => {
   it('persists and reads back new fields', () => {
     const store = new SessionStore(':memory:')
+    seedIssues(store, 'iss_epic', 'iss_new', 'iss_canon')
     store.upsertIssue(
       baseRow({
         priority: 0,
@@ -238,6 +244,7 @@ describe('needs_human data layer (P4)', () => {
 describe('issue labels (P1)', () => {
   it('sets, reads (sorted), and lists distinct labels', () => {
     const store = new SessionStore(':memory:')
+    seedIssues(store, 'iss_a', 'iss_b')
     store.setIssueLabels('iss_a', ['ui', 'backend', 'ui'])
     store.setIssueLabels('iss_b', ['backend'])
     expect(store.getIssueLabels('iss_a')).toEqual(['backend', 'ui'])
@@ -246,6 +253,7 @@ describe('issue labels (P1)', () => {
 
   it('setIssueLabels replaces the prior set', () => {
     const store = new SessionStore(':memory:')
+    seedIssues(store, 'iss_a')
     store.setIssueLabels('iss_a', ['x', 'y'])
     store.setIssueLabels('iss_a', ['y', 'z'])
     expect(store.getIssueLabels('iss_a')).toEqual(['y', 'z'])
@@ -255,6 +263,7 @@ describe('issue labels (P1)', () => {
 describe('issue deps (P1)', () => {
   it('adds, lists (both directions), and removes deps', () => {
     const store = new SessionStore(':memory:')
+    seedIssues(store, 'iss_a', 'iss_b', 'iss_c')
     store.addIssueDep('iss_a', 'iss_b')
     store.addIssueDep('iss_a', 'iss_c', 'related')
     store.addIssueDep('iss_a', 'iss_b') // idempotent
@@ -271,6 +280,7 @@ describe('issue deps (P1)', () => {
 describe('issue comments (P1)', () => {
   it('adds and lists comments oldest-first', () => {
     const store = new SessionStore(':memory:')
+    seedIssues(store, 'iss_a', 'iss_b')
     store.addIssueComment({
       id: 'c1',
       issueId: 'iss_a',
@@ -317,6 +327,7 @@ describe('issue mail store (agent mail #103)', () => {
 
   it('add/list/count: ordered by created_at,id; count only unread', () => {
     const store = new SessionStore(':memory:')
+    seedIssues(store, 'iss_a', 'iss_other')
     store.addIssueMessage(msg('msg_b', 'iss_a', 't2'))
     store.addIssueMessage(msg('msg_a', 'iss_a', 't1'))
     store.addIssueMessage(msg('msg_c', 'iss_other', 't1'))
@@ -333,6 +344,7 @@ describe('issue mail store (agent mail #103)', () => {
 
   it('claim is atomic: second claim returns false and does not overwrite the winner', () => {
     const store = new SessionStore(':memory:')
+    seedIssues(store, 'iss_a')
     store.addIssueMessage(msg('msg_a'))
     expect(store.claimIssueMessage('msg_a', 'issue:#3', 'tc')).toBe(true)
     expect(store.claimIssueMessage('msg_a', 'issue:#4', 'tc2')).toBe(false)
@@ -344,6 +356,7 @@ describe('issue mail store (agent mail #103)', () => {
 
   it('markRead is idempotent and never regresses a claimed message', () => {
     const store = new SessionStore(':memory:')
+    seedIssues(store, 'iss_a')
     store.addIssueMessage(msg('msg_a'))
     store.markIssueMessagesRead('iss_a', ['msg_a'], 't1')
     store.markIssueMessagesRead('iss_a', ['msg_a'], 't2') // already read: no-op
@@ -355,6 +368,7 @@ describe('issue mail store (agent mail #103)', () => {
 
   it('deleteIssueChildRows removes the issue mailbox', () => {
     const store = new SessionStore(':memory:')
+    seedIssues(store, 'iss_a', 'iss_other')
     store.addIssueMessage(msg('msg_a'))
     store.addIssueMessage(msg('msg_z', 'iss_other'))
     store.deleteIssueChildRows('iss_a')

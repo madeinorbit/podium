@@ -84,6 +84,11 @@ export class SessionStore {
     // refuses to open a DB newer than the code). Schema DDL lives ONLY in
     // src/migrations/.
     runMigrations(this.db, MIGRATIONS)
+    // Foreign-key enforcement is PER-CONNECTION in SQLite and deliberately
+    // enabled only AFTER the migration chain: table rebuilds (the standard
+    // 12-step ALTER, e.g. migration 006) must run without FK enforcement, and
+    // a PRAGMA inside the runner's transaction would be a no-op anyway.
+    this.db.exec('PRAGMA foreign_keys = ON')
 
     // Compose the per-aggregate repositories. The two cross-aggregate edges are
     // injected as late-bound lambdas: issues resolve their stable repo_id via

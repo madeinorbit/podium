@@ -233,14 +233,12 @@ export class IssuesRepository {
   }
 
   deleteIssue(id: string): void {
-    this.deleteIssueChildRows(id)
+    // Referential integrity is the ENGINE's job since migration 006 (#164):
+    // child rows (labels/deps/comments/messages) go via ON DELETE CASCADE and
+    // scalar back-references on OTHER rows (parent_id / superseded_by /
+    // duplicate_of) clear via ON DELETE SET NULL — no manual scrub needed
+    // (PRAGMA foreign_keys is enabled per-connection by the store facade).
     this.db.prepare('DELETE FROM issues WHERE id = ?').run(id)
-    // Clear dangling scalar back-references on OTHER rows so a deleted id never
-    // lingers as a ghost parent/supersede/duplicate pointer (column-vs-edge
-    // divergence P3b fixed). The dep EDGES were already removed above.
-    this.db.prepare('UPDATE issues SET parent_id = NULL WHERE parent_id = ?').run(id)
-    this.db.prepare('UPDATE issues SET superseded_by = NULL WHERE superseded_by = ?').run(id)
-    this.db.prepare('UPDATE issues SET duplicate_of = NULL WHERE duplicate_of = ?').run(id)
   }
 
   /** Next human-facing issue number, allocated per LOGICAL repo (repo_id,

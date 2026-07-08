@@ -1061,7 +1061,13 @@ describe('IssueService doctor/preflight (P2b)', () => {
   it('doctor reports dangling deps and clean preflight when none', () => {
     const { svc, store } = harness()
     const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
-    store.addIssueDep(a.id, 'iss_ghost', 'blocks') // target does not exist
+    // A dangling edge can no longer be written through the store (FKs since
+    // migration 006) — inject it with enforcement off, simulating corruption
+    // by an external writer. doctor stays as read-side defense in depth.
+    const raw = (store as unknown as { db: { exec(q: string): void } }).db
+    raw.exec('PRAGMA foreign_keys = OFF')
+    raw.exec(`INSERT INTO issue_deps (from_id, to_id, type) VALUES ('${a.id}', 'iss_ghost', 'blocks')`)
+    raw.exec('PRAGMA foreign_keys = ON')
     const d = svc.doctor('/r')
     expect(d.danglingDeps).toEqual([{ from: a.id, to: 'iss_ghost', type: 'blocks' }])
     expect(svc.preflight('/r').ok).toBe(false)
