@@ -1,3 +1,4 @@
+import { shallowEqual } from '@podium/client-core/store'
 import type { SessionMeta } from '@podium/protocol'
 import { AlarmClock, AlarmClockOff } from 'lucide-react'
 import { type JSX, useEffect, useId, useRef, useState, useSyncExternalStore } from 'react'
@@ -5,7 +6,7 @@ import { createPortal } from 'react-dom'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { isSnoozed, snoozeUntil1h, snoozeUntilTomorrow5am } from './derive'
-import { useStore } from './store'
+import { useStoreSelector } from './store'
 import { useNow } from './useNow'
 
 const COARSE_POINTER =
@@ -58,7 +59,10 @@ export function SnoozeControl({
    *  passes false so it reads as a normal, full-strength control. */
   dimmed?: boolean
 }): JSX.Element {
-  const { setSnooze, clearSnooze } = useStore()
+  const { setSnooze, clearSnooze } = useStoreSelector(
+    (s) => ({ setSnooze: s.setSnooze, clearSnooze: s.clearSnooze }),
+    shallowEqual,
+  )
   const now = useNow(60_000)
   const snoozed = isSnoozed(session, now)
   const menuKey = useId()
@@ -85,7 +89,8 @@ export function SnoozeControl({
   // positioning + a portal escapes the sidebar's `overflow-y-auto` clip.
   const place = () => {
     const r = triggerRef.current?.getBoundingClientRect()
-    if (r) setPos({ top: r.top, right: Math.max(8, window.innerWidth - r.left + 4), height: r.height })
+    if (r)
+      setPos({ top: r.top, right: Math.max(8, window.innerWidth - r.left + 4), height: r.height })
   }
   const openMenu = () => {
     if (COARSE_POINTER) return // touch opens on tap, not hover

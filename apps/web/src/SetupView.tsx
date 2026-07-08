@@ -195,7 +195,10 @@ export function SetupView({
       )}
       {joinWarning && (
         <div className="flex flex-col gap-2">
-          <p role="alert" className="rounded-md border border-border px-3 py-2 text-[12px] text-amber-500">
+          <p
+            role="alert"
+            className="rounded-md border border-border px-3 py-2 text-[12px] text-amber-500"
+          >
             {joinWarning}
           </p>
           <Button type="button" onClick={onSaved}>

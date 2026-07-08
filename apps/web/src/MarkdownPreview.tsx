@@ -1,10 +1,12 @@
 // apps/web/src/MarkdownPreview.tsx
+
+import { shallowEqual } from '@podium/client-core/store'
 import { type JSX, useMemo } from 'react'
 import { assetUrl } from './asset-url'
 import { handleCodeCopyClick } from './code-copy'
 import { resolveAgainstCwd } from './file-path'
 import { renderMarkdownBlocks } from './markdown-blocks'
-import { useStore } from './store'
+import { useStoreSelector } from './store'
 
 /** Rendered markdown preview. Relative images resolve through /files/asset; clicking
  *  a linkified file path opens it as a tab (same behavior as chat). The scroll
@@ -20,7 +22,10 @@ export function MarkdownPreview({
   content: string
   scrollRef?: React.MutableRefObject<HTMLDivElement | null>
 }): JSX.Element {
-  const { httpOrigin, openFile } = useStore()
+  const { httpOrigin, openFile } = useStoreSelector(
+    (s) => ({ httpOrigin: s.httpOrigin, openFile: s.openFile }),
+    shallowEqual,
+  )
   const fileDir = path.replace(/\/[^/]*$/, '') || '/'
   const html = useMemo(
     () =>

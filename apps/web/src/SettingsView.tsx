@@ -1,3 +1,4 @@
+import { shallowEqual } from '@podium/client-core/store'
 import {
   type AgentChoice,
   type ApiProvider,
@@ -27,7 +28,7 @@ import { issueDefaultAgentKind } from './issue-agents'
 import { MachinesPanel } from './MachinesPanel'
 import { EffortPicker, ModelPicker } from './ModelEffortPicker'
 import { NetworkStep } from './SetupView'
-import { useStore } from './store'
+import { useStoreSelector } from './store'
 import { type ThemeMode, type ThemePreset, useTheme } from './theme'
 import { serverConfig, type Trpc } from './trpc'
 import { useModelCatalog } from './use-model-catalog'
@@ -86,7 +87,15 @@ export const SETTINGS_TABS: { key: SettingsTab; label: string }[] = [
  * section is on screen at a time.
  */
 export function SettingsView(): JSX.Element {
-  const { trpc, setView, settingsTab, setSettingsTab } = useStore()
+  const { trpc, setView, settingsTab, setSettingsTab } = useStoreSelector(
+    (s) => ({
+      trpc: s.trpc,
+      setView: s.setView,
+      settingsTab: s.settingsTab,
+      setSettingsTab: s.setSettingsTab,
+    }),
+    shallowEqual,
+  )
   const modelCatalog = useModelCatalog()
   const [settings, setSettings] = useState<PodiumSettings | null>(null)
   const [saving, setSaving] = useState(false)
@@ -1192,7 +1201,7 @@ function AppearanceSection(): JSX.Element {
  *  the settings blob) — mirroring AppearanceSection, which also applies on its own. The
  *  channel type is inlined so the web bundle never imports @podium/core (node:fs). */
 function UpdatesSection(): JSX.Element {
-  const { trpc } = useStore()
+  const trpc = useStoreSelector((s) => s.trpc)
   const [channel, setChannel] = useState<'stable' | 'edge' | null>(null)
   const [channelError, setChannelError] = useState<string | null>(null)
 

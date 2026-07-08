@@ -1,3 +1,4 @@
+import { shallowEqual } from '@podium/client-core/store'
 import {
   BarChart3,
   ChevronDown,
@@ -31,7 +32,7 @@ import { NewPanelMenu } from './NewPanelMenu'
 import { RepoScanFlow } from './RepoScanFlow'
 import { MainViewOutlet } from './routes'
 import { SuperagentView } from './SuperagentView'
-import { useStore } from './store'
+import { useStoreSelector } from './store'
 import type { PinKind } from './types'
 import { useNow } from './useNow'
 import { WorkerLabel } from './WorkerLabel'
@@ -86,7 +87,6 @@ function useVisualViewportHeight(): void {
 export function MobileApp(): JSX.Element {
   useVisualViewportHeight()
   const isMobile = useIsMobile()
-  const store = useStore()
   const {
     sessions,
     pins,
@@ -101,12 +101,36 @@ export function MobileApp(): JSX.Element {
     setSuperOpen,
     fileTabs,
     closeFileTab,
-  } = store
+    reposLoading,
+    repoDiagnostics,
+    repos,
+    tabOrders,
+  } = useStoreSelector(
+    (s) => ({
+      sessions: s.sessions,
+      pins: s.pins,
+      setPinned: s.setPinned,
+      selectedWorktree: s.selectedWorktree,
+      setSelectedWorktree: s.setSelectedWorktree,
+      paneA: s.paneA,
+      setPane: s.setPane,
+      view: s.view,
+      setView: s.setView,
+      superOpen: s.superOpen,
+      setSuperOpen: s.setSuperOpen,
+      fileTabs: s.fileTabs,
+      closeFileTab: s.closeFileTab,
+      reposLoading: s.reposLoading,
+      repoDiagnostics: s.repoDiagnostics,
+      repos: s.repos,
+      tabOrders: s.tabOrders,
+    }),
+    shallowEqual,
+  )
   const { guardedKill } = useSessionGuard()
-  const { reposLoading, repoDiagnostics } = store
   const now = useNow(60_000)
-  const repoViews = reposToViews(store.repos)
-  const sections = sidebarSections(store.repos, sessions, pins, now)
+  const repoViews = reposToViews(repos)
+  const sections = sidebarSections(repos, sessions, pins, now)
   const worktree = repoViews.flatMap((r) => r.worktrees).find((w) => w.path === selectedWorktree)
   const worktreeRepoName = worktree
     ? (repoViews.find((r) => r.path === worktree.repoPath)?.name ??
@@ -119,7 +143,7 @@ export function MobileApp(): JSX.Element {
           worktree.path,
           repoViews.flatMap((r) => r.worktrees.map((w) => w.path)),
         ),
-        store.tabOrders[worktree.path],
+        tabOrders[worktree.path],
         pins,
       )
     : []
@@ -131,7 +155,7 @@ export function MobileApp(): JSX.Element {
   // state here so the two can coordinate (NewPanelMenu is controlled below).
   const [newAgentOpen, setNewAgentOpen] = useState(false)
   // Route-backed search overlay; rendered at shell level (AppShell).
-  const { setSearchOpen } = store
+  const setSearchOpen = useStoreSelector((s) => s.setSearchOpen)
   // Hold a freshly-opened (or reload-restored) session in pane A until the store
   // knows it — see the keep-pane-valid effect — otherwise it bounces to tabs[0].
   const justOpened = useRef<string | null>(paneA)

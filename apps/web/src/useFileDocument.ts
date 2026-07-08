@@ -1,8 +1,9 @@
+import { shallowEqual } from '@podium/client-core/store'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { canSave } from './editor-save'
-import { scopeKey, type FileScope } from './file-scope'
-import { useStore } from './store'
+import { type FileScope, scopeKey } from './file-scope'
+import { useStoreSelector } from './store'
 
 export interface FileDocument {
   status: 'loading' | 'ready' | 'error'
@@ -24,7 +25,10 @@ export interface FileDocument {
  *  the original FileEditorPanel. All files open editable; the daemon rejects
  *  out-of-repo writes, surfaced via toast. */
 export function useFileDocument(scope: FileScope, path: string): FileDocument {
-  const { readFileScoped, writeFileScoped } = useStore()
+  const { readFileScoped, writeFileScoped } = useStoreSelector(
+    (s) => ({ readFileScoped: s.readFileScoped, writeFileScoped: s.writeFileScoped }),
+    shallowEqual,
+  )
   const scopeRef = useRef(scope)
   scopeRef.current = scope
   const key = scopeKey(scope)
@@ -62,7 +66,11 @@ export function useFileDocument(scope: FileScope, path: string): FileDocument {
           label: 'Overwrite',
           onClick: async () => {
             setSaving(true)
-            const r2 = await writeFileScoped({ scope: scopeRef.current, path, content: contentRef.current })
+            const r2 = await writeFileScoped({
+              scope: scopeRef.current,
+              path,
+              content: contentRef.current,
+            })
             setSaving(false)
             if (r2.ok) {
               setBaseHash(r2.baseHash)
@@ -90,7 +98,9 @@ export function useFileDocument(scope: FileScope, path: string): FileDocument {
       if (cancelled) return
       if (!r.ok) {
         setStatus('error')
-        setMessage(r.tooLarge ? 'File too large' : r.binary ? 'Binary file' : (r.error ?? 'Failed to open'))
+        setMessage(
+          r.tooLarge ? 'File too large' : r.binary ? 'Binary file' : (r.error ?? 'Failed to open'),
+        )
         return
       }
       contentRef.current = r.content ?? ''
@@ -104,7 +114,17 @@ export function useFileDocument(scope: FileScope, path: string): FileDocument {
   }, [key, path, readFileScoped, reloadNonce])
 
   return {
-    status, message, content, contentRef, editable, dirty, saving, baseHash,
-    reloadNonce, setContent, save, reload,
+    status,
+    message,
+    content,
+    contentRef,
+    editable,
+    dirty,
+    saving,
+    baseHash,
+    reloadNonce,
+    setContent,
+    save,
+    reload,
   }
 }

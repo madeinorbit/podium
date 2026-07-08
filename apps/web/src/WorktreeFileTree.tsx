@@ -1,11 +1,12 @@
+import { shallowEqual } from '@podium/client-core/store'
 import { ChevronDown, ChevronRight, Folder, FolderOpen, RefreshCw } from 'lucide-react'
 import type { JSX } from 'react'
 import { useCallback, useEffect, useState } from 'react'
-import { formatAppError } from './AppErrorPage'
 import { Button } from '@/components/ui/button'
+import { formatAppError } from './AppErrorPage'
 import { basename } from './dock-panel'
 import { FileTypeIcon } from './file-icon'
-import { useStore } from './store'
+import { useStoreSelector } from './store'
 
 type Entry = { name: string; isDir: boolean }
 
@@ -28,7 +29,10 @@ export function WorktreeFileTree({
   root: string
   machineId?: string
 }): JSX.Element {
-  const { listDir, openFileInWorktree } = useStore()
+  const { listDir, openFileInWorktree } = useStoreSelector(
+    (s) => ({ listDir: s.listDir, openFileInWorktree: s.openFileInWorktree }),
+    shallowEqual,
+  )
   // dir path → its listed entries (presence = loaded); separate expanded set.
   const [children, setChildren] = useState<Record<string, Entry[]>>({})
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
@@ -182,7 +186,9 @@ export function WorktreeFileTree({
           <RefreshCw size={14} />
         </Button>
       </div>
-      {error && <div className="border-b border-border px-3 py-2 text-xs text-destructive">{error}</div>}
+      {error && (
+        <div className="border-b border-border px-3 py-2 text-xs text-destructive">{error}</div>
+      )}
       <div className="min-h-0 flex-1 overflow-y-auto p-1.5">{renderDir(root, 0)}</div>
     </div>
   )

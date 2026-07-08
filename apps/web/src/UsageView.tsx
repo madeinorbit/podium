@@ -1,8 +1,9 @@
+import { shallowEqual } from '@podium/client-core/store'
 import type { UsageBucketWire } from '@podium/protocol'
 import type { JSX } from 'react'
 import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
-import { useStore } from './store'
+import { useStoreSelector } from './store'
 import { formatTokens, formatUsd, usageSummary } from './usage'
 
 /**
@@ -12,7 +13,10 @@ import { formatTokens, formatUsd, usageSummary } from './usage'
  * and the picker-sheet actions (mobile).
  */
 export function UsageView(): JSX.Element {
-  const { trpc, setView } = useStore()
+  const { trpc, setView } = useStoreSelector(
+    (s) => ({ trpc: s.trpc, setView: s.setView }),
+    shallowEqual,
+  )
   const [buckets, setBuckets] = useState<UsageBucketWire[] | null>(null)
 
   useEffect(() => {
@@ -56,9 +60,7 @@ export function UsageView(): JSX.Element {
         </div>
       ) : buckets.length === 0 ? (
         <div className="flex flex-1 flex-col gap-4 overflow-y-auto px-4 py-3.5">
-          <div className="p-3 text-xs text-muted-foreground/70">
-            No token usage recorded yet.
-          </div>
+          <div className="p-3 text-xs text-muted-foreground/70">No token usage recorded yet.</div>
         </div>
       ) : (
         <UsageBody buckets={buckets} />
@@ -98,10 +100,7 @@ function UsageBody({ buckets }: { buckets: UsageBucketWire[] }): JSX.Element {
       </div>
       <div className="flex h-24 items-end gap-2 px-1">
         {s.days.map((d) => (
-          <div
-            key={d.day}
-            className="flex h-full flex-1 flex-col items-center justify-end gap-1"
-          >
+          <div key={d.day} className="flex h-full flex-1 flex-col items-center justify-end gap-1">
             <div
               className="w-full max-w-[42px] rounded-t-[3px] bg-primary opacity-85"
               style={{ height: `${Math.max(2, (d.totalTokens / maxDay) * 72)}px` }}

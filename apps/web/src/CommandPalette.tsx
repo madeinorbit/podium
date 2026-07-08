@@ -1,3 +1,4 @@
+import { shallowEqual } from '@podium/client-core/store'
 import type { AgentKind, IssueWire } from '@podium/protocol'
 import type { JSX } from 'react'
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -29,7 +30,7 @@ import { STAGE_LABELS } from './issue-card'
 import { NewIssueDialog } from './NewIssueDialog'
 import { sessionMenuEligibility } from './SessionContextMenu'
 import type { SpawnTarget } from './spawn-agent'
-import { useStore } from './store'
+import { useStoreSelector } from './store'
 
 const GROUP_LABELS: Record<PaletteGroupId, string> = {
   navigate: 'Navigate',
@@ -46,7 +47,7 @@ const SEARCH_MIN_QUERY_LEN = 2
  * results once the query is ≥2 chars. Failures degrade silently to local-only.
  */
 function useIssueSearch(query: string, enabled: boolean): IssueWire[] {
-  const { trpc } = useStore()
+  const trpc = useStoreSelector((s) => s.trpc)
   const [hits, setHits] = useState<IssueWire[]>([])
   const seq = useRef(0)
   useEffect(() => {
@@ -79,7 +80,10 @@ function useIssueSearch(query: string, enabled: boolean): IssueWire[] {
  * Mounted once at shell level; the store's `paletteOpen` drives it.
  */
 export function CommandPalette(): JSX.Element {
-  const { paletteOpen, setPaletteOpen } = useStore()
+  const { paletteOpen, setPaletteOpen } = useStoreSelector(
+    (s) => ({ paletteOpen: s.paletteOpen, setPaletteOpen: s.setPaletteOpen }),
+    shallowEqual,
+  )
   // The New-issue dialog outlives the palette (which closes on execute), so it
   // lives here as a sibling rather than inside the palette dialog.
   const [newIssueOpen, setNewIssueOpen] = useState(false)
@@ -103,7 +107,6 @@ function PaletteDialog({
   onClose: () => void
   onNewIssue: () => void
 }): JSX.Element {
-  const store = useStore()
   const {
     trpc,
     repos,
@@ -124,7 +127,34 @@ function PaletteDialog({
     hibernateSession,
     resurrectSession,
     startBtw,
-  } = store
+    selectedWorktree,
+    spawnDraftAgent,
+  } = useStoreSelector(
+    (s) => ({
+      trpc: s.trpc,
+      repos: s.repos,
+      sessions: s.sessions,
+      issues: s.issues,
+      pins: s.pins,
+      setPinned: s.setPinned,
+      paneA: s.paneA,
+      setPane: s.setPane,
+      setView: s.setView,
+      setSelectedWorktree: s.setSelectedWorktree,
+      setSelectedIssueId: s.setSelectedIssueId,
+      setOpenIssueId: s.setOpenIssueId,
+      superOpen: s.superOpen,
+      setSuperOpen: s.setSuperOpen,
+      setSnooze: s.setSnooze,
+      clearSnooze: s.clearSnooze,
+      hibernateSession: s.hibernateSession,
+      resurrectSession: s.resurrectSession,
+      startBtw: s.startBtw,
+      selectedWorktree: s.selectedWorktree,
+      spawnDraftAgent: s.spawnDraftAgent,
+    }),
+    shallowEqual,
+  )
   const { guardedKill, guardedArchive } = useSessionGuard()
   const [query, setQuery] = useState('')
   const [highlight, setHighlight] = useState(0)
@@ -153,7 +183,7 @@ function PaletteDialog({
   const defaultAgent: AgentKind = resolveDefaultAgent(agentSetting, sessions)
   const spawnTargets = useMemo((): SpawnTarget[] => {
     const worktrees = reposToViews(repos).flatMap((r) => r.worktrees)
-    const current = worktrees.find((w) => w.path === store.selectedWorktree)
+    const current = worktrees.find((w) => w.path === selectedWorktree)
     const sections = sidebarSections(repos, sessions, pins, Date.now(), issues)
     const { byRepo } = lastUsedMaps(sections, sessions)
     const repoNavs: RepoNavView[] = [...sections.pinnedRepos, ...sections.repos]
@@ -167,7 +197,7 @@ function PaletteDialog({
     if (current) out.push(current)
     if (primary && primary.path !== current?.path) out.push(primary)
     return out
-  }, [repos, sessions, pins, issues, store.selectedWorktree])
+  }, [repos, sessions, pins, issues, selectedWorktree])
 
   /** Close the palette, then run — optimistic close; errors toast downstream. */
   const execute = (run: () => void | Promise<void>): void => {
@@ -256,7 +286,7 @@ function PaletteDialog({
         keywords: ['session', 'spawn', 'start', 'new agent'],
         run: () => {
           // Optimistic (#119): the store paints the row instantly; navigate now.
-          const { sessionId, issueId } = store.spawnDraftAgent({ target, agentKind: defaultAgent })
+          const { sessionId, issueId } = spawnDraftAgent({ target, agentKind: defaultAgent })
           openSession(sessionId, target.path, issueId)
         },
       })
@@ -353,17 +383,7 @@ function PaletteDialog({
       })
     }
     return out
-  }, [
-    sessions,
-    repos,
-    issues,
-    serverIssueHits,
-    pins,
-    paneA,
-    spawnTargets,
-    defaultAgent,
-    superOpen,
-  ])
+  }, [sessions, repos, issues, serverIssueHits, pins, paneA, spawnTargets, defaultAgent, superOpen])
 
   const groups = useMemo(() => filterCommands(query, commands), [query, commands])
   const flat = useMemo(() => flattenGroups(groups), [groups])
@@ -386,7 +406,7 @@ function PaletteDialog({
   const runFallback = (target: SpawnTarget): void => {
     const text = query.trim()
     execute(() => {
-      const { sessionId, issueId } = store.spawnDraftAgent({
+      const { sessionId, issueId } = spawnDraftAgent({
         target,
         agentKind: defaultAgent,
         firstPrompt: text || undefined,

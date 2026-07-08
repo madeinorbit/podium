@@ -1,3 +1,4 @@
+import { shallowEqual } from '@podium/client-core/store'
 import { PanelRightClose, PanelRightOpen } from 'lucide-react'
 import type { JSX } from 'react'
 import { useEffect, useState } from 'react'
@@ -14,9 +15,9 @@ import { OnboardingWizard } from './OnboardingWizard'
 import { RightDock } from './RightDock'
 import { MainViewOutlet } from './routes'
 import { SearchView } from './SearchView'
-import { ResizableAside } from './sidebar-common'
 import { SidebarUnified } from './SidebarUnified'
-import { StoreProvider, useStore } from './store'
+import { ResizableAside } from './sidebar-common'
+import { StoreProvider, useStoreSelector } from './store'
 import { serverConfig } from './trpc'
 import { UpdatePrompt } from './UpdatePrompt'
 import { Workspace } from './Workspace'
@@ -85,7 +86,19 @@ function AppBody({ isMobile }: { isMobile: boolean }): JSX.Element {
     setPaletteOpen,
     searchOpen,
     setSearchOpen,
-  } = useStore()
+  } = useStoreSelector(
+    (s) => ({
+      repos: s.repos,
+      reposLoaded: s.reposLoaded,
+      superOpen: s.superOpen,
+      setSuperOpen: s.setSuperOpen,
+      paletteOpen: s.paletteOpen,
+      setPaletteOpen: s.setPaletteOpen,
+      searchOpen: s.searchOpen,
+      setSearchOpen: s.setSearchOpen,
+    }),
+    shallowEqual,
+  )
   const [dismissed, setDismissed] = useState(false)
 
   // Global Cmd/Ctrl+K toggles the command palette. Registered at shell level so

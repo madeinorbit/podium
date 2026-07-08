@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input'
 import { useIsMobile } from '@/hooks/use-is-mobile'
 import { cn } from '@/lib/utils'
 import { formatAppError } from './AppErrorPage'
-import { useStore } from './store'
+import { useStoreSelector } from './store'
 
 type DirectoryEntry = {
   name: string
@@ -45,7 +45,7 @@ export function RepoPickerModal({
   selectedMachineId?: string
   onMachineChange?: (machineId: string | undefined) => void
 }): JSX.Element {
-  const { trpc } = useStore()
+  const trpc = useStoreSelector((s) => s.trpc)
   const isMobile = useIsMobile()
   const [listing, setListing] = useState<DirectoryListing | null>(null)
   const [loading, setLoading] = useState(false)

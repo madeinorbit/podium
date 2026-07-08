@@ -38,8 +38,8 @@ const breakdownFor = (hostname: string) => ({
   otherBytes: 12e9,
 })
 
-vi.mock('./store', () => ({
-  useStore: () => ({
+vi.mock('./store', () => {
+  const useStore = () => ({
     hostMetrics: [host('podium-host', 'podium-host'), host('vmi', 'vmi34')],
     outboxSize: 0,
     sessions: [],
@@ -50,8 +50,13 @@ vi.mock('./store', () => ({
       hosts: { memoryBreakdown: { mutate: memoryBreakdown } },
       settings: { get: { query: settingsGet } },
     },
-  }),
-}))
+  })
+  // The selector-store hook reads slices off the same store shape.
+  return {
+    useStore,
+    useStoreSelector: (sel: (s: unknown) => unknown) => sel(useStore() as never),
+  }
+})
 
 // Connection is machine-agnostic here; keep it healthy + hidden so it stays out
 // of the way and we don't pull in the real websocket-backed hooks.

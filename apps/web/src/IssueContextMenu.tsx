@@ -1,3 +1,4 @@
+import { shallowEqual } from '@podium/client-core/store'
 import type { IssueStage, IssueWire } from '@podium/protocol'
 import { ISSUE_STAGES } from '@podium/protocol'
 import {
@@ -28,7 +29,7 @@ import { STAGE_LABELS } from './issue-card'
 import { deferDateFromNow, issueMenuEligibility, toggleLabelAcross } from './issue-context-menu'
 import { PriorityGlyph, StageGlyph } from './issue-glyphs'
 import type { ContextMenuAnchor } from './SessionContextMenu'
-import { useStore } from './store'
+import { useStoreSelector } from './store'
 
 /** Which flat second-level flyout is open (SessionContextMenu-style, no nesting). */
 type SubKind = 'stage' | 'priority' | 'agent' | 'labels' | 'duplicate' | 'defer'
@@ -62,7 +63,10 @@ export function IssueContextMenu({
    *  board, which has no in-place editor) the item falls back to a prompt. */
   onRename?: (id: string) => void
 }): JSX.Element | null {
-  const { trpc, markIssueRead, markIssueUnread } = useStore()
+  const { trpc, markIssueRead, markIssueUnread } = useStoreSelector(
+    (s) => ({ trpc: s.trpc, markIssueRead: s.markIssueRead, markIssueUnread: s.markIssueUnread }),
+    shallowEqual,
+  )
   const ref = useRef<HTMLDivElement | null>(null)
   const [pos, setPos] = useState<ContextMenuAnchor>(anchor)
   const [sub, setSub] = useState<{ kind: SubKind; top: number } | null>(null)

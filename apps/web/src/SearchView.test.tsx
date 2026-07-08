@@ -38,7 +38,14 @@ const store = {
   setSettingsTab,
   setOpenIssueId,
 }
-vi.mock('./store', () => ({ useStore: () => store }))
+vi.mock('./store', () => {
+  const useStore = () => store
+  // The selector-store hook reads slices off the same store shape.
+  return {
+    useStore,
+    useStoreSelector: (sel: (s: unknown) => unknown) => sel(useStore() as never),
+  }
+})
 vi.mock('@/hooks/use-is-mobile', () => ({ useIsMobile: () => false }))
 
 function hit(over: Record<string, unknown>) {

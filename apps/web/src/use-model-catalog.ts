@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { ModelChoice } from './agent-models'
-import { useStore } from './store'
+import { useStoreSelector } from './store'
 
 /**
  * Client-side stale-while-revalidate for the live per-agent model catalog. A single
@@ -53,7 +53,7 @@ async function fetchCatalog(api: ModelsApi): Promise<void> {
 }
 
 export function useModelCatalog(): Catalog {
-  const { trpc } = useStore()
+  const trpc = useStoreSelector((s) => s.trpc)
   const [, force] = useState(0)
   useEffect(() => {
     const sub = () => force((n) => n + 1)

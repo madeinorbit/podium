@@ -67,8 +67,8 @@ function issue(id: string, title: string, over: Record<string, unknown> = {}) {
 
 const updateMutate = vi.fn(async () => ({}))
 
-vi.mock('./store', () => ({
-  useStore: () => ({
+vi.mock('./store', () => {
+  const useStore = () => ({
     repos: [{ path: '/repo', kind: 'repository', branch: 'main', worktrees: [] }],
     sessions: [idleSess('s-a', 'a')],
     machines: [],
@@ -93,11 +93,17 @@ vi.mock('./store', () => ({
     setView: vi.fn(),
     sidebarSettings: { groupByRepo: false },
     setSidebarSettings: vi.fn(),
+    uiState: { get: () => null, set: () => {}, subscribe: () => () => {} },
     spawnDraftAgent: vi.fn(),
     markIssueRead: vi.fn(),
     markSessionRead: vi.fn(),
-  }),
-}))
+  })
+  // The selector-store hook reads slices off the same store shape.
+  return {
+    useStore,
+    useStoreSelector: (sel: (s: unknown) => unknown) => sel(useStore() as never),
+  }
+})
 
 vi.mock('./HostIndicators', () => ({ HostIndicators: () => null }))
 vi.mock('@/hooks/use-session-guard', () => ({

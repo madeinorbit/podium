@@ -1,3 +1,4 @@
+import { shallowEqual } from '@podium/client-core/store'
 import { Plus } from 'lucide-react'
 import type { JSX } from 'react'
 import {
@@ -7,7 +8,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { conciergeThreadId, resolveConciergeRepo } from './concierge'
-import { useStore } from './store'
+import { useStoreSelector } from './store'
 
 /**
  * The concierge + button (issue #65): the product's front door. One click opens
@@ -17,7 +18,18 @@ import { useStore } from './store'
  * genuinely ambiguous the button becomes a minimal repo picker.
  */
 export function ConciergeButton(): JSX.Element {
-  const { repos, sessions, selectedWorktree, paneA, setSuperThreadId, setSuperOpen } = useStore()
+  const { repos, sessions, selectedWorktree, paneA, setSuperThreadId, setSuperOpen } =
+    useStoreSelector(
+      (s) => ({
+        repos: s.repos,
+        sessions: s.sessions,
+        selectedWorktree: s.selectedWorktree,
+        paneA: s.paneA,
+        setSuperThreadId: s.setSuperThreadId,
+        setSuperOpen: s.setSuperOpen,
+      }),
+      shallowEqual,
+    )
 
   const open = (repoPath: string) => {
     setSuperThreadId(conciergeThreadId(repoPath))

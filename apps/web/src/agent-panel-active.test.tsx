@@ -86,8 +86,8 @@ const stableStoreFns = {
   killSession: vi.fn(async () => {}),
 }
 
-vi.mock('./store', () => ({
-  useStore: () => ({
+vi.mock('./store', () => {
+  const useStore = () => ({
     hub: fakeHub,
     sessions: storeSessions,
     machines: [],
@@ -97,8 +97,13 @@ vi.mock('./store', () => ({
     drafts: {},
     panelMode: storePanelMode,
     ...stableStoreFns,
-  }),
-}))
+  })
+  // The selector-store hook reads slices off the same store shape.
+  return {
+    useStore,
+    useStoreSelector: (sel: (s: unknown) => unknown) => sel(useStore() as never),
+  }
+})
 
 const { AgentPanel } = await import('./AgentPanel')
 

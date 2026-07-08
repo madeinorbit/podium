@@ -1,11 +1,12 @@
+import { shallowEqual } from '@podium/client-core/store'
 import { ChevronUp, File as FileIcon, Folder, RefreshCw } from 'lucide-react'
 import type { JSX } from 'react'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { formatAppError } from './AppErrorPage'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { useIsMobile } from '@/hooks/use-is-mobile'
-import { useStore } from './store'
+import { formatAppError } from './AppErrorPage'
+import { useStoreSelector } from './store'
 
 type Entry = { name: string; isDir: boolean }
 
@@ -25,7 +26,10 @@ export function FileBrowserModal({
   title: string
   onClose: () => void
 }): JSX.Element {
-  const { listDir, openFileInWorktree } = useStore()
+  const { listDir, openFileInWorktree } = useStoreSelector(
+    (s) => ({ listDir: s.listDir, openFileInWorktree: s.openFileInWorktree }),
+    shallowEqual,
+  )
   const isMobile = useIsMobile()
   const [path, setPath] = useState(root)
   const [entries, setEntries] = useState<Entry[]>([])
@@ -66,7 +70,10 @@ export function FileBrowserModal({
 
   const atRoot = resolvedRoot == null || path === resolvedRoot
   const parentCandidate = path.slice(0, path.lastIndexOf('/')) || '/'
-  const parent = resolvedRoot && parentCandidate.startsWith(resolvedRoot) ? parentCandidate : (resolvedRoot ?? root)
+  const parent =
+    resolvedRoot && parentCandidate.startsWith(resolvedRoot)
+      ? parentCandidate
+      : (resolvedRoot ?? root)
 
   return (
     <Dialog

@@ -55,8 +55,8 @@ const fakeTrpc = {
   },
 }
 
-vi.mock('./store', () => ({
-  useStore: () => ({
+vi.mock('./store', () => {
+  const useStore = () => ({
     hub: fakeHub,
     trpc: fakeTrpc,
     repos: [],
@@ -67,8 +67,13 @@ vi.mock('./store', () => ({
     setPane: vi.fn(),
     setSelectedWorktree: vi.fn(),
     setView: vi.fn(),
-  }),
-}))
+  })
+  // The selector-store hook reads slices off the same store shape.
+  return {
+    useStore,
+    useStoreSelector: (sel: (s: unknown) => unknown) => sel(useStore() as never),
+  }
+})
 vi.mock('./hooks/use-is-mobile', () => ({
   useIsMobile: () => isMobile,
 }))

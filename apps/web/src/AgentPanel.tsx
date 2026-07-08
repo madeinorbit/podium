@@ -1,3 +1,4 @@
+import { shallowEqual } from '@podium/client-core/store'
 import {
   extractClaudePromptDraft,
   extractCodexPromptDraft,
@@ -45,7 +46,7 @@ import {
 } from './derive'
 import { attentionGroup } from './home'
 import { SnoozeControl } from './SnoozeControl'
-import { useStore } from './store'
+import { useStoreSelector } from './store'
 import { useNow } from './useNow'
 import { useVoiceInput } from './voice'
 import { WorkerLabel } from './WorkerLabel'
@@ -130,7 +131,25 @@ export function AgentPanel({
     panelMode,
     setPanelMode,
     setPanelRenderMode,
-  } = useStore()
+  } = useStoreSelector(
+    (s) => ({
+      hub: s.hub,
+      sessions: s.sessions,
+      pendingSpawnIds: s.pendingSpawnIds,
+      machines: s.machines,
+      repos: s.repos,
+      trpc: s.trpc,
+      drafts: s.drafts,
+      startBtw: s.startBtw,
+      setSessionDraft: s.setSessionDraft,
+      hibernateSession: s.hibernateSession,
+      openFile: s.openFile,
+      panelMode: s.panelMode,
+      setPanelMode: s.setPanelMode,
+      setPanelRenderMode: s.setPanelRenderMode,
+    }),
+    shallowEqual,
+  )
   const { guardedArchive } = useSessionGuard()
   const session = sessions.find((s) => s.sessionId === sessionId)
   // An optimistically-spawned session doesn't exist server-side yet (#119): the
@@ -835,7 +854,10 @@ function ExitedPane({
   worktreeMissing: boolean
   worktreePath?: string
 }): JSX.Element {
-  const { resurrectSession, killSession } = useStore()
+  const { resurrectSession, killSession } = useStoreSelector(
+    (s) => ({ resurrectSession: s.resurrectSession, killSession: s.killSession }),
+    shallowEqual,
+  )
   const [waking, setWaking] = useState(false)
   const { detail, action } = exitedRecovery({
     exitCode,
@@ -901,7 +923,10 @@ function ExitedBanner({
   worktreeMissing: boolean
   worktreePath?: string
 }): JSX.Element {
-  const { resurrectSession, killSession } = useStore()
+  const { resurrectSession, killSession } = useStoreSelector(
+    (s) => ({ resurrectSession: s.resurrectSession, killSession: s.killSession }),
+    shallowEqual,
+  )
   const [waking, setWaking] = useState(false)
   const { detail, action } = exitedRecovery({
     exitCode,
@@ -954,7 +979,7 @@ function ExitedBanner({
 /** Thin bar over a hibernated session's (read-only) transcript: explains the
  *  state and offers one-click resume, without hiding the conversation. */
 function HibernatedBanner({ sessionId }: { sessionId: string }): JSX.Element {
-  const { resurrectSession } = useStore()
+  const resurrectSession = useStoreSelector((s) => s.resurrectSession)
   const [waking, setWaking] = useState(false)
   return (
     <div className="flex shrink-0 items-center gap-2 border-b border-primary/30 bg-primary/10 px-3 py-1.5 text-xs text-primary">
@@ -979,7 +1004,7 @@ function HibernatedBanner({ sessionId }: { sessionId: string }): JSX.Element {
 
 /** Firefox-snoozed-tab moment: the process is parked, one click wakes it. */
 function HibernatedPane({ sessionId }: { sessionId: string }): JSX.Element {
-  const { resurrectSession } = useStore()
+  const resurrectSession = useStoreSelector((s) => s.resurrectSession)
   const [waking, setWaking] = useState(false)
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center text-primary">

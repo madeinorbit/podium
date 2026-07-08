@@ -8,8 +8,8 @@ const create = vi.fn(async () => makeIssue({ id: 'new-issue' }))
 const update = vi.fn(async () => ({}))
 const linearSearch = vi.fn(async () => [])
 
-vi.mock('./store', () => ({
-  useStore: () => ({
+vi.mock('./store', () => {
+  const useStore = () => ({
     repos: [
       {
         path: '/repo',
@@ -38,8 +38,13 @@ vi.mock('./store', () => ({
         linearSearch: { query: linearSearch },
       },
     },
-  }),
-}))
+  })
+  // The selector-store hook reads slices off the same store shape.
+  return {
+    useStore,
+    useStoreSelector: (sel: (s: unknown) => unknown) => sel(useStore() as never),
+  }
+})
 
 type CheckboxMockProps = {
   checked?: boolean

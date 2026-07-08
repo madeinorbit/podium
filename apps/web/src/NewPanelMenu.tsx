@@ -1,3 +1,4 @@
+import { shallowEqual } from '@podium/client-core/store'
 import type { AgentKind } from '@podium/protocol'
 import { Circle, SquarePlus, SquareTerminal } from 'lucide-react'
 import type React from 'react'
@@ -17,7 +18,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { machinesForRepo, machinesWithRepo, reposToViews, resolveTargetMachine } from './derive'
 import { relativeTime } from './home'
 import { ClaudeCodeIcon, CursorIcon, GrokIcon, OpenAIcon, OpenCodeIcon } from './icons/AgentIcons'
-import { useStore } from './store'
+import { useStoreSelector } from './store'
 import type { RepoView, WorktreeView } from './types'
 import { type ConversationHit, useConversationSearch } from './useConversationSearch'
 
@@ -60,7 +61,10 @@ export function NewPanelMenu({
   /** Override the default "+" trigger button (e.g. a compact per-repo "+"). */
   trigger?: React.ReactElement
 }): JSX.Element {
-  const { trpc, repos, sessions, machines } = useStore()
+  const { trpc, repos, sessions, machines } = useStoreSelector(
+    (s) => ({ trpc: s.trpc, repos: s.repos, sessions: s.sessions, machines: s.machines }),
+    shallowEqual,
+  )
   const [filter, setFilter] = useState('')
   // Uncontrolled fallback so the desktop/mobile "+" still works without a parent
   // driving its open state; the controlled props win when supplied.

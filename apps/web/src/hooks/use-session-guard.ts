@@ -1,6 +1,7 @@
+import { shallowEqual } from '@podium/client-core/store'
 import { useCallback } from 'react'
 import { isSessionWorking } from '@/derive'
-import { useStore } from '@/store'
+import { useStoreSelector } from '@/store'
 import { useConfirm } from './use-confirm'
 
 /**
@@ -21,7 +22,10 @@ export function useSessionGuard(): {
    *  working session (unarchive is never destructive). */
   guardedArchive: (sessionId: string, archived: boolean) => Promise<void>
 } {
-  const { sessions, killSession, archiveSession } = useStore()
+  const { sessions, killSession, archiveSession } = useStoreSelector(
+    (s) => ({ sessions: s.sessions, killSession: s.killSession, archiveSession: s.archiveSession }),
+    shallowEqual,
+  )
   const confirm = useConfirm()
 
   const isWorking = useCallback(

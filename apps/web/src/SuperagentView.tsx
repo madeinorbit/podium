@@ -1,3 +1,4 @@
+import { shallowEqual } from '@podium/client-core/store'
 import type { AgentKind, TranscriptItem } from '@podium/protocol'
 import {
   ArrowUpRight,
@@ -14,13 +15,13 @@ import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { cn } from '@/lib/utils'
 import { CardBoundary } from './CardBoundary'
-import { mergeByCursor } from './chat'
 import { ChatView } from './ChatView'
+import { mergeByCursor } from './chat'
 import { conciergeLabel, conciergeRepoPath } from './concierge'
 import { agentBadge, panelLabel, reposToViews, sessionDotClass } from './derive'
 import { useIsMobile } from './hooks/use-is-mobile'
 import { renderMarkdown } from './markdown'
-import { useStore } from './store'
+import { type Store, useStoreSelector } from './store'
 import { useConversationSearch } from './useConversationSearch'
 import { useVoiceInput } from './voice'
 import { KindIcon, sessionDisplayName } from './WorkerLabel'
@@ -84,7 +85,19 @@ export function SuperagentView({ onClose }: { onClose?: () => void } = {}): JSX.
     setPane,
     setSelectedWorktree,
     setView,
-  } = useStore()
+  } = useStoreSelector(
+    (s) => ({
+      trpc: s.trpc,
+      sessions: s.sessions,
+      superThreadId: s.superThreadId,
+      setSuperThreadId: s.setSuperThreadId,
+      superRefreshKey: s.superRefreshKey,
+      setPane: s.setPane,
+      setSelectedWorktree: s.setSelectedWorktree,
+      setView: s.setView,
+    }),
+    shallowEqual,
+  )
   const [threads, setThreads] = useState<SuperThread[]>([])
   const [legacy, setLegacy] = useState<SuperMessage[]>([])
   const [legacyOpen, setLegacyOpen] = useState(false)
@@ -159,11 +172,16 @@ export function SuperagentView({ onClose }: { onClose?: () => void } = {}): JSX.
   // through the turn mutations. Kind falls back on the id shape for threads the
   // list hasn't caught up with yet.
   const threadKind: SuperThread['kind'] =
-    thread?.kind ?? (conciergeRepo ? 'concierge' : superThreadId.startsWith('btw_') ? 'btw' : 'global')
+    thread?.kind ??
+    (conciergeRepo ? 'concierge' : superThreadId.startsWith('btw_') ? 'btw' : 'global')
   const superThreadRef = {
     threadId: superThreadId,
     kind: threadKind,
-    ...(conciergeRepo ? { repoPath: conciergeRepo } : thread?.repoPath ? { repoPath: thread.repoPath } : {}),
+    ...(conciergeRepo
+      ? { repoPath: conciergeRepo }
+      : thread?.repoPath
+        ? { repoPath: thread.repoPath }
+        : {}),
   }
 
   return (
@@ -318,7 +336,7 @@ function FreshThreadComposer({
   onError: (message: string | null) => void
   onSent: () => void
 }): JSX.Element {
-  const { trpc, repos } = useStore()
+  const { trpc, repos } = useStoreSelector((s) => ({ trpc: s.trpc, repos: s.repos }), shallowEqual)
   const [draft, setDraft] = useState('')
   const [busy, setBusy] = useState(false)
   const [sentText, setSentText] = useState<string | null>(null)
@@ -561,7 +579,16 @@ function SpawnedAgentCard({
   cwd: string
   agentKind: AgentKind
 }): JSX.Element {
-  const { sessions, setPane, setSelectedWorktree, setView, hub } = useStore()
+  const { sessions, setPane, setSelectedWorktree, setView, hub } = useStoreSelector(
+    (s) => ({
+      sessions: s.sessions,
+      setPane: s.setPane,
+      setSelectedWorktree: s.setSelectedWorktree,
+      setView: s.setView,
+      hub: s.hub,
+    }),
+    shallowEqual,
+  )
   const [following, setFollowing] = useState(false)
   const session = sessions.find((s) => s.sessionId === sessionId)
   const status = session ? (agentBadge(session)?.label ?? session.status) : 'starting…'
@@ -616,7 +643,7 @@ export function SpawnedFollow({
   hub,
 }: {
   sessionId: string
-  hub: ReturnType<typeof useStore>['hub']
+  hub: Store['hub']
 }): JSX.Element {
   const [items, setItems] = useState<TranscriptItem[]>([])
   const endRef = useRef<HTMLDivElement | null>(null)

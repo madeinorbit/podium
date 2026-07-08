@@ -1,3 +1,4 @@
+import { shallowEqual } from '@podium/client-core/store'
 import type { AgentKind, IssueWire, SessionMeta } from '@podium/protocol'
 import {
   AlarmClock,
@@ -34,7 +35,6 @@ import {
   groupUnifiedWorkRows,
   isIssueSnoozed,
   issueReturnedFromDefer,
-  rowUnreadEmphasized,
   lastUsedMaps,
   machinesWithRepo,
   mostUrgentSession,
@@ -46,6 +46,7 @@ import {
   type RepoNavView,
   resolveDefaultAgent,
   resolveTargetMachine,
+  rowUnreadEmphasized,
   sessionDotClass,
   sessionsForIssueNav,
   sessionsForWorktree,
@@ -63,9 +64,9 @@ import { NEW_AGENTS } from './NewPanelMenu'
 import { RepoScanFlow } from './RepoScanFlow'
 import type { ContextMenuAnchor } from './SessionContextMenu'
 import { CollapsibleSection, PanelRow, StaleSection, useCollapsed } from './sidebar-common'
-import { SessionNameEditor } from './WorkerLabel'
-import { useStore, useStoreSelector } from './store'
+import { useStoreSelector } from './store'
 import { useNow } from './useNow'
+import { SessionNameEditor } from './WorkerLabel'
 
 /** Icon component for an agent kind (shared with the "+" menu's agent list). */
 function agentIconFor(kind: AgentKind) {
@@ -103,7 +104,33 @@ export function SidebarUnified(): JSX.Element {
     spawnDraftAgent,
     markIssueRead,
     markSessionRead,
-  } = useStore()
+  } = useStoreSelector(
+    (s) => ({
+      repos: s.repos,
+      sessions: s.sessions,
+      pins: s.pins,
+      setPinned: s.setPinned,
+      issues: s.issues,
+      trpc: s.trpc,
+      selectedWorktree: s.selectedWorktree,
+      setSelectedWorktree: s.setSelectedWorktree,
+      selectedIssueId: s.selectedIssueId,
+      setSelectedIssueId: s.setSelectedIssueId,
+      setOpenIssueId: s.setOpenIssueId,
+      paneA: s.paneA,
+      setPane: s.setPane,
+      fileTabs: s.fileTabs,
+      view: s.view,
+      setView: s.setView,
+      sidebarSettings: s.sidebarSettings,
+      setSidebarSettings: s.setSidebarSettings,
+      machines: s.machines,
+      spawnDraftAgent: s.spawnDraftAgent,
+      markIssueRead: s.markIssueRead,
+      markSessionRead: s.markSessionRead,
+    }),
+    shallowEqual,
+  )
   const setSearchOpen = useStoreSelector((s) => s.setSearchOpen)
   const now = useNow(60_000)
   const [newIssueOpen, setNewIssueOpen] = useState(false)
@@ -625,7 +652,10 @@ export function SidebarUnified(): JSX.Element {
       <HostIndicators />
       {newIssueOpen && <NewIssueDialog onClose={() => setNewIssueOpen(false)} />}
       {repoScanOpen && (
-        <RepoScanFlow onClose={() => setRepoScanOpen(false)} onDone={() => setRepoScanOpen(false)} />
+        <RepoScanFlow
+          onClose={() => setRepoScanOpen(false)}
+          onDone={() => setRepoScanOpen(false)}
+        />
       )}
     </>
   )
@@ -712,9 +742,7 @@ function UnifiedRowShell({
               // Selection is conveyed by the accent background ALONE — never a
               // heavier font (#170). That keeps UNREAD's bold as the sole weight
               // signal, so a selected-but-read row can't be mistaken for unread.
-              active
-                ? 'bg-accent text-accent-foreground'
-                : 'text-foreground hover:bg-accent',
+              active ? 'bg-accent text-accent-foreground' : 'text-foreground hover:bg-accent',
             )}
             onClick={onSelect}
             onDoubleClick={onDoubleClick}

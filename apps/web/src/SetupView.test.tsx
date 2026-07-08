@@ -209,9 +209,7 @@ describe('SetupView', () => {
       target: { value: 'https://random-words.trycloudflare.com' },
     })
     expect(view.getByText(/quick tunnel/i)).toBeTruthy()
-    expect(
-      (view.getByRole('button', { name: /finish/i }) as HTMLButtonElement).disabled,
-    ).toBe(true) // still disabled only because no password picked yet — warning doesn't add a block
+    expect((view.getByRole('button', { name: /finish/i }) as HTMLButtonElement).disabled).toBe(true) // still disabled only because no password picked yet — warning doesn't add a block
   })
 
   it('daemon mode takes one join code and applies it via setup.join', async () => {

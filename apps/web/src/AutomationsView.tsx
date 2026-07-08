@@ -37,7 +37,7 @@ import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
 import { cn } from '@/lib/utils'
-import { useStore } from './store'
+import { useStoreSelector } from './store'
 import type { Trpc } from './trpc'
 
 /** A durable event subscription row, inferred from the tRPC contract so the UI
@@ -200,7 +200,7 @@ function scheduleSummary(freq: Frequency, time: string, weekday: number, rawCron
  * "New automation" composer that appends to the local list.
  */
 export function AutomationsView(): JSX.Element {
-  const { trpc } = useStore()
+  const trpc = useStoreSelector((s) => s.trpc)
   const [automations, setAutomations] = useState<Automation[]>(SEED_AUTOMATIONS)
   const [creating, setCreating] = useState(false)
 

@@ -18,10 +18,15 @@ const fakeTrpc = {
   pins: { list: { query: async () => ({ panels: [], worktrees: [], repos: [] }) } },
   tabs: { listOrders: { query: async () => ({}) } },
   settings: { get: { query: async () => ({ sidebar: { repoSort: 'lastUsed', repoOrder: [] } }) } },
+  quota: { summary: { query: () => new Promise(() => {}) } }, // HostIndicators → QuotaIndicator
 }
 vi.mock('./trpc', () => ({ makeTrpc: () => fakeTrpc }))
 
 const { StoreProvider, useStore, useStoreSelector } = await import('./store')
+const { Workspace } = await import('./Workspace')
+const { CommandPalette } = await import('./CommandPalette')
+const { HostIndicators } = await import('./HostIndicators')
+const { ConfirmProvider } = await import('./hooks/use-confirm')
 
 class FakeWS {
   onopen: ((ev: unknown) => void) | null = null
@@ -118,6 +123,56 @@ describe('selector-scoped store', () => {
     await settle()
     expect(renders.view).toBeGreaterThan(viewBefore)
     expect(latestStore?.view).toBe('issues')
+  })
+
+  it('converted hot components do not re-commit when an unrelated slice changes', async () => {
+    // The REAL components (now on useStoreSelector slices), instrumented via
+    // React Profiler: an unrelated store write (a session draft) must not
+    // re-commit their subtrees. Before the conversion each useStore() consumer
+    // re-rendered on every store publish.
+    const { Profiler } = await import('react')
+    const commits: Record<string, number> = {}
+    const track =
+      (id: string) =>
+      (...[, phase]: [string, string]) => {
+        if (phase !== 'mount') commits[id] = (commits[id] ?? 0) + 1
+      }
+    act(() => {
+      root.render(
+        <StoreProvider
+          config={{ httpOrigin: 'http://x', wsClientUrl: 'ws://x' }}
+          onFatalError={() => {}}
+        >
+          <CompatProbe />
+          <ConfirmProvider>
+            <Profiler id="workspace" onRender={track('workspace')}>
+              <Workspace />
+            </Profiler>
+            <Profiler id="palette" onRender={track('palette')}>
+              <CommandPalette />
+            </Profiler>
+            <Profiler id="host-indicators" onRender={track('host-indicators')}>
+              <HostIndicators />
+            </Profiler>
+          </ConfirmProvider>
+        </StoreProvider>,
+      )
+    })
+    await settle()
+    const before = { ...commits }
+
+    // Unrelated slice: none of the three read `drafts`.
+    act(() => latestStore?.setSessionDraft('s1', 'hello'))
+    await settle()
+
+    expect(commits.workspace ?? 0).toBe(before.workspace ?? 0)
+    expect(commits.palette ?? 0).toBe(before.palette ?? 0)
+    expect(commits['host-indicators'] ?? 0).toBe(before['host-indicators'] ?? 0)
+
+    // Sanity: a slice they DO read (paneA via setPane) re-commits Workspace.
+    act(() => latestStore?.setPane('A', 'session-1'))
+    await settle()
+    expect(commits.workspace ?? 0).toBeGreaterThan(before.workspace ?? 0)
   })
 
   it('compat useStore() keeps snapshot identity across a no-op provider render', async () => {

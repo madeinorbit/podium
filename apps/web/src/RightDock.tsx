@@ -1,11 +1,12 @@
+import { shallowEqual } from '@podium/client-core/store'
 import { CircleDot, FolderTree, GitBranch, type LucideIcon, Sparkles } from 'lucide-react'
 import type { JSX } from 'react'
 import { useMemo } from 'react'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { type DockTab, resolveActiveWorktree } from './dock-panel'
 import { IssuePanelView } from './IssuePanelView'
-import { useStore } from './store'
 import { SuperagentView } from './SuperagentView'
+import { useStoreSelector } from './store'
 import { WorktreeFileTree } from './WorktreeFileTree'
 
 const TABS: { id: DockTab; label: string; icon: LucideIcon }[] = [
@@ -31,7 +32,17 @@ function GitPlaceholder(): JSX.Element {
 /** IDE-style right dock: Superagent | Files | Git | Issue tabs. `superOpen`
  *  stays the open/close flag; the active tab persists as `dockTab`. */
 export function RightDock(): JSX.Element {
-  const { dockTab, setDockTab, setSuperOpen, paneA, fileTabs, sessions } = useStore()
+  const { dockTab, setDockTab, setSuperOpen, paneA, fileTabs, sessions } = useStoreSelector(
+    (s) => ({
+      dockTab: s.dockTab,
+      setDockTab: s.setDockTab,
+      setSuperOpen: s.setSuperOpen,
+      paneA: s.paneA,
+      fileTabs: s.fileTabs,
+      sessions: s.sessions,
+    }),
+    shallowEqual,
+  )
   const active = useMemo(
     () => resolveActiveWorktree({ paneA, fileTabs, sessions }),
     [paneA, fileTabs, sessions],

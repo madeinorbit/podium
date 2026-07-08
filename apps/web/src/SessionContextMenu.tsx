@@ -1,3 +1,4 @@
+import { shallowEqual } from '@podium/client-core/store'
 import type { SessionMeta } from '@podium/protocol'
 import {
   AlarmClock,
@@ -18,7 +19,7 @@ import { type JSX, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { isSnoozed, snoozeUntil1h, snoozeUntilTomorrow5am } from './derive'
 import { useSessionGuard } from './hooks/use-session-guard'
-import { useStore } from './store'
+import { useStoreSelector } from './store'
 import { useNow } from './useNow'
 
 export interface ContextMenuAnchor {
@@ -86,7 +87,19 @@ export function SessionContextMenu({
     startBtw,
     markSessionRead,
     markSessionUnread,
-  } = useStore()
+  } = useStoreSelector(
+    (s) => ({
+      setPinned: s.setPinned,
+      setSnooze: s.setSnooze,
+      clearSnooze: s.clearSnooze,
+      hibernateSession: s.hibernateSession,
+      resurrectSession: s.resurrectSession,
+      startBtw: s.startBtw,
+      markSessionRead: s.markSessionRead,
+      markSessionUnread: s.markSessionUnread,
+    }),
+    shallowEqual,
+  )
   const { guardedKill, guardedArchive } = useSessionGuard()
   const now = useNow(60_000)
   const ref = useRef<HTMLDivElement | null>(null)

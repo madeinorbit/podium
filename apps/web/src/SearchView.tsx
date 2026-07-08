@@ -1,3 +1,4 @@
+import { shallowEqual } from '@podium/client-core/store'
 import type { AgentKind, SearchResultWire } from '@podium/protocol'
 import {
   CircleDot,
@@ -13,7 +14,7 @@ import { Input } from '@/components/ui/input'
 import { useIsMobile } from '@/hooks/use-is-mobile'
 import { cn } from '@/lib/utils'
 import { relativeTime } from './home'
-import { useStore } from './store'
+import { useStoreSelector } from './store'
 
 const DEBOUNCE_MS = 250
 const MIN_QUERY_LEN = 2
@@ -45,7 +46,7 @@ function useOmniSearch(query: string): {
   busy: boolean
   failed: boolean
 } {
-  const { trpc } = useStore()
+  const trpc = useStoreSelector((s) => s.trpc)
   const [state, setState] = useState<{
     hits: SearchResultWire[]
     busy: boolean
@@ -117,7 +118,18 @@ function SnippetSpans({ text }: { text: string }): JSX.Element {
  */
 export function SearchView({ onClose }: { onClose: () => void }): JSX.Element {
   const { trpc, sessions, setSelectedWorktree, setPane, setView, setSettingsTab, setOpenIssueId } =
-    useStore()
+    useStoreSelector(
+      (s) => ({
+        trpc: s.trpc,
+        sessions: s.sessions,
+        setSelectedWorktree: s.setSelectedWorktree,
+        setPane: s.setPane,
+        setView: s.setView,
+        setSettingsTab: s.setSettingsTab,
+        setOpenIssueId: s.setOpenIssueId,
+      }),
+      shallowEqual,
+    )
   const isMobile = useIsMobile()
   const [query, setQuery] = useState('')
   const [selected, setSelected] = useState(0)

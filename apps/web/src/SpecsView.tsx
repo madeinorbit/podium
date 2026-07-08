@@ -2,6 +2,8 @@ import '@blocknote/core/fonts/inter.css'
 import '@blocknote/mantine/style.css'
 import { BlockNoteView } from '@blocknote/mantine'
 import { useCreateBlockNote } from '@blocknote/react'
+import { shallowEqual } from '@podium/client-core/store'
+import { TRPCClientError } from '@trpc/client'
 import {
   BookOpenText,
   ChevronDown,
@@ -12,7 +14,6 @@ import {
   Search,
   Trash2,
 } from 'lucide-react'
-import { TRPCClientError } from '@trpc/client'
 import type { JSX } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { toast } from 'sonner'
@@ -20,7 +21,7 @@ import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger } from '@/components/ui/select'
 import { useConfirm } from '@/hooks/use-confirm'
 import { cn } from '@/lib/utils'
-import { useStore } from './store'
+import { useStoreSelector } from './store'
 
 /**
  * Specs — a living, nested spec that humans and agents co-author (pspec v1).
@@ -59,7 +60,7 @@ function useIsDark(): boolean {
 }
 
 export function SpecsView(): JSX.Element {
-  const { trpc, repos } = useStore()
+  const { trpc, repos } = useStoreSelector((s) => ({ trpc: s.trpc, repos: s.repos }), shallowEqual)
   const confirm = useConfirm()
   const isDark = useIsDark()
 
@@ -363,7 +364,9 @@ export function SpecsView(): JSX.Element {
         {unavailable !== null && (
           <div className="flex flex-1 items-center justify-center p-6">
             <div className="max-w-[440px] text-center text-sm text-muted-foreground">
-              <div className="font-medium text-foreground">Spec unavailable for this repository</div>
+              <div className="font-medium text-foreground">
+                Spec unavailable for this repository
+              </div>
               <p className="mt-1 [overflow-wrap:anywhere]">{unavailable}</p>
             </div>
           </div>

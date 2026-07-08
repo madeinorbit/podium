@@ -62,8 +62,8 @@ const fakeReplica = {
 
 let storeSessions: SessionMeta[] = []
 
-vi.mock('./store', () => ({
-  useStore: () => ({
+vi.mock('./store', () => {
+  const useStore = () => ({
     hub: fakeHub,
     trpc: fakeTrpc,
     replica: fakeReplica,
@@ -74,8 +74,13 @@ vi.mock('./store', () => ({
     openFile: vi.fn(),
     httpOrigin: 'http://x',
     tldrSession: vi.fn(),
-  }),
-}))
+  })
+  // The selector-store hook reads slices off the same store shape.
+  return {
+    useStore,
+    useStoreSelector: (sel: (s: unknown) => unknown) => sel(useStore() as never),
+  }
+})
 
 vi.mock('./voice', () => ({
   useVoiceInput: () => ({ supported: false, listening: false, toggle: vi.fn() }),

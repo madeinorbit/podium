@@ -17,13 +17,18 @@ const catalogQuery = vi.fn(async () => ({
 }))
 const refreshMutate = vi.fn(async () => ({ byAgent: {}, fetchedAt: 1 }))
 
-vi.mock('./store', () => ({
-  useStore: () => ({
+vi.mock('./store', () => {
+  const useStore = () => ({
     trpc: {
       models: { catalog: { query: catalogQuery }, refresh: { mutate: refreshMutate } },
     },
-  }),
-}))
+  })
+  // The selector-store hook reads slices off the same store shape.
+  return {
+    useStore,
+    useStoreSelector: (sel: (s: unknown) => unknown) => sel(useStore() as never),
+  }
+})
 
 afterEach(() => {
   cleanup()

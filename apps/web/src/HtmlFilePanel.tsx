@@ -1,16 +1,17 @@
 import type { EditorView } from '@codemirror/view'
+import { shallowEqual } from '@podium/client-core/store'
 import { Columns2, Eye, Pencil, Save, X } from 'lucide-react'
 import { type JSX, useEffect, useMemo, useRef, useState } from 'react'
 import { scopedAssetUrl } from './asset-url'
 import { canSave } from './editor-save'
-import { scopeKey, type FileScope } from './file-scope'
+import { type FileScope, scopeKey } from './file-scope'
 import { useIsMobile } from './hooks/use-is-mobile'
 import {
   buildStaticHtmlPreview,
   linkedStylesheetPathsForStaticHtml,
 } from './html-preview-transform'
 import { SourceEditor } from './SourceEditor'
-import { useStore } from './store'
+import { useStoreSelector } from './store'
 import { useFileDocument } from './useFileDocument'
 
 type Mode = 'preview' | 'source' | 'split'
@@ -39,7 +40,10 @@ export function HtmlFilePanel({
   path: string
   onClose: () => void
 }): JSX.Element {
-  const { httpOrigin, readFileScoped } = useStore()
+  const { httpOrigin, readFileScoped } = useStoreSelector(
+    (s) => ({ httpOrigin: s.httpOrigin, readFileScoped: s.readFileScoped }),
+    shallowEqual,
+  )
   const doc = useFileDocument(scope, path)
   const mobile = useIsMobile()
   const tabId = `file:${scopeKey(scope)}:${path}`

@@ -1,3 +1,4 @@
+import { shallowEqual } from '@podium/client-core/store'
 import type { IssueComment, IssueStage, IssueWire } from '@podium/protocol'
 import { CircleAlert, CircleCheck, FileText, User } from 'lucide-react'
 import type { JSX } from 'react'
@@ -5,6 +6,8 @@ import { useEffect, useMemo, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { cn } from '@/lib/utils'
+import { DockSection } from './DockSection'
+import { subIssuesOf } from './derive'
 import {
   artifactKind,
   basename,
@@ -12,12 +15,9 @@ import {
   panelNonEmpty,
   worktreeAssetUrl,
 } from './dock-panel'
-import { subIssuesOf } from './derive'
-import { DockSection } from './DockSection'
 import { relativeTime } from './home'
 import { STAGE_LABELS } from './issue-card'
 import { useStoreSelector } from './store'
-import { shallowEqual } from '@podium/client-core/store'
 
 /** Stage → dot + tinted chip classes (token-tinted, works across the 4 themes). */
 const STAGE_ACCENT: Record<IssueStage, { dot: string; chip: string }> = {

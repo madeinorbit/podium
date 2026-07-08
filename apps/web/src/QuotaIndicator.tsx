@@ -20,7 +20,7 @@ import {
   windowElapsedPercent,
   windowPace,
 } from './quota'
-import { useStore } from './store'
+import { useStoreSelector } from './store'
 
 // Severity → status-strip colors, matching the host memory glyph's contract
 // (HostIndicators): the bar fill is always tinted; the icon stays neutral while
@@ -58,7 +58,7 @@ function worstPercent(groups: AccountQuotaGroup[]): number {
  * rate-limit usage read live from each agent's own quota endpoint.
  */
 export function QuotaIndicator({ compact = false }: { compact?: boolean }): JSX.Element | null {
-  const { trpc } = useStore()
+  const trpc = useStoreSelector((s) => s.trpc)
   const [machines, setMachines] = useState<MachineQuotaWire[] | null>(null)
   const [open, setOpen] = useState(false)
 

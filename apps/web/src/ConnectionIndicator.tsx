@@ -1,10 +1,10 @@
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { cn } from '@/lib/utils'
 import type { ConnectionHealth } from '@podium/terminal-client'
 import { Wifi, WifiOff } from 'lucide-react'
 import type { JSX } from 'react'
 import { useEffect, useRef, useState } from 'react'
-import { useStore } from './store'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { cn } from '@/lib/utils'
+import { useStoreSelector } from './store'
 
 /**
  * Hook kept outside the store state on purpose: health can change every heartbeat
@@ -12,7 +12,7 @@ import { useStore } from './store'
  * Only the components that show the indicator subscribe.
  */
 export function useConnectionHealth(): ConnectionHealth {
-  const { hub } = useStore()
+  const hub = useStoreSelector((s) => s.hub)
   const [health, setHealth] = useState<ConnectionHealth>(() => hub.connectionHealth())
   useEffect(() => hub.onConnectionHealth(setHealth), [hub])
   return health

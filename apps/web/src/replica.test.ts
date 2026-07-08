@@ -1,6 +1,6 @@
 import type { IssueWire, SessionMeta, TranscriptItem } from '@podium/protocol'
 import { beforeEach, describe, expect, it } from 'vitest'
-import { Outbox, OUTBOX_LS_KEY, type OutboxEntry } from './outbox'
+import { OUTBOX_LS_KEY, Outbox, type OutboxEntry } from './outbox'
 import {
   createReplica,
   REPLICA_TRANSCRIPT_CONVERSATION_CAP,
@@ -48,8 +48,7 @@ function makeQuotaStorage(): {
   const data = new Map<string, string>()
   let failing = false
   let failed = 0
-  const isEntityBlob = (k: string) =>
-    /\.(sessions|issues|conversations|transcripts)\.v1$/.test(k)
+  const isEntityBlob = (k: string) => /\.(sessions|issues|conversations|transcripts)\.v1$/.test(k)
   return {
     data,
     failedAttempts: () => failed,

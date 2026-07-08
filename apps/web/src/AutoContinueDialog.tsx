@@ -1,3 +1,4 @@
+import { shallowEqual } from '@podium/client-core/store'
 import type { JSX } from 'react'
 import { useState } from 'react'
 import { Button } from '@/components/ui/button'
@@ -9,7 +10,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { useStore } from './store'
+import { useStoreSelector } from './store'
 
 /**
  * One-time opt-in shown the first time the user clicks Continue on an errored
@@ -17,7 +18,14 @@ import { useStore } from './store'
  * "Enable" also flips the global `autoContinue.enabled` switch on.
  */
 export function AutoContinueDialog(): JSX.Element | null {
-  const { trpc, autoContinuePromptSessionId, closeAutoContinuePrompt } = useStore()
+  const { trpc, autoContinuePromptSessionId, closeAutoContinuePrompt } = useStoreSelector(
+    (s) => ({
+      trpc: s.trpc,
+      autoContinuePromptSessionId: s.autoContinuePromptSessionId,
+      closeAutoContinuePrompt: s.closeAutoContinuePrompt,
+    }),
+    shallowEqual,
+  )
   const [busy, setBusy] = useState(false)
   const open = autoContinuePromptSessionId !== null
 
@@ -51,14 +59,14 @@ export function AutoContinueDialog(): JSX.Element | null {
         <DialogHeader>
           <DialogTitle>Auto-continue when agents error?</DialogTitle>
           <DialogDescription>
-            Podium just re-sent “continue”. Want it to do that automatically whenever an
-            agent stops on a retryable error (rate limit, server error)? It retries on an
-            increasing delay — up to 5 minutes between tries — until the agent recovers.
+            Podium just re-sent “continue”. Want it to do that automatically whenever an agent stops
+            on a retryable error (rate limit, server error)? It retries on an increasing delay — up
+            to 5 minutes between tries — until the agent recovers.
           </DialogDescription>
         </DialogHeader>
         <p className="text-[12px] text-muted-foreground">
-          Heads up: this can keep an agent running indefinitely and consuming tokens with no
-          one watching. You can turn it off anytime in Settings → New sessions.
+          Heads up: this can keep an agent running indefinitely and consuming tokens with no one
+          watching. You can turn it off anytime in Settings → New sessions.
         </p>
         <DialogFooter>
           <Button variant="outline" disabled={busy} onClick={() => void finish(false)}>

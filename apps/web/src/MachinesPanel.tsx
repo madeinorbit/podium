@@ -1,3 +1,4 @@
+import { shallowEqual } from '@podium/client-core/store'
 import type { MachineWire } from '@podium/protocol'
 import type { JSX } from 'react'
 import { useEffect, useState } from 'react'
@@ -15,7 +16,7 @@ import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
 import { relativeTime } from './home'
 import { NetworkStep } from './SetupView'
-import { useStore } from './store'
+import { type Store, useStoreSelector } from './store'
 
 /**
  * Settings → Machines panel.
@@ -23,7 +24,10 @@ import { useStore } from './store'
  * flow that mints a pairing code and shows the daemon command to run.
  */
 export function MachinesPanel(): JSX.Element {
-  const { machines, trpc, setSettingsTab } = useStore()
+  const { machines, trpc, setSettingsTab } = useStoreSelector(
+    (s) => ({ machines: s.machines, trpc: s.trpc, setSettingsTab: s.setSettingsTab }),
+    shallowEqual,
+  )
   const [now, setNow] = useState(() => Date.now())
   const [addOpen, setAddOpen] = useState(false)
   const [code, setCode] = useState<string | null>(null)
@@ -240,7 +244,7 @@ function MachineRow({
 }: {
   machine: MachineWire
   now: number
-  trpc: ReturnType<typeof useStore>['trpc']
+  trpc: Store['trpc']
 }): JSX.Element {
   const [name, setName] = useState(machine.name)
   const [editing, setEditing] = useState(false)

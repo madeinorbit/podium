@@ -30,6 +30,11 @@
  * blob whole (inherent to a JSON-blob backing); acceptable at current sizes.
  */
 
+import {
+  type OutboxEntry,
+  type OutboxStorage,
+  parseOutboxEntries,
+} from '@podium/client-core/outbox'
 import type {
   ConversationSummaryWire,
   IssueWire,
@@ -39,11 +44,6 @@ import type {
 import type { Collection, StorageApi, StorageEventApi, Transaction } from '@tanstack/db'
 import { createCollection, localStorageCollectionOptions } from '@tanstack/db'
 import { useLiveQuery } from '@tanstack/react-db'
-import {
-  parseOutboxEntries,
-  type OutboxEntry,
-  type OutboxStorage,
-} from '@podium/client-core/outbox'
 import { OUTBOX_LS_KEY } from './outbox'
 
 /** Wire row type per replica collection kind. */
@@ -665,7 +665,10 @@ class TanstackReplica implements Replica {
    * storage no longer reflects this tab's truth, so a foreign tab's blob write
    * must not clobber the in-memory rows.
    */
-  private wrapStorageEvents(wrapped: StorageApi, opts: { dropWhenDegraded: boolean }): StorageEventApi {
+  private wrapStorageEvents(
+    wrapped: StorageApi,
+    opts: { dropWhenDegraded: boolean },
+  ): StorageEventApi {
     const real = this.storageEventApi
     const wrappedBy = new WeakMap<(e: StorageEvent) => void, (e: StorageEvent) => void>()
     return {
@@ -816,10 +819,7 @@ export function createReplica(init: ReplicaInit = {}): Replica {
  */
 const EMPTY_ROWS: never[] = []
 
-export function useReplicaRows<K extends ReplicaKind>(
-  replica: Replica,
-  kind: K,
-): ReplicaRows[K][] {
+export function useReplicaRows<K extends ReplicaKind>(replica: Replica, kind: K): ReplicaRows[K][] {
   const { data } = useLiveQuery(
     () =>
       // biome-ignore lint/suspicious/noExplicitAny: adapter-internal cast from the untyped collection seam

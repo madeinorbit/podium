@@ -14,6 +14,7 @@ import {
   useSortable,
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
+import { shallowEqual } from '@podium/client-core/store'
 import type { SessionMeta } from '@podium/protocol'
 import { Archive, Columns2, FileText, Pin, X } from 'lucide-react'
 import { type JSX, lazy, Suspense, useEffect, useRef, useState } from 'react'
@@ -34,7 +35,7 @@ import {
 } from './derive'
 import { NewPanelMenu } from './NewPanelMenu'
 import { type ContextMenuAnchor, SessionContextMenu } from './SessionContextMenu'
-import { type FileTab, useStore } from './store'
+import { type FileTab, useStoreSelector } from './store'
 import type { WorktreeView } from './types'
 import { useWarmSet } from './use-warm-set'
 import { SessionNameEditor, sessionDisplayName, WorkerLabel } from './WorkerLabel'
@@ -52,7 +53,6 @@ const tabName = (t: WTab): string =>
   t.kind === 'file' ? (t.file.path.split('/').pop() ?? t.file.path) : ''
 
 export function Workspace(): JSX.Element {
-  const store = useStore()
   const {
     sessions,
     pins,
@@ -68,7 +68,31 @@ export function Workspace(): JSX.Element {
     fileTabs,
     closeFileTab,
     markSessionRead,
-  } = store
+    repos,
+    selectedIssueId,
+    issues,
+  } = useStoreSelector(
+    (s) => ({
+      sessions: s.sessions,
+      pins: s.pins,
+      setPinned: s.setPinned,
+      tabOrders: s.tabOrders,
+      setTabOrder: s.setTabOrder,
+      selectedWorktree: s.selectedWorktree,
+      paneA: s.paneA,
+      paneB: s.paneB,
+      setPane: s.setPane,
+      split: s.split,
+      toggleSplit: s.toggleSplit,
+      fileTabs: s.fileTabs,
+      closeFileTab: s.closeFileTab,
+      markSessionRead: s.markSessionRead,
+      repos: s.repos,
+      selectedIssueId: s.selectedIssueId,
+      issues: s.issues,
+    }),
+    shallowEqual,
+  )
   // Closing a session tab routes through the active-session guard (#115) so a
   // working agent prompts for confirmation; file tabs close immediately.
   const { guardedKill } = useSessionGuard()
@@ -87,15 +111,15 @@ export function Workspace(): JSX.Element {
   // (the "N archived" control at the end of the strip reopens them as tabs).
   const [showArchived, setShowArchived] = useState(false)
 
-  const allWorktrees = reposToViews(store.repos).flatMap((r) => r.worktrees)
+  const allWorktrees = reposToViews(repos).flatMap((r) => r.worktrees)
   const allWorktreePaths = allWorktrees.map((w) => w.path)
   const worktree: WorktreeView | undefined = allWorktrees.find((w) => w.path === selectedWorktree)
 
   // Issue-keyed workspace (issue-as-workspace, unified layout only): when an
   // issue row is selected, the tab strip shows the issue's sessions (explicit
   // issueId first-class + cwd-contained legacy) instead of a worktree's.
-  const issue = store.selectedIssueId
-    ? store.issues.find((i) => i.id === store.selectedIssueId && !i.archived)
+  const issue = selectedIssueId
+    ? issues.find((i) => i.id === selectedIssueId && !i.archived)
     : undefined
   const issueWorktree = issue?.worktreePath
     ? allWorktrees.find((w) => w.path === issue.worktreePath)
@@ -392,7 +416,7 @@ function SortableTab({
   onTogglePin?: () => void
   onClose: () => void
 }): JSX.Element {
-  const { renameSession } = useStore()
+  const renameSession = useStoreSelector((s) => s.renameSession)
   const [editing, setEditing] = useState(false)
   const [menuAnchor, setMenuAnchor] = useState<ContextMenuAnchor | null>(null)
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({

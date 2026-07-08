@@ -25,12 +25,17 @@ vi.mock('./useFileDocument', () => ({
   }),
 }))
 
-vi.mock('./store', () => ({
-  useStore: () => ({
+vi.mock('./store', () => {
+  const useStore = () => ({
     httpOrigin: 'http://podium.test',
     readFileScoped: onReadFile,
-  }),
-}))
+  })
+  // The selector-store hook reads slices off the same store shape.
+  return {
+    useStore,
+    useStoreSelector: (sel: (s: unknown) => unknown) => sel(useStore() as never),
+  }
+})
 
 vi.mock('./hooks/use-is-mobile', () => ({
   useIsMobile: () => false,

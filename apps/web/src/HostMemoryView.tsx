@@ -1,3 +1,4 @@
+import { shallowEqual } from '@podium/client-core/store'
 import type { PodiumSettings } from '@podium/core'
 import type { AgentMemoryWire, HostMemoryWire, ProjectMemoryWire } from '@podium/protocol'
 import type { JSX } from 'react'
@@ -8,14 +9,14 @@ import { useIsMobile } from '@/hooks/use-is-mobile'
 import { cn } from '@/lib/utils'
 import { describeHealth, useConnectionHealth } from './ConnectionIndicator'
 import { formatMemBytes, hostMemoryView, panelLabel } from './derive'
-import { useStore } from './store'
+import { useStoreSelector } from './store'
 
 /** The host-memory hibernation knob, lazily fetched from the server. Shared by
  *  the memory chip's tooltip and the memory modal so both reflect the live
  *  setting without either reaching into the (settings-less) store. Returns null
  *  until the first fetch resolves. */
 export function useHibernationSetting(): PodiumSettings['hibernation'] | null {
-  const { trpc } = useStore()
+  const trpc = useStoreSelector((s) => s.trpc)
   const [hibernation, setHibernation] = useState<PodiumSettings['hibernation'] | null>(null)
   useEffect(() => {
     let alive = true
@@ -107,7 +108,7 @@ export function HostInfoView({
 
 /** Connection tab: live status, latency, and the explanatory detail line. */
 function ConnectionPanel(): JSX.Element {
-  const { hostMetrics } = useStore()
+  const hostMetrics = useStoreSelector((s) => s.hostMetrics)
   const health = useConnectionHealth()
   const [, setTick] = useState(0)
   useEffect(() => {
@@ -159,7 +160,16 @@ function MemoryPanel({
   onClose: () => void
   machineId?: string
 }): JSX.Element {
-  const { trpc, sessions, hostMetrics, setView, setSettingsTab } = useStore()
+  const { trpc, sessions, hostMetrics, setView, setSettingsTab } = useStoreSelector(
+    (s) => ({
+      trpc: s.trpc,
+      sessions: s.sessions,
+      hostMetrics: s.hostMetrics,
+      setView: s.setView,
+      setSettingsTab: s.setSettingsTab,
+    }),
+    shallowEqual,
+  )
   const hibernation = useHibernationSetting()
   const [data, setData] = useState<Breakdown | null>(null)
   const [error, setError] = useState<string | null>(null)

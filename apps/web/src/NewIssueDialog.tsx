@@ -1,3 +1,4 @@
+import { shallowEqual } from '@podium/client-core/store'
 import { ISSUE_STAGES, type IssueStage, IssueType } from '@podium/protocol'
 import { FolderGit2, GitBranch, Plus } from 'lucide-react'
 import type { ComponentProps, JSX, ReactNode } from 'react'
@@ -29,7 +30,7 @@ import { STAGE_LABELS } from './issue-card'
 import { PriorityGlyph, StageGlyph } from './issue-glyphs'
 import { EffortPicker, ModelPicker } from './ModelEffortPicker'
 import { PropertyMenu, type PropertyOption } from './PropertyMenu'
-import { useStore } from './store'
+import { useStoreSelector } from './store'
 
 /** A Linear search hit. Not exported from the protocol — the server returns this
  *  shape from `issues.linearSearch`, so we mirror it inline. */
@@ -94,7 +95,10 @@ export function NewIssueDialog({
    *  patch. */
   initialStage?: IssueStage
 }): JSX.Element {
-  const { trpc, repos, issues, sessions = [] } = useStore()
+  const { trpc, repos, issues, sessions } = useStoreSelector(
+    (s) => ({ trpc: s.trpc, repos: s.repos, issues: s.issues, sessions: s.sessions ?? [] }),
+    shallowEqual,
+  )
   const isMobile = useIsMobile()
   const titleRef = useRef<HTMLInputElement>(null)
   const [title, setTitle] = useState('')

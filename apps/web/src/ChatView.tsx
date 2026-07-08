@@ -1,3 +1,4 @@
+import { shallowEqual } from '@podium/client-core/store'
 import type { HeadlessActivityEvent, TranscriptItem } from '@podium/protocol'
 import {
   ArrowDownToLine,
@@ -44,7 +45,7 @@ import { chatActivity } from './derive'
 import { resolveAgainstCwd } from './file-path'
 import { useIsMobile } from './hooks/use-is-mobile'
 import { renderMarkdown } from './markdown'
-import { useStore } from './store'
+import { useStoreSelector } from './store'
 import { useNow } from './useNow'
 import { useVoiceInput } from './voice'
 
@@ -167,7 +168,21 @@ export function ChatView({
     openFile,
     httpOrigin,
     tldrSession,
-  } = useStore()
+  } = useStoreSelector(
+    (s) => ({
+      hub: s.hub,
+      trpc: s.trpc,
+      replica: s.replica,
+      sessions: s.sessions,
+      drafts: s.drafts,
+      setSessionDraft: s.setSessionDraft,
+      resumeAndSend: s.resumeAndSend,
+      openFile: s.openFile,
+      httpOrigin: s.httpOrigin,
+      tldrSession: s.tldrSession,
+    }),
+    shallowEqual,
+  )
   const session = sessions.find((s) => s.sessionId === sessionId)
   const cwd = session?.cwd ?? '/'
   // HEADLESS mode (concierge unification): a superagent thread's harness session
@@ -817,9 +832,15 @@ export function ChatView({
         setTurnError(null)
         try {
           if (superThread.kind === 'concierge' && superThread.repoPath) {
-            await trpc.superagent.concierge.mutate({ repoPath: superThread.repoPath, text: fullText })
+            await trpc.superagent.concierge.mutate({
+              repoPath: superThread.repoPath,
+              text: fullText,
+            })
           } else {
-            await trpc.superagent.sendTurn.mutate({ threadId: superThread.threadId, text: fullText })
+            await trpc.superagent.sendTurn.mutate({
+              threadId: superThread.threadId,
+              text: fullText,
+            })
           }
         } catch (e) {
           setTurnError(e instanceof Error ? e.message : String(e))
@@ -936,17 +957,17 @@ export function ChatView({
             summary of the agent's last answer (seeded with the answer + context).
             Hidden in the compact superagent dock (that IS the superagent). */}
         {!compact && (
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          className="h-auto flex-none gap-1 px-1.5 py-1 text-[11px] text-muted-foreground hover:text-foreground"
-          title="tl;dr — summarize the last answer via the superagent"
-          disabled={!lastAnswerText}
-          onClick={() => void tldrSession(sessionId, lastAnswerText)}
-        >
-          <ScrollText size={13} aria-hidden="true" /> tl;dr
-        </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-auto flex-none gap-1 px-1.5 py-1 text-[11px] text-muted-foreground hover:text-foreground"
+            title="tl;dr — summarize the last answer via the superagent"
+            disabled={!lastAnswerText}
+            onClick={() => void tldrSession(sessionId, lastAnswerText)}
+          >
+            <ScrollText size={13} aria-hidden="true" /> tl;dr
+          </Button>
         )}
       </div>
       <div className="relative flex min-h-0 flex-1">
@@ -1301,9 +1322,7 @@ export function ChatView({
                 onClick={() => {
                   trpc.superagent.interruptTurn
                     .mutate({ threadId: superThread.threadId })
-                    .catch((e: unknown) =>
-                      setTurnError(e instanceof Error ? e.message : String(e)),
-                    )
+                    .catch((e: unknown) => setTurnError(e instanceof Error ? e.message : String(e)))
                 }}
               >
                 <Square size={16} aria-hidden="true" />

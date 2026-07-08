@@ -1,3 +1,4 @@
+import { shallowEqual } from '@podium/client-core/store'
 import { CloudUpload, MemoryStick } from 'lucide-react'
 import type { JSX } from 'react'
 import { useState } from 'react'
@@ -7,7 +8,7 @@ import { ConnectionIndicator, describeHealth, useStableConnection } from './Conn
 import { hostMemoryView } from './derive'
 import { type HostInfoTab, HostInfoView, useHibernationSetting } from './HostMemoryView'
 import { QuotaIndicator } from './QuotaIndicator'
-import { useStore } from './store'
+import { useStoreSelector } from './store'
 
 // Memory pressure → colors, reproducing the legacy `.mem-*` contract: the bar
 // fill is always tinted by severity; the icon stays neutral while `ok` and only
@@ -34,7 +35,10 @@ const SEVERITY = {
  * the per-process breakdown / connection detail.
  */
 export function HostIndicators({ compact = false }: { compact?: boolean }): JSX.Element {
-  const { hostMetrics, outboxSize } = useStore()
+  const { hostMetrics, outboxSize } = useStoreSelector(
+    (s) => ({ hostMetrics: s.hostMetrics, outboxSize: s.outboxSize }),
+    shallowEqual,
+  )
   const { health, visible: connVisible } = useStableConnection()
   const hibernation = useHibernationSetting()
   // The open host-info modal, plus which machine it's about. A memory chip opens

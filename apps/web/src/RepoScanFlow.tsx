@@ -1,10 +1,11 @@
+import { shallowEqual } from '@podium/client-core/store'
 import type { JSX, ReactNode } from 'react'
 import { useState } from 'react'
 import { formatAppError } from './AppErrorPage'
 import { RepoPickerModal } from './RepoPickerModal'
 import { RepoScanResults } from './RepoScanResults'
 import { type RepoCandidate, rankRepoCandidates } from './ranking'
-import { useStore } from './store'
+import { useStoreSelector } from './store'
 
 type Results = { path: string; candidates: RepoCandidate[] }
 
@@ -23,7 +24,10 @@ export function RepoScanFlow({
   onDone: (addedCount: number) => void
   intro?: ReactNode
 }): JSX.Element {
-  const { trpc, refreshRepos, machines } = useStore()
+  const { trpc, refreshRepos, machines } = useStoreSelector(
+    (s) => ({ trpc: s.trpc, refreshRepos: s.refreshRepos, machines: s.machines }),
+    shallowEqual,
+  )
   const [results, setResults] = useState<Results | null>(null)
   const [adding, setAdding] = useState(false)
   const [addError, setAddError] = useState<string | null>(null)
