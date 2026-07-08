@@ -28,7 +28,8 @@ import { jaccard, tokenize } from './issue-similarity'
 import { isMemberCwd, sessionsForIssue, slugifyBranch, summarizeSessions } from './issue-util'
 import { buildAssistantMessages, parseAssistantJson } from './issueAssistant'
 import { type LinearIssue, searchIssues } from './linear'
-import { llmClient } from './llm'
+import type { llmClient } from './llm'
+import { completeForRole } from './llm-roles'
 import type { IssueMessageRow, IssueRow, SessionStore, Subscription } from './store'
 
 /** Read-gated auto-archive window (issue #127): a done+read issue auto-archives
@@ -655,18 +656,14 @@ export class IssueService {
         const blocked = this.computeBlocked(row)
         // Hierarchy is not scheduling: parent-child never appears here — it
         // lives in issues.parent_id, not in issue_deps (#164).
-        const deps = this.deps.store
-          .listIssueDeps(row.id)
-          .flatMap((d) => {
-            const target = this.rows.get(d.toId)
-            return target ? [ref(target, d.type)] : []
-          })
-        const dependents = this.deps.store
-          .listDependents(row.id)
-          .flatMap((d) => {
-            const source = this.rows.get(d.fromId)
-            return source ? [ref(source, d.type)] : []
-          })
+        const deps = this.deps.store.listIssueDeps(row.id).flatMap((d) => {
+          const target = this.rows.get(d.toId)
+          return target ? [ref(target, d.type)] : []
+        })
+        const dependents = this.deps.store.listDependents(row.id).flatMap((d) => {
+          const source = this.rows.get(d.fromId)
+          return source ? [ref(source, d.type)] : []
+        })
         return {
           id: row.id,
           seq: row.seq,
@@ -2352,10 +2349,13 @@ export class IssueService {
     }
     let result = null as ReturnType<typeof parseAssistantJson>
     try {
-      const factory = this.d.llm ?? llmClient
-      const client = factory(settings.workLlm, settings.apiKeys)
-      const resp = await client.complete(buildAssistantMessages(ctx), [])
-      result = parseAssistantJson(resp.text)
+      // The shared one-shot primitive (SP-6454): resolves the 'background' role's
+      // backend + account, runs one completion, parses into structured data.
+      const resp = await completeForRole(
+        { settings, llm: this.d.llm },
+        { role: 'background', messages: buildAssistantMessages(ctx), parse: parseAssistantJson },
+      )
+      result = resp.data
     } catch {
       result = null
     }

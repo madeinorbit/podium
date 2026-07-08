@@ -90,6 +90,53 @@ export const LlmBackend = z.object({
 })
 export type LlmBackend = z.infer<typeof LlmBackend>
 
+// ── Accounts & roles (SP-6454, LLM & Harness Access) ───────────────────────
+// Full domain model, defined now per the staging decision. NATIVE is what the
+// runtime wires; MANAGED (credential injection + oauth rotation) ships behind a
+// "Coming soon" flag. Not yet folded into PodiumSettings — the one-shot role
+// primitive resolves against the existing superagent/workLlm/sessionDefaults
+// backends for now; stream B3 migrates settings onto RoleBackend.
+
+/** Who owns the credential: the machine's own CLI login (observe-only) vs a
+ *  credential Podium holds and injects. */
+export const AccountSource = z.enum(['native', 'managed'])
+export type AccountSource = z.infer<typeof AccountSource>
+
+/** Managed-only: how Podium injects the credential it holds (native is opaque). */
+export const AccountKind = z.enum(['api-key', 'oauth'])
+export type AccountKind = z.infer<typeof AccountKind>
+
+export const AccountProvider = z.enum(['anthropic', 'openai', 'openrouter', 'xai', 'google'])
+export type AccountProvider = z.infer<typeof AccountProvider>
+
+/** An auth source. Native = reference to a CLI login on a machine (identity +
+ *  quota observed at use-time, never cached). Managed = Podium holds+injects;
+ *  `kind` decides how. Enterprise/plan is descriptive `identity`, not a kind. */
+export const Account = z.object({
+  id: z.string(),
+  provider: AccountProvider,
+  source: AccountSource,
+  // native: which login on which machine.
+  machineId: z.string().optional(),
+  harness: HarnessAgent.optional(),
+  // managed (coming soon): injection mechanism; credential stored separately.
+  kind: AccountKind.optional(),
+  // observed, freshness-stamped — e.g. "mike@… · Claude Max".
+  identity: z.string().optional(),
+})
+export type Account = z.infer<typeof Account>
+
+/** One role's backend over a single shape (unifies superagent/workLlm/
+ *  sessionDefaults in B3). `harness` only for interactive-session roles;
+ *  a role binding may later reference a set of accounts for rotation. */
+export const RoleBackend = z.object({
+  accountId: z.string().optional(),
+  model: z.string().default('auto'),
+  effort: z.string().default('auto'),
+  harness: HarnessAgent.optional(),
+})
+export type RoleBackend = z.infer<typeof RoleBackend>
+
 export const Sidebar = z.object({
   repoSort: z.enum(['alphabetical', 'lastUsed', 'custom']).default('lastUsed'),
   repoOrder: z.array(z.string()).default([]),
