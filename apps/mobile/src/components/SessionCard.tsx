@@ -1,7 +1,6 @@
-import { agentColorHex, type DotTone } from '@podium/client-core/viewmodels'
+import { agentColorHex, type DotTone, type SessionCardModel } from '@podium/client-core/viewmodels'
 import { StyleSheet, Text, View } from 'react-native'
 import { type AttentionTone, color, elevation, font, radius, space, tone } from '../theme/theme'
-import type { SessionCardModel } from '../viewModels/sessionCard'
 import { PressableScale } from './PressableScale'
 import { Pill, StatusDot } from './ui'
 

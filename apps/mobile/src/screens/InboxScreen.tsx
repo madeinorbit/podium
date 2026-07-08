@@ -1,4 +1,5 @@
 import { groupSessions, withoutShells } from '@podium/client-core/focus'
+import { sessionCardModel } from '@podium/client-core/viewmodels'
 import type { IssueWire, SessionMeta } from '@podium/protocol'
 import { useRouter } from 'expo-router'
 import { Inbox as InboxIcon, Plus, Settings } from 'lucide-react-native'
@@ -13,7 +14,6 @@ import { SessionCard } from '../components/SessionCard'
 import { EmptyState } from '../components/ui'
 import { usePendingQuestion } from '../hooks/usePendingQuestion'
 import { color, font, radius, space } from '../theme/theme'
-import { sessionCardModel } from '../viewModels/sessionCard'
 
 /**
  * A needs-you card that can be answered without leaving the Inbox: when the

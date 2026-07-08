@@ -1,6 +1,6 @@
 import type { IssueWire, SessionMeta } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
-import { sessionCardModel, sessionTitle } from './sessionCard'
+import { sessionCardModel, sessionTitle } from './session-card'
 
 function session(overrides: Partial<SessionMeta> & { sessionId: string }): SessionMeta {
   const { sessionId, ...rest } = overrides

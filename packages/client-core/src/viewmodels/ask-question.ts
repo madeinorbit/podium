@@ -1,13 +1,21 @@
 import type { TranscriptItem } from '@podium/protocol'
 
+/** One option of an AskUserQuestion question. */
+export interface AskOption {
+  label: string
+  description?: string
+}
+
 /** One question of an AskUserQuestion tool call, parsed from toolInputJson. */
 export interface AskQuestion {
   question: string
   header?: string
   multiSelect?: boolean
-  options: { label: string; description?: string }[]
+  options: AskOption[]
 }
 
+/** Parse an AskUserQuestion tool call's raw `toolInputJson` into its questions,
+ *  dropping any malformed entry (missing/non-array `options`). */
 export function parseAskQuestions(toolInputJson: string | undefined): AskQuestion[] {
   if (!toolInputJson) return []
   try {
@@ -33,14 +41,15 @@ export function isAskUserQuestion(item: TranscriptItem): boolean {
 export function latestPendingQuestion(items: TranscriptItem[]): TranscriptItem | null {
   for (let i = items.length - 1; i >= 0; i--) {
     const item = items[i]
-    if (!isAskUserQuestion(item)) continue
+    if (!item || !isAskUserQuestion(item)) continue
     return item.toolResult ? null : item
   }
   return null
 }
 
-/** The chosen-option check for an answered card: the result quotes "<label>". */
-export function isChosenOption(item: TranscriptItem, label: string): boolean {
-  const answer = item.toolResult ?? ''
-  return answer.includes('"' + label + '"')
+/** The chosen-option check for an answered card: the result text quotes
+ *  `"<label>"`. `answer` is the tool result text (callers resolve it — a paired
+ *  ChatBlock.result, or a bare TranscriptItem.toolResult). */
+export function isChosenOption(answer: string, label: string): boolean {
+  return answer.includes(`"${label}"`)
 }

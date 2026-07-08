@@ -1,7 +1,10 @@
 import {
   agentBadge,
   chatActivity,
+  mergeTranscriptItems,
   panelLabel,
+  prependTranscriptItems,
+  sessionTitle,
   snoozeUntil1h,
   snoozeUntilTomorrow5am,
 } from '@podium/client-core/viewmodels'
@@ -18,8 +21,6 @@ import { HeaderButton, Screen } from '../components/Screen'
 import { TranscriptList } from '../components/TranscriptList'
 import { EmptyState } from '../components/ui'
 import { color, font, space } from '../theme/theme'
-import { sessionTitle } from '../viewModels/sessionCard'
-import { mergeTranscriptItems, prependTranscriptItems } from '../viewModels/transcript'
 
 const WORK_STATES: (WorkState | null)[] = [
   'planning',

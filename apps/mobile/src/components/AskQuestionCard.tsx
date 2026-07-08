@@ -1,8 +1,8 @@
+import { isChosenOption, parseAskQuestions } from '@podium/client-core/viewmodels'
 import type { TranscriptItem } from '@podium/protocol'
 import { useState } from 'react'
 import { Pressable, StyleSheet, Text, View } from 'react-native'
 import { color, font, radius, space } from '../theme/theme'
-import { isChosenOption, parseAskQuestions } from '../viewModels/askQuestion'
 
 /**
  * The agent asking the human — options rendered as big tap targets. Live cards
@@ -85,7 +85,7 @@ export function AskQuestionCard({
           <View style={styles.options}>
             {q.options.map((opt, oi) => {
               const picked = picks[qi]?.has(oi) ?? false
-              const chosen = !live && isChosenOption(item, opt.label)
+              const chosen = !live && isChosenOption(item.toolResult ?? '', opt.label)
               const highlighted = picked || chosen || (state === 'sent' && picked)
               return (
                 <Pressable

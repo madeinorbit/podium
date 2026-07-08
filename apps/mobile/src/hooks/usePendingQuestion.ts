@@ -1,7 +1,7 @@
+import { latestPendingQuestion } from '@podium/client-core/viewmodels'
 import type { TranscriptItem } from '@podium/protocol'
 import { useEffect, useState } from 'react'
 import { useMobileClient } from '../client/MobileClientProvider'
-import { latestPendingQuestion } from '../viewModels/askQuestion'
 
 /**
  * One-shot fetch of the session's latest unanswered AskUserQuestion, refetched

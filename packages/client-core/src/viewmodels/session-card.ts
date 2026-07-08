@@ -1,11 +1,6 @@
-import {
-  type AttentionGroup,
-  attentionGroup,
-  attentionSummary,
-  relativeTime,
-} from '@podium/client-core/focus'
-import { type DotTone, panelLabel, sessionDotTone } from '@podium/client-core/viewmodels'
 import type { IssueWire, SessionMeta } from '@podium/protocol'
+import { type AttentionGroup, attentionGroup, attentionSummary, relativeTime } from '../focus'
+import { type DotTone, panelLabel, sessionDotTone } from './derive'
 
 export interface SessionCardModel {
   sessionId: string
