@@ -25,6 +25,12 @@ import {
   type SpecComponentMeta,
   type SpecSearchHit,
 } from '../../pspec'
+import {
+  specBranchDiff,
+  specBranches,
+  type SpecBranchChange,
+  type SpecBranchSummary,
+} from '../../pspec-git'
 import { isAllowedRoot } from '../../root-allowlist'
 
 const byRepo = { repoPath: z.string().min(1) }
@@ -45,6 +51,8 @@ export const specsInputs = {
   }),
   remove: z.object({ ...byRepo, id: z.string().min(1) }),
   search: z.object({ ...byRepo, query: z.string() }),
+  branches: z.object({ ...byRepo }),
+  branchDiff: z.object({ ...byRepo, branch: z.string().min(1) }),
 } as const
 
 type In<K extends keyof typeof specsInputs> = z.infer<(typeof specsInputs)[K]>
@@ -134,6 +142,22 @@ export class SpecsService {
   search(input: In<'search'>): SpecSearchHit[] {
     this.requireRepoRoot(input.repoPath)
     return this.run(() => searchSpecs(input.repoPath, input.query))
+  }
+
+  /** Local branches with pending pspec changes vs the canon checkout (#172). */
+  branches(input: In<'branches'>): Promise<SpecBranchSummary[]> {
+    this.requireRepoRoot(input.repoPath)
+    return specBranches(input.repoPath)
+  }
+
+  /** Component-level spec diff of one branch against its merge-base with canon. */
+  branchDiff(input: In<'branchDiff'>): Promise<{ baseRef: string; changes: SpecBranchChange[] }> {
+    this.requireRepoRoot(input.repoPath)
+    // Refuse ref-lookalike injection: branch is passed to git verbatim.
+    if (input.branch.startsWith('-')) {
+      throw new TRPCError({ code: 'BAD_REQUEST', message: 'invalid branch name' })
+    }
+    return specBranchDiff(input.repoPath, input.branch)
   }
 
   /** Whether `proc` is a servable specs procedure (relay caller surface). */

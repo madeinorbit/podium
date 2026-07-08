@@ -1258,6 +1258,12 @@ export const appRouter = t.router({
     search: t.procedure
       .input(specsInputs.search)
       .query(({ ctx, input }) => mods(ctx).specs.search(input)),
+    branches: t.procedure
+      .input(specsInputs.branches)
+      .query(({ ctx, input }) => mods(ctx).specs.branches(input)),
+    branchDiff: t.procedure
+      .input(specsInputs.branchDiff)
+      .query(({ ctx, input }) => mods(ctx).specs.branchDiff(input)),
   }),
 })
 
