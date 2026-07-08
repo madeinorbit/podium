@@ -18,6 +18,7 @@ describe('issueMenuEligibility', () => {
     const e = issueMenuEligibility([makeIssue()])
     expect(e).toEqual({
       canOpen: true,
+      canRename: true,
       canSetStage: true,
       canSetPriority: true,
       canAssignAgent: true,
@@ -83,6 +84,8 @@ describe('issueMenuEligibility', () => {
     expect(e.canSetLabels).toBe(true)
     expect(e.canDelete).toBe(true)
     expect(e.canOpen).toBe(false)
+    // Rename is single-target (#170).
+    expect(e.canRename).toBe(false)
     expect(e.canAssignAgent).toBe(false)
     expect(e.canClose).toBe(false)
     expect(e.canDefer).toBe(false)

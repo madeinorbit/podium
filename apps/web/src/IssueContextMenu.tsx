@@ -12,6 +12,7 @@ import {
   ExternalLink,
   Mail,
   MailOpen,
+  Pencil,
   Pin,
   PinOff,
   Tag,
@@ -47,6 +48,7 @@ export function IssueContextMenu({
   anchor,
   onClose,
   onOpen,
+  onRename,
 }: {
   /** The issues the menu acts on (the clicked issue, or the multi-selection). */
   issues: IssueWire[]
@@ -56,6 +58,9 @@ export function IssueContextMenu({
   onClose: () => void
   /** Open the issue page for a single target. */
   onOpen: (id: string) => void
+  /** Start an inline rename for a single target (#170). When omitted (e.g. the
+   *  board, which has no in-place editor) the item falls back to a prompt. */
+  onRename?: (id: string) => void
 }): JSX.Element | null {
   const { trpc, markIssueRead, markIssueUnread } = useStore()
   const ref = useRef<HTMLDivElement | null>(null)
@@ -127,6 +132,21 @@ export function IssueContextMenu({
   // issue back to the TOP of WORK with the "Unsnoozed" tag, unlike defer(null) which
   // clears it silently into the middle of the list.
   const undefer = (): void => run(() => trpc.issues.undefer.mutate({ id: first.id }))
+  // Rename (#170): prefer the host's inline editor; fall back to a prompt where
+  // there's no in-place editor (e.g. the board). Empty/whitespace is a no-op.
+  const rename = (): void => {
+    if (onRename) {
+      onRename(first.id)
+      onClose()
+      return
+    }
+    const next = window.prompt('Rename issue', first.title)?.trim()
+    if (next && next !== first.title) {
+      run(() => trpc.issues.update.mutate({ id: first.id, patch: { title: next } }))
+    } else {
+      onClose()
+    }
+  }
   const duplicateOf = (canonicalId: string): void =>
     run(() => trpc.issues.duplicate.mutate({ id: first.id, canonicalId }))
   const del = (): void => {
@@ -307,6 +327,11 @@ export function IssueContextMenu({
           }}
         >
           <ExternalLink size={14} aria-hidden="true" /> Open
+        </button>
+      )}
+      {elig.canRename && (
+        <button type="button" role="menuitem" className={itemCls} {...leafHover} onClick={rename}>
+          <Pencil size={14} aria-hidden="true" /> Rename
         </button>
       )}
       {/* Email-style read toggle (#138): mark a read row unread (or an unread one

@@ -57,6 +57,7 @@ import { NewIssueDialog } from './NewIssueDialog'
 import { NEW_AGENTS } from './NewPanelMenu'
 import type { ContextMenuAnchor } from './SessionContextMenu'
 import { CollapsibleSection, PanelRow, StaleSection, useCollapsed } from './Sidebar'
+import { SessionNameEditor } from './WorkerLabel'
 import { useStore } from './store'
 import { useNow } from './useNow'
 
@@ -256,6 +257,9 @@ export function SidebarUnified(): JSX.Element {
         onSelectPanel={(sid) => selectPanelForIssue(row.issue, sid)}
         onPinned={(sid, p) => void setPinned('panel', sid, p)}
         onOpenIssue={openIssuePage}
+        onRename={(title) =>
+          void trpc.issues.update.mutate({ id: row.issue.id, patch: { title } }).catch(() => {})
+        }
       />
     ) : (
       <UnifiedWorktreeRow
@@ -572,6 +576,8 @@ function UnifiedRowShell({
   onToggle,
   onSelect,
   onContextMenu,
+  onDoubleClick,
+  editor,
   dotSession,
   extras,
   children,
@@ -588,6 +594,10 @@ function UnifiedRowShell({
   onSelect: () => void
   /** Right-click the row's select button (opens the issue context menu). */
   onContextMenu?: (e: ReactMouseEvent) => void
+  /** Double-click the row's label (issue rename, #170). */
+  onDoubleClick?: () => void
+  /** When present, replaces the label with an inline-rename input (#170). */
+  editor?: ReactNode
   dotSession: SessionMeta | undefined
   extras?: ReactNode
   children?: ReactNode
@@ -615,34 +625,48 @@ function UnifiedRowShell({
             <ChevronRight size={12} className="invisible" aria-hidden="true" />
           </span>
         )}
-        <button
-          type="button"
-          className={cn(
-            'flex min-w-0 flex-1 cursor-pointer items-center gap-2 py-2 pr-3 text-left text-sm',
-            active
-              ? 'bg-accent font-medium text-accent-foreground'
-              : 'text-foreground hover:bg-accent',
-          )}
-          onClick={onSelect}
-          onContextMenu={onContextMenu}
-        >
-          {icon}
-          <span
+        {editor ? (
+          // Inline rename (#170): the input replaces the label in place. Rendered
+          // outside the button (an input-in-button is invalid) — same shape the
+          // classic PanelRow uses for session rename.
+          <div className="flex min-w-0 flex-1 items-center gap-2 py-2 pr-3">
+            {icon}
+            {editor}
+          </div>
+        ) : (
+          <button
+            type="button"
             className={cn(
-              'min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap',
-              // Unread rows read bolder (email-style); active rows are already
-              // medium, so unread bumps a touch further to stay distinguishable.
-              unread && 'font-semibold',
+              'flex min-w-0 flex-1 cursor-pointer items-center gap-2 py-2 pr-3 text-left text-sm',
+              // Selection is conveyed by the accent background ALONE — never a
+              // heavier font (#170). That keeps UNREAD's bold as the sole weight
+              // signal, so a selected-but-read row can't be mistaken for unread.
+              active
+                ? 'bg-accent text-accent-foreground'
+                : 'text-foreground hover:bg-accent',
             )}
+            onClick={onSelect}
+            onDoubleClick={onDoubleClick}
+            onContextMenu={onContextMenu}
           >
-            {label}
-          </span>
-          {extras}
-          {/* Right-side status summary: the most urgent child's dot, so the user
-              can see WHY the row floats where it does. Expanded child rows show
-              their own (smaller) dots vertically aligned under this one. */}
-          {dotSession && <span className={sessionDotClass(dotSession)} />}
-        </button>
+            {icon}
+            <span
+              className={cn(
+                'min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap',
+                // Unread rows read bold (email-style) — the ONLY weight change in
+                // the row, independent of selection so the two never blur together.
+                unread && 'font-semibold',
+              )}
+            >
+              {label}
+            </span>
+            {extras}
+            {/* Right-side status summary: the most urgent child's dot, so the user
+                can see WHY the row floats where it does. Expanded child rows show
+                their own (smaller) dots vertically aligned under this one. */}
+            {dotSession && <span className={sessionDotClass(dotSession)} />}
+          </button>
+        )}
       </div>
       {/* Child agent rows: pulled up against the parent (tight margin) so the
           group visually reads as one unit. */}
@@ -670,6 +694,7 @@ function UnifiedIssueRow({
   onSelectPanel,
   onPinned,
   onOpenIssue,
+  onRename,
 }: {
   row: Extract<UnifiedWorkRow, { kind: 'issue' }>
   sessions: SessionMeta[]
@@ -687,11 +712,28 @@ function UnifiedIssueRow({
   onPinned: (sessionId: string, pinned: boolean) => void
   /** Open the issue PAGE (the context menu's "Open"). */
   onOpenIssue: (id: string) => void
+  /** Commit a renamed title (double-click / context-menu Rename, #170). */
+  onRename: (title: string) => void
 }): JSX.Element {
   const { issue, sessions: mine } = row
   const unread = suppressUnread ? false : rowUnreadEmphasized(row)
   const [collapsed, toggle] = useCollapsed(`podium:sidebar:unified-issue:${issue.id}`, false)
   const [menuAnchor, setMenuAnchor] = useState<ContextMenuAnchor | null>(null)
+  const [editing, setEditing] = useState(false)
+  // Commit a rename: trim, and no-op on empty/whitespace or an unchanged title so
+  // an accidental double-click that changes nothing never fires a mutation (#170).
+  const commitRename = (name: string) => {
+    const next = name.trim()
+    if (next && next !== issue.title) onRename(next)
+    setEditing(false)
+  }
+  const renameEditor = editing ? (
+    <SessionNameEditor
+      value={issue.title}
+      onCommit={commitRename}
+      onCancel={() => setEditing(false)}
+    />
+  ) : undefined
   // A single agent underneath = nothing worth a second line: the parent row's
   // dot IS that agent's indicator. Child rows only exist from 2 agents up.
   const showChildren = mine.length >= 2
@@ -716,6 +758,10 @@ function UnifiedIssueRow({
       onOpen={(id) => {
         setMenuAnchor(null)
         onOpenIssue(id)
+      }}
+      onRename={() => {
+        setMenuAnchor(null)
+        setEditing(true)
       }}
     />
   ) : null
@@ -774,6 +820,8 @@ function UnifiedIssueRow({
         onToggle={toggle}
         onSelect={onSelect}
         onContextMenu={onContextMenu}
+        onDoubleClick={() => setEditing(true)}
+        editor={renameEditor}
         dotSession={urgent}
         extras={
           <>
