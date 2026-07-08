@@ -146,18 +146,18 @@ export abstract class IssueServiceAttention extends IssueServiceCrud {
       enabled: true,
       createdAt: this.now(),
     }
-    this.deps.funnel.run({ write: () => this.deps.store.addSubscription(sub) })
+    this.deps.funnel.run({ write: () => this.deps.store.events.addSubscription(sub) })
     return sub
   }
 
   subscriptionRemove(id: string): { removed: boolean } {
-    const existed = this.deps.store.listSubscriptions().some((s) => s.id === id)
-    this.deps.funnel.run({ write: () => this.deps.store.removeSubscription(id) })
+    const existed = this.deps.store.events.listSubscriptions().some((s) => s.id === id)
+    this.deps.funnel.run({ write: () => this.deps.store.events.removeSubscription(id) })
     return { removed: existed }
   }
 
   subscriptionList(filter?: { subscriberId?: string }): Subscription[] {
-    return this.deps.store.listSubscriptions(filter)
+    return this.deps.store.events.listSubscriptions(filter)
   }
 
   /** Toggle a subscription on/off (Automations UI). Custom subscriptions only affect
@@ -165,12 +165,12 @@ export abstract class IssueServiceAttention extends IssueServiceCrud {
    *  handlers — it is safe and reversible. */
   subscriptionSetEnabled(id: string, enabled: boolean): { updated: boolean } {
     return this.deps.funnel.run({
-      write: () => ({ updated: this.deps.store.setSubscriptionEnabled(id, enabled) }),
+      write: () => ({ updated: this.deps.store.events.setSubscriptionEnabled(id, enabled) }),
     })
   }
 
   subscriptionGet(id: string): Subscription | undefined {
-    return this.deps.store.getSubscription(id)
+    return this.deps.store.events.getSubscription(id)
   }
 
   archive(id: string): IssueWire {

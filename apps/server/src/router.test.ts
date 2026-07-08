@@ -3,13 +3,13 @@ import { OPERATOR } from './issue-authz'
 import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
 import { appRouter } from './router'
-import { SuperagentService } from './superagent'
+import { SuperagentService } from './modules/superagent'
 
 function caller() {
   const registry = new SessionRegistry()
-  registry.attachDaemon('local', () => {})
+  registry.modules.sessions.attachDaemon('local', () => {})
   const repos = new RepoRegistry(registry, registry.sessionStore)
-  const superagent = new SuperagentService(registry, repos, registry.sessionStore)
+  const superagent = new SuperagentService(registry.modules, repos, registry.sessionStore)
   return {
     registry,
     call: appRouter.createCaller({ registry, repos, superagent, capability: OPERATOR }),
@@ -28,9 +28,9 @@ describe('appRouter', () => {
     const registry = new SessionRegistry(undefined, undefined, {
       modelProbe: async () => ({ grok: [{ value: 'grok-build', label: 'grok-build' }] }),
     })
-    registry.attachDaemon('local', () => {})
+    registry.modules.sessions.attachDaemon('local', () => {})
     const repos = new RepoRegistry(registry, registry.sessionStore)
-    const superagent = new SuperagentService(registry, repos, registry.sessionStore)
+    const superagent = new SuperagentService(registry.modules, repos, registry.sessionStore)
     const call = appRouter.createCaller({ registry, repos, superagent, capability: OPERATOR })
     const refreshed = await call.models.refresh()
     expect(refreshed.byAgent.grok?.[0]?.value).toBe('grok-build')
@@ -121,12 +121,12 @@ describe('appRouter', () => {
   it('discovery.scan resolves via the registry', async () => {
     const daemon: import('@podium/protocol').ControlMessage[] = []
     const registry = new SessionRegistry()
-    registry.attachDaemon('local', (m) => daemon.push(m))
+    registry.modules.sessions.attachDaemon('local', (m) => daemon.push(m))
     const repos = new RepoRegistry(registry, registry.sessionStore)
     const call = appRouter.createCaller({
       registry,
       repos,
-      superagent: new SuperagentService(registry, repos, registry.sessionStore),
+      superagent: new SuperagentService(registry.modules, repos, registry.sessionStore),
       capability: OPERATOR,
     })
     const p = call.discovery.scan()
@@ -135,7 +135,7 @@ describe('appRouter', () => {
     const req = daemon.find((m) => m.type === 'scanRequest') as { requestId: string } | undefined
     expect(req).toBeDefined()
     if (!req) throw new Error('scanRequest not sent')
-    registry.onDaemonMessageFrom('local', {
+    registry.modules.sessions.onDaemonMessageFrom('local', {
       type: 'scanResult',
       requestId: req.requestId,
       conversations: [],
@@ -147,12 +147,12 @@ describe('appRouter', () => {
   it('sessions.transcriptRead delegates to registry.readTranscript (daemon round-trip)', async () => {
     const daemon: import('@podium/protocol').ControlMessage[] = []
     const registry = new SessionRegistry()
-    registry.attachDaemon('local', (m) => daemon.push(m))
+    registry.modules.sessions.attachDaemon('local', (m) => daemon.push(m))
     const repos = new RepoRegistry(registry, registry.sessionStore)
     const call = appRouter.createCaller({
       registry,
       repos,
-      superagent: new SuperagentService(registry, repos, registry.sessionStore),
+      superagent: new SuperagentService(registry.modules, repos, registry.sessionStore),
       capability: OPERATOR,
     })
     const { sessionId } = await call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
@@ -162,7 +162,7 @@ describe('appRouter', () => {
     const req = daemon.find((m) => m.type === 'transcriptRead') as { requestId: string } | undefined
     expect(req).toBeDefined()
     if (!req) throw new Error('transcriptRead not sent')
-    registry.onDaemonMessageFrom('local', {
+    registry.modules.sessions.onDaemonMessageFrom('local', {
       type: 'transcriptReadResult',
       requestId: req.requestId,
       sessionId,
@@ -174,7 +174,7 @@ describe('appRouter', () => {
 
   it('settings Telegram setup endpoints delegate to the registry', async () => {
     const registry = new SessionRegistry()
-    registry.attachDaemon('local', () => {})
+    registry.modules.sessions.attachDaemon('local', () => {})
     let polled = ''
     // The router reaches settings through the typed modules seam — stub there.
     const settings = registry.modules.settings as unknown as {
@@ -202,7 +202,7 @@ describe('appRouter', () => {
     const call = appRouter.createCaller({
       registry,
       repos,
-      superagent: new SuperagentService(registry, repos, registry.sessionStore),
+      superagent: new SuperagentService(registry.modules, repos, registry.sessionStore),
       capability: OPERATOR,
     })
 
@@ -234,7 +234,7 @@ function repoCaller() {
   const registry = new SessionRegistry()
   const repos = new RepoRegistry(registry, registry.sessionStore)
   const daemon: import('@podium/protocol').ControlMessage[] = []
-  registry.attachDaemon('local', (m) => daemon.push(m))
+  registry.modules.sessions.attachDaemon('local', (m) => daemon.push(m))
   return {
     registry,
     repos,
@@ -242,7 +242,7 @@ function repoCaller() {
     call: appRouter.createCaller({
       registry,
       repos,
-      superagent: new SuperagentService(registry, repos, registry.sessionStore),
+      superagent: new SuperagentService(registry.modules, repos, registry.sessionStore),
       capability: OPERATOR,
     }),
   }
@@ -260,10 +260,10 @@ describe('markRead mutations (#124)', () => {
 
   it('sessions.markRead flips a session to read', async () => {
     const { call, registry } = repoCaller()
-    const { sessionId } = registry.createSession({ agentKind: 'claude-code', cwd: '/p' })
-    expect(registry.listSessions().find((s) => s.sessionId === sessionId)?.unread).toBe(true)
+    const { sessionId } = registry.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/p' })
+    expect(registry.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)?.unread).toBe(true)
     await call.sessions.markRead({ sessionId })
-    const s = registry.listSessions().find((x) => x.sessionId === sessionId)
+    const s = registry.modules.sessions.listSessions().find((x) => x.sessionId === sessionId)
     expect(s?.unread).toBe(false)
     expect(s?.readAt).not.toBeNull()
   })
@@ -279,11 +279,11 @@ describe('markRead mutations (#124)', () => {
 
   it('sessions.markUnread flips a read session back to unread (#138)', async () => {
     const { call, registry } = repoCaller()
-    const { sessionId } = registry.createSession({ agentKind: 'claude-code', cwd: '/p' })
+    const { sessionId } = registry.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/p' })
     await call.sessions.markRead({ sessionId })
-    expect(registry.listSessions().find((s) => s.sessionId === sessionId)?.unread).toBe(false)
+    expect(registry.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)?.unread).toBe(false)
     await call.sessions.markUnread({ sessionId })
-    const s = registry.listSessions().find((x) => x.sessionId === sessionId)
+    const s = registry.modules.sessions.listSessions().find((x) => x.sessionId === sessionId)
     expect(s?.unread).toBe(true)
     expect(s?.readAt).toBeNull()
   })
@@ -330,7 +330,7 @@ describe('repos router', () => {
     expect(req?.includeHome).toBe(false)
     expect(req?.maxDepth).toBe(0)
     if (!req) throw new Error('no scanReposRequest')
-    registry.onDaemonMessageFrom('local', {
+    registry.modules.sessions.onDaemonMessageFrom('local', {
       type: 'scanReposResult',
       requestId: req.requestId,
       repositories: [],
@@ -350,7 +350,7 @@ describe('repos router', () => {
     expect(req?.includeHome).toBe(false)
     expect(req?.maxDepth).toBe(6)
     if (!req) throw new Error('no scanReposRequest')
-    registry.onDaemonMessageFrom('local', {
+    registry.modules.sessions.onDaemonMessageFrom('local', {
       type: 'scanReposResult',
       requestId: req.requestId,
       repositories: [],
@@ -368,8 +368,8 @@ describe('repos router', () => {
   it('superagent.startBtw re-opens an existing btw thread without re-seeding', async () => {
     const { registry, call } = caller()
     const store = registry.sessionStore
-    store.upsertSuperagentThread({ id: 'btw_s9', kind: 'btw', originSessionId: 's9' })
-    store.setThreadWatermark('btw_s9', 'item-1', '2026-06-16T00:00:00Z')
+    store.superagent.upsertSuperagentThread({ id: 'btw_s9', kind: 'btw', originSessionId: 's9' })
+    store.superagent.setThreadWatermark('btw_s9', 'item-1', '2026-06-16T00:00:00Z')
     // Unknown session → empty transcript → no delta → re-open path, no backend call.
     const res = await call.superagent.startBtw({ sessionId: 's9' })
     expect(res).toEqual({ threadId: 'btw_s9', isNew: false })

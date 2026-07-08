@@ -7,7 +7,7 @@ import { RepoRegistry } from './repo-registry'
 import { appRouter } from './router'
 import { searchAll } from './search'
 import { SessionStore } from './store'
-import { SuperagentService } from './superagent'
+import { SuperagentService } from './modules/superagent'
 
 // Omni-search (docs/spec/search-v1.md §2.4): one query, ranked typed hits across
 // sessions, issues (+comments), conversations, lake-indexed transcripts and the
@@ -24,11 +24,11 @@ describe('searchAll', () => {
     const store = new SessionStore(':memory:')
     const registry = new SessionRegistry(store)
     registries.push(registry)
-    registry.attachDaemon('m1', () => {})
+    registry.modules.sessions.attachDaemon('m1', () => {})
 
     // Session named after the phrase.
-    const { sessionId } = registry.createSession({ agentKind: 'claude-code', cwd: '/w' })
-    registry.renameSession({ sessionId, name: 'capacitor refactor' })
+    const { sessionId } = registry.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/w' })
+    registry.modules.sessions.renameSession({ sessionId, name: 'capacitor refactor' })
 
     // Issue with the phrase in the title; a second issue matching only via comment.
     const issue = registry.issues.create({
@@ -46,7 +46,7 @@ describe('searchAll', () => {
     registry.issues.addComment(commentIssue.id, 'operator', 'the capacitor comment trail')
 
     // Conversation row in the durable index.
-    store.upsertConversations([
+    store.conversations.upsertConversations([
       {
         id: 'native-conv',
         agentKind: 'claude-code',
@@ -58,13 +58,13 @@ describe('searchAll', () => {
     ])
 
     // Lake-indexed transcript messages (what the mirror-fed indexer writes).
-    store.ensureConversationIdentity({
+    store.conversations.ensureConversationIdentity({
       machineId: 'm1',
       nativeId: 'native-tx',
       providerId: 'claude-code-jsonl',
       path: '/home/u/.claude/projects/-w/native-tx.jsonl',
     })
-    store.appendTranscriptIndex(
+    store.conversations.appendTranscriptIndex(
       'm1',
       'native-tx',
       [
@@ -127,8 +127,8 @@ describe('searchAll', () => {
 
   it('resolves a live sessionId on a transcript hit when a session resumes that native id', () => {
     const { store, registry } = seed()
-    const { sessionId } = registry.createSession({ agentKind: 'claude-code', cwd: '/w' })
-    registry.onDaemonMessageFrom('m1', {
+    const { sessionId } = registry.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/w' })
+    registry.modules.sessions.onDaemonMessageFrom('m1', {
       type: 'sessionResumeRef',
       sessionId,
       resume: { kind: 'claude-session', value: 'native-tx' },
@@ -170,9 +170,9 @@ describe('search.query tRPC', () => {
   function caller() {
     const registry = new SessionRegistry()
     registries.push(registry)
-    registry.attachDaemon('local', () => {})
+    registry.modules.sessions.attachDaemon('local', () => {})
     const repos = new RepoRegistry(registry, registry.sessionStore)
-    const superagent = new SuperagentService(registry, repos, registry.sessionStore)
+    const superagent = new SuperagentService(registry.modules, repos, registry.sessionStore)
     return {
       registry,
       trpc: appRouter.createCaller({ registry, repos, superagent, capability: OPERATOR }),
@@ -186,8 +186,8 @@ describe('search.query tRPC', () => {
 
   it('serves ranked results over the wire shape', async () => {
     const { registry, trpc } = caller()
-    const { sessionId } = registry.createSession({ agentKind: 'claude-code', cwd: '/w' })
-    registry.renameSession({ sessionId, name: 'quantum toaster' })
+    const { sessionId } = registry.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/w' })
+    registry.modules.sessions.renameSession({ sessionId, name: 'quantum toaster' })
     const results = await trpc.search.query({ text: 'quantum' })
     expect(results.map((r) => SearchResultWire.parse(r))).toHaveLength(1)
     expect(results[0]?.sessionId).toBe(sessionId)

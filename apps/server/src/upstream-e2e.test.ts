@@ -43,10 +43,10 @@ describe('node⇄hub upstream sync e2e (live hub server)', () => {
     }
   }
 
-  const nodeHubSessions = () => nodeRegistry.listSessions().filter((s) => s.viaHub)
+  const nodeHubSessions = () => nodeRegistry.modules.sessions.listSessions().filter((s) => s.viaHub)
   /** The node's issue WIRE (what a node client sees): local ∪ upstream. */
   const nodeIssueWire = () => {
-    const snap = nodeRegistry.syncChangesSince(null)
+    const snap = nodeRegistry.modules.sessions.syncChangesSince(null)
     return snap.kind === 'snapshot' ? snap.issues : []
   }
   /** An OPERATOR caller on the NODE's router — the real forwarding-detection seam. */
@@ -70,23 +70,23 @@ describe('node⇄hub upstream sync e2e (live hub server)', () => {
 
     nodeStore = new SessionStore(':memory:')
     nodeRegistry = new SessionRegistry(nodeStore)
-    nodeRegistry.attachDaemon('local', () => {})
-    nodeRegistry.setUpstreamOwnMachineIds([NODE_DAEMON_MACHINE_ID])
+    nodeRegistry.modules.sessions.attachDaemon('local', () => {})
+    nodeRegistry.modules.sessions.setUpstreamOwnMachineIds([NODE_DAEMON_MACHINE_ID])
     // P7b write path: the forwarder shares the node store (durable outbox) and the
     // hub token; UpstreamSync's onConnected is its reconnect drain trigger.
     forwarder = new UpstreamForwarder({
       url: `http://127.0.0.1:${hubPort}`,
       token,
-      store: nodeStore,
-      onQueueChanged: () => nodeRegistry.upstreamOutboxChanged(),
+      store: nodeStore.sync,
+      onQueueChanged: () => nodeRegistry.modules.upstreamIssues.outboxChanged(),
       retryMs: 100,
     })
-    nodeRegistry.setUpstreamForwarder(forwarder)
+    nodeRegistry.modules.upstreamIssues.setForwarder(forwarder)
     sync = new UpstreamSync({
       url: `http://127.0.0.1:${hub.port}`,
       token,
       mirror: nodeRegistry,
-      store: nodeStore,
+      store: nodeStore.settings,
       backoff: { minMs: 50, maxMs: 250 },
       onConnected: () => void forwarder.drain(),
     })
@@ -130,21 +130,21 @@ describe('node⇄hub upstream sync e2e (live hub server)', () => {
   it("filters the node's own machine out of the mirror (no echo)", async () => {
     // The node's daemon paired with the hub: its machine registers hub-side and
     // runs a session there. That session must NOT mirror back to the node.
-    hub.registry.authenticateDaemon({
+    hub.registry.modules.machines.authenticateDaemon({
       type: 'pair',
-      code: hub.registry.mintPairingCode(),
+      code: hub.registry.modules.machines.mintPairingCode(),
       machineId: NODE_DAEMON_MACHINE_ID,
       hostname: 'the-node',
     })
-    hub.registry.attachDaemon(NODE_DAEMON_MACHINE_ID, () => {})
-    const echo = hub.registry.createSession({
+    hub.registry.modules.sessions.attachDaemon(NODE_DAEMON_MACHINE_ID, () => {})
+    const echo = hub.registry.modules.sessions.createSession({
       agentKind: 'shell',
       cwd: '/node/own',
       machineId: NODE_DAEMON_MACHINE_ID,
     })
     // Detach the fake node daemon again so later unspecified creates don't route
     // to it (the hub would otherwise place them on the sole online machine).
-    hub.registry.detachDaemon(NODE_DAEMON_MACHINE_ID)
+    hub.registry.modules.sessions.detachDaemon(NODE_DAEMON_MACHINE_ID)
     const other = await trpc.sessions.create.mutate({ agentKind: 'shell', cwd: '/hub/repo-c' })
     // The later non-echo session arriving proves the echo one was seen and skipped.
     await until(() => nodeHubSessions().some((s) => s.sessionId === other.sessionId))
@@ -159,8 +159,8 @@ describe('node⇄hub upstream sync e2e (live hub server)', () => {
     })
     if ('queued' in created) throw new Error('hub-side create unexpectedly queued')
     hubIssueId = created.id
-    await until(() => (nodeStore.getUpstreamIssuesJson() ?? '').includes('hub issue'))
-    const parked = JSON.parse(nodeStore.getUpstreamIssuesJson() ?? '[]') as Array<{
+    await until(() => (nodeStore.settings.getUpstreamIssuesJson() ?? '').includes('hub issue'))
+    const parked = JSON.parse(nodeStore.settings.getUpstreamIssuesJson() ?? '[]') as Array<{
       title: string
     }>
     expect(parked.some((i) => i.title === 'hub issue')).toBe(true)
@@ -177,7 +177,7 @@ describe('node⇄hub upstream sync e2e (live hub server)', () => {
       url: `http://127.0.0.1:${hub.port}`,
       token,
       mirror: nodeRegistry,
-      store: nodeStore, // same store — the persisted cursor is the resume point
+      store: nodeStore.settings, // same store — the persisted cursor is the resume point
       backoff: { minMs: 50, maxMs: 250 },
       onConnected: () => void forwarder.drain(),
     })
@@ -197,7 +197,7 @@ describe('node⇄hub upstream sync e2e (live hub server)', () => {
     expect(wire?.title).toBe('hub issue')
     // Invariant 1: the wire is the ONLY place it exists node-side.
     expect(nodeRegistry.issues.get(hubIssueId)).toBeNull()
-    expect(nodeStore.listIssueRows()).toHaveLength(0)
+    expect(nodeStore.issues.listIssueRows()).toHaveLength(0)
   })
 
   it('P7b: editing a viaHub issue while the hub is UP changes the HUB store; the node converges via delta', async () => {
@@ -215,7 +215,7 @@ describe('node⇄hub upstream sync e2e (live hub server)', () => {
       nodeIssueWire().some((i) => i.id === hubIssueId && i.title === 'renamed-via-node'),
     )
     expect(nodeIssueWire().find((i) => i.id === hubIssueId)?.pendingSync).toBeUndefined()
-    expect(nodeStore.listUpstreamOutbox()).toHaveLength(0)
+    expect(nodeStore.sync.listUpstreamOutbox()).toHaveLength(0)
   })
 
   it('P7b: editing while the hub is DOWN queues durably; a hub restart applies it EXACTLY once and clears pendingSync', async () => {
@@ -228,7 +228,7 @@ describe('node⇄hub upstream sync e2e (live hub server)', () => {
       body: 'offline comment',
     })
     expect(res).toEqual({ queued: true })
-    const outbox = nodeStore.listUpstreamOutbox()
+    const outbox = nodeStore.sync.listUpstreamOutbox()
     expect(outbox).toHaveLength(1)
     const mutationId = outbox[0]?.mutationId ?? ''
     expect(mutationId).not.toBe('')
@@ -247,14 +247,14 @@ describe('node⇄hub upstream sync e2e (live hub server)', () => {
     // Hub returns (same state dir + port): reconnect heals, the outbox drains.
     hub = await startServer({ port: hubPort })
     hubClosed = false
-    await until(() => nodeStore.listUpstreamOutbox().length === 0, 10_000)
+    await until(() => nodeStore.sync.listUpstreamOutbox().length === 0, 10_000)
     // EXACTLY ONE application, asserted via hub issue state + the hub's
     // idempotency record for the entry's mutationId (invariant 2).
     const applied = () =>
       // #175: read the hub's thread via comments() — bodies are not on the wire.
       hub.registry.issues.comments(hubIssueId).filter((c) => c.body === 'offline comment')
     expect(applied()).toHaveLength(1)
-    expect(hub.registry.sessionStore.getAppliedMutation(mutationId)).toBeDefined()
+    expect(hub.registry.sessionStore.sync.getAppliedMutation(mutationId)).toBeDefined()
     // Belt-and-braces: replay the SAME mutation again (a lost-ack retry) — the
     // hub returns the recorded result instead of applying twice.
     await forwarder.forward('addComment', {
@@ -275,7 +275,7 @@ describe('node⇄hub upstream sync e2e (live hub server)', () => {
   it('hub stopped → mirrored entries stale-flagged and RETAINED; node-local work unaffected', async () => {
     const before = nodeHubSessions().length
     expect(before).toBeGreaterThan(0)
-    const local = nodeRegistry.createSession({ agentKind: 'shell', cwd: '/node/local' })
+    const local = nodeRegistry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/node/local' })
 
     await hub.close()
     hubClosed = true
@@ -283,12 +283,12 @@ describe('node⇄hub upstream sync e2e (live hub server)', () => {
     // Retained (stale-visible, never blank) …
     expect(nodeHubSessions().length).toBe(before)
     // … while local entities never carry upstream flags and keep working.
-    const localMeta = nodeRegistry.listSessions().find((s) => s.sessionId === local.sessionId)
+    const localMeta = nodeRegistry.modules.sessions.listSessions().find((s) => s.sessionId === local.sessionId)
     expect(localMeta).toBeDefined()
     expect(localMeta?.viaHub).toBeUndefined()
     expect(localMeta?.upstreamStale).toBeUndefined()
-    expect(nodeRegistry.renameSession({ sessionId: local.sessionId, name: 'still-mine' }))
-    expect(nodeRegistry.listSessions().find((s) => s.sessionId === local.sessionId)?.name).toBe(
+    expect(nodeRegistry.modules.sessions.renameSession({ sessionId: local.sessionId, name: 'still-mine' }))
+    expect(nodeRegistry.modules.sessions.listSessions().find((s) => s.sessionId === local.sessionId)?.name).toBe(
       'still-mine',
     )
   })

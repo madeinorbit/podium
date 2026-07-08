@@ -5,7 +5,7 @@ import { OPERATOR } from './issue-authz'
 import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
 import { appRouter } from './router'
-import { SuperagentService } from './superagent'
+import { SuperagentService } from './modules/superagent'
 
 const geometry = { cols: 80, rows: 24 }
 
@@ -24,9 +24,9 @@ function caller(
   onDaemon: (message: ControlMessage) => void = () => {},
 ) {
   const registry = new SessionRegistry()
-  registry.attachDaemon('local', onDaemon)
+  registry.modules.sessions.attachDaemon('local', onDaemon)
   const repos = new RepoRegistry(registry, registry.sessionStore)
-  const superagent = new SuperagentService(registry, repos, registry.sessionStore)
+  const superagent = new SuperagentService(registry.modules, repos, registry.sessionStore)
   const call = appRouter.createCaller({ registry, repos, superagent, cloud, capability: OPERATOR })
   return { call, registry }
 }
@@ -111,12 +111,12 @@ describe('cloud router', () => {
   it('moves a resumable codex session to a cloud agent request', async () => {
     const cloud = captureCloudProvider()
     const { call, registry } = caller(cloud.provider)
-    registry.sessionStore.addRepo(
+    registry.sessionStore.repos.addRepo(
       '/workspace/podium',
       'local',
       'git@github.com:madeinorbit/podium.git',
     )
-    const { sessionId } = registry.resumeSession({
+    const { sessionId } = registry.modules.sessions.resumeSession({
       agentKind: 'codex',
       cwd: '/workspace/podium',
       resume: { kind: 'codex-thread', value: 'thread-1' },
@@ -154,18 +154,18 @@ describe('cloud router', () => {
     const cloud = captureCloudProvider()
     const daemon: ControlMessage[] = []
     const { call, registry } = caller(cloud.provider, (message) => daemon.push(message))
-    registry.sessionStore.addRepo(
+    registry.sessionStore.repos.addRepo(
       '/workspace/podium',
       'local',
       'https://github.com/madeinorbit/podium.git',
     )
-    const { sessionId } = registry.createSession({
+    const { sessionId } = registry.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/workspace/podium',
       spawnedBy: 'user',
     })
-    registry.onDaemonMessageFrom('local', bind(sessionId, '/workspace/podium', 'claude-code'))
-    registry.onDaemonMessageFrom('local', {
+    registry.modules.sessions.onDaemonMessageFrom('local', bind(sessionId, '/workspace/podium', 'claude-code'))
+    registry.modules.sessions.onDaemonMessageFrom('local', {
       type: 'sessionResumeRef',
       sessionId,
       resume: { kind: 'claude-session', value: 'claude-resume-1' },
@@ -179,7 +179,7 @@ describe('cloud router', () => {
 
     expect(runtime.id).toBe('cloud-runtime-1')
     expect(daemon).toContainEqual({ type: 'kill', sessionId })
-    expect(registry.listSessions().find((s) => s.sessionId === sessionId)?.status).toBe(
+    expect(registry.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)?.status).toBe(
       'hibernated',
     )
     expect(cloud.createdAgents.at(-1)).toMatchObject({
@@ -196,7 +196,7 @@ describe('cloud router', () => {
   it('rejects moving a session without a resume ref', async () => {
     const cloud = captureCloudProvider()
     const { call, registry } = caller(cloud.provider)
-    const { sessionId } = registry.createSession({
+    const { sessionId } = registry.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/workspace/podium',
       spawnedBy: 'user',

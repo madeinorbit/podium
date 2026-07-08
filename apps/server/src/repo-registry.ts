@@ -89,7 +89,7 @@ export class RepoRegistry {
 
   /** Flat list of registered repo paths. Optionally filtered to a machine. */
   list(machineId?: string): string[] {
-    return this.store.listRepoPaths(machineId)
+    return this.store.repos.listRepoPaths(machineId)
   }
 
   /** The longest registered repo root that contains `path` (cwd → repo inference).
@@ -102,15 +102,15 @@ export class RepoRegistry {
     const p = normalizeRepoPath(path)
     if (!p) throw new Error('repo path is empty')
     if (!isAbsolute(p)) throw new Error(`repo path must be absolute: ${p}`)
-    const mid = machineId ?? this.sessionReg.defaultMachineId()
+    const mid = machineId ?? this.sessionReg.modules.machines.defaultMachine()
     // Best-effort origin capture: reads <p>/.git locally, so it only yields a URL
     // when the path exists on this host (remote repos get it later via scan).
-    this.store.addRepo(p, mid, readLocalOriginUrl(p) ?? undefined)
+    this.store.repos.addRepo(p, mid, readLocalOriginUrl(p) ?? undefined)
   }
 
   async remove(path: string, machineId?: string): Promise<void> {
-    const mid = machineId ?? this.sessionReg.defaultMachineId()
-    this.store.removeRepo(normalizeRepoPath(path), mid)
+    const mid = machineId ?? this.sessionReg.modules.machines.defaultMachine()
+    this.store.repos.removeRepo(normalizeRepoPath(path), mid)
   }
 
   /**
@@ -124,7 +124,7 @@ export class RepoRegistry {
    * single-machine UI is unchanged.
    */
   async scanReposAll(): Promise<ScanReposResult> {
-    const machineIds = this.sessionReg.onlineMachineIds()
+    const machineIds = this.sessionReg.modules.machines.onlineMachineIds()
     if (machineIds.length === 0) {
       return {
         repositories: [],
@@ -134,7 +134,7 @@ export class RepoRegistry {
 
     const perMachine = await Promise.all(
       machineIds.map(async (machineId) => {
-        const roots = this.store.listRepoPaths(machineId)
+        const roots = this.store.repos.listRepoPaths(machineId)
         const result = await this.sessionReg.scanReposForMachine(roots, machineId, {
           includeHome: false,
           maxDepth: 0,
@@ -142,9 +142,9 @@ export class RepoRegistry {
         // Record scan-reported origins for registered repos (upgrades path-fallback
         // repo_ids to origin-derived ones — remote/late origins included).
         for (const r of result.repositories) {
-          if (r.originUrl) this.store.updateRepoOrigin(machineId, r.path, r.originUrl)
+          if (r.originUrl) this.store.repos.updateRepoOrigin(machineId, r.path, r.originUrl)
         }
-        const storedRows = this.store.listRepos(machineId)
+        const storedRows = this.store.repos.listRepos(machineId)
         const repoIdByPath = new Map(
           storedRows.map((row) => [normalizeRepoPath(row.path), row.repoId]),
         )

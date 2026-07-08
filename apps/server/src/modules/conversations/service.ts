@@ -161,7 +161,7 @@ export class ConversationsService {
       if (c.parentConversationId) continue
       podiumIds.set(
         c.id,
-        this.deps.store.ensureConversationIdentity({
+        this.deps.store.conversations.ensureConversationIdentity({
           machineId,
           nativeId: c.id,
           providerId: c.providerId,
@@ -174,14 +174,14 @@ export class ConversationsService {
       if (!c.parentConversationId) continue
       const parentPodiumId =
         podiumIds.get(c.parentConversationId) ??
-        this.deps.store.ensureConversationIdentity({
+        this.deps.store.conversations.ensureConversationIdentity({
           machineId,
           nativeId: c.parentConversationId,
           providerId: c.providerId,
         })
       podiumIds.set(
         c.id,
-        this.deps.store.ensureConversationIdentity({
+        this.deps.store.conversations.ensureConversationIdentity({
           machineId,
           nativeId: c.id,
           providerId: c.providerId,
@@ -191,7 +191,7 @@ export class ConversationsService {
         }),
       )
     }
-    this.deps.store.upsertConversations(
+    this.deps.store.conversations.upsertConversations(
       conversations.map((c) => ({
         id: c.id,
         agentKind: c.agentKind,
@@ -208,7 +208,7 @@ export class ConversationsService {
           : {}),
       })),
     )
-    if (removed.length) this.deps.store.deleteConversations(removed)
+    if (removed.length) this.deps.store.conversations.deleteConversations(removed)
     // Scan trigger (transcript-mirror spec §2.3): the segments just upserted may have
     // grown/appeared — pull their new bytes into the lake. No-op without a lake dir.
     this.triggerLakeSweep(machineId)
@@ -242,11 +242,11 @@ export class ConversationsService {
   }
 
   searchConversations(opts: { query?: string; projectPath?: string; limit?: number }) {
-    return this.deps.store.searchConversations(opts)
+    return this.deps.store.conversations.searchConversations(opts)
   }
 
   setConversationMeta(input: { id: string; name?: string; summary?: string }): void {
-    this.deps.store.setConversationMeta(input.id, input)
+    this.deps.store.conversations.setConversationMeta(input.id, input)
   }
 
   /** The lake maintenance pass behind every scan/attach trigger: mirror-pull the
@@ -281,7 +281,7 @@ export class ConversationsService {
   > {
     const nativeId = session.resume?.value
     if (!this.mirror || !nativeId) return undefined
-    if (this.deps.store.mirrorCursor(session.machineId, nativeId) <= 0) return undefined
+    if (this.deps.store.conversations.mirrorCursor(session.machineId, nativeId) <= 0) return undefined
     const path = this.mirror.lakePath(session.machineId, nativeId)
     const source = fileChainSource(
       [{ path, fileId: fileIdFor(path) }],

@@ -19,6 +19,9 @@ export interface IssueFunnel {
     publish?: (result: T) => PublishSpec | null
   }): T
   publishSpec(spec: PublishSpec): void
+  /** Durable oplog append with no fan-out — boot reconciliation. Optional so
+   *  narrow test fakes stay valid. */
+  record?(entity: 'issue', rows: { id: string; value: unknown }[]): unknown
 }
 
 /** Publish-spec factory for the two issue wire shapes. The relay implements it

@@ -26,7 +26,7 @@ export abstract class IssueServiceMail extends IssueServiceAttention {
       readAt: null,
       claimedAt: null,
     }
-    this.deps.funnel.run({ write: () => this.deps.store.addIssueMessage(message) })
+    this.deps.funnel.run({ write: () => this.deps.store.issues.addIssueMessage(message) })
     try {
       this.deps.onMailSent?.(row, message)
     } catch {}
@@ -46,11 +46,11 @@ export abstract class IssueServiceMail extends IssueServiceAttention {
     // issue's inbox (operator, other agents — reads are scope-free) must not
     // consume unread status or it silently suppresses stop-hook/prime delivery.
     const markRead = opts?.markRead !== false
-    const messages = this.deps.store.listIssueMessages(id)
+    const messages = this.deps.store.issues.listIssueMessages(id)
     const unreadIds = markRead ? messages.filter((m) => m.status === 'unread').map((m) => m.id) : []
     if (unreadIds.length) {
       this.deps.funnel.run({
-        write: () => this.deps.store.markIssueMessagesRead(id, unreadIds, this.now()),
+        write: () => this.deps.store.issues.markIssueMessagesRead(id, unreadIds, this.now()),
       })
     }
     return messages.map((m) => ({
@@ -63,9 +63,9 @@ export abstract class IssueServiceMail extends IssueServiceAttention {
   /** Atomic claim (single guarded UPDATE): `claimed` is false when someone else won. */
   mailClaim(messageId: string, claimedBy: string): { claimed: boolean; message: IssueMessageRow } {
     const claimed = this.deps.funnel.run({
-      write: () => this.deps.store.claimIssueMessage(messageId, claimedBy, this.now()),
+      write: () => this.deps.store.issues.claimIssueMessage(messageId, claimedBy, this.now()),
     })
-    const message = this.deps.store.getIssueMessage(messageId)
+    const message = this.deps.store.issues.getIssueMessage(messageId)
     if (!message) throw new Error(`unknown mail message ${messageId}`)
     return { claimed, message }
   }
@@ -74,11 +74,11 @@ export abstract class IssueServiceMail extends IssueServiceAttention {
   mailPending(issueId: string): { unread: number } {
     const id = this.resolveRef(issueId)
     this.rowOrThrow(id)
-    return { unread: this.deps.store.countUnreadIssueMessages(id) }
+    return { unread: this.deps.store.issues.countUnreadIssueMessages(id) }
   }
 
   /** The issue a mail message belongs to (router scope enforcement for mailClaim). */
   mailMessage(messageId: string): IssueMessageRow | null {
-    return this.deps.store.getIssueMessage(messageId)
+    return this.deps.store.issues.getIssueMessage(messageId)
   }
 }

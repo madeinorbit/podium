@@ -63,7 +63,7 @@ describe('repo_id schema (v8, #74)', () => {
       .run()
     // @ts-expect-error private method
     s.backfillRepoIds()
-    const repos = s.listRepos()
+    const repos = s.repos.listRepos()
     expect(repos.find((r) => r.path === '/r')?.repoId).toBe(
       deriveRepoId({ originUrl: 'git@github.com:o/r.git', machineId: 'm1', path: '/r' }),
     )
@@ -71,9 +71,9 @@ describe('repo_id schema (v8, #74)', () => {
       deriveRepoId({ machineId: 'm2', path: '/no-origin' }),
     )
     // Issue under a registered repo inherits its repo_id via prefix match…
-    expect(s.getIssue('iss_1')?.repoId).toBe(repos.find((r) => r.path === '/r')?.repoId)
+    expect(s.issues.getIssue('iss_1')?.repoId).toBe(repos.find((r) => r.path === '/r')?.repoId)
     // …and an unregistered repo_path gets the deterministic '__local__' fallback.
-    expect(s.getIssue('iss_2')?.repoId).toBe(
+    expect(s.issues.getIssue('iss_2')?.repoId).toBe(
       deriveRepoId({ machineId: '__local__', path: '/unregistered' }),
     )
     s.close()
@@ -81,9 +81,9 @@ describe('repo_id schema (v8, #74)', () => {
 
   it('addRepo derives repo_id (origin-based when given, path-fallback otherwise)', () => {
     const s = new SessionStore(':memory:')
-    s.addRepo('/a', 'm1', 'https://github.com/o/r')
-    s.addRepo('/b', 'm1')
-    const rows = s.listRepos()
+    s.repos.addRepo('/a', 'm1', 'https://github.com/o/r')
+    s.repos.addRepo('/b', 'm1')
+    const rows = s.repos.listRepos()
     expect(rows.find((r) => r.path === '/a')?.repoId).toBe(
       deriveRepoId({ originUrl: 'https://github.com/o/r', machineId: 'm1', path: '/a' }),
     )
@@ -95,46 +95,46 @@ describe('repo_id schema (v8, #74)', () => {
 
   it('two paths with the same origin share one repo_id', () => {
     const s = new SessionStore(':memory:')
-    s.addRepo('/clone/one', 'm1', 'git@github.com:o/r.git')
-    s.addRepo('/clone/two', 'm2', 'https://github.com/o/r')
-    const rows = s.listRepos()
+    s.repos.addRepo('/clone/one', 'm1', 'git@github.com:o/r.git')
+    s.repos.addRepo('/clone/two', 'm2', 'https://github.com/o/r')
+    const rows = s.repos.listRepos()
     expect(rows[0]?.repoId).toBe(rows[1]?.repoId)
     s.close()
   })
 
   it('updateRepoOrigin upgrades a path-fallback id (and its issues) but not an origin-derived id', () => {
     const s = new SessionStore(':memory:')
-    s.addRepo('/r', 'm1') // no origin → path fallback
-    s.upsertIssue(issueRow({ id: 'iss_1', repoPath: '/r' }))
-    s.upsertIssue(issueRow({ id: 'iss_2', repoPath: '/r/nested', seq: 2 }))
-    s.upsertIssue(issueRow({ id: 'iss_3', repoPath: '/other', seq: 3 }))
+    s.repos.addRepo('/r', 'm1') // no origin → path fallback
+    s.issues.upsertIssue(issueRow({ id: 'iss_1', repoPath: '/r' }))
+    s.issues.upsertIssue(issueRow({ id: 'iss_2', repoPath: '/r/nested', seq: 2 }))
+    s.issues.upsertIssue(issueRow({ id: 'iss_3', repoPath: '/other', seq: 3 }))
     const fallback = deriveRepoId({ machineId: 'm1', path: '/r' })
-    expect(s.listRepos()[0]?.repoId).toBe(fallback)
-    expect(s.getIssue('iss_1')?.repoId).toBe(fallback)
+    expect(s.repos.listRepos()[0]?.repoId).toBe(fallback)
+    expect(s.issues.getIssue('iss_1')?.repoId).toBe(fallback)
 
-    s.updateRepoOrigin('m1', '/r', 'git@github.com:o/r.git')
+    s.repos.updateRepoOrigin('m1', '/r', 'git@github.com:o/r.git')
     const originId = deriveRepoId({ originUrl: 'git@github.com:o/r.git', machineId: 'm1', path: '/r' })
-    expect(s.listRepos()[0]?.repoId).toBe(originId)
-    expect(s.getIssue('iss_1')?.repoId).toBe(originId)
-    expect(s.getIssue('iss_2')?.repoId).toBe(originId)
+    expect(s.repos.listRepos()[0]?.repoId).toBe(originId)
+    expect(s.issues.getIssue('iss_1')?.repoId).toBe(originId)
+    expect(s.issues.getIssue('iss_2')?.repoId).toBe(originId)
     // untouched: issue outside the repo
-    expect(s.getIssue('iss_3')?.repoId).toBe(
+    expect(s.issues.getIssue('iss_3')?.repoId).toBe(
       deriveRepoId({ machineId: '__local__', path: '/other' }),
     )
 
     // A later, different origin must NOT rewrite the established identity.
-    s.updateRepoOrigin('m1', '/r', 'git@github.com:fork/r.git')
-    expect(s.listRepos()[0]?.repoId).toBe(originId)
-    expect(s.listRepos()[0]?.originUrl).toBe('git@github.com:fork/r.git')
-    expect(s.getIssue('iss_1')?.repoId).toBe(originId)
+    s.repos.updateRepoOrigin('m1', '/r', 'git@github.com:fork/r.git')
+    expect(s.repos.listRepos()[0]?.repoId).toBe(originId)
+    expect(s.repos.listRepos()[0]?.originUrl).toBe('git@github.com:fork/r.git')
+    expect(s.issues.getIssue('iss_1')?.repoId).toBe(originId)
     s.close()
   })
 
   it('upsertIssue dual-writes repo_id from the registered repo prefix match', () => {
     const s = new SessionStore(':memory:')
-    s.addRepo('/repo', 'm1', 'https://github.com/o/repo')
-    s.upsertIssue(issueRow({ id: 'iss_1', repoPath: '/repo' }))
-    expect(s.getIssue('iss_1')?.repoId).toBe(
+    s.repos.addRepo('/repo', 'm1', 'https://github.com/o/repo')
+    s.issues.upsertIssue(issueRow({ id: 'iss_1', repoPath: '/repo' }))
+    expect(s.issues.getIssue('iss_1')?.repoId).toBe(
       deriveRepoId({ originUrl: 'https://github.com/o/repo', machineId: 'm1', path: '/repo' }),
     )
     s.close()

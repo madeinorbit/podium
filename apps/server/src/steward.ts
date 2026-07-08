@@ -132,7 +132,7 @@ export function subscriptionEventKinds(e: StewardEvent): string[] {
  *  caller can replace the same surface later without touching the registry. */
 export interface StewardDeps {
   store: Pick<
-    SessionStore,
+    SessionStore['events'],
     | 'listEventsSince'
     | 'getStewardState'
     | 'setStewardState'

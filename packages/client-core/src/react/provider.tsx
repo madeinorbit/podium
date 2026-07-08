@@ -858,7 +858,7 @@ export function StoreProvider<TApi extends PodiumClientApi>({
       const prompt = answerText.trim()
         ? `Give me a concise tl;dr (2–4 bullet points) of the agent's last answer below.\n\n---\n${answerText.trim().slice(0, 4000)}`
         : "Give me a concise tl;dr (2–4 bullet points) of the agent's last answer."
-      await trpc.superagent.send.mutate({ threadId, text: prompt }).catch(() => {})
+      await trpc.superagent.sendTurn.mutate({ threadId, text: prompt }).catch(() => {})
       setSuperRefreshKey((k) => k + 1)
     },
     [trpc],

@@ -20,8 +20,8 @@ describe('SessionRegistry metadata deltas', () => {
 
   function client(registry: SessionRegistry, caps?: string[]): { inbox: ServerMessage[] } {
     const inbox: ServerMessage[] = []
-    const id = registry.attachClient((msg) => inbox.push(msg))
-    registry.onClientMessage(id, {
+    const id = registry.modules.sessions.attachClient((msg) => inbox.push(msg))
+    registry.modules.sessions.onClientMessage(id, {
       type: 'hello',
       clientId: '',
       viewport: { cols: 80, rows: 24, dpr: 1 },
@@ -81,7 +81,7 @@ describe('SessionRegistry metadata deltas', () => {
     const registry = makeRegistry()
     const delta = client(registry, ['metadataDelta'])
     const before = delta.inbox.length
-    const { sessionId } = registry.createSession({ agentKind: 'shell', cwd: '/w' })
+    const { sessionId } = registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
     const changes = deltas(delta.inbox.slice(before)).filter((c) => c.entity === 'session')
     expect(changes.length).toBeGreaterThanOrEqual(1)
     expect(changes[0]).toMatchObject({ entity: 'session', id: sessionId, op: 'upsert' })
@@ -108,16 +108,16 @@ describe('SessionRegistry metadata deltas', () => {
     const registry = makeRegistry()
     registry.issues.create({ repoPath: '/r', title: 'a', startNow: false })
 
-    const boot = registry.syncChangesSince(null)
+    const boot = registry.modules.sessions.syncChangesSince(null)
     expect(boot.kind).toBe('snapshot')
     if (boot.kind !== 'snapshot') return
     expect(boot.issues.map((i) => i.title)).toEqual(['a'])
 
     const created = registry.issues.create({ repoPath: '/r', title: 'b', startNow: false })
     registry.issues.close(created.id, 'wontfix')
-    registry.createSession({ agentKind: 'shell', cwd: '/w' })
+    registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
 
-    const catchUp = registry.syncChangesSince(boot.cursor)
+    const catchUp = registry.modules.sessions.syncChangesSince(boot.cursor)
     expect(catchUp.kind).toBe('delta')
     if (catchUp.kind !== 'delta') return
 
@@ -131,7 +131,7 @@ describe('SessionRegistry metadata deltas', () => {
       }
       return [...m.values()]
     }
-    const fresh = registry.syncChangesSince(null)
+    const fresh = registry.modules.sessions.syncChangesSince(null)
     if (fresh.kind !== 'snapshot') throw new Error('expected snapshot')
     const byId = <T>(l: T[], key: (t: T) => string) =>
       [...l].sort((x, y) => key(x).localeCompare(key(y)))
@@ -153,7 +153,7 @@ describe('SessionRegistry metadata deltas', () => {
   it('a pre-hello client is legacy: bootstrap snapshots, no deltas', () => {
     const registry = makeRegistry()
     const inbox: ServerMessage[] = []
-    registry.attachClient((msg) => inbox.push(msg)) // no hello at all
+    registry.modules.sessions.attachClient((msg) => inbox.push(msg)) // no hello at all
     expect(inbox.some((m) => m.type === 'sessionsChanged')).toBe(true)
     registry.issues.create({ repoPath: '/r', title: 'x', startNow: false })
     expect(inbox.some((m) => m.type === 'metadataDelta')).toBe(false)

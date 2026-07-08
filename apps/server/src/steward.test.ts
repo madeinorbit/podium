@@ -10,7 +10,7 @@ function harness(opts: { enabled?: boolean; sessions?: SessionMeta[]; seedCursor
   // Most tests want the events they emit consumed — pin the cursor to the log
   // start, as if the steward had been enabled since boot. First-enable seeding
   // tests pass seedCursor: false to exercise the absent-row path.
-  if (opts.seedCursor !== false) store.setStewardState('cursor', '0')
+  if (opts.seedCursor !== false) store.events.setStewardState('cursor', '0')
   const sessions = opts.sessions ?? []
   const settings = {
     steward: { enabled: opts.enabled ?? true },
@@ -33,7 +33,7 @@ function harness(opts: { enabled?: boolean; sessions?: SessionMeta[]; seedCursor
   const issues = new IssueService(issueDeps)
   const sendTextWhenReady = vi.fn()
   const deps: StewardDeps = {
-    store,
+    store: store.events,
     issues,
     listSessions: () => sessions,
     sendTextWhenReady,
@@ -104,18 +104,18 @@ describe('TRIGGER_RULES', () => {
 describe('StewardService cursor', () => {
   it('consumes events exactly once and persists the cursor across re-instantiation', async () => {
     const { store, deps, steward } = harness()
-    store.appendEvent({ ts: 't', kind: 'issue.created', subject: 'iss_a', repoPath: '/r' })
-    const id2 = store.appendEvent({
+    store.events.appendEvent({ ts: 't', kind: 'issue.created', subject: 'iss_a', repoPath: '/r' })
+    const id2 = store.events.appendEvent({
       ts: 't',
       kind: 'issue.created',
       subject: 'iss_b',
       repoPath: '/r',
     })
     await steward.tick()
-    expect(store.getStewardState('cursor')).toBe(String(id2))
+    expect(store.events.getStewardState('cursor')).toBe(String(id2))
     // Crash-resume: a fresh instance over the same store starts past the batch.
     const reborn = new StewardService(deps)
-    const listSpy = vi.spyOn(store, 'listEventsSince')
+    const listSpy = vi.spyOn(store.events, 'listEventsSince')
     await reborn.tick()
     expect(listSpy).toHaveBeenCalledWith(id2)
   })
@@ -129,12 +129,12 @@ describe('StewardService cursor', () => {
     let cursorDuringHandler: string | undefined
     const orig = issues.addComment.bind(issues)
     vi.spyOn(issues, 'addComment').mockImplementation((id, author, body) => {
-      cursorDuringHandler = store.getStewardState('cursor')
+      cursorDuringHandler = store.events.getStewardState('cursor')
       return orig(id, author, body)
     })
     await steward.tick()
     expect(cursorDuringHandler).toBe('0') // still pre-batch while handling
-    expect(Number(store.getStewardState('cursor'))).toBeGreaterThan(0)
+    expect(Number(store.events.getStewardState('cursor'))).toBeGreaterThan(0)
   })
 
   it('first enable seeds the cursor to the log head — dark-run history never replays', async () => {
@@ -144,27 +144,27 @@ describe('StewardService cursor', () => {
     const b = issues.create({ repoPath: '/r', title: 'B', startNow: false })
     issues.addDep(b.id, a.id, 'blocks')
     issues.close(a.id)
-    const max = store.maxEventId()
+    const max = store.events.maxEventId()
     expect(max).toBeGreaterThan(0)
     await steward.tick()
-    expect(store.getStewardState('cursor')).toBe(String(max))
+    expect(store.events.getStewardState('cursor')).toBe(String(max))
     expect(stewardComments(issues, b.id)).toEqual([])
     expect(sendTextWhenReady).not.toHaveBeenCalled()
   })
 
   it('a corrupt cursor re-seeds to the log head instead of wedging', async () => {
     const { store, issues, steward } = harness()
-    store.setStewardState('cursor', 'garbage')
+    store.events.setStewardState('cursor', 'garbage')
     const a = issues.create({ repoPath: '/r', title: 'A', startNow: false })
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     await expect(steward.tick()).resolves.toBeUndefined()
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('[podium:steward] corrupt cursor'))
-    expect(store.getStewardState('cursor')).toBe(String(store.maxEventId()))
+    expect(store.events.getStewardState('cursor')).toBe(String(store.events.maxEventId()))
     warn.mockRestore()
     // Recovered: the next event past the re-seed is consumed normally.
     issues.setNeedsHuman(a.id, 'q')
     await steward.tick()
-    expect(store.listEventsSince(0, { kinds: ['steward.observed'] }).length).toBe(1)
+    expect(store.events.listEventsSince(0, { kinds: ['steward.observed'] }).length).toBe(1)
   })
 })
 
@@ -195,7 +195,7 @@ describe('StewardService unblock handler', () => {
     expect(stewardComments(issues, b.id).length).toBe(1)
     expect(sendTextWhenReady).toHaveBeenCalledTimes(1)
     // Crash-replay: rewind the cursor so the SAME events are read again.
-    store.setStewardState('cursor', '0')
+    store.events.setStewardState('cursor', '0')
     await steward.tick()
     expect(stewardComments(issues, b.id).length).toBe(1)
     expect(sendTextWhenReady).toHaveBeenCalledTimes(1)
@@ -369,7 +369,7 @@ describe('StewardService parent-nudge handler', () => {
     await steward.tick()
     expect(stewardComments(issues, parent.id).length).toBe(1)
     expect(sendTextWhenReady).toHaveBeenCalledTimes(1)
-    store.setStewardState('cursor', '0')
+    store.events.setStewardState('cursor', '0')
     await steward.tick()
     expect(stewardComments(issues, parent.id).length).toBe(1)
     expect(sendTextWhenReady).toHaveBeenCalledTimes(1)
@@ -518,7 +518,7 @@ describe('StewardService child→needs_human parent nudge', () => {
     expect(sendTextWhenReady).toHaveBeenCalledTimes(1)
     expect((sendTextWhenReady.mock.calls[0] as [string, string])[1]).toContain('needs a human')
     // Breadcrumb still recorded (unchanged from before).
-    expect(store.listEventsSince(0, { kinds: ['steward.observed'] }).length).toBe(1)
+    expect(store.events.listEventsSince(0, { kinds: ['steward.observed'] }).length).toBe(1)
   })
 })
 
@@ -528,12 +528,12 @@ describe('StewardService needs-human handler', () => {
     const a = issues.create({ repoPath: '/r', title: 'A', startNow: false })
     issues.setNeedsHuman(a.id, 'which key?')
     await steward.tick()
-    const crumbs = store.listEventsSince(0, { kinds: ['steward.observed'] })
+    const crumbs = store.events.listEventsSince(0, { kinds: ['steward.observed'] })
     expect(crumbs.length).toBe(1)
     expect(crumbs[0]).toMatchObject({ subject: a.id, payload: { kind: 'issue.needs_human' } })
     // The breadcrumb itself is unmatched — the next tick consumes it silently.
     await steward.tick()
-    expect(store.listEventsSince(0, { kinds: ['steward.observed'] }).length).toBe(1)
+    expect(store.events.listEventsSince(0, { kinds: ['steward.observed'] }).length).toBe(1)
   })
 })
 
@@ -548,7 +548,7 @@ describe('StewardService gating and resilience', () => {
     issues.addDep(b.id, a.id, 'blocks')
     issues.close(a.id)
     await steward.tick()
-    expect(store.getStewardState('cursor')).toBeUndefined()
+    expect(store.events.getStewardState('cursor')).toBeUndefined()
     expect(sendTextWhenReady).not.toHaveBeenCalled()
     expect(stewardComments(issues, b.id)).toEqual([])
   })
@@ -564,7 +564,7 @@ describe('StewardService gating and resilience', () => {
     })
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     await expect(steward.tick()).resolves.toBeUndefined()
-    expect(Number(store.getStewardState('cursor'))).toBeGreaterThan(0)
+    expect(Number(store.events.getStewardState('cursor'))).toBeGreaterThan(0)
     expect(warn).toHaveBeenCalledWith(
       expect.stringContaining('[podium:steward]'),
       expect.any(Error),
@@ -597,7 +597,7 @@ describe('StewardService stored subscriptions (Phase B)', () => {
     const p = issues.create({ repoPath: '/r', title: 'Watcher', startNow: false })
     issues.update(p.id, { worktreePath: '/r/.worktrees/p' })
     const x = issues.create({ repoPath: '/r', title: 'Target', startNow: false })
-    store.addSubscription(seedSub({ id: 'sub_1', subscriberId: p.id, sourceRef: x.id }))
+    store.events.addSubscription(seedSub({ id: 'sub_1', subscriberId: p.id, sourceRef: x.id }))
     issues.close(x.id)
     await steward.tick()
     expect(sendTextWhenReady).toHaveBeenCalledTimes(1)
@@ -606,7 +606,7 @@ describe('StewardService stored subscriptions (Phase B)', () => {
     expect(text).not.toContain('`')
     expect(text).not.toContain('\n')
     // Crash-replay: the same close event is re-read but never re-delivered.
-    store.setStewardState('cursor', '0')
+    store.events.setStewardState('cursor', '0')
     await steward.tick()
     expect(sendTextWhenReady).toHaveBeenCalledTimes(1)
   })
@@ -617,7 +617,7 @@ describe('StewardService stored subscriptions (Phase B)', () => {
       fakeSession({ sessionId: 'worker', cwd: '/x' }),
     ]
     const { store, steward, sendTextWhenReady } = harness({ sessions })
-    store.addSubscription(
+    store.events.addSubscription(
       seedSub({
         id: 'sub_s',
         subscriberKind: 'session',
@@ -628,13 +628,13 @@ describe('StewardService stored subscriptions (Phase B)', () => {
       }),
     )
     // Non-finished phases are ignored; only idle+done derives session.finished.
-    store.appendEvent({
+    store.events.appendEvent({
       ts: 't',
       kind: 'session.phase',
       subject: 'worker',
       payload: { phase: 'active' },
     })
-    store.appendEvent({
+    store.events.appendEvent({
       ts: 't',
       kind: 'session.phase',
       subject: 'worker',
@@ -664,7 +664,7 @@ describe('StewardService stored subscriptions (Phase B)', () => {
       fakeSession({ sessionId: 'kid', cwd: '/k', issueId: child.id }),
       fakeSession({ sessionId: 'stranger', cwd: '/s', issueId: outsider.id }),
     )
-    store.addSubscription(
+    store.events.addSubscription(
       seedSub({
         id: 'sub_rel',
         subscriberId: epic.id,
@@ -674,7 +674,7 @@ describe('StewardService stored subscriptions (Phase B)', () => {
       }),
     )
     // A non-child session finishing does NOT deliver.
-    store.appendEvent({
+    store.events.appendEvent({
       ts: 't',
       kind: 'session.phase',
       subject: 'stranger',
@@ -683,7 +683,7 @@ describe('StewardService stored subscriptions (Phase B)', () => {
     await steward.tick()
     expect(sendTextWhenReady).not.toHaveBeenCalled()
     // The child session finishing DOES — its bound issue's parent is the subscriber.
-    store.appendEvent({
+    store.events.appendEvent({
       ts: 't',
       kind: 'session.phase',
       subject: 'kid',
@@ -700,7 +700,7 @@ describe('StewardService stored subscriptions (Phase B)', () => {
     const p = issues.create({ repoPath: '/r', title: 'Watcher', startNow: false })
     issues.update(p.id, { worktreePath: '/r/.worktrees/p' })
     const x = issues.create({ repoPath: '/r', title: 'Target', startNow: false })
-    store.addSubscription(
+    store.events.addSubscription(
       seedSub({ id: 'sub_off', subscriberId: p.id, sourceRef: x.id, enabled: false }),
     )
     issues.close(x.id)
@@ -717,7 +717,7 @@ describe('StewardService stored subscriptions (Phase B)', () => {
     const p = issues.create({ repoPath: '/r', title: 'Watcher', startNow: false })
     issues.update(p.id, { worktreePath: '/r/.worktrees/p' })
     const x = issues.create({ repoPath: '/r', title: 'Target', startNow: false })
-    store.addSubscription(seedSub({ id: 'sub_c', subscriberId: p.id, sourceRef: x.id }))
+    store.events.addSubscription(seedSub({ id: 'sub_c', subscriberId: p.id, sourceRef: x.id }))
     issues.close(x.id, 'done', { actorSessionId: 'causer' })
     await steward.tick()
     const targets = sendTextWhenReady.mock.calls.map((c) => (c as [string, string])[0])
@@ -728,7 +728,7 @@ describe('StewardService stored subscriptions (Phase B)', () => {
     const { store, issues, steward, sendTextWhenReady } = harness()
     const p = issues.create({ repoPath: '/r', title: 'Watcher', startNow: false })
     const x = issues.create({ repoPath: '/r', title: 'Target', startNow: false })
-    store.addSubscription(
+    store.events.addSubscription(
       seedSub({
         id: 'sub_n',
         subscriberId: p.id,
@@ -740,7 +740,7 @@ describe('StewardService stored subscriptions (Phase B)', () => {
     issues.close(x.id)
     await steward.tick()
     expect(sendTextWhenReady).not.toHaveBeenCalled()
-    const crumbs = store.listEventsSince(0, { kinds: ['steward.notify'] })
+    const crumbs = store.events.listEventsSince(0, { kinds: ['steward.notify'] })
     expect(crumbs.length).toBe(1)
     expect(crumbs[0]).toMatchObject({
       subject: p.id,

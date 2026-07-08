@@ -6,7 +6,7 @@ import { SessionStore } from './store'
 // Boot-storm regression (the redeploy watchdog-kill incident): a daemon reattach
 // replays one `bind` per surviving session. Pre-fix, EVERY bind ran the full
 // broadcast pipeline, whose issue rebuild called listSessions() per issue and
-// machineName() -> store.listMachines() (a fresh SQLite prepare+all) per session —
+// machineName() -> store.machines.listMachines() (a fresh SQLite prepare+all) per session —
 // ~15.8k SQL round trips per bind, x66 binds ≈ 21-27s of CPU inside the 30s
 // systemd watchdog window. These tests pin all three fixes:
 //   1. machine names come from the registry cache (zero SQL on the hot path),
@@ -19,11 +19,11 @@ describe('bind-storm regression', () => {
 
   function makeStorm(opts: { sessions: number; issues: number }) {
     const store = new SessionStore(':memory:')
-    store.upsertMachine({ id: 'm1', name: 'one', hostname: 'one', tokenHash: 'x' })
-    store.upsertMachine({ id: 'm2', name: 'two', hostname: 'two', tokenHash: 'y' })
+    store.machines.upsertMachine({ id: 'm1', name: 'one', hostname: 'one', tokenHash: 'x' })
+    store.machines.upsertMachine({ id: 'm2', name: 'two', hostname: 'two', tokenHash: 'y' })
     const registry = new SessionRegistry(store)
-    registry.attachDaemon('m1', () => {})
-    registry.attachDaemon('m2', () => {})
+    registry.modules.sessions.attachDaemon('m1', () => {})
+    registry.modules.sessions.attachDaemon('m2', () => {})
     for (let i = 0; i < opts.issues; i++) {
       registry.issues.create({ repoPath: '/repo', title: `issue ${i}`, startNow: false })
     }
@@ -31,24 +31,24 @@ describe('bind-storm regression', () => {
     for (let i = 0; i < opts.sessions; i++) {
       const machineId = i % 2 ? 'm2' : 'm1'
       const cwd = `/repo/w${i}`
-      const { sessionId } = registry.createSession({ agentKind: 'shell', cwd, machineId })
+      const { sessionId } = registry.modules.sessions.createSession({ agentKind: 'shell', cwd, machineId })
       bound.push({ sessionId, cwd, machineId })
     }
     // Settle setup: run any coalesced broadcast so the storm below starts clean.
-    registry.flushBroadcasts()
+    registry.modules.sessions.flushBroadcasts()
     const inbox: ServerMessage[] = []
-    registry.attachClient((m) => inbox.push(m))
+    registry.modules.sessions.attachClient((m) => inbox.push(m))
     inbox.length = 0
     return { registry, store, bound, inbox }
   }
 
   it('a 50-bind storm stays off SQLite for machine names and coalesces the pipeline', () => {
     const { registry, store, bound, inbox } = makeStorm({ sessions: 50, issues: 30 })
-    const listMachines = vi.spyOn(store, 'listMachines')
+    const listMachines = vi.spyOn(store.machines, 'listMachines')
     const listSessions = vi.spyOn(registry, 'listSessions')
 
-    for (const s of bound) registry.onDaemonMessageFrom(s.machineId, bind(s.sessionId, s.cwd))
-    registry.flushBroadcasts()
+    for (const s of bound) registry.modules.sessions.onDaemonMessageFrom(s.machineId, bind(s.sessionId, s.cwd))
+    registry.modules.sessions.flushBroadcasts()
 
     // (c) Pipeline runs ≪ bind count: leading run + one coalesced trailing flush.
     const pipelineRuns = inbox.filter((m) => m.type === 'sessionsChanged').length
@@ -76,7 +76,7 @@ describe('bind-storm regression', () => {
 
   it('the coalesced trailing broadcast fires on its own next tick (no flush needed)', async () => {
     const { registry, bound, inbox } = makeStorm({ sessions: 3, issues: 1 })
-    for (const s of bound) registry.onDaemonMessageFrom(s.machineId, bind(s.sessionId, s.cwd))
+    for (const s of bound) registry.modules.sessions.onDaemonMessageFrom(s.machineId, bind(s.sessionId, s.cwd))
     // Leading run only so far — the follow-ups are pending on the cooldown timer.
     await new Promise((r) => setTimeout(r, 10))
     const last = inbox.filter((m) => m.type === 'sessionsChanged').at(-1)
@@ -87,14 +87,14 @@ describe('bind-storm regression', () => {
 
   it('a machine rename invalidates the cache: the next broadcast shows the new name', () => {
     const { registry, bound, inbox } = makeStorm({ sessions: 2, issues: 0 })
-    for (const s of bound) registry.onDaemonMessageFrom(s.machineId, bind(s.sessionId, s.cwd))
-    registry.flushBroadcasts()
-    registry.renameMachine('m1', 'renamed-one')
-    registry.flushBroadcasts()
+    for (const s of bound) registry.modules.sessions.onDaemonMessageFrom(s.machineId, bind(s.sessionId, s.cwd))
+    registry.modules.sessions.flushBroadcasts()
+    registry.modules.machines.renameMachine('m1', 'renamed-one')
+    registry.modules.sessions.flushBroadcasts()
     const last = inbox.filter((m) => m.type === 'sessionsChanged').at(-1)
     if (last?.type !== 'sessionsChanged') throw new Error('expected sessionsChanged')
     expect(last.sessions.find((s) => s.machineId === 'm1')?.machineName).toBe('renamed-one')
-    expect(registry.listMachines().find((m) => m.id === 'm1')?.name).toBe('renamed-one')
+    expect(registry.modules.machines.listMachines().find((m) => m.id === 'm1')?.name).toBe('renamed-one')
     registry.dispose()
   })
 })

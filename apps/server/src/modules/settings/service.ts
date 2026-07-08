@@ -149,7 +149,7 @@ function telegramTextHasCode(text: string, code: string): boolean {
 
 /** The store surface this module persists through. */
 type SettingsStore = Pick<
-  SessionStore,
+  SessionStore['settings'],
   'getSettings' | 'setSettings' | 'getModelCatalog' | 'setModelCatalog'
 >
 

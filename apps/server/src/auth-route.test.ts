@@ -12,7 +12,7 @@ let store: SessionStore
 
 function makeApp(opts: Parameters<typeof registerAuthRoute>[1] = {}) {
   const app = new Hono()
-  registerAuthRoute(app, { store, authDir: dir, ...opts })
+  registerAuthRoute(app, { store: store.auth, authDir: dir, ...opts })
   return app
 }
 
@@ -170,7 +170,7 @@ describe('auth-route', () => {
 describe('clientAuthGuard (HTTP surface gate)', () => {
   function guardedApp() {
     const app = new Hono()
-    app.use('/trpc/*', clientAuthGuard({ store, authDir: dir }))
+    app.use('/trpc/*', clientAuthGuard({ store: store.auth, authDir: dir }))
     app.get('/trpc/ping', (c) => c.text('pong'))
     app.options('/trpc/ping', (c) => c.body(null, 204))
     return app
@@ -178,7 +178,7 @@ describe('clientAuthGuard (HTTP surface gate)', () => {
 
   function validCookie(): string {
     const token = 'raw-session-token'
-    store.createClientSession(hashToken(token), new Date(Date.now() + 60_000).toISOString())
+    store.auth.createClientSession(hashToken(token), new Date(Date.now() + 60_000).toISOString())
     return `podium_session=${token}`
   }
 
@@ -210,7 +210,7 @@ describe('clientAuthGuard (HTTP surface gate)', () => {
   const DAY = 24 * 60 * 60 * 1000
   function guardedAppAt(nowMs: number) {
     const app = new Hono()
-    app.use('/trpc/*', clientAuthGuard({ store, authDir: dir, now: () => nowMs }))
+    app.use('/trpc/*', clientAuthGuard({ store: store.auth, authDir: dir, now: () => nowMs }))
     app.get('/trpc/ping', (c) => c.text('pong'))
     return app
   }
@@ -222,7 +222,7 @@ describe('clientAuthGuard (HTTP surface gate)', () => {
     const nowMs = Date.UTC(2026, 0, 1)
     const token = 'rolling-token'
     // 28 days left of a 30-day TTL ⇒ last renewed ~2 days ago ⇒ due for a daily renewal.
-    store.createClientSession(hashToken(token), new Date(nowMs + 28 * DAY).toISOString())
+    store.auth.createClientSession(hashToken(token), new Date(nowMs + 28 * DAY).toISOString())
     const res = await guardedAppAt(nowMs).request('/trpc/ping', {
       headers: { cookie: `podium_session=${token}` },
     })
@@ -230,7 +230,7 @@ describe('clientAuthGuard (HTTP surface gate)', () => {
     const setCookie = res.headers.get('set-cookie') ?? ''
     expect(setCookie).toMatch(/podium_session=rolling-token/) // same token, not a new one
     // Expiry pushed back out toward now + 30 days.
-    const expiry = Date.parse(store.getClientSession(hashToken(token))?.expiresAt ?? '')
+    const expiry = Date.parse(store.auth.getClientSession(hashToken(token))?.expiresAt ?? '')
     expect(expiry).toBeGreaterThan(nowMs + 29 * DAY)
   })
 
@@ -239,7 +239,7 @@ describe('clientAuthGuard (HTTP surface gate)', () => {
     const nowMs = Date.UTC(2026, 0, 1)
     const token = 'fresh-token'
     // ~1 hour into the 30-day TTL ⇒ renewed within the day ⇒ no re-issue.
-    store.createClientSession(hashToken(token), new Date(nowMs + 30 * DAY - HOUR).toISOString())
+    store.auth.createClientSession(hashToken(token), new Date(nowMs + 30 * DAY - HOUR).toISOString())
     const res = await guardedAppAt(nowMs).request('/trpc/ping', {
       headers: { cookie: `podium_session=${token}` },
     })
@@ -252,32 +252,32 @@ describe('client session store', () => {
   test('a session validates until it expires, then no longer', () => {
     const future = new Date(Date.now() + 60_000).toISOString()
     const past = new Date(Date.now() - 1_000).toISOString()
-    store.createClientSession('hash-a', future)
-    store.createClientSession('hash-b', past)
+    store.auth.createClientSession('hash-a', future)
+    store.auth.createClientSession('hash-b', past)
     const now = new Date().toISOString()
-    expect(store.getClientSession('hash-a')?.expiresAt).toBe(future)
-    expect(store.isClientSessionValid('hash-a', now)).toBe(true)
-    expect(store.isClientSessionValid('hash-b', now)).toBe(false)
-    expect(store.isClientSessionValid('missing', now)).toBe(false)
+    expect(store.auth.getClientSession('hash-a')?.expiresAt).toBe(future)
+    expect(store.auth.isClientSessionValid('hash-a', now)).toBe(true)
+    expect(store.auth.isClientSessionValid('hash-b', now)).toBe(false)
+    expect(store.auth.isClientSessionValid('missing', now)).toBe(false)
   })
 
   test('extendClientSession pushes out the expiry of an existing session', () => {
     const t1 = new Date(Date.now() + 1_000).toISOString()
     const t2 = new Date(Date.now() + 999_000).toISOString()
-    store.createClientSession('ext', t1)
-    store.extendClientSession('ext', t2)
-    expect(store.getClientSession('ext')?.expiresAt).toBe(t2)
+    store.auth.createClientSession('ext', t1)
+    store.auth.extendClientSession('ext', t2)
+    expect(store.auth.getClientSession('ext')?.expiresAt).toBe(t2)
   })
 
   test('deleteClientSession revokes one; deleteAllClientSessions revokes every session', () => {
     const future = new Date(Date.now() + 60_000).toISOString()
     const now = new Date().toISOString()
-    store.createClientSession('one', future)
-    store.createClientSession('two', future)
-    store.deleteClientSession('one')
-    expect(store.isClientSessionValid('one', now)).toBe(false)
-    expect(store.isClientSessionValid('two', now)).toBe(true)
-    store.deleteAllClientSessions()
-    expect(store.isClientSessionValid('two', now)).toBe(false)
+    store.auth.createClientSession('one', future)
+    store.auth.createClientSession('two', future)
+    store.auth.deleteClientSession('one')
+    expect(store.auth.isClientSessionValid('one', now)).toBe(false)
+    expect(store.auth.isClientSessionValid('two', now)).toBe(true)
+    store.auth.deleteAllClientSessions()
+    expect(store.auth.isClientSessionValid('two', now)).toBe(false)
   })
 })

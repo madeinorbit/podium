@@ -57,25 +57,25 @@ describe('SessionRegistry lake-fallback transcript reads', () => {
     nativeId: string,
     lakeContent: string,
   ): string {
-    registry.attachDaemon('m1', () => {})
-    const { sessionId } = registry.createSession({ agentKind: 'claude-code', cwd: '/w' })
-    registry.onDaemonMessageFrom('m1', {
+    registry.modules.sessions.attachDaemon('m1', () => {})
+    const { sessionId } = registry.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/w' })
+    registry.modules.sessions.onDaemonMessageFrom('m1', {
       type: 'sessionResumeRef',
       sessionId,
       resume: { kind: 'claude-session', value: nativeId },
     })
     mkdirSync(join(lakeDir, 'm1'), { recursive: true })
     writeFileSync(join(lakeDir, 'm1', `${nativeId}.jsonl`), lakeContent)
-    store.setMirrorCursor('m1', nativeId, Buffer.byteLength(lakeContent), '2026-07-01T11:00:00Z')
+    store.conversations.setMirrorCursor('m1', nativeId, Buffer.byteLength(lakeContent), '2026-07-01T11:00:00Z')
     return sessionId
   }
 
   it('serves the window from the lake when the machine is detached', async () => {
     const { lakeDir, store, registry } = setup()
     const sessionId = seedMirroredSession(registry, store, lakeDir, 'native-lake', LAKE_LINES)
-    registry.detachDaemon('m1')
+    registry.modules.sessions.detachDaemon('m1')
 
-    const res = await registry.readTranscript({ sessionId, direction: 'before', limit: 10 })
+    const res = await registry.modules.rpc.readTranscript({ sessionId, direction: 'before', limit: 10 })
     expect(res.items.map((i) => i.text)).toEqual([
       'where does the flux capacitor live?',
       'The flux capacitor lives in engine.ts',
@@ -88,9 +88,9 @@ describe('SessionRegistry lake-fallback transcript reads', () => {
     const sessionId = seedMirroredSession(registry, store, lakeDir, 'native-pruned', LAKE_LINES)
     // Re-attach a daemon that answers every transcriptRead with zero items — the
     // native file is gone from its disk.
-    registry.attachDaemon('m1', (m) => {
+    registry.modules.sessions.attachDaemon('m1', (m) => {
       if (m.type === 'transcriptRead') {
-        registry.onDaemonMessageFrom('m1', {
+        registry.modules.sessions.onDaemonMessageFrom('m1', {
           type: 'transcriptReadResult',
           requestId: m.requestId,
           sessionId: m.sessionId,
@@ -100,7 +100,7 @@ describe('SessionRegistry lake-fallback transcript reads', () => {
       }
     })
 
-    const res = await registry.readTranscript({ sessionId, direction: 'before', limit: 10 })
+    const res = await registry.modules.rpc.readTranscript({ sessionId, direction: 'before', limit: 10 })
     expect(res.items.map((i) => i.text)).toEqual([
       'where does the flux capacitor live?',
       'The flux capacitor lives in engine.ts',
@@ -117,10 +117,10 @@ describe('SessionRegistry lake-fallback transcript reads', () => {
       message: { role: 'user', content: 'STALE LAKE COPY — must not be served' },
     })
     const sessionId = seedMirroredSession(registry, store, lakeDir, 'native-live', lakeOnly)
-    registry.detachDaemon('m1')
-    registry.attachDaemon('m1', (m) => {
+    registry.modules.sessions.detachDaemon('m1')
+    registry.modules.sessions.attachDaemon('m1', (m) => {
       if (m.type === 'transcriptRead') {
-        registry.onDaemonMessageFrom('m1', {
+        registry.modules.sessions.onDaemonMessageFrom('m1', {
           type: 'transcriptReadResult',
           requestId: m.requestId,
           sessionId: m.sessionId,
@@ -130,7 +130,7 @@ describe('SessionRegistry lake-fallback transcript reads', () => {
       }
     })
 
-    const res = await registry.readTranscript({ sessionId, direction: 'before', limit: 10 })
+    const res = await registry.modules.rpc.readTranscript({ sessionId, direction: 'before', limit: 10 })
     expect(res.items.map((i) => i.text)).toEqual(['fresh from the daemon'])
   })
 
@@ -139,32 +139,32 @@ describe('SessionRegistry lake-fallback transcript reads', () => {
     // Pre-P5 state: lake file + mirrored_bytes > 0, indexed_bytes 0, and NO
     // onBytes hook will ever fire for it (the mirror is already caught up).
     seedMirroredSession(registry, store, lakeDir, 'native-old', LAKE_LINES)
-    expect(store.transcriptIndexRows('m1', 'native-old')).toEqual([])
+    expect(store.conversations.transcriptIndexRows('m1', 'native-old')).toEqual([])
 
     // The attach trigger runs the backfill sweep (same seam as enqueueMachine).
-    registry.detachDaemon('m1')
-    registry.attachDaemon('m1', () => {})
+    registry.modules.sessions.detachDaemon('m1')
+    registry.modules.sessions.attachDaemon('m1', () => {})
     await vi.waitFor(() => {
-      expect(store.transcriptIndexRows('m1', 'native-old').map((r) => r.content)).toEqual([
+      expect(store.conversations.transcriptIndexRows('m1', 'native-old').map((r) => r.content)).toEqual([
         'where does the flux capacitor live?',
         'The flux capacitor lives in engine.ts',
       ])
     })
-    expect(store.segmentsToIndex('m1')).toEqual([])
+    expect(store.conversations.segmentsToIndex('m1')).toEqual([])
   })
 
   it('resolves empty when detached and nothing was mirrored (cursor at 0)', async () => {
     const { registry } = setup()
-    registry.attachDaemon('m1', () => {})
-    const { sessionId } = registry.createSession({ agentKind: 'claude-code', cwd: '/w' })
-    registry.onDaemonMessageFrom('m1', {
+    registry.modules.sessions.attachDaemon('m1', () => {})
+    const { sessionId } = registry.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/w' })
+    registry.modules.sessions.onDaemonMessageFrom('m1', {
       type: 'sessionResumeRef',
       sessionId,
       resume: { kind: 'claude-session', value: 'native-unmirrored' },
     })
-    registry.detachDaemon('m1')
+    registry.modules.sessions.detachDaemon('m1')
 
-    const res = await registry.readTranscript({ sessionId, direction: 'before', limit: 10 })
+    const res = await registry.modules.rpc.readTranscript({ sessionId, direction: 'before', limit: 10 })
     expect(res).toEqual({ items: [], hasMore: false })
   })
 })

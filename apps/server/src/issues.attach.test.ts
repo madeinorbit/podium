@@ -81,7 +81,7 @@ describe('origin/draft on create + wire', () => {
       origin: 'agent',
       draft: true,
     })
-    const row = store.getIssue(b.id)!
+    const row = store.issues.getIssue(b.id)!
     expect(row.origin).toBe('agent')
     expect(row.draft).toBe(true)
     // Re-hydrate a fresh service from the same store.
@@ -216,7 +216,7 @@ describe('prime draft/attach variants', () => {
 describe('store: sessions.issue_id round-trip', () => {
   it('persists and reloads issueId on session rows', () => {
     const store = new SessionStore(':memory:')
-    store.upsertSession({
+    store.sessions.upsertSession({
       id: 'sx',
       agentKind: 'claude-code',
       cwd: '/r',
@@ -238,10 +238,10 @@ describe('store: sessions.issue_id round-trip', () => {
       workState: null,
       issueId: 'iss_1',
     })
-    const rows = store.loadSessions()
+    const rows = store.sessions.loadSessions()
     expect(rows.find((r) => r.id === 'sx')?.issueId).toBe('iss_1')
     // clearing round-trips too
-    store.upsertSession({ ...rows.find((r) => r.id === 'sx')!, issueId: null })
-    expect(store.loadSessions().find((r) => r.id === 'sx')?.issueId).toBeNull()
+    store.sessions.upsertSession({ ...rows.find((r) => r.id === 'sx')!, issueId: null })
+    expect(store.sessions.loadSessions().find((r) => r.id === 'sx')?.issueId).toBeNull()
   })
 })

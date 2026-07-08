@@ -34,14 +34,14 @@ const pastesContaining = (daemon: ControlMessage[], text: string): string[] =>
 
 /** live claude session with a resume ref, parked via hibernate. */
 function hibernatedSession(reg: SessionRegistry): string {
-  const { sessionId } = reg.createSession({ agentKind: 'claude-code', cwd: '/w' })
-  reg.onDaemonMessageFrom('local', bind(sessionId))
-  reg.onDaemonMessageFrom('local', {
+  const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/w' })
+  reg.modules.sessions.onDaemonMessageFrom('local', bind(sessionId))
+  reg.modules.sessions.onDaemonMessageFrom('local', {
     type: 'sessionResumeRef',
     sessionId,
     resume: { kind: 'claude-session', value: 'abc-123' },
   })
-  expect(reg.hibernateSession({ sessionId })).toEqual({ ok: true })
+  expect(reg.modules.sessions.hibernateSession({ sessionId })).toEqual({ ok: true })
   return sessionId
 }
 
@@ -50,7 +50,7 @@ function hibernatedSession(reg: SessionRegistry): string {
 function settle(reg: SessionRegistry, sessionId: string): void {
   let seq = 0
   for (let i = 0; i < 5; i += 1) {
-    reg.onDaemonMessageFrom('local', { type: 'agentFrame', sessionId, seq: seq++, data: 'eA==' })
+    reg.modules.sessions.onDaemonMessageFrom('local', { type: 'agentFrame', sessionId, seq: seq++, data: 'eA==' })
     vi.advanceTimersByTime(200)
   }
   vi.advanceTimersByTime(1400)
@@ -62,11 +62,11 @@ describe('queueText (durable outbox sends)', () => {
     try {
       const reg = new SessionRegistry()
       const daemon: ControlMessage[] = []
-      reg.attachDaemon('local', (m) => daemon.push(m))
+      reg.modules.sessions.attachDaemon('local', (m) => daemon.push(m))
       const sessionId = hibernatedSession(reg)
       daemon.length = 0
 
-      expect(reg.queueText({ sessionId, text: 'wake-up-msg' })).toEqual({ ok: true, queued: true })
+      expect(reg.modules.sessions.queueText({ sessionId, text: 'wake-up-msg' })).toEqual({ ok: true, queued: true })
       // The wake: a spawn under the same id carrying the resume ref.
       expect(daemon).toContainEqual(
         expect.objectContaining({
@@ -76,18 +76,18 @@ describe('queueText (durable outbox sends)', () => {
         }),
       )
       // The queued count rides the session meta while the message waits...
-      expect(reg.listSessions()[0]?.queuedMessageCount).toBe(1)
+      expect(reg.modules.sessions.listSessions()[0]?.queuedMessageCount).toBe(1)
       // ...and nothing is typed while the respawn is still starting.
       expect(pastesContaining(daemon, 'wake-up-msg')).toHaveLength(0)
 
-      reg.onDaemonMessageFrom('local', bind(sessionId))
+      reg.modules.sessions.onDaemonMessageFrom('local', bind(sessionId))
       settle(reg, sessionId)
 
       // Exactly ONE bracketed-paste input containing the text (no double-type).
       expect(pastesContaining(daemon, 'wake-up-msg')).toEqual(['\x1b[200~wake-up-msg\x1b[201~'])
       // Delivered: the count leaves the meta and the durable row is gone.
-      expect(reg.listSessions()[0]?.queuedMessageCount).toBeUndefined()
-      expect(reg.sessionStore.listQueuedMessages(sessionId)).toEqual([])
+      expect(reg.modules.sessions.listSessions()[0]?.queuedMessageCount).toBeUndefined()
+      expect(reg.sessionStore.sync.listQueuedMessages(sessionId)).toEqual([])
     } finally {
       vi.useRealTimers()
     }
@@ -96,19 +96,19 @@ describe('queueText (durable outbox sends)', () => {
   it('refuses a parked agent with no resume ref and queues NOTHING', () => {
     const reg = new SessionRegistry()
     const daemon: ControlMessage[] = []
-    reg.attachDaemon('local', (m) => daemon.push(m))
-    const { sessionId } = reg.createSession({ agentKind: 'claude-code', cwd: '/w' })
-    reg.onDaemonMessageFrom('local', bind(sessionId))
-    reg.onDaemonMessageFrom('local', { type: 'agentExit', sessionId, code: 1 })
+    reg.modules.sessions.attachDaemon('local', (m) => daemon.push(m))
+    const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/w' })
+    reg.modules.sessions.onDaemonMessageFrom('local', bind(sessionId))
+    reg.modules.sessions.onDaemonMessageFrom('local', { type: 'agentExit', sessionId, code: 1 })
     daemon.length = 0
 
-    expect(reg.queueText({ sessionId, text: 'into-the-void' })).toEqual({
+    expect(reg.modules.sessions.queueText({ sessionId, text: 'into-the-void' })).toEqual({
       ok: false,
       reason: 'no resume ref',
     })
     // No durable row, no count on the meta, no wake attempt.
-    expect(reg.sessionStore.listQueuedMessages(sessionId)).toEqual([])
-    expect(reg.listSessions()[0]?.queuedMessageCount).toBeUndefined()
+    expect(reg.sessionStore.sync.listQueuedMessages(sessionId)).toEqual([])
+    expect(reg.modules.sessions.listSessions()[0]?.queuedMessageCount).toBeUndefined()
     expect(daemon.filter((m) => m.type === 'spawn')).toEqual([])
   })
 
@@ -119,9 +119,9 @@ describe('queueText (durable outbox sends)', () => {
       const storeA = new SessionStore(file)
       const regA = new SessionRegistry(storeA)
       const daemonA: ControlMessage[] = []
-      regA.attachDaemon('local', (m) => daemonA.push(m))
+      regA.modules.sessions.attachDaemon('local', (m) => daemonA.push(m))
       const sessionId = hibernatedSession(regA)
-      expect(regA.queueText({ sessionId, text: 'survive-restart' })).toEqual({
+      expect(regA.modules.sessions.queueText({ sessionId, text: 'survive-restart' })).toEqual({
         ok: true,
         queued: true,
       })
@@ -132,17 +132,17 @@ describe('queueText (durable outbox sends)', () => {
       // Restart: fresh store + registry over the same DB file.
       const storeB = new SessionStore(file)
       const regB = new SessionRegistry(storeB)
-      expect(regB.listSessions().find((s) => s.sessionId === sessionId)?.queuedMessageCount).toBe(1)
+      expect(regB.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)?.queuedMessageCount).toBe(1)
 
       const daemonB: ControlMessage[] = []
-      regB.attachDaemon('local', (m) => daemonB.push(m))
-      regB.onDaemonMessageFrom('local', bind(sessionId))
+      regB.modules.sessions.attachDaemon('local', (m) => daemonB.push(m))
+      regB.modules.sessions.onDaemonMessageFrom('local', bind(sessionId))
       // Silent respawn: no output at all — the READY_MAX fallback (6s) delivers.
       vi.advanceTimersByTime(7_000)
       expect(pastesContaining(daemonB, 'survive-restart')).toHaveLength(1)
-      expect(regB.sessionStore.listQueuedMessages(sessionId)).toEqual([])
+      expect(regB.sessionStore.sync.listQueuedMessages(sessionId)).toEqual([])
       expect(
-        regB.listSessions().find((s) => s.sessionId === sessionId)?.queuedMessageCount,
+        regB.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)?.queuedMessageCount,
       ).toBeUndefined()
       regB.dispose()
       storeB.close()
@@ -156,13 +156,13 @@ describe('queueText (durable outbox sends)', () => {
     try {
       const reg = new SessionRegistry()
       const daemon: ControlMessage[] = []
-      reg.attachDaemon('local', (m) => daemon.push(m))
-      const { sessionId } = reg.createSession({ agentKind: 'claude-code', cwd: '/w' })
-      reg.onDaemonMessageFrom('local', bind(sessionId))
+      reg.modules.sessions.attachDaemon('local', (m) => daemon.push(m))
+      const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/w' })
+      reg.modules.sessions.onDaemonMessageFrom('local', bind(sessionId))
 
-      reg.queueText({ sessionId, text: 'first-msg' })
-      reg.queueText({ sessionId, text: 'second-msg' })
-      expect(reg.listSessions()[0]?.queuedMessageCount).toBe(2)
+      reg.modules.sessions.queueText({ sessionId, text: 'first-msg' })
+      reg.modules.sessions.queueText({ sessionId, text: 'second-msg' })
+      expect(reg.modules.sessions.listSessions()[0]?.queuedMessageCount).toBe(2)
 
       // Silent TUI → READY_MAX fallback delivers the head at ~6.2s...
       vi.advanceTimersByTime(6_400)
@@ -174,8 +174,8 @@ describe('queueText (durable outbox sends)', () => {
       // Both delivered, in enqueue order, as SEPARATE bracketed-paste inputs.
       const pastes = decodedInputs(daemon).filter((t) => t.startsWith('\x1b[200~'))
       expect(pastes).toEqual(['\x1b[200~first-msg\x1b[201~', '\x1b[200~second-msg\x1b[201~'])
-      expect(reg.listSessions()[0]?.queuedMessageCount).toBeUndefined()
-      expect(reg.sessionStore.listQueuedMessages(sessionId)).toEqual([])
+      expect(reg.modules.sessions.listSessions()[0]?.queuedMessageCount).toBeUndefined()
+      expect(reg.sessionStore.sync.listQueuedMessages(sessionId)).toEqual([])
     } finally {
       vi.useRealTimers()
     }
@@ -186,22 +186,22 @@ describe('queueText (durable outbox sends)', () => {
     try {
       const reg = new SessionRegistry()
       const daemon: ControlMessage[] = []
-      reg.attachDaemon('local', (m) => daemon.push(m))
+      reg.modules.sessions.attachDaemon('local', (m) => daemon.push(m))
       // No bind: the session sits in 'starting' past the 25s drain deadline.
-      const { sessionId } = reg.createSession({ agentKind: 'claude-code', cwd: '/w' })
-      reg.queueText({ sessionId, text: 'patient-msg' })
+      const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/w' })
+      reg.modules.sessions.queueText({ sessionId, text: 'patient-msg' })
 
       vi.advanceTimersByTime(26_000)
       expect(pastesContaining(daemon, 'patient-msg')).toHaveLength(0)
       // The attempt gave up but the ROWS REMAIN — nothing was dropped.
-      expect(reg.sessionStore.listQueuedMessages(sessionId)).toHaveLength(1)
-      expect(reg.listSessions()[0]?.queuedMessageCount).toBe(1)
+      expect(reg.sessionStore.sync.listQueuedMessages(sessionId)).toHaveLength(1)
+      expect(reg.modules.sessions.listSessions()[0]?.queuedMessageCount).toBe(1)
 
       // The PTY finally binds → a fresh attempt re-arms and delivers after settle.
-      reg.onDaemonMessageFrom('local', bind(sessionId))
+      reg.modules.sessions.onDaemonMessageFrom('local', bind(sessionId))
       settle(reg, sessionId)
       expect(pastesContaining(daemon, 'patient-msg')).toHaveLength(1)
-      expect(reg.sessionStore.listQueuedMessages(sessionId)).toEqual([])
+      expect(reg.sessionStore.sync.listQueuedMessages(sessionId)).toEqual([])
     } finally {
       vi.useRealTimers()
     }
@@ -209,12 +209,12 @@ describe('queueText (durable outbox sends)', () => {
 
   it('surfaces the queued count on the P2 delta stream (session upsert with queuedMessageCount 1)', () => {
     const reg = new SessionRegistry()
-    reg.attachDaemon('local', () => {})
+    reg.modules.sessions.attachDaemon('local', () => {})
     const sessionId = hibernatedSession(reg)
 
     const inbox: ServerMessage[] = []
-    const clientId = reg.attachClient((m) => inbox.push(m))
-    reg.onClientMessage(clientId, {
+    const clientId = reg.modules.sessions.attachClient((m) => inbox.push(m))
+    reg.modules.sessions.onClientMessage(clientId, {
       type: 'hello',
       clientId: '',
       viewport: { cols: 80, rows: 24, dpr: 1 },
@@ -222,8 +222,8 @@ describe('queueText (durable outbox sends)', () => {
     })
     const before = inbox.length
 
-    reg.queueText({ sessionId, text: 'queued-while-parked' })
-    reg.flushBroadcasts() // earlier setup broadcasts armed the coalescer — run the pending pipeline
+    reg.modules.sessions.queueText({ sessionId, text: 'queued-while-parked' })
+    reg.modules.sessions.flushBroadcasts() // earlier setup broadcasts armed the coalescer — run the pending pipeline
 
     const changes = inbox
       .slice(before)
@@ -237,14 +237,14 @@ describe('queueText (durable outbox sends)', () => {
 
   it('clears an existing snooze when a message is queued (fresh user intent)', () => {
     const reg = new SessionRegistry()
-    reg.attachDaemon('local', () => {})
+    reg.modules.sessions.attachDaemon('local', () => {})
     const sessionId = hibernatedSession(reg)
-    reg.setSnooze({ sessionId, until: null })
-    expect(reg.listSessions()[0]?.snoozedUntil).toBeNull()
+    reg.modules.sessions.setSnooze({ sessionId, until: null })
+    expect(reg.modules.sessions.listSessions()[0]?.snoozedUntil).toBeNull()
 
-    reg.queueText({ sessionId, text: 'un-snooze' })
-    expect('snoozedUntil' in (reg.listSessions()[0] ?? {})).toBe(false)
-    expect(reg.listSnoozes()).toEqual({})
+    reg.modules.sessions.queueText({ sessionId, text: 'un-snooze' })
+    expect('snoozedUntil' in (reg.modules.sessions.listSessions()[0] ?? {})).toBe(false)
+    expect(reg.sessionStore.sessions.listSnoozes()).toEqual({})
   })
 })
 
@@ -252,11 +252,11 @@ describe('withMutation (idempotency wrapper)', () => {
   it('runs once per id; a replay returns the recorded result without re-running', () => {
     const reg = new SessionRegistry()
     let runs = 0
-    const first = reg.withMutation('m-1', 'test.proc', () => {
+    const first = reg.modules.sessions.withMutation('m-1', 'test.proc', () => {
       runs += 1
       return { ok: true, ids: ['a', 'b'] }
     })
-    const replay = reg.withMutation('m-1', 'test.proc', () => {
+    const replay = reg.modules.sessions.withMutation('m-1', 'test.proc', () => {
       runs += 1
       return { ok: true, ids: ['DIFFERENT'] }
     })
@@ -265,7 +265,7 @@ describe('withMutation (idempotency wrapper)', () => {
     expect(replay).toEqual(first) // deep-equal via the JSON round-trip
 
     // A different id runs again.
-    const other = reg.withMutation('m-2', 'test.proc', () => {
+    const other = reg.modules.sessions.withMutation('m-2', 'test.proc', () => {
       runs += 1
       return { ok: true, ids: ['c'] }
     })
@@ -273,11 +273,11 @@ describe('withMutation (idempotency wrapper)', () => {
     expect(other).toEqual({ ok: true, ids: ['c'] })
 
     // No id at all = today's behavior: always runs.
-    reg.withMutation(undefined, 'test.proc', () => {
+    reg.modules.sessions.withMutation(undefined, 'test.proc', () => {
       runs += 1
       return 1
     })
-    reg.withMutation(undefined, 'test.proc', () => {
+    reg.modules.sessions.withMutation(undefined, 'test.proc', () => {
       runs += 1
       return 1
     })
@@ -293,8 +293,8 @@ describe('withMutation (idempotency wrapper)', () => {
       runs += 1
       return { id: 'issue-1', title: 'once' }
     }
-    const first = await reg.withMutation('m-async', 'issues.create', fn)
-    const replay = await reg.withMutation('m-async', 'issues.create', fn)
+    const first = await reg.modules.sessions.withMutation('m-async', 'issues.create', fn)
+    const replay = await reg.modules.sessions.withMutation('m-async', 'issues.create', fn)
     expect(runs).toBe(1)
     expect(first).toEqual({ id: 'issue-1', title: 'once' })
     expect(replay).toEqual(first)
@@ -305,13 +305,13 @@ describe('withMutation (idempotency wrapper)', () => {
     try {
       const reg = new SessionRegistry()
       const daemon: ControlMessage[] = []
-      reg.attachDaemon('local', (m) => daemon.push(m))
-      const { sessionId } = reg.createSession({ agentKind: 'claude-code', cwd: '/w' })
-      reg.onDaemonMessageFrom('local', bind(sessionId))
+      reg.modules.sessions.attachDaemon('local', (m) => daemon.push(m))
+      const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/w' })
+      reg.modules.sessions.onDaemonMessageFrom('local', bind(sessionId))
 
       const send = () =>
-        reg.withMutation('send-1', 'sessions.sendText', () =>
-          reg.sendText({ sessionId, text: 'only-once' }),
+        reg.modules.sessions.withMutation('send-1', 'sessions.sendText', () =>
+          reg.modules.sessions.sendText({ sessionId, text: 'only-once' }),
         )
       expect(send()).toEqual({ ok: true })
       expect(send()).toEqual({ ok: true }) // recorded result, fn not re-run

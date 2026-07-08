@@ -12,7 +12,7 @@
  *   bun scripts/mint-upstream-token.ts
  *
  * Revoke by deleting the row (the token is an ordinary revocable client session):
- * the registry equivalent is `store.deleteClientSession(sha256(token))`, or "sign
+ * the registry equivalent is `store.auth.deleteClientSession(sha256(token))`, or "sign
  * out everywhere" in the UI (deleteAllClientSessions) which also cuts nodes off.
  *
  * Safe against a RUNNING hub server: the insert is a single WAL-mode write to a
@@ -23,7 +23,7 @@ import { SessionStore } from '../apps/server/src/store'
 
 const store = new SessionStore()
 try {
-  console.log(mintUpstreamTokenInto(store))
+  console.log(mintUpstreamTokenInto(store.auth))
 } finally {
   store.close()
 }

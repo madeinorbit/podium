@@ -32,7 +32,7 @@ function rawDb(s: SessionStore): { prepare(q: string): { run(...a: unknown[]): u
 describe('IssueService boot quarantine', () => {
   it('constructs without touching the DB; hydration is explicit (init) or lazy', () => {
     const store = new SessionStore(':memory:')
-    const listSpy = vi.spyOn(store, 'listIssueRows')
+    const listSpy = vi.spyOn(store.issues, 'listIssueRows')
     const svc = new IssueService(deps(store))
     expect(listSpy).not.toHaveBeenCalled() // constructor no longer hydrates
     svc.init()
@@ -77,6 +77,6 @@ describe('IssueService boot quarantine', () => {
     expect(() => rebooted.init()).not.toThrow()
     const row = rebooted.get(w.id)
     expect(row?.id).toBe(w.id)
-    expect(store.getIssue(w.id)?.blockedBy).toEqual([])
+    expect(store.issues.getIssue(w.id)?.blockedBy).toEqual([])
   })
 })

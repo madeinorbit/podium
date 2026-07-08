@@ -43,7 +43,7 @@ describe('agent issue relay end-to-end (CLI → daemon relay → server capabili
     registry.issues.update(A.id, { worktreePath: '/wt/A' })
     const wtA = registry.issues.get(A.id)?.worktreePath as string
     B = registry.issues.create({ repoPath, title: 'unrelated B', startNow: false })
-    sA = registry.createSession({ cwd: wtA, agentKind: 'shell' }).sessionId
+    sA = registry.modules.sessions.createSession({ cwd: wtA, agentKind: 'shell' }).sessionId
 
     // The capability-scoped command service is built into the registry (issue #13
     // Phase 2 step 4) — the P1a gate (checkIssueAccess) runs on every relayed op
@@ -52,11 +52,11 @@ describe('agent issue relay end-to-end (CLI → daemon relay → server capabili
     // REAL daemon relay hub, its `send` feeding the server's REAL WS dispatch. This is the
     // daemon→server direction (the daemon initiates an issueRelayRequest on the agent's behalf).
     const hub = createIssueRelayHub((msg: DaemonMessage) =>
-      registry.onDaemonMessageFrom(machineId, msg),
+      registry.modules.sessions.onDaemonMessageFrom(machineId, msg),
     )
     // REAL server→daemon channel: route the issueRelayResult the registry sends back into the hub
     // so it can resolve the correlated relay promise.
-    registry.attachDaemon(machineId, (m: ControlMessage) => {
+    registry.modules.sessions.attachDaemon(machineId, (m: ControlMessage) => {
       if (m.type === 'issueRelayResult') hub.onResult(m)
     })
     // REAL loopback HTTP relay server the agent's CLI posts to.

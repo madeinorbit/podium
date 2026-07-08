@@ -93,12 +93,12 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
   private emitReadyAfterClose(closed: IssueRow, actorSessionId?: string): void {
     try {
       const sessionList = this.deps.listSessions()
-      const commentCounts = this.deps.store.countIssueCommentsByIssue()
+      const commentCounts = this.deps.store.issues.countIssueCommentsByIssue()
       for (const r of this.rows.values()) {
         if (r.id === closed.id || !this.inRepoScope(r, closed.repoPath) || this.isClosed(r))
           continue
         const blocksClosed = this.deps.store
-          .listIssueDeps(r.id)
+          .issues.listIssueDeps(r.id)
           .some((d) => d.type === 'blocks' && d.toId === closed.id)
         if (blocksClosed && this.toWire(r, sessionList, commentCounts).ready) {
           this.emitEvent('issue.ready', r.id, {
@@ -114,8 +114,8 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
   create(input: CreateIssueInput): IssueWire {
     // Allocate the #N off the stable repo_id so all checkouts of one origin share a
     // single sequence (#140) — resolve the path to its repo_id first, then allocate.
-    const repoId = this.deps.store.resolveRepoIdForPath(input.repoPath)
-    const seq = this.deps.store.nextIssueSeq(repoId)
+    const repoId = this.deps.store.repos.resolveRepoIdForPath(input.repoPath)
+    const seq = this.deps.store.issues.nextIssueSeq(repoId)
     const ts = this.now()
     const row: IssueRow = {
       id: input.id ?? `iss_${randomUUID()}`,
@@ -307,7 +307,7 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
     this.rowOrThrow(id)
     this.deps.funnel.run({
       write: () => {
-        this.deps.store.deleteIssue(id)
+        this.deps.store.issues.deleteIssue(id)
         // Re-hydrate from the store: deleteIssue also clears scalar back-refs
         // (parent_id / superseded_by / duplicate_of) on OTHER rows, so a plain
         // map delete would leave those stale pointers in the broadcast.
@@ -320,14 +320,14 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
   setLabels(id: string, labels: string[]): IssueWire {
     id = this.resolveRef(id)
     const row = this.rowOrThrow(id)
-    return this.persistWith(row, () => this.deps.store.setIssueLabels(id, labels))
+    return this.persistWith(row, () => this.deps.store.issues.setIssueLabels(id, labels))
   }
 
   addComment(id: string, author: string, body: string): IssueWire {
     id = this.resolveRef(id)
     const row = this.rowOrThrow(id)
     return this.persistWith(row, () =>
-      this.deps.store.addIssueComment({
+      this.deps.store.issues.addIssueComment({
         id: `cmt_${randomUUID()}`,
         issueId: id,
         author,
@@ -347,7 +347,7 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
       if (cur === fromId) return true
       if (seen.has(cur)) continue
       seen.add(cur)
-      for (const d of this.deps.store.listIssueDeps(cur)) {
+      for (const d of this.deps.store.issues.listIssueDeps(cur)) {
         if (d.type === 'blocks') stack.push(d.toId)
       }
       const parentId = this.rows.get(cur)?.parentId
@@ -369,7 +369,7 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
     if (type === 'blocks' && this.wouldCycle(fromId, toId)) {
       throw new Error(`dependency ${fromId} -> ${toId} would create a cycle`)
     }
-    const wire = this.persistWith(row, () => this.deps.store.addIssueDep(fromId, toId, type))
+    const wire = this.persistWith(row, () => this.deps.store.issues.addIssueDep(fromId, toId, type))
     this.broadcastList() // the TARGET's dependents/blocked derivation changed too (#22)
     return wire
   }
@@ -382,7 +382,7 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
     fromId = this.resolveRef(fromId)
     toId = this.resolveRef(toId)
     const row = this.rowOrThrow(fromId)
-    const wire = this.persistWith(row, () => this.deps.store.removeIssueDep(fromId, toId, type))
+    const wire = this.persistWith(row, () => this.deps.store.issues.removeIssueDep(fromId, toId, type))
     this.broadcastList() // the TARGET's dependents/blocked derivation changed too (#22)
     return wire
   }

@@ -29,7 +29,7 @@ import { appRouter } from './router'
 import { registerSetupRoute } from './setup-route'
 import { registerMobileRedirect, registerWebStatic } from './static-web'
 import { SessionStore } from './store'
-import { SuperagentService } from './superagent'
+import { SuperagentService } from './modules/superagent'
 import { readOwnDaemonMachineId, UpstreamSync } from './upstream'
 import { UpstreamForwarder } from './upstream-forwarder'
 import { attachWebSockets } from './wsServer'
@@ -168,7 +168,7 @@ export async function startServer(
       probeAllModels({
         claude: {
           apiKey:
-            process.env.ANTHROPIC_API_KEY || store.getSettings().apiKeys.anthropic || undefined,
+            process.env.ANTHROPIC_API_KEY || store.settings.getSettings().apiKeys.anthropic || undefined,
         },
       }),
   })
@@ -184,7 +184,7 @@ export async function startServer(
   // visible regardless of whether/when the daemon connects. This is the structural guard
   // against the regression where data vanished because no daemon ever registered. The
   // same-host daemon then authenticates through the normal hello path (wsServer).
-  registry.ensureLocalMachine(hostname(), bootstrapToken)
+  registry.modules.machines.ensureLocalMachine(hostname(), bootstrapToken)
   // Node⇄hub sync (docs/spec/node-hub-sync.md): when config.json carries `upstream`,
   // this server is a NODE and mirrors its hub's fleet through the thin-client
   // protocol. No upstream config = the constructor never runs = zero new behavior.
@@ -193,7 +193,7 @@ export async function startServer(
   const upstreamConfig = config.upstream
   if (upstreamConfig) {
     const ownMachineId = readOwnDaemonMachineId()
-    if (ownMachineId) registry.setUpstreamOwnMachineIds([ownMachineId])
+    if (ownMachineId) registry.modules.sessions.setUpstreamOwnMachineIds([ownMachineId])
     // P7b write path (docs/spec/node-hub-issues.md §2.2): issue mutations targeting
     // viaHub issues forward to the hub with the SAME token, durably queued while it
     // is unreachable. Drain triggers: enqueue (forwarder-internal), flat retry
@@ -201,25 +201,25 @@ export async function startServer(
     upstreamForwarder = new UpstreamForwarder({
       url: upstreamConfig.url,
       token: upstreamConfig.token,
-      store,
-      onQueueChanged: () => registry.upstreamOutboxChanged(),
+      store: store.sync,
+      onQueueChanged: () => registry.modules.upstreamIssues.outboxChanged(),
       // A queued mutation the hub definitively rejects must be SURFACED, not just
       // logged (#25): durable issue.upstream_rejected event + overlay retirement.
-      onPoisoned: (proc, input, message) => registry.upstreamMutationRejected(proc, input, message),
+      onPoisoned: (proc, input, message) => registry.modules.upstreamIssues.mutationRejected(proc, input, message),
     })
-    registry.setUpstreamForwarder(upstreamForwarder)
+    registry.modules.upstreamIssues.setForwarder(upstreamForwarder)
     const forwarder = upstreamForwarder
     upstreamSync = new UpstreamSync({
       url: upstreamConfig.url,
       token: upstreamConfig.token,
       mirror: registry,
-      store,
+      store: store.settings,
       onConnected: () => void forwarder.drain(),
     })
     upstreamSync.start()
   }
   const repos = new RepoRegistry(registry, store)
-  const superagent = new SuperagentService(registry, repos, store)
+  const superagent = new SuperagentService(registry.modules, repos, store)
   const cloud = createCloudRuntimeProviderFromEnv()
   const app = new Hono()
   app.get('/health', (c) => c.text('ok'))
@@ -233,14 +233,14 @@ export async function startServer(
   // login screen can load. Setup WRITES live under /trpc (setup.*), so they're covered by the
   // /trpc guard below. The /daemon link and /mcp keep their own credentials. Guards are
   // registered BEFORE their handlers so Hono runs them first.
-  const guard = clientAuthGuard({ store })
+  const guard = clientAuthGuard({ store: store.auth })
   app.use('/setup/*', cors())
   registerSetupRoute(app)
   // Human-client login (web/desktop UI). Same cross-origin reason as /setup: the desktop
   // webview's origin differs from the server in the all-in-one case. Login itself is
   // same-origin in the supported network topologies; the password store gates it.
   app.use('/auth/*', cors())
-  registerAuthRoute(app, { store })
+  registerAuthRoute(app, { store: store.auth })
   app.use('/files/*', guard)
   registerAssetRoute(app, registry)
   // In-process MCP server exposing the superagent's orchestrator tools to a
@@ -393,7 +393,7 @@ export async function startServer(
         const ws = attachWebSockets(server as unknown as Server, registry, {
           // Same gate as the HTTP guard: open unless a password is set, then require a valid
           // session cookie on the upgrade request.
-          authorizeClient: (req) => !hasPassword() || isRequestAuthed(store, req.headers.cookie),
+          authorizeClient: (req) => !hasPassword() || isRequestAuthed(store.auth, req.headers.cookie),
         })
         if (process.env.PODIUM_LOOP_PROFILE) startLoopMetrics({ label: 'server' })
         resolve({
@@ -413,7 +413,7 @@ export async function startServer(
                     // Persist the last dirty activity timestamps while the DB is still
                     // open, then stop the periodic flush timer (so a tick can't fire an
                     // upsertSession against a closed DB), and only then close the store.
-                    registry.flushActivity()
+                    registry.modules.sessions.flushActivity()
                     registry.dispose()
                     store.close()
                     res()

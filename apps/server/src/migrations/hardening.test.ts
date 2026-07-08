@@ -65,7 +65,7 @@ describe('migrations 004+005: seq uniqueness (repo_path, then repo_id)', () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
     try {
       const store = new SessionStore(file) // runs 002→005
-      const rows = store.listIssueRows('/repo')
+      const rows = store.issues.listIssueRows('/repo')
       const byId = new Map(rows.map((r) => [r.id, r]))
       expect(byId.get('iss_old')?.seq).toBe(3) // oldest keeps its number
       expect(byId.get('iss_new')?.seq).toBe(8) // renumbered to MAX(seq)+1
@@ -132,7 +132,7 @@ describe('migration 005: repo_id as issue identity', () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
     try {
       const store = new SessionStore(file)
-      const rows = store.listIssueRows('/clone-a') // repo_id-scoped: both clones list together
+      const rows = store.issues.listIssueRows('/clone-a') // repo_id-scoped: both clones list together
       expect(rows.map((r) => r.id).sort()).toEqual(['iss_a1', 'iss_b1'])
       expect(rows.every((r) => r.repoId === sharedId)).toBe(true)
       const byId = new Map(rows.map((r) => [r.id, r]))
@@ -140,8 +140,8 @@ describe('migration 005: repo_id as issue identity', () => {
       expect(byId.get('iss_b1')?.seq).toBe(2) // renumbered into the shared space
       expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('reassigning issue iss_b1'))
       // Seq allocation is keyed on repo_id: both paths share ONE counter.
-      expect(store.nextIssueSeq(store.resolveRepoIdForPath('/clone-a'))).toBe(3)
-      expect(store.nextIssueSeq(store.resolveRepoIdForPath('/clone-b'))).toBe(3)
+      expect(store.issues.nextIssueSeq(store.repos.resolveRepoIdForPath('/clone-a'))).toBe(3)
+      expect(store.issues.nextIssueSeq(store.repos.resolveRepoIdForPath('/clone-b'))).toBe(3)
       store.close()
     } finally {
       warnSpy.mockRestore()
@@ -162,10 +162,10 @@ describe('migration 005: repo_id as issue identity', () => {
       db.close()
     }
     const store = new SessionStore(file)
-    expect(store.getIssue('iss_sub')?.repoId).toBe(
+    expect(store.issues.getIssue('iss_sub')?.repoId).toBe(
       deriveRepoId({ originUrl: 'git@github.com:o/r.git', machineId: '__local__', path: '/r' }),
     )
-    expect(store.getIssue('iss_free')?.repoId).toBe(
+    expect(store.issues.getIssue('iss_free')?.repoId).toBe(
       deriveRepoId({ machineId: '__local__', path: '/elsewhere' }),
     )
     store.close()
