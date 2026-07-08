@@ -107,9 +107,7 @@ export function routePath(route: RouteState, currentSearch = ''): string {
       path = route.issueId ? `/issues/${encodeURIComponent(route.issueId)}` : '/issues'
       break
     case 'settings':
-      path = route.settingsTab
-        ? `/settings/${encodeURIComponent(route.settingsTab)}`
-        : '/settings'
+      path = route.settingsTab ? `/settings/${encodeURIComponent(route.settingsTab)}` : '/settings'
       break
     case 'usage':
       path = '/usage'

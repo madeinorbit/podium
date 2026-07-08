@@ -23,8 +23,8 @@ import { makeTrpc, type ServerOrigin, type Trpc } from './trpc'
 /** The web store: the shared store, with `trpc` carrying the full AppRouter type. */
 export type Store = CoreStore<Trpc>
 
-export type { FileTab } from '@podium/client-core/viewmodels'
 export type { MainView } from '@podium/client-core/router'
+export type { FileTab } from '@podium/client-core/viewmodels'
 
 const NOTICES: StoreNotices = {
   error: (message) => toast.error(message),

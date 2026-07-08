@@ -11,13 +11,13 @@
  */
 
 import { groupSessions, withoutShells } from '@podium/client-core/focus'
+import { type StoreNotices, StoreProvider, useStore } from '@podium/client-core/react'
 import {
   createAsyncStorageReplicaStorage,
   createReplica,
   type Replica,
 } from '@podium/client-core/replica'
 import { createMemoryRouterWindow } from '@podium/client-core/router'
-import { StoreProvider, type StoreNotices, useStore } from '@podium/client-core/react'
 import type { ServerConfig } from '@podium/client-core/transport'
 import type {
   ConversationSummaryWire,
@@ -190,10 +190,7 @@ function LiveBridge({
   const store = useStore<MobileTrpc>()
   const { hub, trpc, replica, sessions, issues, conversations, outboxSize } = store
   const [connected, setConnected] = useState(() => hub.connectionHealth().status !== 'down')
-  useEffect(
-    () => hub.onConnectionHealth((health) => setConnected(health.status !== 'down')),
-    [hub],
-  )
+  useEffect(() => hub.onConnectionHealth((health) => setConnected(health.status !== 'down')), [hub])
 
   const focusSessionIds = useMemo(() => {
     const groups = groupSessions(withoutShells(sessions))

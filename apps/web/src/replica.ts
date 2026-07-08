@@ -5,5 +5,6 @@
  * behind its `ReplicaInit.storage` seam). The React live-query binding lives in
  * @podium/client-core/react. Existing `./replica` imports keep working here.
  */
-export * from '@podium/client-core/replica'
+
 export { useReplicaRows } from '@podium/client-core/react'
+export * from '@podium/client-core/replica'

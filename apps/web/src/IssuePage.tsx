@@ -1,3 +1,4 @@
+import { shallowEqual } from '@podium/client-core'
 import {
   ISSUE_DEP_TYPES,
   ISSUE_STAGES,
@@ -66,7 +67,7 @@ import { issueNeighbors } from './issue-page'
 import { groupRelations } from './issue-relations'
 import { EffortPicker, ModelPicker } from './ModelEffortPicker'
 import { PropertyMenu, type PropertyOption } from './PropertyMenu'
-import { useStore } from './store'
+import { useStoreSelector } from './store'
 import { sessionDisplayName } from './WorkerLabel'
 
 type MergeStyle = 'ff-only' | 'pr' | 'ask'
@@ -91,7 +92,10 @@ export function IssuePage({
   onBack: () => void
   onNavigate: (id: string) => void
 }): JSX.Element {
-  const { trpc, issues, hub } = useStore()
+  const { trpc, issues, hub } = useStoreSelector(
+    (s) => ({ trpc: s.trpc, issues: s.issues, hub: s.hub }),
+    shallowEqual,
+  )
   const [toast, setToast] = useState('')
   const [busy, setBusy] = useState(false)
   const [commentBody, setCommentBody] = useState('')
@@ -550,7 +554,12 @@ export function IssuePage({
                       </p>
                     </div>
                   ) : (
-                    <ActivityEvent key={item.id} icon={item.line.icon} text={item.line.text} ts={item.ts} />
+                    <ActivityEvent
+                      key={item.id}
+                      icon={item.line.icon}
+                      text={item.line.text}
+                      ts={item.ts}
+                    />
                   ),
                 )}
               </div>
@@ -663,7 +672,10 @@ function IssueOverflowMenu({
   run: (fn: () => Promise<unknown>) => Promise<void>
   onDeleted: () => void
 }): JSX.Element {
-  const { trpc, issues } = useStore()
+  const { trpc, issues } = useStoreSelector(
+    (s) => ({ trpc: s.trpc, issues: s.issues }),
+    shallowEqual,
+  )
   // Sibling issues in the same repo — targets for supersede/duplicate.
   const targetIssues = issues
     .filter((i) => i.repoPath === issue.repoPath && i.id !== issue.id)
@@ -876,7 +888,17 @@ function IssueProperties({
   run: (fn: () => Promise<unknown>) => Promise<void>
   onNavigate: (id: string) => void
 }): JSX.Element {
-  const { trpc, issues, machines, setSelectedWorktree, setPane, setView } = useStore()
+  const { trpc, issues, machines, setSelectedWorktree, setPane, setView } = useStoreSelector(
+    (s) => ({
+      trpc: s.trpc,
+      issues: s.issues,
+      machines: s.machines,
+      setSelectedWorktree: s.setSelectedWorktree,
+      setPane: s.setPane,
+      setView: s.setView,
+    }),
+    shallowEqual,
+  )
   const [mergeStyle, setMergeStyle] = useState<MergeStyle>('ff-only')
   const [deferDate, setDeferDate] = useState('')
   // Relation add is two steps: pick a dep type, then a target issue.

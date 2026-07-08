@@ -1,7 +1,7 @@
 import { type Sidebar as SidebarSettings, shouldPromptAutoContinue } from '@podium/core'
 import type {
-  ConversationSummaryWire,
   AgentKind,
+  ConversationSummaryWire,
   GitDiscoveryDiagnosticWire,
   GitRepositoryWire,
   HostMetricsWire,
@@ -25,6 +25,7 @@ import {
 } from 'react'
 import type { PodiumClientApi } from '../api'
 import { Outbox, platformIsOnline, platformOnlineEvents } from '../outbox'
+import { useReplicaRows } from '../replica/react'
 import { createReplica, type Replica, type UiState } from '../replica/replica'
 import {
   createRouter,
@@ -36,8 +37,8 @@ import {
 import { createDraftAgent, type SpawnTarget } from '../spawn-agent'
 import { createSubscriptionStore, type SubscriptionStore } from '../store'
 import {
-  dedupeSessionsByResume,
   type DockTab,
+  dedupeSessionsByResume,
   EMPTY_PINS,
   type FileScope,
   type FileTab,
@@ -51,7 +52,6 @@ import {
   reposToViews,
   tabIdFor,
 } from '../viewmodels'
-import { useReplicaRows } from '../replica/react'
 import { useMarkReadOnView } from './use-mark-read-on-view'
 
 /** The two endpoints the shared store needs to reach a Podium server. */
@@ -419,8 +419,7 @@ export function StoreProvider<TApi extends PodiumClientApi>({
         onPoison: (entry) =>
           notices.error(`A queued change (${entry.kind}) was rejected by the server and dropped`),
       }),
-    // biome-ignore lint/correctness/useExhaustiveDependencies: notices is a stable seam, not reactive state
-    [trpc, replica],
+    [trpc, replica, notices],
   )
   const [outboxSize, setOutboxSize] = useState(0)
   useEffect(() => {
@@ -612,9 +611,7 @@ export function StoreProvider<TApi extends PodiumClientApi>({
   const [selectedWorktree, setSelectedWorktree] = useState<string | null>(
     () => router.current().worktree ?? ui.get(WT_KEY),
   )
-  const [selectedIssueId, setSelectedIssueId] = useState<string | null>(() =>
-    ui.get(ISSUE_SEL_KEY),
-  )
+  const [selectedIssueId, setSelectedIssueId] = useState<string | null>(() => ui.get(ISSUE_SEL_KEY))
   const [paneA, setPaneA] = useState<string | null>(
     () => router.current().pane ?? ui.get(PANE_A_KEY),
   )
@@ -710,30 +707,30 @@ export function StoreProvider<TApi extends PodiumClientApi>({
       ((scope: FileScope, path: string) =>
         scope.kind === 'session'
           ? trpc.files.read.query({ sessionId: scope.sessionId, path })
-        : trpc.files.read.query({
-            machineId: scope.machineId,
-            root: scope.root,
-            path,
-          })) as Store<TApi>['readFileScoped'],
+          : trpc.files.read.query({
+              machineId: scope.machineId,
+              root: scope.root,
+              path,
+            })) as Store<TApi>['readFileScoped'],
     [trpc],
   )
   const writeFileScoped = useMemo<Store<TApi>['writeFileScoped']>(
     () =>
       ((args: { scope: FileScope; path: string; content: string; baseHash?: string }) =>
         args.scope.kind === 'session'
-        ? trpc.files.write.mutate({
-            sessionId: args.scope.sessionId,
-            path: args.path,
-            content: args.content,
-            baseHash: args.baseHash,
-          })
-        : trpc.files.write.mutate({
-            machineId: args.scope.machineId,
-            root: args.scope.root,
-            path: args.path,
-            content: args.content,
-            baseHash: args.baseHash,
-          })) as Store<TApi>['writeFileScoped'],
+          ? trpc.files.write.mutate({
+              sessionId: args.scope.sessionId,
+              path: args.path,
+              content: args.content,
+              baseHash: args.baseHash,
+            })
+          : trpc.files.write.mutate({
+              machineId: args.scope.machineId,
+              root: args.scope.root,
+              path: args.path,
+              content: args.content,
+              baseHash: args.baseHash,
+            })) as Store<TApi>['writeFileScoped'],
     [trpc],
   )
   const listDir = useMemo<Store<TApi>['listDir']>(
@@ -973,7 +970,7 @@ export function StoreProvider<TApi extends PodiumClientApi>({
         })
         return { sessionId, issueId }
       },
-    [trpc],
+    [trpc, notices],
   )
   // Mark a session / issue read (issue #124): optimistically stamp readAt = now and
   // clear unread, then durably round-trip via the outbox. Server truth reconciles.
@@ -1099,7 +1096,7 @@ export function StoreProvider<TApi extends PodiumClientApi>({
     // Moves are diffs between consecutive `sessions` snapshots; the other inputs
     // only parameterize how a detected move is handled, and re-running on their
     // changes is a no-op (prev === current cwd for every session).
-  }, [sessions, repos, selectedWorktree, paneA, paneB, split])
+  }, [sessions, repos, selectedWorktree, paneA, paneB, split, notices])
 
   // URL ⇄ workspace pane state. While the workspace is the surface, mirror the
   // selection into the query (replace — no history spam) so the URL stays
@@ -1117,22 +1114,23 @@ export function StoreProvider<TApi extends PodiumClientApi>({
   // Panes are adopted as-is — an unknown pane has no fallback↔adopt pair
   // (Workspace holds or clears it) so it cannot oscillate.
   const prevRouteRef = useRef<RouteState | null>(null)
+  // biome-ignore lint/correctness/useExhaustiveDependencies: only route changes should trigger the URL→state direction; the other values are read fresh but must not re-trigger it
   useEffect(() => {
     const prev = prevRouteRef.current
     prevRouteRef.current = route
-    if (route.worktree && route.worktree !== prev?.worktree && route.worktree !== selectedWorktree) {
+    if (
+      route.worktree &&
+      route.worktree !== prev?.worktree &&
+      route.worktree !== selectedWorktree
+    ) {
       const worktrees = reposToViews(repos).flatMap((repo) => repo.worktrees)
       const canShow =
         !reposLoaded ||
         worktrees.some((w) => w.path === route.worktree) ||
-        sessions.some(
-          (s) => s.cwd === route.worktree || s.cwd.startsWith(`${route.worktree}/`),
-        )
+        sessions.some((s) => s.cwd === route.worktree || s.cwd.startsWith(`${route.worktree}/`))
       if (canShow) setSelectedWorktree(route.worktree)
     }
     if (route.pane && route.pane !== prev?.pane && route.pane !== paneA) setPaneA(route.pane)
-    // Only route changes should trigger the URL→state direction.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [route])
   useEffect(() => {
     if (route.view !== 'workspace') return
@@ -1239,7 +1237,17 @@ export function StoreProvider<TApi extends PodiumClientApi>({
         document.removeEventListener('visibilitychange', reportVisibility)
       hub.dispose()
     }
-  }, [hub, onFatalError, outbox, refreshPins, refreshRepos, refreshTabOrders, replica])
+  }, [
+    hub,
+    onFatalError,
+    formatError,
+    outbox,
+    refreshPins,
+    refreshRepos,
+    refreshTabOrders,
+    replica,
+    trpc,
+  ])
 
   const value: Store<TApi> = {
     hub,

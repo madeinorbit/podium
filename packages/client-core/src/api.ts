@@ -48,16 +48,19 @@ export interface PodiumClientApi {
     >
   }
   sessions: {
-    create: ApiMutation<{
-      sessionId?: string
-      agentKind?: AgentKind
-      cwd: string
-      title?: string
-      issueId?: string
-      draftIssue?: { repoPath: string; issueId?: string }
-      machineId?: string
-      mutationId?: string
-    }, { sessionId: string }>
+    create: ApiMutation<
+      {
+        sessionId?: string
+        agentKind?: AgentKind
+        cwd: string
+        title?: string
+        issueId?: string
+        draftIssue?: { repoPath: string; issueId?: string }
+        machineId?: string
+        mutationId?: string
+      },
+      { sessionId: string }
+    >
     resumeAndSend: ApiMutation<WithMutationId<{ sessionId: string; text: string }>>
     rename: ApiMutation<WithMutationId<{ sessionId: string; name: string }>>
     setArchived: ApiMutation<WithMutationId<{ sessionId: string; archived: boolean }>>
@@ -86,10 +89,7 @@ export interface PodiumClientApi {
     setOrder: ApiMutation<{ worktree: string; sessionIds: string[] }, Record<string, string[]>>
   }
   files: {
-    read: ApiQuery<
-      { sessionId?: string; machineId?: string; root?: string; path: string },
-      unknown
-    >
+    read: ApiQuery<{ sessionId?: string; machineId?: string; root?: string; path: string }, unknown>
     write: ApiMutation<{
       sessionId?: string
       machineId?: string

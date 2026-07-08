@@ -46,7 +46,7 @@ export function resolveActiveWorktree(args: {
     if (session)
       return { cwd: session.cwd, machineId: session.machineId, sessionId: session.sessionId }
     const tab = fileTabs.find((t) => t.id === paneA)
-    if (tab && tab.worktreePath) {
+    if (tab?.worktreePath) {
       const machineId = tab.scope.kind === 'worktree' ? tab.scope.machineId : undefined
       return { cwd: tab.worktreePath, machineId }
     }
@@ -63,9 +63,7 @@ export function resolveActiveWorktree(args: {
 /** The issue whose worktree contains `cwd` (same containment rule the sidebar
  *  uses to group sessions under issues). */
 export function issueForCwd(issues: IssueWire[], cwd: string): IssueWire | null {
-  return (
-    issues.find((i) => i.worktreePath != null && cwdInWorktree(cwd, i.worktreePath)) ?? null
-  )
+  return issues.find((i) => i.worktreePath != null && cwdInWorktree(cwd, i.worktreePath)) ?? null
 }
 
 /** The issue the dock's Issue tab should show: the issue whose worktree contains

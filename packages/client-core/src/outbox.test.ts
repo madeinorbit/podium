@@ -1,10 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   createOutbox,
-  parseOutboxEntries,
   type Outbox,
   type OutboxEntry,
   type OutboxStorage,
+  parseOutboxEntries,
 } from './outbox'
 
 type Kinds = {
@@ -48,12 +48,14 @@ function makeExecutors(
 
 const outboxes: Outbox<Kinds>[] = []
 
-function make(init: {
-  isOnline?: () => boolean
-  retryMs?: number
-  storage?: OutboxStorage
-  randomId?: () => string
-} = {}): Outbox<Kinds> {
+function make(
+  init: {
+    isOnline?: () => boolean
+    retryMs?: number
+    storage?: OutboxStorage
+    randomId?: () => string
+  } = {},
+): Outbox<Kinds> {
   const { executors } = makeExecutors()
   const backing = init.storage ?? memoryStorage().storage
   const ob = createOutbox<Kinds>({
@@ -201,8 +203,12 @@ describe('storage-neutral outbox', () => {
   })
 
   it('reads corrupt storage as an empty queue', () => {
-    expect(make({ isOnline: () => false, storage: memoryStorage('{not json').storage }).size()).toBe(0)
+    expect(
+      make({ isOnline: () => false, storage: memoryStorage('{not json').storage }).size(),
+    ).toBe(0)
     const malformed = JSON.stringify([{ mutationId: 1 }, null])
-    expect(make({ isOnline: () => false, storage: memoryStorage(malformed).storage }).size()).toBe(0)
+    expect(make({ isOnline: () => false, storage: memoryStorage(malformed).storage }).size()).toBe(
+      0,
+    )
   })
 })
