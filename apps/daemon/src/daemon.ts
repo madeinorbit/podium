@@ -64,6 +64,7 @@ import { consumePairCode } from '@podium/core/setup'
 import {
   AGENT_CAPABILITIES,
   type AgentKind,
+  AgentStopReport,
   type ControlMessage,
   type ConversationDiagnosticWire,
   type ConversationSummaryWire,
@@ -1004,6 +1005,17 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
         if (!st?.isDirectory()) return { ok: false, error: `no such directory: ${path}` }
         const worktree = await sessionCwdTracker.setExplicit(req.sessionId, path)
         return { ok: true, result: { worktree } }
+      }
+      // `session.report` is the agent's stop report (`podium report`). Like
+      // setWorktree it's session-scoped daemon-owned state, so it's validated here
+      // and forwarded as a sessionReport frame — never through the capability relay.
+      if (req.router === 'session' && req.proc === 'report') {
+        const parsed = AgentStopReport.safeParse(req.input)
+        if (!parsed.success) {
+          return { ok: false, error: `invalid stop report: ${parsed.error.issues[0]?.message ?? 'bad shape'}` }
+        }
+        send({ type: 'sessionReport', sessionId: req.sessionId, report: parsed.data })
+        return { ok: true, result: { attention: parsed.data.attention } }
       }
       return issueRelayHub.relay(req)
     },

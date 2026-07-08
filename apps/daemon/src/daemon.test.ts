@@ -305,6 +305,43 @@ describe('daemon multi-bridge', () => {
     expect(gone.ok).toBe(false)
   })
 
+  it('session.report on the loopback relay validates and forwards a sessionReport frame', async () => {
+    // `podium report` POSTs to the issue-relay loopback; the daemon validates the
+    // report against AgentStopReport and forwards it as a sessionReport frame (never
+    // through the capability relay). A malformed report is rejected without a frame.
+    send({ type: 'spawn', sessionId: 'sRep', agentKind: 'claude-code', cwd: '/tmp', geometry: G })
+    await waitFor(() => received.some((m) => m.type === 'bind' && m.sessionId === 'sRep'))
+    const post = (input: unknown): Promise<Response> =>
+      fetch(`http://127.0.0.1:${daemon.issueRelayPort}/issue/sRep`, {
+        method: 'POST',
+        body: JSON.stringify({ router: 'session', proc: 'report', input }),
+      })
+
+    const bad = (await (await post({ outcome: 'nope', need: 'decision' })).json()) as { ok: boolean }
+    expect(bad.ok).toBe(false)
+    expect(received.some((m) => m.type === 'sessionReport')).toBe(false)
+
+    const ok = (await (
+      await post({
+        outcome: 'partial',
+        need: 'decision',
+        attention: 'soon',
+        summary: 'billing needs a call before merge',
+        at: '2026-07-08T12:00:00.000Z',
+      })
+    ).json()) as { ok: boolean; result?: { attention: string } }
+    expect(ok).toEqual({ ok: true, result: { attention: 'soon' } })
+    await waitFor(() =>
+      received.some(
+        (m) =>
+          m.type === 'sessionReport' &&
+          m.sessionId === 'sRep' &&
+          m.report.attention === 'soon' &&
+          m.report.summary === 'billing needs a call before merge',
+      ),
+    )
+  })
+
   it('routes resize to the right bridge; kill stops only the targeted one', async () => {
     send({ type: 'spawn', sessionId: 's1', agentKind: 'claude-code', cwd: '/tmp', geometry: G })
     send({ type: 'spawn', sessionId: 's2', agentKind: 'claude-code', cwd: '/tmp', geometry: G })

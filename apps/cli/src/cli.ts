@@ -252,6 +252,14 @@ export async function main(loadHost: () => Promise<HostModules>): Promise<void> 
     return
   }
 
+  // `podium report`: agent declares how its turn ended (outcome/need/attention) so the
+  // sidebar can triage it, rather than the daemon guessing. Rides the same relay seam.
+  if (argv[0] === 'report' || (argv[0] === 'session' && argv[1] === 'report')) {
+    const { sessionReportCliMain } = await import('./session-cli')
+    await sessionReportCliMain(argv[0] === 'session' ? argv.slice(2) : argv.slice(1))
+    return
+  }
+
   // `podium status | stop | logs`: lifecycle over the run registry (server + daemon processes).
   if (argv[0] === 'status') {
     const { statusCommand } = await import('./cli-lifecycle')

@@ -1097,6 +1097,70 @@ describe('agent state', () => {
     ).not.toThrow()
   })
 
+  const REPORT = {
+    outcome: 'partial' as const,
+    need: 'decision' as const,
+    attention: 'soon' as const,
+    summary: 'billing needs a call before merge',
+    at: '2000-01-01T00:00:00.000Z', // stale placeholder — the server must overwrite it
+  }
+
+  it('a sessionReport lands on SessionMeta, stamps the server clock, and broadcasts', () => {
+    const reg = new SessionRegistry()
+    reg.attachDaemon('local', () => {})
+    const { sessionId } = reg.createSession({ agentKind: 'claude-code', cwd: '/proj' })
+    const client = sink()
+    reg.attachClient(client.send)
+    client.sent.length = 0
+    reg.onDaemonMessageFrom('local', { type: 'sessionReport', sessionId, report: REPORT })
+    const report = reg.listSessions().find((s) => s.sessionId === sessionId)?.stopReport
+    expect(report?.outcome).toBe('partial')
+    expect(report?.attention).toBe('soon')
+    expect(report?.summary).toBe('billing needs a call before merge')
+    // The server stamps its own `at` — the agent's placeholder must not survive.
+    expect(report?.at).not.toBe(REPORT.at)
+    // A stop report is a SessionMeta change, so it fans out the session list (unlike
+    // the light per-session agentState frame). The broadcast is coalesced — flush it.
+    reg.flushBroadcasts()
+    expect(client.sent.some((m) => m.type === 'sessionsChanged')).toBe(true)
+  })
+
+  it('clears the stop report when the agent starts a new turn (working)', () => {
+    const reg = new SessionRegistry()
+    reg.attachDaemon('local', () => {})
+    const { sessionId } = reg.createSession({ agentKind: 'claude-code', cwd: '/proj' })
+    reg.onDaemonMessageFrom('local', { type: 'sessionReport', sessionId, report: REPORT })
+    expect(reg.listSessions().find((s) => s.sessionId === sessionId)?.stopReport).toBeDefined()
+    // A fresh turn begins — the report was about the previous stop, so it's dropped.
+    reg.onDaemonMessageFrom('local', {
+      type: 'agentState',
+      sessionId,
+      state: { phase: 'working', since: '2026-07-08T12:00:00.000Z', openTaskCount: 0 },
+    })
+    expect(reg.listSessions().find((s) => s.sessionId === sessionId)?.stopReport).toBeUndefined()
+  })
+
+  it('keeps the stop report across a non-working state change (e.g. it stays idle)', () => {
+    const reg = new SessionRegistry()
+    reg.attachDaemon('local', () => {})
+    const { sessionId } = reg.createSession({ agentKind: 'claude-code', cwd: '/proj' })
+    reg.onDaemonMessageFrom('local', { type: 'sessionReport', sessionId, report: REPORT })
+    reg.onDaemonMessageFrom('local', {
+      type: 'agentState',
+      sessionId,
+      state: { phase: 'idle', since: '2026-07-08T12:00:00.000Z', openTaskCount: 0, idle: { kind: 'done' } },
+    })
+    expect(reg.listSessions().find((s) => s.sessionId === sessionId)?.stopReport).toBeDefined()
+  })
+
+  it('a sessionReport for an unknown session is a no-op (raced kill)', () => {
+    const reg = new SessionRegistry()
+    reg.attachDaemon('local', () => {})
+    expect(() =>
+      reg.onDaemonMessageFrom('local', { type: 'sessionReport', sessionId: 'ghost', report: REPORT }),
+    ).not.toThrow()
+  })
+
   it('continueSession writes "continue\\r" to the PTY only while errored', () => {
     const reg = new SessionRegistry()
     const daemon: ControlMessage[] = []

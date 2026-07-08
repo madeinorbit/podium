@@ -194,6 +194,58 @@ export const AgentRuntimeState = z.object({
 })
 export type AgentRuntimeState = z.infer<typeof AgentRuntimeState>
 
+// ---- Agent stop report (agent-DECLARED, distinct from harness-observed state) ----
+// AgentRuntimeState is inferred from hooks/transcript — the deterministic floor.
+// A stop report is what the agent itself declares about the turn it just ended:
+// the one signal only the agent has (is a trailing "want me to also X?" a blocker
+// or a courtesy?). Filed via `podium report`, it rides SessionMeta (like snooze /
+// workState — pending intent orthogonal to the phase) and is cleared the moment a
+// new turn starts. Three orthogonal axes so the sidebar can sort and the row can
+// explain itself; a single enum would force wrong buckets and give ordering nothing.
+
+// WHAT happened to the work.
+export const StopOutcome = z.enum([
+  'done', // deliverable complete AND verified
+  'done_unverified', // complete, but a check was skipped (tests not run, not exercised e2e)
+  'partial', // some done; a remainder is descoped, deferred, or awaiting input
+  'blocked', // could not make (further) progress at all
+  'failed', // attempted; the approach didn't work (explained in summary)
+])
+export type StopOutcome = z.infer<typeof StopOutcome>
+
+// WHAT (if anything) unblocks or advances it — what the agent needs from the user.
+export const StopNeed = z.enum([
+  'none', // nothing required from the user
+  'review', // look at an output (plan, PR, findings) before the next step
+  'answer', // a question only the user can answer (missing context/intent/fact)
+  'decision', // a choice between known options (approach, scope, destructive action)
+  'access', // credentials / auth / permission / environment the agent lacks
+  'external', // waiting on something outside the user (CI, deploy, another issue's agent)
+])
+export type StopNeed = z.infer<typeof StopNeed>
+
+// HOW the user should triage it — the sidebar sorts on this.
+export const StopAttention = z.enum([
+  'blocking', // work is stopped until the user acts (top of sidebar; notify)
+  'soon', // the turn ended fine, but the need gates completion or merge
+  'whenever', // FYI; nothing is gated on the user
+])
+export type StopAttention = z.infer<typeof StopAttention>
+
+export const AgentStopReport = z.object({
+  outcome: StopOutcome,
+  need: StopNeed,
+  attention: StopAttention,
+  /** One line, user-facing: why I stopped + what I need. The sidebar row subtitle. */
+  summary: z.string().min(1).max(280),
+  /** For need==='decision': the concrete options, so a client can render one-tap
+   *  replies. Same spirit as AskUserQuestion's option list. */
+  options: z.array(z.string().max(120)).max(6).optional(),
+  /** When the agent filed it (ISO 8601). Set by the server on receipt. */
+  at: z.string(),
+})
+export type AgentStopReport = z.infer<typeof AgentStopReport>
+
 export const SessionOrigin = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('spawn') }),
   z.object({ kind: z.literal('resume'), conversationId: z.string() }),
@@ -222,6 +274,12 @@ export const SessionMeta = z.object({
   lastActiveAt: z.string(), // ISO 8601 — recency signal for the home board
   origin: SessionOrigin,
   agentState: AgentRuntimeState.optional(),
+  /** The agent's DECLARED report about the turn it just ended (`podium report`).
+   *  Orthogonal to `agentState` (harness-observed): this is the agent's own word on
+   *  outcome/need/attention. Present from the moment it's filed until the next turn
+   *  starts (the server clears it when the agent goes back to `working`). Drives
+   *  sidebar attention ordering and the row subtitle. */
+  stopReport: AgentStopReport.optional(),
   archived: z.boolean(),
   /** Email-style read state (issue #124). Global (single-operator) — the ISO time
    *  the operator last opened this session, or null if never opened. */
@@ -1762,6 +1820,17 @@ export const SessionCwdMessage = z.object({
 })
 export type SessionCwdMessage = z.infer<typeof SessionCwdMessage>
 
+// daemon -> server: the agent DECLARED a stop report (`podium report`). The daemon
+// validates it against AgentStopReport and forwards it; the server stamps `at`,
+// stores it on the session, and broadcasts. `report.at` from the daemon is a
+// placeholder the server overwrites with its own clock (uniform ordering).
+export const SessionReportMessage = z.object({
+  type: z.literal('sessionReport'),
+  sessionId: z.string(),
+  report: AgentStopReport,
+})
+export type SessionReportMessage = z.infer<typeof SessionReportMessage>
+
 // Reply to a TranscriptReadRequest (daemon -> server): the requested page of
 // items plus the cursors that bound it. `head`/`tail` are the cursors of the
 // first/last item in `items` (omitted when the page is empty), and `hasMore`
@@ -1854,6 +1923,7 @@ export const DaemonMessage = z.discriminatedUnion('type', [
   ImageUploadResultMessage,
   SessionResumeRefMessage,
   SessionCwdMessage,
+  SessionReportMessage,
   BindMessage,
   AgentFrameMessage,
   AgentFrameBatchMessage,

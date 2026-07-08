@@ -102,6 +102,8 @@ function row(overrides: Partial<SessionRow> = {}): SessionRow {
     issueId: null,
     // And email-style read state (issue #124): always present, null = never opened.
     readAt: null,
+    // And the agent-declared stop report: always present, null = none filed.
+    stopReport: null,
     ...overrides,
   }
 }
@@ -146,6 +148,23 @@ describe('SessionStore sessions', () => {
     })
     store.upsertSession(r)
     expect(store.loadSessions()).toEqual([r])
+    store.close()
+  })
+
+  it('round-trips the agent-declared stop report (JSON column)', () => {
+    const store = new SessionStore(':memory:')
+    const json = JSON.stringify({
+      outcome: 'partial',
+      need: 'decision',
+      attention: 'soon',
+      summary: 'billing needs a call before merge',
+      at: '2026-07-08T12:00:00.000Z',
+    })
+    store.upsertSession(row({ id: 's-report', durableLabel: 'podium-s-report', stopReport: json }))
+    expect(store.loadSessions()[0]?.stopReport).toBe(json)
+    // Clearing it (agent started a new turn) persists as NULL.
+    store.upsertSession(row({ id: 's-report', durableLabel: 'podium-s-report', stopReport: null }))
+    expect(store.loadSessions()[0]?.stopReport).toBeNull()
     store.close()
   })
 

@@ -1,6 +1,7 @@
 import type {
   AgentKind,
   AgentRuntimeState,
+  AgentStopReport,
   ControlMessage,
   Geometry,
   ResumeRef,
@@ -10,7 +11,7 @@ import type {
   TranscriptItem,
   WorkState,
 } from '@podium/protocol'
-import { WorkState as WorkStateSchema } from '@podium/protocol'
+import { AgentStopReport as AgentStopReportSchema, WorkState as WorkStateSchema } from '@podium/protocol'
 import type { SessionRow } from './store'
 
 export type Send<T> = (msg: T) => void
@@ -153,6 +154,11 @@ export class Session {
   status: 'starting' | 'live' | 'reconnecting' | 'hibernated' | 'exited' = 'starting'
   exitCode: number | undefined
   agentState: AgentRuntimeState | undefined
+  /** The agent's DECLARED stop report (`podium report`) — orthogonal to the
+   *  harness-observed agentState. undefined = none filed for the current stop.
+   *  Persisted via toRow() (stop_report column); cleared by the registry when the
+   *  agent starts a new turn. */
+  stopReport: AgentStopReport | undefined
   /** The agent's `/color` identity accent (a named colour), learned from the
    *  transcript tail. Undefined = no colour (incl. Claude's 'default'/reset). */
   agentColor: string | undefined
@@ -627,6 +633,20 @@ export class Session {
     if (state.since > this.lastActiveAt) this.lastActiveAt = state.since
   }
 
+  /** Record an agent-declared stop report (`podium report`). Persisted via toRow(). */
+  setStopReport(report: AgentStopReport): void {
+    this.stopReport = report
+  }
+
+  /** Drop the stop report — called when the agent starts a new turn (the report was
+   *  about the *previous* stop). Returns true if it actually changed, so the caller
+   *  can skip a redundant broadcast. */
+  clearStopReport(): boolean {
+    if (this.stopReport === undefined) return false
+    this.stopReport = undefined
+    return true
+  }
+
   /** Adopt a `/color` value from the transcript. Treats Claude's "no colour"
    *  spellings as cleared. Returns true when it actually changed (so the caller
    *  can skip a redundant broadcast). */
@@ -713,6 +733,7 @@ export class Session {
       headless: this.headless,
       issueId: this.issueId ?? null,
       readAt: this.readAt,
+      stopReport: this.stopReport ? JSON.stringify(this.stopReport) : null,
     }
   }
 
@@ -730,6 +751,7 @@ export class Session {
       status: this.status,
       ...(this.exitCode !== undefined ? { exitCode: this.exitCode } : {}),
       ...(this.agentState ? { agentState: this.agentState } : {}),
+      ...(this.stopReport ? { stopReport: this.stopReport } : {}),
       controllerId: this.controllerId,
       geometry: { ...this.geometry },
       epoch: this.epoch,
@@ -768,6 +790,18 @@ export class Session {
     if (raw === null) return undefined
     const parsed = WorkStateSchema.safeParse(raw)
     return parsed.success ? parsed.data : undefined
+  }
+
+  /** Parse a persisted stop_report column (JSON of AgentStopReport). Malformed or
+   *  out-of-schema JSON reads as no report — a legacy/corrupt value never blanks the list. */
+  static parseStopReport(raw: string | null | undefined): AgentStopReport | undefined {
+    if (raw == null) return undefined
+    try {
+      const parsed = AgentStopReportSchema.safeParse(JSON.parse(raw))
+      return parsed.success ? parsed.data : undefined
+    } catch {
+      return undefined
+    }
   }
 
   private broadcast(msg: ServerMessage): void {

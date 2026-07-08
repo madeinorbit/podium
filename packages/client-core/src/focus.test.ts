@@ -92,3 +92,46 @@ describe('shared focus selectors', () => {
     expect(withoutShells([agent, shell, headless]).map((s) => s.sessionId)).toEqual(['agent'])
   })
 })
+
+const idle = (since: string, kind: 'done' | 'question' = 'done'): AgentRuntimeState => ({
+  phase: 'idle',
+  since,
+  openTaskCount: 0,
+  idle: { kind },
+})
+
+const report = (
+  attention: 'blocking' | 'soon' | 'whenever',
+  over: Partial<SessionMeta['stopReport'] & object> = {},
+): SessionMeta['stopReport'] => ({
+  outcome: 'partial',
+  need: 'decision',
+  attention,
+  summary: `declared ${attention}`,
+  at: '2026-07-01T01:00:00.000Z',
+  ...over,
+})
+
+describe('stop report is authoritative over the inferred phase', () => {
+  it("routes a 'blocking' or 'soon' report to needsYou even when the phase reads done-idle", () => {
+    const done = idle('2026-07-01T01:00:00.000Z', 'done')
+    expect(attentionGroup(meta({ sessionId: 'b', agentState: done, stopReport: report('blocking') }))).toBe('needsYou')
+    expect(attentionGroup(meta({ sessionId: 's', agentState: done, stopReport: report('soon') }))).toBe('needsYou')
+  })
+
+  it("routes a 'whenever' report to idle even when the phase would read needsYou", () => {
+    const q = idle('2026-07-01T01:00:00.000Z', 'question')
+    // Without the report this idle-with-question would be needsYou; the FYI overrides.
+    expect(attentionGroup(meta({ sessionId: 'q', agentState: q }))).toBe('needsYou')
+    expect(attentionGroup(meta({ sessionId: 'w', agentState: q, stopReport: report('whenever') }))).toBe('idle')
+  })
+
+  it('prefers the declared summary as the attention subtitle', () => {
+    const s = meta({
+      sessionId: 'x',
+      agentState: needsUser('2026-07-01T01:00:00.000Z'),
+      stopReport: report('blocking', { summary: 'Need the staging credential' }),
+    })
+    expect(attentionSummary(s)).toBe('Need the staging credential')
+  })
+})

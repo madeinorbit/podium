@@ -1067,13 +1067,19 @@ export function spawnTargetForRepo(
 }
 
 /**
- * Urgency rank of one session for the unified WORK list ordering:
- *   0 — needs the human NOW (attention state, not snoozed, process still around)
- *   1 — working (running fine without us)
- *   2 — ready/idle and recently active
- *   3 — stale (long-quiet), exited, or otherwise dormant
- * Built on the same primitives every other surface uses (attentionGroup,
- * isSnoozed, STALE_INACTIVE_MS) so "urgent" means the same thing everywhere.
+ * Urgency rank of one session for the unified WORK list ordering (lower = more
+ * urgent). Base tiers:
+ *   0   — needs the human NOW (attention state, not snoozed, process still around)
+ *   1   — working (running fine without us)
+ *   2   — ready/idle and recently active
+ *   3   — stale (long-quiet), exited, or otherwise dormant
+ * A DECLARED stop report refines the top tier without changing anything for
+ * un-reported sessions (whose behaviour is byte-for-byte the legacy one):
+ *   blocking → 0     (with classic un-reported attention/idle)
+ *   soon     → 0.9   (a real need, but ranks just below blocking / above working)
+ *   whenever → 1.5   (self-declared FYI: below working, above snoozed)
+ * Built on the same primitives every other surface uses (attentionGroup, isSnoozed,
+ * STALE_INACTIVE_MS) so "urgent" means the same thing everywhere.
  */
 export function sessionUrgencyRank(s: SessionMeta, now: number): number {
   const group = attentionGroup(s)
@@ -1083,7 +1089,15 @@ export function sessionUrgencyRank(s: SessionMeta, now: number): number {
   // a just-FINISHED one (idle/done) — floats above working, exactly like the old
   // NEEDS YOUR ATTENTION section did. Snoozed sessions are muted to rank 2; only
   // long-quiet or exited sessions sink to stale.
-  if (!isSnoozed(s, now) && s.status !== 'exited' && recent) return 0
+  if (!isSnoozed(s, now) && s.status !== 'exited' && recent) {
+    // Top tier: let the agent's declared attention split it finely. `whenever` is a
+    // self-demotion below working; `soon` sits just under blocking. `blocking` and
+    // every un-reported session keep rank 0 (no regression for the un-instrumented).
+    const declared = s.stopReport?.attention
+    if (declared === 'soon') return 0.9
+    if (declared === 'whenever') return 1.5
+    return 0
+  }
   return recent && s.status !== 'exited' ? 2 : 3
 }
 

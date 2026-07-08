@@ -4,6 +4,7 @@ import {
   AGENT_CAPABILITIES,
   AgentKind,
   type AgentRuntimeState,
+  type AgentStopReport,
   agentSupportsEffort,
   agentSupportsInitialPrompt,
   CAP_METADATA_DELTA,
@@ -299,6 +300,7 @@ export class SessionsService {
           : {}),
       })
       this.sessions.set(r.id, session)
+      session.stopReport = Session.parseStopReport(r.stopReport)
       if (r.id in snoozes) session.snoozedUntil = snoozes[r.id]
       if (r.id in draftTimes) session.draftUpdatedAt = draftTimes[r.id]
       if (r.status !== reloadStatus) this.persist(session)
@@ -1132,6 +1134,15 @@ export class SessionsService {
     })
   }
 
+  /** Record an agent-declared stop report (`podium report`, via the daemon relay).
+   *  Stamps the server clock onto `at` so ordering is uniform across machines, then
+   *  persists + broadcasts. Unknown session (a raced kill) is a no-op. */
+  setStopReport({ sessionId, report }: { sessionId: string; report: AgentStopReport }): void {
+    this.mutateSessionMeta(sessionId, (session) => {
+      session.setStopReport({ ...report, at: new Date(this.now()).toISOString() })
+    })
+  }
+
   /** Set (or clear with null) a session's explicit issue attachment. */
   setSessionIssueId(sessionId: string, issueId: string | null): void {
     this.mutateSessionMeta(sessionId, (session) => {
@@ -1636,6 +1647,12 @@ export class SessionsService {
         if (!session) break
         const prev = session.agentState
         session.setAgentState(msg.state)
+        // A stop report describes the turn that just ENDED. Once the agent starts a
+        // new turn (working/compacting again), the report is stale — drop it so the
+        // sidebar doesn't rank a now-busy session on a spent report.
+        const reportCleared =
+          (msg.state.phase === 'working' || msg.state.phase === 'compacting') &&
+          session.clearStopReport()
         this.autoContinue.onStateChange(msg.sessionId, msg.state)
         // Persist so the advanced recency (lastActiveAt) is durable across a server
         // restart — otherwise the row keeps its stale last-persisted time and the
@@ -1651,6 +1668,11 @@ export class SessionsService {
           state: msg.state,
         }
         for (const c of this.clients.values()) c.send(update)
+        // A cleared stop report is a SessionMeta change (stopReport lives on the meta,
+        // not the per-session agentState frame) — fan out the list so the sidebar drops
+        // the spent report. Only when it actually changed, so the common no-report turn
+        // still costs just the light per-session frame above.
+        if (reportCleared) this.broadcastSessions()
         this.issues().onSessionActivity(msg.sessionId)
         // Synchronous fan-out to bus subscribers (NotifyService) — same ordering
         // as the old direct notifyAttention call.
@@ -1662,6 +1684,13 @@ export class SessionsService {
         ) {
           this.clearSnooze(msg.sessionId)
         }
+        break
+      }
+      case 'sessionReport': {
+        // The agent declared a stop report (`podium report`, forwarded by the daemon
+        // after AgentStopReport validation). setStopReport stamps the server clock,
+        // persists, and broadcasts. Unknown session (raced kill) is a no-op.
+        this.setStopReport({ sessionId: msg.sessionId, report: msg.report })
         break
       }
       case 'agentColor': {

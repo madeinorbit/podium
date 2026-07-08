@@ -20,7 +20,7 @@ export class SessionsRepository {
         `SELECT id, agent_kind, cwd, title, name, origin_kind, conversation_id, resume_kind,
                 resume_value, status, exit_code, durable_label, created_at, last_active_at,
                 archived, work_state, machine_id, last_output_at, last_input_at, last_resumed_at,
-                spawned_by, headless, issue_id, read_at
+                spawned_by, headless, issue_id, read_at, stop_report
          FROM sessions ORDER BY created_at ASC, rowid ASC`,
       )
       .all() as Record<string, unknown>[]
@@ -49,6 +49,7 @@ export class SessionsRepository {
       headless: r.headless === 1,
       issueId: (r.issue_id as string | null) ?? null,
       readAt: (r.read_at as string | null) ?? null,
+      stopReport: (r.stop_report as string | null) ?? null,
     }))
   }
 
@@ -67,8 +68,8 @@ export class SessionsRepository {
            (id, agent_kind, cwd, title, name, origin_kind, conversation_id, resume_kind,
             resume_value, status, exit_code, durable_label, created_at, last_active_at,
             archived, work_state, machine_id, last_output_at, last_input_at, last_resumed_at,
-            spawned_by, headless, issue_id, read_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            spawned_by, headless, issue_id, read_at, stop_report)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            title = excluded.title,
            name = excluded.name,
@@ -88,7 +89,8 @@ export class SessionsRepository {
            last_resumed_at = excluded.last_resumed_at,
            spawned_by = excluded.spawned_by,
            issue_id = excluded.issue_id,
-           read_at = excluded.read_at`,
+           read_at = excluded.read_at,
+           stop_report = excluded.stop_report`,
       )
       .run(
         row.id,
@@ -115,6 +117,7 @@ export class SessionsRepository {
         row.headless ? 1 : 0,
         row.issueId ?? null,
         row.readAt ?? null,
+        row.stopReport ?? null,
       )
   }
 

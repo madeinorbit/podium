@@ -57,6 +57,9 @@ export interface SessionRow {
   /** Email-style read state (issue #124): ISO time the operator last opened this
    *  session; null/absent = never opened. Optional so pre-existing row literals stay valid. */
   readAt?: string | null
+  /** Agent-declared stop report as JSON (AgentStopReport). null/absent = none filed.
+   *  Optional so pre-existing row literals stay valid. */
+  stopReport?: string | null
 }
 
 /** One row of the machines table (token_hash is internal — not included here). */

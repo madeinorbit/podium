@@ -22,6 +22,14 @@ export interface HomeGroups {
 export type AttentionGroup = keyof HomeGroups
 
 export function attentionGroup(s: SessionMeta): AttentionGroup {
+  // An agent-DECLARED stop report is authoritative over the inferred phase: it's the
+  // agent's own word on whether it needs you, and it resolves exactly the case the
+  // deterministic classifier can't (is a trailing "want me to also X?" a blocker or a
+  // courtesy?). Present only while the agent is stopped — the server clears it the
+  // moment a new turn starts — so it never contradicts a live 'working'.
+  const declared = s.stopReport?.attention
+  if (declared === 'blocking' || declared === 'soon') return 'needsYou'
+  if (declared === 'whenever') return 'idle'
   const phase = s.agentState?.phase
   if (phase === 'needs_user' || phase === 'errored') return 'needsYou'
   if (phase === 'idle') {
@@ -46,6 +54,9 @@ export function attentionGroup(s: SessionMeta): AttentionGroup {
  * the instrumentation captured one — far higher signal than a generic badge.
  */
 export function attentionSummary(s: SessionMeta): string | null {
+  // The agent's declared one-liner is the highest-signal subtitle there is — it's
+  // written for the user, about this exact stop. Prefer it over any inferred badge.
+  if (s.stopReport?.summary) return s.stopReport.summary
   const state = s.agentState
   if (!state) return null
   if (state.phase === 'needs_user') {

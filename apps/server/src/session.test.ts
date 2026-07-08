@@ -55,6 +55,38 @@ describe('Session unread (#124)', () => {
   })
 })
 
+describe('Session stop report (#146)', () => {
+  const report = {
+    outcome: 'partial' as const,
+    need: 'decision' as const,
+    attention: 'soon' as const,
+    summary: 'billing needs a call',
+    at: '2026-07-08T12:00:00.000Z',
+  }
+
+  it('setStopReport surfaces on toMeta and serialises to toRow; clearStopReport drops it', () => {
+    const s = makeSession()
+    expect(s.toMeta().stopReport).toBeUndefined()
+    expect(s.toRow().stopReport).toBeNull()
+
+    s.setStopReport(report)
+    expect(s.toMeta().stopReport).toEqual(report)
+    expect(JSON.parse(s.toRow().stopReport as string)).toEqual(report)
+
+    expect(s.clearStopReport()).toBe(true)
+    expect(s.toMeta().stopReport).toBeUndefined()
+    // A second clear is a no-op (lets callers skip a redundant broadcast).
+    expect(s.clearStopReport()).toBe(false)
+  })
+
+  it('parseStopReport is defensive — malformed or out-of-schema JSON reads as no report', () => {
+    expect(Session.parseStopReport(null)).toBeUndefined()
+    expect(Session.parseStopReport('not json{')).toBeUndefined()
+    expect(Session.parseStopReport('{"outcome":"nope"}')).toBeUndefined()
+    expect(Session.parseStopReport(JSON.stringify(report))).toEqual(report)
+  })
+})
+
 describe('Session', () => {
   it('first attached client becomes controller and gets an attached snapshot', () => {
     const s = makeSession()
