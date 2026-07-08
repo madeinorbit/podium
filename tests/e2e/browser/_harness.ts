@@ -45,9 +45,13 @@ export async function openApp(page: Page): Promise<void> {
 
 /**
  * The app lands on the command-center home view; these specs exercise the
- * workspace. Desktop: click the first sidebar worktree (which switches views),
- * then wait for the "New panel" button to confirm the workspace is active.
- * Mobile: the workspace strip is always present, so nothing to do.
+ * workspace. The unified sidebar is work-centric: it only lists rows for
+ * worktrees/issues that already have work. Desktop: click the top work row
+ * when one exists (reopening the workspace the most recent sessions live in —
+ * same tab-order key); on a fresh empty state the only path into a workspace
+ * is spawning, so click the `New <Agent> in <Repo>` split button (optimistic
+ * spawn navigates immediately). Mobile: the workspace strip is always
+ * present, so nothing to do.
  */
 export async function gotoWorkspace(page: Page): Promise<void> {
   // If the "New panel" button is already visible we're already in the workspace.
@@ -67,12 +71,24 @@ export async function gotoWorkspace(page: Page): Promise<void> {
     return
   }
 
-  // Repos load async — wait for the main worktree row. Current sidebar
-  // layouts expose the row as a button whose accessible name ends with the
-  // `main` badge, e.g. `main main` or `<branch> main`.
-  const mainWorktreeBtn = sidebar.getByRole('button', { name: /(^|\s)main$/ }).first()
-  await mainWorktreeBtn.waitFor({ state: 'visible', timeout: 15_000 })
-  await mainWorktreeBtn.click()
+  // Work rows load with the repos/sessions feeds — give the top row a short
+  // window to appear (it exists whenever earlier specs or a pre-reload page
+  // already created sessions). Its main select button carries flex-1 (the
+  // sibling chevron button, when present, is the expand toggle).
+  const firstRow = sidebar
+    .locator('[data-testid="unified-worktree-row"], [data-testid="unified-issue-row"]')
+    .first()
+  const rowVisible = await firstRow
+    .waitFor({ state: 'visible', timeout: 5_000 })
+    .then(() => true)
+    .catch(() => false)
+  if (rowVisible) {
+    await firstRow.locator('button.flex-1').first().click()
+  } else {
+    // Empty state — spawn a fresh agent; the split button paints the draft row
+    // and switches to the new workspace synchronously (#119).
+    await sidebar.getByRole('button', { name: /^New .+ in .+/ }).click({ timeout: 15_000 })
+  }
   // Confirm the workspace loaded by waiting for the "New panel" button.
   await newPanelBtn.waitFor({ state: 'visible', timeout: 15_000 })
 }
