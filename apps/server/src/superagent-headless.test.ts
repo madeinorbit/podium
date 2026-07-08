@@ -24,14 +24,14 @@ async function harness() {
   const bindReqs: BindReq[] = []
   const spawns: SpawnMsg[] = []
   const interrupts: string[] = []
-  registry.attachDaemon('local', (m) => {
+  registry.modules.sessions.attachDaemon('local', (m) => {
     if (m.type === 'headlessTurnRequest') turnReqs.push(m)
     if (m.type === 'headlessBind') bindReqs.push(m)
     if (m.type === 'spawn') spawns.push(m)
     if (m.type === 'headlessInterrupt') interrupts.push(m.sessionId)
     if (m.type === 'repoOpRequest') {
       queueMicrotask(() =>
-        registry.onDaemonMessageFrom('local', {
+        registry.modules.sessions.onDaemonMessageFrom('local', {
           type: 'repoOpResult',
           requestId: m.requestId,
           ok: true,
@@ -41,7 +41,7 @@ async function harness() {
     }
     if (m.type === 'transcriptRead') {
       queueMicrotask(() =>
-        registry.onDaemonMessageFrom('local', {
+        registry.modules.sessions.onDaemonMessageFrom('local', {
           type: 'transcriptReadResult',
           requestId: m.requestId,
           sessionId: m.sessionId,
@@ -56,13 +56,13 @@ async function harness() {
   const sa = new SuperagentService(registry.modules, repos, registry.sessionStore)
   // A connected web client, to observe headlessActivity broadcasts.
   const clientMsgs: ServerMessage[] = []
-  registry.attachClient((m) => clientMsgs.push(m))
+  registry.modules.sessions.attachClient((m) => clientMsgs.push(m))
   const activity = () => clientMsgs.flatMap((m) => (m.type === 'headlessActivity' ? [m] : []))
   const resolveTurn = (
     req: TurnReq,
     result?: { ok?: boolean; error?: string; harnessSessionId?: string; output?: string },
   ) => {
-    registry.onDaemonMessageFrom('local', {
+    registry.modules.sessions.onDaemonMessageFrom('local', {
       type: 'headlessTurnResult',
       requestId: req.requestId,
       ok: result?.ok ?? true,
@@ -103,7 +103,7 @@ describe('sendTurn (headless harness turns)', () => {
     expect(req.resumeValue).toBeUndefined() // first turn
     expect(req.sessionUuid).toBeTruthy() // claude: deterministic session uuid
     // The headless Podium session exists: live, PTY-less (no spawn message), flagged.
-    const meta = h.registry.listSessions().find((s) => s.sessionId === ack.podiumSessionId)
+    const meta = h.registry.modules.sessions.listSessions().find((s) => s.sessionId === ack.podiumSessionId)
     expect(meta).toMatchObject({ status: 'live', headless: true, spawnedBy: 'superagent:global' })
     expect(h.spawns).toHaveLength(0)
     // The agent is frozen onto the thread row.
@@ -114,7 +114,7 @@ describe('sendTurn (headless harness turns)', () => {
     const h = await harness()
     const { podiumSessionId } = await h.sa.sendTurn({ threadId: 'global', text: 'hi' })
     const req = h.turnReqs[0]!
-    h.registry.onDaemonMessageFrom('local', {
+    h.registry.modules.sessions.onDaemonMessageFrom('local', {
       type: 'headlessTurnEvent',
       requestId: req.requestId,
       sessionId: podiumSessionId,
@@ -139,7 +139,7 @@ describe('sendTurn (headless harness turns)', () => {
       'harness-1',
     )
     // …and the session's resume ref uses the same per-kind convention PTY rows use.
-    const meta = h.registry.listSessions().find((s) => s.sessionId === podiumSessionId)
+    const meta = h.registry.modules.sessions.listSessions().find((s) => s.sessionId === podiumSessionId)
     expect(meta?.resume).toEqual({ kind: 'claude-session', value: 'harness-1' })
     // Persisted (survives a reload).
     const row = h.registry.sessionStore.sessions.loadSessions().find((r) => r.id === podiumSessionId)
@@ -263,7 +263,7 @@ describe('conciergeTurn / startBtwTurn (thread creation on the headless path)', 
 
   it('startBtwTurn ensures the thread; the first send seeds from the origin transcript', async () => {
     const h = await harness()
-    const { sessionId } = h.registry.createSession({ agentKind: 'claude-code', cwd: '/w' })
+    const { sessionId } = h.registry.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/w' })
     const res = h.sa.startBtwTurn({ sessionId })
     expect(res).toEqual({ threadId: `btw_${sessionId}`, isNew: true })
     expect(h.sa.startBtwTurn({ sessionId })).toEqual({
@@ -297,7 +297,7 @@ describe('openInTerminal + one-writer lock', () => {
       agentKind: 'claude-code',
       resume: { kind: RESUME_KIND['claude-code'], value: 'h1' },
     })
-    const meta = h.registry.listSessions().find((s) => s.sessionId === sessionId)
+    const meta = h.registry.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)
     expect(meta?.headless).toBeUndefined() // a normal PTY session
     expect(h.registry.sessionStore.superagent.getSuperagentThread('global')?.terminalSessionId).toBe(sessionId)
     // One writer: sendTurn refuses while the terminal session is alive.
@@ -305,7 +305,7 @@ describe('openInTerminal + one-writer lock', () => {
       /open in a terminal/,
     )
     // The lock clears lazily once the terminal session is gone.
-    h.registry.killSession({ sessionId })
+    h.registry.modules.sessions.killSession({ sessionId })
     await expect(h.sa.sendTurn({ threadId: 'global', text: 'x' })).resolves.toBeTruthy()
     expect(h.registry.sessionStore.superagent.getSuperagentThread('global')?.terminalSessionId).toBeUndefined()
   })
@@ -339,11 +339,11 @@ describe('boot reconciliation for headless sessions', () => {
     registries.push(reborn)
     const binds: BindReq[] = []
     const reattaches: string[] = []
-    reborn.attachDaemon('local', (m) => {
+    reborn.modules.sessions.attachDaemon('local', (m) => {
       if (m.type === 'headlessBind') {
         binds.push(m)
         queueMicrotask(() =>
-          reborn.onDaemonMessageFrom('local', {
+          reborn.modules.sessions.onDaemonMessageFrom('local', {
             type: 'headlessBindResult',
             requestId: m.requestId,
             ok: true,
@@ -353,7 +353,7 @@ describe('boot reconciliation for headless sessions', () => {
       if (m.type === 'reattach') reattaches.push(m.sessionId)
     })
     await new Promise((r) => setTimeout(r))
-    const meta = reborn.listSessions().find((s) => s.sessionId === sessionId)
+    const meta = reborn.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)
     // Not demoted to reconnecting/exited — headless sessions have no PTY to probe.
     expect(meta?.status).toBe('live')
     expect(meta?.headless).toBe(true)

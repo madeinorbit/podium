@@ -489,8 +489,8 @@ export const appRouter = t.router({
     markUnread: t.procedure
       .input(z.object({ sessionId: z.string(), mutationId: z.string().max(128).optional() }))
       .mutation(({ ctx, input }) =>
-        ctx.registry.withMutation(input.mutationId, 'sessions.markUnread', () =>
-          ctx.registry.markSessionUnread(input.sessionId),
+        ctx.registry.modules.sessions.withMutation(input.mutationId, 'sessions.markUnread', () =>
+          ctx.registry.modules.sessions.markSessionUnread(input.sessionId),
         ),
       ),
     // Move (or clear) a session's explicit issue attachment (issue-as-workspace).
@@ -558,23 +558,23 @@ export const appRouter = t.router({
       .query(({ ctx, input }) => mods(ctx).sessions.syncChangesSince(input.cursor)),
   }),
   pins: t.router({
-    list: t.procedure.query(({ ctx }) => ctx.registry.listPins()),
+    list: t.procedure.query(({ ctx }) => ctx.registry.sessionStore.sessions.listPins()),
     set: t.procedure
       .input(z.object({ kind: PinKind, id: z.string(), pinned: z.boolean() }))
       .mutation(({ ctx, input }) => {
         try {
-          ctx.registry.setPin(input.kind, input.id, input.pinned)
+          ctx.registry.sessionStore.sessions.setPin(input.kind, input.id, input.pinned)
         } catch (e) {
           throw new TRPCError({
             code: 'BAD_REQUEST',
             message: e instanceof Error ? e.message : String(e),
           })
         }
-        return ctx.registry.listPins()
+        return ctx.registry.sessionStore.sessions.listPins()
       }),
   }),
   snoozes: t.router({
-    list: t.procedure.query(({ ctx }) => ctx.registry.listSnoozes()),
+    list: t.procedure.query(({ ctx }) => ctx.registry.sessionStore.sessions.listSnoozes()),
     // until === null => "until next message"; ISO string => timed.
     set: t.procedure
       .input(
@@ -587,7 +587,7 @@ export const appRouter = t.router({
       .mutation(({ ctx, input }) =>
         mods(ctx).sessions.withMutation(input.mutationId, 'snoozes.set', () => {
           mods(ctx).sessions.setSnooze(input)
-          return ctx.registry.listSnoozes()
+          return ctx.registry.sessionStore.sessions.listSnoozes()
         }),
       ),
     clear: t.procedure
@@ -595,7 +595,7 @@ export const appRouter = t.router({
       .mutation(({ ctx, input }) =>
         mods(ctx).sessions.withMutation(input.mutationId, 'snoozes.clear', () => {
           mods(ctx).sessions.clearSnooze(input.sessionId)
-          return ctx.registry.listSnoozes()
+          return ctx.registry.sessionStore.sessions.listSnoozes()
         }),
       ),
   }),
@@ -686,19 +686,19 @@ export const appRouter = t.router({
       .mutation(({ ctx, input }) => mods(ctx).settings.pollTelegramSetup(input.setupId)),
   }),
   tabs: t.router({
-    listOrders: t.procedure.query(({ ctx }) => ctx.registry.listTabOrders()),
+    listOrders: t.procedure.query(({ ctx }) => ctx.registry.sessionStore.sessions.listTabOrders()),
     setOrder: t.procedure
       .input(z.object({ worktree: z.string(), sessionIds: z.array(z.string()) }))
       .mutation(({ ctx, input }) => {
         try {
-          ctx.registry.setTabOrder(input.worktree, input.sessionIds)
+          ctx.registry.sessionStore.sessions.setTabOrder(input.worktree, input.sessionIds)
         } catch (e) {
           throw new TRPCError({
             code: 'BAD_REQUEST',
             message: e instanceof Error ? e.message : String(e),
           })
         }
-        return ctx.registry.listTabOrders()
+        return ctx.registry.sessionStore.sessions.listTabOrders()
       }),
   }),
   repos: t.router({
@@ -794,7 +794,7 @@ export const appRouter = t.router({
               includeHome: false,
               maxDepth: 0,
             })
-          : await ctx.registry.scanRepos(repoPaths, { includeHome: false, maxDepth: 0 })
+          : await ctx.registry.modules.rpc.scanRepos(repoPaths, { includeHome: false, maxDepth: 0 })
         const roots = [
           ...new Set(repositories.flatMap((r) => [r.path, ...r.worktrees.map((w) => w.path)])),
         ]
@@ -820,7 +820,7 @@ export const appRouter = t.router({
     scanFolder: t.procedure
       .input(z.object({ path: z.string(), maxDepth: z.number().int().positive().optional() }))
       .mutation(({ ctx, input }) =>
-        ctx.registry.scanRepos([input.path], {
+        ctx.registry.modules.rpc.scanRepos([input.path], {
           includeHome: false,
           maxDepth: input.maxDepth ?? 6,
         }),

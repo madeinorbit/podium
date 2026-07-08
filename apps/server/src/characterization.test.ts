@@ -50,40 +50,40 @@ describe('characterization: session roundtrip across daemon reconnect (contract 
   it('server seq stays monotonic, the epoch does not bump, and the replay buffer survives a daemon disconnect + rebind', () => {
     const reg = new SessionRegistry()
     const daemon1: ControlMessage[] = []
-    reg.attachDaemon('local', (m) => daemon1.push(m))
-    const { sessionId } = reg.createSession({ agentKind: 'claude-code', cwd: '/proj' })
+    reg.modules.sessions.attachDaemon('local', (m) => daemon1.push(m))
+    const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/proj' })
     // Spawn control message shape — the daemon-facing half of the contract.
     expect(daemon1).toContainEqual(
       expect.objectContaining({ type: 'spawn', sessionId, agentKind: 'claude-code', cwd: '/proj' }),
     )
-    reg.onDaemonMessageFrom('local', bind(sessionId))
+    reg.modules.sessions.onDaemonMessageFrom('local', bind(sessionId))
 
     // A client attached from the start observes everything live.
     const witness = sink()
-    const witnessId = reg.attachClient(witness.send)
-    reg.onClientMessage(witnessId, { type: 'attach', sessionId })
+    const witnessId = reg.modules.sessions.attachClient(witness.send)
+    reg.modules.sessions.onClientMessage(witnessId, { type: 'attach', sessionId })
 
     // Three frames before the disconnect. The daemon bridge seq (0,1,2) is
     // IGNORED: the server assigns its own monotonic seq starting at 0.
     for (const [i, data] of (['QQ==', 'Qg==', 'Qw=='] as const).entries()) {
-      reg.onDaemonMessageFrom('local', { type: 'agentFrame', sessionId, seq: i, data })
+      reg.modules.sessions.onDaemonMessageFrom('local', { type: 'agentFrame', sessionId, seq: i, data })
     }
 
     // Daemon connection drops: the session degrades to reconnecting (not exited).
-    reg.detachDaemon('local')
-    expect(reg.listSessions().find((s) => s.sessionId === sessionId)?.status).toBe('reconnecting')
+    reg.modules.sessions.detachDaemon('local')
+    expect(reg.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)?.status).toBe('reconnecting')
 
     // A new daemon connection reattaches; bind promotes the session back to live.
     const daemon2: ControlMessage[] = []
-    reg.attachDaemon('local', (m) => daemon2.push(m))
-    reg.onDaemonMessageFrom('local', bind(sessionId))
-    expect(reg.listSessions().find((s) => s.sessionId === sessionId)?.status).toBe('live')
+    reg.modules.sessions.attachDaemon('local', (m) => daemon2.push(m))
+    reg.modules.sessions.onDaemonMessageFrom('local', bind(sessionId))
+    expect(reg.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)?.status).toBe('live')
 
     // Post-reconnect frames arrive with the bridge seq RESET to 0 (that is what a
     // fresh PTY bridge does). One frame arrives batched — agentFrameBatch unpacks
     // into per-frame server seqs exactly like single agentFrame messages.
-    reg.onDaemonMessageFrom('local', { type: 'agentFrame', sessionId, seq: 0, data: 'RA==' })
-    reg.onDaemonMessageFrom('local', { type: 'agentFrameBatch', sessionId, frames: ['RQ=='] })
+    reg.modules.sessions.onDaemonMessageFrom('local', { type: 'agentFrame', sessionId, seq: 0, data: 'RA==' })
+    reg.modules.sessions.onDaemonMessageFrom('local', { type: 'agentFrameBatch', sessionId, frames: ['RQ=='] })
 
     // The already-attached client saw ONE unbroken monotonic stream: server seqs
     // 0..4 across the reconnect (no reset to the bridge's 0), same epoch 0
@@ -101,8 +101,8 @@ describe('characterization: session roundtrip across daemon reconnect (contract 
     // A client that disconnected mid-way resumes from its cursor: sinceSeq=2 →
     // resumed:true and EXACTLY the two missed frames, in order.
     const resumer = sink()
-    const resumerId = reg.attachClient(resumer.send)
-    reg.onClientMessage(resumerId, { type: 'attach', sessionId, sinceSeq: 2 })
+    const resumerId = reg.modules.sessions.attachClient(resumer.send)
+    reg.modules.sessions.onClientMessage(resumerId, { type: 'attach', sessionId, sinceSeq: 2 })
     expect(resumer.sent.find((m) => m.type === 'attached')).toMatchObject({
       sessionId,
       epoch: 0,
@@ -118,8 +118,8 @@ describe('characterization: session roundtrip across daemon reconnect (contract 
     // A fresh mount (no cursor) gets the FULL buffer — pre-disconnect frames were
     // not dropped by the reconnect.
     const fresh = sink()
-    const freshId = reg.attachClient(fresh.send)
-    reg.onClientMessage(freshId, { type: 'attach', sessionId })
+    const freshId = reg.modules.sessions.attachClient(fresh.send)
+    reg.modules.sessions.onClientMessage(freshId, { type: 'attach', sessionId })
     expect(fresh.sent.find((m) => m.type === 'attached')).toMatchObject({ resumed: false })
     expect(fresh.sent.filter((m) => m.type === 'outputFrame').map((f) => f.seq)).toEqual([
       0, 1, 2, 3, 4,
@@ -152,7 +152,7 @@ interface LifecycleObservation {
 
 /** Everything observable after the lifecycle ran on one registry. */
 function observe(reg: SessionRegistry, issueId: string): LifecycleObservation {
-  reg.flushBroadcasts()
+  reg.modules.sessions.flushBroadcasts()
   const store = reg.sessionStore
   return {
     wire: normalize(reg.issues.get(issueId)),
@@ -181,8 +181,8 @@ describe('characterization: issue lifecycle equivalence across entry points (con
     // A delta-cap client so the broadcast pipeline runs the full oplog path in
     // all three runs identically.
     const c = sink()
-    const id = reg.attachClient(c.send)
-    reg.onClientMessage(id, {
+    const id = reg.modules.sessions.attachClient(c.send)
+    reg.modules.sessions.onClientMessage(id, {
       type: 'hello',
       clientId: '',
       viewport: { cols: 80, rows: 24, dpr: 1 },
@@ -439,14 +439,14 @@ describe('characterization: same-version DB reopen is a no-op (contract 5)', () 
     // Populate one row in each family through the real write paths.
     const store1 = new SessionStore(file)
     const reg1 = new SessionRegistry(store1)
-    reg1.attachDaemon('local', () => {})
-    const { sessionId } = reg1.createSession({ agentKind: 'claude-code', cwd: '/proj' })
+    reg1.modules.sessions.attachDaemon('local', () => {})
+    const { sessionId } = reg1.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/proj' })
     const issue = reg1.issues.create({ repoPath: '/repo', title: 'survive', startNow: false })
     reg1.issues.addComment(issue.id, 'agent:test', 'durable note')
     reg1.issues.close(issue.id, 'done')
-    reg1.withMutation('mut-char-1', 'issues.close', () => ({ ok: true }))
+    reg1.modules.sessions.withMutation('mut-char-1', 'issues.close', () => ({ ok: true }))
     store1.sync.enqueueMessage({ id: 'qm-char-1', sessionId, text: 'queued', queuedAt: 1000 })
-    reg1.flushBroadcasts() // oplog `changes` rows
+    reg1.modules.sessions.flushBroadcasts() // oplog `changes` rows
 
     // Capture the observable truth, then shut down cleanly.
     const before = {

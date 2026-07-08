@@ -57,18 +57,18 @@ describe('upstream sync token auth e2e (password-gated hub)', () => {
     // Rejected upgrades keep retrying (backoff), and nothing ever syncs.
     await until(() => sync.connectAttempts >= 3)
     expect(sync.lastCatchUpKind).toBeNull()
-    expect(registry.listSessions().filter((s) => s.viaHub)).toHaveLength(0)
+    expect(registry.modules.sessions.listSessions().filter((s) => s.viaHub)).toHaveLength(0)
     sync.stop()
     registry.dispose()
     store.close()
   })
 
   it('a hub-minted token authenticates the WS upgrade AND the tRPC catch-up', async () => {
-    hub.registry.createSession({ agentKind: 'shell', cwd: '/hub/authed' })
+    hub.registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/hub/authed' })
     const token = hub.registry.mintUpstreamToken()
     const { registry, store, sync } = makeNode(token)
     sync.start()
-    await until(() => registry.listSessions().some((s) => s.viaHub && s.cwd === '/hub/authed'))
+    await until(() => registry.modules.sessions.listSessions().some((s) => s.viaHub && s.cwd === '/hub/authed'))
     expect(sync.lastCatchUpKind).toBe('snapshot')
     sync.stop()
     registry.dispose()

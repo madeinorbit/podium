@@ -25,12 +25,12 @@ describe('SessionRegistry', () => {
   it('create spawns via the daemon and lists the session as starting', () => {
     const reg = new SessionRegistry()
     const daemon: ControlMessage[] = []
-    reg.attachDaemon('local', (m) => daemon.push(m))
-    const { sessionId } = reg.createSession({ agentKind: 'claude-code', cwd: '/proj' })
+    reg.modules.sessions.attachDaemon('local', (m) => daemon.push(m))
+    const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/proj' })
     expect(daemon).toContainEqual(
       expect.objectContaining({ type: 'spawn', sessionId, agentKind: 'claude-code', cwd: '/proj' }),
     )
-    expect(reg.listSessions()).toMatchObject([
+    expect(reg.modules.sessions.listSessions()).toMatchObject([
       {
         sessionId,
         status: 'starting',
@@ -44,9 +44,9 @@ describe('SessionRegistry', () => {
   it('buffers control messages produced before a daemon attaches, then flushes them', () => {
     const reg = new SessionRegistry()
     // Boot race: a starter session is created before the daemon ws has connected.
-    const { sessionId } = reg.createSession({ agentKind: 'claude-code', cwd: '/proj' })
+    const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/proj' })
     const daemon: ControlMessage[] = []
-    reg.attachDaemon('local', (m) => daemon.push(m))
+    reg.modules.sessions.attachDaemon('local', (m) => daemon.push(m))
     expect(daemon).toContainEqual(
       expect.objectContaining({ type: 'spawn', sessionId, agentKind: 'claude-code', cwd: '/proj' }),
     )
@@ -55,27 +55,27 @@ describe('SessionRegistry', () => {
   it('create can spawn a shell session', () => {
     const reg = new SessionRegistry()
     const daemon: ControlMessage[] = []
-    reg.attachDaemon('local', (m) => daemon.push(m))
-    const { sessionId } = reg.createSession({ agentKind: 'shell', cwd: '/proj' })
+    reg.modules.sessions.attachDaemon('local', (m) => daemon.push(m))
+    const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/proj' })
     expect(daemon).toContainEqual(
       expect.objectContaining({ type: 'spawn', sessionId, agentKind: 'shell', cwd: '/proj' }),
     )
-    expect(reg.listSessions()).toMatchObject([{ sessionId, agentKind: 'shell', cwd: '/proj' }])
+    expect(reg.modules.sessions.listSessions()).toMatchObject([{ sessionId, agentKind: 'shell', cwd: '/proj' }])
   })
 
   it('createSession records spawnedBy provenance, persists it, and omits it when unset (issue #60)', () => {
     const file = join(mkdtempSync(join(tmpdir(), 'podium-relay-')), 'podium.db')
     const store = new SessionStore(file)
     const reg = new SessionRegistry(store)
-    reg.attachDaemon('local', () => {})
-    const { sessionId } = reg.createSession({
+    reg.modules.sessions.attachDaemon('local', () => {})
+    const { sessionId } = reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/proj',
       spawnedBy: 'issue:iss_1',
     })
-    const anon = reg.createSession({ agentKind: 'claude-code', cwd: '/other' }).sessionId
+    const anon = reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/other' }).sessionId
     const metaOf = (id: string, r: SessionRegistry = reg) =>
-      r.listSessions().find((s) => s.sessionId === id)
+      r.modules.sessions.listSessions().find((s) => s.sessionId === id)
     expect(metaOf(sessionId)?.spawnedBy).toBe('issue:iss_1')
     // No default at the registry layer: an untagged programmatic create stays unknown.
     expect(metaOf(anon)?.spawnedBy).toBeUndefined()
@@ -89,22 +89,22 @@ describe('SessionRegistry', () => {
   it('createSession honors a client-provided sessionId verbatim (optimistic row reconciliation)', () => {
     const reg = new SessionRegistry()
     const daemon: ControlMessage[] = []
-    reg.attachDaemon('local', (m) => daemon.push(m))
+    reg.modules.sessions.attachDaemon('local', (m) => daemon.push(m))
     const clientId = 'client-picked-id-123'
-    const { sessionId } = reg.createSession({
+    const { sessionId } = reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/proj',
       sessionId: clientId,
     })
     expect(sessionId).toBe(clientId)
-    expect(reg.listSessions()).toMatchObject([{ sessionId: clientId, cwd: '/proj' }])
+    expect(reg.modules.sessions.listSessions()).toMatchObject([{ sessionId: clientId, cwd: '/proj' }])
     expect(daemon).toContainEqual(expect.objectContaining({ type: 'spawn', sessionId: clientId }))
   })
 
   it('createSession mints a random uuid when sessionId is omitted (unchanged default behavior)', () => {
     const reg = new SessionRegistry()
-    reg.attachDaemon('local', () => {})
-    const { sessionId } = reg.createSession({ agentKind: 'claude-code', cwd: '/proj' })
+    reg.modules.sessions.attachDaemon('local', () => {})
+    const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/proj' })
     expect(sessionId).toMatch(/^[0-9a-f-]{36}$/)
   })
 
@@ -113,48 +113,48 @@ describe('SessionRegistry', () => {
     // so a collision must be rejected rather than overwrite the live Session (which
     // would orphan its PTY/daemon binding) or re-fire a spawn.
     const reg = new SessionRegistry()
-    reg.attachDaemon('local', () => {})
+    reg.modules.sessions.attachDaemon('local', () => {})
     const clientId = 'dup-id-xyz'
-    reg.createSession({ agentKind: 'claude-code', cwd: '/proj', sessionId: clientId })
+    reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/proj', sessionId: clientId })
     expect(() =>
-      reg.createSession({ agentKind: 'claude-code', cwd: '/other', sessionId: clientId }),
+      reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/other', sessionId: clientId }),
     ).toThrow()
     // The original session is intact — not overwritten by the second cwd.
-    const mine = reg.listSessions().filter((s) => s.sessionId === clientId)
+    const mine = reg.modules.sessions.listSessions().filter((s) => s.sessionId === clientId)
     expect(mine).toHaveLength(1)
     expect(mine[0]?.cwd).toBe('/proj')
   })
 
   it('restamps session cwd when the agent moves into a worktree (hook cwd change)', () => {
     const reg = new SessionRegistry()
-    reg.attachDaemon('local', () => {})
-    const { sessionId } = reg.createSession({ agentKind: 'claude-code', cwd: '/repo' })
-    reg.onDaemonMessageFrom('local', {
+    reg.modules.sessions.attachDaemon('local', () => {})
+    const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/repo' })
+    reg.modules.sessions.onDaemonMessageFrom('local', {
       type: 'sessionCwd',
       sessionId,
       cwd: '/repo/.worktrees/feat',
     })
-    expect(reg.listSessions().find((s) => s.sessionId === sessionId)?.cwd).toBe(
+    expect(reg.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)?.cwd).toBe(
       '/repo/.worktrees/feat',
     )
   })
 
   it('ignores a sessionCwd that is empty or unchanged', () => {
     const reg = new SessionRegistry()
-    reg.attachDaemon('local', () => {})
-    const { sessionId } = reg.createSession({ agentKind: 'claude-code', cwd: '/repo' })
-    const cwdOf = () => reg.listSessions().find((s) => s.sessionId === sessionId)?.cwd
-    reg.onDaemonMessageFrom('local', { type: 'sessionCwd', sessionId, cwd: '' })
+    reg.modules.sessions.attachDaemon('local', () => {})
+    const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/repo' })
+    const cwdOf = () => reg.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)?.cwd
+    reg.modules.sessions.onDaemonMessageFrom('local', { type: 'sessionCwd', sessionId, cwd: '' })
     expect(cwdOf()).toBe('/repo')
-    reg.onDaemonMessageFrom('local', { type: 'sessionCwd', sessionId, cwd: '/repo' })
+    reg.modules.sessions.onDaemonMessageFrom('local', { type: 'sessionCwd', sessionId, cwd: '/repo' })
     expect(cwdOf()).toBe('/repo')
   })
 
   it('passes initialPrompt to the daemon spawn for argv-capable agents (claude/codex/grok)', () => {
     const reg = new SessionRegistry()
     const daemon: ControlMessage[] = []
-    reg.attachDaemon('local', (m) => daemon.push(m))
-    reg.createSession({ agentKind: 'claude-code', cwd: '/w', initialPrompt: 'fix the bug' })
+    reg.modules.sessions.attachDaemon('local', (m) => daemon.push(m))
+    reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/w', initialPrompt: 'fix the bug' })
     expect(daemon).toContainEqual(
       expect.objectContaining({
         type: 'spawn',
@@ -167,10 +167,10 @@ describe('SessionRegistry', () => {
   it('does NOT put initialPrompt on the spawn for non-argv agents — seeds the composer draft instead', () => {
     const reg = new SessionRegistry()
     const daemon: ControlMessage[] = []
-    reg.attachDaemon('local', (m) => daemon.push(m))
+    reg.modules.sessions.attachDaemon('local', (m) => daemon.push(m))
     const client = sink()
-    reg.attachClient(client.send)
-    const { sessionId } = reg.createSession({
+    reg.modules.sessions.attachClient(client.send)
+    const { sessionId } = reg.modules.sessions.createSession({
       agentKind: 'shell',
       cwd: '/w',
       initialPrompt: 'remember this',
@@ -194,15 +194,15 @@ describe('SessionRegistry', () => {
     // session list on every client.
     const reg = new SessionRegistry()
     const daemon: ControlMessage[] = []
-    reg.attachDaemon('local', (m) => daemon.push(m))
-    const { sessionId } = reg.createSession({
+    reg.modules.sessions.attachDaemon('local', (m) => daemon.push(m))
+    const { sessionId } = reg.modules.sessions.createSession({
       agentKind: 'auto' as unknown as 'claude-code',
       cwd: '/proj',
     })
     expect(daemon).toContainEqual(
       expect.objectContaining({ type: 'spawn', sessionId, agentKind: 'claude-code' }),
     )
-    expect(reg.listSessions()[0]?.agentKind).toBe('claude-code')
+    expect(reg.modules.sessions.listSessions()[0]?.agentKind).toBe('claude-code')
   })
 
   it('still sends welcome + sessions when the issues payload build throws', () => {
@@ -215,7 +215,7 @@ describe('SessionRegistry', () => {
     }
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const sent: ServerMessage[] = []
-    expect(() => reg.attachClient((m) => sent.push(m))).not.toThrow()
+    expect(() => reg.modules.sessions.attachClient((m) => sent.push(m))).not.toThrow()
     expect(sent.some((m) => m.type === 'welcome')).toBe(true)
     expect(sent.some((m) => m.type === 'sessionsChanged')).toBe(true)
     const issues = sent.find((m) => m.type === 'issuesChanged')
@@ -227,8 +227,8 @@ describe('SessionRegistry', () => {
   it('resume spawns with the resume ref + resume origin', () => {
     const reg = new SessionRegistry()
     const daemon: ControlMessage[] = []
-    reg.attachDaemon('local', (m) => daemon.push(m))
-    const { sessionId } = reg.resumeSession({
+    reg.modules.sessions.attachDaemon('local', (m) => daemon.push(m))
+    const { sessionId } = reg.modules.sessions.resumeSession({
       agentKind: 'codex',
       cwd: '/w',
       resume: { kind: 'codex-thread', value: 't9' },
@@ -242,7 +242,7 @@ describe('SessionRegistry', () => {
         resume: { kind: 'codex-thread', value: 't9' },
       }),
     )
-    expect(reg.listSessions().at(0)).toMatchObject({
+    expect(reg.modules.sessions.listSessions().at(0)).toMatchObject({
       origin: { kind: 'resume', conversationId: 'c9' },
       title: 'old',
     })
@@ -254,23 +254,23 @@ describe('SessionRegistry', () => {
     // the visible row revealed a masked one (its own title/transcript/stage).
     const reg = new SessionRegistry()
     const daemon: ControlMessage[] = []
-    reg.attachDaemon('local', (m) => daemon.push(m))
-    const first = reg.resumeSession({
+    reg.modules.sessions.attachDaemon('local', (m) => daemon.push(m))
+    const first = reg.modules.sessions.resumeSession({
       agentKind: 'codex',
       cwd: '/w',
       resume: { kind: 'codex-thread', value: 't9' },
       conversationId: 'c9',
     })
-    reg.onDaemonMessageFrom('local', bind(first.sessionId))
+    reg.modules.sessions.onDaemonMessageFrom('local', bind(first.sessionId))
     const spawnsBefore = daemon.filter((m) => m.type === 'spawn').length
-    const second = reg.resumeSession({
+    const second = reg.modules.sessions.resumeSession({
       agentKind: 'codex',
       cwd: '/w',
       resume: { kind: 'codex-thread', value: 't9' },
       conversationId: 'c9',
     })
     expect(second.sessionId).toBe(first.sessionId)
-    expect(reg.listSessions()).toHaveLength(1)
+    expect(reg.modules.sessions.listSessions()).toHaveLength(1)
     // No second durable master spawned for the same conversation.
     expect(daemon.filter((m) => m.type === 'spawn').length).toBe(spawnsBefore)
   })
@@ -278,44 +278,44 @@ describe('SessionRegistry', () => {
   it('resume resurrects an existing HIBERNATED row for the same conversation (one row, same id)', () => {
     const reg = new SessionRegistry()
     const daemon: ControlMessage[] = []
-    reg.attachDaemon('local', (m) => daemon.push(m))
-    const first = reg.resumeSession({
+    reg.modules.sessions.attachDaemon('local', (m) => daemon.push(m))
+    const first = reg.modules.sessions.resumeSession({
       agentKind: 'codex',
       cwd: '/w',
       resume: { kind: 'codex-thread', value: 't9' },
       conversationId: 'c9',
     })
-    reg.onDaemonMessageFrom('local', bind(first.sessionId))
-    reg.hibernateSession({ sessionId: first.sessionId })
-    const second = reg.resumeSession({
+    reg.modules.sessions.onDaemonMessageFrom('local', bind(first.sessionId))
+    reg.modules.sessions.hibernateSession({ sessionId: first.sessionId })
+    const second = reg.modules.sessions.resumeSession({
       agentKind: 'codex',
       cwd: '/w',
       resume: { kind: 'codex-thread', value: 't9' },
       conversationId: 'c9',
     })
     expect(second.sessionId).toBe(first.sessionId)
-    expect(reg.listSessions()).toHaveLength(1)
+    expect(reg.modules.sessions.listSessions()).toHaveLength(1)
     // Reusing a parked row resurrects it (respawn under the same id).
-    expect(reg.listSessions()[0]?.status).toBe('starting')
+    expect(reg.modules.sessions.listSessions()[0]?.status).toBe('starting')
   })
 
   it('resume keeps the original provenance on an existing row, stamps its own only on the fresh-spawn fallback (issue #60)', () => {
     const reg = new SessionRegistry()
-    reg.attachDaemon('local', () => {})
+    reg.modules.sessions.attachDaemon('local', () => {})
     // An issue-spawned session that later learned its resume ref.
-    const { sessionId } = reg.createSession({
+    const { sessionId } = reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/w',
       spawnedBy: 'issue:iss_1',
     })
-    reg.onDaemonMessageFrom('local', bind(sessionId))
-    reg.onDaemonMessageFrom('local', {
+    reg.modules.sessions.onDaemonMessageFrom('local', bind(sessionId))
+    reg.modules.sessions.onDaemonMessageFrom('local', {
       type: 'sessionResumeRef',
       sessionId,
       resume: { kind: 'claude-session', value: 'r1' },
     })
     // Resuming that conversation reuses the row — the resume's own tag must NOT win.
-    const reused = reg.resumeSession({
+    const reused = reg.modules.sessions.resumeSession({
       agentKind: 'claude-code',
       cwd: '/w',
       resume: { kind: 'claude-session', value: 'r1' },
@@ -323,10 +323,10 @@ describe('SessionRegistry', () => {
       spawnedBy: 'user',
     })
     expect(reused.sessionId).toBe(sessionId)
-    const metaOf = (id: string) => reg.listSessions().find((s) => s.sessionId === id)
+    const metaOf = (id: string) => reg.modules.sessions.listSessions().find((s) => s.sessionId === id)
     expect(metaOf(sessionId)?.spawnedBy).toBe('issue:iss_1')
     // No existing row for this ref → fresh spawn carries the caller's tag.
-    const fresh = reg.resumeSession({
+    const fresh = reg.modules.sessions.resumeSession({
       agentKind: 'claude-code',
       cwd: '/w',
       resume: { kind: 'claude-session', value: 'r2' },
@@ -339,42 +339,42 @@ describe('SessionRegistry', () => {
 
   it('resume still spawns a fresh row when no session exists for that conversation', () => {
     const reg = new SessionRegistry()
-    reg.attachDaemon('local', () => {})
-    reg.resumeSession({
+    reg.modules.sessions.attachDaemon('local', () => {})
+    reg.modules.sessions.resumeSession({
       agentKind: 'codex',
       cwd: '/w',
       resume: { kind: 'codex-thread', value: 't1' },
       conversationId: 'c1',
     })
-    reg.resumeSession({
+    reg.modules.sessions.resumeSession({
       agentKind: 'codex',
       cwd: '/w',
       resume: { kind: 'codex-thread', value: 't2' },
       conversationId: 'c2',
     })
-    expect(reg.listSessions()).toHaveLength(2)
+    expect(reg.modules.sessions.listSessions()).toHaveLength(2)
   })
 
   it('answers a client ping with pong (browser-level keepalive)', () => {
     const reg = new SessionRegistry()
     const c = sink()
-    const id = reg.attachClient(c.send)
-    reg.onClientMessage(id, { type: 'ping' })
+    const id = reg.modules.sessions.attachClient(c.send)
+    reg.modules.sessions.onClientMessage(id, { type: 'ping' })
     expect(c.sent).toContainEqual({ type: 'pong' })
   })
 
   it('routes frames only to clients attached to that session (ISOLATION)', () => {
     const reg = new SessionRegistry()
-    reg.attachDaemon('local', () => {})
-    const s1 = reg.createSession({ agentKind: 'claude-code', cwd: '/a' }).sessionId
-    const s2 = reg.createSession({ agentKind: 'claude-code', cwd: '/b' }).sessionId
-    reg.onDaemonMessageFrom('local', bind(s1))
-    reg.onDaemonMessageFrom('local', bind(s2))
+    reg.modules.sessions.attachDaemon('local', () => {})
+    const s1 = reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/a' }).sessionId
+    const s2 = reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/b' }).sessionId
+    reg.modules.sessions.onDaemonMessageFrom('local', bind(s1))
+    reg.modules.sessions.onDaemonMessageFrom('local', bind(s2))
     const c = sink()
-    const id = reg.attachClient(c.send)
-    reg.onClientMessage(id, { type: 'attach', sessionId: s1 })
-    reg.onDaemonMessageFrom('local', { type: 'agentFrame', sessionId: s1, seq: 0, data: 'QQ==' })
-    reg.onDaemonMessageFrom('local', { type: 'agentFrame', sessionId: s2, seq: 0, data: 'Qg==' })
+    const id = reg.modules.sessions.attachClient(c.send)
+    reg.modules.sessions.onClientMessage(id, { type: 'attach', sessionId: s1 })
+    reg.modules.sessions.onDaemonMessageFrom('local', { type: 'agentFrame', sessionId: s1, seq: 0, data: 'QQ==' })
+    reg.modules.sessions.onDaemonMessageFrom('local', { type: 'agentFrame', sessionId: s2, seq: 0, data: 'Qg==' })
     const frames = c.sent.filter((m) => m.type === 'outputFrame')
     expect(frames).toHaveLength(1)
     expect(frames[0]).toMatchObject({ sessionId: s1, data: 'QQ==' })
@@ -382,40 +382,40 @@ describe('SessionRegistry', () => {
 
   it('replays buffered output to a client that attaches after frames were produced', () => {
     const reg = new SessionRegistry()
-    reg.attachDaemon('local', () => {})
-    const s1 = reg.createSession({ agentKind: 'claude-code', cwd: '/a' }).sessionId
-    reg.onDaemonMessageFrom('local', bind(s1))
+    reg.modules.sessions.attachDaemon('local', () => {})
+    const s1 = reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/a' }).sessionId
+    reg.modules.sessions.onDaemonMessageFrom('local', bind(s1))
     // Frames arrive before any client attaches (e.g. a boot session, or a re-mount).
-    reg.onDaemonMessageFrom('local', { type: 'agentFrame', sessionId: s1, seq: 0, data: 'QQ==' })
-    reg.onDaemonMessageFrom('local', { type: 'agentFrame', sessionId: s1, seq: 1, data: 'Qg==' })
+    reg.modules.sessions.onDaemonMessageFrom('local', { type: 'agentFrame', sessionId: s1, seq: 0, data: 'QQ==' })
+    reg.modules.sessions.onDaemonMessageFrom('local', { type: 'agentFrame', sessionId: s1, seq: 1, data: 'Qg==' })
     const c = sink()
-    const id = reg.attachClient(c.send)
-    reg.onClientMessage(id, { type: 'attach', sessionId: s1 })
+    const id = reg.modules.sessions.attachClient(c.send)
+    reg.modules.sessions.onClientMessage(id, { type: 'attach', sessionId: s1 })
     const frames = c.sent.filter((m) => m.type === 'outputFrame')
     expect(frames.map((f) => (f as { data: string }).data)).toEqual(['QQ==', 'Qg=='])
   })
 
   it('resets the replay buffer on a screen clear so replay starts from the clear', () => {
     const reg = new SessionRegistry()
-    reg.attachDaemon('local', () => {})
-    const s1 = reg.createSession({ agentKind: 'claude-code', cwd: '/a' }).sessionId
-    reg.onDaemonMessageFrom('local', bind(s1))
-    reg.onDaemonMessageFrom('local', {
+    reg.modules.sessions.attachDaemon('local', () => {})
+    const s1 = reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/a' }).sessionId
+    reg.modules.sessions.onDaemonMessageFrom('local', bind(s1))
+    reg.modules.sessions.onDaemonMessageFrom('local', {
       type: 'agentFrame',
       sessionId: s1,
       seq: 0,
       data: Buffer.from('stale', 'latin1').toString('base64'),
     })
     const clearFrame = Buffer.from('\x1b[2Jfresh', 'latin1').toString('base64')
-    reg.onDaemonMessageFrom('local', {
+    reg.modules.sessions.onDaemonMessageFrom('local', {
       type: 'agentFrame',
       sessionId: s1,
       seq: 1,
       data: clearFrame,
     })
     const c = sink()
-    const id = reg.attachClient(c.send)
-    reg.onClientMessage(id, { type: 'attach', sessionId: s1 })
+    const id = reg.modules.sessions.attachClient(c.send)
+    reg.modules.sessions.onClientMessage(id, { type: 'attach', sessionId: s1 })
     const frames = c.sent.filter((m) => m.type === 'outputFrame')
     expect(frames.map((f) => (f as { data: string }).data)).toEqual([clearFrame])
   })
@@ -423,67 +423,67 @@ describe('SessionRegistry', () => {
   it('routes controller input to the daemon tagged with the right sessionId', () => {
     const reg = new SessionRegistry()
     const daemon: ControlMessage[] = []
-    reg.attachDaemon('local', (m) => daemon.push(m))
-    const s1 = reg.createSession({ agentKind: 'claude-code', cwd: '/a' }).sessionId
-    reg.onDaemonMessageFrom('local', bind(s1))
+    reg.modules.sessions.attachDaemon('local', (m) => daemon.push(m))
+    const s1 = reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/a' }).sessionId
+    reg.modules.sessions.onDaemonMessageFrom('local', bind(s1))
     const c = sink()
-    const id = reg.attachClient(c.send)
-    reg.onClientMessage(id, { type: 'attach', sessionId: s1 })
-    reg.onClientMessage(id, { type: 'input', sessionId: s1, data: 'eA==' })
+    const id = reg.modules.sessions.attachClient(c.send)
+    reg.modules.sessions.onClientMessage(id, { type: 'attach', sessionId: s1 })
+    reg.modules.sessions.onClientMessage(id, { type: 'input', sessionId: s1, data: 'eA==' })
     expect(daemon).toContainEqual({ type: 'input', sessionId: s1, data: 'eA==' })
   })
 
   it('takeover on one session leaves another session epoch untouched', () => {
     const reg = new SessionRegistry()
-    reg.attachDaemon('local', () => {})
-    const s1 = reg.createSession({ agentKind: 'claude-code', cwd: '/a' }).sessionId
-    const s2 = reg.createSession({ agentKind: 'claude-code', cwd: '/b' }).sessionId
-    reg.onDaemonMessageFrom('local', bind(s1))
-    reg.onDaemonMessageFrom('local', bind(s2))
+    reg.modules.sessions.attachDaemon('local', () => {})
+    const s1 = reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/a' }).sessionId
+    const s2 = reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/b' }).sessionId
+    reg.modules.sessions.onDaemonMessageFrom('local', bind(s1))
+    reg.modules.sessions.onDaemonMessageFrom('local', bind(s2))
     const c = sink()
-    const id = reg.attachClient(c.send)
-    reg.onClientMessage(id, { type: 'attach', sessionId: s1 })
-    reg.onClientMessage(id, { type: 'requestControl', sessionId: s1 })
-    expect(reg.listSessions().find((m) => m.sessionId === s2)?.epoch).toBe(0)
+    const id = reg.modules.sessions.attachClient(c.send)
+    reg.modules.sessions.onClientMessage(id, { type: 'attach', sessionId: s1 })
+    reg.modules.sessions.onClientMessage(id, { type: 'requestControl', sessionId: s1 })
+    expect(reg.modules.sessions.listSessions().find((m) => m.sessionId === s2)?.epoch).toBe(0)
   })
 
   it('heals a foreground resize that arrives before its viewState (quarter-size bug)', () => {
     const reg = new SessionRegistry()
     const daemon: ControlMessage[] = []
-    reg.attachDaemon('local', (m) => daemon.push(m))
-    const s1 = reg.createSession({ agentKind: 'claude-code', cwd: '/a' }).sessionId
-    reg.onDaemonMessageFrom('local', bind(s1))
+    reg.modules.sessions.attachDaemon('local', (m) => daemon.push(m))
+    const s1 = reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/a' }).sessionId
+    reg.modules.sessions.onDaemonMessageFrom('local', bind(s1))
     const c = sink()
-    const id = reg.attachClient(c.send)
-    reg.onClientMessage(id, { type: 'attach', sessionId: s1 })
-    reg.onClientMessage(id, { type: 'presence', visible: true })
+    const id = reg.modules.sessions.attachClient(c.send)
+    reg.modules.sessions.onClientMessage(id, { type: 'attach', sessionId: s1 })
+    reg.modules.sessions.onClientMessage(id, { type: 'presence', visible: true })
     // Real client order on a live foreground: the panel's effect fires before the
     // store's, so requestControl + the fitted resize arrive BEFORE viewState.
-    reg.onClientMessage(id, { type: 'requestControl', sessionId: s1 })
-    reg.onClientMessage(id, { type: 'resize', sessionId: s1, cols: 200, rows: 50 })
+    reg.modules.sessions.onClientMessage(id, { type: 'requestControl', sessionId: s1 })
+    reg.modules.sessions.onClientMessage(id, { type: 'resize', sessionId: s1, cols: 200, rows: 50 })
     // The viewVisible gate dropped it (the session isn't in viewState yet).
     expect(daemon).not.toContainEqual({ type: 'resize', sessionId: s1, cols: 200, rows: 50 })
     // viewState lands → the dropped size self-heals instead of sticking at 80x24.
-    reg.onClientMessage(id, { type: 'viewState', visible: [s1], focused: s1 })
+    reg.modules.sessions.onClientMessage(id, { type: 'viewState', visible: [s1], focused: s1 })
     expect(daemon).toContainEqual({ type: 'resize', sessionId: s1, cols: 200, rows: 50 })
   })
 
   it('kill removes the session and tells the daemon', () => {
     const reg = new SessionRegistry()
     const daemon: ControlMessage[] = []
-    reg.attachDaemon('local', (m) => daemon.push(m))
-    const s1 = reg.createSession({ agentKind: 'claude-code', cwd: '/a' }).sessionId
-    reg.killSession({ sessionId: s1 })
+    reg.modules.sessions.attachDaemon('local', (m) => daemon.push(m))
+    const s1 = reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/a' }).sessionId
+    reg.modules.sessions.killSession({ sessionId: s1 })
     expect(daemon).toContainEqual({ type: 'kill', sessionId: s1 })
-    expect(reg.listSessions()).toHaveLength(0)
+    expect(reg.modules.sessions.listSessions()).toHaveLength(0)
   })
 
   it('agentExit marks the session exited but keeps it listed', () => {
     const reg = new SessionRegistry()
-    reg.attachDaemon('local', () => {})
-    const s1 = reg.createSession({ agentKind: 'claude-code', cwd: '/a' }).sessionId
-    reg.onDaemonMessageFrom('local', { type: 'agentExit', sessionId: s1, code: 0 })
-    expect(reg.listSessions().find((m) => m.sessionId === s1)).toMatchObject({
+    reg.modules.sessions.attachDaemon('local', () => {})
+    const s1 = reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/a' }).sessionId
+    reg.modules.sessions.onDaemonMessageFrom('local', { type: 'agentExit', sessionId: s1, code: 0 })
+    expect(reg.modules.sessions.listSessions().find((m) => m.sessionId === s1)).toMatchObject({
       status: 'exited',
       exitCode: 0,
     })
@@ -522,15 +522,15 @@ describe('SessionRegistry', () => {
     store.sessions.upsertSession(exitedRow(id))
     const reg = new SessionRegistry(store)
     const daemon: ControlMessage[] = []
-    reg.attachDaemon('local', (m) => daemon.push(m))
+    reg.modules.sessions.attachDaemon('local', (m) => daemon.push(m))
     // Boot probes the exited row against the durable host.
     expect(daemon).toContainEqual(
       expect.objectContaining({ type: 'reattach', sessionId: id, durableLabel: `podium-${id}` }),
     )
     // The daemon found the master alive → bind → the session comes back live and
     // the stale exit is cleared. Without the fix it would stay 'exited' forever.
-    reg.onDaemonMessageFrom('local', bind(id))
-    const healed = reg.listSessions().find((m) => m.sessionId === id)
+    reg.modules.sessions.onDaemonMessageFrom('local', bind(id))
+    const healed = reg.modules.sessions.listSessions().find((m) => m.sessionId === id)
     expect(healed).toMatchObject({ status: 'live' })
     expect(healed?.exitCode).toBeUndefined()
   })
@@ -540,15 +540,15 @@ describe('SessionRegistry', () => {
     const id = 'dead-1'
     store.sessions.upsertSession(exitedRow(id))
     const reg = new SessionRegistry(store)
-    reg.attachDaemon('local', () => {})
+    reg.modules.sessions.attachDaemon('local', () => {})
     // The durable host has no such session → reattachFailed. An already-exited row
     // must stay put: no status change, no exitCode churn (0 → -1), no re-broadcast.
-    reg.onDaemonMessageFrom('local', {
+    reg.modules.sessions.onDaemonMessageFrom('local', {
       type: 'reattachFailed',
       sessionId: id,
       reason: 'session not found',
     })
-    expect(reg.listSessions().find((m) => m.sessionId === id)).toMatchObject({
+    expect(reg.modules.sessions.listSessions().find((m) => m.sessionId === id)).toMatchObject({
       status: 'exited',
       exitCode: 0,
     })
@@ -559,7 +559,7 @@ describe('SessionRegistry', () => {
     store.sessions.upsertSession(exitedRow('arch-1', { archived: true }))
     const reg = new SessionRegistry(store)
     const daemon: ControlMessage[] = []
-    reg.attachDaemon('local', (m) => daemon.push(m))
+    reg.modules.sessions.attachDaemon('local', (m) => daemon.push(m))
     expect(daemon.some((m) => m.type === 'reattach' && m.sessionId === 'arch-1')).toBe(false)
   })
 
@@ -571,37 +571,37 @@ describe('SessionRegistry', () => {
     store.sessions.upsertSession(exitedRow('oldest', { lastActiveAt: '2026-01-01T00:00:00.000Z' }))
     const reg = new SessionRegistry(store)
     const daemon: ControlMessage[] = []
-    reg.attachDaemon('local', (m) => daemon.push(m))
+    reg.modules.sessions.attachDaemon('local', (m) => daemon.push(m))
     const order = daemon.filter((m) => m.type === 'reattach').map((m) => m.sessionId)
     expect(order).toEqual(['newest', 'mid', 'oldest'])
   })
 
   it('daemon disconnect drops live sessions to reconnecting so the next daemon re-binds them', () => {
     const reg = new SessionRegistry()
-    reg.attachDaemon('local', () => {})
-    const { sessionId } = reg.createSession({ agentKind: 'claude-code', cwd: '/proj' })
-    reg.onDaemonMessageFrom('local', bind(sessionId)) // → live
-    expect(reg.listSessions().at(0)?.status).toBe('live')
+    reg.modules.sessions.attachDaemon('local', () => {})
+    const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/proj' })
+    reg.modules.sessions.onDaemonMessageFrom('local', bind(sessionId)) // → live
+    expect(reg.modules.sessions.listSessions().at(0)?.status).toBe('live')
     // Daemon-only restart: its WS closes while the server keeps running.
-    reg.detachDaemon('local')
-    expect(reg.listSessions().at(0)?.status).toBe('reconnecting')
+    reg.modules.sessions.detachDaemon('local')
+    expect(reg.modules.sessions.listSessions().at(0)?.status).toBe('reconnecting')
     // A fresh daemon attaches with no bridges → it must be asked to reattach.
     const daemon2: ControlMessage[] = []
-    reg.attachDaemon('local', (m) => daemon2.push(m))
+    reg.modules.sessions.attachDaemon('local', (m) => daemon2.push(m))
     expect(daemon2.some((m) => m.type === 'reattach' && m.sessionId === sessionId)).toBe(true)
   })
 
   it('attachClient sends welcome plus session and conversation snapshots', () => {
     const reg = new SessionRegistry()
-    reg.attachDaemon('local', () => {})
-    reg.createSession({ agentKind: 'claude-code', cwd: '/a' })
-    reg.onDaemonMessageFrom('local', {
+    reg.modules.sessions.attachDaemon('local', () => {})
+    reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/a' })
+    reg.modules.sessions.onDaemonMessageFrom('local', {
       type: 'conversationsChanged',
       conversations: [{ id: 'conv-1', agentKind: 'codex', providerId: 'codex-jsonl' }],
       diagnostics: [],
     })
     const c = sink()
-    const id = reg.attachClient(c.send)
+    const id = reg.modules.sessions.attachClient(c.send)
     expect(c.sent).toContainEqual({ type: 'welcome', clientId: id })
     expect(c.sent.some((m) => m.type === 'sessionsChanged')).toBe(true)
     expect(c.sent).toContainEqual({
@@ -621,18 +621,18 @@ describe('SessionRegistry', () => {
 
   it('broadcasts updated metas when a session gains a resume ref (resumable → hibernate)', () => {
     const reg = new SessionRegistry()
-    reg.attachDaemon('local', () => {})
-    const { sessionId } = reg.createSession({ agentKind: 'codex', cwd: '/proj' })
+    reg.modules.sessions.attachDaemon('local', () => {})
+    const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'codex', cwd: '/proj' })
     const c = sink()
-    reg.attachClient(c.send)
+    reg.modules.sessions.attachClient(c.send)
     c.sent.length = 0
 
-    reg.onDaemonMessageFrom('local', {
+    reg.modules.sessions.onDaemonMessageFrom('local', {
       type: 'sessionResumeRef',
       sessionId,
       resume: { kind: 'codex-thread', value: 'thread-1' },
     })
-    reg.flushBroadcasts() // createSession's broadcast armed the coalescer — run the pending pipeline
+    reg.modules.sessions.flushBroadcasts() // createSession's broadcast armed the coalescer — run the pending pipeline
 
     const pushed = c.sent.filter(
       (m): m is Extract<ServerMessage, { type: 'sessionsChanged' }> => m.type === 'sessionsChanged',
@@ -643,12 +643,12 @@ describe('SessionRegistry', () => {
 
   it('broadcasts daemon conversation changes to current clients', () => {
     const reg = new SessionRegistry()
-    reg.attachDaemon('local', () => {})
+    reg.modules.sessions.attachDaemon('local', () => {})
     const c = sink()
-    reg.attachClient(c.send)
+    reg.modules.sessions.attachClient(c.send)
     c.sent.length = 0
 
-    reg.onDaemonMessageFrom('local', {
+    reg.modules.sessions.onDaemonMessageFrom('local', {
       type: 'conversationsChanged',
       conversations: [{ id: 'conv-2', agentKind: 'claude-code', providerId: 'claude-code-jsonl' }],
       diagnostics: [],
@@ -673,16 +673,16 @@ describe('SessionRegistry', () => {
   it('scanResult updates the latest conversation snapshot and broadcasts it', async () => {
     const reg = new SessionRegistry()
     const daemon: ControlMessage[] = []
-    reg.attachDaemon('local', (m) => daemon.push(m))
+    reg.modules.sessions.attachDaemon('local', (m) => daemon.push(m))
     const c = sink()
-    reg.attachClient(c.send)
+    reg.modules.sessions.attachClient(c.send)
     c.sent.length = 0
-    const p = reg.scan()
+    const p = reg.modules.rpc.scan()
     const req = daemon.find((m) => m.type === 'scanRequest') as { requestId: string } | undefined
     expect(req).toBeDefined()
     if (!req) throw new Error('scanRequest not sent')
 
-    reg.onDaemonMessageFrom('local', {
+    reg.modules.sessions.onDaemonMessageFrom('local', {
       type: 'scanResult',
       requestId: req.requestId,
       conversations: [{ id: 'conv-3', agentKind: 'codex', providerId: 'codex-jsonl' }],
@@ -707,12 +707,12 @@ describe('SessionRegistry', () => {
   it('scan correlates the daemon scanResult back to the caller', async () => {
     const reg = new SessionRegistry()
     const daemon: ControlMessage[] = []
-    reg.attachDaemon('local', (m) => daemon.push(m))
-    const p = reg.scan()
+    reg.modules.sessions.attachDaemon('local', (m) => daemon.push(m))
+    const p = reg.modules.rpc.scan()
     const req = daemon.find((m) => m.type === 'scanRequest') as { requestId: string } | undefined
     expect(req).toBeDefined()
     if (!req) throw new Error('scanRequest not sent')
-    reg.onDaemonMessageFrom('local', {
+    reg.modules.sessions.onDaemonMessageFrom('local', {
       type: 'scanResult',
       requestId: req.requestId,
       conversations: [{ id: 'x', agentKind: 'claude-code', providerId: 'p' }],
@@ -724,15 +724,15 @@ describe('SessionRegistry', () => {
   it('scanRepos correlates the daemon scanReposResult back to the caller', async () => {
     const reg = new SessionRegistry()
     const daemon: ControlMessage[] = []
-    reg.attachDaemon('local', (m) => daemon.push(m))
-    const p = reg.scanRepos(['/home/u/src'])
+    reg.modules.sessions.attachDaemon('local', (m) => daemon.push(m))
+    const p = reg.modules.rpc.scanRepos(['/home/u/src'])
     const req = daemon.find((m) => m.type === 'scanReposRequest') as
       | { requestId: string; roots: string[] }
       | undefined
     expect(req).toBeDefined()
     if (!req) throw new Error('scanReposRequest not sent')
     expect(req.roots).toEqual(['/home/u/src'])
-    reg.onDaemonMessageFrom('local', {
+    reg.modules.sessions.onDaemonMessageFrom('local', {
       type: 'scanReposResult',
       requestId: req.requestId,
       repositories: [{ path: '/r', kind: 'repository', worktrees: [] }],
@@ -743,13 +743,13 @@ describe('SessionRegistry', () => {
 
   it('a daemon title updates the session and pushes sessionTitleChanged to clients', () => {
     const reg = new SessionRegistry()
-    reg.attachDaemon('local', () => {})
-    const { sessionId } = reg.createSession({ agentKind: 'claude-code', cwd: '/proj' })
+    reg.modules.sessions.attachDaemon('local', () => {})
+    const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/proj' })
     const c = sink()
-    reg.attachClient(c.send)
+    reg.modules.sessions.attachClient(c.send)
     c.sent.length = 0 // drop the welcome + initial sessionsChanged
 
-    reg.onDaemonMessageFrom('local', { type: 'title', sessionId, title: '✳ rename functionality' })
+    reg.modules.sessions.onDaemonMessageFrom('local', { type: 'title', sessionId, title: '✳ rename functionality' })
 
     expect(c.sent).toContainEqual({
       type: 'sessionTitleChanged',
@@ -759,43 +759,43 @@ describe('SessionRegistry', () => {
     // Not a full list rebroadcast.
     expect(c.sent.some((m) => m.type === 'sessionsChanged')).toBe(false)
     // Late joiners see it via listSessions().
-    expect(reg.listSessions().at(0)).toMatchObject({ sessionId, title: '✳ rename functionality' })
+    expect(reg.modules.sessions.listSessions().at(0)).toMatchObject({ sessionId, title: '✳ rename functionality' })
   })
 
   it('ignores a title for an unknown session', () => {
     const reg = new SessionRegistry()
-    reg.attachDaemon('local', () => {})
+    reg.modules.sessions.attachDaemon('local', () => {})
     const c = sink()
-    reg.attachClient(c.send)
+    reg.modules.sessions.attachClient(c.send)
     c.sent.length = 0
-    reg.onDaemonMessageFrom('local', { type: 'title', sessionId: 'nope', title: 'x' })
+    reg.modules.sessions.onDaemonMessageFrom('local', { type: 'title', sessionId: 'nope', title: 'x' })
     expect(c.sent).toEqual([])
   })
 
   it('write-through: a spawned session is persisted, live/exit/title update the row', () => {
     const store = new SessionStore(':memory:')
     const reg = new SessionRegistry(store)
-    reg.attachDaemon('local', () => {})
-    const { sessionId } = reg.createSession({ agentKind: 'claude-code', cwd: '/a', title: 't' })
+    reg.modules.sessions.attachDaemon('local', () => {})
+    const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/a', title: 't' })
     expect(store.sessions.loadSessions()).toMatchObject([{ id: sessionId, status: 'starting', title: 't' }])
-    reg.onDaemonMessageFrom('local', bind(sessionId))
+    reg.modules.sessions.onDaemonMessageFrom('local', bind(sessionId))
     expect(store.sessions.loadSessions().at(0)).toMatchObject({ status: 'live' })
-    reg.onDaemonMessageFrom('local', { type: 'title', sessionId, title: '✳ working' })
+    reg.modules.sessions.onDaemonMessageFrom('local', { type: 'title', sessionId, title: '✳ working' })
     expect(store.sessions.loadSessions().at(0)).toMatchObject({ title: '✳ working' })
-    reg.onDaemonMessageFrom('local', { type: 'agentExit', sessionId, code: 0 })
+    reg.modules.sessions.onDaemonMessageFrom('local', { type: 'agentExit', sessionId, code: 0 })
     expect(store.sessions.loadSessions().at(0)).toMatchObject({ status: 'exited', exitCode: 0 })
-    reg.killSession({ sessionId })
+    reg.modules.sessions.killSession({ sessionId })
     expect(store.sessions.loadSessions()).toEqual([])
   })
 
   it('write-through: an agentState change persists lastActiveAt so recency survives a restart', () => {
     const store = new SessionStore(':memory:')
     const reg = new SessionRegistry(store)
-    reg.attachDaemon('local', () => {})
-    const { sessionId } = reg.createSession({ agentKind: 'claude-code', cwd: '/a' })
-    reg.onDaemonMessageFrom('local', bind(sessionId))
+    reg.modules.sessions.attachDaemon('local', () => {})
+    const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/a' })
+    reg.modules.sessions.onDaemonMessageFrom('local', bind(sessionId))
     const future = '2999-01-01T00:00:00.000Z'
-    reg.onDaemonMessageFrom('local', {
+    reg.modules.sessions.onDaemonMessageFrom('local', {
       type: 'agentState',
       sessionId,
       state: { phase: 'working', since: future, openTaskCount: 0 },
@@ -806,25 +806,25 @@ describe('SessionRegistry', () => {
   it('write-through: running-shell activity persists the row (recency is durable)', () => {
     const store = new SessionStore(':memory:')
     const reg = new SessionRegistry(store)
-    reg.attachDaemon('local', () => {})
-    const { sessionId } = reg.createSession({ agentKind: 'shell', cwd: '/a' })
-    reg.onDaemonMessageFrom('local', bind(sessionId))
-    const cid = reg.attachClient(sink().send) // first client → controller
-    reg.onClientMessage(cid, { type: 'attach', sessionId })
+    reg.modules.sessions.attachDaemon('local', () => {})
+    const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/a' })
+    reg.modules.sessions.onDaemonMessageFrom('local', bind(sessionId))
+    const cid = reg.modules.sessions.attachClient(sink().send) // first client → controller
+    reg.modules.sessions.onClientMessage(cid, { type: 'attach', sessionId })
     const spy = vi.spyOn(store.sessions, 'upsertSession')
-    reg.onClientMessage(cid, {
+    reg.modules.sessions.onClientMessage(cid, {
       type: 'input',
       sessionId,
       data: Buffer.from('ls\r').toString('base64'),
     })
-    expect(reg.listSessions().find((m) => m.sessionId === sessionId)?.busy).toBe(true)
+    expect(reg.modules.sessions.listSessions().find((m) => m.sessionId === sessionId)?.busy).toBe(true)
     expect(spy).toHaveBeenCalled()
   })
 
   it('mints opaque durable session ids (uuid), not the s0 counter', () => {
     const reg = new SessionRegistry(new SessionStore(':memory:'))
-    reg.attachDaemon('local', () => {})
-    const { sessionId } = reg.createSession({ agentKind: 'claude-code', cwd: '/a' })
+    reg.modules.sessions.attachDaemon('local', () => {})
+    const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/a' })
     expect(sessionId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-/)
   })
 
@@ -832,28 +832,28 @@ describe('SessionRegistry', () => {
     const file = join(mkdtempSync(join(tmpdir(), 'podium-relay-')), 'podium.db')
     const store1 = new SessionStore(file)
     const reg1 = new SessionRegistry(store1)
-    reg1.attachDaemon('local', () => {})
-    const { sessionId } = reg1.resumeSession({
+    reg1.modules.sessions.attachDaemon('local', () => {})
+    const { sessionId } = reg1.modules.sessions.resumeSession({
       agentKind: 'codex',
       cwd: '/w',
       resume: { kind: 'codex-thread', value: 't9' },
       conversationId: 'c9',
       title: 'old',
     })
-    reg1.onDaemonMessageFrom('local', bind(sessionId))
+    reg1.modules.sessions.onDaemonMessageFrom('local', bind(sessionId))
     store1.close()
 
     // Restart: fresh registry over the same db.
     const store2 = new SessionStore(file)
     const reg2 = new SessionRegistry(store2)
-    expect(reg2.listSessions().find((m) => m.sessionId === sessionId)).toMatchObject({
+    expect(reg2.modules.sessions.listSessions().find((m) => m.sessionId === sessionId)).toMatchObject({
       status: 'reconnecting',
       title: 'old',
       origin: { kind: 'resume', conversationId: 'c9' },
     })
     // Attaching the daemon fires a reattach for the reconnecting session.
     const control: import('@podium/protocol').ControlMessage[] = []
-    reg2.attachDaemon('local', (m) => control.push(m))
+    reg2.modules.sessions.attachDaemon('local', (m) => control.push(m))
     expect(control).toContainEqual(
       expect.objectContaining({ type: 'reattach', sessionId, durableLabel: `podium-${sessionId}` }),
     )
@@ -864,34 +864,34 @@ describe('SessionRegistry', () => {
     const file = join(mkdtempSync(join(tmpdir(), 'podium-relay-')), 'podium.db')
     const store1 = new SessionStore(file)
     const reg1 = new SessionRegistry(store1)
-    reg1.attachDaemon('local', () => {})
-    const { sessionId } = reg1.createSession({ agentKind: 'claude-code', cwd: '/a' })
-    reg1.onDaemonMessageFrom('local', bind(sessionId))
+    reg1.modules.sessions.attachDaemon('local', () => {})
+    const { sessionId } = reg1.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/a' })
+    reg1.modules.sessions.onDaemonMessageFrom('local', bind(sessionId))
     store1.close()
     const reg2 = new SessionRegistry(new SessionStore(file))
-    reg2.attachDaemon('local', () => {})
-    expect(reg2.listSessions().at(0)?.status).toBe('reconnecting')
-    reg2.onDaemonMessageFrom('local', bind(sessionId))
-    expect(reg2.listSessions().at(0)?.status).toBe('live')
+    reg2.modules.sessions.attachDaemon('local', () => {})
+    expect(reg2.modules.sessions.listSessions().at(0)?.status).toBe('reconnecting')
+    reg2.modules.sessions.onDaemonMessageFrom('local', bind(sessionId))
+    expect(reg2.modules.sessions.listSessions().at(0)?.status).toBe('live')
   })
 
   it('reattachFailed marks the session exited', () => {
     const file = join(mkdtempSync(join(tmpdir(), 'podium-relay-')), 'podium.db')
     const store1 = new SessionStore(file)
     const reg1 = new SessionRegistry(store1)
-    reg1.attachDaemon('local', () => {})
-    const { sessionId } = reg1.createSession({ agentKind: 'claude-code', cwd: '/a' })
-    reg1.onDaemonMessageFrom('local', bind(sessionId))
+    reg1.modules.sessions.attachDaemon('local', () => {})
+    const { sessionId } = reg1.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/a' })
+    reg1.modules.sessions.onDaemonMessageFrom('local', bind(sessionId))
     store1.close()
     const reg2 = new SessionRegistry(new SessionStore(file))
-    reg2.attachDaemon('local', () => {})
-    expect(reg2.listSessions().at(0)?.status).toBe('reconnecting') // handler must drive the transition
-    reg2.onDaemonMessageFrom('local', {
+    reg2.modules.sessions.attachDaemon('local', () => {})
+    expect(reg2.modules.sessions.listSessions().at(0)?.status).toBe('reconnecting') // handler must drive the transition
+    reg2.modules.sessions.onDaemonMessageFrom('local', {
       type: 'reattachFailed',
       sessionId,
       reason: 'no tmux session',
     })
-    expect(reg2.listSessions().at(0)?.status).toBe('exited')
+    expect(reg2.modules.sessions.listSessions().at(0)?.status).toBe('exited')
   })
 
   it('skips a persisted session with an invalid agentKind on load', () => {
@@ -946,7 +946,7 @@ describe('SessionRegistry', () => {
       .run()
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const reg = new SessionRegistry(store)
-    const ids = reg.listSessions().map((m) => m.sessionId)
+    const ids = reg.modules.sessions.listSessions().map((m) => m.sessionId)
     expect(ids).toContain('good')
     expect(ids).not.toContain('bad')
     expect(warn).toHaveBeenCalled()
@@ -970,10 +970,10 @@ describe('host metrics relay', () => {
     const reg = new SessionRegistry()
     const a = sink()
     const b = sink()
-    reg.attachClient(a.send)
-    reg.attachClient(b.send)
-    reg.onDaemonMessageFrom('local', sample('podium-host'))
-    reg.onDaemonMessageFrom('local', sample('podium-host', 8)) // newer sample replaces, not appends
+    reg.modules.sessions.attachClient(a.send)
+    reg.modules.sessions.attachClient(b.send)
+    reg.modules.sessions.onDaemonMessageFrom('local', sample('podium-host'))
+    reg.modules.sessions.onDaemonMessageFrom('local', sample('podium-host', 8)) // newer sample replaces, not appends
     const last = metricsMsgs(a.sent).at(-1)
     expect(last?.hosts).toEqual([expect.objectContaining({ hostname: 'podium-host' })])
     expect(last?.hosts[0]?.memory.availableBytes).toBe(8)
@@ -988,12 +988,12 @@ describe('host metrics relay', () => {
     store.machines.upsertMachine({ id: 'm-alpha', name: 'alpha', hostname: 'alpha', tokenHash: 'x' })
     store.machines.upsertMachine({ id: 'm-beta', name: 'beta', hostname: 'beta', tokenHash: 'y' })
     const reg = new SessionRegistry(store)
-    reg.attachDaemon('m-alpha', () => {})
-    reg.attachDaemon('m-beta', () => {})
+    reg.modules.sessions.attachDaemon('m-alpha', () => {})
+    reg.modules.sessions.attachDaemon('m-beta', () => {})
     const a = sink()
-    reg.attachClient(a.send)
-    reg.onDaemonMessageFrom('m-alpha', sample('alpha'))
-    reg.onDaemonMessageFrom('m-beta', sample('beta'))
+    reg.modules.sessions.attachClient(a.send)
+    reg.modules.sessions.onDaemonMessageFrom('m-alpha', sample('alpha'))
+    reg.modules.sessions.onDaemonMessageFrom('m-beta', sample('beta'))
     const hosts = metricsMsgs(a.sent)
       .at(-1)
       ?.hosts.map((h) => h.hostname)
@@ -1002,9 +1002,9 @@ describe('host metrics relay', () => {
 
   it('snapshots current metrics to a late-joining client', () => {
     const reg = new SessionRegistry()
-    reg.onDaemonMessageFrom('local', sample('podium-host'))
+    reg.modules.sessions.onDaemonMessageFrom('local', sample('podium-host'))
     const late = sink()
-    reg.attachClient(late.send)
+    reg.modules.sessions.attachClient(late.send)
     expect(metricsMsgs(late.sent).at(-1)?.hosts).toEqual([
       expect.objectContaining({ hostname: 'podium-host' }),
     ])
@@ -1013,10 +1013,10 @@ describe('host metrics relay', () => {
   it('clears and re-broadcasts when the daemon detaches (stale numbers never linger)', () => {
     const reg = new SessionRegistry()
     const a = sink()
-    reg.attachClient(a.send)
-    reg.attachDaemon('local', () => {})
-    reg.onDaemonMessageFrom('local', sample('podium-host'))
-    reg.detachDaemon('local')
+    reg.modules.sessions.attachClient(a.send)
+    reg.modules.sessions.attachDaemon('local', () => {})
+    reg.modules.sessions.onDaemonMessageFrom('local', sample('podium-host'))
+    reg.modules.sessions.detachDaemon('local')
     expect(metricsMsgs(a.sent).at(-1)?.hosts).toEqual([])
   })
 })
@@ -1027,14 +1027,14 @@ describe('memory breakdown relay', () => {
   it('forwards the request to the daemon and resolves with its answer', async () => {
     const reg = new SessionRegistry()
     const daemon: ControlMessage[] = []
-    reg.attachDaemon('local', (m) => daemon.push(m))
-    const pending = reg.memoryBreakdown(['/src/app'])
+    reg.modules.sessions.attachDaemon('local', (m) => daemon.push(m))
+    const pending = reg.modules.hosts.memoryBreakdown(['/src/app'])
     const req = daemon.find(
       (m): m is Extract<ControlMessage, { type: 'memoryBreakdownRequest' }> =>
         m.type === 'memoryBreakdownRequest',
     )
     expect(req?.roots).toEqual(['/src/app'])
-    reg.onDaemonMessageFrom('local', {
+    reg.modules.sessions.onDaemonMessageFrom('local', {
       type: 'memoryBreakdownResult',
       requestId: req?.requestId ?? '',
       hostname: 'podium-host',
@@ -1055,8 +1055,8 @@ describe('memory breakdown relay', () => {
     vi.useFakeTimers()
     try {
       const reg = new SessionRegistry()
-      reg.attachDaemon('local', () => {})
-      const pending = reg.memoryBreakdown([])
+      reg.modules.sessions.attachDaemon('local', () => {})
+      const pending = reg.modules.hosts.memoryBreakdown([])
       vi.advanceTimersByTime(10_500)
       await expect(pending).resolves.toBeUndefined()
     } finally {
@@ -1075,37 +1075,37 @@ describe('agent state', () => {
 
   it('agentState from the daemon pushes a per-session message and lands on SessionMeta', () => {
     const reg = new SessionRegistry()
-    reg.attachDaemon('local', () => {})
-    const { sessionId } = reg.createSession({ agentKind: 'claude-code', cwd: '/proj' })
+    reg.modules.sessions.attachDaemon('local', () => {})
+    const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/proj' })
     const client = sink()
-    reg.attachClient(client.send)
+    reg.modules.sessions.attachClient(client.send)
     client.sent.length = 0
-    reg.onDaemonMessageFrom('local', { type: 'agentState', sessionId, state: STATE })
+    reg.modules.sessions.onDaemonMessageFrom('local', { type: 'agentState', sessionId, state: STATE })
     const update = client.sent.find((m) => m.type === 'sessionAgentStateChanged')
     expect(update).toEqual({ type: 'sessionAgentStateChanged', sessionId, state: STATE })
     // Hook events fire often — this must NOT re-broadcast the whole session list.
     expect(client.sent.some((m) => m.type === 'sessionsChanged')).toBe(false)
     // Late joiners still see the state via listSessions().
-    expect(reg.listSessions().find((s) => s.sessionId === sessionId)?.agentState).toEqual(STATE)
+    expect(reg.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)?.agentState).toEqual(STATE)
   })
 
   it('agentState for an unknown session is ignored', () => {
     const reg = new SessionRegistry()
-    reg.attachDaemon('local', () => {})
+    reg.modules.sessions.attachDaemon('local', () => {})
     expect(() =>
-      reg.onDaemonMessageFrom('local', { type: 'agentState', sessionId: 'ghost', state: STATE }),
+      reg.modules.sessions.onDaemonMessageFrom('local', { type: 'agentState', sessionId: 'ghost', state: STATE }),
     ).not.toThrow()
   })
 
   it('continueSession writes "continue\\r" to the PTY only while errored', () => {
     const reg = new SessionRegistry()
     const daemon: ControlMessage[] = []
-    reg.attachDaemon('local', (m) => daemon.push(m))
-    const { sessionId } = reg.createSession({ agentKind: 'claude-code', cwd: '/proj' })
+    reg.modules.sessions.attachDaemon('local', (m) => daemon.push(m))
+    const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/proj' })
     // not errored yet → refused
-    expect(reg.continueSession({ sessionId })).toEqual({ ok: false })
-    reg.onDaemonMessageFrom('local', { type: 'agentState', sessionId, state: STATE })
-    expect(reg.continueSession({ sessionId })).toEqual({ ok: true })
+    expect(reg.modules.sessions.continueSession({ sessionId })).toEqual({ ok: false })
+    reg.modules.sessions.onDaemonMessageFrom('local', { type: 'agentState', sessionId, state: STATE })
+    expect(reg.modules.sessions.continueSession({ sessionId })).toEqual({ ok: true })
     const input = daemon.find((m) => m.type === 'input' && m.sessionId === sessionId)
     expect(input).toBeDefined()
     expect(
@@ -1113,7 +1113,7 @@ describe('agent state', () => {
         'utf8',
       ),
     ).toBe('continue\r')
-    expect(reg.continueSession({ sessionId: 'ghost' })).toEqual({ ok: false })
+    expect(reg.modules.sessions.continueSession({ sessionId: 'ghost' })).toEqual({ ok: false })
   })
 
   it('sends every configured external push target only when no client is visible', () => {
@@ -1134,18 +1134,18 @@ describe('agent state', () => {
 
     try {
       const reg = new SessionRegistry(store, { ntfy, telegram })
-      reg.attachDaemon('local', () => {})
-      const { sessionId } = reg.createSession({
+      reg.modules.sessions.attachDaemon('local', () => {})
+      const { sessionId } = reg.modules.sessions.createSession({
         agentKind: 'claude-code',
         cwd: '/proj',
         title: 'keyboard',
       })
       const hidden = sink()
-      const hiddenId = reg.attachClient(hidden.send)
-      reg.onClientMessage(hiddenId, { type: 'presence', visible: false })
+      const hiddenId = reg.modules.sessions.attachClient(hidden.send)
+      reg.modules.sessions.onClientMessage(hiddenId, { type: 'presence', visible: false })
       hidden.sent.length = 0
 
-      reg.onDaemonMessageFrom('local', {
+      reg.modules.sessions.onDaemonMessageFrom('local', {
         type: 'agentState',
         sessionId,
         state: {
@@ -1174,9 +1174,9 @@ describe('agent state', () => {
       ntfy.mockClear()
       telegram.mockClear()
       const visible = sink()
-      const visibleId = reg.attachClient(visible.send)
-      reg.onClientMessage(visibleId, { type: 'presence', visible: true })
-      reg.onDaemonMessageFrom('local', {
+      const visibleId = reg.modules.sessions.attachClient(visible.send)
+      reg.modules.sessions.onClientMessage(visibleId, { type: 'presence', visible: true })
+      reg.modules.sessions.onDaemonMessageFrom('local', {
         type: 'agentState',
         sessionId,
         state: {
@@ -1227,7 +1227,7 @@ describe('agent state', () => {
         },
       )
 
-      const setup = await reg.startTelegramSetup()
+      const setup = await reg.modules.settings.startTelegramSetup()
       expect(setup).toEqual({
         setupId: expect.any(String),
         code: 'PODIUM123',
@@ -1236,7 +1236,7 @@ describe('agent state', () => {
         expiresAt: new Date(301_000).toISOString(),
       })
 
-      const result = await reg.pollTelegramSetup(setup.setupId)
+      const result = await reg.modules.settings.pollTelegramSetup(setup.setupId)
 
       expect(result.status).toBe('connected')
       if (result.status !== 'connected') throw new Error('expected setup to connect')
@@ -1257,17 +1257,17 @@ describe('agent state', () => {
 
     try {
       const reg = new SessionRegistry(store, { ntfy, telegram })
-      reg.attachDaemon('local', () => {})
-      const { sessionId } = reg.createSession({
+      reg.modules.sessions.attachDaemon('local', () => {})
+      const { sessionId } = reg.modules.sessions.createSession({
         agentKind: 'claude-code',
         cwd: '/proj',
         title: 'keyboard',
       })
       const visible = sink()
-      const visibleId = reg.attachClient(visible.send)
-      reg.onClientMessage(visibleId, { type: 'presence', visible: true })
+      const visibleId = reg.modules.sessions.attachClient(visible.send)
+      reg.modules.sessions.onClientMessage(visibleId, { type: 'presence', visible: true })
 
-      reg.onDaemonMessageFrom('local', {
+      reg.modules.sessions.onDaemonMessageFrom('local', {
         type: 'agentState',
         sessionId,
         state: {
@@ -1280,8 +1280,8 @@ describe('agent state', () => {
 
       expect(telegram).not.toHaveBeenCalled()
 
-      const settings = reg.getSettings()
-      reg.setSettings({
+      const settings = reg.modules.settings.getSettings()
+      reg.modules.settings.setSettings({
         ...settings,
         notifications: {
           ...settings.notifications,
@@ -1297,8 +1297,8 @@ describe('agent state', () => {
       expect(ntfy).not.toHaveBeenCalled()
 
       telegram.mockClear()
-      const updated = reg.getSettings()
-      reg.setSettings({
+      const updated = reg.modules.settings.getSettings()
+      reg.modules.settings.setSettings({
         ...updated,
         notifications: {
           ...updated.notifications,
@@ -1316,17 +1316,17 @@ describe('agent state', () => {
 describe('structured transcript channel', () => {
   it('replays nothing on an empty subscribe, then streams live deltas', () => {
     const reg = new SessionRegistry()
-    reg.attachDaemon('local', () => {})
-    const { sessionId } = reg.createSession({ agentKind: 'claude-code', cwd: '/w' })
+    reg.modules.sessions.attachDaemon('local', () => {})
+    const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/w' })
     const client = sink()
-    const clientId = reg.attachClient(client.send)
+    const clientId = reg.modules.sessions.attachClient(client.send)
     // Empty cache → subscribe sends no replay delta (NOT a snapshot/reset — the
     // client loads its history off disk via transcriptRead, not the stream).
-    reg.onClientMessage(clientId, { type: 'transcriptSubscribe', sessionId })
+    reg.modules.sessions.onClientMessage(clientId, { type: 'transcriptSubscribe', sessionId })
     expect(client.sent.filter((m) => m.type === 'transcriptDelta')).toEqual([])
 
     const item = { id: 'u1', role: 'user' as const, text: 'hi', cursor: 'c1' }
-    reg.onDaemonMessageFrom('local', {
+    reg.modules.sessions.onDaemonMessageFrom('local', {
       type: 'transcriptDelta',
       sessionId,
       items: [item],
@@ -1341,7 +1341,7 @@ describe('structured transcript channel', () => {
 
     // A reset delta (tailer switched files) clears the cache and fans out reset:true.
     const item2 = { id: 'u2', role: 'user' as const, text: 'again', cursor: 'c2' }
-    reg.onDaemonMessageFrom('local', {
+    reg.modules.sessions.onDaemonMessageFrom('local', {
       type: 'transcriptDelta',
       sessionId,
       items: [item2],
@@ -1357,13 +1357,13 @@ describe('structured transcript channel', () => {
 
   it('replays only cached items after `since`, and the whole cache when since is unknown', () => {
     const reg = new SessionRegistry()
-    reg.attachDaemon('local', () => {})
-    const { sessionId } = reg.createSession({ agentKind: 'claude-code', cwd: '/w' })
+    reg.modules.sessions.attachDaemon('local', () => {})
+    const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/w' })
     // Seed the recent-delta cache via live deltas.
     const a = { id: 'a', role: 'user' as const, text: 'a', cursor: 'c1' }
     const b = { id: 'b', role: 'assistant' as const, text: 'b', cursor: 'c2' }
     const c = { id: 'c', role: 'user' as const, text: 'c', cursor: 'c3' }
-    reg.onDaemonMessageFrom('local', {
+    reg.modules.sessions.onDaemonMessageFrom('local', {
       type: 'transcriptDelta',
       sessionId,
       items: [a, b, c],
@@ -1372,41 +1372,41 @@ describe('structured transcript channel', () => {
 
     // since=c1 → replay strictly after it (b, c).
     const known = sink()
-    const knownId = reg.attachClient(known.send)
-    reg.onClientMessage(knownId, { type: 'transcriptSubscribe', sessionId, since: 'c1' })
+    const knownId = reg.modules.sessions.attachClient(known.send)
+    reg.modules.sessions.onClientMessage(knownId, { type: 'transcriptSubscribe', sessionId, since: 'c1' })
     expect(known.sent.filter((m) => m.type === 'transcriptDelta')).toEqual([
       { type: 'transcriptDelta', sessionId, items: [b, c] },
     ])
 
     // since unknown to the cache → replay the whole cache (client cursor-dedups).
     const stale = sink()
-    const staleId = reg.attachClient(stale.send)
-    reg.onClientMessage(staleId, { type: 'transcriptSubscribe', sessionId, since: 'c0-older' })
+    const staleId = reg.modules.sessions.attachClient(stale.send)
+    reg.modules.sessions.onClientMessage(staleId, { type: 'transcriptSubscribe', sessionId, since: 'c0-older' })
     expect(stale.sent.filter((m) => m.type === 'transcriptDelta')).toEqual([
       { type: 'transcriptDelta', sessionId, items: [a, b, c] },
     ])
 
     // since = the newest cached cursor → nothing after it, send nothing.
     const caught = sink()
-    const caughtId = reg.attachClient(caught.send)
-    reg.onClientMessage(caughtId, { type: 'transcriptSubscribe', sessionId, since: 'c3' })
+    const caughtId = reg.modules.sessions.attachClient(caught.send)
+    reg.modules.sessions.onClientMessage(caughtId, { type: 'transcriptSubscribe', sessionId, since: 'c3' })
     expect(caught.sent.filter((m) => m.type === 'transcriptDelta')).toEqual([])
   })
 
   it('a subscriber needs no PTY attachment, and unsubscribe stops the stream', () => {
     const reg = new SessionRegistry()
-    reg.attachDaemon('local', () => {})
-    const { sessionId } = reg.createSession({ agentKind: 'claude-code', cwd: '/w' })
+    reg.modules.sessions.attachDaemon('local', () => {})
+    const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/w' })
     const client = sink()
-    const clientId = reg.attachClient(client.send)
-    reg.onClientMessage(clientId, { type: 'transcriptSubscribe', sessionId })
-    reg.onClientMessage(clientId, { type: 'transcriptUnsubscribe', sessionId })
+    const clientId = reg.modules.sessions.attachClient(client.send)
+    reg.modules.sessions.onClientMessage(clientId, { type: 'transcriptSubscribe', sessionId })
+    reg.modules.sessions.onClientMessage(clientId, { type: 'transcriptUnsubscribe', sessionId })
     // Count transcript-stream frames only: the first delta flips the session's
     // transcriptAvailable flag, which broadcasts a sessionsChanged to every
     // client (subscribed or not) — that capability flip is not a stream frame.
     const frames = () => client.sent.filter((m) => m.type === 'transcriptDelta').length
     const before = frames()
-    reg.onDaemonMessageFrom('local', {
+    reg.modules.sessions.onDaemonMessageFrom('local', {
       type: 'transcriptDelta',
       sessionId,
       items: [{ id: 'x', role: 'user', text: 'unseen', cursor: 'cx' }],
@@ -1416,11 +1416,11 @@ describe('structured transcript channel', () => {
 
   it('a daemon transcriptDelta drives the Claude first-prompt title', () => {
     const reg = new SessionRegistry()
-    reg.attachDaemon('local', () => {})
-    const { sessionId } = reg.createSession({ agentKind: 'claude-code', cwd: '/w' })
+    reg.modules.sessions.attachDaemon('local', () => {})
+    const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/w' })
     const client = sink()
-    reg.attachClient(client.send)
-    reg.onDaemonMessageFrom('local', {
+    reg.modules.sessions.attachClient(client.send)
+    reg.modules.sessions.onDaemonMessageFrom('local', {
       type: 'transcriptDelta',
       sessionId,
       items: [{ id: 'u1', role: 'user', text: 'Refactor the transcript reader', cursor: 'c1' }],
@@ -1441,14 +1441,14 @@ describe('readTranscript (disk read via daemon — no cache short-circuit)', () 
   it('a LIVE session with an EMPTY cache still round-trips to the daemon (the bug fix)', async () => {
     const reg = new SessionRegistry()
     const daemon: ControlMessage[] = []
-    reg.attachDaemon('local', (m) => daemon.push(m))
+    reg.modules.sessions.attachDaemon('local', (m) => daemon.push(m))
     // A live, bound session whose recent-delta cache is empty (e.g. right after a
     // server restart). The OLD code short-circuited and returned [] without ever
     // asking the daemon — the core bug. The new code MUST round-trip to disk.
-    const { sessionId } = reg.createSession({ agentKind: 'claude-code', cwd: '/w' })
-    reg.onDaemonMessageFrom('local', bind(sessionId))
+    const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/w' })
+    reg.modules.sessions.onDaemonMessageFrom('local', bind(sessionId))
 
-    const p = reg.readTranscript({ sessionId, direction: 'before', limit: 50 })
+    const p = reg.modules.rpc.readTranscript({ sessionId, direction: 'before', limit: 50 })
     const req = daemon.find((m) => m.type === 'transcriptRead') as
       | { requestId: string; direction: string; limit: number; sessionId: string }
       | undefined
@@ -1459,7 +1459,7 @@ describe('readTranscript (disk read via daemon — no cache short-circuit)', () 
     expect(req.sessionId).toBe(sessionId)
 
     const items = [{ id: 'd1', role: 'user' as const, text: 'from disk', cursor: 'c1' }]
-    reg.onDaemonMessageFrom('local', {
+    reg.modules.sessions.onDaemonMessageFrom('local', {
       type: 'transcriptReadResult',
       requestId: req.requestId,
       sessionId,
@@ -1474,15 +1474,15 @@ describe('readTranscript (disk read via daemon — no cache short-circuit)', () 
   it('passes anchor/direction/limit + agentKind/cwd/resume through to the daemon message', async () => {
     const reg = new SessionRegistry()
     const daemon: ControlMessage[] = []
-    reg.attachDaemon('local', (m) => daemon.push(m))
-    const { sessionId } = reg.resumeSession({
+    reg.modules.sessions.attachDaemon('local', (m) => daemon.push(m))
+    const { sessionId } = reg.modules.sessions.resumeSession({
       agentKind: 'codex',
       cwd: '/repo',
       resume: { kind: 'codex-rollout', value: '/r/rollout.jsonl' },
       conversationId: 'conv-1',
     })
 
-    const p = reg.readTranscript({
+    const p = reg.modules.rpc.readTranscript({
       sessionId,
       anchor: 'c42',
       direction: 'after',
@@ -1508,7 +1508,7 @@ describe('readTranscript (disk read via daemon — no cache short-circuit)', () 
     expect(req.direction).toBe('after')
     expect(req.limit).toBe(200)
 
-    reg.onDaemonMessageFrom('local', {
+    reg.modules.sessions.onDaemonMessageFrom('local', {
       type: 'transcriptReadResult',
       requestId: req.requestId,
       sessionId,
@@ -1521,9 +1521,9 @@ describe('readTranscript (disk read via daemon — no cache short-circuit)', () 
   it('resolves an empty page for an unknown session (no daemon round-trip)', async () => {
     const reg = new SessionRegistry()
     const daemon: ControlMessage[] = []
-    reg.attachDaemon('local', (m) => daemon.push(m))
+    reg.modules.sessions.attachDaemon('local', (m) => daemon.push(m))
     await expect(
-      reg.readTranscript({ sessionId: 'nope', direction: 'before', limit: 10 }),
+      reg.modules.rpc.readTranscript({ sessionId: 'nope', direction: 'before', limit: 10 }),
     ).resolves.toEqual({ items: [], hasMore: false })
     expect(daemon.find((m) => m.type === 'transcriptRead')).toBeUndefined()
   })
@@ -1540,10 +1540,10 @@ describe('sendText (chat send path)', () => {
     try {
       const reg = new SessionRegistry()
       const daemon: ControlMessage[] = []
-      reg.attachDaemon('local', (m) => daemon.push(m))
-      const { sessionId } = reg.createSession({ agentKind: 'claude-code', cwd: '/w' })
-      reg.onDaemonMessageFrom('local', bind(sessionId))
-      expect(reg.sendText({ sessionId, text: 'run the tests' })).toEqual({ ok: true })
+      reg.modules.sessions.attachDaemon('local', (m) => daemon.push(m))
+      const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/w' })
+      reg.modules.sessions.onDaemonMessageFrom('local', bind(sessionId))
+      expect(reg.modules.sessions.sendText({ sessionId, text: 'run the tests' })).toEqual({ ok: true })
       // The paste block goes out immediately; the submitting CR is DEFERRED so it
       // lands in a separate PTY read — a CR fused to the paste-end marker is swallowed
       // by the new Claude renderer, so the message types in but the turn never starts.
@@ -1560,10 +1560,10 @@ describe('sendText (chat send path)', () => {
     try {
       const reg = new SessionRegistry()
       const daemon: ControlMessage[] = []
-      reg.attachDaemon('local', (m) => daemon.push(m))
-      const { sessionId } = reg.createSession({ agentKind: 'claude-code', cwd: '/w' })
-      reg.onDaemonMessageFrom('local', bind(sessionId))
-      reg.sendText({ sessionId, text: 'a\nb' })
+      reg.modules.sessions.attachDaemon('local', (m) => daemon.push(m))
+      const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/w' })
+      reg.modules.sessions.onDaemonMessageFrom('local', bind(sessionId))
+      reg.modules.sessions.sendText({ sessionId, text: 'a\nb' })
       vi.advanceTimersByTime(100)
       expect(readInputs(daemon)).toEqual(['\x1b[200~a\nb\x1b[201~', '\r'])
     } finally {
@@ -1573,10 +1573,10 @@ describe('sendText (chat send path)', () => {
 
   it('refuses for exited sessions', () => {
     const reg = new SessionRegistry()
-    reg.attachDaemon('local', () => {})
-    const { sessionId } = reg.createSession({ agentKind: 'claude-code', cwd: '/w' })
-    reg.onDaemonMessageFrom('local', { type: 'agentExit', sessionId, code: 0 })
-    expect(reg.sendText({ sessionId, text: 'hello?' })).toEqual({ ok: false })
+    reg.modules.sessions.attachDaemon('local', () => {})
+    const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/w' })
+    reg.modules.sessions.onDaemonMessageFrom('local', { type: 'agentExit', sessionId, code: 0 })
+    expect(reg.modules.sessions.sendText({ sessionId, text: 'hello?' })).toEqual({ ok: false })
   })
 })
 
@@ -1592,15 +1592,15 @@ describe('queueText drain (resume/spawn readiness — #5b, durable queue)', () =
     try {
       const reg = new SessionRegistry()
       const daemon: ControlMessage[] = []
-      reg.attachDaemon('local', (m) => daemon.push(m))
-      const { sessionId } = reg.createSession({ agentKind: 'codex', cwd: '/w' })
-      reg.onDaemonMessageFrom('local', bind(sessionId)) // -> live
-      reg.queueText({ sessionId, text: 'deferred-msg' })
+      reg.modules.sessions.attachDaemon('local', (m) => daemon.push(m))
+      const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'codex', cwd: '/w' })
+      reg.modules.sessions.onDaemonMessageFrom('local', bind(sessionId)) // -> live
+      reg.modules.sessions.queueText({ sessionId, text: 'deferred-msg' })
 
       // The TUI is still drawing: an output frame every poll for ~2s.
       let seq = 0
       for (let i = 0; i < 10; i += 1) {
-        reg.onDaemonMessageFrom('local', {
+        reg.modules.sessions.onDaemonMessageFrom('local', {
           type: 'agentFrame',
           sessionId,
           seq: seq++,
@@ -1626,9 +1626,9 @@ describe('queueText drain (resume/spawn readiness — #5b, durable queue)', () =
     try {
       const reg = new SessionRegistry()
       const daemon: ControlMessage[] = []
-      reg.attachDaemon('local', (m) => daemon.push(m))
-      const { sessionId } = reg.createSession({ agentKind: 'codex', cwd: '/w' }) // 'starting'
-      reg.queueText({ sessionId, text: 'too-early' })
+      reg.modules.sessions.attachDaemon('local', (m) => daemon.push(m))
+      const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'codex', cwd: '/w' }) // 'starting'
+      reg.modules.sessions.queueText({ sessionId, text: 'too-early' })
       vi.advanceTimersByTime(5000)
       expect(inputsOf(daemon)).not.toContain('too-early')
     } finally {
@@ -1641,10 +1641,10 @@ describe('queueText drain (resume/spawn readiness — #5b, durable queue)', () =
     try {
       const reg = new SessionRegistry()
       const daemon: ControlMessage[] = []
-      reg.attachDaemon('local', (m) => daemon.push(m))
-      const { sessionId } = reg.createSession({ agentKind: 'codex', cwd: '/w' })
-      reg.onDaemonMessageFrom('local', bind(sessionId)) // live, but never emits output
-      reg.queueText({ sessionId, text: 'silent-msg' })
+      reg.modules.sessions.attachDaemon('local', (m) => daemon.push(m))
+      const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'codex', cwd: '/w' })
+      reg.modules.sessions.onDaemonMessageFrom('local', bind(sessionId)) // live, but never emits output
+      reg.modules.sessions.queueText({ sessionId, text: 'silent-msg' })
       vi.advanceTimersByTime(5000)
       expect(inputsOf(daemon)).not.toContain('silent-msg') // still within the max window
       vi.advanceTimersByTime(2000)
@@ -1657,9 +1657,9 @@ describe('queueText drain (resume/spawn readiness — #5b, durable queue)', () =
 
 describe('hibernation', () => {
   function liveSession(reg: SessionRegistry, daemon: ControlMessage[]) {
-    const { sessionId } = reg.createSession({ agentKind: 'claude-code', cwd: '/w' })
-    reg.onDaemonMessageFrom('local', bind(sessionId))
-    reg.onDaemonMessageFrom('local', {
+    const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/w' })
+    reg.modules.sessions.onDaemonMessageFrom('local', bind(sessionId))
+    reg.modules.sessions.onDaemonMessageFrom('local', {
       type: 'sessionResumeRef',
       sessionId,
       resume: { kind: 'claude-session', value: 'abc-123' },
@@ -1671,14 +1671,14 @@ describe('hibernation', () => {
     const store = new SessionStore(':memory:')
     const reg = new SessionRegistry(store)
     const daemon: ControlMessage[] = []
-    reg.attachDaemon('local', (m) => daemon.push(m))
+    reg.modules.sessions.attachDaemon('local', (m) => daemon.push(m))
     const sessionId = liveSession(reg, daemon)
     const spy = vi.spyOn(store.sessions, 'upsertSession')
     for (let i = 0; i < 50; i++) {
-      reg.onDaemonMessageFrom('local', { type: 'agentFrame', sessionId, seq: i, data: 'eA==' })
+      reg.modules.sessions.onDaemonMessageFrom('local', { type: 'agentFrame', sessionId, seq: i, data: 'eA==' })
     }
     const duringFrames = spy.mock.calls.length
-    reg.flushActivity()
+    reg.modules.sessions.flushActivity()
     expect(spy.mock.calls.length - duringFrames).toBeLessThanOrEqual(1) // one write at flush
     expect(duringFrames).toBe(0) // zero writes during the 50 frames
   })
@@ -1689,10 +1689,10 @@ describe('hibernation', () => {
       const store = new SessionStore(':memory:')
       const reg = new SessionRegistry(store)
       const daemon: ControlMessage[] = []
-      reg.attachDaemon('local', (m) => daemon.push(m))
+      reg.modules.sessions.attachDaemon('local', (m) => daemon.push(m))
       const sessionId = liveSession(reg, daemon)
       // Mark the session dirty so a timer tick WOULD persist it if the timer still ran.
-      reg.onDaemonMessageFrom('local', { type: 'agentFrame', sessionId, seq: 0, data: 'eA==' })
+      reg.modules.sessions.onDaemonMessageFrom('local', { type: 'agentFrame', sessionId, seq: 0, data: 'eA==' })
       reg.dispose()
       // Calling dispose twice must be safe (graceful-shutdown path may double-fire).
       reg.dispose()
@@ -1709,10 +1709,10 @@ describe('hibernation', () => {
     const store = new SessionStore(':memory:')
     const reg = new SessionRegistry(store)
     const daemon: ControlMessage[] = []
-    reg.attachDaemon('local', (m) => daemon.push(m))
+    reg.modules.sessions.attachDaemon('local', (m) => daemon.push(m))
     const sessionId = liveSession(reg, daemon)
-    reg.onDaemonMessageFrom('local', { type: 'agentFrame', sessionId, seq: 0, data: 'eA==' })
-    reg.flushActivity()
+    reg.modules.sessions.onDaemonMessageFrom('local', { type: 'agentFrame', sessionId, seq: 0, data: 'eA==' })
+    reg.modules.sessions.flushActivity()
     // New registry on the SAME store — simulates a restart.
     const reg2 = new SessionRegistry(store)
     // biome-ignore lint/suspicious/noExplicitAny: inspect the rehydrated session
@@ -1723,34 +1723,34 @@ describe('hibernation', () => {
   it('hibernate kills the process, keeps the row, survives the agentExit echo', () => {
     const reg = new SessionRegistry()
     const daemon: ControlMessage[] = []
-    reg.attachDaemon('local', (m) => daemon.push(m))
+    reg.modules.sessions.attachDaemon('local', (m) => daemon.push(m))
     const sessionId = liveSession(reg, daemon)
 
-    expect(reg.hibernateSession({ sessionId })).toEqual({ ok: true })
+    expect(reg.modules.sessions.hibernateSession({ sessionId })).toEqual({ ok: true })
     expect(daemon).toContainEqual({ type: 'kill', sessionId })
-    expect(reg.listSessions()[0]).toMatchObject({ sessionId, status: 'hibernated' })
+    expect(reg.modules.sessions.listSessions()[0]).toMatchObject({ sessionId, status: 'hibernated' })
     // The daemon's kill produces an exit — it must not flip hibernated → exited.
-    reg.onDaemonMessageFrom('local', { type: 'agentExit', sessionId, code: 0 })
-    expect(reg.listSessions()[0]?.status).toBe('hibernated')
+    reg.modules.sessions.onDaemonMessageFrom('local', { type: 'agentExit', sessionId, code: 0 })
+    expect(reg.modules.sessions.listSessions()[0]?.status).toBe('hibernated')
   })
 
   it('refuses to hibernate a session with no resume ref (would be a kill)', () => {
     const reg = new SessionRegistry()
-    reg.attachDaemon('local', () => {})
-    const { sessionId } = reg.createSession({ agentKind: 'shell', cwd: '/w' })
-    reg.onDaemonMessageFrom('local', bind(sessionId))
-    expect(reg.hibernateSession({ sessionId }).ok).toBe(false)
+    reg.modules.sessions.attachDaemon('local', () => {})
+    const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
+    reg.modules.sessions.onDaemonMessageFrom('local', bind(sessionId))
+    expect(reg.modules.sessions.hibernateSession({ sessionId }).ok).toBe(false)
   })
 
   it('resurrect respawns under the same id with the resume ref', () => {
     const reg = new SessionRegistry()
     const daemon: ControlMessage[] = []
-    reg.attachDaemon('local', (m) => daemon.push(m))
+    reg.modules.sessions.attachDaemon('local', (m) => daemon.push(m))
     const sessionId = liveSession(reg, daemon)
-    reg.hibernateSession({ sessionId })
+    reg.modules.sessions.hibernateSession({ sessionId })
     daemon.length = 0
 
-    expect(reg.resurrectSession({ sessionId })).toEqual({ ok: true })
+    expect(reg.modules.sessions.resurrectSession({ sessionId })).toEqual({ ok: true })
     expect(daemon).toContainEqual(
       expect.objectContaining({
         type: 'spawn',
@@ -1758,20 +1758,20 @@ describe('hibernation', () => {
         resume: { kind: 'claude-session', value: 'abc-123' },
       }),
     )
-    expect(reg.listSessions()[0]?.status).toBe('starting')
+    expect(reg.modules.sessions.listSessions()[0]?.status).toBe('starting')
   })
 
   it('resurrect revives an exited (crashed) session with a resume ref', () => {
     const reg = new SessionRegistry()
     const daemon: ControlMessage[] = []
-    reg.attachDaemon('local', (m) => daemon.push(m))
+    reg.modules.sessions.attachDaemon('local', (m) => daemon.push(m))
     const sessionId = liveSession(reg, daemon)
     // The process dies out from under us (crash / external kill).
-    reg.onDaemonMessageFrom('local', { type: 'agentExit', sessionId, code: 0 })
-    expect(reg.listSessions()[0]?.status).toBe('exited')
+    reg.modules.sessions.onDaemonMessageFrom('local', { type: 'agentExit', sessionId, code: 0 })
+    expect(reg.modules.sessions.listSessions()[0]?.status).toBe('exited')
     daemon.length = 0
 
-    expect(reg.resurrectSession({ sessionId })).toEqual({ ok: true })
+    expect(reg.modules.sessions.resurrectSession({ sessionId })).toEqual({ ok: true })
     expect(daemon).toContainEqual(
       expect.objectContaining({
         type: 'spawn',
@@ -1779,20 +1779,20 @@ describe('hibernation', () => {
         resume: { kind: 'claude-session', value: 'abc-123' },
       }),
     )
-    expect(reg.listSessions()[0]?.status).toBe('starting')
+    expect(reg.modules.sessions.listSessions()[0]?.status).toBe('starting')
   })
 
   it('restarts an exited shell fresh in the same cwd — no resume ref needed', () => {
     const reg = new SessionRegistry()
     const daemon: ControlMessage[] = []
-    reg.attachDaemon('local', (m) => daemon.push(m))
-    const { sessionId } = reg.createSession({ agentKind: 'shell', cwd: '/w' })
-    reg.onDaemonMessageFrom('local', bind(sessionId))
-    reg.onDaemonMessageFrom('local', { type: 'agentExit', sessionId, code: 137 })
-    expect(reg.listSessions()[0]?.status).toBe('exited')
+    reg.modules.sessions.attachDaemon('local', (m) => daemon.push(m))
+    const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
+    reg.modules.sessions.onDaemonMessageFrom('local', bind(sessionId))
+    reg.modules.sessions.onDaemonMessageFrom('local', { type: 'agentExit', sessionId, code: 137 })
+    expect(reg.modules.sessions.listSessions()[0]?.status).toBe('exited')
     daemon.length = 0
 
-    expect(reg.resurrectSession({ sessionId })).toEqual({ ok: true })
+    expect(reg.modules.sessions.resurrectSession({ sessionId })).toEqual({ ok: true })
     const spawn = daemon.find((m) => m.type === 'spawn')
     expect(spawn).toMatchObject({ sessionId, agentKind: 'shell', cwd: '/w' })
     expect(spawn && 'resume' in spawn ? spawn.resume : undefined).toBeUndefined()
@@ -1801,16 +1801,16 @@ describe('hibernation', () => {
   it('refuses to resurrect a live session', () => {
     const reg = new SessionRegistry()
     const daemon: ControlMessage[] = []
-    reg.attachDaemon('local', (m) => daemon.push(m))
+    reg.modules.sessions.attachDaemon('local', (m) => daemon.push(m))
     const sessionId = liveSession(reg, daemon)
-    expect(reg.resurrectSession({ sessionId }).ok).toBe(false)
+    expect(reg.modules.sessions.resurrectSession({ sessionId }).ok).toBe(false)
   })
 
   it('auto-hibernates the oldest idle resumable session above the memory threshold', () => {
     const store = new SessionStore(':memory:')
     const reg = new SessionRegistry(store)
     const daemon: ControlMessage[] = []
-    reg.attachDaemon('local', (m) => daemon.push(m))
+    reg.modules.sessions.attachDaemon('local', (m) => daemon.push(m))
     const settings = store.settings.getSettings()
     store.settings.setSettings({
       ...settings,
@@ -1818,7 +1818,7 @@ describe('hibernation', () => {
     })
     const sessionId = liveSession(reg, daemon)
     // Mark the agent idle, with activity old enough to pass the idle cutoff.
-    reg.onDaemonMessageFrom('local', {
+    reg.modules.sessions.onDaemonMessageFrom('local', {
       type: 'agentState',
       sessionId,
       state: {
@@ -1828,7 +1828,7 @@ describe('hibernation', () => {
         idle: { kind: 'done' },
       },
     })
-    const session = reg.listSessions()[0]
+    const session = reg.modules.sessions.listSessions()[0]
     expect(session?.agentState?.phase).toBe('idle')
     // agentState bumps lastActiveAt to now — rewind it via the store round-trip.
     // (The idle cutoff compares lastActiveAt; simulate an hour of silence.)
@@ -1836,7 +1836,7 @@ describe('hibernation', () => {
     const internal = (reg as any).sessions.get(sessionId)
     internal.lastActiveAt = new Date(Date.now() - 3_600_000).toISOString()
 
-    reg.onDaemonMessageFrom('local', {
+    reg.modules.sessions.onDaemonMessageFrom('local', {
       type: 'hostMetrics',
       hostname: 'box',
       sampledAt: new Date().toISOString(),
@@ -1847,20 +1847,20 @@ describe('hibernation', () => {
         swapFreeBytes: 0,
       },
     })
-    expect(reg.listSessions()[0]?.status).toBe('hibernated')
+    expect(reg.modules.sessions.listSessions()[0]?.status).toBe('hibernated')
   })
 
   it('does not re-hibernate a session that was just resurrected (resume resets the idle timer)', () => {
     const store = new SessionStore(':memory:')
     const reg = new SessionRegistry(store)
     const daemon: ControlMessage[] = []
-    reg.attachDaemon('local', (m) => daemon.push(m))
+    reg.modules.sessions.attachDaemon('local', (m) => daemon.push(m))
     store.settings.setSettings({
       ...store.settings.getSettings(),
       hibernation: { enabled: true, memoryPct: 80, idleMinutes: 1 },
     })
     const sessionId = liveSession(reg, daemon)
-    reg.onDaemonMessageFrom('local', {
+    reg.modules.sessions.onDaemonMessageFrom('local', {
       type: 'agentState',
       sessionId,
       state: {
@@ -1873,29 +1873,29 @@ describe('hibernation', () => {
     // biome-ignore lint/suspicious/noExplicitAny: reach into the private map on purpose
     const internal = (reg as any).sessions.get(sessionId)
     internal.lastActiveAt = new Date(Date.now() - 3_600_000).toISOString()
-    reg.hibernateSession({ sessionId })
-    reg.resurrectSession({ sessionId })
-    reg.onDaemonMessageFrom('local', bind(sessionId)) // respawn binds → live
-    reg.onDaemonMessageFrom('local', {
+    reg.modules.sessions.hibernateSession({ sessionId })
+    reg.modules.sessions.resurrectSession({ sessionId })
+    reg.modules.sessions.onDaemonMessageFrom('local', bind(sessionId)) // respawn binds → live
+    reg.modules.sessions.onDaemonMessageFrom('local', {
       type: 'hostMetrics',
       hostname: 'box',
       sampledAt: new Date().toISOString(),
       memory: { totalBytes: 100, availableBytes: 10, swapTotalBytes: 0, swapFreeBytes: 0 },
     })
-    expect(reg.listSessions()[0]?.status).toBe('live')
+    expect(reg.modules.sessions.listSessions()[0]?.status).toBe('live')
   })
 
   it('keeps a session awake when the user typed recently, even with no agent activity', () => {
     const store = new SessionStore(':memory:')
     const reg = new SessionRegistry(store)
     const daemon: ControlMessage[] = []
-    reg.attachDaemon('local', (m) => daemon.push(m))
+    reg.modules.sessions.attachDaemon('local', (m) => daemon.push(m))
     store.settings.setSettings({
       ...store.settings.getSettings(),
       hibernation: { enabled: true, memoryPct: 80, idleMinutes: 1 },
     })
     const sessionId = liveSession(reg, daemon)
-    reg.onDaemonMessageFrom('local', {
+    reg.modules.sessions.onDaemonMessageFrom('local', {
       type: 'agentState',
       sessionId,
       state: {
@@ -1910,16 +1910,16 @@ describe('hibernation', () => {
     internal.lastActiveAt = new Date(Date.now() - 3_600_000).toISOString()
     // Controller types just now — recent input must veto hibernation.
     const c = sink()
-    const idC = reg.attachClient(c.send)
-    reg.onClientMessage(idC, { type: 'attach', sessionId })
-    reg.onClientMessage(idC, { type: 'input', sessionId, data: 'eA==' })
-    reg.onDaemonMessageFrom('local', {
+    const idC = reg.modules.sessions.attachClient(c.send)
+    reg.modules.sessions.onClientMessage(idC, { type: 'attach', sessionId })
+    reg.modules.sessions.onClientMessage(idC, { type: 'input', sessionId, data: 'eA==' })
+    reg.modules.sessions.onDaemonMessageFrom('local', {
       type: 'hostMetrics',
       hostname: 'box',
       sampledAt: new Date().toISOString(),
       memory: { totalBytes: 100, availableBytes: 10, swapTotalBytes: 0, swapFreeBytes: 0 },
     })
-    expect(reg.listSessions()[0]?.status).toBe('live')
+    expect(reg.modules.sessions.listSessions()[0]?.status).toBe('live')
   })
 })
 
@@ -1929,40 +1929,40 @@ describe('reconnect identity (hello reclaim)', () => {
   it('a reconnecting client reclaims its prior controller role and evicts the stale one', () => {
     const reg = new SessionRegistry()
     const daemon: ControlMessage[] = []
-    reg.attachDaemon('local', (m) => daemon.push(m))
-    const s1 = reg.createSession({ agentKind: 'claude-code', cwd: '/a' }).sessionId
-    reg.onDaemonMessageFrom('local', bind(s1))
+    reg.modules.sessions.attachDaemon('local', (m) => daemon.push(m))
+    const s1 = reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/a' }).sessionId
+    reg.modules.sessions.onDaemonMessageFrom('local', bind(s1))
 
     // First socket: attaches and becomes controller; its input flows.
     const a = sink()
-    const idA = reg.attachClient(a.send)
-    reg.onClientMessage(idA, { type: 'attach', sessionId: s1 })
-    reg.onClientMessage(idA, { type: 'input', sessionId: s1, data: 'eA==' })
+    const idA = reg.modules.sessions.attachClient(a.send)
+    reg.modules.sessions.onClientMessage(idA, { type: 'attach', sessionId: s1 })
+    reg.modules.sessions.onClientMessage(idA, { type: 'input', sessionId: s1, data: 'eA==' })
     expect(daemon).toContainEqual({ type: 'input', sessionId: s1, data: 'eA==' })
 
     // The socket goes half-open; a new socket connects and re-presents idA in hello,
     // then re-attaches the way the client does on reconnect.
     const b = sink()
-    const idB = reg.attachClient(b.send)
-    reg.onClientMessage(idB, { type: 'hello', clientId: idA, viewport: VP })
-    reg.onClientMessage(idB, { type: 'attach', sessionId: s1 })
+    const idB = reg.modules.sessions.attachClient(b.send)
+    reg.modules.sessions.onClientMessage(idB, { type: 'hello', clientId: idA, viewport: VP })
+    reg.modules.sessions.onClientMessage(idB, { type: 'attach', sessionId: s1 })
 
     daemon.length = 0
     // B now drives input (it inherited control)...
-    reg.onClientMessage(idB, { type: 'input', sessionId: s1, data: 'eQ==' })
+    reg.modules.sessions.onClientMessage(idB, { type: 'input', sessionId: s1, data: 'eQ==' })
     expect(daemon).toContainEqual({ type: 'input', sessionId: s1, data: 'eQ==' })
     // ...and the stale A is gone: its messages are dropped, not honored.
-    reg.onClientMessage(idA, { type: 'input', sessionId: s1, data: 'eg==' })
+    reg.modules.sessions.onClientMessage(idA, { type: 'input', sessionId: s1, data: 'eg==' })
     expect(daemon).not.toContainEqual({ type: 'input', sessionId: s1, data: 'eg==' })
   })
 
   it('hello with an unknown prior id is a harmless no-op', () => {
     const reg = new SessionRegistry()
-    reg.attachDaemon('local', () => {})
+    reg.modules.sessions.attachDaemon('local', () => {})
     const c = sink()
-    const id = reg.attachClient(c.send)
+    const id = reg.modules.sessions.attachClient(c.send)
     expect(() =>
-      reg.onClientMessage(id, { type: 'hello', clientId: 'c-stale-gone', viewport: VP }),
+      reg.modules.sessions.onClientMessage(id, { type: 'hello', clientId: 'c-stale-gone', viewport: VP }),
     ).not.toThrow()
   })
 
@@ -1971,9 +1971,9 @@ describe('reconnect identity (hello reclaim)', () => {
       const reg = new SessionRegistry()
       const a: ServerMessage[] = []
       const b: ServerMessage[] = []
-      const idA = reg.attachClient((m) => a.push(m))
-      reg.attachClient((m) => b.push(m))
-      reg.onClientMessage(idA, { type: 'setSessionDraft', sessionId: 'sess', text: 'half typed' })
+      const idA = reg.modules.sessions.attachClient((m) => a.push(m))
+      reg.modules.sessions.attachClient((m) => b.push(m))
+      reg.modules.sessions.onClientMessage(idA, { type: 'setSessionDraft', sessionId: 'sess', text: 'half typed' })
       expect(a.filter((m) => m.type === 'sessionDraftChanged')).toEqual([])
       expect(b).toContainEqual({
         type: 'sessionDraftChanged',
@@ -1984,20 +1984,20 @@ describe('reconnect identity (hello reclaim)', () => {
 
     it('replays stored drafts to a freshly connected client', () => {
       const reg = new SessionRegistry()
-      const idA = reg.attachClient(() => {})
-      reg.onClientMessage(idA, { type: 'setSessionDraft', sessionId: 'sess', text: 'wip' })
+      const idA = reg.modules.sessions.attachClient(() => {})
+      reg.modules.sessions.onClientMessage(idA, { type: 'setSessionDraft', sessionId: 'sess', text: 'wip' })
       const c: ServerMessage[] = []
-      reg.attachClient((m) => c.push(m))
+      reg.modules.sessions.attachClient((m) => c.push(m))
       expect(c).toContainEqual({ type: 'sessionDraftChanged', sessionId: 'sess', text: 'wip' })
     })
 
     it('clears a draft when text is empty', () => {
       const reg = new SessionRegistry()
-      const idA = reg.attachClient(() => {})
-      reg.onClientMessage(idA, { type: 'setSessionDraft', sessionId: 'sess', text: 'wip' })
-      reg.onClientMessage(idA, { type: 'setSessionDraft', sessionId: 'sess', text: '' })
+      const idA = reg.modules.sessions.attachClient(() => {})
+      reg.modules.sessions.onClientMessage(idA, { type: 'setSessionDraft', sessionId: 'sess', text: 'wip' })
+      reg.modules.sessions.onClientMessage(idA, { type: 'setSessionDraft', sessionId: 'sess', text: '' })
       const c: ServerMessage[] = []
-      reg.attachClient((m) => c.push(m))
+      reg.modules.sessions.attachClient((m) => c.push(m))
       expect(c.filter((m) => m.type === 'sessionDraftChanged')).toEqual([])
     })
 
@@ -2008,8 +2008,8 @@ describe('reconnect identity (hello reclaim)', () => {
         const dbPath = join(dir, 'podium.db')
         const store = new SessionStore(dbPath)
         const reg = new SessionRegistry(store)
-        const idA = reg.attachClient(() => {})
-        reg.onClientMessage(idA, { type: 'setSessionDraft', sessionId: 'sess', text: 'real work' })
+        const idA = reg.modules.sessions.attachClient(() => {})
+        reg.modules.sessions.onClientMessage(idA, { type: 'setSessionDraft', sessionId: 'sess', text: 'real work' })
         // Not written yet — keystrokes coalesce; the row appears once the debounce fires.
         expect(store.sessions.loadDrafts().sess).toBeUndefined()
         vi.advanceTimersByTime(1000)
@@ -2021,7 +2021,7 @@ describe('reconnect identity (hello reclaim)', () => {
         const store2 = new SessionStore(dbPath)
         const reg2 = new SessionRegistry(store2)
         const c: ServerMessage[] = []
-        reg2.attachClient((m) => c.push(m))
+        reg2.modules.sessions.attachClient((m) => c.push(m))
         expect(c).toContainEqual({
           type: 'sessionDraftChanged',
           sessionId: 'sess',
@@ -2038,13 +2038,13 @@ describe('reconnect identity (hello reclaim)', () => {
       try {
         const store = new SessionStore(':memory:')
         const reg = new SessionRegistry(store)
-        const idA = reg.attachClient(() => {})
-        reg.onClientMessage(idA, {
+        const idA = reg.modules.sessions.attachClient(() => {})
+        reg.modules.sessions.onClientMessage(idA, {
           type: 'setSessionDraft',
           sessionId: 'sess',
           text: 'about to send',
         })
-        reg.onClientMessage(idA, { type: 'setSessionDraft', sessionId: 'sess', text: '' })
+        reg.modules.sessions.onClientMessage(idA, { type: 'setSessionDraft', sessionId: 'sess', text: '' })
         // No debounce wait: an empty draft flushes at once so a restart right after
         // a send never restores stale text.
         expect(store.sessions.loadDrafts().sess).toBeUndefined()
@@ -2060,37 +2060,37 @@ describe('SessionRegistry read state (#124)', () => {
   it('a fresh session is unread; markSessionRead clears it and persists across reload', () => {
     const store = new SessionStore(':memory:')
     const reg = new SessionRegistry(store)
-    reg.attachDaemon('local', () => {})
-    const { sessionId } = reg.createSession({ agentKind: 'claude-code', cwd: '/p' })
-    reg.onDaemonMessageFrom('local', bind(sessionId))
+    reg.modules.sessions.attachDaemon('local', () => {})
+    const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/p' })
+    reg.modules.sessions.onDaemonMessageFrom('local', bind(sessionId))
 
-    const before = reg.listSessions()[0]
+    const before = reg.modules.sessions.listSessions()[0]
     expect(before?.readAt).toBeNull()
     expect(before?.unread).toBe(true)
 
-    reg.markSessionRead(sessionId)
-    const after = reg.listSessions()[0]
+    reg.modules.sessions.markSessionRead(sessionId)
+    const after = reg.modules.sessions.listSessions()[0]
     expect(after?.readAt).not.toBeNull()
     expect(after?.unread).toBe(false)
 
     // read_at is durable — a fresh registry over the same store reads it back.
     const reg2 = new SessionRegistry(store)
-    expect(reg2.listSessions()[0]?.readAt).toBe(after?.readAt)
+    expect(reg2.modules.sessions.listSessions()[0]?.readAt).toBe(after?.readAt)
     reg.dispose()
     reg2.dispose()
   })
 
   it('markSessionRead broadcasts a fresh sessionsChanged marking it read', () => {
     const reg = new SessionRegistry()
-    reg.attachDaemon('local', () => {})
-    const { sessionId } = reg.createSession({ agentKind: 'claude-code', cwd: '/p' })
-    reg.onDaemonMessageFrom('local', bind(sessionId))
+    reg.modules.sessions.attachDaemon('local', () => {})
+    const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/p' })
+    reg.modules.sessions.onDaemonMessageFrom('local', bind(sessionId))
     const c = sink()
-    reg.attachClient(c.send)
+    reg.modules.sessions.attachClient(c.send)
     c.sent.length = 0
 
-    reg.markSessionRead(sessionId)
-    reg.flushBroadcasts()
+    reg.modules.sessions.markSessionRead(sessionId)
+    reg.modules.sessions.flushBroadcasts()
 
     const pushed = c.sent.filter(
       (m): m is Extract<ServerMessage, { type: 'sessionsChanged' }> => m.type === 'sessionsChanged',
@@ -2103,24 +2103,24 @@ describe('SessionRegistry read state (#124)', () => {
   it('markSessionUnread nulls readAt so the session re-reads as unread + broadcasts (#138)', () => {
     const store = new SessionStore(':memory:')
     const reg = new SessionRegistry(store)
-    reg.attachDaemon('local', () => {})
-    const { sessionId } = reg.createSession({ agentKind: 'claude-code', cwd: '/p' })
-    reg.onDaemonMessageFrom('local', bind(sessionId))
-    reg.markSessionRead(sessionId)
-    expect(reg.listSessions()[0]?.unread).toBe(false)
+    reg.modules.sessions.attachDaemon('local', () => {})
+    const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/p' })
+    reg.modules.sessions.onDaemonMessageFrom('local', bind(sessionId))
+    reg.modules.sessions.markSessionRead(sessionId)
+    expect(reg.modules.sessions.listSessions()[0]?.unread).toBe(false)
 
     const c = sink()
-    reg.attachClient(c.send)
+    reg.modules.sessions.attachClient(c.send)
     c.sent.length = 0
-    reg.markSessionUnread(sessionId)
-    reg.flushBroadcasts()
+    reg.modules.sessions.markSessionUnread(sessionId)
+    reg.modules.sessions.flushBroadcasts()
 
-    const after = reg.listSessions()[0]
+    const after = reg.modules.sessions.listSessions()[0]
     expect(after?.readAt).toBeNull()
     expect(after?.unread).toBe(true)
     // Durable: a fresh registry over the same store reads readAt back as null.
     const reg2 = new SessionRegistry(store)
-    expect(reg2.listSessions()[0]?.readAt).toBeNull()
+    expect(reg2.modules.sessions.listSessions()[0]?.readAt).toBeNull()
     // And the change was broadcast to clients.
     const pushed = c.sent.filter(
       (m): m is Extract<ServerMessage, { type: 'sessionsChanged' }> => m.type === 'sessionsChanged',
@@ -2141,48 +2141,48 @@ describe('SessionRegistry snooze', () => {
 
   it('set/list/clear round-trips and shows on the session meta', () => {
     const reg = new SessionRegistry()
-    reg.attachDaemon('local', () => {})
-    const { sessionId } = reg.createSession({ agentKind: 'claude-code', cwd: '/p' })
-    reg.onDaemonMessageFrom('local', bind(sessionId))
+    reg.modules.sessions.attachDaemon('local', () => {})
+    const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/p' })
+    reg.modules.sessions.onDaemonMessageFrom('local', bind(sessionId))
 
-    reg.setSnooze({ sessionId, until: null })
-    expect(reg.listSnoozes()).toEqual({ [sessionId]: null })
-    expect(reg.listSessions()[0]?.snoozedUntil).toBeNull()
+    reg.modules.sessions.setSnooze({ sessionId, until: null })
+    expect(reg.sessionStore.sessions.listSnoozes()).toEqual({ [sessionId]: null })
+    expect(reg.modules.sessions.listSessions()[0]?.snoozedUntil).toBeNull()
 
-    reg.clearSnooze(sessionId)
-    expect(reg.listSnoozes()).toEqual({})
-    expect('snoozedUntil' in (reg.listSessions()[0] ?? {})).toBe(false)
+    reg.modules.sessions.clearSnooze(sessionId)
+    expect(reg.sessionStore.sessions.listSnoozes()).toEqual({})
+    expect('snoozedUntil' in (reg.modules.sessions.listSessions()[0] ?? {})).toBe(false)
   })
 
   it('a submitted prompt (sendText) clears the snooze', () => {
     const reg = new SessionRegistry()
-    reg.attachDaemon('local', () => {})
-    const { sessionId } = reg.createSession({ agentKind: 'claude-code', cwd: '/p' })
-    reg.onDaemonMessageFrom('local', bind(sessionId))
-    reg.setSnooze({ sessionId, until: null })
+    reg.modules.sessions.attachDaemon('local', () => {})
+    const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/p' })
+    reg.modules.sessions.onDaemonMessageFrom('local', bind(sessionId))
+    reg.modules.sessions.setSnooze({ sessionId, until: null })
 
-    reg.sendText({ sessionId, text: 'hi' })
-    expect(reg.listSnoozes()).toEqual({})
+    reg.modules.sessions.sendText({ sessionId, text: 'hi' })
+    expect(reg.sessionStore.sessions.listSnoozes()).toEqual({})
   })
 
   it('leaving the attention phase clears it; staying in attention keeps it', () => {
     const reg = new SessionRegistry()
-    reg.attachDaemon('local', () => {})
-    const { sessionId } = reg.createSession({ agentKind: 'claude-code', cwd: '/p' })
-    reg.onDaemonMessageFrom('local', bind(sessionId))
-    reg.onDaemonMessageFrom(
+    reg.modules.sessions.attachDaemon('local', () => {})
+    const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/p' })
+    reg.modules.sessions.onDaemonMessageFrom('local', bind(sessionId))
+    reg.modules.sessions.onDaemonMessageFrom(
       'local',
       agentState(sessionId, 'needs_user', { need: { kind: 'question' } }),
     )
-    reg.setSnooze({ sessionId, until: null })
+    reg.modules.sessions.setSnooze({ sessionId, until: null })
 
     // needs_user -> idle/question is still attention: snooze survives.
-    reg.onDaemonMessageFrom('local', agentState(sessionId, 'idle', { idle: { kind: 'question' } }))
-    expect(reg.listSnoozes()).toEqual({ [sessionId]: null })
+    reg.modules.sessions.onDaemonMessageFrom('local', agentState(sessionId, 'idle', { idle: { kind: 'question' } }))
+    expect(reg.sessionStore.sessions.listSnoozes()).toEqual({ [sessionId]: null })
 
     // -> working leaves attention: snooze clears.
-    reg.onDaemonMessageFrom('local', agentState(sessionId, 'working'))
-    expect(reg.listSnoozes()).toEqual({})
+    reg.modules.sessions.onDaemonMessageFrom('local', agentState(sessionId, 'working'))
+    expect(reg.sessionStore.sessions.listSnoozes()).toEqual({})
   })
 
   it('seeds snoozedUntil from the store at load', () => {
@@ -2210,7 +2210,7 @@ describe('SessionRegistry snooze', () => {
     })
     store.sessions.setSnooze('s1', null)
     const reg = new SessionRegistry(store)
-    expect(reg.listSessions()[0]?.snoozedUntil).toBeNull()
+    expect(reg.modules.sessions.listSessions()[0]?.snoozedUntil).toBeNull()
   })
 })
 
@@ -2227,28 +2227,28 @@ describe('SessionRegistry — auto-continue', () => {
   })
 
   function enableAutoContinue(reg: SessionRegistry) {
-    const s = reg.getSettings()
-    reg.setSettings({ ...s, autoContinue: { enabled: true, promptDismissed: false } })
+    const s = reg.modules.settings.getSettings()
+    reg.modules.settings.setSettings({ ...s, autoContinue: { enabled: true, promptDismissed: false } })
   }
 
   // A session must exist (createSession) and be marked live (bind) before agentState
   // does anything — `bind` only marks an already-registered session live, it does not
   // create the row. continueSession's status gate then accepts the live session.
   function liveSession(reg: SessionRegistry): string {
-    const { sessionId } = reg.createSession({ agentKind: 'claude-code', cwd: '/proj' })
-    reg.onDaemonMessageFrom('local', bind(sessionId))
+    const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/proj' })
+    reg.modules.sessions.onDaemonMessageFrom('local', bind(sessionId))
     return sessionId
   }
 
   it('does NOT auto-send continue when the setting is off', () => {
     const reg = new SessionRegistry()
     const daemon: ControlMessage[] = []
-    reg.attachDaemon('local', (m) => daemon.push(m))
+    reg.modules.sessions.attachDaemon('local', (m) => daemon.push(m))
     const sessionId = liveSession(reg)
-    reg.onDaemonMessageFrom('local', { type: 'agentState', sessionId, state: erroredState })
+    reg.modules.sessions.onDaemonMessageFrom('local', { type: 'agentState', sessionId, state: erroredState })
     expect(daemon).not.toContainEqual(continueInput)
-    reg.setSettings({
-      ...reg.getSettings(),
+    reg.modules.settings.setSettings({
+      ...reg.modules.settings.getSettings(),
       autoContinue: { enabled: false, promptDismissed: false },
     })
   })
@@ -2256,14 +2256,14 @@ describe('SessionRegistry — auto-continue', () => {
   it('auto-sends continue when an enabled session hits a retryable error', () => {
     const reg = new SessionRegistry()
     const daemon: ControlMessage[] = []
-    reg.attachDaemon('local', (m) => daemon.push(m))
+    reg.modules.sessions.attachDaemon('local', (m) => daemon.push(m))
     enableAutoContinue(reg)
     const sessionId = liveSession(reg)
-    reg.onDaemonMessageFrom('local', { type: 'agentState', sessionId, state: erroredState })
+    reg.modules.sessions.onDaemonMessageFrom('local', { type: 'agentState', sessionId, state: erroredState })
     expect(daemon).toContainEqual(continueInput)
     // Cancel the live loop so no real backoff timer dangles past the test.
-    reg.setSettings({
-      ...reg.getSettings(),
+    reg.modules.settings.setSettings({
+      ...reg.modules.settings.getSettings(),
       autoContinue: { enabled: false, promptDismissed: false },
     })
   })
@@ -2271,14 +2271,14 @@ describe('SessionRegistry — auto-continue', () => {
   it('arms already-errored sessions when the setting is switched on', () => {
     const reg = new SessionRegistry()
     const daemon: ControlMessage[] = []
-    reg.attachDaemon('local', (m) => daemon.push(m))
+    reg.modules.sessions.attachDaemon('local', (m) => daemon.push(m))
     const sessionId = liveSession(reg)
-    reg.onDaemonMessageFrom('local', { type: 'agentState', sessionId, state: erroredState })
+    reg.modules.sessions.onDaemonMessageFrom('local', { type: 'agentState', sessionId, state: erroredState })
     expect(daemon).not.toContainEqual(continueInput) // off → silent so far
     enableAutoContinue(reg)
     expect(daemon).toContainEqual(continueInput) // flipping on arms the errored session
-    reg.setSettings({
-      ...reg.getSettings(),
+    reg.modules.settings.setSettings({
+      ...reg.modules.settings.getSettings(),
       autoContinue: { enabled: false, promptDismissed: false },
     })
   })
@@ -2294,25 +2294,25 @@ describe('output-relay priority + frame batch', () => {
   it('a client viewState{visible:[s],focused:s} pushes sessionPriority{priority:0} to the daemon', () => {
     const reg = new SessionRegistry()
     const daemon: ControlMessage[] = []
-    reg.attachDaemon('local', (m) => daemon.push(m))
-    const { sessionId } = reg.createSession({ agentKind: 'claude-code', cwd: '/w' })
+    reg.modules.sessions.attachDaemon('local', (m) => daemon.push(m))
+    const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/w' })
     const c = sink()
-    const id = reg.attachClient(c.send)
+    const id = reg.modules.sessions.attachClient(c.send)
     daemon.length = 0 // drop the spawn + daemon-connect priority push
 
-    reg.onClientMessage(id, { type: 'viewState', visible: [sessionId], focused: sessionId })
+    reg.modules.sessions.onClientMessage(id, { type: 'viewState', visible: [sessionId], focused: sessionId })
     // Focused beats visible/attached: tier 0.
     expect(priorities(daemon)).toContainEqual({ type: 'sessionPriority', sessionId, priority: 0 })
   })
 
   it('stores the rendered-mode map from a viewState message on the client (available, not used for scheduling)', () => {
     const reg = new SessionRegistry()
-    reg.attachDaemon('local', () => {})
-    const { sessionId } = reg.createSession({ agentKind: 'claude-code', cwd: '/w' })
+    reg.modules.sessions.attachDaemon('local', () => {})
+    const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/w' })
     const c = sink()
-    const id = reg.attachClient(c.send)
+    const id = reg.modules.sessions.attachClient(c.send)
 
-    reg.onClientMessage(id, {
+    reg.modules.sessions.onClientMessage(id, {
       type: 'viewState',
       visible: [sessionId],
       focused: sessionId,
@@ -2324,45 +2324,45 @@ describe('output-relay priority + frame batch', () => {
 
   it('defaults viewModes to {} when a viewState omits modes (backward compatible)', () => {
     const reg = new SessionRegistry()
-    reg.attachDaemon('local', () => {})
-    const { sessionId } = reg.createSession({ agentKind: 'claude-code', cwd: '/w' })
+    reg.modules.sessions.attachDaemon('local', () => {})
+    const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/w' })
     const c = sink()
-    const id = reg.attachClient(c.send)
+    const id = reg.modules.sessions.attachClient(c.send)
 
     // First set a mode, then send a modes-less viewState — it must reset, not retain.
-    reg.onClientMessage(id, {
+    reg.modules.sessions.onClientMessage(id, {
       type: 'viewState',
       visible: [sessionId],
       focused: sessionId,
       modes: { [sessionId]: 'native' },
     })
-    reg.onClientMessage(id, { type: 'viewState', visible: [sessionId], focused: sessionId })
+    reg.modules.sessions.onClientMessage(id, { type: 'viewState', visible: [sessionId], focused: sessionId })
     const client = (reg as any).clients.get(id)
     expect(client.viewModes).toEqual({})
   })
 
   it('a fresh client starts with empty viewModes', () => {
     const reg = new SessionRegistry()
-    reg.attachDaemon('local', () => {})
+    reg.modules.sessions.attachDaemon('local', () => {})
     const c = sink()
-    const id = reg.attachClient(c.send)
+    const id = reg.modules.sessions.attachClient(c.send)
     expect((reg as any).clients.get(id).viewModes).toEqual({})
   })
 
   it('computes per-session priority across ALL sessions (clients iterable is materialized, not exhausted)', () => {
     const reg = new SessionRegistry()
     const daemon: ControlMessage[] = []
-    reg.attachDaemon('local', (m) => daemon.push(m))
+    reg.modules.sessions.attachDaemon('local', (m) => daemon.push(m))
     // Two sessions: the second would wrongly read as tier 3 if the clients iterator
     // were single-use (it exhausts after the first session) — the array-materialize
     // guard is what keeps this correct.
-    const s1 = reg.createSession({ agentKind: 'claude-code', cwd: '/a' }).sessionId
-    const s2 = reg.createSession({ agentKind: 'claude-code', cwd: '/b' }).sessionId
+    const s1 = reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/a' }).sessionId
+    const s2 = reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/b' }).sessionId
     const c = sink()
-    const id = reg.attachClient(c.send)
+    const id = reg.modules.sessions.attachClient(c.send)
     daemon.length = 0
 
-    reg.onClientMessage(id, { type: 'viewState', visible: [s1, s2], focused: s2 })
+    reg.modules.sessions.onClientMessage(id, { type: 'viewState', visible: [s1, s2], focused: s2 })
     const sent = priorities(daemon)
     expect(sent).toContainEqual({ type: 'sessionPriority', sessionId: s1, priority: 1 }) // visible
     expect(sent).toContainEqual({ type: 'sessionPriority', sessionId: s2, priority: 0 }) // focused
@@ -2371,30 +2371,30 @@ describe('output-relay priority + frame batch', () => {
   it('only CHANGED sessions are re-pushed (deltas, not the whole map every time)', () => {
     const reg = new SessionRegistry()
     const daemon: ControlMessage[] = []
-    reg.attachDaemon('local', (m) => daemon.push(m))
-    const { sessionId } = reg.createSession({ agentKind: 'claude-code', cwd: '/w' })
+    reg.modules.sessions.attachDaemon('local', (m) => daemon.push(m))
+    const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/w' })
     const c = sink()
-    const id = reg.attachClient(c.send)
+    const id = reg.modules.sessions.attachClient(c.send)
 
-    reg.onClientMessage(id, { type: 'viewState', visible: [sessionId], focused: sessionId })
+    reg.modules.sessions.onClientMessage(id, { type: 'viewState', visible: [sessionId], focused: sessionId })
     daemon.length = 0
     // An identical viewState changes nothing → no re-send.
-    reg.onClientMessage(id, { type: 'viewState', visible: [sessionId], focused: sessionId })
+    reg.modules.sessions.onClientMessage(id, { type: 'viewState', visible: [sessionId], focused: sessionId })
     expect(priorities(daemon)).toEqual([])
   })
 
   it('a fresh daemon (re)connect gets the current priority of every live session', () => {
     const reg = new SessionRegistry()
-    reg.attachDaemon('local', () => {})
-    const { sessionId } = reg.createSession({ agentKind: 'claude-code', cwd: '/w' })
+    reg.modules.sessions.attachDaemon('local', () => {})
+    const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/w' })
     const c = sink()
-    const id = reg.attachClient(c.send)
-    reg.onClientMessage(id, { type: 'viewState', visible: [sessionId], focused: sessionId })
+    const id = reg.modules.sessions.attachClient(c.send)
+    reg.modules.sessions.onClientMessage(id, { type: 'viewState', visible: [sessionId], focused: sessionId })
     // The daemon drops; a fresh one attaches — it knows no priorities, so the full
     // current map must be re-pushed (lastPriority.clear() + pushPriorities()).
-    reg.detachDaemon('local')
+    reg.modules.sessions.detachDaemon('local')
     const daemon2: ControlMessage[] = []
-    reg.attachDaemon('local', (m) => daemon2.push(m))
+    reg.modules.sessions.attachDaemon('local', (m) => daemon2.push(m))
     expect(priorities(daemon2)).toContainEqual({
       type: 'sessionPriority',
       sessionId,
@@ -2404,15 +2404,15 @@ describe('output-relay priority + frame batch', () => {
 
   it('agentFrameBatch unpacks into one outputFrame broadcast per coalesced frame', () => {
     const reg = new SessionRegistry()
-    reg.attachDaemon('local', () => {})
-    const { sessionId } = reg.createSession({ agentKind: 'claude-code', cwd: '/w' })
-    reg.onDaemonMessageFrom('local', bind(sessionId))
+    reg.modules.sessions.attachDaemon('local', () => {})
+    const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/w' })
+    reg.modules.sessions.onDaemonMessageFrom('local', bind(sessionId))
     const c = sink()
-    const id = reg.attachClient(c.send)
-    reg.onClientMessage(id, { type: 'attach', sessionId })
+    const id = reg.modules.sessions.attachClient(c.send)
+    reg.modules.sessions.onClientMessage(id, { type: 'attach', sessionId })
     c.sent.length = 0
 
-    reg.onDaemonMessageFrom('local', {
+    reg.modules.sessions.onDaemonMessageFrom('local', {
       type: 'agentFrameBatch',
       sessionId,
       frames: ['ZDE=', 'ZDI='],
@@ -2431,16 +2431,16 @@ describe('listDir routing', () => {
   it('routes listDir to the worktree machine and resolves entries', async () => {
     const reg = new SessionRegistry()
     const daemon: ControlMessage[] = []
-    reg.attachDaemon('local', (m) => daemon.push(m))
+    reg.modules.sessions.attachDaemon('local', (m) => daemon.push(m))
 
-    const p = reg.listDir({ machineId: 'local', root: '/w', path: '/w' })
+    const p = reg.modules.rpc.listDir({ machineId: 'local', root: '/w', path: '/w' })
     const req = daemon.find((m) => m.type === 'dirListRequest') as
       | { requestId: string; path: string }
       | undefined
     expect(req).toBeDefined()
     if (!req) throw new Error('dirListRequest not sent')
 
-    reg.onDaemonMessageFrom('local', {
+    reg.modules.sessions.onDaemonMessageFrom('local', {
       type: 'dirListResult',
       requestId: req.requestId,
       ok: true,

@@ -62,7 +62,7 @@ afterEach(() => {
 function makeNode(repoPaths: string[] = []) {
   const registry = new SessionRegistry()
   registries.push(registry)
-  registry.attachDaemon('local', () => {})
+  registry.modules.sessions.attachDaemon('local', () => {})
   const forwarded: { proc: string; input: Record<string, unknown> }[] = []
   const forwarder: IssueUpstreamForwarder = {
     async forward(proc, input) {
@@ -71,8 +71,8 @@ function makeNode(repoPaths: string[] = []) {
     },
     entries: () => [],
   }
-  registry.setUpstreamForwarder(forwarder)
-  registry.setUpstreamIssues([hubIssue(HUB_ID)])
+  registry.modules.upstreamIssues.setForwarder(forwarder)
+  registry.modules.upstreamIssues.setUpstreamIssues([hubIssue(HUB_ID)])
   const caller = (capability = OPERATOR, overrideScope?: boolean) =>
     appRouter.createCaller({
       registry,

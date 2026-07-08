@@ -19,8 +19,8 @@ function regWithTwoDaemons() {
   const repos = new RepoRegistry(reg, store)
   const m1Out: ControlMessage[] = []
   const m2Out: ControlMessage[] = []
-  reg.attachDaemon('m1', (msg) => m1Out.push(msg))
-  reg.attachDaemon('m2', (msg) => m2Out.push(msg))
+  reg.modules.sessions.attachDaemon('m1', (msg) => m1Out.push(msg))
+  reg.modules.sessions.attachDaemon('m2', (msg) => m2Out.push(msg))
   return { reg, repos, store, m1Out, m2Out }
 }
 
@@ -72,14 +72,14 @@ describe('RepoRegistry.scanReposAll()', () => {
     expect(m2Req).toBeDefined()
 
     // Daemons reply with their repos (no machineId — server stamps it)
-    reg.onDaemonMessageFrom('m1', {
+    reg.modules.sessions.onDaemonMessageFrom('m1', {
       type: 'scanReposResult',
       requestId: (m1Req as Extract<ControlMessage, { type: 'scanReposRequest' }>).requestId,
       repositories: [{ path: '/a', kind: 'repository', worktrees: [] }],
       diagnostics: [],
     } as DaemonMessage)
 
-    reg.onDaemonMessageFrom('m2', {
+    reg.modules.sessions.onDaemonMessageFrom('m2', {
       type: 'scanReposResult',
       requestId: (m2Req as Extract<ControlMessage, { type: 'scanReposRequest' }>).requestId,
       repositories: [{ path: '/b', kind: 'repository', worktrees: [] }],
@@ -107,13 +107,13 @@ describe('RepoRegistry.scanReposAll()', () => {
     expect(m1Req).toBeDefined()
     expect(m2Req).toBeDefined()
 
-    reg.onDaemonMessageFrom('m1', {
+    reg.modules.sessions.onDaemonMessageFrom('m1', {
       type: 'scanReposResult',
       requestId: (m1Req as Extract<ControlMessage, { type: 'scanReposRequest' }>).requestId,
       repositories: [{ path: '/a', kind: 'repository', branch: 'main', worktrees: [] }],
       diagnostics: [],
     } as DaemonMessage)
-    reg.onDaemonMessageFrom('m2', {
+    reg.modules.sessions.onDaemonMessageFrom('m2', {
       type: 'scanReposResult',
       requestId: (m2Req as Extract<ControlMessage, { type: 'scanReposRequest' }>).requestId,
       repositories: [],
@@ -141,14 +141,14 @@ describe('RepoRegistry.scanReposAll()', () => {
     const reg = new SessionRegistry(store)
     const repos = new RepoRegistry(reg, store)
     const m1Out: ControlMessage[] = []
-    reg.attachDaemon('m1', (msg) => m1Out.push(msg))
+    reg.modules.sessions.attachDaemon('m1', (msg) => m1Out.push(msg))
     await repos.add('/repo', 'm1')
 
     const scanPromise = repos.scanReposAll()
 
     const req = m1Out.find((m) => m.type === 'scanReposRequest')
     expect(req).toBeDefined()
-    reg.onDaemonMessageFrom('m1', {
+    reg.modules.sessions.onDaemonMessageFrom('m1', {
       type: 'scanReposResult',
       requestId: (req as Extract<ControlMessage, { type: 'scanReposRequest' }>).requestId,
       repositories: [{ path: '/repo', kind: 'repository', branch: 'main', worktrees: [] }],

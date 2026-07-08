@@ -76,7 +76,7 @@ describe('startServer with the hub role disabled (node shape)', () => {
   })
 
   it('a daemon `pair` handshake is refused (no pairing manager injected)', () => {
-    const auth = handle.registry.authenticateDaemon({
+    const auth = handle.registry.modules.machines.authenticateDaemon({
       type: 'pair',
       code: 'ABCD-EFGH',
       machineId: 'joiner',
@@ -86,7 +86,7 @@ describe('startServer with the hub role disabled (node shape)', () => {
   })
 
   it('the local daemon `hello` path is unaffected by the node role', () => {
-    const auth = handle.registry.authenticateDaemon({
+    const auth = handle.registry.modules.machines.authenticateDaemon({
       type: 'hello',
       machineId: 'local',
       token: handle.bootstrapToken,
@@ -118,7 +118,7 @@ describe('startServer default role (no upstream configured) keeps hub surfaces o
     })
     const { code } = await trpc.machines.pairingCode.mutate()
     expect(code.length).toBeGreaterThan(0)
-    const auth = handle.registry.authenticateDaemon({
+    const auth = handle.registry.modules.machines.authenticateDaemon({
       type: 'pair',
       code,
       machineId: 'joiner',

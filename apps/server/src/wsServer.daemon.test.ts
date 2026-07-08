@@ -124,7 +124,7 @@ describe('daemon socket auth', () => {
     // Pairing is a hub-role capability, injected the way server assembly does it.
     const reg = new SessionRegistry(store, undefined, { pairing: new PairingManager() })
     const attach = vi.spyOn(reg, 'attachDaemon')
-    const code = reg.mintPairingCode()
+    const code = reg.modules.machines.mintPairingCode()
     const ws = fakeWs()
     wireDaemonSocket(ws as never, reg)
 

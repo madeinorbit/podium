@@ -22,10 +22,10 @@ describe('SessionRegistry conversation registry', () => {
 
   it('scan mints podium ids, enriches broadcasts, and resolves subagent parents', () => {
     const registry = makeRegistry()
-    registry.attachDaemon('m1', () => {})
+    registry.modules.sessions.attachDaemon('m1', () => {})
     const inbox: ServerMessage[] = []
-    registry.attachClient((m) => inbox.push(m))
-    registry.onDaemonMessageFrom('m1', {
+    registry.modules.sessions.attachClient((m) => inbox.push(m))
+    registry.modules.sessions.onDaemonMessageFrom('m1', {
       type: 'conversationsChanged',
       conversations: [conv('parent-1'), conv('sub-1', { parentConversationId: 'parent-1' })],
       diagnostics: [],
@@ -40,7 +40,7 @@ describe('SessionRegistry conversation registry', () => {
     expect(sub?.podiumId).not.toBe(parent?.podiumId)
 
     // Re-scan: identities are stable, not re-minted.
-    registry.onDaemonMessageFrom('m1', {
+    registry.modules.sessions.onDaemonMessageFrom('m1', {
       type: 'conversationsChanged',
       conversations: [conv('parent-1')],
       diagnostics: [],
@@ -53,22 +53,22 @@ describe('SessionRegistry conversation registry', () => {
   it('transcriptRead carries the recorded segment path as pathHint', () => {
     const registry = makeRegistry()
     const daemon: unknown[] = []
-    registry.attachDaemon('local', (m) => daemon.push(m))
-    const { sessionId } = registry.createSession({ agentKind: 'claude-code', cwd: '/moved/to' })
-    registry.onDaemonMessageFrom('local', {
+    registry.modules.sessions.attachDaemon('local', (m) => daemon.push(m))
+    const { sessionId } = registry.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/moved/to' })
+    registry.modules.sessions.onDaemonMessageFrom('local', {
       type: 'sessionResumeRef',
       sessionId,
       resume: { kind: 'claude-session', value: 'native-x' },
     })
     // A discovery scan recorded where the file actually lives (original bucket).
-    registry.onDaemonMessageFrom('local', {
+    registry.modules.sessions.onDaemonMessageFrom('local', {
       type: 'conversationsChanged',
       conversations: [
         conv('native-x', { path: '/home/u/.claude/projects/-original-spot/native-x.jsonl' }),
       ],
       diagnostics: [],
     })
-    void registry.readTranscript({ sessionId, direction: 'before', limit: 10 })
+    void registry.modules.rpc.readTranscript({ sessionId, direction: 'before', limit: 10 })
     const read = daemon.find(
       (m) => (m as { type: string }).type === 'transcriptRead',
     ) as { pathHint?: string; cwd: string }
@@ -78,25 +78,25 @@ describe('SessionRegistry conversation registry', () => {
 
   it('sessionResumeRef stamps the session and a roll keeps the same identity', () => {
     const registry = makeRegistry()
-    registry.attachDaemon('local', () => {})
-    const { sessionId } = registry.createSession({ agentKind: 'claude-code', cwd: '/w' })
+    registry.modules.sessions.attachDaemon('local', () => {})
+    const { sessionId } = registry.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/w' })
 
-    registry.onDaemonMessageFrom('local', {
+    registry.modules.sessions.onDaemonMessageFrom('local', {
       type: 'sessionResumeRef',
       sessionId,
       resume: { kind: 'claude-session', value: 'native-first' },
     })
-    const meta1 = registry.listSessions().find((s) => s.sessionId === sessionId)
+    const meta1 = registry.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)
     const podiumId = meta1?.conversationPodiumId
     expect(podiumId).toMatch(/^conv_/)
 
     // The harness rolls into a fresh file (resume): new native id, SAME identity.
-    registry.onDaemonMessageFrom('local', {
+    registry.modules.sessions.onDaemonMessageFrom('local', {
       type: 'sessionResumeRef',
       sessionId,
       resume: { kind: 'claude-session', value: 'native-rolled' },
     })
-    const meta2 = registry.listSessions().find((s) => s.sessionId === sessionId)
+    const meta2 = registry.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)
     expect(meta2?.conversationPodiumId).toBe(podiumId)
     expect(meta2?.resume?.value).toBe('native-rolled')
   })

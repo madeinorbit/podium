@@ -54,7 +54,7 @@ function hubIssue(id: string, over: Partial<IssueWire> = {}): IssueWire {
 function makeNode() {
   const store = new SessionStore(':memory:')
   const registry = new SessionRegistry(store)
-  registry.attachDaemon('local', () => {})
+  registry.modules.sessions.attachDaemon('local', () => {})
   return { store, registry }
 }
 
@@ -87,7 +87,7 @@ function stubForwarder(): IssueUpstreamForwarder & {
 /** The issue list a fresh client sees on attach (the wire's bootstrap snapshot). */
 function attachIssues(registry: SessionRegistry): IssueWire[] {
   const inbox: ServerMessage[] = []
-  registry.attachClient((m) => inbox.push(m))
+  registry.modules.sessions.attachClient((m) => inbox.push(m))
   const msg = inbox.find((m) => m.type === 'issuesChanged')
   return msg?.type === 'issuesChanged' ? msg.issues : []
 }
@@ -100,12 +100,12 @@ describe('upstream issue mirror (wire union, spec §2.1)', () => {
       title: 'local issue',
       startNow: false,
     })
-    registry.setUpstreamIssues([hubIssue('iss_hub1')])
+    registry.modules.upstreamIssues.setUpstreamIssues([hubIssue('iss_hub1')])
 
     for (const issues of [
       attachIssues(registry),
       (() => {
-        const snap = registry.syncChangesSince(null)
+        const snap = registry.modules.sessions.syncChangesSince(null)
         return snap.kind === 'snapshot' ? snap.issues : []
       })(),
     ]) {
@@ -117,9 +117,9 @@ describe('upstream issue mirror (wire union, spec §2.1)', () => {
 
   it('issuesChanged broadcasts carry the union (IssueService fan-outs included)', async () => {
     const { registry } = makeNode()
-    registry.setUpstreamIssues([hubIssue('iss_hub1')])
+    registry.modules.upstreamIssues.setUpstreamIssues([hubIssue('iss_hub1')])
     const inbox: ServerMessage[] = []
-    registry.attachClient((m) => inbox.push(m))
+    registry.modules.sessions.attachClient((m) => inbox.push(m))
     inbox.length = 0
     // A LOCAL mutation broadcast must still include the mirrored hub issue.
     await registry.issues.createAndMaybeStart({
@@ -136,7 +136,7 @@ describe('upstream issue mirror (wire union, spec §2.1)', () => {
 
   it("IssueService's store never contains upstream rows (invariant 1)", () => {
     const { registry, store } = makeNode()
-    registry.setUpstreamIssues([hubIssue('iss_hub1')])
+    registry.modules.upstreamIssues.setUpstreamIssues([hubIssue('iss_hub1')])
     // The node's own tracker — what the assistant/steward layers read — is empty:
     // upstream rows exist on the WIRE only, so no autonomous node-side flow
     // (steward triggers, assistant timers) can ever act on a viaHub issue.
@@ -154,7 +154,7 @@ describe('upstream issue mirror (wire union, spec §2.1)', () => {
         title: 'mine',
         startNow: false,
       })
-      registry.setUpstreamIssues([hubIssue(local.id, { title: 'impostor' })])
+      registry.modules.upstreamIssues.setUpstreamIssues([hubIssue(local.id, { title: 'impostor' })])
       const issues = attachIssues(registry)
       expect(issues.filter((i) => i.id === local.id)).toHaveLength(1)
       expect(issues.find((i) => i.id === local.id)?.title).toBe('mine')
@@ -166,20 +166,20 @@ describe('upstream issue mirror (wire union, spec §2.1)', () => {
 
   it('hub loss: mirrored issues stale-flagged at read time, retained; link back clears', () => {
     const { registry } = makeNode()
-    registry.setUpstreamIssues([hubIssue('iss_hub1')])
-    registry.setUpstreamStale(true)
+    registry.modules.upstreamIssues.setUpstreamIssues([hubIssue('iss_hub1')])
+    registry.modules.sessions.setUpstreamStale(true)
     let entry = attachIssues(registry).find((i) => i.id === 'iss_hub1')
     expect(entry).toBeDefined() // retained, never blanked
     expect(entry?.upstreamStale).toBe(true)
-    registry.setUpstreamStale(false)
+    registry.modules.sessions.setUpstreamStale(false)
     entry = attachIssues(registry).find((i) => i.id === 'iss_hub1')
     expect(entry?.upstreamStale).toBeUndefined()
   })
 
   it('re-ingest replaces the mirror (an issue gone from the hub disappears)', () => {
     const { registry } = makeNode()
-    registry.setUpstreamIssues([hubIssue('iss_hub1'), hubIssue('iss_hub2')])
-    registry.setUpstreamIssues([hubIssue('iss_hub2')])
+    registry.modules.upstreamIssues.setUpstreamIssues([hubIssue('iss_hub1'), hubIssue('iss_hub2')])
+    registry.modules.upstreamIssues.setUpstreamIssues([hubIssue('iss_hub2')])
     const ids = attachIssues(registry).map((i) => i.id)
     expect(ids).not.toContain('iss_hub1')
     expect(ids).toContain('iss_hub2')
@@ -190,10 +190,10 @@ describe('upstream issue write forwarding (spec §2.2)', () => {
   it('a queued forward optimistically patches the replica entry with pendingSync', async () => {
     const { registry } = makeNode()
     const fwd = stubForwarder()
-    registry.setUpstreamForwarder(fwd)
-    registry.setUpstreamIssues([hubIssue('iss_hub1')])
+    registry.modules.upstreamIssues.setForwarder(fwd)
+    registry.modules.upstreamIssues.setUpstreamIssues([hubIssue('iss_hub1')])
 
-    const res = await registry.forwardIssueMutation('update', {
+    const res = await registry.modules.upstreamIssues.forwardIssueMutation('update', {
       id: 'iss_hub1',
       patch: { title: 'edited offline' },
     })
@@ -212,9 +212,9 @@ describe('upstream issue write forwarding (spec §2.2)', () => {
   // optimistic effect is a commentCount bump (the body surfaces via the hub).
   it('addComment queues an optimistic commentCount bump', async () => {
     const { registry } = makeNode()
-    registry.setUpstreamForwarder(stubForwarder())
-    registry.setUpstreamIssues([hubIssue('iss_hub1')])
-    await registry.forwardIssueMutation('addComment', {
+    registry.modules.upstreamIssues.setForwarder(stubForwarder())
+    registry.modules.upstreamIssues.setUpstreamIssues([hubIssue('iss_hub1')])
+    await registry.modules.upstreamIssues.forwardIssueMutation('addComment', {
       id: 'iss_hub1',
       author: 'operator',
       body: 'note from the node',
@@ -228,11 +228,11 @@ describe('upstream issue write forwarding (spec §2.2)', () => {
   it('a hub push while the edit is STILL queued keeps the optimistic patch', async () => {
     const { registry } = makeNode()
     const fwd = stubForwarder()
-    registry.setUpstreamForwarder(fwd)
-    registry.setUpstreamIssues([hubIssue('iss_hub1')])
-    await registry.forwardIssueMutation('update', { id: 'iss_hub1', patch: { title: 'edited' } })
+    registry.modules.upstreamIssues.setForwarder(fwd)
+    registry.modules.upstreamIssues.setUpstreamIssues([hubIssue('iss_hub1')])
+    await registry.modules.upstreamIssues.forwardIssueMutation('update', { id: 'iss_hub1', patch: { title: 'edited' } })
     // Reconnect heal delivers PRE-mutation truth (drain hasn't applied yet).
-    registry.setUpstreamIssues([hubIssue('iss_hub1')])
+    registry.modules.upstreamIssues.setUpstreamIssues([hubIssue('iss_hub1')])
     const entry = attachIssues(registry).find((i) => i.id === 'iss_hub1')
     expect(entry?.title).toBe('edited') // replica doesn't argue, but the queued edit stays visible
     expect(entry?.pendingSync).toBe(true)
@@ -241,13 +241,13 @@ describe('upstream issue write forwarding (spec §2.2)', () => {
   it('hub truth after the outbox drained overwrites the patch and clears pendingSync', async () => {
     const { registry } = makeNode()
     const fwd = stubForwarder()
-    registry.setUpstreamForwarder(fwd)
-    registry.setUpstreamIssues([hubIssue('iss_hub1')])
-    await registry.forwardIssueMutation('update', { id: 'iss_hub1', patch: { title: 'edited' } })
+    registry.modules.upstreamIssues.setForwarder(fwd)
+    registry.modules.upstreamIssues.setUpstreamIssues([hubIssue('iss_hub1')])
+    await registry.modules.upstreamIssues.forwardIssueMutation('update', { id: 'iss_hub1', patch: { title: 'edited' } })
     fwd.clear() // the drain applied the entry hub-side
-    registry.upstreamOutboxChanged()
+    registry.modules.upstreamIssues.outboxChanged()
     // …and the hub's delta delivers post-mutation truth.
-    registry.setUpstreamIssues([hubIssue('iss_hub1', { title: 'edited', description: 'hub says' })])
+    registry.modules.upstreamIssues.setUpstreamIssues([hubIssue('iss_hub1', { title: 'edited', description: 'hub says' })])
     const entry = attachIssues(registry).find((i) => i.id === 'iss_hub1')
     expect(entry?.title).toBe('edited')
     expect(entry?.description).toBe('hub says')
@@ -257,10 +257,10 @@ describe('upstream issue write forwarding (spec §2.2)', () => {
   it('a hub-rejected queued mutation is surfaced: overlay retired + durable event + needsHuman marker (#25)', async () => {
     const { registry, store } = makeNode()
     const fwd = stubForwarder()
-    registry.setUpstreamForwarder(fwd)
-    registry.setUpstreamIssues([hubIssue('iss_hub1')])
+    registry.modules.upstreamIssues.setForwarder(fwd)
+    registry.modules.upstreamIssues.setUpstreamIssues([hubIssue('iss_hub1')])
     // The edit queues (hub unreachable) and shows optimistically.
-    await registry.forwardIssueMutation('update', {
+    await registry.modules.upstreamIssues.forwardIssueMutation('update', {
       id: 'iss_hub1',
       patch: { title: 'edit the hub refuses' },
     })
@@ -271,12 +271,12 @@ describe('upstream issue write forwarding (spec §2.2)', () => {
     // The hub comes back and definitively rejects the queued entry (simulated 400):
     // the forwarder drops it and fires onPoisoned → upstreamMutationRejected.
     fwd.clear()
-    registry.upstreamMutationRejected(
+    registry.modules.upstreamIssues.mutationRejected(
       'update',
       { id: 'iss_hub1', patch: { title: 'edit the hub refuses' }, mutationId },
       'BAD_REQUEST: title rejected',
     )
-    registry.upstreamOutboxChanged() // the forwarder's onQueueChanged follows onPoisoned
+    registry.modules.upstreamIssues.outboxChanged() // the forwarder's onQueueChanged follows onPoisoned
     const entry = attachIssues(registry).find((i) => i.id === 'iss_hub1')
     // The lost edit no longer shows — the overlay was retired immediately.
     expect(entry?.title).toBe('hub iss_hub1')
@@ -293,7 +293,7 @@ describe('upstream issue write forwarding (spec §2.2)', () => {
       message: 'BAD_REQUEST: title rejected',
     })
     // The next hub truth push clears the marker (the event remains the audit trail).
-    registry.setUpstreamIssues([hubIssue('iss_hub1')])
+    registry.modules.upstreamIssues.setUpstreamIssues([hubIssue('iss_hub1')])
     const healed = attachIssues(registry).find((i) => i.id === 'iss_hub1')
     expect(healed?.needsHuman).toBe(false)
     expect(healed?.pendingSync).toBeUndefined()
@@ -302,12 +302,12 @@ describe('upstream issue write forwarding (spec §2.2)', () => {
   it('pendingSync flips hit the live wire (clients see the queue state without re-attach)', async () => {
     const { registry } = makeNode()
     const fwd = stubForwarder()
-    registry.setUpstreamForwarder(fwd)
-    registry.setUpstreamIssues([hubIssue('iss_hub1')])
+    registry.modules.upstreamIssues.setForwarder(fwd)
+    registry.modules.upstreamIssues.setUpstreamIssues([hubIssue('iss_hub1')])
     const inbox: ServerMessage[] = []
-    registry.attachClient((m) => inbox.push(m))
+    registry.modules.sessions.attachClient((m) => inbox.push(m))
     inbox.length = 0
-    await registry.forwardIssueMutation('close', { id: 'iss_hub1' })
+    await registry.modules.upstreamIssues.forwardIssueMutation('close', { id: 'iss_hub1' })
     const afterQueue = inbox.filter((m) => m.type === 'issuesChanged').pop()
     if (afterQueue?.type !== 'issuesChanged') throw new Error('no issuesChanged after queue')
     expect(afterQueue.issues.find((i) => i.id === 'iss_hub1')?.pendingSync).toBe(true)
@@ -323,13 +323,13 @@ describe('no-upstream inertness (invariant 4)', () => {
       title: 'plain',
       startNow: false,
     })
-    expect(registry.isUpstreamIssue(local.id)).toBe(false)
-    expect(registry.upstreamIssueRepoPaths().size).toBe(0)
+    expect(registry.modules.upstreamIssues.isUpstreamIssue(local.id)).toBe(false)
+    expect(registry.modules.upstreamIssues.repoPaths().size).toBe(0)
     const issues = attachIssues(registry)
     expect(issues.map((i) => i.id)).toEqual([local.id])
     expect(issues[0]?.viaHub).toBeUndefined()
     // No forwarder configured → forwarding is a hard error, never a silent queue.
-    await expect(registry.forwardIssueMutation('update', { id: 'x', patch: {} })).rejects.toThrow(
+    await expect(registry.modules.upstreamIssues.forwardIssueMutation('update', { id: 'x', patch: {} })).rejects.toThrow(
       /no upstream/,
     )
     expect(store.sync.listUpstreamOutbox()).toHaveLength(0)

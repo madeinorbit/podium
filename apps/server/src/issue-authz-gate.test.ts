@@ -52,7 +52,7 @@ describe('issues.* capability gate', () => {
     registries.push(registry)
     // No daemon in this harness: a real repoOp would await a machine round-trip forever.
     // Failing it fast keeps the test on what it proves — the AUTHZ gate decision.
-    registry.repoOp = async () => ({ ok: false, output: 'no daemon in test harness' })
+    registry.modules.rpc.repoOp = async () => ({ ok: false, output: 'no daemon in test harness' })
     const op = caller(OPERATOR, registry)
     const epic = await op.issues.create({ repoPath: '/r', title: 'Epic', startNow: false })
     const child = await op.issues.create({

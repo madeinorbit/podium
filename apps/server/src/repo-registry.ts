@@ -102,14 +102,14 @@ export class RepoRegistry {
     const p = normalizeRepoPath(path)
     if (!p) throw new Error('repo path is empty')
     if (!isAbsolute(p)) throw new Error(`repo path must be absolute: ${p}`)
-    const mid = machineId ?? this.sessionReg.defaultMachineId()
+    const mid = machineId ?? this.sessionReg.modules.machines.defaultMachine()
     // Best-effort origin capture: reads <p>/.git locally, so it only yields a URL
     // when the path exists on this host (remote repos get it later via scan).
     this.store.repos.addRepo(p, mid, readLocalOriginUrl(p) ?? undefined)
   }
 
   async remove(path: string, machineId?: string): Promise<void> {
-    const mid = machineId ?? this.sessionReg.defaultMachineId()
+    const mid = machineId ?? this.sessionReg.modules.machines.defaultMachine()
     this.store.repos.removeRepo(normalizeRepoPath(path), mid)
   }
 
@@ -124,7 +124,7 @@ export class RepoRegistry {
    * single-machine UI is unchanged.
    */
   async scanReposAll(): Promise<ScanReposResult> {
-    const machineIds = this.sessionReg.onlineMachineIds()
+    const machineIds = this.sessionReg.modules.machines.onlineMachineIds()
     if (machineIds.length === 0) {
       return {
         repositories: [],

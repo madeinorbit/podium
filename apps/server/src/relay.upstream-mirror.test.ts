@@ -38,17 +38,17 @@ function hubConversation(id: string): ConversationSummaryWire {
 function makeNode() {
   const store = new SessionStore(':memory:')
   const registry = new SessionRegistry(store)
-  registry.attachDaemon('local', () => {})
+  registry.modules.sessions.attachDaemon('local', () => {})
   return { store, registry }
 }
 
 describe('upstream mirror (registry surface)', () => {
   it('listSessions returns local ∪ upstream with viaHub set only on hub entries', () => {
     const { registry } = makeNode()
-    const { sessionId: localId } = registry.createSession({ agentKind: 'shell', cwd: '/local' })
-    registry.setUpstreamSessions([hubSession('hub-1'), hubSession('hub-2')])
+    const { sessionId: localId } = registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/local' })
+    registry.modules.sessions.setUpstreamSessions([hubSession('hub-1'), hubSession('hub-2')])
 
-    const list = registry.listSessions()
+    const list = registry.modules.sessions.listSessions()
     expect(list.map((s) => s.sessionId).sort()).toEqual(['hub-1', 'hub-2', localId].sort())
     const local = list.find((s) => s.sessionId === localId)
     expect(local?.viaHub).toBeUndefined()
@@ -61,23 +61,23 @@ describe('upstream mirror (registry surface)', () => {
 
   it('filters own-machine echoes by machineId at ingest', () => {
     const { registry } = makeNode()
-    registry.setUpstreamOwnMachineIds(['my-daemon-id'])
-    registry.setUpstreamSessions([
+    registry.modules.sessions.setUpstreamOwnMachineIds(['my-daemon-id'])
+    registry.modules.sessions.setUpstreamSessions([
       hubSession('hub-1'),
       hubSession('echo-1', { machineId: 'my-daemon-id' }),
     ])
-    const ids = registry.listSessions().map((s) => s.sessionId)
+    const ids = registry.modules.sessions.listSessions().map((s) => s.sessionId)
     expect(ids).toContain('hub-1')
     expect(ids).not.toContain('echo-1')
   })
 
   it('hub loss marks upstream entries stale but RETAINS them; local unaffected', () => {
     const { registry } = makeNode()
-    const { sessionId: localId } = registry.createSession({ agentKind: 'shell', cwd: '/local' })
-    registry.setUpstreamSessions([hubSession('hub-1')])
+    const { sessionId: localId } = registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/local' })
+    registry.modules.sessions.setUpstreamSessions([hubSession('hub-1')])
 
-    registry.setUpstreamStale(true)
-    const list = registry.listSessions()
+    registry.modules.sessions.setUpstreamStale(true)
+    const list = registry.modules.sessions.listSessions()
     const hub = list.find((s) => s.sessionId === 'hub-1')
     expect(hub).toBeDefined() // retained, never blanked
     expect(hub?.upstreamStale).toBe(true)
@@ -86,19 +86,19 @@ describe('upstream mirror (registry surface)', () => {
     expect(local?.upstreamStale).toBeUndefined()
 
     // Link back → flag clears without re-ingesting.
-    registry.setUpstreamStale(false)
+    registry.modules.sessions.setUpstreamStale(false)
     expect(
-      registry.listSessions().find((s) => s.sessionId === 'hub-1')?.upstreamStale,
+      registry.modules.sessions.listSessions().find((s) => s.sessionId === 'hub-1')?.upstreamStale,
     ).toBeUndefined()
   })
 
   it('upstream sessions flow through the broadcast pipeline to node clients', () => {
     const { registry } = makeNode()
     const inbox: ServerMessage[] = []
-    registry.attachClient((m) => inbox.push(m))
+    registry.modules.sessions.attachClient((m) => inbox.push(m))
     inbox.length = 0
-    registry.setUpstreamSessions([hubSession('hub-1')])
-    registry.flushBroadcasts()
+    registry.modules.sessions.setUpstreamSessions([hubSession('hub-1')])
+    registry.modules.sessions.flushBroadcasts()
     const msg = inbox.find((m) => m.type === 'sessionsChanged')
     expect(msg).toBeDefined()
     if (msg?.type !== 'sessionsChanged') return
@@ -107,9 +107,9 @@ describe('upstream mirror (registry surface)', () => {
 
   it('upstream conversations merge into snapshots; local ids win collisions', () => {
     const { registry } = makeNode()
-    registry.setUpstreamConversations([hubConversation('conv-hub-1')])
+    registry.modules.conversations.setUpstreamConversations([hubConversation('conv-hub-1')])
     const inbox: ServerMessage[] = []
-    registry.attachClient((m) => inbox.push(m))
+    registry.modules.sessions.attachClient((m) => inbox.push(m))
     const msg = inbox.find((m) => m.type === 'conversationsChanged')
     expect(msg).toBeDefined()
     if (msg?.type !== 'conversationsChanged') return
@@ -118,9 +118,9 @@ describe('upstream mirror (registry surface)', () => {
 
   it('changesSince snapshots include upstream entities (node clients heal to them)', () => {
     const { registry } = makeNode()
-    registry.setUpstreamSessions([hubSession('hub-1')])
-    registry.setUpstreamConversations([hubConversation('conv-hub-1')])
-    const snap = registry.syncChangesSince(null)
+    registry.modules.sessions.setUpstreamSessions([hubSession('hub-1')])
+    registry.modules.conversations.setUpstreamConversations([hubConversation('conv-hub-1')])
+    const snap = registry.modules.sessions.syncChangesSince(null)
     expect(snap.kind).toBe('snapshot')
     if (snap.kind !== 'snapshot') return
     expect(snap.sessions.some((s) => s.sessionId === 'hub-1' && s.viaHub)).toBe(true)
@@ -129,34 +129,34 @@ describe('upstream mirror (registry surface)', () => {
 
   it('rejects every command path on a viaHub session with the spec reason', () => {
     const { registry } = makeNode()
-    registry.setUpstreamSessions([hubSession('hub-1')])
+    registry.modules.sessions.setUpstreamSessions([hubSession('hub-1')])
     const reason = SessionRegistry.UPSTREAM_COMMAND_REJECTION
 
-    expect(registry.sendText({ sessionId: 'hub-1', text: 'hi' })).toEqual({
+    expect(registry.modules.sessions.sendText({ sessionId: 'hub-1', text: 'hi' })).toEqual({
       ok: false,
       reason,
     })
-    expect(registry.queueText({ sessionId: 'hub-1', text: 'hi' })).toEqual({
+    expect(registry.modules.sessions.queueText({ sessionId: 'hub-1', text: 'hi' })).toEqual({
       ok: false,
       reason,
     })
-    expect(registry.resumeAndSend({ sessionId: 'hub-1', text: 'hi' })).toEqual({
+    expect(registry.modules.sessions.resumeAndSend({ sessionId: 'hub-1', text: 'hi' })).toEqual({
       ok: false,
       reason,
     })
-    expect(registry.hibernateSession({ sessionId: 'hub-1' })).toEqual({ ok: false, reason })
-    expect(registry.resurrectSession({ sessionId: 'hub-1' })).toEqual({ ok: false, reason })
-    expect(registry.continueSession({ sessionId: 'hub-1' })).toEqual({ ok: false })
-    expect(() => registry.killSession({ sessionId: 'hub-1' })).toThrow(reason)
+    expect(registry.modules.sessions.hibernateSession({ sessionId: 'hub-1' })).toEqual({ ok: false, reason })
+    expect(registry.modules.sessions.resurrectSession({ sessionId: 'hub-1' })).toEqual({ ok: false, reason })
+    expect(registry.modules.sessions.continueSession({ sessionId: 'hub-1' })).toEqual({ ok: false })
+    expect(() => registry.modules.sessions.killSession({ sessionId: 'hub-1' })).toThrow(reason)
     // ...and the mirror entry is still there (rejection is side-effect free).
-    expect(registry.listSessions().some((s) => s.sessionId === 'hub-1')).toBe(true)
+    expect(registry.modules.sessions.listSessions().some((s) => s.sessionId === 'hub-1')).toBe(true)
   })
 
   it('re-ingest replaces the mirror (a session gone from the hub disappears)', () => {
     const { registry } = makeNode()
-    registry.setUpstreamSessions([hubSession('hub-1'), hubSession('hub-2')])
-    registry.setUpstreamSessions([hubSession('hub-2')])
-    const ids = registry.listSessions().map((s) => s.sessionId)
+    registry.modules.sessions.setUpstreamSessions([hubSession('hub-1'), hubSession('hub-2')])
+    registry.modules.sessions.setUpstreamSessions([hubSession('hub-2')])
+    const ids = registry.modules.sessions.listSessions().map((s) => s.sessionId)
     expect(ids).not.toContain('hub-1')
     expect(ids).toContain('hub-2')
   })

@@ -6,7 +6,7 @@ describe('SessionRegistry model catalog wiring', () => {
   it('defaults to an empty catalog and never shells out when no probe is injected', () => {
     const registry = new SessionRegistry()
     // No modelProbe → empty snapshot, and get() must not throw (default no-op probe).
-    expect(registry.getModelCatalog()).toEqual({ byAgent: {}, fetchedAt: 0 })
+    expect(registry.modules.settings.getModelCatalog()).toEqual({ byAgent: {}, fetchedAt: 0 })
     registry.dispose()
   })
 
@@ -16,9 +16,9 @@ describe('SessionRegistry model catalog wiring', () => {
       cursor: [{ value: 'composer-2.5', label: 'Composer 2.5' }],
     }))
     const registry = new SessionRegistry(undefined, undefined, { modelProbe })
-    const snapshot = await registry.refreshModelCatalog()
+    const snapshot = await registry.modules.settings.refreshModelCatalog()
     expect(snapshot.byAgent.grok?.[0]?.value).toBe('grok-build')
-    expect(registry.getModelCatalog().byAgent.cursor?.[0]?.value).toBe('composer-2.5')
+    expect(registry.modules.settings.getModelCatalog().byAgent.cursor?.[0]?.value).toBe('composer-2.5')
     expect(modelProbe).toHaveBeenCalledTimes(1)
     registry.dispose()
   })
@@ -29,14 +29,14 @@ describe('SessionRegistry model catalog wiring', () => {
 
     // First "boot": probe once, which persists to the shared store.
     const first = new SessionRegistry(store, undefined, { modelProbe: probe })
-    await first.refreshModelCatalog()
+    await first.modules.settings.refreshModelCatalog()
     first.dispose()
 
     // Second "boot" (same DB): the catalog is served from persistence immediately —
     // get() returns it with no additional probe on the fresh registry.
     const probe2 = vi.fn(async () => ({}))
     const second = new SessionRegistry(store, undefined, { modelProbe: probe2 })
-    expect(second.getModelCatalog().byAgent.grok?.[0]?.value).toBe('grok-build')
+    expect(second.modules.settings.getModelCatalog().byAgent.grok?.[0]?.value).toBe('grok-build')
     second.dispose()
   })
 })

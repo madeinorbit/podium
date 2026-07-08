@@ -13,7 +13,7 @@ import { SuperagentService } from './modules/superagent'
 
 function caller() {
   const registry = new SessionRegistry()
-  registry.attachDaemon('local', () => {})
+  registry.modules.sessions.attachDaemon('local', () => {})
   const repos = new RepoRegistry(registry, registry.sessionStore)
   const superagent = new SuperagentService(registry.modules, repos, registry.sessionStore)
   return appRouter.createCaller({ registry, repos, superagent, capability: OPERATOR })

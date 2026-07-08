@@ -138,8 +138,8 @@ describe('SessionRegistry.capabilityForSession (P1b)', () => {
     registry.issues.update(i.id, { worktreePath: '/r/.worktrees/issue-1-w' })
     const wt = registry.issues.get(i.id)!.worktreePath as string
 
-    const { sessionId: sid } = registry.createSession({ cwd: wt, agentKind: 'shell' })
-    const cap = registry.capabilityForSession(sid)
+    const { sessionId: sid } = registry.modules.sessions.createSession({ cwd: wt, agentKind: 'shell' })
+    const cap = registry.modules.sessions.capabilityForSession(sid)
     // actorSessionId is stamped so close/unblock events can name their causer (#116).
     expect(cap).toEqual({
       role: 'worker',
@@ -147,15 +147,15 @@ describe('SessionRegistry.capabilityForSession (P1b)', () => {
       actorSessionId: sid,
     })
 
-    const { sessionId: sid2 } = registry.createSession({ cwd: '/unowned', agentKind: 'shell' })
-    expect(registry.capabilityForSession(sid2)).toEqual({
+    const { sessionId: sid2 } = registry.modules.sessions.createSession({ cwd: '/unowned', agentKind: 'shell' })
+    expect(registry.modules.sessions.capabilityForSession(sid2)).toEqual({
       role: 'worker',
       scope: { kind: 'none' },
       actorSessionId: sid2,
     })
 
     // No session behind the id → no actor to name.
-    expect(registry.capabilityForSession('no-such-session')).toEqual({
+    expect(registry.modules.sessions.capabilityForSession('no-such-session')).toEqual({
       role: 'worker',
       scope: { kind: 'none' },
     })

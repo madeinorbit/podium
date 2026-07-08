@@ -23,6 +23,7 @@ import {
 } from '@podium/protocol'
 import { AutoContinueController } from '../../auto-continue'
 import type { Capability } from '../../issue-authz'
+import { selectMailNudgeSession, sessionsForIssue } from '../../issue-util'
 import { LOCAL_MACHINE_ID, LOCAL_PLACEHOLDER } from '../../local-machine'
 import { type ClientConn, type Send, Session } from './session'
 import { computePriorities } from '../../session-priority'
@@ -193,6 +194,20 @@ export class SessionsService {
         : []
       this.autoContinue.onSettingsChanged(nowEnabled, ids)
     })
+    // Agent mail send-time nudge (issue #103): poke the target issue's live agent
+    // session so mail is noticed without polling. The nudge carries NO message
+    // body — an idempotent "check your inbox" poke. Selection: a single idle
+    // live agent gets an immediate sendText; otherwise the most recently active
+    // live agent gets a durable queued send; no live agents → nothing (the mail
+    // surfaces via prime / the stop-hook).
+    this.bus.on('issue.mailSent', ({ seq, worktreePath }) => {
+      const members = sessionsForIssue(worktreePath, this.listSessions())
+      const target = selectMailNudgeSession(members)
+      if (!target) return
+      const text = `You have mail on issue #${seq}: run 'podium issue mail inbox' (claim with 'podium issue mail claim <id>' only if you will act on it).`
+      if (target.mode === 'send') this.sendText({ sessionId: target.sessionId, text })
+      else void this.queueText({ sessionId: target.sessionId, text })
+    })
   }
 
   private issues(): IssueService {
@@ -321,6 +336,15 @@ export class SessionsService {
       else this.store.sync.deleteQueuedMessagesForSession(sessionId) // orphaned queue
     }
     this.store.sync.pruneAppliedMutations({ maxAgeMs: APPLIED_MUTATIONS_MAX_AGE_MS, now: this.now() })
+    // Boot reconciliation: record what changed across the restart (the sessions
+    // just restored) so a cursor-holding client that reconnects heals via
+    // changesSince instead of silently missing the gap. Conversations are
+    // deliberately NOT reconciled at boot: they are daemon-fed, and an empty
+    // list at boot means "not scanned yet", not "all gone".
+    this.funnel.record(
+      'session',
+      this.listSessions().map((s) => ({ id: s.sessionId, value: s })),
+    )
   }
 
   attachDaemon(machineId: string, send: Send<ControlMessage>): void {
@@ -538,6 +562,9 @@ export class SessionsService {
     if (this.upstreamStale === stale) return false
     this.upstreamStale = stale
     if (this.upstreamSessions.size > 0) this.broadcastSessions()
+    // The conversation/issue mirrors follow via the bus (they read the flag
+    // through isUpstreamStale() at publish time and rebroadcast on the flip).
+    this.bus.emit('upstream.staleChanged', { stale })
     return true
   }
 

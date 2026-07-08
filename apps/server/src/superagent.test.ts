@@ -131,10 +131,10 @@ describe('harnessAllowedTools', () => {
 describe('start_agent tool wiring (issue #60)', () => {
   function harness() {
     const registry = new SessionRegistry()
-    registry.attachDaemon('local', (m) => {
+    registry.modules.sessions.attachDaemon('local', (m) => {
       if (m.type === 'repoOpRequest') {
         queueMicrotask(() =>
-          registry.onDaemonMessageFrom('local', {
+          registry.modules.sessions.onDaemonMessageFrom('local', {
             type: 'repoOpResult',
             requestId: m.requestId,
             ok: true,
@@ -161,7 +161,7 @@ describe('start_agent tool wiring (issue #60)', () => {
       }),
     ) as { sessionId: string; cwd: string; agentKind: string }
     expect(out).toMatchObject({ cwd: '/w', agentKind: 'claude-code' })
-    const meta = registry.listSessions().find((s) => s.sessionId === out.sessionId)
+    const meta = registry.modules.sessions.listSessions().find((s) => s.sessionId === out.sessionId)
     expect(meta?.title).toBe('Investigate flake')
     expect(meta?.spawnedBy).toBe('superagent')
   })
@@ -171,7 +171,7 @@ describe('start_agent tool wiring (issue #60)', () => {
     const out = JSON.parse(
       await sa.callMcpTool('start_agent', { agentKind: 'shell', cwd: '/w' }, 'btw_s1'),
     ) as { sessionId: string }
-    expect(registry.listSessions().find((s) => s.sessionId === out.sessionId)?.spawnedBy).toBe(
+    expect(registry.modules.sessions.listSessions().find((s) => s.sessionId === out.sessionId)?.spawnedBy).toBe(
       'superagent:btw_s1',
     )
   })
@@ -189,7 +189,7 @@ describe('start_agent tool wiring (issue #60)', () => {
       }),
     ) as { sessionId: string; cwd: string }
     expect(out.cwd).toBe('/r/.worktrees/issue-1-x')
-    const meta = registry.listSessions().find((s) => s.sessionId === out.sessionId)
+    const meta = registry.modules.sessions.listSessions().find((s) => s.sessionId === out.sessionId)
     expect(meta?.cwd).toBe('/r/.worktrees/issue-1-x')
     expect(meta?.spawnedBy).toBe('superagent')
   })
@@ -207,7 +207,7 @@ describe('start_agent tool wiring (issue #60)', () => {
     ) as { sessionId?: string; cwd: string }
     expect(out.cwd).toBe('/r/.worktrees/issue-1-fix-login')
     expect(out.sessionId).toBeDefined()
-    const meta = registry.listSessions().find((s) => s.sessionId === out.sessionId)
+    const meta = registry.modules.sessions.listSessions().find((s) => s.sessionId === out.sessionId)
     // The spawn is owned by issues.start, so provenance is the issue's, not the superagent's.
     expect(meta?.spawnedBy).toBe(`issue:${issue.id}`)
     expect(registry.issues.get(issue.id)?.stage).toBe('in_progress')
@@ -225,7 +225,7 @@ describe('start_agent tool wiring (issue #60)', () => {
       }),
     ) as { sessionId: string; cwd: string }
     expect(out.cwd).toBe('/r/.worktrees/issue-1-x')
-    expect(registry.listSessions().find((s) => s.sessionId === out.sessionId)?.cwd).toBe(
+    expect(registry.modules.sessions.listSessions().find((s) => s.sessionId === out.sessionId)?.cwd).toBe(
       '/r/.worktrees/issue-1-x',
     )
   })
@@ -234,7 +234,7 @@ describe('start_agent tool wiring (issue #60)', () => {
     const { registry, sa } = harness()
     const out = await sa.callMcpTool('start_agent', { agentKind: 'claude-code', confirmed: true })
     expect(out).toMatch(/pass cwd or issueId/)
-    expect(registry.listSessions()).toHaveLength(0)
+    expect(registry.modules.sessions.listSessions()).toHaveLength(0)
   })
 
   // Fail-closed identity (issue #67): a thread-blind MCP call can't be told apart
@@ -244,7 +244,7 @@ describe('start_agent tool wiring (issue #60)', () => {
     expect(await sa.callMcpTool('start_agent', { agentKind: 'claude-code', cwd: '/w' })).toBe(
       NOT_CONFIRMED_MSG,
     )
-    expect(registry.listSessions()).toHaveLength(0)
+    expect(registry.modules.sessions.listSessions()).toHaveLength(0)
   })
 
   it('leaves non-spawning tools ungated for identity-less callers', async () => {
@@ -257,7 +257,7 @@ describe('start_agent tool wiring (issue #60)', () => {
     const out = JSON.parse(
       await sa.callMcpTool('start_agent', { agentKind: 'shell', cwd: '/w' }, 'global'),
     ) as { sessionId: string }
-    expect(registry.listSessions().find((s) => s.sessionId === out.sessionId)?.spawnedBy).toBe(
+    expect(registry.modules.sessions.listSessions().find((s) => s.sessionId === out.sessionId)?.spawnedBy).toBe(
       'superagent:global',
     )
   })
@@ -281,7 +281,7 @@ describe('start_agent tool wiring (issue #60)', () => {
       confirmed: true,
     })
     expect(out).toMatch(/unknown issue/)
-    expect(registry.listSessions()).toHaveLength(0)
+    expect(registry.modules.sessions.listSessions()).toHaveLength(0)
   })
 })
 
@@ -319,11 +319,11 @@ describe('session-steering tool belt (issue #62)', () => {
   function harness(opts?: { waitPollMs?: number; transcriptItems?: TranscriptItem[] }) {
     const registry = new SessionRegistry()
     const inputs: string[] = []
-    registry.attachDaemon('local', (m) => {
+    registry.modules.sessions.attachDaemon('local', (m) => {
       if (m.type === 'input') inputs.push(Buffer.from(m.data, 'base64').toString())
       if (m.type === 'repoOpRequest') {
         queueMicrotask(() =>
-          registry.onDaemonMessageFrom('local', {
+          registry.modules.sessions.onDaemonMessageFrom('local', {
             type: 'repoOpResult',
             requestId: m.requestId,
             ok: true,
@@ -333,7 +333,7 @@ describe('session-steering tool belt (issue #62)', () => {
       }
       if (m.type === 'transcriptRead') {
         queueMicrotask(() =>
-          registry.onDaemonMessageFrom('local', {
+          registry.modules.sessions.onDaemonMessageFrom('local', {
             type: 'transcriptReadResult',
             requestId: m.requestId,
             sessionId: m.sessionId,
@@ -348,9 +348,9 @@ describe('session-steering tool belt (issue #62)', () => {
       waitPollMs: opts?.waitPollMs ?? 5,
     })
     const spawn = (live = false): string => {
-      const { sessionId } = registry.createSession({ agentKind: 'claude-code', cwd: '/w' })
+      const { sessionId } = registry.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/w' })
       if (live)
-        registry.onDaemonMessageFrom('local', {
+        registry.modules.sessions.onDaemonMessageFrom('local', {
           type: 'bind',
           sessionId,
           cmd: 'claude',
@@ -360,7 +360,7 @@ describe('session-steering tool belt (issue #62)', () => {
         })
       return sessionId
     }
-    const metaOf = (id: string) => registry.listSessions().find((s) => s.sessionId === id)
+    const metaOf = (id: string) => registry.modules.sessions.listSessions().find((s) => s.sessionId === id)
     return { registry, sa, inputs, spawn, metaOf }
   }
 
@@ -381,7 +381,7 @@ describe('session-steering tool belt (issue #62)', () => {
     })
 
   const markPending = (h: ReturnType<typeof harness>, sessionId: string) =>
-    h.registry.onDaemonMessageFrom('local', {
+    h.registry.modules.sessions.onDaemonMessageFrom('local', {
       type: 'agentState',
       sessionId,
       state: pendingQuestion,
@@ -411,7 +411,7 @@ describe('session-steering tool belt (issue #62)', () => {
     // Enter) must never reach the PTY, and the result must not claim success.
     const h = harness({ transcriptItems: [askItem()] })
     const sessionId = h.spawn(true)
-    h.registry.onDaemonMessageFrom('local', { type: 'agentState', sessionId, state: st('working') })
+    h.registry.modules.sessions.onDaemonMessageFrom('local', { type: 'agentState', sessionId, state: st('working') })
     const out = await h.sa.callMcpTool('answer_question', { sessionId, answer: 'Yes' })
     expect(out).toBe('no pending question (phase=working)')
     expect(h.inputs).toEqual([]) // zero PTY input
@@ -499,11 +499,11 @@ describe('session-steering tool belt (issue #62)', () => {
   it("continue_session types 'continue' into an errored live session only", async () => {
     const h = harness()
     const sessionId = h.spawn(true)
-    h.registry.onDaemonMessageFrom('local', { type: 'agentState', sessionId, state: st('errored') })
+    h.registry.modules.sessions.onDaemonMessageFrom('local', { type: 'agentState', sessionId, state: st('errored') })
     expect(await h.sa.callMcpTool('continue_session', { sessionId })).toBe('sent continue')
     expect(h.inputs).toContain('continue\r')
     // Not errored anymore → refused, with the gate surfaced.
-    h.registry.onDaemonMessageFrom('local', { type: 'agentState', sessionId, state: st('idle') })
+    h.registry.modules.sessions.onDaemonMessageFrom('local', { type: 'agentState', sessionId, state: st('idle') })
     expect(await h.sa.callMcpTool('continue_session', { sessionId })).toMatch(/errored phase/)
   })
 
@@ -517,7 +517,7 @@ describe('session-steering tool belt (issue #62)', () => {
   it('hibernate_session parks a live session with a resume ref', async () => {
     const h = harness()
     const sessionId = h.spawn(true)
-    h.registry.onDaemonMessageFrom('local', {
+    h.registry.modules.sessions.onDaemonMessageFrom('local', {
       type: 'sessionResumeRef',
       sessionId,
       resume: { kind: 'claude-session', value: 'r1' },
@@ -596,10 +596,10 @@ describe('session-steering tool belt (issue #62)', () => {
     const h = harness({ waitPollMs: 5 })
     const sessionId = h.spawn(true)
     // Seed a phase so the NEXT one is a real transition (prev==null logs nothing).
-    h.registry.onDaemonMessageFrom('local', { type: 'agentState', sessionId, state: st('working') })
+    h.registry.modules.sessions.onDaemonMessageFrom('local', { type: 'agentState', sessionId, state: st('working') })
     const p = h.sa.callMcpTool('wait_for_session', { sessionId, timeoutSeconds: 10 })
     await new Promise((r) => setTimeout(r, 15))
-    h.registry.onDaemonMessageFrom('local', {
+    h.registry.modules.sessions.onDaemonMessageFrom('local', {
       type: 'agentState',
       sessionId,
       state: st('idle', { idle: { kind: 'done' } }),
@@ -610,7 +610,7 @@ describe('session-steering tool belt (issue #62)', () => {
   it('wait_for_session returns instantly when the session is already settled', async () => {
     const h = harness({ waitPollMs: 60_000 }) // a poll sleep would blow the test timeout
     const sessionId = h.spawn(true)
-    h.registry.onDaemonMessageFrom('local', {
+    h.registry.modules.sessions.onDaemonMessageFrom('local', {
       type: 'agentState',
       sessionId,
       state: st('idle', { idle: { kind: 'question' } }),
@@ -624,7 +624,7 @@ describe('session-steering tool belt (issue #62)', () => {
   it('wait_for_session times out quietly with the last-known phase (never throws)', async () => {
     const h = harness({ waitPollMs: 5 })
     const sessionId = h.spawn(true)
-    h.registry.onDaemonMessageFrom('local', { type: 'agentState', sessionId, state: st('working') })
+    h.registry.modules.sessions.onDaemonMessageFrom('local', { type: 'agentState', sessionId, state: st('working') })
     expect(await h.sa.callMcpTool('wait_for_session', { sessionId, timeoutSeconds: 0 })).toBe(
       'timeout after 0s (session still working)',
     )
@@ -639,12 +639,12 @@ describe('session-steering tool belt (issue #62)', () => {
 
   it('list_sessions rows carry spawnedBy + snoozedUntil', async () => {
     const h = harness()
-    const { sessionId } = h.registry.createSession({
+    const { sessionId } = h.registry.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/w',
       spawnedBy: 'user',
     })
-    h.registry.setSnooze({ sessionId, until: null })
+    h.registry.modules.sessions.setSnooze({ sessionId, until: null })
     const rows = JSON.parse(await h.sa.callMcpTool('list_sessions', {}, 'btw_x')) as Array<
       Record<string, unknown>
     >

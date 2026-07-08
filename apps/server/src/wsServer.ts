@@ -208,7 +208,7 @@ export function wireDaemonSocket(ws: import('ws').WebSocket, registry: SessionRe
       // the machine's stored credential, a `pair` redeems a code + mints one. The local
       // machine is pre-registered at startup (ensureLocalMachine) with a server-owned
       // credential, so its same-host daemon authenticates here too.
-      const auth = registry.authenticateDaemon(frame)
+      const auth = registry.modules.machines.authenticateDaemon(frame)
       if (!auth.ok) {
         reply({
           type: frame.type === 'pair' ? 'pairRejected' : 'helloRejected',
@@ -228,11 +228,11 @@ export function wireDaemonSocket(ws: import('ws').WebSocket, registry: SessionRe
       // the daemon's first-frame handshake parse then sees a sessionPriority frame, fails
       // ("malformed reply"), and refuses, looping forever. helloOk must be the first frame.
       reply({ type: 'helloOk', name: auth.name })
-      registry.attachDaemon(machineId, (msg) => safeSend(ws, msg, SEND_BUFFER_LIMIT_BYTES))
+      registry.modules.sessions.attachDaemon(machineId, (msg) => safeSend(ws, msg, SEND_BUFFER_LIMIT_BYTES))
       return
     }
     try {
-      registry.onDaemonMessageFrom(machineId, parseDaemonMessage(raw.toString()))
+      registry.modules.sessions.onDaemonMessageFrom(machineId, parseDaemonMessage(raw.toString()))
     } catch (err) {
       // Drop the malformed frame (don't let it tear down the connection) — but
       // never silently: a silent drop here hides protocol drift / poison frames.
@@ -240,7 +240,7 @@ export function wireDaemonSocket(ws: import('ws').WebSocket, registry: SessionRe
     }
   })
   ws.on('close', () => {
-    if (machineId) registry.detachDaemon(machineId)
+    if (machineId) registry.modules.sessions.detachDaemon(machineId)
   })
 }
 
@@ -308,17 +308,17 @@ export function attachWebSockets(
   // Liveness marks for client sockets: present = ponged since the last sweep.
   const aliveClients = new WeakSet<HeartbeatSocket>()
   clientWss.on('connection', (ws) => {
-    const id = registry.attachClient((msg) => safeSend(ws, msg, SEND_BUFFER_LIMIT_BYTES))
+    const id = registry.modules.sessions.attachClient((msg) => safeSend(ws, msg, SEND_BUFFER_LIMIT_BYTES))
     aliveClients.add(ws)
     ws.on('pong', () => aliveClients.add(ws))
     ws.on('message', (raw: import('ws').RawData) => {
       try {
-        registry.onClientMessage(id, parseClientMessage(raw.toString()))
+        registry.modules.sessions.onClientMessage(id, parseClientMessage(raw.toString()))
       } catch (err) {
         warnDroppedFrame('client', err)
       }
     })
-    ws.on('close', () => registry.detachClient(id))
+    ws.on('close', () => registry.modules.sessions.detachClient(id))
   })
 
   const heartbeat = setInterval(

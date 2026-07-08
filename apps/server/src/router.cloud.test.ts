@@ -24,7 +24,7 @@ function caller(
   onDaemon: (message: ControlMessage) => void = () => {},
 ) {
   const registry = new SessionRegistry()
-  registry.attachDaemon('local', onDaemon)
+  registry.modules.sessions.attachDaemon('local', onDaemon)
   const repos = new RepoRegistry(registry, registry.sessionStore)
   const superagent = new SuperagentService(registry.modules, repos, registry.sessionStore)
   const call = appRouter.createCaller({ registry, repos, superagent, cloud, capability: OPERATOR })
@@ -116,7 +116,7 @@ describe('cloud router', () => {
       'local',
       'git@github.com:madeinorbit/podium.git',
     )
-    const { sessionId } = registry.resumeSession({
+    const { sessionId } = registry.modules.sessions.resumeSession({
       agentKind: 'codex',
       cwd: '/workspace/podium',
       resume: { kind: 'codex-thread', value: 'thread-1' },
@@ -159,13 +159,13 @@ describe('cloud router', () => {
       'local',
       'https://github.com/madeinorbit/podium.git',
     )
-    const { sessionId } = registry.createSession({
+    const { sessionId } = registry.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/workspace/podium',
       spawnedBy: 'user',
     })
-    registry.onDaemonMessageFrom('local', bind(sessionId, '/workspace/podium', 'claude-code'))
-    registry.onDaemonMessageFrom('local', {
+    registry.modules.sessions.onDaemonMessageFrom('local', bind(sessionId, '/workspace/podium', 'claude-code'))
+    registry.modules.sessions.onDaemonMessageFrom('local', {
       type: 'sessionResumeRef',
       sessionId,
       resume: { kind: 'claude-session', value: 'claude-resume-1' },
@@ -179,7 +179,7 @@ describe('cloud router', () => {
 
     expect(runtime.id).toBe('cloud-runtime-1')
     expect(daemon).toContainEqual({ type: 'kill', sessionId })
-    expect(registry.listSessions().find((s) => s.sessionId === sessionId)?.status).toBe(
+    expect(registry.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)?.status).toBe(
       'hibernated',
     )
     expect(cloud.createdAgents.at(-1)).toMatchObject({
@@ -196,7 +196,7 @@ describe('cloud router', () => {
   it('rejects moving a session without a resume ref', async () => {
     const cloud = captureCloudProvider()
     const { call, registry } = caller(cloud.provider)
-    const { sessionId } = registry.createSession({
+    const { sessionId } = registry.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/workspace/podium',
       spawnedBy: 'user',

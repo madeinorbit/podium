@@ -8,7 +8,7 @@ type RelayResult = Extract<ControlMessage, { type: 'issueRelayResult' }>
 // a daemon's control-message send fn (confirmed in wsServer.ts); the relay reply routes to it.
 function captureReply(registry: SessionRegistry, machineId: string): Promise<RelayResult> {
   return new Promise((resolve) => {
-    registry.attachDaemon(machineId, (msg) => {
+    registry.modules.sessions.attachDaemon(machineId, (msg) => {
       if (msg.type === 'issueRelayResult') resolve(msg)
     })
   })
@@ -35,7 +35,7 @@ describe('server issue relay handler (P1b)', () => {
     registry.issues.update(A.id, { worktreePath: '/r/.worktrees/issue-1-a' })
     const wtA = registry.issues.get(A.id)?.worktreePath as string
     B = registry.issues.create({ repoPath, title: 'unrelated', startNow: false })
-    sA = registry.createSession({ cwd: wtA, agentKind: 'shell' }).sessionId
+    sA = registry.modules.sessions.createSession({ cwd: wtA, agentKind: 'shell' }).sessionId
   })
 
   afterEach(() => {
@@ -44,7 +44,7 @@ describe('server issue relay handler (P1b)', () => {
 
   it('relays a scoped op through the capability gate (rejects a write outside the subtree)', async () => {
     const reply = captureReply(registry, machineId)
-    registry.onDaemonMessageFrom(machineId, {
+    registry.modules.sessions.onDaemonMessageFrom(machineId, {
       type: 'issueRelayRequest',
       requestId: 'ir1',
       sessionId: sA,
@@ -59,7 +59,7 @@ describe('server issue relay handler (P1b)', () => {
 
   it('override lets a scoped op write outside its subtree', async () => {
     const reply = captureReply(registry, machineId)
-    registry.onDaemonMessageFrom(machineId, {
+    registry.modules.sessions.onDaemonMessageFrom(machineId, {
       type: 'issueRelayRequest',
       requestId: 'ir2',
       sessionId: sA,
@@ -73,7 +73,7 @@ describe('server issue relay handler (P1b)', () => {
 
   it('rejects a non-allowlisted router', async () => {
     const reply = captureReply(registry, machineId)
-    registry.onDaemonMessageFrom(machineId, {
+    registry.modules.sessions.onDaemonMessageFrom(machineId, {
       type: 'issueRelayRequest',
       requestId: 'ir3',
       sessionId: sA,
@@ -91,7 +91,7 @@ describe('server issue relay handler (P1b)', () => {
     // would index an INHERITED value and blow up on `.has(...)` — the guard must
     // treat non-own keys as simply not-permitted, not a confusing TypeError.
     const reply = captureReply(registry, machineId)
-    registry.onDaemonMessageFrom(machineId, {
+    registry.modules.sessions.onDaemonMessageFrom(machineId, {
       type: 'issueRelayRequest',
       requestId: 'ir5',
       sessionId: sA,
@@ -107,7 +107,7 @@ describe('server issue relay handler (P1b)', () => {
 
   it('relays prime bound to the session capability', async () => {
     const reply = captureReply(registry, machineId)
-    registry.onDaemonMessageFrom(machineId, {
+    registry.modules.sessions.onDaemonMessageFrom(machineId, {
       type: 'issueRelayRequest',
       requestId: 'ir4',
       sessionId: sA,

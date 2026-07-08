@@ -184,7 +184,7 @@ export async function startServer(
   // visible regardless of whether/when the daemon connects. This is the structural guard
   // against the regression where data vanished because no daemon ever registered. The
   // same-host daemon then authenticates through the normal hello path (wsServer).
-  registry.ensureLocalMachine(hostname(), bootstrapToken)
+  registry.modules.machines.ensureLocalMachine(hostname(), bootstrapToken)
   // Node⇄hub sync (docs/spec/node-hub-sync.md): when config.json carries `upstream`,
   // this server is a NODE and mirrors its hub's fleet through the thin-client
   // protocol. No upstream config = the constructor never runs = zero new behavior.
@@ -193,7 +193,7 @@ export async function startServer(
   const upstreamConfig = config.upstream
   if (upstreamConfig) {
     const ownMachineId = readOwnDaemonMachineId()
-    if (ownMachineId) registry.setUpstreamOwnMachineIds([ownMachineId])
+    if (ownMachineId) registry.modules.sessions.setUpstreamOwnMachineIds([ownMachineId])
     // P7b write path (docs/spec/node-hub-issues.md §2.2): issue mutations targeting
     // viaHub issues forward to the hub with the SAME token, durably queued while it
     // is unreachable. Drain triggers: enqueue (forwarder-internal), flat retry
@@ -202,12 +202,12 @@ export async function startServer(
       url: upstreamConfig.url,
       token: upstreamConfig.token,
       store: store.sync,
-      onQueueChanged: () => registry.upstreamOutboxChanged(),
+      onQueueChanged: () => registry.modules.upstreamIssues.outboxChanged(),
       // A queued mutation the hub definitively rejects must be SURFACED, not just
       // logged (#25): durable issue.upstream_rejected event + overlay retirement.
-      onPoisoned: (proc, input, message) => registry.upstreamMutationRejected(proc, input, message),
+      onPoisoned: (proc, input, message) => registry.modules.upstreamIssues.mutationRejected(proc, input, message),
     })
-    registry.setUpstreamForwarder(upstreamForwarder)
+    registry.modules.upstreamIssues.setForwarder(upstreamForwarder)
     const forwarder = upstreamForwarder
     upstreamSync = new UpstreamSync({
       url: upstreamConfig.url,
@@ -413,7 +413,7 @@ export async function startServer(
                     // Persist the last dirty activity timestamps while the DB is still
                     // open, then stop the periodic flush timer (so a tick can't fire an
                     // upsertSession against a closed DB), and only then close the store.
-                    registry.flushActivity()
+                    registry.modules.sessions.flushActivity()
                     registry.dispose()
                     store.close()
                     res()
