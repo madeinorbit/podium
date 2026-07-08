@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   computeEpicProgress,
+  computeEpicProgressMap,
   DEFAULT_DISPLAY,
   filterBoardScope,
   orderIssues,
@@ -106,6 +107,16 @@ describe('computeEpicProgress (#198)', () => {
       sessions: [{ status: 'live' } as never],
     })
     expect(computeEpicProgress([epic, busy], 'e')?.liveAgents).toBe(1)
+  })
+  it('map form computes every root over one shared index', () => {
+    const list = [
+      issue({ id: 'e1' }),
+      issue({ id: 'c1', parentId: 'e1', stage: 'done' }),
+      issue({ id: 'e2' }), // no descendants → null
+    ]
+    const map = computeEpicProgressMap(list, ['e1', 'e2'])
+    expect(map.get('e1')).toEqual({ total: 1, done: 1, liveAgents: 0 })
+    expect(map.get('e2')).toBeNull()
   })
 })
 

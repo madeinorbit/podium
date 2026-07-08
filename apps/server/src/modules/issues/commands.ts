@@ -501,23 +501,25 @@ export class IssueCommandService {
     const isOperator = c.capability.scope.kind === 'all'
     const origin: 'human' | 'agent' = isOperator ? 'human' : 'agent'
     const audience: 'human' | 'agent' = isOperator ? 'human' : (input.audience ?? 'agent')
-    const created = await this.deps.withMutation(input.mutationId, 'issues.create', () =>
-      this.issues().createAndMaybeStart({ ...input, origin, audience }),
-    )
-    // Orphan-internal guard (#198): an audience:'agent' issue is visible only when
-    // its parent chain reaches an audience:'human' ancestor (filterBoardScope).
-    // With none it is invisible to everyone — warn (do not block) so an unattached
-    // agent doesn't silently lose the issue.
-    if (audience === 'agent' && !this.hasHumanAudienceAncestor(created)) {
-      return {
-        ...created,
-        warning:
-          'This issue is invisible: it is internal (audience: agent) but has no ' +
-          'human-facing parent. Pass `--audience human`, or attach to an issue first ' +
-          'so it nests under a tracked parent.',
+    // The orphan-internal guard is computed INSIDE withMutation so it is cached
+    // with the result: a replayed create (same mutationId) returns the identical
+    // payload even if the tree changed in between. An audience:'agent' issue is
+    // visible only when its parent chain reaches an audience:'human' ancestor
+    // (filterBoardScope). With none it is invisible — warn (don't block) so an
+    // unattached agent doesn't silently lose the issue.
+    return this.deps.withMutation(input.mutationId, 'issues.create', async () => {
+      const created = await this.issues().createAndMaybeStart({ ...input, origin, audience })
+      if (audience === 'agent' && !this.hasHumanAudienceAncestor(created)) {
+        return {
+          ...created,
+          warning:
+            'This issue is invisible: it is internal (audience: agent) but has no ' +
+            'human-facing parent. Pass `--audience human`, or attach to an issue first ' +
+            'so it nests under a tracked parent.',
+        }
       }
-    }
-    return created
+      return created
+    })
   }
 
   /** Walk an issue's parent chain; true iff some ancestor is human-audience —

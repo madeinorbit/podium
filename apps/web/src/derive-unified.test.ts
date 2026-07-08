@@ -80,6 +80,7 @@ function issue(over: Partial<IssueWire> = {}): IssueWire {
     sessions: [],
     sessionSummary: { total: 0, byPhase: {} },
     origin: 'human' as const,
+    audience: 'human' as const,
     draft: false,
     childCount: 0,
     childDoneCount: 0,
@@ -220,15 +221,16 @@ describe('unifiedWorkList (content filter + status ordering)', () => {
     expect(rows.map((r) => (r.kind === 'issue' ? r.issue.id : ''))).toEqual(['s1'])
   })
 
-  it('includes drafts only when they have sessions; non-human issues stay out', () => {
+  it('includes drafts only when they have sessions; internal (audience:agent) issues stay out even with a session (#198)', () => {
     const rows = unifiedWorkList(
       emptySections([]),
       [
         issue({ id: 'dr1', draft: true, stage: 'backlog' }),
         issue({ id: 'dr2', draft: true, stage: 'backlog' }),
-        issue({ id: 'ag1', origin: 'agent' as IssueWire['origin'], stage: 'in_progress' }),
+        // Internal, with a live session — still excluded from the human work list.
+        issue({ id: 'ag1', audience: 'agent' as IssueWire['audience'], stage: 'in_progress' }),
       ],
-      [sess('x', '/elsewhere', { issueId: 'dr2' })],
+      [sess('x', '/elsewhere', { issueId: 'dr2' }), sess('y', '/ag', { issueId: 'ag1' })],
       [],
       NOW,
     )
@@ -403,10 +405,7 @@ describe('rowUnreadEmphasized (#138: suppress unread while actively working)', (
   it('suppresses an unread worktree row that has a currently-working session', () => {
     expect(
       rowUnreadEmphasized(
-        wtRow([
-          idle('a', '/w', { unread: true } as Partial<SessionMeta>),
-          working('b', '/w'),
-        ]),
+        wtRow([idle('a', '/w', { unread: true } as Partial<SessionMeta>), working('b', '/w')]),
       ),
     ).toBe(false)
   })

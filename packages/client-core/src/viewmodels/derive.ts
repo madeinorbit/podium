@@ -1162,7 +1162,10 @@ function buildUnifiedRows(
     // Require ≥1 live session — a worktree or non-backlog stage no longer floats a
     // session-less issue into the list.
     if (mine.length === 0) continue
-    if (!issue.draft && issue.origin !== 'human') continue
+    // #198: hide the agent's INTERNAL work (audience: 'agent') from the sidebar
+    // work list — keyed on audience, matching the board's filterBoardScope, so an
+    // agent-cut human-facing epic (origin agent, audience human) appears on both.
+    if (!issue.draft && issue.audience !== 'human') continue
     const lastSession = mine.reduce((max, s) => Math.max(max, Date.parse(s.lastActiveAt) || 0), 0)
     rows.push({
       kind: 'issue',

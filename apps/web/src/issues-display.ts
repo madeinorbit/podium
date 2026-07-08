@@ -8,8 +8,9 @@ export interface IssuesDisplay {
   ordering: IssuesOrdering
   /** true = the old flat view (sub-issues at top level); false = nested (#85). */
   flatten: boolean
-  /** Show agent-origin issues at top level (issue-as-workspace). Default OFF —
-   *  agent tasks only surface as children under their (visible) parent. */
+  /** Show internal (audience: 'agent') issues at top level (issue-as-workspace).
+   *  Default OFF — internal tasks only surface as children under their (visible,
+   *  human-audience) parent. */
   showAgentTasks: boolean
   badges: { labels: boolean; type: boolean; estimate: boolean; due: boolean; sessions: boolean }
 }
@@ -110,14 +111,21 @@ export interface EpicProgress {
   liveAgents: number
 }
 
-export function computeEpicProgress(issues: IssueWire[], epicId: string): EpicProgress | null {
-  const childrenOf = new Map<string, IssueWire[]>()
+/** parent id → non-draft children. Built ONCE per render and shared across all
+ *  roots so the rollup is O(n), not O(roots·n) (a hot-path re-scan otherwise). */
+type ChildrenIndex = Map<string, IssueWire[]>
+function buildChildrenIndex(issues: IssueWire[]): ChildrenIndex {
+  const childrenOf: ChildrenIndex = new Map()
   for (const i of issues) {
     if (i.draft || !i.parentId) continue
     const arr = childrenOf.get(i.parentId)
     if (arr) arr.push(i)
     else childrenOf.set(i.parentId, [i])
   }
+  return childrenOf
+}
+
+function progressFrom(childrenOf: ChildrenIndex, epicId: string): EpicProgress | null {
   let total = 0
   let done = 0
   let liveAgents = 0
@@ -133,6 +141,20 @@ export function computeEpicProgress(issues: IssueWire[], epicId: string): EpicPr
     for (const child of childrenOf.get(node.id) ?? []) stack.push(child)
   }
   return total === 0 ? null : { total, done, liveAgents }
+}
+
+export function computeEpicProgress(issues: IssueWire[], epicId: string): EpicProgress | null {
+  return progressFrom(buildChildrenIndex(issues), epicId)
+}
+
+/** Batch rollup for many roots over one shared child index (see buildChildrenIndex) —
+ *  the board's per-render entry point, keeping the pass O(n) total. */
+export function computeEpicProgressMap(
+  issues: IssueWire[],
+  rootIds: string[],
+): Map<string, EpicProgress | null> {
+  const childrenOf = buildChildrenIndex(issues)
+  return new Map(rootIds.map((id) => [id, progressFrom(childrenOf, id)]))
 }
 
 /** Stable ordering for board columns and list groups. Pure — returns a copy. */

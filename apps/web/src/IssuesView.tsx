@@ -51,7 +51,7 @@ import {
 } from './issue-hierarchy'
 import { groupIssuesByStage } from './issue-list'
 import {
-  computeEpicProgress,
+  computeEpicProgressMap,
   DISPLAY_KEY,
   type EpicProgress,
   filterBoardScope,
@@ -136,10 +136,8 @@ export function IssuesView(): JSX.Element {
   // Menus (assignees/labels), rollups, and duplicate targets read the live,
   // non-archived scope — archived issues never seed those, only reappear on the
   // board when explicitly revealed.
-  const scope = filterBoardScope(
-    issues.filter((i) => !i.archived),
-    display.showAgentTasks,
-  )
+  const nonArchived = issues.filter((i) => !i.archived)
+  const scope = filterBoardScope(nonArchived, display.showAgentTasks)
   // The board view: drafts/agent-origin gating stays, but archived issues ride in
   // the base scope and are gated by `filterBoardIssues` (the Archived filter) —
   // hidden by default, revealed when the toggle is on, so they stay reachable.
@@ -190,8 +188,13 @@ export function IssuesView(): JSX.Element {
     : childStageCounts(scope)
   // #198: whole-subtree rollup per board root — done/total across descendants and
   // whether an agent is live anywhere under it, so the human tracks a human-facing
-  // epic's progress without opening it. Same non-archived scope rationale as above.
-  const epicProgress = new Map(boardIssues.map((i) => [i.id, computeEpicProgress(scope, i.id)]))
+  // epic's progress without opening it. Fed the full non-archived tree (NOT the
+  // audience-filtered `scope`): the rollup is a fact about the subtree, so a board
+  // filter hiding a descendant must not zero the count.
+  const epicProgress = computeEpicProgressMap(
+    nonArchived,
+    boardIssues.map((i) => i.id),
+  )
 
   // The per-stage ordered lanes / rows — computed once so the board render, the
   // list render, and the keyboard nav all agree on order. `listIds` flattens the
@@ -1122,7 +1125,7 @@ function IssueCard({
           {progress && progress.liveAgents > 0 && (
             <span
               className="inline-flex items-center gap-1 text-[11px] text-emerald-600 tabular-nums dark:text-emerald-400"
-              title={`${progress.liveAgents} agent${progress.liveAgents === 1 ? '' : 's'} working · ${progress.done}/${progress.total} done in subtree`}
+              title={`${progress.liveAgents} subtask${progress.liveAgents === 1 ? '' : 's'} being worked · ${progress.done}/${progress.total} done in subtree`}
               data-testid="epic-live-agents"
             >
               <span className="size-1.5 animate-pulse rounded-full bg-emerald-500" aria-hidden />

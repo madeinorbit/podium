@@ -7,10 +7,14 @@
  * level; `audience = 'agent'` is the agent's internal working detail, nested under
  * its nearest human-audience ancestor.
  *
- * Backfill: the column default `'human'` fills every existing row, so nothing
- * disappears from the board on upgrade — behavior changes only for NEW creates
- * (agent creates default to 'agent' via the command layer). Idempotent: skips the
- * ALTER if the column already exists (a DB that ran a newer inline DDL).
+ * Backfill: seed `audience` FROM `origin` (both are 'human' | 'agent'), so the
+ * board's audience filter reproduces the old origin filter exactly on existing
+ * data — a row hidden before (origin 'agent') stays hidden (audience 'agent'), and
+ * a visible one stays visible. Nothing disappears AND nothing newly appears;
+ * behavior changes only for NEW creates (agent creates default to 'agent' via the
+ * command layer). The column default 'human' only covers the add-column moment
+ * before the UPDATE. Idempotent: skips both steps if the column already exists (a
+ * DB that ran a newer inline DDL).
  */
 
 import type { SqlDatabase } from '@podium/core/sqlite'
@@ -21,5 +25,6 @@ export function up(db: SqlDatabase): void {
   )
   if (!cols.has('audience')) {
     db.exec("ALTER TABLE issues ADD COLUMN audience TEXT NOT NULL DEFAULT 'human'")
+    db.exec("UPDATE issues SET audience = origin WHERE origin IN ('human', 'agent')")
   }
 }
