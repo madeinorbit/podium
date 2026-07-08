@@ -12,6 +12,7 @@ import {
   Search,
   Trash2,
 } from 'lucide-react'
+import { TRPCClientError } from '@trpc/client'
 import type { JSX } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { toast } from 'sonner'
@@ -72,17 +73,34 @@ export function SpecsView(): JSX.Element {
   const [hits, setHits] = useState<SearchHit[] | null>(null)
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
+  // Non-null when the active repo's spec store can't be used at all (the repo
+  // path doesn't exist on the server host, or access was denied). Renders an
+  // explanatory panel INSTEAD of the editor and suppresses every autosave —
+  // otherwise each editor change re-fired a doomed specs.save at the server.
+  const [unavailable, setUnavailable] = useState<string | null>(null)
+  const unavailableRef = useRef(false)
+  unavailableRef.current = unavailable !== null
+
+  /** True for server errors that mean "this repo can't be edited from here"
+   *  (as opposed to a transient failure worth keeping the editor open for). */
+  const isRepoUnusableError = (err: unknown): boolean =>
+    err instanceof TRPCClientError &&
+    ['FORBIDDEN', 'PRECONDITION_FAILED', 'NOT_FOUND'].includes(
+      (err.data as { code?: string } | undefined)?.code ?? '',
+    )
 
   const refreshTree = useCallback(async (): Promise<void> => {
     if (!activeRepo) return
     const list = await trpc.specs.list.query({ repoPath: activeRepo })
     setComponents(list)
+    setUnavailable(null)
   }, [trpc, activeRepo])
 
   useEffect(() => {
     setSelectedId(ROOT_ID)
+    setUnavailable(null)
     void refreshTree().catch((err: unknown) => {
-      toast.error(err instanceof Error ? err.message : 'Failed to load spec')
+      setUnavailable(err instanceof Error ? err.message : 'Failed to load spec')
     })
   }, [refreshTree])
 
@@ -99,7 +117,9 @@ export function SpecsView(): JSX.Element {
 
   const persistBody = useCallback(
     async (id: string): Promise<void> => {
-      if (!activeRepo) return
+      // Never autosave into a repo whose spec store is unusable — retrying a
+      // save the server has already rejected as impossible only loops failures.
+      if (!activeRepo || unavailableRef.current) return
       const body = await editor.blocksToFullHTML(editor.document)
       setSaving(true)
       try {
@@ -111,17 +131,31 @@ export function SpecsView(): JSX.Element {
     [trpc, activeRepo, editor],
   )
 
+  // Save failure: a repo-unusable error retires the editor (unavailable panel,
+  // no further autosaves); anything else is surfaced once — the pending content
+  // stays in the editor and the NEXT edit schedules a fresh attempt (no blind
+  // retry of the same failed request).
+  const onSaveError = useCallback(
+    (err: unknown): void => {
+      const message = err instanceof Error ? err.message : 'Failed to save spec'
+      if (isRepoUnusableError(err)) setUnavailable(message)
+      else toast.error(`Failed to save spec — ${message}`)
+    },
+    // biome-ignore lint/correctness/useExhaustiveDependencies: isRepoUnusableError is a stable pure helper
+    [],
+  )
+
   const flushPendingSave = useCallback((): void => {
     if (saveTimer.current && loadedId.current) {
       clearTimeout(saveTimer.current)
       saveTimer.current = null
-      void persistBody(loadedId.current).catch(() => toast.error('Failed to save spec'))
+      void persistBody(loadedId.current).catch(onSaveError)
     }
-  }, [persistBody])
+  }, [persistBody, onSaveError])
 
   // Load the selected component's body into the editor.
   useEffect(() => {
-    if (!activeRepo) return
+    if (!activeRepo || unavailable !== null) return
     flushPendingSave()
     let cancelled = false
     setLoading(true)
@@ -144,20 +178,32 @@ export function SpecsView(): JSX.Element {
       cancelled = true
       feeding.current = false
     }
-  }, [trpc, activeRepo, selectedId, editor, flushPendingSave])
+  }, [trpc, activeRepo, selectedId, editor, flushPendingSave, unavailable])
 
   const onEditorChange = useCallback((): void => {
-    if (feeding.current || !loadedId.current) return
+    if (feeding.current || !loadedId.current || unavailableRef.current) return
     const id = loadedId.current
     if (saveTimer.current) clearTimeout(saveTimer.current)
     saveTimer.current = setTimeout(() => {
       saveTimer.current = null
-      void persistBody(id).catch(() => toast.error('Failed to save spec'))
+      void persistBody(id).catch(onSaveError)
     }, 800)
-  }, [persistBody])
+  }, [persistBody, onSaveError])
 
   // Flush the debounced save when leaving the view entirely.
   useEffect(() => flushPendingSave, [flushPendingSave])
+
+  // Once the repo is known-unusable, drop any pending save and detach the
+  // editor content from its component so nothing can autosave it later.
+  useEffect(() => {
+    if (unavailable !== null) {
+      loadedId.current = null
+      if (saveTimer.current) {
+        clearTimeout(saveTimer.current)
+        saveTimer.current = null
+      }
+    }
+  }, [unavailable])
 
   // Clicking a #spec:SP-xxxx interlink inside the editor navigates within Specs.
   const onEditorClick = useCallback((e: React.MouseEvent): void => {
@@ -314,7 +360,15 @@ export function SpecsView(): JSX.Element {
 
       {/* ── Editor ── */}
       <main className="flex min-w-0 flex-1 flex-col">
-        {selected && (
+        {unavailable !== null && (
+          <div className="flex flex-1 items-center justify-center p-6">
+            <div className="max-w-[440px] text-center text-sm text-muted-foreground">
+              <div className="font-medium text-foreground">Spec unavailable for this repository</div>
+              <p className="mt-1 [overflow-wrap:anywhere]">{unavailable}</p>
+            </div>
+          </div>
+        )}
+        {unavailable === null && selected && (
           <div className="flex items-center gap-2 border-b border-border px-4 py-2">
             <input
               key={selected.id}
@@ -392,18 +446,20 @@ export function SpecsView(): JSX.Element {
             )}
           </div>
         )}
-        {/* biome-ignore lint/a11y/noStaticElementInteractions: click delegation for spec: links inside the editor */}
-        {/* biome-ignore lint/a11y/useKeyWithClickEvents: keyboard users activate links natively; this only intercepts mouse clicks on spec: anchors */}
-        <div
-          className={cn('min-h-0 flex-1 overflow-y-auto py-4', loading && 'opacity-50')}
-          onClick={onEditorClick}
-        >
-          <BlockNoteView
-            editor={editor}
-            theme={isDark ? 'dark' : 'light'}
-            onChange={onEditorChange}
-          />
-        </div>
+        {unavailable === null && (
+          // biome-ignore lint/a11y/noStaticElementInteractions: click delegation for spec: links inside the editor
+          // biome-ignore lint/a11y/useKeyWithClickEvents: keyboard users activate links natively; this only intercepts mouse clicks on spec: anchors
+          <div
+            className={cn('min-h-0 flex-1 overflow-y-auto py-4', loading && 'opacity-50')}
+            onClick={onEditorClick}
+          >
+            <BlockNoteView
+              editor={editor}
+              theme={isDark ? 'dark' : 'light'}
+              onChange={onEditorChange}
+            />
+          </div>
+        )}
       </main>
     </div>
   )

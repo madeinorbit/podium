@@ -271,6 +271,12 @@ export async function startServer(
     '/trpc/*',
     trpcServer({
       router: appRouter,
+      // Error funnel: every failed /trpc call leaves a server-side trace (proc +
+      // code + message — no payloads). Without this, 500s (INTERNAL_SERVER_ERROR)
+      // were completely invisible in the server log.
+      onError: ({ error, path, type }) => {
+        console.warn(`[trpc] ${type} ${path ?? '<unknown>'} failed: ${error.code} — ${error.message}`)
+      },
       // Everyone who reaches /trpc is the OPERATOR: the login session (clientAuthGuard
       // above) already authenticated the human, so the tracker grants full authority — no
       // separate tracker credential. Constrained agents don't come through here; they are

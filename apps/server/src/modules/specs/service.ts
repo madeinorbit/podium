@@ -11,6 +11,7 @@
  * reads/writes happen on the server host.
  */
 
+import { statSync } from 'node:fs'
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 import {
@@ -56,43 +57,83 @@ export interface SpecsServiceDeps {
 export class SpecsService {
   constructor(private readonly deps: SpecsServiceDeps) {}
 
-  /** Specs read/write real files in a repo — only registered repo roots are fair game. */
+  /**
+   * Specs read/write real files in a repo — only registered repo roots are fair
+   * game, and the root must actually exist ON THIS HOST. A hub can know repos
+   * that live on other (possibly offline) machines; without the existence check
+   * a save against such a root used to fall through to mkdir/write, throw a raw
+   * fs error, and surface as an unlogged 500.
+   */
   private requireRepoRoot(repoPath: string): void {
     if (!isAllowedRoot(this.deps.repoRoots(), repoPath)) {
       throw new TRPCError({ code: 'FORBIDDEN', message: 'root is not a known repository path' })
+    }
+    let isDir = false
+    try {
+      isDir = statSync(repoPath).isDirectory()
+    } catch {
+      isDir = false
+    }
+    if (!isDir) {
+      throw new TRPCError({
+        code: 'PRECONDITION_FAILED',
+        message: `repository path does not exist on this machine: ${repoPath}`,
+      })
+    }
+  }
+
+  /** Map store-layer failures to typed tRPC errors instead of raw 500s:
+   *  filesystem errors → PRECONDITION_FAILED (the repo dir is missing/unwritable
+   *  here), pspec validation errors (unknown component, cycle, …) → BAD_REQUEST. */
+  private run<T>(fn: () => T): T {
+    try {
+      return fn()
+    } catch (err) {
+      if (err instanceof TRPCError) throw err
+      const errno = (err as NodeJS.ErrnoException | null)?.code
+      if (typeof errno === 'string') {
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message: `spec storage unavailable (${errno}) — is the repository present and writable on this machine?`,
+        })
+      }
+      throw new TRPCError({
+        code: 'BAD_REQUEST',
+        message: err instanceof Error ? err.message : String(err),
+      })
     }
   }
 
   list(input: In<'list'>): SpecComponentMeta[] {
     this.requireRepoRoot(input.repoPath)
-    return listSpecs(input.repoPath)
+    return this.run(() => listSpecs(input.repoPath))
   }
 
   get(input: In<'get'>): SpecComponent | null {
     this.requireRepoRoot(input.repoPath)
-    return getSpec(input.repoPath, input.id)
+    return this.run(() => getSpec(input.repoPath, input.id))
   }
 
   create(input: In<'create'>): SpecComponent {
     this.requireRepoRoot(input.repoPath)
-    return createSpec(input.repoPath, input)
+    return this.run(() => createSpec(input.repoPath, input))
   }
 
   save(input: In<'save'>): SpecComponent {
     this.requireRepoRoot(input.repoPath)
     const { repoPath, ...rest } = input
-    return saveSpec(repoPath, rest)
+    return this.run(() => saveSpec(repoPath, rest))
   }
 
   remove(input: In<'remove'>): { ok: boolean } {
     this.requireRepoRoot(input.repoPath)
-    removeSpec(input.repoPath, input.id)
+    this.run(() => removeSpec(input.repoPath, input.id))
     return { ok: true }
   }
 
   search(input: In<'search'>): SpecSearchHit[] {
     this.requireRepoRoot(input.repoPath)
-    return searchSpecs(input.repoPath, input.query)
+    return this.run(() => searchSpecs(input.repoPath, input.query))
   }
 
   /** Whether `proc` is a servable specs procedure (relay caller surface). */
