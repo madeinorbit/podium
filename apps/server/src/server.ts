@@ -21,6 +21,7 @@ import { IssueToolProvider } from './issue-mcp'
 import { readOrCreateDaemonSecret, stateDir } from './local-machine'
 import { registerMcpRoute } from './mcp-route'
 import { probeAllModels } from './model-probe'
+import type { PodiumPlugin } from './plugins'
 import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
 import { resolveServerRole, type ServerRoleConfig } from './roles'
@@ -131,7 +132,13 @@ export function registerVersionRoute(app: Hono): void {
 }
 
 export async function startServer(
-  opts: { port?: number; host?: string; role?: Partial<ServerRoleConfig> } = {},
+  opts: {
+    port?: number
+    host?: string
+    role?: Partial<ServerRoleConfig>
+    /** Build-time extensions (the cloud seam — plugins.ts). OSS ships none. */
+    plugins?: PodiumPlugin[]
+  } = {},
 ): Promise<ServerHandle> {
   // Headless seam: a non-interactive deploy can set the login password via PODIUM_PASSWORD.
   // One-shot (won't overwrite an existing one); must run before the open-exposure check below.
@@ -281,6 +288,14 @@ export async function startServer(
       }),
     }),
   )
+
+  // Build-time extensions (plugins.ts — the cloud seam): registered after every
+  // core surface so a plugin can't shadow one, and BEFORE the static SPA
+  // catch-alls below so plugin routes are reachable at all. Awaited in order;
+  // a failing plugin aborts startup loudly rather than half-composing.
+  for (const plugin of opts.plugins ?? []) {
+    await plugin.register({ hono: app, modules: registry.modules, bus: registry.bus, config, role })
+  }
 
   // Serve the built web UIs for external clients (browser/phone/other desktop). The
   // packaged headless bundle sets PODIUM_WEB_DIR; source runs default to apps/web/dist,

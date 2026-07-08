@@ -35,6 +35,28 @@ package and lets each release independently.
   `apps/server`.
 - `@podium/protocol` and `@podium/core` are leaf packages.
 
+### Server role tiers: core → hub → cloud
+
+One server codebase, composed by role (`docs/offline-sync-architecture.md` §4). Inside
+`apps/server/src` the grouping is by directory, declared in `src/roles.ts`:
+
+- **core** — everything a single-user node needs (store, registry/relay, sessions, sync
+  incl. *dialing* an upstream hub, search, web-serving, transcripts, issues, login auth).
+  Everything outside `src/hub/` is core.
+- **hub** (`src/hub/`) — only for the rendezvous role: inbound daemon pairing, fleet admin,
+  join-command minting. May import core freely; **core never imports hub**. The composition
+  roots (`index.ts`, `server.ts`, `router.ts`) and test files are the declared exemptions —
+  they activate hub surfaces per the runtime role config (`startServer({ role })`; default:
+  hub on, unless `config.upstream` marks the process a node).
+- **cloud** — the private SaaS module (tenancy, billing, managed agents). Lives in a
+  separate repo; **nothing in this repo imports it** (`cloud/` paths are banned outright).
+  It composes in at build time through the plugin seam: `startServer({ plugins })` with
+  `PodiumPlugin.register({ hono, modules, bus, config, role })` (`src/plugins.ts`) — route
+  registration plus typed access to the composed modules; the OSS build ships no plugins.
+
+Enforced by the server's own `src/hub/import-boundary.test.ts`, reading the `src/roles.ts`
+manifest.
+
 ## What goes where
 
 | Working on… | Lives in… |
@@ -56,6 +78,8 @@ package and lets each release independently.
 | Attention notifications (ntfy/telegram/in-app) | `apps/server` `src/modules/notify/` |
 | Settings, model catalog, telegram setup | `apps/server` `src/modules/settings/` |
 | Headless (PTY-less) harness sessions | `apps/server` `src/modules/superagent/` |
+| Hub-only modules (inbound daemon pairing, join command) + the core/hub/cloud role manifest | `apps/server` `src/hub/`, `src/roles.ts` |
+| Cloud/private extension seam (`PodiumPlugin`: Hono route registration + module/bus access) | `apps/server` `src/plugins.ts` (composed via `startServer({ plugins })`) |
 | Module composition (acyclic, dependency order: bus → machines/rpc → settings/notify/hosts → issues wire → sessions → conversations → issues → commands) + the facade older callers hold | `apps/server` `src/relay.ts` (`SessionRegistry`; router procs use the typed `ctx.modules` seam instead) |
 | React screens, command-center grid, modes | `apps/web` |
 | Per-machine agent lifecycle + discovery orchestration | `apps/daemon` |
