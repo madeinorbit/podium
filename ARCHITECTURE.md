@@ -69,9 +69,11 @@ server's own `src/hub/import-boundary.test.ts`, both reading the `src/roles.ts` 
 | Domain entities + zod schemas | `@podium/core` |
 | tRPC routers, auth, persistence, conversation index, daemon fan-out | `apps/server` |
 | Typed in-process event bus (module→module signals) | `apps/server` `src/modules/bus.ts` |
-| THE write funnel — authorize → repo write → oplog append → broadcast; owns the metadata oplog | `apps/server` `src/modules/funnel.ts` (every publish pipeline ends here) |
+| THE write funnel — authorize → repo write → oplog append → broadcast; owns the metadata oplog | `apps/server` `src/modules/funnel.ts` (every publish pipeline ends here; issue mutations enter via `funnel.run`) |
+| Server→client message classification (durable = funnel-only vs live-only raw fan-out; total over `ServerMessage`) | `apps/server` `src/modules/message-class.ts` |
 | Session lifecycle, PTY frame relay, client/daemon ws data planes, queued sends, coalesced broadcast | `apps/server` `src/modules/sessions/` |
 | Daemon sockets/pairing/auth, machine admin + routing; daemon request/response plumbing | `apps/server` `src/modules/machines/` (`service.ts`, `rpc.ts`) |
+| The issue tracker itself (`IssueService`: CRUD + stage machine, reads/reports, archive/drafts, mail, git workflow + assistant) | `apps/server` `src/modules/issues/service/` (seam-per-file class chain) |
 | Issue wire publishing, hub-issue mirror + write forwarding, daemon relay gate, in-process issue command surface (router-equal authz) | `apps/server` `src/modules/issues/` |
 | Conversation index + upstream mirror + transcript lake | `apps/server` `src/modules/conversations/` |
 | Host health, auto-hibernate, memory breakdown | `apps/server` `src/modules/hosts/` |
