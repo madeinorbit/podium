@@ -27,6 +27,12 @@ pub struct DesktopConfig {
 pub enum LaunchAction {
     /// Default: pick a free port, spawn the local `podium` (server+daemon), point the window local.
     LocalAllInOne,
+    /// `mode=server` (hub-only box): pick a free port, spawn `podium server` — the SERVER role
+    /// only, no local daemon/agents — and point the window at the local server port (#176).
+    /// The explicit `server` subcommand (rather than a bare `podium` reading config.mode) also
+    /// bypasses the CLI's persistence-managed path, so a systemd/detached-configured hub still
+    /// gets a real in-process server child the desktop shell can supervise.
+    LocalServerOnly,
     /// Spawn the local `podium` (which reads config → daemon mode → connects to `server_url`);
     /// the window points at the remote (no local server to wait for).
     LocalDaemon { server_url: String },
@@ -63,7 +69,10 @@ pub fn read_config() -> DesktopConfig {
 ///
 /// - `client` + serverUrl  → ClientOnly (spawn nothing, window → remote)
 /// - `daemon` + serverUrl  → LocalDaemon (spawn local podium daemon, window → remote)
-/// - everything else (all-in-one / server / unset / missing serverUrl) → LocalAllInOne
+/// - `server` (with or without serverUrl) → LocalServerOnly (spawn `podium server`, no daemon,
+///   window → local port). Previously this fell through to LocalAllInOne, silently running a
+///   local daemon + agents on a hub-only box (#176).
+/// - everything else (all-in-one / unset / missing serverUrl) → LocalAllInOne
 pub fn resolve_launch(mode: Option<&str>, server_url: Option<&str>) -> LaunchAction {
     match (mode, server_url) {
         (Some("client"), Some(url)) if !url.is_empty() => LaunchAction::ClientOnly {
@@ -72,6 +81,7 @@ pub fn resolve_launch(mode: Option<&str>, server_url: Option<&str>) -> LaunchAct
         (Some("daemon"), Some(url)) if !url.is_empty() => LaunchAction::LocalDaemon {
             server_url: url.to_string(),
         },
+        (Some("server"), _) => LaunchAction::LocalServerOnly,
         _ => LaunchAction::LocalAllInOne,
     }
 }
@@ -286,10 +296,16 @@ mod tests {
     }
 
     #[test]
-    fn resolve_launch_server_mode_is_local() {
+    fn resolve_launch_server_mode_is_server_only() {
+        // #176: a hub-only box must NOT get a local daemon + agents.
         assert_eq!(
             resolve_launch(Some("server"), None),
-            LaunchAction::LocalAllInOne
+            LaunchAction::LocalServerOnly
+        );
+        // A stray serverUrl in config doesn't change it — the server runs locally.
+        assert_eq!(
+            resolve_launch(Some("server"), Some("ws://h:1")),
+            LaunchAction::LocalServerOnly
         );
     }
 

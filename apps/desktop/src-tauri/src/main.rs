@@ -127,7 +127,8 @@ fn main() {
             }
 
             // Decide what to launch from the persisted deployment mode. A missing/corrupt
-            // config (or all-in-one / server / missing serverUrl) → today's local behavior.
+            // config (or all-in-one / missing serverUrl) → today's local behavior; mode=server
+            // spawns the server role only (#176).
             let cfg = bootstrap::read_config();
             let action = bootstrap::resolve_launch(cfg.mode.as_deref(), cfg.server_url.as_deref());
             eprintln!("[podium-desktop] launch action: {action:?}");
@@ -154,8 +155,21 @@ fn main() {
             // TLS relay fails (1006), but a same-origin load connects, exactly like a browser tab.
             let webview_url: WebviewUrl;
 
+            // mode=server (#176): the sidecar gets the explicit `server` subcommand so it runs
+            // the SERVER role only — no local daemon/agents — and bypasses the CLI's
+            // persistence-managed dispatch (which would start systemd units and exit, leaving
+            // nothing on our picked port to supervise).
+            let server_only = action == bootstrap::LaunchAction::LocalServerOnly;
+
             match action {
-                bootstrap::LaunchAction::LocalAllInOne => {
+                bootstrap::LaunchAction::LocalAllInOne
+                | bootstrap::LaunchAction::LocalServerOnly => {
+                    // Shared local path: pick a port, spawn the sidecar, point the window local.
+                    let sidecar_args: Vec<String> = if server_only {
+                        vec!["server".to_string()]
+                    } else {
+                        vec![]
+                    };
                     let port = bootstrap::pick_free_port();
 
                     // Resolve the bundled podium binary (plain resource, never patchelf'd).
@@ -174,10 +188,13 @@ fn main() {
                         e
                     })?;
 
-                    eprintln!("[podium-desktop] spawning {runnable:?} on port {port}");
+                    eprintln!(
+                        "[podium-desktop] spawning {runnable:?} {sidecar_args:?} on port {port}"
+                    );
 
                     // Spawn the initial sidecar child process.
                     let child = Command::new(&runnable)
+                        .args(&sidecar_args)
                         .env("PODIUM_PORT", port.to_string())
                         .env("PODIUM_WEB_DIR", web_dir.to_string_lossy().to_string())
                         .spawn()
@@ -192,11 +209,13 @@ fn main() {
                     // bounded backoff (500ms → cap 5s). The web client auto-reconnects over WS.
                     let runnable2 = runnable.clone();
                     let web_dir2 = web_dir.clone();
+                    let sidecar_args2 = sidecar_args.clone();
                     spawn_respawn_monitor(
                         child_state.clone(),
                         shutting_down.clone(),
                         move || {
                             Command::new(&runnable2)
+                                .args(&sidecar_args2)
                                 .env("PODIUM_PORT", port.to_string())
                                 .env("PODIUM_WEB_DIR", web_dir2.to_string_lossy().to_string())
                                 .spawn()
