@@ -88,7 +88,11 @@ function effectiveRecency(s: SessionMeta, now: number): string {
   // that moment*: surface the session by its expiry so a just-returned one sorts
   // near the top. A future deadline (still snoozed) must NOT count — that session
   // is filtered out of the attention list anyway.
-  if (typeof s.snoozedUntil === 'string' && Date.parse(s.snoozedUntil) <= now && s.snoozedUntil > t) {
+  if (
+    typeof s.snoozedUntil === 'string' &&
+    Date.parse(s.snoozedUntil) <= now &&
+    s.snoozedUntil > t
+  ) {
     t = s.snoozedUntil
   }
   return t

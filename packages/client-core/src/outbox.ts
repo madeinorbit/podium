@@ -19,6 +19,24 @@ export interface OutboxStorage {
   save(entries: OutboxEntry[]): void
 }
 
+/** Legacy web localStorage key for the pre-replica outbox blob. The replica's
+ *  outbox collection migrates it in on first use (see replica/replica.ts). */
+export const OUTBOX_LS_KEY = 'podium.outbox.v1'
+
+/** Browser 'online' events when a window exists; undefined elsewhere (RN/SSR). */
+export function platformOnlineEvents(): OnlineEvents | undefined {
+  if (typeof window === 'undefined') return undefined
+  return {
+    add: (cb) => window.addEventListener('online', cb),
+    remove: (cb) => window.removeEventListener('online', cb),
+  }
+}
+
+/** navigator.onLine when available; optimistic (true) elsewhere. */
+export function platformIsOnline(): boolean {
+  return typeof navigator === 'undefined' || navigator.onLine !== false
+}
+
 export interface OnlineEvents {
   add(cb: () => void): void
   remove(cb: () => void): void

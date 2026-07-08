@@ -1,12 +1,7 @@
 {
-  "extends": "../../tooling/tsconfig/base.json",
-  "include": [
-    "src"
-  ],
+  "extends": "../../tooling/tsconfig/react.json",
+  "include": ["src"],
   "compilerOptions": {
-    "lib": [
-      "ES2023",
-      "DOM"
-    ]
+    "types": ["node"]
   }
 }

@@ -51,9 +51,7 @@ describe('shared focus selectors', () => {
       ),
     ).toBe('needsYou')
     expect(
-      attentionGroup(
-        meta({ sessionId: 'work', agentState: working('2026-07-01T01:00:00.000Z') }),
-      ),
+      attentionGroup(meta({ sessionId: 'work', agentState: working('2026-07-01T01:00:00.000Z') })),
     ).toBe('working')
     expect(attentionGroup(meta({ sessionId: 'idle', status: 'exited' }))).toBe('idle')
   })
@@ -79,10 +77,7 @@ describe('shared focus selectors', () => {
       agentState: needsUser('2026-07-01T00:00:00.000Z'),
     })
     expect([old, draft].sort(compareRecency).map((s) => s.sessionId)).toEqual(['draft', 'old'])
-    expect(groupSessions([old, draft]).needsYou.map((s) => s.sessionId)).toEqual([
-      'draft',
-      'old',
-    ])
+    expect(groupSessions([old, draft]).needsYou.map((s) => s.sessionId)).toEqual(['draft', 'old'])
   })
 
   it('drops shells and headless sessions from command-center lists', () => {

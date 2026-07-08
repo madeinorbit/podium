@@ -1,13 +1,33 @@
+/**
+ * Mobile binding for the shared client store (arch-v2 P3, issue #192): the
+ * hand-rolled useState metadata layer is gone — the Expo app runs the SAME
+ * StoreProvider as the web (replica-backed entity reads, outboxed optimistic
+ * mutations) over an AsyncStorage-backed replica, so a cold offline start
+ * paints from local data and offline writes replay on reconnect.
+ *
+ * `useMobileClient` keeps its existing shape: it is now a thin adapter over
+ * the shared store (mobile-only extras — transcript paging, ask-user answers —
+ * ride on the store's hub/trpc). Demo mode (`?demo=1`) stays a static fixture.
+ */
+
 import { groupSessions, withoutShells } from '@podium/client-core/focus'
+import { type StoreNotices, StoreProvider, useStore } from '@podium/client-core/react'
+import {
+  createAsyncStorageReplicaStorage,
+  createReplica,
+  type Replica,
+} from '@podium/client-core/replica'
+import { createMemoryRouterWindow } from '@podium/client-core/router'
 import type { ServerConfig } from '@podium/client-core/transport'
 import type {
+  ConversationSummaryWire,
   HeadlessActivityEvent,
   IssueWire,
   SessionMeta,
   TranscriptItem,
   WorkState,
 } from '@podium/protocol'
-import { SocketHub } from '@podium/terminal-client/connection'
+import AsyncStorage from '@react-native-async-storage/async-storage'
 import {
   createContext,
   type ReactNode,
@@ -24,15 +44,15 @@ import {
   DEMO_TRANSCRIPTS,
   demoEnabled,
 } from './demoData'
-import { EMPTY_METADATA, type MobileMetadataState } from './metadata'
-import { createMobileOutbox } from './outbox'
 import { type MobileTrpc, makeMobileTrpc, readServerConfig, type TranscriptPage } from './trpc'
 
-type MobileOutboxKinds = {
-  resumeAndSend: { sessionId: string; text: string }
-}
-
-export interface MobileClientValue extends MobileMetadataState {
+export interface MobileClientValue {
+  sessions: SessionMeta[]
+  issues: IssueWire[]
+  conversations: ConversationSummaryWire[]
+  connected: boolean
+  cursor: number | null
+  error: string | null
   serverConfig: ServerConfig
   trpc: MobileTrpc
   sessionById(sessionId: string): SessionMeta | undefined
@@ -122,82 +142,60 @@ function DemoProvider({ children }: { children: ReactNode }) {
 function LiveProvider({ children }: { children: ReactNode }) {
   const config = useMemo(readServerConfig, [])
   const trpc = useMemo(() => makeMobileTrpc(config.httpOrigin), [config.httpOrigin])
-  const [metadata, setMetadata] = useState<MobileMetadataState>(EMPTY_METADATA)
-  const [outboxSize, setOutboxSize] = useState(0)
-
-  const outbox = useMemo(
-    () =>
-      createMobileOutbox<MobileOutboxKinds>({
-        executors: {
-          resumeAndSend: (input) => trpc.sessions.resumeAndSend.mutate(input),
-        },
-        onPoison: () =>
-          setMetadata((prev) => ({
-            ...prev,
-            error: 'A queued message was rejected by the server.',
-          })),
-      }),
-    [trpc],
-  )
-
-  const hub = useMemo(
-    () =>
-      new SocketHub({
-        url: config.wsClientUrl,
-        viewport: {
-          cols: 80,
-          rows: 24,
-          dpr: typeof window === 'undefined' ? 1 : window.devicePixelRatio || 1,
-        },
-        fetchChangesSince: (cursor) => trpc.sync.changesSince.query({ cursor }),
-        onMetadataApplied: (state) =>
-          setMetadata({
-            sessions: state.sessions,
-            issues: state.issues,
-            conversations: state.conversations,
-            connected: true,
-            cursor: state.cursor,
-            error: null,
-          }),
-        onError: (message) => setMetadata((prev) => ({ ...prev, error: message })),
-      }),
-    [config.wsClientUrl, trpc],
-  )
-
+  const [error, setError] = useState<string | null>(null)
+  // AsyncStorage is Promise-only; hydrate the replica's synchronous storage
+  // bridge before the store boots (offline cold-start paints from it).
+  const [replica, setReplica] = useState<Replica | null>(null)
   useEffect(() => {
-    setOutboxSize(outbox.size())
-    const off = outbox.subscribe(setOutboxSize)
-    outbox.attach()
-    return () => {
-      off()
-      outbox.dispose()
-    }
-  }, [outbox])
-
-  useEffect(() => {
-    const offSessions = hub.onSessions((sessions) => setMetadata((prev) => ({ ...prev, sessions })))
-    const offIssues = hub.onIssues((issues) => setMetadata((prev) => ({ ...prev, issues })))
-    const offConversations = hub.onConversations((conversations) =>
-      setMetadata((prev) => ({ ...prev, conversations })),
-    )
-    const offHealth = hub.onConnectionHealth((health) => {
-      if (health.status === 'ok') outbox.notifyConnected()
-      setMetadata((prev) => ({ ...prev, connected: health.status !== 'down' }))
+    let alive = true
+    void createAsyncStorageReplicaStorage(AsyncStorage).then((bridge) => {
+      if (alive) setReplica(createReplica({ storage: bridge.storage }))
     })
-    hub.connect()
     return () => {
-      offSessions()
-      offIssues()
-      offConversations()
-      offHealth()
-      hub.dispose()
+      alive = false
     }
-  }, [hub, outbox])
+  }, [])
+  const routerWindow = useMemo(() => createMemoryRouterWindow(), [])
+  const notices = useMemo<StoreNotices>(
+    () => ({ error: (message) => setError(message), info: () => {} }),
+    [],
+  )
+  if (!replica) return null
+  return (
+    <StoreProvider
+      config={config}
+      api={trpc}
+      onFatalError={setError}
+      notices={notices}
+      createReplicaFn={() => replica}
+      routerWindow={routerWindow}
+    >
+      <LiveBridge config={config} error={error}>
+        {children}
+      </LiveBridge>
+    </StoreProvider>
+  )
+}
+
+/** Adapts the shared store to the MobileClientValue the screens consume. */
+function LiveBridge({
+  config,
+  error,
+  children,
+}: {
+  config: ServerConfig
+  error: string | null
+  children: ReactNode
+}) {
+  const store = useStore<MobileTrpc>()
+  const { hub, trpc, replica, sessions, issues, conversations, outboxSize } = store
+  const [connected, setConnected] = useState(() => hub.connectionHealth().status !== 'down')
+  useEffect(() => hub.onConnectionHealth((health) => setConnected(health.status !== 'down')), [hub])
 
   const focusSessionIds = useMemo(() => {
-    const groups = groupSessions(withoutShells(metadata.sessions))
+    const groups = groupSessions(withoutShells(sessions))
     return [...groups.needsYou, ...groups.idle, ...groups.working].map((s) => s.sessionId)
-  }, [metadata.sessions])
+  }, [sessions])
 
   const readTranscript = useCallback(
     (sessionId: string, anchor?: string) =>
@@ -209,7 +207,6 @@ function LiveProvider({ children }: { children: ReactNode }) {
       }),
     [trpc],
   )
-
   const subscribeTranscript = useCallback(
     (
       sessionId: string,
@@ -218,22 +215,20 @@ function LiveProvider({ children }: { children: ReactNode }) {
     ) => hub.subscribeTranscript(sessionId, since, cb),
     [hub],
   )
-
   const subscribeHeadless = useCallback(
     (sessionId: string, cb: (e: HeadlessActivityEvent) => void) =>
       hub.subscribeHeadless(sessionId, cb),
     [hub],
   )
-
   const sendMessage = useCallback(
     async (sessionId: string, text: string) => {
       const trimmed = text.trim()
       if (!trimmed) return
-      outbox.enqueue('resumeAndSend', { sessionId, text: trimmed })
+      // Optimistic + outboxed via the shared store (survives offline reloads).
+      await store.resumeAndSend(sessionId, trimmed)
     },
-    [outbox],
+    [store.resumeAndSend],
   )
-
   const answerQuestion = useCallback(
     async (sessionId: string, choices: { optionIndices: number[] }[]) => {
       await trpc.sessions.answerAskUserQuestion.mutate({ sessionId, choices })
@@ -241,62 +236,18 @@ function LiveProvider({ children }: { children: ReactNode }) {
     [trpc],
   )
 
-  const setArchived = useCallback(
-    async (sessionId: string, archived: boolean) => {
-      await trpc.sessions.setArchived.mutate({ sessionId, archived })
-    },
-    [trpc],
-  )
-
-  const setWorkState = useCallback(
-    async (sessionId: string, workState: WorkState | null) => {
-      await trpc.sessions.setWorkState.mutate({ sessionId, workState })
-    },
-    [trpc],
-  )
-
-  const killSession = useCallback(
-    async (sessionId: string) => {
-      await trpc.sessions.kill.mutate({ sessionId })
-    },
-    [trpc],
-  )
-
-  const continueSession = useCallback(
-    async (sessionId: string) => {
-      await trpc.sessions.continue.mutate({ sessionId })
-    },
-    [trpc],
-  )
-
-  const renameSession = useCallback(
-    async (sessionId: string, name: string) => {
-      await trpc.sessions.rename.mutate({ sessionId, name })
-    },
-    [trpc],
-  )
-
-  const snooze = useCallback(
-    async (sessionId: string, until: string | null) => {
-      await trpc.snoozes.set.mutate({ sessionId, until })
-    },
-    [trpc],
-  )
-
-  const clearSnooze = useCallback(
-    async (sessionId: string) => {
-      await trpc.snoozes.clear.mutate({ sessionId })
-    },
-    [trpc],
-  )
-
   const value = useMemo<MobileClientValue>(
     () => ({
-      ...metadata,
+      sessions,
+      issues,
+      conversations,
+      connected,
+      cursor: replica.getCursor(),
+      error,
       serverConfig: config,
       trpc,
-      sessionById: (sessionId) => metadata.sessions.find((s) => s.sessionId === sessionId),
-      issueById: (issueId) => metadata.issues.find((i) => i.id === issueId),
+      sessionById: (sessionId) => sessions.find((s) => s.sessionId === sessionId),
+      issueById: (issueId) => issues.find((i) => i.id === issueId),
       focusSessionIds,
       outboxSize,
       readTranscript,
@@ -304,32 +255,39 @@ function LiveProvider({ children }: { children: ReactNode }) {
       subscribeHeadless,
       sendMessage,
       answerQuestion,
-      setArchived,
-      setWorkState,
-      killSession,
-      continueSession,
-      renameSession,
-      snooze,
-      clearSnooze,
+      // Curation actions come straight from the shared store: optimistic
+      // replica apply + outboxed round-trip (mobile gains offline writes).
+      setArchived: store.archiveSession,
+      setWorkState: store.setWorkState,
+      killSession: store.killSession,
+      continueSession: store.continueSession,
+      renameSession: store.renameSession,
+      snooze: store.setSnooze,
+      clearSnooze: store.clearSnooze,
     }),
     [
+      sessions,
+      issues,
+      conversations,
+      connected,
+      replica,
+      error,
       config,
       trpc,
       focusSessionIds,
-      metadata,
       outboxSize,
       readTranscript,
       subscribeTranscript,
       subscribeHeadless,
       sendMessage,
       answerQuestion,
-      setArchived,
-      setWorkState,
-      killSession,
-      continueSession,
-      renameSession,
-      snooze,
-      clearSnooze,
+      store.archiveSession,
+      store.setWorkState,
+      store.killSession,
+      store.continueSession,
+      store.renameSession,
+      store.setSnooze,
+      store.clearSnooze,
     ],
   )
 

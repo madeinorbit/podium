@@ -31,7 +31,10 @@ export function shallowEqual(a: unknown, b: unknown): boolean {
   const kb = Object.keys(b)
   if (ka.length !== kb.length) return false
   for (const k of ka) {
-    if (!Object.hasOwn(b, k) || !Object.is((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k]))
+    if (
+      !Object.hasOwn(b, k) ||
+      !Object.is((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k])
+    )
       return false
   }
   return true

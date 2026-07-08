@@ -6,9 +6,20 @@ import { describe, expect, it } from 'vitest'
 const read = (rel: string) =>
   readFileSync(fileURLToPath(new URL('../src/' + rel, import.meta.url)), 'utf8')
 
+// The store provider implementation moved to @podium/client-core (arch-v2 P3,
+// issue #192); apps/web/src/store.tsx is the web binding. Structure assertions
+// about the store's implementation read the shared provider source.
+const readStore = () =>
+  readFileSync(
+    fileURLToPath(
+      new URL('../../../packages/client-core/src/react/provider.tsx', import.meta.url),
+    ),
+    'utf8',
+  )
+
 describe('auto-continue popup', () => {
   it('store gates the popup on shouldPromptAutoContinue after a manual continue', () => {
-    const src = read('store.tsx')
+    const src = readStore()
     expect(src).toContain('shouldPromptAutoContinue')
     expect(src).toContain('autoContinuePromptSessionId')
     expect(src).toContain('closeAutoContinuePrompt')

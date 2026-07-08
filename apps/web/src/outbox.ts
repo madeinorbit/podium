@@ -1,22 +1,22 @@
 import {
-  Outbox,
-  parseOutboxEntries,
   type OnlineEvents,
+  OUTBOX_LS_KEY,
+  Outbox,
   type OutboxInit,
   type OutboxStorage,
+  parseOutboxEntries,
 } from '@podium/client-core/outbox'
 
 export {
-  Outbox,
-  parseOutboxEntries,
   type OnlineEvents,
+  OUTBOX_LS_KEY,
+  Outbox,
   type OutboxEntry,
   type OutboxExecutors,
   type OutboxInit,
   type OutboxStorage,
+  parseOutboxEntries,
 } from '@podium/client-core/outbox'
-
-export const OUTBOX_LS_KEY = 'podium.outbox.v1'
 
 /** Guarded like store.tsx's lsGet/lsSet — localStorage throws in private-mode/SSR. */
 export function localStorageBacking(key = OUTBOX_LS_KEY): OutboxStorage {
