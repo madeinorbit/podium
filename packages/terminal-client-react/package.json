@@ -1,0 +1,32 @@
+{
+  "name": "@podium/terminal-client-react",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The one React binding over @podium/terminal-client's imperative mountSession/SocketHub: mount/unmount lifecycle, warm active/focus toggles, and hub connect/dispose.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    ".": {
+      "@podium/source": "./src/index.ts",
+      "types": "./src/index.ts",
+      "import": "./src/index.ts"
+    }
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@podium/terminal-client": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.8",
+    "@types/react": "^19.0.0",
+    "react": "19.2.7",
+    "@types/node": "^24.0.0"
+  },
+  "peerDependencies": {
+    "react": ">=19"
+  }
+}

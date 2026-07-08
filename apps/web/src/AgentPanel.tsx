@@ -4,9 +4,9 @@ import {
   extractCodexPromptDraft,
   keySequence,
   type MountedSession,
-  mountSession,
   type SpecialKey,
 } from '@podium/terminal-client'
+import { useTerminalSession } from '@podium/terminal-client-react'
 import {
   Archive,
   ArrowDownToLine,
@@ -163,9 +163,6 @@ export function AgentPanel({
   // "Starting…" overlay covers the wait, and the mount effect (which depends on
   // this) fires the instant it flips true.
   const spawnConfirmed = !pendingSpawnIds.has(sessionId)
-  const termRef = useRef<HTMLDivElement | null>(null)
-  const toolbarRef = useRef<HTMLDivElement | null>(null)
-  const mountedRef = useRef<MountedSession | null>(null)
   // Chat exists where a structured transcript does. Prefer the server's
   // observed signal (lights up any future transcript provider with no edit
   // here); fall back to known transcript harnesses so chat is offered
@@ -242,39 +239,208 @@ export function AgentPanel({
     !exited &&
     (attentionGroup(session) !== 'working' || isSnoozed(session, snoozeNow))
   const canHibernate = !hibernated && !exited && session?.resumable === true
-  // Hold a "Starting…" overlay over the terminal until the session is READY — the
-  // server confirms the attach (PTY bound), the first frame lands, or a timeout
-  // backstop fires (see mountSession's onReady). Gating on attach rather than on
-  // output is what lets a session idling at a prompt with an empty replay buffer
-  // (e.g. after a server restart) reveal as usable instead of hanging "Starting…".
-  const [ready, setReady] = useState(false)
-  // Pinned to the live tail? Drives the "Jump to bottom" pill when the user has
-  // scrolled back through the scrollback.
-  const [atBottom, setAtBottom] = useState(true)
+  // The terminal stays mounted across a chat<->native toggle (Task 6): it's kept
+  // alive (hidden under the chat overlay) with eligibility flipped via `active`
+  // instead of a remount — see useTerminalSession's own setActive effect.
+  const terminalActive = active && effectiveMode === 'native' && !hibernated && !exited
+  const knownPathsRef = useRef<Set<string>>(new Set())
+  // Latest shared chat draft for this session, mirrored into a ref so the
+  // draft-flush machinery (onMounted, below) can read it at flush time
+  // (chat→native sync, #17/#62) WITHOUT depending on `drafts` directly — a dep
+  // there would tear down and remount the whole terminal on every keystroke.
+  const draftRef = useRef('')
+  draftRef.current = drafts[sessionId] ?? ''
+  // Re-arm hook for the chat→native draft flush, published by onMounted below.
+  // The flush machinery (one-shot guard + bounded poll) lives inside onMounted's
+  // closure and otherwise only runs once, at mount. Since the terminal stays
+  // mounted across a chat↔native toggle (Task 6), onMounted doesn't re-fire on
+  // each toggle, so the mode-transition effect further down calls this re-arm
+  // fn whenever the panel ENTERS native — re-running the flush so a chat-
+  // authored draft lands in the native composer on every toggle, not just the
+  // first mount.
+  const rearmFlushRef = useRef<(() => void) | null>(null)
+  // Latest per-frame sampler, published by onMounted. Forwarded into
+  // useTerminalSession's onFrame via a stable wrapper defined before the hook
+  // call (onFrame is bound at mountSession-construction time, before onMounted
+  // — by the time any frame actually fires, onMounted has already run and
+  // reassigned this ref, since both happen synchronously in the same effect).
+  const scheduleSampleRef = useRef<() => void>(() => {})
+
+  const {
+    containerRef: termRef,
+    toolbarRef,
+    mountedRef,
+    ready,
+    atBottom,
+  } = useTerminalSession({
+    hub,
+    sessionId,
+    // Hibernated/exited (no live PTY) skip mounting. An optimistically-spawned
+    // session doesn't exist server-side yet (#119) either — its one-shot attach
+    // would be dropped and never retried, so hold the mount until spawnConfirmed
+    // flips true (the reconcile).
+    enabled: !hibernated && !exited && spawnConfirmed,
+    active: terminalActive,
+    // Don't grab focus on mount — that pops the soft keyboard over the
+    // "Starting…" overlay. focusWhenReady takes over once the session is ready
+    // (attached) AND this is the active terminal.
+    focusOnMount: false,
+    focusWhenReady: true,
+    test: E2E,
+    onFrame: () => scheduleSampleRef.current(),
+    onMounted: (mounted) => {
+      // Seed the file-link provider immediately after mount with whatever paths
+      // are already known (from the transcript subscription effect below).
+      // Without this the provider is a no-op until the next transcript callback.
+      mounted.view.setFileLinks({
+        cwd: session?.cwd ?? '/',
+        knownPaths: knownPathsRef.current,
+        onOpen: (abs) => openFile(sessionId, abs),
+      })
+      // Mirror the in-progress native prompt into the shared chat draft (Claude and
+      // Codex). Best-effort + clobber-safe: only the controlling client publishes
+      // (cross-client), and only while THIS terminal holds focus, so a chat composer
+      // being typed in another pane/device wins. Publish only on change; a null
+      // extraction (slash menu / no composer / other agent) never clobbers; and a
+      // freshly-focused EMPTY composer won't publish '' as its first act (which would
+      // wipe a draft another device is typing — a real clear still propagates after).
+      const agentKind = session?.agentKind
+      let lastPublished: string | null = null
+      let sampleTimer: ReturnType<typeof setTimeout> | null = null
+      // Read the native composer's current text via the same scrape both directions
+      // share. Returns the typed text, '' for an empty composer, or null when no
+      // clean composer box is on screen yet (splash/overlay/menu) — callers must
+      // not act on null. Claude draws a box; Codex a single dim-stripped `›` line.
+      const scrapeComposer = (m: MountedSession): string | null => {
+        if (agentKind === 'claude-code')
+          return extractClaudePromptDraft(m.view.screenText().split('\n'))
+        if (agentKind === 'codex')
+          return extractCodexPromptDraft(m.view.screenText({ dropDim: true }).split('\n'))
+        return null
+      }
+      const sample = () => {
+        if (mounted.connection.state().role !== 'controller') return
+        if (!termRef.current?.contains(document.activeElement)) return
+        // Codex's empty composer shows a DIM placeholder suggestion — blank dim cells
+        // (screenText dropDim) so it isn't mistaken for typed text; Claude's box needs
+        // no such filter.
+        const draft = scrapeComposer(mounted)
+        if (draft === null || draft === lastPublished) return
+        if (draft === '' && lastPublished === null) return
+        lastPublished = draft
+        setSessionDraft(sessionId, draft)
+      }
+      // chat→native (#17/#62): one-shot flush of the shared chat draft into the
+      // native composer on entering native mode, so text typed in chat lands in the
+      // real PTY prompt. The terminal is UNMOUNTED during chat mode (chat renders
+      // ChatView, not the xterm), so realtime key-by-key injection while chat-typing
+      // is impossible — the realistic, safe sync point is this mode switch.
+      //
+      // SAFETY (never clobber text the user typed directly in the native composer):
+      //   - only the controller injects, and only while the terminal holds focus
+      //     (mirrors the sampler's directional guard #53 so the two never fight);
+      //   - we scrape the live composer first and ONLY inject when it is empty (or
+      //     already equals what we're about to type — an idempotent retry). A null
+      //     scrape (splash/overlay not yet a clean box) or unrelated typed text →
+      //     SKIP, and we retry on later frames until the box settles or we bail;
+      //   - empty shared draft → nothing to do.
+      // ANTI-FEEDBACK ("sent keys + reconcile"): we send Ctrl-U (clear-line, a no-op
+      // on an already-empty composer) then the draft, remember it as `lastPublished`,
+      // and let the existing 150ms sampler reconcile — it now sees the scrape return
+      // exactly what we injected (=== lastPublished) and stays quiet, so our own
+      // injection is never re-published as a "new" draft.
+      let flushTried = false
+      // Returns true when it actually injected on this tick — the caller then SKIPS
+      // the sampler for this tick, because the injected bytes haven't echoed back to
+      // the screen yet (the scrape would still read the pre-injection empty composer
+      // and, with lastPublished now set to the draft, publish '' — wiping it). The
+      // next frame's scrape sees the echo, matches lastPublished, and stays quiet.
+      const flushDraftToNative = (): boolean => {
+        if (flushTried) return false
+        if (mounted.connection.state().role !== 'controller') return false
+        if (!termRef.current?.contains(document.activeElement)) return false
+        const want = draftRef.current
+        // Nothing to push — let the native→chat sampler own this session's draft.
+        if (want === '') {
+          flushTried = true
+          return false
+        }
+        const current = scrapeComposer(mounted)
+        // No clean composer box yet (splash/overlay): wait for a later frame.
+        if (current === null) return false
+        // The composer already holds text the user typed directly in native — never
+        // overwrite it. Stand down for this mode-entry (idempotent if it happens to
+        // already equal what we'd type).
+        if (current !== '' && current !== want) {
+          flushTried = true
+          return false
+        }
+        flushTried = true
+        // Clear the line (safe no-op when empty) then type the draft. Seed the
+        // sampler so the reconcile scrape of our own injection isn't re-published.
+        lastPublished = want
+        mounted.connection.sendInput('\x15') // Ctrl-U
+        mounted.connection.sendInput(want)
+        return true
+      }
+      const scheduleSample = () => {
+        if (sampleTimer) return
+        sampleTimer = setTimeout(() => {
+          sampleTimer = null
+          if (flushDraftToNative()) return
+          sample()
+        }, 150)
+      }
+      scheduleSampleRef.current = scheduleSample
+      // The flush above piggy-backs on onFrame, but an already-idle composer may
+      // emit no frames after focus lands (and focus itself arrives a beat after
+      // the first frame, via focusWhenReady above). Poll a bounded number of
+      // times so the one-shot chat→native flush still fires on a quiet session;
+      // it self-stops once the flush resolves (injected, or skipped because
+      // empty/occupied/wrong-agent).
+      let flushPoll: ReturnType<typeof setInterval> | null = null
+      const startFlushPoll = () => {
+        if (flushPoll) clearInterval(flushPoll)
+        let flushAttempts = 0
+        flushPoll = setInterval(() => {
+          if (flushTried || flushAttempts++ >= 40) {
+            if (flushPoll) clearInterval(flushPoll)
+            flushPoll = null
+            return
+          }
+          if (flushDraftToNative()) {
+            if (flushPoll) clearInterval(flushPoll)
+            flushPoll = null
+          }
+        }, 150)
+      }
+      startFlushPoll()
+      // Publish the re-arm hook: reset the one-shot guard and restart the bounded
+      // poll. Called by the mode-transition effect on each chat→native entry so the
+      // flush re-fires for a fresh chat draft (its own guards still protect against
+      // clobbering native-typed text / empty drafts).
+      rearmFlushRef.current = () => {
+        flushTried = false
+        startFlushPoll()
+      }
+      return () => {
+        rearmFlushRef.current = null
+        scheduleSampleRef.current = () => {}
+        if (sampleTimer) clearTimeout(sampleTimer)
+        if (flushPoll) clearInterval(flushPoll)
+      }
+    },
+  })
+
   // Native-mode dictation: transcribed speech types straight into the PTY as
   // keystrokes — no auto-submit, so the user can edit before hitting Enter.
   const voice = useVoiceInput((text) => mountedRef.current?.connection.sendInput(`${text} `))
-  const knownPathsRef = useRef<Set<string>>(new Set())
-  // Latest shared chat draft for this session, mirrored into a ref so the native
-  // mount effect can read it at flush time (chat→native sync, #17/#62) WITHOUT
-  // depending on `drafts` — a dep there would tear down and remount the whole
-  // terminal on every keystroke.
-  const draftRef = useRef('')
-  draftRef.current = drafts[sessionId] ?? ''
-  // Re-arm hook for the chat→native draft flush. The flush machinery (one-shot
-  // guard + bounded poll) lives inside the mount effect's closure and otherwise
-  // only runs once at mount. Since the terminal now stays mounted across a
-  // chat↔native toggle (Task 6), the mount no longer re-fires on each toggle, so
-  // the mount effect publishes this re-arm fn here and the mode-transition effect
-  // below calls it whenever the panel ENTERS native — re-running the flush so a
-  // chat-authored draft lands in the native composer on every toggle, not just
-  // first mount.
-  const rearmFlushRef = useRef<(() => void) | null>(null)
 
   // Subscribe to the transcript to build the set of known absolute paths for
   // the file-link provider. Updates mountedRef.current?.view.setFileLinks so
   // links stay fresh as new tool calls land. The hub now forwards per-frame
   // DELTAS, so accumulate paths into a growing set (a reset re-seeds it empty).
+  // biome-ignore lint/correctness/useExhaustiveDependencies: mountedRef is a stable ref from useTerminalSession, not app state
   useEffect(() => {
     knownPathsRef.current = new Set()
     return hub.subscribeTranscript(sessionId, undefined, (delta, meta) => {
@@ -290,183 +456,6 @@ export function AgentPanel({
       })
     })
   }, [hub, sessionId, session?.cwd, openFile])
-
-  useEffect(() => {
-    // The terminal stays mounted across a chat<->native toggle (Task 6): it's
-    // kept alive (hidden under the chat overlay) and marked inactive via the
-    // eligibility effect below, so a toggle neither disposes nor re-attaches it.
-    // Only hibernated/exited (no live PTY) skip mounting; the container is null
-    // then too. Crucially this effect no longer depends on effectiveMode, so a
-    // mode flip doesn't re-run it.
-    if (hibernated || exited) return
-    // Don't attach to a session the server hasn't confirmed yet (#119): the attach
-    // would be dropped and never retried. This effect re-runs when spawnConfirmed
-    // flips true (the reconcile), attaching against the now-real session.
-    if (!spawnConfirmed) return
-    if (!termRef.current) return
-    setReady(false)
-    setAtBottom(true)
-    // Mirror the in-progress native prompt into the shared chat draft (Claude and
-    // Codex). Best-effort + clobber-safe: only the controlling client publishes
-    // (cross-client), and only while THIS terminal holds focus, so a chat composer
-    // being typed in another pane/device wins. Publish only on change; a null
-    // extraction (slash menu / no composer / other agent) never clobbers; and a
-    // freshly-focused EMPTY composer won't publish '' as its first act (which would
-    // wipe a draft another device is typing — a real clear still propagates after).
-    const agentKind = session?.agentKind
-    let lastPublished: string | null = null
-    let sampleTimer: ReturnType<typeof setTimeout> | null = null
-    // Read the native composer's current text via the same scrape both directions
-    // share. Returns the typed text, '' for an empty composer, or null when no
-    // clean composer box is on screen yet (splash/overlay/menu) — callers must
-    // not act on null. Claude draws a box; Codex a single dim-stripped `›` line.
-    const scrapeComposer = (m: MountedSession): string | null => {
-      if (agentKind === 'claude-code')
-        return extractClaudePromptDraft(m.view.screenText().split('\n'))
-      if (agentKind === 'codex')
-        return extractCodexPromptDraft(m.view.screenText({ dropDim: true }).split('\n'))
-      return null
-    }
-    const sample = () => {
-      const m = mountedRef.current
-      if (!m) return
-      if (m.connection.state().role !== 'controller') return
-      if (!termRef.current?.contains(document.activeElement)) return
-      // Codex's empty composer shows a DIM placeholder suggestion — blank dim cells
-      // (screenText dropDim) so it isn't mistaken for typed text; Claude's box needs
-      // no such filter.
-      const draft = scrapeComposer(m)
-      if (draft === null || draft === lastPublished) return
-      if (draft === '' && lastPublished === null) return
-      lastPublished = draft
-      setSessionDraft(sessionId, draft)
-    }
-    // chat→native (#17/#62): one-shot flush of the shared chat draft into the
-    // native composer on entering native mode, so text typed in chat lands in the
-    // real PTY prompt. The terminal is UNMOUNTED during chat mode (chat renders
-    // ChatView, not the xterm), so realtime key-by-key injection while chat-typing
-    // is impossible — the realistic, safe sync point is this mode switch.
-    //
-    // SAFETY (never clobber text the user typed directly in the native composer):
-    //   - only the controller injects, and only while the terminal holds focus
-    //     (mirrors the sampler's directional guard #53 so the two never fight);
-    //   - we scrape the live composer first and ONLY inject when it is empty (or
-    //     already equals what we're about to type — an idempotent retry). A null
-    //     scrape (splash/overlay not yet a clean box) or unrelated typed text →
-    //     SKIP, and we retry on later frames until the box settles or we bail;
-    //   - empty shared draft → nothing to do.
-    // ANTI-FEEDBACK ("sent keys + reconcile"): we send Ctrl-U (clear-line, a no-op
-    // on an already-empty composer) then the draft, remember it as `lastPublished`,
-    // and let the existing 150ms sampler reconcile — it now sees the scrape return
-    // exactly what we injected (=== lastPublished) and stays quiet, so our own
-    // injection is never re-published as a "new" draft.
-    let flushTried = false
-    // Returns true when it actually injected on this tick — the caller then SKIPS
-    // the sampler for this tick, because the injected bytes haven't echoed back to
-    // the screen yet (the scrape would still read the pre-injection empty composer
-    // and, with lastPublished now set to the draft, publish '' — wiping it). The
-    // next frame's scrape sees the echo, matches lastPublished, and stays quiet.
-    const flushDraftToNative = (): boolean => {
-      if (flushTried) return false
-      const m = mountedRef.current
-      if (!m) return false
-      if (m.connection.state().role !== 'controller') return false
-      if (!termRef.current?.contains(document.activeElement)) return false
-      const want = draftRef.current
-      // Nothing to push — let the native→chat sampler own this session's draft.
-      if (want === '') {
-        flushTried = true
-        return false
-      }
-      const current = scrapeComposer(m)
-      // No clean composer box yet (splash/overlay): wait for a later frame.
-      if (current === null) return false
-      // The composer already holds text the user typed directly in native — never
-      // overwrite it. Stand down for this mode-entry (idempotent if it happens to
-      // already equal what we'd type).
-      if (current !== '' && current !== want) {
-        flushTried = true
-        return false
-      }
-      flushTried = true
-      // Clear the line (safe no-op when empty) then type the draft. Seed the
-      // sampler so the reconcile scrape of our own injection isn't re-published.
-      lastPublished = want
-      m.connection.sendInput('\x15') // Ctrl-U
-      m.connection.sendInput(want)
-      return true
-    }
-    const scheduleSample = () => {
-      if (sampleTimer) return
-      sampleTimer = setTimeout(() => {
-        sampleTimer = null
-        if (flushDraftToNative()) return
-        sample()
-      }, 150)
-    }
-    const mounted = mountSession(termRef.current, {
-      hub,
-      sessionId,
-      active: active && effectiveMode === 'native' && !hibernated && !exited,
-      ...(toolbarRef.current ? { toolbarEl: toolbarRef.current } : {}),
-      ...(E2E ? { test: true } : {}),
-      // Don't grab focus on mount — that pops the soft keyboard over the
-      // "Starting…" overlay. The focus effect below takes over once the session
-      // is ready (attached).
-      focusOnMount: false,
-      onReady: () => setReady(true),
-      onFrame: scheduleSample,
-    })
-    mountedRef.current = mounted
-    // Seed the file-link provider immediately after mount with whatever paths
-    // are already known (from the transcript subscription above). Without this
-    // the provider is a no-op until the next transcript callback fires.
-    mounted.view.setFileLinks({
-      cwd: session?.cwd ?? '/',
-      knownPaths: knownPathsRef.current,
-      onOpen: (abs) => openFile(sessionId, abs),
-    })
-    const offScroll = mounted.view.onScroll(() => setAtBottom(mounted.view.atBottom()))
-    // The flush above piggy-backs on onFrame, but an already-idle composer may emit
-    // no frames after focus lands (and focus itself arrives a beat after the first
-    // frame, via the effect below). Poll a bounded number of times so the one-shot
-    // chat→native flush still fires on a quiet session; it self-stops once the flush
-    // resolves (injected, or skipped because empty/occupied/wrong-agent).
-    let flushPoll: ReturnType<typeof setInterval> | null = null
-    const startFlushPoll = () => {
-      if (flushPoll) clearInterval(flushPoll)
-      let flushAttempts = 0
-      flushPoll = setInterval(() => {
-        if (flushTried || flushAttempts++ >= 40) {
-          if (flushPoll) clearInterval(flushPoll)
-          flushPoll = null
-          return
-        }
-        if (flushDraftToNative()) {
-          if (flushPoll) clearInterval(flushPoll)
-          flushPoll = null
-        }
-      }, 150)
-    }
-    startFlushPoll()
-    // Publish the re-arm hook: reset the one-shot guard and restart the bounded
-    // poll. Called by the mode-transition effect on each chat→native entry so the
-    // flush re-fires for a fresh chat draft (its own guards still protect against
-    // clobbering native-typed text / empty drafts). No-op when the terminal isn't
-    // mounted (hibernated/exited) since this ref stays null then.
-    rearmFlushRef.current = () => {
-      flushTried = false
-      startFlushPoll()
-    }
-    return () => {
-      rearmFlushRef.current = null
-      if (sampleTimer) clearTimeout(sampleTimer)
-      if (flushPoll) clearInterval(flushPoll)
-      offScroll()
-      mounted.dispose()
-      mountedRef.current = null
-    }
-  }, [hub, sessionId, hibernated, exited, spawnConfirmed, session?.agentKind, setSessionDraft])
 
   // Re-arm the chat→native draft flush whenever the panel ENTERS native mode
   // while the terminal stays mounted (Task 6's warm toggle). The flush itself is
@@ -486,30 +475,6 @@ export function AgentPanel({
     if (prev === null || prev === 'native') return
     rearmFlushRef.current?.()
   }, [effectiveMode])
-
-  // Drive the terminal's size eligibility from the tab's active/visible/mode
-  // state. Separate from the mount effect so a tab/mode switch never tears down
-  // and re-attaches the terminal — it only flips eligibility on the live ref.
-  //
-  // The terminal stays mounted across native<->chat (the mount effect no longer
-  // keys on mode), so `mountedRef.current` is still set in chat. This effect is
-  // what flips its eligibility on that still-live ref: `setActive(false)` when
-  // entering chat or going inactive (so the hidden terminal stops driving size),
-  // and `setActive(true)` when returning to active native.
-  const terminalActive = active && effectiveMode === 'native' && !hibernated && !exited
-  useEffect(() => {
-    mountedRef.current?.setActive(terminalActive)
-  }, [terminalActive])
-
-  // Kept mounted while hidden (inactive tab) so its terminal state survives a tab
-  // switch — when it becomes the visible tab again, return focus to it. Gated on
-  // `ready` so focus (and the soft keyboard it raises on mobile) waits for the
-  // session to attach instead of landing over the "Starting…" overlay.
-  useEffect(() => {
-    if (active && effectiveMode === 'native' && !hibernated && !exited && ready) {
-      mountedRef.current?.view.focus()
-    }
-  }, [active, effectiveMode, hibernated, exited, ready])
 
   const sendKey = (key: SpecialKey): void => {
     mountedRef.current?.connection.sendInput(keySequence(key))
