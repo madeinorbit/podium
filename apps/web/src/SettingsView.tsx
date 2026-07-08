@@ -348,6 +348,35 @@ export function SettingsView(): JSX.Element {
                       }
                     />
                   </Row>
+                  <Row label="Subagents">
+                    <Select
+                      value={settings.sessionDefaults.subagentStrategy}
+                      onValueChange={(value) => {
+                        if (value !== 'builtin') return // 'podium' is coming soon
+                        patch({
+                          sessionDefaults: {
+                            ...settings.sessionDefaults,
+                            subagentStrategy: 'builtin',
+                          },
+                        })
+                      }}
+                    >
+                      <SelectTrigger className="w-full flex-1">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="builtin">Built-in (the harness's own)</SelectItem>
+                        <SelectItem value="podium" disabled>
+                          Coordinate via Podium — coming soon
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </Row>
+                  <p className="mt-1.5 mb-0.5 max-w-[60ch] text-[12px] text-muted-foreground">
+                    Built-in subagents share the harness and are the best choice today.
+                    Podium-coordinated subagents (needed to run a different harness or get
+                    cross-harness visibility) are coming soon.
+                  </p>
                   <Row label="New session opens on">
                     <Select
                       value={settings.sessionDefaults.startScreen}
