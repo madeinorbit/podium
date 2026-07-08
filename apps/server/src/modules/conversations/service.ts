@@ -7,8 +7,8 @@ import type {
   ServerMessage,
   TranscriptItem,
 } from '@podium/protocol'
+import { MirrorService } from '@podium/sync'
 import { fileChainSource, fileIdFor, recordToItemsForKind } from '@podium/transcript'
-import { MirrorService } from '../../mirror'
 import type { SessionStore } from '../../store'
 import { TranscriptIndexer } from '../../transcript-indexer'
 
@@ -77,7 +77,7 @@ export class ConversationsService {
       const indexer = new TranscriptIndexer(this.deps.store)
       this.transcriptIndexer = indexer
       this.mirror = new MirrorService(
-        this.deps.store,
+        this.deps.store.conversations,
         options.mirrorLakeDir,
         (machineId, req) => this.mirrorRead(machineId, req),
         this.deps.now,
@@ -281,7 +281,8 @@ export class ConversationsService {
   > {
     const nativeId = session.resume?.value
     if (!this.mirror || !nativeId) return undefined
-    if (this.deps.store.conversations.mirrorCursor(session.machineId, nativeId) <= 0) return undefined
+    if (this.deps.store.conversations.mirrorCursor(session.machineId, nativeId) <= 0)
+      return undefined
     const path = this.mirror.lakePath(session.machineId, nativeId)
     const source = fileChainSource(
       [{ path, fileId: fileIdFor(path) }],

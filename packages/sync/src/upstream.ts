@@ -11,9 +11,9 @@ import {
   type SyncChangesSinceResult,
   WIRE_VERSION,
 } from '@podium/protocol'
+import { stateDir } from '@podium/runtime/local-machine'
 import { createTRPCClient, httpBatchLink } from '@trpc/client'
 import WebSocket from 'ws'
-import { stateDir } from './local-machine'
 
 /**
  * UpstreamSync — the node side of node⇄hub sync (docs/spec/node-hub-sync.md §2.2).

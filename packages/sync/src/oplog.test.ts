@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { MetadataOplog } from './oplog'
-import { SessionStore } from './store'
+import { createTestSyncRepository } from './test-support'
 
 // The diff-at-broadcast feed (docs/spec/oplog-read-path.md §2.2): record() must
 // emit exactly the difference, changesSince() must refuse to serve a gapped range,
@@ -9,7 +9,7 @@ describe('MetadataOplog', () => {
   const issue = (id: string, v: number) => ({ id, value: { id, title: `t${v}` } })
 
   it('records only actual changes: first sight, edits, and disappearances', () => {
-    const oplog = new MetadataOplog(new SessionStore(':memory:'))
+    const oplog = new MetadataOplog(createTestSyncRepository())
     const first = oplog.record('issue', [issue('a', 1), issue('b', 1)])
     expect(first.map((c) => [c.id, c.op])).toEqual([
       ['a', 'upsert'],
@@ -28,7 +28,7 @@ describe('MetadataOplog', () => {
   })
 
   it('serves changesSince within the retained range and rejects everything else', () => {
-    const oplog = new MetadataOplog(new SessionStore(':memory:'))
+    const oplog = new MetadataOplog(createTestSyncRepository())
     expect(oplog.changesSince(null)).toBeNull() // bootstrap -> snapshot
     expect(oplog.changesSince(0)).toEqual([]) // empty log, cursor at head
     oplog.record('issue', [issue('a', 1)])
@@ -40,27 +40,27 @@ describe('MetadataOplog', () => {
   })
 
   it('falls back to snapshot when the cursor predates the retained log', () => {
-    const store = new SessionStore(':memory:')
+    const store = createTestSyncRepository()
     const oplog = new MetadataOplog(store)
     oplog.record('issue', [issue('a', 1)])
     oplog.record('issue', [issue('a', 2)])
     oplog.record('issue', [issue('a', 3)])
-    store.sync.pruneChanges({ keepRows: 1, maxAgeMs: 60_000, now: Date.now() })
+    store.pruneChanges({ keepRows: 1, maxAgeMs: 60_000, now: Date.now() })
     expect(oplog.changesSince(0)).toBeNull() // seq 1-2 pruned away -> gap
     expect(oplog.changesSince(2)?.map((c) => c.seq)).toEqual([3]) // still contiguous
   })
 
   it('prunes a bloated log at construction (boot self-heal)', () => {
-    const store = new SessionStore(':memory:')
+    const store = createTestSyncRepository()
     const t0 = 1_000_000
-    store.sync.appendChanges([{ entity: 'issue', entityId: 'a', op: 'upsert', payload: '{}' }], t0)
+    store.appendChanges([{ entity: 'issue', entityId: 'a', op: 'upsert', payload: '{}' }], t0)
     const young = t0 + MetadataOplog.MAX_AGE_MS + 60_000
-    store.sync.appendChanges([{ entity: 'issue', entityId: 'b', op: 'upsert', payload: '{}' }], young)
+    store.appendChanges([{ entity: 'issue', entityId: 'b', op: 'upsert', payload: '{}' }], young)
     // Boot with "now" past row 1's age budget but within row 2's: the constructor
     // prune drops the aged head before folding the baseline.
     const oplog = new MetadataOplog(store, () => young + 1)
-    expect(store.sync.minChangeSeq()).toBe(2)
-    expect(store.sync.maxChangeSeq()).toBe(2)
+    expect(store.minChangeSeq()).toBe(2)
+    expect(store.maxChangeSeq()).toBe(2)
     // The surviving row still seeds the diff baseline: re-recording it is a no-op.
     expect(oplog.record('issue', [{ id: 'b', value: JSON.parse('{}') }])).toEqual([])
   })
@@ -79,7 +79,7 @@ describe('MetadataOplog', () => {
         },
       },
     ]
-    const store = new SessionStore(':memory:')
+    const store = createTestSyncRepository()
     const oplog = new MetadataOplog(store)
     expect(oplog.record('conversation', conv())).toHaveLength(1) // first sight
     // Scan-driven activity bumps (updatedAt / messageCount / statusHint) changed
@@ -107,7 +107,7 @@ describe('MetadataOplog', () => {
   })
 
   it('the conversation projection baseline survives a restart', () => {
-    const store = new SessionStore(':memory:')
+    const store = createTestSyncRepository()
     const before = new MetadataOplog(store)
     before.record('conversation', [
       { id: 'c1', value: { id: 'c1', title: 'hi', updatedAt: 'T1', messageCount: 1 } },
@@ -129,7 +129,7 @@ describe('MetadataOplog', () => {
   })
 
   it('rebuilds its diff baseline from the log across a restart', () => {
-    const store = new SessionStore(':memory:')
+    const store = createTestSyncRepository()
     const before = new MetadataOplog(store)
     before.record('issue', [issue('a', 1), issue('b', 1)])
     const cursor = before.cursor()

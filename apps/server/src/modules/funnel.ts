@@ -1,5 +1,5 @@
 import type { MetadataChange, MetadataEntityKind, ServerMessage } from '@podium/protocol'
-import { MetadataOplog } from '../oplog'
+import { MetadataOplog } from '@podium/sync'
 import type { SessionStore } from '../store'
 import type { EventBus } from './bus'
 
@@ -45,7 +45,7 @@ export class WriteFunnel {
   private readonly oplog: MetadataOplog
 
   constructor(private readonly deps: WriteFunnelDeps) {
-    this.oplog = new MetadataOplog(deps.store, deps.now)
+    this.oplog = new MetadataOplog(deps.store.sync, deps.now)
   }
 
   /**

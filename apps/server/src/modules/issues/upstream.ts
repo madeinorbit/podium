@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto'
 import type { IssueWire } from '@podium/protocol'
+import { optimisticIssuePatch } from '@podium/sync'
 import { SCOPED_TARGET } from '../../issue-authz'
 import type { SessionStore } from '../../store'
-import { optimisticIssuePatch } from '../../upstream-forwarder'
 
 /** The narrow forwarder seam the upstream-issue mirror needs (UpstreamForwarder
  *  implements it; kept minimal so relay tests can stub the write path without a hub). */

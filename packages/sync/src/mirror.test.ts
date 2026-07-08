@@ -2,8 +2,12 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
-import { type MirrorReadResult, MirrorService, type MirrorServiceOptions } from './mirror'
-import { SessionStore } from './store'
+import {
+  type MirrorReadResult,
+  MirrorService,
+  type MirrorServiceOptions,
+  type MirrorStore,
+} from './mirror'
 
 // MirrorService (docs/spec/transcript-mirror.md §2.3/§3) against a fake daemon:
 // the read callback serves ranged reads from in-memory buffers and logs every
@@ -62,6 +66,74 @@ class FakeDaemonFs {
   }
 }
 
+/**
+ * In-memory `MirrorStore` double — no SQLite, no apps/server
+ * ConversationsRepository (this package must not depend on apps/*): just the
+ * segment bookkeeping (mirrored/reported byte cursors per machine+nativeId)
+ * MirrorService actually reads and writes.
+ */
+class FakeMirrorStore implements MirrorStore {
+  private readonly segments = new Map<
+    string,
+    { path: string; mirroredBytes: number; reportedBytes: number | null }
+  >()
+
+  private key(machineId: string, nativeId: string): string {
+    return `${machineId}\n${nativeId}`
+  }
+
+  /** Seed path evidence for a segment (mirrors
+   *  ConversationsRepository.ensureConversationIdentity's shape: an optional
+   *  last-reported size, `mirroredBytes` always starts at 0). */
+  seed(machineId: string, nativeId: string, path: string, sizeBytes?: number): void {
+    this.segments.set(this.key(machineId, nativeId), {
+      path,
+      mirroredBytes: 0,
+      reportedBytes: sizeBytes ?? null,
+    })
+  }
+
+  segmentsToMirror(machineId: string): { nativeId: string; path: string; mirroredBytes: number }[] {
+    const prefix = `${machineId}\n`
+    return [...this.segments.entries()]
+      .filter(([k]) => k.startsWith(prefix))
+      .map(([k, v]) => ({
+        nativeId: k.slice(prefix.length),
+        path: v.path,
+        mirroredBytes: v.mirroredBytes,
+      }))
+  }
+
+  segmentsToMirrorDirty(
+    machineId: string,
+  ): { nativeId: string; path: string; mirroredBytes: number }[] {
+    return this.segmentsToMirror(machineId).filter((seg) => {
+      const v = this.segments.get(this.key(machineId, seg.nativeId))
+      return v !== undefined && (v.reportedBytes == null || v.reportedBytes !== v.mirroredBytes)
+    })
+  }
+
+  setReportedBytes(machineId: string, nativeId: string, bytes: number): void {
+    const v = this.segments.get(this.key(machineId, nativeId))
+    if (v) v.reportedBytes = bytes
+  }
+
+  /** Not part of MirrorStore — a test-only accessor (mirrors
+   *  ConversationsRepository.reportedBytes, used by assertions below). */
+  reportedBytes(machineId: string, nativeId: string): number | undefined {
+    return this.segments.get(this.key(machineId, nativeId))?.reportedBytes ?? undefined
+  }
+
+  mirrorCursor(machineId: string, nativeId: string): number {
+    return this.segments.get(this.key(machineId, nativeId))?.mirroredBytes ?? 0
+  }
+
+  setMirrorCursor(machineId: string, nativeId: string, bytes: number, _at: string): void {
+    const v = this.segments.get(this.key(machineId, nativeId))
+    if (v) v.mirroredBytes = bytes
+  }
+}
+
 function patternBytes(size: number, seed = 0): Buffer {
   const b = Buffer.allocUnsafe(size)
   for (let i = 0; i < size; i++) b[i] = (i * 31 + seed) % 251
@@ -71,7 +143,7 @@ function patternBytes(size: number, seed = 0): Buffer {
 /** 0-delay + unlimited budget by default so the pre-pacing tests stay fast and
  *  byte-exact; pacing tests inject their own knobs. */
 function setup(options?: MirrorServiceOptions) {
-  const store = new SessionStore(':memory:')
+  const store = new FakeMirrorStore()
   const lakeDir = mkdtempSync(join(tmpdir(), 'podium-lake-'))
   const fs = new FakeDaemonFs()
   const mirror = new MirrorService(store, lakeDir, fs.read, Date.now, {
@@ -82,14 +154,14 @@ function setup(options?: MirrorServiceOptions) {
   return { store, lakeDir, fs, mirror }
 }
 
-function seed(store: SessionStore, machineId: string, nativeId: string): string {
+function seed(
+  store: FakeMirrorStore,
+  machineId: string,
+  nativeId: string,
+  sizeBytes?: number,
+): string {
   const path = `/home/u/.claude/projects/-proj/${nativeId}.jsonl`
-  store.conversations.ensureConversationIdentity({
-    machineId,
-    nativeId,
-    providerId: 'claude-code-jsonl',
-    path,
-  })
+  store.seed(machineId, nativeId, path, sizeBytes)
   return path
 }
 
@@ -114,7 +186,7 @@ describe('MirrorService', () => {
     await settle(mirror, 'm1')
 
     expect(readFileSync(mirror.lakePath('m1', 'big')).equals(content)).toBe(true)
-    expect(store.conversations.mirrorCursor('m1', 'big')).toBe(content.length)
+    expect(store.mirrorCursor('m1', 'big')).toBe(content.length)
     // Chunked: at least two ranged reads, offsets strictly advancing from 0.
     expect(fs.log.length).toBeGreaterThanOrEqual(2)
     expect(fs.log[0]).toEqual({ path, offset: 0, maxBytes: MirrorService.CHUNK_BYTES })
@@ -122,7 +194,6 @@ describe('MirrorService', () => {
     const offsets = fs.log.map((r) => r.offset)
     expect(offsets).toEqual([...offsets].sort((a, b) => a - b))
     expect(new Set(offsets).size).toBe(offsets.length) // strictly advancing, never repeated
-    store.close()
   })
 
   it('pulls only the tail on incremental append', async () => {
@@ -132,7 +203,7 @@ describe('MirrorService', () => {
     fs.set(path, before)
     mirror.enqueue('m1', 'grow', path)
     await settle(mirror, 'm1')
-    expect(store.conversations.mirrorCursor('m1', 'grow')).toBe(before.length)
+    expect(store.mirrorCursor('m1', 'grow')).toBe(before.length)
 
     const grown = Buffer.concat([before, Buffer.from('{"line":3}\n')])
     fs.set(path, grown)
@@ -143,8 +214,7 @@ describe('MirrorService', () => {
     // The first new read starts exactly at the old size — no re-pull of the head.
     expect(fs.log[logBefore]?.offset).toBe(before.length)
     expect(readFileSync(mirror.lakePath('m1', 'grow')).equals(grown)).toBe(true)
-    expect(store.conversations.mirrorCursor('m1', 'grow')).toBe(grown.length)
-    store.close()
+    expect(store.mirrorCursor('m1', 'grow')).toBe(grown.length)
   })
 
   it('truncates and re-pulls from zero when the source shrank (rewrite)', async () => {
@@ -154,7 +224,7 @@ describe('MirrorService', () => {
     fs.set(path, original)
     mirror.enqueue('m1', 'rewrite', path)
     await settle(mirror, 'm1')
-    expect(store.conversations.mirrorCursor('m1', 'rewrite')).toBe(original.length)
+    expect(store.mirrorCursor('m1', 'rewrite')).toBe(original.length)
 
     // Native file rewritten SHORTER — verbatim mirror must drop the copy and
     // re-pull, never leave a stale tail (spec invariant 1).
@@ -164,19 +234,18 @@ describe('MirrorService', () => {
     await settle(mirror, 'm1')
 
     expect(readFileSync(mirror.lakePath('m1', 'rewrite')).equals(rewritten)).toBe(true)
-    expect(store.conversations.mirrorCursor('m1', 'rewrite')).toBe(rewritten.length)
-    store.close()
+    expect(store.mirrorCursor('m1', 'rewrite')).toBe(rewritten.length)
   })
 
   it('a deleted source (denied) marks the segment converged — no eternal retries', async () => {
     const { store, fs, mirror } = setup()
     const path = seed(store, 'm1', 'gone')
-    store.conversations.setMirrorCursor('m1', 'gone', 500, new Date().toISOString()) // lake holds 500B already
+    store.setMirrorCursor('m1', 'gone', 500, new Date().toISOString()) // lake holds 500B already
     fs.errors.set(path, 'denied')
     mirror.enqueue('m1', 'gone', path)
     await settle(mirror, 'm1')
     // reported == mirrored: the dirty query no longer selects it — scans go quiet.
-    expect(store.conversations.segmentsToMirrorDirty('m1').find((x) => x.nativeId === 'gone')).toBeUndefined()
+    expect(store.segmentsToMirrorDirty('m1').find((x) => x.nativeId === 'gone')).toBeUndefined()
   })
 
   it('backs off on a read error: cursor untouched, no lake file, re-enqueue is a no-op', async () => {
@@ -190,7 +259,7 @@ describe('MirrorService', () => {
       mirror.enqueue('m1', 'denied', path)
       await settle(mirror, 'm1')
 
-      expect(store.conversations.mirrorCursor('m1', 'denied')).toBe(0)
+      expect(store.mirrorCursor('m1', 'denied')).toBe(0)
       expect(existsSync(mirror.lakePath('m1', 'denied'))).toBe(false)
       expect(fs.log.length).toBe(1)
 
@@ -200,9 +269,8 @@ describe('MirrorService', () => {
       mirror.enqueue('m1', 'denied', path)
       await settle(mirror, 'm1')
       expect(fs.log.length).toBe(1)
-      expect(store.conversations.mirrorCursor('m1', 'denied')).toBe(0)
+      expect(store.mirrorCursor('m1', 'denied')).toBe(0)
       expect(warn).toHaveBeenCalled()
-      store.close()
     } finally {
       warn.mockRestore()
     }
@@ -222,7 +290,6 @@ describe('MirrorService', () => {
     expect(fs.maxInFlight).toBe(1)
     expect(readFileSync(mirror.lakePath('m1', 'seg-a')).equals(patternBytes(70_000, 3))).toBe(true)
     expect(readFileSync(mirror.lakePath('m1', 'seg-b')).equals(patternBytes(70_000, 4))).toBe(true)
-    store.close()
   })
 
   it('lets two machines proceed independently, both completing', async () => {
@@ -240,9 +307,8 @@ describe('MirrorService', () => {
 
     expect(readFileSync(mirror.lakePath('m1', 'conv-a')).equals(patternBytes(30_000, 5))).toBe(true)
     expect(readFileSync(mirror.lakePath('m2', 'conv-b')).equals(patternBytes(30_000, 6))).toBe(true)
-    expect(store.conversations.mirrorCursor('m1', 'conv-a')).toBe(30_000)
-    expect(store.conversations.mirrorCursor('m2', 'conv-b')).toBe(30_000)
-    store.close()
+    expect(store.mirrorCursor('m1', 'conv-a')).toBe(30_000)
+    expect(store.mirrorCursor('m2', 'conv-b')).toBe(30_000)
   })
 
   it('dedups a rapid double-enqueue of the same segment (one pull only)', async () => {
@@ -257,8 +323,7 @@ describe('MirrorService', () => {
 
     expect(fs.log.length).toBe(1)
     expect(readFileSync(mirror.lakePath('m1', 'dup')).toString()).toBe('single small file\n')
-    expect(store.conversations.mirrorCursor('m1', 'dup')).toBe('single small file\n'.length)
-    store.close()
+    expect(store.mirrorCursor('m1', 'dup')).toBe('single small file\n'.length)
   })
 
   it('recovers from a wiped lake: cursor falls back to disk truth, full re-pull', async () => {
@@ -274,7 +339,7 @@ describe('MirrorService', () => {
     mirror.enqueue('m1', 'wiped', path)
     await settle(mirror, 'm1')
     expect(readFileSync(mirror.lakePath('m1', 'wiped'))).toEqual(Buffer.from('line-1\nline-2\n'))
-    expect(store.conversations.mirrorCursor('m1', 'wiped')).toBe('line-1\nline-2\n'.length)
+    expect(store.mirrorCursor('m1', 'wiped')).toBe('line-1\nline-2\n'.length)
   })
 
   it('resumes after restart with a single eof-check read and no lake change', async () => {
@@ -284,7 +349,7 @@ describe('MirrorService', () => {
     fs.set(path, content)
     mirror.enqueue('m1', 'resume', path)
     await settle(mirror, 'm1')
-    expect(store.conversations.mirrorCursor('m1', 'resume')).toBe(content.length)
+    expect(store.mirrorCursor('m1', 'resume')).toBe(content.length)
 
     // "Restart": a fresh MirrorService over the SAME store + lake dir. The source
     // is unchanged, so the sweep must cost exactly one read at the cursor (which
@@ -296,8 +361,7 @@ describe('MirrorService', () => {
 
     expect(fs.log).toEqual([{ path, offset: content.length, maxBytes: MirrorService.CHUNK_BYTES }])
     expect(readFileSync(mirror2.lakePath('m1', 'resume')).equals(content)).toBe(true)
-    expect(store.conversations.mirrorCursor('m1', 'resume')).toBe(content.length)
-    store.close()
+    expect(store.mirrorCursor('m1', 'resume')).toBe(content.length)
   })
 
   // ---- Pacing (incident amendment, spec §2.3): the 2026-07 deploy pumped an
@@ -312,7 +376,7 @@ describe('MirrorService', () => {
     for (const [i, nativeId] of segs.entries()) {
       fs.set(seed(store, 'm1', nativeId), patternBytes(size, 10 + i))
     }
-    const total = () => segs.reduce((sum, id) => sum + store.conversations.mirrorCursor('m1', id), 0)
+    const total = () => segs.reduce((sum, id) => sum + store.mirrorCursor('m1', id), 0)
 
     mirror.enqueueMachine('m1')
     await settle(mirror, 'm1')
@@ -324,7 +388,7 @@ describe('MirrorService', () => {
     expect(afterPass1).toBeGreaterThan(0)
     expect(afterPass1).toBeLessThanOrEqual(budget + MirrorService.CHUNK_BYTES)
     expect(afterPass1).toBeLessThan(segs.length * size)
-    expect(segs.some((id) => store.conversations.mirrorCursor('m1', id) === 0)).toBe(true)
+    expect(segs.some((id) => store.mirrorCursor('m1', id) === 0)).toBe(true)
 
     // Re-triggering (the ~15s scan / attach sweep) resumes from the persisted
     // cursors — no head re-pull — and completes the whole lake within a few passes.
@@ -339,7 +403,7 @@ describe('MirrorService', () => {
       expect(readFileSync(mirror.lakePath('m1', nativeId)).equals(patternBytes(size, 10 + i))).toBe(
         true,
       )
-      expect(store.conversations.mirrorCursor('m1', nativeId)).toBe(size)
+      expect(store.mirrorCursor('m1', nativeId)).toBe(size)
     }
     // Offsets never regress, and below eof never repeat: resume, not restart.
     // (Repeats AT size are the eof-checks later sweeps pay for a done segment.)
@@ -350,7 +414,6 @@ describe('MirrorService', () => {
       expect(new Set(belowEof).size).toBe(belowEof.length)
     }
     expect(passes).toBeGreaterThan(1) // the budget actually split the work
-    store.close()
   })
 
   it('honors the injected inter-chunk delay between ranged reads', async () => {
@@ -362,13 +425,12 @@ describe('MirrorService', () => {
     mirror.enqueueMachine('m1')
     await settle(mirror, 'm1')
 
-    expect(store.conversations.mirrorCursor('m1', 'breathe')).toBe(MirrorService.CHUNK_BYTES * 2 + 100)
+    expect(store.mirrorCursor('m1', 'breathe')).toBe(MirrorService.CHUNK_BYTES * 2 + 100)
     expect(fs.readTimes.length).toBe(3)
     for (let i = 1; i < fs.readTimes.length; i++) {
       const gap = (fs.readTimes[i] as number) - (fs.readTimes[i - 1] as number)
       expect(gap).toBeGreaterThanOrEqual(delay - 5) // timer slack, but clearly paced
     }
-    store.close()
   })
 
   it('keeps event-loop lag bounded while draining many sizeable segments (incident regression)', async () => {
@@ -403,10 +465,9 @@ describe('MirrorService', () => {
     }
 
     for (const nativeId of segs) {
-      expect(store.conversations.mirrorCursor('m1', nativeId)).toBe(size)
+      expect(store.mirrorCursor('m1', nativeId)).toBe(size)
     }
     expect(maxLag).toBeLessThan(250)
-    store.close()
   })
 
   // Dirty-driven enqueueing (spec §2.3 "Dirty-driven"): scan/attach triggers call
@@ -414,23 +475,6 @@ describe('MirrorService', () => {
   // with the mirrored cursor (NULL-reported rows count as dirty once). The
   // headline regression: a fully-mirrored fleet must issue ZERO mirror reads.
   describe('enqueueDirty', () => {
-    function seedSized(
-      store: SessionStore,
-      machineId: string,
-      nativeId: string,
-      sizeBytes?: number,
-    ): string {
-      const path = `/home/u/.claude/projects/-proj/${nativeId}.jsonl`
-      store.conversations.ensureConversationIdentity({
-        machineId,
-        nativeId,
-        providerId: 'claude-code-jsonl',
-        path,
-        ...(sizeBytes !== undefined ? { sizeBytes } : {}),
-      })
-      return path
-    }
-
     it('pulls exactly the behind + never-reported segments, then a re-trigger issues ZERO reads', async () => {
       const { store, fs, mirror } = setup()
       const caughtUp = Buffer.from('{"line":"old"}\n')
@@ -439,17 +483,17 @@ describe('MirrorService', () => {
 
       // Caught up: reported == mirrored (mirror it fully first, which records the
       // observed size at eof), so it must NOT be touched by the dirty trigger.
-      const caughtUpPath = seedSized(store, 'm1', 'caught-up', caughtUp.length)
+      const caughtUpPath = seed(store, 'm1', 'caught-up', caughtUp.length)
       fs.set(caughtUpPath, caughtUp)
       mirror.enqueue('m1', 'caught-up', caughtUpPath)
       await settle(mirror, 'm1')
-      expect(store.conversations.mirrorCursor('m1', 'caught-up')).toBe(caughtUp.length)
+      expect(store.mirrorCursor('m1', 'caught-up')).toBe(caughtUp.length)
 
       // Behind: a scan reported a size ahead of the (zero) mirror cursor.
-      const behindPath = seedSized(store, 'm1', 'behind', behind.length)
+      const behindPath = seed(store, 'm1', 'behind', behind.length)
       fs.set(behindPath, behind)
       // NULL-reported: a pre-upgrade row — no scan ever carried a size for it.
-      const preUpgradePath = seedSized(store, 'm1', 'pre-upgrade')
+      const preUpgradePath = seed(store, 'm1', 'pre-upgrade')
       fs.set(preUpgradePath, preUpgrade)
 
       const logBefore = fs.log.length
@@ -463,9 +507,9 @@ describe('MirrorService', () => {
       expect(readFileSync(mirror.lakePath('m1', 'pre-upgrade')).equals(preUpgrade)).toBe(true)
       // Convergence: eof recorded the observed size, so BOTH now read as clean —
       // including the pre-upgrade row (dirty exactly ONCE, per the upgrade path).
-      expect(store.conversations.reportedBytes('m1', 'behind')).toBe(behind.length)
-      expect(store.conversations.reportedBytes('m1', 'pre-upgrade')).toBe(preUpgrade.length)
-      expect(store.conversations.segmentsToMirrorDirty('m1')).toEqual([])
+      expect(store.reportedBytes('m1', 'behind')).toBe(behind.length)
+      expect(store.reportedBytes('m1', 'pre-upgrade')).toBe(preUpgrade.length)
+      expect(store.segmentsToMirrorDirty('m1')).toEqual([])
 
       // THE regression: a re-trigger on a caught-up machine enqueues nothing and
       // issues zero daemon round trips (the old full sweep paid one eof-check
@@ -474,7 +518,6 @@ describe('MirrorService', () => {
       mirror.enqueueDirty('m1')
       await settle(mirror, 'm1')
       expect(fs.log.length).toBe(logAfterConvergence)
-      store.close()
     })
 
     it('attach before any scan reconciles from PERSISTED reported sizes', async () => {
@@ -483,15 +526,14 @@ describe('MirrorService', () => {
       // off the reported_bytes already in the store.
       const { store, fs, mirror } = setup()
       const grown = Buffer.from('{"line":1}\n{"line":2}\n{"line":3}\n')
-      const path = seedSized(store, 'm1', 'offline-growth', grown.length) // persisted last-known size
+      const path = seed(store, 'm1', 'offline-growth', grown.length) // persisted last-known size
       fs.set(path, grown)
 
       mirror.enqueueDirty('m1') // the attach trigger — nothing scanned this life
       await settle(mirror, 'm1')
 
       expect(readFileSync(mirror.lakePath('m1', 'offline-growth')).equals(grown)).toBe(true)
-      expect(store.conversations.segmentsToMirrorDirty('m1')).toEqual([])
-      store.close()
+      expect(store.segmentsToMirrorDirty('m1')).toEqual([])
     })
   })
 })
