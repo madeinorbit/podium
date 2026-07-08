@@ -148,5 +148,11 @@ export function applyHarnessEnv(port: number): ReturnType<typeof harnessEnv> {
   process.env.ABDUCO_SOCKET_DIR = dirs.abducoSocketDir
   process.env.TMUX_TMPDIR = dirs.tmuxTmpDir
   process.env.PODIUM_STATE_DIR = dirs.stateDir
+  // When the harness itself runs inside a Podium-launched shell (agents in a
+  // Podium session), the parent exports PODIUM_WEB_DIR pointing at the
+  // INSTALLED web bundle. Inheriting it would make the e2e server serve that
+  // stale build instead of the apps/web/dist the suite just built — so drop it
+  // and let server.ts fall back to the repo-relative dist.
+  delete process.env.PODIUM_WEB_DIR
   return dirs
 }
