@@ -217,9 +217,19 @@ const NOOP_STORAGE_EVENTS: StorageEventApi = {
   removeEventListener: () => {},
 }
 
+/** Entity collection kinds + transcripts — everything the quota guard covers. */
+const ENTITY_STORE_KINDS = ['sessions', 'issues', 'conversations', 'transcripts'] as const
+
 class TanstackReplica implements Replica {
   readonly persistent: boolean
   private readonly storage: StorageApi
+  /** Issue #181 hotfix: true once an entity-blob write hit the storage quota.
+   *  From then on entity persistence is in-memory only for this session and the
+   *  persisted cursor is void (see degradeEntityWrites). */
+  private entityWritesDegraded = false
+  /** Post-degrade backing for entity blobs, so the collections' storage sync
+   *  keeps working over the same seam (values just stop being durable). */
+  private readonly entityOverlay = new Map<string, string>()
   private readonly storageEventApi: StorageEventApi
   private readonly prefix: string
   private readonly nonce: number
@@ -261,11 +271,32 @@ class TanstackReplica implements Replica {
         ? () => Object.keys(window.localStorage)
         : () => [])
     this.nonce = ++instanceSeq
+    // Entity/transcript collections run over the quota-guarded storage (issue
+    // #181): production-sized data can blow the ~5MB localStorage quota, and the
+    // collection layer swallows the QuotaExceededError — the guard makes that
+    // failure observable so the cursor can stay honest (see degradeEntityWrites).
+    const guarded = this.entityStorage()
+    const guardedEvents = this.wrapStorageEvents(guarded, { dropWhenDegraded: true })
     this.cols = {
-      sessions: this.makeCollection<SessionMeta>('sessions', (s) => s.sessionId),
-      issues: this.makeCollection<IssueWire>('issues', (i) => i.id),
-      conversations: this.makeCollection<ConversationSummaryWire>('conversations', (c) => c.id),
-      transcripts: this.makeCollection<TranscriptRow>('transcripts', (t) => t.key),
+      sessions: this.makeCollection<SessionMeta>(
+        'sessions',
+        (s) => s.sessionId,
+        guarded,
+        guardedEvents,
+      ),
+      issues: this.makeCollection<IssueWire>('issues', (i) => i.id, guarded, guardedEvents),
+      conversations: this.makeCollection<ConversationSummaryWire>(
+        'conversations',
+        (c) => c.id,
+        guarded,
+        guardedEvents,
+      ),
+      transcripts: this.makeCollection<TranscriptRow>(
+        'transcripts',
+        (t) => t.key,
+        guarded,
+        guardedEvents,
+      ),
     }
     // Keep the collections' sync alive for the app's lifetime: a permanent
     // no-op subscriber prevents the no-subscriber GC from dropping state
@@ -333,6 +364,9 @@ class TanstackReplica implements Replica {
   }
 
   getCursor(): number | null {
+    // A degraded session has no durable entity data — a persisted cursor would
+    // lie about what's on disk, so read it as "never synced" (full resync).
+    if (this.entityWritesDegraded) return null
     try {
       const raw = this.storage.getItem(this.cursorKey)
       if (raw === null) return null
@@ -347,6 +381,15 @@ class TanstackReplica implements Replica {
     // Persist-after-data: wait for every entity write issued before this call.
     const fence = this.lastWrite
     void fence.then(() => {
+      // Cursor honesty (issue #181): the cursor may only advance when the data
+      // it covers actually persisted. TanStack's localStorage sync swallows a
+      // QuotaExceededError (the entity write fails SILENTLY) while this tiny
+      // write would still succeed — a reload would then hydrate STALE
+      // collections yet resume from an ADVANCED cursor: a permanent gap, with
+      // the missing entities never refetched. The guarded entity storage flips
+      // entityWritesDegraded on the first failed blob write; checking it HERE
+      // (after the fence, i.e. after those writes ran) refuses the advance.
+      if (this.entityWritesDegraded) return
       try {
         this.storage.setItem(this.cursorKey, String(cursor))
       } catch {
@@ -401,7 +444,31 @@ class TanstackReplica implements Replica {
 
   outboxStorage(): OutboxStorage {
     if (this.outboxBacking) return this.outboxBacking
-    const col = this.makeCollection<OutboxRow>('outbox', (r) => r.mutationId)
+    // The queue must stay DURABLE (unlike the entity blobs, a lost outbox entry
+    // is a lost user write) — so no in-memory degrade here; a quota-dead outbox
+    // write is a data-loss risk and is logged loudly instead of swallowed.
+    const loud: StorageApi = {
+      getItem: (k) => this.storage.getItem(k),
+      setItem: (k, v) => {
+        try {
+          this.storage.setItem(k, v)
+        } catch (err) {
+          console.error(
+            '[podium] OUTBOX persistence failed (storage quota?) — queued offline writes may ' +
+              'be LOST on reload',
+            err,
+          )
+          throw err
+        }
+      },
+      removeItem: (k) => this.storage.removeItem(k),
+    }
+    const col = this.makeCollection<OutboxRow>(
+      'outbox',
+      (r) => r.mutationId,
+      loud,
+      this.wrapStorageEvents(loud, { dropWhenDegraded: false }),
+    )
     try {
       // Permanent no-op subscriber: starts the collection's (synchronous)
       // localStorage sync and keeps it from being GC'd between accesses.
@@ -545,15 +612,127 @@ class TanstackReplica implements Replica {
 
   // ---- internals ----
 
-  private makeCollection<T extends object>(kind: string, getKey: (row: T) => string) {
+  /**
+   * Quota guard for the entity/transcript blobs (issue #181 hotfix). Production
+   * data can exceed the ~5MB localStorage quota; when a whole-collection JSON
+   * write throws, this wrapper — the storage the collections actually see —
+   * catches it and permanently degrades THIS session to in-memory persistence:
+   * - live data keeps flowing (writes land in the overlay; the collections'
+   *   in-memory state — the read path — never depended on the blob write);
+   * - the persisted entity blobs AND cursor are cleared, so the next load
+   *   cold-starts with a FULL resync instead of resuming over a silent gap;
+   * - no further durable entity writes are attempted (no throw-per-batch churn).
+   * ui-state and the outbox are NOT covered: they're small, and the outbox must
+   * stay durable (its failures are logged loudly instead — see outboxStorage).
+   * Follow-up (not this hotfix): bound what's persisted / move to IndexedDB so
+   * typical production data fits in the first place.
+   */
+  private entityStorage(): StorageApi {
+    return {
+      getItem: (k) =>
+        this.entityWritesDegraded && this.entityOverlay.has(k)
+          ? (this.entityOverlay.get(k) ?? null)
+          : this.storage.getItem(k),
+      setItem: (k, v) => {
+        if (this.entityWritesDegraded) {
+          this.entityOverlay.set(k, v)
+          return
+        }
+        try {
+          this.storage.setItem(k, v)
+        } catch (err) {
+          this.degradeEntityWrites(err)
+          this.entityOverlay.set(k, v)
+        }
+      },
+      removeItem: (k) => {
+        this.entityOverlay.delete(k)
+        try {
+          this.storage.removeItem(k)
+        } catch {
+          // removal is best-effort
+        }
+      },
+    }
+  }
+
+  /**
+   * Cross-tab events for a wrapped storage: the collection filters events on
+   * `event.storageArea !== <configured storage>`, and a wrapper is a different
+   * object than the real window.localStorage the browser stamps on the event —
+   * so events must be re-stamped with the wrapper's identity or cross-tab sync
+   * silently dies. Once degraded, entity events are dropped entirely: durable
+   * storage no longer reflects this tab's truth, so a foreign tab's blob write
+   * must not clobber the in-memory rows.
+   */
+  private wrapStorageEvents(wrapped: StorageApi, opts: { dropWhenDegraded: boolean }): StorageEventApi {
+    const real = this.storageEventApi
+    const wrappedBy = new WeakMap<(e: StorageEvent) => void, (e: StorageEvent) => void>()
+    return {
+      addEventListener: (type, listener) => {
+        const relay = (event: StorageEvent): void => {
+          if (opts.dropWhenDegraded && this.entityWritesDegraded) return
+          if (event.storageArea === (this.storage as unknown as Storage)) {
+            // The handler only reads .key/.storageArea (then re-reads storage).
+            listener({
+              key: event.key,
+              newValue: event.newValue,
+              oldValue: event.oldValue,
+              storageArea: wrapped,
+            } as unknown as StorageEvent)
+          } else {
+            listener(event)
+          }
+        }
+        wrappedBy.set(listener, relay)
+        real.addEventListener(type, relay)
+      },
+      removeEventListener: (type, listener) => {
+        const relay = wrappedBy.get(listener)
+        if (relay) real.removeEventListener(type, relay)
+      },
+    }
+  }
+
+  /** First quota failure → permanent in-memory degrade + clear persisted entity
+   *  state and cursor (they may be mutually inconsistent from this instant on). */
+  private degradeEntityWrites(err: unknown): void {
+    if (this.entityWritesDegraded) return
+    this.entityWritesDegraded = true
+    console.warn(
+      '[podium] replica entity write failed (storage quota?) — persisting in memory only for ' +
+        'this session and clearing the stored entity data + cursor so the next load does a ' +
+        'full resync',
+      err,
+    )
+    for (const kind of ENTITY_STORE_KINDS) {
+      try {
+        this.storage.removeItem(`${this.prefix}.${kind}.v1`)
+      } catch {
+        // freeing quota is best-effort
+      }
+    }
+    try {
+      this.storage.removeItem(this.cursorKey)
+    } catch {
+      // best-effort — getCursor also reads null while degraded
+    }
+  }
+
+  private makeCollection<T extends object>(
+    kind: string,
+    getKey: (row: T) => string,
+    storage: StorageApi = this.storage,
+    storageEventApi: StorageEventApi = this.storageEventApi,
+  ) {
     return createCollection(
       localStorageCollectionOptions<T, string>({
         // Collections are identified globally by id; the per-instance nonce lets
         // tests build several adapters over the same storageKey without colliding.
         id: `${this.prefix}.${kind}#${this.nonce}`,
         storageKey: `${this.prefix}.${kind}.v1`,
-        storage: this.storage,
-        storageEventApi: this.storageEventApi,
+        storage,
+        storageEventApi,
         getKey,
       }),
     )

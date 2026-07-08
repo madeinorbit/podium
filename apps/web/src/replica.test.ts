@@ -36,6 +36,42 @@ function makeStorage(): {
   }
 }
 
+/** Storage fake whose ENTITY-BLOB writes throw QuotaExceededError while
+ *  `failing` — the #181 production failure (small keys like the cursor still
+ *  succeed, exactly the asymmetry that opened the cursor/data gap). */
+function makeQuotaStorage(): {
+  storage: NonNullable<ReplicaInit['storage']>
+  data: Map<string, string>
+  failedAttempts: () => number
+  setFailing: (f: boolean) => void
+} {
+  const data = new Map<string, string>()
+  let failing = false
+  let failed = 0
+  const isEntityBlob = (k: string) =>
+    /\.(sessions|issues|conversations|transcripts)\.v1$/.test(k)
+  return {
+    data,
+    failedAttempts: () => failed,
+    setFailing: (f) => {
+      failing = f
+    },
+    storage: {
+      getItem: (k) => data.get(k) ?? null,
+      setItem: (k, v) => {
+        if (failing && isEntityBlob(k)) {
+          failed++
+          const err = new Error('exceeded the quota')
+          err.name = 'QuotaExceededError'
+          throw err
+        }
+        data.set(k, v)
+      },
+      removeItem: (k) => void data.delete(k),
+    },
+  }
+}
+
 let prefixSeq = 0
 let prefix = ''
 beforeEach(() => {
@@ -276,6 +312,70 @@ describe('replica adapter', () => {
       conversations: [],
       cursor: null,
     })
+  })
+
+  it('a quota-exceeded entity write degrades to memory: ingest completes, no cursor advance (#181)', async () => {
+    // Production-sized data blows the ~5MB localStorage quota; the collection
+    // layer swallows the QuotaExceededError while the tiny cursor write still
+    // succeeds → reload hydrates stale collections at an advanced cursor: a
+    // permanent gap. The guard must (a) keep ingest working in memory, (b) never
+    // let the cursor persist past unpersisted data, (c) stop hitting storage.
+    const { storage, data, failedAttempts, setFailing } = makeQuotaStorage()
+    const r = createReplica({ storage, keyPrefix: prefix })
+    r.applySnapshot('issues', [issue('i1')]) // persists fine pre-quota
+    await settle()
+    expect(data.has(`${prefix}.issues.v1`)).toBe(true)
+
+    setFailing(true)
+    // Must not throw into the ingest path…
+    r.applySnapshot('sessions', [session('s1'), session('s2')])
+    r.setCursor(42)
+    await settle()
+
+    // …and the rows are still queryable (live data flows from the in-memory state).
+    const rows = (r.collection('sessions') as { toArray: SessionMeta[] }).toArray
+    expect(rows.map((s) => s.sessionId).sort()).toEqual(['s1', 's2'])
+    // Cursor honesty: the data write did NOT persist, so the cursor may not either.
+    expect(data.has(`${prefix}.cursor.v1`)).toBe(false)
+    expect(r.getCursor()).toBeNull()
+    // Freed quota: the (now possibly inconsistent) persisted entity blobs are gone.
+    expect(data.has(`${prefix}.issues.v1`)).toBe(false)
+    expect(data.has(`${prefix}.sessions.v1`)).toBe(false)
+
+    // Permanently degraded: further entity writes never touch durable storage again.
+    const attemptsAfterDegrade = failedAttempts()
+    r.applySnapshot('sessions', [session('s1'), session('s2'), session('s3')])
+    await settle()
+    expect(failedAttempts()).toBe(attemptsAfterDegrade)
+    const again = (r.collection('sessions') as { toArray: SessionMeta[] }).toArray
+    expect(again.map((s) => s.sessionId).sort()).toEqual(['s1', 's2', 's3'])
+  })
+
+  it('reload after a quota degrade does a FULL resync — no cursor gap (#181)', async () => {
+    const { storage, setFailing } = makeQuotaStorage()
+    // Healthy phase: rows + cursor persisted.
+    const a = createReplica({ storage, keyPrefix: prefix })
+    a.applySnapshot('sessions', [session('s1')])
+    a.setCursor(7)
+    await settle()
+
+    // Second session hits the quota mid-ingest.
+    setFailing(true)
+    const b = createReplica({ storage, keyPrefix: prefix })
+    const hb = await b.hydrate()
+    expect(hb.cursor).toBe(7) // pre-degrade the persisted cursor was honest
+    b.applySnapshot('sessions', [session('s1'), session('s2')])
+    b.setCursor(9)
+    await settle()
+    expect(b.getCursor()).toBeNull() // degraded: the cursor is void immediately
+
+    // Reload (quota freed by the degrade cleanup): a cold client, not a gap —
+    // null cursor makes the hub's first changesSince a full snapshot.
+    setFailing(false)
+    const c = createReplica({ storage, keyPrefix: prefix })
+    const hc = await c.hydrate()
+    expect(hc.cursor).toBeNull()
+    expect(hc.sessions).toEqual([])
   })
 
   it('re-applying an identical snapshot issues no storage writes', async () => {
