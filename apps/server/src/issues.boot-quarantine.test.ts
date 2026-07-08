@@ -5,7 +5,7 @@
  */
 
 import { describe, expect, it, vi } from 'vitest'
-import { IssueService, type IssueDeps } from './issues'
+import { IssueService, type IssueDeps } from './modules/issues/service'
 import { SessionStore } from './store'
 
 function deps(store: SessionStore): IssueDeps {

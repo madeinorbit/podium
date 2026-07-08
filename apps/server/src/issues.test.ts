@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionMeta } from '@podium/protocol'
 import { SessionStore } from './store'
-import { IssueService, type IssueDeps } from './issues'
+import { IssueService, type IssueDeps } from './modules/issues/service'
 import { repoOpCommand } from '../../daemon/src/repo-op'
 
 function harness(sessions: SessionMeta[] = []) {

@@ -1,6 +1,6 @@
 import type { SessionMeta } from '@podium/protocol'
 import { describe, expect, it, vi } from 'vitest'
-import { type IssueDeps, IssueService } from './issues'
+import { type IssueDeps, IssueService } from './modules/issues/service'
 import { SessionStore } from './store'
 
 // issue-as-workspace: attachSession / drafts / origin persistence (spec

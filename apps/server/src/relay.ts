@@ -29,7 +29,6 @@ import type {
 } from '@podium/protocol'
 import type { Capability } from './issue-authz'
 import { selectMailNudgeSession, sessionsForIssue } from './issue-util'
-import { IssueService } from './issues'
 import { LOCAL_PLACEHOLDER } from './local-machine'
 import type { ModelCatalogSnapshot, ModelProbe } from './model-catalog'
 import { EventBus } from './modules/bus'
@@ -39,7 +38,7 @@ import { HostsService, type MemoryBreakdown } from './modules/hosts/service'
 import { IssueCommandService } from './modules/issues/commands'
 import { IssuePublisher } from './modules/issues/publish'
 import { IssueRelayGate } from './modules/issues/relay-gate'
-import { SpecsService } from './modules/specs/service'
+import { IssueService } from './modules/issues/service'
 import { type IssueUpstreamForwarder, UpstreamIssuesService } from './modules/issues/upstream'
 import {
   DaemonRpcService,
@@ -65,6 +64,7 @@ import {
   type TelegramSetupPollResult,
   type TelegramSetupStartResult,
 } from './modules/settings/service'
+import { SpecsService } from './modules/specs/service'
 import { HeadlessService } from './modules/superagent/headless'
 import { inferRepoFromRoots } from './repo-registry'
 import type { ClientConn, Send, Session } from './session'

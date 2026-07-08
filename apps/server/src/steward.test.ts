@@ -1,6 +1,6 @@
 import type { SessionMeta } from '@podium/protocol'
 import { describe, expect, it, vi } from 'vitest'
-import { type IssueDeps, IssueService } from './issues'
+import { type IssueDeps, IssueService } from './modules/issues/service'
 import { type StewardDeps, StewardService, TRIGGER_RULES } from './steward'
 import { SessionStore } from './store'
 

@@ -9,7 +9,7 @@ import {
   SCOPED_TARGET,
 } from '../../issue-authz'
 import type { IssueTrpc } from '../../issue-client'
-import type { IssueService } from '../../issues'
+import type { IssueService } from './service'
 
 /** Who is calling (authz identity) — the same pair the router Context carries. */
 export interface IssueCaller {
