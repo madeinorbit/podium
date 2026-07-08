@@ -12,6 +12,7 @@ import type {
   ServerMessage,
 } from '@podium/protocol'
 import { Session } from '../../session'
+import type { LiveServerMessage } from '../message-class'
 
 export interface HeadlessDeps {
   getSession(sessionId: string): Session | undefined
@@ -105,7 +106,7 @@ export class HeadlessService {
   /** Fan a headless turn-activity event out to every connected client
    *  (turn-start/turn-end markers + the daemon's mid-turn progress events). */
   broadcastHeadlessActivity(sessionId: string, event: HeadlessActivityEvent): void {
-    const msg: ServerMessage = { type: 'headlessActivity', sessionId, event }
+    const msg: LiveServerMessage = { type: 'headlessActivity', sessionId, event }
     for (const c of this.deps.clients()) c.send(msg)
   }
 

@@ -23,7 +23,6 @@ import {
 } from '@podium/protocol'
 import { AutoContinueController } from '../../auto-continue'
 import type { Capability } from '../../issue-authz'
-import type { IssueService } from '../../issues'
 import { LOCAL_MACHINE_ID, LOCAL_PLACEHOLDER } from '../../local-machine'
 import { type ClientConn, type Send, Session } from '../../session'
 import { computePriorities } from '../../session-priority'
@@ -38,8 +37,10 @@ import type { EventBus } from '../bus'
 import type { ConversationsService } from '../conversations/service'
 import type { WriteFunnel } from '../funnel'
 import type { HostsService } from '../hosts/service'
+import type { IssueService } from '../issues/service'
 import type { DaemonRpcService } from '../machines/rpc'
 import type { MachinesService } from '../machines/service'
+import type { LiveServerMessage } from '../message-class'
 import type { HeadlessService } from '../superagent/headless'
 
 export const DEFAULT_GEOMETRY: Geometry = { cols: 80, rows: 24 }
@@ -853,10 +854,10 @@ export class SessionsService {
     if (session) session.draftUpdatedAt = input.text ? new Date().toISOString() : undefined
     // Keep the existing live cross-client sync: push to every OTHER client (the
     // directional guard skips the originator so its own keystrokes don't echo back).
-    for (const c of this.clients.values()) {
-      if (c.id === fromClientId) continue
-      c.send({ type: 'sessionDraftChanged', sessionId: input.sessionId, text: input.text })
-    }
+    this.broadcastToClients(
+      { type: 'sessionDraftChanged', sessionId: input.sessionId, text: input.text },
+      { ...(fromClientId !== undefined ? { exceptClientId: fromClientId } : {}) },
+    )
     this.persistDraft(input.sessionId, input.text)
     if (presenceChanged) this.broadcastSessions()
   }
@@ -1645,12 +1646,11 @@ export class SessionsService {
         // fire often (TodoWrite mutations, turn boundaries, across all sessions);
         // re-serializing and fanning out the whole session list each time is
         // O(sessions × clients). Late joiners still get state via listSessions().
-        const update: ServerMessage = {
+        this.broadcastToClients({
           type: 'sessionAgentStateChanged',
           sessionId: msg.sessionId,
           state: msg.state,
-        }
-        for (const c of this.clients.values()) c.send(update)
+        })
         this.issues().onSessionActivity(msg.sessionId)
         // Synchronous fan-out to bus subscribers (NotifyService) — same ordering
         // as the old direct notifyAttention call.
@@ -1711,12 +1711,11 @@ export class SessionsService {
               // titles at spinner frame-rate; rebroadcasting the whole list each time
               // would be wasteful, and late-joining clients still get the title via
               // listSessions() on attach.
-              const update: ServerMessage = {
+              this.broadcastToClients({
                 type: 'sessionTitleChanged',
                 sessionId: sid,
                 title: stableTitle,
-              }
-              for (const c of this.clients.values()) c.send(update)
+              })
             }),
           )
         }
@@ -1826,12 +1825,11 @@ export class SessionsService {
             session.setTitle(derived)
             session.titleLocked = true
             this.persist(session)
-            const update: ServerMessage = {
+            this.broadcastToClients({
               type: 'sessionTitleChanged',
               sessionId: msg.sessionId,
               title: derived,
-            }
-            for (const c of this.clients.values()) c.send(update)
+            })
           }
         }
         break
@@ -1903,9 +1901,15 @@ export class SessionsService {
     return this.sessions.get(sessionId)?.transcriptItems() ?? []
   }
 
-  /** Send one message to every connected client (issue-tracker misc broadcasts). */
-  broadcastToClients(msg: ServerMessage): void {
-    for (const c of this.clients.values()) c.send(msg)
+  /** Raw fan-out to every connected client. Typed LIVE-ONLY (modules/
+   *  message-class, issue #190): durable entity messages must go through the
+   *  write funnel's publish tail instead, so passing one here is a type error.
+   *  `exceptClientId` skips the originator (draft echo suppression). */
+  broadcastToClients(msg: LiveServerMessage, opts: { exceptClientId?: string } = {}): void {
+    for (const c of this.clients.values()) {
+      if (c.id === opts.exceptClientId) continue
+      c.send(msg)
+    }
   }
 
   // Coalescing state for broadcastSessions() (bind-storm fix). Design: the FIRST

@@ -5,7 +5,8 @@
  */
 
 import { describe, expect, it, vi } from 'vitest'
-import { IssueService, type IssueDeps } from './issues'
+import { IssueService, type IssueDeps } from './modules/issues/service'
+import { issueTestPlumbing } from './modules/issues/service/test-plumbing'
 import { SessionStore } from './store'
 
 function deps(store: SessionStore): IssueDeps {
@@ -19,7 +20,7 @@ function deps(store: SessionStore): IssueDeps {
       }) as never,
     spawnSession: vi.fn(() => ({ sessionId: 's1' })),
     repoOp: vi.fn(async () => ({ ok: true, output: '' })),
-    broadcast: vi.fn(),
+    ...issueTestPlumbing(),
   }
 }
 

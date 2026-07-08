@@ -3,6 +3,7 @@ import type { ControlMessage, DaemonHandshake, MachineWire, ServerMessage } from
 import { LOCAL_MACHINE_ID, LOCAL_PLACEHOLDER } from '../../local-machine'
 import type { Send } from '../../session'
 import type { MachineRecord, SessionStore } from '../../store'
+import type { LiveServerMessage } from '../message-class'
 
 /** sha-256 hex of a secret — matches the store's token-hash scheme. */
 export function sha256(s: string): string {
@@ -326,7 +327,8 @@ export class MachinesService {
   }
 
   broadcastMachines(): void {
-    const msg: ServerMessage = { type: 'machinesChanged', machines: this.listMachines() }
+    // Classified live-only (modules/message-class): re-served in full on attach.
+    const msg: LiveServerMessage = { type: 'machinesChanged', machines: this.listMachines() }
     for (const c of this.deps.clients()) c.send(msg)
   }
 }

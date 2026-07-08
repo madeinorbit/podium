@@ -1,18 +1,21 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionMeta } from '@podium/protocol'
 import { SessionStore } from './store'
-import { IssueService, type IssueDeps } from './issues'
+import { IssueService, type IssueDeps } from './modules/issues/service'
+import { issueTestPlumbing } from './modules/issues/service/test-plumbing'
 import { SessionRegistry } from './relay'
 
 function harness(sessions: SessionMeta[] = []) {
   const store = new SessionStore(':memory:')
-  const deps: IssueDeps = {
+  const broadcast = vi.fn()
+  const deps: IssueDeps & { broadcast: ReturnType<typeof vi.fn> } = {
     store,
     listSessions: () => sessions,
     getSettings: () => ({ gitWorkflow: { defaultParentBranch: '', mergeStyle: 'ff-only', autoRebaseBeforeMerge: true }, sessionDefaults: { agent: 'claude-code' } }) as never,
     spawnSession: vi.fn(() => ({ sessionId: 's1' })),
     repoOp: vi.fn(async () => ({ ok: true, output: '' })),
-    broadcast: vi.fn(),
+    broadcast,
+    ...issueTestPlumbing((msg) => broadcast(msg)),
     now: () => '2026-07-02T00:00:00.000Z',
   }
   return { store, deps, svc: new IssueService(deps) }

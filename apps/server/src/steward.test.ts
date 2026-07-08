@@ -1,6 +1,7 @@
 import type { SessionMeta } from '@podium/protocol'
 import { describe, expect, it, vi } from 'vitest'
-import { type IssueDeps, IssueService } from './issues'
+import { type IssueDeps, IssueService } from './modules/issues/service'
+import { issueTestPlumbing } from './modules/issues/service/test-plumbing'
 import { type StewardDeps, StewardService, TRIGGER_RULES } from './steward'
 import { SessionStore } from './store'
 
@@ -26,7 +27,7 @@ function harness(opts: { enabled?: boolean; sessions?: SessionMeta[]; seedCursor
     getSettings: () => settings,
     spawnSession: vi.fn(() => ({ sessionId: 's1' })),
     repoOp: vi.fn(async () => ({ ok: true, output: '' })),
-    broadcast: vi.fn(),
+    ...issueTestPlumbing(),
     now,
   }
   const issues = new IssueService(issueDeps)

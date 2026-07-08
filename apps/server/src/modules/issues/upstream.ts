@@ -168,8 +168,7 @@ export class UpstreamIssuesService {
       // #175: comment bodies no longer ride IssueWire — the optimistic effect is
       // the COUNT bump (the queued body surfaces once the hub applies it).
       const mirrored = this.upstreamIssues.get(issueId)
-      const base =
-        prior.commentCount ?? mirrored?.commentCount ?? mirrored?.comments?.length ?? 0
+      const base = prior.commentCount ?? mirrored?.commentCount ?? mirrored?.comments?.length ?? 0
       patch.commentCount = base + 1
     }
     this.upstreamIssuePatches.set(issueId, patch)

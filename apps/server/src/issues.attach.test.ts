@@ -1,6 +1,7 @@
 import type { SessionMeta } from '@podium/protocol'
 import { describe, expect, it, vi } from 'vitest'
-import { type IssueDeps, IssueService } from './issues'
+import { type IssueDeps, IssueService } from './modules/issues/service'
+import { issueTestPlumbing } from './modules/issues/service/test-plumbing'
 import { SessionStore } from './store'
 
 // issue-as-workspace: attachSession / drafts / origin persistence (spec
@@ -9,7 +10,8 @@ import { SessionStore } from './store'
 function harness(sessions: SessionMeta[] = []) {
   const store = new SessionStore(':memory:')
   const issueBySession = new Map<string, string | null>()
-  const deps: IssueDeps = {
+  const broadcast = vi.fn()
+  const deps: IssueDeps & { broadcast: ReturnType<typeof vi.fn> } = {
     store,
     listSessions: () =>
       sessions.map((s) => ({
@@ -27,7 +29,8 @@ function harness(sessions: SessionMeta[] = []) {
       }) as never,
     spawnSession: vi.fn(() => ({ sessionId: 's1' })),
     repoOp: vi.fn(async () => ({ ok: true, output: '' })),
-    broadcast: vi.fn(),
+    broadcast,
+    ...issueTestPlumbing((msg) => broadcast(msg)),
     now: () => '2026-07-06T00:00:00.000Z',
     getSessionIssueId: (sessionId) => issueBySession.get(sessionId) ?? null,
     setSessionIssueId: (sessionId, issueId) => issueBySession.set(sessionId, issueId),

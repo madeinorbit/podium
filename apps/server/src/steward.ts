@@ -1,7 +1,7 @@
 import type { PodiumSettings } from '@podium/core'
 import type { IssueComment, IssueWire, SessionMeta } from '@podium/protocol'
 import { sessionsForIssue } from './issue-util'
-import type { IssueService } from './issues'
+import type { IssueService } from './modules/issues/service'
 import type { SessionStore, Subscription } from './store'
 
 /** One row read back from the durable event log (`podium_events`). */
