@@ -480,6 +480,14 @@ export class SessionStore {
     return this.issuesRepo.listIssueComments(issueId)
   }
 
+  countIssueComments(issueId: string): number {
+    return this.issuesRepo.countIssueComments(issueId)
+  }
+
+  countIssueCommentsByIssue(): Map<string, number> {
+    return this.issuesRepo.countIssueCommentsByIssue()
+  }
+
   searchIssueComments(query: string, limit?: number) {
     return this.issuesRepo.searchIssueComments(query, limit)
   }

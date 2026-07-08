@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import type { IssueWire } from '@podium/protocol'
 import { SCOPED_TARGET } from '../../issue-authz'
 import type { SessionStore } from '../../store'
-import { optimisticComment, optimisticIssuePatch } from '../../upstream-forwarder'
+import { optimisticIssuePatch } from '../../upstream-forwarder'
 
 /** The narrow forwarder seam the upstream-issue mirror needs (UpstreamForwarder
  *  implements it; kept minimal so relay tests can stub the write path without a hub). */
@@ -165,8 +165,12 @@ export class UpstreamIssuesService {
     const prior = this.upstreamIssuePatches.get(issueId) ?? {}
     const patch = { ...prior, ...optimisticIssuePatch(proc, input, nowIso) }
     if (proc === 'addComment') {
-      const base = prior.comments ?? this.upstreamIssues.get(issueId)?.comments ?? []
-      patch.comments = [...base, optimisticComment(input, nowIso)]
+      // #175: comment bodies no longer ride IssueWire — the optimistic effect is
+      // the COUNT bump (the queued body surfaces once the hub applies it).
+      const mirrored = this.upstreamIssues.get(issueId)
+      const base =
+        prior.commentCount ?? mirrored?.commentCount ?? mirrored?.comments?.length ?? 0
+      patch.commentCount = base + 1
     }
     this.upstreamIssuePatches.set(issueId, patch)
     this.deps.publish()

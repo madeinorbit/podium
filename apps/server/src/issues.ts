@@ -10,6 +10,7 @@ import type {
   DoctorReport,
   DuplicateCandidate,
   EpicStatus,
+  IssueComment,
   IssueCount,
   IssueGraph,
   IssueSearchFilter,
@@ -296,8 +297,15 @@ export class IssueService {
   /** Serialize one issue. `sessionList` lets multi-issue serializers (list/allWire/
    *  search/stats/…) compute the session list ONCE and share it — per-issue
    *  `deps.listSessions()` calls were the boot-storm hot path (66 sessions × 60
-   *  issues per broadcast). Omitting it (single-issue paths) fetches a fresh list. */
-  toWire(row: IssueRow, sessionList: SessionMeta[] = this.deps.listSessions()): IssueWire {
+   *  issues per broadcast). Omitting it (single-issue paths) fetches a fresh list.
+   *  `commentCounts` is the same batching for the comment COUNT (#175): list
+   *  serializers pass one GROUP BY map; single-issue paths run one scalar COUNT.
+   *  Comment BODIES never ride the wire anymore — fetch via comments(id). */
+  toWire(
+    row: IssueRow,
+    sessionList: SessionMeta[] = this.deps.listSessions(),
+    commentCounts?: Map<string, number>,
+  ): IssueWire {
     const sessions = sessionsForIssue(row.worktreePath, sessionList, row.id)
     const labels = this.deps.store.getIssueLabels(row.id)
     const children = [...this.rows.values()].filter((r) => r.parentId === row.id)
@@ -312,7 +320,9 @@ export class IssueService {
       ...this.deps.store.listDependents(row.id).map((d) => ({ id: d.fromId, type: d.type })),
       ...children.map((c) => ({ id: c.id, type: 'parent-child' })),
     ]
-    const comments = this.deps.store.listIssueComments(row.id)
+    const commentCount = commentCounts
+      ? (commentCounts.get(row.id) ?? 0)
+      : this.deps.store.countIssueComments(row.id)
     const blocked = this.computeBlocked(row)
     const deferred = this.isDeferred(row)
     const ready = !this.isClosed(row) && !deferred && !blocked
@@ -361,7 +371,7 @@ export class IssueService {
       labels,
       deps,
       dependents,
-      comments,
+      commentCount,
       ready,
       blocked,
       deferred,
@@ -381,6 +391,7 @@ export class IssueService {
 
   list(repoPath?: string): IssueWire[] {
     const sessionList = this.deps.listSessions()
+    const commentCounts = this.deps.store.countIssueCommentsByIssue()
     return [...this.rows.values()]
       .filter((r) => this.inRepoScope(r, repoPath))
       .sort((a, b) => {
@@ -390,22 +401,24 @@ export class IssueService {
         const gb = b.repoId ?? b.repoPath
         return ga === gb ? a.seq - b.seq : ga.localeCompare(gb)
       })
-      .map((r) => this.toWire(r, sessionList))
+      .map((r) => this.toWire(r, sessionList, commentCounts))
   }
   readyList(repoPath?: string): IssueWire[] {
     const sessionList = this.deps.listSessions()
+    const commentCounts = this.deps.store.countIssueCommentsByIssue()
     return [...this.rows.values()]
       .filter((r) => this.inRepoScope(r, repoPath))
-      .map((r) => this.toWire(r, sessionList))
+      .map((r) => this.toWire(r, sessionList, commentCounts))
       .filter((w) => w.ready)
       .sort((a, b) => (a.priority !== b.priority ? a.priority - b.priority : a.seq - b.seq))
   }
 
   blockedList(repoPath?: string): IssueWire[] {
     const sessionList = this.deps.listSessions()
+    const commentCounts = this.deps.store.countIssueCommentsByIssue()
     return [...this.rows.values()]
       .filter((r) => this.inRepoScope(r, repoPath))
-      .map((r) => this.toWire(r, sessionList))
+      .map((r) => this.toWire(r, sessionList, commentCounts))
       .filter((w) => w.blocked)
       .sort((a, b) => (a.priority !== b.priority ? a.priority - b.priority : a.seq - b.seq))
   }
@@ -413,8 +426,9 @@ export class IssueService {
   graph(repoPath?: string): IssueGraph {
     const rows = [...this.rows.values()].filter((r) => this.inRepoScope(r, repoPath))
     const sessionList = this.deps.listSessions()
+    const commentCounts = this.deps.store.countIssueCommentsByIssue()
     const nodes = rows.map((r) => {
-      const w = this.toWire(r, sessionList)
+      const w = this.toWire(r, sessionList, commentCounts)
       return {
         id: r.id,
         seq: r.seq,
@@ -541,7 +555,8 @@ export class IssueService {
     }
     walk(root.id)
     const sessionList = this.deps.listSessions()
-    return rows.sort((a, b) => a.seq - b.seq).map((r) => this.toWire(r, sessionList))
+    const commentCounts = this.deps.store.countIssueCommentsByIssue()
+    return rows.sort((a, b) => a.seq - b.seq).map((r) => this.toWire(r, sessionList, commentCounts))
   }
 
   /** One-call epic survey (issue #82): the root + its whole descendant subtree,
@@ -669,10 +684,11 @@ export class IssueService {
 
   closeEligibleEpics(repoPath?: string): IssueWire[] {
     const sessionList = this.deps.listSessions()
+    const commentCounts = this.deps.store.countIssueCommentsByIssue()
     return [...this.rows.values()]
       .filter((r) => this.inRepoScope(r, repoPath) && r.type === 'epic' && !this.isClosed(r))
       .filter((r) => this.epicStatus(r.id).complete)
-      .map((r) => this.toWire(r, sessionList))
+      .map((r) => this.toWire(r, sessionList, commentCounts))
   }
 
   /** Mechanical (Jaccard) duplicate detection over open issues in a repo.
@@ -700,11 +716,12 @@ export class IssueService {
   staleList(repoPath?: string, days = 30, nowMs = Date.now()): IssueWire[] {
     const cutoff = nowMs - days * 24 * 60 * 60 * 1000
     const sessionList = this.deps.listSessions()
+    const commentCounts = this.deps.store.countIssueCommentsByIssue()
     return [...this.rows.values()]
       .filter((r) => this.inRepoScope(r, repoPath) && !this.isClosed(r))
       .filter((r) => Date.parse(r.updatedAt) < cutoff)
       .sort((a, b) => Date.parse(a.updatedAt) - Date.parse(b.updatedAt))
-      .map((r) => this.toWire(r, sessionList))
+      .map((r) => this.toWire(r, sessionList, commentCounts))
   }
 
   /** Open issues with ≥1 template-completeness finding (see `lintIssue`). */
@@ -778,9 +795,10 @@ export class IssueService {
   search(filter: IssueSearchFilter): IssueWire[] {
     const text = filter.text?.toLowerCase()
     const sessionList = this.deps.listSessions()
+    const commentCounts = this.deps.store.countIssueCommentsByIssue()
     return [...this.rows.values()]
       .filter((r) => this.inRepoScope(r, filter.repoPath))
-      .map((r) => this.toWire(r, sessionList))
+      .map((r) => this.toWire(r, sessionList, commentCounts))
       .filter((w) => {
         if (filter.stage && w.stage !== filter.stage) return false
         if (filter.priority != null && w.priority !== filter.priority) return false
@@ -819,9 +837,10 @@ export class IssueService {
 
   stats(repoPath?: string): IssueStats {
     const sessionList = this.deps.listSessions()
+    const commentCounts = this.deps.store.countIssueCommentsByIssue()
     const wires = [...this.rows.values()]
       .filter((r) => this.inRepoScope(r, repoPath))
-      .map((r) => this.toWire(r, sessionList))
+      .map((r) => this.toWire(r, sessionList, commentCounts))
     const closed = wires.filter((w) => w.stage === 'done' || w.closedReason).length
     return {
       total: wires.length,
@@ -892,6 +911,19 @@ export class IssueService {
   get(id: string): IssueWire | null {
     const r = this.rows.get(this.resolveRef(id))
     return r ? this.toWire(r) : null
+  }
+
+  /** One issue's comment thread, oldest-first (#175): comment BODIES left
+   *  IssueWire (it carries only commentCount now), so clients fetch them lazily
+   *  through this read (the `issues.comments` proc / CLI show). */
+  comments(id: string): IssueComment[] {
+    const row = this.rowOrThrow(this.resolveRef(id))
+    return this.deps.store.listIssueComments(row.id).map((c) => ({
+      id: c.id,
+      author: c.author,
+      body: c.body,
+      createdAt: c.createdAt,
+    }))
   }
 
   /** The id of the issue whose worktree contains `cwd`, or null. Used to mint per-agent scope. */
@@ -1180,13 +1212,14 @@ export class IssueService {
   private emitReadyAfterClose(closed: IssueRow, actorSessionId?: string): void {
     try {
       const sessionList = this.deps.listSessions()
+      const commentCounts = this.deps.store.countIssueCommentsByIssue()
       for (const r of this.rows.values()) {
         if (r.id === closed.id || !this.inRepoScope(r, closed.repoPath) || this.isClosed(r))
           continue
         const blocksClosed = this.deps.store
           .listIssueDeps(r.id)
           .some((d) => d.type === 'blocks' && d.toId === closed.id)
-        if (blocksClosed && this.toWire(r, sessionList).ready) {
+        if (blocksClosed && this.toWire(r, sessionList, commentCounts).ready) {
           this.emitEvent('issue.ready', r.id, {
             seq: r.seq,
             unblockedBy: closed.seq,

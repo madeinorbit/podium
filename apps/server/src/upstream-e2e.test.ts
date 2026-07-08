@@ -234,7 +234,8 @@ describe('node⇄hub upstream sync e2e (live hub server)', () => {
     expect(mutationId).not.toBe('')
     const pending = nodeIssueWire().find((i) => i.id === hubIssueId)
     expect(pending?.pendingSync).toBe(true)
-    expect(pending?.comments.some((c) => c.body === 'offline comment')).toBe(true)
+    // #175: comment bodies left the wire — the optimistic effect is the count bump.
+    expect(pending?.commentCount).toBe(1)
     // Invariant 3: local issues are completely unaffected while the hub is down.
     const localIssue = await nodeRegistry.issues.createAndMaybeStart({
       repoPath: '/node/repo',
@@ -250,8 +251,8 @@ describe('node⇄hub upstream sync e2e (live hub server)', () => {
     // EXACTLY ONE application, asserted via hub issue state + the hub's
     // idempotency record for the entry's mutationId (invariant 2).
     const applied = () =>
-      hub.registry.issues.get(hubIssueId)?.comments.filter((c) => c.body === 'offline comment') ??
-      []
+      // #175: read the hub's thread via comments() — bodies are not on the wire.
+      hub.registry.issues.comments(hubIssueId).filter((c) => c.body === 'offline comment')
     expect(applied()).toHaveLength(1)
     expect(hub.registry.sessionStore.getAppliedMutation(mutationId)).toBeDefined()
     // Belt-and-braces: replay the SAME mutation again (a lost-ack retry) — the
@@ -266,10 +267,8 @@ describe('node⇄hub upstream sync e2e (live hub server)', () => {
     // The hub's post-restart truth reaches the node and pendingSync clears.
     await until(() => {
       const entry = nodeIssueWire().find((i) => i.id === hubIssueId)
-      return (
-        entry?.pendingSync === undefined &&
-        entry?.comments.some((c) => c.body === 'offline comment') === true
-      )
+      // #175: hub truth carries the count, not the bodies.
+      return entry?.pendingSync === undefined && entry?.commentCount === 1
     }, 10_000)
   })
 

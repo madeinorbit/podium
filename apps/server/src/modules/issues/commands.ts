@@ -97,6 +97,7 @@ export const issueInputs = {
   stats: repoScoped,
   orphans: z.object({ repoPath: z.string() }),
   get: byId,
+  comments: byId,
   events: z.object({
     since: z.number().int().min(0).default(0),
     kinds: z.array(z.string()).optional(),
@@ -436,6 +437,13 @@ export class IssueCommandService {
   }
   get(_c: IssueCaller, input: In<'get'>) {
     return this.issues().get(input.id)
+  }
+  /** Lazy comment fetch (#175) — bodies left IssueWire (commentCount rides it).
+   *  A read (unlisted in PROC_ACTION, like get/list). Hub-mirrored issues have
+   *  no local thread: their comments live on the hub, so this returns []. */
+  comments(_c: IssueCaller, input: In<'comments'>) {
+    if (this.deps.isUpstreamIssue(input.id)) return []
+    return this.issues().comments(input.id)
   }
   events(_c: IssueCaller, input: In<'events'>) {
     return this.issues().listEvents(input.since, {

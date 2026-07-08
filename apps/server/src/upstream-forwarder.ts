@@ -1,4 +1,4 @@
-import type { IssueComment, IssueWire } from '@podium/protocol'
+import type { IssueWire } from '@podium/protocol'
 import { createTRPCClient, httpBatchLink, TRPCClientError } from '@trpc/client'
 import { SESSION_COOKIE } from './auth-route'
 import type { AppRouter } from './router'
@@ -132,16 +132,9 @@ export function optimisticIssuePatch(
   }
 }
 
-/** Append-a-comment needs the CURRENT entry (arrays merge, not overlay) — built at
- *  patch-apply time in the registry, which holds the replica entry. */
-export function optimisticComment(input: Record<string, unknown>, nowIso: string): IssueComment {
-  return {
-    id: `pending_${String(input.mutationId ?? '')}`,
-    author: typeof input.author === 'string' ? input.author : 'operator',
-    body: typeof input.body === 'string' ? input.body : '',
-    createdAt: nowIso,
-  }
-}
+// optimisticComment was removed with #175: comment bodies no longer ride
+// IssueWire, so a queued addComment's optimistic effect is a commentCount bump
+// (applied in modules/issues/upstream), not an appended body.
 
 export class UpstreamForwarder {
   private readonly store: UpstreamOutboxStore

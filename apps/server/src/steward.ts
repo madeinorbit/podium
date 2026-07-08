@@ -1,5 +1,5 @@
 import type { PodiumSettings } from '@podium/core'
-import type { IssueWire, SessionMeta } from '@podium/protocol'
+import type { IssueComment, IssueWire, SessionMeta } from '@podium/protocol'
 import { sessionsForIssue } from './issue-util'
 import type { IssueService } from './issues'
 import type { SessionStore, Subscription } from './store'
@@ -58,8 +58,10 @@ export const TRIGGER_RULES: Record<string, (e: StewardEvent) => string | string[
 interface ChildParentSub {
   /** Colon-anchored marker prefix for the parent comment (dedup + replay-safe). */
   marker: (childSeq: number) => string
-  /** The excerpt appended to the marker (agent-authored, first line, capped). */
-  excerpt: (e: StewardEvent, child: IssueWire | undefined) => string
+  /** The excerpt appended to the marker (agent-authored, first line, capped).
+   *  `childComments` is the child's thread, fetched by the caller — comment
+   *  bodies no longer ride IssueWire (#175). */
+  excerpt: (e: StewardEvent, child: IssueWire | undefined, childComments: IssueComment[]) => string
   /** The single-line nudge; `counts` is meaningful for close, ignored otherwise. */
   nudge: (childSeq: number, counts: { remaining: number; total: number }) => string
 }
@@ -80,13 +82,13 @@ function subscriptionNudge(sub: Subscription, e: StewardEvent): string {
 export const CHILD_PARENT_SUBS: Record<string, ChildParentSub> = {
   closed: {
     marker: (s) => `Child #${s} closed:`,
-    excerpt: (_e, child) => firstLineCapped(completionNote(child)),
+    excerpt: (_e, child, childComments) => firstLineCapped(completionNote(child, childComments)),
     nudge: (s, c) =>
       `Child issue #${s} closed — ${c.remaining} of ${c.total} children remain. ${NUDGE_TAIL}`,
   },
   review: {
     marker: (s) => `Child #${s} in review:`,
-    excerpt: (_e, child) => firstLineCapped(completionNote(child)),
+    excerpt: (_e, child, childComments) => firstLineCapped(completionNote(child, childComments)),
     nudge: (s) => `Child issue #${s} moved to review — ready for your look. ${NUDGE_TAIL}`,
   },
   needs_human: {
@@ -139,7 +141,7 @@ export interface StewardDeps {
     | 'listEnabledSubscriptions'
     | 'markDelivered'
   >
-  issues: Pick<IssueService, 'get' | 'list' | 'addComment' | 'ancestorIds'>
+  issues: Pick<IssueService, 'get' | 'list' | 'addComment' | 'ancestorIds' | 'comments'>
   listSessions: () => SessionMeta[]
   /** Durable-queue a nudge into a live session (relay.queueText). */
   sendTextWhenReady: (sessionId: string, text: string) => void
@@ -151,12 +153,12 @@ export interface StewardDeps {
 const CURSOR_KEY = 'cursor'
 const COMPLETION_NOTE_TAG = '[completion-note]'
 
-/** The closed issue's latest completion-note comment body (tag stripped), else its title. */
-function completionNote(closed: IssueWire | undefined): string {
+/** The closed issue's latest completion-note comment body (tag stripped), else its
+ *  title. `comments` is the issue's thread, fetched by the caller via
+ *  IssueService.comments — bodies no longer ride IssueWire (#175). */
+function completionNote(closed: IssueWire | undefined, comments: IssueComment[]): string {
   if (!closed) return ''
-  const note = [...closed.comments]
-    .reverse()
-    .find((c) => c.body.includes(COMPLETION_NOTE_TAG))?.body
+  const note = [...comments].reverse().find((c) => c.body.includes(COMPLETION_NOTE_TAG))?.body
   return (note ? note.replace(COMPLETION_NOTE_TAG, '').trim() : closed.title).trim()
 }
 
@@ -388,14 +390,16 @@ export class StewardService {
       // assumption: this read-then-write dedup is a cross-process race — fine
       // while live is one server; revisit for multi-server.
       const marker = `Unblocked by #${closedSeq}:`
-      const already = dependent.comments.some(
-        (c) => c.author === 'steward' && c.body.includes(marker),
-      )
+      // Comment bodies left IssueWire (#175) — dedup reads the thread directly.
+      const already = this.deps.issues
+        .comments(dependent.id)
+        .some((c) => c.author === 'steward' && c.body.includes(marker))
       if (already) continue
       const closed = this.deps.issues
         .list(e.repoPath ?? dependent.repoPath)
         .find((w) => w.seq === closedSeq)
-      this.deps.issues.addComment(dependent.id, 'steward', `${marker} ${completionNote(closed)}`)
+      const note = completionNote(closed, closed ? this.deps.issues.comments(closed.id) : [])
+      this.deps.issues.addComment(dependent.id, 'steward', `${marker} ${note}`)
       // Nudge only live/starting agent sessions: queueText would RESURRECT a
       // parked session with a resume ref (the steward must never respawn agents),
       // and a shell would have the text typed into bash. The nudge itself stays
@@ -450,14 +454,17 @@ export class StewardService {
       // Colon-anchored so '#5' never matches a prior '#55' comment (see the
       // matching note on handleUnblock — same single-server dedup assumption).
       const marker = sub.marker(childSeq)
-      const already = parent.comments.some((c) => c.author === 'steward' && c.body.includes(marker))
+      // Comment bodies left IssueWire (#175) — dedup reads the thread directly.
+      const already = this.deps.issues
+        .comments(parent.id)
+        .some((c) => c.author === 'steward' && c.body.includes(marker))
       if (already) continue
       const child = this.deps.issues
         .list(e.repoPath ?? parent.repoPath)
         .find((w) => w.seq === childSeq)
       // Empty excerpt (no note / question) → bare marker, no trailing space.
       // The marker keeps its colon so replay dedup still matches.
-      const excerpt = sub.excerpt(e, child)
+      const excerpt = sub.excerpt(e, child, child ? this.deps.issues.comments(child.id) : [])
       this.deps.issues.addComment(parent.id, 'steward', excerpt ? `${marker} ${excerpt}` : marker)
       posted = true
     }

@@ -45,8 +45,9 @@ function harness(opts: { enabled?: boolean; sessions?: SessionMeta[]; seedCursor
 const fakeSession = (s: Partial<SessionMeta>): SessionMeta =>
   ({ sessionId: 's?', agentKind: 'claude-code', cwd: '/', status: 'live', ...s }) as never
 
+// #175: comment bodies left IssueWire — read the thread via IssueService.comments.
 const stewardComments = (issues: IssueService, id: string) =>
-  issues.get(id)!.comments.filter((c) => c.author === 'steward')
+  issues.comments(id).filter((c) => c.author === 'steward')
 
 describe('TRIGGER_RULES', () => {
   it('maps closed/ready to a per-repo unblock key and needs_human to a per-issue key', () => {
@@ -380,7 +381,9 @@ describe('StewardService parent-nudge handler', () => {
     await steward.tick()
     // No parent exists; nothing to comment on, nothing to nudge.
     expect(sendTextWhenReady).not.toHaveBeenCalled()
-    expect(issues.list('/r').flatMap((w) => w.comments)).toEqual([])
+    // #175: bodies left the wire — assert via counts + the thread read.
+    expect(issues.list('/r').every((w) => (w.commentCount ?? 0) === 0)).toBe(true)
+    expect(issues.list('/r').flatMap((w) => issues.comments(w.id))).toEqual([])
   })
 
   it('suppresses the nudge to the session that caused the child close, comment still lands', async () => {

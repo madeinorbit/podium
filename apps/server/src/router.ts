@@ -1049,6 +1049,10 @@ export const appRouter = t.router({
     get: issueProc
       .input(issueInputs.get)
       .query(({ ctx, input }) => mods(ctx).issueCommands.get(issueCaller(ctx), input)),
+    // Lazy comment fetch (#175): comment bodies no longer ride IssueWire.
+    comments: issueProc
+      .input(issueInputs.comments)
+      .query(({ ctx, input }) => mods(ctx).issueCommands.comments(issueCaller(ctx), input)),
     events: issueProc
       .input(issueInputs.events)
       .query(({ ctx, input }) => mods(ctx).issueCommands.events(issueCaller(ctx), input)),

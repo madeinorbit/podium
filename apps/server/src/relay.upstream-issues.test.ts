@@ -208,7 +208,9 @@ describe('upstream issue write forwarding (spec §2.2)', () => {
     expect(entry?.viaHub).toBe(true)
   })
 
-  it('addComment queues an optimistic comment', async () => {
+  // #175: comment bodies no longer ride IssueWire — a queued addComment's
+  // optimistic effect is a commentCount bump (the body surfaces via the hub).
+  it('addComment queues an optimistic commentCount bump', async () => {
     const { registry } = makeNode()
     registry.setUpstreamForwarder(stubForwarder())
     registry.setUpstreamIssues([hubIssue('iss_hub1')])
@@ -219,7 +221,8 @@ describe('upstream issue write forwarding (spec §2.2)', () => {
     })
     const entry = attachIssues(registry).find((i) => i.id === 'iss_hub1')
     expect(entry?.pendingSync).toBe(true)
-    expect(entry?.comments.some((c) => c.body === 'note from the node')).toBe(true)
+    expect(entry?.commentCount).toBe(1)
+    expect(JSON.stringify(entry)).not.toContain('note from the node')
   })
 
   it('a hub push while the edit is STILL queued keeps the optimistic patch', async () => {

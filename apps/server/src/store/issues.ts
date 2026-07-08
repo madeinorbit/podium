@@ -459,6 +459,25 @@ export class IssuesRepository {
     }))
   }
 
+  /** Comment count for ONE issue — the single-issue toWire path (#175). */
+  countIssueComments(issueId: string): number {
+    const r = this.db
+      .prepare('SELECT COUNT(*) AS n FROM issue_comments WHERE issue_id = ?')
+      .get(issueId) as { n: number }
+    return r.n
+  }
+
+  /** Comment counts for ALL issues in one GROUP BY (#175) — list serializations
+   *  share this map so N-issue toWire runs don't cost N comment queries (the
+   *  same batching posture as the shared sessionList). Issues with no comments
+   *  are simply absent (read as 0). */
+  countIssueCommentsByIssue(): Map<string, number> {
+    const rows = this.db
+      .prepare('SELECT issue_id, COUNT(*) AS n FROM issue_comments GROUP BY issue_id')
+      .all() as { issue_id: string; n: number }[]
+    return new Map(rows.map((r) => [r.issue_id, r.n]))
+  }
+
   /** Substring match over issue comment bodies — comments have no FTS (bounded
    *  volume), so LIKE is enough for the omni-search's comment source. */
   searchIssueComments(

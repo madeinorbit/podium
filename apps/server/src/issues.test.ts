@@ -793,12 +793,38 @@ describe('IssueService field mutations (P1)', () => {
     expect(svc.setLabels(a.id, ['ui', 'p1']).labels).toEqual(['p1', 'ui'])
   })
 
-  it('addComment appends a comment', () => {
+  // #175: comment bodies left IssueWire — the wire carries only commentCount;
+  // the thread itself is served by IssueService.comments (issues.comments proc).
+  it('addComment appends a comment; wire carries the count, comments() the bodies', () => {
     const { svc } = harness()
     const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
     const w = svc.addComment(a.id, 'mike', 'looks good')
-    expect(w.comments.map((c) => c.body)).toEqual(['looks good'])
-    expect(w.comments[0]!.author).toBe('mike')
+    expect(w.commentCount).toBe(1)
+    expect(w.comments).toBeUndefined()
+    const thread = svc.comments(a.id)
+    expect(thread.map((c) => c.body)).toEqual(['looks good'])
+    expect(thread[0]!.author).toBe('mike')
+  })
+
+  // #175 payload win: serializing the full list runs ONE batched comment-count
+  // query (no per-issue comment queries) and the wire carries no comment bodies.
+  it('list() batches comment counts and puts no comment bodies on the wire', () => {
+    const { svc, store } = harness()
+    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    svc.create({ repoPath: '/r', title: 'B', startNow: false })
+    svc.create({ repoPath: '/r', title: 'C', startNow: false })
+    svc.addComment(a.id, 'mike', 'secret-body-marker')
+    svc.addComment(a.id, 'mike', 'second note')
+    const perIssueList = vi.spyOn(store, 'listIssueComments')
+    const perIssueCount = vi.spyOn(store, 'countIssueComments')
+    const batched = vi.spyOn(store, 'countIssueCommentsByIssue')
+    const wires = svc.list('/r')
+    expect(perIssueList).not.toHaveBeenCalled()
+    expect(perIssueCount).not.toHaveBeenCalled()
+    expect(batched).toHaveBeenCalledTimes(1)
+    expect(wires.find((w) => w.id === a.id)?.commentCount).toBe(2)
+    expect(wires.every((w) => w.comments === undefined)).toBe(true)
+    expect(JSON.stringify(wires)).not.toContain('secret-body-marker')
   })
 
   it('addDep blocks ready; rejects self-dep and cycles', () => {
