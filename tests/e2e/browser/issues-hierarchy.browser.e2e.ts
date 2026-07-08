@@ -48,7 +48,7 @@ test('issues hierarchy: nested children, epic badge + fraction, flatten toggle, 
   await page.setViewportSize({ width: 1280, height: 900 })
   await openShell(page)
 
-  await page.locator('button[title="Issues"]').click({ timeout: 15_000 })
+  await page.locator('aside').first().getByRole('button', { name: 'Issues', exact: true }).click({ timeout: 15_000 })
   const board = page.getByRole('region', { name: 'Issues' })
   await expect(board).toBeVisible({ timeout: 10_000 })
 
