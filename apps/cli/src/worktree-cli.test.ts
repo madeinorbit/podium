@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { runWorktreeCli } from './worktree-cli'
 
-const okFetch = (calls: Array<{ url: string; body: unknown }>, result: unknown = { worktree: '/repo' }) =>
+const okFetch = (
+  calls: Array<{ url: string; body: unknown }>,
+  result: unknown = { worktree: '/repo' },
+) =>
   (async (url: unknown, init?: { body?: unknown }) => {
     calls.push({ url: String(url), body: JSON.parse(String(init?.body)) })
     return new Response(JSON.stringify({ ok: true, result }), { status: 200 })

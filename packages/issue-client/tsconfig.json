@@ -1,0 +1,7 @@
+{
+  "extends": "../../tooling/tsconfig/node.json",
+  "compilerOptions": {
+    "ignoreDeprecations": "6.0"
+  },
+  "include": ["src"]
+}

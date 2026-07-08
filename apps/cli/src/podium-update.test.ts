@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { generateKeyPairSync, sign as cryptoSign } from 'node:crypto'
+import { sign as cryptoSign, generateKeyPairSync } from 'node:crypto'
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { createServer, type Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
@@ -95,7 +95,10 @@ describe('podium update swap crash-safety', () => {
   // The dev signing key (private half) — gitignored, matches PODIUM_UPDATE_PUBKEY. Used to
   // sign served tarballs so runUpdate's real verify gate passes against the committed pubkey.
   function devSign(bytes: Buffer): string {
-    const der = Buffer.from(readFileSync(join(__dirname, '.podium-update-dev.key'), 'utf8').trim(), 'base64')
+    const der = Buffer.from(
+      readFileSync(join(__dirname, '.podium-update-dev.key'), 'utf8').trim(),
+      'base64',
+    )
     const key = { key: der, format: 'der' as const, type: 'pkcs8' as const }
     return cryptoSign(null, bytes, key).toString('base64')
   }
@@ -246,7 +249,11 @@ describe('manifestUrlFor', () => {
   })
   it('a feedOverride preserves the legacy templated path (for the fixture feed)', () => {
     expect(
-      manifestUrlFor('stable', { target: 'linux-x86_64', cur: '0.1.0', feedOverride: 'http://127.0.0.1:8789' }),
+      manifestUrlFor('stable', {
+        target: 'linux-x86_64',
+        cur: '0.1.0',
+        feedOverride: 'http://127.0.0.1:8789',
+      }),
     ).toBe('http://127.0.0.1:8789/update/linux-x86_64/x86_64/0.1.0')
   })
 })

@@ -5,15 +5,9 @@
 import { execFileSync, spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
-import { loadConfig, type PodiumConfig } from '../packages/core/src/config'
-import { type ConnectivityStatus, readConnectivity } from '../packages/core/src/connectivity'
-import {
-  listLive,
-  logDir,
-  type RunRecord,
-  RunRole,
-  reclaim,
-} from '../packages/core/src/run-registry'
+import { loadConfig, type PodiumConfig } from '@podium/core/config'
+import { type ConnectivityStatus, readConnectivity } from '@podium/core/connectivity'
+import { listLive, logDir, type RunRecord, RunRole, reclaim } from '@podium/core/run-registry'
 
 /** Human "3s / 4m / 2h / 1d ago" from an ISO start time. */
 export function humanUptime(startedAtIso: string, nowMs: number): string {
@@ -38,7 +32,9 @@ export interface StatusView {
 /** Render the daemon⇄server connectivity line(s) from the daemon-written status file. */
 function renderConnectivity(c: ConnectivityStatus, nowMs: number): string[] {
   const target = c.serverUrl ? ` → ${c.serverUrl}` : ''
-  const lastSeen = c.lastHelloOkAt ? ` (last contact ${humanUptime(c.lastHelloOkAt, nowMs)} ago)` : ''
+  const lastSeen = c.lastHelloOkAt
+    ? ` (last contact ${humanUptime(c.lastHelloOkAt, nowMs)} ago)`
+    : ''
   if (c.state === 'blocked') {
     return [
       `  ✖ server link${target}: BLOCKED — ${c.blockedReason ?? 'the server rejected this daemon'}`,
@@ -48,7 +44,9 @@ function renderConnectivity(c: ConnectivityStatus, nowMs: number): string[] {
   }
   if (c.state === 'disconnected') {
     const err = c.lastError ? ` — ${c.lastError}` : ''
-    const retry = c.retryBackoffMs ? ` (retrying every ~${Math.round(c.retryBackoffMs / 1000)}s)` : ''
+    const retry = c.retryBackoffMs
+      ? ` (retrying every ~${Math.round(c.retryBackoffMs / 1000)}s)`
+      : ''
     return [`  ! server link${target}: disconnected${err}${retry}${lastSeen}`]
   }
   return [`  ✓ server link${target}: connected${lastSeen}`]

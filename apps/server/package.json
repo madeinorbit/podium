@@ -11,6 +11,7 @@
     "@hono/trpc-server": "^0.3.4",
     "@podium/core": "workspace:*",
     "@podium/domain": "workspace:*",
+    "@podium/issue-client": "workspace:*",
     "@podium/protocol": "workspace:*",
     "@podium/transcript": "workspace:*",
     "@trpc/client": "^11.0.0",

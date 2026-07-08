@@ -28,11 +28,11 @@ function adapter() {
 describe('callerAsIssueTrpc (in-process MCP adapter)', () => {
   it('forwards a mutation (.mutate) to the caller', async () => {
     const client = adapter()
-    const created = await client.issues.create.mutate({
+    const created = (await client.issues.create.mutate({
       repoPath: '/r',
       title: 'via adapter',
       startNow: false,
-    })
+    })) as { seq: number; title: string }
     expect(created.seq).toBe(1)
     expect(created.title).toBe('via adapter')
   })

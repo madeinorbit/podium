@@ -8,7 +8,7 @@ describe('makeSafetyHandlers', () => {
     const reason = new Error('a promise nobody caught')
     expect(() => onUnhandledRejection(reason)).not.toThrow()
     expect(log).toHaveBeenCalledOnce()
-    const [msg, err] = log.mock.calls[0]
+    const [msg, err] = log.mock.calls[0] ?? []
     expect(msg).toContain('daemon')
     expect(msg.toLowerCase()).toContain('unhandledrejection')
     expect(err).toBe(reason)
@@ -20,7 +20,7 @@ describe('makeSafetyHandlers', () => {
     const err = new Error('a throw that escaped a callback')
     expect(() => onUncaughtException(err)).not.toThrow()
     expect(log).toHaveBeenCalledOnce()
-    const [msg, got] = log.mock.calls[0]
+    const [msg, got] = log.mock.calls[0] ?? []
     expect(msg).toContain('server')
     expect(msg.toLowerCase()).toContain('uncaughtexception')
     expect(got).toBe(err)

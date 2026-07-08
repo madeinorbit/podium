@@ -1,12 +1,12 @@
 import { renameSync } from 'node:fs'
-import { setPassword as realSetPassword } from '../apps/server/src/auth-store'
-import { configPath, inspectConfig, loadConfig, saveConfig } from '../packages/core/src/config'
+import { setPassword as realSetPassword } from '@podium/core/auth-store'
+import { configPath, inspectConfig, loadConfig, saveConfig } from '@podium/core/config'
 import {
   ephemeralTunnelWarning,
   NETWORK_OPTIONS,
   networkOptionCommand,
   validatePublicUrl,
-} from '../packages/core/src/setup'
+} from '@podium/core/setup'
 import { applyJoinToken } from './cli-join'
 
 export interface SetupIO {
@@ -110,7 +110,9 @@ async function reachabilityStep(
   })
   const choice = Number((await io.prompt('Choose 1-4: ')).trim()) || 1
   const opt = NETWORK_OPTIONS[Math.min(Math.max(choice, 1), NETWORK_OPTIONS.length) - 1]
-  if (!opt) return false
+  // (Latent since the scripts/ era, surfaced by the first real typecheck: this
+  // returned `false` from a string|undefined function — falsy either way.)
+  if (!opt) return undefined
   const { command, hint } = networkOptionCommand(opt.id, port)
   if (command) io.print(`\nRun this, then come back:\n\n    ${command}\n`)
   io.print(hint)

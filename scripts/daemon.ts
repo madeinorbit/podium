@@ -13,10 +13,11 @@
  * Bun.Terminal under Bun — so the native addon is never loaded on Bun, and persistence
  * uses node:sqlite/bun:sqlite accordingly. (Default deployment is still Node.)
  */
+
+import { installProcessSafetyNet } from '@podium/core/process-safety'
+import { startWatchdog } from '@podium/core/sd-notify'
 import { startDaemon } from '../apps/daemon/src/daemon'
 import { LOCAL_MACHINE_ID, readOrCreateDaemonSecret } from '../apps/server/src/local-machine'
-import { installProcessSafetyNet } from './process-safety'
-import { startWatchdog } from './sd-notify'
 
 // Crash net BEFORE anything else: a single bad frame / un-caught rejection from one
 // agent must not terminate the daemon and drop reporting for every session (audit P0-1).

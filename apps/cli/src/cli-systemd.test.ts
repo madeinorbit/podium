@@ -47,10 +47,8 @@ describe('install.sh fallback unit lockstep (#20)', () => {
   it('the heredoc unit in install.sh is byte-identical to renderDaemonUnit()', () => {
     // install.sh --join normally DELEGATES to `podium setup --join` (which renders the unit
     // via renderDaemonUnit); its fallback heredoc must never drift from that source of truth.
-    const sh = readFileSync(fileURLToPath(new URL('../install.sh', import.meta.url)), 'utf8')
-    const m = sh.match(
-      /cat > "\$UNIT_DIR\/podium-daemon\.service" <<'EOF'\n([\s\S]*?)EOF\n/,
-    )
+    const sh = readFileSync(fileURLToPath(new URL('../../../install.sh', import.meta.url)), 'utf8')
+    const m = sh.match(/cat > "\$UNIT_DIR\/podium-daemon\.service" <<'EOF'\n([\s\S]*?)EOF\n/)
     expect(m, 'install.sh no longer contains the fallback daemon-unit heredoc').toBeTruthy()
     expect(m?.[1]).toBe(renderDaemonUnit())
   })

@@ -11,9 +11,10 @@
  *   bun --conditions=@podium/source scripts/server.ts
  * Persistence resolves to node:sqlite/bun:sqlite per runtime (@podium/core/sqlite).
  */
+
+import { installProcessSafetyNet } from '@podium/core/process-safety'
+import { startWatchdog } from '@podium/core/sd-notify'
 import { startServer } from '../apps/server/src/server'
-import { installProcessSafetyNet } from './process-safety'
-import { startWatchdog } from './sd-notify'
 
 // Crash net BEFORE anything else: an un-caught rejection (a dead socket's send, a
 // failing handler) must not drop every client and the daemon link (audit P0-1).

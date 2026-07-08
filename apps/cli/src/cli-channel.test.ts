@@ -1,8 +1,8 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { loadConfig } from '@podium/core/config'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { loadConfig } from '../packages/core/src/config'
 import { applyChannel } from './cli-channel'
 
 describe('applyChannel', () => {

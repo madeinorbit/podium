@@ -1,9 +1,9 @@
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { loadConfig, saveConfig } from '@podium/core/config'
+import { encodeJoin } from '@podium/core/join'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { loadConfig, saveConfig } from '../packages/core/src/config'
-import { encodeJoin } from '../packages/core/src/join'
 import {
   reconcilePendingPersistence,
   repairConfig,
@@ -183,7 +183,10 @@ describe('runCliSetup', () => {
 
     it('declining the no-password ack repeatedly aborts without saving (#21)', async () => {
       const setPw = vi.fn(async () => {})
-      await run(['1', '1', 'https://box.ts.net', '', 'no', '', 'no', '', 'no', '', 'no', '', 'no'], setPw)
+      await run(
+        ['1', '1', 'https://box.ts.net', '', 'no', '', 'no', '', 'no', '', 'no', '', 'no'],
+        setPw,
+      )
       expect(setPw).not.toHaveBeenCalled()
       expect(loadConfig()).toEqual({})
     })
@@ -214,7 +217,12 @@ describe('runCliSetup', () => {
         effectivePersistence: o.persistence,
         message: 'started',
       }))
-      const token = encodeJoin({ v: 1, serverUrl: 'wss://relay.example', pairCode: 'P1', name: 'vps' })
+      const token = encodeJoin({
+        v: 1,
+        serverUrl: 'wss://relay.example',
+        pairCode: 'P1',
+        name: 'vps',
+      })
       const res = await runJoinSetup(token, 'systemd', 18787, { startBackend })
       expect(res.name).toBe('vps')
       expect(startBackend).toHaveBeenCalledWith({
@@ -297,7 +305,10 @@ describe('runCliSetup', () => {
       const prompt = vi.fn(async () => '1')
       await runCliSetup({ prompt, print: (s) => out.push(s) }, 18787, {
         setPassword: vi.fn(async () => {}),
-        startBackend: vi.fn(async () => ({ effectivePersistence: 'systemd' as const, message: '' })),
+        startBackend: vi.fn(async () => ({
+          effectivePersistence: 'systemd' as const,
+          message: '',
+        })),
       })
       expect(out.join('\n')).toContain('--repair')
       expect(prompt).not.toHaveBeenCalled() // bailed before any prompt

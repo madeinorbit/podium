@@ -13,6 +13,9 @@
  *     — they import no other workspace package. `@podium/transcript` is a
  *     near-leaf: it may import only `@podium/protocol`.
  *  4. `packages/*` never import from `apps/*` (by name or by relative path).
+ *  5. `apps/cli` is a normal app under rule 1: it must not import apps/server
+ *     or apps/daemon (no allowance). The runnable entry that injects the
+ *     in-process host modules is scripts/cli.ts — scripts/ may compose apps.
  *
  * Run: `bun run lint:boundaries` (wired into `bun run lint`). Exits non-zero
  * with a readable violation list. Pure matching logic is exported for the
@@ -51,6 +54,7 @@ const APP_TO_APP_TYPE_ONLY_ALLOWED = new Set<string>(['apps/web -> @podium/serve
 // ---------------------------------------------------------------------------
 
 const APP_PACKAGES: Record<string, string> = {
+  '@podium/cli': 'apps/cli',
   '@podium/daemon': 'apps/daemon',
   '@podium/desktop': 'apps/desktop',
   '@podium/mobile': 'apps/mobile',
@@ -67,6 +71,9 @@ const LEAF_PACKAGES = new Set<string>(['packages/protocol', 'packages/core', 'pa
  */
 const RESTRICTED_PACKAGE_DEPS: Record<string, ReadonlySet<string>> = {
   'packages/transcript': new Set(['packages/protocol']),
+  // The issue-client seam (IssueTrpc + the shared command table) sits between
+  // apps/cli and apps/server — it must never import app code or IO packages.
+  'packages/issue-client': new Set(['packages/protocol', 'packages/domain']),
 }
 
 export interface ImportRef {

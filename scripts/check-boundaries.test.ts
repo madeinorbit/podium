@@ -153,6 +153,34 @@ describe('checkFile rules', () => {
     expect(v[0].rule).toBe('agent-bridge-consumers')
   })
 
+  it('forbids apps/cli from importing server or daemon code (the CLI boundary)', () => {
+    for (const spec of ['@podium/server', '@podium/daemon', '../../server/src/server']) {
+      const v = checkFile('apps/cli/src/cli.ts', `import { x } from '${spec}'`)
+      expect(v, spec).toHaveLength(1)
+      expect(v[0].rule).toBe('no-app-to-app')
+    }
+    expect(
+      checkFile(
+        'apps/cli/src/issue-cli.ts',
+        `import { ISSUE_COMMANDS, makeRelayIssueClient } from '@podium/issue-client'\nimport { loadConfig } from '@podium/core/config'`,
+      ),
+    ).toEqual([])
+  })
+
+  it('keeps the issue-client seam free of app/IO deps', () => {
+    const v = checkFile(
+      'packages/issue-client/src/commands.ts',
+      `import { x } from '@podium/agent-bridge'`,
+    )
+    expect(v.map((f) => f.rule)).toContain('restricted-package-deps')
+    expect(
+      checkFile(
+        'packages/issue-client/src/commands.ts',
+        `import type { IssueStage } from '@podium/protocol'`,
+      ),
+    ).toEqual([])
+  })
+
   it('keeps domain a leaf package', () => {
     const d = checkFile(
       'packages/domain/src/issue-stage.ts',

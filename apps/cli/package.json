@@ -1,0 +1,24 @@
+{
+  "name": "@podium/cli",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The `podium` CLI: mode-driven launcher (setup, lifecycle, systemd persistence, self-update) plus the `podium issue` and `podium worktree` subcommands. Host modules (server/daemon in-process hosting) are injected by the runnable entry in scripts/cli.ts — this package imports only leaf packages and the issue-client seam.",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/cli.ts",
+      "import": "./src/cli.ts"
+    }
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@podium/core": "workspace:*",
+    "@podium/issue-client": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^6.0.3"
+  }
+}

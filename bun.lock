@@ -20,6 +20,17 @@
         "vitest": "^4.1.8",
       },
     },
+    "apps/cli": {
+      "name": "@podium/cli",
+      "version": "0.0.0",
+      "dependencies": {
+        "@podium/core": "workspace:*",
+        "@podium/issue-client": "workspace:*",
+      },
+      "devDependencies": {
+        "typescript": "^6.0.3",
+      },
+    },
     "apps/daemon": {
       "name": "@podium/daemon",
       "version": "0.0.0",
@@ -79,6 +90,7 @@
         "@hono/trpc-server": "^0.3.4",
         "@podium/core": "workspace:*",
         "@podium/domain": "workspace:*",
+        "@podium/issue-client": "workspace:*",
         "@podium/protocol": "workspace:*",
         "@podium/transcript": "workspace:*",
         "@trpc/client": "^11.0.0",
@@ -186,6 +198,17 @@
       "version": "0.0.0",
       "devDependencies": {
         "tsup": "^8.5.1",
+        "typescript": "^6.0.3",
+      },
+    },
+    "packages/issue-client": {
+      "name": "@podium/issue-client",
+      "version": "0.0.0",
+      "dependencies": {
+        "@trpc/client": "^11.0.0",
+        "zod": "^3.24.0",
+      },
+      "devDependencies": {
         "typescript": "^6.0.3",
       },
     },
@@ -857,6 +880,8 @@
 
     "@podium/agent-bridge": ["@podium/agent-bridge@workspace:packages/agent-bridge"],
 
+    "@podium/cli": ["@podium/cli@workspace:apps/cli"],
+
     "@podium/client-core": ["@podium/client-core@workspace:packages/client-core"],
 
     "@podium/core": ["@podium/core@workspace:packages/core"],
@@ -868,6 +893,8 @@
     "@podium/domain": ["@podium/domain@workspace:packages/domain"],
 
     "@podium/e2e": ["@podium/e2e@workspace:tests/e2e"],
+
+    "@podium/issue-client": ["@podium/issue-client@workspace:packages/issue-client"],
 
     "@podium/keyecho": ["@podium/keyecho@workspace:tests/keyecho"],
 

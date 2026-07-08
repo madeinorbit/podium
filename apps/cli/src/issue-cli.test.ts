@@ -42,8 +42,14 @@ describe('runIssueCli', () => {
 
   it('maps positionals onto the declared keys (show 10 ≡ show --id 10)', async () => {
     const get = vi.fn(async () => ({
-      id: 'iss_a', seq: 10, title: 'T', description: 'D', stage: 'backlog',
-      priority: 2, ready: true, blocked: false,
+      id: 'iss_a',
+      seq: 10,
+      title: 'T',
+      description: 'D',
+      stage: 'backlog',
+      priority: 2,
+      ready: true,
+      blocked: false,
     }))
     const c = { issues: { get: { query: get } } } as any
     const out = await runIssueCli(['show', '10'], c)
@@ -56,8 +62,14 @@ describe('runIssueCli', () => {
     const get = vi.fn(async (i: { id: string }) => {
       seen.push(i.id)
       return {
-        id: `iss_${i.id}`, seq: Number(i.id), title: `T${i.id}`, description: 'D',
-        stage: 'backlog', priority: 2, ready: true, blocked: false,
+        id: `iss_${i.id}`,
+        seq: Number(i.id),
+        title: `T${i.id}`,
+        description: 'D',
+        stage: 'backlog',
+        priority: 2,
+        ready: true,
+        blocked: false,
       }
     })
     const c = { issues: { get: { query: get } } } as any

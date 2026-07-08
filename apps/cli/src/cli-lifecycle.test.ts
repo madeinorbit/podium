@@ -1,5 +1,5 @@
+import type { RunRecord } from '@podium/core/run-registry'
 import { describe, expect, it } from 'vitest'
-import type { RunRecord } from '../packages/core/src/run-registry'
 import { humanUptime, renderStatus } from './cli-lifecycle'
 
 const T0 = Date.parse('2026-07-06T12:00:00.000Z')
