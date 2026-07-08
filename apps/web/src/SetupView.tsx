@@ -40,6 +40,29 @@ const MODES: { id: PodiumMode; title: string; blurb: string; needsServer: boolea
 // Default relay port for the first-run reachability commands (config has no port yet).
 const DEFAULT_PORT = 18787
 
+/**
+ * Warn when a URL is a Cloudflare QUICK tunnel (*.trycloudflare.com): those URLs rotate on
+ * every cloudflared restart, so every joined machine goes dark until it is re-pointed.
+ * Mirrors @podium/core/setup's ephemeralTunnelWarning — duplicated (tiny, pure) because the
+ * web bundle must not import @podium/core/setup (it pulls node:fs via ./config).
+ */
+export function quickTunnelWarning(url: string): string | undefined {
+  let host: string
+  try {
+    host = new URL(url.trim()).hostname
+  } catch {
+    return undefined
+  }
+  if (host === 'trycloudflare.com' || host.endsWith('.trycloudflare.com')) {
+    return (
+      'This is a Cloudflare QUICK tunnel URL — it changes every time cloudflared restarts, ' +
+      'and every joined machine will lose contact until it is pointed at the new URL. ' +
+      'Fine for a demo; use Tailscale or a named tunnel for anything durable.'
+    )
+  }
+  return undefined
+}
+
 // Derived from the tRPC client so the web bundle never imports @podium/core/setup.
 type NetOption = Parameters<Trpc['setup']['commandFor']['query']>[0]['option']
 type NetOptionInfo = Awaited<ReturnType<Trpc['setup']['options']['query']>>[number]
@@ -58,6 +81,9 @@ export function SetupView({
   const [joinCode, setJoinCode] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // setup.join succeeded but flagged the server URL as an ephemeral quick tunnel — the
+  // config IS applied; surface the warning (like the CLI does) before moving on.
+  const [joinWarning, setJoinWarning] = useState<string | null>(null)
   // daemon joins with a one-paste code; client just needs the remote URL.
   const needsJoinCode = mode === 'daemon'
   const needsServerUrl = mode === 'client'
@@ -68,7 +94,13 @@ export function SetupView({
     try {
       if (m === 'daemon') {
         // One pasted join code → daemon config, via the same core applyJoin the CLI uses.
-        await trpc.setup.join.mutate({ code: joinCode.trim() })
+        const res = await trpc.setup.join.mutate({ code: joinCode.trim() })
+        if (res?.warning) {
+          // Joined, but to a rotating quick-tunnel URL: pause on the warning instead of
+          // silently proceeding — the user should know this join will go stale.
+          setJoinWarning(res.warning)
+          return
+        }
       } else {
         // all-in-one ("skip reachability"), client (remote URL), server-only.
         await trpc.setup.connect.mutate({ mode: m, ...(m === 'client' ? { serverUrl } : {}) })
@@ -161,7 +193,17 @@ export function SetupView({
           {error}
         </p>
       )}
-      {mode === 'all-in-one' || mode === 'server' ? (
+      {joinWarning && (
+        <div className="flex flex-col gap-2">
+          <p role="alert" className="rounded-md border border-border px-3 py-2 text-[12px] text-amber-500">
+            {joinWarning}
+          </p>
+          <Button type="button" onClick={onSaved}>
+            Continue anyway
+          </Button>
+        </div>
+      )}
+      {joinWarning ? null : mode === 'all-in-one' || mode === 'server' ? (
         // Both host modes go through the reachability step (URL + password).
         <Button type="button" onClick={() => setStep('network')}>
           Continue
@@ -213,6 +255,8 @@ export function NetworkStep({
   const [err, setErr] = useState('')
   const [copied, setCopied] = useState(false)
   const [busy, setBusy] = useState(false)
+  // Ephemeral quick-tunnel flag for the pasted URL (mirrors the CLI's warning).
+  const urlWarning = quickTunnelWarning(url)
 
   useEffect(() => {
     trpc.setup.options
@@ -348,6 +392,12 @@ export function NetworkStep({
           value={url}
           onChange={(e) => setUrl(e.target.value)}
         />
+        {/* Same *.trycloudflare.com flag the CLI setup shows — warn, never block. */}
+        {urlWarning && (
+          <p role="alert" className="text-[12px] text-amber-500">
+            {urlWarning}
+          </p>
+        )}
       </div>
       <fieldset className="flex flex-col gap-2">
         <legend className="text-[12px] text-muted-foreground">Login</legend>

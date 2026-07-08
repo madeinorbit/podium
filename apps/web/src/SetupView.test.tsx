@@ -162,7 +162,60 @@ describe('SetupView', () => {
     })
   })
 
+  it('daemon join surfaces the quick-tunnel warning and waits for an explicit continue', async () => {
+    // setup.join (core applyJoin) flags a rotating *.trycloudflare.com server URL.
+    trpcMock.join.mockResolvedValue({
+      name: 'this machine',
+      warning:
+        'This is a Cloudflare QUICK tunnel URL — it changes every time cloudflared restarts.',
+    })
+    const onSaved = vi.fn()
+    const { container } = render(
+      <SetupView httpOrigin="http://localhost:18787" onSaved={onSaved} />,
+    )
+    const view = within(container)
+    fireEvent.click(view.getByRole('radio', { name: /add this machine to a podium/i }))
+    fireEvent.change(view.getByLabelText(/^join code/i), { target: { value: 'JOINCODE123' } })
+    await act(async () => {
+      fireEvent.click(view.getByRole('button', { name: /save/i }))
+      await flush()
+    })
+
+    // Joined (config applied) but paused on the warning — no silent proceed.
+    expect(trpcMock.join).toHaveBeenCalledWith({ code: 'JOINCODE123' })
+    expect(view.getByRole('alert').textContent).toMatch(/quick tunnel/i)
+    expect(onSaved).not.toHaveBeenCalled()
+
+    fireEvent.click(view.getByRole('button', { name: /continue anyway/i }))
+    expect(onSaved).toHaveBeenCalled()
+  })
+
+  it('reachability step flags a *.trycloudflare.com public URL (and not a stable one)', async () => {
+    const { container } = render(
+      <SetupView httpOrigin="http://localhost:18787" onSaved={() => {}} />,
+    )
+    const view = within(container)
+    await act(async () => {
+      fireEvent.click(view.getByRole('button', { name: /continue/i }))
+      await flush()
+    })
+    // Stable URL: no warning.
+    fireEvent.change(view.getByLabelText(/public url/i), {
+      target: { value: 'https://box.ts.net' },
+    })
+    expect(view.queryByText(/quick tunnel/i)).toBeNull()
+    // Quick-tunnel URL: inline warning, but the flow is not blocked.
+    fireEvent.change(view.getByLabelText(/public url/i), {
+      target: { value: 'https://random-words.trycloudflare.com' },
+    })
+    expect(view.getByText(/quick tunnel/i)).toBeTruthy()
+    expect(
+      (view.getByRole('button', { name: /finish/i }) as HTMLButtonElement).disabled,
+    ).toBe(true) // still disabled only because no password picked yet — warning doesn't add a block
+  })
+
   it('daemon mode takes one join code and applies it via setup.join', async () => {
+    trpcMock.join.mockResolvedValue({ name: 'this machine' }) // stable URL → no warning
     const onSaved = vi.fn()
     const { container } = render(
       <SetupView httpOrigin="http://localhost:18787" onSaved={onSaved} />,
@@ -185,6 +238,7 @@ describe('SetupView', () => {
     })
 
     expect(trpcMock.join).toHaveBeenCalledWith({ code: 'JOINCODE123' })
+    expect(view.queryByText(/quick tunnel/i)).toBeNull() // stable URL → no warning
     expect(onSaved).toHaveBeenCalled()
   })
 
