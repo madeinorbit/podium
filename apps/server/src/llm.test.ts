@@ -51,6 +51,20 @@ describe('codexComplete', () => {
     expect(res.toolCalls).toEqual([])
   })
 
+  it('defaults reasoning effort to medium, and honors an explicit effort (#200 B3)', async () => {
+    const f1 = mockFetch(
+      sse({ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'ok' }] }),
+    )
+    await codexComplete(f1, AUTH, 'gpt-5.5', [{ role: 'user', content: 'hi' }], [])
+    expect(JSON.parse(f1.calls[0]?.init.body as string).reasoning).toEqual({ effort: 'medium' })
+
+    const f2 = mockFetch(
+      sse({ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'ok' }] }),
+    )
+    await codexComplete(f2, AUTH, 'gpt-5.5', [{ role: 'user', content: 'hi' }], [], 'high')
+    expect(JSON.parse(f2.calls[0]?.init.body as string).reasoning).toEqual({ effort: 'high' })
+  })
+
   it('extracts function calls with their call_id and arguments', async () => {
     const fetchImpl = mockFetch(
       sse({

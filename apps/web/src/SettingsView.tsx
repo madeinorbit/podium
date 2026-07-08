@@ -1461,6 +1461,24 @@ function BackendEditor({
               onChange={(e) => onChange({ ...backend, model: e.target.value })}
             />
           </Row>
+          {backend.provider === 'codex' && (
+            <Row label="Effort">
+              <Select
+                value={backend.harnessEffort || 'auto'}
+                onValueChange={(value) => onChange({ ...backend, harnessEffort: value ?? 'auto' })}
+              >
+                <SelectTrigger className="w-full flex-1">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="auto">Default (medium)</SelectItem>
+                  <SelectItem value="low">Low</SelectItem>
+                  <SelectItem value="medium">Medium</SelectItem>
+                  <SelectItem value="high">High</SelectItem>
+                </SelectContent>
+              </Select>
+            </Row>
+          )}
           {backend.provider === 'codex' ? (
             <p className="mt-1.5 mb-0.5 max-w-[60ch] text-[12px] text-muted-foreground">
               Uses your local ChatGPT login (<code className="text-[11px]">codex login</code> on the
