@@ -12,6 +12,7 @@ import {
   type DaemonMessage,
   type Geometry,
   type IssueWire,
+  type LiveServerMessage,
   type MetadataChange,
   type MetadataEntityKind,
   type ResumeRef,
@@ -41,7 +42,6 @@ import type { HostsService } from '../hosts/service'
 import type { IssueService } from '../issues/service'
 import type { DaemonRpcService } from '../machines/rpc'
 import type { MachinesService } from '../machines/service'
-import type { LiveServerMessage } from '../message-class'
 import type { HeadlessService } from '../superagent/headless'
 
 export const DEFAULT_GEOMETRY: Geometry = { cols: 80, rows: 24 }

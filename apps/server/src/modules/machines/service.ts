@@ -1,9 +1,14 @@
 import { createHash, randomUUID } from 'node:crypto'
-import type { ControlMessage, DaemonHandshake, MachineWire, ServerMessage } from '@podium/protocol'
+import type {
+  ControlMessage,
+  DaemonHandshake,
+  LiveServerMessage,
+  MachineWire,
+  ServerMessage,
+} from '@podium/protocol'
 import { LOCAL_MACHINE_ID, LOCAL_PLACEHOLDER } from '../../local-machine'
 import type { Send } from '../sessions/session'
 import type { MachineRecord, SessionStore } from '../../store'
-import type { LiveServerMessage } from '../message-class'
 
 /** sha-256 hex of a secret — matches the store's token-hash scheme. */
 export function sha256(s: string): string {
@@ -327,7 +332,7 @@ export class MachinesService {
   }
 
   broadcastMachines(): void {
-    // Classified live-only (modules/message-class): re-served in full on attach.
+    // Classified live-only (@podium/protocol message-class): re-served in full on attach.
     const msg: LiveServerMessage = { type: 'machinesChanged', machines: this.listMachines() }
     for (const c of this.deps.clients()) c.send(msg)
   }

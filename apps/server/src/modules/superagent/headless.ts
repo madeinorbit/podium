@@ -8,11 +8,11 @@ import type {
   HarnessAgent,
   HeadlessActivityEvent,
   HeadlessTurnEvent,
+  LiveServerMessage,
   ResumeRef,
   ServerMessage,
 } from '@podium/protocol'
 import { Session } from '../sessions/session'
-import type { LiveServerMessage } from '../message-class'
 
 export interface HeadlessDeps {
   getSession(sessionId: string): Session | undefined
