@@ -35,6 +35,7 @@ import { useModelCatalog } from './use-model-catalog'
 
 export type SettingsTab =
   | 'appearance'
+  | 'accounts'
   | 'sessions'
   | 'superagent'
   | 'workllm'
@@ -66,6 +67,7 @@ type TelegramSetupState =
 
 export const SETTINGS_TABS: { key: SettingsTab; label: string }[] = [
   { key: 'appearance', label: 'Appearance' },
+  { key: 'accounts', label: 'Accounts' },
   { key: 'sessions', label: 'New sessions' },
   { key: 'superagent', label: 'Superagent' },
   { key: 'workllm', label: 'Background LLM' },
@@ -678,6 +680,7 @@ export function SettingsView(): JSX.Element {
               </Section>
             )}
 
+            {tab === 'accounts' && <AccountsSection trpc={trpc} />}
             {tab === 'network' && <NetworkSection trpc={trpc} />}
             {tab === 'machines' && <MachinesPanel />}
             {tab === 'security' && <LoginPasswordSection trpc={trpc} />}
@@ -1068,6 +1071,75 @@ export function LoginPasswordSection({ trpc }: { trpc: Trpc }): JSX.Element {
  * (`daemon`) / viewer (`client`) boxes show which server they connect to instead (change = re-run
  * setup). Fills the gap where the CLI's `podium setup → change URL` had no web equivalent.
  */
+interface AccountView {
+  id: string
+  provider: string
+  source: 'native' | 'managed'
+  kind?: 'api-key' | 'oauth'
+  harness?: string
+  identity?: string
+  status: 'connected' | 'not-configured'
+  comingSoon?: boolean
+}
+
+/** Accounts & Keys hub (SP-6454, stream B2): native CLI logins on this machine
+ *  (observed read-only) + managed API keys, and where managed credential
+ *  injection / oauth rotation will live ("Coming soon"). Read-only for now —
+ *  API keys are edited under the API keys tab; native logins are managed by each
+ *  CLI's own `login` on the server. */
+function AccountsSection({ trpc }: { trpc: Trpc }): JSX.Element {
+  const [accounts, setAccounts] = useState<AccountView[] | null>(null)
+  // biome-ignore lint/correctness/useExhaustiveDependencies: trpc is the only dep.
+  useEffect(() => {
+    trpc.accounts.list
+      .query()
+      .then((a) => setAccounts(a as AccountView[]))
+      .catch(() => setAccounts([]))
+  }, [trpc])
+
+  const native = (accounts ?? []).filter((a) => a.source === 'native')
+  const managed = (accounts ?? []).filter((a) => a.source === 'managed')
+  const statusPill = (a: AccountView): JSX.Element =>
+    a.status === 'connected' ? (
+      <span className="flex-none text-[12px] text-success">● {a.identity ?? 'connected'}</span>
+    ) : (
+      <span className="flex-none text-[12px] text-muted-foreground">not connected</span>
+    )
+
+  return (
+    <Section
+      title="Accounts & Keys"
+      hint="How Podium authenticates to LLMs. Native logins are each CLI's own login on this server (managed with their own `login` command); API keys are stored by Podium and edited under API keys."
+    >
+      <div className="mb-1 text-[12px] font-medium text-muted-foreground">
+        Native logins (this machine)
+      </div>
+      {native.map((a) => (
+        <Row key={a.id} label={harnessAgentLabel((a.harness ?? a.provider) as HarnessAgent)}>
+          {statusPill(a)}
+        </Row>
+      ))}
+      <div className="mt-4 mb-1 text-[12px] font-medium text-muted-foreground">
+        API keys (managed)
+      </div>
+      {managed.map((a) => (
+        <Row key={a.id} label={providerLabel(a.provider as 'openrouter' | 'anthropic' | 'openai')}>
+          {statusPill(a)}
+        </Row>
+      ))}
+      <div className="mt-4 flex items-center gap-2">
+        <Button type="button" size="sm" variant="outline" disabled>
+          Add managed account
+        </Button>
+        <span className="text-[12px] text-muted-foreground">
+          Coming soon — run a harness on a key you provide, or rotate multiple subscription logins.
+          Today, harnesses use each CLI's own login on this server.
+        </span>
+      </div>
+    </Section>
+  )
+}
+
 function NetworkSection({ trpc }: { trpc: Trpc }): JSX.Element {
   const [info, setInfo] = useState<{
     mode: string | null
@@ -1310,8 +1382,8 @@ function RestartSuperagentButton({ trpc }: { trpc: Trpc }): JSX.Element {
         {busy ? 'Restarting…' : 'Restart superagent'}
       </Button>
       <p className="mt-1.5 mb-0.5 max-w-[60ch] text-[12px] text-muted-foreground">
-        Starts a fresh harness session on your next message (keeps the conversation
-        history). Use if the orchestrator seems stuck on a stale session.
+        Starts a fresh harness session on your next message (keeps the conversation history). Use if
+        the orchestrator seems stuck on a stale session.
         {done ? ' Done — your next message starts fresh.' : ''}
         {error ? <span className="text-warning"> {error}</span> : null}
       </p>

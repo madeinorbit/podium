@@ -13,6 +13,7 @@ import {
 import { AgentKind, agentSupportsCloud, isAgentKind, ResumeRef, WorkState } from '@podium/protocol'
 import { initTRPC, TRPCError } from '@trpc/server'
 import { z } from 'zod'
+import { accountViews } from './accounts'
 import { clearPassword, hasPassword, setPassword, verifyPassword } from './auth-store'
 import {
   type CloudAgentKind,
@@ -695,6 +696,12 @@ export const appRouter = t.router({
     telegramSetupPoll: t.procedure
       .input(z.object({ setupId: z.string() }))
       .mutation(({ ctx, input }) => mods(ctx).settings.pollTelegramSetup(input.setupId)),
+  }),
+  accounts: t.router({
+    // The Accounts & Keys hub (SP-6454): native CLI logins on this machine
+    // (observed read-only) + managed API keys from settings. Read at call-time —
+    // native identity/quota drifts, so it's never cached as truth.
+    list: t.procedure.query(({ ctx }) => accountViews(mods(ctx).settings.getSettings())),
   }),
   tabs: t.router({
     listOrders: t.procedure.query(({ ctx }) => ctx.registry.listTabOrders()),
