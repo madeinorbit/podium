@@ -3,13 +3,13 @@ import { OPERATOR } from './issue-authz'
 import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
 import { appRouter } from './router'
-import { SuperagentService } from './superagent'
+import { SuperagentService } from './modules/superagent'
 
 function caller() {
   const registry = new SessionRegistry()
   registry.attachDaemon('local', () => {})
   const repos = new RepoRegistry(registry, registry.sessionStore)
-  const superagent = new SuperagentService(registry, repos, registry.sessionStore)
+  const superagent = new SuperagentService(registry.modules, repos, registry.sessionStore)
   return {
     registry,
     call: appRouter.createCaller({ registry, repos, superagent, capability: OPERATOR }),
@@ -30,7 +30,7 @@ describe('appRouter', () => {
     })
     registry.attachDaemon('local', () => {})
     const repos = new RepoRegistry(registry, registry.sessionStore)
-    const superagent = new SuperagentService(registry, repos, registry.sessionStore)
+    const superagent = new SuperagentService(registry.modules, repos, registry.sessionStore)
     const call = appRouter.createCaller({ registry, repos, superagent, capability: OPERATOR })
     const refreshed = await call.models.refresh()
     expect(refreshed.byAgent.grok?.[0]?.value).toBe('grok-build')
@@ -126,7 +126,7 @@ describe('appRouter', () => {
     const call = appRouter.createCaller({
       registry,
       repos,
-      superagent: new SuperagentService(registry, repos, registry.sessionStore),
+      superagent: new SuperagentService(registry.modules, repos, registry.sessionStore),
       capability: OPERATOR,
     })
     const p = call.discovery.scan()
@@ -152,7 +152,7 @@ describe('appRouter', () => {
     const call = appRouter.createCaller({
       registry,
       repos,
-      superagent: new SuperagentService(registry, repos, registry.sessionStore),
+      superagent: new SuperagentService(registry.modules, repos, registry.sessionStore),
       capability: OPERATOR,
     })
     const { sessionId } = await call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
@@ -202,7 +202,7 @@ describe('appRouter', () => {
     const call = appRouter.createCaller({
       registry,
       repos,
-      superagent: new SuperagentService(registry, repos, registry.sessionStore),
+      superagent: new SuperagentService(registry.modules, repos, registry.sessionStore),
       capability: OPERATOR,
     })
 
@@ -242,7 +242,7 @@ function repoCaller() {
     call: appRouter.createCaller({
       registry,
       repos,
-      superagent: new SuperagentService(registry, repos, registry.sessionStore),
+      superagent: new SuperagentService(registry.modules, repos, registry.sessionStore),
       capability: OPERATOR,
     }),
   }

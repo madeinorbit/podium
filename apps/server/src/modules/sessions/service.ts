@@ -24,7 +24,7 @@ import {
 import { AutoContinueController } from '../../auto-continue'
 import type { Capability } from '../../issue-authz'
 import { LOCAL_MACHINE_ID, LOCAL_PLACEHOLDER } from '../../local-machine'
-import { type ClientConn, type Send, Session } from '../../session'
+import { type ClientConn, type Send, Session } from './session'
 import { computePriorities } from '../../session-priority'
 import type { SessionStore } from '../../store'
 import {

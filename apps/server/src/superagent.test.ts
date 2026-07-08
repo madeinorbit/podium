@@ -11,7 +11,7 @@ import {
   NOT_CONFIRMED_MSG,
   SuperagentService,
   transcriptDelta,
-} from './superagent'
+} from './modules/superagent'
 
 const item = (o: Partial<TranscriptItem>): TranscriptItem => ({
   id: 'i',
@@ -144,7 +144,7 @@ describe('start_agent tool wiring (issue #60)', () => {
       }
     })
     const repos = new RepoRegistry(registry, registry.sessionStore)
-    const sa = new SuperagentService(registry, repos, registry.sessionStore)
+    const sa = new SuperagentService(registry.modules, repos, registry.sessionStore)
     return { registry, sa }
   }
 
@@ -344,7 +344,7 @@ describe('session-steering tool belt (issue #62)', () => {
       }
     })
     const repos = new RepoRegistry(registry, registry.sessionStore)
-    const sa = new SuperagentService(registry, repos, registry.sessionStore, {
+    const sa = new SuperagentService(registry.modules, repos, registry.sessionStore, {
       waitPollMs: opts?.waitPollMs ?? 5,
     })
     const spawn = (live = false): string => {

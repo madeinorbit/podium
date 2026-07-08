@@ -5,7 +5,7 @@ import { OPERATOR } from './issue-authz'
 import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
 import { appRouter } from './router'
-import { SuperagentService } from './superagent'
+import { SuperagentService } from './modules/superagent'
 
 const geometry = { cols: 80, rows: 24 }
 
@@ -26,7 +26,7 @@ function caller(
   const registry = new SessionRegistry()
   registry.attachDaemon('local', onDaemon)
   const repos = new RepoRegistry(registry, registry.sessionStore)
-  const superagent = new SuperagentService(registry, repos, registry.sessionStore)
+  const superagent = new SuperagentService(registry.modules, repos, registry.sessionStore)
   const call = appRouter.createCaller({ registry, repos, superagent, cloud, capability: OPERATOR })
   return { call, registry }
 }

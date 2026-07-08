@@ -5,7 +5,7 @@ import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
 import { appRouter } from './router'
 import { SessionStore } from './store'
-import { SuperagentService } from './superagent'
+import { SuperagentService } from './modules/superagent'
 
 function machineCaller() {
   const store = new SessionStore(':memory:')
@@ -16,7 +16,7 @@ function machineCaller() {
   registry.ensureLocalMachine()
   registry.attachDaemon('local', () => {})
   const repos = new RepoRegistry(registry, registry.sessionStore)
-  const superagent = new SuperagentService(registry, repos, registry.sessionStore)
+  const superagent = new SuperagentService(registry.modules, repos, registry.sessionStore)
   return {
     registry,
     call: appRouter.createCaller({ registry, repos, superagent, capability: OPERATOR }),
@@ -72,7 +72,7 @@ describe('sessions.create with machineId', () => {
     const registry = new SessionRegistry(store)
     registry.attachDaemon('m2', () => {})
     const repos = new RepoRegistry(registry, registry.sessionStore)
-    const superagent = new SuperagentService(registry, repos, registry.sessionStore)
+    const superagent = new SuperagentService(registry.modules, repos, registry.sessionStore)
     const call = appRouter.createCaller({ registry, repos, superagent, capability: OPERATOR })
 
     const { sessionId } = await call.sessions.create({
@@ -92,7 +92,7 @@ describe('sessions.create with machineId', () => {
     registry.ensureLocalMachine()
     registry.attachDaemon('local', () => {})
     const repos = new RepoRegistry(registry, registry.sessionStore)
-    const superagent = new SuperagentService(registry, repos, registry.sessionStore)
+    const superagent = new SuperagentService(registry.modules, repos, registry.sessionStore)
     const call = appRouter.createCaller({ registry, repos, superagent, capability: OPERATOR })
 
     const { sessionId } = await call.sessions.create({

@@ -67,7 +67,7 @@ import {
 import { SpecsService } from './modules/specs/service'
 import { HeadlessService } from './modules/superagent/headless'
 import { inferRepoFromRoots } from './repo-registry'
-import type { ClientConn, Send, Session } from './session'
+import type { ClientConn, Send, Session } from './modules/sessions/session'
 import { StewardService } from './steward'
 import { type PinKind, SessionStore } from './store'
 

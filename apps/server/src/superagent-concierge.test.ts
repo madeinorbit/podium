@@ -1,15 +1,9 @@
-import { normalizeSettings } from '@podium/core'
 import type { ControlMessage, IssueWire } from '@podium/protocol'
 import { Hono } from 'hono'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import { OPERATOR } from './issue-authz'
 import { IssueToolProvider } from './issue-mcp'
-import type { LlmClient, LlmResponse } from './llm'
 import { registerMcpRoute } from './mcp-route'
-import { SessionRegistry } from './relay'
-import { RepoRegistry } from './repo-registry'
-import { appRouter } from './router'
-import { callerAsIssueTrpc } from './server'
 import {
   buildConciergeDelta,
   buildConciergeSeed,
@@ -17,35 +11,26 @@ import {
   conciergeSystemPrompt,
   conciergeThreadId,
   NOT_CONFIRMED_MSG,
-  SUPERAGENT_HARNESS_TIMEOUT_MS,
   SuperagentService,
-} from './superagent'
-
-// Scripted fake LLM: each concierge/send turn shifts responses off this queue.
-// llmClient is mocked module-wide; everything else in ./llm stays real.
-const llmScript: LlmResponse[] = []
-vi.mock('./llm', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('./llm')>()
-  return {
-    ...actual,
-    llmClient: (): LlmClient => ({
-      label: 'fake · test',
-      complete: async () => llmScript.shift() ?? { text: 'ok', toolCalls: [] },
-    }),
-  }
-})
+} from './modules/superagent'
+import { SessionRegistry } from './relay'
+import { RepoRegistry } from './repo-registry'
+import { appRouter } from './router'
+import { callerAsIssueTrpc } from './server'
 
 const registries: SessionRegistry[] = []
 afterEach(() => {
-  llmScript.length = 0
   for (const r of registries.splice(0)) r.dispose()
 })
+
+type TurnReq = Extract<ControlMessage, { type: 'headlessTurnRequest' }>
 
 async function harness(opts?: { eventReadLimit?: number }) {
   const registry = new SessionRegistry()
   registries.push(registry)
-  // Every harnessExecRequest the fake daemon saw (issue #84 routing assertions).
-  const harnessCalls: Array<Extract<ControlMessage, { type: 'harnessExecRequest' }>> = []
+  // Every headless turn the fake daemon saw. Turns auto-resolve ok so the
+  // conciergeTurn flow completes without a real harness.
+  const turnReqs: TurnReq[] = []
   registry.attachDaemon('local', (m) => {
     if (m.type === 'repoOpRequest') {
       queueMicrotask(() =>
@@ -57,27 +42,29 @@ async function harness(opts?: { eventReadLimit?: number }) {
         }),
       )
     }
-    if (m.type === 'harnessExecRequest') {
-      harnessCalls.push(m)
+    if (m.type === 'headlessTurnRequest') {
+      turnReqs.push(m)
       queueMicrotask(() =>
         registry.onDaemonMessageFrom('local', {
-          type: 'harnessExecResult',
+          type: 'headlessTurnResult',
           requestId: m.requestId,
           ok: true,
+          harnessSessionId: `h-${turnReqs.length}`,
           output: 'harness says hi',
         }),
       )
     }
   })
   const repos = new RepoRegistry(registry, registry.sessionStore)
-  await repos.add('/r') // concierge() rejects unregistered repos
-  const sa = new SuperagentService(registry, repos, registry.sessionStore, opts)
+  await repos.add('/r') // conciergeTurn rejects unregistered repos
+  const sa = new SuperagentService(registry.modules, repos, registry.sessionStore, opts)
   // Same wiring as server.ts: issue tools over an in-process OPERATOR caller.
   const issueTools = new IssueToolProvider()
   const caller = appRouter.createCaller({ registry, repos, superagent: sa, capability: OPERATOR })
   issueTools.setClient(callerAsIssueTrpc(caller))
   sa.setIssueTools(issueTools)
-  return { registry, repos, sa, harnessCalls }
+  const settle = () => new Promise((r) => setTimeout(r))
+  return { registry, repos, sa, turnReqs, settle }
 }
 
 const wire = (o: Partial<IssueWire>): IssueWire =>
@@ -171,10 +158,11 @@ describe('buildConciergeDelta', () => {
 })
 
 describe('concierge threads (issue #64)', () => {
-  it('reuses one thread per repo across calls — never duplicates', async () => {
-    const { sa } = await harness()
-    const a = await sa.concierge({ repoPath: '/r', text: 'hello' })
-    const b = await sa.concierge({ repoPath: '/r', text: 'again' })
+  it('reuses one thread per repo across turns — never duplicates', async () => {
+    const { sa, settle } = await harness()
+    const a = await sa.conciergeTurn({ repoPath: '/r', text: 'hello' })
+    await settle()
+    const b = await sa.conciergeTurn({ repoPath: '/r', text: 'again' })
     expect(a.threadId).toBe(b.threadId)
     expect(a.isNew).toBe(true)
     expect(b.isNew).toBe(false)
@@ -184,51 +172,18 @@ describe('concierge threads (issue #64)', () => {
   })
 
   it('seeds a new thread with ready/needs-human/session lines from the tracker', async () => {
-    const { registry, sa } = await harness()
+    const { registry, sa, turnReqs } = await harness()
     const ready = registry.issues.create({ repoPath: '/r', title: 'Fix login', startNow: false })
     const asking = registry.issues.create({ repoPath: '/r', title: 'Deploy', startNow: false })
     registry.issues.setNeedsHuman(asking.id, 'Which region?')
     registry.createSession({ agentKind: 'claude-code', cwd: '/r', spawnedBy: 'user' })
-    const { threadId } = await sa.concierge({ repoPath: '/r', text: 'status?' })
-    const seedMsg = sa.history(threadId)[0]
-    expect(seedMsg?.role).toBe('user')
-    expect(seedMsg?.content).toContain('[CONCIERGE CONTEXT]')
-    expect(seedMsg?.content).toContain(`#${ready.seq} Fix login`)
-    expect(seedMsg?.content).toContain('Which region?')
-    expect(seedMsg?.content).toContain('claude-code')
-  })
-
-  it('prepends an issue-event delta on re-open after a watermark gap', async () => {
-    const { registry, sa } = await harness()
-    const { threadId } = await sa.concierge({ repoPath: '/r', text: 'hi' })
-    registry.issues.create({ repoPath: '/r', title: 'New work', startNow: false })
-    await sa.concierge({ repoPath: '/r', text: 'what changed?' })
-    const contents = sa.history(threadId).map((m) => m.content)
-    expect(contents.some((c) => c.includes('[CONCIERGE UPDATE'))).toBe(true)
-    expect(contents.some((c) => c.includes('created "New work"'))).toBe(true)
-    // No gap → no second delta.
-    await sa.concierge({ repoPath: '/r', text: 'and now?' })
-    const updates = sa.history(threadId).filter((m) => m.content.includes('[CONCIERGE UPDATE'))
-    expect(updates).toHaveLength(1)
-  })
-
-  it('runs issue tools through the api loop (mock LLM calls issue_search)', async () => {
-    const { registry, sa } = await harness()
-    registry.issues.create({ repoPath: '/r', title: 'Fix login', startNow: false })
-    llmScript.push(
-      {
-        text: '',
-        toolCalls: [
-          { id: 'c1', name: 'issue_search', arguments: JSON.stringify({ text: 'login' }) },
-        ],
-      },
-      { text: 'Found #1 Fix login.', toolCalls: [] },
-    )
-    const turn = await sa.concierge({ repoPath: '/r', text: 'anything about login?' })
-    const toolMsg = turn.messages.find((m) => m.role === 'tool' && m.toolName === 'issue_search')
-    expect(toolMsg?.content).toContain('#1')
-    expect(toolMsg?.content).toContain('Fix login')
-    expect(turn.messages[turn.messages.length - 1]?.content).toBe('Found #1 Fix login.')
+    await sa.conciergeTurn({ repoPath: '/r', text: 'status?' })
+    const prompt = turnReqs[0]?.prompt ?? ''
+    expect(prompt).toContain('[CONCIERGE CONTEXT]')
+    expect(prompt).toContain(`#${ready.seq} Fix login`)
+    expect(prompt).toContain('Which region?')
+    expect(prompt).toContain('claude-code')
+    expect(prompt.endsWith('status?')).toBe(true)
   })
 
   it('gates start-capable tools behind confirmed:true on concierge threads', async () => {
@@ -263,19 +218,10 @@ describe('concierge threads (issue #64)', () => {
 
   it('rejects an unregistered repoPath without minting a thread', async () => {
     const { sa } = await harness()
-    await expect(sa.concierge({ repoPath: '/typo', text: 'hi' })).rejects.toThrow(/unknown repo/)
+    await expect(sa.conciergeTurn({ repoPath: '/typo', text: 'hi' })).rejects.toThrow(
+      /unknown repo/,
+    )
     expect(sa.listThreads().filter((t) => t.kind === 'concierge')).toHaveLength(0)
-  })
-
-  it('two concurrent first opens seed exactly once (reads inside the lock)', async () => {
-    const { sa } = await harness()
-    const [a, b] = await Promise.all([
-      sa.concierge({ repoPath: '/r', text: 'first' }),
-      sa.concierge({ repoPath: '/r', text: 'second' }),
-    ])
-    expect([a.isNew, b.isNew].filter(Boolean)).toHaveLength(1)
-    const seeds = sa.history(a.threadId).filter((m) => m.content.includes('[CONCIERGE CONTEXT]'))
-    expect(seeds).toHaveLength(1)
   })
 
   it('gates issue_create --start behind confirmed, refusing BEFORE any mutation', async () => {
@@ -419,23 +365,26 @@ describe('concierge threads (issue #64)', () => {
   })
 
   it('advances the watermark only to the last read event on delta overflow', async () => {
-    const { registry, sa } = await harness({ eventReadLimit: 2 })
-    const { threadId } = await sa.concierge({ repoPath: '/r', text: 'hi' })
-    // 3 issue.created events > limit 2: first re-open digests 2, second the rest.
+    const { registry, sa, turnReqs, settle } = await harness({ eventReadLimit: 2 })
+    await sa.conciergeTurn({ repoPath: '/r', text: 'hi' })
+    await settle()
+    // 3 issue.created events > limit 2: first re-entry digests 2, second the rest.
     registry.issues.create({ repoPath: '/r', title: 'A', startNow: false })
     registry.issues.create({ repoPath: '/r', title: 'B', startNow: false })
     registry.issues.create({ repoPath: '/r', title: 'C', startNow: false })
-    await sa.concierge({ repoPath: '/r', text: 'update?' })
-    const afterFirst = sa.history(threadId).filter((m) => m.content.includes('[CONCIERGE UPDATE'))
-    expect(afterFirst).toHaveLength(1)
-    expect(afterFirst[0]?.content).toContain('created "A"')
-    expect(afterFirst[0]?.content).toContain('created "B"')
-    expect(afterFirst[0]?.content).not.toContain('created "C"')
-    // The overflowed remainder arrives on the next open — nothing silently lost.
-    await sa.concierge({ repoPath: '/r', text: 'more?' })
-    const updates = sa.history(threadId).filter((m) => m.content.includes('[CONCIERGE UPDATE'))
-    expect(updates).toHaveLength(2)
-    expect(updates[1]?.content).toContain('created "C"')
+    await sa.conciergeTurn({ repoPath: '/r', text: 'update?' })
+    await settle()
+    const second = turnReqs[1]?.prompt ?? ''
+    expect(second).toContain('[CONCIERGE UPDATE')
+    expect(second).toContain('created "A"')
+    expect(second).toContain('created "B"')
+    expect(second).not.toContain('created "C"')
+    // The overflowed remainder arrives on the next turn — nothing silently lost.
+    await sa.conciergeTurn({ repoPath: '/r', text: 'more?' })
+    await settle()
+    const third = turnReqs[2]?.prompt ?? ''
+    expect(third).toContain('[CONCIERGE UPDATE')
+    expect(third).toContain('created "C"')
   })
 })
 
@@ -530,163 +479,5 @@ describe('concierge prior-art intake', () => {
     expect(p).toContain('{"confirmed": true}')
     // Status answers cite their sources.
     expect(p).toContain('Cite the sessions and issue #s')
-  })
-})
-
-// Issue #84: every turn routes through the settings-chosen FULL harness when it
-// can mount Podium's MCP tools; anything else runs the api loop with a visible
-// one-line notice — never silently.
-describe('harness-always backend resolution (issue #84)', () => {
-  const ROUTE_SECRET = 'route-secret-84'
-  it('default settings route to the claude-code harness with MCP + long timeout', async () => {
-    const { sa, harnessCalls } = await harness()
-    sa.setMcpEndpoint('http://127.0.0.1:1878/mcp', 'route-tok', ['list_sessions', 'issue_list'])
-    const turn = await sa.send('global', 'hello')
-    expect(harnessCalls).toHaveLength(1)
-    const call = harnessCalls[0]!
-    expect(call.agent).toBe('claude-code')
-    expect(call.timeoutMs).toBe(SUPERAGENT_HARNESS_TIMEOUT_MS)
-    expect(call.allowedTools).toContain('mcp__podium__issue_list')
-    // The mcp-config carries the per-thread identity token (issue #67) — it
-    // resolves back to the sending thread server-side.
-    const cfg = JSON.parse(call.mcpConfig ?? '{}') as {
-      mcpServers: Record<string, { url: string; headers: Record<string, string> }>
-    }
-    const podium = cfg.mcpServers.podium!
-    expect(podium.url).toBe('http://127.0.0.1:1878/mcp')
-    expect(podium.headers['x-podium-mcp-token']).toBe('route-tok')
-    expect(sa.threadForMcpToken(podium.headers['x-podium-mcp-thread'] ?? '')).toBe('global')
-    // The harness reply lands on the thread, labeled as a harness turn.
-    expect(turn.backendLabel).toBe('claude-code harness')
-    expect(turn.messages.at(-1)?.content).toBe('harness says hi')
-  })
-
-  it('an explicit codex harness choice routes to the codex CLI', async () => {
-    const { registry, sa, harnessCalls } = await harness()
-    registry.sessionStore.setSettings(
-      normalizeSettings({ superagent: { kind: 'harness', harnessAgent: 'codex' } }),
-    )
-    sa.setMcpEndpoint('http://127.0.0.1:1878/mcp', 'route-tok')
-    const turn = await sa.send('global', 'hello')
-    expect(harnessCalls[0]?.agent).toBe('codex')
-    expect(turn.backendLabel).toBe('codex harness')
-  })
-
-  it('a no-MCP harness (grok) falls back to the api loop with one visible notice', async () => {
-    const { registry, sa, harnessCalls } = await harness()
-    registry.sessionStore.setSettings(normalizeSettings({ sessionDefaults: { agent: 'grok' } }))
-    sa.setMcpEndpoint('http://127.0.0.1:1878/mcp', 'route-tok')
-    llmScript.push({ text: 'api reply', toolCalls: [] }, { text: 'api reply 2', toolCalls: [] })
-    const first = await sa.send('global', 'hello')
-    expect(harnessCalls).toHaveLength(0)
-    const notice = first.messages.find((m) =>
-      m.content.includes('running on the api fallback: grok cannot mount Podium tools'),
-    )
-    expect(notice).toBeDefined()
-    expect(first.messages.at(-1)?.content).toBe('api reply')
-    // The notice is not repeated on the next turn.
-    const second = await sa.send('global', 'again')
-    expect(second.messages.some((m) => m.content.includes('api fallback'))).toBe(false)
-  })
-
-  it('without an MCP endpoint even claude falls back, with a notice naming why', async () => {
-    const { sa, harnessCalls } = await harness()
-    llmScript.push({ text: 'ok', toolCalls: [] })
-    const turn = await sa.send('global', 'hello')
-    expect(harnessCalls).toHaveLength(0)
-    expect(
-      turn.messages.some((m) => m.content.includes('Podium MCP endpoint is not available')),
-    ).toBe(true)
-  })
-
-  it('a concierge harness turn keeps thread identity + the confirmed gate (#67, e2e)', async () => {
-    const { registry, sa, harnessCalls } = await harness()
-    sa.setMcpEndpoint('http://127.0.0.1:1878/mcp', ROUTE_SECRET)
-    const app = new Hono()
-    registerMcpRoute(
-      app,
-      {
-        mcpToolSpecs: () => [],
-        callMcpTool: (name, args, threadId) => sa.callMcpTool(name, args, threadId),
-      },
-      ROUTE_SECRET,
-      { resolveThread: (tok) => sa.threadForMcpToken(tok) },
-    )
-    const issue = registry.issues.create({ repoPath: '/r', title: 'X', startNow: false })
-    await sa.concierge({ repoPath: '/r', text: 'what should we do?' })
-    // The concierge turn ran on the harness, carrying its own thread token…
-    expect(harnessCalls.length).toBeGreaterThan(0)
-    const cfg = JSON.parse(harnessCalls.at(-1)?.mcpConfig ?? '{}') as {
-      mcpServers: Record<string, { headers: Record<string, string> }>
-    }
-    const threadTok = cfg.mcpServers.podium?.headers['x-podium-mcp-thread'] ?? ''
-    expect(sa.threadForMcpToken(threadTok)).toBe(conciergeThreadId('/r'))
-    // …and a tool call through the HTTP MCP route under that token hits the
-    // concierge confirmed-gate: start-capable tools refuse without confirmed.
-    const res = await app.request('/mcp', {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        'x-podium-mcp-token': ROUTE_SECRET,
-        'x-podium-mcp-thread': threadTok,
-      },
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        id: 1,
-        method: 'tools/call',
-        params: { name: 'issue_start', arguments: { id: issue.id } },
-      }),
-    })
-    const body = (await res.json()) as { result?: { content?: Array<{ text: string }> } }
-    expect(body.result?.content?.[0]?.text).toBe(NOT_CONFIRMED_MSG)
-    expect(registry.issues.get(issue.id)?.stage).toBe('backlog')
-  })
-})
-
-// Review of #84: notices are PERSISTED once per thread ever — marker messages in
-// the thread survive a service restart (this box redeploys constantly).
-describe('persisted one-time thread notices (issue #84 review)', () => {
-  it('a harness turn over saved api-kind settings posts the flip notice once ever', async () => {
-    const { registry, repos, sa, harnessCalls } = await harness()
-    sa.setMcpEndpoint('http://127.0.0.1:1878/mcp', 'tok')
-    const first = await sa.send('global', 'hello')
-    const flip = first.messages.filter((m) => m.content.startsWith('superagent now runs the full'))
-    expect(flip).toHaveLength(1)
-    expect(flip[0]?.content).toContain('claude-code harness (was: api/openrouter)')
-    expect(flip[0]?.content).toContain('change in Settings if unwanted')
-    // Not repeated on the next turn…
-    const second = await sa.send('global', 'again')
-    expect(second.messages.some((m) => m.content.includes('now runs the full'))).toBe(false)
-    // …and not after a service restart over the same store (persisted flag).
-    const sa2 = new SuperagentService(registry, repos, registry.sessionStore)
-    sa2.setMcpEndpoint('http://127.0.0.1:1878/mcp', 'tok')
-    const third = await sa2.send('global', 'once more')
-    expect(third.messages.some((m) => m.content.includes('now runs the full'))).toBe(false)
-    expect(harnessCalls).toHaveLength(3)
-  })
-
-  it('an explicit harness choice posts no flip notice', async () => {
-    const { registry, sa } = await harness()
-    registry.sessionStore.setSettings(
-      normalizeSettings({ superagent: { kind: 'harness', harnessAgent: 'claude-code' } }),
-    )
-    sa.setMcpEndpoint('http://127.0.0.1:1878/mcp', 'tok')
-    const turn = await sa.send('global', 'hello')
-    expect(turn.messages.some((m) => m.content.includes('now runs the full'))).toBe(false)
-  })
-
-  it('the api-fallback notice survives a service restart without re-posting', async () => {
-    const { registry, repos, sa } = await harness()
-    registry.sessionStore.setSettings(normalizeSettings({ sessionDefaults: { agent: 'grok' } }))
-    sa.setMcpEndpoint('http://127.0.0.1:1878/mcp', 'tok')
-    llmScript.push({ text: 'a', toolCalls: [] }, { text: 'b', toolCalls: [] })
-    const first = await sa.send('global', 'hello')
-    expect(first.messages.some((m) => m.content.startsWith('running on the api fallback'))).toBe(
-      true,
-    )
-    const sa2 = new SuperagentService(registry, repos, registry.sessionStore)
-    sa2.setMcpEndpoint('http://127.0.0.1:1878/mcp', 'tok')
-    const second = await sa2.send('global', 'again')
-    expect(second.messages.some((m) => m.content.includes('api fallback'))).toBe(false)
   })
 })

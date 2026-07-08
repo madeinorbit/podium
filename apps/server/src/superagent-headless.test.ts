@@ -6,7 +6,7 @@ import type { ControlMessage, ServerMessage } from '@podium/protocol'
 import { afterEach, describe, expect, it } from 'vitest'
 import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
-import { RESUME_KIND, SuperagentService, TURN_FAILED_MARKER } from './superagent'
+import { RESUME_KIND, SuperagentService, TURN_FAILED_MARKER } from './modules/superagent'
 
 const registries: SessionRegistry[] = []
 afterEach(() => {
@@ -53,7 +53,7 @@ async function harness() {
   })
   const repos = new RepoRegistry(registry, registry.sessionStore)
   await repos.add('/r')
-  const sa = new SuperagentService(registry, repos, registry.sessionStore)
+  const sa = new SuperagentService(registry.modules, repos, registry.sessionStore)
   // A connected web client, to observe headlessActivity broadcasts.
   const clientMsgs: ServerMessage[] = []
   registry.attachClient((m) => clientMsgs.push(m))

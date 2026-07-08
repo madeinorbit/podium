@@ -11,7 +11,7 @@ import type {
   WorkState,
 } from '@podium/protocol'
 import { WorkState as WorkStateSchema } from '@podium/protocol'
-import type { SessionRow } from './store'
+import type { SessionRow } from '../../store'
 
 export type Send<T> = (msg: T) => void
 

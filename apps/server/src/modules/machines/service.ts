@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto'
 import type { ControlMessage, DaemonHandshake, MachineWire, ServerMessage } from '@podium/protocol'
 import { LOCAL_MACHINE_ID, LOCAL_PLACEHOLDER } from '../../local-machine'
-import type { Send } from '../../session'
+import type { Send } from '../sessions/session'
 import type { MachineRecord, SessionStore } from '../../store'
 import type { LiveServerMessage } from '../message-class'
 

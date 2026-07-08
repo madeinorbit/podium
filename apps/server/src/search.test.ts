@@ -7,7 +7,7 @@ import { RepoRegistry } from './repo-registry'
 import { appRouter } from './router'
 import { searchAll } from './search'
 import { SessionStore } from './store'
-import { SuperagentService } from './superagent'
+import { SuperagentService } from './modules/superagent'
 
 // Omni-search (docs/spec/search-v1.md §2.4): one query, ranked typed hits across
 // sessions, issues (+comments), conversations, lake-indexed transcripts and the
@@ -172,7 +172,7 @@ describe('search.query tRPC', () => {
     registries.push(registry)
     registry.attachDaemon('local', () => {})
     const repos = new RepoRegistry(registry, registry.sessionStore)
-    const superagent = new SuperagentService(registry, repos, registry.sessionStore)
+    const superagent = new SuperagentService(registry.modules, repos, registry.sessionStore)
     return {
       registry,
       trpc: appRouter.createCaller({ registry, repos, superagent, capability: OPERATOR }),

@@ -31,7 +31,7 @@ import { browseDirectories, type RepoRegistry } from './repo-registry'
 import type { ServerRoleConfig } from './roles'
 import { isAllowedRoot } from './root-allowlist'
 import { searchAll } from './search'
-import type { SuperagentService } from './superagent'
+import type { SuperagentService } from './modules/superagent'
 
 export interface Context {
   registry: SessionRegistry
@@ -609,12 +609,6 @@ export const appRouter = t.router({
     // acks {threadId, podiumSessionId} as soon as the turn is dispatched — output
     // arrives via the session's transcript stream + headlessActivity frames.
     sendTurn: t.procedure
-      .input(
-        z.object({ threadId: z.string().default('global'), text: z.string().min(1).max(32_768) }),
-      )
-      .mutation(({ ctx, input }) => ctx.superagent.sendTurn(input)),
-    // `send` is the same turn path (kept as the generic entry the panel uses).
-    send: t.procedure
       .input(
         z.object({ threadId: z.string().default('global'), text: z.string().min(1).max(32_768) }),
       )

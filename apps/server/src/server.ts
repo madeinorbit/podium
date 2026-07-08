@@ -29,7 +29,7 @@ import { appRouter } from './router'
 import { registerSetupRoute } from './setup-route'
 import { registerMobileRedirect, registerWebStatic } from './static-web'
 import { SessionStore } from './store'
-import { SuperagentService } from './superagent'
+import { SuperagentService } from './modules/superagent'
 import { readOwnDaemonMachineId, UpstreamSync } from './upstream'
 import { UpstreamForwarder } from './upstream-forwarder'
 import { attachWebSockets } from './wsServer'
@@ -219,7 +219,7 @@ export async function startServer(
     upstreamSync.start()
   }
   const repos = new RepoRegistry(registry, store)
-  const superagent = new SuperagentService(registry, repos, store)
+  const superagent = new SuperagentService(registry.modules, repos, store)
   const cloud = createCloudRuntimeProviderFromEnv()
   const app = new Hono()
   app.get('/health', (c) => c.text('ok'))
