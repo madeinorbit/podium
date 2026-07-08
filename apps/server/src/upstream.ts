@@ -5,6 +5,7 @@ import {
   type ConversationSummaryWire,
   type IssueWire,
   type MetadataDeltaMessage,
+  SESSION_COOKIE,
   ServerMessage,
   type SessionMeta,
   type SyncChangesSinceResult,
@@ -12,9 +13,7 @@ import {
 } from '@podium/protocol'
 import { createTRPCClient, httpBatchLink } from '@trpc/client'
 import WebSocket from 'ws'
-import { SESSION_COOKIE } from './auth-route'
 import { stateDir } from './local-machine'
-import type { AppRouter } from './router'
 
 /**
  * UpstreamSync — the node side of node⇄hub sync (docs/spec/node-hub-sync.md §2.2).
@@ -62,6 +61,23 @@ export interface UpstreamSyncStore {
   setUpstreamConversationsJson(json: string): void
   getUpstreamIssuesJson(): string | null
   setUpstreamIssuesJson(json: string): void
+}
+
+/**
+ * The narrow tRPC client shape UpstreamSync needs — just `sync.changesSince` —
+ * so it depends only on @podium/protocol's wire types, never the app's actual
+ * `AppRouter` (packages must not import apps/server). `createTRPCClient` is
+ * called untyped and cast to this shape (the same pattern @podium/issue-client
+ * uses for its own structural `IssueTrpc` seam): the wire shape IS the server's
+ * AppRouter, but nothing here needs tRPC's compile-time router inference to get
+ * that — the result is cast to `SyncChangesSinceResult` at the call site either way.
+ */
+export interface UpstreamTrpcClient {
+  sync: {
+    changesSince: {
+      query(input: { cursor: number | null }): Promise<unknown>
+    }
+  }
 }
 
 export interface UpstreamSyncOptions {
@@ -157,7 +173,7 @@ export class UpstreamSync {
   /** WS connection attempts (grows across retries — the bad-token test's signal). */
   connectAttempts = 0
 
-  private readonly trpc: ReturnType<typeof createTRPCClient<AppRouter>>
+  private readonly trpc: UpstreamTrpcClient
 
   constructor(opts: UpstreamSyncOptions) {
     const { http, ws } = normalizeUpstreamUrl(opts.url)
@@ -189,14 +205,14 @@ export class UpstreamSync {
       this.issues.clear()
       this.cursor = null
     }
-    this.trpc = createTRPCClient<AppRouter>({
+    this.trpc = createTRPCClient({
       links: [
         httpBatchLink({
           url: `${this.httpBase}/trpc`,
           headers: () => ({ cookie: this.cookie }),
         }),
       ],
-    })
+    }) as unknown as UpstreamTrpcClient
   }
 
   start(): void {

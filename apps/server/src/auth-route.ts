@@ -1,4 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto'
+import { SESSION_COOKIE } from '@podium/protocol'
 import type { Context, Hono, MiddlewareHandler } from 'hono'
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie'
 import { hasPassword, verifyPassword } from './auth-store'
@@ -13,7 +14,11 @@ export interface ClientSessionStore {
   deleteExpiredClientSessions?(nowIso: string): void
 }
 
-export const SESSION_COOKIE = 'podium_session'
+// The cookie name lives in @podium/protocol (shared wire-level constant with
+// @podium/sync's node⇄hub client, which must not import apps/server) —
+// re-exported here so existing apps/server/src imports of './auth-route' keep
+// working unchanged.
+export { SESSION_COOKIE }
 
 /** 30 days — a logged-in device stays logged in across server redeploys. */
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000
