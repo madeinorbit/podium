@@ -6,9 +6,7 @@ import {
   partitionStaleSessions,
   sessionsForWorktree,
   sidebarSections,
-  sortWorktrees,
   worktreeForCwd,
-  type WorktreeNavView,
 } from './derive'
 
 const NOW = Date.parse('2026-06-21T12:00:00.000Z')
@@ -191,18 +189,6 @@ describe('partitionStaleSessions', () => {
   })
 })
 
-function wt(path: string, branch: string | undefined, isMain: boolean): WorktreeNavView {
-  return {
-    path,
-    branch,
-    repoPath: '/repo',
-    repoName: 'repo',
-    isMain,
-    sessions: [],
-    issues: [],
-  } as WorktreeNavView
-}
-
 function withResume(
   id: string,
   status: SessionMeta['status'],
@@ -240,24 +226,3 @@ describe('dedupeSessionsByResume', () => {
   })
 })
 
-describe('sortWorktrees', () => {
-  const main = wt('/repo', 'main', true)
-  const zeta = wt('/repo/zeta', 'zeta', false)
-  const alpha = wt('/repo/alpha', 'alpha', false)
-  const all = [main, zeta, alpha]
-
-  it('sorts alphabetically by branch', () => {
-    const out = sortWorktrees(all, 'alphabetical', new Map())
-    expect(out.map((w) => w.branch)).toEqual(['alpha', 'main', 'zeta'])
-  })
-
-  it('sorts by last used (recency desc), main wins ties', () => {
-    const lru = new Map<string, number>([
-      ['/repo/zeta', NOW - 1000],
-      ['/repo/alpha', NOW - 5000],
-    ])
-    const out = sortWorktrees(all, 'lastUsed', lru)
-    // zeta most recent, alpha next, main (no activity) last.
-    expect(out.map((w) => w.branch)).toEqual(['zeta', 'alpha', 'main'])
-  })
-})

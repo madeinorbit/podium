@@ -705,49 +705,6 @@ export function partitionWorkItems(
 }
 
 /**
- * Sort repos by the given mode:
- *  - alphabetical: locale, case-insensitive by name.
- *  - lastUsed: by lastUsedAt desc (unknown → 0 / end), tiebreak name.
- *  - custom: by index in `order`; ids not in `order` appended in lastUsed order.
- */
-export function sortRepos<T extends { id: string; name: string }>(
-  repos: T[],
-  mode: 'alphabetical' | 'lastUsed' | 'custom',
-  order: string[],
-  lastUsedAt: Map<string, number>,
-): T[] {
-  const lu = (id: string): number => lastUsedAt.get(id) ?? 0
-
-  if (mode === 'alphabetical') {
-    return [...repos].sort((a, b) =>
-      a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }),
-    )
-  }
-
-  if (mode === 'lastUsed') {
-    return [...repos].sort((a, b) => {
-      const diff = lu(b.id) - lu(a.id)
-      if (diff !== 0) return diff
-      return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
-    })
-  }
-
-  // custom: pinned order first, then remainder by lastUsed desc
-  const position = orderMap(order)
-  const inOrder = [...repos]
-    .filter((r) => position.has(r.id))
-    .sort((a, b) => (position.get(a.id) ?? 0) - (position.get(b.id) ?? 0))
-  const remainder = [...repos]
-    .filter((r) => !position.has(r.id))
-    .sort((a, b) => {
-      const diff = lu(b.id) - lu(a.id)
-      if (diff !== 0) return diff
-      return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
-    })
-  return [...inOrder, ...remainder]
-}
-
-/**
  * Collapse duplicate session rows that point at the SAME underlying agent
  * conversation (same resume ref) — e.g. a Codex thread that surfaced twice on
  * resume. Keeps the most useful row per ref (live > starting/reconnecting >
@@ -826,73 +783,6 @@ export function partitionStaleSessions(
   return {
     visible: sorted.filter((s) => !staleIds.has(s.sessionId)),
     stale: sorted.filter((s) => staleIds.has(s.sessionId)),
-  }
-}
-
-/**
- * Order the worktrees within a repo by the sidebar's sort mode. The mode is the
- * same one that orders repos; without it a one-repo, many-worktree setup sees no
- * effect from the control. There's no per-worktree manual order, so `custom`
- * falls back to recency like `lastUsed`. Recency ties (and worktrees with no
- * sessions) break toward the main worktree, then branch name.
- */
-export function sortWorktrees(
-  worktrees: WorktreeNavView[],
-  mode: 'alphabetical' | 'lastUsed' | 'custom',
-  lastUsedByWorktree: Map<string, number>,
-): WorktreeNavView[] {
-  const name = (w: WorktreeNavView): string => w.branch ?? w.path.split('/').pop() ?? w.path
-  if (mode === 'alphabetical') {
-    return [...worktrees].sort((a, b) =>
-      name(a).localeCompare(name(b), undefined, { sensitivity: 'base' }),
-    )
-  }
-  const lu = (w: WorktreeNavView): number => lastUsedByWorktree.get(w.path) ?? 0
-  return [...worktrees].sort((a, b) => {
-    const diff = lu(b) - lu(a)
-    if (diff !== 0) return diff
-    if (a.isMain !== b.isMain) return a.isMain ? -1 : 1
-    return name(a).localeCompare(name(b), undefined, { sensitivity: 'base' })
-  })
-}
-
-/** Does a worktree row match the inline sidebar filter (case-insensitive over
- *  branch / path / repo name)? */
-function worktreeMatches(worktree: WorktreeNavView, q: string): boolean {
-  const titles = worktree.issues.map((i) => i.title).join(' ')
-  const hay =
-    `${worktree.repoName} ${worktree.branch ?? ''} ${worktree.path} ${titles}`.toLowerCase()
-  return hay.includes(q)
-}
-
-/**
- * Inline client-side filter for the repos/worktrees tree (the small Input next to
- * the WORKTREES header). Case-insensitive substring over repo name / branch /
- * path; an empty query passes everything through unchanged. A repo is kept when
- * its own name matches (then all its worktrees show) OR when it has any matching
- * worktree (then only the matching worktrees show). Pinned panels are not touched
- * — they're a flat reach-list, not part of the tree being filtered.
- */
-export function filterSidebarSections(sections: SidebarSections, query: string): SidebarSections {
-  const q = query.trim().toLowerCase()
-  if (!q) return sections
-
-  const filterWorktrees = (worktrees: WorktreeNavView[]): WorktreeNavView[] =>
-    worktrees.filter((w) => worktreeMatches(w, q))
-
-  const filterRepo = (repo: RepoNavView): RepoNavView | null => {
-    if (repo.name.toLowerCase().includes(q)) return repo
-    const worktrees = filterWorktrees(repo.worktrees)
-    return worktrees.length > 0 ? { ...repo, worktrees } : null
-  }
-
-  return {
-    pinnedPanels: sections.pinnedPanels,
-    pinnedWorktrees: filterWorktrees(sections.pinnedWorktrees),
-    pinnedRepos: sections.pinnedRepos
-      .map(filterRepo)
-      .filter((repo): repo is RepoNavView => repo !== null),
-    repos: sections.repos.map(filterRepo).filter((repo): repo is RepoNavView => repo !== null),
   }
 }
 

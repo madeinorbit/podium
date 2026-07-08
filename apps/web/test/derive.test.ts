@@ -5,7 +5,6 @@ import {
   chatActivity,
   defaultChatCapable,
   exitedRecovery,
-  filterSidebarSections,
   formatMemBytes,
   hostMemoryView,
   isKnownWorktreePath,
@@ -22,7 +21,6 @@ import {
   sidebarSections,
   snoozeUntil1h,
   snoozeUntilTomorrow5am,
-  sortRepos,
   sortSessionsForPins,
   sortSessionsForSidebar,
 } from '../src/derive'
@@ -535,55 +533,6 @@ describe('partitionWorkItems', () => {
   })
 })
 
-describe('sortRepos', () => {
-  const r = (id: string) => ({ id, name: id.toUpperCase() })
-  it('sorts by mode', () => {
-    const repos = [r('b'), r('a'), r('c')]
-    const lu = new Map([
-      ['a', 1],
-      ['b', 3],
-      ['c', 2],
-    ])
-    expect(sortRepos(repos, 'alphabetical', [], lu).map((x) => x.id)).toEqual(['a', 'b', 'c'])
-    expect(sortRepos(repos, 'lastUsed', [], lu).map((x) => x.id)).toEqual(['b', 'c', 'a'])
-    expect(sortRepos(repos, 'custom', ['c', 'a'], lu).map((x) => x.id)).toEqual(['c', 'a', 'b'])
-  })
-
-  it('alphabetical is case-insensitive locale sort', () => {
-    const repos = [r('Zebra'), r('apple'), r('Mango')]
-    expect(sortRepos(repos, 'alphabetical', [], new Map()).map((x) => x.id)).toEqual([
-      'apple',
-      'Mango',
-      'Zebra',
-    ])
-  })
-
-  it('lastUsed puts unknown lastUsedAt at end, tiebreaks by name', () => {
-    const repos = [
-      { id: 'a', name: 'A' },
-      { id: 'b', name: 'B' },
-      { id: 'c', name: 'C' },
-    ]
-    const lu = new Map([['b', 5]])
-    // b (ts=5), then a and c (ts=0) sorted by name
-    expect(sortRepos(repos, 'lastUsed', [], lu).map((x) => x.id)).toEqual(['b', 'a', 'c'])
-  })
-
-  it('custom appends unknown ids in lastUsed order', () => {
-    const repos = [
-      { id: 'x', name: 'X' },
-      { id: 'y', name: 'Y' },
-      { id: 'z', name: 'Z' },
-    ]
-    const lu = new Map([
-      ['z', 10],
-      ['y', 5],
-    ])
-    // order=['x'], then z (ts=10), y (ts=5)
-    expect(sortRepos(repos, 'custom', ['x'], lu).map((x) => x.id)).toEqual(['x', 'z', 'y'])
-  })
-})
-
 const base = (over: Partial<SessionMeta>): SessionMeta =>
   ({
     sessionId: 's',
@@ -763,50 +712,6 @@ describe('pinned panel ordering & co-location', () => {
       repos: [],
     })
     expect(sections.pinnedPanels.map((p) => p.sessionId)).toEqual(['n', 'w'])
-  })
-})
-
-describe('filterSidebarSections (#100)', () => {
-  const sessions = [session('/src/app'), session('/src/app-feat')]
-  const noPins = { panels: [], worktrees: [], repos: [] }
-
-  it('passes everything through on an empty/whitespace query', () => {
-    const sections = sidebarSections([repo], sessions, noPins)
-    expect(filterSidebarSections(sections, '')).toBe(sections)
-    expect(filterSidebarSections(sections, '   ')).toBe(sections)
-  })
-
-  it('keeps a repo and all its worktrees when the repo name matches', () => {
-    const sections = sidebarSections([repo], sessions, noPins)
-    const filtered = filterSidebarSections(sections, 'APP') // case-insensitive
-    expect(filtered.repos).toHaveLength(1)
-    expect(filtered.repos[0].worktrees.map((w) => w.path)).toEqual(['/src/app', '/src/app-feat'])
-  })
-
-  it('narrows to only the matching worktree when matching a branch', () => {
-    const sections = sidebarSections([repo], sessions, noPins)
-    const filtered = filterSidebarSections(sections, 'feat')
-    expect(filtered.repos).toHaveLength(1)
-    expect(filtered.repos[0].worktrees.map((w) => w.path)).toEqual(['/src/app-feat'])
-  })
-
-  it('matches on path and drops repos with no match', () => {
-    const sections = sidebarSections([repo], sessions, noPins)
-    expect(filterSidebarSections(sections, 'nonexistent').repos).toEqual([])
-    expect(
-      filterSidebarSections(sections, '/src/app-feat').repos[0].worktrees.map((w) => w.path),
-    ).toEqual(['/src/app-feat'])
-  })
-
-  it('leaves pinned panels untouched (they are a flat reach-list)', () => {
-    const sections = sidebarSections([repo], sessions, {
-      panels: ['s-/src/app-feat'],
-      worktrees: [],
-      repos: [],
-    })
-    expect(
-      filterSidebarSections(sections, 'nonexistent').pinnedPanels.map((p) => p.sessionId),
-    ).toEqual(['s-/src/app-feat'])
   })
 })
 
