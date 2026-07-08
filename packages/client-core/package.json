@@ -33,6 +33,26 @@
       "@podium/source": "./src/viewmodels/index.ts",
       "types": "./src/viewmodels/index.ts",
       "import": "./src/viewmodels/index.ts"
+    },
+    "./replica": {
+      "@podium/source": "./src/replica/index.ts",
+      "types": "./src/replica/index.ts",
+      "import": "./src/replica/index.ts"
+    },
+    "./router": {
+      "@podium/source": "./src/router.ts",
+      "types": "./src/router.ts",
+      "import": "./src/router.ts"
+    },
+    "./api": {
+      "@podium/source": "./src/api.ts",
+      "types": "./src/api.ts",
+      "import": "./src/api.ts"
+    },
+    "./react": {
+      "@podium/source": "./src/react/index.ts",
+      "types": "./src/react/index.ts",
+      "import": "./src/react/index.ts"
     }
   },
   "scripts": {
@@ -40,10 +60,19 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
-    "@podium/protocol": "workspace:*"
+    "@podium/protocol": "workspace:*",
+    "@podium/core": "workspace:*",
+    "@podium/terminal-client": "workspace:*",
+    "@tanstack/db": "^0.6.14",
+    "@tanstack/react-db": "^0.1.92"
   },
   "devDependencies": {
     "typescript": "^6.0.3",
-    "vitest": "^4.1.8"
+    "vitest": "^4.1.8",
+    "@types/react": "^19.0.0",
+    "react": "19.2.7"
+  },
+  "peerDependencies": {
+    "react": ">=19"
   }
 }
