@@ -289,17 +289,29 @@ export abstract class IssueServiceCore {
    *  → dependents' blocked/ready + parent childDoneCount, hierarchy/dep edits,
    *  membership changes) additionally call {@link broadcastList}. */
   protected persist(row: IssueRow): IssueWire {
-    row.updatedAt = this.now()
-    this.rows.set(row.id, row)
-    this.deps.store.upsertIssue(row)
-    const wire = this.toWire(row)
-    this.deps.broadcast({ type: 'issueUpdated', issue: wire })
-    return wire
+    return this.persistWith(row)
   }
 
-  /** Full-list broadcast for mutations with cross-issue effects (see persist). */
+  /** persist() plus an extra repository write (labels/comments/deps/mail) that
+   *  must land inside the SAME funnel run as the row upsert, so the funnel's
+   *  write stage covers every byte the mutation touches (issue #190). */
+  protected persistWith(row: IssueRow, extraWrite?: () => void): IssueWire {
+    row.updatedAt = this.now()
+    this.rows.set(row.id, row)
+    return this.deps.funnel.run({
+      write: () => {
+        extraWrite?.()
+        this.deps.store.upsertIssue(row)
+        return this.toWire(row)
+      },
+      publish: (wire) => this.deps.publishSpecs.issueUpdated(wire),
+    })
+  }
+
+  /** Full-list broadcast for mutations with cross-issue effects (see persist).
+   *  No repository write of its own — enters the funnel at the publish tail. */
   protected broadcastList(): void {
-    this.deps.broadcast({ type: 'issuesChanged', issues: this.allWire() })
+    this.deps.funnel.publishSpec(this.deps.publishSpecs.issuesChanged(this.allWire()))
   }
   /** @internal */
   protected rowOrThrow(id: string): IssueRow {

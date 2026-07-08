@@ -61,15 +61,20 @@ export class WriteFunnel {
     op.authorize?.()
     const result = op.write()
     const spec = op.publish?.(result)
-    if (spec) {
-      this.publish(spec.entity, spec.rows, spec.snapshot, {
-        ...(spec.partial !== undefined ? { partial: spec.partial } : {}),
-        ...(spec.snapshotToCapClients !== undefined
-          ? { snapshotToCapClients: spec.snapshotToCapClients }
-          : {}),
-      })
-    }
+    if (spec) this.publishSpec(spec)
     return result
+  }
+
+  /** {@link publish} taking a prebuilt {@link PublishSpec} — the shape
+   *  {@link run}'s publish stage returns, for callers that build specs via a
+   *  spec factory (modules/issues/publish) rather than inline. */
+  publishSpec(spec: PublishSpec): void {
+    this.publish(spec.entity, spec.rows, spec.snapshot, {
+      ...(spec.partial !== undefined ? { partial: spec.partial } : {}),
+      ...(spec.snapshotToCapClients !== undefined
+        ? { snapshotToCapClients: spec.snapshotToCapClients }
+        : {}),
+    })
   }
 
   /** Oplog append + broadcast — the shared tail of every publish pipeline. */

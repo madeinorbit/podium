@@ -318,7 +318,7 @@ export class SessionRegistry {
     this.issuePublisher = new IssuePublisher({
       allWire: () => this.issues?.allWire(),
       withUpstreamIssues: (local) => this.upstreamIssuesSvc.withUpstreamIssues(local),
-      publish: (rows, snapshot, opts) => this.funnel.publish('issue', rows, snapshot, opts),
+      publishSpec: (spec) => this.funnel.publishSpec(spec),
     })
     this.issueCommands = new IssueCommandService({
       issues: () => this.issues,
@@ -428,14 +428,13 @@ export class SessionRegistry {
       setSessionIssueId: (sessionId, issueId) =>
         this.sessionsSvc.setSessionIssueId(sessionId, issueId),
       setSessionArchived: (sessionId, archived) => this.setArchived({ sessionId, archived }),
-      broadcast: (msg) => {
-        // Full issue-list fan-outs funnel through the oplog so delta-cap clients get
-        // per-issue changes; single-issue updates ride the SAME oplog stream as a
-        // partial record (#22) so a persist never serializes the whole list.
-        if (msg.type === 'issuesChanged') this.publishIssues(msg.issues)
-        else if (msg.type === 'issueUpdated') this.publishIssueUpdate(msg.issue)
-        else for (const c of this.clients.values()) c.send(msg)
-      },
+      // Every issue mutation runs the write funnel (issue #190): the service's
+      // store writes enter funnel.run and its fan-outs are built as PublishSpecs
+      // by the publisher (which unions in hub-mirrored issues), so oplog-before-
+      // fan-out holds by construction — there is NO raw-WS path out of the
+      // issue tracker anymore.
+      funnel: this.funnel,
+      publishSpecs: this.issuePublisher,
       // Agent mail send-time nudge (issue #103): poke the target issue's live agent
       // session so mail is noticed without polling. The nudge carries NO message
       // body — an idempotent "check your inbox" poke. Selection: a single idle
@@ -1104,11 +1103,6 @@ export class SessionRegistry {
   /** Full issue-list fan-out (modules/issues/publish). */
   private publishIssues(localIssues: IssueWire[]): void {
     this.issuePublisher.publishIssues(localIssues)
-  }
-
-  /** Single-issue fan-out, issue #22 (modules/issues/publish). */
-  private publishIssueUpdate(issue: IssueWire): void {
-    this.issuePublisher.publishIssueUpdate(issue)
   }
 
   /** Cursor catch-up for `sync.changesSince` (spec §2.3) — modules/sessions. */

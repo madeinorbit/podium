@@ -26,7 +26,7 @@ export abstract class IssueServiceMail extends IssueServiceAttention {
       readAt: null,
       claimedAt: null,
     }
-    this.deps.store.addIssueMessage(message)
+    this.deps.funnel.run({ write: () => this.deps.store.addIssueMessage(message) })
     try {
       this.deps.onMailSent?.(row, message)
     } catch {}
@@ -48,7 +48,11 @@ export abstract class IssueServiceMail extends IssueServiceAttention {
     const markRead = opts?.markRead !== false
     const messages = this.deps.store.listIssueMessages(id)
     const unreadIds = markRead ? messages.filter((m) => m.status === 'unread').map((m) => m.id) : []
-    if (unreadIds.length) this.deps.store.markIssueMessagesRead(id, unreadIds, this.now())
+    if (unreadIds.length) {
+      this.deps.funnel.run({
+        write: () => this.deps.store.markIssueMessagesRead(id, unreadIds, this.now()),
+      })
+    }
     return messages.map((m) => ({
       ...m,
       ...(markRead && m.status === 'unread' ? { status: 'read' as const, readAt: this.now() } : {}),
@@ -58,7 +62,9 @@ export abstract class IssueServiceMail extends IssueServiceAttention {
 
   /** Atomic claim (single guarded UPDATE): `claimed` is false when someone else won. */
   mailClaim(messageId: string, claimedBy: string): { claimed: boolean; message: IssueMessageRow } {
-    const claimed = this.deps.store.claimIssueMessage(messageId, claimedBy, this.now())
+    const claimed = this.deps.funnel.run({
+      write: () => this.deps.store.claimIssueMessage(messageId, claimedBy, this.now()),
+    })
     const message = this.deps.store.getIssueMessage(messageId)
     if (!message) throw new Error(`unknown mail message ${messageId}`)
     return { claimed, message }

@@ -1,8 +1,35 @@
 import type { PodiumSettings } from '@podium/core'
-import type { RepoOp, ServerMessage, SessionMeta } from '@podium/protocol'
+import type { IssueWire, RepoOp, SessionMeta } from '@podium/protocol'
 import type { LinearIssue } from '../../../linear'
 import type { llmClient } from '../../../llm'
 import type { IssueMessageRow, IssueRow, SessionStore } from '../../../store'
+import type { PublishSpec } from '../../funnel'
+
+/** The write-funnel face IssueService mutations run through (issue #190): every
+ *  store write enters `run` (authorize → repository write → oplog append →
+ *  broadcast) and every fan-out without its own write (cross-issue derived
+ *  effects) enters the shared `publishSpec` tail. Structurally satisfied by
+ *  {@link ../../funnel.WriteFunnel}; narrow so tests can fake it. Authorization
+ *  happens UPSTREAM (router / issue-commands authz) — service-level ops pass no
+ *  `authorize` stage of their own. */
+export interface IssueFunnel {
+  run<T>(op: {
+    authorize?: () => void
+    write: () => T
+    publish?: (result: T) => PublishSpec | null
+  }): T
+  publishSpec(spec: PublishSpec): void
+}
+
+/** Publish-spec factory for the two issue wire shapes. The relay implements it
+ *  with IssuePublisher, which unions hub-mirrored issues into the list snapshot
+ *  (node-hub-issues §2.1) — the service never learns about the mirror. */
+export interface IssuePublishSpecs {
+  /** Single-issue delta (issue #22) — a PARTIAL oplog record + issueUpdated. */
+  issueUpdated(issue: IssueWire): PublishSpec
+  /** Full-list snapshot (membership / cross-issue derived changes). */
+  issuesChanged(localIssues: IssueWire[]): PublishSpec
+}
 
 /** Read-gated auto-archive window (issue #127): a done+read issue auto-archives
  *  this long after it was read. Reading starts the clock; unread issues wait. */
@@ -109,7 +136,11 @@ export interface IssueDeps {
    *  machine is offline or lacks the repo. Injected by the relay; optional so
    *  existing test deps literals stay valid. */
   requireMachineForRepo?(machineId: string, repoPath: string): void
-  broadcast(msg: ServerMessage): void
+  /** THE write funnel (modules/funnel): every mutation's store write + fan-out
+   *  runs through it, so "durable before fan-out" holds by construction. */
+  funnel: IssueFunnel
+  /** Publish-spec factory (modules/issues/publish) for the funnel's tail. */
+  publishSpecs: IssuePublishSpecs
   now?(): string
   /** The session's explicit issue attachment (issue-as-workspace). Injected by
    *  the relay; optional so existing test deps literals stay valid. */

@@ -57,7 +57,7 @@ export abstract class IssueServiceAttention extends IssueServiceCrud {
     })
     // Clean up the abandoned draft vessel it came from, if now completely empty.
     if (prevId) this.deleteIfEmptyDraft(prevId)
-    this.deps.broadcast({ type: 'issuesChanged', issues: this.allWire() })
+    this.broadcastList()
     return this.toWire(this.rowOrThrow(target.id))
   }
 
@@ -146,13 +146,13 @@ export abstract class IssueServiceAttention extends IssueServiceCrud {
       enabled: true,
       createdAt: this.now(),
     }
-    this.deps.store.addSubscription(sub)
+    this.deps.funnel.run({ write: () => this.deps.store.addSubscription(sub) })
     return sub
   }
 
   subscriptionRemove(id: string): { removed: boolean } {
     const existed = this.deps.store.listSubscriptions().some((s) => s.id === id)
-    this.deps.store.removeSubscription(id)
+    this.deps.funnel.run({ write: () => this.deps.store.removeSubscription(id) })
     return { removed: existed }
   }
 
@@ -164,7 +164,9 @@ export abstract class IssueServiceAttention extends IssueServiceCrud {
    *  the additive dispatcher pass, so disabling one never touches the built-in
    *  handlers — it is safe and reversible. */
   subscriptionSetEnabled(id: string, enabled: boolean): { updated: boolean } {
-    return { updated: this.deps.store.setSubscriptionEnabled(id, enabled) }
+    return this.deps.funnel.run({
+      write: () => ({ updated: this.deps.store.setSubscriptionEnabled(id, enabled) }),
+    })
   }
 
   subscriptionGet(id: string): Subscription | undefined {

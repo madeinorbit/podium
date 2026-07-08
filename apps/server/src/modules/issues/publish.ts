@@ -1,4 +1,6 @@
-import type { IssueWire, ServerMessage } from '@podium/protocol'
+import type { IssueWire } from '@podium/protocol'
+import type { PublishSpec } from '../funnel'
+import type { IssuePublishSpecs } from './service/types'
 
 export interface IssuePublisherDeps {
   /** The LOCAL issue list builder (IssueService.allWire) — may be undefined while
@@ -7,18 +9,16 @@ export interface IssuePublisherDeps {
   allWire(): IssueWire[] | undefined
   /** Local ∪ upstream union (modules/issues/upstream). */
   withUpstreamIssues(local: IssueWire[]): IssueWire[]
-  /** The write funnel's issue face: oplog append → broadcast (bus + WS). */
-  publish(
-    rows: { id: string; value: IssueWire }[],
-    snapshot: ServerMessage,
-    opts?: { partial?: boolean },
-  ): void
+  /** The write funnel's publish tail: oplog append → broadcast (bus + WS). */
+  publishSpec(spec: PublishSpec): void
 }
 
-/** Issue wire publishing: every issuesChanged/issueUpdated fan-out enters the
- *  write funnel here, so the oplog records before clients see anything
- *  (oplog-read-path §2.5). */
-export class IssuePublisher {
+/** Issue wire publishing: builds the two issue {@link PublishSpec} shapes
+ *  (IssueService's mutations run them through the funnel — issue #190) and
+ *  serves the write-less rebroadcast paths (session churn, staleness flips),
+ *  so every issuesChanged/issueUpdated fan-out enters the write funnel and the
+ *  oplog records before clients see anything (oplog-read-path §2.5). */
+export class IssuePublisher implements IssuePublishSpecs {
   constructor(private readonly deps: IssuePublisherDeps) {}
 
   /**
@@ -37,30 +37,35 @@ export class IssuePublisher {
     }
   }
 
-  /** Funnel entry for a full issue list (every issuesChanged path). Takes the
-   *  LOCAL list; the hub-mirrored issues are unioned in HERE, so every caller
-   *  (IssueService broadcast, session rebroadcast, staleness flips) serves
+  /** Spec for a full issue list (every issuesChanged path). Takes the LOCAL
+   *  list; the hub-mirrored issues are unioned in HERE, so every caller
+   *  (IssueService mutations, session rebroadcast, staleness flips) serves
    *  local ∪ upstream without knowing about the mirror (node-hub-issues §2.1). */
-  publishIssues(localIssues: IssueWire[]): void {
+  issuesChanged(localIssues: IssueWire[]): PublishSpec {
     const issues = this.deps.withUpstreamIssues(localIssues)
-    this.deps.publish(
-      issues.map((i) => ({ id: i.id, value: i })),
-      { type: 'issuesChanged', issues },
-    )
+    return {
+      entity: 'issue',
+      rows: issues.map((i) => ({ id: i.id, value: i })),
+      snapshot: { type: 'issuesChanged', issues },
+    }
   }
 
-  /** Single-issue funnel entry (issue #22): one PARTIAL oplog record (an upsert
-   *  for this id only — absence of the other issues must not read as deletion).
-   *  Delta-cap clients get the one-change metadataDelta; legacy clients get the
-   *  issueUpdated message they already merge by id. The full issuesChanged path
-   *  (publishIssues) remains for bulk/membership changes. */
-  publishIssueUpdate(issue: IssueWire): void {
-    this.deps.publish(
-      [{ id: issue.id, value: issue }],
-      { type: 'issueUpdated', issue },
-      {
-        partial: true,
-      },
-    )
+  /** Spec for a single-issue delta (issue #22): one PARTIAL oplog record (an
+   *  upsert for this id only — absence of the other issues must not read as
+   *  deletion). Delta-cap clients get the one-change metadataDelta; legacy
+   *  clients get the issueUpdated message they already merge by id. */
+  issueUpdated(issue: IssueWire): PublishSpec {
+    return {
+      entity: 'issue',
+      rows: [{ id: issue.id, value: issue }],
+      snapshot: { type: 'issueUpdated', issue },
+      partial: true,
+    }
+  }
+
+  /** Funnel-tail fan-out of a full issue list — for pipelines with no issue
+   *  write of their own (session churn re-derives member data, staleness flips). */
+  publishIssues(localIssues: IssueWire[]): void {
+    this.deps.publishSpec(this.issuesChanged(localIssues))
   }
 }

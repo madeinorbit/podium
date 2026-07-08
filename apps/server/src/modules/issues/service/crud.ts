@@ -305,32 +305,36 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
   delete(id: string): void {
     id = this.resolveRef(id)
     this.rowOrThrow(id)
-    this.deps.store.deleteIssue(id)
-    // Re-hydrate from the store: deleteIssue also clears scalar back-refs
-    // (parent_id / superseded_by / duplicate_of) on OTHER rows, so a plain
-    // map delete would leave those stale pointers in the broadcast.
-    this.reload()
-    this.deps.broadcast({ type: 'issuesChanged', issues: this.allWire() })
+    this.deps.funnel.run({
+      write: () => {
+        this.deps.store.deleteIssue(id)
+        // Re-hydrate from the store: deleteIssue also clears scalar back-refs
+        // (parent_id / superseded_by / duplicate_of) on OTHER rows, so a plain
+        // map delete would leave those stale pointers in the broadcast.
+        this.reload()
+      },
+      publish: () => this.deps.publishSpecs.issuesChanged(this.allWire()),
+    })
   }
 
   setLabels(id: string, labels: string[]): IssueWire {
     id = this.resolveRef(id)
     const row = this.rowOrThrow(id)
-    this.deps.store.setIssueLabels(id, labels)
-    return this.persist(row)
+    return this.persistWith(row, () => this.deps.store.setIssueLabels(id, labels))
   }
 
   addComment(id: string, author: string, body: string): IssueWire {
     id = this.resolveRef(id)
     const row = this.rowOrThrow(id)
-    this.deps.store.addIssueComment({
-      id: `cmt_${randomUUID()}`,
-      issueId: id,
-      author,
-      body,
-      createdAt: this.now(),
-    })
-    return this.persist(row)
+    return this.persistWith(row, () =>
+      this.deps.store.addIssueComment({
+        id: `cmt_${randomUUID()}`,
+        issueId: id,
+        author,
+        body,
+        createdAt: this.now(),
+      }),
+    )
   }
 
   /** Cycle check over `blocks` edges + the parent link (synthesized from
@@ -365,8 +369,7 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
     if (type === 'blocks' && this.wouldCycle(fromId, toId)) {
       throw new Error(`dependency ${fromId} -> ${toId} would create a cycle`)
     }
-    this.deps.store.addIssueDep(fromId, toId, type)
-    const wire = this.persist(row)
+    const wire = this.persistWith(row, () => this.deps.store.addIssueDep(fromId, toId, type))
     this.broadcastList() // the TARGET's dependents/blocked derivation changed too (#22)
     return wire
   }
@@ -379,8 +382,7 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
     fromId = this.resolveRef(fromId)
     toId = this.resolveRef(toId)
     const row = this.rowOrThrow(fromId)
-    this.deps.store.removeIssueDep(fromId, toId, type)
-    const wire = this.persist(row)
+    const wire = this.persistWith(row, () => this.deps.store.removeIssueDep(fromId, toId, type))
     this.broadcastList() // the TARGET's dependents/blocked derivation changed too (#22)
     return wire
   }
