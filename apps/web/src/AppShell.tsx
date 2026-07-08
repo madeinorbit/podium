@@ -50,11 +50,10 @@ export function AppShell(): JSX.Element {
           onRetry={() => setAppError(null)}
         />
       ) : (
-        <ErrorBoundary
-          resetKey={config.wsClientUrl}
-          onRetry={() => setAppError(null)}
-          onError={setAppError}
-        >
+        // Render crashes are handled INSIDE the boundary (its own "Podium
+        // crashed" page) — never funneled into `appError`, which is strictly
+        // for connection/boot failures and titles itself accordingly.
+        <ErrorBoundary resetKey={config.wsClientUrl} onRetry={() => setAppError(null)}>
           <StoreProvider config={config} onFatalError={setAppError}>
             <ConfirmProvider>
               <AppBody isMobile={isMobile} />

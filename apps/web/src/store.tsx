@@ -1042,11 +1042,32 @@ export function StoreProvider({
   // selection into the query (replace — no history spam) so the URL stays
   // shareable; on a route change carrying pane state (deep link, back/forward),
   // apply it to the selection.
+  //
+  // The URL→state direction must only adopt a wt/pane VALUE THAT CHANGED in the
+  // URL (deep link, back/forward), and only a worktree that can actually be
+  // shown. Adopting an unknown ?wt= would fight the fallback effect above (it
+  // re-resolves the selection to a real worktree, the mirror below rewrites the
+  // URL from state one commit behind) and the two writers ping-pong the URL
+  // between the unknown and the fallback path forever — an unbounded update
+  // loop (React #185, seen as the "Podium crashed" screen). An unknown wt now
+  // settles deterministically: the URL is normalized to the fallback once.
+  // Panes are adopted as-is — an unknown pane has no fallback↔adopt pair
+  // (Workspace holds or clears it) so it cannot oscillate.
+  const prevRouteRef = useRef<RouteState | null>(null)
   useEffect(() => {
-    if (route.worktree && route.worktree !== selectedWorktree) {
-      setSelectedWorktree(route.worktree)
+    const prev = prevRouteRef.current
+    prevRouteRef.current = route
+    if (route.worktree && route.worktree !== prev?.worktree && route.worktree !== selectedWorktree) {
+      const worktrees = reposToViews(repos).flatMap((repo) => repo.worktrees)
+      const canShow =
+        !reposLoaded ||
+        worktrees.some((w) => w.path === route.worktree) ||
+        sessions.some(
+          (s) => s.cwd === route.worktree || s.cwd.startsWith(`${route.worktree}/`),
+        )
+      if (canShow) setSelectedWorktree(route.worktree)
     }
-    if (route.pane && route.pane !== paneA) setPaneA(route.pane)
+    if (route.pane && route.pane !== prev?.pane && route.pane !== paneA) setPaneA(route.pane)
     // Only route changes should trigger the URL→state direction.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [route])

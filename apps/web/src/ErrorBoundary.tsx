@@ -1,7 +1,13 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react'
-import { Button } from '@/components/ui/button'
-import { formatAppError } from './AppErrorPage'
+import { AppErrorPage, formatAppError } from './AppErrorPage'
 
+/**
+ * Catches RENDER crashes (a component threw during render/effects) and shows an
+ * honest "the UI crashed" page. Deliberately NOT funneled into AppShell's
+ * connection-error state: a crash loop (e.g. React #185, maximum update depth)
+ * used to surface as "Podium could not connect" even though the connection was
+ * fine — the fallback must say what actually happened.
+ */
 export class ErrorBoundary extends Component<
   {
     children: ReactNode
@@ -30,20 +36,16 @@ export class ErrorBoundary extends Component<
   override render(): ReactNode {
     if (this.state.message) {
       return (
-        <main className="flex min-h-full items-center justify-center bg-background p-5">
-          <section className="w-[min(520px,100%)] rounded-md border border-border bg-card p-5 text-card-foreground">
-            <div className="text-[11px] font-semibold tracking-[0.08em] text-muted-foreground">ERROR</div>
-            <h1 className="my-2 text-[22px] font-medium text-foreground">Podium could not start</h1>
-            <p className="m-0 [overflow-wrap:anywhere] text-muted-foreground">{this.state.message}</p>
-            <div className="mt-4 flex flex-wrap gap-2">
-              {this.props.onRetry && (
-                <Button type="button" onClick={this.props.onRetry}>
-                  Retry
-                </Button>
-              )}
-            </div>
-          </section>
-        </main>
+        <AppErrorPage
+          title="Podium crashed"
+          message={`The Podium interface hit an error while rendering: ${this.state.message}`}
+          onRetry={() => {
+            // Reset the boundary itself (resetKey only clears on a config change),
+            // then let the owner reset whatever state it keeps.
+            this.setState({ message: null })
+            this.props.onRetry?.()
+          }}
+        />
       )
     }
     return this.props.children
