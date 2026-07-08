@@ -3,8 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { claudeProjectSlug } from '../agent-state/claude-locate.js'
-import { resolveFileChain } from './file-chain.js'
-import { transcriptSourceFor } from './source.js'
+import { resolveFileChain, transcriptSourceFor } from './transcript-source.js'
 
 // End-to-end regression for "transcripts can't be loaded after the session moved
 // to a new worktree": the read path receives the RESTAMPED cwd but the JSONL

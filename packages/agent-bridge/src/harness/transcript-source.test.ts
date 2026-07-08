@@ -4,14 +4,9 @@ import { join } from 'node:path'
 import type { TranscriptItem } from '@podium/protocol'
 import { decodeCursor } from '@podium/transcript'
 import { afterEach, beforeAll, describe, expect, it } from 'vitest'
-import type { ChainEntry } from './file-chain.js'
-import { fileIdFor } from './file-chain.js'
-import {
-  fileChainSource,
-  opencodeDbSource,
-  stampOpencodeItems,
-  transcriptSourceFor,
-} from './source.js'
+import { type ChainEntry, fileChainSource, fileIdFor, stampOpencodeItems } from '@podium/transcript'
+import { opencodeDbSource } from './adapters/opencode.js'
+import { transcriptSourceFor } from './transcript-source.js'
 
 // ---------------------------------------------------------------------------
 // File-chain source fixtures (mirrors slice.test.ts twoFiles()).

@@ -2,7 +2,8 @@ import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { fileIdFor, resolveFileChain } from './file-chain.js'
+import { fileIdFor } from '@podium/transcript'
+import { resolveFileChain } from './transcript-source.js'
 
 describe('fileIdFor', () => {
   it('is stable and path-derived (no raw path leak)', () => {

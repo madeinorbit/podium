@@ -20,14 +20,11 @@ import {
   attachTmuxAgent,
   type CursorStateObserver,
   claudeProjectSlug,
-  codexRecordToItems,
-  cursorRecordToItems,
   cursorSessionPaths,
   discoveryRoots,
   type GitDiscoveryDiagnostic,
   type GitRepositorySummary,
   type GrokStateObserver,
-  grokRecordToItems,
   grokSessionPaths,
   initialAgentState,
   isAbducoAvailable,
@@ -47,17 +44,22 @@ import {
   resolveFileChain,
   resolveOpencodeBin,
   resolveWithinRoots,
-  type SliceResult,
   scanGitRepositories,
   spawnAbducoAgent,
   spawnAgent,
   spawnTmuxAgent,
-  type TranscriptSource,
-  type TranscriptTailer,
-  tailTranscript,
   tmuxHasSessionAsync,
   transcriptSourceFor,
 } from '@podium/agent-bridge'
+import {
+  codexRecordToItems,
+  cursorRecordToItems,
+  grokRecordToItems,
+  type SliceResult,
+  type TranscriptSource,
+  type TranscriptTailer,
+  tailTranscript,
+} from '@podium/transcript'
 import { writeConnectivity } from '@podium/core/connectivity'
 import { startLoopMetrics } from '@podium/core/loop-metrics'
 import { consumePairCode } from '@podium/core/setup'
