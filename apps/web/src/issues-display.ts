@@ -74,7 +74,7 @@ export function writeIssuesDisplay(d: IssuesDisplay): string {
  * unless `showAgentTasks` — EXCEPT children whose parent survives the filter,
  * which always ride under it (epic drill-down shows all children).
  *
- * Keys on `audience` (who the issue is FOR, #198), NOT `origin` (who created it):
+ * Keys on `audience` (who the issue is FOR, #198 [spec:SP-a859]), NOT `origin`:
  * an agent acting for the human can cut a human-audience issue that belongs on the
  * board, and the human's own quick note to an agent can be internal.
  */

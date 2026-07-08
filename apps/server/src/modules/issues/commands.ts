@@ -492,7 +492,7 @@ export class IssueCommandService {
         message: `repo ${input.repoPath} exists only on the hub — create the issue on the hub itself`,
       })
     }
-    // #198: two provenance axes, both derived HERE so they can't be forged.
+    // #198 [spec:SP-a859]: two provenance axes, both derived HERE so they can't be forged.
     //  - origin  = WHO CREATED it: the unconstrained operator (scope 'all', i.e.
     //    the web UI / human) → 'human'; any constrained agent → 'agent'.
     //  - audience = WHO IT IS FOR: operator creates are always human-facing; an
