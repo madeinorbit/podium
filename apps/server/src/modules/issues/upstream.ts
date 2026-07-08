@@ -13,7 +13,7 @@ export interface IssueUpstreamForwarder {
 
 export interface UpstreamIssuesDeps {
   /** Durable event append (issue.upstream_rejected). */
-  store: Pick<SessionStore, 'appendEvent'>
+  store: Pick<SessionStore['events'], 'appendEvent'>
   now(): number
   /** True when `id` is a LOCAL issue (collision guard at ingest). Guarded with `?.`
    *  by the caller — safe before IssueService is constructed. */

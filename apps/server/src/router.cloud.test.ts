@@ -111,7 +111,7 @@ describe('cloud router', () => {
   it('moves a resumable codex session to a cloud agent request', async () => {
     const cloud = captureCloudProvider()
     const { call, registry } = caller(cloud.provider)
-    registry.sessionStore.addRepo(
+    registry.sessionStore.repos.addRepo(
       '/workspace/podium',
       'local',
       'git@github.com:madeinorbit/podium.git',
@@ -154,7 +154,7 @@ describe('cloud router', () => {
     const cloud = captureCloudProvider()
     const daemon: ControlMessage[] = []
     const { call, registry } = caller(cloud.provider, (message) => daemon.push(message))
-    registry.sessionStore.addRepo(
+    registry.sessionStore.repos.addRepo(
       '/workspace/podium',
       'local',
       'https://github.com/madeinorbit/podium.git',

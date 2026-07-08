@@ -13,8 +13,8 @@ import { SessionStore } from './store'
 
 function regWithTwoDaemons() {
   const store = new SessionStore(':memory:')
-  store.upsertMachine({ id: 'm1', name: 'one', hostname: 'one', tokenHash: 'x' })
-  store.upsertMachine({ id: 'm2', name: 'two', hostname: 'two', tokenHash: 'y' })
+  store.machines.upsertMachine({ id: 'm1', name: 'one', hostname: 'one', tokenHash: 'x' })
+  store.machines.upsertMachine({ id: 'm2', name: 'two', hostname: 'two', tokenHash: 'y' })
   const reg = new SessionRegistry(store)
   const repos = new RepoRegistry(reg, store)
   const m1Out: ControlMessage[] = []
@@ -98,8 +98,8 @@ describe('RepoRegistry.scanReposAll()', () => {
 
   it('keeps a registered machine repo visible when that machine scan times out', async () => {
     const { reg, repos, store, m1Out, m2Out } = regWithTwoDaemons()
-    store.addRepo('/a', 'm1', 'https://github.com/acme/a.git')
-    store.addRepo('/b', 'm2', 'https://github.com/acme/b.git')
+    store.repos.addRepo('/a', 'm1', 'https://github.com/acme/a.git')
+    store.repos.addRepo('/b', 'm2', 'https://github.com/acme/b.git')
 
     const scanPromise = repos.scanReposAll()
     const m1Req = m1Out.find((m) => m.type === 'scanReposRequest')
@@ -122,7 +122,7 @@ describe('RepoRegistry.scanReposAll()', () => {
 
     const result = await scanPromise
     const byMachine = new Map(result.repositories.map((r) => [r.machineId, r]))
-    const stored = store.listRepos('m2')[0]
+    const stored = store.repos.listRepos('m2')[0]
 
     expect(byMachine.get('m2')).toMatchObject({
       path: '/b',
@@ -137,7 +137,7 @@ describe('RepoRegistry.scanReposAll()', () => {
   it('single-machine invariant: with one daemon scanReposAll equals scanRepos for that machine', async () => {
     // Single machine setup
     const store = new SessionStore(':memory:')
-    store.upsertMachine({ id: 'm1', name: 'one', hostname: 'one', tokenHash: 'x' })
+    store.machines.upsertMachine({ id: 'm1', name: 'one', hostname: 'one', tokenHash: 'x' })
     const reg = new SessionRegistry(store)
     const repos = new RepoRegistry(reg, store)
     const m1Out: ControlMessage[] = []

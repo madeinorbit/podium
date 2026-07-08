@@ -141,7 +141,7 @@ describe('upstream issue mirror (wire union, spec §2.1)', () => {
     // upstream rows exist on the WIRE only, so no autonomous node-side flow
     // (steward triggers, assistant timers) can ever act on a viaHub issue.
     expect(registry.issues.allWire()).toHaveLength(0)
-    expect(store.listIssueRows()).toHaveLength(0)
+    expect(store.issues.listIssueRows()).toHaveLength(0)
     expect(registry.issues.get('iss_hub1')).toBeNull()
   })
 
@@ -284,7 +284,7 @@ describe('upstream issue write forwarding (spec §2.2)', () => {
     expect(entry?.needsHuman).toBe(true)
     expect(entry?.humanQuestion).toContain('BAD_REQUEST: title rejected')
     // …and durably recorded as a podium event.
-    const events = store.listEventsSince(0).filter((e) => e.kind === 'issue.upstream_rejected')
+    const events = store.events.listEventsSince(0).filter((e) => e.kind === 'issue.upstream_rejected')
     expect(events).toHaveLength(1)
     expect(events[0]?.subject).toBe('iss_hub1')
     expect(events[0]?.payload).toMatchObject({
@@ -332,6 +332,6 @@ describe('no-upstream inertness (invariant 4)', () => {
     await expect(registry.forwardIssueMutation('update', { id: 'x', patch: {} })).rejects.toThrow(
       /no upstream/,
     )
-    expect(store.listUpstreamOutbox()).toHaveLength(0)
+    expect(store.sync.listUpstreamOutbox()).toHaveLength(0)
   })
 })

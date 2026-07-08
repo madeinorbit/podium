@@ -46,7 +46,7 @@ describe('searchAll', () => {
     registry.issues.addComment(commentIssue.id, 'operator', 'the capacitor comment trail')
 
     // Conversation row in the durable index.
-    store.upsertConversations([
+    store.conversations.upsertConversations([
       {
         id: 'native-conv',
         agentKind: 'claude-code',
@@ -58,13 +58,13 @@ describe('searchAll', () => {
     ])
 
     // Lake-indexed transcript messages (what the mirror-fed indexer writes).
-    store.ensureConversationIdentity({
+    store.conversations.ensureConversationIdentity({
       machineId: 'm1',
       nativeId: 'native-tx',
       providerId: 'claude-code-jsonl',
       path: '/home/u/.claude/projects/-w/native-tx.jsonl',
     })
-    store.appendTranscriptIndex(
+    store.conversations.appendTranscriptIndex(
       'm1',
       'native-tx',
       [

@@ -137,7 +137,7 @@ export class MachinesService {
       }
       const name = frame.name ?? frame.hostname
       const token = randomUUID()
-      this.deps.store.upsertMachine({
+      this.deps.store.machines.upsertMachine({
         id: frame.machineId,
         name,
         hostname: frame.hostname,
@@ -146,11 +146,11 @@ export class MachinesService {
       this.invalidateMachineCache()
       return { ok: true, machineId: frame.machineId, name, token }
     }
-    if (this.deps.store.getMachineByToken(frame.machineId, frame.token)) {
-      this.deps.store.touchMachine(frame.machineId, frame.hostname)
+    if (this.deps.store.machines.getMachineByToken(frame.machineId, frame.token)) {
+      this.deps.store.machines.touchMachine(frame.machineId, frame.hostname)
       this.invalidateMachineCache()
       const name =
-        this.deps.store.listMachines().find((m) => m.id === frame.machineId)?.name ?? frame.hostname
+        this.deps.store.machines.listMachines().find((m) => m.id === frame.machineId)?.name ?? frame.hostname
       return { ok: true, machineId: frame.machineId, name }
     }
     return { ok: false, reason: 'unknown machine — re-pair' }
@@ -158,7 +158,7 @@ export class MachinesService {
 
   private machineRecords(): MachineRecord[] {
     if (!this.machineRecordsCache) {
-      this.machineRecordsCache = this.deps.store.listMachines()
+      this.machineRecordsCache = this.deps.store.machines.listMachines()
       this.machineNameCache = new Map(this.machineRecordsCache.map((m) => [m.id, m.name]))
     }
     return this.machineRecordsCache
@@ -217,7 +217,7 @@ export class MachinesService {
       )
     }
     const hasRepo = this.deps.store
-      .listRepos(machineId)
+      .repos.listRepos(machineId)
       .some((r) => repoPath === r.path || repoPath.startsWith(`${r.path}/`))
     if (!hasRepo) {
       throw new Error(
@@ -242,7 +242,7 @@ export class MachinesService {
   pickMachineForRepo(_originUrl: string | undefined, cwd: string): string {
     const online = this.onlineMachineIds()
     const byRepo = online.find((id) =>
-      this.deps.store.listRepos(id).some((r) => cwd === r.path || cwd.startsWith(`${r.path}/`)),
+      this.deps.store.repos.listRepos(id).some((r) => cwd === r.path || cwd.startsWith(`${r.path}/`)),
     )
     if (byRepo) return byRepo
     if (online.length === 1) return online[0] as string
@@ -266,14 +266,14 @@ export class MachinesService {
   }
 
   renameMachine(id: string, name: string): void {
-    this.deps.store.renameMachine(id, name)
+    this.deps.store.machines.renameMachine(id, name)
     this.invalidateMachineCache()
     this.deps.broadcastSessions() // sessions show machineName — refresh it
     this.broadcastMachines()
   }
 
   revokeMachine(id: string): void {
-    this.deps.store.deleteMachine(id)
+    this.deps.store.machines.deleteMachine(id)
     this.invalidateMachineCache()
     this.daemons.delete(id)
     this.broadcastMachines()
@@ -315,7 +315,7 @@ export class MachinesService {
    * throwaway — they attach via the registry without authenticating).
    */
   ensureLocalMachine(hostname: string = LOCAL_MACHINE_ID, secret: string = randomUUID()): string {
-    this.deps.store.upsertMachine({
+    this.deps.store.machines.upsertMachine({
       id: LOCAL_MACHINE_ID,
       name: hostname,
       hostname,

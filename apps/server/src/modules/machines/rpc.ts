@@ -58,7 +58,7 @@ export interface RpcSessionView {
 }
 
 interface DaemonRpcDeps {
-  store: Pick<SessionStore, 'conversationSegmentPath'>
+  store: Pick<SessionStore['conversations'], 'conversationSegmentPath'>
   toMachine(machineId: string, msg: ControlMessage): void
   defaultMachine(): string
   resolveMachine(requested: string | undefined, cwd: string): string

@@ -162,7 +162,7 @@ export class SessionsService {
     this.activityFlushTimer.unref?.()
     this.funnel = deps.funnel
     this.autoContinue = new AutoContinueController({
-      isEnabled: () => this.store.getSettings().autoContinue.enabled,
+      isEnabled: () => this.store.settings.getSettings().autoContinue.enabled,
       sendContinue: (sessionId) => {
         this.continueSession({ sessionId })
       },
@@ -211,7 +211,7 @@ export class SessionsService {
   }
 
   persist(session: Session): void {
-    this.store.upsertSession(session.toRow())
+    this.store.sessions.upsertSession(session.toRow())
   }
 
   /** Persist every session whose activity counters advanced since the last flush.
@@ -229,12 +229,12 @@ export class SessionsService {
   loadFromStore(): void {
     // Restore persisted composer drafts so attachClient can replay them to the
     // first client to connect after a server restart (issue #34).
-    for (const [sessionId, text] of Object.entries(this.store.loadDrafts())) {
+    for (const [sessionId, text] of Object.entries(this.store.sessions.loadDrafts())) {
       this.draftBySession.set(sessionId, text)
     }
-    const draftTimes = this.store.loadDraftTimes()
-    const snoozes = this.store.listSnoozes()
-    for (const r of this.store.loadSessions()) {
+    const draftTimes = this.store.sessions.loadDraftTimes()
+    const snoozes = this.store.sessions.listSnoozes()
+    for (const r of this.store.sessions.loadSessions()) {
       const kind = AgentKind.safeParse(r.agentKind)
       if (!kind.success) {
         console.warn(
@@ -308,19 +308,19 @@ export class SessionsService {
     // happens at the observation seams, never speculatively at boot).
     for (const s of this.sessions.values()) {
       if (s.resume?.value) {
-        const podiumId = this.store.conversationPodiumId(s.machineId, s.resume.value)
+        const podiumId = this.store.conversations.conversationPodiumId(s.machineId, s.resume.value)
         if (podiumId) s.conversationPodiumId = podiumId
       }
     }
     // Re-seed the transient queued-send counts from the durable queue — the rows
     // survived the restart (that's their point); delivery re-arms when the daemon
     // reattaches and the sessions bind.
-    for (const [sessionId, n] of this.store.queuedMessageCounts()) {
+    for (const [sessionId, n] of this.store.sync.queuedMessageCounts()) {
       const session = this.sessions.get(sessionId)
       if (session) session.queuedMessageCount = n
-      else this.store.deleteQueuedMessagesForSession(sessionId) // orphaned queue
+      else this.store.sync.deleteQueuedMessagesForSession(sessionId) // orphaned queue
     }
-    this.store.pruneAppliedMutations({ maxAgeMs: APPLIED_MUTATIONS_MAX_AGE_MS, now: this.now() })
+    this.store.sync.pruneAppliedMutations({ maxAgeMs: APPLIED_MUTATIONS_MAX_AGE_MS, now: this.now() })
   }
 
   attachDaemon(machineId: string, send: Send<ControlMessage>): void {
@@ -547,14 +547,14 @@ export class SessionsService {
   }
 
   setSnooze({ sessionId, until }: { sessionId: string; until: string | null }): void {
-    this.store.setSnooze(sessionId, until)
+    this.store.sessions.setSnooze(sessionId, until)
     const session = this.sessions.get(sessionId)
     if (session) session.snoozedUntil = until
     this.broadcastSessions()
   }
 
   clearSnooze(sessionId: string): void {
-    this.store.clearSnooze(sessionId)
+    this.store.sessions.clearSnooze(sessionId)
     const session = this.sessions.get(sessionId)
     if (session) session.clearSnooze()
     this.broadcastSessions()
@@ -598,7 +598,7 @@ export class SessionsService {
   }): {
     sessionId: string
   } {
-    const defaults = this.store.getSettings().sessionDefaults
+    const defaults = this.store.settings.getSettings().sessionDefaults
     // Resolve the agent down to a concrete AgentKind. `agentKind` may be absent,
     // or carry a non-AgentKind sentinel like 'auto' (the issue start-flow casts
     // the issue's `defaultAgent` — which defaults to the 'auto' settings choice —
@@ -891,7 +891,7 @@ export class SessionsService {
 
   private writeDraft(sessionId: string, text: string): void {
     try {
-      this.store.setDraft(sessionId, text)
+      this.store.sessions.setDraft(sessionId, text)
     } catch (e) {
       console.warn(`[podium] failed to persist draft for ${sessionId}:`, e)
     }
@@ -936,7 +936,7 @@ export class SessionsService {
     if (parked && session.agentKind !== 'shell' && !session.resume) {
       return { ok: false, reason: 'no resume ref' }
     }
-    const inserted = this.store.enqueueMessage({
+    const inserted = this.store.sync.enqueueMessage({
       id: mutationId ?? randomUUID(),
       sessionId,
       text,
@@ -979,19 +979,19 @@ export class SessionsService {
         stop()
         return
       }
-      const head = this.store.listQueuedMessages(sessionId)[0]
+      const head = this.store.sync.listQueuedMessages(sessionId)[0]
       if (!head) {
         stop()
         return
       }
-      this.store.bumpQueuedAttempts(head.id)
+      this.store.sync.bumpQueuedAttempts(head.id)
       const sent = this.typeText({ sessionId, text: head.text })
       if (!sent.ok) {
         stop() // status raced to parked — rows remain
         return
       }
       // Delete only AFTER the bytes went toward the daemon (spec invariant 3).
-      this.store.deleteQueuedMessage(head.id)
+      this.store.sync.deleteQueuedMessage(head.id)
       s.queuedMessageCount = Math.max(0, s.queuedMessageCount - 1)
       this.broadcastSessions()
       if (s.queuedMessageCount > 0) {
@@ -1045,7 +1045,7 @@ export class SessionsService {
 
   withMutation<T>(mutationId: string | undefined, proc: string, fn: () => T): T {
     if (!mutationId) return fn()
-    const prior = this.store.getAppliedMutation(mutationId)
+    const prior = this.store.sync.getAppliedMutation(mutationId)
     if (prior !== undefined) return JSON.parse(prior) as T
     const inFlight = this.inFlightMutations.get(mutationId)
     if (inFlight !== undefined) return inFlight as T
@@ -1056,7 +1056,7 @@ export class SessionsService {
     if (result instanceof Promise) {
       const tracked = result.then(
         (value) => {
-          this.store.recordAppliedMutation(
+          this.store.sync.recordAppliedMutation(
             mutationId,
             proc,
             JSON.stringify(value ?? null),
@@ -1073,7 +1073,7 @@ export class SessionsService {
       this.inFlightMutations.set(mutationId, tracked)
       return tracked as T
     }
-    this.store.recordAppliedMutation(mutationId, proc, JSON.stringify(result ?? null), this.now())
+    this.store.sync.recordAppliedMutation(mutationId, proc, JSON.stringify(result ?? null), this.now())
     return result
   }
 
@@ -1291,10 +1291,10 @@ export class SessionsService {
       clearTimeout(draftTimer)
       this.draftWriteTimers.delete(input.sessionId)
     }
-    this.store.deleteSession(input.sessionId)
+    this.store.sessions.deleteSession(input.sessionId)
     // A killed session can never deliver: drop its queued sends now rather than
     // leaving orphan rows for the next boot's sweep.
-    this.store.deleteQueuedMessagesForSession(input.sessionId)
+    this.store.sync.deleteQueuedMessagesForSession(input.sessionId)
     for (const c of this.clients.values()) c.attached.delete(input.sessionId)
     this.broadcastSessions()
     // The killed session may have been the last living occupant of an empty
@@ -1382,7 +1382,7 @@ export class SessionsService {
     agentKind: AgentKind,
     override?: { model?: string; effort?: string },
   ): { model?: string; subagentModel?: string; effort?: string } {
-    const defaults = this.store.getSettings().sessionDefaults
+    const defaults = this.store.settings.getSettings().sessionDefaults
     const model = override?.model ?? defaults.model
     const effort = override?.effort ?? defaults.effort
     const subagentModel = defaults.subagentModel
@@ -1752,13 +1752,13 @@ export class SessionsService {
           // session's conversation becomes known → ensure an identity exists.
           // (docs/spec/conversation-registry.md §3.1)
           session.conversationPodiumId = prior
-            ? this.store.linkConversationSegment({
+            ? this.store.conversations.linkConversationSegment({
                 machineId: session.machineId,
                 newNativeId: msg.resume.value,
                 priorNativeId: prior,
                 providerId: session.agentKind,
               })
-            : this.store.ensureConversationIdentity({
+            : this.store.conversations.ensureConversationIdentity({
                 machineId: session.machineId,
                 nativeId: msg.resume.value,
                 providerId: session.agentKind,

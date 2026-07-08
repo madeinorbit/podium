@@ -26,7 +26,7 @@ import type { DepReportEntry, DepReportRef, IssueTree, IssueTreeNode } from './t
 export abstract class IssueServiceReads extends IssueServiceCore {
   readyList(repoPath?: string): IssueWire[] {
     const sessionList = this.deps.listSessions()
-    const commentCounts = this.deps.store.countIssueCommentsByIssue()
+    const commentCounts = this.deps.store.issues.countIssueCommentsByIssue()
     return [...this.rows.values()]
       .filter((r) => this.inRepoScope(r, repoPath))
       .map((r) => this.toWire(r, sessionList, commentCounts))
@@ -36,7 +36,7 @@ export abstract class IssueServiceReads extends IssueServiceCore {
 
   blockedList(repoPath?: string): IssueWire[] {
     const sessionList = this.deps.listSessions()
-    const commentCounts = this.deps.store.countIssueCommentsByIssue()
+    const commentCounts = this.deps.store.issues.countIssueCommentsByIssue()
     return [...this.rows.values()]
       .filter((r) => this.inRepoScope(r, repoPath))
       .map((r) => this.toWire(r, sessionList, commentCounts))
@@ -47,7 +47,7 @@ export abstract class IssueServiceReads extends IssueServiceCore {
   graph(repoPath?: string): IssueGraph {
     const rows = [...this.rows.values()].filter((r) => this.inRepoScope(r, repoPath))
     const sessionList = this.deps.listSessions()
-    const commentCounts = this.deps.store.countIssueCommentsByIssue()
+    const commentCounts = this.deps.store.issues.countIssueCommentsByIssue()
     const nodes = rows.map((r) => {
       const w = this.toWire(r, sessionList, commentCounts)
       return {
@@ -64,7 +64,7 @@ export abstract class IssueServiceReads extends IssueServiceCore {
     // Real dependency edges from the store + the hierarchy edge synthesized
     // from parent_id (single parent storage, #164).
     const edges = rows.flatMap((r) => [
-      ...this.deps.store.listIssueDeps(r.id).map((d) => ({ from: r.id, to: d.toId, type: d.type })),
+      ...this.deps.store.issues.listIssueDeps(r.id).map((d) => ({ from: r.id, to: d.toId, type: d.type })),
       ...(r.parentId ? [{ from: r.id, to: r.parentId, type: 'parent-child' }] : []),
     ])
     return { nodes, edges }
@@ -97,7 +97,7 @@ export abstract class IssueServiceReads extends IssueServiceCore {
     }
     walk(root.id)
     const sessionList = this.deps.listSessions()
-    const commentCounts = this.deps.store.countIssueCommentsByIssue()
+    const commentCounts = this.deps.store.issues.countIssueCommentsByIssue()
     return rows.sort((a, b) => a.seq - b.seq).map((r) => this.toWire(r, sessionList, commentCounts))
   }
 
@@ -126,7 +126,7 @@ export abstract class IssueServiceReads extends IssueServiceCore {
       const closed = this.isClosed(row)
       const blocked = this.computeBlocked(row)
       const blocksDeps = this.deps.store
-        .listIssueDeps(row.id)
+        .issues.listIssueDeps(row.id)
         .filter((d) => d.type === 'blocks')
         .flatMap((d) => {
           const target = this.rows.get(d.toId)
@@ -197,11 +197,11 @@ export abstract class IssueServiceReads extends IssueServiceCore {
         const blocked = this.computeBlocked(row)
         // Hierarchy is not scheduling: parent-child never appears here — it
         // lives in issues.parent_id, not in issue_deps (#164).
-        const deps = this.deps.store.listIssueDeps(row.id).flatMap((d) => {
+        const deps = this.deps.store.issues.listIssueDeps(row.id).flatMap((d) => {
           const target = this.rows.get(d.toId)
           return target ? [ref(target, d.type)] : []
         })
-        const dependents = this.deps.store.listDependents(row.id).flatMap((d) => {
+        const dependents = this.deps.store.issues.listDependents(row.id).flatMap((d) => {
           const source = this.rows.get(d.fromId)
           return source ? [ref(source, d.type)] : []
         })
@@ -222,7 +222,7 @@ export abstract class IssueServiceReads extends IssueServiceCore {
 
   closeEligibleEpics(repoPath?: string): IssueWire[] {
     const sessionList = this.deps.listSessions()
-    const commentCounts = this.deps.store.countIssueCommentsByIssue()
+    const commentCounts = this.deps.store.issues.countIssueCommentsByIssue()
     return [...this.rows.values()]
       .filter((r) => this.inRepoScope(r, repoPath) && r.type === 'epic' && !this.isClosed(r))
       .filter((r) => this.epicStatus(r.id).complete)
@@ -254,7 +254,7 @@ export abstract class IssueServiceReads extends IssueServiceCore {
   staleList(repoPath?: string, days = 30, nowMs = Date.now()): IssueWire[] {
     const cutoff = nowMs - days * 24 * 60 * 60 * 1000
     const sessionList = this.deps.listSessions()
-    const commentCounts = this.deps.store.countIssueCommentsByIssue()
+    const commentCounts = this.deps.store.issues.countIssueCommentsByIssue()
     return [...this.rows.values()]
       .filter((r) => this.inRepoScope(r, repoPath) && !this.isClosed(r))
       .filter((r) => Date.parse(r.updatedAt) < cutoff)
@@ -276,7 +276,7 @@ export abstract class IssueServiceReads extends IssueServiceCore {
     const danglingDeps: DoctorReport['danglingDeps'] = []
     const adj = new Map<string, string[]>()
     for (const r of rows) {
-      for (const d of this.deps.store.listIssueDeps(r.id)) {
+      for (const d of this.deps.store.issues.listIssueDeps(r.id)) {
         if (!ids.has(d.toId)) danglingDeps.push({ from: r.id, to: d.toId, type: d.type })
         if (d.type === 'blocks') {
           adj.set(r.id, [...(adj.get(r.id) ?? []), d.toId])
@@ -333,7 +333,7 @@ export abstract class IssueServiceReads extends IssueServiceCore {
   search(filter: IssueSearchFilter): IssueWire[] {
     const text = filter.text?.toLowerCase()
     const sessionList = this.deps.listSessions()
-    const commentCounts = this.deps.store.countIssueCommentsByIssue()
+    const commentCounts = this.deps.store.issues.countIssueCommentsByIssue()
     return [...this.rows.values()]
       .filter((r) => this.inRepoScope(r, filter.repoPath))
       .map((r) => this.toWire(r, sessionList, commentCounts))
@@ -375,7 +375,7 @@ export abstract class IssueServiceReads extends IssueServiceCore {
 
   stats(repoPath?: string): IssueStats {
     const sessionList = this.deps.listSessions()
-    const commentCounts = this.deps.store.countIssueCommentsByIssue()
+    const commentCounts = this.deps.store.issues.countIssueCommentsByIssue()
     const wires = [...this.rows.values()]
       .filter((r) => this.inRepoScope(r, repoPath))
       .map((r) => this.toWire(r, sessionList, commentCounts))
@@ -400,7 +400,7 @@ export abstract class IssueServiceReads extends IssueServiceCore {
    *  through this read (the `issues.comments` proc / CLI show). */
   comments(id: string): IssueComment[] {
     const row = this.rowOrThrow(this.resolveRef(id))
-    return this.deps.store.listIssueComments(row.id).map((c) => ({
+    return this.deps.store.issues.listIssueComments(row.id).map((c) => ({
       id: c.id,
       author: c.author,
       body: c.body,
@@ -430,8 +430,8 @@ export abstract class IssueServiceReads extends IssueServiceCore {
   listEvents(
     sinceId: number,
     opts?: { kinds?: string[]; repoPath?: string; limit?: number },
-  ): ReturnType<SessionStore['listEventsSince']> {
-    return this.deps.store.listEventsSince(sinceId, opts)
+  ): ReturnType<SessionStore['events']['listEventsSince']> {
+    return this.deps.store.events.listEventsSince(sinceId, opts)
   }
 
   /** The agent-facing context string injected at session start / on demand. Bound = the agent's
@@ -472,7 +472,7 @@ export abstract class IssueServiceReads extends IssueServiceCore {
         }
         // Agent mail (issue #103): surface pending mail at prime time so a fresh /
         // resumed agent learns about messages that arrived while nothing was live.
-        const unreadMail = this.deps.store.countUnreadIssueMessages(me.id)
+        const unreadMail = this.deps.store.issues.countUnreadIssueMessages(me.id)
         return [
           `You are working on #${me.seq}: ${me.title}`,
           'If the user\'s request is NOT a continuation of this issue but a new piece of work, create a sub-issue and move there: podium issue attach --subissue "<title>".',

@@ -66,7 +66,7 @@ describe('SessionRegistry lake-fallback transcript reads', () => {
     })
     mkdirSync(join(lakeDir, 'm1'), { recursive: true })
     writeFileSync(join(lakeDir, 'm1', `${nativeId}.jsonl`), lakeContent)
-    store.setMirrorCursor('m1', nativeId, Buffer.byteLength(lakeContent), '2026-07-01T11:00:00Z')
+    store.conversations.setMirrorCursor('m1', nativeId, Buffer.byteLength(lakeContent), '2026-07-01T11:00:00Z')
     return sessionId
   }
 
@@ -139,18 +139,18 @@ describe('SessionRegistry lake-fallback transcript reads', () => {
     // Pre-P5 state: lake file + mirrored_bytes > 0, indexed_bytes 0, and NO
     // onBytes hook will ever fire for it (the mirror is already caught up).
     seedMirroredSession(registry, store, lakeDir, 'native-old', LAKE_LINES)
-    expect(store.transcriptIndexRows('m1', 'native-old')).toEqual([])
+    expect(store.conversations.transcriptIndexRows('m1', 'native-old')).toEqual([])
 
     // The attach trigger runs the backfill sweep (same seam as enqueueMachine).
     registry.detachDaemon('m1')
     registry.attachDaemon('m1', () => {})
     await vi.waitFor(() => {
-      expect(store.transcriptIndexRows('m1', 'native-old').map((r) => r.content)).toEqual([
+      expect(store.conversations.transcriptIndexRows('m1', 'native-old').map((r) => r.content)).toEqual([
         'where does the flux capacitor live?',
         'The flux capacitor lives in engine.ts',
       ])
     })
-    expect(store.segmentsToIndex('m1')).toEqual([])
+    expect(store.conversations.segmentsToIndex('m1')).toEqual([])
   })
 
   it('resolves empty when detached and nothing was mirrored (cursor at 0)', async () => {

@@ -25,6 +25,11 @@ export class ReposRepository {
     private readonly assignRepoIdToIssuesUnder: (repoId: string, repoPath: string) => void,
   ) {}
 
+  /** Back-compat: flat list of paths across all machines. RepoRegistry.list() uses this. */
+  listRepoPaths(machineId?: string): string[] {
+    return this.listRepos(machineId).map((r) => r.path)
+  }
+
   /** Full repo rows including machineId, originUrl and repoId (multi-machine schema). */
   listRepos(
     machineId?: string,

@@ -107,7 +107,7 @@ describe('sendTurn (headless harness turns)', () => {
     expect(meta).toMatchObject({ status: 'live', headless: true, spawnedBy: 'superagent:global' })
     expect(h.spawns).toHaveLength(0)
     // The agent is frozen onto the thread row.
-    expect(h.registry.sessionStore.getSuperagentThread('global')?.agentKind).toBe('claude-code')
+    expect(h.registry.sessionStore.superagent.getSuperagentThread('global')?.agentKind).toBe('claude-code')
   })
 
   it('forwards turn events + boundary markers as headlessActivity broadcasts', async () => {
@@ -135,14 +135,14 @@ describe('sendTurn (headless harness turns)', () => {
     h.resolveTurn(h.turnReqs[0]!, { harnessSessionId: 'harness-1' })
     await h.settle()
     // Thread row carries the harness session id…
-    expect(h.registry.sessionStore.getSuperagentThread('global')?.harnessSessionId).toBe(
+    expect(h.registry.sessionStore.superagent.getSuperagentThread('global')?.harnessSessionId).toBe(
       'harness-1',
     )
     // …and the session's resume ref uses the same per-kind convention PTY rows use.
     const meta = h.registry.listSessions().find((s) => s.sessionId === podiumSessionId)
     expect(meta?.resume).toEqual({ kind: 'claude-session', value: 'harness-1' })
     // Persisted (survives a reload).
-    const row = h.registry.sessionStore.loadSessions().find((r) => r.id === podiumSessionId)
+    const row = h.registry.sessionStore.sessions.loadSessions().find((r) => r.id === podiumSessionId)
     expect(row).toMatchObject({ resumeKind: 'claude-session', resumeValue: 'harness-1' })
     // The second turn resumes — same session, resumeValue set, no new uuid.
     await h.sa.sendTurn({ threadId: 'global', text: 'again' })
@@ -182,15 +182,15 @@ describe('sendTurn (headless harness turns)', () => {
       error: 'claude: command not found',
     })
     // No harness session was learned; the next send is a fresh first turn again.
-    expect(h.registry.sessionStore.getSuperagentThread('global')?.harnessSessionId).toBeUndefined()
+    expect(h.registry.sessionStore.superagent.getSuperagentThread('global')?.harnessSessionId).toBeUndefined()
     await expect(h.sa.sendTurn({ threadId: 'global', text: 'retry' })).resolves.toBeTruthy()
   })
 
   it('keeps legacy buffered history readable; successful turns add nothing to it', async () => {
     const h = await harness()
     const store = h.registry.sessionStore
-    store.appendSuperagentMessage('global', { role: 'user', content: 'old question' })
-    store.appendSuperagentMessage('global', { role: 'assistant', content: 'old answer' })
+    store.superagent.appendSuperagentMessage('global', { role: 'user', content: 'old question' })
+    store.superagent.appendSuperagentMessage('global', { role: 'assistant', content: 'old answer' })
     await h.sa.sendTurn({ threadId: 'global', text: 'new turn' })
     h.resolveTurn(h.turnReqs[0]!, { harnessSessionId: 'h1', output: 'new answer' })
     await h.settle()
@@ -299,7 +299,7 @@ describe('openInTerminal + one-writer lock', () => {
     })
     const meta = h.registry.listSessions().find((s) => s.sessionId === sessionId)
     expect(meta?.headless).toBeUndefined() // a normal PTY session
-    expect(h.registry.sessionStore.getSuperagentThread('global')?.terminalSessionId).toBe(sessionId)
+    expect(h.registry.sessionStore.superagent.getSuperagentThread('global')?.terminalSessionId).toBe(sessionId)
     // One writer: sendTurn refuses while the terminal session is alive.
     await expect(h.sa.sendTurn({ threadId: 'global', text: 'x' })).rejects.toThrow(
       /open in a terminal/,
@@ -307,7 +307,7 @@ describe('openInTerminal + one-writer lock', () => {
     // The lock clears lazily once the terminal session is gone.
     h.registry.killSession({ sessionId })
     await expect(h.sa.sendTurn({ threadId: 'global', text: 'x' })).resolves.toBeTruthy()
-    expect(h.registry.sessionStore.getSuperagentThread('global')?.terminalSessionId).toBeUndefined()
+    expect(h.registry.sessionStore.superagent.getSuperagentThread('global')?.terminalSessionId).toBeUndefined()
   })
 
   it('refuses before a harness session exists and while a turn is running', async () => {
@@ -332,7 +332,7 @@ describe('boot reconciliation for headless sessions', () => {
     await h.sa.sendTurn({ threadId: 'global', text: 'hi' })
     h.resolveTurn(h.turnReqs[0]!, { harnessSessionId: 'h1' })
     await h.settle()
-    const sessionId = h.registry.sessionStore.getSuperagentThread('global')?.podiumSessionId
+    const sessionId = h.registry.sessionStore.superagent.getSuperagentThread('global')?.podiumSessionId
     // "Restart": a fresh registry over the same store.
     const store = h.registry.sessionStore
     const reborn = new SessionRegistry(store)

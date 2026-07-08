@@ -99,14 +99,14 @@ function baseRow(over: Partial<IssueRow> = {}): IssueRow {
 
 /** Seed bare parent issues — FKs (migration 006) require referenced rows to exist. */
 function seedIssues(store: SessionStore, ...ids: string[]): void {
-  ids.forEach((id, i) => store.upsertIssue(baseRow({ id, seq: 100 + i })))
+  ids.forEach((id, i) => store.issues.upsertIssue(baseRow({ id, seq: 100 + i })))
 }
 
 describe('IssueRow rich fields round-trip (P1)', () => {
   it('persists and reads back new fields', () => {
     const store = new SessionStore(':memory:')
     seedIssues(store, 'iss_epic', 'iss_new', 'iss_canon')
-    store.upsertIssue(
+    store.issues.upsertIssue(
       baseRow({
         priority: 0,
         type: 'bug',
@@ -124,7 +124,7 @@ describe('IssueRow rich fields round-trip (P1)', () => {
         estimateMin: 30,
       }),
     )
-    const r = store.getIssue('iss_x')!
+    const r = store.issues.getIssue('iss_x')!
     expect(r.priority).toBe(0)
     expect(r.type).toBe('bug')
     expect(r.assignee).toBe('agent:claude')
@@ -137,8 +137,8 @@ describe('IssueRow rich fields round-trip (P1)', () => {
 
   it('defaults are applied for a minimal legacy-style insert', () => {
     const store = new SessionStore(':memory:')
-    store.upsertIssue(baseRow())
-    const r = store.getIssue('iss_x')!
+    store.issues.upsertIssue(baseRow())
+    const r = store.issues.getIssue('iss_x')!
     expect(r.priority).toBe(2)
     expect(r.type).toBe('task')
     expect(r.pinned).toBe(false)
@@ -153,11 +153,11 @@ describe('issue read state persistence (#124)', () => {
 
   it('persists and reads back read_at; a row that never had it reads null', () => {
     const store = new SessionStore(':memory:')
-    store.upsertIssue(baseRow({ id: 'iss_read', readAt: '2026-07-07T00:00:00.000Z' }))
+    store.issues.upsertIssue(baseRow({ id: 'iss_read', readAt: '2026-07-07T00:00:00.000Z' }))
     // Distinct seq — UNIQUE(repo_path, seq) is enforced since migration 004.
-    store.upsertIssue(baseRow({ id: 'iss_unread', seq: 2 }))
-    expect(store.getIssue('iss_read')!.readAt).toBe('2026-07-07T00:00:00.000Z')
-    expect(store.getIssue('iss_unread')!.readAt).toBeNull()
+    store.issues.upsertIssue(baseRow({ id: 'iss_unread', seq: 2 }))
+    expect(store.issues.getIssue('iss_read')!.readAt).toBe('2026-07-07T00:00:00.000Z')
+    expect(store.issues.getIssue('iss_unread')!.readAt).toBeNull()
     store.close()
   })
 })
@@ -171,16 +171,16 @@ describe('needs_human data layer (P4)', () => {
 
   it('persists needsHuman + humanQuestion round-trip', () => {
     const store = new SessionStore(':memory:')
-    store.upsertIssue(baseRow({ id: 'iss_x', needsHuman: true, humanQuestion: 'which API key?' }))
-    const got = store.getIssue('iss_x')!
+    store.issues.upsertIssue(baseRow({ id: 'iss_x', needsHuman: true, humanQuestion: 'which API key?' }))
+    const got = store.issues.getIssue('iss_x')!
     expect(got.needsHuman).toBe(true)
     expect(got.humanQuestion).toBe('which API key?')
   })
 
   it('defaults needsHuman=false / humanQuestion=null when unset', () => {
     const store = new SessionStore(':memory:')
-    store.upsertIssue(baseRow({ id: 'iss_y', needsHuman: false, humanQuestion: null }))
-    const y = store.getIssue('iss_y')!
+    store.issues.upsertIssue(baseRow({ id: 'iss_y', needsHuman: false, humanQuestion: null }))
+    const y = store.issues.getIssue('iss_y')!
     expect(y.needsHuman).toBe(false)
     expect(y.humanQuestion).toBeNull()
   })
@@ -190,18 +190,18 @@ describe('issue labels (P1)', () => {
   it('sets, reads (sorted), and lists distinct labels', () => {
     const store = new SessionStore(':memory:')
     seedIssues(store, 'iss_a', 'iss_b')
-    store.setIssueLabels('iss_a', ['ui', 'backend', 'ui'])
-    store.setIssueLabels('iss_b', ['backend'])
-    expect(store.getIssueLabels('iss_a')).toEqual(['backend', 'ui'])
-    expect(store.listAllLabels()).toEqual(['backend', 'ui'])
+    store.issues.setIssueLabels('iss_a', ['ui', 'backend', 'ui'])
+    store.issues.setIssueLabels('iss_b', ['backend'])
+    expect(store.issues.getIssueLabels('iss_a')).toEqual(['backend', 'ui'])
+    expect(store.issues.listAllLabels()).toEqual(['backend', 'ui'])
   })
 
   it('setIssueLabels replaces the prior set', () => {
     const store = new SessionStore(':memory:')
     seedIssues(store, 'iss_a')
-    store.setIssueLabels('iss_a', ['x', 'y'])
-    store.setIssueLabels('iss_a', ['y', 'z'])
-    expect(store.getIssueLabels('iss_a')).toEqual(['y', 'z'])
+    store.issues.setIssueLabels('iss_a', ['x', 'y'])
+    store.issues.setIssueLabels('iss_a', ['y', 'z'])
+    expect(store.issues.getIssueLabels('iss_a')).toEqual(['y', 'z'])
   })
 })
 
@@ -209,16 +209,16 @@ describe('issue deps (P1)', () => {
   it('adds, lists (both directions), and removes deps', () => {
     const store = new SessionStore(':memory:')
     seedIssues(store, 'iss_a', 'iss_b', 'iss_c')
-    store.addIssueDep('iss_a', 'iss_b')
-    store.addIssueDep('iss_a', 'iss_c', 'related')
-    store.addIssueDep('iss_a', 'iss_b') // idempotent
-    expect(store.listIssueDeps('iss_a')).toEqual([
+    store.issues.addIssueDep('iss_a', 'iss_b')
+    store.issues.addIssueDep('iss_a', 'iss_c', 'related')
+    store.issues.addIssueDep('iss_a', 'iss_b') // idempotent
+    expect(store.issues.listIssueDeps('iss_a')).toEqual([
       { toId: 'iss_b', type: 'blocks' },
       { toId: 'iss_c', type: 'related' },
     ])
-    expect(store.listDependents('iss_b')).toEqual([{ fromId: 'iss_a', type: 'blocks' }])
-    store.removeIssueDep('iss_a', 'iss_b')
-    expect(store.listIssueDeps('iss_a')).toEqual([{ toId: 'iss_c', type: 'related' }])
+    expect(store.issues.listDependents('iss_b')).toEqual([{ fromId: 'iss_a', type: 'blocks' }])
+    store.issues.removeIssueDep('iss_a', 'iss_b')
+    expect(store.issues.listIssueDeps('iss_a')).toEqual([{ toId: 'iss_c', type: 'related' }])
   })
 })
 
@@ -226,28 +226,28 @@ describe('issue comments (P1)', () => {
   it('adds and lists comments oldest-first', () => {
     const store = new SessionStore(':memory:')
     seedIssues(store, 'iss_a', 'iss_b')
-    store.addIssueComment({
+    store.issues.addIssueComment({
       id: 'c1',
       issueId: 'iss_a',
       author: 'mike',
       body: 'first',
       createdAt: 't1',
     })
-    store.addIssueComment({
+    store.issues.addIssueComment({
       id: 'c2',
       issueId: 'iss_a',
       author: 'agent',
       body: 'second',
       createdAt: 't2',
     })
-    store.addIssueComment({
+    store.issues.addIssueComment({
       id: 'c3',
       issueId: 'iss_b',
       author: 'x',
       body: 'other',
       createdAt: 't1',
     })
-    const cs = store.listIssueComments('iss_a')
+    const cs = store.issues.listIssueComments('iss_a')
     expect(cs.map((c) => c.body)).toEqual(['first', 'second'])
     expect(cs[0]!.author).toBe('mike')
   })
@@ -273,16 +273,16 @@ describe('issue mail store (agent mail #103)', () => {
   it('add/list/count: ordered by created_at,id; count only unread', () => {
     const store = new SessionStore(':memory:')
     seedIssues(store, 'iss_a', 'iss_other')
-    store.addIssueMessage(msg('msg_b', 'iss_a', 't2'))
-    store.addIssueMessage(msg('msg_a', 'iss_a', 't1'))
-    store.addIssueMessage(msg('msg_c', 'iss_other', 't1'))
-    const list = store.listIssueMessages('iss_a')
+    store.issues.addIssueMessage(msg('msg_b', 'iss_a', 't2'))
+    store.issues.addIssueMessage(msg('msg_a', 'iss_a', 't1'))
+    store.issues.addIssueMessage(msg('msg_c', 'iss_other', 't1'))
+    const list = store.issues.listIssueMessages('iss_a')
     expect(list.map((m) => m.id)).toEqual(['msg_a', 'msg_b'])
     expect(list[0]).toMatchObject({ issueId: 'iss_a', fromAuthor: 'issue:#2', status: 'unread' })
-    expect(store.countUnreadIssueMessages('iss_a')).toBe(2)
-    store.markIssueMessagesRead('iss_a', ['msg_a'], 'tr')
-    expect(store.countUnreadIssueMessages('iss_a')).toBe(1)
-    expect(store.listIssueMessages('iss_a', { status: 'unread' }).map((m) => m.id)).toEqual([
+    expect(store.issues.countUnreadIssueMessages('iss_a')).toBe(2)
+    store.issues.markIssueMessagesRead('iss_a', ['msg_a'], 'tr')
+    expect(store.issues.countUnreadIssueMessages('iss_a')).toBe(1)
+    expect(store.issues.listIssueMessages('iss_a', { status: 'unread' }).map((m) => m.id)).toEqual([
       'msg_b',
     ])
   })
@@ -290,10 +290,10 @@ describe('issue mail store (agent mail #103)', () => {
   it('claim is atomic: second claim returns false and does not overwrite the winner', () => {
     const store = new SessionStore(':memory:')
     seedIssues(store, 'iss_a')
-    store.addIssueMessage(msg('msg_a'))
-    expect(store.claimIssueMessage('msg_a', 'issue:#3', 'tc')).toBe(true)
-    expect(store.claimIssueMessage('msg_a', 'issue:#4', 'tc2')).toBe(false)
-    const m = store.getIssueMessage('msg_a')!
+    store.issues.addIssueMessage(msg('msg_a'))
+    expect(store.issues.claimIssueMessage('msg_a', 'issue:#3', 'tc')).toBe(true)
+    expect(store.issues.claimIssueMessage('msg_a', 'issue:#4', 'tc2')).toBe(false)
+    const m = store.issues.getIssueMessage('msg_a')!
     expect(m.status).toBe('claimed')
     expect(m.claimedBy).toBe('issue:#3')
     expect(m.claimedAt).toBe('tc')
@@ -302,23 +302,23 @@ describe('issue mail store (agent mail #103)', () => {
   it('markRead is idempotent and never regresses a claimed message', () => {
     const store = new SessionStore(':memory:')
     seedIssues(store, 'iss_a')
-    store.addIssueMessage(msg('msg_a'))
-    store.markIssueMessagesRead('iss_a', ['msg_a'], 't1')
-    store.markIssueMessagesRead('iss_a', ['msg_a'], 't2') // already read: no-op
-    expect(store.getIssueMessage('msg_a')).toMatchObject({ status: 'read', readAt: 't1' })
-    store.claimIssueMessage('msg_a', 'x', 'tc')
-    store.markIssueMessagesRead('iss_a', ['msg_a'], 't3')
-    expect(store.getIssueMessage('msg_a')!.status).toBe('claimed')
+    store.issues.addIssueMessage(msg('msg_a'))
+    store.issues.markIssueMessagesRead('iss_a', ['msg_a'], 't1')
+    store.issues.markIssueMessagesRead('iss_a', ['msg_a'], 't2') // already read: no-op
+    expect(store.issues.getIssueMessage('msg_a')).toMatchObject({ status: 'read', readAt: 't1' })
+    store.issues.claimIssueMessage('msg_a', 'x', 'tc')
+    store.issues.markIssueMessagesRead('iss_a', ['msg_a'], 't3')
+    expect(store.issues.getIssueMessage('msg_a')!.status).toBe('claimed')
   })
 
   it('deleteIssueChildRows removes the issue mailbox', () => {
     const store = new SessionStore(':memory:')
     seedIssues(store, 'iss_a', 'iss_other')
-    store.addIssueMessage(msg('msg_a'))
-    store.addIssueMessage(msg('msg_z', 'iss_other'))
-    store.deleteIssueChildRows('iss_a')
-    expect(store.listIssueMessages('iss_a')).toEqual([])
-    expect(store.listIssueMessages('iss_other').length).toBe(1)
+    store.issues.addIssueMessage(msg('msg_a'))
+    store.issues.addIssueMessage(msg('msg_z', 'iss_other'))
+    store.issues.deleteIssueChildRows('iss_a')
+    expect(store.issues.listIssueMessages('iss_a')).toEqual([])
+    expect(store.issues.listIssueMessages('iss_other').length).toBe(1)
   })
 })
 
@@ -348,11 +348,11 @@ describe('subscriptions store (Phase B)', () => {
 
   it('adds, lists (round-trips booleans), filters, and removes', () => {
     const store = new SessionStore(':memory:')
-    store.addSubscription(sub())
-    store.addSubscription(
+    store.events.addSubscription(sub())
+    store.events.addSubscription(
       sub({ id: 'sub_b', subscriberId: 'iss_other', deliverNotify: true, createdAt: 't2' }),
     )
-    const all = store.listSubscriptions()
+    const all = store.events.listSubscriptions()
     expect(all.map((s) => s.id)).toEqual(['sub_a', 'sub_b'])
     expect(all[0]).toMatchObject({
       deliverNudge: true,
@@ -361,36 +361,36 @@ describe('subscriptions store (Phase B)', () => {
       origin: 'custom',
     })
     expect(all[1]!.deliverNotify).toBe(true)
-    expect(store.listSubscriptions({ subscriberId: 'iss_p' }).map((s) => s.id)).toEqual(['sub_a'])
-    store.removeSubscription('sub_a')
-    expect(store.listSubscriptions().map((s) => s.id)).toEqual(['sub_b'])
+    expect(store.events.listSubscriptions({ subscriberId: 'iss_p' }).map((s) => s.id)).toEqual(['sub_a'])
+    store.events.removeSubscription('sub_a')
+    expect(store.events.listSubscriptions().map((s) => s.id)).toEqual(['sub_b'])
   })
 
   it('listEnabledSubscriptions omits disabled rows', () => {
     const store = new SessionStore(':memory:')
-    store.addSubscription(sub({ id: 'sub_on', enabled: true }))
-    store.addSubscription(sub({ id: 'sub_off', enabled: false, createdAt: 't2' }))
-    expect(store.listEnabledSubscriptions().map((s) => s.id)).toEqual(['sub_on'])
+    store.events.addSubscription(sub({ id: 'sub_on', enabled: true }))
+    store.events.addSubscription(sub({ id: 'sub_off', enabled: false, createdAt: 't2' }))
+    expect(store.events.listEnabledSubscriptions().map((s) => s.id)).toEqual(['sub_on'])
   })
 
   it('setSubscriptionEnabled toggles the flag and getSubscription reflects it', () => {
     const store = new SessionStore(':memory:')
-    store.addSubscription(sub({ id: 'sub_t', enabled: true }))
-    expect(store.setSubscriptionEnabled('sub_t', false)).toBe(true)
-    expect(store.getSubscription('sub_t')?.enabled).toBe(false)
-    expect(store.listEnabledSubscriptions().map((s) => s.id)).toEqual([])
-    expect(store.setSubscriptionEnabled('sub_t', true)).toBe(true)
-    expect(store.getSubscription('sub_t')?.enabled).toBe(true)
+    store.events.addSubscription(sub({ id: 'sub_t', enabled: true }))
+    expect(store.events.setSubscriptionEnabled('sub_t', false)).toBe(true)
+    expect(store.events.getSubscription('sub_t')?.enabled).toBe(false)
+    expect(store.events.listEnabledSubscriptions().map((s) => s.id)).toEqual([])
+    expect(store.events.setSubscriptionEnabled('sub_t', true)).toBe(true)
+    expect(store.events.getSubscription('sub_t')?.enabled).toBe(true)
     // Unknown id → no row updated.
-    expect(store.setSubscriptionEnabled('nope', false)).toBe(false)
-    expect(store.getSubscription('nope')).toBeUndefined()
+    expect(store.events.setSubscriptionEnabled('nope', false)).toBe(false)
+    expect(store.events.getSubscription('nope')).toBeUndefined()
   })
 
   it('markDelivered is idempotent per (subscription, event)', () => {
     const store = new SessionStore(':memory:')
-    expect(store.markDelivered('sub_a', 5)).toBe(true)
-    expect(store.markDelivered('sub_a', 5)).toBe(false) // replay: already delivered
-    expect(store.markDelivered('sub_a', 6)).toBe(true) // a different event delivers
-    expect(store.markDelivered('sub_b', 5)).toBe(true) // a different sub delivers
+    expect(store.events.markDelivered('sub_a', 5)).toBe(true)
+    expect(store.events.markDelivered('sub_a', 5)).toBe(false) // replay: already delivered
+    expect(store.events.markDelivered('sub_a', 6)).toBe(true) // a different event delivers
+    expect(store.events.markDelivered('sub_b', 5)).toBe(true) // a different sub delivers
   })
 })

@@ -10,7 +10,7 @@ import { SuperagentService } from './modules/superagent'
 function machineCaller() {
   const store = new SessionStore(':memory:')
   // Pre-register a machine so listMachines returns it
-  store.upsertMachine({ id: 'm1', name: 'machine-one', hostname: 'host-one', tokenHash: 'h1' })
+  store.machines.upsertMachine({ id: 'm1', name: 'machine-one', hostname: 'host-one', tokenHash: 'h1' })
   // Pairing is a hub-role capability, injected the way server assembly does it.
   const registry = new SessionRegistry(store, undefined, { pairing: new PairingManager() })
   registry.ensureLocalMachine()
@@ -68,7 +68,7 @@ describe('machines router', () => {
 describe('sessions.create with machineId', () => {
   it('sessions.create accepts and forwards machineId', async () => {
     const store = new SessionStore(':memory:')
-    store.upsertMachine({ id: 'm2', name: 'machine-two', hostname: 'host-two', tokenHash: 'h2' })
+    store.machines.upsertMachine({ id: 'm2', name: 'machine-two', hostname: 'host-two', tokenHash: 'h2' })
     const registry = new SessionRegistry(store)
     registry.attachDaemon('m2', () => {})
     const repos = new RepoRegistry(registry, registry.sessionStore)

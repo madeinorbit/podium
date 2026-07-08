@@ -25,7 +25,7 @@ function fakeWs() {
 describe('daemon socket auth', () => {
   it('ignores a pre-auth non-handshake frame, then attaches on a valid hello', () => {
     const store = new SessionStore(':memory:')
-    store.upsertMachine({
+    store.machines.upsertMachine({
       id: 'm1',
       name: 'box',
       hostname: 'box',
@@ -56,7 +56,7 @@ describe('daemon socket auth', () => {
     // The local machine is a normal registered machine: the server provisioned it at
     // startup (ensureLocalMachine) with a server-owned credential. Its same-host daemon
     // then authenticates through the same hello path as any remote — no special case.
-    store.upsertMachine({
+    store.machines.upsertMachine({
       id: 'local',
       name: 'thishost',
       hostname: 'thishost',
@@ -150,7 +150,7 @@ describe('daemon socket auth', () => {
 
   it('detaches the machine on close', () => {
     const store = new SessionStore(':memory:')
-    store.upsertMachine({ id: 'm1', name: 'h', hostname: 'h', tokenHash: sha256('tok') })
+    store.machines.upsertMachine({ id: 'm1', name: 'h', hostname: 'h', tokenHash: sha256('tok') })
     const reg = new SessionRegistry(store)
     const detach = vi.spyOn(reg, 'detachDaemon')
     const ws = fakeWs()

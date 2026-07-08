@@ -168,7 +168,7 @@ export async function startServer(
       probeAllModels({
         claude: {
           apiKey:
-            process.env.ANTHROPIC_API_KEY || store.getSettings().apiKeys.anthropic || undefined,
+            process.env.ANTHROPIC_API_KEY || store.settings.getSettings().apiKeys.anthropic || undefined,
         },
       }),
   })
@@ -201,7 +201,7 @@ export async function startServer(
     upstreamForwarder = new UpstreamForwarder({
       url: upstreamConfig.url,
       token: upstreamConfig.token,
-      store,
+      store: store.sync,
       onQueueChanged: () => registry.upstreamOutboxChanged(),
       // A queued mutation the hub definitively rejects must be SURFACED, not just
       // logged (#25): durable issue.upstream_rejected event + overlay retirement.
@@ -213,7 +213,7 @@ export async function startServer(
       url: upstreamConfig.url,
       token: upstreamConfig.token,
       mirror: registry,
-      store,
+      store: store.settings,
       onConnected: () => void forwarder.drain(),
     })
     upstreamSync.start()
@@ -233,14 +233,14 @@ export async function startServer(
   // login screen can load. Setup WRITES live under /trpc (setup.*), so they're covered by the
   // /trpc guard below. The /daemon link and /mcp keep their own credentials. Guards are
   // registered BEFORE their handlers so Hono runs them first.
-  const guard = clientAuthGuard({ store })
+  const guard = clientAuthGuard({ store: store.auth })
   app.use('/setup/*', cors())
   registerSetupRoute(app)
   // Human-client login (web/desktop UI). Same cross-origin reason as /setup: the desktop
   // webview's origin differs from the server in the all-in-one case. Login itself is
   // same-origin in the supported network topologies; the password store gates it.
   app.use('/auth/*', cors())
-  registerAuthRoute(app, { store })
+  registerAuthRoute(app, { store: store.auth })
   app.use('/files/*', guard)
   registerAssetRoute(app, registry)
   // In-process MCP server exposing the superagent's orchestrator tools to a
@@ -393,7 +393,7 @@ export async function startServer(
         const ws = attachWebSockets(server as unknown as Server, registry, {
           // Same gate as the HTTP guard: open unless a password is set, then require a valid
           // session cookie on the upgrade request.
-          authorizeClient: (req) => !hasPassword() || isRequestAuthed(store, req.headers.cookie),
+          authorizeClient: (req) => !hasPassword() || isRequestAuthed(store.auth, req.headers.cookie),
         })
         if (process.env.PODIUM_LOOP_PROFILE) startLoopMetrics({ label: 'server' })
         resolve({

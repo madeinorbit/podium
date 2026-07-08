@@ -5,8 +5,8 @@ import { SessionStore } from './store'
 
 function regWithTwoDaemons() {
   const store = new SessionStore(':memory:')
-  store.upsertMachine({ id: 'm1', name: 'one', hostname: 'one', tokenHash: 'x' })
-  store.upsertMachine({ id: 'm2', name: 'two', hostname: 'two', tokenHash: 'y' })
+  store.machines.upsertMachine({ id: 'm1', name: 'one', hostname: 'one', tokenHash: 'x' })
+  store.machines.upsertMachine({ id: 'm2', name: 'two', hostname: 'two', tokenHash: 'y' })
   const reg = new SessionRegistry(store)
   const m1: ControlMessage[] = []
   const m2: ControlMessage[] = []

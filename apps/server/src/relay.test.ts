@@ -519,7 +519,7 @@ describe('SessionRegistry', () => {
   it('probes an exited session on boot and reattaches it when the master is alive', () => {
     const store = new SessionStore(':memory:')
     const id = 'orphan-1'
-    store.upsertSession(exitedRow(id))
+    store.sessions.upsertSession(exitedRow(id))
     const reg = new SessionRegistry(store)
     const daemon: ControlMessage[] = []
     reg.attachDaemon('local', (m) => daemon.push(m))
@@ -538,7 +538,7 @@ describe('SessionRegistry', () => {
   it('leaves a dead exited session exited and untouched when its master is gone', () => {
     const store = new SessionStore(':memory:')
     const id = 'dead-1'
-    store.upsertSession(exitedRow(id))
+    store.sessions.upsertSession(exitedRow(id))
     const reg = new SessionRegistry(store)
     reg.attachDaemon('local', () => {})
     // The durable host has no such session → reattachFailed. An already-exited row
@@ -556,7 +556,7 @@ describe('SessionRegistry', () => {
 
   it('does not probe an archived exited session', () => {
     const store = new SessionStore(':memory:')
-    store.upsertSession(exitedRow('arch-1', { archived: true }))
+    store.sessions.upsertSession(exitedRow('arch-1', { archived: true }))
     const reg = new SessionRegistry(store)
     const daemon: ControlMessage[] = []
     reg.attachDaemon('local', (m) => daemon.push(m))
@@ -566,9 +566,9 @@ describe('SessionRegistry', () => {
   it('reattaches most-recently-used sessions first', () => {
     const store = new SessionStore(':memory:')
     // Insert out of recency order to prove the order is by lastActiveAt, not insertion.
-    store.upsertSession(exitedRow('mid', { lastActiveAt: '2026-03-02T00:00:00.000Z' }))
-    store.upsertSession(exitedRow('newest', { lastActiveAt: '2026-03-09T00:00:00.000Z' }))
-    store.upsertSession(exitedRow('oldest', { lastActiveAt: '2026-01-01T00:00:00.000Z' }))
+    store.sessions.upsertSession(exitedRow('mid', { lastActiveAt: '2026-03-02T00:00:00.000Z' }))
+    store.sessions.upsertSession(exitedRow('newest', { lastActiveAt: '2026-03-09T00:00:00.000Z' }))
+    store.sessions.upsertSession(exitedRow('oldest', { lastActiveAt: '2026-01-01T00:00:00.000Z' }))
     const reg = new SessionRegistry(store)
     const daemon: ControlMessage[] = []
     reg.attachDaemon('local', (m) => daemon.push(m))
@@ -777,15 +777,15 @@ describe('SessionRegistry', () => {
     const reg = new SessionRegistry(store)
     reg.attachDaemon('local', () => {})
     const { sessionId } = reg.createSession({ agentKind: 'claude-code', cwd: '/a', title: 't' })
-    expect(store.loadSessions()).toMatchObject([{ id: sessionId, status: 'starting', title: 't' }])
+    expect(store.sessions.loadSessions()).toMatchObject([{ id: sessionId, status: 'starting', title: 't' }])
     reg.onDaemonMessageFrom('local', bind(sessionId))
-    expect(store.loadSessions().at(0)).toMatchObject({ status: 'live' })
+    expect(store.sessions.loadSessions().at(0)).toMatchObject({ status: 'live' })
     reg.onDaemonMessageFrom('local', { type: 'title', sessionId, title: '✳ working' })
-    expect(store.loadSessions().at(0)).toMatchObject({ title: '✳ working' })
+    expect(store.sessions.loadSessions().at(0)).toMatchObject({ title: '✳ working' })
     reg.onDaemonMessageFrom('local', { type: 'agentExit', sessionId, code: 0 })
-    expect(store.loadSessions().at(0)).toMatchObject({ status: 'exited', exitCode: 0 })
+    expect(store.sessions.loadSessions().at(0)).toMatchObject({ status: 'exited', exitCode: 0 })
     reg.killSession({ sessionId })
-    expect(store.loadSessions()).toEqual([])
+    expect(store.sessions.loadSessions()).toEqual([])
   })
 
   it('write-through: an agentState change persists lastActiveAt so recency survives a restart', () => {
@@ -800,7 +800,7 @@ describe('SessionRegistry', () => {
       sessionId,
       state: { phase: 'working', since: future, openTaskCount: 0 },
     })
-    expect(store.loadSessions().at(0)?.lastActiveAt).toBe(future)
+    expect(store.sessions.loadSessions().at(0)?.lastActiveAt).toBe(future)
   })
 
   it('write-through: running-shell activity persists the row (recency is durable)', () => {
@@ -811,7 +811,7 @@ describe('SessionRegistry', () => {
     reg.onDaemonMessageFrom('local', bind(sessionId))
     const cid = reg.attachClient(sink().send) // first client → controller
     reg.onClientMessage(cid, { type: 'attach', sessionId })
-    const spy = vi.spyOn(store, 'upsertSession')
+    const spy = vi.spyOn(store.sessions, 'upsertSession')
     reg.onClientMessage(cid, {
       type: 'input',
       sessionId,
@@ -896,7 +896,7 @@ describe('SessionRegistry', () => {
 
   it('skips a persisted session with an invalid agentKind on load', () => {
     const store = new SessionStore(':memory:')
-    store.upsertSession({
+    store.sessions.upsertSession({
       id: 'good',
       agentKind: 'claude-code',
       cwd: '/a',
@@ -920,7 +920,7 @@ describe('SessionRegistry', () => {
     // upsertSession now refuses an out-of-enum agentKind (write-side guard), so a
     // legacy/externally-corrupted row is simulated by writing a valid row and then
     // corrupting the persisted agent_kind directly — the exact loadFromStore scenario.
-    store.upsertSession({
+    store.sessions.upsertSession({
       id: 'bad',
       agentKind: 'claude-code',
       cwd: '/b',
@@ -985,8 +985,8 @@ describe('host metrics relay', () => {
     // machineId, so two distinct machines sit side by side (a SAME-machine re-report
     // replaces — see the "latest sample per host" test above).
     const store = new SessionStore(':memory:')
-    store.upsertMachine({ id: 'm-alpha', name: 'alpha', hostname: 'alpha', tokenHash: 'x' })
-    store.upsertMachine({ id: 'm-beta', name: 'beta', hostname: 'beta', tokenHash: 'y' })
+    store.machines.upsertMachine({ id: 'm-alpha', name: 'alpha', hostname: 'alpha', tokenHash: 'x' })
+    store.machines.upsertMachine({ id: 'm-beta', name: 'beta', hostname: 'beta', tokenHash: 'y' })
     const reg = new SessionRegistry(store)
     reg.attachDaemon('m-alpha', () => {})
     reg.attachDaemon('m-beta', () => {})
@@ -1118,8 +1118,8 @@ describe('agent state', () => {
 
   it('sends every configured external push target only when no client is visible', () => {
     const store = new SessionStore(':memory:')
-    const settings = store.getSettings()
-    store.setSettings({
+    const settings = store.settings.getSettings()
+    store.settings.setSettings({
       ...settings,
       notifications: {
         ...settings.notifications,
@@ -1196,8 +1196,8 @@ describe('agent state', () => {
 
   it('connects Telegram from a start-code update', async () => {
     const store = new SessionStore(':memory:')
-    const settings = store.getSettings()
-    store.setSettings({
+    const settings = store.settings.getSettings()
+    store.settings.setSettings({
       ...settings,
       notifications: {
         ...settings.notifications,
@@ -1673,7 +1673,7 @@ describe('hibernation', () => {
     const daemon: ControlMessage[] = []
     reg.attachDaemon('local', (m) => daemon.push(m))
     const sessionId = liveSession(reg, daemon)
-    const spy = vi.spyOn(store, 'upsertSession')
+    const spy = vi.spyOn(store.sessions, 'upsertSession')
     for (let i = 0; i < 50; i++) {
       reg.onDaemonMessageFrom('local', { type: 'agentFrame', sessionId, seq: i, data: 'eA==' })
     }
@@ -1696,7 +1696,7 @@ describe('hibernation', () => {
       reg.dispose()
       // Calling dispose twice must be safe (graceful-shutdown path may double-fire).
       reg.dispose()
-      const spy = vi.spyOn(store, 'upsertSession')
+      const spy = vi.spyOn(store.sessions, 'upsertSession')
       // Advance well past the 12s flush interval — the timer is cleared, so nothing fires.
       vi.advanceTimersByTime(60_000)
       expect(spy).not.toHaveBeenCalled()
@@ -1811,8 +1811,8 @@ describe('hibernation', () => {
     const reg = new SessionRegistry(store)
     const daemon: ControlMessage[] = []
     reg.attachDaemon('local', (m) => daemon.push(m))
-    const settings = store.getSettings()
-    store.setSettings({
+    const settings = store.settings.getSettings()
+    store.settings.setSettings({
       ...settings,
       hibernation: { enabled: true, memoryPct: 80, idleMinutes: 1 },
     })
@@ -1855,8 +1855,8 @@ describe('hibernation', () => {
     const reg = new SessionRegistry(store)
     const daemon: ControlMessage[] = []
     reg.attachDaemon('local', (m) => daemon.push(m))
-    store.setSettings({
-      ...store.getSettings(),
+    store.settings.setSettings({
+      ...store.settings.getSettings(),
       hibernation: { enabled: true, memoryPct: 80, idleMinutes: 1 },
     })
     const sessionId = liveSession(reg, daemon)
@@ -1890,8 +1890,8 @@ describe('hibernation', () => {
     const reg = new SessionRegistry(store)
     const daemon: ControlMessage[] = []
     reg.attachDaemon('local', (m) => daemon.push(m))
-    store.setSettings({
-      ...store.getSettings(),
+    store.settings.setSettings({
+      ...store.settings.getSettings(),
       hibernation: { enabled: true, memoryPct: 80, idleMinutes: 1 },
     })
     const sessionId = liveSession(reg, daemon)
@@ -2011,9 +2011,9 @@ describe('reconnect identity (hello reclaim)', () => {
         const idA = reg.attachClient(() => {})
         reg.onClientMessage(idA, { type: 'setSessionDraft', sessionId: 'sess', text: 'real work' })
         // Not written yet — keystrokes coalesce; the row appears once the debounce fires.
-        expect(store.loadDrafts().sess).toBeUndefined()
+        expect(store.sessions.loadDrafts().sess).toBeUndefined()
         vi.advanceTimersByTime(1000)
-        expect(store.loadDrafts().sess).toBe('real work')
+        expect(store.sessions.loadDrafts().sess).toBe('real work')
         store.close()
 
         // "Restart": a fresh registry on the same DB replays the persisted draft
@@ -2047,7 +2047,7 @@ describe('reconnect identity (hello reclaim)', () => {
         reg.onClientMessage(idA, { type: 'setSessionDraft', sessionId: 'sess', text: '' })
         // No debounce wait: an empty draft flushes at once so a restart right after
         // a send never restores stale text.
-        expect(store.loadDrafts().sess).toBeUndefined()
+        expect(store.sessions.loadDrafts().sess).toBeUndefined()
         store.close()
       } finally {
         vi.useRealTimers()
@@ -2187,7 +2187,7 @@ describe('SessionRegistry snooze', () => {
 
   it('seeds snoozedUntil from the store at load', () => {
     const store = new SessionStore(':memory:')
-    store.upsertSession({
+    store.sessions.upsertSession({
       id: 's1',
       agentKind: 'claude-code',
       cwd: '/p',
@@ -2208,7 +2208,7 @@ describe('SessionRegistry snooze', () => {
       archived: false,
       workState: null,
     })
-    store.setSnooze('s1', null)
+    store.sessions.setSnooze('s1', null)
     const reg = new SessionRegistry(store)
     expect(reg.listSessions()[0]?.snoozedUntil).toBeNull()
   })

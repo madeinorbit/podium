@@ -44,38 +44,38 @@ function issueRow(over: Partial<IssueRow> = {}): IssueRow {
 describe('migration 006: FK behavior at runtime', () => {
   it('deleting an issue cascades onto labels/deps/comments/messages', () => {
     const s = new SessionStore(':memory:')
-    s.upsertIssue(issueRow({ id: 'iss_a', seq: 1 }))
-    s.upsertIssue(issueRow({ id: 'iss_b', seq: 2 }))
-    s.setIssueLabels('iss_a', ['ui'])
-    s.addIssueDep('iss_a', 'iss_b', 'blocks')
-    s.addIssueDep('iss_b', 'iss_a', 'related')
-    s.addIssueComment({ id: 'cmt_1', issueId: 'iss_a', author: 'me', body: 'hi', createdAt: 't' })
-    s.addIssueMessage({
+    s.issues.upsertIssue(issueRow({ id: 'iss_a', seq: 1 }))
+    s.issues.upsertIssue(issueRow({ id: 'iss_b', seq: 2 }))
+    s.issues.setIssueLabels('iss_a', ['ui'])
+    s.issues.addIssueDep('iss_a', 'iss_b', 'blocks')
+    s.issues.addIssueDep('iss_b', 'iss_a', 'related')
+    s.issues.addIssueComment({ id: 'cmt_1', issueId: 'iss_a', author: 'me', body: 'hi', createdAt: 't' })
+    s.issues.addIssueMessage({
       id: 'msg_1', issueId: 'iss_a', fromAuthor: 'me', body: 'mail', createdAt: 't',
       status: 'unread', claimedBy: null, readAt: null, claimedAt: null,
     })
 
-    s.deleteIssue('iss_a')
+    s.issues.deleteIssue('iss_a')
 
-    expect(s.getIssueLabels('iss_a')).toEqual([])
-    expect(s.listIssueDeps('iss_a')).toEqual([])
-    expect(s.listIssueDeps('iss_b')).toEqual([]) // edge pointing AT the deleted issue too
-    expect(s.listIssueComments('iss_a')).toEqual([])
-    expect(s.listIssueMessages('iss_a')).toEqual([])
+    expect(s.issues.getIssueLabels('iss_a')).toEqual([])
+    expect(s.issues.listIssueDeps('iss_a')).toEqual([])
+    expect(s.issues.listIssueDeps('iss_b')).toEqual([]) // edge pointing AT the deleted issue too
+    expect(s.issues.listIssueComments('iss_a')).toEqual([])
+    expect(s.issues.listIssueMessages('iss_a')).toEqual([])
     s.close()
   })
 
   it("deleting a parent nulls children's parent_id (and supersede/duplicate back-refs)", () => {
     const s = new SessionStore(':memory:')
-    s.upsertIssue(issueRow({ id: 'iss_parent', seq: 1 }))
-    s.upsertIssue(issueRow({ id: 'iss_child', seq: 2, parentId: 'iss_parent' }))
-    s.upsertIssue(issueRow({ id: 'iss_dup', seq: 3, duplicateOf: 'iss_parent', supersededBy: 'iss_parent' }))
+    s.issues.upsertIssue(issueRow({ id: 'iss_parent', seq: 1 }))
+    s.issues.upsertIssue(issueRow({ id: 'iss_child', seq: 2, parentId: 'iss_parent' }))
+    s.issues.upsertIssue(issueRow({ id: 'iss_dup', seq: 3, duplicateOf: 'iss_parent', supersededBy: 'iss_parent' }))
 
-    s.deleteIssue('iss_parent')
+    s.issues.deleteIssue('iss_parent')
 
-    expect(s.getIssue('iss_child')?.parentId).toBeNull()
-    expect(s.getIssue('iss_dup')?.duplicateOf).toBeNull()
-    expect(s.getIssue('iss_dup')?.supersededBy).toBeNull()
+    expect(s.issues.getIssue('iss_child')?.parentId).toBeNull()
+    expect(s.issues.getIssue('iss_dup')?.duplicateOf).toBeNull()
+    expect(s.issues.getIssue('iss_dup')?.supersededBy).toBeNull()
     s.close()
   })
 
@@ -91,7 +91,7 @@ describe('migration 006: FK behavior at runtime', () => {
 
   it('CHECK rejects a garbage stage/type/priority at the SQL layer', () => {
     const s = new SessionStore(':memory:')
-    s.upsertIssue(issueRow({ id: 'iss_ok' }))
+    s.issues.upsertIssue(issueRow({ id: 'iss_ok' }))
     const upd = (col: string, v: unknown) =>
       rawDb(s).prepare(`UPDATE issues SET ${col} = ? WHERE id = 'iss_ok'`).run(v)
     expect(() => upd('stage', 'bogus')).toThrow(/check/i)
@@ -129,15 +129,15 @@ describe('migration 006: legacy-data sanitation', () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
     try {
       const s = new SessionStore(file)
-      const row = s.getIssue('iss_bad')
+      const row = s.issues.getIssue('iss_bad')
       expect(row?.stage).toBe('backlog')
       expect(row?.type).toBe('task')
       expect(row?.priority).toBe(2)
       expect(row?.parentId).toBeNull()
       expect(row?.supersededBy).toBeNull()
-      expect(s.getIssueLabels('iss_gone')).toEqual([])
-      expect(s.listIssueDeps('iss_bad')).toEqual([])
-      expect(s.listIssueComments('iss_gone')).toEqual([])
+      expect(s.issues.getIssueLabels('iss_gone')).toEqual([])
+      expect(s.issues.listIssueDeps('iss_bad')).toEqual([])
+      expect(s.issues.listIssueComments('iss_gone')).toEqual([])
       expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('out-of-range stage'))
       s.close()
     } finally {
@@ -168,8 +168,8 @@ describe('migration 007: single parent storage', () => {
       db.close()
     }
     const s = new SessionStore(file)
-    expect(s.listIssueDeps('iss_kid')).toEqual([{ toId: 'iss_epic', type: 'blocks' }])
-    expect(s.getIssue('iss_kid')?.parentId).toBe('iss_epic') // the column is the storage
+    expect(s.issues.listIssueDeps('iss_kid')).toEqual([{ toId: 'iss_epic', type: 'blocks' }])
+    expect(s.issues.getIssue('iss_kid')?.parentId).toBe('iss_epic') // the column is the storage
     s.close()
   })
 })

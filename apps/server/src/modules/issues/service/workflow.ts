@@ -404,7 +404,7 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
     // Comment dedup: rebuild runs are idempotent, so an unchanged outcome must not
     // spam a new comment — skip when the latest integrate comment is identical.
     const prior = this.d.store
-      .listIssueComments(row.id)
+      .issues.listIssueComments(row.id)
       .filter((c) => c.author === 'system:integrate')
       .at(-1)
     if (prior?.body !== summary) this.addComment(row.id, 'system:integrate', summary)
@@ -428,7 +428,7 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
     const indeg = new Map(children.map((c) => [c.id, 0]))
     const dependents = new Map<string, string[]>() // blocker id -> ids it unblocks
     for (const c of children) {
-      for (const d of this.d.store.listIssueDeps(c.id)) {
+      for (const d of this.d.store.issues.listIssueDeps(c.id)) {
         if (d.type !== 'blocks' || !inSet.has(d.toId)) continue
         indeg.set(c.id, (indeg.get(c.id) ?? 0) + 1)
         dependents.set(d.toId, [...(dependents.get(d.toId) ?? []), c.id])

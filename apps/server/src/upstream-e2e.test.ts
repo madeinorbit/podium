@@ -77,7 +77,7 @@ describe('node⇄hub upstream sync e2e (live hub server)', () => {
     forwarder = new UpstreamForwarder({
       url: `http://127.0.0.1:${hubPort}`,
       token,
-      store: nodeStore,
+      store: nodeStore.sync,
       onQueueChanged: () => nodeRegistry.upstreamOutboxChanged(),
       retryMs: 100,
     })
@@ -86,7 +86,7 @@ describe('node⇄hub upstream sync e2e (live hub server)', () => {
       url: `http://127.0.0.1:${hub.port}`,
       token,
       mirror: nodeRegistry,
-      store: nodeStore,
+      store: nodeStore.settings,
       backoff: { minMs: 50, maxMs: 250 },
       onConnected: () => void forwarder.drain(),
     })
@@ -159,8 +159,8 @@ describe('node⇄hub upstream sync e2e (live hub server)', () => {
     })
     if ('queued' in created) throw new Error('hub-side create unexpectedly queued')
     hubIssueId = created.id
-    await until(() => (nodeStore.getUpstreamIssuesJson() ?? '').includes('hub issue'))
-    const parked = JSON.parse(nodeStore.getUpstreamIssuesJson() ?? '[]') as Array<{
+    await until(() => (nodeStore.settings.getUpstreamIssuesJson() ?? '').includes('hub issue'))
+    const parked = JSON.parse(nodeStore.settings.getUpstreamIssuesJson() ?? '[]') as Array<{
       title: string
     }>
     expect(parked.some((i) => i.title === 'hub issue')).toBe(true)
@@ -177,7 +177,7 @@ describe('node⇄hub upstream sync e2e (live hub server)', () => {
       url: `http://127.0.0.1:${hub.port}`,
       token,
       mirror: nodeRegistry,
-      store: nodeStore, // same store — the persisted cursor is the resume point
+      store: nodeStore.settings, // same store — the persisted cursor is the resume point
       backoff: { minMs: 50, maxMs: 250 },
       onConnected: () => void forwarder.drain(),
     })
@@ -197,7 +197,7 @@ describe('node⇄hub upstream sync e2e (live hub server)', () => {
     expect(wire?.title).toBe('hub issue')
     // Invariant 1: the wire is the ONLY place it exists node-side.
     expect(nodeRegistry.issues.get(hubIssueId)).toBeNull()
-    expect(nodeStore.listIssueRows()).toHaveLength(0)
+    expect(nodeStore.issues.listIssueRows()).toHaveLength(0)
   })
 
   it('P7b: editing a viaHub issue while the hub is UP changes the HUB store; the node converges via delta', async () => {
@@ -215,7 +215,7 @@ describe('node⇄hub upstream sync e2e (live hub server)', () => {
       nodeIssueWire().some((i) => i.id === hubIssueId && i.title === 'renamed-via-node'),
     )
     expect(nodeIssueWire().find((i) => i.id === hubIssueId)?.pendingSync).toBeUndefined()
-    expect(nodeStore.listUpstreamOutbox()).toHaveLength(0)
+    expect(nodeStore.sync.listUpstreamOutbox()).toHaveLength(0)
   })
 
   it('P7b: editing while the hub is DOWN queues durably; a hub restart applies it EXACTLY once and clears pendingSync', async () => {
@@ -228,7 +228,7 @@ describe('node⇄hub upstream sync e2e (live hub server)', () => {
       body: 'offline comment',
     })
     expect(res).toEqual({ queued: true })
-    const outbox = nodeStore.listUpstreamOutbox()
+    const outbox = nodeStore.sync.listUpstreamOutbox()
     expect(outbox).toHaveLength(1)
     const mutationId = outbox[0]?.mutationId ?? ''
     expect(mutationId).not.toBe('')
@@ -247,14 +247,14 @@ describe('node⇄hub upstream sync e2e (live hub server)', () => {
     // Hub returns (same state dir + port): reconnect heals, the outbox drains.
     hub = await startServer({ port: hubPort })
     hubClosed = false
-    await until(() => nodeStore.listUpstreamOutbox().length === 0, 10_000)
+    await until(() => nodeStore.sync.listUpstreamOutbox().length === 0, 10_000)
     // EXACTLY ONE application, asserted via hub issue state + the hub's
     // idempotency record for the entry's mutationId (invariant 2).
     const applied = () =>
       // #175: read the hub's thread via comments() — bodies are not on the wire.
       hub.registry.issues.comments(hubIssueId).filter((c) => c.body === 'offline comment')
     expect(applied()).toHaveLength(1)
-    expect(hub.registry.sessionStore.getAppliedMutation(mutationId)).toBeDefined()
+    expect(hub.registry.sessionStore.sync.getAppliedMutation(mutationId)).toBeDefined()
     // Belt-and-braces: replay the SAME mutation again (a lost-ack retry) — the
     // hub returns the recorded result instead of applying twice.
     await forwarder.forward('addComment', {

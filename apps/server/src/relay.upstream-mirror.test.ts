@@ -168,13 +168,13 @@ describe('mintUpstreamToken', () => {
     const token = registry.mintUpstreamToken()
     expect(token.length).toBeGreaterThanOrEqual(40)
     const hash = createHash('sha256').update(token).digest('hex')
-    expect(store.isClientSessionValid(hash, new Date().toISOString())).toBe(true)
+    expect(store.auth.isClientSessionValid(hash, new Date().toISOString())).toBe(true)
     // Long-lived: still valid years out.
     expect(
-      store.isClientSessionValid(hash, new Date(Date.now() + 5 * 365 * 864e5).toISOString()),
+      store.auth.isClientSessionValid(hash, new Date(Date.now() + 5 * 365 * 864e5).toISOString()),
     ).toBe(true)
     // Revocable like any client session.
-    store.deleteClientSession(hash)
-    expect(store.isClientSessionValid(hash, new Date().toISOString())).toBe(false)
+    store.auth.deleteClientSession(hash)
+    expect(store.auth.isClientSessionValid(hash, new Date().toISOString())).toBe(false)
   })
 })

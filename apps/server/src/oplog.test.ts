@@ -45,7 +45,7 @@ describe('MetadataOplog', () => {
     oplog.record('issue', [issue('a', 1)])
     oplog.record('issue', [issue('a', 2)])
     oplog.record('issue', [issue('a', 3)])
-    store.pruneChanges({ keepRows: 1, maxAgeMs: 60_000, now: Date.now() })
+    store.sync.pruneChanges({ keepRows: 1, maxAgeMs: 60_000, now: Date.now() })
     expect(oplog.changesSince(0)).toBeNull() // seq 1-2 pruned away -> gap
     expect(oplog.changesSince(2)?.map((c) => c.seq)).toEqual([3]) // still contiguous
   })
@@ -53,14 +53,14 @@ describe('MetadataOplog', () => {
   it('prunes a bloated log at construction (boot self-heal)', () => {
     const store = new SessionStore(':memory:')
     const t0 = 1_000_000
-    store.appendChanges([{ entity: 'issue', entityId: 'a', op: 'upsert', payload: '{}' }], t0)
+    store.sync.appendChanges([{ entity: 'issue', entityId: 'a', op: 'upsert', payload: '{}' }], t0)
     const young = t0 + MetadataOplog.MAX_AGE_MS + 60_000
-    store.appendChanges([{ entity: 'issue', entityId: 'b', op: 'upsert', payload: '{}' }], young)
+    store.sync.appendChanges([{ entity: 'issue', entityId: 'b', op: 'upsert', payload: '{}' }], young)
     // Boot with "now" past row 1's age budget but within row 2's: the constructor
     // prune drops the aged head before folding the baseline.
     const oplog = new MetadataOplog(store, () => young + 1)
-    expect(store.minChangeSeq()).toBe(2)
-    expect(store.maxChangeSeq()).toBe(2)
+    expect(store.sync.minChangeSeq()).toBe(2)
+    expect(store.sync.maxChangeSeq()).toBe(2)
     // The surviving row still seeds the diff baseline: re-recording it is a no-op.
     expect(oplog.record('issue', [{ id: 'b', value: JSON.parse('{}') }])).toEqual([])
   })

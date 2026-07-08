@@ -402,7 +402,7 @@ describe('search_all tool', () => {
     })
     const { sessionId } = registry.createSession({ agentKind: 'claude-code', cwd: '/w' })
     registry.renameSession({ sessionId, name: 'capacitor refactor' })
-    registry.sessionStore.upsertConversations([
+    registry.sessionStore.conversations.upsertConversations([
       {
         id: 'native-conv',
         agentKind: 'claude-code',

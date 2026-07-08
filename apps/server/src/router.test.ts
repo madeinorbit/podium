@@ -368,8 +368,8 @@ describe('repos router', () => {
   it('superagent.startBtw re-opens an existing btw thread without re-seeding', async () => {
     const { registry, call } = caller()
     const store = registry.sessionStore
-    store.upsertSuperagentThread({ id: 'btw_s9', kind: 'btw', originSessionId: 's9' })
-    store.setThreadWatermark('btw_s9', 'item-1', '2026-06-16T00:00:00Z')
+    store.superagent.upsertSuperagentThread({ id: 'btw_s9', kind: 'btw', originSessionId: 's9' })
+    store.superagent.setThreadWatermark('btw_s9', 'item-1', '2026-06-16T00:00:00Z')
     // Unknown session → empty transcript → no delta → re-open path, no backend call.
     const res = await call.superagent.startBtw({ sessionId: 's9' })
     expect(res).toEqual({ threadId: 'btw_s9', isNew: false })

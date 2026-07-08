@@ -85,7 +85,7 @@ export type { OpResult, ScanReposResult, ScanResult } from './modules/machines/r
  * boot reconciliation would append oplog rows behind a live server's back.
  */
 export function mintUpstreamTokenInto(
-  store: Pick<SessionStore, 'createClientSession'>,
+  store: Pick<SessionStore['auth'], 'createClientSession'>,
   nowMs: number = Date.now(),
 ): string {
   const token = randomBytes(32).toString('base64url')
@@ -245,7 +245,7 @@ export class SessionRegistry {
       clients: () => this.clients.values(),
     })
     this.rpc = new DaemonRpcService({
-      store: this.store,
+      store: this.store.conversations,
       toMachine: (machineId, msg) => this.machines.toMachine(machineId, msg),
       defaultMachine: () => this.machines.defaultMachine(),
       resolveMachine: (requested, cwd) => this.machines.resolveMachine(requested, cwd),
@@ -257,7 +257,7 @@ export class SessionRegistry {
       readTranscriptFromLake: (session, input) =>
         this.conversations.readTranscriptFromLake(session, input),
     })
-    this.settingsService = new SettingsService(this.store, this.bus, {
+    this.settingsService = new SettingsService(this.store.settings, this.bus, {
       ...(options.telegramSetup ? { telegramSetup: options.telegramSetup } : {}),
       ...(options.generateTelegramSetupCode
         ? { generateTelegramSetupCode: options.generateTelegramSetupCode }
@@ -267,8 +267,8 @@ export class SessionRegistry {
     })
     this.notify = new NotifyService(
       {
-        getSettings: () => this.store.getSettings(),
-        appendEvent: (e) => this.store.appendEvent(e),
+        getSettings: () => this.store.settings.getSettings(),
+        appendEvent: (e) => this.store.events.appendEvent(e),
         now: () => this.now(),
         clients: () => this.clients.values(),
         sessionInfo: (sessionId) => {
@@ -286,7 +286,7 @@ export class SessionRegistry {
     )
     this.hosts = new HostsService(
       {
-        getSettings: () => this.store.getSettings(),
+        getSettings: () => this.store.settings.getSettings(),
         clients: () => this.clients.values(),
         machineName: (id) => this.machineName(id),
         sessions: () => this.sessions.values(),
@@ -300,7 +300,7 @@ export class SessionRegistry {
     // deps are lazy closures (allWire guards the not-yet-assigned IssueService),
     // and broadcasts triggered during load must find the publisher in place.
     this.upstreamIssuesSvc = new UpstreamIssuesService({
-      store: this.store,
+      store: this.store.events,
       now: () => this.now(),
       localIssueExists: (id) => !!this.issues?.get(id),
       publish: () => this.publishIssues(this.safeIssuesList()),
@@ -328,11 +328,11 @@ export class SessionRegistry {
       upstreamIssueRepoPaths: () => this.upstreamIssuesSvc.repoPaths(),
       withMutation: (mutationId, proc, fn) => this.sessionsSvc.withMutation(mutationId, proc, fn),
       listSessions: () => this.listSessions(),
-      repoPaths: () => this.store.listRepoPaths(),
-      inferRepoFromPath: (path) => inferRepoFromRoots(this.store.listRepoPaths(), path),
+      repoPaths: () => this.store.repos.listRepoPaths(),
+      inferRepoFromPath: (path) => inferRepoFromRoots(this.store.repos.listRepoPaths(), path),
     })
     this.specsSvc = new SpecsService({
-      repoRoots: () => this.store.listRepoPaths(),
+      repoRoots: () => this.store.repos.listRepoPaths(),
     })
     this.issueRelayGate = new IssueRelayGate({
       // issues/repos procs come from the capability-scoped command service; the
@@ -410,7 +410,7 @@ export class SessionRegistry {
     this.issues = new IssueService({
       store: this.store,
       listSessions: () => this.listSessions(),
-      getSettings: () => this.store.getSettings(),
+      getSettings: () => this.store.settings.getSettings(),
       spawnSession: (o) =>
         this.createSession({
           cwd: o.cwd,
@@ -470,12 +470,12 @@ export class SessionRegistry {
       console.warn('[podium:issues] boot draft sweep failed:', err)
     }
     this.steward = new StewardService({
-      store: this.store,
+      store: this.store.events,
       issues: this.issues,
       listSessions: () => this.listSessions(),
       // Durable outbox path: the nudge survives restarts and waits out a booting TUI.
       sendTextWhenReady: (sessionId, text) => void this.queueText({ sessionId, text }),
-      getSettings: () => this.store.getSettings(),
+      getSettings: () => this.store.settings.getSettings(),
     })
     this.steward.start()
     // Event-log retention (issue #61): first prune ~1min after boot (off the boot
@@ -547,7 +547,7 @@ export class SessionRegistry {
    *  a broken prune must not take down the timer or the registry. */
   private pruneEventLog(): void {
     try {
-      const deleted = this.store.pruneEvents({
+      const deleted = this.store.events.pruneEvents({
         maxAgeDays: EVENT_RETENTION_MAX_AGE_DAYS,
         maxRows: EVENT_RETENTION_MAX_ROWS,
       })
@@ -679,7 +679,7 @@ export class SessionRegistry {
    * sha-256 is stored.
    */
   mintUpstreamToken(): string {
-    return mintUpstreamTokenInto(this.store, this.now())
+    return mintUpstreamTokenInto(this.store.auth, this.now())
   }
 
   // ---- machine routing/selection — delegates to modules/machines ----
@@ -705,15 +705,15 @@ export class SessionRegistry {
   }
 
   listPins() {
-    return this.store.listPins()
+    return this.store.sessions.listPins()
   }
 
   setPin(kind: PinKind, id: string, pinned: boolean) {
-    this.store.setPin(kind, id, pinned)
+    this.store.sessions.setPin(kind, id, pinned)
   }
 
   listSnoozes() {
-    return this.store.listSnoozes()
+    return this.store.sessions.listSnoozes()
   }
 
   setSnooze(input: { sessionId: string; until: string | null }): void {
@@ -725,11 +725,11 @@ export class SessionRegistry {
   }
 
   listTabOrders() {
-    return this.store.listTabOrders()
+    return this.store.sessions.listTabOrders()
   }
 
   setTabOrder(worktree: string, sessionIds: string[]) {
-    this.store.setTabOrder(worktree, sessionIds)
+    this.store.sessions.setTabOrder(worktree, sessionIds)
   }
 
   // ---- settings / model catalog / telegram setup — delegates to modules/settings ----

@@ -128,7 +128,7 @@ export function searchAll(
     })
   }
   let allIssues: IssueWire[] | undefined // lazy: only comment hits need the full list
-  for (const c of store.searchIssueComments(text, limit)) {
+  for (const c of store.issues.searchIssueComments(text, limit)) {
     if (issueHits.has(c.issueId)) continue // the issue already matched on its own text
     allIssues ??= registry.issues.search({})
     const issue = allIssues.find((w) => w.id === c.issueId)
@@ -148,7 +148,7 @@ export function searchAll(
   // ---- conversations: the existing index search (FTS5/LIKE inside the store).
   // It returns recency-ordered matches without a per-row score, so every hit
   // grades 1.0 and the recency boost differentiates within the source. ----
-  for (const c of store.searchConversations({ query: text, limit })) {
+  for (const c of store.conversations.searchConversations({ query: text, limit })) {
     out.push({
       kind: 'conversation',
       id: c.id,
@@ -165,7 +165,7 @@ export function searchAll(
   // bm25 is smaller-is-better (negative); normalize against the batch's best so
   // the top hit grades 1.0. A live session whose resume value is the segment's
   // native id gets a sessionId ref so the client can open the chat directly. ----
-  const transcriptRows = store.searchTranscripts(text, limit)
+  const transcriptRows = store.conversations.searchTranscripts(text, limit)
   const bestRank = transcriptRows[0]?.rank
   const seenSegments = new Set<string>()
   const sessions = registry.listSessions()

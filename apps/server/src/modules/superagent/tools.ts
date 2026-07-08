@@ -530,11 +530,11 @@ export function buildSuperagentTools(
         // Watch the durable event log from "now": session.phase rows are appended
         // on every real phase transition (subject = sessionId), so polling the
         // cursor catches the change even across a busy log. Never throws.
-        const since = store.maxEventId()
+        const since = store.events.maxEventId()
         const deadline = Date.now() + timeoutS * 1000
         while (Date.now() < deadline) {
           const evs = store
-            .listEventsSince(since, { kinds: ['session.phase'] })
+            .events.listEventsSince(since, { kinds: ['session.phase'] })
             .filter((e) => e.subject === sessionId)
           const last = evs[evs.length - 1]
           if (last) {

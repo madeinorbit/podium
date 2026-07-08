@@ -181,7 +181,7 @@ export class SuperagentService {
         waitPollMs: this.waitPollMs,
         issueTools: this.issueTools,
       },
-      this.store.getSettings().integrations.linearApiKey,
+      this.store.settings.getSettings().integrations.linearApiKey,
       threadId,
       { issueBelt: true },
     )
@@ -190,16 +190,16 @@ export class SuperagentService {
   /** Legacy buffered thread history (superagent_messages) — frozen for new
    *  turns; still read so old conversations stay visible. */
   history(threadId = 'global'): SuperagentMessageRow[] {
-    return this.store.loadSuperagentMessages(threadId)
+    return this.store.superagent.loadSuperagentMessages(threadId)
   }
 
   clear(threadId = 'global'): void {
-    if (threadId === 'global') this.store.clearSuperagentMessages('global')
-    else this.store.archiveSuperagentThread(threadId)
+    if (threadId === 'global') this.store.superagent.clearSuperagentMessages('global')
+    else this.store.superagent.archiveSuperagentThread(threadId)
   }
 
   listThreads(): SuperagentThreadRow[] {
-    return this.store.listSuperagentThreads()
+    return this.store.superagent.listSuperagentThreads()
   }
 
   /**
@@ -222,7 +222,7 @@ export class SuperagentService {
     threadId: string
     text: string
   }): Promise<{ threadId: string; podiumSessionId: string }> {
-    const thread = this.store.getSuperagentThread(threadId)
+    const thread = this.store.superagent.getSuperagentThread(threadId)
     if (!thread) throw new Error(`unknown thread: ${threadId}`)
     if (this.turnInFlight.has(threadId)) {
       throw new Error('a turn is already running on this thread — stop it or wait for it to finish')
@@ -232,12 +232,12 @@ export class SuperagentService {
     this.turnInFlight.add(threadId)
     let sessionId: string
     try {
-      const settings = this.store.getSettings()
+      const settings = this.store.settings.getSettings()
       // Freeze the agent onto the thread on first contact; later turns keep it
       // even if the settings default changes (the harness session is agent-bound).
       const frozen = HarnessAgent.safeParse(thread.agentKind)
       const agent: HarnessAgent = frozen.success ? frozen.data : superagentHarnessAgent(settings)
-      if (!frozen.success) this.store.updateSuperagentThreadBinding(threadId, { agentKind: agent })
+      if (!frozen.success) this.store.superagent.updateSuperagentThreadBinding(threadId, { agentKind: agent })
       const cwd = this.threadCwd(thread)
       // Ensure the headless Podium session (recreate if the row was deleted).
       const existing = thread.podiumSessionId
@@ -252,7 +252,7 @@ export class SuperagentService {
           title: thread.title ?? threadId,
           spawnedBy: `superagent:${threadId}`,
         }).sessionId
-        this.store.updateSuperagentThreadBinding(threadId, { podiumSessionId: sessionId })
+        this.store.superagent.updateSuperagentThreadBinding(threadId, { podiumSessionId: sessionId })
       }
       // First HARNESS turn = no harness session yet. A legacy thread (buffered
       // messages, no harness session) re-primes through the seed the same way.
@@ -291,7 +291,7 @@ export class SuperagentService {
         if (result.ok) {
           const harnessSessionId = result.harnessSessionId ?? sessionUuid
           if (firstTurn && harnessSessionId) {
-            this.store.updateSuperagentThreadBinding(threadId, { harnessSessionId })
+            this.store.superagent.updateSuperagentThreadBinding(threadId, { harnessSessionId })
             this.modules.headless.setHeadlessResume(sessionId, {
               kind: RESUME_KIND[agent],
               value: harnessSessionId,
@@ -302,7 +302,7 @@ export class SuperagentService {
           const error = result.error ?? 'unknown error'
           // Persisted failure notice: visible on the thread's legacy history,
           // never a silent fallback to the buffered path.
-          this.store.appendSuperagentMessage(threadId, {
+          this.store.superagent.appendSuperagentMessage(threadId, {
             role: 'assistant',
             content: `${TURN_FAILED_MARKER} (${agent}): ${error}`,
           })
@@ -319,7 +319,7 @@ export class SuperagentService {
   /** Interrupt the thread's running headless turn (fire-and-forget; the turn's
    *  own result broadcasts the turn-end). */
   interruptTurn({ threadId }: { threadId: string }): void {
-    const thread = this.store.getSuperagentThread(threadId)
+    const thread = this.store.superagent.getSuperagentThread(threadId)
     if (!thread?.podiumSessionId) throw new Error(`no headless session for thread: ${threadId}`)
     this.modules.headless.headlessInterrupt(thread.podiumSessionId)
   }
@@ -331,7 +331,7 @@ export class SuperagentService {
    * the lock clears lazily once that session exits.
    */
   openInTerminal({ threadId }: { threadId: string }): { sessionId: string } {
-    const thread = this.store.getSuperagentThread(threadId)
+    const thread = this.store.superagent.getSuperagentThread(threadId)
     if (!thread) throw new Error(`unknown thread: ${threadId}`)
     if (this.turnInFlight.has(threadId)) {
       throw new Error('a turn is running on this thread — wait for it to finish')
@@ -350,7 +350,7 @@ export class SuperagentService {
       ...(thread.title ? { title: thread.title } : {}),
       spawnedBy: `superagent:${threadId}`,
     })
-    this.store.updateSuperagentThreadBinding(threadId, { terminalSessionId: sessionId })
+    this.store.superagent.updateSuperagentThreadBinding(threadId, { terminalSessionId: sessionId })
     return { sessionId }
   }
 
@@ -366,10 +366,10 @@ export class SuperagentService {
       throw new Error(`unknown repo: ${repoPath} — register it in Podium first`)
     }
     const threadId = conciergeThreadId(repoPath)
-    const existing = this.store.getSuperagentThread(threadId)
+    const existing = this.store.superagent.getSuperagentThread(threadId)
     const isNew = existing?.kind !== 'concierge'
     if (isNew) {
-      this.store.upsertSuperagentThread({
+      this.store.superagent.upsertSuperagentThread({
         id: threadId,
         kind: 'concierge',
         repoPath,
@@ -387,10 +387,10 @@ export class SuperagentService {
    */
   startBtwTurn({ sessionId }: { sessionId: string }): { threadId: string; isNew: boolean } {
     const threadId = `btw_${sessionId}`
-    const existing = this.store.getSuperagentThread(threadId)
+    const existing = this.store.superagent.getSuperagentThread(threadId)
     if (existing?.kind === 'btw') return { threadId, isNew: false }
     const info = this.listSessions().find((s) => s.sessionId === sessionId)
-    this.store.upsertSuperagentThread({
+    this.store.superagent.upsertSuperagentThread({
       id: threadId,
       kind: 'btw',
       originSessionId: sessionId,
@@ -427,7 +427,7 @@ export class SuperagentService {
     if (s && (s.status === 'live' || s.status === 'starting' || s.status === 'reconnecting')) {
       return 'this thread is open in a terminal session — close it to chat here'
     }
-    this.store.updateSuperagentThreadBinding(thread.id, { terminalSessionId: null })
+    this.store.superagent.updateSuperagentThreadBinding(thread.id, { terminalSessionId: null })
     return undefined
   }
 
@@ -442,13 +442,13 @@ export class SuperagentService {
     if (thread.kind === 'concierge') {
       const repoPath = thread.repoPath ?? conciergeRepoPath(thread.id)
       if (!repoPath) return undefined
-      const maxEventId = this.store.maxEventId()
+      const maxEventId = this.store.events.maxEventId()
       if (firstTurn) {
         const seed = buildConciergeSeed({
           ...this.conciergeDigest(repoPath, maxEventId),
           maxEventId,
         })
-        this.store.setThreadWatermark(thread.id, String(maxEventId), now())
+        this.store.superagent.setThreadWatermark(thread.id, String(maxEventId), now())
         return seed
       }
       const prevEventId = Number(thread.watermarkItemId ?? '0') || 0
@@ -465,7 +465,7 @@ export class SuperagentService {
         now: now(),
         seqOf: (id) => all.find((i) => i.id === id)?.seq,
       })
-      this.store.setThreadWatermark(thread.id, String(nextWatermark), now())
+      this.store.superagent.setThreadWatermark(thread.id, String(nextWatermark), now())
       return update
     }
     if (thread.kind === 'btw' && thread.originSessionId) {
@@ -485,7 +485,7 @@ export class SuperagentService {
           ...(info?.cwd ? { cwd: info.cwd } : {}),
         }
         const seed = buildBtwSeed({ session, items })
-        this.store.setThreadWatermark(thread.id, last?.id ?? '', last?.ts)
+        this.store.superagent.setThreadWatermark(thread.id, last?.id ?? '', last?.ts)
         return seed
       }
       const delta = transcriptDelta(items, {
@@ -500,7 +500,7 @@ export class SuperagentService {
         delta,
         now: now(),
       })
-      this.store.setThreadWatermark(thread.id, last?.id ?? thread.watermarkItemId ?? '', last?.ts)
+      this.store.superagent.setThreadWatermark(thread.id, last?.id ?? thread.watermarkItemId ?? '', last?.ts)
       return update
     }
     return undefined
@@ -552,7 +552,7 @@ export class SuperagentService {
     sinceId: number,
     repoPath: string,
   ): { events: ConciergeEvent[]; overflowLastId?: number } {
-    const raw = this.store.listEventsSince(sinceId, { repoPath, limit: this.eventReadLimit })
+    const raw = this.store.events.listEventsSince(sinceId, { repoPath, limit: this.eventReadLimit })
     const events = raw
       .filter((e) => e.kind.startsWith('issue.'))
       .map((e) => ({ ts: e.ts, kind: e.kind, subject: e.subject, payload: e.payload }))

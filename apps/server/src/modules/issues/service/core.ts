@@ -44,7 +44,7 @@ export abstract class IssueServiceCore {
 
   private hydrate(): void {
     const map = new Map<string, IssueRow>()
-    for (const r of this.deps.store.listIssueRows()) map.set(r.id, r)
+    for (const r of this.deps.store.issues.listIssueRows()) map.set(r.id, r)
     this.hydrated = map
   }
 
@@ -83,7 +83,7 @@ export abstract class IssueServiceCore {
   /** blocked = open AND ≥1 `blocks` dep whose target issue is not closed. */
   protected computeBlocked(row: IssueRow): boolean {
     const blocksTargets = this.deps.store
-      .listIssueDeps(row.id)
+      .issues.listIssueDeps(row.id)
       .filter((d) => d.type === 'blocks')
       .map((d) => this.rows.get(d.toId))
     return isIssueBlocked(row, blocksTargets)
@@ -102,22 +102,22 @@ export abstract class IssueServiceCore {
     commentCounts?: Map<string, number>,
   ): IssueWire {
     const sessions = sessionsForIssue(row.worktreePath, sessionList, row.id)
-    const labels = this.deps.store.getIssueLabels(row.id)
+    const labels = this.deps.store.issues.getIssueLabels(row.id)
     const children = [...this.rows.values()].filter((r) => r.parentId === row.id)
     // Wire deps/dependents keep carrying the parent-child edges for client
     // compatibility, but they are SYNTHESIZED from parent_id / children —
     // issue_deps stores only real dependency types (#164).
     const deps = [
-      ...this.deps.store.listIssueDeps(row.id).map((d) => ({ id: d.toId, type: d.type })),
+      ...this.deps.store.issues.listIssueDeps(row.id).map((d) => ({ id: d.toId, type: d.type })),
       ...(row.parentId ? [{ id: row.parentId, type: 'parent-child' }] : []),
     ]
     const dependents = [
-      ...this.deps.store.listDependents(row.id).map((d) => ({ id: d.fromId, type: d.type })),
+      ...this.deps.store.issues.listDependents(row.id).map((d) => ({ id: d.fromId, type: d.type })),
       ...children.map((c) => ({ id: c.id, type: 'parent-child' })),
     ]
     const commentCount = commentCounts
       ? (commentCounts.get(row.id) ?? 0)
-      : this.deps.store.countIssueComments(row.id)
+      : this.deps.store.issues.countIssueComments(row.id)
     const blocked = this.computeBlocked(row)
     const deferred = this.isDeferred(row)
     const ready = !this.isClosed(row) && !deferred && !blocked
@@ -186,7 +186,7 @@ export abstract class IssueServiceCore {
 
   list(repoPath?: string): IssueWire[] {
     const sessionList = this.deps.listSessions()
-    const commentCounts = this.deps.store.countIssueCommentsByIssue()
+    const commentCounts = this.deps.store.issues.countIssueCommentsByIssue()
     return [...this.rows.values()]
       .filter((r) => this.inRepoScope(r, repoPath))
       .sort((a, b) => {
@@ -214,8 +214,8 @@ export abstract class IssueServiceCore {
    *  path equality only when a repo_id can't be resolved. `undefined` scope matches all. */
   protected inRepoScope(row: IssueRow, repoPath: string | undefined): boolean {
     if (!repoPath) return true
-    const scope = this.deps.store.resolveRepoIdForPath(repoPath)
-    const rowRepoId = row.repoId ?? this.deps.store.resolveRepoIdForPath(row.repoPath)
+    const scope = this.deps.store.repos.resolveRepoIdForPath(repoPath)
+    const rowRepoId = row.repoId ?? this.deps.store.repos.resolveRepoIdForPath(row.repoPath)
     return rowRepoId === scope
   }
 
@@ -272,7 +272,7 @@ export abstract class IssueServiceCore {
    *  break the mutation that triggered it. repoPath comes from the subject row. */
   protected emitEvent(kind: string, subject: string, payload: Record<string, unknown>): void {
     try {
-      this.deps.store.appendEvent({
+      this.deps.store.events.appendEvent({
         ts: this.now(),
         kind,
         subject,
@@ -301,7 +301,7 @@ export abstract class IssueServiceCore {
     return this.deps.funnel.run({
       write: () => {
         extraWrite?.()
-        this.deps.store.upsertIssue(row)
+        this.deps.store.issues.upsertIssue(row)
         return this.toWire(row)
       },
       publish: (wire) => this.deps.publishSpecs.issueUpdated(wire),

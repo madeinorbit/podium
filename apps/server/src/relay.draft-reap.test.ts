@@ -128,7 +128,7 @@ describe('boot-time leaked-draft sweep', () => {
     reg1.attachDaemon('local', () => {})
     const { draft, sessionId } = draftWithSession(reg1)
     // Leak: the session row vanishes without the reaper seeing it (pre-reaper kills).
-    new SessionStore(file).deleteSession(sessionId)
+    new SessionStore(file).sessions.deleteSession(sessionId)
     const reg2 = new SessionRegistry(new SessionStore(file))
     expect(reg2.issues.get(draft.id)).toBeNull()
   })
@@ -140,9 +140,9 @@ describe('boot-time leaked-draft sweep', () => {
     reg1.attachDaemon('local', () => {})
     const { draft, sessionId } = draftWithSession(reg1)
     // Force-persist the row as exited behind the reaper's back (leaked state).
-    const row = store.loadSessions().find((r) => r.id === sessionId)
+    const row = store.sessions.loadSessions().find((r) => r.id === sessionId)
     if (!row) throw new Error('session row missing')
-    store.upsertSession({ ...row, status: 'exited' })
+    store.sessions.upsertSession({ ...row, status: 'exited' })
     const reg2 = new SessionRegistry(new SessionStore(file))
     expect(reg2.issues.get(draft.id)).toBeNull()
     expect(reg2.modules.sessions.getSessionIssueId(sessionId)).toBeNull()

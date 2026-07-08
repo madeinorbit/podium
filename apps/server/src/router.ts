@@ -199,8 +199,8 @@ function inferCloudRepoForSession(
   }
 
   const repoRow =
-    ctx.registry.sessionStore.listRepos(session.machineId).find((row) => row.path === repoPath) ??
-    ctx.registry.sessionStore.listRepos().find((row) => row.path === repoPath)
+    ctx.registry.sessionStore.repos.listRepos(session.machineId).find((row) => row.path === repoPath) ??
+    ctx.registry.sessionStore.repos.listRepos().find((row) => row.path === repoPath)
   const repo = githubRepoFromOrigin(repoRow?.originUrl)
   if (!repo) {
     throw new TRPCError({

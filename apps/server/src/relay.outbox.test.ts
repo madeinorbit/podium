@@ -87,7 +87,7 @@ describe('queueText (durable outbox sends)', () => {
       expect(pastesContaining(daemon, 'wake-up-msg')).toEqual(['\x1b[200~wake-up-msg\x1b[201~'])
       // Delivered: the count leaves the meta and the durable row is gone.
       expect(reg.listSessions()[0]?.queuedMessageCount).toBeUndefined()
-      expect(reg.sessionStore.listQueuedMessages(sessionId)).toEqual([])
+      expect(reg.sessionStore.sync.listQueuedMessages(sessionId)).toEqual([])
     } finally {
       vi.useRealTimers()
     }
@@ -107,7 +107,7 @@ describe('queueText (durable outbox sends)', () => {
       reason: 'no resume ref',
     })
     // No durable row, no count on the meta, no wake attempt.
-    expect(reg.sessionStore.listQueuedMessages(sessionId)).toEqual([])
+    expect(reg.sessionStore.sync.listQueuedMessages(sessionId)).toEqual([])
     expect(reg.listSessions()[0]?.queuedMessageCount).toBeUndefined()
     expect(daemon.filter((m) => m.type === 'spawn')).toEqual([])
   })
@@ -140,7 +140,7 @@ describe('queueText (durable outbox sends)', () => {
       // Silent respawn: no output at all — the READY_MAX fallback (6s) delivers.
       vi.advanceTimersByTime(7_000)
       expect(pastesContaining(daemonB, 'survive-restart')).toHaveLength(1)
-      expect(regB.sessionStore.listQueuedMessages(sessionId)).toEqual([])
+      expect(regB.sessionStore.sync.listQueuedMessages(sessionId)).toEqual([])
       expect(
         regB.listSessions().find((s) => s.sessionId === sessionId)?.queuedMessageCount,
       ).toBeUndefined()
@@ -175,7 +175,7 @@ describe('queueText (durable outbox sends)', () => {
       const pastes = decodedInputs(daemon).filter((t) => t.startsWith('\x1b[200~'))
       expect(pastes).toEqual(['\x1b[200~first-msg\x1b[201~', '\x1b[200~second-msg\x1b[201~'])
       expect(reg.listSessions()[0]?.queuedMessageCount).toBeUndefined()
-      expect(reg.sessionStore.listQueuedMessages(sessionId)).toEqual([])
+      expect(reg.sessionStore.sync.listQueuedMessages(sessionId)).toEqual([])
     } finally {
       vi.useRealTimers()
     }
@@ -194,14 +194,14 @@ describe('queueText (durable outbox sends)', () => {
       vi.advanceTimersByTime(26_000)
       expect(pastesContaining(daemon, 'patient-msg')).toHaveLength(0)
       // The attempt gave up but the ROWS REMAIN — nothing was dropped.
-      expect(reg.sessionStore.listQueuedMessages(sessionId)).toHaveLength(1)
+      expect(reg.sessionStore.sync.listQueuedMessages(sessionId)).toHaveLength(1)
       expect(reg.listSessions()[0]?.queuedMessageCount).toBe(1)
 
       // The PTY finally binds → a fresh attempt re-arms and delivers after settle.
       reg.onDaemonMessageFrom('local', bind(sessionId))
       settle(reg, sessionId)
       expect(pastesContaining(daemon, 'patient-msg')).toHaveLength(1)
-      expect(reg.sessionStore.listQueuedMessages(sessionId)).toEqual([])
+      expect(reg.sessionStore.sync.listQueuedMessages(sessionId)).toEqual([])
     } finally {
       vi.useRealTimers()
     }

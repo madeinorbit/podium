@@ -158,15 +158,15 @@ function observe(reg: SessionRegistry, issueId: string): LifecycleObservation {
     wire: normalize(reg.issues.get(issueId)),
     events: normalize(
       store
-        .listEventsSince(0)
+        .events.listEventsSince(0)
         .map((e) => ({ kind: e.kind, subject: e.subject, repoPath: e.repoPath, payload: e.payload })),
     ),
-    comments: normalize(store.listIssueComments(issueId)),
+    comments: normalize(store.issues.listIssueComments(issueId)),
     // Compare the FOLDED oplog state, not row counts: sync writes coalesce
     // differently than awaited ones, but the final recorded truth must match.
     oplogIssues: normalize(
       store
-        .latestChangeStates()
+        .sync.latestChangeStates()
         .filter((r) => r.entity === 'issue')
         .map((r) => ({ op: r.op, payload: r.payload == null ? null : JSON.parse(r.payload) })),
     ),
@@ -295,7 +295,7 @@ describe('characterization: closed-state normalization (contract 2, issue #24)',
       expect(reg.issues.search({ repoPath: '/r', status: 'open' })).toEqual([])
       expect(reg.issues.stats('/r')).toMatchObject({ total: 1, closed: 1, open: 0 })
       // The close EVENT fires off the derived flip, with the patched reason.
-      const closed = reg.sessionStore.listEventsSince(0).filter((e) => e.kind === 'issue.closed')
+      const closed = reg.sessionStore.events.listEventsSince(0).filter((e) => e.kind === 'issue.closed')
       expect(closed).toHaveLength(1)
       expect(closed[0]?.payload).toMatchObject({ seq: w.seq, reason: 'wontfix' })
       // A contradictory patch (non-null reason + non-done stage) is nonsensical.
@@ -322,7 +322,7 @@ describe('characterization: closed-state normalization (contract 2, issue #24)',
       expect(reg.issues.stats('/r')).toMatchObject({ closed: 0, open: 1 })
       // The reopen is observable: issue.reopened fires on the true→false flip.
       const reopenedEvents = reg.sessionStore
-        .listEventsSince(0)
+        .events.listEventsSince(0)
         .filter((e) => e.kind === 'issue.reopened')
       expect(reopenedEvents).toHaveLength(1)
       expect(reopenedEvents[0]?.payload).toMatchObject({ seq: w.seq })
@@ -340,14 +340,14 @@ describe('characterization: closed-state normalization (contract 2, issue #24)',
       reg.issues.update(w.id, { stage: 'done' }) // drag back to done
       // #24: the reopen flipped the derived predicate false, so the re-close
       // flips it true again and issue.closed fires a second time.
-      const closed = reg.sessionStore.listEventsSince(0).filter((e) => e.kind === 'issue.closed')
+      const closed = reg.sessionStore.events.listEventsSince(0).filter((e) => e.kind === 'issue.closed')
       expect(closed).toHaveLength(2)
       // The second close came from a bare stage patch — reason defaults to 'done'.
       expect(closed[1]?.payload).toMatchObject({ seq: w.seq, reason: 'done' })
       // The stage churn IS visible as stage_changed (done→in_progress only;
       // transitions INTO done never emit stage_changed).
       const stages = reg.sessionStore
-        .listEventsSince(0)
+        .events.listEventsSince(0)
         .filter((e) => e.kind === 'issue.stage_changed')
         .map((e) => e.payload)
       expect(stages).toEqual([{ seq: w.seq, from: 'done', to: 'in_progress' }])
@@ -408,7 +408,7 @@ describe('characterization: oplog delta client heals to identical state (contrac
 
     // Compaction past the client's cursor forces the full-resync signal (null),
     // never a silent partial delta.
-    store.pruneChanges({ keepRows: 1, maxAgeMs: 60_000, now: Date.now() })
+    store.sync.pruneChanges({ keepRows: 1, maxAgeMs: 60_000, now: Date.now() })
     expect(oplog.changesSince(lagCursor)).toBeNull()
     store.close()
   })
@@ -445,19 +445,19 @@ describe('characterization: same-version DB reopen is a no-op (contract 5)', () 
     reg1.issues.addComment(issue.id, 'agent:test', 'durable note')
     reg1.issues.close(issue.id, 'done')
     reg1.withMutation('mut-char-1', 'issues.close', () => ({ ok: true }))
-    store1.enqueueMessage({ id: 'qm-char-1', sessionId, text: 'queued', queuedAt: 1000 })
+    store1.sync.enqueueMessage({ id: 'qm-char-1', sessionId, text: 'queued', queuedAt: 1000 })
     reg1.flushBroadcasts() // oplog `changes` rows
 
     // Capture the observable truth, then shut down cleanly.
     const before = {
-      sessionIds: store1.loadSessions().map((s) => s.id),
-      issue: store1.getIssue(issue.id),
-      comments: store1.listIssueComments(issue.id),
-      events: store1.listEventsSince(0),
-      changes: store1.changesSince(0),
-      maxChangeSeq: store1.maxChangeSeq(),
-      applied: store1.getAppliedMutation('mut-char-1'),
-      queued: store1.listQueuedMessages(sessionId),
+      sessionIds: store1.sessions.loadSessions().map((s) => s.id),
+      issue: store1.issues.getIssue(issue.id),
+      comments: store1.issues.listIssueComments(issue.id),
+      events: store1.events.listEventsSince(0),
+      changes: store1.sync.changesSince(0),
+      maxChangeSeq: store1.sync.maxChangeSeq(),
+      applied: store1.sync.getAppliedMutation('mut-char-1'),
+      queued: store1.sync.listQueuedMessages(sessionId),
     }
     expect(before.sessionIds).toContain(sessionId)
     expect(before.issue).not.toBeNull()
@@ -472,20 +472,20 @@ describe('characterization: same-version DB reopen is a no-op (contract 5)', () 
     // destructive ALTER twice, drop data, or reshape the schema.
     const store2 = new SessionStore(file)
     const after = {
-      sessionIds: store2.loadSessions().map((s) => s.id),
-      issue: store2.getIssue(issue.id),
-      comments: store2.listIssueComments(issue.id),
-      events: store2.listEventsSince(0),
-      changes: store2.changesSince(0),
-      maxChangeSeq: store2.maxChangeSeq(),
-      applied: store2.getAppliedMutation('mut-char-1'),
-      queued: store2.listQueuedMessages(sessionId),
+      sessionIds: store2.sessions.loadSessions().map((s) => s.id),
+      issue: store2.issues.getIssue(issue.id),
+      comments: store2.issues.listIssueComments(issue.id),
+      events: store2.events.listEventsSince(0),
+      changes: store2.sync.changesSince(0),
+      maxChangeSeq: store2.sync.maxChangeSeq(),
+      applied: store2.sync.getAppliedMutation('mut-char-1'),
+      queued: store2.sync.listQueuedMessages(sessionId),
     }
     expect(after).toEqual(before)
 
     // The oplog seq keeps counting from where it was — a reset here would corrupt
     // every client cursor.
-    const next = store2.appendChanges(
+    const next = store2.sync.appendChanges(
       [{ entity: 'issue', entityId: issue.id, op: 'upsert', payload: '{}' }],
       2000,
     )

@@ -45,7 +45,7 @@ describe('upstream sync token auth e2e (password-gated hub)', () => {
       url: `http://127.0.0.1:${hub.port}`,
       token,
       mirror: registry,
-      store,
+      store: store.settings,
       backoff: { minMs: 25, maxMs: 100 },
     })
     return { store, registry, sync }
