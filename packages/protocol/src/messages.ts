@@ -15,12 +15,130 @@ export type Viewport = z.infer<typeof Viewport>
 export const AgentKind = z.enum(['claude-code', 'codex', 'grok', 'opencode', 'cursor', 'shell'])
 export type AgentKind = z.infer<typeof AgentKind>
 
-/** Agent CLIs that accept an initial prompt as a trailing positional argv token
+/** Type guard for the wire kind (superagent metadata, hook payloads, …). */
+export function isAgentKind(v: unknown): v is AgentKind {
+  return typeof v === 'string' && (AgentKind.options as readonly string[]).includes(v)
+}
+
+/**
+ * Per-kind capability flags (#158) — the ONE declarative table of what each
+ * harness CLI supports. Pure data (protocol is a leaf), consumed by:
+ *   - @podium/agent-bridge's HarnessAdapter registry (each adapter embeds its row);
+ *   - apps/server gating (argv prompt vs composer seed, effort flag, cloud);
+ *   - apps/daemon spawn/observer wiring (OSC titles, hook install strategy).
+ * Adding a harness = adding its row here + an adapter file (the registry's
+ * exhaustive Record makes a missing row/adapter a type error).
+ */
+export interface AgentCapabilities {
+  /** Accepts the first prompt as a trailing positional argv token (race-free);
+   *  false ⇒ the server seeds the composer draft instead. */
+  argvPrompt: boolean
+  /** How a reasoning-effort override reaches the CLI. 'none' ⇒ silently dropped. */
+  effortFlag: 'effort' | 'codex-config' | 'variant' | 'none'
+  /** Has a native extra-system-prompt flag (claude `--append-system-prompt`);
+   *  false ⇒ orchestrator prompts are prepended to the user prompt. */
+  systemPromptFlag: boolean
+  /** The daemon can read local quota/rate-limit state for this harness. */
+  quota: boolean
+  /** Sessions of this kind can be moved to a cloud runtime. */
+  cloud: boolean
+  /** The web controller can scrape the native TUI composer for draft sync. */
+  composerScrape: boolean
+  /** The harness's OSC terminal title is meaningful and forwarded (codex sets
+   *  a churning cwd-basename title, which the daemon suppresses). */
+  oscTitle: boolean
+  /** Reads CLAUDE_CODE_SUBAGENT_MODEL-style env for subagent model selection. */
+  subagentModelEnv: boolean
+  /** How Podium's state hooks reach the harness: per-spawn settings/args
+   *  ('settings-args'), a global hook install activated per-session via env
+   *  ('global-env'), or none (observer-only harnesses). */
+  hookInstall: 'settings-args' | 'global-env' | 'none'
+}
+
+export const AGENT_CAPABILITIES: Record<AgentKind, AgentCapabilities> = {
+  'claude-code': {
+    argvPrompt: true,
+    effortFlag: 'effort',
+    systemPromptFlag: true,
+    quota: true,
+    cloud: true,
+    composerScrape: true,
+    oscTitle: true,
+    subagentModelEnv: true,
+    hookInstall: 'settings-args',
+  },
+  codex: {
+    argvPrompt: true,
+    effortFlag: 'codex-config',
+    systemPromptFlag: false,
+    quota: true,
+    cloud: true,
+    composerScrape: true,
+    oscTitle: false,
+    subagentModelEnv: false,
+    hookInstall: 'global-env',
+  },
+  grok: {
+    argvPrompt: true,
+    effortFlag: 'effort',
+    systemPromptFlag: false,
+    quota: false,
+    cloud: false,
+    composerScrape: false,
+    oscTitle: true,
+    subagentModelEnv: false,
+    hookInstall: 'none',
+  },
+  opencode: {
+    argvPrompt: false,
+    effortFlag: 'variant',
+    systemPromptFlag: false,
+    quota: false,
+    cloud: false,
+    composerScrape: false,
+    oscTitle: true,
+    subagentModelEnv: false,
+    hookInstall: 'none',
+  },
+  cursor: {
+    argvPrompt: false,
+    effortFlag: 'none',
+    systemPromptFlag: false,
+    quota: false,
+    cloud: false,
+    composerScrape: false,
+    oscTitle: true,
+    subagentModelEnv: false,
+    hookInstall: 'none',
+  },
+  shell: {
+    argvPrompt: false,
+    effortFlag: 'none',
+    systemPromptFlag: false,
+    quota: false,
+    cloud: false,
+    composerScrape: false,
+    oscTitle: true,
+    subagentModelEnv: false,
+    hookInstall: 'none',
+  },
+}
+
+/** Accepts the first prompt as a trailing positional argv token
  *  (`claude "<prompt>"` / `codex "<prompt>"` / `grok "<prompt>"`) — the race-free
  *  way to hand a fresh session its first prompt. Others must seed the composer draft. */
-const ARGV_PROMPT_AGENTS: ReadonlySet<AgentKind> = new Set(['claude-code', 'codex', 'grok'])
 export function agentSupportsInitialPrompt(kind: AgentKind): boolean {
-  return ARGV_PROMPT_AGENTS.has(kind)
+  return AGENT_CAPABILITIES[kind].argvPrompt
+}
+
+/** Has a reasoning-effort flag at all; cursor + shell drop effort silently. */
+export function agentSupportsEffort(kind: AgentKind): boolean {
+  return AGENT_CAPABILITIES[kind].effortFlag !== 'none'
+}
+
+/** Kinds whose sessions can be moved to a cloud runtime (claude-code, codex). */
+export function agentSupportsCloud(kind: AgentKind): boolean {
+  return AGENT_CAPABILITIES[kind].cloud
 }
 
 export const ResumeRef = z.object({ kind: z.string(), value: z.string() })

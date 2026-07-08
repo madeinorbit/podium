@@ -2,7 +2,7 @@ import { mkdir, mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
-import { agentStateProviderFor } from './claude-code.js'
+import { agentStateProviderFor } from '../harness/registry.js'
 import { observeOpencodeState, opencodeStateProvider } from './opencode.js'
 
 // Mock the opencode DB module so the gate test can (a) count handle opens and the

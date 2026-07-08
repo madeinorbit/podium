@@ -1,16 +1,9 @@
-import {
-  fileChainSource,
-  type OpencodeMessagePartRow,
-  recordToItemsForKind,
-  sliceItemsByAnchor,
-  stampOpencodeItems,
-  type TranscriptSource,
-} from '@podium/transcript'
-import { loadOpencodeTranscriptTail, openOpencodeDb } from '../opencode/db.js'
-import { resolveFileChain } from './file-chain.js'
+import { homedir } from 'node:os'
+import { fileChainSource, recordToItemsForKind, type TranscriptSource } from '@podium/transcript'
+import { harnessAdapterFor } from '../harness/registry.js'
 
 // Compat re-exports: the storage-neutral source layer moved to @podium/transcript;
-// only the per-harness resolution (locators + the opencode SQLite binding) stays here.
+// the opencode SQLite binding lives in its harness adapter.
 export {
   fileChainSource,
   recordToItemsForKind,
@@ -18,42 +11,14 @@ export {
   stampOpencodeItems,
   type TranscriptSource,
 } from '@podium/transcript'
+export { opencodeDbSource } from '../harness/adapters/opencode.js'
 
 /**
- * Source for opencode. opencode stores transcript "parts" in SQLite ordered by
- * `(time_updated ASC, id ASC)`. A single session's parts are bounded (≤8000, the
- * `loadOpencodeTranscriptTail` cap), so loading them in one indexed query is
- * cheap and IS the bounded read — there is no per-call full-DB scan beyond this
- * one session's capped part list. We then build the full ordered item list and
- * index-slice it in memory, exactly matching `readTranscriptSlice`'s semantics.
- */
-export function opencodeDbSource(input: { sessionId: string; homeDir?: string }): TranscriptSource {
-  return {
-    readSlice: async (opts) => {
-      if (opts.limit <= 0) return { items: [], hasMore: false }
-      const db = openOpencodeDb(input.homeDir)
-      if (!db) return { items: [], hasMore: false }
-      let rows: OpencodeMessagePartRow[]
-      try {
-        rows = loadOpencodeTranscriptTail(db, input.sessionId)
-      } catch {
-        return { items: [], hasMore: false }
-      } finally {
-        db.close()
-      }
-      // ASC by (time_updated, id); each part expands to 0..N stamped items in
-      // intra-part order, so `all` is the session's full transcript in total order.
-      const all = stampOpencodeItems(rows, input.sessionId)
-      return sliceItemsByAnchor(all, opts)
-    },
-  }
-}
-
-/**
- * Resolve the right `TranscriptSource` for a session by harness. opencode is
- * SQLite-backed (no file chain); every other harness resolves a file chain from
- * disk and reads it via the chain reader. Async because the file harnesses
- * resolve their chain from disk.
+ * Resolve the right `TranscriptSource` for a session by harness — a lookup into
+ * the adapter registry: each adapter's `transcript.sourceFor` knows its storage
+ * (file chain vs opencode's SQLite). Unknown kinds (including 'shell') read as
+ * an empty file-chain source, matching the pre-registry behavior. Async because
+ * the file harnesses resolve their chain from disk.
  */
 export async function transcriptSourceFor(input: {
   agentKind: string
@@ -64,17 +29,12 @@ export async function transcriptSourceFor(input: {
   pathHint?: string
   homeDir?: string
 }): Promise<TranscriptSource> {
-  if (input.agentKind === 'opencode') {
-    // No resume value → nothing to read; hand back an inert empty source so the
-    // caller need not special-case it.
-    if (!input.resumeValue) {
-      return { readSlice: async () => ({ items: [], hasMore: false }) }
-    }
-    return opencodeDbSource({
-      sessionId: input.resumeValue,
-      ...(input.homeDir !== undefined ? { homeDir: input.homeDir } : {}),
-    })
-  }
-  const chain = await resolveFileChain(input)
-  return fileChainSource(chain, recordToItemsForKind(input.agentKind))
+  const adapter = harnessAdapterFor(input.agentKind)
+  if (!adapter) return fileChainSource([], recordToItemsForKind(input.agentKind))
+  return adapter.transcript.sourceFor({
+    cwd: input.cwd,
+    ...(input.resumeValue !== undefined ? { resumeValue: input.resumeValue } : {}),
+    ...(input.pathHint !== undefined ? { pathHint: input.pathHint } : {}),
+    homeDir: input.homeDir ?? homedir(),
+  })
 }

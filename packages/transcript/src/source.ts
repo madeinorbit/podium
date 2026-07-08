@@ -165,12 +165,29 @@ function findOpencodeAnchorIndex(items: TranscriptItem[], anchor: string): numbe
 // Per-kind record mapper.
 // ---------------------------------------------------------------------------
 
+/** The per-kind record→items mapper registry. Seeded with the built-in
+ *  harnesses; `registerTranscriptRecordMapper` is the extension seam a new
+ *  harness's adapter uses to plug its parser in (this package stays a
+ *  near-leaf — implementations register from outside, it imports nothing). */
+const RECORD_MAPPERS: Record<string, (r: unknown) => TranscriptItem[]> = {
+  'claude-code': claudeRecordToItems,
+  codex: codexRecordToItems,
+  cursor: cursorRecordToItems,
+  grok: grokRecordToItems,
+}
+
+/** Register (or override) the record→items mapper for an agent kind. */
+export function registerTranscriptRecordMapper(
+  agentKind: string,
+  mapper: (r: unknown) => TranscriptItem[],
+): void {
+  RECORD_MAPPERS[agentKind] = mapper
+}
+
 /** Per-harness record→items mapper, mirroring the daemon's `resolveTranscriptSource`.
  *  Exported for the server's lake-fallback read (docs/spec/search-v1.md §2.2): the
- *  lake file is the native JSONL byte-verbatim, so the same mapper applies. */
+ *  lake file is the native JSONL byte-verbatim, so the same mapper applies.
+ *  Unknown kinds fall back to the claude mapper (historical behavior). */
 export function recordToItemsForKind(agentKind: string): (r: unknown) => TranscriptItem[] {
-  if (agentKind === 'codex') return codexRecordToItems
-  if (agentKind === 'cursor') return cursorRecordToItems
-  if (agentKind === 'grok') return grokRecordToItems
-  return claudeRecordToItems
+  return RECORD_MAPPERS[agentKind] ?? claudeRecordToItems
 }

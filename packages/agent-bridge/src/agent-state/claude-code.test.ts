@@ -2,8 +2,8 @@ import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { agentStateProviderFor } from '../harness/registry.js'
 import {
-  agentStateProviderFor,
   classifyClaudeTranscriptState,
   classifyIdleTranscript,
   claudeCodeStateProvider,
@@ -328,7 +328,9 @@ describe('Stop payload end-to-end with a real transcript file', () => {
       transcript,
       [
         '{"type":"user","message":{"role":"user","content":"keep looping"}}',
-        assistantLine([{ type: 'tool_use', id: 'w1', name: 'ScheduleWakeup', input: { delaySeconds: 600 } }]),
+        assistantLine([
+          { type: 'tool_use', id: 'w1', name: 'ScheduleWakeup', input: { delaySeconds: 600 } },
+        ]),
         userLine([{ type: 'tool_result', tool_use_id: 'w1', content: 'Next wakeup scheduled' }]),
         // A /loop tick often prints a one-line recap AFTER scheduling. That trailing
         // "complete" text must NOT flip the verdict back to idle/finished.

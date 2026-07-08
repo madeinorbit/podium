@@ -1,6 +1,9 @@
 import type { Stats } from 'node:fs'
+import type { HarnessAgent } from '@podium/protocol'
 
-export type AgentKind = 'codex' | 'claude-code' | 'grok' | 'opencode' | 'cursor'
+/** The discoverable harness kinds — protocol's AgentKind minus 'shell'.
+ *  Unified with the wire enum (#158); previously a duplicate literal union. */
+export type AgentKind = HarnessAgent
 
 export type AgentConversationRole = 'user' | 'assistant' | 'system' | 'tool' | 'unknown'
 

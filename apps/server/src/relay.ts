@@ -881,7 +881,7 @@ export class SessionRegistry {
 
   /** One-shot `claude -p` / `codex exec` / `grok -p` on a dev machine. */
   harnessExec(input: {
-    agent: 'claude-code' | 'codex' | 'grok' | 'opencode' | 'cursor'
+    agent: HarnessAgent
     model?: string
     prompt: string
     cwd?: string

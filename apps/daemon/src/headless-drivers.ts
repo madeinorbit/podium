@@ -7,6 +7,7 @@ import {
   type PermissionMode,
   query,
 } from '@anthropic-ai/claude-agent-sdk'
+import { type HeadlessExecOptions, harnessAdapterFor } from '@podium/agent-bridge'
 import type { HarnessAgent, HeadlessTurnEvent } from '@podium/protocol'
 import type { HarnessBins } from './harness-exec.js'
 
@@ -174,99 +175,17 @@ function runClaudeTurn(spec: HeadlessTurnSpec, emit: HeadlessEmit): HeadlessTurn
 /** Pure argv builder for the child-process drivers (codex/grok/opencode/cursor)
  *  so the exact invocation shape is unit-testable. `sessionId` is the pinned
  *  harness session id (pre-minted for grok/cursor; absent on a codex/opencode
- *  first turn, where the id is captured from the JSON event stream). */
+ *  first turn, where the id is captured from the JSON event stream). Pure
+ *  dispatch into the harness adapter registry (#158): each adapter's
+ *  `headless.buildExec` owns its CLI's invocation shape.  */
 export function buildHeadlessExec(
   agent: Exclude<HarnessAgent, 'claude-code'>,
-  opts: {
-    prompt: string
-    model?: string
-    effort?: string
-    systemPrompt?: string
-    mcpConfig?: string
-    resumeValue?: string
-    sessionId?: string
-  },
+  opts: HeadlessExecOptions,
   bins: HarnessBins,
 ): { cmd: string; args: string[] } {
-  const model = opts.model && opts.model !== 'auto' ? opts.model : undefined
-  const modelArgs = (flag: string): string[] => (model ? [flag, model] : [])
-  const sys = opts.systemPrompt?.trim()
-  // None of these CLIs has a native extra-system-prompt flag — prepend it,
-  // same fold buildHarnessExec applies.
-  const prompt = sys ? `${sys}\n\n---\n\n${opts.prompt}` : opts.prompt
-
-  switch (agent) {
-    case 'codex':
-      return {
-        cmd: 'codex',
-        args: [
-          'exec',
-          // Turns ≥2 thread onto the existing rollout; `resume` is a subcommand,
-          // not a flag (verified codex-cli 0.142.5).
-          ...(opts.resumeValue ? ['resume', opts.resumeValue] : []),
-          '--json',
-          '--skip-git-repo-check',
-          ...modelArgs('--model'),
-          ...(opts.effort ? ['-c', `model_reasoning_effort=${JSON.stringify(opts.effort)}`] : []),
-          ...codexMcpOverrideArgs(opts.mcpConfig),
-          // Prompt as positional is safe: no variadic flag precedes it (same
-          // reasoning as buildHarnessExec). The caller closes stdin immediately.
-          prompt,
-        ],
-      }
-    case 'grok':
-      // -s/--session-id is create-or-resume — the daemon mints the UUID on the
-      // first turn, so every turn uses the same pinned invocation.
-      return {
-        cmd: 'grok',
-        args: ['-p', '--session-id', opts.sessionId ?? '', ...modelArgs('--model'), prompt],
-      }
-    case 'opencode':
-      // First turn has no id (opencode mints ses_… internally; captured from the
-      // --format json event stream); later turns pin with -s.
-      return {
-        cmd: bins.opencode(),
-        args: [
-          'run',
-          '--format',
-          'json',
-          ...(opts.resumeValue ? ['-s', opts.resumeValue] : []),
-          ...modelArgs('-m'),
-          prompt,
-        ],
-      }
-    case 'cursor':
-      // The chat id is pre-allocated with `cursor-agent create-chat` (bare UUID
-      // on stdout) so even the first turn runs pinned via --resume.
-      return {
-        cmd: bins.cursor(),
-        args: ['-p', '--resume', opts.sessionId ?? '', ...modelArgs('--model'), prompt],
-      }
-  }
-}
-
-/** Codex has no MCP config file flag; servers ride `-c` TOML overrides (same
- *  translation as harness-exec, duplicated here to keep that module's contract
- *  untouched). */
-function codexMcpOverrideArgs(mcpConfig: string | undefined): string[] {
-  if (!mcpConfig) return []
-  let servers: Record<string, { url?: string; headers?: Record<string, string> }>
-  try {
-    servers = (JSON.parse(mcpConfig) as { mcpServers?: typeof servers }).mcpServers ?? {}
-  } catch {
-    throw new Error('malformed MCP config for codex — refusing a tool-less headless turn')
-  }
-  const args: string[] = []
-  for (const [name, srv] of Object.entries(servers)) {
-    if (!srv.url) continue
-    args.push('-c', `mcp_servers.${JSON.stringify(name)}.url=${JSON.stringify(srv.url)}`)
-    const headers = Object.entries(srv.headers ?? {})
-    if (headers.length > 0) {
-      const toml = headers.map(([k, v]) => `${JSON.stringify(k)}=${JSON.stringify(v)}`).join(',')
-      args.push('-c', `mcp_servers.${JSON.stringify(name)}.http_headers={${toml}}`)
-    }
-  }
-  return args
+  const buildExec = harnessAdapterFor(agent)?.headless.buildExec
+  if (!buildExec) throw new Error(`agent kind ${String(agent)} has no headless exec builder`)
+  return buildExec(opts, bins)
 }
 
 function runChild<T>(
@@ -474,22 +393,35 @@ function runResumeExecTurn(
   return { done, interrupt: () => interrupt() }
 }
 
-/** Driver selection by agent. */
+type HeadlessDriver = (
+  spec: HeadlessTurnSpec,
+  emit: HeadlessEmit,
+  bins: HarnessBins,
+) => HeadlessTurnHandle
+
+const resumeExecDriver: HeadlessDriver = (spec, emit, bins) =>
+  runResumeExecTurn(
+    spec as HeadlessTurnSpec & { agent: 'grok' | 'opencode' | 'cursor' },
+    emit,
+    bins,
+  )
+
+/** Driver per harness (adapter.headless.driver names which one applies). The
+ *  exhaustive Record is the daemon-side half of the #158 registry contract:
+ *  a new harness kind fails typecheck here until it declares its driver. */
+const HEADLESS_DRIVERS: Record<HarnessAgent, HeadlessDriver> = {
+  'claude-code': (spec, emit) => runClaudeTurn(spec, emit),
+  codex: (spec, emit) => runCodexTurn(spec, emit),
+  grok: resumeExecDriver,
+  opencode: resumeExecDriver,
+  cursor: resumeExecDriver,
+}
+
+/** Driver selection by agent — a registry lookup. */
 export function runHeadlessTurn(
   spec: HeadlessTurnSpec,
   emit: HeadlessEmit,
   bins: HarnessBins,
 ): HeadlessTurnHandle {
-  switch (spec.agent) {
-    case 'claude-code':
-      return runClaudeTurn(spec, emit)
-    case 'codex':
-      return runCodexTurn(spec, emit)
-    default:
-      return runResumeExecTurn(
-        spec as HeadlessTurnSpec & { agent: 'grok' | 'opencode' | 'cursor' },
-        emit,
-        bins,
-      )
-  }
+  return HEADLESS_DRIVERS[spec.agent](spec, emit, bins)
 }

@@ -10,7 +10,7 @@ import {
   setUpdateChannel,
   validatePublicUrl,
 } from '@podium/core/setup'
-import { AgentKind, ResumeRef, WorkState } from '@podium/protocol'
+import { AgentKind, agentSupportsCloud, isAgentKind, ResumeRef, WorkState } from '@podium/protocol'
 import { initTRPC, TRPCError } from '@trpc/server'
 import { z } from 'zod'
 import { clearPassword, hasPassword, setPassword, verifyPassword } from './auth-store'
@@ -139,7 +139,9 @@ function cloudProvider(ctx: Context): CloudRuntimeProvider {
 }
 
 function cloudAgentKind(agentKind: string): CloudAgentKind {
-  if (agentKind === 'claude-code' || agentKind === 'codex') return agentKind
+  // Capability lookup (#158): cloud-movable kinds are declared in the protocol
+  // capability table (claude-code, codex today).
+  if (isAgentKind(agentKind) && agentSupportsCloud(agentKind)) return agentKind as CloudAgentKind
   throw new TRPCError({
     code: 'BAD_REQUEST',
     message: `agent kind ${agentKind} cannot be moved to cloud yet`,

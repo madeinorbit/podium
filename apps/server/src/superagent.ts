@@ -1,7 +1,13 @@
 import { randomUUID } from 'node:crypto'
 import { homedir } from 'node:os'
 import { HARNESS_MCP_SUPPORT, superagentHarnessAgent } from '@podium/core'
-import { HarnessAgent, type IssueWire, type TranscriptItem, WorkState } from '@podium/protocol'
+import {
+  HarnessAgent,
+  type IssueWire,
+  isAgentKind,
+  type TranscriptItem,
+  WorkState,
+} from '@podium/protocol'
 import { createIssue, moveIssue, searchIssues } from './linear'
 import { LlmConfigError, type LlmMessage, type LlmTool, llmClient } from './llm'
 import type { McpToolProvider } from './mcp-route'
@@ -2096,18 +2102,7 @@ function str(v: unknown): string | undefined {
 function num(v: unknown): number | undefined {
   return typeof v === 'number' && Number.isFinite(v) ? v : undefined
 }
-function isAgentKind(
-  v: unknown,
-): v is 'claude-code' | 'codex' | 'grok' | 'opencode' | 'cursor' | 'shell' {
-  return (
-    v === 'claude-code' ||
-    v === 'codex' ||
-    v === 'grok' ||
-    v === 'opencode' ||
-    v === 'cursor' ||
-    v === 'shell'
-  )
-}
+// isAgentKind moved to @podium/protocol (#158) — the one wire-kind guard.
 
 function renderTranscriptItem(item: TranscriptItem): string {
   if (item.role === 'tool') {

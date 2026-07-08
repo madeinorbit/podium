@@ -1,19 +1,14 @@
 import { open } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import type { AgentKind } from '@podium/protocol'
 import { lastTimestampedRecordIso } from './boot-time.js'
-import { locateClaudeSessionFile } from './claude-locate.js'
 import {
   type ClaudeTranscriptFeatures,
   classifyClaudeTranscriptDeterministically,
   extractClaudeTranscriptFeatures,
 } from './claude-code-classifier.js'
-import { codexStateProvider } from './codex.js'
-import { cursorStateProvider } from './cursor.js'
+import { locateClaudeSessionFile } from './claude-locate.js'
 import { type DeterministicAgentState, deterministicStateToEvents } from './deterministic.js'
-import { grokStateProvider } from './grok.js'
-import { opencodeStateProvider } from './opencode.js'
 import type { AgentInstrumentation, AgentStateEvent, AgentStateProvider } from './types.js'
 
 // Observation only: every hook replies 200 {} immediately (see the daemon's
@@ -294,12 +289,5 @@ async function stopEvents(p: Record<string, unknown>): Promise<AgentStateEvent[]
   return [{ kind: 'turn_completed', ...(verdict ? { verdict } : {}) }]
 }
 
-/** The provider registry. Uninstrumented kinds return undefined → phase stays 'unknown'. */
-export function agentStateProviderFor(kind: AgentKind): AgentStateProvider | undefined {
-  if (kind === 'claude-code') return claudeCodeStateProvider
-  if (kind === 'grok') return grokStateProvider
-  if (kind === 'codex') return codexStateProvider
-  if (kind === 'opencode') return opencodeStateProvider
-  if (kind === 'cursor') return cursorStateProvider
-  return undefined
-}
+// agentStateProviderFor moved to the harness adapter registry (harness/registry.ts,
+// #158) — each adapter carries its own state provider.

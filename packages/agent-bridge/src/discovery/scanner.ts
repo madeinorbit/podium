@@ -1,12 +1,8 @@
 import { realpath as realpathFs, stat } from 'node:fs/promises'
 import { sep } from 'node:path'
+import { HARNESS_ADAPTERS } from '../harness/registry.js'
 import type { ConversationDiscoveryCache } from './cache.js'
 import { canonicalPath, expandHome, isDirectory } from './paths.js'
-import { createClaudeCodeConversationProvider } from './providers/claude-code.js'
-import { createCodexConversationProvider } from './providers/codex.js'
-import { createCursorConversationProvider } from './providers/cursor.js'
-import { createGrokConversationProvider } from './providers/grok.js'
-import { createOpencodeConversationProvider } from './providers/opencode.js'
 import {
   type AgentConversation,
   type AgentConversationDiagnostic,
@@ -20,12 +16,14 @@ import {
   type ScanAgentConversationsResult,
 } from './types.js'
 
+// The adapters own the provider instances (#158); scan priority keeps the
+// historical order (codex first, then claude-code, grok, opencode, cursor).
 const builtInProviders: readonly ConversationProvider[] = [
-  createCodexConversationProvider(),
-  createClaudeCodeConversationProvider(),
-  createGrokConversationProvider(),
-  createOpencodeConversationProvider(),
-  createCursorConversationProvider(),
+  HARNESS_ADAPTERS.codex.discovery,
+  HARNESS_ADAPTERS['claude-code'].discovery,
+  HARNESS_ADAPTERS.grok.discovery,
+  HARNESS_ADAPTERS.opencode.discovery,
+  HARNESS_ADAPTERS.cursor.discovery,
 ]
 
 const providersById = new Map(builtInProviders.map((provider) => [provider.id, provider]))

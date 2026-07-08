@@ -62,6 +62,7 @@ import { writeConnectivity } from '@podium/core/connectivity'
 import { startLoopMetrics } from '@podium/core/loop-metrics'
 import { consumePairCode } from '@podium/core/setup'
 import {
+  AGENT_CAPABILITIES,
   type AgentKind,
   type ControlMessage,
   type ConversationDiagnosticWire,
@@ -72,6 +73,7 @@ import {
   encode,
   type GitDiscoveryDiagnosticWire,
   type GitRepositoryWire,
+  type HarnessAgent,
   parseControlMessage,
   parseDaemonHandshakeReply,
   type TranscriptItem,
@@ -1063,6 +1065,44 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
   const pathHintOf = (msg: SpawnControl | ReattachControl): string | undefined =>
     'pathHint' in msg ? msg.pathHint : undefined
 
+  // Per-harness observer wiring — the daemon-side half of the #158 adapter
+  // registry (the closures live here, next to the observers they start). The
+  // exhaustive Record makes a new harness kind a type error until it declares
+  // its observer binding.
+  const sessionObserverBindings: Record<
+    HarnessAgent,
+    (
+      msg: SpawnControl | ReattachControl,
+      init: { seedOnFrame: boolean; grokStartedAt?: number },
+    ) => void
+  > = {
+    grok: (msg, init) => {
+      startGrokStateObserver(msg.sessionId, msg.cwd, msg.resume?.value, init.grokStartedAt)
+    },
+    codex: (msg, init) => {
+      // Codex creates its rollout lazily (often at the first prompt), so a
+      // reattached observer must still be able to discover by cwd — floored at
+      // the session's original spawn time so it can't latch onto an older
+      // sibling's rollout. Spawn passes its own start; reattach the persisted one.
+      const codexFloor = init.grokStartedAt ?? ('createdAtMs' in msg ? msg.createdAtMs : undefined)
+      startCodexStateObserver(msg.sessionId, msg.cwd, msg.resume?.value, codexFloor)
+    },
+    opencode: (msg, init) => {
+      startOpencodeStateObserver(msg.sessionId, msg.cwd, msg.resume?.value, init.grokStartedAt)
+    },
+    cursor: (msg, init) => {
+      startCursorStateObserver(msg.sessionId, msg.cwd, msg.resume?.value, init.grokStartedAt)
+      if (msg.resume) tailCursorTranscript(msg.sessionId, msg.cwd, msg.resume.value)
+    },
+    'claude-code': (msg) => {
+      // Ungated: start the tail even without a resume ref (discover the newest
+      // file in the cwd bucket). A hook later re-points the tail if needed.
+      // Reattach carries the server's recorded segment path — evidence beats
+      // cwd derivation after a worktree move (conversation registry §3.3).
+      startClaudeTranscriptTail(msg.sessionId, msg.cwd, msg.resume?.value, pathHintOf(msg))
+    },
+  }
+
   const initSessionObservers = (
     msg: SpawnControl | ReattachControl,
     session: AgentSession,
@@ -1075,27 +1115,13 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
         state: initialAgentState(new Date().toISOString()),
       })
     }
-    if (msg.agentKind === 'grok') {
-      startGrokStateObserver(msg.sessionId, msg.cwd, msg.resume?.value, init.grokStartedAt)
-    } else if (msg.agentKind === 'codex') {
-      // Codex creates its rollout lazily (often at the first prompt), so a
-      // reattached observer must still be able to discover by cwd — floored at
-      // the session's original spawn time so it can't latch onto an older
-      // sibling's rollout. Spawn passes its own start; reattach the persisted one.
-      const codexFloor = init.grokStartedAt ?? ('createdAtMs' in msg ? msg.createdAtMs : undefined)
-      startCodexStateObserver(msg.sessionId, msg.cwd, msg.resume?.value, codexFloor)
-    } else if (msg.agentKind === 'opencode') {
-      startOpencodeStateObserver(msg.sessionId, msg.cwd, msg.resume?.value, init.grokStartedAt)
-    } else if (msg.agentKind === 'cursor') {
-      startCursorStateObserver(msg.sessionId, msg.cwd, msg.resume?.value, init.grokStartedAt)
-      if (msg.resume) tailCursorTranscript(msg.sessionId, msg.cwd, msg.resume.value)
-    } else if (msg.agentKind === 'claude-code') {
-      // Ungated: start the tail even without a resume ref (discover the newest
-      // file in the cwd bucket). A hook later re-points the tail if needed.
-      // Reattach carries the server's recorded segment path — evidence beats
-      // cwd derivation after a worktree move (conversation registry §3.3).
-      startClaudeTranscriptTail(msg.sessionId, msg.cwd, msg.resume?.value, pathHintOf(msg))
-    }
+    // Registry lookup; 'shell' has no binding (no transcript, no observers).
+    const bindObservers = (
+      sessionObserverBindings as Partial<
+        Record<AgentKind, (typeof sessionObserverBindings)[HarnessAgent]>
+      >
+    )[msg.agentKind]
+    bindObservers?.(msg, init)
     if (provider?.bootEvents) {
       // const capture so the narrowing survives into the onFrame closure.
       const bootProvider = provider
@@ -1257,9 +1283,10 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
       outputScheduler.enqueue(sessionId, frame.data)
     })
     // Codex sets its OSC title to the cwd basename (+ a spinner glyph that churns at
-    // frame-rate), which would clobber the real title the codex observer derives.
-    // Every other harness sets a meaningful OSC title, so forward it for them.
-    if (agentKind !== 'codex') {
+    // frame-rate), which would clobber the real title the codex observer derives
+    // (capabilities.oscTitle: false). Every other harness sets a meaningful OSC
+    // title, so forward it for them.
+    if (AGENT_CAPABILITIES[agentKind].oscTitle) {
       session.onTitle((title) => send({ type: 'title', sessionId, title }))
     }
     session.onExit((code) => {
@@ -1333,11 +1360,11 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
           ...issueRelayEnv(msg.sessionId, issueRelay.endpointFor(msg.sessionId)),
           // Subagent model rides as env — Claude Code reads it; harmless elsewhere.
           ...(msg.subagentModel ? { CLAUDE_CODE_SUBAGENT_MODEL: msg.subagentModel } : {}),
-          // Codex native hooks are installed GLOBALLY (hooks.json is per
-          // CODEX_HOME, not per spawn); the per-session ingest URL rides the env
-          // instead. The hook command exits 0 instantly when the var is absent,
-          // so codex runs outside Podium are unaffected.
-          ...(msg.agentKind === 'codex'
+          // 'global-env' hook installs (codex): hooks.json is installed GLOBALLY
+          // (per CODEX_HOME, not per spawn); the per-session ingest URL rides the
+          // env instead. The hook command exits 0 instantly when the var is
+          // absent, so runs outside Podium are unaffected.
+          ...(AGENT_CAPABILITIES[msg.agentKind].hookInstall === 'global-env'
             ? { [PODIUM_CODEX_HOOK_URL_ENV]: ingest.endpointFor(msg.sessionId) }
             : {}),
         },
@@ -1895,34 +1922,43 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
    *  the same setup initSessionObservers does on reattach, minus the PTY and
    *  state tracker (headless sessions have no hook channel; observers that call
    *  applyAgentStateEvents no-op without a tracker). */
+  // Per-harness headless bindings — same registry contract as the session
+  // observer table above (exhaustive over HarnessAgent).
+  const headlessBindings: Record<
+    HarnessAgent,
+    (sessionId: string, cwd: string, resumeValue: string) => void
+  > = {
+    'claude-code': (sessionId, cwd, resumeValue) => {
+      startClaudeTranscriptTail(sessionId, cwd, resumeValue)
+    },
+    codex: (sessionId, cwd, resumeValue) => {
+      // The observer pins the rollout by thread id and re-resolves the tailed
+      // path (resume may mint a new rollout file).
+      startCodexStateObserver(sessionId, cwd, resumeValue)
+    },
+    grok: (sessionId, cwd, resumeValue) => {
+      startGrokStateObserver(sessionId, cwd, resumeValue)
+    },
+    opencode: (sessionId, cwd, resumeValue) => {
+      startOpencodeStateObserver(sessionId, cwd, resumeValue)
+    },
+    cursor: (sessionId, cwd, resumeValue) => {
+      startCursorStateObserver(sessionId, cwd, resumeValue)
+      tailCursorTranscript(sessionId, cwd, resumeValue)
+    },
+  }
+
   const bindHeadlessSession = (
     sessionId: string,
     agentKind: AgentKind,
     cwd: string,
     resumeValue: string,
   ): void => {
-    switch (agentKind) {
-      case 'claude-code':
-        startClaudeTranscriptTail(sessionId, cwd, resumeValue)
-        break
-      case 'codex':
-        // The observer pins the rollout by thread id and re-resolves the tailed
-        // path (resume may mint a new rollout file).
-        startCodexStateObserver(sessionId, cwd, resumeValue)
-        break
-      case 'grok':
-        startGrokStateObserver(sessionId, cwd, resumeValue)
-        break
-      case 'opencode':
-        startOpencodeStateObserver(sessionId, cwd, resumeValue)
-        break
-      case 'cursor':
-        startCursorStateObserver(sessionId, cwd, resumeValue)
-        tailCursorTranscript(sessionId, cwd, resumeValue)
-        break
-      default:
-        throw new Error(`agent kind ${agentKind} has no headless transcript binding`)
-    }
+    const bind = (
+      headlessBindings as Partial<Record<AgentKind, (typeof headlessBindings)[HarnessAgent]>>
+    )[agentKind]
+    if (!bind) throw new Error(`agent kind ${agentKind} has no headless transcript binding`)
+    bind(sessionId, cwd, resumeValue)
   }
 
   const runHeadlessTurnRequest = (

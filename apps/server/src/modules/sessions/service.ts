@@ -1,8 +1,10 @@
 import { randomUUID } from 'node:crypto'
 import { basename } from 'node:path'
 import {
+  AGENT_CAPABILITIES,
   AgentKind,
   type AgentRuntimeState,
+  agentSupportsEffort,
   agentSupportsInitialPrompt,
   CAP_METADATA_DELTA,
   type ClientMessage,
@@ -1375,10 +1377,12 @@ export class SessionsService {
     const subagentModel = defaults.subagentModel
     return {
       ...(model !== 'auto' && agentKind !== 'shell' ? { model } : {}),
-      ...(subagentModel !== 'auto' && agentKind === 'claude-code' ? { subagentModel } : {}),
+      ...(subagentModel !== 'auto' && AGENT_CAPABILITIES[agentKind].subagentModelEnv
+        ? { subagentModel }
+        : {}),
       // Cursor + shell have no effort flag; agentLaunchCommand also drops it, but
-      // gating here keeps the spawn message clean.
-      ...(effort !== 'auto' && agentKind !== 'shell' && agentKind !== 'cursor' ? { effort } : {}),
+      // gating here keeps the spawn message clean (capability lookup, #158).
+      ...(effort !== 'auto' && agentSupportsEffort(agentKind) ? { effort } : {}),
     }
   }
 
