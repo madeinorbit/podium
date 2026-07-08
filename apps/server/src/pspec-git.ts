@@ -29,6 +29,13 @@ async function gitOrNull(repoPath: string, args: string[]): Promise<string | nul
   }
 }
 
+/** Whether a local branch exists. */
+export async function branchExists(repoPath: string, branch: string): Promise<boolean> {
+  return (
+    (await gitOrNull(repoPath, ['rev-parse', '--verify', '-q', `refs/heads/${branch}`])) !== null
+  )
+}
+
 export type SpecChangeKind = 'added' | 'modified' | 'removed' | 'moved'
 
 export interface SpecBranchChange {

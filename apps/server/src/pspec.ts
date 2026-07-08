@@ -69,6 +69,10 @@ function unescapeAttr(value: string): string {
   return value.replaceAll('&quot;', '"').replaceAll('&lt;', '<').replaceAll('&amp;', '&')
 }
 
+export function serializeSpec(c: SpecComponent): string {
+  return serialize(c)
+}
+
 function serialize(c: SpecComponent): string {
   const attrs = [
     `data-spec="${escapeAttr(c.id)}"`,

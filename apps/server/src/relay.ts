@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto'
+import { join } from 'node:path'
 import type { PodiumSettings } from '@podium/core'
 import type {
   AgentKind,
@@ -30,7 +31,8 @@ import type {
 import type { Capability } from './issue-authz'
 import { selectMailNudgeSession, sessionsForIssue } from './issue-util'
 import { IssueService } from './issues'
-import { LOCAL_PLACEHOLDER } from './local-machine'
+import { llmClient } from './llm'
+import { LOCAL_PLACEHOLDER, stateDir } from './local-machine'
 import type { ModelCatalogSnapshot, ModelProbe } from './model-catalog'
 import { EventBus } from './modules/bus'
 import { ConversationsService } from './modules/conversations/service'
@@ -39,6 +41,7 @@ import { HostsService, type MemoryBreakdown } from './modules/hosts/service'
 import { IssueCommandService } from './modules/issues/commands'
 import { IssuePublisher } from './modules/issues/publish'
 import { IssueRelayGate } from './modules/issues/relay-gate'
+import { SpecImportService } from './modules/specs/import-service'
 import { SpecsService } from './modules/specs/service'
 import { type IssueUpstreamForwarder, UpstreamIssuesService } from './modules/issues/upstream'
 import {
@@ -146,6 +149,7 @@ export interface RegistryModules {
   issuePublisher: IssuePublisher
   issueCommands: IssueCommandService
   specs: SpecsService
+  specImport: SpecImportService
 }
 
 /**
@@ -195,6 +199,9 @@ export class SessionRegistry {
   /** The living spec (pspec, #135) — file-backed spec tree per registered repo
    *  (modules/specs); serves the router slice and the `podium spec` relay path. */
   readonly specsSvc: SpecsService
+  /** `podium spec import` — session-history → spec bootstrap (#172). Constructed
+   *  after ConversationsService (reads transcripts from the lake). */
+  private specImportSvc!: SpecImportService
   /** Typed accessor to the composed services (issue #13 Phase 2) — the router's
    *  ctx.modules seam and the facade's own composition, in dependency order. */
   readonly modules: RegistryModules
@@ -407,6 +414,45 @@ export class SessionRegistry {
       },
       options.mirrorLakeDir ? { mirrorLakeDir: options.mirrorLakeDir } : {},
     )
+    this.specImportSvc = new SpecImportService({
+      repoRoots: () => this.store.listRepoPaths(),
+      conversationsFor: (repoPath) =>
+        this.conversations
+          .allConversations()
+          .filter(
+            (c) => c.projectPath === repoPath || c.projectPath?.startsWith(`${repoPath}/`),
+          ),
+      readItems: async (conv) => {
+        const machineId = (conv as { machineId?: string }).machineId
+        const nativeId = conv.resume?.value
+        if (!machineId || !nativeId) return null
+        const session = {
+          machineId,
+          agentKind: conv.agentKind,
+          resume: { value: nativeId },
+        }
+        const items: TranscriptItem[] = []
+        let anchor: string | undefined
+        // Page forward through the lake copy until exhausted (cap: 400k items ≈ never).
+        for (let i = 0; i < 800; i++) {
+          const slice = await this.conversations.readTranscriptFromLake(session, {
+            ...(anchor ? { anchor } : {}),
+            direction: 'after',
+            limit: 500,
+          })
+          if (!slice) break
+          items.push(...slice.items)
+          if (!slice.hasMore || !slice.tail) break
+          anchor = slice.tail
+        }
+        return items.length > 0 ? items : null
+      },
+      llm: () => {
+        const settings = this.store.getSettings()
+        return llmClient({ ...settings.superagent, kind: 'api' }, settings.apiKeys)
+      },
+      stateDir: () => join(stateDir(), 'spec-import'),
+    })
     this.issues = new IssueService({
       store: this.store,
       listSessions: () => this.listSessions(),
@@ -519,6 +565,7 @@ export class SessionRegistry {
       issuePublisher: this.issuePublisher,
       issueCommands: this.issueCommands,
       specs: this.specsSvc,
+      specImport: this.specImportSvc,
     }
     this.funnel.record(
       'session',

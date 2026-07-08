@@ -240,6 +240,42 @@ export const SPEC_COMMANDS: SpecCommand[] = [
     },
   },
   {
+    name: 'import',
+    summary:
+      'bootstrap/refresh the spec from past sessions (rerunnable; result lands on a spec-import/<date> branch for review)',
+    args: z.object({ ...repoArg }),
+    run: async (client, a) => {
+      const repoPath = a.repoPath as string
+      const specs = client.specs as unknown as {
+        importStart: { mutate(i: { repoPath: string }): Promise<{ phase: string }> }
+        importStatus: {
+          query(i: { repoPath: string }): Promise<{
+            phase: string
+            message?: string
+            error?: string
+            branch?: string
+            processed?: number
+            total?: number
+          }>
+        }
+      }
+      await specs.importStart.mutate({ repoPath })
+      // Poll until the run settles; the server does the heavy lifting.
+      for (;;) {
+        await new Promise((r) => setTimeout(r, 2000))
+        const s = await specs.importStatus.query({ repoPath })
+        if (s.phase === 'done') {
+          return { text: s.message ?? 'import complete', data: s }
+        }
+        if (s.phase === 'error') return { text: `import failed: ${s.error}`, data: s }
+        if (s.phase === 'idle') return { text: 'import did not start', data: s }
+        process.stderr.write(
+          `import: ${s.phase}${s.total ? ` (${s.processed ?? 0}/${s.total} sessions)` : ''}\n`,
+        )
+      }
+    },
+  },
+  {
     name: 'remove',
     summary: 'delete a leaf component (children must be moved or deleted first)',
     args: z.object({ ...repoArg, id: z.string() }),

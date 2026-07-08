@@ -24,6 +24,7 @@ import {
 import { buildJoinCommand } from './hub/machines-join'
 import { type Capability, checkIssueAccess, PROC_ACTION, SCOPED_TARGET } from './issue-authz'
 import { type IssueCaller, issueInputs } from './modules/issues/commands'
+import { specImportInputs } from './modules/specs/import-service'
 import { specsInputs } from './modules/specs/service'
 import type { RegistryModules, SessionRegistry } from './relay'
 import { normalizeOriginUrl } from './repo-id'
@@ -1264,6 +1265,12 @@ export const appRouter = t.router({
     branchDiff: t.procedure
       .input(specsInputs.branchDiff)
       .query(({ ctx, input }) => mods(ctx).specs.branchDiff(input)),
+    importStart: t.procedure
+      .input(specImportInputs.start)
+      .mutation(({ ctx, input }) => mods(ctx).specImport.start(input)),
+    importStatus: t.procedure
+      .input(specImportInputs.status)
+      .query(({ ctx, input }) => mods(ctx).specImport.status(input)),
   }),
 })
 
