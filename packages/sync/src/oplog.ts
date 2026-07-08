@@ -1,5 +1,5 @@
 import type { MetadataChange, MetadataEntityKind } from '@podium/protocol'
-import type { SessionStore } from './store'
+import type { SyncRepository } from './sync-repository'
 
 /**
  * Metadata oplog feed (docs/spec/oplog-read-path.md).
@@ -46,18 +46,18 @@ export class MetadataOplog {
   }
 
   constructor(
-    private readonly store: SessionStore,
+    private readonly store: SyncRepository,
     private readonly now: () => number = Date.now,
   ) {
     // Boot prune BEFORE folding the log: a table bloated by an old retention
     // policy (or a long outage) self-heals on deploy instead of waiting for the
     // PRUNE_EVERY appends, and the baseline fold below reads fewer rows.
-    store.sync.pruneChanges({
+    store.pruneChanges({
       keepRows: MetadataOplog.KEEP_ROWS,
       maxAgeMs: MetadataOplog.MAX_AGE_MS,
       now: this.now(),
     })
-    for (const row of store.sync.latestChangeStates()) {
+    for (const row of store.latestChangeStates()) {
       if (row.op !== 'upsert' || row.payload == null) continue
       this.byEntity(row.entity as MetadataEntityKind).set(row.entityId, row.payload)
       if (row.entity === 'conversation') {
@@ -82,7 +82,7 @@ export class MetadataOplog {
 
   /** Current cursor — the highest seq ever assigned (0 before any change). */
   cursor(): number {
-    return this.store.sync.maxChangeSeq()
+    return this.store.maxChangeSeq()
   }
 
   /**
@@ -136,7 +136,7 @@ export class MetadataOplog {
       }
     }
     if (rows.length === 0) return []
-    const seqs = this.store.sync.appendChanges(rows, this.now())
+    const seqs = this.store.appendChanges(rows, this.now())
     // Update the baseline only after the append committed — a throw above must not
     // desync the in-memory state from the durable log.
     for (const row of rows) {
@@ -152,7 +152,7 @@ export class MetadataOplog {
     }
     if (++this.appendsSincePrune >= MetadataOplog.PRUNE_EVERY) {
       this.appendsSincePrune = 0
-      this.store.sync.pruneChanges({
+      this.store.pruneChanges({
         keepRows: MetadataOplog.KEEP_ROWS,
         maxAgeMs: MetadataOplog.MAX_AGE_MS,
         now: this.now(),
@@ -174,14 +174,14 @@ export class MetadataOplog {
    * range (compaction), or a cursor from the future (server DB was reset).
    */
   changesSince(cursor: number | null): MetadataChange[] | null {
-    const max = this.store.sync.maxChangeSeq()
+    const max = this.store.maxChangeSeq()
     if (cursor == null || cursor > max) return null
     if (cursor === max) return []
-    const min = this.store.sync.minChangeSeq()
+    const min = this.store.minChangeSeq()
     // Continuity: everything in (cursor, max] must still be retained. The oldest
     // retained row must be no newer than cursor + 1, else rows were pruned away.
     if (min == null || min > cursor + 1) return null
-    const rows = this.store.sync.changesSince(cursor)
+    const rows = this.store.changesSince(cursor)
     const changes: MetadataChange[] = []
     for (const r of rows) {
       const base = { seq: r.seq, id: r.entityId, op: r.op as 'upsert' | 'remove' }

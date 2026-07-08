@@ -1,11 +1,11 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { UpstreamSync } from '@podium/sync'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { SessionRegistry, upstreamMirrorFor } from './relay'
 import { startServer } from './server'
 import { SessionStore } from './store'
-import { UpstreamSync } from './upstream'
 
 // Token auth against a PASSWORD-PROTECTED hub (docs/spec/node-hub-sync.md §4):
 // a bad token is a failed upgrade — clean retry with backoff, no crash loop —

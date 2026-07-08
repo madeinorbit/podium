@@ -116,6 +116,11 @@ const RESTRICTED_PACKAGE_DEPS: Record<string, ReadonlySet<string>> = {
   // The issue-client seam (IssueTrpc + the shared command table) sits between
   // apps/cli and apps/server — it must never import app code or IO packages.
   'packages/issue-client': new Set(['packages/protocol', 'packages/domain']),
+  // The node⇄hub sync layer (issue #196: oplog, upstream dialer/forwarder,
+  // transcript mirror) — sqlite/config plumbing comes from @podium/runtime;
+  // apps/server injects its store repositories through narrow interfaces
+  // instead of this package importing apps/server.
+  'packages/sync': new Set(['packages/protocol', 'packages/runtime']),
 }
 
 export interface ImportRef {

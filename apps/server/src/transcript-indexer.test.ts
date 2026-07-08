@@ -1,8 +1,8 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { type MirrorReadResult, MirrorService } from '@podium/sync'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { type MirrorReadResult, MirrorService } from './mirror'
 import { SessionStore } from './store'
 import { TranscriptIndexer } from './transcript-indexer'
 
@@ -58,7 +58,7 @@ describe('TranscriptIndexer', () => {
     const lakeDir = mkdtempSync(join(tmpdir(), 'podium-index-'))
     const fs = new FakeDaemonFs()
     const indexer = new TranscriptIndexer(store)
-    const mirror = new MirrorService(store, lakeDir, fs.read, Date.now, {
+    const mirror = new MirrorService(store.conversations, lakeDir, fs.read, Date.now, {
       chunkDelayMs: 0,
       passBudgetBytes: Number.MAX_SAFE_INTEGER,
       onBytes: (m, n, p) => indexer.onBytes(m, n, p),

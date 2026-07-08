@@ -1,6 +1,7 @@
 import { TRPCClientError } from '@trpc/client'
 import { describe, expect, it } from 'vitest'
-import { SessionStore } from './store'
+import type { SyncRepository } from './sync-repository'
+import { createTestSyncRepository } from './test-support'
 import {
   isDefinitiveRejection,
   optimisticIssuePatch,
@@ -29,11 +30,11 @@ function makeHub() {
 }
 
 function makeForwarder(overrides: Partial<UpstreamForwarderOptions> = {}) {
-  const store = new SessionStore(':memory:')
+  const store = createTestSyncRepository()
   const hub = makeHub()
   const yields: number[] = []
   const forwarder = new UpstreamForwarder({
-    store: store.sync,
+    store,
     call: hub.call,
     paceMs: 7,
     retryMs: 20,
@@ -83,7 +84,7 @@ describe('UpstreamForwarder.forward', () => {
     const res = await forwarder.forward('close', { id: 'iss_h', mutationId: 'm2' })
     expect(res).toEqual({ queued: true })
     // Durable: the row is in SQLite, not just process memory.
-    const rows = store.sync.listUpstreamOutbox()
+    const rows = store.listUpstreamOutbox()
     expect(rows).toHaveLength(1)
     expect(rows[0]?.proc).toBe('close')
     expect(JSON.parse(rows[0]?.input ?? '{}').id).toBe('iss_h')
@@ -120,13 +121,13 @@ describe('UpstreamForwarder.drain', () => {
   // Drain tests enqueue via the store directly — forward() also auto-triggers a
   // background drain (spec: drain on enqueue), which would race the scripted one.
   const enqueue = (
-    store: SessionStore,
+    store: SyncRepository,
     mutationId: string,
     proc: string,
     input: Record<string, unknown>,
     at: number,
   ) =>
-    store.sync.enqueueUpstreamMutation({
+    store.enqueueUpstreamMutation({
       mutationId,
       proc,
       input: JSON.stringify({ ...input, mutationId }),
@@ -142,7 +143,7 @@ describe('UpstreamForwarder.drain', () => {
     expect(hub.calls.map((c) => c.proc)).toEqual(['update', 'close', 'claim'])
     // Each replay carries its OWN mutationId (hub-side idempotency, invariant 2).
     expect(hub.calls.map((c) => c.input.mutationId)).toEqual(['q1', 'q2', 'q3'])
-    expect(store.sync.listUpstreamOutbox()).toHaveLength(0)
+    expect(store.listUpstreamOutbox()).toHaveLength(0)
     // Watchdog pacing rule: a yield between drained entries.
     expect(yields.length).toBeGreaterThanOrEqual(3)
     expect(yields.every((ms) => ms === 7)).toBe(true)
@@ -156,22 +157,22 @@ describe('UpstreamForwarder.drain', () => {
     enqueue(store, 'r2', 'close', { id: 'iss_b' }, 2)
     await forwarder.drain() // down: first entry fails, pass stops
     expect(hub.calls.map((c) => c.input.mutationId)).toEqual(['r1'])
-    const rows = store.sync.listUpstreamOutbox()
+    const rows = store.listUpstreamOutbox()
     expect(rows).toHaveLength(2)
     expect(rows[0]?.attempts).toBe(1)
     // Hub returns; the armed flat retry (20ms) drains everything, in order.
     hub.state.mode = 'ok'
-    await until(() => store.sync.listUpstreamOutbox().length === 0)
+    await until(() => store.listUpstreamOutbox().length === 0)
     expect(hub.calls.map((c) => c.input.mutationId)).toEqual(['r1', 'r1', 'r2'])
     forwarder.stop()
   })
 
   it('poison: a definitively rejected entry is dropped, SURFACED via onPoisoned, and the queue keeps draining (#25)', async () => {
-    const store = new SessionStore(':memory:')
+    const store = createTestSyncRepository()
     const seen: string[] = []
     const poisoned: { proc: string; input: Record<string, unknown>; message: string }[] = []
     const forwarder = new UpstreamForwarder({
-      store: store.sync,
+      store,
       retryMs: 20,
       sleep: async () => {},
       onPoisoned: (proc, input, message) => poisoned.push({ proc, input, message }),
@@ -188,7 +189,7 @@ describe('UpstreamForwarder.drain', () => {
     enqueue(store, 'p2', 'update', { id: 'iss_fine' }, 2)
     await forwarder.drain()
     expect(seen).toEqual(['p1', 'p2']) // poison seen once, next entry proceeded
-    expect(store.sync.listUpstreamOutbox()).toHaveLength(0)
+    expect(store.listUpstreamOutbox()).toHaveLength(0)
     // The drop is surfaced, once, with the entry's own identity — not just logged.
     expect(poisoned).toHaveLength(1)
     expect(poisoned[0]).toMatchObject({
@@ -200,7 +201,7 @@ describe('UpstreamForwarder.drain', () => {
 
   it('drops a corrupt (unparseable) entry instead of wedging the queue', async () => {
     const { hub, forwarder, store } = makeForwarder()
-    store.sync.enqueueUpstreamMutation({
+    store.enqueueUpstreamMutation({
       mutationId: 'bad',
       proc: 'update',
       input: 'not json',
@@ -209,7 +210,7 @@ describe('UpstreamForwarder.drain', () => {
     enqueue(store, 'good', 'close', { id: 'iss_b' }, 2)
     await forwarder.drain()
     expect(hub.calls.map((c) => c.input.mutationId)).toEqual(['good'])
-    expect(store.sync.listUpstreamOutbox()).toHaveLength(0)
+    expect(store.listUpstreamOutbox()).toHaveLength(0)
     forwarder.stop()
   })
 
@@ -220,7 +221,7 @@ describe('UpstreamForwarder.drain', () => {
     await forwarder.forward('update', { id: 'iss_a', mutationId: 'c1' })
     expect(changes).toBe(1)
     hub.state.mode = 'ok'
-    await until(() => store.sync.listUpstreamOutbox().length === 0 && changes === 2)
+    await until(() => store.listUpstreamOutbox().length === 0 && changes === 2)
     forwarder.stop()
   })
 })

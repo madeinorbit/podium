@@ -15,7 +15,9 @@
  *  - conversations (index/FTS/registry/mirror/transcript index)
  *                                                        → store/conversations.ts
  *  - sync (changes/applied_mutations/queued_messages/upstream_outbox)
- *                                                        → store/sync.ts
+ *                                                        → @podium/sync's SyncRepository
+ *                                                          (query-only; schema DDL stays
+ *                                                          here in src/migrations/)
  *  - auth (client_sessions)                              → store/auth.ts
  *  - superagent (threads/messages)                       → store/superagent.ts
  *  - settings/meta                                       → store/settings.ts
@@ -29,6 +31,7 @@ import { mkdirSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
+import { SyncRepository } from '@podium/sync'
 import { MIGRATIONS, runMigrations } from './migrations/index'
 import { AuthRepository } from './store/auth'
 import { ConversationsRepository } from './store/conversations'
@@ -39,7 +42,6 @@ import { normalizeRepoPath, ReposRepository } from './store/repos'
 import { SessionsRepository } from './store/sessions'
 import { SettingsRepository } from './store/settings'
 import { SuperagentRepository } from './store/superagent'
-import { SyncRepository } from './store/sync'
 
 export * from './store/types'
 export { normalizeRepoPath }

@@ -1,7 +1,21 @@
 import { mkdirSync } from 'node:fs'
 import { open, stat } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
-import type { SessionStore } from './store'
+
+/** The conversation-segment surface MirrorService needs — narrow on purpose so
+ *  this package depends on neither apps/server's full ConversationsRepository
+ *  nor SessionStore (packages must not import apps/*). apps/server's
+ *  ConversationsRepository (store/conversations.ts) satisfies this structurally
+ *  — it's passed straight through at the call site. */
+export interface MirrorStore {
+  segmentsToMirror(machineId: string): { nativeId: string; path: string; mirroredBytes: number }[]
+  segmentsToMirrorDirty(
+    machineId: string,
+  ): { nativeId: string; path: string; mirroredBytes: number }[]
+  setReportedBytes(machineId: string, nativeId: string, bytes: number): void
+  mirrorCursor(machineId: string, nativeId: string): number
+  setMirrorCursor(machineId: string, nativeId: string, bytes: number, at: string): void
+}
 
 /** One ranged read answered by the daemon (transcriptMirrorResult, decoded). */
 export interface MirrorReadResult {
@@ -69,7 +83,7 @@ export class MirrorService {
   private readonly onTruncate: (machineId: string, nativeId: string) => void
 
   constructor(
-    private readonly store: SessionStore,
+    private readonly store: MirrorStore,
     private readonly lakeDir: string,
     private readonly read: (
       machineId: string,
@@ -95,7 +109,7 @@ export class MirrorService {
    *  the hot control channel per attach), which is exactly the regression the
    *  dirty set eliminates. */
   enqueueMachine(machineId: string): void {
-    for (const seg of this.store.conversations.segmentsToMirror(machineId)) {
+    for (const seg of this.store.segmentsToMirror(machineId)) {
       this.enqueue(machineId, seg.nativeId, seg.path)
     }
   }
@@ -105,7 +119,7 @@ export class MirrorService {
    *  records their observed size (upgrade path — the fleet converges, then a
    *  caught-up machine enqueues NOTHING and issues ZERO mirror reads). */
   enqueueDirty(machineId: string): void {
-    for (const seg of this.store.conversations.segmentsToMirrorDirty(machineId)) {
+    for (const seg of this.store.segmentsToMirrorDirty(machineId)) {
       this.enqueue(machineId, seg.nativeId, seg.path)
     }
   }
@@ -160,10 +174,10 @@ export class MirrorService {
             // without this it would retry every backoff window forever. Mark it
             // converged; if the file ever reappears, the scan reports a fresh
             // size and it turns dirty again.
-            this.store.conversations.setReportedBytes(
+            this.store.setReportedBytes(
               machineId,
               item.nativeId,
-              this.store.conversations.mirrorCursor(machineId, item.nativeId),
+              this.store.mirrorCursor(machineId, item.nativeId),
             )
             console.info(
               `[podium] transcript mirror: source gone for ${item.nativeId} — lake copy is now the only copy`,
@@ -198,7 +212,7 @@ export class MirrorService {
     path: string,
     pass: { remainingBytes: number },
   ): Promise<void> {
-    let cursor = this.store.conversations.mirrorCursor(machineId, nativeId)
+    let cursor = this.store.mirrorCursor(machineId, nativeId)
     // Ops-event guard: if the lake file is SHORTER than the cursor (lake wiped or
     // partially restored while the DB kept its cursors), fall back to what is
     // actually on disk — truncate(cursor) on a shorter file would silently EXTEND
@@ -206,7 +220,7 @@ export class MirrorService {
     const lakeSize = await this.lakeSize(machineId, nativeId)
     if (lakeSize < cursor) {
       cursor = lakeSize
-      this.store.conversations.setMirrorCursor(machineId, nativeId, cursor, this.nowIso())
+      this.store.setMirrorCursor(machineId, nativeId, cursor, this.nowIso())
     }
     for (;;) {
       const res = await this.read(machineId, {
@@ -222,7 +236,7 @@ export class MirrorService {
         // the reindex starts from a clean slate as chunks arrive.
         this.onTruncate(machineId, nativeId)
         await this.writeAt(machineId, nativeId, 0, Buffer.alloc(0))
-        this.store.conversations.setMirrorCursor(machineId, nativeId, 0, this.nowIso())
+        this.store.setMirrorCursor(machineId, nativeId, 0, this.nowIso())
         cursor = 0
         continue
       }
@@ -232,7 +246,7 @@ export class MirrorService {
         // two re-pulls this chunk and overwrites it byte-identically at the cursor.
         await this.writeAt(machineId, nativeId, cursor, bytes)
         cursor += bytes.length
-        this.store.conversations.setMirrorCursor(machineId, nativeId, cursor, this.nowIso())
+        this.store.setMirrorCursor(machineId, nativeId, cursor, this.nowIso())
         this.onBytes(machineId, nativeId, this.lakePath(machineId, nativeId))
         pass.remainingBytes -= bytes.length
         // Inter-chunk breather (incident amendment): never pump chunks
@@ -248,7 +262,7 @@ export class MirrorService {
         // it is FRESHER than the scan's stat (a grow that raced the scan report is
         // covered: we mirrored to the real eof). A later grow re-dirties via the
         // next scan's sizeBytes.
-        this.store.conversations.setReportedBytes(machineId, nativeId, cursor)
+        this.store.setReportedBytes(machineId, nativeId, cursor)
         return
       }
       if (pass.remainingBytes <= 0) return // budget hit mid-file: cursor persisted, next pass resumes

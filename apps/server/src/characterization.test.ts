@@ -3,10 +3,10 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { openDatabase } from '@podium/runtime/sqlite'
 import type { ControlMessage, MetadataChange, ServerMessage } from '@podium/protocol'
+import { MetadataOplog } from '@podium/sync'
 import { describe, expect, it } from 'vitest'
 import { runIssueCli } from '../../../scripts/issue-cli'
 import { type Capability, OPERATOR } from './issue-authz'
-import { MetadataOplog } from './oplog'
 import { SessionRegistry } from './relay'
 import { appRouter } from './router'
 import { callerAsIssueTrpc } from './server'
@@ -378,7 +378,7 @@ describe('characterization: oplog delta client heals to identical state (contrac
 
   it('a client that missed N deltas reconstructs the exact live state from changesSince(cursor)', () => {
     const store = new SessionStore(':memory:')
-    const oplog = new MetadataOplog(store)
+    const oplog = new MetadataOplog(store.sync)
     const liveState = new Map<string, unknown>()
     const lagState = new Map<string, unknown>()
 

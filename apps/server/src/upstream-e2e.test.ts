@@ -1,6 +1,7 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { UpstreamForwarder, UpstreamSync } from '@podium/sync'
 import { createTRPCClient, httpBatchLink } from '@trpc/client'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { OPERATOR } from './issue-authz'
@@ -8,8 +9,6 @@ import { SessionRegistry, upstreamMirrorFor } from './relay'
 import { type AppRouter, appRouter } from './router'
 import { startServer } from './server'
 import { SessionStore } from './store'
-import { UpstreamSync } from './upstream'
-import { UpstreamForwarder } from './upstream-forwarder'
 
 // Node⇄hub sync e2e over the REAL wiring (docs/spec/node-hub-sync.md §4): a
 // booted HUB server (startServer — real WS upgrades, real HTTP tRPC), a NODE

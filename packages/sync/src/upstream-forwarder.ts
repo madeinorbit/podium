@@ -1,7 +1,5 @@
-import type { IssueWire } from '@podium/protocol'
+import { type IssueWire, SESSION_COOKIE } from '@podium/protocol'
 import { createTRPCClient, httpBatchLink, TRPCClientError } from '@trpc/client'
-import { SESSION_COOKIE } from './auth-route'
-import type { AppRouter } from './router'
 import { normalizeUpstreamUrl } from './upstream'
 
 /**
@@ -177,15 +175,16 @@ export class UpstreamForwarder {
         throw new Error('UpstreamForwarder needs url+token or a call seam')
       const { http } = normalizeUpstreamUrl(opts.url)
       const cookie = `${SESSION_COOKIE}=${encodeURIComponent(opts.token)}`
-      const client = createTRPCClient<AppRouter>({
+      // Untyped client cast to a narrow structural shape (the same pattern
+      // UpstreamSync/@podium/issue-client use): this package must depend only on
+      // @podium/protocol, never the app's actual AppRouter type.
+      const client = createTRPCClient({
         links: [httpBatchLink({ url: `${http}/trpc`, headers: () => ({ cookie }) })],
-      })
+      }) as unknown as {
+        issues: Record<string, { mutate: (i: unknown) => Promise<unknown> } | undefined>
+      }
       this.call = (proc, input) => {
-        const procs = client.issues as unknown as Record<
-          string,
-          { mutate: (i: unknown) => Promise<unknown> } | undefined
-        >
-        const m = procs[proc]
+        const m = client.issues[proc]
         if (!m) return Promise.reject(new Error(`unknown issues proc '${proc}'`))
         return m.mutate(input)
       }
