@@ -96,6 +96,12 @@ export interface IssueRow {
   notesUpdatedAt: string | null
   suggestedStage: string | null
   suggestedReason: string | null
+  /** LLM-authored soft-dependency notes (assistant digest — IssueService.
+   *  refreshAssistant writes the model's output here): free-form strings,
+   *  often BRANCH names rather than issue ids, surfaced verbatim on the wire.
+   *  NOT the dependency graph — real edges live in issue_deps. Audited for
+   *  #164 step 4: still actively written/read, so the column stays (stored as
+   *  JSON text, normalized to a clean string[] on write). */
   blockedBy: string[]
   dependencyNote: string | null
   prUrl: string | null
