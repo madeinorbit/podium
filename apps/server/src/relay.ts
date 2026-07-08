@@ -39,6 +39,7 @@ import { HostsService, type MemoryBreakdown } from './modules/hosts/service'
 import { IssueCommandService } from './modules/issues/commands'
 import { IssuePublisher } from './modules/issues/publish'
 import { IssueRelayGate } from './modules/issues/relay-gate'
+import { SpecsService } from './modules/specs/service'
 import { type IssueUpstreamForwarder, UpstreamIssuesService } from './modules/issues/upstream'
 import {
   DaemonRpcService,
@@ -144,6 +145,7 @@ export interface RegistryModules {
   upstreamIssues: UpstreamIssuesService
   issuePublisher: IssuePublisher
   issueCommands: IssueCommandService
+  specs: SpecsService
 }
 
 /**
@@ -190,6 +192,9 @@ export class SessionRegistry {
   /** In-process issue command surface: every issues proc body, with router-equal
    *  authz — serves the daemon relay + MCP without touching the router. */
   readonly issueCommands: IssueCommandService
+  /** The living spec (pspec, #135) — file-backed spec tree per registered repo
+   *  (modules/specs); serves the router slice and the `podium spec` relay path. */
+  readonly specsSvc: SpecsService
   /** Typed accessor to the composed services (issue #13 Phase 2) — the router's
    *  ctx.modules seam and the facade's own composition, in dependency order. */
   readonly modules: RegistryModules
@@ -326,9 +331,36 @@ export class SessionRegistry {
       repoPaths: () => this.store.listRepoPaths(),
       inferRepoFromPath: (path) => inferRepoFromRoots(this.store.listRepoPaths(), path),
     })
+    this.specsSvc = new SpecsService({
+      repoRoots: () => this.store.listRepoPaths(),
+    })
     this.issueRelayGate = new IssueRelayGate({
-      caller: (capability, overrideScope) =>
-        this.issueCommands.callerFor(capability, overrideScope),
+      // issues/repos procs come from the capability-scoped command service; the
+      // specs router (pspec, #135) is served by the specs module — same schemas +
+      // repo-root gate as the tRPC slice (RELAY_ALLOWED lists all three routers).
+      caller: (capability, overrideScope) => {
+        const base = this.issueCommands.callerFor(capability, overrideScope)
+        return new Proxy(
+          {},
+          {
+            get: (_t, router) => {
+              if (router === 'specs') {
+                return new Proxy(
+                  {},
+                  {
+                    get: (_t2, proc) => {
+                      if (typeof proc !== 'string' || !this.specsSvc.has(proc)) return undefined
+                      return (input: unknown) =>
+                        this.specsSvc.invoke(proc, input) as Promise<unknown>
+                    },
+                  },
+                )
+              }
+              return typeof router === 'string' ? base[router] : undefined
+            },
+          },
+        ) as never
+      },
       capabilityForSession: (sessionId) => this.capabilityForSession(sessionId),
       toMachine: (machineId, msg) => this.machines.toMachine(machineId, msg),
     })
@@ -486,6 +518,7 @@ export class SessionRegistry {
       upstreamIssues: this.upstreamIssuesSvc,
       issuePublisher: this.issuePublisher,
       issueCommands: this.issueCommands,
+      specs: this.specsSvc,
     }
     this.funnel.record(
       'session',
@@ -811,6 +844,12 @@ export class SessionRegistry {
 
   setWorkState(input: { sessionId: string; workState: WorkState | null }): void {
     this.sessionsSvc.setWorkState(input)
+  }
+
+  /** Mark a session UNREAD again (issue #138, the email-style inverse of
+   *  markSessionRead). No-op for an unknown session. */
+  markSessionUnread(sessionId: string): void {
+    this.sessionsSvc.markSessionUnread(sessionId)
   }
 
   hibernateSession(input: { sessionId: string }): { ok: boolean; reason?: string } {

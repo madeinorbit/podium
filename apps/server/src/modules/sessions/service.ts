@@ -1122,6 +1122,16 @@ export class SessionsService {
     })
   }
 
+  /** Mark this session UNREAD again (issue #138, the email-style inverse of
+   *  markSessionRead): clear read_at so the derived `unread` (readAt null ⇒ unread)
+   *  flips back to true, persist + broadcast. Read state stays GLOBAL —
+   *  single-operator, no per-user row. No-op for an unknown session. */
+  markSessionUnread(sessionId: string): void {
+    this.mutateSessionMeta(sessionId, (session) => {
+      session.readAt = null
+    })
+  }
+
   /** Set (or clear with null) a session's explicit issue attachment. */
   setSessionIssueId(sessionId: string, issueId: string | null): void {
     this.mutateSessionMeta(sessionId, (session) => {

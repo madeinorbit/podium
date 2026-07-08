@@ -25,6 +25,37 @@ const sess = (cwd: string, phase = 'working'): SessionMeta =>
      geometry: { cols: 80, rows: 24 }, epoch: 0, clientCount: 0, createdAt: 't', lastActiveAt: 't',
      origin: { kind: 'spawn' }, archived: false, agentState: { phase, since: 't', openTaskCount: 0 } }) as unknown as SessionMeta
 
+describe('IssueService repo_id scoping (#140)', () => {
+  it('unifies one origin checked out at two paths into a single #N sequence', () => {
+    const { store, deps } = harness()
+    const origin = 'git@github.com:acme/app.git'
+    store.addRepo('/home/alice/app', 'm-alice', origin)
+    store.addRepo('/home/bob/app', 'm-bob', origin) // same origin ⇒ same repo_id
+    const svc = new IssueService(deps)
+    const a = svc.create({ repoPath: '/home/alice/app', title: 'from alice', startNow: false })
+    const b = svc.create({ repoPath: '/home/bob/app', title: 'from bob', startNow: false })
+    expect(a.seq).toBe(1)
+    expect(b.seq).toBe(2) // shared sequence — NOT two colliding #1s
+    // list from either checkout returns the unified set
+    expect(svc.list('/home/alice/app').map((i) => i.id).sort()).toEqual([a.id, b.id].sort())
+    expect(svc.list('/home/bob/app').map((i) => i.id).sort()).toEqual([a.id, b.id].sort())
+  })
+
+  it('resolveRef scopes a shared #N to the caller repo; unscoped stays ambiguous', () => {
+    const { store, deps } = harness()
+    store.addRepo('/repoA', 'mA', 'git@github.com:o/a.git')
+    store.addRepo('/repoB', 'mB', 'git@github.com:o/b.git') // distinct origins
+    const svc = new IssueService(deps)
+    const a = svc.create({ repoPath: '/repoA', title: 'A1', startNow: false })
+    const b = svc.create({ repoPath: '/repoB', title: 'B1', startNow: false })
+    expect(a.seq).toBe(1)
+    expect(b.seq).toBe(1) // different repos, each starts at #1
+    expect(svc.resolveRef('#1', '/repoA')).toBe(a.id) // scoped to caller's repo
+    expect(svc.resolveRef('#1', '/repoB')).toBe(b.id)
+    expect(() => svc.resolveRef('#1')).toThrow(/ambiguous issue ref #1/) // cross-repo, no scope
+  })
+})
+
 describe('IssueService CRUD', () => {
   it('creates a backlog issue (startNow=false), assigns seq, broadcasts', () => {
     const { svc, deps } = harness()
@@ -118,6 +149,19 @@ describe('IssueService unread (#124)', () => {
     expect(read.unread).toBe(false)
     // The freshly-derived wire reflects it too.
     expect(svc.get(w.id)!.unread).toBe(false)
+  })
+
+  it('markIssueUnread nulls readAt so the row re-reads as unread + emits issue.unread (#138)', () => {
+    const { svc, store } = harness()
+    const w = svc.create({ repoPath: '/r', title: 'X', startNow: false })
+    svc.markIssueRead(w.id)
+    expect(svc.get(w.id)!.unread).toBe(false)
+    const un = svc.markIssueUnread(w.id)
+    expect(un.readAt).toBeNull()
+    expect(un.unread).toBe(true)
+    // Freshly-derived wire agrees, and the transition event mirrors issue.read.
+    expect(svc.get(w.id)!.unread).toBe(true)
+    expect(store.listEventsSince(0, { kinds: ['issue.unread'] }).length).toBe(1)
   })
 
   it('derives unread from the latest of updatedAt / member-session lastActiveAt vs readAt', () => {
@@ -304,6 +348,20 @@ describe('IssueService.undefer (manual unsnooze #133)', () => {
     const un = svc.undefer(w.id)
     expect(un.deferUntil == null).toBe(true)
     expect(store.listEventsSince(0, { kinds: ['issue.unsnoozed'] }).length).toBe(0)
+  })
+
+  // FIX C (#138): opening an unsnoozed issue clears the "Unsnoozed" tag. The
+  // open-path calls defer(null); prove it reliably NULLS the backdated deferUntil
+  // (undefer left it in the past) so `issueReturnedFromDefer` goes false again.
+  it('defer(id, null) clears the backdated deferUntil an undefer leaves behind', () => {
+    const { svc } = harness()
+    const w = svc.create({ repoPath: '/r', title: 'X', startNow: false })
+    svc.defer(w.id, '2026-07-15')
+    const un = svc.undefer(w.id)
+    expect(un.deferUntil).not.toBeNull() // backdated to the past (returned-from-defer)
+    const cleared = svc.defer(w.id, null)
+    expect(cleared.deferUntil == null).toBe(true) // tag source is gone
+    expect(svc.get(w.id)!.deferUntil == null).toBe(true)
   })
 })
 

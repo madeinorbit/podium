@@ -66,14 +66,19 @@ type IssueProcName =
   | 'subscriptionAdd'
   | 'subscriptionList'
   | 'subscriptionRemove'
+  | 'subscriptionSetEnabled'
   | 'supersede'
   | 'tree'
   | 'undefer'
   | 'update'
 
+/** The specs router (pspec v1, #135) — `podium spec` drives these. */
+type SpecProcName = 'list' | 'get' | 'create' | 'save' | 'remove' | 'search'
+
 export interface IssueTrpc {
   issues: Record<IssueProcName, IssueProc>
   repos: { inferFromPath: IssueProc }
+  specs: Record<SpecProcName, IssueProc>
 }
 
 /** Typed-transport tRPC client for the issue tracker. baseUrl e.g. http://localhost:18787

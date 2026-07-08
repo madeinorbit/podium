@@ -105,6 +105,7 @@ export const PROC_ACTION: Record<string, IssueAction> = {
   // proc itself (no SCOPED_TARGET entry). list is a read of the caller's own rows.
   subscriptionAdd: 'write',
   subscriptionRemove: 'write',
+  subscriptionSetEnabled: 'write',
   subscriptionList: 'read',
   // manage — structural / destructive / cross-cutting
   archive: 'manage',

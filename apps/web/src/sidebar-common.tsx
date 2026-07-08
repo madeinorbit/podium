@@ -14,6 +14,7 @@ import { cn } from '@/lib/utils'
 import {
   agentBadge,
   agentColorHex,
+  isSessionWorking,
   isSnoozed,
   repoBranchForCwd,
   returnedFromSnooze,
@@ -197,6 +198,7 @@ export function PanelRow({
   onPinned,
   attention = false,
   dotRight = false,
+  suppressUnread = false,
 }: {
   session: SessionMeta
   pinned: boolean
@@ -211,6 +213,9 @@ export function PanelRow({
    *  (same pr-3 + a w-2 slot centering the smaller dot). Rows are also more
    *  indented and tighter, so the group reads as belonging to its parent. */
   dotRight?: boolean
+  /** WORKING-section rows (#138): a session that's actively in progress is not
+   *  "new unseen work", so its unread emphasis is suppressed even when unread. */
+  suppressUnread?: boolean
 }): JSX.Element {
   const continueSession = useStoreSelector((s) => s.continueSession)
   const renameSession = useStoreSelector((s) => s.renameSession)
@@ -253,8 +258,15 @@ export function PanelRow({
               : 'text-muted-foreground hover:bg-accent hover:text-foreground',
             // Email-style unread emphasis (#126): an unread, un-selected session
             // reads at full strength + medium weight, lifting it out of the muted
-            // baseline. Marking it read on open clears this optimistically.
-            !active && session.unread && 'font-medium text-foreground',
+            // baseline. Marking it read on open clears this optimistically. Suppressed
+            // (#138) for WORKING-section rows AND for any currently-working session
+            // anywhere — active work isn't "unseen", and a working session re-flips
+            // unread on every output, so emphasis would flicker back constantly.
+            !active &&
+              session.unread &&
+              !suppressUnread &&
+              !isSessionWorking(session) &&
+              'font-medium text-foreground',
           )}
           onClick={onSelect}
           // Double-click the row to rename — matches the tab strip.

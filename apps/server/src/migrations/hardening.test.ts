@@ -140,8 +140,8 @@ describe('migration 005: repo_id as issue identity', () => {
       expect(byId.get('iss_b1')?.seq).toBe(2) // renumbered into the shared space
       expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('reassigning issue iss_b1'))
       // Seq allocation is keyed on repo_id: both paths share ONE counter.
-      expect(store.nextIssueSeq('/clone-a')).toBe(3)
-      expect(store.nextIssueSeq('/clone-b')).toBe(3)
+      expect(store.nextIssueSeq(store.resolveRepoIdForPath('/clone-a'))).toBe(3)
+      expect(store.nextIssueSeq(store.resolveRepoIdForPath('/clone-b'))).toBe(3)
       store.close()
     } finally {
       warnSpy.mockRestore()

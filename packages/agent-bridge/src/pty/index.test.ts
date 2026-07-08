@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { defaultPtyBackend } from './index.js'
+import { defaultPtyBackend, hasBunTerminal, isUnderBun } from './index.js'
 
 const orig = process.env.PODIUM_PTY_BACKEND
 afterEach(() => {
@@ -23,5 +23,14 @@ describe('defaultPtyBackend', () => {
   it('throws on an unknown backend name', () => {
     process.env.PODIUM_PTY_BACKEND = 'nope'
     expect(() => defaultPtyBackend()).toThrow(/unknown/)
+  })
+})
+
+describe('bun terminal feature-detection (under Node)', () => {
+  it('isUnderBun() and hasBunTerminal() are both false without Bun', () => {
+    // vitest runs under Node — the probe must report the terminal PTY API absent
+    // (so the auto path falls to node-pty and a forced bun-terminal fails loud).
+    expect(isUnderBun()).toBe(false)
+    expect(hasBunTerminal()).toBe(false)
   })
 })

@@ -176,6 +176,21 @@ export class EventsRepository {
     return rows.map(rowToSubscription)
   }
 
+  /** Flip a subscription's enabled flag. Returns true when a row was updated. */
+  setSubscriptionEnabled(id: string, enabled: boolean): boolean {
+    const r = this.db
+      .prepare('UPDATE subscriptions SET enabled = ? WHERE id = ?')
+      .run(enabled ? 1 : 0, id)
+    return r.changes > 0
+  }
+
+  getSubscription(id: string): Subscription | undefined {
+    const row = this.db.prepare('SELECT * FROM subscriptions WHERE id = ?').get(id) as
+      | Record<string, unknown>
+      | undefined
+    return row ? rowToSubscription(row) : undefined
+  }
+
   listEnabledSubscriptions(): Subscription[] {
     const rows = this.db
       .prepare('SELECT * FROM subscriptions WHERE enabled = 1 ORDER BY created_at ASC')

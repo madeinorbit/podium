@@ -115,6 +115,10 @@ export class SessionStore {
     this.superagentRepo.seedGlobalThread()
     this.reposRepo.importReposJson(this.path)
     this.backfillRepoIds()
+    // #140 defense in depth (ported from main's boot migrate): renumber any
+    // (repo_id, seq) collisions left by a pre-UNIQUE-index database. Idempotent --
+    // no-ops once the DB is clean; runs AFTER the backfill so rows have repo_ids.
+    this.renumberCollidingIssueSeqs()
   }
 
   /** Per-boot heal (idempotent): fill NULL repo_ids on repos and issues, then
@@ -517,8 +521,17 @@ export class SessionStore {
     this.issuesRepo.deleteIssueChildRows(issueId)
   }
 
-  nextIssueSeq(repoPath: string): number {
-    return this.issuesRepo.nextIssueSeq(repoPath)
+  /** Next `#N` for a repo, scoped by the stable `repo_id` (not `repo_path`) so every
+   *  checkout of one origin shares a single seq sequence — two machines with different
+   *  paths can no longer mint colliding numbers (#140). Callers resolve the path to a
+   *  repo_id via {@link resolveRepoIdForPath} before allocating. */
+  nextIssueSeq(repoId: string): number {
+    return this.issuesRepo.nextIssueSeq(repoId)
+  }
+
+  /** #140 heal: renumber (repo_id, seq) collisions; returns rows renumbered. */
+  renumberCollidingIssueSeqs(): number {
+    return this.issuesRepo.renumberCollidingIssueSeqs()
   }
 
   // ---- event log / steward / subscriptions ----
@@ -569,6 +582,18 @@ export class SessionStore {
     return this.eventsRepo.listEnabledSubscriptions()
   }
 
+  /** Flip a subscription's enabled flag. Returns true when a row was updated. */
+  setSubscriptionEnabled(id: string, enabled: boolean): boolean {
+    return this.eventsRepo.setSubscriptionEnabled(id, enabled)
+  }
+
+  getSubscription(id: string): Subscription | undefined {
+    return this.eventsRepo.getSubscription(id)
+  }
+
+  /** Record a (subscription, event) delivery. Returns true only when the pair was
+   *  NEWLY inserted — a replay (or a same-poll double-match) returns false so the
+   *  steward delivers exactly once. */
   markDelivered(subscriptionId: string, eventId: number): boolean {
     return this.eventsRepo.markDelivered(subscriptionId, eventId)
   }

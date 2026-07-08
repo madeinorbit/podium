@@ -382,16 +382,20 @@ export class IssueService {
   list(repoPath?: string): IssueWire[] {
     const sessionList = this.deps.listSessions()
     return [...this.rows.values()]
-      .filter((r) => !repoPath || r.repoPath === repoPath)
-      .sort((a, b) =>
-        a.repoPath === b.repoPath ? a.seq - b.seq : a.repoPath.localeCompare(b.repoPath),
-      )
+      .filter((r) => this.inRepoScope(r, repoPath))
+      .sort((a, b) => {
+        // Group by repo_id (not path) so the unified list of an origin checked out at
+        // two paths reads as one seq-ordered run rather than splitting per path (#140).
+        const ga = a.repoId ?? a.repoPath
+        const gb = b.repoId ?? b.repoPath
+        return ga === gb ? a.seq - b.seq : ga.localeCompare(gb)
+      })
       .map((r) => this.toWire(r, sessionList))
   }
   readyList(repoPath?: string): IssueWire[] {
     const sessionList = this.deps.listSessions()
     return [...this.rows.values()]
-      .filter((r) => !repoPath || r.repoPath === repoPath)
+      .filter((r) => this.inRepoScope(r, repoPath))
       .map((r) => this.toWire(r, sessionList))
       .filter((w) => w.ready)
       .sort((a, b) => (a.priority !== b.priority ? a.priority - b.priority : a.seq - b.seq))
@@ -400,14 +404,14 @@ export class IssueService {
   blockedList(repoPath?: string): IssueWire[] {
     const sessionList = this.deps.listSessions()
     return [...this.rows.values()]
-      .filter((r) => !repoPath || r.repoPath === repoPath)
+      .filter((r) => this.inRepoScope(r, repoPath))
       .map((r) => this.toWire(r, sessionList))
       .filter((w) => w.blocked)
       .sort((a, b) => (a.priority !== b.priority ? a.priority - b.priority : a.seq - b.seq))
   }
 
   graph(repoPath?: string): IssueGraph {
-    const rows = [...this.rows.values()].filter((r) => !repoPath || r.repoPath === repoPath)
+    const rows = [...this.rows.values()].filter((r) => this.inRepoScope(r, repoPath))
     const sessionList = this.deps.listSessions()
     const nodes = rows.map((r) => {
       const w = this.toWire(r, sessionList)
@@ -621,9 +625,7 @@ export class IssueService {
       }
       walk(root.id)
     } else {
-      members = [...this.rows.values()].filter(
-        (r) => !opts.repoPath || r.repoPath === opts.repoPath,
-      )
+      members = [...this.rows.values()].filter((r) => this.inRepoScope(r, opts.repoPath))
     }
     const ref = (row: IssueRow, type: string): DepReportRef => ({
       seq: row.seq,
@@ -668,9 +670,7 @@ export class IssueService {
   closeEligibleEpics(repoPath?: string): IssueWire[] {
     const sessionList = this.deps.listSessions()
     return [...this.rows.values()]
-      .filter(
-        (r) => (!repoPath || r.repoPath === repoPath) && r.type === 'epic' && !this.isClosed(r),
-      )
+      .filter((r) => this.inRepoScope(r, repoPath) && r.type === 'epic' && !this.isClosed(r))
       .filter((r) => this.epicStatus(r.id).complete)
       .map((r) => this.toWire(r, sessionList))
   }
@@ -680,7 +680,7 @@ export class IssueService {
    *  `title + ' ' + description` is >= threshold, sorted by score desc. */
   findDuplicates(repoPath?: string, threshold = 0.6): DuplicateCandidate[] {
     const open = [...this.rows.values()]
-      .filter((r) => (!repoPath || r.repoPath === repoPath) && !this.isClosed(r))
+      .filter((r) => this.inRepoScope(r, repoPath) && !this.isClosed(r))
       .sort((a, b) => a.seq - b.seq)
     const toks = new Map(open.map((r) => [r.id, tokenize(`${r.title} ${r.description}`)]))
     const out: DuplicateCandidate[] = []
@@ -701,7 +701,7 @@ export class IssueService {
     const cutoff = nowMs - days * 24 * 60 * 60 * 1000
     const sessionList = this.deps.listSessions()
     return [...this.rows.values()]
-      .filter((r) => (!repoPath || r.repoPath === repoPath) && !this.isClosed(r))
+      .filter((r) => this.inRepoScope(r, repoPath) && !this.isClosed(r))
       .filter((r) => Date.parse(r.updatedAt) < cutoff)
       .sort((a, b) => Date.parse(a.updatedAt) - Date.parse(b.updatedAt))
       .map((r) => this.toWire(r, sessionList))
@@ -710,13 +710,13 @@ export class IssueService {
   /** Open issues with ≥1 template-completeness finding (see `lintIssue`). */
   lint(repoPath?: string): LintFinding[] {
     return [...this.rows.values()]
-      .filter((r) => (!repoPath || r.repoPath === repoPath) && !this.isClosed(r))
+      .filter((r) => this.inRepoScope(r, repoPath) && !this.isClosed(r))
       .map((r) => ({ id: r.id, seq: r.seq, findings: lintIssue(r) }))
       .filter((f) => f.findings.length > 0)
   }
 
   doctor(repoPath?: string): DoctorReport {
-    const rows = [...this.rows.values()].filter((r) => !repoPath || r.repoPath === repoPath)
+    const rows = [...this.rows.values()].filter((r) => this.inRepoScope(r, repoPath))
     const ids = new Set(rows.map((r) => r.id))
     const danglingDeps: DoctorReport['danglingDeps'] = []
     const adj = new Map<string, string[]>()
@@ -765,7 +765,7 @@ export class IssueService {
     const log = res.output
     const out: OrphanIssue[] = []
     for (const r of this.rows.values()) {
-      if (r.repoPath !== repoPath || this.isClosed(r)) continue
+      if (!this.inRepoScope(r, repoPath) || this.isClosed(r)) continue
       // Reference forms: the branch stem `issue/<seq>-`, or a `#<seq>` token.
       const hashRef = new RegExp(`#${r.seq}\\b`).exec(log)?.[0]
       const branchRef = log.includes(`issue/${r.seq}-`) ? `issue/${r.seq}-` : undefined
@@ -779,7 +779,7 @@ export class IssueService {
     const text = filter.text?.toLowerCase()
     const sessionList = this.deps.listSessions()
     return [...this.rows.values()]
-      .filter((r) => !filter.repoPath || r.repoPath === filter.repoPath)
+      .filter((r) => this.inRepoScope(r, filter.repoPath))
       .map((r) => this.toWire(r, sessionList))
       .filter((w) => {
         if (filter.stage && w.stage !== filter.stage) return false
@@ -803,7 +803,7 @@ export class IssueService {
   }
 
   count(repoPath?: string): IssueCount {
-    const rows = [...this.rows.values()].filter((r) => !repoPath || r.repoPath === repoPath)
+    const rows = [...this.rows.values()].filter((r) => this.inRepoScope(r, repoPath))
     const c: IssueCount = { byStage: {}, byPriority: {}, byType: {}, byAssignee: {} }
     const bump = (m: Record<string, number>, k: string): void => {
       m[k] = (m[k] ?? 0) + 1
@@ -820,7 +820,7 @@ export class IssueService {
   stats(repoPath?: string): IssueStats {
     const sessionList = this.deps.listSessions()
     const wires = [...this.rows.values()]
-      .filter((r) => !repoPath || r.repoPath === repoPath)
+      .filter((r) => this.inRepoScope(r, repoPath))
       .map((r) => this.toWire(r, sessionList))
     const closed = wires.filter((w) => w.stage === 'done' || w.closedReason).length
     return {
@@ -833,14 +833,25 @@ export class IssueService {
     }
   }
 
+  /** True when `row` belongs to the repo identified by `repoPath`, compared by the
+   *  stable `repo_id` so every checkout of one origin unifies (#140); falls back to
+   *  path equality only when a repo_id can't be resolved. `undefined` scope matches all. */
+  private inRepoScope(row: IssueRow, repoPath: string | undefined): boolean {
+    if (!repoPath) return true
+    const scope = this.deps.store.resolveRepoIdForPath(repoPath)
+    const rowRepoId = row.repoId ?? this.deps.store.resolveRepoIdForPath(row.repoPath)
+    return rowRepoId === scope
+  }
+
   /** Resolve an issue reference to the internal id. Accepts the internal `iss_…` id
    *  (passthrough), a display seq (`10` / `#10` — what list/prime/search print), or a
    *  repo-qualified ref (`<repoPath>#10`, the form the ambiguity error prints; a
    *  trailing path suffix like `podium#10` works when it matches exactly one repo).
-   *  Seq is only unique per repo: a bare seq matching issues in several repos is
-   *  ambiguous and throws. Unresolvable refs return the input unchanged so the
-   *  caller's normal unknown-issue error fires. */
-  resolveRef(ref: string): string {
+   *  Seq is unique per repo_id; when several repos share a bare seq the caller may
+   *  pass `scopeRepoPath` to narrow to its own repo (so an agent's own `#N` resolves
+   *  without the full id, #140). Still-ambiguous refs throw; unresolvable refs return
+   *  the input unchanged so the caller's normal unknown-issue error fires. */
+  resolveRef(ref: string, scopeRepoPath?: string): string {
     if (ref.startsWith('iss_') || this.rows.has(ref)) return ref
     const qualified = /^(.+)#(\d+)$/.exec(ref.trim())
     if (qualified) {
@@ -863,7 +874,11 @@ export class IssueService {
     const m = /^#?(\d+)$/.exec(ref.trim())
     if (!m) return ref
     const seq = Number(m[1])
-    const matches = [...this.rows.values()].filter((r) => r.seq === seq)
+    let matches = [...this.rows.values()].filter((r) => r.seq === seq)
+    if (matches.length > 1 && scopeRepoPath) {
+      const scoped = matches.filter((r) => this.inRepoScope(r, scopeRepoPath))
+      if (scoped.length > 0) matches = scoped
+    }
     if (matches.length === 1) return matches[0]!.id
     if (matches.length > 1) {
       const where = matches.map((r) => `${r.repoPath}#${r.seq}`).join(', ')
@@ -1057,6 +1072,17 @@ export class IssueService {
     return this.deps.store.listSubscriptions(filter)
   }
 
+  /** Toggle a subscription on/off (Automations UI). Custom subscriptions only affect
+   *  the additive dispatcher pass, so disabling one never touches the built-in
+   *  handlers — it is safe and reversible. */
+  subscriptionSetEnabled(id: string, enabled: boolean): { updated: boolean } {
+    return { updated: this.deps.store.setSubscriptionEnabled(id, enabled) }
+  }
+
+  subscriptionGet(id: string): Subscription | undefined {
+    return this.deps.store.getSubscription(id)
+  }
+
   /** The agent-facing context string injected at session start / on demand. Bound = the agent's
    *  issue + its open children + blockers; unbound = a lobby of ready work. Ends with the rules. */
   prime(opts: { repoPath?: string; boundIssueId?: string | null }): string {
@@ -1155,7 +1181,8 @@ export class IssueService {
     try {
       const sessionList = this.deps.listSessions()
       for (const r of this.rows.values()) {
-        if (r.id === closed.id || r.repoPath !== closed.repoPath || this.isClosed(r)) continue
+        if (r.id === closed.id || !this.inRepoScope(r, closed.repoPath) || this.isClosed(r))
+          continue
         const blocksClosed = this.deps.store
           .listIssueDeps(r.id)
           .some((d) => d.type === 'blocks' && d.toId === closed.id)
@@ -1192,12 +1219,15 @@ export class IssueService {
   }
 
   create(input: CreateIssueInput): IssueWire {
-    const seq = this.deps.store.nextIssueSeq(input.repoPath)
+    // Allocate the #N off the stable repo_id so all checkouts of one origin share a
+    // single sequence (#140) — resolve the path to its repo_id first, then allocate.
+    const repoId = this.deps.store.resolveRepoIdForPath(input.repoPath)
+    const seq = this.deps.store.nextIssueSeq(repoId)
     const ts = this.now()
     const row: IssueRow = {
       id: input.id ?? `iss_${randomUUID()}`,
       repoPath: input.repoPath,
-      repoId: this.deps.store.resolveRepoIdForPath(input.repoPath),
+      repoId,
       seq,
       title: input.title,
       description: input.description ?? '',
@@ -1363,6 +1393,19 @@ export class IssueService {
     row.readAt = this.now()
     const wire = this.persist(row)
     this.emitEvent('issue.read', row.id, { seq: row.seq })
+    return wire
+  }
+
+  /** Mark this issue UNREAD again (issue #138, the email-style inverse of
+   *  markIssueRead): clear read_at so the derived `unread` (readAt null ⇒ unread)
+   *  flips back to true, persist + broadcast, and log issue.unread. Mirrors
+   *  markIssueRead exactly; read state stays GLOBAL (single-operator, no per-user row). */
+  markIssueUnread(id: string): IssueWire {
+    const row = this.rows.get(this.resolveRef(id))
+    if (!row) throw new Error(`unknown issue ${id}`)
+    row.readAt = null
+    const wire = this.persist(row)
+    this.emitEvent('issue.unread', row.id, { seq: row.seq })
     return wire
   }
 
@@ -2259,7 +2302,7 @@ export class IssueService {
       this.d.repoOp('log', row.worktreePath).catch(() => ({ ok: false, output: '' })),
     ])
     const others = [...this.rows.values()]
-      .filter((r) => r.id !== row.id && r.repoPath === row.repoPath && !r.archived)
+      .filter((r) => r.id !== row.id && this.inRepoScope(r, row.repoPath) && !r.archived)
       .map((r) => ({ seq: r.seq, title: r.title, stage: r.stage, branch: r.branch }))
     const ctx = {
       issue: {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { agentLaunchCommand, agentSupportsInitialPrompt, ISSUE_SYSTEM_POINTER } from './launch'
+import { agentLaunchCommand, agentSupportsInitialPrompt, ISSUE_SYSTEM_POINTER, SPEC_SYSTEM_POINTER } from './launch'
 import { resolveCursorBin } from './cursor/cli.js'
 import { resolveOpencodeBin } from './opencode/cli.js'
 
@@ -7,7 +7,7 @@ describe('agentLaunchCommand', () => {
   it('spawns claude fresh', () => {
     expect(agentLaunchCommand('claude-code', { cwd: '/proj' })).toEqual({
       cmd: 'claude',
-      args: ['--append-system-prompt', ISSUE_SYSTEM_POINTER],
+      args: ['--append-system-prompt', `${ISSUE_SYSTEM_POINTER}\n\n${SPEC_SYSTEM_POINTER}`],
       cwd: '/proj',
     })
   })
@@ -20,7 +20,7 @@ describe('agentLaunchCommand', () => {
       }),
     ).toEqual({
       cmd: 'claude',
-      args: ['--resume', 'abc', '--append-system-prompt', ISSUE_SYSTEM_POINTER],
+      args: ['--resume', 'abc', '--append-system-prompt', `${ISSUE_SYSTEM_POINTER}\n\n${SPEC_SYSTEM_POINTER}`],
       cwd: '/proj',
     })
   })
@@ -120,7 +120,7 @@ describe('agentLaunchCommand', () => {
       expect(agentLaunchCommand('claude-code', { cwd: '/w', initialPrompt: 'do the thing' })).toEqual(
         {
           cmd: 'claude',
-          args: ['--append-system-prompt', ISSUE_SYSTEM_POINTER, 'do the thing'],
+          args: ['--append-system-prompt', `${ISSUE_SYSTEM_POINTER}\n\n${SPEC_SYSTEM_POINTER}`, 'do the thing'],
           cwd: '/w',
         },
       )
@@ -131,7 +131,7 @@ describe('agentLaunchCommand', () => {
         agentLaunchCommand('claude-code', { cwd: '/w', model: 'opus', initialPrompt: 'fix login' }),
       ).toEqual({
         cmd: 'claude',
-        args: ['--model', 'opus', '--append-system-prompt', ISSUE_SYSTEM_POINTER, 'fix login'],
+        args: ['--model', 'opus', '--append-system-prompt', `${ISSUE_SYSTEM_POINTER}\n\n${SPEC_SYSTEM_POINTER}`, 'fix login'],
         cwd: '/w',
       })
     })
@@ -153,7 +153,7 @@ describe('agentLaunchCommand', () => {
       const prompt = 'line one\nline two'
       expect(agentLaunchCommand('claude-code', { cwd: '/w', initialPrompt: prompt }).args).toEqual([
         '--append-system-prompt',
-        ISSUE_SYSTEM_POINTER,
+        `${ISSUE_SYSTEM_POINTER}\n\n${SPEC_SYSTEM_POINTER}`,
         prompt,
       ])
     })
@@ -161,11 +161,11 @@ describe('agentLaunchCommand', () => {
     it('ignores a blank/whitespace-only prompt (no empty arg)', () => {
       expect(agentLaunchCommand('claude-code', { cwd: '/w', initialPrompt: '   ' }).args).toEqual([
         '--append-system-prompt',
-        ISSUE_SYSTEM_POINTER,
+        `${ISSUE_SYSTEM_POINTER}\n\n${SPEC_SYSTEM_POINTER}`,
       ])
       expect(agentLaunchCommand('claude-code', { cwd: '/w', initialPrompt: '' }).args).toEqual([
         '--append-system-prompt',
-        ISSUE_SYSTEM_POINTER,
+        `${ISSUE_SYSTEM_POINTER}\n\n${SPEC_SYSTEM_POINTER}`,
       ])
     })
 
@@ -190,7 +190,7 @@ describe('agentLaunchCommand', () => {
       const spec = agentLaunchCommand('claude-code', { cwd: '/x' })
       const i = spec.args.indexOf('--append-system-prompt')
       expect(i).toBeGreaterThanOrEqual(0)
-      expect(spec.args[i + 1]).toBe(ISSUE_SYSTEM_POINTER)
+      expect(spec.args[i + 1]).toBe(`${ISSUE_SYSTEM_POINTER}\n\n${SPEC_SYSTEM_POINTER}`)
     })
 
     it('non-claude agents do not get --append-system-prompt', () => {
@@ -204,7 +204,7 @@ describe('agentLaunchCommand', () => {
     it('claude-code takes --effort, after --model', () => {
       expect(
         agentLaunchCommand('claude-code', { cwd: '/w', model: 'opus', effort: 'high' }).args,
-      ).toEqual(['--model', 'opus', '--effort', 'high', '--append-system-prompt', ISSUE_SYSTEM_POINTER])
+      ).toEqual(['--model', 'opus', '--effort', 'high', '--append-system-prompt', `${ISSUE_SYSTEM_POINTER}\n\n${SPEC_SYSTEM_POINTER}`])
     })
 
     it('grok takes --effort', () => {
@@ -234,7 +234,7 @@ describe('agentLaunchCommand', () => {
 
     it("'auto' (the sentinel) emits no model or effort flag", () => {
       expect(agentLaunchCommand('claude-code', { cwd: '/w', model: 'auto', effort: 'auto' }).args)
-        .toEqual(['--append-system-prompt', ISSUE_SYSTEM_POINTER])
+        .toEqual(['--append-system-prompt', `${ISSUE_SYSTEM_POINTER}\n\n${SPEC_SYSTEM_POINTER}`])
       expect(agentLaunchCommand('codex', { cwd: '/w', model: 'auto', effort: 'auto' }).args).toEqual(
         [],
       )

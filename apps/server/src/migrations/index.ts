@@ -25,6 +25,7 @@ import { up as issuesUniqueRepoSeq } from './004-issues-unique-repo-seq'
 import { up as issuesRepoIdIdentity } from './005-issues-repo-id-identity'
 import { up as issuesFksChecks } from './006-issues-fks-checks'
 import { up as issueDepsSingleParent } from './007-issue-deps-single-parent'
+import { up as issuesRepoIdIndex } from './008-issues-repo-id-index'
 
 export interface Migration {
   /** Positive, unique, strictly increasing across the list. */
@@ -50,6 +51,7 @@ export const MIGRATIONS: Migration[] = [
   { version: 5, name: 'issues-repo-id-identity', up: issuesRepoIdIdentity },
   { version: 6, name: 'issues-fks-checks', up: issuesFksChecks },
   { version: 7, name: 'issue-deps-single-parent', up: issueDepsSingleParent },
+  { version: 8, name: 'issues-repo-id-index', up: issuesRepoIdIndex },
 ]
 
 /** Highest schema version the running code knows about. */

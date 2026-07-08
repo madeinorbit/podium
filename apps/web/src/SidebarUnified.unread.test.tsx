@@ -5,10 +5,14 @@ import { SidebarUnified } from './SidebarUnified'
 
 // Read/mark spies shared between the mocked store and the assertions. vi.hoisted
 // makes them available inside the hoisted vi.mock factory below.
-const { markIssueRead, markSessionRead } = vi.hoisted(() => ({
-  markIssueRead: vi.fn(async () => {}),
-  markSessionRead: vi.fn(async () => {}),
-}))
+const { markIssueRead, markIssueUnread, markSessionRead, markSessionUnread, deferMutate } =
+  vi.hoisted(() => ({
+    markIssueRead: vi.fn(async () => {}),
+    markIssueUnread: vi.fn(async () => {}),
+    markSessionRead: vi.fn(async () => {}),
+    markSessionUnread: vi.fn(async () => {}),
+    deferMutate: vi.fn(async () => ({})),
+  }))
 
 // An idle (finished) session keeps its issue in WORK (not lifted to WORKING).
 function idleSess(id: string, issueId: string) {
@@ -79,19 +83,30 @@ vi.mock('./store', () => {
     // ui-state collection (persisted section collapse etc.) — absent key = default.
     uiState: { get: () => null, set: vi.fn() },
     repos: [{ path: '/repo', kind: 'repository', branch: 'main', worktrees: [] }],
-    sessions: [idleSess('s-unread', 'u1'), idleSess('s-read', 'r1')],
+    sessions: [
+      idleSess('s-unread', 'u1'),
+      idleSess('s-read', 'r1'),
+      idleSess('s-defer', 'd1'),
+    ],
     machines: [],
     pins: { panels: [], worktrees: [], repos: [] },
     setPinned: vi.fn(),
     issues: [
       issue('u1', 'Unread issue', { unread: true }),
       issue('r1', 'Read issue', { unread: false }),
+      // A returned-from-defer issue: deferUntil in the PAST (undefer backdated it),
+      // so it reads as "Unsnoozed" until opened (FIX C).
+      issue('d1', 'Unsnoozed issue', {
+        unread: false,
+        deferUntil: '2020-01-01T00:00:00.000Z',
+        deferred: false,
+      }),
     ],
     trpc: {
       settings: {
         get: { query: vi.fn(async () => ({ sessionDefaults: { agent: 'claude-code' } })) },
       },
-      issues: { defer: { mutate: vi.fn(async () => ({})) } },
+      issues: { defer: { mutate: deferMutate } },
     },
     selectedWorktree: null,
     setSelectedWorktree: vi.fn(),
@@ -107,7 +122,9 @@ vi.mock('./store', () => {
     setSidebarSettings: vi.fn(),
     spawnDraftAgent: vi.fn(),
     markIssueRead,
+    markIssueUnread,
     markSessionRead,
+    markSessionUnread,
   })
   // The selector-store hook (refactor) reads slices off the same store shape.
   return {
@@ -124,7 +141,10 @@ vi.mock('@/hooks/use-session-guard', () => ({
 afterEach(() => {
   cleanup()
   markIssueRead.mockClear()
+  markIssueUnread.mockClear()
   markSessionRead.mockClear()
+  markSessionUnread.mockClear()
+  deferMutate.mockClear()
 })
 
 describe('SidebarUnified unread emphasis + mark-read-on-open', () => {
@@ -138,5 +158,28 @@ describe('SidebarUnified unread emphasis + mark-read-on-open', () => {
     render(<SidebarUnified />)
     fireEvent.click(screen.getByText('Unread issue'))
     expect(markIssueRead).toHaveBeenCalledWith('u1')
+  })
+
+  it('right-clicking a READ issue offers "Mark as unread" and calls markIssueUnread (#138)', () => {
+    render(<SidebarUnified />)
+    fireEvent.contextMenu(screen.getByText('Read issue'))
+    fireEvent.click(screen.getByText('Mark as unread'))
+    expect(markIssueUnread).toHaveBeenCalledWith('r1')
+  })
+
+  it('right-clicking an UNREAD issue offers "Mark as read" and calls markIssueRead (#138)', () => {
+    render(<SidebarUnified />)
+    fireEvent.contextMenu(screen.getByText('Unread issue'))
+    fireEvent.click(screen.getByText('Mark as read'))
+    expect(markIssueRead).toHaveBeenCalledWith('u1')
+  })
+
+  it('opening an unsnoozed issue clears its "Unsnoozed" tag via defer(null) (#138 FIX C)', () => {
+    render(<SidebarUnified />)
+    // The tag renders while deferUntil is in the past…
+    expect(screen.getByText('Unsnoozed')).toBeTruthy()
+    fireEvent.click(screen.getByText('Unsnoozed issue'))
+    // …and opening the issue nulls deferUntil so the tag source is gone.
+    expect(deferMutate).toHaveBeenCalledWith({ id: 'd1', until: null })
   })
 })

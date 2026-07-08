@@ -241,19 +241,84 @@ export class IssuesRepository {
     this.db.prepare('DELETE FROM issues WHERE id = ?').run(id)
   }
 
-  /** Next human-facing issue number, allocated per LOGICAL repo (repo_id,
-   *  issue #164) so two clones of the same repository share one counter. The
-   *  NULL-repo_id arm covers legacy rows not yet stamped by the boot heal.
-   *  UNIQUE(repo_id, seq) enforces the invariant at the SQL layer. */
-  nextIssueSeq(repoPath: string): number {
-    const repoId = this.resolveRepoIdForPath(repoPath)
-    const r = this.db
-      .prepare(
-        `SELECT MAX(seq) AS m FROM issues
-         WHERE repo_id = ? OR (repo_id IS NULL AND repo_path = ?)`,
-      )
-      .get(repoId, repoPath) as { m: number | null }
+  /** Next human-facing issue number, allocated per LOGICAL repo — scoped by the
+   *  stable `repo_id` (issue #164, #140) so every checkout of one origin shares a
+   *  single seq sequence and two machines with different paths can no longer mint
+   *  colliding numbers. Callers resolve the path to a repo_id (resolveRepoIdForPath)
+   *  before allocating. UNIQUE(repo_id, seq) enforces the invariant at the SQL layer. */
+  nextIssueSeq(repoId: string): number {
+    const r = this.db.prepare('SELECT MAX(seq) AS m FROM issues WHERE repo_id = ?').get(repoId) as {
+      m: number | null
+    }
     return (r.m ?? 0) + 1
+  }
+
+  /**
+   * #140 heal, ported from main's boot-time migrate(): make `seq` unique per
+   * `repo_id` by renumbering the loser of each `(repo_id, seq)` collision. For each
+   * repo_id the canonical path is the one with the most issues (tie-break: path
+   * ascending); within a colliding seq the kept row is the one on the canonical path
+   * (then earliest created_at, then id), and every other row is bumped to append
+   * after that repo_id's current MAX(seq). Idempotent: a DB with no collisions is
+   * untouched. Returns the number of issues renumbered.
+   *
+   * On this branch migration 005 already dedupes historic collisions and installs
+   * UNIQUE(repo_id, seq), so post-migration writes cannot recreate them — this heal
+   * is defense in depth for databases restored from a pre-index build.
+   */
+  renumberCollidingIssueSeqs(): number {
+    const rows = this.db
+      .prepare('SELECT id, repo_id, repo_path, seq, created_at FROM issues')
+      .all() as {
+      id: string
+      repo_id: string | null
+      repo_path: string
+      seq: number
+      created_at: string
+    }[]
+    const byRepo = new Map<string, typeof rows>()
+    for (const r of rows) {
+      const rid = r.repo_id ?? this.resolveRepoIdForPath(r.repo_path)
+      const g = byRepo.get(rid)
+      if (g) g.push(r)
+      else byRepo.set(rid, [r])
+    }
+    const updates: { id: string; seq: number }[] = []
+    for (const group of byRepo.values()) {
+      const counts = new Map<string, number>()
+      for (const r of group) counts.set(r.repo_path, (counts.get(r.repo_path) ?? 0) + 1)
+      const canonPath = [...counts.entries()].sort(
+        (a, b) => b[1] - a[1] || a[0].localeCompare(b[0]),
+      )[0]![0]
+      const bySeq = new Map<number, typeof group>()
+      for (const r of group) {
+        const g = bySeq.get(r.seq)
+        if (g) g.push(r)
+        else bySeq.set(r.seq, [r])
+      }
+      let maxSeq = group.reduce((m, r) => Math.max(m, r.seq), 0)
+      for (const clash of bySeq.values()) {
+        if (clash.length < 2) continue
+        const ordered = [...clash].sort(
+          (a, b) =>
+            (a.repo_path === canonPath ? 0 : 1) - (b.repo_path === canonPath ? 0 : 1) ||
+            a.created_at.localeCompare(b.created_at) ||
+            a.id.localeCompare(b.id),
+        )
+        for (const loser of ordered.slice(1)) updates.push({ id: loser.id, seq: ++maxSeq })
+      }
+    }
+    if (updates.length === 0) return 0
+    const stmt = this.db.prepare('UPDATE issues SET seq = ? WHERE id = ?')
+    this.db.exec('BEGIN IMMEDIATE')
+    try {
+      for (const u of updates) stmt.run(u.seq, u.id)
+      this.db.exec('COMMIT')
+    } catch (e) {
+      this.db.exec('ROLLBACK')
+      throw e
+    }
+    return updates.length
   }
 
   /** Repo-identity upgrade (#74): stamp repoId onto issues under repoPath.

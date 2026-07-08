@@ -4,7 +4,7 @@ import { claudeCodeStateProvider } from '../../agent-state/claude-code.js'
 import { locateClaudeSessionFile } from '../../agent-state/claude-locate.js'
 import { createClaudeCodeConversationProvider } from '../../discovery/providers/claude-code.js'
 import { type HarnessAdapter, isSet, type TranscriptSourceInput } from '../adapter.js'
-import { ISSUE_SYSTEM_POINTER } from '../issue-system-pointer.js'
+import { ISSUE_SYSTEM_POINTER, SPEC_SYSTEM_POINTER } from '../issue-system-pointer.js'
 
 // The claude session_id (resume value) IS the JSONL basename. The locator
 // tries the current-cwd bucket first, then sweeps all buckets — session.cwd is
@@ -34,7 +34,7 @@ export const claudeCodeAdapter: HarnessAdapter = {
         ...(isSet(opts.model) ? ['--model', opts.model] : []),
         ...(isSet(opts.effort) ? ['--effort', opts.effort] : []),
         '--append-system-prompt',
-        ISSUE_SYSTEM_POINTER,
+        `${ISSUE_SYSTEM_POINTER}\n\n${SPEC_SYSTEM_POINTER}`,
         ...(opts.initialPrompt?.trim() ? [opts.initialPrompt] : []),
       ],
       cwd: opts.cwd,

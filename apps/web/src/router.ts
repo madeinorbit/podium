@@ -10,7 +10,7 @@
  *   /issues                 the issues board
  *   /issues/:id             the board with an issue page open
  *   /settings[/:tab]        settings, optionally on a specific tab
- *   /usage  /automations    the respective views
+ *   /usage  /automations  /specs    the respective views
  *   /search                 the conversation-search overlay (over home);
  *                           `?search=1` opens it over any other route
  *
@@ -19,7 +19,14 @@
  */
 
 /** Main-area surface. (Formerly defined by store.tsx — the router owns it now.) */
-export type MainView = 'home' | 'workspace' | 'settings' | 'usage' | 'issues' | 'automations'
+export type MainView =
+  | 'home'
+  | 'workspace'
+  | 'settings'
+  | 'usage'
+  | 'issues'
+  | 'automations'
+  | 'specs'
 
 export interface RouteState {
   view: MainView
@@ -79,6 +86,8 @@ export function parseRoute(pathname: string, search: string): RouteState | null 
       return second === undefined ? { view: 'usage', ...base } : null
     case 'automations':
       return second === undefined ? { view: 'automations', ...base } : null
+    case 'specs':
+      return second === undefined ? { view: 'specs', ...base } : null
     default:
       return null
   }
@@ -107,6 +116,9 @@ export function routePath(route: RouteState, currentSearch = ''): string {
       break
     case 'automations':
       path = '/automations'
+      break
+    case 'specs':
+      path = '/specs'
       break
   }
   const params = new URLSearchParams(currentSearch)

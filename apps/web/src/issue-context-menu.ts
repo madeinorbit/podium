@@ -32,6 +32,8 @@ export function issueMenuEligibility(issues: readonly IssueWire[]): {
   canDelete: boolean
   canArchive: boolean
   canUnarchive: boolean
+  canMarkRead: boolean
+  canMarkUnread: boolean
 } {
   const any = issues.length > 0
   const single = issues.length === 1
@@ -55,6 +57,11 @@ export function issueMenuEligibility(issues: readonly IssueWire[]): {
     // pair is single-target and mutually exclusive on the issue's `archived`.
     canArchive: single && first?.archived === false,
     canUnarchive: single && first?.archived === true,
+    // Email-style read toggle (#138): single-target, mutually exclusive on the
+    // derived `unread`. A currently-read row offers "mark unread"; an unread one
+    // offers "mark read". (`unread` is always a boolean on the wire.)
+    canMarkRead: single && first?.unread === true,
+    canMarkUnread: single && !first?.unread,
   }
 }
 

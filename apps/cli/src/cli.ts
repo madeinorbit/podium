@@ -237,6 +237,13 @@ export async function main(loadHost: () => Promise<HostModules>): Promise<void> 
     return
   }
 
+  // `podium spec <command>`: read/maintain the living project spec (<repo>/pspec/).
+  if (argv[0] === 'spec') {
+    const { specCliMain } = await import('./spec-cli')
+    await specCliMain(argv.slice(1))
+    return
+  }
+
   // `podium worktree [path]`: agent declares the worktree it's working in (defaults
   // to its cwd); the daemon resolves it to the git toplevel and regroups the session.
   if (argv[0] === 'worktree') {

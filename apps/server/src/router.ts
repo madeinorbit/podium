@@ -24,6 +24,7 @@ import {
 import { buildJoinCommand } from './hub/machines-join'
 import { type Capability, checkIssueAccess, PROC_ACTION, SCOPED_TARGET } from './issue-authz'
 import { type IssueCaller, issueInputs } from './modules/issues/commands'
+import { specsInputs } from './modules/specs/service'
 import type { RegistryModules, SessionRegistry } from './relay'
 import { normalizeOriginUrl } from './repo-id'
 import { browseDirectories, type RepoRegistry } from './repo-registry'
@@ -130,8 +131,16 @@ const issueCapabilityGuard = t.middleware(async ({ ctx, path, next, getRawInput 
     const rawTarget = extract((await getRawInput()) as Record<string, unknown>)
     // Resolve display refs (#seq) to the internal id BEFORE the subtree check —
     // scope.rootId is an internal id, so comparing the raw ref would false-negative
-    // on the agent's own bound issue.
-    targetId = typeof rawTarget === 'string' ? mods(ctx).issues.resolveRef(rawTarget) : rawTarget
+    // on the agent's own bound issue. Scope the resolution to the bound issue's repo
+    // (by repo_id) so a bare `#N` disambiguates to the agent's own repo (#140).
+    const scopeRepoPath =
+      ctx.capability.scope.kind === 'subtree'
+        ? (mods(ctx).issues.get(ctx.capability.scope.rootId)?.repoPath ?? undefined)
+        : undefined
+    targetId =
+      typeof rawTarget === 'string'
+        ? mods(ctx).issues.resolveRef(rawTarget, scopeRepoPath)
+        : rawTarget
   }
   // The shared decision + throw shape (#25) — also used by the in-proc mailClaim gate.
   checkIssueAccess(ctx, mods(ctx).issues, proc, action, targetId)
@@ -473,6 +482,15 @@ export const appRouter = t.router({
       .mutation(({ ctx, input }) =>
         mods(ctx).sessions.withMutation(input.mutationId, 'sessions.markRead', () =>
           mods(ctx).sessions.markSessionRead(input.sessionId),
+        ),
+      ),
+    // Mark a session UNREAD again (issue #138): clear read_at, flipping derived
+    // `unread` back to true. Mirrors markRead exactly (email-style inverse action).
+    markUnread: t.procedure
+      .input(z.object({ sessionId: z.string(), mutationId: z.string().max(128).optional() }))
+      .mutation(({ ctx, input }) =>
+        ctx.registry.withMutation(input.mutationId, 'sessions.markUnread', () =>
+          ctx.registry.markSessionUnread(input.sessionId),
         ),
       ),
     // Move (or clear) a session's explicit issue attachment (issue-as-workspace).
@@ -1115,6 +1133,12 @@ export const appRouter = t.router({
     markRead: issueProc
       .input(issueInputs.markRead)
       .mutation(({ ctx, input }) => mods(ctx).issueCommands.markRead(issueCaller(ctx), input)),
+    // Mark an issue UNREAD again (issue #138): clear read_at, flipping derived
+    // `unread` back to true. Node-local like markRead (NOT issueWrite / never
+    // hub-forwarded; unlisted in PROC_ACTION) — read-tracking needs only 'read'.
+    markUnread: issueProc
+      .input(issueInputs.markUnread)
+      .mutation(({ ctx, input }) => mods(ctx).issueCommands.markUnread(issueCaller(ctx), input)),
     setNeedsHuman: issueProc
       .input(issueInputs.setNeedsHuman)
       .mutation(({ ctx, input }) => mods(ctx).issueCommands.setNeedsHuman(issueCaller(ctx), input)),
@@ -1154,6 +1178,11 @@ export const appRouter = t.router({
     subscriptionList: issueProc.query(({ ctx }) =>
       mods(ctx).issueCommands.subscriptionList(issueCaller(ctx)),
     ),
+    subscriptionSetEnabled: issueProc
+      .input(issueInputs.subscriptionSetEnabled)
+      .mutation(({ ctx, input }) =>
+        mods(ctx).issueCommands.subscriptionSetEnabled(issueCaller(ctx), input),
+      ),
   }),
   files: t.router({
     read: t.procedure
@@ -1207,6 +1236,28 @@ export const appRouter = t.router({
         }
         return mods(ctx).rpc.listDir(input)
       }),
+  }),
+  // pspec — the living spec tree in <repo>/pspec/ (modules/specs over
+  // apps/server/src/pspec.ts). Prototype scope: local-filesystem repos only
+  // (reads/writes on the server host). The repo-root allowlist gate lives in
+  // the SpecsService so the daemon-relay path enforces the identical check.
+  specs: t.router({
+    list: t.procedure
+      .input(specsInputs.list)
+      .query(({ ctx, input }) => mods(ctx).specs.list(input)),
+    get: t.procedure.input(specsInputs.get).query(({ ctx, input }) => mods(ctx).specs.get(input)),
+    create: t.procedure
+      .input(specsInputs.create)
+      .mutation(({ ctx, input }) => mods(ctx).specs.create(input)),
+    save: t.procedure
+      .input(specsInputs.save)
+      .mutation(({ ctx, input }) => mods(ctx).specs.save(input)),
+    remove: t.procedure
+      .input(specsInputs.remove)
+      .mutation(({ ctx, input }) => mods(ctx).specs.remove(input)),
+    search: t.procedure
+      .input(specsInputs.search)
+      .query(({ ctx, input }) => mods(ctx).specs.search(input)),
   }),
 })
 

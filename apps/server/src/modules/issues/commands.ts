@@ -184,6 +184,7 @@ export const issueInputs = {
   defer: z.object({ id: z.string(), until: z.string().nullable() }),
   undefer: byId,
   markRead: z.object({ id: z.string(), mutationId: z.string().max(128).optional() }),
+  markUnread: z.object({ id: z.string(), mutationId: z.string().max(128).optional() }),
   setNeedsHuman: z.object({ id: z.string(), question: z.string().optional() }),
   clearNeedsHuman: byId,
   reparent: z.object({ id: z.string(), parentId: z.string().nullable() }),
@@ -203,8 +204,13 @@ export const issueInputs = {
       ref: z.string().min(1),
     }),
     deliver: z.object({ nudge: z.boolean().optional(), notify: z.boolean().optional() }).optional(),
+    // Operator-only (#129 Phase C): the Automations UI creates a subscription for an
+    // explicit subscriber (which issue/session to notify). Ignored for constrained
+    // agents, who always subscribe themselves via deriveSubscriber.
+    subscriber: z.object({ kind: z.enum(['session', 'issue']), id: z.string() }).optional(),
   }),
   subscriptionRemove: byId,
+  subscriptionSetEnabled: z.object({ id: z.string(), enabled: z.boolean() }),
 } as const
 
 type In<K extends keyof typeof issueInputs> = z.infer<(typeof issueInputs)[K]>
@@ -242,8 +248,17 @@ export class IssueCommandService {
       const rawTarget = extract((rawInput ?? {}) as Record<string, unknown>)
       // Resolve display refs (#seq) to the internal id BEFORE the subtree check —
       // scope.rootId is an internal id, so comparing the raw ref would
-      // false-negative on the agent's own bound issue.
-      targetId = typeof rawTarget === 'string' ? this.issues().resolveRef(rawTarget) : rawTarget
+      // false-negative on the agent's own bound issue. Scope the resolution to the
+      // bound issue's repo (by repo_id) so a bare `#N` disambiguates to the agent's
+      // own repo (#140) — same narrowing the router's issueCapabilityGuard applies.
+      const scopeRepoPath =
+        caller.capability.scope.kind === 'subtree'
+          ? (this.issues().get(caller.capability.scope.rootId)?.repoPath ?? undefined)
+          : undefined
+      targetId =
+        typeof rawTarget === 'string'
+          ? this.issues().resolveRef(rawTarget, scopeRepoPath)
+          : rawTarget
     }
     checkIssueAccess(caller, this.issues(), proc, action, targetId)
   }
@@ -589,6 +604,14 @@ export class IssueCommandService {
       this.issues().markIssueRead(input.id),
     )
   }
+  // Mark an issue UNREAD again (issue #138): clear read_at, flipping derived
+  // `unread` back to true. Node-local like markRead (NOT issueWrite / never
+  // hub-forwarded; unlisted in PROC_ACTION) — read-tracking needs only 'read'.
+  markUnread(_c: IssueCaller, input: In<'markUnread'>) {
+    return this.deps.withMutation(input.mutationId, 'issues.markUnread', () =>
+      this.issues().markIssueUnread(input.id),
+    )
+  }
   setNeedsHuman(c: IssueCaller, input: In<'setNeedsHuman'>) {
     return this.issueWrite(c, 'setNeedsHuman', input, () =>
       this.issues().setNeedsHuman(input.id, input.question ?? null),
@@ -671,7 +694,13 @@ export class IssueCommandService {
   // a source inside its subtree; the operator is unconstrained. Custom origin.
 
   subscriptionAdd(c: IssueCaller, input: In<'subscriptionAdd'>) {
-    const subscriber = this.deriveSubscriber(c)
+    // Operator (scope 'all') may create a subscription for an explicit subscriber
+    // (#129 Phase C — the Automations UI); constrained agents always subscribe
+    // THEMSELVES, so an agent-supplied subscriber is ignored, not an error.
+    const subscriber =
+      input.subscriber && c.capability.scope.kind === 'all'
+        ? input.subscriber
+        : this.deriveSubscriber(c)
     // Constrained callers may only watch a source WITHIN their subtree; the
     // operator (scope 'all') is unconstrained. Relationship sources resolve
     // dynamically against the subscriber's own subtree, so they are always in-scope.
@@ -703,6 +732,25 @@ export class IssueCommandService {
       }
     }
     return this.issues().subscriptionRemove(input.id)
+  }
+  /** Toggle a subscription on/off (#129 Phase C, Automations UI). Custom
+   *  subscriptions only affect the additive dispatcher pass, so disabling one never
+   *  touches the built-in handlers — safe and reversible. */
+  subscriptionSetEnabled(c: IssueCaller, input: In<'subscriptionSetEnabled'>) {
+    // Constrained callers may only toggle their OWN subscriptions.
+    if (c.capability.scope.kind !== 'all') {
+      const subscriber = this.deriveSubscriber(c)
+      const owned = this.issues()
+        .subscriptionList({ subscriberId: subscriber.id })
+        .some((s) => s.id === input.id)
+      if (!owned) {
+        throw new TRPCError({
+          code: 'FORBIDDEN',
+          message: 'not allowed to toggle a subscription you do not own',
+        })
+      }
+    }
+    return this.issues().subscriptionSetEnabled(input.id, input.enabled)
   }
   subscriptionList(c: IssueCaller) {
     // Operator sees every subscription; a constrained caller sees only its own.

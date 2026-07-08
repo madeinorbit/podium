@@ -1,3 +1,7 @@
+import { mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { openDatabase } from '@podium/core/sqlite'
 import { describe, expect, it } from 'vitest'
 import { SessionStore } from './store'
 
@@ -36,16 +40,69 @@ describe('store issues', () => {
     expect(got?.blockedBy).toEqual(['iss_2'])
   })
 
-  it('lists by repo and increments seq per repo', () => {
+  it('lists by repo and increments seq per repo_id', () => {
     const s = new SessionStore(':memory:')
-    expect(s.nextIssueSeq('/r')).toBe(1)
+    const rid = (p: string) => s.resolveRepoIdForPath(p)
+    expect(s.nextIssueSeq(rid('/r'))).toBe(1)
     s.upsertIssue({ ...base(), id: 'a', repoPath: '/r', seq: 1 })
     s.upsertIssue({ ...base(), id: 'b', repoPath: '/r', seq: 2 })
     s.upsertIssue({ ...base(), id: 'c', repoPath: '/other', seq: 1 })
-    expect(s.nextIssueSeq('/r')).toBe(3)
-    expect(s.nextIssueSeq('/other')).toBe(2)
+    expect(s.nextIssueSeq(rid('/r'))).toBe(3)
+    expect(s.nextIssueSeq(rid('/other'))).toBe(2)
     expect(s.listIssueRows('/r').map((i) => i.id).sort()).toEqual(['a', 'b'])
     expect(s.listIssueRows().length).toBe(3)
+  })
+
+  it('allocates seq per repo_id — shared across checkout paths of one origin (#140)', () => {
+    const s = new SessionStore(':memory:')
+    const repoId = 'repo_shared_origin'
+    // Two checkouts of the SAME repo at DIFFERENT paths (e.g. two machines).
+    s.upsertIssue({ ...base(), id: 'a', repoPath: '/home/alice/proj', repoId, seq: 1 })
+    s.upsertIssue({ ...base(), id: 'b', repoPath: '/home/bob/proj', repoId, seq: 2 })
+    // One repo_id → one sequence; the next number is 3, not a per-path duplicate.
+    expect(s.nextIssueSeq(repoId)).toBe(3)
+  })
+
+  it('rejects colliding (repo_id, seq) at the SQL layer — UNIQUE index from migration 005 (#140)', () => {
+    // On this branch collisions are unrepresentable through the facade: migration
+    // 005 installed UNIQUE(repo_id, seq), so the upsert itself throws and the #140
+    // heal has nothing to do on a live DB.
+    const s = new SessionStore(':memory:')
+    const repoId = 'repo_dup'
+    s.upsertIssue({ ...base(), id: 'm4', repoPath: '/home/user/p', repoId, seq: 4 })
+    expect(() =>
+      s.upsertIssue({ ...base(), id: 't4', repoPath: '/home/till/p', repoId, seq: 4 }),
+    ).toThrow()
+    expect(s.renumberCollidingIssueSeqs()).toBe(0)
+  })
+
+  it('boot-heals colliding seqs restored from a pre-index database, idempotently (#140)', () => {
+    // Emulate a database from main's pre-UNIQUE-index lineage: build it, drop the
+    // 005 index out-of-band, plant a collision raw, then reopen through the store —
+    // the per-boot renumberCollidingIssueSeqs heal renumbers the loser.
+    const file = join(mkdtempSync(join(tmpdir(), 'podium-seq-heal-')), 'heal.db')
+    const repoId = 'repo_dup'
+    const s1 = new SessionStore(file)
+    // Same origin, two paths; canonical (majority) path /home/user + a loser path
+    // /home/till that minted colliding #4 (and a non-colliding #1).
+    s1.upsertIssue({ ...base(), id: 'm3', repoPath: '/home/user/p', repoId, seq: 3 })
+    s1.upsertIssue({ ...base(), id: 'm4', repoPath: '/home/user/p', repoId, seq: 4 })
+    s1.upsertIssue({ ...base(), id: 'm5', repoPath: '/home/user/p', repoId, seq: 5 })
+    s1.upsertIssue({ ...base(), id: 't4', repoPath: '/home/till/p', repoId, seq: 99 })
+    s1.upsertIssue({ ...base(), id: 't1', repoPath: '/home/till/p', repoId, seq: 1 })
+    s1.close()
+    const raw = openDatabase(file)
+    raw.exec('DROP INDEX idx_issues_repo_id_seq')
+    raw.prepare('UPDATE issues SET seq = 4 WHERE id = ?').run('t4')
+    raw.close()
+    const s2 = new SessionStore(file) // boot heal runs here
+    expect(s2.getIssue('m4')?.seq).toBe(4) // canonical path keeps #4
+    expect(s2.getIssue('t4')?.seq).toBe(6) // loser appended after max(5) => 6
+    expect(s2.getIssue('t1')?.seq).toBe(1) // non-colliding kept
+    const seqs = s2.listIssueRows().map((i) => i.seq)
+    expect(new Set(seqs).size).toBe(seqs.length) // unique per repo_id
+    expect(s2.renumberCollidingIssueSeqs()).toBe(0) // idempotent
+    s2.close()
   })
 
   it('deletes', () => {
