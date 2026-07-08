@@ -57,7 +57,7 @@ export interface PodiumClientApi {
       draftIssue?: { repoPath: string; issueId?: string }
       machineId?: string
       mutationId?: string
-    }>
+    }, { sessionId: string }>
     resumeAndSend: ApiMutation<WithMutationId<{ sessionId: string; text: string }>>
     rename: ApiMutation<WithMutationId<{ sessionId: string; name: string }>>
     setArchived: ApiMutation<WithMutationId<{ sessionId: string; archived: boolean }>>

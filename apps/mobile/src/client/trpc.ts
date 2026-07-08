@@ -1,17 +1,10 @@
+import type { PodiumClientApi } from '@podium/client-core/api'
 import {
   parseServerOrigin,
   resolveServerConfig,
   type ServerConfig,
 } from '@podium/client-core/transport'
-import type {
-  AgentKind,
-  IssueStage,
-  IssueType,
-  IssueWire,
-  SyncChangesSinceResult,
-  TranscriptItem,
-  WorkState,
-} from '@podium/protocol'
+import type { IssueStage, IssueType, IssueWire, TranscriptItem } from '@podium/protocol'
 import { WIRE_VERSION } from '@podium/protocol'
 import { createTRPCClient, httpBatchLink } from '@trpc/client'
 
@@ -52,49 +45,24 @@ export interface SuperagentThread {
 }
 
 /**
- * The slice of the server's AppRouter the mobile app uses. Hand-written because
- * importing the server's AppRouter type would pull the whole server into the
- * Metro graph; kept narrow and in one place so drift is easy to audit.
+ * Mobile-only procedures beyond the shared PodiumClientApi seam (transcript
+ * paging, ask-user answers, superagent threads, issue CRUD). Hand-written
+ * because importing the server's AppRouter type would pull the whole server
+ * into the Metro graph; kept narrow and in one place so drift is easy to audit.
+ * Everything the SHARED store/actions layer calls lives in PodiumClientApi
+ * (@podium/client-core/api) — the intersection below is the full client type.
  */
-export interface MobileTrpc {
-  sync: {
-    changesSince: QueryProcedure<{ cursor: number | null }, SyncChangesSinceResult>
-  }
+interface MobileTrpcExtras {
   sessions: {
-    create: MutationProcedure<
-      {
-        agentKind?: AgentKind
-        cwd: string
-        title?: string
-        issueId?: string
-        draftIssue?: { repoPath: string }
-        mutationId?: string
-      },
-      { sessionId: string }
-    >
     transcriptRead: QueryProcedure<
       { sessionId: string; anchor?: string; direction: 'before' | 'after'; limit: number },
       TranscriptPage
     >
-    resumeAndSend: MutationProcedure<{ sessionId: string; text: string; mutationId?: string }>
     sendText: MutationProcedure<{ sessionId: string; text: string; mutationId?: string }>
     answerAskUserQuestion: MutationProcedure<{
       sessionId: string
       choices: { optionIndices: number[] }[]
     }>
-    kill: MutationProcedure<{ sessionId: string }>
-    continue: MutationProcedure<{ sessionId: string }>
-    rename: MutationProcedure<{ sessionId: string; name: string; mutationId?: string }>
-    setArchived: MutationProcedure<{ sessionId: string; archived: boolean; mutationId?: string }>
-    setWorkState: MutationProcedure<{
-      sessionId: string
-      workState: WorkState | null
-      mutationId?: string
-    }>
-  }
-  snoozes: {
-    set: MutationProcedure<{ sessionId: string; until: string | null; mutationId?: string }>
-    clear: MutationProcedure<{ sessionId: string; mutationId?: string }>
   }
   superagent: {
     listThreads: QueryProcedure<void, SuperagentThread[]>
@@ -147,6 +115,8 @@ export interface MobileTrpc {
     list: QueryProcedure<void, string[]>
   }
 }
+
+export type MobileTrpc = PodiumClientApi & MobileTrpcExtras
 
 declare const process: { env?: Record<string, string | undefined> } | undefined
 
