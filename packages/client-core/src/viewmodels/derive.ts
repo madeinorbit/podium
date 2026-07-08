@@ -6,20 +6,20 @@
  * re-exports everything plus the css-classname helpers) enforce the split.
  */
 import {
-  dedupeSessionsByResume as domainDedupeSessionsByResume,
-  isHeadlessSession as domainIsHeadlessSession,
-  isIssueSnoozed as domainIsIssueSnoozed,
-  isSnoozed as domainIsSnoozed,
-  issueReturnedFromDefer as domainIssueReturnedFromDefer,
-  lastUsedMachine as domainLastUsedMachine,
-  machinesForRepo as domainMachinesForRepo,
-  machinesWithRepo as domainMachinesWithRepo,
+  dedupeSessionsByResume,
+  isHeadlessSession,
+  isIssueSnoozed,
+  isSnoozed,
+  issueReturnedFromDefer,
+  lastUsedMachine,
+  machinesForRepo,
+  machinesWithRepo,
   normalizeOriginUrl,
-  resolveTargetMachine as domainResolveTargetMachine,
-  returnedFromSnooze as domainReturnedFromSnooze,
+  resolveTargetMachine,
+  returnedFromSnooze,
   snoozeUntil1h,
   snoozeUntilTomorrow5am,
-  withoutHeadless as domainWithoutHeadless,
+  withoutHeadless,
   worktreeForCwd,
 } from '@podium/domain'
 import type {
@@ -27,27 +27,34 @@ import type {
   GitRepositoryWire,
   HostMetricsWire,
   IssueWire,
-  MachineWire,
   SessionMeta,
 } from '@podium/protocol'
 import { attentionGroup, compareRecency } from '../focus'
 import type { PinState, RepoView, WorktreeView } from './types'
 
 // Entity-pure predicates live in @podium/domain (#194) — client-core imports
-// them rather than redefining them, and re-exports so existing
-// `@podium/client-core/viewmodels` / `./derive` call sites keep working.
-export { normalizeOriginUrl, snoozeUntil1h, snoozeUntilTomorrow5am, worktreeForCwd }
-export const isSnoozed = domainIsSnoozed
-export const returnedFromSnooze = domainReturnedFromSnooze
-export const isIssueSnoozed = domainIsIssueSnoozed
-export const issueReturnedFromDefer = domainIssueReturnedFromDefer
-export const isHeadlessSession = domainIsHeadlessSession
-export const withoutHeadless = domainWithoutHeadless
-export const dedupeSessionsByResume = domainDedupeSessionsByResume
-export const machinesWithRepo = domainMachinesWithRepo
-export const machinesForRepo = domainMachinesForRepo
-export const lastUsedMachine = domainLastUsedMachine
-export const resolveTargetMachine = domainResolveTargetMachine
+// them (above) rather than redefining them, and re-exports the same bindings
+// (not new `export const`/`export function` declarations — see
+// scripts/check-boundaries.ts rule 7, which flags exactly that shape) so
+// existing `@podium/client-core/viewmodels` / `./derive` call sites keep
+// working unchanged.
+export {
+  dedupeSessionsByResume,
+  isHeadlessSession,
+  isIssueSnoozed,
+  isSnoozed,
+  issueReturnedFromDefer,
+  lastUsedMachine,
+  machinesForRepo,
+  machinesWithRepo,
+  normalizeOriginUrl,
+  resolveTargetMachine,
+  returnedFromSnooze,
+  snoozeUntil1h,
+  snoozeUntilTomorrow5am,
+  withoutHeadless,
+  worktreeForCwd,
+}
 
 export type MemorySeverity = 'ok' | 'warn' | 'critical'
 

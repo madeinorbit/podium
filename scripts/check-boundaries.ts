@@ -10,9 +10,8 @@
  *     and its own package (including its tests). Servers read transcripts via
  *     `@podium/transcript` instead.
  *  3. `@podium/protocol` and `@podium/domain` are leaf packages — they import
- *     no other workspace package (domain additionally imports no external
- *     runtime deps at all — see rule 3c). `@podium/transcript` is a near-leaf:
- *     it may import only `@podium/protocol`. `@podium/runtime` is a near-leaf
+ *     no other workspace package. `@podium/transcript` is a near-leaf: it may
+ *     import only `@podium/protocol`. `@podium/runtime` is a near-leaf
  *     runtime-plumbing package: it may import only `@podium/protocol` and
  *     `@podium/domain` (e.g. domain's `normalizeOriginUrl`) — never another
  *     app or a non-leaf package.
@@ -25,13 +24,42 @@
  *     hub, and NOTHING imports cloud/ (the private module composes only via
  *     the plugins.ts seam). Composition roots (index/server/router.ts) and
  *     test files may import hub — never cloud.
+ *  7. `@podium/domain` is the single home for the entity-pure predicates it
+ *     exports (issue stage/authz, snooze/defer, worktree/machine identity,
+ *     session dedup + priority, git identity): no OTHER `packages/*` source
+ *     file may declare a top-level `export function`/`export const` with the
+ *     same name — that shape is a redefinition, the exact bug this rule
+ *     catches (client-core's viewmodels used to hand-copy several of these).
+ *     Re-exporting a domain binding (`export { x } from '@podium/domain'` or
+ *     `export { x }` after `import { x } from '@podium/domain'`) is fine and
+ *     encouraged; only a NEW declaration under the same name is flagged.
+ *  8. `@podium/runtime` browser-safety is enforced two ways instead of being a
+ *     purely hand-maintained barrel convention:
+ *       (a) `apps/web` (the one literal browser bundle) may import ONLY the
+ *           bare `@podium/runtime` specifier — never a subpath
+ *           (`@podium/runtime/config`, `/sqlite`, …). Every node-only concern
+ *           lives behind an explicit subpath by convention, so this makes
+ *           that convention a build failure instead of a docstring.
+ *       (b) `packages/runtime/src/index.ts` (the root barrel) may not VALUE-
+ *           export (as opposed to type-only) a sibling file that itself
+ *           directly imports a Node builtin (`node:*`) — the one-hop check
+ *           that would catch e.g. flipping `export type {...} from
+ *           './config.js'` to a value `export *`.
+ *     What this does NOT do: a full transitive import-graph closure (so a
+ *     two-hop leak — the barrel re-exporting a file that re-exports a
+ *     node-tainted file — would slip through). That's judged not cleanly
+ *     feasible for the payoff here (packages/runtime/src/index.ts is tiny
+ *     and reviewed by hand on every change); (a) + (b) cover the actual
+ *     historical failure mode (a subpath import creeping into apps/web, or a
+ *     barrel re-export widening from type-only to a value). The barrel's own
+ *     doc comment still carries the discipline in prose for anyone editing it.
  *
  * Run: `bun run lint:boundaries` (wired into `bun run lint`). Exits non-zero
  * with a readable violation list. Pure matching logic is exported for the
  * vitest suite in `scripts/check-boundaries.test.ts`.
  */
 
-import { readdirSync, readFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { dirname, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { isCompositionRoot, ROLE_RANK, serverRoleOf } from '../apps/server/src/roles'
@@ -210,6 +238,139 @@ function checkServerRoleTiers(file: string, ref: ImportRef): Violation | null {
   }
 }
 
+const DOMAIN_HOME = 'packages/domain'
+
+/** Matches a top-level `export function NAME` / `export const NAME =`
+ *  declaration. Deliberately does NOT match `export { NAME }` or
+ *  `export { NAME } from '...'` — those re-export an existing binding rather
+ *  than declaring a new one, which is exactly the pattern a domain consumer
+ *  (e.g. client-core re-exporting a domain predicate under its original name
+ *  for backward-compatible call sites) is expected to use. */
+const TOP_LEVEL_DECL_RE = /^export (?:function|const)\s+([A-Za-z_$][\w$]*)/gm
+
+/** Names @podium/domain exports as a top-level function/const (its entity
+ *  predicates and pure logic) — read live from packages/domain/src so the set
+ *  never drifts from the actual package. Returns an empty set (rule 7 no-op)
+ *  if the directory can't be read (e.g. a unit test sandboxing the repo). */
+export function loadDomainExportNames(repoRoot: string): Set<string> {
+  const names = new Set<string>()
+  let entries: string[]
+  try {
+    entries = readdirSync(join(repoRoot, DOMAIN_HOME, 'src'))
+  } catch {
+    return names
+  }
+  for (const entry of entries) {
+    if (!/\.tsx?$/.test(entry) || isTestFile(entry)) continue
+    const source = readFileSync(join(repoRoot, DOMAIN_HOME, 'src', entry), 'utf8')
+    for (const m of stripComments(source).matchAll(TOP_LEVEL_DECL_RE)) {
+      const name = m[1]
+      if (name) names.add(name)
+    }
+  }
+  return names
+}
+
+/**
+ * Rule 7 — @podium/domain is the single home for the predicates it exports.
+ * Any packages/* file outside @podium/domain itself (and outside tests, which
+ * legitimately construct fixture doubles) that DECLARES a top-level
+ * function/const under the same name is almost certainly a redefinition.
+ */
+function checkDomainRedefinition(
+  file: string,
+  source: string,
+  domainExportNames: ReadonlySet<string>,
+): Violation[] {
+  if (domainExportNames.size === 0) return []
+  if (!file.startsWith('packages/') || file.startsWith(`${DOMAIN_HOME}/`)) return []
+  if (isTestFile(file)) return []
+  const violations: Violation[] = []
+  for (const m of stripComments(source).matchAll(TOP_LEVEL_DECL_RE)) {
+    const name = m[1]
+    if (name && domainExportNames.has(name)) {
+      violations.push({
+        file,
+        specifier: name,
+        rule: 'domain-single-home',
+        message: `${file}: redefines '${name}', which @podium/domain already exports — import it from '@podium/domain' instead (re-exporting the imported binding is fine; declaring a new one under the same name is not)`,
+      })
+    }
+  }
+  return violations
+}
+
+const RUNTIME_HOME = 'packages/runtime'
+const RUNTIME_BARREL = `${RUNTIME_HOME}/src/index.ts`
+
+/** True for a Node builtin specifier — the only node-only import shape this
+ *  repo's source uses (always `node:fs` style, never a bare `fs`). */
+function isNodeBuiltinSpecifier(specifier: string): boolean {
+  return specifier.startsWith('node:')
+}
+
+/**
+ * Rule 8a — apps/web may import ONLY the bare `@podium/runtime` specifier,
+ * never a subpath. See rule 8 in the file doc comment.
+ */
+function checkWebRuntimeSubpath(file: string, ref: ImportRef): Violation | null {
+  if (file !== 'apps/web' && !file.startsWith('apps/web/')) return null
+  if (!ref.specifier.startsWith('@podium/runtime/')) return null
+  return {
+    file,
+    specifier: ref.specifier,
+    rule: 'runtime-browser-safety',
+    message: `${file}: apps/web may not import a @podium/runtime subpath ('${ref.specifier}') — every subpath is node-only by convention; only the browser-safe root barrel ('@podium/runtime') is allowed here`,
+  }
+}
+
+/** Resolve a relative specifier from `fromFile` (repo-relative posix path,
+ *  './config.js' style) to the .ts source file it actually names on disk. */
+function resolveTsSibling(repoRoot: string, fromFile: string, specifier: string): string | null {
+  const abs = resolve('/', dirname(join(repoRoot, fromFile)), specifier).replace(/\.js$/, '')
+  for (const candidate of [`${abs}.ts`, `${abs}.tsx`, join(abs, 'index.ts')]) {
+    if (existsSync(candidate)) return candidate
+  }
+  return null
+}
+
+/**
+ * Rule 8b — the @podium/runtime root barrel may not VALUE-export a sibling
+ * file that itself directly imports a Node builtin. One-hop check (not a full
+ * transitive closure — see rule 8 in the file doc comment for why). Runs once
+ * against the one file it targets, not per-file like the rest of checkFile's
+ * rules, so it's a standalone function `runCheck` calls directly.
+ */
+export function checkRuntimeBarrelPurity(repoRoot: string): Violation[] {
+  const abs = join(repoRoot, RUNTIME_BARREL)
+  let source: string
+  try {
+    source = readFileSync(abs, 'utf8')
+  } catch {
+    return []
+  }
+  const violations: Violation[] = []
+  for (const ref of extractImports(source)) {
+    if (ref.typeOnly || !ref.specifier.startsWith('.')) continue
+    const targetAbs = resolveTsSibling(repoRoot, RUNTIME_BARREL, ref.specifier)
+    if (!targetAbs) continue
+    const targetSource = readFileSync(targetAbs, 'utf8')
+    const targetRel = relative(repoRoot, targetAbs).split(sep).join('/')
+    const nodeImport = extractImports(targetSource).find(
+      (r) => isNodeBuiltinSpecifier(r.specifier) && !r.typeOnly,
+    )
+    if (nodeImport) {
+      violations.push({
+        file: RUNTIME_BARREL,
+        specifier: ref.specifier,
+        rule: 'runtime-browser-safety',
+        message: `${RUNTIME_BARREL}: value-exports '${ref.specifier}' (${targetRel}), which directly imports Node builtin '${nodeImport.specifier}' — apps/web's bundle would inline it. Re-export only its types (export type {...}) or move it behind its own subpath.`,
+      })
+    }
+  }
+  return violations
+}
+
 /** Workspace a specifier points at, or null for external/std imports. */
 function targetWorkspace(file: string, specifier: string): string | null {
   if (specifier.startsWith('@podium/')) {
@@ -225,9 +386,15 @@ function targetWorkspace(file: string, specifier: string): string | null {
   return null
 }
 
-/** Check one file's imports against all boundary rules. Pure — used by tests. */
-export function checkFile(file: string, source: string): Violation[] {
-  const violations: Violation[] = []
+/** Check one file's imports against all boundary rules. Pure — used by tests.
+ *  `domainExportNames` (rule 7) defaults to empty, i.e. a no-op, so existing
+ *  call sites (and most tests) that don't pass it are unaffected. */
+export function checkFile(
+  file: string,
+  source: string,
+  domainExportNames: ReadonlySet<string> = new Set(),
+): Violation[] {
+  const violations: Violation[] = [...checkDomainRedefinition(file, source, domainExportNames)]
   const from = workspaceOf(file)
   for (const ref of extractImports(source)) {
     // Rule 6 first: role tiers are same-workspace edges (apps/server internal),
@@ -235,6 +402,12 @@ export function checkFile(file: string, source: string): Violation[] {
     const roleViolation = checkServerRoleTiers(file, ref)
     if (roleViolation) {
       violations.push(roleViolation)
+      continue
+    }
+    // Rule 8a: apps/web may only bare-import @podium/runtime, never a subpath.
+    const webRuntimeViolation = checkWebRuntimeSubpath(file, ref)
+    if (webRuntimeViolation) {
+      violations.push(webRuntimeViolation)
       continue
     }
     const to = targetWorkspace(file, ref.specifier)
@@ -338,15 +511,17 @@ export function runCheck(repoRoot: string): {
 } {
   const violations: Violation[] = []
   const agentBridgeImporters = new Set<string>()
+  const domainExportNames = loadDomainExportNames(repoRoot)
   for (const rootDir of ['apps', 'packages', 'scripts']) {
     for (const abs of walk(join(repoRoot, rootDir))) {
       const file = relative(repoRoot, abs).split(sep).join('/')
       const source = readFileSync(abs, 'utf8')
-      violations.push(...checkFile(file, source))
+      violations.push(...checkFile(file, source, domainExportNames))
       if (extractImports(source).some((r) => r.specifier.startsWith('@podium/agent-bridge')))
         agentBridgeImporters.add(file)
     }
   }
+  violations.push(...checkRuntimeBarrelPurity(repoRoot))
   const staleGrandfathers = [...GRANDFATHERED_AGENT_BRIDGE].filter(
     (f) => !agentBridgeImporters.has(f),
   )

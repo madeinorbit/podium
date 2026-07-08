@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { checkFile, clauseIsTypeOnly, extractImports } from './check-boundaries'
+import {
+  checkFile,
+  checkRuntimeBarrelPurity,
+  clauseIsTypeOnly,
+  extractImports,
+  loadDomainExportNames,
+} from './check-boundaries'
 
 describe('extractImports', () => {
   it('extracts value, type-only, side-effect, export-from and dynamic imports', () => {
@@ -318,5 +324,122 @@ describe('server role tiers (core → hub → cloud, apps/server/src/roles.ts)',
     expect(
       checkFile('apps/server/src/relay.ts', `import { loadConfig } from '@podium/runtime/config'`),
     ).toEqual([])
+  })
+})
+
+describe('rule 7 — @podium/domain single-home for its predicates', () => {
+  const domainNames = new Set(['isSnoozed', 'worktreeForCwd'])
+
+  it('flags a packages/* file that REDECLARES a domain-exported name', () => {
+    const v = checkFile(
+      'packages/client-core/src/viewmodels/derive.ts',
+      `export function isSnoozed(s, now) { return false }`,
+      domainNames,
+    )
+    expect(v).toHaveLength(1)
+    expect(v[0].rule).toBe('domain-single-home')
+    expect(v[0].message).toContain('isSnoozed')
+
+    const c = checkFile(
+      'packages/client-core/src/viewmodels/derive.ts',
+      `export const worktreeForCwd = (cwd, paths) => null`,
+      domainNames,
+    )
+    expect(c).toHaveLength(1)
+    expect(c[0].rule).toBe('domain-single-home')
+  })
+
+  it('allows re-exporting the imported binding under the same name', () => {
+    expect(
+      checkFile(
+        'packages/client-core/src/viewmodels/derive.ts',
+        `import { isSnoozed } from '@podium/domain'\nexport { isSnoozed }`,
+        domainNames,
+      ),
+    ).toEqual([])
+    expect(
+      checkFile(
+        'packages/client-core/src/viewmodels/derive.ts',
+        `export { isSnoozed } from '@podium/domain'`,
+        domainNames,
+      ),
+    ).toEqual([])
+  })
+
+  it('is a no-op with an empty domain-names set (existing checkFile callers unaffected)', () => {
+    expect(
+      checkFile(
+        'packages/client-core/src/viewmodels/derive.ts',
+        `export function isSnoozed(s, now) { return false }`,
+      ),
+    ).toEqual([])
+  })
+
+  it('exempts @podium/domain itself and test files', () => {
+    expect(
+      checkFile(
+        'packages/domain/src/snooze.ts',
+        `export function isSnoozed(row, now) { return false }`,
+        domainNames,
+      ),
+    ).toEqual([])
+    expect(
+      checkFile(
+        'packages/client-core/src/viewmodels/derive.test.ts',
+        `export function isSnoozed(s, now) { return false }`,
+        domainNames,
+      ),
+    ).toEqual([])
+  })
+
+  it('never flags apps/* — the rule patrols the package layer only', () => {
+    expect(
+      checkFile(
+        'apps/web/src/derive.ts',
+        `export function isSnoozed(s, now) { return false }`,
+        domainNames,
+      ),
+    ).toEqual([])
+  })
+
+  it('loadDomainExportNames reads the real @podium/domain source', () => {
+    const repoRoot = new URL('..', import.meta.url).pathname
+    const names = loadDomainExportNames(repoRoot)
+    expect(names.has('isSnoozed')).toBe(true)
+    expect(names.has('worktreeForCwd')).toBe(true)
+    expect(names.has('isIssueClosed')).toBe(true)
+  })
+})
+
+describe('rule 8 — @podium/runtime browser-safety', () => {
+  it('rejects apps/web importing any @podium/runtime subpath', () => {
+    const v = checkFile('apps/web/src/x.ts', `import { z } from '@podium/runtime/config'`)
+    expect(v).toHaveLength(1)
+    expect(v[0].rule).toBe('runtime-browser-safety')
+    expect(v[0].message).toContain('subpath')
+  })
+
+  it('allows apps/web bare-importing @podium/runtime', () => {
+    expect(
+      checkFile('apps/web/src/x.ts', `import { normalizeOriginUrl } from '@podium/runtime'`),
+    ).toEqual([])
+  })
+
+  it('lets every other workspace use @podium/runtime subpaths freely', () => {
+    expect(
+      checkFile('apps/server/src/x.ts', `import { loadConfig } from '@podium/runtime/config'`),
+    ).toEqual([])
+    expect(
+      checkFile('apps/daemon/src/x.ts', `import { openDatabase } from '@podium/runtime/sqlite'`),
+    ).toEqual([])
+  })
+
+  it('checkRuntimeBarrelPurity passes clean against the real repo (git/settings are node-free)', () => {
+    const repoRoot = new URL('..', import.meta.url).pathname
+    expect(checkRuntimeBarrelPurity(repoRoot)).toEqual([])
+  })
+
+  it('checkRuntimeBarrelPurity is a no-op when the barrel file cannot be read', () => {
+    expect(checkRuntimeBarrelPurity('/nonexistent/repo/root')).toEqual([])
   })
 })
