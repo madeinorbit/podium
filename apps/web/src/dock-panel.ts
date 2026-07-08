@@ -1,11 +1,14 @@
 import type { IssueWire, SessionMeta } from '@podium/protocol'
 import type { FileTab } from './store'
 
-/** The four right-dock tabs. Persisted under 'podium.dockTab'. */
-export type DockTab = 'superagent' | 'files' | 'git' | 'issue'
+/** The right-dock tabs ('specs' appears only when the active branch touches
+ *  pspec/). Persisted under 'podium.dockTab'. */
+export type DockTab = 'superagent' | 'files' | 'git' | 'issue' | 'specs'
 
 export function readStoredDockTab(raw: string | null): DockTab {
-  return raw === 'files' || raw === 'git' || raw === 'issue' ? raw : 'superagent'
+  return raw === 'files' || raw === 'git' || raw === 'issue' || raw === 'specs'
+    ? raw
+    : 'superagent'
 }
 
 export interface ActiveWorktree {

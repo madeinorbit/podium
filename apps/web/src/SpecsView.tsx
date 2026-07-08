@@ -7,6 +7,7 @@ import {
   ChevronDown,
   ChevronRight,
   Copy,
+  GitBranch,
   LoaderCircle,
   Plus,
   Search,
@@ -20,6 +21,12 @@ import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger } from '@/components/ui/select'
 import { useConfirm } from '@/hooks/use-confirm'
 import { cn } from '@/lib/utils'
+import {
+  ChangeBadge,
+  type SpecBranchChangeWire,
+  type SpecChangeKind,
+  SpecDiffCards,
+} from './SpecDiffPanel'
 import { useStore } from './store'
 
 /**
@@ -63,7 +70,12 @@ export function SpecsView(): JSX.Element {
   const confirm = useConfirm()
   const isDark = useIsDark()
 
-  const repoPaths = useMemo(() => [...new Set(repos.map((r) => r.path))], [repos])
+  // Canonical repos only — worktrees are the same spec seen from a branch; the
+  // dropdown must offer each repo once, and specs are edited at the repo root.
+  const repoPaths = useMemo(
+    () => [...new Set(repos.filter((r) => r.kind !== 'worktree').map((r) => r.path))],
+    [repos],
+  )
   const [repoPath, setRepoPath] = useState<string | null>(null)
   const activeRepo = repoPath && repoPaths.includes(repoPath) ? repoPath : (repoPaths[0] ?? null)
 
@@ -78,6 +90,11 @@ export function SpecsView(): JSX.Element {
   // explanatory panel INSTEAD of the editor and suppresses every autosave —
   // otherwise each editor change re-fired a doomed specs.save at the server.
   const [unavailable, setUnavailable] = useState<string | null>(null)
+  // Branch overlay (#172): issue branches with pending pspec changes, and the
+  // one currently viewed as a rendered diff instead of the editor.
+  const [branches, setBranches] = useState<{ branch: string; changedComponents: number }[]>([])
+  const [diffBranch, setDiffBranch] = useState<string | null>(null)
+  const [diffChanges, setDiffChanges] = useState<SpecBranchChangeWire[] | null>(null)
   const unavailableRef = useRef(false)
   unavailableRef.current = unavailable !== null
 
@@ -94,11 +111,47 @@ export function SpecsView(): JSX.Element {
     const list = await trpc.specs.list.query({ repoPath: activeRepo })
     setComponents(list)
     setUnavailable(null)
+    // Pending branch changes load best-effort alongside the tree.
+    void trpc.specs.branches
+      .query({ repoPath: activeRepo })
+      .then(setBranches)
+      .catch(() => setBranches([]))
   }, [trpc, activeRepo])
+
+  // Load the rendered diff when a branch overlay is selected.
+  useEffect(() => {
+    if (!activeRepo || !diffBranch) {
+      setDiffChanges(null)
+      return
+    }
+    let cancelled = false
+    void trpc.specs.branchDiff
+      .query({ repoPath: activeRepo, branch: diffBranch })
+      .then((r) => {
+        if (!cancelled) setDiffChanges(r.changes as SpecBranchChangeWire[])
+      })
+      .catch(() => {
+        if (!cancelled) {
+          toast.error('Failed to load spec changes for branch')
+          setDiffBranch(null)
+        }
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [trpc, activeRepo, diffBranch])
+
+  // Changed-component badges for the tree while a branch overlay is active.
+  const changeKinds = useMemo(() => {
+    const map = new Map<string, SpecChangeKind>()
+    for (const c of diffChanges ?? []) map.set(c.id, c.changeKind)
+    return map
+  }, [diffChanges])
 
   useEffect(() => {
     setSelectedId(ROOT_ID)
     setUnavailable(null)
+    setDiffBranch(null)
     void refreshTree().catch((err: unknown) => {
       setUnavailable(err instanceof Error ? err.message : 'Failed to load spec')
     })
@@ -351,16 +404,84 @@ export function SpecsView(): JSX.Element {
             <SpecTree
               components={components}
               selectedId={selectedId}
-              onSelect={setSelectedId}
+              changeKinds={changeKinds}
+              onSelect={(id) => {
+                setSelectedId(id)
+                // In diff mode, clicking a changed node jumps to its card.
+                if (diffBranch && changeKinds.has(id)) {
+                  document
+                    .getElementById(`spec-diff-${id}`)
+                    ?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                }
+              }}
               onAddChild={(id) => void addChild(id)}
             />
           )}
         </div>
+        {branches.length > 0 && (
+          <div className="flex-none border-t border-border px-1 py-2">
+            <div className="px-2 pb-1 text-[10px] font-semibold tracking-wide text-muted-foreground uppercase">
+              Ongoing changes
+            </div>
+            {branches.map((b) => (
+              <button
+                key={b.branch}
+                type="button"
+                className={cn(
+                  'flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-left text-[12px]',
+                  diffBranch === b.branch
+                    ? 'bg-secondary text-foreground'
+                    : 'text-muted-foreground hover:bg-accent hover:text-foreground',
+                )}
+                onClick={() => setDiffBranch(diffBranch === b.branch ? null : b.branch)}
+              >
+                <GitBranch size={12} className="flex-none" aria-hidden="true" />
+                <span className="min-w-0 flex-1 truncate" title={b.branch}>
+                  {b.branch}
+                </span>
+                <span className="flex-none rounded-full bg-secondary px-1.5 text-[10px]">
+                  {b.changedComponents}
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
       </aside>
 
-      {/* ── Editor ── */}
+      {/* ── Editor / branch diff ── */}
       <main className="flex min-w-0 flex-1 flex-col">
-        {unavailable !== null && (
+        {diffBranch !== null && (
+          <>
+            <div className="flex items-center gap-2 border-b border-border px-4 py-2">
+              <GitBranch size={14} className="text-muted-foreground" aria-hidden="true" />
+              <span className="min-w-0 truncate text-sm font-semibold">{diffBranch}</span>
+              <span className="text-xs text-muted-foreground">
+                spec changes vs {activeRepo.split('/').pop()}
+              </span>
+              <button
+                type="button"
+                className="ml-auto rounded-md border border-border px-2 py-0.5 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground"
+                onClick={() => setDiffBranch(null)}
+              >
+                Back to spec
+              </button>
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto">
+              {diffChanges === null ? (
+                <div className="flex items-center justify-center p-6">
+                  <LoaderCircle
+                    size={16}
+                    className="animate-spin text-muted-foreground"
+                    aria-label="Loading changes"
+                  />
+                </div>
+              ) : (
+                <SpecDiffCards changes={diffChanges} />
+              )}
+            </div>
+          </>
+        )}
+        {diffBranch === null && unavailable !== null && (
           <div className="flex flex-1 items-center justify-center p-6">
             <div className="max-w-[440px] text-center text-sm text-muted-foreground">
               <div className="font-medium text-foreground">Spec unavailable for this repository</div>
@@ -368,7 +489,7 @@ export function SpecsView(): JSX.Element {
             </div>
           </div>
         )}
-        {unavailable === null && selected && (
+        {diffBranch === null && unavailable === null && selected && (
           <div className="flex items-center gap-2 border-b border-border px-4 py-2">
             <input
               key={selected.id}
@@ -446,7 +567,7 @@ export function SpecsView(): JSX.Element {
             )}
           </div>
         )}
-        {unavailable === null && (
+        {diffBranch === null && unavailable === null && (
           // biome-ignore lint/a11y/noStaticElementInteractions: click delegation for spec: links inside the editor
           // biome-ignore lint/a11y/useKeyWithClickEvents: keyboard users activate links natively; this only intercepts mouse clicks on spec: anchors
           <div
@@ -470,11 +591,14 @@ export function SpecsView(): JSX.Element {
 function SpecTree({
   components,
   selectedId,
+  changeKinds,
   onSelect,
   onAddChild,
 }: {
   components: SpecMeta[]
   selectedId: string
+  /** Branch-overlay badges: component id → change kind (empty when no overlay). */
+  changeKinds: Map<string, SpecChangeKind>
   onSelect: (id: string) => void
   onAddChild: (id: string) => void
 }): JSX.Element {
@@ -496,6 +620,7 @@ function SpecTree({
       childrenOf={children}
       depth={0}
       selectedId={selectedId}
+      changeKinds={changeKinds}
       onSelect={onSelect}
       onAddChild={onAddChild}
     />
@@ -507,6 +632,7 @@ function TreeNode({
   childrenOf,
   depth,
   selectedId,
+  changeKinds,
   onSelect,
   onAddChild,
 }: {
@@ -514,9 +640,11 @@ function TreeNode({
   childrenOf: Map<string, SpecMeta[]>
   depth: number
   selectedId: string
+  changeKinds: Map<string, SpecChangeKind>
   onSelect: (id: string) => void
   onAddChild: (id: string) => void
 }): JSX.Element {
+  const changeKind = changeKinds.get(node.id)
   const kids = childrenOf.get(node.id) ?? []
   const [open, setOpen] = useState(true)
   return (
@@ -553,6 +681,7 @@ function TreeNode({
         >
           {node.title}
         </button>
+        {changeKind && <ChangeBadge kind={changeKind} />}
         <button
           type="button"
           title="Add sub-component"
@@ -571,6 +700,7 @@ function TreeNode({
             childrenOf={childrenOf}
             depth={depth + 1}
             selectedId={selectedId}
+            changeKinds={changeKinds}
             onSelect={onSelect}
             onAddChild={onAddChild}
           />
