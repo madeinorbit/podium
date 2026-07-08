@@ -239,3 +239,70 @@ describe('checkFile rules', () => {
     ).toEqual([])
   })
 })
+
+describe('server role tiers (core → hub → cloud, apps/server/src/roles.ts)', () => {
+  it('flags core importing hub', () => {
+    const v = checkFile(
+      'apps/server/src/relay.ts',
+      `import { PairingManager } from './hub/pairing'`,
+    )
+    expect(v).toHaveLength(1)
+    expect(v[0].rule).toBe('server-role-tiers')
+    // Nested core files too (the resolver walks ../).
+    const nested = checkFile(
+      'apps/server/src/modules/machines/service.ts',
+      `import { PairingManager } from '../../hub/pairing'`,
+    )
+    expect(nested).toHaveLength(1)
+    expect(nested[0].rule).toBe('server-role-tiers')
+  })
+
+  it('allows hub importing core, and core importing core', () => {
+    expect(
+      checkFile(
+        'apps/server/src/hub/pairing.ts',
+        `import { sha256 } from '../modules/machines/service'`,
+      ),
+    ).toEqual([])
+    expect(
+      checkFile('apps/server/src/relay.ts', `import { EventBus } from './modules/bus'`),
+    ).toEqual([])
+  })
+
+  it('exempts composition roots and test files for hub — they assemble/inject', () => {
+    expect(
+      checkFile('apps/server/src/server.ts', `import { PairingManager } from './hub/pairing'`),
+    ).toEqual([])
+    expect(
+      checkFile(
+        'apps/server/src/router.ts',
+        `import { buildJoinCommand } from './hub/machines-join'`,
+      ),
+    ).toEqual([])
+    expect(
+      checkFile('apps/server/src/relay.test.ts', `import { PairingManager } from './hub/pairing'`),
+    ).toEqual([])
+  })
+
+  it('bans cloud/ imports for EVERYONE — core, hub, composition roots, tests', () => {
+    for (const file of [
+      'apps/server/src/relay.ts',
+      'apps/server/src/hub/pairing.ts',
+      'apps/server/src/server.ts',
+      'apps/server/src/relay.test.ts',
+    ]) {
+      const spec = file.includes('/hub/') ? '../cloud/billing' : './cloud/billing'
+      const v = checkFile(file, `import { bill } from '${spec}'`)
+      expect(v).toHaveLength(1)
+      expect(v[0].rule).toBe('server-role-tiers')
+      expect(v[0].message).toContain('plugins.ts seam')
+    }
+  })
+
+  it('ignores files outside apps/server/src and non-relative specifiers', () => {
+    expect(checkFile('apps/web/src/hub/x.ts', `import { y } from './thing'`)).toEqual([])
+    expect(
+      checkFile('apps/server/src/relay.ts', `import { loadConfig } from '@podium/core/config'`),
+    ).toEqual([])
+  })
+})

@@ -12,8 +12,9 @@ new machines is hub).
 private SaaS module composes in at build time, never by path). Hub modules may
 import core freely. The mapping and its exemptions — composition roots
 (`server.ts`, `router.ts`, `index.ts`) and test files — are declared in
-`../roles.ts`; this package's vitest suite (`import-boundary.ts` /
-`import-boundary.test.ts`) enforces it.
+`../roles.ts`, and enforced twice from that one manifest: by this package's
+vitest suite (`import-boundary.ts` / `import-boundary.test.ts`) and by the
+repo-wide `scripts/check-boundaries.ts` lint (rule 6, `bun run lint:boundaries`).
 
 Residents:
 

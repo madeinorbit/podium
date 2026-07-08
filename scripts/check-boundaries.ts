@@ -16,6 +16,11 @@
  *  5. `apps/cli` is a normal app under rule 1: it must not import apps/server
  *     or apps/daemon (no allowance). The runnable entry that injects the
  *     in-process host modules is scripts/cli.ts — scripts/ may compose apps.
+ *  6. Server role tiers (docs/offline-sync-architecture.md §4, manifest in
+ *     apps/server/src/roles.ts): within apps/server/src, core never imports
+ *     hub, and NOTHING imports cloud/ (the private module composes only via
+ *     the plugins.ts seam). Composition roots (index/server/router.ts) and
+ *     test files may import hub — never cloud.
  *
  * Run: `bun run lint:boundaries` (wired into `bun run lint`). Exits non-zero
  * with a readable violation list. Pure matching logic is exported for the
@@ -25,6 +30,7 @@
 import { readdirSync, readFileSync } from 'node:fs'
 import { dirname, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { isCompositionRoot, ROLE_RANK, serverRoleOf } from '../apps/server/src/roles'
 
 // ---------------------------------------------------------------------------
 // Grandfathered violations. Do NOT add entries — fix the dependency instead.
@@ -154,6 +160,48 @@ function isTestFile(file: string): boolean {
   return /\.(test|spec)\.tsx?$/.test(file) || /\/(test|tests|__tests__)\//.test(file)
 }
 
+const SERVER_SRC = 'apps/server/src/'
+
+/** apps/server/src-relative posix path of `file`, or null when outside it. */
+function serverSrcRel(file: string): string | null {
+  return file.startsWith(SERVER_SRC) ? file.slice(SERVER_SRC.length) : null
+}
+
+/**
+ * Rule 6 — server role tiers (core → hub → cloud; manifest in
+ * apps/server/src/roles.ts): a server-src file may only import files of its
+ * own role rank or below. Exemptions per the manifest: composition roots and
+ * test files may reach UP into hub (they assemble/inject hub modules) — but
+ * `cloud/` is unreachable for everyone: the private cloud module composes in
+ * exclusively through the plugins.ts seam, so an OSS import of it is always
+ * a violation, exemptions included.
+ */
+function checkServerRoleTiers(file: string, ref: ImportRef): Violation | null {
+  const fromRel = serverSrcRel(file)
+  if (fromRel === null || !ref.specifier.startsWith('.')) return null
+  const abs = resolve('/', dirname(file), ref.specifier)
+  const toRel = serverSrcRel(relative('/', abs).split(sep).join('/'))
+  if (toRel === null) return null
+  const fromRole = serverRoleOf(fromRel)
+  const toRole = serverRoleOf(toRel)
+  if (toRole === 'cloud' && fromRole !== 'cloud') {
+    return {
+      file,
+      specifier: ref.specifier,
+      rule: 'server-role-tiers',
+      message: `${file}: nothing in the OSS tree may import cloud code ('${ref.specifier}') — the private cloud module composes via the plugins.ts seam only`,
+    }
+  }
+  if (ROLE_RANK[toRole] <= ROLE_RANK[fromRole]) return null
+  if (isCompositionRoot(fromRel) || isTestFile(file)) return null
+  return {
+    file,
+    specifier: ref.specifier,
+    rule: 'server-role-tiers',
+    message: `${file}: ${fromRole} must not import ${toRole} code ('${ref.specifier}') — see apps/server/src/roles.ts`,
+  }
+}
+
 /** Workspace a specifier points at, or null for external/std imports. */
 function targetWorkspace(file: string, specifier: string): string | null {
   if (specifier.startsWith('@podium/')) {
@@ -174,6 +222,13 @@ export function checkFile(file: string, source: string): Violation[] {
   const violations: Violation[] = []
   const from = workspaceOf(file)
   for (const ref of extractImports(source)) {
+    // Rule 6 first: role tiers are same-workspace edges (apps/server internal),
+    // which the cross-workspace rules below deliberately skip.
+    const roleViolation = checkServerRoleTiers(file, ref)
+    if (roleViolation) {
+      violations.push(roleViolation)
+      continue
+    }
     const to = targetWorkspace(file, ref.specifier)
     if (to === null || to === from) continue
 

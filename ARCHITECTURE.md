@@ -54,8 +54,8 @@ One server codebase, composed by role (`docs/offline-sync-architecture.md` §4).
   `PodiumPlugin.register({ hono, modules, bus, config, role })` (`src/plugins.ts`) — route
   registration plus typed access to the composed modules; the OSS build ships no plugins.
 
-Enforced by the server's own `src/hub/import-boundary.test.ts`, reading the `src/roles.ts`
-manifest.
+Enforced by `bun run lint:boundaries` (`scripts/check-boundaries.ts`, rule 6) and the
+server's own `src/hub/import-boundary.test.ts`, both reading the `src/roles.ts` manifest.
 
 ## What goes where
 
