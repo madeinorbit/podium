@@ -8,6 +8,7 @@ import type {
 } from '@podium/protocol'
 import { LOCAL_PLACEHOLDER } from '../../local-machine'
 import type { EventBus } from '../bus'
+import type { LiveServerMessage } from '../message-class'
 
 /** The daemon's memoryBreakdownResult, minus wire plumbing (type/requestId). */
 export type MemoryBreakdown = Omit<
@@ -33,8 +34,8 @@ export interface HostSessionView {
 
 export interface HostsDeps {
   getSettings(): PodiumSettings
-  /** Connected client fan-out (hostMetricsChanged). */
-  clients(): Iterable<{ send(msg: ServerMessage): void }>
+  /** Connected client fan-out (hostMetricsChanged — live-only, message-class). */
+  clients(): Iterable<{ send(msg: LiveServerMessage): void }>
   /** Display name for a machineId — stamps inbound samples. */
   machineName(id: string): string
   /** Live sessions, projected — the auto-hibernate candidate pool. */
@@ -93,7 +94,7 @@ export class HostsService {
     this.maybeAutoHibernate(tagged)
   }
 
-  hostMetricsMessage(): ServerMessage {
+  hostMetricsMessage(): LiveServerMessage {
     return { type: 'hostMetricsChanged', hosts: [...this.latestHostMetrics.values()] }
   }
 

@@ -8,6 +8,7 @@ import {
   type TelegramConfig,
 } from '../../notify'
 import type { EventBus } from '../bus'
+import type { LiveServerMessage } from '../message-class'
 
 export interface NotificationPushers {
   ntfy(topic: string, notice: AttentionNotice): void
@@ -150,7 +151,7 @@ export class NotifyService {
     const notice = attentionNotice(name, prev, next)
     if (!notice) return
     if (settings.web) {
-      const event: ServerMessage = {
+      const event: LiveServerMessage = {
         type: 'attentionEvent',
         sessionId: info.sessionId,
         title: notice.title,
