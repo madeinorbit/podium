@@ -131,13 +131,12 @@ export function AskQuestionCard({
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: color.needsYouBg,
-    borderColor: color.needsYou,
+    backgroundColor: '#1c1817',
+    borderColor: color.needsYouBorder,
     borderWidth: StyleSheet.hairlineWidth,
-    borderLeftWidth: 3,
     borderRadius: radius.md,
-    padding: space.md,
-    gap: space.sm,
+    padding: space.lg,
+    gap: space.md,
   },
   headerRow: {
     flexDirection: 'row',
@@ -147,8 +146,8 @@ const styles = StyleSheet.create({
   badge: {
     color: color.needsYou,
     fontSize: font.tiny,
-    fontWeight: '700',
-    letterSpacing: 1,
+    fontWeight: '800',
+    letterSpacing: 1.4,
   },
   meta: {
     color: color.textDim,
@@ -159,32 +158,33 @@ const styles = StyleSheet.create({
     fontSize: font.tiny,
   },
   questionBlock: {
-    gap: space.sm,
+    gap: space.sm + 2,
   },
   question: {
     color: color.text,
     fontSize: font.body,
-    fontWeight: '600',
+    fontWeight: '700',
     lineHeight: 21,
+    letterSpacing: -0.2,
   },
   options: {
     gap: space.sm,
   },
   option: {
-    backgroundColor: color.card,
+    backgroundColor: color.surfaceHigh,
     borderColor: color.border,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: radius.sm,
-    paddingHorizontal: space.md,
-    paddingVertical: space.md,
-    gap: 2,
+    borderWidth: 1,
+    borderRadius: radius.md,
+    paddingHorizontal: space.lg,
+    paddingVertical: space.md + 1,
+    gap: 3,
   },
   optionPressed: {
-    backgroundColor: color.cardPressed,
+    backgroundColor: color.surfacePressed,
   },
   optionPicked: {
     borderColor: color.accent,
-    backgroundColor: '#1a2338',
+    backgroundColor: color.accentSoft,
   },
   optionLabel: {
     color: color.text,
@@ -201,16 +201,16 @@ const styles = StyleSheet.create({
   },
   confirm: {
     backgroundColor: color.accent,
-    borderRadius: radius.sm,
+    borderRadius: radius.md,
     alignItems: 'center',
-    paddingVertical: space.md,
+    paddingVertical: space.md + 1,
   },
   confirmDisabled: {
     opacity: 0.4,
   },
   confirmText: {
-    color: color.accentText,
+    color: color.onAccent,
     fontSize: font.body,
-    fontWeight: '700',
+    fontWeight: '800',
   },
 })

@@ -1,13 +1,14 @@
 import { groupSessions, withoutShells } from '@podium/client-core/focus'
 import type { IssueWire, SessionMeta } from '@podium/protocol'
 import { useRouter } from 'expo-router'
-import { Plus, Settings } from 'lucide-react-native'
+import { Inbox as InboxIcon, Plus, Settings } from 'lucide-react-native'
 import { useMemo } from 'react'
-import { Pressable, SectionList, StyleSheet, Text, View } from 'react-native'
+import { SectionList, StyleSheet, Text, View } from 'react-native'
 import { useMobileClient } from '../client/MobileClientProvider'
 import { AskQuestionCard } from '../components/AskQuestionCard'
 import { Icon } from '../components/Icon'
-import { Screen } from '../components/Screen'
+import { PressableScale } from '../components/PressableScale'
+import { HeaderButton, Screen } from '../components/Screen'
 import { SessionCard } from '../components/SessionCard'
 import { EmptyState } from '../components/ui'
 import { usePendingQuestion } from '../hooks/usePendingQuestion'
@@ -32,10 +33,14 @@ function NeedsYouCard({
   const needsQuestion = session.agentState?.phase === 'needs_user'
   const pending = usePendingQuestion(session.sessionId, needsQuestion, session.agentState?.since)
   const retryable = session.agentState?.phase === 'errored' && session.agentState.error?.retryable
+  const base = sessionCardModel(session, issue, now)
+  // The inline question card repeats the summary verbatim — drop the quote then.
+  const model = pending ? { ...base, summary: null } : base
 
   return (
     <SessionCard
-      model={sessionCardModel(session, issue, now)}
+      model={model}
+      agentColor={session.agentColor}
       onPress={() => router.push(`/session/${session.sessionId}`)}
     >
       {pending ? (
@@ -48,17 +53,24 @@ function NeedsYouCard({
         </View>
       ) : null}
       {retryable ? (
-        <Pressable
+        <PressableScale
           accessibilityRole="button"
           accessibilityLabel="Continue after error"
           onPress={() => void continueSession(session.sessionId)}
           style={styles.continueBtn}
         >
           <Text style={styles.continueText}>Continue</Text>
-        </Pressable>
+        </PressableScale>
       ) : null}
     </SessionCard>
   )
+}
+
+function inboxSubtitle(needsYou: number, working: number, connected: boolean): string {
+  if (!connected) return 'reconnecting…'
+  if (needsYou > 0) return `${needsYou} waiting on you · ${working} working`
+  if (working > 0) return `all clear · ${working} agent${working > 1 ? 's' : ''} working`
+  return 'all clear'
 }
 
 export function InboxScreen() {
@@ -66,50 +78,36 @@ export function InboxScreen() {
   const client = useMobileClient()
   const now = Date.now()
 
-  const sections = useMemo(() => {
-    const groups = groupSessions(withoutShells(client.sessions))
-    return [
-      { key: 'needsYou' as const, title: 'Needs you', data: groups.needsYou },
-      { key: 'idle' as const, title: 'Idle', data: groups.idle },
-      { key: 'working' as const, title: 'Working', data: groups.working },
-    ].filter((s) => s.data.length > 0)
-  }, [client.sessions])
+  const groups = useMemo(() => groupSessions(withoutShells(client.sessions)), [client.sessions])
+  const sections = useMemo(
+    () =>
+      [
+        { key: 'needsYou' as const, title: 'Needs you', data: groups.needsYou },
+        { key: 'idle' as const, title: 'Idle', data: groups.idle },
+        { key: 'working' as const, title: 'Working', data: groups.working },
+      ].filter((s) => s.data.length > 0),
+    [groups],
+  )
 
   const issueFor = (session: SessionMeta): IssueWire | undefined =>
     session.issueId ? client.issueById(session.issueId) : undefined
 
   return (
     <Screen
+      large
       title="Inbox"
-      subtitle={client.connected ? undefined : 'reconnecting…'}
+      subtitle={inboxSubtitle(groups.needsYou.length, groups.working.length, client.connected)}
       right={
         <>
           {client.outboxSize > 0 ? (
             <Text style={styles.queued}>{client.outboxSize} queued</Text>
           ) : null}
-          <View
-            style={[
-              styles.connDot,
-              { backgroundColor: client.connected ? color.working : color.danger },
-            ]}
-            accessibilityLabel={client.connected ? 'Connected' : 'Disconnected'}
-          />
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="New session"
-            onPress={() => router.push('/new-session')}
-            hitSlop={8}
-          >
-            <Icon as={Plus} size={22} color={color.text} />
-          </Pressable>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Settings"
-            onPress={() => router.push('/settings')}
-            hitSlop={8}
-          >
-            <Icon as={Settings} size={20} color={color.textDim} />
-          </Pressable>
+          <HeaderButton label="New session" onPress={() => router.push('/new-session')}>
+            <Icon as={Plus} size={19} color={color.text} />
+          </HeaderButton>
+          <HeaderButton label="Settings" onPress={() => router.push('/settings')}>
+            <Icon as={Settings} size={17} color={color.textDim} />
+          </HeaderButton>
         </>
       }
     >
@@ -123,7 +121,9 @@ export function InboxScreen() {
             <Text style={[styles.sectionLabel, section.key === 'needsYou' && styles.needsYouLabel]}>
               {section.title.toUpperCase()}
             </Text>
-            <Text style={styles.sectionCount}>{section.data.length}</Text>
+            <View style={styles.sectionCount}>
+              <Text style={styles.sectionCountText}>{section.data.length}</Text>
+            </View>
           </View>
         )}
         renderItem={({ item: session, section }) =>
@@ -132,12 +132,14 @@ export function InboxScreen() {
           ) : (
             <SessionCard
               model={sessionCardModel(session, issueFor(session), now)}
+              agentColor={session.agentColor}
               onPress={() => router.push(`/session/${session.sessionId}`)}
             />
           )
         }
         ListEmptyComponent={
           <EmptyState
+            icon={<Icon as={InboxIcon} size={26} color={color.textFaint} />}
             title="Inbox zero"
             body="No agents are waiting on you. Start a session or hand something to the superagent."
           />
@@ -150,59 +152,64 @@ export function InboxScreen() {
 
 const styles = StyleSheet.create({
   listContent: {
-    paddingBottom: space.xxl,
+    paddingBottom: 120,
     flexGrow: 1,
   },
   sectionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: space.sm,
-    paddingHorizontal: space.lg,
+    paddingHorizontal: space.xl,
     paddingTop: space.lg,
-    paddingBottom: space.sm,
+    paddingBottom: space.sm + 2,
   },
   sectionLabel: {
     color: color.textFaint,
     fontSize: font.tiny,
-    fontWeight: '700',
-    letterSpacing: 1.2,
+    fontWeight: '800',
+    letterSpacing: 1.6,
   },
   needsYouLabel: {
     color: color.needsYou,
   },
   sectionCount: {
-    color: color.textFaint,
-    fontSize: font.tiny,
-  },
-  connDot: {
-    width: 8,
-    height: 8,
+    minWidth: 18,
+    height: 18,
     borderRadius: radius.full,
+    backgroundColor: color.surfaceHigh,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 5,
+  },
+  sectionCountText: {
+    color: color.textDim,
+    fontSize: 10,
+    fontWeight: '700',
   },
   queued: {
     color: color.needsYou,
     fontSize: font.tiny,
-    fontWeight: '600',
+    fontWeight: '700',
   },
   error: {
     color: color.danger,
     fontSize: font.small,
-    paddingHorizontal: space.lg,
-    paddingTop: space.sm,
+    paddingHorizontal: space.xl,
+    paddingBottom: space.sm,
   },
   inlineQuestion: {
-    marginTop: space.sm,
+    marginTop: space.xs,
   },
   continueBtn: {
-    marginTop: space.sm,
+    marginTop: space.xs,
     backgroundColor: color.accent,
-    borderRadius: radius.sm,
+    borderRadius: radius.md,
     alignItems: 'center',
-    paddingVertical: space.sm + 2,
+    paddingVertical: space.sm + 3,
   },
   continueText: {
-    color: color.accentText,
+    color: color.onAccent,
     fontSize: font.small,
-    fontWeight: '700',
+    fontWeight: '800',
   },
 })

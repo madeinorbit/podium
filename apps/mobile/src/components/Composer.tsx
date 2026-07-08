@@ -1,8 +1,12 @@
+import { LinearGradient } from 'expo-linear-gradient'
+import { ArrowUp } from 'lucide-react-native'
 import { useState } from 'react'
-import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
+import { Platform, StyleSheet, TextInput, View } from 'react-native'
 import { color, font, radius, space } from '../theme/theme'
+import { Icon } from './Icon'
+import { PressableScale } from './PressableScale'
 
-/** Chat composer: multiline input + send. Clears on send; caller queues delivery. */
+/** Chat composer: pill input on a glass bar, gradient send orb. */
 export function Composer({
   placeholder,
   onSend,
@@ -34,15 +38,21 @@ export function Composer({
         multiline
         editable={!disabled}
       />
-      <Pressable
+      <PressableScale
         accessibilityRole="button"
         accessibilityLabel="Send"
         disabled={!canSend}
         onPress={send}
-        style={[styles.send, !canSend && styles.sendDisabled]}
+        scaleTo={0.9}
+        style={styles.sendWrap}
       >
-        <Text style={styles.sendText}>↑</Text>
-      </Pressable>
+        <LinearGradient
+          colors={canSend ? color.accentGradient : ['#2a2e3c', '#232733']}
+          style={styles.send}
+        >
+          <Icon as={ArrowUp} size={19} color={canSend ? color.onAccent : color.textFaint} />
+        </LinearGradient>
+      </PressableScale>
     </View>
   )
 }
@@ -53,10 +63,11 @@ const styles = StyleSheet.create({
     alignItems: 'flex-end',
     gap: space.sm,
     paddingHorizontal: space.md,
-    paddingVertical: space.sm,
+    paddingVertical: space.sm + 2,
     borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: color.border,
-    backgroundColor: color.bgRaised,
+    borderTopColor: color.hairline,
+    backgroundColor: color.glass,
+    ...(Platform.OS === 'web' ? ({ backdropFilter: 'blur(14px)' } as object) : null),
   },
   input: {
     flex: 1,
@@ -68,24 +79,17 @@ const styles = StyleSheet.create({
     borderColor: color.border,
     borderWidth: StyleSheet.hairlineWidth,
     borderRadius: radius.lg,
-    paddingHorizontal: space.md,
-    paddingVertical: space.sm + 2,
+    paddingHorizontal: space.lg,
+    paddingVertical: space.sm + 3,
+  },
+  sendWrap: {
+    borderRadius: radius.full,
   },
   send: {
     width: 38,
     height: 38,
     borderRadius: radius.full,
-    backgroundColor: color.accent,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  sendDisabled: {
-    opacity: 0.35,
-  },
-  sendText: {
-    color: color.accentText,
-    fontSize: 20,
-    fontWeight: '700',
-    marginTop: -2,
   },
 })

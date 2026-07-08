@@ -5,7 +5,7 @@ import { useMemo, useState } from 'react'
 import { Pressable, SectionList, StyleSheet, Text, View } from 'react-native'
 import { useMobileClient } from '../client/MobileClientProvider'
 import { Icon } from '../components/Icon'
-import { Screen } from '../components/Screen'
+import { HeaderButton, Screen } from '../components/Screen'
 import { EmptyState, Pill } from '../components/ui'
 import { color, font, radius, space } from '../theme/theme'
 
@@ -52,6 +52,7 @@ export function IssuesScreen() {
 
   return (
     <Screen
+      large
       title="Issues"
       right={
         <>
@@ -63,14 +64,9 @@ export function IssuesScreen() {
           >
             <Text style={styles.toggle}>{showDone ? 'Hide done' : 'Show done'}</Text>
           </Pressable>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="New issue"
-            onPress={() => router.push('/new-issue')}
-            hitSlop={8}
-          >
-            <Icon as={Plus} size={22} color={color.text} />
-          </Pressable>
+          <HeaderButton label="New issue" onPress={() => router.push('/new-issue')}>
+            <Icon as={Plus} size={19} color={color.text} />
+          </HeaderButton>
         </>
       }
     >
@@ -121,7 +117,7 @@ export function IssuesScreen() {
 
 const styles = StyleSheet.create({
   listContent: {
-    paddingBottom: space.xxl,
+    paddingBottom: 120,
     flexGrow: 1,
   },
   toggle: {
@@ -148,17 +144,17 @@ const styles = StyleSheet.create({
     fontSize: font.tiny,
   },
   card: {
-    backgroundColor: color.card,
+    backgroundColor: color.surface,
     borderColor: color.border,
     borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: radius.md,
+    borderRadius: radius.lg,
     marginHorizontal: space.lg,
-    marginBottom: space.sm,
-    padding: space.md,
+    marginBottom: space.md,
+    padding: space.lg,
     gap: space.sm,
   },
   cardPressed: {
-    backgroundColor: color.cardPressed,
+    backgroundColor: color.surfacePressed,
   },
   topRow: {
     flexDirection: 'row',

@@ -17,6 +17,13 @@ import {
   useMemo,
   useState,
 } from 'react'
+import {
+  DEMO_ISSUES,
+  DEMO_SESSIONS,
+  DEMO_SUPERAGENT,
+  DEMO_TRANSCRIPTS,
+  demoEnabled,
+} from './demoData'
 import { EMPTY_METADATA, type MobileMetadataState } from './metadata'
 import { createMobileOutbox } from './outbox'
 import { type MobileTrpc, makeMobileTrpc, readServerConfig, type TranscriptPage } from './trpc'
@@ -54,7 +61,65 @@ export interface MobileClientValue extends MobileMetadataState {
 
 const MobileClientContext = createContext<MobileClientValue | null>(null)
 
+/** Static fixture client for `?demo=1` — design/screenshot mode, no backend. */
+function demoValue(config: ServerConfig): MobileClientValue {
+  const sessions = DEMO_SESSIONS
+  const groups = groupSessions(withoutShells(sessions))
+  const noop = async () => {}
+  return {
+    sessions,
+    issues: DEMO_ISSUES,
+    conversations: [],
+    connected: true,
+    cursor: null,
+    error: null,
+    serverConfig: config,
+    trpc: {
+      superagent: {
+        listThreads: { query: async () => [] },
+        history: { query: async () => DEMO_SUPERAGENT },
+        sendTurn: { mutate: async () => ({ threadId: 'global' }) },
+        interruptTurn: { mutate: noop },
+        clear: { mutate: noop },
+      },
+      repos: { list: { query: async () => ['/home/dev/src/podium'] } },
+    } as unknown as MobileTrpc,
+    sessionById: (id) => sessions.find((s) => s.sessionId === id),
+    issueById: (id) => DEMO_ISSUES.find((i) => i.id === id),
+    readTranscript: async (sessionId) => ({
+      items: DEMO_TRANSCRIPTS[sessionId] ?? [],
+      hasMore: false,
+    }),
+    subscribeTranscript: () => () => {},
+    subscribeHeadless: () => () => {},
+    sendMessage: noop,
+    answerQuestion: noop,
+    setArchived: noop,
+    setWorkState: noop,
+    killSession: noop,
+    continueSession: noop,
+    renameSession: noop,
+    snooze: noop,
+    clearSnooze: noop,
+    focusSessionIds: [...groups.needsYou, ...groups.idle, ...groups.working].map(
+      (s) => s.sessionId,
+    ),
+    outboxSize: 0,
+  }
+}
+
 export function MobileClientProvider({ children }: { children: ReactNode }) {
+  if (demoEnabled()) return <DemoProvider>{children}</DemoProvider>
+  return <LiveProvider>{children}</LiveProvider>
+}
+
+function DemoProvider({ children }: { children: ReactNode }) {
+  const config = useMemo(readServerConfig, [])
+  const value = useMemo(() => demoValue(config), [config])
+  return <MobileClientContext.Provider value={value}>{children}</MobileClientContext.Provider>
+}
+
+function LiveProvider({ children }: { children: ReactNode }) {
   const config = useMemo(readServerConfig, [])
   const trpc = useMemo(() => makeMobileTrpc(config.httpOrigin), [config.httpOrigin])
   const [metadata, setMetadata] = useState<MobileMetadataState>(EMPTY_METADATA)

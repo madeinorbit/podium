@@ -7,7 +7,7 @@ import { useMobileClient } from '../client/MobileClientProvider'
 import { ActionSheet, type SheetAction } from '../components/ActionSheet'
 import { Composer } from '../components/Composer'
 import { Icon } from '../components/Icon'
-import { Screen } from '../components/Screen'
+import { HeaderButton, Screen } from '../components/Screen'
 import { TranscriptList } from '../components/TranscriptList'
 import { EmptyState } from '../components/ui'
 import { color, font } from '../theme/theme'
@@ -188,23 +188,16 @@ export function SessionScreen() {
             <Text style={styles.nextText}>Next</Text>
           </Pressable>
           {Platform.OS === 'web' ? (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Open terminal"
+            <HeaderButton
+              label="Open terminal"
               onPress={() => router.push(`/session/${sessionId}/terminal`)}
-              hitSlop={8}
             >
-              <Icon as={SquareTerminal} size={20} color={color.textDim} />
-            </Pressable>
+              <Icon as={SquareTerminal} size={17} color={color.textDim} />
+            </HeaderButton>
           ) : null}
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Session actions"
-            onPress={() => setMenuOpen(true)}
-            hitSlop={8}
-          >
-            <Icon as={MoreVertical} size={20} color={color.textDim} />
-          </Pressable>
+          <HeaderButton label="Session actions" onPress={() => setMenuOpen(true)}>
+            <Icon as={MoreVertical} size={17} color={color.textDim} />
+          </HeaderButton>
         </>
       }
     >

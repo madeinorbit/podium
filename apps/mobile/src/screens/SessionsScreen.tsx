@@ -6,7 +6,7 @@ import { useMemo, useState } from 'react'
 import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native'
 import { useMobileClient } from '../client/MobileClientProvider'
 import { Icon } from '../components/Icon'
-import { Screen } from '../components/Screen'
+import { HeaderButton, Screen } from '../components/Screen'
 import { SessionCard } from '../components/SessionCard'
 import { EmptyState } from '../components/ui'
 import { color, font, radius, space } from '../theme/theme'
@@ -42,16 +42,12 @@ export function SessionsScreen() {
 
   return (
     <Screen
+      large
       title="Sessions"
       right={
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="New session"
-          onPress={() => router.push('/new-session')}
-          hitSlop={8}
-        >
-          <Icon as={Plus} size={22} color={color.text} />
-        </Pressable>
+        <HeaderButton label="New session" onPress={() => router.push('/new-session')}>
+          <Icon as={Plus} size={19} color={color.text} />
+        </HeaderButton>
       }
     >
       <View style={styles.filters}>
@@ -76,6 +72,7 @@ export function SessionsScreen() {
         renderItem={({ item: session }) => (
           <SessionCard
             model={sessionCardModel(session, issueFor(session), now)}
+            agentColor={session.agentColor}
             onPress={() => router.push(`/session/${session.sessionId}`)}
           />
         )}
@@ -94,20 +91,20 @@ const styles = StyleSheet.create({
   filters: {
     flexDirection: 'row',
     gap: space.sm,
-    paddingHorizontal: space.lg,
-    paddingVertical: space.md,
+    paddingHorizontal: space.xl,
+    paddingBottom: space.md,
   },
   filter: {
     borderRadius: radius.full,
-    paddingHorizontal: space.md,
-    paddingVertical: space.xs + 2,
-    backgroundColor: color.card,
+    paddingHorizontal: space.lg,
+    paddingVertical: 7,
+    backgroundColor: color.surface,
     borderColor: color.border,
     borderWidth: StyleSheet.hairlineWidth,
   },
   filterActive: {
-    backgroundColor: color.accent,
-    borderColor: color.accent,
+    backgroundColor: color.accentSoft,
+    borderColor: color.accentBorder,
   },
   filterText: {
     color: color.textDim,
@@ -115,10 +112,11 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   filterTextActive: {
-    color: color.accentText,
+    color: color.accent,
+    fontWeight: '700',
   },
   listContent: {
-    paddingBottom: space.xxl,
+    paddingBottom: 120,
     flexGrow: 1,
   },
 })

@@ -132,6 +132,7 @@ export function SuperagentScreen() {
 
   return (
     <Screen
+      large
       title="Superagent"
       subtitle="delegate work, steer sessions"
       right={
@@ -215,31 +216,36 @@ export function SuperagentScreen() {
           ) : null
         }
       />
-      <Composer placeholder="Delegate a task…" onSend={(text) => void send(text)} />
+      <View style={styles.composerLift}>
+        <Composer placeholder="Delegate a task…" onSend={(text) => void send(text)} />
+      </View>
     </Screen>
   )
 }
 
 const styles = StyleSheet.create({
+  composerLift: {
+    paddingBottom: 86,
+  },
   chips: {
     flexGrow: 0,
   },
   chipsContent: {
     gap: space.sm,
-    paddingHorizontal: space.lg,
-    paddingVertical: space.sm,
+    paddingHorizontal: space.xl,
+    paddingBottom: space.sm,
   },
   chip: {
     borderRadius: radius.full,
-    paddingHorizontal: space.md,
-    paddingVertical: space.xs + 2,
-    backgroundColor: color.card,
+    paddingHorizontal: space.lg,
+    paddingVertical: 7,
+    backgroundColor: color.surface,
     borderColor: color.border,
     borderWidth: StyleSheet.hairlineWidth,
   },
   chipActive: {
-    backgroundColor: color.accent,
-    borderColor: color.accent,
+    backgroundColor: color.accentSoft,
+    borderColor: color.accentBorder,
   },
   chipText: {
     color: color.textDim,
@@ -247,7 +253,8 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   chipTextActive: {
-    color: color.accentText,
+    color: color.accent,
+    fontWeight: '700',
   },
   listContent: {
     paddingHorizontal: space.md,
@@ -264,25 +271,27 @@ const styles = StyleSheet.create({
     marginBottom: space.sm,
   },
   bubble: {
-    maxWidth: '92%',
-    borderRadius: radius.md,
-    paddingHorizontal: space.md,
-    paddingVertical: space.sm + 2,
+    maxWidth: '90%',
+    borderRadius: radius.lg,
+    paddingHorizontal: space.lg,
+    paddingVertical: space.sm + 3,
   },
   userBubble: {
     backgroundColor: color.userBubble,
+    borderBottomRightRadius: radius.sm - 6,
     alignSelf: 'flex-end',
   },
   assistantBubble: {
     backgroundColor: color.assistantBubble,
     borderColor: color.border,
     borderWidth: StyleSheet.hairlineWidth,
+    borderBottomLeftRadius: radius.sm - 6,
     alignSelf: 'flex-start',
   },
   bubbleText: {
     color: color.text,
     fontSize: font.body,
-    lineHeight: 21,
+    lineHeight: 22,
   },
   status: {
     color: color.textFaint,

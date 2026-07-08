@@ -86,7 +86,7 @@ export function TranscriptList({
           return (
             <View style={styles.rowWrap}>
               <Text style={styles.toolRow} numberOfLines={1}>
-                ⚙ {label}
+                {label}
               </Text>
             </View>
           )
@@ -116,39 +116,40 @@ export function TranscriptList({
 
 const styles = StyleSheet.create({
   content: {
-    paddingHorizontal: space.md,
+    paddingHorizontal: space.lg,
     paddingVertical: space.md,
-    gap: space.sm,
   },
   rowWrap: {
-    marginBottom: space.sm,
+    marginBottom: space.sm + 2,
   },
   userAlign: {
     alignItems: 'flex-end',
   },
   bubble: {
-    maxWidth: '92%',
-    borderRadius: radius.md,
-    paddingHorizontal: space.md,
-    paddingVertical: space.sm + 2,
+    maxWidth: '90%',
+    borderRadius: radius.lg,
+    paddingHorizontal: space.lg,
+    paddingVertical: space.sm + 3,
   },
   userBubble: {
     backgroundColor: color.userBubble,
+    borderBottomRightRadius: radius.sm - 6,
     alignSelf: 'flex-end',
   },
   assistantBubble: {
     backgroundColor: color.assistantBubble,
     borderColor: color.border,
     borderWidth: StyleSheet.hairlineWidth,
+    borderBottomLeftRadius: radius.sm - 6,
     alignSelf: 'flex-start',
   },
   answerBubble: {
-    borderColor: color.accent,
+    borderColor: color.accentBorder,
   },
   bubbleText: {
     color: color.text,
     fontSize: font.body,
-    lineHeight: 21,
+    lineHeight: 22,
   },
   systemLabel: {
     color: color.textFaint,
@@ -158,6 +159,12 @@ const styles = StyleSheet.create({
   toolRow: {
     color: color.toolText,
     fontSize: font.tiny,
-    paddingHorizontal: space.sm,
+    fontWeight: '600',
+    alignSelf: 'center',
+    backgroundColor: color.idleSoft,
+    borderRadius: radius.full,
+    paddingHorizontal: space.md,
+    paddingVertical: 3,
+    overflow: 'hidden',
   },
 })
