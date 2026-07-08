@@ -14,40 +14,51 @@ const ROWS: IssueEvent[] = [
 
 const eventsQuery = vi.fn(async (_input?: unknown): Promise<IssueEvent[]> => ROWS)
 
-vi.mock('./store', () => ({
-  useStore: () => ({
-    trpc: {
-      settings: { get: { query: vi.fn(async () => ({ gitWorkflow: { mergeStyle: 'ff-only' } })) } },
-      issues: {
-        events: { query: eventsQuery },
-        addSession: { mutate: vi.fn() },
-        addShell: { mutate: vi.fn() },
-        start: { mutate: vi.fn() },
-        update: { mutate: vi.fn() },
-        addComment: { mutate: vi.fn() },
+// #175: comment bodies left IssueWire — IssuePage fetches the thread lazily
+// via the issues.comments proc; the wire only carries commentCount.
+const COMMENTS = [
+  { id: 'cm-1', author: 'me', body: 'a note', createdAt: '2026-07-07T00:00:03.000Z' },
+]
+const commentsQuery = vi.fn(async (_input?: unknown) => COMMENTS)
+
+vi.mock('./store', () => {
+  const state = () =>
+    ({
+      trpc: {
+        settings: { get: { query: vi.fn(async () => ({ gitWorkflow: { mergeStyle: 'ff-only' } })) } },
+        issues: {
+          events: { query: eventsQuery },
+          comments: { query: commentsQuery },
+          addSession: { mutate: vi.fn() },
+          addShell: { mutate: vi.fn() },
+          start: { mutate: vi.fn() },
+          update: { mutate: vi.fn() },
+          addComment: { mutate: vi.fn() },
+        },
       },
-    },
-    hub: { onIssues: () => () => {} },
-    machines: [],
-    issues: [],
-    setSelectedWorktree: vi.fn(),
-    setPane: vi.fn(),
-    setView: vi.fn(),
-  }),
-}))
+      hub: { onIssues: () => () => {} },
+      machines: [],
+      issues: [],
+      setSelectedWorktree: vi.fn(),
+      setPane: vi.fn(),
+      setView: vi.fn(),
+    } as never)
+  return {
+    useStore: () => state(),
+    // Selector hooks (useStoreSelector) reach the same mocked state.
+    useStoreSelector: (sel: (s: unknown) => unknown) => sel(state()),
+  }
+})
 
 afterEach(() => {
   cleanup()
   eventsQuery.mockClear()
+  commentsQuery.mockClear()
 })
 
 describe('IssuePage activity feed', () => {
   it('renders state-transition events interleaved with comments', async () => {
-    const issue = makeIssue({
-      id: 'i-1',
-      repoPath: '/r',
-      comments: [{ id: 'cm-1', author: 'me', body: 'a note', createdAt: '2026-07-07T00:00:03.000Z' }],
-    })
+    const issue = makeIssue({ id: 'i-1', repoPath: '/r', commentCount: 1 })
     render(
       <IssuePage issue={issue} orderedIds={[issue.id]} onBack={vi.fn()} onNavigate={vi.fn()} />,
     )
@@ -67,14 +78,12 @@ describe('IssuePage activity feed', () => {
     // Feed is fetched scoped to this issue's repo, from the log start.
     await waitFor(() => expect(eventsQuery).toHaveBeenCalled())
     expect(eventsQuery.mock.calls[0]?.[0]).toMatchObject({ repoPath: '/r', since: 0 })
+    // The comment thread was fetched via the lazy proc (#175).
+    expect(commentsQuery).toHaveBeenCalledWith({ id: 'i-1' })
   })
 
   it('orders events and comments chronologically', async () => {
-    const issue = makeIssue({
-      id: 'i-1',
-      repoPath: '/r',
-      comments: [{ id: 'cm-1', author: 'me', body: 'a note', createdAt: '2026-07-07T00:00:03.000Z' }],
-    })
+    const issue = makeIssue({ id: 'i-1', repoPath: '/r', commentCount: 1 })
     render(
       <IssuePage issue={issue} orderedIds={[issue.id]} onBack={vi.fn()} onNavigate={vi.fn()} />,
     )

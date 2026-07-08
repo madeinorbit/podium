@@ -2,8 +2,8 @@ import type { IssueWire } from '@podium/protocol'
 
 /**
  * Build a valid `IssueWire` for unit tests, overriding any fields via `over`.
- * Shared by the issue-card and issue-detail-fields derivation tests so both
- * exercise the same fully-populated wire shape.
+ * Shared by the issue-card and issue-page tests so all exercise the same
+ * fully-populated wire shape.
  */
 export const makeIssue = (over: Partial<IssueWire> = {}): IssueWire =>
   ({
@@ -30,7 +30,7 @@ export const makeIssue = (over: Partial<IssueWire> = {}): IssueWire =>
     labels: [],
     deps: [],
     dependents: [],
-    comments: [],
+    commentCount: 0, // #175: bodies left the wire
     ready: true,
     blocked: false,
     deferred: false,

@@ -55,8 +55,8 @@ import {
   issueDefaultAgentKind,
 } from './issue-agents'
 import { STAGE_LABELS } from './issue-card'
-import { issueDetailFields } from './issue-detail-fields'
 import {
+  type ActivityComment,
   buildActivityFeed,
   type IssueEvent,
   type IssueEventIcon,
@@ -100,6 +100,7 @@ export function IssuePage({
   const [addingChild, setAddingChild] = useState(false)
   const [childTitle, setChildTitle] = useState('')
   const [events, setEvents] = useState<IssueEvent[]>([])
+  const [comments, setComments] = useState<ActivityComment[]>([])
 
   // Reset transient compose/edit state on issue switch so a half-typed comment or
   // an open editor never carries across to the next issue.
@@ -111,7 +112,36 @@ export function IssuePage({
     setAddingChild(false)
     setChildTitle('')
     setToast('')
+    // Seed from the (legacy, pre-#175) embedded thread if the wire still carries
+    // one; the lazy fetch below replaces it with server truth.
+    setComments(issue.comments ?? [])
   }, [issue.id])
+
+  // Lazy comment fetch (#175): comment bodies no longer ride IssueWire — fetch
+  // the thread on open via issues.comments, and re-fetch whenever the live wire
+  // row's commentCount moves (every addComment broadcasts the updated issue, so
+  // a new comment — ours or an agent's — pulls the fresh thread). Best-effort:
+  // a fetch error keeps whatever is shown. The wrapping Promise.resolve() also
+  // absorbs a missing proc on the client seam instead of crashing the render.
+  // Legacy fallback: a pre-#175 hub-mirrored wire may still EMBED comments and
+  // lack the proc's data locally (the node returns [] for viaHub issues) — use
+  // the embedded thread when the fetch comes back empty.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: refetch on issue switch / count change only; trpc is a stable store singleton
+  useEffect(() => {
+    let cancelled = false
+    Promise.resolve()
+      .then(() => trpc.issues.comments.query({ id: issue.id }))
+      .then((rows) => {
+        if (cancelled) return
+        setComments(rows.length === 0 ? (issue.comments ?? []) : rows)
+      })
+      .catch(() => {
+        // best-effort — keep whatever we already have
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [issue.id, issue.commentCount])
 
   // Load this issue's state-transition events for the activity feed (interleaved
   // with comments below). The events route is repo-scoped and cursor-paged
@@ -171,8 +201,20 @@ export function IssuePage({
 
   const { prev, next } = issueNeighbors(orderedIds, issue.id)
   const repo = issue.repoPath.split('/').filter(Boolean).pop() ?? issue.repoPath
-  const fields = issueDetailFields(issue)
-  const feed = buildActivityFeed(fields.comments, events)
+  const feed = buildActivityFeed(comments, events)
+
+  // Post the composed comment, appending it optimistically so it shows without
+  // waiting for the broadcast round-trip (the commentCount-keyed refetch then
+  // replaces the local copy with server truth).
+  const postComment = (): void => {
+    const body = commentBody.trim()
+    if (!body) return
+    void run(async () => {
+      await trpc.issues.addComment.mutate({ id: issue.id, author: 'me', body })
+      setComments((cur) => [...cur, { author: 'me', body, createdAt: new Date().toISOString() }])
+      setCommentBody('')
+    })
+  }
   // Archived children stay visible (marked), so archiving a child doesn't vanish it
   // from its parent's subissue list (issue #133).
   const children = subIssuesOf(issues, issue.id)
@@ -525,14 +567,7 @@ export function IssuePage({
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && commentBody.trim()) {
                     e.preventDefault()
-                    void run(async () => {
-                      await trpc.issues.addComment.mutate({
-                        id: issue.id,
-                        author: 'me',
-                        body: commentBody.trim(),
-                      })
-                      setCommentBody('')
-                    })
+                    postComment()
                   }
                 }}
               />
@@ -541,16 +576,7 @@ export function IssuePage({
                 size="sm"
                 className="w-fit"
                 disabled={busy || commentBody.trim().length === 0}
-                onClick={() =>
-                  void run(async () => {
-                    await trpc.issues.addComment.mutate({
-                      id: issue.id,
-                      author: 'me',
-                      body: commentBody.trim(),
-                    })
-                    setCommentBody('')
-                  })
-                }
+                onClick={postComment}
               >
                 Post
               </Button>

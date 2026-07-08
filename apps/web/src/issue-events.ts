@@ -97,7 +97,8 @@ export function formatIssueEvent(event: IssueEvent): IssueEventLine | null {
   }
 }
 
-/** A comment as IssuePage already renders it (see `issueDetailFields`). */
+/** A comment as IssuePage renders it — fetched lazily via the issues.comments
+ *  proc (#175); comment bodies no longer ride IssueWire. */
 export interface ActivityComment {
   author: string
   body: string

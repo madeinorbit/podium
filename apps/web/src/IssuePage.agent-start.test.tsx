@@ -8,27 +8,33 @@ const addShell = vi.fn(async () => ({}))
 const start = vi.fn(async () => ({}))
 const update = vi.fn(async () => ({}))
 
-vi.mock('./store', () => ({
-  useStore: () => ({
-    trpc: {
-      settings: { get: { query: vi.fn(async () => ({ gitWorkflow: { mergeStyle: 'ff-only' } })) } },
-      issues: {
-        // Activity feed loads transition events on mount; no events in this fixture.
-        events: { query: vi.fn(async () => []) },
-        addSession: { mutate: addSession },
-        addShell: { mutate: addShell },
-        start: { mutate: start },
-        update: { mutate: update },
+vi.mock('./store', () => {
+  const state = () =>
+    ({
+      trpc: {
+        settings: { get: { query: vi.fn(async () => ({ gitWorkflow: { mergeStyle: 'ff-only' } })) } },
+        issues: {
+          // Activity feed loads transition events on mount; no events in this fixture.
+          events: { query: vi.fn(async () => []) },
+          addSession: { mutate: addSession },
+          addShell: { mutate: addShell },
+          start: { mutate: start },
+          update: { mutate: update },
+        },
       },
-    },
-    hub: { onIssues: () => () => {} },
-    machines: [],
-    issues: [],
-    setSelectedWorktree: vi.fn(),
-    setPane: vi.fn(),
-    setView: vi.fn(),
-  }),
-}))
+      hub: { onIssues: () => () => {} },
+      machines: [],
+      issues: [],
+      setSelectedWorktree: vi.fn(),
+      setPane: vi.fn(),
+      setView: vi.fn(),
+    } as never)
+  return {
+    useStore: () => state(),
+    // Selector hooks (useStoreSelector) reach the same mocked state.
+    useStoreSelector: (sel: (s: unknown) => unknown) => sel(state()),
+  }
+})
 
 afterEach(() => {
   cleanup()

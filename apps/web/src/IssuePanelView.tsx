@@ -1,7 +1,7 @@
-import type { IssueStage, IssueWire } from '@podium/protocol'
+import type { IssueComment, IssueStage, IssueWire } from '@podium/protocol'
 import { CircleAlert, CircleCheck, FileText, User } from 'lucide-react'
 import type { JSX } from 'react'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { cn } from '@/lib/utils'
@@ -16,7 +16,8 @@ import { subIssuesOf } from './derive'
 import { DockSection } from './DockSection'
 import { relativeTime } from './home'
 import { STAGE_LABELS } from './issue-card'
-import { useStore } from './store'
+import { useStoreSelector } from './store'
+import { shallowEqual } from '@podium/client-core/store'
 
 /** Stage → dot + tinted chip classes (token-tinted, works across the 4 themes). */
 const STAGE_ACCENT: Record<IssueStage, { dot: string; chip: string }> = {
@@ -47,11 +48,37 @@ function Hint({ children }: { children: string }): JSX.Element {
   return <div className="py-0.5 text-xs text-muted-foreground/60 italic">{children}</div>
 }
 
-/** Latest checkpoint comment, expandable to the full history. */
+/** Latest checkpoint comment, expandable to the full history. Comment bodies no
+ *  longer ride IssueWire (#175): the thread is fetched lazily via the
+ *  issues.comments proc, re-fetched whenever the wire's commentCount moves.
+ *  Legacy fallback: a pre-#175 payload may still embed `comments` (and a viaHub
+ *  issue's thread lives on the hub, where the proc returns []) — use the
+ *  embedded thread when the fetch comes back empty. */
 function CommentsBlock({ issue }: { issue: IssueWire }): JSX.Element | null {
+  const trpc = useStoreSelector((s) => s.trpc)
   const [showAll, setShowAll] = useState(false)
-  const comments = issue.comments
-  if (comments.length === 0) return null
+  const [comments, setComments] = useState<IssueComment[]>(issue.comments ?? [])
+  const count = issue.commentCount ?? issue.comments?.length ?? 0
+  // biome-ignore lint/correctness/useExhaustiveDependencies: refetch on issue switch / count change only; trpc is a stable store singleton
+  useEffect(() => {
+    let cancelled = false
+    if (count === 0) {
+      setComments([])
+      return
+    }
+    Promise.resolve()
+      .then(() => trpc.issues.comments.query({ id: issue.id }))
+      .then((rows) => {
+        if (!cancelled) setComments(rows.length === 0 ? (issue.comments ?? []) : rows)
+      })
+      .catch(() => {
+        // best-effort — keep whatever we already have
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [issue.id, count])
+  if (count === 0 || comments.length === 0) return null
   const shown = showAll ? [...comments].reverse() : [comments[comments.length - 1]!]
   return (
     <div className="mt-2">
@@ -186,7 +213,10 @@ function PanelSections({
   machineId?: string
   slug: string
 }): JSX.Element {
-  const { trpc, httpOrigin, openFileInWorktree } = useStore()
+  const { trpc, httpOrigin, openFileInWorktree } = useStoreSelector(
+    (s) => ({ trpc: s.trpc, httpOrigin: s.httpOrigin, openFileInWorktree: s.openFileInWorktree }),
+    shallowEqual,
+  )
   const panel = issue.panel
   const todos = panel?.todos ?? []
   const artifacts = panel?.artifacts ?? []
@@ -351,7 +381,10 @@ export function IssuePanelView({
   machineId?: string
   sessionId?: string
 }): JSX.Element {
-  const { issues, sessions } = useStore()
+  const { issues, sessions } = useStoreSelector(
+    (s) => ({ issues: s.issues, sessions: s.sessions }),
+    shallowEqual,
+  )
   const issue = useMemo(
     () => issueForPanel({ issues, sessions, cwd, sessionId }),
     [issues, sessions, cwd, sessionId],
