@@ -61,30 +61,45 @@ export function resolveActiveWorktree(args: {
 }
 
 /** The issue whose worktree contains `cwd` (same containment rule the sidebar
- *  uses to group sessions under issues). */
+ *  uses to group sessions under issues). Deterministic: archived issues never
+ *  match, the deepest containing worktreePath wins (a repo-root worktree must
+ *  not swallow `.worktrees/*` checkouts), and equal depths tie-break on lowest
+ *  seq — never on broadcast array order (#243). */
 export function issueForCwd(issues: IssueWire[], cwd: string): IssueWire | null {
-  return issues.find((i) => i.worktreePath != null && cwdInWorktree(cwd, i.worktreePath)) ?? null
+  let best: IssueWire | null = null
+  for (const i of issues) {
+    if (i.archived || i.worktreePath == null || !cwdInWorktree(cwd, i.worktreePath)) continue
+    if (
+      !best ||
+      i.worktreePath.length > (best.worktreePath as string).length ||
+      (i.worktreePath.length === (best.worktreePath as string).length && i.seq < best.seq)
+    )
+      best = i
+  }
+  return best
 }
 
-/** The issue the dock's Issue tab should show: the issue whose worktree contains
- *  `cwd` (owning case, unchanged), falling back to the active session's explicit
- *  issue attachment (`SessionMeta.issueId`) — worktreePath is only stamped by
- *  `podium issue start`, so self-attached sessions (e.g. draft-issue sessions in
- *  EnterWorktree-created worktrees) would otherwise dead-end the panel. */
+/** The issue the dock's Issue tab should show. The active session's explicit
+ *  attachment (`SessionMeta.issueId`) wins — it names exactly the issue the
+ *  session works on, so subissue sessions running in the parent's worktree and
+ *  re-homed sessions resolve to THEIR issue, not the worktree owner's (#243).
+ *  Fallback: the issue whose worktree contains `cwd` (unattached sessions and
+ *  file-tab resolution). */
 export function issueForPanel(args: {
   issues: IssueWire[]
   sessions: SessionMeta[]
   cwd: string
   sessionId?: string
 }): IssueWire | null {
-  const owned = issueForCwd(args.issues, args.cwd)
-  if (owned) return owned
   const session = args.sessionId
     ? args.sessions.find((s) => s.sessionId === args.sessionId)
     : undefined
   const id = session?.issueId
-  if (id === undefined) return null
-  return args.issues.find((i) => i.id === id && !i.archived) ?? null
+  if (id !== undefined) {
+    const attached = args.issues.find((i) => i.id === id && !i.archived)
+    if (attached) return attached
+  }
+  return issueForCwd(args.issues, args.cwd)
 }
 
 /** True when a panel has anything worth rendering. */

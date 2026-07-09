@@ -135,7 +135,7 @@ describe('spawnTargetForRepo', () => {
   })
 
   it('uses the selected machine main checkout when one is provided', () => {
-    const podium-host = navWt('/home/podium-host/podium', {
+    const hostMain = navWt('/home/podium-host/podium', {
       repoPath: '/home/podium-host/podium',
       machineId: 'podium-host',
     })
@@ -144,7 +144,7 @@ describe('spawnTargetForRepo', () => {
       machineId: 'vmi34',
     })
     const t = spawnTargetForRepo(
-      { path: '/home/podium-host/podium', name: 'podium', worktrees: [podium-host, vmi] },
+      { path: '/home/podium-host/podium', name: 'podium', worktrees: [hostMain, vmi] },
       'vmi34',
     )
     expect(t.worktree).toMatchObject({

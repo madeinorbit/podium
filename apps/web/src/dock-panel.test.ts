@@ -99,17 +99,60 @@ describe('issueForCwd', () => {
     expect(issueForCwd([i], '/repo/.worktrees/issue-70')).toBeNull()
     expect(issueForCwd([issue({ worktreePath: null })], '/anywhere')).toBeNull()
   })
+
+  it('is deterministic: deepest worktree wins, archived never match, seq breaks ties', () => {
+    const root = issue({ id: 'root', seq: 1, worktreePath: '/repo' })
+    const nested = issue({ id: 'nested', seq: 9, worktreePath: '/repo/.worktrees/issue-7' })
+    // Deepest containing path wins regardless of array order.
+    expect(issueForCwd([root, nested], '/repo/.worktrees/issue-7/src')?.id).toBe('nested')
+    expect(issueForCwd([nested, root], '/repo/.worktrees/issue-7/src')?.id).toBe('nested')
+    // Archived issues never own a cwd.
+    const archived = issue({ id: 'a', worktreePath: '/repo/.worktrees/issue-7', archived: true })
+    expect(issueForCwd([archived, root], '/repo/.worktrees/issue-7')?.id).toBe('root')
+    // Equal-depth tie → lowest seq, in either order.
+    const twinA = issue({ id: 'tA', seq: 3, worktreePath: '/wt/x' })
+    const twinB = issue({ id: 'tB', seq: 5, worktreePath: '/wt/x' })
+    expect(issueForCwd([twinB, twinA], '/wt/x')?.id).toBe('tA')
+    expect(issueForCwd([twinA, twinB], '/wt/x')?.id).toBe('tA')
+  })
 })
 
 describe('issueForPanel', () => {
   const owning = issue() // worktreePath /repo/.worktrees/issue-7
   const attached = issue({ id: 'i2', worktreePath: null })
 
-  it('owning worktree wins (issueForCwd semantics unchanged)', () => {
+  it('explicit session attachment beats the owning worktree (#243)', () => {
+    // A session attached to a subissue but working in the parent's worktree
+    // shows ITS issue, not the worktree owner.
     const s = sess('s1', '/repo/.worktrees/issue-7', { issueId: 'i2' })
     expect(
       issueForPanel({
         issues: [owning, attached],
+        sessions: [s],
+        cwd: '/repo/.worktrees/issue-7',
+        sessionId: 's1',
+      })?.id,
+    ).toBe('i2')
+  })
+
+  it('unattached session in an owned worktree falls back to containment', () => {
+    const s = sess('s1', '/repo/.worktrees/issue-7')
+    expect(
+      issueForPanel({
+        issues: [owning, attached],
+        sessions: [s],
+        cwd: '/repo/.worktrees/issue-7',
+        sessionId: 's1',
+      })?.id,
+    ).toBe('i1')
+  })
+
+  it('attachment to an archived issue falls through to containment', () => {
+    const archivedTarget = issue({ id: 'i3', worktreePath: null, archived: true })
+    const s = sess('s1', '/repo/.worktrees/issue-7', { issueId: 'i3' })
+    expect(
+      issueForPanel({
+        issues: [owning, archivedTarget],
         sessions: [s],
         cwd: '/repo/.worktrees/issue-7',
         sessionId: 's1',
