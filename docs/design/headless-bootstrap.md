@@ -99,36 +99,124 @@ would be invisible to a stock unit. The bootstrap and the unit's PATH must be ge
 
 ## 3. Approach comparison
 
-| | Install script (sh) | Cloud-init / image | Nix | Devcontainer / Docker |
+### 3.0 The distinction that decides everything
+
+"Bring a server to a state and keep it there" is two problems, and every incumbent solves them
+with two different mechanisms:
+
+| | **Install once** (bootstrap) | **Converge continuously** (desired state) |
+|---|---|---|
+| Question | how do the bits arrive the first time? | how does the box stay correct, centrally? |
+| Incumbent answer | signed `curl \| sh` + native package repo, or a baked image | **the product's own agent**, pulling policy from its own control plane |
+
+Conflating them is what produces a "brittle shell script": a script that is *also* the tool
+installer, *also* the version pinner, *also* the convergence loop. Each of those should be owned
+by something else.
+
+### 3.1 What the closest analogues actually ship
+
+All four below are daemon + central-control-plane products — our exact shape. **None uses Ansible
+or Nix.**
+
+| Product | Bootstrap | Convergence |
+|---|---|---|
+| **Tailscale** | `curl -fsSL https://tailscale.com/install.sh \| sh` → detects distro, adds Tailscale's own apt/dnf repo, installs native pkg | **`tailscaled` pulls ACLs/routes/DNS/key-expiry from the coordination server, continuously** |
+| **Docker** | `curl -fsSL https://get.docker.com \| sh` → wires the official repo, installs native pkg. Script self-warns "dev/test only" | none (native package manager) |
+| **Coder** | Terraform template provisions compute | **`coder_agent` inside the workspace runs server-defined startup scripts**; reusable installs published as Terraform modules |
+| **GitHub runners** | release tarball + `./config.sh --token` (1-hour token) + `svc.sh` | **re-image, don't converge** (`--ephemeral`, ARC recreates pods per job). Tool images built with **Packer + Bash**, no Ansible, no Nix |
+
+Tailscale is the structural twin: signed daemon, central control plane, pairing step. It ships a
+shell installer *and* a converging daemon. That is not a compromise, it is the pattern.
+
+### 3.2 Options, judged against the column they actually serve
+
+| Option | Serves | Root | Rootless `~/.local` | Verdict |
 |---|---|---|---|---|
-| Works on any existing VPS | ✅ | ⚠️ first boot only | ✅ (after nix install) | ⚠️ needs Docker |
-| Works on a box you already own | ✅ | ❌ | ✅ | ⚠️ |
-| Root required | ❌ (rootless) | ✅ | ⚠️ (multi-user) | ✅ |
-| Reproducible pinning | ⚠️ manual (checksums) | ✅ (baked) | ✅✅ | ✅ |
-| Idempotent re-run | ⚠️ must be engineered | ❌ (boot-once) | ✅✅ | ❌ (rebuild) |
-| Agent CLIs available | ✅ (upstream installers) | ✅ | ❌ mostly unpackaged | ✅ |
-| Cost to us | low | medium (per-cloud) | high | medium |
-| Matches existing `install.sh` | ✅ | — | ❌ | ❌ |
-| PTY / abduco / systemd fidelity | ✅ | ✅ | ✅ | ❌ (poor systemd) |
+| **Signed install script** | install-once | no | ✅ | **Keep — but shrink its job** |
+| **mise** | tool install + pinning | no | ✅ (`~/.local/share/mise`) | **Adopt for the tool layer** |
+| **Our daemon** | converge | no | ✅ | **Adopt as the convergence engine** |
+| `ansible-pull` | converge | mostly | ✗ awkward | Reject |
+| Nix / home-manager / devbox | tool install + pinning | ⚠️ | ⚠️ fights | Reject (see §3.3) |
+| chezmoi | config/dotfiles | no | ✅ | Maybe later, for config only |
+| systemd sysext | atomic tool bundle | **yes** (`/usr`) | ✗ | Park; revisit for immutable bundles |
+| asdf / proto / pkgx | tool install | no | ✅ | mise supersedes |
+| cloud-init / image | install-once | ✅ | — | Generated wrapper over the script |
 
-**Recommendation: extend the install script. Treat cloud-init and Docker as thin generated
-wrappers over it, not as separate sources of truth.**
+**`ansible-pull`** converges via a cron/systemd timer over a git repo of playbooks — but it needs
+Python on every target, its useful modules assume system package managers and root, and doing
+everything under `~/.local` degrades it to `shell:` tasks, i.e. a verbose YAML wrapper around the
+shell we were trying to escape. Its one real win over us is the pull loop, which **our daemon
+already has**.
 
-Reasoning:
+### 3.3 Nix: a corrected assessment
 
-- Nix is the only option with genuinely superior reproducibility, but the five agent CLIs are
-  effectively unpackaged in nixpkgs and all ship their own self-updating native installers. We
-  would be fighting both nixpkgs and the vendors. The cost is not repaid.
-- Cloud-init only runs on first boot of a *new* instance. It cannot adopt the machine you already
-  have, which is most of the real cases (a Hetzner box, a spare laptop, `vmi`). But a cloud-init
-  `runcmd:` that invokes our script is three lines — so we get it for free.
-- Docker/devcontainer models systemd and PTYs poorly, and our whole session model is abduco +
-  systemd user units. ACFS learned this too: their Docker CI under-models systemd and they
-  maintain a separate real-VPS QEMU test rig.
-- Staying **rootless** is a real differentiator. ACFS demands root, creates an `ubuntu` user, and
-  in its default `--mode vibe` enables passwordless sudo. Every agent CLI and every dev tool we
-  need installs fine into `$HOME`. Root should be an opt-in (`--with-apt`) for `build-essential`
-  and friends, never a precondition.
+An earlier draft of this doc claimed the agent CLIs are "effectively unpackaged in nixpkgs and all
+ship self-updating vendor installers." **Both halves are false**, and the correction matters:
+
+- `claude-code`, `codex`, `opencode`, `cursor-cli` and a community `grok-cli` are all in nixpkgs
+  under `pkgs/by-name/`. On master when checked, `claude-code` was `2.1.204` vs upstream `2.1.205`
+  — one patch behind. Only xAI's *official* Grok CLI is genuinely absent (third-party overlays
+  such as `numtide/llm-agents.nix` cover it, updated daily with a binary cache).
+- The self-update conflict is real but **already solved upstream**: nixpkgs' own derivation does
+  `wrapProgram $out/bin/claude --set DISABLE_AUTOUPDATER 1`. opencode has
+  `OPENCODE_DISABLE_AUTOUPDATE=1`. Codex does not auto-update in place at all — `codex update` is
+  a manual command. `sadjow/claude-code-nix` fetches the prebuilt binary, `autoPatchelfHook`s it,
+  disables the updater, and bumps multiple times a day from a Cachix cache.
+
+So Nix is rejected on **operational** grounds, not packaging ones:
+
+1. **Stable channels lag hard.** `release-25.05` pins `claude-code 1.0.85` — a full major behind.
+   This only works if we commit the whole product to `nixpkgs-unstable` or a daily overlay, which
+   `llm-agents.nix` itself warns "will break eventually" on a stable branch.
+2. **Rootless Nix on an arbitrary VPS is a fight.** The Determinate installer needs root.
+   `nix-user-chroot` needs unprivileged user namespaces, which Ubuntu 23.10+ gates behind AppArmor
+   and many locked-down hosts disable. `nix-portable` works without root but falls back to PRoot,
+   which is slow.
+3. It buys reproducibility we can get from a **`mise.lock`** for a fraction of the adoption cost.
+
+If we already loved Nix, the calculus would flip. We don't, and a small product team should not
+take on a second runtime, store and GC model to install five CLIs.
+
+### 3.4 Why not just use agent-flywheel (ACFS)?
+
+**No — study it, don't adopt it.**
+
+- It **takes over the whole host**: must start as root, creates an `ubuntu` user, and its default
+  `--mode vibe` enables **passwordless sudo** and launches agents with
+  `--dangerously-skip-permissions` / `--dangerously-bypass-approvals-and-sandbox`.
+- It **auto-upgrades the host's Ubuntu release** to 25.10 across multiple reboots (~1.5–3 h, no
+  rollback).
+- Its default one-liner is `curl | bash` off `main` with a `?$(date +%s)` cache-buster — the
+  *default* path is not the pinned one.
+- It pins no downstream tool versions (Rust `nightly`, nvm `node`, "latest" installers).
+- It is tightly coupled to ~16 bespoke tools (`ntm`, `am`, `ubs`, `bv`, `cass`, `dcg`, …).
+- It installs claude/codex/gemini/antigravity — and **not** opencode, cursor or grok, i.e. three of
+  our five harnesses.
+- Its secrets story is a manual post-install `acfs services-setup`, exactly what #212 exists to
+  eliminate.
+
+Worth stealing (and we do, below): manifest→codegen as one source of truth,
+checksum-verify-before-execute with a CI drift monitor, a resumable state machine, and
+`doctor --json`.
+
+### 3.5 Recommendation
+
+Split the problem the way Tailscale does:
+
+1. **Bootstrap** — keep the signed `install.sh`, and **shrink its job** to: install the podium
+   daemon, install `mise`, pair to the server, exit. Caveat it as a convenience path exactly as
+   Docker and Tailscale caveat theirs. Cloud-init and Docker become three-line wrappers.
+2. **Tools** — **adopt `mise`.** Do not hand-roll a downloader/pinner/checksummer.
+3. **Convergence** — **the daemon is the convergence engine**, driven by a desired-state document
+   from the server. It writes `mise.toml` + `mise.lock` and shells out to `mise install`.
+4. **Config + credentials** — over the daemon's existing authenticated channel (#212/#214).
+
+The "brittle shell script" critique is fair, and it dies the moment the script stops being the
+tool installer and the convergence loop.
+
+Staying **rootless** remains a real differentiator versus ACFS. Every agent CLI and dev tool
+installs fine into `$HOME`; root stays an opt-in (`--with-apt`) for `build-essential`, never a
+precondition.
 
 ### What to take from ACFS (agent-flywheel)
 
@@ -172,42 +260,64 @@ cursor or grok, so there is no prior art to borrow for three of our five harness
 `Record<HarnessAgent, HarnessAdapter>` whose stated contract is "new harness = one adapter file +
 one entry here — a missing kind fails compilation."
 
-Add an `install` recipe to `HarnessAdapter`:
+Add an `install` descriptor to `HarnessAdapter` — but note what it is **not**: it is not a shell
+recipe. It is a **mise tool spec** plus the facts our own code needs (PATH assembly, spawn
+preflight, doctor).
 
 ```ts
 install: {
-  /** Where the binary lands, for PATH assembly and preflight. */
-  binName: string                 // 'claude' | 'codex' | 'grok' | 'opencode' | 'cursor-agent'
-  binDirs: string[]               // ['~/.local/bin'] | ['~/.bun/bin'] | ['~/.opencode/bin']
-  /** Non-interactive install, checksum-pinned. */
-  recipe: { kind: 'curl-sh'; url: string; sha256?: string }
-          | { kind: 'npm'; pkg: string; version?: string }
-          | { kind: 'github-release'; repo: string; asset: (arch: Arch) => string }
+  /** Where the binary lands, for PATH assembly and preflight (§2a, §2b). */
+  binName: string          // 'claude' | 'codex' | 'grok' | 'opencode' | 'cursor-agent'
+  /** A mise tool spec: npm:… | github:… | aqua:… | http:… */
+  mise: string             // e.g. 'npm:@anthropic-ai/claude-code'
+  /** Env this tool needs so it does not fight the version-owner (§4.1.1). */
+  env?: Record<string,string>   // { DISABLE_AUTOUPDATER: '1' }
   /** How to prove it works. */
-  verify: string[]                // ['--version']
+  verify: string[]         // ['--version']
 }
 ```
 
-Then the bootstrap's harness list, the unit's `PATH`, the spawn preflight (§2a), and `podium
-doctor` all derive from **one** table that already fails compilation when a harness is added
-without it. That is the ACFS manifest idea, but we get it in TypeScript with real types instead of
-YAML plus a codegen step.
+The bootstrap's harness list, the unit's `PATH`, the spawn preflight (§2a), the generated
+`mise.toml`, and `podium doctor` then all derive from **one** table that already fails compilation
+when a harness is added without it. That is ACFS's manifest idea, in TypeScript with real types
+instead of YAML plus a codegen step — and the actual *installing* is delegated to mise.
 
-The dev-tooling manifest (`bun`, `uv`, `rg`, `fd`, `jq`, `fzf`, `gh`) is a separate, simpler table
-of the same recipe shape.
+`mise` (https://mise.jdx.dev) is a rootless single static binary living in
+`~/.local/share/mise`. Its backends cover everything we need: `npm:` (any npm CLI), `github:` /
+`aqua:` (checksummed GitHub-release binaries), `http:` (arbitrary URL escape hatch), plus
+first-class `bun`, `uv`, `node`. `mise.toml` pins versions; `mise.lock` pins exact versions,
+checksums, sizes and URLs — reproducibility equivalent to a `package-lock.json`, which is the
+piece Nix was going to buy us at far higher cost.
 
-Verified install facts (2026-07):
+The dev-tooling set (`bun`, `uv`, `rg`, `fd`, `jq`, `fzf`, `gh`) becomes a handful of lines in the
+same generated `mise.toml`.
 
-| Harness | Recipe | Binary | Lands in |
-|---|---|---|---|
-| claude-code | `curl -fsSL https://claude.ai/install.sh \| bash` | `claude` | `~/.local/bin` |
-| codex | `npm i -g @openai/codex` (node ≥22) **or** GitHub release musl binary | `codex` | npm bin / `~/.bun/bin` |
-| grok | `curl -fsSL https://x.ai/cli/install.sh \| bash` | `grok` | `~/.grok/bin` → `~/.local/bin` |
-| opencode | `curl -fsSL https://opencode.ai/install \| bash` | `opencode` | `~/.opencode/bin` |
-| cursor | `curl https://cursor.com/install -fsS \| bash` | `cursor-agent` (also symlinks `agent`) | `~/.local/bin` |
+> **Spike required before committing.** Verify against a real `mise`: that
+> `npm:@anthropic-ai/claude-code` yields a working `claude`; that the official xAI `grok` (absent
+> from every registry) needs the `http:` backend; and that `cursor-agent` can be pinned at all
+> (§4.1.1). The `mise.lock` lockfile is still marked experimental upstream.
 
-Prefer the **GitHub release musl binary** for codex so the bootstrap does not have to drag in a
-Node ≥22 toolchain for one CLI.
+### 4.1.1 The sharpest edge: agent CLIs that self-update in place
+
+This is the single hardest constraint in the whole plan, and it is **independent of which tool we
+pick** — it bites Nix, mise, and sysext identically. A CLI that rewrites its own binary fights
+whatever owns its version.
+
+| Harness | Self-updates? | Opt-out |
+|---|---|---|
+| claude-code | yes, aggressively | `DISABLE_AUTOUPDATER=1` (+ `DISABLE_INSTALLATION_CHECKS=1`) — nixpkgs already wires this |
+| opencode | yes, by default | `OPENCODE_DISABLE_AUTOUPDATE=1`, or `"autoupdate": false` |
+| codex | **no** — `codex update` is manual | n/a |
+| grok | unverified | unverified |
+| cursor-agent | yes | **no clean documented opt-out** — the real sore spot |
+
+Decision needed per harness: does the **server pin** the version (and we set the opt-out env), or
+does the version **float** (and mise re-pins on the next convergence tick)? Pinning is the right
+default for a fleet; floating is right for a single dev box that wants the newest Claude Code the
+hour it ships. This wants to be a field on the desired-state document, not a global.
+
+Note the opt-out envs must reach the **spawned agent's** environment, which is the same injection
+seam #212 is building (`apps/daemon/src/daemon.ts:1350-1370`).
 
 ### 4.2 Controllability
 
@@ -340,24 +450,33 @@ CLIs already ship arm64 builds.
 
 ## 5. Recommended sequencing
 
-1. **Fix the two bugs** (§2). Independent, small, immediately useful. Spawn preflight +
-   generated unit PATH.
-2. **Inventory in the handshake** (§4.4). Unblocks the server UI, routing, and #212.
-3. **`install` recipes on `HarnessAdapter`** + `podium doctor --json` (§4.1).
-4. **`podium bootstrap`** driven by that manifest, with the state file (§4.3) and the flags (§4.2).
-   Ship `install.sh --harnesses …` as a thin front-end that installs podium then calls it.
-5. **`JoinPayload` v2** with `harnesses[]` + Add-machine checkboxes (§4.2).
-6. **Checksum pinning + CI drift monitor** for third-party installers.
+0. **Spike mise** (§4.1) against the five real harnesses. If `npm:@anthropic-ai/claude-code` and
+   an `http:` grok do not work, the tool-layer decision reopens. Cheap, do it first.
+1. **Fix the two bugs** (§2) — spawn preflight (#219) + generated unit PATH (#220). Independent,
+   small, immediately useful.
+2. **Inventory in the handshake** (#222, §4.4). Unblocks the server UI, routing, #212 and #214
+   (which needs `gh` presence to decide whether a machine can receive a credential).
+3. **`install` descriptors on `HarnessAdapter`** + **`podium doctor --json`** (#231, §4.1).
+4. **Desired-state document + daemon convergence loop** (§3.5). Daemon writes `mise.toml`/`.lock`
+   from the doc, runs `mise install`, reports actual state back via inventory. Reconcile on
+   connect, on a timer, and on server push. Co-design the document with #212.
+5. **Shrink `install.sh`** to: install daemon + mise, pair, exit. `--harnesses` becomes a hint
+   written into the first desired-state request rather than shell that installs things.
+6. **`JoinPayload` v2** with `harnesses[]` + Add-machine checkboxes (§4.2).
 7. arm64, cloud-init snippet, Dockerfile — all generated from the same manifest.
 
-Steps 1–2 are worth doing even if the rest is deferred.
+Steps 1–2 are worth doing even if everything else is deferred, and they are already in flight.
+
+`scripts/bootstrap-spike.sh` remains useful as the **fallback** if the mise spike fails, and as
+the reference implementation of the fingerprint state machine and the `Inventory` JSON.
 
 ## 6. Open questions for the human
 
-- **Codex via GitHub release binary vs npm?** The release binary avoids a Node ≥22 dependency for
-  a single CLI. Recommend the binary; npm as fallback.
-- **Should `podium bootstrap` block on first environment sync** (§4.5) before declaring success?
-  Recommend yes — otherwise "one command and it works" is not true.
+- **Does the mise spike pass?** (§4.1, step 0). Everything downstream keys off it.
+- **Pin or float agent-CLI versions?** (§4.1.1). Recommend: server pins, with the vendor's
+  auto-update opt-out env injected at spawn. Cursor has no clean opt-out — accept float there.
+- **Should `podium bootstrap` block on first convergence** before declaring success? Recommend
+  yes; otherwise "one command and it works" is not true.
 - **Rootless-only, or `--with-apt` escape hatch?** Recommend rootless default, apt opt-in.
 - The private-repo blocker (§1) gates the headline `curl | sh` UX. Is going public (#12) the plan,
   or should we host assets on our own origin sooner?
