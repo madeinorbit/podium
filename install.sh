@@ -110,8 +110,10 @@ if ! "$BIN/podium" setup --join "$JOIN" --persist systemd; then
 fi
 UNIT_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"; mkdir -p "$UNIT_DIR"
 if [ -n "$JOIN_FALLBACK" ]; then
-  # Fallback unit — MUST stay byte-identical to renderDaemonUnit() in scripts/cli-systemd.ts;
-  # the lockstep test in scripts/cli-systemd.test.ts enforces it.
+  # Fallback unit — GENERATED from renderDaemonUnit() in apps/cli/src/cli-systemd.ts (the
+  # single source; regenerate with `bun scripts/render-systemd.ts`). Do not hand-edit: the
+  # lockstep test in apps/cli/src/cli-systemd.test.ts and `render-systemd.ts --check` (part
+  # of `bun run lint`) both fail on drift.
   cat > "$UNIT_DIR/podium-daemon.service" <<'EOF'
 [Unit]
 Description=Podium per-machine agent daemon
