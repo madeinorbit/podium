@@ -5,7 +5,6 @@ export const STAGE_LABELS: Record<IssueStage, string> = {
   planning: 'Planning',
   in_progress: 'In Progress',
   review: 'Review',
-  verifying: 'Verifying',
   done: 'Done',
 }
 

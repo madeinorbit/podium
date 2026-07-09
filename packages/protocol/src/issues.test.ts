@@ -2,16 +2,10 @@ import { describe, expect, it } from 'vitest'
 import { ISSUE_STAGES, IssueStage, IssueWire, RepoOp, ServerMessage } from './messages'
 
 describe('issue protocol types', () => {
-  it('has the six ordered stages', () => {
-    expect(ISSUE_STAGES).toEqual([
-      'backlog',
-      'planning',
-      'in_progress',
-      'review',
-      'verifying',
-      'done',
-    ])
-    expect(IssueStage.parse('verifying')).toBe('verifying')
+  it('has the five ordered stages', () => {
+    expect(ISSUE_STAGES).toEqual(['backlog', 'planning', 'in_progress', 'review', 'done'])
+    expect(IssueStage.parse('review')).toBe('review')
+    expect(IssueStage.safeParse('verifying').success).toBe(false)
   })
 
   it('parses an IssueWire with derived members', () => {

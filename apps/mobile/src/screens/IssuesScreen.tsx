@@ -12,7 +12,6 @@ import { color, font, radius, space } from '../theme/theme'
 const STAGE_ORDER: IssueStage[] = [
   'in_progress',
   'review',
-  'verifying',
   'planning',
   'backlog',
   'done',
@@ -23,7 +22,6 @@ const STAGE_LABEL: Record<IssueStage, string> = {
   planning: 'Planning',
   in_progress: 'In progress',
   review: 'Review',
-  verifying: 'Verifying',
   done: 'Done',
 }
 

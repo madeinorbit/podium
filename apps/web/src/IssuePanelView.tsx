@@ -25,7 +25,6 @@ const STAGE_ACCENT: Record<IssueStage, { dot: string; chip: string }> = {
   planning: { dot: 'bg-sky-400', chip: 'bg-sky-400/15 text-sky-300' },
   in_progress: { dot: 'bg-amber-400', chip: 'bg-amber-400/15 text-amber-300' },
   review: { dot: 'bg-violet-400', chip: 'bg-violet-400/15 text-violet-300' },
-  verifying: { dot: 'bg-cyan-400', chip: 'bg-cyan-400/15 text-cyan-300' },
   done: { dot: 'bg-emerald-400', chip: 'bg-emerald-400/15 text-emerald-300' },
 }
 

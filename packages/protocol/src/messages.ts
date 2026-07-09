@@ -747,22 +747,14 @@ export const AttentionEventMessage = z.object({
 // Issue tracker
 // ---------------------------------------------------------------------------
 
-// Ordered lifecycle stages an issue moves through.
-export const IssueStage = z.enum([
-  'backlog',
-  'planning',
-  'in_progress',
-  'review',
-  'verifying',
-  'done',
-])
+// Ordered lifecycle stages an issue moves through. [spec:SP-0078]
+export const IssueStage = z.enum(['backlog', 'planning', 'in_progress', 'review', 'done'])
 export type IssueStage = z.infer<typeof IssueStage>
 export const ISSUE_STAGES: IssueStage[] = [
   'backlog',
   'planning',
   'in_progress',
   'review',
-  'verifying',
   'done',
 ]
 

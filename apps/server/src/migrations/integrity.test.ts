@@ -173,3 +173,28 @@ describe('migration 007: single parent storage', () => {
     s.close()
   })
 })
+
+describe('migration 010: the verifying stage is gone', () => {
+  it('folds legacy verifying rows (and stale suggestions) back into review', () => {
+    const file = tmpDb('verifying.db')
+    {
+      const db = openDatabase(file)
+      for (const sql of LEGACY_SCHEMA_SQL) db.exec(sql)
+      db.prepare('INSERT INTO schema_version (version, name, applied_at) VALUES (1, ?, ?)').run(
+        'baseline',
+        't',
+      )
+      db.exec(
+        `INSERT INTO issues (id, repo_path, seq, title, stage, suggested_stage, default_agent, created_at, updated_at)
+         VALUES ('iss_v', '/r', 1, 'mid-verify', 'verifying', NULL, 'claude-code', 't', 't'),
+                ('iss_s', '/r', 2, 'stale-hint', 'review', 'verifying', 'claude-code', 't', 't')`,
+      )
+      db.close()
+    }
+    const s = new SessionStore(file)
+    // Not 'done': verification wasn't finished, so it stays on the board.
+    expect(s.getIssue('iss_v')?.stage).toBe('review')
+    expect(s.getIssue('iss_s')?.suggestedStage).toBe('review')
+    s.close()
+  })
+})
