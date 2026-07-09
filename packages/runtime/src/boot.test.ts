@@ -79,6 +79,79 @@ describe('bootProcess', () => {
     expect(proc.exit).toHaveBeenCalledTimes(1)
   })
 
+  it('shutdown still exits 0 when close() rejects (exit lives in finally)', async () => {
+    const { proc, handlers } = makeProc()
+    await bootProcess(
+      {
+        name: 'server',
+        bootTimeoutMs: null,
+        start: async () => ({ close: () => Promise.reject(new Error('bind gone')) }),
+      },
+      proc,
+    )
+    handlers.get('SIGTERM')?.()
+    await vi.waitFor(() => expect(proc.exit).toHaveBeenCalledWith(0))
+    expect(proc.error).toHaveBeenCalledWith(
+      expect.stringContaining('close() failed during shutdown'),
+    )
+  })
+
+  it('shutdown still exits 0 when close() throws synchronously', async () => {
+    const { proc, handlers } = makeProc()
+    await bootProcess(
+      {
+        name: 'server',
+        bootTimeoutMs: null,
+        start: async () => ({
+          close: () => {
+            throw new Error('sync boom')
+          },
+        }),
+      },
+      proc,
+    )
+    handlers.get('SIGINT')?.()
+    await vi.waitFor(() => expect(proc.exit).toHaveBeenCalledWith(0))
+  })
+
+  it('start() rejection exits 1, clears the boot watchdog, and never logs a late timeout', async () => {
+    const { proc } = makeProc()
+    await bootProcess(
+      {
+        name: 'daemon',
+        bootTimeoutMs: 10,
+        start: () => Promise.reject(new Error('no socket')),
+      },
+      proc,
+    )
+    expect(proc.exit).toHaveBeenCalledWith(1)
+    expect(proc.error).toHaveBeenCalledWith(expect.stringContaining('boot failed: '))
+    await new Promise((r) => setTimeout(r, 40))
+    expect(proc.error).not.toHaveBeenCalledWith(expect.stringContaining('did not complete'))
+    expect(proc.exit).toHaveBeenCalledTimes(1)
+  })
+
+  it('boot timeout is terminal: a late-resolving start() must not reach readiness or exit 0', async () => {
+    const { proc } = makeProc()
+    let resolveStart: (h: BootHandle) => void = () => {}
+    const done = bootProcess(
+      {
+        name: 'daemon',
+        bootTimeoutMs: 10,
+        start: () => new Promise<BootHandle>((r) => (resolveStart = r)),
+        readyMessage: () => 'should never log',
+      },
+      proc,
+    )
+    await vi.waitFor(() => expect(proc.exit).toHaveBeenCalledWith(1))
+    void done
+    resolveStart({ close: () => {} })
+    await new Promise((r) => setTimeout(r, 20))
+    expect(proc.log).not.toHaveBeenCalledWith('should never log')
+    expect(proc.exit).toHaveBeenCalledTimes(1)
+    expect(proc.startWatchdog).not.toHaveBeenCalled()
+  })
+
   it('safetyNet: false and watchdog: false opt out of the respective installs', async () => {
     const { proc } = makeProc()
     await bootProcess(

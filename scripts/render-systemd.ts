@@ -23,14 +23,24 @@ import { fileURLToPath } from 'node:url'
 import { renderDaemonUnit } from '../apps/cli/src/cli-systemd'
 
 const INSTALL_SH = fileURLToPath(new URL('../install.sh', import.meta.url))
-// Same block the lockstep test pins: the fallback daemon-unit heredoc.
-const HEREDOC = /(cat > "\$UNIT_DIR\/podium-daemon\.service" <<'EOF'\n)([\s\S]*?)(EOF\n)/
+// Same block the lockstep test pins: the fallback daemon-unit heredoc. The body is
+// tempered — it may not contain an `EOF` line — so a removed/malformed closing
+// delimiter fails the match outright instead of lazily extending to the NEXT
+// heredoc's EOF and letting a regeneration swallow unrelated installer logic.
+const HEREDOC =
+  /(cat > "\$UNIT_DIR\/podium-daemon\.service" <<'EOF'\n)((?:(?!EOF\n)[^\n]*\n)*)(EOF\n)/
+const OPEN_MARKER = `cat > "$UNIT_DIR/podium-daemon.service" <<'EOF'\n`
 
 const check = process.argv.includes('--check')
 const sh = readFileSync(INSTALL_SH, 'utf8')
+const openCount = sh.split(OPEN_MARKER).length - 1
 const m = sh.match(HEREDOC)
-if (!m) {
-  console.error('render-systemd: install.sh no longer contains the fallback daemon-unit heredoc')
+if (openCount !== 1 || !m) {
+  console.error(
+    openCount > 1
+      ? `render-systemd: refusing — install.sh contains ${openCount} daemon-unit heredoc openers, expected exactly one`
+      : 'render-systemd: install.sh no longer contains a well-formed fallback daemon-unit heredoc (opener + EOF closer)',
+  )
   process.exit(1)
 }
 const want = renderDaemonUnit()

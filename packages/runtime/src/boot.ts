@@ -87,18 +87,40 @@ export async function bootProcess<H extends BootHandle>(
     spec.bootTimeoutMs === undefined
       ? Number(process.env.PODIUM_BOOT_TIMEOUT_MS ?? 45_000)
       : spec.bootTimeoutMs
+  // Timeout is TERMINAL: in production proc.exit(1) never returns, but with an
+  // injectable proc (tests) a late-resolving start() must not continue into
+  // readiness and later double-exit(0).
+  let bootTimedOut = false
   const bootWatchdog =
     bootTimeoutMs === null
       ? undefined
       : setTimeout(() => {
+          bootTimedOut = true
           proc.error(
             `[podium:${spec.name}] boot did not complete within ${bootTimeoutMs}ms (host memory pressure?) — exiting for systemd to retry`,
           )
           proc.exit(1)
         }, bootTimeoutMs)
 
-  const handle = await spec.start()
+  let handle: H
+  try {
+    handle = await spec.start()
+  } catch (err) {
+    // A failed boot must exit non-zero so systemd (Restart=always) retries —
+    // previously the rejection was swallowed by the crash net and the process
+    // lingered half-booted. Clear the timer so it can't later log a misleading
+    // "did not complete" on top of the real failure.
+    if (bootWatchdog !== undefined) clearTimeout(bootWatchdog)
+    if (!bootTimedOut) {
+      proc.error(
+        `[podium:${spec.name}] boot failed: ${err instanceof Error ? (err.stack ?? err.message) : String(err)}`,
+      )
+      proc.exit(1)
+    }
+    return
+  }
   if (bootWatchdog !== undefined) clearTimeout(bootWatchdog)
+  if (bootTimedOut) return
   if (spec.readyMessage) proc.log(spec.readyMessage(handle))
 
   const stopWatchdog = spec.watchdog !== false ? proc.startWatchdog() : undefined
@@ -109,11 +131,19 @@ export async function bootProcess<H extends BootHandle>(
     if (shuttingDown) return
     shuttingDown = true
     stopWatchdog?.()
-    await Promise.race([
-      Promise.resolve(handle.close()),
-      new Promise((r) => setTimeout(r, closeTimeoutMs)),
-    ])
-    proc.exit(0)
+    // exit(0) lives in `finally`: a throwing/rejecting close() would otherwise
+    // reject the race, get swallowed by `void shutdown()` + the crash net, and
+    // leave the process alive after SIGTERM with its watchdog already stopped.
+    try {
+      await Promise.race([
+        (async () => handle.close())(),
+        new Promise((r) => setTimeout(r, closeTimeoutMs)),
+      ])
+    } catch (err) {
+      proc.error(`[podium:${spec.name}] close() failed during shutdown: ${String(err)}`)
+    } finally {
+      proc.exit(0)
+    }
   }
   proc.onSignal('SIGINT', () => void shutdown())
   proc.onSignal('SIGTERM', () => void shutdown())
