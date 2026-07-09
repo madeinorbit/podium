@@ -116,6 +116,32 @@ describe('global thread priming, clear, and per-turn user focus (#225)', () => {
     expect(req.prompt).toContain('[SUPERAGENT CONTEXT]')
   })
 
+  it('binds the harness session even when the FIRST turn fails — the thread keeps its conversation', async () => {
+    const h = await harness()
+    const { podiumSessionId } = await h.sa.sendTurn({ threadId: 'global', text: 'hi' })
+    // The harness minted a session, then the turn died (interrupt / tool crash /
+    // error_during_execution). The conversation exists on disk.
+    h.resolveTurn(h.turnReqs[0]!, {
+      ok: false,
+      error: 'claude turn failed: error_during_execution',
+      harnessSessionId: 'h1',
+    })
+    await h.settle()
+
+    const thread = h.registry.sessionStore.getSuperagentThread('global')
+    expect(thread?.harnessSessionId).toBe('h1')
+    // The headless session carries the resume ref, so its transcript binds...
+    const meta = h.registry.listSessions().find((s) => s.sessionId === podiumSessionId)
+    expect(meta?.resume).toMatchObject({ kind: RESUME_KIND['claude-code'], value: 'h1' })
+    // ...and the NEXT turn RESUMES rather than silently starting a new conversation.
+    await h.sa.sendTurn({ threadId: 'global', text: 'again' })
+    expect(h.turnReqs[1]!.resumeValue).toBe('h1')
+    h.resolveTurn(h.turnReqs[1]!)
+    await h.settle()
+    // "Open in terminal" is available again (it gates on harnessSessionId).
+    expect(() => h.sa.openInTerminal({ threadId: 'global' })).not.toThrow()
+  })
+
   it('refuses to clear while a turn is running', async () => {
     const h = await harness()
     await h.sa.sendTurn({ threadId: 'global', text: 'hi' })

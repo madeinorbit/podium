@@ -924,15 +924,27 @@ export class SuperagentService {
       )
       void turn.then((result) => {
         this.turnInFlight.delete(threadId)
+        // Bind the harness session on the FIRST turn whether it succeeded or not.
+        // A turn that fails after the harness minted its session (interrupt, tool
+        // crash, error_during_execution) still wrote a real conversation to disk;
+        // dropping its id orphaned the thread — the transcript never bound, the
+        // "open in terminal" button stayed hidden, and the next turn silently
+        // started over in a fresh conversation instead of resuming.
+        //
+        // On FAILURE only a REPORTED id counts. Our minted `sessionUuid` is a
+        // fallback for a successful claude turn; a turn that died before the
+        // harness ever ran (`claude: command not found`) wrote no conversation,
+        // and binding that uuid would leave every later turn resuming a session
+        // that does not exist.
+        const harnessSessionId = result.harnessSessionId ?? (result.ok ? sessionUuid : undefined)
+        if (firstTurn && harnessSessionId) {
+          this.store.updateSuperagentThreadBinding(threadId, { harnessSessionId })
+          this.registry.setHeadlessResume(sessionId, {
+            kind: RESUME_KIND[agent],
+            value: harnessSessionId,
+          })
+        }
         if (result.ok) {
-          const harnessSessionId = result.harnessSessionId ?? sessionUuid
-          if (firstTurn && harnessSessionId) {
-            this.store.updateSuperagentThreadBinding(threadId, { harnessSessionId })
-            this.registry.setHeadlessResume(sessionId, {
-              kind: RESUME_KIND[agent],
-              value: harnessSessionId,
-            })
-          }
           this.registry.broadcastHeadlessActivity(sessionId, { kind: 'turn-end' })
         } else {
           const error = result.error ?? 'unknown error'

@@ -89,7 +89,7 @@ import {
   writeFileSandboxed,
 } from './file-access'
 import { buildHarnessExec } from './harness-exec.js'
-import { type HeadlessTurnHandle, runHeadlessTurn } from './headless-drivers.js'
+import { HeadlessTurnError, type HeadlessTurnHandle, runHeadlessTurn } from './headless-drivers.js'
 import { startHookIngest } from './hook-ingest'
 import { sampleHostMemory } from './host-metrics'
 import { loadIdentity, saveToken } from './identity'
@@ -2028,14 +2028,27 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
           output,
         })
       })
-      .catch((err) =>
+      .catch((err) => {
+        // A turn can fail AFTER the harness minted its session (interrupt, tool
+        // crash, error_during_execution). The conversation exists — report its id
+        // and bind the tail anyway, or the thread is orphaned and the next turn
+        // silently starts over in a new conversation.
+        const harnessSessionId = err instanceof HeadlessTurnError ? err.harnessSessionId : undefined
+        if (!msg.resumeValue && harnessSessionId) {
+          try {
+            bindHeadlessSession(msg.sessionId, msg.agent, msg.cwd, harnessSessionId)
+          } catch {
+            // tail setup is best-effort; a later headlessBind can retry
+          }
+        }
         send({
           type: 'headlessTurnResult',
           requestId: msg.requestId,
           ok: false,
           error: err instanceof Error ? err.message : String(err),
-        }),
-      )
+          ...(harnessSessionId ? { harnessSessionId } : {}),
+        })
+      })
       .finally(() => runningHeadlessTurns.delete(msg.sessionId))
   }
 
