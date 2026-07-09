@@ -71,8 +71,10 @@ export class SessionStore {
     this.db.exec('PRAGMA busy_timeout = 5000')
     // The versioned migration chain owns the schema (stamps schema_version and
     // refuses to open a DB newer than the code). Schema DDL lives ONLY in
-    // src/migrations/.
-    runMigrations(this.db, MIGRATIONS)
+    // src/migrations/. Passing dbPath enables the pre-migration backup (#43):
+    // before a version-advancing run the runner checkpoints the WAL and copies
+    // podium.db (+ sidecars) to a timestamped sibling, keeping the last 3.
+    runMigrations(this.db, MIGRATIONS, { dbPath: path === ':memory:' ? undefined : path })
     // Foreign-key enforcement is PER-CONNECTION in SQLite and deliberately
     // enabled only AFTER the migration chain: table rebuilds (the standard
     // 12-step ALTER, e.g. migration 006) must run without FK enforcement, and
