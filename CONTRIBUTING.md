@@ -10,7 +10,7 @@ bot: just open a pull request.
 
 ## Prerequisites
 
-- **Bun ≥ 1.3** — package manager, task runner, bundler, **and the runtime**. The backend runs on
+- **Bun ≥ 1.3.14** — package manager, task runner, bundler, **and the runtime**. The backend runs on
   Bun from source (the `@podium/source` condition resolves workspace packages to `src`), and the
   PTY backend is selected at runtime — `Bun.Terminal` under Bun, so the `node-pty` native addon is
   never loaded. (Node 22 is only needed for the legacy `tsx`/single-binary paths; `.nvmrc` pins it
@@ -75,6 +75,9 @@ bun run --cwd apps/desktop build                # release build (.app/.dmg on ma
 3. Publishable libraries also add `tsup.config.ts`, a `build` script, `exports` → `dist`,
    `"files": ["dist"]`, and `"publishConfig": { "access": "public" }`. Internal packages
    set `"private": true` and resolve `exports` → `src`.
+
+   Note: the `@podium/*` library packages are currently consumed **in-repo only** — none of
+   them are published to npm, even the ones structured as "publishable".
 4. Run `bun install`, then `bun run --filter @podium/<name> typecheck`.
 
 ## Toolchain notes

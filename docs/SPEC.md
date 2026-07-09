@@ -1,5 +1,9 @@
 # Podium — Spec
 
+> **Status: product vision.** This document describes where Podium is heading, not
+> necessarily current behavior. Parts of it are implemented, parts are in progress, and
+> parts may change. For what exists today, see the `README.md` and `ARCHITECTURE.md`.
+
 ## 1. What it is
 
 A control plane for running many real agent sessions (Claude Code, Codex CLI, more later) across machines, repos, and worktrees — from desktop or mobile. Podium runs the **native** agent CLIs, reusing your existing subscription/API auth. It manages your agents; it doesn't replace your workflow with a ticketing system.

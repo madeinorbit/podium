@@ -1,7 +1,7 @@
 // `podium status` / `podium stop` / `podium logs` — lifecycle commands over the run registry
 // (packages/runtime/src/run-registry.ts). Pure rendering (`renderStatus`) is split from the impure
 // command wrappers so it can be unit-tested. Design:
-// docs/superpowers/specs/2026-07-06-headless-process-model-design.md
+// docs/internal/superpowers/specs/2026-07-06-headless-process-model-design.md
 import { execFileSync, spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'

@@ -23,7 +23,7 @@ export interface StewardEvent {
  * both unblocks dependents AND nudges the parent-issue sessions).
  *
  * This is the routing half of the subscription model (see the design at
- * docs/superpowers/specs/2026-07-07-event-subscriptions-design.md): each
+ * docs/internal/superpowers/specs/2026-07-07-event-subscriptions-design.md): each
  * `parentnudge:<group>:<parentId>` key selects a default child→parent
  * subscription in CHILD_PARENT_SUBS. New child→parent notifications are a data
  * entry there plus a rule line here — no new handler.

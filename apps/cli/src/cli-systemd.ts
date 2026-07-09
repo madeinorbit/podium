@@ -2,7 +2,7 @@
 // best-effort installer. Units call the packaged `%h/.local/bin/podium` in single-component mode,
 // are Type=notify with a watchdog (a wedged-but-alive process stops petting → systemd restarts
 // it; the daemon has no HTTP /health, so this is its only wedge-recovery), and Restart=always.
-// Design: docs/superpowers/specs/2026-07-06-headless-process-model-design.md
+// Design: docs/internal/superpowers/specs/2026-07-06-headless-process-model-design.md
 import { execFileSync } from 'node:child_process'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { homedir, userInfo } from 'node:os'

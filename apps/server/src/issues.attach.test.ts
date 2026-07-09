@@ -6,7 +6,7 @@ import { issueTestPlumbing } from './modules/issues/service/test-plumbing'
 import { SessionStore } from './store'
 
 // issue-as-workspace: attachSession / drafts / origin persistence (spec
-// docs/superpowers/specs/2026-07-06-issue-as-workspace-design.md).
+// docs/internal/superpowers/specs/2026-07-06-issue-as-workspace-design.md).
 
 function harness(sessions: SessionMeta[] = []) {
   const store = new SessionStore(':memory:')

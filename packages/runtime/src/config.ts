@@ -67,7 +67,7 @@ export const PodiumConfig = z.object({
   /** Externally-reachable base URL captured at setup; embedded into machine join tokens. */
   publicUrl: z.string().optional(),
   /**
-   * How the headless backend is kept running, chosen at setup (docs/superpowers/specs/
+   * How the headless backend is kept running, chosen at setup (docs/internal/superpowers/specs/
    * 2026-07-06-headless-process-model-design.md): `systemd` = supervised `--user` units that
    * survive reboot; `detached` = setsid spawn-and-forget (survives logout, dies on reboot).
    * Absent = not a headless-managed install (e.g. the desktop sidecar) or pre-dates the choice.

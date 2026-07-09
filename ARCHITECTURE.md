@@ -1,7 +1,7 @@
 # Architecture
 
 Podium is a Bun-workspace monorepo. Design rationale lives in
-`docs/superpowers/specs/2026-06-01-monorepo-design.md`; this file is the day-to-day map.
+`docs/internal/superpowers/specs/2026-06-01-monorepo-design.md`; this file is the day-to-day map.
 
 ## Runtime topology
 

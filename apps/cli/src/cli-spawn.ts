@@ -2,7 +2,7 @@
 // mode, setup (and a bare `podium` on a configured box) launch `podium server` + `podium daemon`
 // as independent, detached processes: setsid, stdio → ~/.podium/logs/<role>.log, unref'd so the
 // launcher can exit. Spawn-and-forget (no auto-restart) — see the design spec:
-// docs/superpowers/specs/2026-07-06-headless-process-model-design.md
+// docs/internal/superpowers/specs/2026-07-06-headless-process-model-design.md
 import { type ChildProcess, spawn } from 'node:child_process'
 import { mkdirSync, openSync } from 'node:fs'
 import { join } from 'node:path'

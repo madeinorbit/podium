@@ -4,7 +4,7 @@
 // binding, and drive `podium status` / `podium stop`. Keyed by ROLE, not port, so the desktop's
 // free-port-per-launch strategy still reclaims correctly.
 //
-// Design: docs/superpowers/specs/2026-07-06-headless-process-model-design.md
+// Design: docs/internal/superpowers/specs/2026-07-06-headless-process-model-design.md
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { z } from 'zod'
