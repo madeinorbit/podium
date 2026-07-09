@@ -42,7 +42,7 @@ describe('membership', () => {
 describe('stageIndex', () => {
   it('orders stages', () => {
     expect(stageIndex('backlog')).toBe(0)
-    expect(stageIndex('done')).toBe(5)
+    expect(stageIndex('done')).toBe(4)
   })
 })
 
