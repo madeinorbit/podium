@@ -492,14 +492,37 @@ Reading that against this feature:
   scoped, metered and revocable in a console. **For any multi-tenant deployment,
   API keys are the only defensible choice**, and managed subscription OAuth
   should be a single-user-self-host feature. Worth recording as a spec decision.
-- **Rotating across multiple subscription accounts to extend rate limits →
-  don't build this.** Anthropic has publicly framed exactly this behavior
-  (credential sharing across teams, reselling access) as the abuse that the
-  weekly caps exist to stop. "Rotate between multiple accounts" should mean
-  *"I have a personal and a work account, let me pick per agent"* — a **manual,
-  explicit selector**, plus at most an automatic **failover on 429 to another
-  account the same human owns**. It should not mean round-robin quota farming,
-  and the UI should not present it that way.
+- **One human, several accounts they bought, rotated for capacity → not
+  prohibited by anything I can find.** This deserves stating carefully, because
+  it is easy to get wrong (an earlier draft of this doc did). The relevant
+  clauses:
+  - The consumer terms contain **no clause limiting how many accounts an
+    individual may hold**. Their defined "Technical Limitation" is the rate limit
+    itself ("the number of Inputs you may submit … within a certain period of
+    time"), with no anti-circumvention language attached to it.
+  - The usage policy's two multiple-account clauses are both scoped to conduct
+    that does not apply here: *"Coordinate **malicious activity** across multiple
+    accounts to avoid detection…"* and *"Circumvent **a ban** through the use of
+    a different account…"*.
+  - The sharing clause quoted above is about **other people**, not about one
+    person's own accounts.
+
+  What remains is **enforcement discretion, not a clause violation**. Anthropic
+  reserves the right to limit usage "in other ways … at their discretion," and
+  the weekly caps were introduced in response to credential *sharing and
+  reselling*. A single user with N paid subscriptions is paying N times; the
+  residual risk is that an account-level heuristic mistakes the pattern for
+  sharing. That is a business risk for the user to accept, not a line for Podium
+  to draw on their behalf.
+
+So the product decision is **not** "is rotation legal" (it appears to be). It is
+how much rope to hand the user, and how loudly to explain the residual risk. The
+options are a manual selector; a manual selector plus 429 failover; or a full
+auto-rotating pool. All three are technically identical work.
+
+The one firm line is the multi-user hub: a shared vault behind several humans is
+prohibited outright, regardless of rotation, and is independently ruled out on
+security grounds below.
 
 That is a product decision, not a technical one, so it is flagged rather than
 assumed. Everything else in this doc is unaffected by which way it goes.
