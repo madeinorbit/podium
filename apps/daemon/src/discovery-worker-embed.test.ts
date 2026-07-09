@@ -9,13 +9,14 @@ describe('isCompiledBunfsUrl', () => {
   it('detects the POSIX standalone-binary module URL (/$bunfs/)', () => {
     expect(isCompiledBunfsUrl('file:///$bunfs/root/podium')).toBe(true)
   })
-  it('detects the WINDOWS standalone-binary module path (B:\\~BUN, plain path, backslashes)', () => {
-    // Inside a Windows compiled binary import.meta.url is NOT a file:// URL — it is
-    // a raw path under Bun's B:\~BUN virtual root (oven-sh/bun#16010). The original
-    // '/$bunfs/' check (and a '/~BUN/' one) both missed it, sending the compiled
-    // daemon down the run-from-source branch → ModuleNotFound crash-loop.
+  it('detects the WINDOWS standalone-binary module URL (B:/~BUN root, ~ percent-encoded)', () => {
+    // Probed on windows-latest inside a real compiled binary: import.meta.url is
+    // file:///B:/%7EBUN/root/<binary>.exe — the ~ arrives PERCENT-ENCODED, which is
+    // how both the '/$bunfs/' and literal '~BUN' checks missed it (crash-looping
+    // the worker down the run-from-source branch). Bun.main is the raw form.
+    expect(isCompiledBunfsUrl('file:///B:/%7EBUN/root/podium.exe')).toBe(true)
+    expect(isCompiledBunfsUrl('B:/~BUN/root/podium.exe')).toBe(true)
     expect(isCompiledBunfsUrl('B:\\~BUN\\root\\worker-client.js')).toBe(true)
-    expect(isCompiledBunfsUrl('file:///B:/~BUN/root/podium.exe')).toBe(true)
   })
   it('is false for ordinary on-disk module URLs', () => {
     expect(isCompiledBunfsUrl('file:///home/u/podium/apps/daemon/src/worker-client.ts')).toBe(
@@ -32,9 +33,9 @@ describe('discoveryWorkerEmbeddedTarget', () => {
   it('POSIX: file URL under /$bunfs/root', () => {
     expect(discoveryWorkerEmbeddedTarget('linux')).toBe(`file:///$bunfs/root/${rel}`)
   })
-  it('Windows: a plain backslash path under B:\\~BUN\\root (matching import.meta.url form)', () => {
-    expect(discoveryWorkerEmbeddedTarget('win32')).toBe(
-      `B:\\~BUN\\root\\${rel.replaceAll('/', '\\')}`,
-    )
+  it('Windows: raw B:/~BUN path with FORWARD slashes (the only form that resolves)', () => {
+    // Probed on windows-latest: B:/~BUN/root/…/discovery-worker.js spawns OK; the
+    // backslash form and the file:///B:/… URL both ENOENT; /$bunfs forms ModuleNotFound.
+    expect(discoveryWorkerEmbeddedTarget('win32')).toBe(`B:/~BUN/root/${rel}`)
   })
 })
