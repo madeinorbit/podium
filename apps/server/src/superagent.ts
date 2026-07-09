@@ -762,15 +762,17 @@ export class SuperagentService {
    *
    * A btw/concierge thread IS its context — clearing one archives it, and
    * re-opening the origin session/repo mints a freshly-seeded thread.
+   *
+   * Unlike sendTurn, clear RELEASES a terminal lock instead of refusing it: once
+   * the harness binding is dropped, the open terminal session resumes a harness
+   * conversation this thread no longer points at, so there is no second writer
+   * left to protect against. (Refusing here would strand the user on a thread
+   * they can neither chat with nor reset.) The PTY session itself lives on.
    */
   clear(threadId = 'global'): void {
     const thread = this.store.getSuperagentThread(threadId)
     if (this.turnInFlight.has(threadId)) {
       throw new Error('a turn is running on this thread — wait for it to finish')
-    }
-    if (thread) {
-      const lockError = this.terminalLockError(thread)
-      if (lockError) throw new Error(lockError)
     }
     if (threadId !== 'global') {
       this.store.archiveSuperagentThread(threadId)
@@ -781,6 +783,7 @@ export class SuperagentService {
     this.store.updateSuperagentThreadBinding('global', {
       harnessSessionId: null,
       podiumSessionId: null,
+      terminalSessionId: null,
     })
     this.store.setThreadWatermark('global', '', undefined)
     if (thread.podiumSessionId) {

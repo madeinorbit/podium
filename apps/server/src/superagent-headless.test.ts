@@ -122,6 +122,28 @@ describe('global thread priming, clear, and per-turn user focus (#225)', () => {
     expect(() => h.sa.clear('global')).toThrow(/turn is running/)
   })
 
+  it('clear RELEASES a terminal lock — a locked thread can always be reset', async () => {
+    const h = await harness()
+    await h.sa.sendTurn({ threadId: 'global', text: 'hi' })
+    h.resolveTurn(h.turnReqs[0]!, { harnessSessionId: 'h1' })
+    await h.settle()
+    const { sessionId } = h.sa.openInTerminal({ threadId: 'global' })
+    await expect(h.sa.sendTurn({ threadId: 'global', text: 'x' })).rejects.toThrow(
+      /open in a terminal/,
+    )
+
+    h.sa.clear('global')
+
+    const thread = h.registry.sessionStore.getSuperagentThread('global')
+    expect(thread?.terminalSessionId).toBeUndefined()
+    // The PTY session the user opened keeps running — only the binding was dropped.
+    expect(h.registry.listSessions().find((s) => s.sessionId === sessionId)).toBeTruthy()
+    // And chatting works again, from a freshly primed session.
+    const ack = await h.sa.sendTurn({ threadId: 'global', text: 'back to chat' })
+    expect(ack.podiumSessionId).toBeTruthy()
+    expect(h.turnReqs.at(-1)!.prompt).toContain('[SUPERAGENT CONTEXT]')
+  })
+
   it('prepends what the user is looking at to EVERY turn, resolving ids server-side', async () => {
     const h = await harness()
     // A real session to focus, and the issue it belongs to.
