@@ -570,7 +570,8 @@ export function SidebarUnified(): JSX.Element {
 
       <div className="mt-1 flex-1 overflow-y-auto pb-3">
         {/* WORKING — fully-working issues/worktrees and working sessions lifted
-            out of partially-working rows; everything here is REMOVED from WORK. */}
+            out of partially-working rows; these are REMOVED from WORK. Pinned
+            issues are the exception: they mirror here and stay in WORK. */}
         {working.length > 0 && (
           <div className="min-w-0">
             <CollapsibleSection
