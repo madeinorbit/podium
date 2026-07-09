@@ -202,9 +202,11 @@ export function resolveUpdateFeed(
   return env.PODIUM_UPDATE_FEED ?? config.updateFeed
 }
 
-/** Self-update platform target: PODIUM_UPDATE_TARGET → 'linux-x86_64'. */
-export function resolveUpdateTarget(env: EnvSource = process.env): string {
-  return env.PODIUM_UPDATE_TARGET ?? 'linux-x86_64'
+/** Self-update platform target: PODIUM_UPDATE_TARGET → caller-supplied fallback
+ *  (the CLI passes its host-derived os/arch mapping; default keeps the historical
+ *  linux-x64 behavior for callers that don't). */
+export function resolveUpdateTarget(env: EnvSource = process.env, fallback = 'linux-x86_64'): string {
+  return env.PODIUM_UPDATE_TARGET ?? fallback
 }
 
 /** The headless install dir: PODIUM_HOME (exported by the headless launcher) →

@@ -11,9 +11,12 @@ export function buildHeadlessManifest(p: {
   version: string
   url: string
   signature: string
+  /** Manifest platform-asset key (Tauri target prefix); the headless CI builds linux-x64. */
+  target?: string
 }): string {
+  const target = p.target ?? 'linux-x86_64'
   return JSON.stringify(
-    { version: p.version, platforms: { 'linux-x86_64': { url: p.url, signature: p.signature } } },
+    { version: p.version, platforms: { [target]: { url: p.url, signature: p.signature } } },
     null,
     2,
   )
@@ -47,6 +50,13 @@ async function main(): Promise<void> {
   )
   writeFileSync('dist-bun/VERSION', version)
 
+  // SHA256SUMS over every published artifact so users can verify downloads without gh
+  // (README documents: sha256sum -c SHA256SUMS --ignore-missing). [spec:SP-7f2c]
+  execFileSync('bash', [
+    '-c',
+    `cd dist-bun && sha256sum ${tarball} ${tarball}.sig podium-update.json VERSION > SHA256SUMS`,
+  ])
+
   if (!process.env.GH_TOKEN) {
     console.log(`[release] built ${version} for ${channel}; set GH_TOKEN to publish.`)
     return
@@ -57,6 +67,7 @@ async function main(): Promise<void> {
     `dist-bun/${tarball}.sig`,
     'dist-bun/podium-update.json',
     'dist-bun/VERSION',
+    'dist-bun/SHA256SUMS',
     'install.sh',
   ]
   if (channel === 'edge') {

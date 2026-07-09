@@ -2,7 +2,25 @@
   "name": "podium",
   "private": true,
   "version": "0.1.1",
+  "description": "Mission control for coding agents — run, observe, and steer Claude Code, Codex, and other agent CLIs from one self-hosted web UI.",
   "license": "Apache-2.0",
+  "homepage": "https://github.com/madeinorbit/podium#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/madeinorbit/podium.git"
+  },
+  "bugs": {
+    "url": "https://github.com/madeinorbit/podium/issues"
+  },
+  "keywords": [
+    "ai-agents",
+    "claude-code",
+    "codex",
+    "coding-agents",
+    "developer-tools",
+    "terminal",
+    "self-hosted"
+  ],
   "type": "module",
   "packageManager": "bun@1.3.14",
   "engines": {
@@ -23,6 +41,7 @@
     "host:backend": "bun --conditions=@podium/source --watch scripts/host.ts",
     "typecheck": "bun run --filter '*' typecheck",
     "test": "vitest run --passWithNoTests && bun run test:bun",
+    "test:unit": "vitest run --passWithNoTests --config vitest.unit.config.ts",
     "test:bun": "bun test --conditions=@podium/source apps/daemon/test packages/runtime/test/sqlite.bun.test.ts scripts/lifecycle.integration.bun.test.ts --test-name-pattern ''",
     "lint": "biome check . && bun run lint:boundaries && bun scripts/render-systemd.ts --check",
     "lint:boundaries": "bun scripts/check-boundaries.ts",

@@ -36,13 +36,29 @@ export function isNewer(candidate: string, current: string): boolean {
   return false
 }
 
-export function parseManifest(json: string): { version: string; url: string; signature: string } {
+/**
+ * Map a Node/Bun (platform, arch) pair to the manifest's platform-asset key
+ * (Tauri updater target triple prefix, e.g. 'linux-x86_64', 'darwin-aarch64').
+ */
+export function platformTarget(
+  platform: NodeJS.Platform = process.platform,
+  arch: string = process.arch,
+): string {
+  const os = platform === 'win32' ? 'windows' : platform
+  const cpu = arch === 'x64' ? 'x86_64' : arch === 'arm64' ? 'aarch64' : arch
+  return `${os}-${cpu}`
+}
+
+export function parseManifest(
+  json: string,
+  target = 'linux-x86_64',
+): { version: string; url: string; signature: string } {
   const m = JSON.parse(json) as {
     version: string
     platforms: Record<string, { url: string; signature?: string }>
   }
-  const plat = m.platforms['linux-x86_64']
-  if (!plat?.url) throw new Error('manifest has no linux-x86_64 artifact')
+  const plat = m.platforms[target]
+  if (!plat?.url) throw new Error(`manifest has no ${target} artifact`)
   return { version: m.version, url: plat.url, signature: plat.signature ?? '' }
 }
 
@@ -104,12 +120,18 @@ export function manifestUrlFor(
 
 export async function runUpdate(
   arg: string | { channel: 'stable' | 'edge'; feedOverride?: string },
+  // Test seam only: lets the unit tests verify the real download→verify→swap path with an
+  // ephemeral keypair on checkouts that don't have the (gitignored) dev signing key. The
+  // CLI never passes this, so production installs always verify against the committed key.
+  pubkeyB64: string = PODIUM_UPDATE_PUBKEY,
 ): Promise<void> {
   const { channel, feedOverride } =
     typeof arg === 'string' ? { channel: 'stable' as const, feedOverride: arg } : arg
   const dir = installDir()
   const cur = currentVersion(dir)
-  const target = resolveUpdateTarget()
+  // Resolve the platform asset to look for in the manifest: explicit env override
+  // (config seam), else the running host's os/arch mapping.
+  const target = resolveUpdateTarget(process.env, platformTarget())
   const manifestUrl = manifestUrlFor(channel, { target, cur, feedOverride })
   const res = await fetch(manifestUrl)
   if (!res.ok) {
@@ -117,7 +139,7 @@ export async function runUpdate(
     process.exitCode = 1
     return
   }
-  const { version, url, signature } = parseManifest(await res.text())
+  const { version, url, signature } = parseManifest(await res.text(), target)
   if (!isNewer(version, cur)) {
     console.log(`[podium update] already up to date (${cur})`)
     return
@@ -136,7 +158,7 @@ export async function runUpdate(
     // SECURITY GATE: verify the manifest's Ed25519 signature over the EXACT downloaded
     // bytes against the committed pubkey BEFORE extracting or touching the install. A
     // tampered/unsigned tarball is rejected here — fail closed, never swap.
-    if (!verifyTarball(bytes, signature)) {
+    if (!verifyTarball(bytes, signature, pubkeyB64)) {
       console.error(
         '[podium update] signature verification FAILED — refusing to install. ' +
           'The tarball was not signed by the trusted Podium update key (tampered, ' +

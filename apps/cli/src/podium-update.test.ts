@@ -6,7 +6,14 @@ import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { isNewer, manifestUrlFor, parseManifest, runUpdate, verifyTarball } from './podium-update'
+import {
+  isNewer,
+  manifestUrlFor,
+  parseManifest,
+  platformTarget,
+  runUpdate,
+  verifyTarball,
+} from './podium-update'
 import { PODIUM_UPDATE_PUBKEY } from './podium-update-pubkey'
 
 describe('podium update helpers', () => {
@@ -32,6 +39,36 @@ describe('podium update helpers', () => {
       }),
     )
     expect(m.signature).toBe('')
+  })
+  it('parseManifest resolves the requested platform from a multi-platform manifest', () => {
+    const json = JSON.stringify({
+      version: '0.1.1',
+      platforms: {
+        'linux-x86_64': { url: 'http://h/linux.tar.gz', signature: 'sigL' },
+        'darwin-aarch64': { url: 'http://h/mac.tar.gz', signature: 'sigM' },
+      },
+    })
+    expect(parseManifest(json, 'darwin-aarch64')).toEqual({
+      version: '0.1.1',
+      url: 'http://h/mac.tar.gz',
+      signature: 'sigM',
+    })
+    // Default target keeps the historical linux-x64 behavior.
+    expect(parseManifest(json).url).toBe('http://h/linux.tar.gz')
+  })
+  it('parseManifest throws naming the missing target', () => {
+    const json = JSON.stringify({
+      version: '0.1.1',
+      platforms: { 'linux-x86_64': { url: 'http://h/a.tar.gz' } },
+    })
+    expect(() => parseManifest(json, 'windows-x86_64')).toThrow(/windows-x86_64/)
+  })
+  it('platformTarget maps node (platform, arch) pairs to manifest asset keys', () => {
+    expect(platformTarget('linux', 'x64')).toBe('linux-x86_64')
+    expect(platformTarget('darwin', 'arm64')).toBe('darwin-aarch64')
+    expect(platformTarget('darwin', 'x64')).toBe('darwin-x86_64')
+    expect(platformTarget('win32', 'x64')).toBe('windows-x86_64')
+    expect(platformTarget('linux', 'arm64')).toBe('linux-aarch64')
   })
 })
 
@@ -98,11 +135,18 @@ describe.skipIf(!hasDevSigningKey)('podium update swap crash-safety', () => {
 
   // The dev signing key (private half) — gitignored, matches PODIUM_UPDATE_PUBKEY. Used to
   // sign served tarballs so runUpdate's real verify gate passes against the committed pubkey.
+  // Clean checkouts (CI, fresh clones) don't have the key file, so fall back to an ephemeral
+  // Ed25519 keypair and hand runUpdate the matching pubkey via its test seam — the
+  // download→verify→swap path under test is identical either way.
+  const devKeyPath = join(__dirname, '.podium-update-dev.key')
+  const ephemeral = existsSync(devKeyPath) ? undefined : generateKeyPairSync('ed25519')
+  // undefined ⇒ runUpdate verifies against the committed PODIUM_UPDATE_PUBKEY default.
+  const testPubkeyB64 = ephemeral
+    ? ephemeral.publicKey.export({ type: 'spki', format: 'der' }).toString('base64')
+    : undefined
   function devSign(bytes: Buffer): string {
-    const der = Buffer.from(
-      readFileSync(join(__dirname, '.podium-update-dev.key'), 'utf8').trim(),
-      'base64',
-    )
+    if (ephemeral) return cryptoSign(null, bytes, ephemeral.privateKey).toString('base64')
+    const der = Buffer.from(readFileSync(devKeyPath, 'utf8').trim(), 'base64')
     const key = { key: der, format: 'der' as const, type: 'pkcs8' as const }
     return cryptoSign(null, bytes, key).toString('base64')
   }
@@ -169,7 +213,7 @@ describe.skipIf(!hasDevSigningKey)('podium update swap crash-safety', () => {
   it('swaps the install dir to the new version (same-filesystem staging)', async () => {
     const dir = stageInstall('0.1.0')
     const feed = await startFeed('0.1.1', makeTarball('0.1.1'))
-    await runUpdate(feed)
+    await runUpdate(feed, testPubkeyB64)
     expect(readFileSync(join(dir, 'VERSION'), 'utf8').trim()).toBe('0.1.1')
     expect(existsSync(join(dir, 'podium'))).toBe(true)
     expect(existsSync(`${dir}.old`)).toBe(false)
@@ -185,7 +229,7 @@ describe.skipIf(!hasDevSigningKey)('podium update swap crash-safety', () => {
     // Feed advertises the SAME version → not newer → early return before any download/verify,
     // so this needs no signing key and never swaps. Exit code stays 0 (unset).
     const feed = await startFeed('0.1.1', null)
-    await runUpdate(feed)
+    await runUpdate(feed, testPubkeyB64)
     expect(process.exitCode ?? 0).toBe(0)
   })
 
@@ -194,7 +238,7 @@ describe.skipIf(!hasDevSigningKey)('podium update swap crash-safety', () => {
     const parent = dirname(dir)
     // Feed advertises a newer version + a real tarball, but with a WRONG signature.
     const feed = await startFeed('0.1.1', makeTarball('0.1.1'), 'bad')
-    await runUpdate(feed)
+    await runUpdate(feed, testPubkeyB64)
     // Fail closed: exitCode set, install untouched, no backup, no leftover staging dir.
     expect(process.exitCode).toBe(1)
     expect(readFileSync(join(dir, 'VERSION'), 'utf8').trim()).toBe('0.1.0')
@@ -213,7 +257,7 @@ describe.skipIf(!hasDevSigningKey)('podium update swap crash-safety', () => {
     execFileSync('mkdir', ['-p', join(wrong, 'notheadless')])
     execFileSync('tar', ['-czf', badTar, '-C', wrong, 'notheadless'])
     const feed = await startFeed('0.1.1', badTar)
-    await expect(runUpdate(feed)).rejects.toThrow(/headless/)
+    await expect(runUpdate(feed, testPubkeyB64)).rejects.toThrow(/headless/)
     // Install dir survives untouched; no leftover sibling temp dir; backup never created.
     expect(readFileSync(join(dir, 'VERSION'), 'utf8').trim()).toBe('0.1.0')
     expect(existsSync(`${dir}.old`)).toBe(false)
@@ -234,7 +278,7 @@ describe.skipIf(!hasDevSigningKey)('podium update swap crash-safety', () => {
   it('throws on a non-OK artifact download (install dir untouched)', async () => {
     const dir = stageInstall('0.1.0')
     const feed = await startFeed('0.1.1', null) // manifest OK, /artifact 404s
-    await expect(runUpdate(feed)).rejects.toThrow(/artifact download returned 404/)
+    await expect(runUpdate(feed, testPubkeyB64)).rejects.toThrow(/artifact download returned 404/)
     expect(readFileSync(join(dir, 'VERSION'), 'utf8').trim()).toBe('0.1.0')
     expect(existsSync(`${dir}.old`)).toBe(false)
   })
