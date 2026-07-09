@@ -26,7 +26,7 @@ const fakeHub = {
 }
 
 const superagentThreads = [
-  { id: 'global', kind: 'global' as const },
+  { id: 'global', kind: 'global' as const, harnessSessionId: 'harness-1' },
   {
     id: 'btw_alpha',
     kind: 'btw' as const,
@@ -43,6 +43,11 @@ const superagentThreads = [
 
 let storeSuperThreadId = 'global'
 let isMobile = false
+let storeSessions: Array<{ sessionId: string; cwd: string }> = []
+const setPane = vi.fn()
+const setSelectedWorktree = vi.fn()
+const setSelectedIssueId = vi.fn()
+const setView = vi.fn()
 const setSuperThreadId = vi.fn((id: string) => {
   storeSuperThreadId = id
 })
@@ -52,6 +57,7 @@ const fakeTrpc = {
     listThreads: { query: vi.fn(async () => superagentThreads) },
     send: { mutate: vi.fn(async () => ({ messages: [], backendLabel: '' })) },
     clear: { mutate: vi.fn(async () => {}) },
+    openInTerminal: { mutate: vi.fn(async () => ({ sessionId: 'pty-1' })) },
   },
 }
 
@@ -60,13 +66,14 @@ vi.mock('./store', () => {
     hub: fakeHub,
     trpc: fakeTrpc,
     repos: [],
-    sessions: [],
+    sessions: storeSessions,
     superThreadId: storeSuperThreadId,
     setSuperThreadId,
     superRefreshKey: 0,
-    setPane: vi.fn(),
-    setSelectedWorktree: vi.fn(),
-    setView: vi.fn(),
+    setPane,
+    setSelectedWorktree,
+    setSelectedIssueId,
+    setView,
   })
   // The selector-store hook reads slices off the same store shape.
   return {
@@ -95,6 +102,7 @@ beforeEach(() => {
   fakeHub.subscribes.length = 0
   storeSuperThreadId = 'global'
   isMobile = false
+  storeSessions = []
   container = document.createElement('div')
   document.body.appendChild(container)
   root = createRoot(container)
@@ -154,6 +162,35 @@ describe('Superagent thread switcher', () => {
     })
 
     expect(setSuperThreadId).toHaveBeenCalledWith('btw_beta')
+  })
+})
+
+describe('Open in terminal', () => {
+  it('clears the issue selection so the pane lands on the PTY session, not an issue workspace', async () => {
+    act(() => {
+      root.render(<SuperagentView />)
+    })
+    await flush()
+
+    const btn = container.querySelector<HTMLButtonElement>(
+      'button[title="Open this conversation in a terminal session"]',
+    )
+    expect(btn).not.toBeNull()
+    // The resumed PTY session lands in the sessions broadcast a beat later.
+    storeSessions = [{ sessionId: 'pty-1', cwd: '/home/u' }]
+    await act(async () => {
+      btn?.click()
+      await Promise.resolve()
+    })
+    await flush()
+
+    expect(fakeTrpc.superagent.openInTerminal.mutate).toHaveBeenCalledWith({ threadId: 'global' })
+    // An issue workspace scopes the tab strip to the issue's sessions; leaving
+    // the selection set left the middle pane blank.
+    expect(setSelectedIssueId).toHaveBeenCalledWith(null)
+    expect(setSelectedWorktree).toHaveBeenCalledWith('/home/u')
+    expect(setPane).toHaveBeenCalledWith('A', 'pty-1')
+    expect(setView).toHaveBeenCalledWith('workspace')
   })
 })
 

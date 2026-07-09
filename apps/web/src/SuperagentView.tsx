@@ -84,6 +84,7 @@ export function SuperagentView({ onClose }: { onClose?: () => void } = {}): JSX.
     superRefreshKey,
     setPane,
     setSelectedWorktree,
+    setSelectedIssueId,
     setView,
   } = useStoreSelector(
     (s) => ({
@@ -94,6 +95,7 @@ export function SuperagentView({ onClose }: { onClose?: () => void } = {}): JSX.
       superRefreshKey: s.superRefreshKey,
       setPane: s.setPane,
       setSelectedWorktree: s.setSelectedWorktree,
+      setSelectedIssueId: s.setSelectedIssueId,
       setView: s.setView,
     }),
     shallowEqual,
@@ -144,10 +146,14 @@ export function SuperagentView({ onClose }: { onClose?: () => void } = {}): JSX.
     const s = sessions.find((x) => x.sessionId === focusSessionId)
     if (!s) return
     setFocusSessionId(null)
+    // Clear the issue selection first: an issue workspace scopes its tab strip to
+    // the issue's member sessions, so leaving it set showed the issue's (empty)
+    // workspace instead of the superagent's PTY session — a blank middle pane.
+    setSelectedIssueId(null)
     setSelectedWorktree(s.cwd)
     setPane('A', s.sessionId)
     setView('workspace')
-  }, [focusSessionId, sessions, setSelectedWorktree, setPane, setView])
+  }, [focusSessionId, sessions, setSelectedWorktree, setSelectedIssueId, setPane, setView])
 
   const openInTerminal = async () => {
     setError(null)
