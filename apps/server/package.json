@@ -13,6 +13,7 @@
     "@podium/domain": "workspace:*",
     "@podium/issue-client": "workspace:*",
     "@podium/protocol": "workspace:*",
+    "@podium/sync": "workspace:*",
     "@podium/transcript": "workspace:*",
     "@trpc/client": "^11.0.0",
     "@trpc/server": "^11.0.0",
