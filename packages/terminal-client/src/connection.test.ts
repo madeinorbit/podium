@@ -219,6 +219,39 @@ describe('SocketHub', () => {
     expect(sock.parsed()).toContainEqual({ type: 'attach', sessionId: 's1' })
   })
 
+  it('queues a control send issued before open (slow connect) and flushes on open, no throw', () => {
+    // A real browser WebSocket throws InvalidStateError when send() is called in the
+    // CONNECTING state. This only surfaces over a high-latency link (a tunnel), where
+    // an eager requestControl on mount fires before onopen. Regression for that crash.
+    class ConnectingSocket extends FakeSocket {
+      private opened = false
+      send(data: string): void {
+        if (!this.opened) {
+          throw Object.assign(new Error('Still in CONNECTING state'), { name: 'InvalidStateError' })
+        }
+        super.send(data)
+      }
+      open(): void {
+        this.opened = true
+        super.open()
+      }
+    }
+    const sock = new ConnectingSocket()
+    const hub = new SocketHub({
+      url: 'ws://x',
+      viewport: { cols: 80, rows: 24, dpr: 1 },
+      makeSocket: () => sock,
+    })
+    hub.connect()
+    const conn = hub.attach('s1')
+    // Fired before the socket opens — must NOT throw (previously crashed the connection).
+    expect(() => conn.requestControl()).not.toThrow()
+    expect(sock.sent).toHaveLength(0) // nothing sent while still connecting
+    sock.open()
+    // Flushed after open (and after the re-attach), in order.
+    expect(sock.parsed()).toContainEqual({ type: 'requestControl', sessionId: 's1' })
+  })
+
   it('re-sends attach for existing connections on reconnect (open)', () => {
     const { sock, hub } = setup()
     hub.attach('s1') // attached before connect

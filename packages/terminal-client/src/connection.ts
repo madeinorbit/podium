@@ -215,6 +215,11 @@ export class SocketHub {
   private pingQueue: number[] = []
   /** Input messages typed while offline, flushed in order on reconnect. */
   private readonly inputQueue: Parameters<typeof encode>[0][] = []
+  /** Control messages issued while the socket is still CONNECTING (e.g. an eager
+   *  requestControl on mount): sending then throws InvalidStateError — a race that
+   *  only surfaces over a high-latency link (a tunnel) where onopen hasn't fired
+   *  yet. Queued here and flushed, in order, once the socket opens. */
+  private readonly preOpenQueue: Parameters<typeof encode>[0][] = []
   private staleTimer: ReturnType<typeof setTimeout> | undefined
   private lastRttMs: number | null = null
   private health: ConnectionHealth = { status: 'ok', rttMs: null, since: Date.now() }
@@ -336,6 +341,9 @@ export class SocketHub {
       // the session exists and this (reclaimed) client is the controller again
       // before its input lands.
       for (const msg of this.inputQueue.splice(0)) this.sendRaw(msg)
+      // Flush control messages that were issued before the socket opened (e.g. an
+      // eager requestControl) — after the re-attaches above so the session exists.
+      for (const msg of this.preOpenQueue.splice(0)) this.sendRaw(msg)
       this.notifyConnections()
       this.evaluateHealth()
     }
@@ -999,7 +1007,15 @@ export class SocketHub {
   }
 
   private sendRaw(msg: Parameters<typeof encode>[0]): void {
-    this.socket?.send(encode(msg))
+    // Only send on an OPEN socket. connectedFlag is true exactly between onopen and
+    // close, so a send issued while the socket is still CONNECTING (or already
+    // closing) is queued instead of throwing InvalidStateError — the crash that
+    // otherwise tears down the whole connection over a slow link. onopen flushes it.
+    if (this.connectedFlag) {
+      this.socket?.send(encode(msg))
+    } else if (this.socket && this.preOpenQueue.length < INPUT_QUEUE_CAP) {
+      this.preOpenQueue.push(msg)
+    }
   }
 }
 
