@@ -17,10 +17,13 @@ tests/e2e/playwright-report/
 # Brainstorming visual companion
 .superpowers/
 
-# Agent harness session state + nested worktrees (not part of this repo's lint/test scope)
-.claude/*
-# ...but track shared team settings (e.g. disabled commit attribution)
-!.claude/settings.json
+# Agent harness session state + nested worktrees (not part of this repo's lint/test scope).
+# Ignored as a whole directory, not `.claude/*`: grok's file watcher only tests the repo's
+# immediate children against .gitignore, then watches each survivor recursively. `.claude/*`
+# leaves `.claude` itself unignored, so grok walked into .claude/worktrees and took ~150K
+# inotify watches per session (issue #226). `.claude/settings.json` stays tracked because
+# ignore rules never apply to files already in the index; adding new ones needs `git add -f`.
+.claude/
 .claire/
 .worktrees/
 test-results/
