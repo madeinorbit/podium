@@ -1,3 +1,4 @@
+import { createSubscriptionStore, type SubscriptionStore } from '@podium/client-core/store'
 import { type Sidebar as SidebarSettings, shouldPromptAutoContinue } from '@podium/core'
 import type {
   AgentKind,
@@ -9,7 +10,6 @@ import type {
   SessionMeta,
   WorkState,
 } from '@podium/protocol'
-import { createSubscriptionStore, type SubscriptionStore } from '@podium/client-core/store'
 import { SocketHub } from '@podium/terminal-client'
 import type { JSX } from 'react'
 import {
@@ -113,6 +113,9 @@ export interface Store {
    *  Classic sidebar never sets it; unified worktree rows clear it. */
   selectedIssueId: string | null
   setSelectedIssueId: (id: string | null) => void
+  /** Snapshot of what the user is looking at, for the superagent's per-turn
+   *  [USER VIEW] block. Stable identity — call it at send time. */
+  getUserFocus: () => UserFocus
   paneA: string | null // sessionId in pane A
   paneB: string | null // sessionId in pane B (null = no split)
   setPane: (pane: 'A' | 'B', sessionId: string | null) => void
@@ -243,6 +246,17 @@ export interface FileTab {
   scope: FileScope
   path: string
   worktreePath: string
+}
+
+/** What this client has on screen, sent with every superagent turn (#225). Mirrors
+ *  the server's `UserFocus` zod schema (apps/server/src/superagent.ts). */
+export interface UserFocus {
+  view?: MainView
+  worktreePath?: string
+  issueId?: string
+  focusedSessionId?: string
+  visibleSessionIds?: string[]
+  filePath?: string
 }
 
 const DOCK_TAB_KEY = 'podium.dockTab'
@@ -559,9 +573,7 @@ export function StoreProvider({
   const [selectedWorktree, setSelectedWorktree] = useState<string | null>(
     () => router.current().worktree ?? ui.get(WT_KEY),
   )
-  const [selectedIssueId, setSelectedIssueId] = useState<string | null>(() =>
-    ui.get(ISSUE_SEL_KEY),
-  )
+  const [selectedIssueId, setSelectedIssueId] = useState<string | null>(() => ui.get(ISSUE_SEL_KEY))
   const [paneA, setPaneA] = useState<string | null>(
     () => router.current().pane ?? ui.get(PANE_A_KEY),
   )
@@ -958,6 +970,27 @@ export function StoreProvider({
     : undefined
   useMarkReadOnView({ session: focusedSession, markSessionRead })
 
+  // What the user is LOOKING AT, snapshotted for each superagent turn (#225): the
+  // screen, the selected issue/worktree, the session(s) on screen. Ids only — the
+  // server resolves them to titles/names. Read through a ref so consumers get a
+  // stable `getUserFocus` and never re-render on pane/session churn.
+  const userFocusRef = useRef<UserFocus>({})
+  {
+    const paneIds = [paneA, split ? paneB : null].filter((x): x is string => x != null)
+    const focusedId = split ? (focusedPane === 'A' ? paneA : paneB) : paneA
+    const isSession = (id: string) => sessions.some((s) => s.sessionId === id)
+    const focusedFile = focusedId ? fileTabs.find((f) => f.id === focusedId) : undefined
+    userFocusRef.current = {
+      view,
+      ...(selectedWorktree ? { worktreePath: selectedWorktree } : {}),
+      ...(selectedIssueId ? { issueId: selectedIssueId } : {}),
+      ...(focusedId && isSession(focusedId) ? { focusedSessionId: focusedId } : {}),
+      visibleSessionIds: paneIds.filter(isSession),
+      ...(focusedFile ? { filePath: focusedFile.path } : {}),
+    }
+  }
+  const getUserFocus = useMemo(() => () => userFocusRef.current, [])
+
   // Report which sessions this client renders (`visible`) and which one has input
   // focus (`focused`) so the server can prioritize PTY relay for them. While the tab
   // is hidden we report nothing — a backgrounded client isn't watching anything.
@@ -1059,14 +1092,16 @@ export function StoreProvider({
   useEffect(() => {
     const prev = prevRouteRef.current
     prevRouteRef.current = route
-    if (route.worktree && route.worktree !== prev?.worktree && route.worktree !== selectedWorktree) {
+    if (
+      route.worktree &&
+      route.worktree !== prev?.worktree &&
+      route.worktree !== selectedWorktree
+    ) {
       const worktrees = reposToViews(repos).flatMap((repo) => repo.worktrees)
       const canShow =
         !reposLoaded ||
         worktrees.some((w) => w.path === route.worktree) ||
-        sessions.some(
-          (s) => s.cwd === route.worktree || s.cwd.startsWith(`${route.worktree}/`),
-        )
+        sessions.some((s) => s.cwd === route.worktree || s.cwd.startsWith(`${route.worktree}/`))
       if (canShow) setSelectedWorktree(route.worktree)
     }
     if (route.pane && route.pane !== prev?.pane && route.pane !== paneA) setPaneA(route.pane)
@@ -1218,6 +1253,7 @@ export function StoreProvider({
     setSelectedWorktree,
     selectedIssueId,
     setSelectedIssueId,
+    getUserFocus,
     paneA,
     paneB,
     setPane,

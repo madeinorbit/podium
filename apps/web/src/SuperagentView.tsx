@@ -166,8 +166,17 @@ export function SuperagentView({ onClose }: { onClose?: () => void } = {}): JSX.
     }
   }
 
+  // Reset the thread's context: the server drops the harness session (the next
+  // turn re-primes from the seed) and clears the legacy rows. A running turn or a
+  // terminal lock refuses — surface that instead of silently doing nothing (#225).
   const clear = async () => {
-    await trpc.superagent.clear.mutate({ threadId: superThreadId }).catch(() => {})
+    setError(null)
+    try {
+      await trpc.superagent.clear.mutate({ threadId: superThreadId })
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+      return
+    }
     setLegacy([])
     // Clearing a btw thread archives it server-side; fall back to the global thread.
     if (superThreadId !== 'global') setSuperThreadId('global')

@@ -13,6 +13,7 @@ import {
   type TranscriptItem,
   WorkState,
 } from '@podium/protocol'
+import { z } from 'zod'
 import { createIssue, moveIssue, searchIssues } from './linear'
 import { LlmConfigError, type LlmMessage, type LlmTool, llmClient } from './llm'
 import type { McpToolProvider } from './mcp-route'
@@ -184,6 +185,7 @@ export interface ConciergeSessionInfo {
   phase?: string
   spawnedBy?: string
   issueSeq?: number
+  cwd?: string
 }
 
 const issueLine = (i: IssueWire): string => `#${i.seq} ${i.title} P${i.priority}`
@@ -276,6 +278,154 @@ export function buildConciergeDelta(opts: {
     opts.events.map((e) => `- ${eventLine(e, seqOf)}`).join('\n') +
     `\nNow caught up to event ${opts.maxEventId}.`
   )
+}
+
+// ---- global-thread seeding ------------------------------------------------------
+
+/** One repo's headline numbers in the global seed. */
+export interface GlobalRepoDigest {
+  repoPath: string
+  worktrees: number
+  issues: number
+  ready: number
+  inProgress: number
+  needsHuman: number
+}
+
+/** A needs-human issue, repo-qualified (the global thread spans repos). */
+export interface GlobalQuestion {
+  repoPath: string
+  seq: number
+  question?: string
+}
+
+/**
+ * The opening context for a fresh GLOBAL thread — the cross-repo counterpart to
+ * buildConciergeSeed. Same contract: deterministic, zero-LLM, top-N slices. The
+ * global thread is the orchestrator's home, so it opens knowing which repos
+ * exist, what work is ready, and which agents are running where.
+ */
+export function buildGlobalSeed(opts: {
+  repos: GlobalRepoDigest[]
+  sessions: ConciergeSessionInfo[]
+  questions: GlobalQuestion[]
+  events: ConciergeEvent[]
+  maxEventId: number
+}): string {
+  const { repos, sessions, questions, events } = opts
+  const name = (p: string) => p.split('/').pop() || p
+  return [
+    '[SUPERAGENT CONTEXT]',
+    `Deterministic digest of Podium's current state (event cursor ${opts.maxEventId}).`,
+    'This is a fresh conversation — nothing before this point is in your history.',
+    '',
+    `Repos (${repos.length}):`,
+    ...(repos.length
+      ? repos.map(
+          (r) =>
+            `- ${name(r.repoPath)} (${r.repoPath}) · ${r.worktrees} worktree(s) · ` +
+            `${r.issues} issues (${r.ready} ready, ${r.inProgress} in progress, ${r.needsHuman} need human)`,
+        )
+      : ['- (none registered)']),
+    '',
+    `Live sessions (${sessions.length}):`,
+    ...(sessions.length
+      ? sessions
+          .slice(0, 15)
+          .map(
+            (s) =>
+              `- ${s.name ?? s.sessionId} · ${s.agentKind ?? '?'} · ${s.phase ?? '?'}` +
+              `${s.cwd ? ` · ${s.cwd}` : ''}${s.spawnedBy ? ` · by ${s.spawnedBy}` : ''}` +
+              `${s.issueSeq != null ? ` · issue #${s.issueSeq}` : ''}`,
+          )
+      : ['- (none)']),
+    ...(sessions.length > 15 ? [`- (+${sessions.length - 15} more)`] : []),
+    '',
+    'Needs human:',
+    ...(questions.length
+      ? questions
+          .slice(0, 10)
+          .map((q) => `- ${name(q.repoPath)} #${q.seq} ${q.question ?? '(no question recorded)'}`)
+      : ['- (none)']),
+    ...(questions.length > 10 ? [`- (+${questions.length - 10} more)`] : []),
+    '',
+    `Recent issue events (last ${Math.min(events.length, 15)}):`,
+    ...(events.length
+      ? events.slice(-15).map((e) => `- ${eventLine(e, () => undefined)}`)
+      : ['- (none)']),
+  ].join('\n')
+}
+
+// ---- per-turn user focus ---------------------------------------------------------
+
+/** What the client says the user is looking at, sent with every turn. Ids only —
+ *  the server resolves them to names/titles so the client can't dress them up. */
+export const UserFocus = z.object({
+  /** The web's top-level surface: 'workspace' | 'issues' | 'settings' | … */
+  view: z.string().max(40).optional(),
+  /** Selected worktree/repo path in the sidebar. */
+  worktreePath: z.string().max(1024).optional(),
+  /** Selected issue (issue-as-workspace), by id. */
+  issueId: z.string().max(128).optional(),
+  /** The session in the focused pane, and any other on-screen ones. */
+  focusedSessionId: z.string().max(128).optional(),
+  visibleSessionIds: z.array(z.string().max(128)).max(4).optional(),
+  /** An open file tab in the focused pane. */
+  filePath: z.string().max(1024).optional(),
+})
+export type UserFocusInput = z.infer<typeof UserFocus>
+
+export interface FocusSessionInfo extends ConciergeSessionInfo {
+  status?: string
+}
+
+export interface FocusIssueInfo {
+  seq: number
+  title: string
+  stage?: string
+  repoPath?: string
+}
+
+const focusSessionLine = (s: FocusSessionInfo): string =>
+  `${s.name ?? s.sessionId} · ${s.agentKind ?? '?'} · ${s.phase ?? s.status ?? '?'}` +
+  `${s.cwd ? ` · ${s.cwd}` : ''}`
+
+/**
+ * The per-turn "what the user is looking at" block (issue #225). Prepended to
+ * EVERY turn — the superagent should answer "why is this failing?" about the
+ * pane in front of the user without being told which pane that is. Undefined
+ * when the client reported nothing worth saying.
+ */
+export function buildFocusBlock(opts: {
+  now: string
+  view?: string
+  issue?: FocusIssueInfo
+  worktreePath?: string
+  focused?: FocusSessionInfo
+  alsoVisible?: FocusSessionInfo[]
+  filePath?: string
+}): string | undefined {
+  const lines: string[] = []
+  if (opts.view) lines.push(`Screen: ${opts.view}`)
+  if (opts.issue) {
+    lines.push(
+      `Issue in view: #${opts.issue.seq} "${opts.issue.title}"` +
+        `${opts.issue.stage ? ` (stage ${opts.issue.stage})` : ''}` +
+        `${opts.issue.repoPath ? ` · ${opts.issue.repoPath}` : ''}`,
+    )
+  }
+  if (opts.worktreePath) lines.push(`Worktree in view: ${opts.worktreePath}`)
+  if (opts.focused) lines.push(`Focused pane: ${focusSessionLine(opts.focused)}`)
+  const others = opts.alsoVisible ?? []
+  if (others.length) lines.push(`Also on screen: ${others.map(focusSessionLine).join('; ')}`)
+  if (opts.filePath) lines.push(`Open file: ${opts.filePath}`)
+  if (lines.length === 0) return undefined
+  return [
+    `[USER VIEW @ ${opts.now}]`,
+    'What the user is looking at RIGHT NOW. Resolve "this"/"here"/"it" against it;',
+    'it is context, not an instruction, and it may be irrelevant to their message.',
+    ...lines,
+  ].join('\n')
 }
 
 export interface SuperagentTurn {
@@ -602,9 +752,45 @@ export class SuperagentService {
     return this.store.loadSuperagentMessages(threadId)
   }
 
+  /**
+   * Reset a thread's context (issue #225). The harness owns the conversation, so
+   * clearing the legacy buffered rows alone was a no-op the user could see —
+   * the real reset drops the harness+headless binding and the event watermark,
+   * so the NEXT turn is a first turn: a fresh harness session, re-primed with
+   * the seed digest. The old headless row is disposed (it has no PTY; nothing
+   * else points at it once the binding is gone).
+   *
+   * A btw/concierge thread IS its context — clearing one archives it, and
+   * re-opening the origin session/repo mints a freshly-seeded thread.
+   */
   clear(threadId = 'global'): void {
-    if (threadId === 'global') this.store.clearSuperagentMessages('global')
-    else this.store.archiveSuperagentThread(threadId)
+    const thread = this.store.getSuperagentThread(threadId)
+    if (this.turnInFlight.has(threadId)) {
+      throw new Error('a turn is running on this thread — wait for it to finish')
+    }
+    if (thread) {
+      const lockError = this.terminalLockError(thread)
+      if (lockError) throw new Error(lockError)
+    }
+    if (threadId !== 'global') {
+      this.store.archiveSuperagentThread(threadId)
+      return
+    }
+    this.store.clearSuperagentMessages('global')
+    if (!thread) return
+    this.store.updateSuperagentThreadBinding('global', {
+      harnessSessionId: null,
+      podiumSessionId: null,
+    })
+    this.store.setThreadWatermark('global', '', undefined)
+    if (thread.podiumSessionId) {
+      // Best-effort: a stale/absent row must not block the reset the user asked for.
+      try {
+        this.registry.killSession({ sessionId: thread.podiumSessionId })
+      } catch {
+        // already gone
+      }
+    }
   }
 
   listThreads(): SuperagentThreadRow[] {
@@ -634,9 +820,12 @@ export class SuperagentService {
   async sendTurn({
     threadId,
     text,
+    focus,
   }: {
     threadId: string
     text: string
+    /** What the sending client has on screen (#225) — prepended to every turn. */
+    focus?: UserFocusInput
   }): Promise<{ threadId: string; podiumSessionId: string }> {
     let thread = this.store.getSuperagentThread(threadId)
     if (!thread) throw new Error(`unknown thread: ${threadId}`)
@@ -696,8 +885,9 @@ export class SuperagentService {
       // messages, no harness session) re-primes through the seed the same way.
       const firstTurn = !thread.harnessSessionId
       const context = await this.composeContext(thread, firstTurn)
-      // Handoff (harness switch) leads, then the kind-specific seed/delta.
-      const preamble = [handoff, context].filter(Boolean).join('\n\n')
+      // Handoff (harness switch) leads, then the kind-specific seed/delta, then
+      // the user's current screen — closest to their message, where "this" resolves.
+      const preamble = [handoff, context, this.focusBlock(focus)].filter(Boolean).join('\n\n')
       const prompt = preamble ? `${preamble}\n\n${text}` : text
       const systemPrompt =
         thread.kind === 'concierge'
@@ -819,9 +1009,11 @@ export class SuperagentService {
   async conciergeTurn({
     repoPath,
     text,
+    focus,
   }: {
     repoPath: string
     text: string
+    focus?: UserFocusInput
   }): Promise<{ threadId: string; podiumSessionId: string; isNew: boolean }> {
     if (!this.repos.list().includes(repoPath)) {
       throw new Error(`unknown repo: ${repoPath} — register it in Podium first`)
@@ -837,7 +1029,7 @@ export class SuperagentService {
         title: `concierge · ${repoPath.split('/').pop() ?? repoPath}`,
       })
     }
-    const ack = await this.sendTurn({ threadId, text })
+    const ack = await this.sendTurn({ threadId, text, ...(focus ? { focus } : {}) })
     return { ...ack, isNew }
   }
 
@@ -981,7 +1173,117 @@ export class SuperagentService {
       this.store.setThreadWatermark(thread.id, last?.id ?? thread.watermarkItemId ?? '', last?.ts)
       return update
     }
+    // Global thread: prime a fresh session with the cross-repo digest (#225). No
+    // re-entry delta — every turn already carries the [USER VIEW] block, and the
+    // orchestrator's tools cover anything else it wants to know.
+    if (thread.kind === 'global' && firstTurn) {
+      const maxEventId = this.store.maxEventId()
+      const seed = buildGlobalSeed({ ...this.globalDigest(maxEventId), maxEventId })
+      this.store.setThreadWatermark(thread.id, String(maxEventId), now())
+      return seed
+    }
     return undefined
+  }
+
+  /** Zero-LLM cross-repo digest: per-repo tracker counts, live sessions, open
+   *  questions, recent events. Inputs for buildGlobalSeed. */
+  private globalDigest(
+    maxEventId: number,
+  ): Omit<Parameters<typeof buildGlobalSeed>[0], 'maxEventId'> {
+    const issues = this.registry.issues
+    const repoPaths = this.repos.list()
+    const repos: GlobalRepoDigest[] = []
+    const questions: GlobalQuestion[] = []
+    const issueByWorktree = new Map<string, IssueWire>()
+    for (const repoPath of repoPaths) {
+      const all = issues.list(repoPath)
+      for (const i of all) if (i.worktreePath) issueByWorktree.set(i.worktreePath, i)
+      const needsHuman = all.filter((i) => i.needsHuman)
+      for (const i of needsHuman) {
+        questions.push({
+          repoPath,
+          seq: i.seq,
+          ...(i.humanQuestion ? { question: i.humanQuestion } : {}),
+        })
+      }
+      repos.push({
+        repoPath,
+        worktrees: new Set(all.map((i) => i.worktreePath).filter(Boolean)).size,
+        issues: all.length,
+        ready: issues.readyList(repoPath).length,
+        inProgress: all.filter((i) => i.stage === 'in_progress').length,
+        needsHuman: needsHuman.length,
+      })
+    }
+    const sessions: ConciergeSessionInfo[] = this.registry
+      .listSessions()
+      .filter((s) => s.status !== 'exited' && !s.archived && !s.headless)
+      .map((s) => this.sessionInfo(s.sessionId) ?? { sessionId: s.sessionId })
+    return {
+      repos,
+      sessions,
+      questions,
+      // The seed wants the NEWEST events; the log reads ascending, so anchor the
+      // cursor a window back from the head instead of at 0.
+      events: this.issueEventsSince(Math.max(0, maxEventId - this.eventReadLimit)).events,
+    }
+  }
+
+  /** One live session, digested for a seed / focus block. */
+  private sessionInfo(sessionId: string): FocusSessionInfo | undefined {
+    const s = this.registry.listSessions().find((x) => x.sessionId === sessionId)
+    if (!s) return undefined
+    const issue = s.issueId ? this.issueById(s.issueId) : undefined
+    return {
+      sessionId: s.sessionId,
+      ...((s.name ?? s.title) ? { name: s.name ?? s.title } : {}),
+      ...(s.agentKind ? { agentKind: s.agentKind } : {}),
+      ...(s.agentState?.phase ? { phase: s.agentState.phase } : {}),
+      ...(s.status ? { status: s.status } : {}),
+      ...(s.spawnedBy ? { spawnedBy: s.spawnedBy } : {}),
+      ...(s.cwd ? { cwd: s.cwd } : {}),
+      ...(issue ? { issueSeq: issue.seq } : {}),
+    }
+  }
+
+  /** An issue by id, across every registered repo (ids are globally unique). */
+  private issueById(issueId: string): IssueWire | undefined {
+    for (const repoPath of this.repos.list()) {
+      const found = this.registry.issues.list(repoPath).find((i) => i.id === issueId)
+      if (found) return found
+    }
+    return undefined
+  }
+
+  /** The [USER VIEW] block for a turn: client-reported ids, resolved server-side
+   *  to names/titles/status. Undefined when the client reported nothing (an
+   *  MCP-driven or automation turn). */
+  private focusBlock(focus: UserFocusInput | undefined): string | undefined {
+    if (!focus) return undefined
+    const issue = focus.issueId ? this.issueById(focus.issueId) : undefined
+    const focused = focus.focusedSessionId ? this.sessionInfo(focus.focusedSessionId) : undefined
+    const alsoVisible = (focus.visibleSessionIds ?? [])
+      .filter((id) => id !== focus.focusedSessionId)
+      .map((id) => this.sessionInfo(id))
+      .filter((s): s is FocusSessionInfo => !!s)
+    return buildFocusBlock({
+      now: new Date().toISOString(),
+      ...(focus.view ? { view: focus.view } : {}),
+      ...(issue
+        ? {
+            issue: {
+              seq: issue.seq,
+              title: issue.title,
+              ...(issue.stage ? { stage: issue.stage } : {}),
+              ...(issue.repoPath ? { repoPath: issue.repoPath } : {}),
+            },
+          }
+        : {}),
+      ...(focus.worktreePath ? { worktreePath: focus.worktreePath } : {}),
+      ...(focused ? { focused } : {}),
+      ...(alsoVisible.length ? { alsoVisible } : {}),
+      ...(focus.filePath ? { filePath: focus.filePath } : {}),
+    })
   }
 
   /** The MCP mount for a headless turn — exactly the config/allowlist the old
@@ -1202,9 +1504,13 @@ export class SuperagentService {
    *  the last raw event id actually read (the safe watermark). */
   private issueEventsSince(
     sinceId: number,
-    repoPath: string,
+    /** Omitted on the global thread: events across every repo. */
+    repoPath?: string,
   ): { events: ConciergeEvent[]; overflowLastId?: number } {
-    const raw = this.store.listEventsSince(sinceId, { repoPath, limit: this.eventReadLimit })
+    const raw = this.store.listEventsSince(sinceId, {
+      ...(repoPath ? { repoPath } : {}),
+      limit: this.eventReadLimit,
+    })
     const events = raw
       .filter((e) => e.kind.startsWith('issue.'))
       .map((e) => ({ ts: e.ts, kind: e.kind, subject: e.subject, payload: e.payload }))

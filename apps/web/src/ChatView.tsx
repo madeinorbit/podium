@@ -168,6 +168,7 @@ export function ChatView({
     openFile,
     httpOrigin,
     tldrSession,
+    getUserFocus,
   } = useStoreSelector(
     (s) => ({
       hub: s.hub,
@@ -180,6 +181,7 @@ export function ChatView({
       openFile: s.openFile,
       httpOrigin: s.httpOrigin,
       tldrSession: s.tldrSession,
+      getUserFocus: s.getUserFocus,
     }),
     shallowEqual,
   )
@@ -831,15 +833,20 @@ export function ChatView({
       if (headless && superThread) {
         setTurnError(null)
         try {
+          // Every turn carries what the user has on screen (#225), so the
+          // orchestrator can resolve "this session"/"this issue" without asking.
+          const focus = getUserFocus()
           if (superThread.kind === 'concierge' && superThread.repoPath) {
             await trpc.superagent.concierge.mutate({
               repoPath: superThread.repoPath,
               text: fullText,
+              focus,
             })
           } else {
             await trpc.superagent.sendTurn.mutate({
               threadId: superThread.threadId,
               text: fullText,
+              focus,
             })
           }
         } catch (e) {

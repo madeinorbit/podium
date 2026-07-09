@@ -89,6 +89,86 @@ async function harness() {
   }
 }
 
+describe('global thread priming, clear, and per-turn user focus (#225)', () => {
+  it('re-primes with the seed after clear() — a cleared thread starts a fresh harness session', async () => {
+    const h = await harness()
+    await h.sa.sendTurn({ threadId: 'global', text: 'one' })
+    h.resolveTurn(h.turnReqs[0]!, { harnessSessionId: 'h1' })
+    await h.settle()
+    const first = h.registry.sessionStore.getSuperagentThread('global')
+    expect(first?.harnessSessionId).toBe('h1')
+    const oldSessionId = first?.podiumSessionId
+    expect(oldSessionId).toBeTruthy()
+
+    h.sa.clear('global')
+
+    // Binding dropped + old headless row disposed.
+    const cleared = h.registry.sessionStore.getSuperagentThread('global')
+    expect(cleared?.harnessSessionId).toBeUndefined()
+    expect(cleared?.podiumSessionId).toBeUndefined()
+    expect(h.registry.listSessions().find((s) => s.sessionId === oldSessionId)).toBeUndefined()
+
+    // The next turn is a FIRST turn again: new session, no resume, re-primed.
+    const ack = await h.sa.sendTurn({ threadId: 'global', text: 'two' })
+    expect(ack.podiumSessionId).not.toBe(oldSessionId)
+    const req = h.turnReqs[1]!
+    expect(req.resumeValue).toBeUndefined()
+    expect(req.prompt).toContain('[SUPERAGENT CONTEXT]')
+  })
+
+  it('refuses to clear while a turn is running', async () => {
+    const h = await harness()
+    await h.sa.sendTurn({ threadId: 'global', text: 'hi' })
+    expect(() => h.sa.clear('global')).toThrow(/turn is running/)
+  })
+
+  it('prepends what the user is looking at to EVERY turn, resolving ids server-side', async () => {
+    const h = await harness()
+    // A real session to focus, and the issue it belongs to.
+    const issue = h.registry.issues.create({
+      repoPath: '/r',
+      title: 'Fix the thing',
+      startNow: false,
+    })
+    const { sessionId } = h.registry.createSession({ agentKind: 'claude-code', cwd: '/r' })
+
+    await h.sa.sendTurn({
+      threadId: 'global',
+      text: 'why is this stuck?',
+      focus: {
+        view: 'workspace',
+        worktreePath: '/r',
+        issueId: issue.id,
+        focusedSessionId: sessionId,
+        visibleSessionIds: [sessionId],
+      },
+    })
+    const first = h.turnReqs[0]!.prompt
+    expect(first).toContain('[USER VIEW @')
+    expect(first).toContain(`#${issue.seq} "Fix the thing"`)
+    expect(first).toContain('Worktree in view: /r')
+    expect(first).toContain('Focused pane:')
+    // The block sits closest to the user's message.
+    expect(first.indexOf('[USER VIEW @')).toBeGreaterThan(first.indexOf('[SUPERAGENT CONTEXT]'))
+    expect(first.endsWith('why is this stuck?')).toBe(true)
+
+    // And on LATER turns too — not just the primed first one.
+    h.resolveTurn(h.turnReqs[0]!, { harnessSessionId: 'h1' })
+    await h.settle()
+    await h.sa.sendTurn({ threadId: 'global', text: 'and now?', focus: { view: 'issues' } })
+    const second = h.turnReqs[1]!.prompt
+    expect(second).toContain('[USER VIEW @')
+    expect(second).toContain('Screen: issues')
+    expect(second).not.toContain('[SUPERAGENT CONTEXT]') // seed is first-turn only
+  })
+
+  it('omits the block entirely when the caller reports no focus (MCP/automation turns)', async () => {
+    const h = await harness()
+    await h.sa.sendTurn({ threadId: 'global', text: 'hi' })
+    expect(h.turnReqs[0]!.prompt).not.toContain('[USER VIEW')
+  })
+})
+
 describe('sendTurn (headless harness turns)', () => {
   it('acks before completion, creates the headless session, and dispatches the turn', async () => {
     const h = await harness()
@@ -99,7 +179,10 @@ describe('sendTurn (headless harness turns)', () => {
     expect(h.turnReqs).toHaveLength(1)
     const req = h.turnReqs[0]!
     expect(req.agent).toBe('claude-code') // settings default frozen on
-    expect(req.prompt).toBe('hello') // global thread: no context block
+    // Global thread: primed with the cross-repo digest seed, then the message.
+    expect(req.prompt).toContain('[SUPERAGENT CONTEXT]')
+    expect(req.prompt).toContain('/r')
+    expect(req.prompt.endsWith('hello')).toBe(true)
     expect(req.systemPrompt).toContain('superagent')
     expect(req.resumeValue).toBeUndefined() // first turn
     expect(req.sessionUuid).toBeTruthy() // claude: deterministic session uuid

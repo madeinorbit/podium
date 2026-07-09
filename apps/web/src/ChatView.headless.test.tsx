@@ -70,6 +70,7 @@ vi.mock('./store', () => {
     openFile: vi.fn(),
     httpOrigin: 'http://x',
     tldrSession: vi.fn(),
+    getUserFocus: () => ({ view: 'workspace' as const }),
   })
   // The selector-store hook reads slices off the same store shape.
   return {
@@ -208,7 +209,12 @@ describe('ChatView headless mode', () => {
     await act(async () => {
       send.click()
     })
-    expect(sendTurn).toHaveBeenCalledWith({ threadId: 'global', text: 'do the thing' })
+    // Every turn carries what the user has on screen (#225).
+    expect(sendTurn).toHaveBeenCalledWith({
+      threadId: 'global',
+      text: 'do the thing',
+      focus: { view: 'workspace' },
+    })
     expect(sendText).not.toHaveBeenCalled()
   })
 
@@ -220,7 +226,11 @@ describe('ChatView headless mode', () => {
     await act(async () => {
       send.click()
     })
-    expect(concierge).toHaveBeenCalledWith({ repoPath: '/repo', text: 'file an issue' })
+    expect(concierge).toHaveBeenCalledWith({
+      repoPath: '/repo',
+      text: 'file an issue',
+      focus: { view: 'workspace' },
+    })
     expect(sendTurn).not.toHaveBeenCalled()
   })
 
