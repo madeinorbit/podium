@@ -18,7 +18,8 @@
     "./local-machine": "./src/local-machine.ts",
     "./auth-store": "./src/auth-store.ts",
     "./process-safety": "./src/process-safety.ts",
-    "./sd-notify": "./src/sd-notify.ts"
+    "./sd-notify": "./src/sd-notify.ts",
+    "./boot": "./src/boot.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
