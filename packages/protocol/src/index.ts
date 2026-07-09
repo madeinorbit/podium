@@ -1,6 +1,7 @@
 /**
  * @podium/protocol — wire types + codecs for agent/terminal sessions.
  */
+export * from './ids'
 export * from './messages'
 export * from './session-cookie'
 export * from './version'
