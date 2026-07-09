@@ -88,13 +88,21 @@ This is what unlocks *"connect a ChatGPT/Claude subscription once on the server,
 run it on any daemon."* It carries two real costs — §3 (rotation) and §4
 (transcript relocation).
 
-### M4 — `apiKeyHelper`  *(deferred)*
-Claude settings support a command that prints a credential, re-invoked every 5
-min or on HTTP 401 (`CLAUDE_CODE_API_KEY_HELPER_TTL_MS`). A `podium creds fetch
-<accountId>` helper would let the daemon pull short-lived creds just-in-time
-instead of persisting them. Elegant for the API-key case; doesn't help OAuth
-subscription (helper output is an API key/bearer, not the OAuth blob). Worth
-revisiting; not in the first cut.
+### M4 — Credential callback CLI  *(deferred, but the strategic endpoint)*
+Rather than the daemon persisting anything, it asks the server for a fresh
+credential per operation. Two harness-native hooks already expect exactly this
+shape:
+- Claude's `apiKeyHelper` — a command that prints a credential, re-invoked every
+  5 min or on HTTP 401 (`CLAUDE_CODE_API_KEY_HELPER_TTL_MS`).
+- git's `credential.helper` — which is how **#214** proposes to deliver GitHub
+  tokens.
+
+So `podium credential <accountId>` is one CLI serving both. It gives expiry,
+rotation, revocation and multi-account for free, and the daemon stores zero
+secrets on disk. It does **not** help the OAuth-subscription case (helper output
+is an API key or bearer, not the `claudeAiOauth` blob). Not in the first cut, but
+Phase 1's env injection should be designed so this can replace it without
+touching adapters.
 
 ---
 
@@ -174,6 +182,45 @@ about multiple roots" as an explicit prerequisite sub-issue for M3. M1/M2 dodge
 this entirely — another reason to lead with them.
 
 ---
+
+## Part 4.5 — Not every credential is role-scoped (from #214)
+
+`resolveRole()` binds **one account per role** (coding / superagent / background).
+That is right for LLM credentials — a role picks its backend. It is wrong for
+GitHub, which is not an LLM, is not role-scoped, and must be injected into
+*every* spawn (and into `runRepoOp`, which today shells out `gh` with no env at
+all — see `apps/daemon/src/repo-op.ts:121`).
+
+So the Account model needs two classes:
+
+```ts
+Account {
+  …
+  scope: 'role' | 'ambient'   // ambient = injected into every spawn
+}
+```
+
+- **role-scoped** — anthropic / openai / openrouter / xai / google. Selected by
+  `resolveRole()`, at most one active per role.
+- **ambient** — GitHub today; plausibly npm, Docker registries, cloud CLIs later.
+  All enabled ambient accounts contribute env to every spawn. Collision on an env
+  var name is a config error, surfaced, not last-write-wins.
+
+This also forces the provider enum open. `AccountProvider` is currently LLM-only
+(`packages/core/src/settings.ts:116`). Split it:
+
+```ts
+LlmProvider        = 'anthropic'|'openai'|'openrouter'|'xai'|'google'
+CredentialProvider = LlmProvider | 'github' | …
+```
+
+`RoleBackend.accountId` keeps pointing at an `LlmProvider` account; the ambient
+set is provider-agnostic. **#214's GitHub work is tenant #1 of this model, not a
+parallel path** — and its spike (server-held token + three env vars → private
+clone, authenticated push, working `gh`, zero files written to disk) is
+independent confirmation that the `SpawnMessage.env` seam in Phase 1 is
+sufficient. Phase 1 should therefore land the generic `env` field, not an
+Anthropic-shaped one.
 
 ## Part 5 — Environment: the unifying abstraction
 
@@ -301,11 +348,29 @@ That reasoning holds for a single-user self-host. It **stops holding** once the
 server vaults a credential and pushes it to *other* machines: the blast radius
 of the DB file now includes the user's Claude Max and ChatGPT logins.
 
-Minimum bar for shipping managed OAuth:
+**When encryption becomes mandatory** is a function of *what class of secret*
+lands in the DB, not of which phase we're in. #214 argues it is a prerequisite,
+and that is right for their credential but not for all of Phase 1. The line:
+
+| Secret | Encryption before storing? |
+|---|---|
+| Provider API key (`sk-ant-…`, `sk-…`) | No regression — already plaintext in `settings.apiKeys`. |
+| `CLAUDE_CODE_OAUTH_TOKEN` (long-lived, revocable, no refresh) | Should, and cheap to do. |
+| OAuth blob w/ refresh token (Claude, Codex) | **Yes — blocking.** |
+| GitHub user access token + refresh token (#214) | **Yes — blocking.** |
+
+A stolen `podium.db` today leaks metered API keys the user can rotate in a
+console. Once it leaks a GitHub refresh token or a Claude Max OAuth blob, it
+leaks durable identity. So: **encryption gates the refresh-token-bearing
+credentials, and #214 and Phase 5 both sit behind it.** It does not need to gate
+the API-key slice of Phase 1, which is why the plan below keeps them separable.
+
+Minimum bar:
 
 - **Encryption at rest.** AES-256-GCM per blob, key from `PODIUM_MASTER_KEY`
   (env or a `0600` file outside the DB). This would be Podium's first at-rest
-  encryption primitive — there is nothing to build on today.
+  encryption primitive — there is nothing to build on today. Owned here, since
+  #212 and #214 both need it and neither should build it twice.
 - **Redaction.** Credential blobs must never hit logs; the protocol logger needs
   an explicit redaction list. (Blobs currently would flow through the same WS
   logging path as everything else.)
@@ -356,17 +421,25 @@ assumed. Everything else in this doc is unaffected by which way it goes.
 
 Sliced so each phase is independently shippable and the risky part comes last.
 
-**Phase 1 — Managed env credentials (M1 + M2).** No new tables beyond the
-account store; no cred dirs; no rotation risk; no transcript impact.
-- `Account` gains a persisted store + `credential` (encrypted) — the slot
-  `settings.ts` already reserves.
-- `SpawnMessage.env?: Record<string,string>`, populated by the server from the
-  resolved account.
-- Daemon maps it into `spawnOpts.env` at `daemon.ts:1357`.
+**Phase 1 — Managed env credentials (M1 + M2) + the generic `env` seam.** No cred
+dirs; no rotation risk; no transcript impact. **Shared with #214** — build the
+seam once.
+- `Account` gains a persisted store + `credential`, `scope: 'role'|'ambient'`,
+  and a widened `CredentialProvider` (Part 4.5).
+- `SpawnMessage.env?: Record<string,string>` — **generic, not Anthropic-shaped**.
+  Server populates it from the resolved role account *plus* every enabled ambient
+  account. Additive optional field; no `WIRE_VERSION` bump.
+- Daemon maps it into `spawnOpts.env` at `daemon.ts:1357`, and — for #214 — into
+  `runRepoOp`, which currently passes no env at all (`repo-op.ts:121`).
 - Accounts hub: paste an `ANTHROPIC_API_KEY` or a `setup-token` result; drop
   "Coming soon" for these two.
-- Session row records `account_id`; reattach re-injects.
+- Session row records `account_id`; reattach/resurrect re-inject identically.
 - *Delivers:* "connect an account once on the server, any daemon runs on it."
+
+**Phase 1.5 — At-rest encryption + redaction.** AES-256-GCM, `PODIUM_MASTER_KEY`,
+credential redaction in the protocol logger. **Gates #214 and Phase 5**, not the
+API-key slice of Phase 1 (Part 7 table). Pulled early because two issues need it
+and neither should build it twice.
 
 **Phase 2 — Environment object.** The bundle, minus credentials (which Phase 1
 already resolved).
@@ -382,10 +455,9 @@ already resolved).
 - *Delivers:* the stated "fresh daemon install pulls its environment and is
   ready."
 
-**Phase 4 — At-rest encryption + redaction.** Prerequisite for Phase 5, and
-retroactively upgrades Phase 1's stored keys.
+**Phase 4 — *(folded into Phase 1.5)*.**
 
-**Phase 5 — M3 managed OAuth (Codex first).**
+**Phase 5 — M3 managed OAuth (Codex first).** Gated on Phase 1.5.
 - Materializer + fs watcher + CAS write-back.
 - Single-holder lease.
 - Codex first because it *has* no M2 alternative, and because `CODEX_HOME`
@@ -400,8 +472,18 @@ proves insufficient in practice.
 independent of everything above.
 
 ### Recommended first cut
-Phases 1 + 2. Together they deliver the whole user-visible promise — *"define a
-named environment with an account, mode, model, plugins, and env vars, and point
-any agent at it"* — with zero rotation risk, zero transcript churn, and no new
-cryptography. Phases 3–6 are where the remaining hard problems live, and each
-one is separable.
+Phases 1 + 2, with 1.5 immediately behind them. Together 1 + 2 deliver the whole
+user-visible promise — *"define a named environment with an account, mode, model,
+plugins, and env vars, and point any agent at it"* — with zero rotation risk and
+zero transcript churn. Phase 1.5 unblocks both #214 and managed OAuth. Phases 3,
+5, 6, 7 are where the remaining hard problems live, and each one is separable.
+
+### Cross-issue ownership
+- **#212 (here)** owns: the Account model (`scope`, `CredentialProvider`), the
+  generic `SpawnMessage.env` seam, the credential store, Phase 1.5 encryption,
+  and the Environment object.
+- **#214** owns: which GitHub credential to hold, the device-flow connect UX, and
+  the git/`gh` env mapping. It consumes this model as ambient tenant #1.
+- **#213** (fresh-machine bootstrap) consumes Phase 3's `accountsSync` /
+  `environmentsSync` frames — that *is* the "fresh daemon pulls its environment"
+  mechanism.
