@@ -1,3 +1,4 @@
+import { normalizeSettings } from '@podium/core'
 import type { SessionMeta } from '@podium/protocol'
 import { describe, expect, it, vi } from 'vitest'
 import { type IssueDeps, IssueService } from './issues'
@@ -17,14 +18,14 @@ function harness(sessions: SessionMeta[] = []) {
         ...(issueBySession.get(s.sessionId) ? { issueId: issueBySession.get(s.sessionId)! } : {}),
       })),
     getSettings: () =>
-      ({
+      normalizeSettings({
         gitWorkflow: {
           defaultParentBranch: '',
           mergeStyle: 'ff-only',
           autoRebaseBeforeMerge: true,
         },
         sessionDefaults: { agent: 'claude-code' },
-      }) as never,
+      }),
     spawnSession: vi.fn(() => ({ sessionId: 's1' })),
     repoOp: vi.fn(async () => ({ ok: true, output: '' })),
     broadcast: vi.fn(),

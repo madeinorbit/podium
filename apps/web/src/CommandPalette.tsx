@@ -1,4 +1,5 @@
 import { shallowEqual } from '@podium/client-core/store'
+import { resolveRole } from '@podium/core'
 import type { AgentKind, IssueWire } from '@podium/protocol'
 import type { JSX } from 'react'
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -167,7 +168,7 @@ function PaletteDialog({
     void trpc.settings.get
       .query()
       .then((s) => {
-        if (alive) setAgentSetting(s.sessionDefaults.agent)
+        if (alive) setAgentSetting(resolveRole(s, 'coding').harness)
       })
       .catch(() => {})
     return () => {

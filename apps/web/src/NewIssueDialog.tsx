@@ -1,4 +1,5 @@
 import { shallowEqual } from '@podium/client-core/store'
+import { resolveRole } from '@podium/core'
 import { ISSUE_STAGES, type IssueStage, IssueType } from '@podium/protocol'
 import { FolderGit2, GitBranch, Plus } from 'lucide-react'
 import type { ComponentProps, JSX, ReactNode } from 'react'
@@ -137,7 +138,7 @@ export function NewIssueDialog({
       .query()
       .then((settings) => {
         if (cancelled) return
-        setDefaultAgent(settings.sessionDefaults.agent || 'claude-code')
+        setDefaultAgent(resolveRole(settings, 'coding').harness)
         setSettingsParentBranch(settings.gitWorkflow.defaultParentBranch || 'main')
       })
       .catch(() => {

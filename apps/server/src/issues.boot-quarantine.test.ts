@@ -1,3 +1,4 @@
+import { normalizeSettings } from '@podium/core'
 /**
  * Boot crash-loop hardening (Phase 1, deliverable 3): a corrupt issue row must
  * never prevent IssueService construction/hydration — it is quarantined
@@ -13,10 +14,10 @@ function deps(store: SessionStore): IssueDeps {
     store,
     listSessions: () => [],
     getSettings: () =>
-      ({
+      normalizeSettings({
         gitWorkflow: { defaultParentBranch: '', mergeStyle: 'ff-only', autoRebaseBeforeMerge: true },
         sessionDefaults: { agent: 'claude-code' },
-      }) as never,
+      }),
     spawnSession: vi.fn(() => ({ sessionId: 's1' })),
     repoOp: vi.fn(async () => ({ ok: true, output: '' })),
     broadcast: vi.fn(),

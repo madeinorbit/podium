@@ -5,20 +5,18 @@
 //
 // Interactive-session roles (coding sessions, superagent turns) run through the
 // daemon harness path, not here.
-import type { PodiumSettings } from '@podium/core'
+import { type PodiumSettings, roleApiBackend } from '@podium/core'
 import type { z } from 'zod'
 import { type LlmClient, type LlmMessage, llmClient } from './llm'
 
 /** Roles that make a one-shot completion. */
 export type OneShotRole = 'background' | 'superagent'
 
-/**
- * Compat resolver (B1): map a role onto the existing settings backend. Stream B3
- * folds these into a single RoleBackend keyed by role, at which point this is the
- * only site that needs to change.
- */
+/** Resolve a role's one-shot (api) backend from the unified role model. A role
+ *  whose account is a harness yields kind:'harness', which llmClient rejects
+ *  (harness-print one-shot is still "coming soon"). */
 export function resolveOneShotBackend(settings: PodiumSettings, role: OneShotRole) {
-  return role === 'superagent' ? settings.superagent : settings.workLlm
+  return roleApiBackend(settings, role)
 }
 
 export interface CompleteForRoleDeps {

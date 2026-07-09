@@ -1,11 +1,10 @@
 import { shallowEqual } from '@podium/client-core/store'
 import {
-  type AgentChoice,
   type ApiProvider,
   DEFAULT_SETTINGS,
   type HarnessAgent,
-  type LlmBackend,
   type PodiumSettings,
+  type RoleBackend,
 } from '@podium/core'
 import { CheckCircle2, ExternalLink, Loader2 } from 'lucide-react'
 import type { JSX } from 'react'
@@ -100,6 +99,7 @@ export function SettingsView(): JSX.Element {
   )
   const modelCatalog = useModelCatalog()
   const [settings, setSettings] = useState<PodiumSettings | null>(null)
+  const [accounts, setAccounts] = useState<AccountView[]>([])
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [savedAt, setSavedAt] = useState(0)
@@ -124,6 +124,12 @@ export function SettingsView(): JSX.Element {
       .catch((e) => {
         if (!cancelled) setError(e instanceof Error ? e.message : String(e))
       })
+    trpc.accounts.list
+      .query()
+      .then((a) => {
+        if (!cancelled) setAccounts(a as AccountView[])
+      })
+      .catch(() => {})
     return () => {
       cancelled = true
     }
@@ -281,82 +287,42 @@ export function SettingsView(): JSX.Element {
               <>
                 <Section
                   title="New sessions"
-                  hint="Defaults applied when starting agents. “Agent decides” passes no flag — the CLI uses its own configuration."
+                  hint="Which account, model, and effort new coding agents start with. The account is a CLI login on this server."
                 >
-                  <Row label="Default agent">
-                    <Select
-                      value={settings.sessionDefaults.agent}
-                      onValueChange={(value) =>
-                        patch({
-                          sessionDefaults: {
-                            ...settings.sessionDefaults,
-                            agent: value as AgentChoice,
-                          },
-                        })
-                      }
-                    >
-                      <SelectTrigger className="w-full flex-1">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="auto">Agent decides (Claude Code)</SelectItem>
-                        <SelectItem value="claude-code">Claude Code</SelectItem>
-                        <SelectItem value="codex">Codex</SelectItem>
-                        <SelectItem value="grok">Grok</SelectItem>
-                        <SelectItem value="opencode">OpenCode</SelectItem>
-                        <SelectItem value="cursor">Cursor</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </Row>
-                  <Row label="Model for new sessions">
-                    <ModelPicker
-                      variant="field"
-                      agentKind={issueDefaultAgentKind(settings.sessionDefaults.agent)}
-                      value={settings.sessionDefaults.model}
-                      onChange={(model) =>
-                        // Effort is per-model — reset it when the default model changes.
-                        patch({
-                          sessionDefaults: { ...settings.sessionDefaults, model, effort: 'auto' },
-                        })
-                      }
-                    />
-                  </Row>
-                  {effortOptionsForModel(
-                    issueDefaultAgentKind(settings.sessionDefaults.agent),
-                    settings.sessionDefaults.model,
-                    modelCatalog[issueDefaultAgentKind(settings.sessionDefaults.agent)],
-                  ).length > 0 && (
-                    <Row label="Effort for new sessions">
-                      <EffortPicker
-                        variant="field"
-                        agentKind={issueDefaultAgentKind(settings.sessionDefaults.agent)}
-                        model={settings.sessionDefaults.model}
-                        value={settings.sessionDefaults.effort}
-                        onChange={(effort) =>
-                          patch({ sessionDefaults: { ...settings.sessionDefaults, effort } })
-                        }
-                      />
-                    </Row>
-                  )}
+                  <RoleBackendEditor
+                    role="coding"
+                    backend={settings.roles.coding}
+                    accounts={accounts}
+                    onChange={(b) =>
+                      patch({
+                        roles: { ...settings.roles, coding: { ...settings.roles.coding, ...b } },
+                      })
+                    }
+                  />
                   <Row label="Model for subagents">
                     <ModelPicker
                       variant="field"
                       agentKind="claude-code"
-                      value={settings.sessionDefaults.subagentModel}
+                      value={settings.roles.coding.subagentModel}
                       onChange={(subagentModel) =>
-                        patch({ sessionDefaults: { ...settings.sessionDefaults, subagentModel } })
+                        patch({
+                          roles: {
+                            ...settings.roles,
+                            coding: { ...settings.roles.coding, subagentModel },
+                          },
+                        })
                       }
                     />
                   </Row>
                   <Row label="Subagents">
                     <Select
-                      value={settings.sessionDefaults.subagentStrategy}
+                      value={settings.roles.coding.subagentStrategy}
                       onValueChange={(value) => {
                         if (value !== 'builtin') return // 'podium' is coming soon
                         patch({
-                          sessionDefaults: {
-                            ...settings.sessionDefaults,
-                            subagentStrategy: 'builtin',
+                          roles: {
+                            ...settings.roles,
+                            coding: { ...settings.roles.coding, subagentStrategy: 'builtin' },
                           },
                         })
                       }}
@@ -379,12 +345,15 @@ export function SettingsView(): JSX.Element {
                   </p>
                   <Row label="New session opens on">
                     <Select
-                      value={settings.sessionDefaults.startScreen}
+                      value={settings.roles.coding.startScreen}
                       onValueChange={(value) =>
                         patch({
-                          sessionDefaults: {
-                            ...settings.sessionDefaults,
-                            startScreen: value as 'native' | 'chat' | 'auto',
+                          roles: {
+                            ...settings.roles,
+                            coding: {
+                              ...settings.roles.coding,
+                              startScreen: value as 'native' | 'chat' | 'auto',
+                            },
                           },
                         })
                       }
@@ -423,9 +392,11 @@ export function SettingsView(): JSX.Element {
                 title="Superagent"
                 hint="The orchestrator that starts, stops, and reasons across all your agents."
               >
-                <BackendEditor
-                  backend={settings.superagent}
-                  onChange={(superagent) => patch({ superagent })}
+                <RoleBackendEditor
+                  role="superagent"
+                  backend={settings.roles.superagent}
+                  accounts={accounts}
+                  onChange={(superagent) => patch({ roles: { ...settings.roles, superagent } })}
                 />
                 <RestartSuperagentButton trpc={trpc} />
               </Section>
@@ -436,9 +407,11 @@ export function SettingsView(): JSX.Element {
                 title="Background work LLM"
                 hint="Summarizing session state, naming conversations, extracting work status. Cheap + fast is the right call here."
               >
-                <BackendEditor
-                  backend={settings.workLlm}
-                  onChange={(workLlm) => patch({ workLlm })}
+                <RoleBackendEditor
+                  role="background"
+                  backend={settings.roles.background}
+                  accounts={accounts}
+                  onChange={(background) => patch({ roles: { ...settings.roles, background } })}
                 />
               </Section>
             )}
@@ -815,15 +788,6 @@ function NotificationPermissionButton(): JSX.Element | null {
       Grant permission
     </Button>
   )
-}
-
-export function backendWithRunKind(backend: LlmBackend, kind: LlmBackend['kind']): LlmBackend {
-  return {
-    ...backend,
-    kind,
-    harnessAgent:
-      kind === 'harness' && backend.harnessAgent === 'codex' ? 'claude-code' : backend.harnessAgent,
-  }
 }
 
 function providerLabel(p: ApiProvider): string {
@@ -1420,164 +1384,155 @@ function RestartSuperagentButton({ trpc }: { trpc: Trpc }): JSX.Element {
   )
 }
 
-function BackendEditor({
+const NATIVE_HARNESSES: { harness: HarnessAgent; label: string }[] = [
+  { harness: 'claude-code', label: 'Claude Code' },
+  { harness: 'codex', label: 'Codex (ChatGPT)' },
+  { harness: 'grok', label: 'Grok' },
+  { harness: 'opencode', label: 'OpenCode' },
+  { harness: 'cursor', label: 'Cursor' },
+]
+const MANAGED_PROVIDERS: { provider: 'anthropic' | 'openai' | 'openrouter'; label: string }[] = [
+  { provider: 'anthropic', label: 'Anthropic API' },
+  { provider: 'openai', label: 'OpenAI API' },
+  { provider: 'openrouter', label: 'OpenRouter API' },
+]
+
+/** The account choices for a role. Coding always runs a harness (a native login);
+ *  the orchestrator/background roles can also use a managed provider key. */
+function accountOptions(role: 'coding' | 'superagent' | 'background') {
+  const native = NATIVE_HARNESSES.map((o) => ({ id: `native:${o.harness}`, label: o.label }))
+  if (role === 'coding') return native
+  return [
+    ...native,
+    ...MANAGED_PROVIDERS.map((o) => ({ id: `managed:${o.provider}`, label: o.label })),
+  ]
+}
+
+/**
+ * The single reusable editor for any role's backend (SP-6454 B3): pick the
+ * account (native CLI login vs managed provider key — "Agent CLI harness" vs
+ * "Provider backend (API key or local login)"), then model + effort. Replaces the
+ * old per-config BackendEditor.
+ */
+function RoleBackendEditor({
+  role,
   backend,
+  accounts,
   onChange,
 }: {
-  backend: LlmBackend
-  onChange: (b: LlmBackend) => void
+  role: 'coding' | 'superagent' | 'background'
+  backend: RoleBackend
+  accounts: AccountView[]
+  onChange: (b: RoleBackend) => void
 }): JSX.Element {
   const modelCatalog = useModelCatalog()
-  const harnessAgentKind = issueDefaultAgentKind(backend.harnessAgent)
-  const showHarnessEffort =
-    effortOptionsForModel(harnessAgentKind, backend.harnessModel, modelCatalog[harnessAgentKind])
-      .length > 0
+  const options = accountOptions(role)
+  const accountId = backend.accountId || options[0]!.id
+  const isNative = accountId.startsWith('native:')
+  const harness = isNative ? (accountId.slice('native:'.length) as HarnessAgent) : undefined
+  // Codex is a native login, but the orchestrator/background roles reach it over
+  // the Responses API (free-text model), while coding runs it as a CLI harness.
+  const harnessForModels =
+    harness && !(harness === 'codex' && role !== 'coding') ? harness : undefined
+  const agentKind = harnessForModels ? issueDefaultAgentKind(harnessForModels) : undefined
+  const showModelEffort =
+    (agentKind &&
+      effortOptionsForModel(agentKind, backend.model, modelCatalog[agentKind]).length > 0) ||
+    accountId === 'native:codex'
   return (
     <>
-      <Row label="Run on">
+      <Row label="Account">
         <Select
-          value={backend.kind}
+          value={accountId}
           onValueChange={(value) =>
-            onChange(backendWithRunKind(backend, value as LlmBackend['kind']))
+            onChange({ accountId: value ?? '', model: 'auto', effort: 'auto' })
           }
         >
           <SelectTrigger className="w-full flex-1">
-            <span className="flex flex-1 text-left">
-              {backend.kind === 'api'
-                ? 'Provider backend (API key or local login)'
-                : 'Agent CLI harness'}
-            </span>
+            <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="api">Provider backend (API key or local login)</SelectItem>
-            <SelectItem value="harness">Agent CLI harness</SelectItem>
+            {options.map((o) => {
+              const d = accounts.find((a) => a.id === o.id)
+              const status = d?.status === 'connected' ? ` · ${d.identity ?? 'connected'}` : ''
+              return (
+                <SelectItem key={o.id} value={o.id}>
+                  {o.label}
+                  {status}
+                </SelectItem>
+              )
+            })}
           </SelectContent>
         </Select>
       </Row>
-      {backend.kind === 'api' ? (
-        <>
-          <Row label="Provider">
+      <Row label="Model">
+        {agentKind ? (
+          <ModelPicker
+            variant="field"
+            agentKind={agentKind}
+            value={backend.model}
+            onChange={(model) => onChange({ ...backend, model, effort: 'auto' })}
+          />
+        ) : (
+          <Input
+            type="text"
+            placeholder="auto"
+            value={backend.model === 'auto' ? '' : backend.model}
+            onChange={(e) => onChange({ ...backend, model: e.target.value || 'auto' })}
+          />
+        )}
+      </Row>
+      {showModelEffort && (
+        <Row label="Effort">
+          {agentKind ? (
+            <EffortPicker
+              variant="field"
+              agentKind={agentKind}
+              model={backend.model}
+              value={backend.effort}
+              onChange={(effort) => onChange({ ...backend, effort })}
+            />
+          ) : (
             <Select
-              value={backend.provider}
-              onValueChange={(value) => {
-                const provider = value as ApiProvider
-                // Codex models look nothing like the OpenRouter/Anthropic ones, so
-                // prefill a sane default when switching into (or out of) it.
-                const model =
-                  provider === 'codex' && backend.provider !== 'codex'
-                    ? 'gpt-5.5'
-                    : provider !== 'codex' && backend.provider === 'codex'
-                      ? 'anthropic/claude-sonnet-4.5'
-                      : backend.model
-                onChange({ ...backend, provider, model })
-              }}
+              value={backend.effort || 'auto'}
+              onValueChange={(value) => onChange({ ...backend, effort: value ?? 'auto' })}
             >
               <SelectTrigger className="w-full flex-1">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="openrouter">OpenRouter (default — any model)</SelectItem>
-                <SelectItem value="anthropic">Anthropic</SelectItem>
-                <SelectItem value="openai">OpenAI</SelectItem>
-                <SelectItem value="codex">Codex — ChatGPT subscription (no key)</SelectItem>
+                <SelectItem value="auto">Default (medium)</SelectItem>
+                <SelectItem value="low">Low</SelectItem>
+                <SelectItem value="medium">Medium</SelectItem>
+                <SelectItem value="high">High</SelectItem>
               </SelectContent>
             </Select>
-          </Row>
-          <Row label="Model">
-            <Input
-              type="text"
-              value={backend.model}
-              onChange={(e) => onChange({ ...backend, model: e.target.value })}
-            />
-          </Row>
-          {backend.provider === 'codex' && (
-            <Row label="Effort">
-              <Select
-                value={backend.harnessEffort || 'auto'}
-                onValueChange={(value) => onChange({ ...backend, harnessEffort: value ?? 'auto' })}
-              >
-                <SelectTrigger className="w-full flex-1">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="auto">Default (medium)</SelectItem>
-                  <SelectItem value="low">Low</SelectItem>
-                  <SelectItem value="medium">Medium</SelectItem>
-                  <SelectItem value="high">High</SelectItem>
-                </SelectContent>
-              </Select>
-            </Row>
           )}
-          {backend.provider === 'codex' ? (
-            <p className="mt-1.5 mb-0.5 max-w-[60ch] text-[12px] text-muted-foreground">
-              Uses your local ChatGPT login (<code className="text-[11px]">codex login</code> on the
-              server) — no API key; it uses your plan's included Codex capacity while limits allow.
-              Gets the full orchestrator tool belt and, unlike the old Codex harness, never shells
-              out to a CLI.
-            </p>
-          ) : (
-            <p className="mt-1.5 mb-0.5 max-w-[60ch] text-[12px] text-muted-foreground">
-              Billed per token against your API key. Worker agents the superagent starts still run
-              on your normal subscriptions — only the orchestration itself is metered.
-            </p>
-          )}
-        </>
+        </Row>
+      )}
+      {accountId === 'native:claude-code' ? (
+        <p className="mt-1.5 mb-0.5 max-w-[60ch] text-[12px] text-warning">
+          Agent CLI harness — Claude Code's programmatic mode (
+          <code className="text-[11px]">claude -p</code>).{' '}
+          {
+            "It uses your Claude Code account and counts against that account's usage/rate limits. API users are billed by token; subscribers consume plan usage."
+          }
+        </p>
+      ) : accountId === 'native:codex' ? (
+        <p className="mt-1.5 mb-0.5 max-w-[60ch] text-[12px] text-muted-foreground">
+          Uses your local ChatGPT login (<code className="text-[11px]">codex login</code> on the
+          server) — no API key; it uses your plan's included Codex capacity while limits allow.
+        </p>
+      ) : isNative ? (
+        <p className="mt-1.5 mb-0.5 max-w-[60ch] text-[12px] text-muted-foreground">
+          Agent CLI harness: Podium runs a real {harness} agent with its own tool belt, using its
+          local login on this server.
+        </p>
       ) : (
-        <>
-          <Row label="Harness">
-            <Select
-              value={backend.harnessAgent}
-              onValueChange={(value) =>
-                onChange({ ...backend, harnessAgent: value as HarnessAgent })
-              }
-            >
-              <SelectTrigger className="w-full flex-1">
-                <span className="flex flex-1 text-left">
-                  {harnessAgentLabel(backend.harnessAgent)}
-                </span>
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="claude-code">Claude Code</SelectItem>
-                <SelectItem value="grok">Grok</SelectItem>
-                <SelectItem value="opencode">OpenCode</SelectItem>
-                <SelectItem value="cursor">Cursor</SelectItem>
-              </SelectContent>
-            </Select>
-          </Row>
-          <Row label="Model">
-            <ModelPicker
-              variant="field"
-              agentKind={harnessAgentKind}
-              value={backend.harnessModel}
-              onChange={(harnessModel) => onChange({ ...backend, harnessModel })}
-            />
-          </Row>
-          {showHarnessEffort && (
-            <Row label="Effort">
-              <EffortPicker
-                variant="field"
-                agentKind={harnessAgentKind}
-                model={backend.harnessModel}
-                value={backend.harnessEffort}
-                onChange={(harnessEffort) => onChange({ ...backend, harnessEffort })}
-              />
-            </Row>
-          )}
-          {backend.harnessAgent === 'claude-code' ? (
-            <p className="mt-1.5 mb-0.5 max-w-[60ch] text-[12px] text-warning">
-              Heads up: Claude Code's programmatic mode (
-              <code className="text-[11px]">claude -p</code>) uses your Claude Code account and
-              counts against that account's usage/rate limits. API users are billed by token;
-              subscribers consume plan usage. For the ChatGPT-subscription backend, pick Provider
-              backend → Codex instead.
-            </p>
-          ) : (
-            <p className="mt-1.5 mb-0.5 max-w-[60ch] text-[12px] text-muted-foreground">
-              Podium runs a real {backend.harnessAgent} agent with its CLI tool belt, using your
-              local login, and injects this feature's system prompt.
-            </p>
-          )}
-        </>
+        <p className="mt-1.5 mb-0.5 max-w-[60ch] text-[12px] text-muted-foreground">
+          Provider backend (API key or local login): billed per token against the key you set under
+          API keys.
+        </p>
       )}
     </>
   )

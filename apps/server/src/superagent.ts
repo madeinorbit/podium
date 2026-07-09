@@ -1,6 +1,11 @@
 import { randomUUID } from 'node:crypto'
 import { homedir } from 'node:os'
-import { HARNESS_MCP_SUPPORT, superagentHarnessAgent } from '@podium/core'
+import {
+  HARNESS_MCP_SUPPORT,
+  resolveRole,
+  roleApiBackend,
+  superagentHarnessAgent,
+} from '@podium/core'
 import {
   HarnessAgent,
   type IssueWire,
@@ -698,7 +703,7 @@ export class SuperagentService {
         thread.kind === 'concierge'
           ? conciergeSystemPrompt(thread.repoPath ?? conciergeRepoPath(threadId) ?? '?')
           : SYSTEM_PROMPT
-      const backend = settings.superagent
+      const backend = resolveRole(settings, 'superagent')
       // Claude sessions are minted with our uuid so the thread↔transcript
       // binding is deterministic from turn 1; other harnesses report theirs.
       const sessionUuid = firstTurn && agent === 'claude-code' ? randomUUID() : undefined
@@ -708,10 +713,10 @@ export class SuperagentService {
           sessionId,
           threadId,
           agent,
-          model: backend.kind === 'harness' ? backend.harnessModel : 'auto',
-          ...(backend.harnessEffort && backend.harnessEffort !== 'auto'
-            ? { effort: backend.harnessEffort }
-            : {}),
+          // Harness execution uses the role's model; api execution (managed
+          // provider / codex) still runs a harness with no model override.
+          model: backend.execution === 'harness' ? backend.model : 'auto',
+          ...(backend.effort && backend.effort !== 'auto' ? { effort: backend.effort } : {}),
           cwd,
           prompt,
           systemPrompt,
@@ -1221,7 +1226,10 @@ export class SuperagentService {
     newMessages: SuperagentMessageRow[],
   ): Promise<SuperagentTurn> {
     const settings = this.store.getSettings()
-    const backend = settings.superagent
+    // The api-fallback loop wants an api-shaped backend; roleApiBackend derives it
+    // from the unified superagent role (harness roles yield kind:'harness', which
+    // the `{ ...backend, kind: 'api' }` spread below forces onto the api path).
+    const backend = roleApiBackend(settings, 'superagent')
     // Concierge threads get the repo-scoped intake prompt; everything else the
     // orchestrator prompt.
     const thread = this.store.getSuperagentThread(threadId)

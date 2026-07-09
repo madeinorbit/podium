@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import type { PodiumSettings } from '@podium/core'
+import { type PodiumSettings, resolveRole } from '@podium/core'
 import {
   isIssueBlocked,
   isIssueClosed,
@@ -1274,11 +1274,9 @@ export class IssueService {
       branch: null,
       parentBranch:
         input.parentBranch || this.deps.getSettings().gitWorkflow.defaultParentBranch || 'main',
-      defaultAgent:
-        input.defaultAgent || this.deps.getSettings().sessionDefaults.agent || 'claude-code',
-      defaultModel: input.defaultModel || this.deps.getSettings().sessionDefaults.model || 'auto',
-      defaultEffort:
-        input.defaultEffort || this.deps.getSettings().sessionDefaults.effort || 'auto',
+      defaultAgent: input.defaultAgent || resolveRole(this.deps.getSettings(), 'coding').harness,
+      defaultModel: input.defaultModel || this.deps.getSettings().roles.coding.model || 'auto',
+      defaultEffort: input.defaultEffort || this.deps.getSettings().roles.coding.effort || 'auto',
       machineId: input.machineId ?? null,
       linearId: input.linear?.id ?? null,
       linearIdentifier: input.linear?.identifier ?? null,

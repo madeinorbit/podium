@@ -1,3 +1,4 @@
+import { normalizeSettings } from '@podium/core'
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionMeta } from '@podium/protocol'
 import { SessionStore } from './store'
@@ -9,7 +10,7 @@ function harness(sessions: SessionMeta[] = []) {
   const deps: IssueDeps = {
     store,
     listSessions: () => sessions,
-    getSettings: () => ({ gitWorkflow: { defaultParentBranch: '', mergeStyle: 'ff-only', autoRebaseBeforeMerge: true }, sessionDefaults: { agent: 'claude-code' } }) as never,
+    getSettings: () => normalizeSettings({ gitWorkflow: { defaultParentBranch: '', mergeStyle: 'ff-only', autoRebaseBeforeMerge: true }, sessionDefaults: { agent: 'claude-code' } }),
     spawnSession: vi.fn(() => ({ sessionId: 's1' })),
     repoOp: vi.fn(async () => ({ ok: true, output: '' })),
     broadcast: vi.fn(),

@@ -1,4 +1,5 @@
 import { shallowEqual } from '@podium/client-core/store'
+import { nativeAccountId, resolveRole } from '@podium/core'
 import type { AgentKind, IssueWire, SessionMeta } from '@podium/protocol'
 import {
   AlarmClock,
@@ -146,7 +147,7 @@ export function SidebarUnified(): JSX.Element {
     void trpc.settings.get
       .query()
       .then((s) => {
-        if (alive) setAgentSetting(s.sessionDefaults.agent)
+        if (alive) setAgentSetting(resolveRole(s, 'coding').harness)
       })
       .catch(() => {})
     return () => {
@@ -205,9 +206,12 @@ export function SidebarUnified(): JSX.Element {
       const current = await trpc.settings.get.query()
       const updated = await trpc.settings.set.mutate({
         ...current,
-        sessionDefaults: { ...current.sessionDefaults, agent: kind },
+        roles: {
+          ...current.roles,
+          coding: { ...current.roles.coding, accountId: nativeAccountId(kind) },
+        },
       })
-      setAgentSetting(updated.sessionDefaults.agent)
+      setAgentSetting(resolveRole(updated, 'coding').harness)
     } catch {
       setAgentSetting(kind) // optimistic — best-effort persistence
     }

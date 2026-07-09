@@ -98,11 +98,11 @@ export const LlmBackend = z.object({
 export type LlmBackend = z.infer<typeof LlmBackend>
 
 // ── Accounts & roles (SP-6454, LLM & Harness Access) ───────────────────────
-// Full domain model, defined now per the staging decision. NATIVE is what the
-// runtime wires; MANAGED (credential injection + oauth rotation) ships behind a
-// "Coming soon" flag. Not yet folded into PodiumSettings — the one-shot role
-// primitive resolves against the existing superagent/workLlm/sessionDefaults
-// backends for now; stream B3 migrates settings onto RoleBackend.
+// The unified model: settings store one RoleBackend per role, keyed by account.
+// NATIVE accounts (a CLI's own login) are what the runtime wires; MANAGED
+// (credential injection + oauth rotation) ships behind a "Coming soon" flag.
+// `normalizeSettings` migrates the legacy sessionDefaults/superagent/workLlm
+// blobs onto `roles`; `resolveRole` is the single read path every consumer uses.
 
 /** Who owns the credential: the machine's own CLI login (observe-only) vs a
  *  credential Podium holds and injects. */
@@ -133,16 +133,54 @@ export const Account = z.object({
 })
 export type Account = z.infer<typeof Account>
 
-/** One role's backend over a single shape (unifies superagent/workLlm/
- *  sessionDefaults in B3). `harness` only for interactive-session roles;
- *  a role binding may later reference a set of accounts for rotation. */
+/** One role's backend over a single shape (the unified model — SP-6454 B3).
+ *  `accountId` names the auth source (a synthetic derived id today, e.g.
+ *  'native:claude-code' or 'managed:anthropic'; '' = the role's default). The
+ *  account determines execution (harness vs api) + provider/harness; `model` +
+ *  `effort` layer on top. `harness` is reserved for the future managed case
+ *  (run a chosen harness on a managed credential); native accounts imply it. */
 export const RoleBackend = z.object({
-  accountId: z.string().optional(),
+  accountId: z.string().default(''),
   model: z.string().default('auto'),
   effort: z.string().default('auto'),
   harness: HarnessAgent.optional(),
 })
 export type RoleBackend = z.infer<typeof RoleBackend>
+
+/** The coding-session role: a backend plus session-only preferences that don't
+ *  apply to the one-shot/orchestrator roles. */
+export const CodingRole = RoleBackend.extend({
+  /** Model for the harness's own subagents ('auto' = no override). */
+  subagentModel: z.string().default('auto'),
+  /** How subagents run: 'builtin' (harness's own) or 'podium' (coming soon). */
+  subagentStrategy: z.enum(['builtin', 'podium']).default('builtin'),
+  /** Which panel a new session opens on. */
+  startScreen: z.enum(['native', 'chat', 'auto']).default('native'),
+})
+export type CodingRole = z.infer<typeof CodingRole>
+
+/** Every LLM/agent role, one shape each. `coding` = new interactive sessions,
+ *  `superagent` = the orchestrator, `background` = one-shot work (issue
+ *  assistant, title generation, summaries). */
+export const Roles = z.object({
+  coding: CodingRole.default({}),
+  superagent: RoleBackend.default({}),
+  background: RoleBackend.default({ model: 'google/gemini-2.5-flash' }),
+})
+export type Roles = z.infer<typeof Roles>
+export type RoleName = keyof Roles
+
+const HARNESS_ACCOUNT = 'native:' as const
+const MANAGED_ACCOUNT = 'managed:' as const
+
+/** Synthetic account id for a native harness login. */
+export function nativeAccountId(harness: HarnessAgent): string {
+  return `${HARNESS_ACCOUNT}${harness}`
+}
+/** Synthetic account id for a managed API-key provider. */
+export function managedAccountId(provider: ApiProvider): string {
+  return `${MANAGED_ACCOUNT}${provider}`
+}
 
 export const Sidebar = z.object({
   repoSort: z.enum(['alphabetical', 'lastUsed', 'custom']).default('lastUsed'),
@@ -152,9 +190,9 @@ export const Sidebar = z.object({
 export type Sidebar = z.infer<typeof Sidebar>
 
 export const PodiumSettings = z.object({
-  sessionDefaults: SessionDefaults.default({}),
-  superagent: LlmBackend.default({}),
-  workLlm: LlmBackend.default({ model: 'google/gemini-2.5-flash' }),
+  /** Every LLM/agent role on one unified shape (SP-6454 B3). Migrated from the
+   *  legacy sessionDefaults/superagent/workLlm fields by `normalizeSettings`. */
+  roles: Roles.default({}),
   /** Provider API keys. Stored plaintext in the self-hosted SQLite — same trust
    *  domain as the shell the agents already run in. */
   apiKeys: z
@@ -247,27 +285,157 @@ function migrateCodexHarness(b: LlmBackend): LlmBackend {
   }
 }
 
-/** Parse a stored/transmitted blob, filling anything missing with defaults. */
-export function normalizeSettings(raw: unknown): PodiumSettings {
-  const parsed = PodiumSettings.parse(raw ?? {})
-  return {
-    ...parsed,
-    workLlm: migrateCodexHarness(parsed.workLlm),
+/** Legacy → unified: derive a RoleBackend from an old LlmBackend. A harness
+ *  backend → its native account, with `harness` set to force harness execution
+ *  (this is how a codex-harness superagent stays a harness, vs a codex-api
+ *  backend that runs the Responses API — both share the native codex login).
+ *  `collapseCodexHarness` folds a codex *harness* onto the codex api path, which
+ *  the workLlm (a chat-only completion consumer) does but the superagent doesn't
+ *  (issue #84: codex mounts MCP as a superagent harness). */
+function backendToRole(b: LlmBackend, collapseCodexHarness: boolean): Partial<RoleBackend> {
+  const mb = collapseCodexHarness ? migrateCodexHarness(b) : b
+  if (mb.kind === 'harness') {
+    return {
+      accountId: nativeAccountId(mb.harnessAgent),
+      harness: mb.harnessAgent,
+      model: mb.harnessModel,
+      effort: mb.harnessEffort,
+    }
   }
+  const accountId =
+    mb.provider === 'codex' ? nativeAccountId('codex') : managedAccountId(mb.provider)
+  return { accountId, model: mb.model, effort: mb.harnessEffort }
+}
+
+/** One-time migration of the legacy three-config blob (sessionDefaults /
+ *  superagent / workLlm) onto `roles`. Returns undefined when there's nothing to
+ *  migrate — a fresh blob (defaults apply) or one that already has `roles`. */
+function migrateRoles(raw: Record<string, unknown>): Roles | undefined {
+  if (raw.roles !== undefined) return undefined
+  if (
+    raw.sessionDefaults === undefined &&
+    raw.superagent === undefined &&
+    raw.workLlm === undefined
+  ) {
+    return undefined
+  }
+  const sd = SessionDefaults.parse(raw.sessionDefaults ?? {})
+  return Roles.parse({
+    coding: {
+      accountId: nativeAccountId(sd.agent === 'auto' ? 'claude-code' : sd.agent),
+      model: sd.model,
+      effort: sd.effort,
+      subagentModel: sd.subagentModel,
+      subagentStrategy: sd.subagentStrategy,
+      startScreen: sd.startScreen,
+    },
+    ...(raw.superagent !== undefined
+      ? { superagent: backendToRole(LlmBackend.parse(raw.superagent), false) }
+      : {}),
+    ...(raw.workLlm !== undefined
+      ? { background: backendToRole(LlmBackend.parse(raw.workLlm), true) }
+      : {}),
+  })
+}
+
+/** Parse a stored/transmitted blob, migrating the legacy backend fields onto
+ *  `roles` and filling anything missing with defaults. */
+export function normalizeSettings(raw: unknown): PodiumSettings {
+  const obj = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>
+  const roles = migrateRoles(obj)
+  return PodiumSettings.parse(roles ? { ...obj, roles } : obj)
+}
+
+export interface ResolvedRole {
+  accountId: string
+  execution: 'harness' | 'api'
+  /** The harness to run (session roles) or the fallback harness (api roles). */
+  harness: HarnessAgent
+  /** Set when execution === 'api'. */
+  provider?: ApiProvider
+  model: string
+  effort: string
+}
+
+const DEFAULT_ACCOUNT: Record<RoleName, string> = {
+  coding: nativeAccountId('claude-code'),
+  // The orchestrator + background roles default to the managed provider (matching
+  // the legacy api/openrouter LlmBackend default). For the superagent this means
+  // execution 'api', so superagentHarnessAgent falls through to the coding harness
+  // — the long-standing "api superagent runs the session-default harness" path.
+  superagent: managedAccountId('openrouter'),
+  background: managedAccountId('openrouter'),
+}
+
+/** Decode a synthetic account id into an execution plan for a role. Codex is
+ *  special: its CLI harness runs coding sessions, but the one-shot/orchestrator
+ *  roles reach it over the ChatGPT Responses API (the CLI harness is chat-only). */
+function decodeAccount(
+  accountId: string,
+  role: RoleName,
+): { execution: 'harness' | 'api'; harness: HarnessAgent; provider?: ApiProvider } {
+  if (accountId.startsWith(HARNESS_ACCOUNT)) {
+    const raw = accountId.slice(HARNESS_ACCOUNT.length)
+    const harness = HarnessAgent.safeParse(raw).success ? (raw as HarnessAgent) : 'claude-code'
+    if (harness === 'codex' && role !== 'coding') {
+      return { execution: 'api', harness, provider: 'codex' }
+    }
+    return { execution: 'harness', harness }
+  }
+  if (accountId.startsWith(MANAGED_ACCOUNT)) {
+    const raw = accountId.slice(MANAGED_ACCOUNT.length)
+    const provider = ApiProvider.safeParse(raw).success ? (raw as ApiProvider) : 'openrouter'
+    return { execution: 'api', harness: 'claude-code', provider }
+  }
+  return { execution: 'harness', harness: 'claude-code' }
+}
+
+/** The single read path for a role's backend (SP-6454 B3): resolves the role's
+ *  account + model + effort into an execution plan every consumer shares. */
+export function resolveRole(settings: PodiumSettings, role: RoleName): ResolvedRole {
+  const rb = settings.roles[role]
+  const accountId = rb.accountId || DEFAULT_ACCOUNT[role]
+  // An explicit `harness` forces harness execution — this disambiguates the
+  // codex login (CLI harness vs Responses API) and, in future, drives a chosen
+  // harness on a managed credential.
+  if (rb.harness) {
+    return {
+      accountId,
+      execution: 'harness',
+      harness: rb.harness,
+      model: rb.model,
+      effort: rb.effort,
+    }
+  }
+  return { accountId, ...decodeAccount(accountId, role), model: rb.model, effort: rb.effort }
+}
+
+/** Bridge for the llmClient path (one-shot / superagent api loop): reconstruct an
+ *  api-shaped LlmBackend from a resolved role. A harness-execution role yields
+ *  kind:'harness', which llmClient rejects — harness-print one-shot is still
+ *  "coming soon". */
+export function roleApiBackend(settings: PodiumSettings, role: RoleName): LlmBackend {
+  const r = resolveRole(settings, role)
+  return LlmBackend.parse({
+    kind: r.execution === 'api' ? 'api' : 'harness',
+    harnessAgent: r.harness,
+    harnessModel: r.model,
+    harnessEffort: r.effort,
+    provider: r.provider ?? 'openrouter',
+    model: r.model,
+  })
 }
 
 /**
- * Which harness runs a superagent turn (issue #84 — the backend concept
- * collapses: every turn is a full harness turn when the harness can mount our
- * MCP tools). An explicit `kind: 'harness'` choice names its agent; otherwise
- * (legacy api-kind settings, fresh installs) follow the session default, with
- * 'auto' resolving to claude-code — the reference full-capability harness.
+ * Which harness runs a superagent turn. When the superagent's account resolves
+ * to a harness, that's it; when it resolves to the api path (managed provider or
+ * codex), the orchestrator still runs a harness — the coding role's — matching
+ * the long-standing fallback (superagent api mode ran the session-default
+ * harness, not the chosen provider).
  */
 export function superagentHarnessAgent(settings: PodiumSettings): HarnessAgent {
-  const b = settings.superagent
-  if (b.kind === 'harness') return b.harnessAgent
-  const fallback = settings.sessionDefaults.agent
-  return fallback === 'auto' ? 'claude-code' : fallback
+  const sa = resolveRole(settings, 'superagent')
+  return sa.execution === 'harness' ? sa.harness : resolveRole(settings, 'coding').harness
 }
 
 /** The first manual Continue click offers to enable auto-continue — but only once

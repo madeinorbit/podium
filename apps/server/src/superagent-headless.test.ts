@@ -2,17 +2,12 @@
 // persistent harness sessions — sendTurn acks before completion, progress fans
 // out as headlessActivity frames, the harness session id becomes the thread's
 // resume value, and "open in terminal" takes a one-writer lock.
-import type { LlmBackend } from '@podium/core'
+import { type HarnessAgent, nativeAccountId } from '@podium/core'
 import type { ControlMessage, ServerMessage } from '@podium/protocol'
 import { afterEach, describe, expect, it } from 'vitest'
 import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
-import {
-  buildHandoffSeed,
-  RESUME_KIND,
-  SuperagentService,
-  TURN_FAILED_MARKER,
-} from './superagent'
+import { buildHandoffSeed, RESUME_KIND, SuperagentService, TURN_FAILED_MARKER } from './superagent'
 
 const registries: SessionRegistry[] = []
 afterEach(() => {
@@ -376,12 +371,21 @@ describe('boot reconciliation for headless sessions', () => {
 describe('harness switch + effort (#199)', () => {
   const setSuperagentHarness = (
     h: Awaited<ReturnType<typeof harness>>,
-    patch: Partial<LlmBackend>,
+    patch: { harness?: HarnessAgent; effort?: string },
   ) => {
     const cur = h.registry.sessionStore.getSettings()
+    const harness = patch.harness ?? 'claude-code'
     h.registry.sessionStore.setSettings({
       ...cur,
-      superagent: { ...cur.superagent, kind: 'harness', ...patch },
+      roles: {
+        ...cur.roles,
+        superagent: {
+          ...cur.roles.superagent,
+          accountId: nativeAccountId(harness),
+          harness,
+          ...(patch.effort !== undefined ? { effort: patch.effort } : {}),
+        },
+      },
     })
   }
 
@@ -394,7 +398,7 @@ describe('harness switch + effort (#199)', () => {
     expect(h.turnReqs[0]!.agent).toBe('claude-code')
 
     // User picks a different harness in settings.
-    setSuperagentHarness(h, { harnessAgent: 'codex' })
+    setSuperagentHarness(h, { harness: 'codex' })
     const second = await h.sa.sendTurn({ threadId: 'global', text: 'still there?' })
 
     const req = h.turnReqs[1]!
@@ -433,12 +437,12 @@ describe('harness switch + effort (#199)', () => {
 
   it('plumbs harnessEffort into the turn request; auto sends none', async () => {
     const h = await harness()
-    setSuperagentHarness(h, { harnessAgent: 'claude-code', harnessEffort: 'high' })
+    setSuperagentHarness(h, { harness: 'claude-code', effort: 'high' })
     await h.sa.sendTurn({ threadId: 'global', text: 'hi' })
     expect(h.turnReqs[0]!.effort).toBe('high')
 
     const h2 = await harness()
-    setSuperagentHarness(h2, { harnessAgent: 'claude-code', harnessEffort: 'auto' })
+    setSuperagentHarness(h2, { harness: 'claude-code', effort: 'auto' })
     await h2.sa.sendTurn({ threadId: 'global', text: 'hi' })
     expect(h2.turnReqs[0]!.effort).toBeUndefined()
   })
