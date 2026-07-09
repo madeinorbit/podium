@@ -107,6 +107,29 @@ installation path.
 The load-bearing principle: **the daemon never stores a GitHub credential.** It
 receives one at spawn, and/or asks the server for a fresh one per operation.
 
+### Refresh-token rotation constrains the whole design
+
+GitHub App refresh tokens are **single-use and rotating**: exchanging one returns
+a new access token *and* a new refresh token, and — the part that bites —
+["that refresh token and the old user access token will no longer work"](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/refreshing-user-access-tokens).
+Two consequences, both load-bearing:
+
+1. **The refresh token must never leave the server.** Two daemons holding it
+   would race to rotate and permanently wedge the login. Only short-lived access
+   tokens are ever propagated. (Access tokens are plain bearer tokens — several
+   daemons may hold the same one concurrently until it expires. It is only
+   *refresh* that is single-holder.)
+2. **A refresh silently kills every access token already handed out.** An 8-hour
+   access token injected into a running agent's env is not merely stale after 8
+   hours; it dies the *instant* the server refreshes for any reason. Env
+   injection therefore cannot be the end state for long-lived sessions — it makes
+   `git push` fail mid-session with a bare 403.
+
+This is the strongest argument for Layer 2, and it upgrades the callback helper
+from a nice-to-have to the correct destination. Layer 1 remains a valid first cut
+because it fixes a hole that exists today, and because a fresh token is minted at
+each spawn.
+
 ### Layer 1 — env injection at spawn (works today, proven)
 
 The server resolves the GitHub account and adds to the spawn env overlay
@@ -155,6 +178,17 @@ industry converged on.
 `gh` cannot take a command for `GH_TOKEN`. Cover it with a `gh` shim placed
 earlier on the daemon's PATH that fetches a fresh token, exports it, and `exec`s
 the real `gh`. Same trick makes `repo-op.ts`'s `gh pr create` work unchanged.
+
+Per #212, this callback generalises past git: `podium credential <accountId>`
+serves both git's `credential.helper` and Claude Code's `apiKeyHelper`. So Layer
+1's env injection must not hard-code git config *writing* — the env path has to
+be replaceable by the helper path without touching adapters.
+
+Note the daemon must actually have `gh` on PATH for the `!gh auth git-credential`
+form. #213's bootstrap installs `gh` but deliberately does **not** authenticate
+it, and #222 will have the daemon report a tool inventory at pair/hello — so the
+server can know whether a machine can receive a gh credential at all. Fallback
+where `gh` is absent: a plain shell helper printing `username`/`password`.
 
 ### Phasing
 
