@@ -44,6 +44,39 @@ describe('abduco binary resolution', () => {
   })
 })
 
+describe('abduco on Windows', () => {
+  const realPlatform = process.platform
+  const stubPlatform = (value: NodeJS.Platform): void => {
+    Object.defineProperty(process, 'platform', { value, configurable: true })
+  }
+  afterEach(() => {
+    stubPlatform(realPlatform)
+    resolveAbducoBin({ fresh: true }) // restore the memo for other suites
+  })
+
+  it('resolveAbducoBin is undefined on win32 without probing anything', () => {
+    stubPlatform('win32')
+    // A PODIUM_ABDUCO override must not matter: abduco is POSIX-only (forkpty),
+    // so even an explicit path can never be a working abduco on Windows.
+    process.env.PODIUM_ABDUCO = '/bin/sh' // something that WOULD pass runs() elsewhere
+    try {
+      expect(resolveAbducoBin({ fresh: true })).toBeUndefined()
+    } finally {
+      delete process.env.PODIUM_ABDUCO
+    }
+  })
+
+  it('buildVendoredAbduco refuses to build on win32', () => {
+    stubPlatform('win32')
+    const dir = mkdtempSync(join(tmpdir(), 'podium-abduco-win-'))
+    try {
+      expect(buildVendoredAbduco(join(dir, 'bin', 'abduco'))).toBeUndefined()
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+})
+
 describe.skipIf(!hasCompiler)('vendored abduco build', () => {
   it('compiles the vendored source into a working binary', () => {
     const dir = mkdtempSync(join(tmpdir(), 'podium-abduco-build-'))

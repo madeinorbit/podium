@@ -38,6 +38,25 @@ export function isUnderBun(): boolean {
   return typeof Bun !== 'undefined' && typeof Bun.spawn === 'function'
 }
 
+/**
+ * The throwaway no-op command the {@link hasBunTerminal} probe spawns. POSIX has
+ * `true`; Windows doesn't, so probe through cmd.exe (`/d` skips AutoRun, keeping
+ * the probe hermetic; `exit` with no code exits 0).
+ */
+export function terminalProbeCommand(platform: NodeJS.Platform = process.platform): string[] {
+  return platform === 'win32' ? ['cmd.exe', '/d', '/c', 'exit'] : ['true']
+}
+
+/**
+ * Oldest Bun whose `Bun.spawn({terminal})` works on this platform: 1.3.5 introduced
+ * the terminal PTY API (POSIX only); 1.3.14 added the Windows ConPTY implementation
+ * (CreatePseudoConsole). Feature detection stays the real gate — this only makes the
+ * fail-loud messages name the right minimum.
+ */
+export function minTerminalBunVersion(platform: NodeJS.Platform = process.platform): string {
+  return platform === 'win32' ? '1.3.14' : '1.3.5'
+}
+
 let bunTerminalProbe: boolean | undefined
 /**
  * Feature-DETECT (not version-guess) whether this Bun's `Bun.spawn({terminal})` actually
@@ -54,7 +73,7 @@ export function hasBunTerminal(): boolean {
     return bunTerminalProbe
   }
   try {
-    const p = (Bun as NonNullable<typeof Bun>).spawn(['true'], {
+    const p = (Bun as NonNullable<typeof Bun>).spawn(terminalProbeCommand(), {
       terminal: { cols: 80, rows: 24, data() {} },
     }) as { terminal?: { resize?: unknown; close?: () => void }; kill?: () => void }
     bunTerminalProbe = !!p.terminal && typeof p.terminal.resize === 'function'

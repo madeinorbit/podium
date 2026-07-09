@@ -16,6 +16,9 @@ declare const Bun: { file(path: string): { arrayBuffer(): Promise<ArrayBuffer> }
  * network, true single-download. A pre-existing cache or $PODIUM_ABDUCO wins.
  */
 export async function materializeEmbeddedAbduco(): Promise<void> {
+  // Windows builds embed an empty placeholder (no abduco there — sessions run on the
+  // ConPTY backend without a durable host [spec:SP-7f2c]); nothing to materialize.
+  if (process.platform === 'win32') return
   if (process.env.PODIUM_ABDUCO) return // operator override wins
   const cache = defaultAbducoCachePath()
   if (existsSync(cache)) return // already present (system install copied here earlier, or a prior run)

@@ -3,6 +3,7 @@ import {
   bunVersion,
   hasBunTerminal,
   isUnderBun,
+  minTerminalBunVersion,
 } from './bun-terminal-backend.js'
 import { nodePtyBackend } from './node-pty-backend.js'
 import type { PtyBackend } from './types.js'
@@ -12,6 +13,8 @@ export {
   bunVersion,
   hasBunTerminal,
   isUnderBun,
+  minTerminalBunVersion,
+  terminalProbeCommand,
 } from './bun-terminal-backend.js'
 export { nodePtyBackend } from './node-pty-backend.js'
 export type { PtyBackend, PtyProcess, PtySpawnOptions } from './types.js'
@@ -32,7 +35,7 @@ export function defaultPtyBackend(): PtyBackend {
   if (forced === 'bun-terminal') {
     if (!hasBunTerminal())
       throw new Error(
-        'PODIUM_PTY_BACKEND=bun-terminal but Bun.Terminal is unavailable (run under Bun >=1.3.5)',
+        `PODIUM_PTY_BACKEND=bun-terminal but Bun.Terminal is unavailable (run under Bun >=${minTerminalBunVersion()})`,
       )
     return bunTerminalBackend()
   }
@@ -42,7 +45,7 @@ export function defaultPtyBackend(): PtyBackend {
     if (!hasBunTerminal())
       throw new Error(
         `Bun ${bunVersion()} lacks a working terminal PTY API (Bun.spawn({terminal}) → proc.terminal); ` +
-          `need Bun >= 1.3.5. This daemon binary is stale — rebuild/update it with a newer Bun ` +
+          `need Bun >= ${minTerminalBunVersion()}. This daemon binary is stale — rebuild/update it with a newer Bun ` +
           `(a compiled daemon has no node-pty fallback).`,
       )
     return bunTerminalBackend()

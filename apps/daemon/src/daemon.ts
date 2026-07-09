@@ -162,6 +162,17 @@ export interface DaemonHooksOptions {
   settingsDir?: string
 }
 
+/**
+ * What to tell the operator when no durable backend is available. On Windows that is
+ * the EXPECTED state (abduco/tmux are POSIX-only; sessions run on the ConPTY PTY
+ * backend [spec:SP-7f2c]) — don't ask anyone to install tools that don't exist there.
+ */
+export function noDurableBackendWarning(platform: NodeJS.Platform = process.platform): string {
+  return platform === 'win32'
+    ? '[podium] windows: sessions run on ConPTY without a durable host — they will not survive a daemon restart'
+    : '[podium] neither abduco nor tmux found — sessions will not survive a daemon restart'
+}
+
 /** Explicit choice wins (operator intent); otherwise prefer abduco → tmux → none. */
 export function resolveDurableBackend(
   opts: Pick<DaemonOptions, 'backend' | 'tmux'>,
@@ -227,9 +238,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     tmux: isTmuxAvailable(),
   })
   if (opts.backend === undefined && opts.tmux === undefined && backend === 'none') {
-    console.warn(
-      '[podium] neither abduco nor tmux found — sessions will not survive a daemon restart',
-    )
+    console.warn(noDurableBackendWarning())
   }
   const settingsDir =
     opts.hooks?.settingsDir ??

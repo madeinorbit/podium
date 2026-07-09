@@ -1,0 +1,53 @@
+# Windows headless gate (#90): proves the ConPTY PTY backend works at runtime and
+# that the headless bundle builds AND boots on Windows [spec:SP-7f2c]. The release
+# matrix (#35) can hang its Windows row off this.
+name: windows-smoke
+on:
+  push:
+    branches: [main, 'worktree-issue-90-*']
+  workflow_dispatch:
+concurrency:
+  group: windows-smoke-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  smoke:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3' # ConPTY support needs >= 1.3.14; '1.3' resolves the latest patch
+      # --ignore-scripts mirrors release.yml: nothing under Bun ever loads node-pty's
+      # native addon, and node-gyp on the runner toolchain is the only thing that breaks.
+      - run: bun install --frozen-lockfile --ignore-scripts
+
+      - name: ConPTY runtime smoke (spawn → write/exec → resize → exit)
+        run: bun scripts/conpty-smoke.ts
+
+      - name: Build headless bundle
+        run: |
+          bun run --filter @podium/web build
+          bun scripts/build-bun.ts
+
+      - name: Boot smoke (podium.cmd all-in-one → /health + /version)
+        shell: pwsh
+        run: |
+          $env:PODIUM_STATE_DIR = Join-Path $env:RUNNER_TEMP 'podium-state'
+          $proc = Start-Process -FilePath 'dist-bun\headless\podium.cmd' `
+            -RedirectStandardOutput podium-out.log -RedirectStandardError podium-err.log `
+            -PassThru -NoNewWindow
+          $healthy = $false
+          foreach ($i in 1..45) {
+            try {
+              $r = Invoke-WebRequest -Uri 'http://localhost:18787/health' -UseBasicParsing -TimeoutSec 2
+              if ($r.StatusCode -eq 200) { $healthy = $true; break }
+            } catch { Start-Sleep -Seconds 2 }
+            if ($proc.HasExited) { break }
+          }
+          Write-Host '--- podium stdout ---'; Get-Content podium-out.log -ErrorAction SilentlyContinue
+          Write-Host '--- podium stderr ---'; Get-Content podium-err.log -ErrorAction SilentlyContinue
+          if (-not $healthy) { Write-Error 'podium never became healthy on :18787'; exit 1 }
+          $v = Invoke-WebRequest -Uri 'http://localhost:18787/version' -UseBasicParsing
+          Write-Host "version probe: $($v.Content)"
+          Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue

@@ -17,6 +17,7 @@ import { buildVendoredAbduco } from '../packages/agent-bridge/src/abduco-bin.js'
 import {
   bunVersion,
   hasBunTerminal,
+  minTerminalBunVersion,
 } from '../packages/agent-bridge/src/pty/bun-terminal-backend.js'
 
 /**
@@ -37,6 +38,41 @@ import {
  * NOTE: in this template literal only `${…}` needs escaping (`\${…}`) — bare `$` (e.g. `$0`,
  * `$DIR`, `$(…)`) is literal, so the WRITTEN file contains real shell variables.
  */
+/**
+ * Per-platform artifact names inside dist-bun/ and the headless bundle. Windows gets
+ * `.exe` binaries (what `bun build --compile` emits there) and a `.cmd` launcher —
+ * there is no POSIX sh to run the shim above, and no install.sh symlink to resolve.
+ */
+export function bundleNames(platform: NodeJS.Platform = process.platform): {
+  compiled: string
+  cli: string
+  launcher: string
+} {
+  return platform === 'win32'
+    ? { compiled: 'podium.exe', cli: 'podium-cli.exe', launcher: 'podium.cmd' }
+    : { compiled: 'podium', cli: 'podium-cli', launcher: 'podium' }
+}
+
+/**
+ * The Windows launcher: same job as {@link launcherShim} (export PODIUM_HOME +
+ * PODIUM_WEB_DIR relative to the bundle root, then run the compiled CLI) as a batch
+ * file. `%~dp0` is the batch file's own directory (trailing backslash stripped so
+ * PODIUM_HOME is the clean bundle root); no symlink resolution — Windows installs
+ * put the bundle dir on PATH rather than symlinking. `setlocal` keeps the vars from
+ * leaking into the calling shell; the spawned CLI still inherits them.
+ */
+export function windowsLauncherShim(): string {
+  return `@echo off\r
+setlocal\r
+set "DIR=%~dp0"\r
+if "%DIR:~-1%"=="\\" set "DIR=%DIR:~0,-1%"\r
+set "PODIUM_HOME=%DIR%"\r
+if not defined PODIUM_WEB_DIR set "PODIUM_WEB_DIR=%DIR%\\web"\r
+"%DIR%\\podium-cli.exe" %*\r
+exit /b %errorlevel%\r
+`
+}
+
 export function launcherShim(): string {
   return `#!/bin/sh
 # Resolve symlinks so DIR is the real bundle root even when invoked via a
@@ -65,11 +101,13 @@ function main(): void {
   if (!hasBunTerminal())
     throw new Error(
       `build-bun: Bun ${bunVersion()} lacks a working terminal PTY API (Bun.spawn({terminal}) → ` +
-        `proc.terminal); need Bun >= 1.3.5. The compiled daemon would render remote terminals black. ` +
+        `proc.terminal); need Bun >= ${minTerminalBunVersion()}. The compiled daemon would render remote terminals black. ` +
         `Upgrade Bun (\`bun upgrade\`) and rebuild.`,
     )
   const root = fileURLToPath(new URL('..', import.meta.url))
   const out = `${root}dist-bun`
+  const names = bundleNames()
+  const win = process.platform === 'win32'
   mkdirSync(out, { recursive: true })
 
   // Single source of truth for the version: root package.json `version` (env PODIUM_APP_VERSION
@@ -85,13 +123,22 @@ function main(): void {
   })()
   const version = process.env.PODIUM_APP_VERSION ?? pkgVersion ?? '0.1.0'
 
-  console.log('[build-bun] prebuilding abduco…')
-  const abduco = buildVendoredAbduco(`${out}/abduco.bin`)
-  if (!abduco)
-    throw new Error(
-      'build-bun: failed to prebuild abduco (missing C compiler, or a compile error — see the [podium] abduco build output above)',
-    )
-  console.log(`[build-bun] abduco -> ${abduco}`)
+  if (win) {
+    // No abduco on Windows (POSIX forkpty) — sessions run on the ConPTY PTY backend
+    // without a durable host [spec:SP-7f2c]. The compiled CLI still embeds
+    // dist-bun/abduco.bin (a static `with {type:'file'}` import), so write an empty
+    // placeholder for the bundler; materializeEmbeddedAbduco skips it at runtime.
+    console.log('[build-bun] windows: skipping abduco prebuild (ConPTY backend, no durable host)')
+    writeFileSync(`${out}/abduco.bin`, '')
+  } else {
+    console.log('[build-bun] prebuilding abduco…')
+    const abduco = buildVendoredAbduco(`${out}/abduco.bin`)
+    if (!abduco)
+      throw new Error(
+        'build-bun: failed to prebuild abduco (missing C compiler, or a compile error — see the [podium] abduco build output above)',
+      )
+    console.log(`[build-bun] abduco -> ${abduco}`)
+  }
 
   const compile = (
     entry: string,
@@ -134,8 +181,8 @@ function main(): void {
   // import.meta.url))` is NOT auto-embedded by `bun build --compile` (Bun 1.3.x), so we add the
   // worker as an explicit extra entrypoint; worker-client.ts spawns it from
   // DISCOVERY_WORKER_EMBEDDED_PATH (shared via discovery-worker-embed.ts).
-  compile('scripts/cli-compiled.ts', 'podium', { extraEntrypoints: [DISCOVERY_WORKER_ENTRY] })
-  console.log('[build-bun] done -> dist-bun/podium')
+  compile('scripts/cli-compiled.ts', names.compiled, { extraEntrypoints: [DISCOVERY_WORKER_ENTRY] })
+  console.log(`[build-bun] done -> dist-bun/${names.compiled}`)
 
   // --- headless bundle: binaries + web + launcher ---------------------------------
   const headless = `${out}/headless`
@@ -149,17 +196,18 @@ function main(): void {
   cpSync(webDist, `${headless}/web`, { recursive: true })
 
   // The one compiled binary, plus the launcher shim (below) that execs it as `podium-cli`.
-  cpSync(`${out}/podium`, `${headless}/podium-cli`)
-  chmodSync(`${headless}/podium-cli`, 0o755)
+  cpSync(`${out}/${names.compiled}`, `${headless}/${names.cli}`)
+  chmodSync(`${headless}/${names.cli}`, 0o755)
 
   // VERSION stamp — drives `podium update`'s self version check. Same single source as the
   // baked-in /version above (root package.json `version`, env PODIUM_APP_VERSION wins).
   writeFileSync(`${headless}/VERSION`, `${version}\n`)
 
-  // Launcher shim (see launcherShim() above): resolves symlinks so `~/.local/bin/podium`
-  // finds the real bundle, then execs the compiled CLI with PODIUM_HOME/PODIUM_WEB_DIR set.
-  writeFileSync(`${headless}/podium`, launcherShim())
-  chmodSync(`${headless}/podium`, 0o755)
+  // Launcher shim: POSIX sh (resolves the install.sh symlink to the real bundle) or a
+  // Windows .cmd (no symlinks there — the bundle dir itself goes on PATH). Both export
+  // PODIUM_HOME/PODIUM_WEB_DIR, then run the compiled CLI.
+  writeFileSync(`${headless}/${names.launcher}`, win ? windowsLauncherShim() : launcherShim())
+  chmodSync(`${headless}/${names.launcher}`, 0o755)
 
   // Self-update artifact: a tarball of the headless/ dir the feed can serve. `tar` from the
   // bundle's parent so the archive root is `headless/` (matching runUpdate's extract path).

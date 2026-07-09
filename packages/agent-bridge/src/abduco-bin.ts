@@ -15,6 +15,10 @@ import { fileURLToPath } from 'node:url'
  *   4. Build the vendored ISC-licensed source (vendor/abduco, single translation
  *      unit, ~1s) into that cache with the system C compiler. node-pty already
  *      makes a working toolchain a hard install requirement, so cc is a fair bet.
+ *
+ * On Windows resolution is always undefined — abduco is POSIX-only (forkpty), so
+ * there is nothing to probe or build; the daemon runs sessions on the ConPTY PTY
+ * backend without a durable host [spec:SP-7f2c].
  */
 
 // Works from both src/ (tsx, @podium/source condition) and dist/ — vendor sits
@@ -51,6 +55,7 @@ function findCompiler(): string | undefined {
  * compiler is available or the build fails.
  */
 export function buildVendoredAbduco(out: string): string | undefined {
+  if (process.platform === 'win32') return undefined // POSIX-only source (forkpty)
   const cc = findCompiler()
   if (!cc) return undefined
   mkdirSync(dirname(out), { recursive: true })
@@ -99,6 +104,9 @@ export function resolveAbducoBin(opts?: { fresh?: boolean }): string | undefined
 }
 
 function locate(): string | undefined {
+  // abduco cannot exist on Windows (POSIX forkpty), so don't probe PATH, the
+  // cache, or a compiler — even an explicit PODIUM_ABDUCO can't be honored.
+  if (process.platform === 'win32') return undefined
   const explicit = process.env.PODIUM_ABDUCO
   if (explicit) return runs(explicit) ? explicit : undefined
   if (runs('abduco')) return 'abduco'
