@@ -149,10 +149,10 @@ afterEach(() => {
 })
 
 describe('SidebarUnified unread emphasis + mark-read-on-open', () => {
-  it('renders an unread issue row bold and a read one at normal weight', () => {
+  it('renders an unread issue row at medium weight and a read one at normal weight', () => {
     render(<SidebarUnified />)
-    expect(screen.getByText('Unread issue').className).toContain('font-semibold')
-    expect(screen.getByText('Read issue').className).not.toContain('font-semibold')
+    expect(screen.getByText('Unread issue').className).toContain('font-medium')
+    expect(screen.getByText('Read issue').className).not.toContain('font-medium')
   })
 
   it('marks the issue read when its row is opened', () => {

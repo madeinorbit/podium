@@ -756,9 +756,11 @@ function UnifiedRowShell({
             <span
               className={cn(
                 'min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap',
-                // Unread rows read bold (email-style) — the ONLY weight change in
-                // the row, independent of selection so the two never blur together.
-                unread && 'font-semibold',
+                // Unread rows lift to medium weight (email-style) — the ONLY weight
+                // change in the row, independent of selection so the two never blur
+                // together. Medium, not semibold: heavier reads as shouting once a
+                // whole list is unread.
+                unread && 'font-medium',
               )}
             >
               {label}
