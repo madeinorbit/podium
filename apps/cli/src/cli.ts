@@ -237,6 +237,14 @@ export async function main(loadHost: () => Promise<HostModules>): Promise<void> 
     return
   }
 
+  // `podium session <command>`: submit real turns to exact sessions through the
+  // operator tRPC surface or the current agent's capability-scoped daemon relay.
+  if (argv[0] === 'session') {
+    const { sessionCliMain } = await import('./session-cli')
+    await sessionCliMain(argv.slice(1))
+    return
+  }
+
   // `podium spec <command>`: read/maintain the living project spec (<repo>/pspec/).
   if (argv[0] === 'spec') {
     const { specCliMain } = await import('./spec-cli')

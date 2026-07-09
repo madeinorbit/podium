@@ -1,10 +1,6 @@
 import { randomBytes } from 'node:crypto'
-import type {
-  AgentKind,
-  ConversationSummaryWire,
-  IssueWire,
-  SessionMeta,
-} from '@podium/protocol'
+import type { AgentKind, ConversationSummaryWire, IssueWire, SessionMeta } from '@podium/protocol'
+import { checkIssueAccess } from './issue-authz'
 import { LOCAL_PLACEHOLDER } from './local-machine'
 import type { ModelProbe } from './model-catalog'
 import { EventBus } from './modules/bus'
@@ -26,8 +22,8 @@ import {
   NotifyService,
   type SessionNoticeInfo,
 } from './modules/notify/service'
-import type { Session } from './modules/sessions/session'
 import { DEFAULT_GEOMETRY, SessionsService } from './modules/sessions/service'
+import type { Session } from './modules/sessions/session'
 import { SettingsService, type TelegramSetupClient } from './modules/settings/service'
 import { SpecsService } from './modules/specs/service'
 import { HeadlessService } from './modules/superagent/headless'
@@ -284,6 +280,81 @@ export class SessionRegistry {
                     get: (_t2, proc) => {
                       if (typeof proc !== 'string' || !specs.has(proc)) return undefined
                       return (input: unknown) => specs.invoke(proc, input) as Promise<unknown>
+                    },
+                  },
+                )
+              }
+              if (router === 'sessions') {
+                return new Proxy(
+                  {},
+                  {
+                    get: (_t2, proc) => {
+                      if (proc !== 'sendText' && proc !== 'resumeAndSend' && proc !== 'continue') {
+                        return undefined
+                      }
+                      return async (raw: unknown) => {
+                        if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+                          throw new Error('invalid session command input')
+                        }
+                        const input = raw as {
+                          sessionId?: unknown
+                          text?: unknown
+                          mutationId?: unknown
+                        }
+                        if (typeof input.sessionId !== 'string' || !input.sessionId) {
+                          throw new Error('sessionId is required')
+                        }
+                        if (proc !== 'continue') {
+                          if (
+                            typeof input.text !== 'string' ||
+                            input.text.length === 0 ||
+                            input.text.length > 32_768
+                          ) {
+                            throw new Error('text must contain 1..32768 characters')
+                          }
+                        }
+                        if (
+                          input.mutationId !== undefined &&
+                          (typeof input.mutationId !== 'string' || input.mutationId.length > 128)
+                        ) {
+                          throw new Error('mutationId must be at most 128 characters')
+                        }
+                        const target = sessionsSvc
+                          .listSessions()
+                          .find((session) => session.sessionId === input.sessionId)
+                        if (!target) throw new Error('session not found')
+                        const targetIssueId = target.issueId ?? issues.issueForCwd(target.cwd)
+                        if (targetIssueId) {
+                          checkIssueAccess(
+                            {
+                              capability,
+                              ...(overrideScope ? { overrideScope: true } : {}),
+                            },
+                            issues,
+                            `sessions.${String(proc)}`,
+                            'write',
+                            targetIssueId,
+                          )
+                        }
+                        if (proc === 'continue') {
+                          return sessionsSvc.continueSession({ sessionId: input.sessionId })
+                        }
+                        const commandInput = {
+                          sessionId: input.sessionId,
+                          text: input.text as string,
+                          ...(typeof input.mutationId === 'string'
+                            ? { mutationId: input.mutationId }
+                            : {}),
+                        }
+                        return sessionsSvc.withMutation(
+                          commandInput.mutationId,
+                          `sessions.${String(proc)}`,
+                          () =>
+                            proc === 'sendText'
+                              ? sessionsSvc.sendText(commandInput)
+                              : sessionsSvc.resumeAndSend(commandInput),
+                        )
+                      }
                     },
                   },
                 )
