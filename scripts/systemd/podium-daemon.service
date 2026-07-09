@@ -9,7 +9,7 @@ Wants=network-online.target
 # Type=notify + WatchdogSec: the daemon exposes no HTTP surface, so the systemd
 # watchdog is the ONLY thing that catches a wedged-but-alive daemon — the documented
 # big-paste msg-loop wedge that previously needed a manual `systemctl restart`. The
-# pet rides the event loop (scripts/sd-notify.ts); a stalled loop stops petting.
+# pet rides the event loop (packages/runtime/src/sd-notify.ts); a stalled loop stops petting.
 Type=notify
 NotifyAccess=all
 WatchdogSec=30

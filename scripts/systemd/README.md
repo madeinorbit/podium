@@ -21,7 +21,7 @@ source via `--conditions=@podium/source`. `podium-redeploy.path` watches `.git/l
 and restarts **all three** services when main moves.
 
 Both backend units are `Type=notify` with `WatchdogSec=30`: they pet the systemd
-watchdog from their event loop (`scripts/sd-notify.ts`), so a **wedged-but-alive**
+watchdog from their event loop (`packages/runtime/src/sd-notify.ts`), so a **wedged-but-alive**
 process (the documented big-paste msg-loop wedge — `Restart=always` only fires on
 EXIT) stops petting and systemd restarts it. The daemon especially needs this: it
 exposes no HTTP `/health` surface, so the watchdog is the only thing that catches it.

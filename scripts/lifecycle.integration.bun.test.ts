@@ -43,7 +43,7 @@ afterAll(async () => {
 
 describe('detached split lifecycle', () => {
   it('runs server + daemon as two processes, then stops both', async () => {
-    const spawn = await import('./cli-spawn')
+    const spawn = await import('../apps/cli/src/cli-spawn')
     const reg = await import('../packages/runtime/src/run-registry')
 
     const { serverUp } = await spawn.startDetachedStack('all-in-one', PORT)

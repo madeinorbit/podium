@@ -169,7 +169,7 @@ function main(): void {
   // Sign the tarball bytes (Ed25519) so the feed can serve `signature` and `podium update`
   // can verify before swapping. Key source: env PODIUM_UPDATE_SIGNING_KEY (base64 pkcs8/DER,
   // the operator's production key at release) else the gitignored dev key. The matching public
-  // key is committed in scripts/podium-update-pubkey.ts — keep the two in lockstep on release.
+  // key is committed in apps/cli/src/podium-update-pubkey.ts — keep the two in lockstep on release.
   const signingKeyB64 = (() => {
     if (process.env.PODIUM_UPDATE_SIGNING_KEY) return process.env.PODIUM_UPDATE_SIGNING_KEY.trim()
     const devKey = `${root}scripts/.podium-update-dev.key`

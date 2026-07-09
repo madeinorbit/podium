@@ -8,7 +8,7 @@ Wants=network-online.target
 # 90s, not 30: boot can stall tens of seconds at LOW cpu on disk contention
 # (WAL checkpoint fsyncs on a large podium.db while the web build writes) —
 # observed 2026-07-03, one silent-stall kill at exactly 30s with only 8s CPU.
-# (scripts/sd-notify.ts), so a wedged-but-alive coordinating loop stops petting and
+# (packages/runtime/src/sd-notify.ts), so a wedged-but-alive coordinating loop stops petting and
 # systemd restarts it — Restart=always only fires on EXIT and can't see a stall.
 # NotifyAccess=all because the notifier (systemd-notify) is a child of the bun pid.
 # (sd-notify shells out to systemd-notify, so the watchdog is runtime-agnostic — verified

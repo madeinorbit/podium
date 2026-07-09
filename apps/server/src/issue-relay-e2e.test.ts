@@ -1,6 +1,6 @@
 import type { ControlMessage, DaemonMessage } from '@podium/protocol'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { runIssueCli } from '../../../scripts/issue-cli'
+import { runIssueCli } from '../../cli/src/issue-cli'
 import { createIssueRelayHub, startIssueRelayServer } from '../../daemon/src/issue-relay'
 import { type IssueTrpc, makeRelayIssueClient } from './issue-client'
 import { SessionRegistry } from './relay'
@@ -9,7 +9,7 @@ import { SessionRegistry } from './relay'
  * End-to-end proof that an agent's `podium issue` call flows the WHOLE chain with every
  * real code path wired, deterministically (no PTY, no physical WS):
  *
- *   runIssueCli (scripts/issue-cli)
+ *   runIssueCli (apps/cli/src/issue-cli)
  *     → makeRelayIssueClient POST                       (issue-client)
  *       → startIssueRelayServer loopback HTTP           (daemon/issue-relay)
  *         → hub.relay → send(issueRelayRequest)         (daemon/issue-relay)

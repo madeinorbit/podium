@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { runIssueCli } from '../../../scripts/issue-cli'
+import { runIssueCli } from '../../cli/src/issue-cli'
 import { makeIssueClient } from './issue-client'
 import { startServer } from './server'
 
