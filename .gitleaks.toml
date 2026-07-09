@@ -1,0 +1,15 @@
+# Gitleaks configuration for Podium.
+# Extends the default ruleset; only adds allowlist entries for known false positives.
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Known false positives"
+# Minified vendored xterm.js bundles (present only in git history, removed at HEAD).
+# gitleaks' generic-api-key rule matches the minified token `t.TwoKeyMap=void` in:
+#   perf/webgl-warmset/vendor/xterm.js
+#   perf/webgl-warmset/vendor/addon-webgl.js
+paths = [
+  '''perf/webgl-warmset/vendor/.*''',
+]
