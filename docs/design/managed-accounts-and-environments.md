@@ -100,9 +100,32 @@ shape:
 So `podium credential <accountId>` is one CLI serving both. It gives expiry,
 rotation, revocation and multi-account for free, and the daemon stores zero
 secrets on disk. It does **not** help the OAuth-subscription case (helper output
-is an API key or bearer, not the `claudeAiOauth` blob). Not in the first cut, but
-Phase 1's env injection should be designed so this can replace it without
-touching adapters.
+is an API key or bearer, not the `claudeAiOauth` blob).
+
+**#214's finding promotes this from "nice later" to "required for one credential
+class."** GitHub App refresh tokens are single-use and rotating, and — the nasty
+part — *a refresh silently invalidates every access token already handed out*
+(GitHub: "Once you use a refresh token, that refresh token **and the old user
+access token** will no longer work"). Access tokens live 8h. So a GitHub token
+injected into a long-running agent's env doesn't merely go stale on a timer; it
+dies the instant the server refreshes for any reason, and `git push` fails
+mid-session with a bare 403.
+
+That generalizes into the rule that decides env-injection vs callback:
+
+| Credential | Lifetime | Dies mid-session? | Env injection OK? |
+|---|---|---|---|
+| Provider API key | indefinite | no | yes |
+| `CLAUDE_CODE_OAUTH_TOKEN` | ~1 yr | no | yes |
+| `claudeAiOauth` blob (M3) | CLI-refreshed in place | no (CLI owns the file) | n/a — it's a file, not env |
+| GitHub user access token | 8 h, **invalidated early by any refresh** | **yes** | first cut only |
+
+**Env injection is sound for long-lived credentials and is a latent mid-session
+failure for short-lived ones.** Phase 1 stays a valid first cut for GitHub only
+because it mints a fresh token per spawn and closes a hole that exists today
+(#215) — but the callback CLI is the destination, and it should be pulled
+earlier than "someday" on #214's account. It is not on the critical path for
+Anthropic, whose managed credentials are all long-lived by construction.
 
 ---
 
@@ -313,7 +336,68 @@ optional fields are the established additive convention, no `WIRE_VERSION` bump)
         └──────────────────────────────────────────┘
 ```
 
-Why a **sync channel** rather than stuffing secrets into every spawn frame:
+### Machine state vs Environment: two scopes, one channel (with #213 / #234)
+
+#213 proposes the daemon become a **convergence engine**: the server holds a
+per-machine `desiredState` (which harnesses, which tool versions, pinned or
+floating), the daemon reconciles on connect + timer + push, and reports actual
+state back via an `inventory` field on pair/hello (#222). They ask whether that
+document and this one's Environment are the same object.
+
+**They are not the same object, and collapsing them would be a mistake** — the
+scopes differ:
+
+- **MachineState** is *per machine*, and describes what is **installed**:
+  `harnesses[]`, `tools[]`, version pins, plus which accounts this machine is
+  entitled to. Reconciled continuously. Cardinality: one per daemon.
+- **Environment** is *per spawn*, and describes how one agent **runs**: account,
+  model, effort, permission mode, plugins, env, hooks. Resolved at spawn.
+  Cardinality: many, and freely reassignable without touching a machine.
+
+The relationship is a **contract, not an inheritance**: an Environment *declares
+requirements* (`harness: 'codex'`, `plugins: [...]`); MachineState *satisfies*
+them; `inventory` *verifies*. That gives us something neither issue gets alone —
+the server can refuse to schedule an Environment onto a machine that lacks its
+harness, instead of the current behavior, where `abduco` silently hides a missing
+binary (#219).
+
+What they **should** share, and what I'm signing up for:
+
+1. **One transport.** `accountsSync` / `environmentsSync` / `machineStateSync`
+   are the same push-on-`helloOk`-and-on-change control frame family, not three
+   bespoke mechanisms. #234 and Phase 3 are one piece of work.
+2. **One reconcile loop** in the daemon, with credentials as one reconciler among
+   several (harnesses, tools, creds, environments).
+3. **`inventory` (#222) is a prerequisite for credential push**, exactly as #213
+   suspected. The server cannot decide which credentials a machine needs without
+   knowing which harnesses it has. Entitlement (Part 7) is machine × account;
+   inventory is what makes that decidable rather than guessed.
+
+### Machine env is a layer in the spawn env
+
+#213 surfaced that several agent CLIs self-update in place and will fight any
+version pin: `DISABLE_AUTOUPDATER=1` (+ `DISABLE_INSTALLATION_CHECKS=1`) for
+claude, `OPENCODE_DISABLE_AUTOUPDATE=1` for opencode; codex doesn't auto-update;
+cursor-agent has no clean opt-out. Those vars must reach the **spawned agent's**
+env — `daemon.ts:1357`, the seam this issue owns.
+
+So they are not a special case. They are a **machine-level contribution to the
+spawn env**, and the layering in Part 5 extends by one:
+
+```
+DEFAULTS ← machine env (version pins, tool paths — from MachineState)
+         ← role account env
+         ← ambient account env  (GitHub, …)
+         ← environment env
+         ← per-session override
+```
+
+One merge, one precedence order, one place a user can see why a variable has the
+value it has. Not two mechanisms.
+
+### Why a sync channel
+
+Rather than stuffing secrets into every spawn frame:
 - secrets stop riding the wire on every session create;
 - a **fresh daemon install pulls its environment on `helloOk` and is ready** —
   which is the stated requirement, and is impossible with a per-spawn-only model;
@@ -402,7 +486,12 @@ Reading that against this feature:
   The credential never leaves its owner.
 - **A team sharing one subscription through Podium → prohibited.** Podium must
   not become an account-sharing tool. The multi-user/hub deployment mode needs
-  per-user accounts, not a shared vault.
+  per-user accounts, not a shared vault. #213 reaches the same place from the
+  security side: a subscription OAuth token carries the user's *entire* plan
+  quota, is not scopable, and is not cheaply revocable — whereas an API key is
+  scoped, metered and revocable in a console. **For any multi-tenant deployment,
+  API keys are the only defensible choice**, and managed subscription OAuth
+  should be a single-user-self-host feature. Worth recording as a spec decision.
 - **Rotating across multiple subscription accounts to extend rate limits →
   don't build this.** Anthropic has publicly framed exactly this behavior
   (credential sharing across teams, reselling access) as the abuse that the
@@ -448,12 +537,20 @@ already resolved).
 - `SpawnMessage.environmentId?`; server resolves, sends the rendered spec.
 - UI: named environments, assignable per agent / per role / per issue.
 
-**Phase 3 — Sync channel + fresh-daemon bootstrap.**
-- `accountsSync` / `environmentsSync` control frames on `helloOk` and on
-  `settings.changed`.
-- Machine × account entitlement grants.
+**Phase 2.5 — `podium credential <accountId>` callback CLI.** Backs git's
+`credential.helper` and Claude's `apiKeyHelper` from one command; the daemon
+persists nothing. Required for short-lived credentials (GitHub's 8h access
+token, which any server-side refresh kills early — see Part 1 M4). Not on the
+critical path for Anthropic. Pulled ahead of Phase 3 at #214's request.
+
+**Phase 3 — Sync channel + fresh-daemon bootstrap. Merged with #234.**
+- `accountsSync` / `environmentsSync` / `machineStateSync` as one control-frame
+  family pushed on `helloOk` and on change, feeding **one** daemon reconcile loop.
+- Machine × account entitlement grants, decidable only once **#222** (`inventory`
+  on pair/hello) lands — so #222 is a hard prerequisite, not a nice-to-have.
+- Machine env layer (autoupdater pins) merges into spawn env.
 - *Delivers:* the stated "fresh daemon install pulls its environment and is
-  ready."
+  ready", and #213's convergence engine, as one thing.
 
 **Phase 4 — *(folded into Phase 1.5)*.**
 
