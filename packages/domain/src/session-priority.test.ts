@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { computePriorities } from './session-priority.js'
+import { computePriorities } from './session-priority'
 
 const C = (attached: string[], viewVisible: string[], focused: string | null) =>
   ({ attached: new Set(attached), viewVisible: new Set(viewVisible), focused })
