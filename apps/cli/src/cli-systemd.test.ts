@@ -14,6 +14,11 @@ describe('renderServerUnit', () => {
   })
 })
 
+/** The `Environment=PATH=` dirs of a rendered unit, in order. */
+function pathDirs(unit: string): string[] {
+  return unit.match(/^Environment=PATH=(.*)$/m)?.[1]?.split(':') ?? []
+}
+
 describe('renderDaemonUnit', () => {
   it('local split daemon auths as the local machine (--local) at the given server URL', () => {
     const u = renderDaemonUnit({ serverUrl: 'ws://localhost:18787', local: true })
@@ -23,9 +28,29 @@ describe('renderDaemonUnit', () => {
     expect(u).toContain('After=network-online.target podium-server.service')
     expect(u).toContain('Type=notify')
     expect(u).toContain(
-      'Environment=PATH=%h/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin',
+      'Environment=PATH=%h/.local/bin:%h/.bun/bin:%h/.opencode/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin',
     )
     expect(u).toContain('Restart=always')
+  })
+  // #220: the daemon spawns the agent CLIs, which inherit its PATH (agent-bridge session.ts
+  // spreads process.env). A dir missing here means `claude`/`codex`/`opencode` are simply not
+  // found once the daemon runs under systemd, even though they work in an interactive shell.
+  it('PATH covers every per-user dir an agent CLI installs into (#220)', () => {
+    const dirs = pathDirs(renderDaemonUnit())
+    expect(dirs, 'daemon unit has no Environment=PATH').not.toEqual([])
+    // claude (native installer), grok, cursor-agent, and abduco all land in ~/.local/bin.
+    expect(dirs).toContain('%h/.local/bin')
+    // codex installs as a bun/npm global → ~/.bun/bin when bun is the package manager.
+    expect(dirs).toContain('%h/.bun/bin')
+    // opencode's install script hardcodes its own prefix.
+    expect(dirs).toContain('%h/.opencode/bin')
+  })
+  it('prefers per-user CLI dirs over system dirs (#220)', () => {
+    const dirs = pathDirs(renderDaemonUnit())
+    const lastUser = dirs.findLastIndex((d) => d.startsWith('%h/'))
+    const firstSystem = dirs.findIndex((d) => d.startsWith('/'))
+    // A user-installed `claude` must win over a stale system-wide one.
+    expect(lastUser).toBeLessThan(firstSystem)
   })
   it('join case (no serverUrl) uses config-driven bare `podium daemon`', () => {
     const u = renderDaemonUnit()

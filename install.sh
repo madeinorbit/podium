@@ -122,7 +122,7 @@ Wants=network-online.target
 Type=notify
 NotifyAccess=all
 WatchdogSec=30
-Environment=PATH=%h/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin
+Environment=PATH=%h/.local/bin:%h/.bun/bin:%h/.opencode/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin
 ExecStart=%h/.local/bin/podium daemon
 Restart=always
 RestartSec=2

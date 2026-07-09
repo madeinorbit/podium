@@ -12,8 +12,13 @@ import { DAEMON_BLOCKED_EXIT_CODE } from '@podium/runtime/connectivity'
 
 const SERVER_UNIT = 'podium-server.service'
 const DAEMON_UNIT = 'podium-daemon.service'
+// Spawned agent CLIs inherit the daemon's PATH, so every dir a harness binary can install into
+// has to be here — a systemd unit gets none of the login shell's PATH (#220). `%h/.local/bin`
+// holds claude, grok, cursor-agent (and abduco); `%h/.bun/bin` holds bun/npm globals such as
+// codex; opencode's installer hardcodes `%h/.opencode/bin`. User dirs precede the system dirs so
+// a user-installed CLI wins over a stale system-wide one.
 const DAEMON_PATH =
-  '%h/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin'
+  '%h/.local/bin:%h/.bun/bin:%h/.opencode/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin'
 
 /** `~/.config/systemd/user` (respects XDG_CONFIG_HOME). */
 export function userUnitDir(): string {
