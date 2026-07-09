@@ -78,3 +78,11 @@ describe('createDispatcher', () => {
     expect(true).toBe(true)
   })
 })
+
+describe('widened discriminant rejection (Codex round-2)', () => {
+  it('a bare { type: string } union does not compile', () => {
+    // @ts-expect-error — exhaustiveness would silently collapse to an index signature
+    createDispatcher<{ type: string }>({})
+    expect(true).toBe(true)
+  })
+})

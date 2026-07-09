@@ -90,3 +90,10 @@ describe('MutationResult', () => {
     expect(Object.keys(_check).sort()).toEqual([...MUTATION_RESULT_KINDS].sort())
   })
 })
+
+describe('applied.result (Codex round-2)', () => {
+  it('the applied arm carries an arbitrary command result through parse', () => {
+    const parsed = MutationResult.parse({ kind: 'applied', result: { issue: { id: 'i1' } } })
+    expect(parsed).toEqual({ kind: 'applied', result: { issue: { id: 'i1' } } })
+  })
+})

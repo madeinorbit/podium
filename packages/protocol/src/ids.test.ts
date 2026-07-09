@@ -115,6 +115,19 @@ describe('resumeKey', () => {
   it('rejects malformed keys', () => {
     expect(() => parseResumeKey('no-separator-here')).toThrow(/malformed resume key/)
     expect(() => parseResumeKey('a:b:c')).toThrow(/malformed resume key/)
-    expect(() => parseResumeKey(':value')).toThrow(/malformed resume key/)
+    // NOT rejected: ResumeRef.kind is an unconstrained z.string(), so an empty
+    // kind is schema-valid real input and the parser must round-trip it.
+  })
+})
+
+describe('strict escaping (Codex round-2)', () => {
+  it('a dangling trailing backslash is rejected, not aliased to a valid key', () => {
+    expect(() => parseResumeKey('k:\\')).toThrow(/malformed escape/)
+  })
+  it('an unknown escape is rejected', () => {
+    expect(() => parseResumeKey('a\\qb:v')).toThrow(/malformed escape/)
+  })
+  it('an empty resume kind round-trips (ResumeRef allows it)', () => {
+    expect(parseResumeKey(resumeKey('', 'v'))).toEqual({ kind: '', value: 'v' })
   })
 })

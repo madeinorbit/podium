@@ -61,20 +61,23 @@ export const asThreadId = (s: string): ThreadId => s as ThreadId
 const escapePart = (part: string, sep: string): string =>
   part.replaceAll('\\', '\\\\').replaceAll(sep, `\\${sep}`)
 
-/** Split on raw (unescaped) `sep` occurrences and unescape each part. */
+/**
+ * Split on raw (unescaped) `sep` occurrences and unescape each part. STRICT:
+ * a dangling trailing `\` or an escape of anything but `\`/`sep` throws, so a
+ * malformed key has no silently-accepted non-canonical alias of a valid one.
+ */
 const splitEscaped = (key: string, sep: string): string[] => {
   const parts: string[] = []
   let current = ''
   for (let i = 0; i < key.length; i++) {
     const ch = key[i]
-    if (ch === '\\' && i + 1 < key.length) {
-      const next = key[i + 1]
-      if (next === '\\' || next === sep) {
-        current += next
-        i += 1
-        continue
+    if (ch === '\\') {
+      const next = i + 1 < key.length ? key[i + 1] : undefined
+      if (next !== '\\' && next !== sep) {
+        throw new Error(`malformed escape in key: ${JSON.stringify(key)}`)
       }
-      current += ch
+      current += next
+      i += 1
     } else if (ch === sep) {
       parts.push(current)
       current = ''
@@ -108,10 +111,13 @@ const RESUME_SEP = ':'
 export const resumeKey = (kind: string, value: string): string =>
   `${escapePart(kind, RESUME_SEP)}${RESUME_SEP}${escapePart(value, RESUME_SEP)}`
 
-/** Inverse of {@link resumeKey}. Throws on a string that is not a well-formed key. */
+/** Inverse of {@link resumeKey}. Throws on a string that is not a well-formed
+ *  key. An EMPTY kind is accepted: ResumeRef schemas allow it, so the
+ *  constructor can legitimately produce `:value` and the parser must
+ *  round-trip every constructor output. */
 export const parseResumeKey = (key: string): { kind: string; value: string } => {
   const parts = splitEscaped(key, RESUME_SEP)
-  if (parts.length !== 2 || parts[0] === undefined || parts[1] === undefined || parts[0] === '') {
+  if (parts.length !== 2 || parts[0] === undefined || parts[1] === undefined) {
     throw new Error(`malformed resume key: ${JSON.stringify(key)}`)
   }
   return { kind: parts[0], value: parts[1] }

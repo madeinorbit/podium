@@ -54,10 +54,20 @@ export type MutationResultKind = (typeof MUTATION_RESULT_KINDS)[number]
  *   was durably outboxed for a serial FIFO replay on reconnect (the
  *   forwarder's `{ queued: true }` + upstream_outbox enqueue). Not a terminal
  *   verdict on the mutation itself — replay resolves it to applied/rejected.
+ *
+ * Adapter note: today's forwarder THROWS definitive rejections to the caller
+ * rather than returning them; mapping that throw into the `rejected` arm (and
+ * a resolved value into `applied.result`) is the adapter's job when the
+ * ledger/registry adopt this envelope — the semantics mirrored here are the
+ * outcome classes, not the throw-vs-return calling convention.
  */
 export const MutationResult = z.discriminatedUnion('kind', [
   z.object({
     kind: z.literal('applied'),
+    /** The command's return value (the forwarder resolves the hub's arbitrary
+     *  result through unchanged — e.g. the created issue). `unknown` here;
+     *  the P3 command registry types it per-command via CommandDef's Out. */
+    result: z.unknown().optional(),
     /** Optional oplog echo: the MetadataChange rows this mutation appended. */
     changes: z.array(MetadataChange).optional(),
   }),

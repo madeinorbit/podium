@@ -19,7 +19,14 @@ export type DispatchHandlers<M extends { type: string }, Ctx = void> = {
  * (casts, unparsed input) anyway.
  */
 export function createDispatcher<M extends { type: string }, Ctx = void>(
-  handlers: DispatchHandlers<M, Ctx>,
+  // `string extends M['type']` means the discriminant was widened (e.g. a bare
+  // `{ type: string }`): the mapped type would collapse to an index signature
+  // and exhaustiveness would silently vanish — reject it at the call site.
+  handlers: string extends M['type']
+    ? [
+        'createDispatcher requires a finite discriminated union — the discriminant was widened to string',
+      ]
+    : DispatchHandlers<M, Ctx>,
 ): (msg: M, ctx: Ctx) => void | Promise<void> {
   return (msg, ctx) => {
     const handler = (

@@ -168,3 +168,26 @@ describe('bootProcess', () => {
     expect(proc.startWatchdog).not.toHaveBeenCalled()
   })
 })
+
+describe('shutdown hardening (Codex round-2)', () => {
+  it('a throwing stopWatchdog still closes and exits 0', async () => {
+    const handlers = new Map<string, () => void>()
+    const close = vi.fn()
+    const proc: BootProc = {
+      exit: vi.fn(),
+      onSignal: (signal, handler) => {
+        handlers.set(signal, handler)
+      },
+      installSafetyNet: vi.fn(),
+      startWatchdog: vi.fn(() => () => {
+        throw new Error('cleanup boom')
+      }),
+      log: vi.fn(),
+      error: vi.fn(),
+      stayAlive: () => Promise.resolve(),
+    }
+    await bootProcess({ name: 'server', bootTimeoutMs: null, start: async () => ({ close }) }, proc)
+    handlers.get('SIGTERM')?.()
+    await vi.waitFor(() => expect(proc.exit).toHaveBeenCalledWith(0))
+  })
+})

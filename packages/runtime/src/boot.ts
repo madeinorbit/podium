@@ -112,10 +112,20 @@ export async function bootProcess<H extends BootHandle>(
     // "did not complete" on top of the real failure.
     if (bootWatchdog !== undefined) clearTimeout(bootWatchdog)
     if (!bootTimedOut) {
-      proc.error(
-        `[podium:${spec.name}] boot failed: ${err instanceof Error ? (err.stack ?? err.message) : String(err)}`,
-      )
-      proc.exit(1)
+      // exit(1) in finally: a hostile rejection value (throwing .stack/.message
+      // getter) or a throwing proc.error must not skip the exit with the
+      // recovery timer already cleared.
+      try {
+        let detail: string
+        try {
+          detail = err instanceof Error ? (err.stack ?? err.message) : String(err)
+        } catch {
+          detail = '<unprintable error>'
+        }
+        proc.error(`[podium:${spec.name}] boot failed: ${detail}`)
+      } finally {
+        proc.exit(1)
+      }
     }
     return
   }
@@ -130,18 +140,24 @@ export async function bootProcess<H extends BootHandle>(
   const shutdown = async (): Promise<void> => {
     if (shuttingDown) return
     shuttingDown = true
-    stopWatchdog?.()
-    // exit(0) lives in `finally`: a throwing/rejecting close() would otherwise
-    // reject the race, get swallowed by `void shutdown()` + the crash net, and
-    // leave the process alive after SIGTERM with its watchdog already stopped.
+    // exit(0) lives in `finally`: a throwing stopWatchdog() or a
+    // throwing/rejecting close() would otherwise get swallowed by
+    // `void shutdown()` + the crash net and leave the process alive after
+    // SIGTERM (with `shuttingDown` already latched, so even a second signal
+    // couldn't recover it).
+    let closeTimer: ReturnType<typeof setTimeout> | undefined
     try {
+      stopWatchdog?.()
       await Promise.race([
         (async () => handle.close())(),
-        new Promise((r) => setTimeout(r, closeTimeoutMs)),
+        new Promise((r) => {
+          closeTimer = setTimeout(r, closeTimeoutMs)
+        }),
       ])
     } catch (err) {
       proc.error(`[podium:${spec.name}] close() failed during shutdown: ${String(err)}`)
     } finally {
+      if (closeTimer !== undefined) clearTimeout(closeTimer)
       proc.exit(0)
     }
   }

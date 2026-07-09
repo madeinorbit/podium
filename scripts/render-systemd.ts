@@ -23,28 +23,48 @@ import { fileURLToPath } from 'node:url'
 import { renderDaemonUnit } from '../apps/cli/src/cli-systemd'
 
 const INSTALL_SH = fileURLToPath(new URL('../install.sh', import.meta.url))
-// Same block the lockstep test pins: the fallback daemon-unit heredoc. The body is
-// tempered — it may not contain an `EOF` line — so a removed/malformed closing
-// delimiter fails the match outright instead of lazily extending to the NEXT
-// heredoc's EOF and letting a regeneration swallow unrelated installer logic.
-const HEREDOC =
-  /(cat > "\$UNIT_DIR\/podium-daemon\.service" <<'EOF'\n)((?:(?!EOF\n)[^\n]*\n)*)(EOF\n)/
-const OPEN_MARKER = `cat > "$UNIT_DIR/podium-daemon.service" <<'EOF'\n`
+// Same block the lockstep test pins: the fallback daemon-unit heredoc. Extraction
+// is LINE-based and refuses anything ambiguous: exactly one opener line; the body
+// runs to the first line that is EXACTLY `EOF`; if the scan crosses another
+// heredoc opener first (which happens when the daemon block's closer was removed
+// or malformed to e.g. `EOF ` / `EOF\r`), we refuse rather than let a
+// regeneration swallow unrelated installer logic between two heredocs.
+const OPENER = `cat > "$UNIT_DIR/podium-daemon.service" <<'EOF'`
 
 const check = process.argv.includes('--check')
 const sh = readFileSync(INSTALL_SH, 'utf8')
-const openCount = sh.split(OPEN_MARKER).length - 1
-const m = sh.match(HEREDOC)
-if (openCount !== 1 || !m) {
+const lines = sh.split('\n')
+const openerIdxs = lines.flatMap((l, i) => (l.trim() === OPENER ? [i] : []))
+if (openerIdxs.length !== 1 || openerIdxs[0] === undefined) {
   console.error(
-    openCount > 1
-      ? `render-systemd: refusing — install.sh contains ${openCount} daemon-unit heredoc openers, expected exactly one`
-      : 'render-systemd: install.sh no longer contains a well-formed fallback daemon-unit heredoc (opener + EOF closer)',
+    `render-systemd: refusing — install.sh contains ${openerIdxs.length} daemon-unit heredoc opener lines, expected exactly one`,
   )
   process.exit(1)
 }
+const openerIdx = openerIdxs[0]
+let closeIdx = -1
+for (let i = openerIdx + 1; i < lines.length; i++) {
+  const line = lines[i]
+  if (line === 'EOF') {
+    closeIdx = i
+    break
+  }
+  if (line?.includes("<<'EOF'")) {
+    console.error(
+      `render-systemd: refusing — scan crossed another heredoc opener at install.sh line ${i + 1} before finding the daemon block's EOF closer (malformed/removed delimiter?)`,
+    )
+    process.exit(1)
+  }
+}
+if (closeIdx === -1) {
+  console.error(
+    'render-systemd: refusing — no EOF closer line found for the daemon-unit heredoc in install.sh',
+  )
+  process.exit(1)
+}
+const body = `${lines.slice(openerIdx + 1, closeIdx).join('\n')}\n`
 const want = renderDaemonUnit()
-if (m[2] === want) {
+if (body === want) {
   console.log('render-systemd: install.sh fallback daemon unit matches renderDaemonUnit()')
   process.exit(0)
 }
@@ -57,6 +77,6 @@ if (check) {
 }
 writeFileSync(
   INSTALL_SH,
-  sh.replace(HEREDOC, (_all, open: string, _body: string, close: string) => open + want + close),
+  [...lines.slice(0, openerIdx + 1), want.replace(/\n$/, ''), ...lines.slice(closeIdx)].join('\n'),
 )
 console.log('render-systemd: rewrote the install.sh fallback daemon unit from renderDaemonUnit()')
