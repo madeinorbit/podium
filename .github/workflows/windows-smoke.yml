@@ -36,13 +36,6 @@ jobs:
           bun run --filter @podium/web build
           bun scripts/build-bun.ts
 
-      # TEMPORARY diagnostic (#90): ground truth for the compiled-binary worker spawn
-      # path on Windows. Remove once windows-smoke is stably green.
-      - name: Bunfs worker-spawn probe (diagnostic)
-        continue-on-error: true
-        run: |
-          bun build --compile --conditions=@podium/source scripts/bunfs-probe.ts apps/daemon/src/discovery-worker.ts --outfile dist-bun/bunfs-probe.exe
-          dist-bun\bunfs-probe.exe
 
       - name: Boot smoke (podium.cmd all-in-one → /health + /version)
         shell: pwsh
