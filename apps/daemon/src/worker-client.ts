@@ -2,7 +2,7 @@
 import { randomUUID } from 'node:crypto'
 import { Worker } from 'node:worker_threads'
 import type { WorkerJob, WorkerResult } from './discovery-worker'
-import { discoveryWorkerEmbeddedUrl, isCompiledBunfsUrl } from './discovery-worker-embed.js'
+import { discoveryWorkerEmbeddedTarget, isCompiledBunfsUrl } from './discovery-worker-embed.js'
 
 export interface WorkerLike {
   postMessage(m: unknown): void
@@ -16,14 +16,15 @@ interface Pending {
   timer: ReturnType<typeof setTimeout>
 }
 
-function workerUrl(): URL {
+function workerUrl(): URL | string {
   // In the `bun build --compile` daemon, `new URL('./discovery-worker.ts', import.meta.url)`
-  // does NOT resolve — import.meta.url collapses to the main entry (file:///$bunfs/root/<binary>,
-  // B:/~BUN/root/<binary>.exe on Windows) and the worker is embedded (as a separate entrypoint,
-  // see scripts/build-bun.ts) at a nested `.js` path. Detect the standalone binary via its
-  // virtual-root module URL and spawn the worker from its embedded URL. Running from source
-  // (bun run host / bun test) we spawn the sibling `.ts` on disk instead.
-  if (isCompiledBunfsUrl(import.meta.url)) return new URL(discoveryWorkerEmbeddedUrl())
+  // does NOT resolve — import.meta.url collapses to the main entry (file:///$bunfs/root/<binary>;
+  // a raw B:\~BUN\root\<binary>.exe PATH on Windows) and the worker is embedded (as a separate
+  // entrypoint, see scripts/build-bun.ts) at a nested `.js` path. Detect the standalone binary
+  // via its virtual-root module identity and spawn the worker from its embedded target (URL on
+  // POSIX, plain path on Windows). Running from source (bun run host / bun test) we spawn the
+  // sibling `.ts` on disk instead.
+  if (isCompiledBunfsUrl(import.meta.url)) return discoveryWorkerEmbeddedTarget()
   return new URL('./discovery-worker.ts', import.meta.url)
 }
 

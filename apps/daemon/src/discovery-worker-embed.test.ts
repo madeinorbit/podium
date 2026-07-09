@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   DISCOVERY_WORKER_ENTRY,
-  discoveryWorkerEmbeddedUrl,
+  discoveryWorkerEmbeddedTarget,
   isCompiledBunfsUrl,
 } from './discovery-worker-embed.js'
 
@@ -9,10 +9,12 @@ describe('isCompiledBunfsUrl', () => {
   it('detects the POSIX standalone-binary module URL (/$bunfs/)', () => {
     expect(isCompiledBunfsUrl('file:///$bunfs/root/podium')).toBe(true)
   })
-  it('detects the WINDOWS standalone-binary module URL (B:/~BUN/)', () => {
-    // Bun's virtual filesystem root is B:\~BUN on Windows — the /$bunfs marker
-    // never appears there, which is exactly how the worker spawn regressed
-    // (fell into the run-from-source branch inside the compiled binary).
+  it('detects the WINDOWS standalone-binary module path (B:\\~BUN, plain path, backslashes)', () => {
+    // Inside a Windows compiled binary import.meta.url is NOT a file:// URL — it is
+    // a raw path under Bun's B:\~BUN virtual root (oven-sh/bun#16010). The original
+    // '/$bunfs/' check (and a '/~BUN/' one) both missed it, sending the compiled
+    // daemon down the run-from-source branch → ModuleNotFound crash-loop.
+    expect(isCompiledBunfsUrl('B:\\~BUN\\root\\worker-client.js')).toBe(true)
     expect(isCompiledBunfsUrl('file:///B:/~BUN/root/podium.exe')).toBe(true)
   })
   it('is false for ordinary on-disk module URLs', () => {
@@ -25,15 +27,14 @@ describe('isCompiledBunfsUrl', () => {
   })
 })
 
-describe('discoveryWorkerEmbeddedUrl', () => {
+describe('discoveryWorkerEmbeddedTarget', () => {
   const rel = DISCOVERY_WORKER_ENTRY.replace(/\.ts$/, '.js')
   it('POSIX: file URL under /$bunfs/root', () => {
-    expect(discoveryWorkerEmbeddedUrl('linux')).toBe(`file:///$bunfs/root/${rel}`)
+    expect(discoveryWorkerEmbeddedTarget('linux')).toBe(`file:///$bunfs/root/${rel}`)
   })
-  it('Windows: file URL under B:/~BUN/root (drive keeps the triple slash)', () => {
-    const url = discoveryWorkerEmbeddedUrl('win32')
-    expect(url).toBe(`file:///B:/~BUN/root/${rel}`)
-    // A malformed file://B:/… would parse the drive letter as a URL HOST.
-    expect(new URL(url).host).toBe('')
+  it('Windows: a plain backslash path under B:\\~BUN\\root (matching import.meta.url form)', () => {
+    expect(discoveryWorkerEmbeddedTarget('win32')).toBe(
+      `B:\\~BUN\\root\\${rel.replaceAll('/', '\\')}`,
+    )
   })
 })

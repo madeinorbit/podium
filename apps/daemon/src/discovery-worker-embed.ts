@@ -19,22 +19,28 @@ export const DISCOVERY_WORKER_ENTRY = 'apps/daemon/src/discovery-worker.ts'
 
 /**
  * Whether `url` is a module inside a bun-compiled standalone binary. Bun's virtual
- * filesystem root is `/$bunfs` on POSIX but `B:\~BUN` on WINDOWS — checking only
- * `/$bunfs/` made the compiled Windows daemon take the run-from-source branch and
- * crash-loop on `ModuleNotFound B:\~BUN\root\discovery-worker.ts`.
+ * filesystem root is `/$bunfs` on POSIX but `B:\~BUN` on WINDOWS — and there
+ * import.meta.url is a raw BACKSLASH PATH, not a file:// URL (oven-sh/bun#16010),
+ * so the match must be separator-agnostic. Checking only `/$bunfs/` made the
+ * compiled Windows daemon take the run-from-source branch and crash-loop on
+ * `ModuleNotFound B:\~BUN\root\discovery-worker.ts`.
  */
 export function isCompiledBunfsUrl(url: string): boolean {
-  return url.includes('/$bunfs/') || url.includes('/~BUN/')
+  return url.includes('/$bunfs/') || url.includes('~BUN')
 }
 
 /**
- * The file:// URL the worker is embedded at inside the compiled binary (`.ts`
- * transpiled to `.js`). Returned as a full URL string rather than a path so the
- * Windows drive letter can't be mangled into a URL host (`file://B:/…`).
+ * What to hand `new Worker(...)` for the embedded worker inside the compiled
+ * binary (`.ts` transpiled to `.js`): a file:// URL on POSIX, but on Windows a
+ * plain backslash path — the same form Bun itself uses for module identity there
+ * (see isCompiledBunfsUrl); a file:///B:/… URL does not resolve against the
+ * virtual root.
  */
-export function discoveryWorkerEmbeddedUrl(
+export function discoveryWorkerEmbeddedTarget(
   platform: NodeJS.Platform = process.platform,
 ): string {
   const rel = DISCOVERY_WORKER_ENTRY.replace(/\.ts$/, '.js')
-  return platform === 'win32' ? `file:///B:/~BUN/root/${rel}` : `file:///$bunfs/root/${rel}`
+  return platform === 'win32'
+    ? `B:\\~BUN\\root\\${rel.replaceAll('/', '\\')}`
+    : `file:///$bunfs/root/${rel}`
 }

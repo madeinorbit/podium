@@ -36,6 +36,14 @@ jobs:
           bun run --filter @podium/web build
           bun scripts/build-bun.ts
 
+      # TEMPORARY diagnostic (#90): ground truth for the compiled-binary worker spawn
+      # path on Windows. Remove once windows-smoke is stably green.
+      - name: Bunfs worker-spawn probe (diagnostic)
+        continue-on-error: true
+        run: |
+          bun build --compile --conditions=@podium/source scripts/bunfs-probe.ts apps/daemon/src/discovery-worker.ts --outfile dist-bun/bunfs-probe.exe
+          dist-bun\bunfs-probe.exe
+
       - name: Boot smoke (podium.cmd all-in-one → /health + /version)
         shell: pwsh
         run: |
@@ -46,17 +54,23 @@ jobs:
             -ArgumentList '/d','/c','dist-bun\headless\podium.cmd' `
             -RedirectStandardOutput podium-out.log -RedirectStandardError podium-err.log `
             -PassThru -NoNewWindow
+          # 127.0.0.1 (the server's default bind) rather than localhost — one fewer
+          # resolution variable. Generous window: shared windows-latest runners have
+          # shown multi-minute cold boots (sqlite store + mirror bootstrap on D:).
           $healthy = $false
-          foreach ($i in 1..45) {
+          foreach ($i in 1..90) {
             try {
-              $r = Invoke-WebRequest -Uri 'http://localhost:18787/health' -UseBasicParsing -TimeoutSec 2
-              if ($r.StatusCode -eq 200) { $healthy = $true; break }
+              $r = Invoke-WebRequest -Uri 'http://127.0.0.1:18787/health' -UseBasicParsing -TimeoutSec 2
+              if ($r.StatusCode -eq 200) { $healthy = $true; Write-Host "healthy after poll #$i"; break }
             } catch { Start-Sleep -Seconds 2 }
-            if ($proc.HasExited) { break }
+            if ($proc.HasExited) { Write-Host "launcher exited early (poll #$i)"; break }
           }
           Write-Host '--- podium stdout ---'; Get-Content podium-out.log -ErrorAction SilentlyContinue
           Write-Host '--- podium stderr ---'; Get-Content podium-err.log -ErrorAction SilentlyContinue
-          if (-not $healthy) { Write-Error 'podium never became healthy on :18787'; exit 1 }
+          if (-not $healthy) {
+            Write-Host '--- netstat :18787 ---'; netstat -ano | Select-String 18787
+            Write-Error 'podium never became healthy on :18787'; exit 1
+          }
           $v = Invoke-WebRequest -Uri 'http://localhost:18787/version' -UseBasicParsing
           Write-Host "version probe: $($v.Content)"
           # Kill the TREE: $proc is the cmd.exe launcher; podium-cli.exe is its child
