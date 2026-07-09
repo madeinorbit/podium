@@ -265,6 +265,52 @@ Citation conventions used below: **[help]** = `grok --help` / subcommand help; *
 
 ---
 
+## 16. Filesystem watcher & inotify footprint
+
+Grok's `@` file picker is backed by a workspace file index (`session/fs_watch.rs`,
+`xai-grok-workspace/src/fs_notify.rs`) that keeps an inotify watch on **every directory**
+under the session cwd. inotify has no recursive mode, so one watch is consumed per
+directory. Measured on grok 0.2.93. *(established)*
+
+- **The watcher is lazy.** It spawns on first use of the `@` picker (`fs-notify: skipped
+  (no consumers)` until a consumer appears), not at session boot. A grok session that never
+  opens the picker holds ~0 watches — which is why idle sessions look harmless. *(established)*
+- **`.gitignore` is applied only to the repo's immediate children.** Surviving top-level
+  directories are then watched **recursively, unfiltered**. So `node_modules/` at the repo
+  root is skipped, but `apps/web/node_modules/` — matching the same pattern — is fully
+  watched. This is a grok bug, not a config mistake. *(established)*
+- `GROK_RESPECT_GITIGNORE=0` does **not** affect the watcher; it only gates `.gitignore`
+  filtering inside *tools*. There is no config key or env var that bounds the watcher.
+  `[features] codebase_indexing` gates a *different* subsystem (code-nav, web clients only —
+  it logs `client_not_web` and skips under the CLI). *(established)*
+
+**Consequence.** A monorepo whose root has an un-ignored directory containing vendored trees
+costs ~one watch per directory, per session, and multiplies by concurrent sessions. In this
+repo `.claude/*` ignored `.claude`'s *children* but left `.claude` itself un-ignored, so grok
+descended into `.claude/worktrees` (28 stale worktrees × `node_modules` ≈ 196K dirs):
+**157,252 watches for a single session**. Nine sessions pinned the 1,048,576 system ceiling,
+after which `inotify_add_watch` fails with `ENOSPC` — surfacing as `No space left on device`
+in unrelated consumers. That is what broke `podium-redeploy.path` (issue #203).
+
+**Mitigation.** Ignore heavy trees as whole directories at the repo root, so they lose the
+depth-1 filter. `.gitignore: .claude/` (not `.claude/*`) drops a fresh session from
+**157,252 → 801 watches**. A tracked file inside an ignored directory stays tracked, since
+ignore rules never apply to paths already in the index. `.git/info/exclude` works identically
+and is per-clone if a committed change is unwanted. Neither can prune below depth 1.
+
+**Measuring a session's watches:**
+
+```sh
+grep -h '^inotify' /proc/<pid>/fdinfo/* | wc -l          # count
+cat /proc/sys/fs/inotify/max_user_watches                # ceiling
+# which dirs: fdinfo lines carry hex `ino:`; join against `find <root> -printf '%i %p\n'`
+```
+
+Watches are held for the process's lifetime, so **long-lived sessions keep the old footprint
+until restarted** — fixing the ignore rules only helps sessions started afterwards.
+
+---
+
 ## Open questions / unverified
 
 - Exact CLI version each flag was introduced (resume/headless-session/`--output-format`/leader/sandbox) — gate broadly on ≥0.2.x.
