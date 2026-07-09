@@ -1,44 +1,39 @@
 import { shallowEqual } from '@podium/client-core/store'
-import {
-  BarChart3,
-  ChevronDown,
-  Home,
-  KanbanSquare,
-  Pin,
-  Search,
-  Settings as SettingsIcon,
-  Sparkles,
-  X,
-} from 'lucide-react'
-import type { JSX, ReactNode } from 'react'
-import { lazy, Suspense, useEffect, useRef, useState } from 'react'
-import { Button } from '@/components/ui/button'
-import { Dialog, DialogContent } from '@/components/ui/dialog'
-import { useIsMobile } from '@/hooks/use-is-mobile'
+import type { IssueWire, SessionMeta } from '@podium/protocol'
+import { ChevronDown, FileText, Home, KanbanSquare, Pin, Sparkles, X } from 'lucide-react'
+import type { JSX } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { useSessionGuard } from '@/hooks/use-session-guard'
 import { cn } from '@/lib/utils'
 import { AgentPanel } from './AgentPanel'
 import {
+  draftIssueLabel,
   orderTabs,
-  type RepoNavView,
   reposToViews,
   sessionDotClass,
+  sessionsForIssueNav,
   sessionsForWorktree,
-  sidebarSections,
-  type WorktreeNavView,
 } from './derive'
 import { HostIndicators } from './HostIndicators'
 import { NewPanelMenu } from './NewPanelMenu'
-import { RepoScanFlow } from './RepoScanFlow'
 import { MainViewOutlet } from './routes'
+import { AppToolsRow, NewWorkRow, WorkSections } from './SidebarUnified'
 import { SuperagentView } from './SuperagentView'
-import { useStoreSelector } from './store'
-import type { PinKind } from './types'
-import { useNow } from './useNow'
+import { type FileTab, useStoreSelector } from './store'
+import type { WorktreeView } from './types'
 import { WorkerLabel } from './WorkerLabel'
 
 // File viewer (clickable transcript paths) — lazy, mirroring the desktop Workspace.
 const FilePanel = lazy(() => import('./FilePanel').then((m) => ({ default: m.FilePanel })))
+
+/** A panel of the selected work: an agent/shell session, or an open file tab. */
+type MobilePanel =
+  | { kind: 'session'; id: string; session: SessionMeta }
+  | { kind: 'file'; id: string; tab: FileTab }
+
+function basename(path: string): string {
+  return path.split('/').pop() || path
+}
 
 /**
  * Pin the mobile shell to the visual viewport. The layout viewport (what dvh
@@ -84,15 +79,32 @@ function useVisualViewportHeight(): void {
   }, [])
 }
 
+/**
+ * Mobile home (#227): the desktop sidebar minus the nav column the mobile header
+ * already provides. Rows run the sidebar's own handlers, so a tap selects the
+ * issue, opens one of its panes, and navigates to the workspace.
+ */
+function MobileHomeView(): JSX.Element {
+  return (
+    <section className="flex min-w-0 flex-1 flex-col overflow-y-auto pb-6">
+      <NewWorkRow />
+      <AppToolsRow className="mx-3 mt-2" />
+      <div className="mt-1">
+        <WorkSections />
+      </div>
+    </section>
+  )
+}
+
 export function MobileApp(): JSX.Element {
   useVisualViewportHeight()
-  const isMobile = useIsMobile()
   const {
     sessions,
     pins,
     setPinned,
+    issues,
+    selectedIssueId,
     selectedWorktree,
-    setSelectedWorktree,
     paneA,
     setPane,
     view,
@@ -101,8 +113,6 @@ export function MobileApp(): JSX.Element {
     setSuperOpen,
     fileTabs,
     closeFileTab,
-    reposLoading,
-    repoDiagnostics,
     repos,
     tabOrders,
   } = useStoreSelector(
@@ -110,8 +120,9 @@ export function MobileApp(): JSX.Element {
       sessions: s.sessions,
       pins: s.pins,
       setPinned: s.setPinned,
+      issues: s.issues,
+      selectedIssueId: s.selectedIssueId,
       selectedWorktree: s.selectedWorktree,
-      setSelectedWorktree: s.setSelectedWorktree,
       paneA: s.paneA,
       setPane: s.setPane,
       view: s.view,
@@ -120,62 +131,89 @@ export function MobileApp(): JSX.Element {
       setSuperOpen: s.setSuperOpen,
       fileTabs: s.fileTabs,
       closeFileTab: s.closeFileTab,
-      reposLoading: s.reposLoading,
-      repoDiagnostics: s.repoDiagnostics,
       repos: s.repos,
       tabOrders: s.tabOrders,
     }),
     shallowEqual,
   )
   const { guardedKill } = useSessionGuard()
-  const now = useNow(60_000)
-  const repoViews = reposToViews(repos)
-  const sections = sidebarSections(repos, sessions, pins, now)
-  const worktree = repoViews.flatMap((r) => r.worktrees).find((w) => w.path === selectedWorktree)
+  const repoViews = useMemo(() => reposToViews(repos), [repos])
+  const allWorktreePaths = useMemo(
+    () => repoViews.flatMap((r) => r.worktrees.map((w) => w.path)),
+    [repoViews],
+  )
+  const selectedIssue: IssueWire | undefined = selectedIssueId
+    ? issues.find((i) => i.id === selectedIssueId)
+    : undefined
+  // The worktree behind the selection: the issue's own, else the bare worktree
+  // row the user picked. A draft issue has none until its agent lands somewhere.
+  const worktreePath = selectedIssue?.worktreePath ?? selectedWorktree
+  const worktree = repoViews.flatMap((r) => r.worktrees).find((w) => w.path === worktreePath)
   const worktreeRepoName = worktree
     ? (repoViews.find((r) => r.path === worktree.repoPath)?.name ??
       worktree.repoPath.split('/').pop())
     : null
-  const tabs = worktree
-    ? orderTabs(
-        sessionsForWorktree(
-          sessions,
-          worktree.path,
-          repoViews.flatMap((r) => r.worktrees.map((w) => w.path)),
-        ),
-        tabOrders[worktree.path],
-        pins,
-      )
-    : []
-  const [pickerOpen, setPickerOpen] = useState(false)
-  const [repoPickerOpen, setRepoPickerOpen] = useState(false)
-  const [sessionMenuOpen, setSessionMenuOpen] = useState(false)
-  // The new-agent ("+") menu and the session/tab-select menu are mutually
-  // exclusive — opening one closes the other (#97). Lift the "+" menu's open
-  // state here so the two can coordinate (NewPanelMenu is controlled below).
+  // Where the "+" menu spawns, mirroring the desktop workspace: the selection's
+  // worktree, or — for a worktree-less issue (a draft) — its repo's primary
+  // checkout. The panel is spawned INTO the issue (`issueId`), so it lands in
+  // the issue's panel list rather than orbiting a worktree the issue doesn't own.
+  const panelTarget: WorktreeView | undefined = selectedIssue
+    ? (worktree ??
+      repoViews
+        .flatMap((r) => r.worktrees)
+        .find((w) => w.repoPath === selectedIssue.repoPath && w.isMain) ?? {
+        path: selectedIssue.repoPath,
+        repoPath: selectedIssue.repoPath,
+        isMain: true,
+      })
+    : worktree
+
+  // Every panel of the selected work: its sessions (agents AND shells) plus the
+  // file tabs open on its worktree. A draft issue with no worktree yet still
+  // lists its agents. Any future panel kind lands here for free. Memoized: the
+  // keep-pane-valid effect below depends on it, and a fresh array every render
+  // would re-run that effect on every render.
+  const panels: MobilePanel[] = useMemo(() => {
+    const panelSessions = selectedIssue
+      ? sessionsForIssueNav(selectedIssue, sessions, allWorktreePaths, { includeShells: true })
+      : worktreePath
+        ? sessionsForWorktree(sessions, worktreePath, allWorktreePaths)
+        : []
+    // Same manual-order key the desktop workspace strip persists under.
+    const orderKey = selectedIssue ? `issue:${selectedIssue.id}` : worktreePath
+    return [
+      ...orderTabs(panelSessions, orderKey ? tabOrders[orderKey] : undefined, pins).map(
+        (session): MobilePanel => ({ kind: 'session', id: session.sessionId, session }),
+      ),
+      ...(worktreePath
+        ? fileTabs
+            .filter((f) => f.worktreePath === worktreePath)
+            .map((tab): MobilePanel => ({ kind: 'file', id: tab.id, tab }))
+        : []),
+    ]
+  }, [selectedIssue, sessions, allWorktreePaths, worktreePath, tabOrders, pins, fileTabs])
+
+  const [panelMenuOpen, setPanelMenuOpen] = useState(false)
+  // The new-agent ("+") menu and the panel-select menu are mutually exclusive —
+  // opening one closes the other (#97). Lift the "+" menu's open state here so
+  // the two can coordinate (NewPanelMenu is controlled below).
   const [newAgentOpen, setNewAgentOpen] = useState(false)
-  // Route-backed search overlay; rendered at shell level (AppShell).
-  const setSearchOpen = useStoreSelector((s) => s.setSearchOpen)
   // Hold a freshly-opened (or reload-restored) session in pane A until the store
-  // knows it — see the keep-pane-valid effect — otherwise it bounces to tabs[0].
+  // knows it — see the keep-pane-valid effect — else it bounces to panels[0].
   const justOpened = useRef<string | null>(paneA)
   // A clicked transcript file path opens a `file:` pane (not a session) — render
   // the file viewer for it instead of an AgentPanel (which would mount a stray
   // shell for the non-session id).
   const activeFileTab =
     paneA?.startsWith('file:') === true ? fileTabs.find((f) => f.id === paneA) : undefined
-  const currentTab = tabs.find((t) => t.sessionId === paneA)
-  const hasRows =
-    sections.pinnedWorktrees.length > 0 ||
-    sections.pinnedRepos.length > 0 ||
-    sections.repos.length > 0
+  const currentPanel = panels.find((p) => p.id === paneA)
 
   useEffect(() => {
-    // A valid `file:` pane is legitimate — don't bounce it to a session tab.
+    // A valid `file:` pane is legitimate — don't bounce it to a session panel.
     if (paneA?.startsWith('file:')) {
       if (fileTabs.some((f) => f.id === paneA)) return
-      // its tab was closed → fall through to pick a session
-    } else if (paneA && tabs.some((t) => t.sessionId === paneA)) {
+      // its tab was closed → fall through to pick a panel
+    } else if (paneA && panels.some((p) => p.id === paneA)) {
       justOpened.current = null
       return
     } else if (
@@ -185,22 +223,29 @@ export function MobileApp(): JSX.Element {
     ) {
       return
     }
-    setPane('A', tabs[0]?.sessionId ?? null)
-  }, [tabs, paneA, setPane, sessions, fileTabs])
+    setPane('A', panels[0]?.id ?? null)
+  }, [panels, paneA, setPane, sessions, fileTabs])
 
-  const pickWorktree = (path: string) => {
-    setSelectedWorktree(path)
-    setPickerOpen(false)
-    setSessionMenuOpen(false)
-    setView('workspace')
-  }
   // Any interaction with the work area (tapping into the agent, switching
   // chat/native, starting to type) should dismiss the open work-panel selectors —
   // they otherwise sit over the panel and block it.
   const closePanelMenus = () => {
-    setSessionMenuOpen(false)
+    setPanelMenuOpen(false)
     setNewAgentOpen(false)
   }
+  const openPanel = (id: string) => {
+    setPane('A', id)
+    setPanelMenuOpen(false)
+    setView('workspace')
+  }
+  // What the header dropdown is anchored to: the selected issue, else the bare
+  // worktree, else nothing picked yet (the home list is where work is chosen).
+  const selectionTitle = selectedIssue
+    ? selectedIssue.draft
+      ? draftIssueLabel(selectedIssue, sessions, allWorktreePaths)
+      : selectedIssue.title
+    : (worktree?.branch ?? worktree?.path.split('/').pop() ?? null)
+  const selectionSub = selectedIssue ? (worktree?.branch ?? worktreeRepoName) : worktreeRepoName
 
   return (
     <div className="mobile-shell relative flex touch-manipulation h-[var(--viewport-h,100dvh)] flex-col">
@@ -214,7 +259,7 @@ export function MobileApp(): JSX.Element {
             'inline-flex items-center border-r border-border px-3 text-muted-foreground',
             view === 'home' && 'text-primary',
           )}
-          title="Command center"
+          title="Work"
           onClick={() => setView('home')}
         >
           <Home size={15} aria-hidden="true" />
@@ -243,69 +288,60 @@ export function MobileApp(): JSX.Element {
         >
           <KanbanSquare size={15} aria-hidden="true" />
         </button>
-        <button
-          type="button"
-          className="flex min-w-0 max-w-[45%] items-center overflow-hidden border-r border-border px-2 text-left text-xs text-foreground"
-          onClick={() => setPickerOpen(true)}
-        >
-          {worktree ? (
-            // w-full on the column (not shrink-to-fit) bounds the truncating lines
-            // to the button's 45% cap, so a long branch ellipsizes instead of
-            // overflowing the header. The ▾ caret sits outside the truncating text
-            // so it never gets clipped away.
-            <span className="flex w-full min-w-0 flex-col items-start leading-[1.15]">
-              <span className="w-full truncate text-[10px] tracking-[0.02em] text-muted-foreground">
-                {worktreeRepoName}
-              </span>
-              <span className="flex w-full min-w-0 items-center gap-0.5 text-[13px] font-medium text-foreground">
-                <span className="truncate">
-                  {worktree.branch ?? worktree.path.split('/').pop()}
-                </span>
-                <span className="flex-none" aria-hidden="true">
-                  ▾
-                </span>
-              </span>
-            </span>
-          ) : (
-            'Select worktree'
-          )}
-        </button>
+        {/* The one main dropdown (#227): the selected issue, opening to its
+            panels. It replaced the worktree picker — work is chosen on home. */}
         <div className="flex min-w-0 flex-1 items-center gap-1.5 px-2">
-          {tabs.length > 0 && (
-            <button
-              type="button"
-              className="inline-flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 overflow-hidden whitespace-nowrap text-[13px] font-medium text-foreground"
-              aria-expanded={sessionMenuOpen}
-              onClick={() =>
-                setSessionMenuOpen((v) => {
-                  // Opening the session menu closes the "+" menu, and vice versa.
-                  if (!v) setNewAgentOpen(false)
-                  return !v
-                })
-              }
-            >
-              {currentTab ? (
-                <>
-                  <span className={sessionDotClass(currentTab)} />{' '}
-                  <WorkerLabel session={currentTab} />
-                </>
-              ) : (
-                'Sessions'
-              )}
-              <ChevronDown size={13} aria-hidden="true" />
-            </button>
-          )}
+          <button
+            type="button"
+            className="flex min-w-0 flex-1 items-center overflow-hidden text-left"
+            aria-expanded={panelMenuOpen}
+            aria-label="Select panel"
+            disabled={panels.length === 0}
+            onClick={() =>
+              setPanelMenuOpen((v) => {
+                // Opening the panel menu closes the "+" menu, and vice versa.
+                if (!v) setNewAgentOpen(false)
+                return !v
+              })
+            }
+          >
+            {selectionTitle ? (
+              // w-full on the column (not shrink-to-fit) bounds the truncating
+              // lines to the button's width, so a long title ellipsizes instead of
+              // overflowing the header. The ▾ caret sits outside the truncating
+              // text so it never gets clipped away.
+              <span className="flex w-full min-w-0 flex-col items-start leading-[1.15]">
+                <span className="w-full truncate text-[10px] tracking-[0.02em] text-muted-foreground">
+                  {selectionSub ?? selectionTitle}
+                </span>
+                <span className="flex w-full min-w-0 items-center gap-1 text-[13px] font-medium text-foreground">
+                  {currentPanel?.kind === 'session' && (
+                    <span className={sessionDotClass(currentPanel.session)} />
+                  )}
+                  <span className="truncate">
+                    {currentPanel?.kind === 'file'
+                      ? basename(currentPanel.tab.path)
+                      : selectionTitle}
+                  </span>
+                  <ChevronDown size={13} className="flex-none" aria-hidden="true" />
+                </span>
+              </span>
+            ) : (
+              <span className="text-[13px] text-muted-foreground">Select work</span>
+            )}
+          </button>
           {/* The menu's own trigger IS the "+" — render it directly. (Previously a
               separate "+" toggled a state that rendered the menu's trigger as a
               second "+", so it took two taps to open.) */}
-          {worktree && (
+          {panelTarget && (
             <NewPanelMenu
-              worktree={worktree}
+              worktree={panelTarget}
+              {...(selectedIssue ? { issueId: selectedIssue.id } : {})}
               open={newAgentOpen}
               onOpenChange={(o) => {
                 setNewAgentOpen(o)
-                // Opening the "+" menu closes the session menu (#97).
-                if (o) setSessionMenuOpen(false)
+                // Opening the "+" menu closes the panel menu (#97).
+                if (o) setPanelMenuOpen(false)
               }}
               onOpened={(sid) => {
                 justOpened.current = sid
@@ -317,34 +353,50 @@ export function MobileApp(): JSX.Element {
         </div>
         <HostIndicators compact />
       </header>
-      {sessionMenuOpen && tabs.length > 0 && (
-        // Drops DOWN over the content as an overlay (not in flow) so a long tab
+      {panelMenuOpen && panels.length > 0 && (
+        // Drops DOWN over the content as an overlay (not in flow) so a long panel
         // list doesn't push the panel down; it caps its height and scrolls when
         // it would otherwise reach the bottom of the screen.
         <div
           className="absolute inset-x-0 z-30 flex max-h-[min(70vh,calc(var(--viewport-h,100dvh)-120px))] flex-col overflow-y-auto border-b border-border bg-muted shadow-[0_8px_24px_rgba(0,0,0,0.5)]"
           style={{ top: 'calc(44px + var(--safe-top))' }}
         >
-          {tabs.map((t) => {
-            const pinned = pins.panels.includes(t.sessionId)
+          {panels.map((panel) => {
+            const selectClass = cn(
+              'inline-flex min-w-0 flex-1 cursor-pointer items-center gap-2 overflow-hidden whitespace-nowrap p-3 text-left text-[13px]',
+              panel.id === paneA ? 'text-foreground' : 'text-muted-foreground',
+            )
+            if (panel.kind === 'file') {
+              return (
+                <div
+                  key={panel.id}
+                  className="flex items-center border-b border-border last:border-b-0"
+                >
+                  <button type="button" className={selectClass} onClick={() => openPanel(panel.id)}>
+                    <FileText size={12} className="flex-none" aria-hidden="true" />
+                    <span className="truncate">{basename(panel.tab.path)}</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="cursor-pointer px-2.5 py-3 text-[13px] text-muted-foreground/70 hover:text-destructive"
+                    title="Close file"
+                    aria-label={`Close ${basename(panel.tab.path)}`}
+                    onClick={() => closeFileTab(panel.id)}
+                  >
+                    <X size={12} aria-hidden="true" />
+                  </button>
+                </div>
+              )
+            }
+            const pinned = pins.panels.includes(panel.id)
             return (
               <div
-                key={t.sessionId}
+                key={panel.id}
                 className="flex items-center border-b border-border last:border-b-0"
               >
-                <button
-                  type="button"
-                  className={cn(
-                    'inline-flex min-w-0 flex-1 cursor-pointer items-center gap-2 overflow-hidden whitespace-nowrap p-3 text-left text-[13px]',
-                    t.sessionId === paneA ? 'text-foreground' : 'text-muted-foreground',
-                  )}
-                  onClick={() => {
-                    setPane('A', t.sessionId)
-                    setSessionMenuOpen(false)
-                    setView('workspace')
-                  }}
-                >
-                  <span className={sessionDotClass(t)} /> <WorkerLabel session={t} />
+                <button type="button" className={selectClass} onClick={() => openPanel(panel.id)}>
+                  <span className={sessionDotClass(panel.session)} />{' '}
+                  <WorkerLabel session={panel.session} />
                 </button>
                 <button
                   type="button"
@@ -354,7 +406,7 @@ export function MobileApp(): JSX.Element {
                   )}
                   aria-pressed={pinned}
                   title={pinned ? 'Unpin panel' : 'Pin panel'}
-                  onClick={() => void setPinned('panel', t.sessionId, !pinned)}
+                  onClick={() => void setPinned('panel', panel.id, !pinned)}
                 >
                   <Pin size={12} aria-hidden="true" />
                 </button>
@@ -362,7 +414,7 @@ export function MobileApp(): JSX.Element {
                   type="button"
                   className="cursor-pointer px-2.5 py-3 text-[13px] text-muted-foreground/70 hover:text-destructive"
                   title="Kill session"
-                  onClick={() => void guardedKill(t.sessionId)}
+                  onClick={() => void guardedKill(panel.id)}
                 >
                   ✕
                 </button>
@@ -373,6 +425,7 @@ export function MobileApp(): JSX.Element {
       )}
       <div className="relative flex min-h-0 flex-1" onPointerDownCapture={closePanelMenus}>
         <MainViewOutlet
+          home={<MobileHomeView />}
           workspace={
             activeFileTab ? (
               <Suspense
@@ -404,255 +457,6 @@ export function MobileApp(): JSX.Element {
           </div>
         )}
       </div>
-      <Dialog
-        open={pickerOpen}
-        modal={isMobile ? 'trap-focus' : true}
-        onOpenChange={(o) => {
-          if (!o) setPickerOpen(false)
-        }}
-      >
-        <DialogContent
-          showCloseButton={false}
-          // Solid scrim (not the default near-transparent blur) so the area above
-          // the sheet reads as an intentional dimmed backdrop instead of a
-          // see-through blurred strip revealing the layers underneath.
-          overlayClassName="bg-black/60"
-          className="fixed inset-x-0 bottom-0 top-auto left-0 grid max-h-[85%] w-full max-w-full translate-x-0 translate-y-0 gap-0 overflow-y-auto rounded-t-xl rounded-b-none bg-background p-0 pb-[max(var(--safe-bottom),env(safe-area-inset-bottom))] ring-0"
-        >
-          <div
-            className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-background"
-            style={{
-              padding:
-                'calc(10px + var(--safe-top)) calc(12px + var(--safe-right)) 10px calc(12px + var(--safe-left))',
-            }}
-          >
-            <span className="text-[11px] font-semibold tracking-[0.08em] text-muted-foreground">
-              WORKTREES
-            </span>
-            <div className="flex items-center gap-2">
-              <Button variant="secondary" size="sm" onClick={() => setRepoPickerOpen(true)}>
-                + Add repo
-              </Button>
-              <Button
-                variant="secondary"
-                size="icon-sm"
-                title="Search conversations"
-                aria-label="Search conversations"
-                onClick={() => {
-                  // Close the sheet first: the search modal and this sheet are
-                  // sibling overlays, and leaving the sheet up meant the search
-                  // (depending on stacking) never reached the foreground.
-                  setPickerOpen(false)
-                  setSearchOpen(true)
-                }}
-              >
-                <Search size={14} aria-hidden="true" />
-              </Button>
-              <Button
-                variant="secondary"
-                size="icon-sm"
-                title="Usage & analytics"
-                aria-label="Usage & analytics"
-                onClick={() => {
-                  setPickerOpen(false)
-                  setView('usage')
-                }}
-              >
-                <BarChart3 size={14} aria-hidden="true" />
-              </Button>
-              <Button
-                variant="secondary"
-                size="icon-sm"
-                title="Settings"
-                aria-label="Settings"
-                onClick={() => {
-                  setPickerOpen(false)
-                  setView('settings')
-                }}
-              >
-                <SettingsIcon size={14} aria-hidden="true" />
-              </Button>
-              <Button
-                variant="secondary"
-                size="icon-sm"
-                aria-label="Close"
-                onClick={() => setPickerOpen(false)}
-              >
-                <X size={14} aria-hidden="true" />
-              </Button>
-            </div>
-          </div>
-          {(reposLoading || repoDiagnostics.length > 0) && (
-            <div className="px-3 pt-1.5 pb-2 text-xs text-muted-foreground">
-              {reposLoading
-                ? 'Loading repositories...'
-                : `Scan finished with ${repoDiagnostics.length} warning${repoDiagnostics.length === 1 ? '' : 's'}.`}
-            </div>
-          )}
-          {sections.pinnedWorktrees.length > 0 && (
-            <PickerSection label="PINNED WORKTREES">
-              {sections.pinnedWorktrees.map((wt) => (
-                <SheetWorktree
-                  key={wt.path}
-                  worktree={wt}
-                  pinned={true}
-                  onPick={pickWorktree}
-                  setPinned={setPinned}
-                />
-              ))}
-            </PickerSection>
-          )}
-          {sections.pinnedRepos.length > 0 && (
-            <PickerSection label="PINNED REPOS">
-              {sections.pinnedRepos.map((repo) => (
-                <SheetRepo
-                  key={repo.path}
-                  repo={repo}
-                  pinned={true}
-                  onPick={pickWorktree}
-                  setPinned={setPinned}
-                />
-              ))}
-            </PickerSection>
-          )}
-          {sections.repos.map((repo) => (
-            <SheetRepo
-              key={repo.path}
-              repo={repo}
-              pinned={false}
-              onPick={pickWorktree}
-              setPinned={setPinned}
-            />
-          ))}
-          {!hasRows && (
-            <div className="p-3 text-xs text-muted-foreground/70">
-              {reposLoading ? 'Loading repositories...' : 'No repos yet. Add a folder to scan.'}
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
-      {repoPickerOpen && (
-        <RepoScanFlow
-          onClose={() => setRepoPickerOpen(false)}
-          onDone={() => setRepoPickerOpen(false)}
-        />
-      )}
     </div>
-  )
-}
-
-function PickerSection({ label, children }: { label: string; children: ReactNode }): JSX.Element {
-  return (
-    <div className="border-b border-border py-1">
-      <div className="px-3 pt-2 pb-[3px] text-[10px] font-bold uppercase tracking-[0.08em] text-primary">
-        {label}
-      </div>
-      {children}
-    </div>
-  )
-}
-
-function SheetRepo({
-  repo,
-  pinned,
-  onPick,
-  setPinned,
-}: {
-  repo: RepoNavView
-  pinned: boolean
-  onPick: (path: string) => void
-  setPinned: (kind: PinKind, id: string, pinned: boolean) => Promise<void>
-}): JSX.Element {
-  return (
-    <div>
-      <div className="flex items-center justify-between border-b border-border pr-2">
-        <div className="min-w-0 flex-1 px-3 pt-1.5 pb-0.5 text-[11px] uppercase tracking-[0.06em] text-muted-foreground/70">
-          {repo.name}
-        </div>
-        <PinToggle
-          kind="repo"
-          id={repo.path}
-          pinned={pinned}
-          label={repo.name}
-          setPinned={setPinned}
-        />
-      </div>
-      {repo.worktrees.map((wt) => (
-        <SheetWorktree
-          key={wt.path}
-          worktree={wt}
-          pinned={false}
-          onPick={onPick}
-          setPinned={setPinned}
-        />
-      ))}
-    </div>
-  )
-}
-
-function SheetWorktree({
-  worktree,
-  pinned,
-  onPick,
-  setPinned,
-}: {
-  worktree: WorktreeNavView
-  pinned: boolean
-  onPick: (path: string) => void
-  setPinned: (kind: PinKind, id: string, pinned: boolean) => Promise<void>
-}): JSX.Element {
-  return (
-    <div className="flex min-w-0 items-stretch">
-      <button
-        type="button"
-        className="flex min-w-0 flex-1 cursor-pointer items-center justify-between border-b border-border p-3 text-left text-foreground hover:bg-muted"
-        onClick={() => onPick(worktree.path)}
-      >
-        <span className="min-w-0 truncate">
-          {worktree.branch ?? worktree.path.split('/').pop()}
-        </span>
-        {pinned && (
-          <span className="min-w-0 max-w-[90px] flex-[0_1_auto] truncate text-[10px] text-muted-foreground/70">
-            {worktree.repoName}
-          </span>
-        )}
-      </button>
-      <PinToggle
-        kind="worktree"
-        id={worktree.path}
-        pinned={pinned}
-        label={worktree.branch ?? worktree.path}
-        setPinned={setPinned}
-      />
-    </div>
-  )
-}
-
-function PinToggle({
-  kind,
-  id,
-  pinned,
-  label,
-  setPinned,
-}: {
-  kind: PinKind
-  id: string
-  pinned: boolean
-  label: string
-  setPinned: (kind: PinKind, id: string, pinned: boolean) => Promise<void>
-}): JSX.Element {
-  return (
-    <button
-      type="button"
-      className={cn(
-        'inline-flex w-7 min-w-7 flex-[0_0_28px] cursor-pointer items-center justify-center',
-        pinned ? 'text-primary' : 'text-muted-foreground/70 hover:bg-muted hover:text-foreground',
-      )}
-      aria-pressed={pinned}
-      title={`${pinned ? 'Unpin' : 'Pin'} ${label}`}
-      onClick={() => void setPinned(kind, id, !pinned)}
-    >
-      <Pin size={13} aria-hidden="true" />
-    </button>
   )
 }
