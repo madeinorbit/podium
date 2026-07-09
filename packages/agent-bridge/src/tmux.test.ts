@@ -48,6 +48,18 @@ describe('tmux command builders', () => {
   it('isTmuxAvailable returns a boolean', () => {
     expect(typeof isTmuxAvailable()).toBe('boolean')
   })
+
+  it('isTmuxAvailable is false on win32 even when a tmux binary is on PATH', () => {
+    // An msys2/cygwin tmux would otherwise route Windows sessions through the
+    // POSIX tmux wrapper (sh quoting, socket dirs) instead of the ConPTY path.
+    const realPlatform = process.platform
+    Object.defineProperty(process, 'platform', { value: 'win32', configurable: true })
+    try {
+      expect(isTmuxAvailable()).toBe(false)
+    } finally {
+      Object.defineProperty(process, 'platform', { value: realPlatform, configurable: true })
+    }
+  })
 })
 
 const hasTmux = isTmuxAvailable()

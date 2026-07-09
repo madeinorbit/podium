@@ -13,7 +13,7 @@ import { sign as cryptoSign } from 'node:crypto'
 import { chmodSync, cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { DISCOVERY_WORKER_ENTRY } from '../apps/daemon/src/discovery-worker-embed.js'
-import { buildVendoredAbduco } from '../packages/agent-bridge/src/abduco-bin.js'
+import { abducoSupported, buildVendoredAbduco } from '../packages/agent-bridge/src/abduco-bin.js'
 import {
   bunVersion,
   hasBunTerminal,
@@ -123,7 +123,7 @@ function main(): void {
   })()
   const version = process.env.PODIUM_APP_VERSION ?? pkgVersion ?? '0.1.0'
 
-  if (win) {
+  if (!abducoSupported()) {
     // No abduco on Windows (POSIX forkpty) — sessions run on the ConPTY PTY backend
     // without a durable host [spec:SP-7f2c]. The compiled CLI still embeds
     // dist-bun/abduco.bin (a static `with {type:'file'}` import), so write an empty

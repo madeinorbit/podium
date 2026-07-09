@@ -51,6 +51,10 @@ export function tmuxConfigCommands(label: string): string[][] {
 }
 
 export function isTmuxAvailable(): boolean {
+  // Never on Windows: an msys2/cygwin tmux on PATH would answer `-V` but the whole
+  // wrapper (sh quoting, POSIX sockets) assumes a POSIX host — Windows sessions run
+  // on the ConPTY backend without a durable host instead [spec:SP-7f2c].
+  if (process.platform === 'win32') return false
   try {
     return spawnSync('tmux', ['-V'], { stdio: 'ignore' }).status === 0
   } catch {

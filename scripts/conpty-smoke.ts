@@ -1,7 +1,8 @@
 /**
  * Runtime PTY smoke for the bare (non-abduco) session path — the exact path Windows
  * uses in production (durable backend 'none' → spawnAgent → bun-terminal backend →
- * ConPTY [spec:SP-7f2c]). Run under Bun: `bun scripts/conpty-smoke.ts`.
+ * ConPTY [spec:SP-7f2c]). Run: `bun --conditions=@podium/source scripts/conpty-smoke.ts`
+ * (the condition resolves the @podium/* workspace imports straight to src).
  *
  * Proves, against a real interactive shell:
  *   1. spawn allocates a PTY and the shell produces output (prompt),
@@ -13,11 +14,17 @@
  * Cross-platform on purpose: cmd.exe on Windows, sh -i on POSIX — CI runs it on
  * windows-latest as the ConPTY proof; POSIX runs keep the script itself honest.
  */
+import { agentLaunchCommand } from '../packages/agent-bridge/src/launch.js'
 import { spawnAgent } from '../packages/agent-bridge/src/session.js'
 
 const isWin = process.platform === 'win32'
-const shell = isWin ? (process.env.COMSPEC ?? 'cmd.exe') : 'sh'
-const args = isWin ? [] : ['-i']
+// Windows resolves through the PRODUCTION shell-launch path (agentLaunchCommand →
+// SHELL || COMSPEC || cmd.exe) so the smoke green-lights the shell the daemon
+// actually spawns. POSIX pins plain `sh -i` instead — that leg only keeps the
+// script itself honest, and the user's login shell may not speak the probe syntax.
+const { cmd: shell, args } = isWin
+  ? agentLaunchCommand('shell', { cwd: process.cwd() })
+  : { cmd: 'sh', args: ['-i'] }
 // The command's OUTPUT (543656) never appears in what we type, so seeing it proves
 // the shell executed the command — not merely that the PTY echoed our input.
 const probe = isWin ? 'set /a 271828*2\r' : 'echo $((271828*2))\r'
@@ -61,9 +68,12 @@ await waitFor('probe command executed (PTY write→exec→read round-trip)', () 
 session.resize(100, 30)
 console.log('ok: resize accepted')
 
-session.write(Buffer.from('exit\r').toString('base64'))
+// Explicit `exit 0`: cmd.exe's bare `exit` semantics around a prior command's
+// ERRORLEVEL are folklore-laden; pin the code so the assertion tests the PTY's
+// exit plumbing, not cmd trivia. sh accepts the same spelling.
+session.write(Buffer.from('exit 0\r').toString('base64'))
 await waitFor('shell exited cleanly on `exit`', () => exited !== undefined)
-if (exited && exited.code !== 0) fail(`exit code 0 (got ${exited?.code})`, output)
+if (exited && exited.code !== 0) fail(`exit code 0 (got ${exited.code})`, output)
 
 console.log(`PASS: ConPTY/PTY smoke on ${process.platform} (${shell})`)
 process.exit(0)

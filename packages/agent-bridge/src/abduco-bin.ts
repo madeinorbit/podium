@@ -25,6 +25,15 @@ import { fileURLToPath } from 'node:url'
 // next to either at the package root.
 const VENDOR_ABDUCO_C = fileURLToPath(new URL('../vendor/abduco/abduco.c', import.meta.url))
 
+/**
+ * Whether abduco can exist on this platform at all — it is POSIX-only (forkpty).
+ * The ONE place the platform rule lives: resolution, the vendored build, and the
+ * compiled binary's materialization all consult it, so they can never disagree.
+ */
+export function abducoSupported(platform: NodeJS.Platform = process.platform): boolean {
+  return platform !== 'win32'
+}
+
 export function defaultAbducoCachePath(): string {
   const base = process.env.PODIUM_STATE_DIR ?? join(process.env.HOME || homedir(), '.podium')
   return join(base, 'bin', 'abduco')
@@ -55,7 +64,7 @@ function findCompiler(): string | undefined {
  * compiler is available or the build fails.
  */
 export function buildVendoredAbduco(out: string): string | undefined {
-  if (process.platform === 'win32') return undefined // POSIX-only source (forkpty)
+  if (!abducoSupported()) return undefined // POSIX-only source (forkpty)
   const cc = findCompiler()
   if (!cc) return undefined
   mkdirSync(dirname(out), { recursive: true })
@@ -106,7 +115,7 @@ export function resolveAbducoBin(opts?: { fresh?: boolean }): string | undefined
 function locate(): string | undefined {
   // abduco cannot exist on Windows (POSIX forkpty), so don't probe PATH, the
   // cache, or a compiler — even an explicit PODIUM_ABDUCO can't be honored.
-  if (process.platform === 'win32') return undefined
+  if (!abducoSupported()) return undefined
   const explicit = process.env.PODIUM_ABDUCO
   if (explicit) return runs(explicit) ? explicit : undefined
   if (runs('abduco')) return 'abduco'
