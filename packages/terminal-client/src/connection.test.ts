@@ -225,13 +225,13 @@ describe('SocketHub', () => {
     // an eager requestControl on mount fires before onopen. Regression for that crash.
     class ConnectingSocket extends FakeSocket {
       private opened = false
-      send(data: string): void {
+      override send(data: string): void {
         if (!this.opened) {
           throw Object.assign(new Error('Still in CONNECTING state'), { name: 'InvalidStateError' })
         }
         super.send(data)
       }
-      open(): void {
+      override open(): void {
         this.opened = true
         super.open()
       }

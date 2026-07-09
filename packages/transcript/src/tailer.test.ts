@@ -3,9 +3,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { TranscriptItem } from '@podium/protocol'
 import { afterAll, describe, expect, it } from 'vitest'
-import { decodeCursor } from './cursor-codec.js'
-import { fileIdFor } from './file-chain.js'
-import { tailTranscript } from './tailer.js'
+import { decodeCursor } from './cursor-codec'
+import { fileIdFor } from './file-chain'
+import { tailTranscript } from './tailer'
 
 const dir = mkdtempSync(join(tmpdir(), 'podium-tailer-'))
 afterAll(() => rmSync(dir, { recursive: true, force: true }))

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { startLoopMetrics } from './loop-metrics.js'
+import { startLoopMetrics } from './loop-metrics'
 
 describe('loop-metrics', () => {
   it('reports percentiles and warns on a long tick', async () => {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import type { OpencodeMessagePartRow } from './opencode.js'
-import { classifyOpencodeIdleText, opencodePartToItems } from './opencode.js'
+import type { OpencodeMessagePartRow } from './opencode'
+import { classifyOpencodeIdleText, opencodePartToItems } from './opencode'
 
 function row(
   overrides: Partial<OpencodeMessagePartRow> & {

@@ -14,8 +14,8 @@
  * so they never reach the browser bundle). `git` and `settings` are isomorphic.
  */
 
-export type { PodiumConfig, PodiumMode } from './config.js'
-export * from './git.js'
+export type { PodiumConfig, PodiumMode } from './config'
+export * from './git'
 // run-registry (node:fs) lives behind the `@podium/runtime/run-registry` subpath; types only here.
-export type { RunRecord, RunRole } from './run-registry.js'
-export * from './settings.js'
+export type { RunRecord, RunRole } from './run-registry'
+export * from './settings'

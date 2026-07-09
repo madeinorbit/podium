@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { codexRecordToItems } from './codex.js'
+import { codexRecordToItems } from './codex'
 
 const env = (type: string, payload: unknown, ts = '2026-06-16T16:11:00.000Z') => ({
   timestamp: ts,

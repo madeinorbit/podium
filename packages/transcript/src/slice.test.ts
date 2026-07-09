@@ -3,11 +3,11 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { TranscriptItem } from '@podium/protocol'
 import { describe, expect, it, vi } from 'vitest'
-import { decodeCursor, encodeCursor } from './cursor-codec.js'
-import type { ChainEntry } from './file-chain.js'
-import { fileIdFor } from './file-chain.js'
-import * as slice from './slice.js'
-import { readFileItems, readTranscriptSlice } from './slice.js'
+import { decodeCursor, encodeCursor } from './cursor-codec'
+import type { ChainEntry } from './file-chain'
+import { fileIdFor } from './file-chain'
+import * as slice from './slice'
+import { readFileItems, readTranscriptSlice } from './slice'
 
 const rec = (uuid: string, type: string, text: string) =>
   JSON.stringify({

@@ -1,5 +1,5 @@
 import type { TranscriptItem } from '@podium/protocol'
-import { toolInputPreview } from './claude.js'
+import { toolInputPreview } from './claude'
 
 /** Normalize one Cursor agent-transcripts JSONL record into Podium chat items. */
 export function cursorRecordToItems(record: unknown): TranscriptItem[] {

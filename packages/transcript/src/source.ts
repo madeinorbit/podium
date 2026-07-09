@@ -1,12 +1,12 @@
 import type { TranscriptItem } from '@podium/protocol'
-import { claudeRecordToItems } from './claude.js'
-import { codexRecordToItems } from './codex.js'
-import { cursorRecordToItems } from './cursor.js'
-import { decodeCursor, encodeCursor } from './cursor-codec.js'
-import type { ChainEntry } from './file-chain.js'
-import { grokRecordToItems } from './grok.js'
-import { type OpencodeMessagePartRow, opencodePartToItems } from './opencode.js'
-import { readTranscriptSlice, type SliceResult } from './slice.js'
+import { claudeRecordToItems } from './claude'
+import { codexRecordToItems } from './codex'
+import { cursorRecordToItems } from './cursor'
+import { decodeCursor, encodeCursor } from './cursor-codec'
+import type { ChainEntry } from './file-chain'
+import { grokRecordToItems } from './grok'
+import { type OpencodeMessagePartRow, opencodePartToItems } from './opencode'
+import { readTranscriptSlice, type SliceResult } from './slice'
 
 /**
  * A read strategy for a single session's transcript. Storage varies wildly

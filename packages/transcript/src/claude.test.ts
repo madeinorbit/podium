@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { claudeRecordColor, claudeRecordToItems, toolInputPreview } from './claude.js'
+import { claudeRecordColor, claudeRecordToItems, toolInputPreview } from './claude'
 
 describe('claudeRecordColor', () => {
   it('reads agentColor from an agent-color record', () => {

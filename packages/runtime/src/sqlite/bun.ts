@@ -1,5 +1,5 @@
 import { createRequire } from 'node:module'
-import type { OpenOptions, SqlDatabase } from './types.js'
+import type { OpenOptions, SqlDatabase } from './types'
 
 // Lazy require of `bun:sqlite` (sync, so openDatabase stays sync). Only resolved when
 // the Bun adapter is selected — so this module is import-safe under Node, where

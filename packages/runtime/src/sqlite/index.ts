@@ -1,8 +1,8 @@
-import { openBunDatabase } from './bun.js'
-import { openNodeDatabase } from './node.js'
-import type { OpenOptions, SqlDatabase } from './types.js'
+import { openBunDatabase } from './bun'
+import { openNodeDatabase } from './node'
+import type { OpenOptions, SqlDatabase } from './types'
 
-export type { OpenOptions, SqlDatabase, SqlParam, SqlRunResult, SqlStatement } from './types.js'
+export type { OpenOptions, SqlDatabase, SqlParam, SqlRunResult, SqlStatement } from './types'
 
 /** True when running under the Bun runtime. */
 export function isBunRuntime(): boolean {

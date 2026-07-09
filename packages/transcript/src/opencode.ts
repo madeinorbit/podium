@@ -15,7 +15,7 @@ export type OpencodeMessagePartRow = {
   partData: string
 }
 
-import { toolInputPreview } from './claude.js'
+import { toolInputPreview } from './claude'
 
 /** Normalize one opencode message+part row into Podium chat transcript items. */
 export function opencodePartToItems(row: OpencodeMessagePartRow): TranscriptItem[] {

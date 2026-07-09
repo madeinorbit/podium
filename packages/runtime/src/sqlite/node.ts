@@ -1,5 +1,5 @@
 import { createRequire } from 'node:module'
-import type { OpenOptions, SqlDatabase } from './types.js'
+import type { OpenOptions, SqlDatabase } from './types'
 
 // Load `node:sqlite` via createRequire(runtime string), never a static import:
 //   1. bundlers (tsup/esbuild) rewrite a static `node:sqlite` import to bare `sqlite`,

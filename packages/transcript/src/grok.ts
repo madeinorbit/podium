@@ -1,5 +1,5 @@
 import type { TranscriptItem, TranscriptTag } from '@podium/protocol'
-import { toolInputPreview } from './claude.js'
+import { toolInputPreview } from './claude'
 
 /** Normalize one Grok chat_history.jsonl record into Podium chat transcript items. */
 export function grokRecordToItems(record: unknown): TranscriptItem[] {

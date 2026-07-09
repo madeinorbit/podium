@@ -19,7 +19,7 @@
  */
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { codexRecordToItems } from './codex.js'
+import { codexRecordToItems } from './codex'
 
 const lines = readFileSync(new URL('./__fixtures__/codex-rollout.jsonl', import.meta.url), 'utf8')
   .split('\n')

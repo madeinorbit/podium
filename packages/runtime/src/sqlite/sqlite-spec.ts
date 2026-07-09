@@ -1,6 +1,6 @@
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { openDatabase } from './index.js'
+import { openDatabase } from './index'
 
 export interface SqlTestPrimitives {
   describe: (name: string, fn: () => void) => void

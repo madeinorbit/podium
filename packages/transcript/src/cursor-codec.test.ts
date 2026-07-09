@@ -1,6 +1,6 @@
 import type { TranscriptItem } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
-import { decodeCursor, encodeCursor, recordUuid, stampCursors } from './cursor-codec.js'
+import { decodeCursor, encodeCursor, recordUuid, stampCursors } from './cursor-codec'
 
 describe('cursor codec', () => {
   it('round-trips parts', () => {

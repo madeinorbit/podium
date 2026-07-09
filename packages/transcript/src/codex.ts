@@ -1,6 +1,6 @@
 import type { TranscriptItem } from '@podium/protocol'
-import { toolInputPreview } from './claude.js'
-import { contentToText, isRecord, stringField } from './json-util.js'
+import { toolInputPreview } from './claude'
+import { contentToText, isRecord, stringField } from './json-util'
 
 /**
  * Normalize one Codex rollout JSONL record (envelope `{ timestamp, type, payload }`)

@@ -1,13 +1,13 @@
 import { open, stat } from 'node:fs/promises'
 import type { TranscriptItem } from '@podium/protocol'
-import { decodeCursor, recordUuid, stampCursors } from './cursor-codec.js'
-import type { ChainEntry } from './file-chain.js'
+import { decodeCursor, recordUuid, stampCursors } from './cursor-codec'
+import type { ChainEntry } from './file-chain'
 // Self-import so the bounded reader routes its file reads through the module's
 // `readFileItems` export. Calling the export by namespace (not the local binding)
 // keeps it interceptable by tests that spy on `readFileItems` to assert the
 // bounded windows do NOT slurp whole files — a direct intra-module call would
 // bypass the spy under ESM. See slice.test.ts "bounded window" perf test.
-import * as self from './slice.js'
+import * as self from './slice'
 
 export interface SliceResult {
   items: TranscriptItem[]

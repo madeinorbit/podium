@@ -1,8 +1,8 @@
 import { open } from 'node:fs/promises'
 import type { TranscriptItem } from '@podium/protocol'
-import { claudeRecordColor, claudeRecordToItems } from './claude.js'
-import { recordUuid, stampCursors } from './cursor-codec.js'
-import { fileIdFor } from './file-chain.js'
+import { claudeRecordColor, claudeRecordToItems } from './claude'
+import { recordUuid, stampCursors } from './cursor-codec'
+import { fileIdFor } from './file-chain'
 
 const POLL_MS = 700
 // Initial-read cap: a long-running transcript can be hundreds of MB, but the
