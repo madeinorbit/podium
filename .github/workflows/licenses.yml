@@ -1,0 +1,31 @@
+name: licenses
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  licenses:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.14'
+      # --ignore-scripts: the generator only reads bun.lock + installed package.json/LICENSE
+      # files, so lifecycle scripts (native rebuilds) are dead weight here.
+      - run: bun install --frozen-lockfile --ignore-scripts
+      # Regenerate THIRD-PARTY-NOTICES.md and enforce the license policy: fails on any
+      # copyleft (GPL/AGPL/LGPL/SSPL/...) or unknown license in the production dependency
+      # graph of the shipped artifacts (allowlist + reviewed exceptions live in the script).
+      - name: Generate notices + check license policy
+        run: bun scripts/generate-third-party-notices.ts --check
+      - name: Fail if THIRD-PARTY-NOTICES.md is stale
+        run: |
+          if ! git diff --exit-code -- THIRD-PARTY-NOTICES.md; then
+            echo '::error::THIRD-PARTY-NOTICES.md is stale. Run `bun scripts/generate-third-party-notices.ts` and commit the result.'
+            exit 1
+          fi

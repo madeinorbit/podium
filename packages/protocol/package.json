@@ -1,6 +1,7 @@
 {
   "name": "@podium/protocol",
   "version": "0.0.0",
+  "private": true,
   "description": "Wire protocol types for Podium agent/terminal sessions (output frames, input, resize, takeover, transcript).",
   "license": "Apache-2.0",
   "type": "module",

@@ -1,6 +1,7 @@
 {
   "name": "@podium/transcript",
   "version": "0.0.0",
+  "private": true,
   "description": "Per-agent transcript parsing and paging: JSONL record→item mappers (Claude Code, Codex, Cursor, Grok, opencode), cursor codec, bounded slice reader, file-chain ids, live tailer.",
   "license": "Apache-2.0",
   "type": "module",

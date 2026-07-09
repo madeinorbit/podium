@@ -121,7 +121,12 @@ function main(): void {
       return undefined
     }
   })()
-  const version = process.env.PODIUM_APP_VERSION ?? pkgVersion ?? '0.1.0'
+  const version = process.env.PODIUM_APP_VERSION ?? pkgVersion
+  if (!version)
+    throw new Error(
+      'build-bun: could not determine the version — root package.json has no `version` field ' +
+        'and PODIUM_APP_VERSION is unset. Root package.json is the single source of truth.',
+    )
 
   if (!abducoSupported()) {
     // No abduco on Windows (POSIX forkpty) — sessions run on the ConPTY PTY backend
@@ -198,6 +203,13 @@ function main(): void {
   // The one compiled binary, plus the launcher shim (below) that execs it as `podium-cli`.
   cpSync(`${out}/${names.compiled}`, `${headless}/${names.cli}`)
   chmodSync(`${headless}/${names.cli}`, 0o755)
+
+  // License notices ship with every headless bundle (Apache-2.0 NOTICE convention + the
+  // generated third-party inventory; regenerate via scripts/generate-third-party-notices.ts).
+  for (const f of ['LICENSE', 'NOTICE', 'THIRD-PARTY-NOTICES.md']) {
+    if (!existsSync(`${root}${f}`)) throw new Error(`build-bun: missing ${f} at repo root`)
+    cpSync(`${root}${f}`, `${headless}/${f}`)
+  }
 
   // VERSION stamp — drives `podium update`'s self version check. Same single source as the
   // baked-in /version above (root package.json `version`, env PODIUM_APP_VERSION wins).

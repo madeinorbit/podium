@@ -7,8 +7,17 @@
  * Bun-compiled binaries (Bun appends a payload after the ELF, patchelf breaks it).
  * Instead we stage podium as a plain resource and spawn it via std::process::Command.
  */
-import { chmodSync, cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+
 import { execFileSync } from 'node:child_process'
+import {
+  chmodSync,
+  cpSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { bundleNames } from '../../../scripts/build-bun.js'
 
@@ -26,7 +35,9 @@ if (rootVersion) {
   if (conf.version !== rootVersion) {
     conf.version = rootVersion
     writeFileSync(confPath, `${JSON.stringify(conf, null, 2)}\n`)
-    console.log(`[stage-sidecar] tauri.conf.json version -> ${rootVersion} (from root package.json)`)
+    console.log(
+      `[stage-sidecar] tauri.conf.json version -> ${rootVersion} (from root package.json)`,
+    )
   }
 }
 
@@ -49,4 +60,15 @@ const webDst = `${resourcesDir}/web`
 rmSync(webDst, { recursive: true, force: true })
 cpSync(webSrc, webDst, { recursive: true })
 
-console.log(`[stage-sidecar] resources/podium + resources/web staged`)
+// 4. Stage license notices (Apache-2.0 NOTICE convention + generated third-party inventory)
+//    so the desktop bundle ships them alongside the sidecar.
+const licensesDst = `${resourcesDir}/licenses`
+rmSync(licensesDst, { recursive: true, force: true })
+mkdirSync(licensesDst, { recursive: true })
+for (const f of ['LICENSE', 'NOTICE', 'THIRD-PARTY-NOTICES.md']) {
+  const src = `${repoRoot}/${f}`
+  if (!existsSync(src)) throw new Error(`missing ${src} — required license notice`)
+  cpSync(src, `${licensesDst}/${f}`)
+}
+
+console.log(`[stage-sidecar] resources/podium + resources/web + resources/licenses staged`)

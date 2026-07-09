@@ -1,6 +1,7 @@
 {
   "name": "@podium/agent-bridge",
   "version": "0.0.0",
+  "private": true,
   "description": "Wrap and drive coding-agent CLIs (Claude Code, Codex, Grok) over a PTY: spawn/attach, resize, stream output, inject input, multi-client control, transcript, discovery.",
   "license": "Apache-2.0",
   "type": "module",

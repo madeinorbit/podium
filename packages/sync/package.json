@@ -3,6 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "description": "The node⇄hub sync layer: the metadata oplog (durable changes feed + outbox drain), the node→hub dialer (UpstreamSync) and issue write forwarder (UpstreamForwarder), and the transcript-lake mirror (MirrorService). Depends only on @podium/protocol and @podium/runtime — never apps/*.",
+  "license": "Apache-2.0",
   "type": "module",
   "exports": {
     ".": {

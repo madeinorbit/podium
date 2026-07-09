@@ -3,6 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "description": "The issue-tracker client seam: the IssueTrpc client shape (HTTP tRPC + daemon relay transports) and the shared `podium issue` command table (names, zod arg shapes, positionals, client-side run/render bodies) consumed by the CLI and the server's in-process MCP.",
+  "license": "Apache-2.0",
   "type": "module",
   "exports": {
     ".": {

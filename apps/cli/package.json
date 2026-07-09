@@ -3,6 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "description": "The `podium` CLI: mode-driven launcher (setup, lifecycle, systemd persistence, self-update) plus the `podium issue` and `podium worktree` subcommands. Host modules (server/daemon in-process hosting) are injected by the runnable entry in scripts/cli.ts — this package imports only leaf packages and the issue-client seam.",
+  "license": "Apache-2.0",
   "type": "module",
   "exports": {
     ".": {
