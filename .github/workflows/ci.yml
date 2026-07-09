@@ -1,0 +1,71 @@
+name: ci
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+# All jobs install with --ignore-scripts (same rationale as release.yml): node-pty's
+# node-gyp postinstall crash-loops on CI runner toolchains, and nothing CI runs needs
+# it — the unit scope (vitest.unit.config.ts) excludes every suite that actually
+# spawns a PTY/abduco/real server. Integration + e2e suites run outside CI for now
+# (see the convention documented in vitest.unit.config.ts).
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.14'
+      - uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+      - run: bun install --frozen-lockfile --ignore-scripts
+      # Non-blocking for now: ~249 pre-existing biome errors are being burned down
+      # separately (podium #30). Flip this to blocking once the count reaches zero.
+      - name: biome + boundaries (non-blocking)
+        continue-on-error: true
+        run: bun run lint
+
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.14'
+      - uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+      - run: bun install --frozen-lockfile --ignore-scripts
+      - run: bun run typecheck
+
+  unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.14'
+      - uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+      - run: bun install --frozen-lockfile --ignore-scripts
+      # Root unit scope: everything except apps/web and the integration/e2e/PTY
+      # suites — see vitest.unit.config.ts for the exclusion convention.
+      - name: unit tests (root vitest)
+        run: bun run test:unit
+      # apps/web needs happy-dom + its own aliases, so it runs under its own config.
+      - name: unit tests (apps/web, happy-dom)
+        run: bun run --cwd apps/web test:unit
+      # bun-test unit subset: bun:sqlite-backed runtime store. The rest of
+      # `test:bun` (compiled-daemon + lifecycle integration) stays out of CI.
+      - name: unit tests (bun test)
+        run: bun run test:bun:unit

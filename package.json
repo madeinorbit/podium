@@ -43,6 +43,7 @@
     "test": "vitest run --passWithNoTests && bun run test:bun",
     "test:unit": "vitest run --passWithNoTests --config vitest.unit.config.ts",
     "test:bun": "bun test --conditions=@podium/source apps/daemon/test packages/runtime/test/sqlite.bun.test.ts scripts/lifecycle.integration.bun.test.ts --test-name-pattern ''",
+    "test:bun:unit": "bun test --conditions=@podium/source packages/runtime/test/sqlite.bun.test.ts --test-name-pattern ''",
     "lint": "biome check . && bun run lint:boundaries && bun scripts/render-systemd.ts --check",
     "lint:boundaries": "bun scripts/check-boundaries.ts",
     "format": "biome format --write .",

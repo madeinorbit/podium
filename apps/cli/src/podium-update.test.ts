@@ -14,7 +14,6 @@ import {
   runUpdate,
   verifyTarball,
 } from './podium-update'
-import { PODIUM_UPDATE_PUBKEY } from './podium-update-pubkey'
 
 describe('podium update helpers', () => {
   it('isNewer compares semver-ish versions', () => {
