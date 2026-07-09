@@ -143,11 +143,11 @@ vi.mock('@/hooks/use-session-guard', () => ({
 afterEach(cleanup)
 
 describe('SidebarUnified WORKING rows suppress unread emphasis (#138 FIX B)', () => {
-  it('a fully-working unread issue is not emphasized, while an idle unread issue in WORK is', () => {
+  it('a fully-working unread issue is not bold, while an idle unread issue in WORK is', () => {
     render(<SidebarUnified />)
     // Same issue, both unread — the only difference is WORKING vs WORK placement.
-    expect(screen.getByText('Working issue').className).not.toContain('font-medium')
-    expect(screen.getByText('Work issue').className).toContain('font-medium')
+    expect(screen.getByText('Working issue').className).not.toContain('font-semibold')
+    expect(screen.getByText('Work issue').className).toContain('font-semibold')
   })
 
   it('a working session lifted into WORKING is not emphasized', () => {
@@ -162,10 +162,14 @@ describe('SidebarUnified WORKING rows suppress unread emphasis (#138 FIX B)', ()
 
   it('a currently-working session kept in WORK (pinned issue) is not emphasized', () => {
     render(<SidebarUnified />)
-    // The pinned fully-working issue stays in WORK — its row label…
-    expect(screen.getByText('Pinned working').className).not.toContain('font-medium')
+    // A working pinned issue renders in BOTH WORKING and WORK — neither copy of
+    // its row label is emphasized…
+    const labels = screen.getAllByText('Pinned working')
+    expect(labels).toHaveLength(2)
+    for (const l of labels) expect(l.className).not.toContain('font-semibold')
     // …and its working child sessions are muted by the isSessionWorking gate,
-    // even though suppressUnread is false (WORK path, not WORKING).
-    expect(screen.getByText('pin-a').closest('button')?.className).not.toContain('font-medium')
+    // even though suppressUnread is false on the WORK copy.
+    for (const child of screen.getAllByText('pin-a'))
+      expect(child.closest('button')?.className).not.toContain('font-medium')
   })
 })

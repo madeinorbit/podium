@@ -481,7 +481,7 @@ describe('partitionUnifiedWork (WORKING move-out)', () => {
     expect(work.map((r) => r.kind)).toEqual(['issue'])
   })
 
-  it('exempts a pinned issue from move-out (stays in WORK even when fully working)', () => {
+  it('shows a working pinned issue in BOTH WORKING and WORK (no move-out)', () => {
     const { working: w, work } = partitionUnifiedWork(
       emptySections([]),
       [issue({ id: 'i', pinned: true })],
@@ -489,8 +489,35 @@ describe('partitionUnifiedWork (WORKING move-out)', () => {
       [],
       NOW,
     )
-    expect(w).toEqual([])
     expect(work.map((r) => (r.kind === 'issue' ? r.issue.id : ''))).toEqual(['i'])
+    expect(w.map((e) => (e.kind === 'issue' ? e.row.issue.id : e.kind))).toEqual(['i'])
+  })
+
+  it('keeps a partially-working pinned issue whole in WORK and mirrors it into WORKING', () => {
+    const needs = owned('n', needsYou, 'i')
+    const run = owned('w', working, 'i')
+    const { working: w, work } = partitionUnifiedWork(
+      emptySections([]),
+      [issue({ id: 'i', pinned: true })],
+      [needs, run],
+      [],
+      NOW,
+    )
+    const row = work[0] as Extract<UnifiedWorkRow, { kind: 'issue' }>
+    expect(row.sessions.map((s) => s.sessionId).sort()).toEqual(['n', 'w'])
+    expect(w.map((e) => e.kind)).toEqual(['issue'])
+  })
+
+  it('keeps an idle pinned issue out of WORKING', () => {
+    const { working: w, work } = partitionUnifiedWork(
+      emptySections([]),
+      [issue({ id: 'i', pinned: true })],
+      [owned('a', idle, 'i')],
+      [],
+      NOW,
+    )
+    expect(w).toEqual([])
+    expect(work.map((r) => r.kind)).toEqual(['issue'])
   })
 
   it('moves a fully-working unowned worktree to WORKING', () => {

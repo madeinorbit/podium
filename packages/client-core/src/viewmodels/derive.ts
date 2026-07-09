@@ -1297,8 +1297,9 @@ function workingEntryActivity(e: WorkingEntry): number {
  *   - a partially-working row stays in WORK holding only its non-working
  *     sessions, and its working sessions are lifted into WORKING as individual
  *     rows — no duplication, a session shows in exactly one place;
- *   - a pinned issue is EXEMPT: pinning floats it to the top of WORK, so it stays
- *     there whole even when fully working.
+ *   - a pinned issue is EXEMPT from move-out: pinning floats it to the top of
+ *     WORK, so it stays there whole; when it has any working session it ALSO
+ *     appears in WORKING as its row (the one row shown in both places).
  * WORK keeps the banded order; WORKING reads most-recently-active first.
  */
 export function partitionUnifiedWork(
@@ -1314,6 +1315,7 @@ export function partitionUnifiedWork(
   for (const row of rows) {
     if (row.kind === 'issue' && row.issue.pinned) {
       work.push(row)
+      if (row.sessions.some(isSessionWorking)) working.push({ kind: 'issue', row })
       continue
     }
     const mine = rowSessions(row)
