@@ -2,7 +2,7 @@
 import { randomUUID } from 'node:crypto'
 import { Worker } from 'node:worker_threads'
 import type { WorkerJob, WorkerResult } from './discovery-worker'
-import { DISCOVERY_WORKER_EMBEDDED_PATH } from './discovery-worker-embed.js'
+import { discoveryWorkerEmbeddedUrl, isCompiledBunfsUrl } from './discovery-worker-embed.js'
 
 export interface WorkerLike {
   postMessage(m: unknown): void
@@ -18,13 +18,12 @@ interface Pending {
 
 function workerUrl(): URL {
   // In the `bun build --compile` daemon, `new URL('./discovery-worker.ts', import.meta.url)`
-  // does NOT resolve — import.meta.url collapses to the main entry (file:///$bunfs/root/<binary>)
-  // and the worker is embedded (as a separate entrypoint, see scripts/build-bun.ts) at a nested
-  // `.js` path. Detect the standalone binary via its `/$bunfs/` module URL and spawn the worker
-  // from its embedded path. Running from source (bun run host / bun test) we spawn the sibling
-  // `.ts` on disk instead. See discovery-worker-embed.ts for the shared path.
-  if (import.meta.url.includes('/$bunfs/'))
-    return new URL(`file://${DISCOVERY_WORKER_EMBEDDED_PATH}`)
+  // does NOT resolve — import.meta.url collapses to the main entry (file:///$bunfs/root/<binary>,
+  // B:/~BUN/root/<binary>.exe on Windows) and the worker is embedded (as a separate entrypoint,
+  // see scripts/build-bun.ts) at a nested `.js` path. Detect the standalone binary via its
+  // virtual-root module URL and spawn the worker from its embedded URL. Running from source
+  // (bun run host / bun test) we spawn the sibling `.ts` on disk instead.
+  if (isCompiledBunfsUrl(import.meta.url)) return new URL(discoveryWorkerEmbeddedUrl())
   return new URL('./discovery-worker.ts', import.meta.url)
 }
 
@@ -36,6 +35,9 @@ function defaultSpawn(): WorkerLike {
   } as unknown as ConstructorParameters<typeof Worker>[1]) as unknown as WorkerLike
 }
 
+/** Two crashes closer together than this = a crash loop; stop constructing Workers. */
+const RESPAWN_COOLDOWN_MS = 3_000
+
 export class DiscoveryWorkerClient {
   private worker?: WorkerLike
   private readonly pending = new Map<string, Pending>()
@@ -43,6 +45,8 @@ export class DiscoveryWorkerClient {
   private readonly spawn: () => WorkerLike
   private readonly timeoutMs: number
   private readonly log: (m: string) => void
+  private lastCrashAtMs = 0
+  private fastCrashes = 0
 
   constructor(
     opts: { spawn?: () => WorkerLike; timeoutMs?: number; log?: (m: string) => void } = {},
@@ -54,6 +58,13 @@ export class DiscoveryWorkerClient {
 
   private ensureWorker(): WorkerLike {
     if (this.worker) return this.worker
+    // Crash-loop breaker: a worker that dies instantly (e.g. its embedded module URL
+    // doesn't resolve) would otherwise be reconstructed by every runJob in a hot loop
+    // that starves the daemon — seen at Windows boot before the bunfs URL fix. One
+    // crash keeps the immediate respawn; repeated back-to-back crashes reject fast
+    // (no Worker construction) until the cooldown passes.
+    if (this.fastCrashes >= 2 && Date.now() - this.lastCrashAtMs < RESPAWN_COOLDOWN_MS)
+      throw new Error('discovery worker crash-looping — respawn throttled')
     const w = this.spawn()
     w.on('message', (r: WorkerResult) => this.settle(r))
     w.on('error', (e: Error) => this.crash(e))
@@ -65,6 +76,7 @@ export class DiscoveryWorkerClient {
   }
 
   private settle(r: WorkerResult): void {
+    this.fastCrashes = 0 // a worker that answers is healthy — re-arm immediate respawn
     const p = this.pending.get(r.id)
     if (!p) return
     clearTimeout(p.timer)
@@ -74,6 +86,9 @@ export class DiscoveryWorkerClient {
   }
 
   private crash(err: Error): void {
+    const now = Date.now()
+    this.fastCrashes = now - this.lastCrashAtMs < RESPAWN_COOLDOWN_MS ? this.fastCrashes + 1 : 1
+    this.lastCrashAtMs = now
     this.log(`[podium:daemon] discovery worker crashed: ${err.message} — respawning`)
     for (const [, p] of this.pending) {
       clearTimeout(p.timer)

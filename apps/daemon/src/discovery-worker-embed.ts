@@ -17,5 +17,24 @@
 /** Repo-relative path passed to `bun build --compile` as an extra entrypoint. */
 export const DISCOVERY_WORKER_ENTRY = 'apps/daemon/src/discovery-worker.ts'
 
-/** Absolute path the worker is embedded at inside the compiled daemon binary. */
-export const DISCOVERY_WORKER_EMBEDDED_PATH = `/$bunfs/root/${DISCOVERY_WORKER_ENTRY.replace(/\.ts$/, '.js')}`
+/**
+ * Whether `url` is a module inside a bun-compiled standalone binary. Bun's virtual
+ * filesystem root is `/$bunfs` on POSIX but `B:\~BUN` on WINDOWS — checking only
+ * `/$bunfs/` made the compiled Windows daemon take the run-from-source branch and
+ * crash-loop on `ModuleNotFound B:\~BUN\root\discovery-worker.ts`.
+ */
+export function isCompiledBunfsUrl(url: string): boolean {
+  return url.includes('/$bunfs/') || url.includes('/~BUN/')
+}
+
+/**
+ * The file:// URL the worker is embedded at inside the compiled binary (`.ts`
+ * transpiled to `.js`). Returned as a full URL string rather than a path so the
+ * Windows drive letter can't be mangled into a URL host (`file://B:/…`).
+ */
+export function discoveryWorkerEmbeddedUrl(
+  platform: NodeJS.Platform = process.platform,
+): string {
+  const rel = DISCOVERY_WORKER_ENTRY.replace(/\.ts$/, '.js')
+  return platform === 'win32' ? `file:///B:/~BUN/root/${rel}` : `file:///$bunfs/root/${rel}`
+}
