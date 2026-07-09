@@ -87,8 +87,10 @@ describe('web shell structure', () => {
     expect(src).toContain('activationConstraint')
   })
   it('repo add flow uses the scan flow on desktop and mobile', () => {
+    // AppToolsRow owns the scan flow; mobile reaches it by composing that row
+    // into its home view (#227), desktop by composing it into the sidebar.
     expect(read('SidebarUnified.tsx')).toContain('RepoScanFlow')
-    expect(read('MobileApp.tsx')).toContain('RepoScanFlow')
+    expect(read('MobileApp.tsx')).toContain('AppToolsRow')
   })
   it('sidebar work panels navigate directly to the panel when clicked', () => {
     // Each panel row is an interactive button (not an inert div) that focuses the

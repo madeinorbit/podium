@@ -75,67 +75,120 @@ function agentIconFor(kind: AgentKind) {
 }
 
 /**
- * The UNIFIED sidebar (issue-as-workspace, behind the temporary layout
- * switcher): one status-ordered list of "pieces of work" — agent drafts,
- * human-origin issues, and unowned worktrees as SAME-LEVEL rows — topped by the
- * classic-styled `New <Agent> in <Repo>` button that spawns an agent into a
- * draft issue.
+ * The UNIFIED sidebar (issue-as-workspace): the `New <Agent> in <Repo>` spawn
+ * row, the app-surface nav, and one status-ordered list of "pieces of work" —
+ * agent drafts, human-origin issues, and unowned worktrees as SAME-LEVEL rows.
+ *
+ * The three pieces are exported separately because the mobile shell composes
+ * them into its home view without the desktop nav column (#227).
  */
 export function SidebarUnified(): JSX.Element {
+  const { view, setView } = useStoreSelector(
+    (s) => ({ view: s.view, setView: s.setView }),
+    shallowEqual,
+  )
+  return (
+    <>
+      <NewWorkRow />
+
+      {/* App-surface nav: full-width links to the big non-workspace views.
+          (The classic sidebar is gone — this is THE navigation now.) */}
+      <div className="mx-3 mt-2 flex flex-col gap-0.5">
+        <button
+          type="button"
+          className={cn(
+            'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-[13px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground',
+            view === 'home' && 'bg-secondary text-foreground',
+          )}
+          aria-pressed={view === 'home'}
+          onClick={() => setView('home')}
+        >
+          <Home size={15} aria-hidden="true" />
+          Command center
+        </button>
+        <button
+          type="button"
+          className={cn(
+            'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-[13px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground',
+            view === 'issues' && 'bg-secondary text-foreground',
+          )}
+          aria-pressed={view === 'issues'}
+          onClick={() => setView('issues')}
+        >
+          <KanbanSquare size={15} aria-hidden="true" />
+          Issues
+        </button>
+        <button
+          type="button"
+          className={cn(
+            'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-[13px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground',
+            view === 'specs' && 'bg-secondary text-foreground',
+          )}
+          aria-pressed={view === 'specs'}
+          onClick={() => setView('specs')}
+        >
+          <BookOpenText size={15} aria-hidden="true" />
+          Specs
+        </button>
+        <button
+          type="button"
+          className={cn(
+            'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-[13px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground',
+            view === 'automations' && 'bg-secondary text-foreground',
+          )}
+          aria-pressed={view === 'automations'}
+          onClick={() => setView('automations')}
+        >
+          <RotateCw size={15} aria-hidden="true" />
+          Automations
+        </button>
+        <AppToolsRow className="mt-0.5" />
+      </div>
+
+      <div className="mt-1 flex-1 overflow-y-auto pb-3">
+        <WorkSections />
+      </div>
+      <HostIndicators />
+    </>
+  )
+}
+
+/**
+ * The one top row: `New <Agent> in <Repo>` wearing the classic Superagent
+ * button's clothes (main surface spawns; the chevron segment opens the
+ * agent→repo menu) + the `+` (new issue) button.
+ */
+export function NewWorkRow(): JSX.Element {
   const {
     repos,
     sessions,
-    pins,
-    setPinned,
-    issues,
     trpc,
-    selectedWorktree,
     setSelectedWorktree,
-    selectedIssueId,
     setSelectedIssueId,
-    setOpenIssueId,
-    paneA,
     setPane,
-    fileTabs,
-    view,
     setView,
-    sidebarSettings,
-    setSidebarSettings,
     machines,
     spawnDraftAgent,
-    markIssueRead,
-    markSessionRead,
+    pins,
+    issues,
   } = useStoreSelector(
     (s) => ({
       repos: s.repos,
       sessions: s.sessions,
-      pins: s.pins,
-      setPinned: s.setPinned,
-      issues: s.issues,
       trpc: s.trpc,
-      selectedWorktree: s.selectedWorktree,
       setSelectedWorktree: s.setSelectedWorktree,
-      selectedIssueId: s.selectedIssueId,
       setSelectedIssueId: s.setSelectedIssueId,
-      setOpenIssueId: s.setOpenIssueId,
-      paneA: s.paneA,
       setPane: s.setPane,
-      fileTabs: s.fileTabs,
-      view: s.view,
       setView: s.setView,
-      sidebarSettings: s.sidebarSettings,
-      setSidebarSettings: s.setSidebarSettings,
       machines: s.machines,
       spawnDraftAgent: s.spawnDraftAgent,
-      markIssueRead: s.markIssueRead,
-      markSessionRead: s.markSessionRead,
+      pins: s.pins,
+      issues: s.issues,
     }),
     shallowEqual,
   )
-  const setSearchOpen = useStoreSelector((s) => s.setSearchOpen)
   const now = useNow(60_000)
   const [newIssueOpen, setNewIssueOpen] = useState(false)
-  const [repoScanOpen, setRepoScanOpen] = useState(false)
   // Anchor for the agent/repo menu: the WHOLE bordered button container, so the
   // dropdown opens directly under it, left-aligned, at the button's exact width
   // (the popup's w-(--anchor-width) tracks the Positioner anchor).
@@ -178,10 +231,6 @@ export function SidebarUnified(): JSX.Element {
       (byRepo.get(b.path) ?? 0) - (byRepo.get(a.path) ?? 0) ||
       a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }),
   )
-  const allWorktreePaths = repoNavs.flatMap((r) => r.worktrees.map((w) => w.path))
-  // WORKING (move-out) + the WORK list minus whatever moved to WORKING.
-  const { working, work } = partitionUnifiedWork(sections, issues, sessions, allWorktreePaths, now)
-  const workItems = partitionWorkItems(sessions, new Set(pins.panels), now)
 
   /** Spawn `agentKind` in `repo`'s primary worktree inside a fresh draft issue.
    *  Optimistic (#119): the store paints the 'starting' row + draft vessel
@@ -216,6 +265,258 @@ export function SidebarUnified(): JSX.Element {
       setAgentSetting(kind) // optimistic — best-effort persistence
     }
   }
+
+  return (
+    <div className="mx-3 mt-2.5 flex items-center gap-2">
+      <div
+        ref={newAgentAnchorRef}
+        data-testid="new-agent-button"
+        className="relative min-w-0 flex-1"
+      >
+        {/* EXACT classic Superagent-button clothes: one bordered rounded-md
+            surface, bg-secondary, leading icon, no inner segments. The chevron
+            is a borderless hitbox floating inside the same outline. */}
+        <button
+          type="button"
+          className="flex w-full min-w-0 items-center gap-2 rounded-md border border-input bg-secondary px-2.5 py-[7px] pr-8 text-[13px] text-foreground hover:border-primary hover:text-foreground disabled:opacity-50"
+          disabled={!defaultRepo}
+          title={
+            defaultTarget
+              ? `Start a new ${panelLabel(defaultAgent)} agent in ${defaultTarget.repoName}`
+              : 'No repos yet'
+          }
+          onClick={() => defaultRepo && void spawn(defaultAgent, defaultRepo)}
+        >
+          {(() => {
+            const AgentIcon = agentIconFor(defaultAgent)
+            return AgentIcon ? <AgentIcon size={14} aria-hidden="true" /> : null
+          })()}
+          <span className="min-w-0 truncate">
+            New {panelLabel(defaultAgent)} in {defaultTarget?.repoName ?? '…'}
+          </span>
+        </button>
+        <DropdownMenu modal={false}>
+          <DropdownMenuTrigger
+            render={
+              <button
+                type="button"
+                className="absolute top-1/2 right-1 flex size-6 -translate-y-1/2 items-center justify-center rounded text-muted-foreground hover:text-foreground"
+                aria-label="Choose agent and repo"
+              >
+                <ChevronDown size={14} aria-hidden="true" />
+              </button>
+            }
+          />
+          <DropdownMenuContent align="start" sideOffset={4} anchor={newAgentAnchorRef}>
+            {NEW_AGENTS.map(({ kind, label, Icon }) => (
+              <DropdownMenuSub key={kind}>
+                <DropdownMenuSubTrigger
+                  className="flex items-center gap-1.5"
+                  onClick={() => {
+                    if (!defaultRepo) return
+                    void persistDefaultAgent(kind)
+                    void spawn(kind, defaultRepo)
+                  }}
+                >
+                  <Icon size={14} aria-hidden="true" className="text-muted-foreground" />
+                  {label}
+                </DropdownMenuSubTrigger>
+                <DropdownMenuSubContent>
+                  {menuRepos.length === 0 && <DropdownMenuItem disabled>No repos</DropdownMenuItem>}
+                  {menuRepos.map((repo) => {
+                    const repoMachines = machinesWithRepo(repo, machines)
+                    if (repoMachines.length <= 1) {
+                      return (
+                        <DropdownMenuItem
+                          key={repo.path}
+                          onClick={() => {
+                            void persistDefaultAgent(kind)
+                            void spawn(kind, repo)
+                          }}
+                        >
+                          {repo.name}
+                        </DropdownMenuItem>
+                      )
+                    }
+                    return (
+                      <DropdownMenuSub key={repo.path}>
+                        <DropdownMenuSubTrigger
+                          onClick={() => {
+                            void persistDefaultAgent(kind)
+                            void spawn(kind, repo)
+                          }}
+                        >
+                          {repo.name}
+                        </DropdownMenuSubTrigger>
+                        <DropdownMenuSubContent>
+                          {repoMachines.map((machine) => (
+                            <DropdownMenuItem
+                              key={machine.id}
+                              disabled={!machine.online}
+                              onClick={() => {
+                                void persistDefaultAgent(kind)
+                                void spawn(kind, repo, machine.id)
+                              }}
+                            >
+                              <Circle
+                                size={6}
+                                className={
+                                  machine.online
+                                    ? 'fill-emerald-500 text-emerald-500'
+                                    : 'text-muted-foreground/40'
+                                }
+                                aria-hidden="true"
+                              />
+                              <span className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap">
+                                {machine.name}
+                              </span>
+                            </DropdownMenuItem>
+                          ))}
+                        </DropdownMenuSubContent>
+                      </DropdownMenuSub>
+                    )
+                  })}
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+      {/* EXACT classic Concierge-button clothes: round, primary-filled. */}
+      <button
+        type="button"
+        className="flex size-8 flex-none items-center justify-center rounded-full bg-primary text-primary-foreground shadow-sm transition-colors hover:bg-primary/90"
+        title="New issue"
+        aria-label="New issue"
+        onClick={() => setNewIssueOpen(true)}
+      >
+        <Plus size={17} aria-hidden="true" />
+      </button>
+      {newIssueOpen && <NewIssueDialog onClose={() => setNewIssueOpen(false)} />}
+    </div>
+  )
+}
+
+/** App-level tools: analytics, settings, conversation search, add repo. */
+export function AppToolsRow({ className }: { className?: string }): JSX.Element {
+  const { view, setView, setSearchOpen } = useStoreSelector(
+    (s) => ({ view: s.view, setView: s.setView, setSearchOpen: s.setSearchOpen }),
+    shallowEqual,
+  )
+  const [repoScanOpen, setRepoScanOpen] = useState(false)
+  return (
+    <div className={cn('flex items-center gap-1', className)}>
+      <button
+        type="button"
+        className={cn(
+          'flex flex-1 items-center justify-center rounded-md border border-input px-2 py-1 text-muted-foreground hover:border-primary hover:text-foreground',
+          view === 'usage' && 'border-primary bg-secondary text-foreground',
+        )}
+        aria-pressed={view === 'usage'}
+        title="Usage & analytics"
+        aria-label="Usage & analytics"
+        onClick={() => setView('usage')}
+      >
+        <BarChart3 size={15} aria-hidden="true" />
+      </button>
+      <button
+        type="button"
+        className={cn(
+          'flex flex-1 items-center justify-center rounded-md border border-input px-2 py-1 text-muted-foreground hover:border-primary hover:text-foreground',
+          view === 'settings' && 'border-primary bg-secondary text-foreground',
+        )}
+        aria-pressed={view === 'settings'}
+        title="Settings"
+        aria-label="Settings"
+        onClick={() => setView('settings')}
+      >
+        <SettingsIcon size={15} aria-hidden="true" />
+      </button>
+      <button
+        type="button"
+        className="flex flex-1 items-center justify-center rounded-md border border-input px-2 py-1 text-muted-foreground hover:border-primary hover:text-foreground"
+        title="Search conversations"
+        aria-label="Search conversations"
+        onClick={() => setSearchOpen(true)}
+      >
+        <Search size={15} aria-hidden="true" />
+      </button>
+      <button
+        type="button"
+        className="flex flex-1 items-center justify-center rounded-md border border-input px-2 py-1 text-muted-foreground hover:border-primary hover:text-foreground"
+        title="Add repo"
+        aria-label="Add repo"
+        onClick={() => setRepoScanOpen(true)}
+      >
+        <FolderPlus size={15} aria-hidden="true" />
+      </button>
+      {repoScanOpen && (
+        <RepoScanFlow
+          onClose={() => setRepoScanOpen(false)}
+          onDone={() => setRepoScanOpen(false)}
+        />
+      )}
+    </div>
+  )
+}
+
+/**
+ * WORKING + PINNED + the WORK list: drafts, active human issues, and
+ * with-session worktrees as one row design, ordered by aggregated child-session
+ * urgency. The caller owns the scroll container.
+ */
+export function WorkSections(): JSX.Element {
+  const {
+    repos,
+    sessions,
+    pins,
+    setPinned,
+    issues,
+    trpc,
+    selectedWorktree,
+    setSelectedWorktree,
+    selectedIssueId,
+    setSelectedIssueId,
+    setOpenIssueId,
+    paneA,
+    setPane,
+    fileTabs,
+    setView,
+    sidebarSettings,
+    setSidebarSettings,
+    markIssueRead,
+    markSessionRead,
+  } = useStoreSelector(
+    (s) => ({
+      repos: s.repos,
+      sessions: s.sessions,
+      pins: s.pins,
+      setPinned: s.setPinned,
+      issues: s.issues,
+      trpc: s.trpc,
+      selectedWorktree: s.selectedWorktree,
+      setSelectedWorktree: s.setSelectedWorktree,
+      selectedIssueId: s.selectedIssueId,
+      setSelectedIssueId: s.setSelectedIssueId,
+      setOpenIssueId: s.setOpenIssueId,
+      paneA: s.paneA,
+      setPane: s.setPane,
+      fileTabs: s.fileTabs,
+      setView: s.setView,
+      sidebarSettings: s.sidebarSettings,
+      setSidebarSettings: s.setSidebarSettings,
+      markIssueRead: s.markIssueRead,
+      markSessionRead: s.markSessionRead,
+    }),
+    shallowEqual,
+  )
+  const now = useNow(60_000)
+  const sections = sidebarSections(repos, sessions, pins, now, issues)
+  const repoNavs: RepoNavView[] = [...sections.pinnedRepos, ...sections.repos]
+  const allWorktreePaths = repoNavs.flatMap((r) => r.worktrees.map((w) => w.path))
+  // WORKING (move-out) + the WORK list minus whatever moved to WORKING.
+  const { working, work } = partitionUnifiedWork(sections, issues, sessions, allWorktreePaths, now)
+  const workItems = partitionWorkItems(sessions, new Set(pins.panels), now)
 
   const selectIssue = (issue: IssueWire) => {
     setSelectedIssueId(issue.id)
@@ -336,332 +637,90 @@ export function SidebarUnified(): JSX.Element {
 
   return (
     <>
-      {/* The one top row: `New <Agent> in <Repo>` wearing the classic Superagent
-          button's clothes (main surface spawns; the chevron segment opens the
-          agent→repo menu) + the `+` (new issue) button. */}
-      <div className="mx-3 mt-2.5 flex items-center gap-2">
-        <div
-          ref={newAgentAnchorRef}
-          data-testid="new-agent-button"
-          className="relative min-w-0 flex-1"
-        >
-          {/* EXACT classic Superagent-button clothes: one bordered rounded-md
-              surface, bg-secondary, leading icon, no inner segments. The chevron
-              is a borderless hitbox floating inside the same outline. */}
-          <button
-            type="button"
-            className="flex w-full min-w-0 items-center gap-2 rounded-md border border-input bg-secondary px-2.5 py-[7px] pr-8 text-[13px] text-foreground hover:border-primary hover:text-foreground disabled:opacity-50"
-            disabled={!defaultRepo}
-            title={
-              defaultTarget
-                ? `Start a new ${panelLabel(defaultAgent)} agent in ${defaultTarget.repoName}`
-                : 'No repos yet'
-            }
-            onClick={() => defaultRepo && void spawn(defaultAgent, defaultRepo)}
+      {/* WORKING — fully-working issues/worktrees and working sessions lifted
+          out of partially-working rows; these are REMOVED from WORK. Pinned
+          issues are the exception: they mirror here and stay in WORK. */}
+      {working.length > 0 && (
+        <div className="min-w-0">
+          <CollapsibleSection
+            label="WORKING"
+            storageKey="podium:sidebar:collapsed:working"
+            count={working.length}
           >
-            {(() => {
-              const AgentIcon = agentIconFor(defaultAgent)
-              return AgentIcon ? <AgentIcon size={14} aria-hidden="true" /> : null
-            })()}
-            <span className="min-w-0 truncate">
-              New {panelLabel(defaultAgent)} in {defaultTarget?.repoName ?? '…'}
-            </span>
-          </button>
-          <DropdownMenu modal={false}>
-            <DropdownMenuTrigger
-              render={
-                <button
-                  type="button"
-                  className="absolute top-1/2 right-1 flex size-6 -translate-y-1/2 items-center justify-center rounded text-muted-foreground hover:text-foreground"
-                  aria-label="Choose agent and repo"
-                >
-                  <ChevronDown size={14} aria-hidden="true" />
-                </button>
-              }
-            />
-            <DropdownMenuContent align="start" sideOffset={4} anchor={newAgentAnchorRef}>
-              {NEW_AGENTS.map(({ kind, label, Icon }) => (
-                <DropdownMenuSub key={kind}>
-                  <DropdownMenuSubTrigger
-                    className="flex items-center gap-1.5"
-                    onClick={() => {
-                      if (!defaultRepo) return
-                      void persistDefaultAgent(kind)
-                      void spawn(kind, defaultRepo)
-                    }}
-                  >
-                    <Icon size={14} aria-hidden="true" className="text-muted-foreground" />
-                    {label}
-                  </DropdownMenuSubTrigger>
-                  <DropdownMenuSubContent>
-                    {menuRepos.length === 0 && (
-                      <DropdownMenuItem disabled>No repos</DropdownMenuItem>
-                    )}
-                    {menuRepos.map((repo) => {
-                      const repoMachines = machinesWithRepo(repo, machines)
-                      if (repoMachines.length <= 1) {
-                        return (
-                          <DropdownMenuItem
-                            key={repo.path}
-                            onClick={() => {
-                              void persistDefaultAgent(kind)
-                              void spawn(kind, repo)
-                            }}
-                          >
-                            {repo.name}
-                          </DropdownMenuItem>
-                        )
-                      }
-                      return (
-                        <DropdownMenuSub key={repo.path}>
-                          <DropdownMenuSubTrigger
-                            onClick={() => {
-                              void persistDefaultAgent(kind)
-                              void spawn(kind, repo)
-                            }}
-                          >
-                            {repo.name}
-                          </DropdownMenuSubTrigger>
-                          <DropdownMenuSubContent>
-                            {repoMachines.map((machine) => (
-                              <DropdownMenuItem
-                                key={machine.id}
-                                disabled={!machine.online}
-                                onClick={() => {
-                                  void persistDefaultAgent(kind)
-                                  void spawn(kind, repo, machine.id)
-                                }}
-                              >
-                                <Circle
-                                  size={6}
-                                  className={
-                                    machine.online
-                                      ? 'fill-emerald-500 text-emerald-500'
-                                      : 'text-muted-foreground/40'
-                                  }
-                                  aria-hidden="true"
-                                />
-                                <span className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap">
-                                  {machine.name}
-                                </span>
-                              </DropdownMenuItem>
-                            ))}
-                          </DropdownMenuSubContent>
-                        </DropdownMenuSub>
-                      )
-                    })}
-                  </DropdownMenuSubContent>
-                </DropdownMenuSub>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
+            {working.map(renderWorkingEntry)}
+          </CollapsibleSection>
         </div>
-        {/* EXACT classic Concierge-button clothes: round, primary-filled. */}
-        <button
-          type="button"
-          className="flex size-8 flex-none items-center justify-center rounded-full bg-primary text-primary-foreground shadow-sm transition-colors hover:bg-primary/90"
-          title="New issue"
-          aria-label="New issue"
-          onClick={() => setNewIssueOpen(true)}
-        >
-          <Plus size={17} aria-hidden="true" />
-        </button>
-      </div>
-
-      {/* App-surface nav: full-width links to the big non-workspace views.
-          (The classic sidebar is gone — this is THE navigation now.) */}
-      <div className="mx-3 mt-2 flex flex-col gap-0.5">
-        <button
-          type="button"
-          className={cn(
-            'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-[13px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground',
-            view === 'home' && 'bg-secondary text-foreground',
-          )}
-          aria-pressed={view === 'home'}
-          onClick={() => setView('home')}
-        >
-          <Home size={15} aria-hidden="true" />
-          Command center
-        </button>
-        <button
-          type="button"
-          className={cn(
-            'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-[13px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground',
-            view === 'issues' && 'bg-secondary text-foreground',
-          )}
-          aria-pressed={view === 'issues'}
-          onClick={() => setView('issues')}
-        >
-          <KanbanSquare size={15} aria-hidden="true" />
-          Issues
-        </button>
-        <button
-          type="button"
-          className={cn(
-            'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-[13px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground',
-            view === 'specs' && 'bg-secondary text-foreground',
-          )}
-          aria-pressed={view === 'specs'}
-          onClick={() => setView('specs')}
-        >
-          <BookOpenText size={15} aria-hidden="true" />
-          Specs
-        </button>
-        <button
-          type="button"
-          className={cn(
-            'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-[13px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground',
-            view === 'automations' && 'bg-secondary text-foreground',
-          )}
-          aria-pressed={view === 'automations'}
-          onClick={() => setView('automations')}
-        >
-          <RotateCw size={15} aria-hidden="true" />
-          Automations
-        </button>
-        {/* App-level tools: analytics, settings, conversation search, add repo. */}
-        <div className="mt-0.5 flex items-center gap-1">
-          <button
-            type="button"
-            className={cn(
-              'flex flex-1 items-center justify-center rounded-md border border-input px-2 py-1 text-muted-foreground hover:border-primary hover:text-foreground',
-              view === 'usage' && 'border-primary bg-secondary text-foreground',
-            )}
-            aria-pressed={view === 'usage'}
-            title="Usage & analytics"
-            aria-label="Usage & analytics"
-            onClick={() => setView('usage')}
-          >
-            <BarChart3 size={15} aria-hidden="true" />
-          </button>
-          <button
-            type="button"
-            className={cn(
-              'flex flex-1 items-center justify-center rounded-md border border-input px-2 py-1 text-muted-foreground hover:border-primary hover:text-foreground',
-              view === 'settings' && 'border-primary bg-secondary text-foreground',
-            )}
-            aria-pressed={view === 'settings'}
-            title="Settings"
-            aria-label="Settings"
-            onClick={() => setView('settings')}
-          >
-            <SettingsIcon size={15} aria-hidden="true" />
-          </button>
-          <button
-            type="button"
-            className="flex flex-1 items-center justify-center rounded-md border border-input px-2 py-1 text-muted-foreground hover:border-primary hover:text-foreground"
-            title="Search conversations"
-            aria-label="Search conversations"
-            onClick={() => setSearchOpen(true)}
-          >
-            <Search size={15} aria-hidden="true" />
-          </button>
-          <button
-            type="button"
-            className="flex flex-1 items-center justify-center rounded-md border border-input px-2 py-1 text-muted-foreground hover:border-primary hover:text-foreground"
-            title="Add repo"
-            aria-label="Add repo"
-            onClick={() => setRepoScanOpen(true)}
-          >
-            <FolderPlus size={15} aria-hidden="true" />
-          </button>
-        </div>
-      </div>
-
-      <div className="mt-1 flex-1 overflow-y-auto pb-3">
-        {/* WORKING — fully-working issues/worktrees and working sessions lifted
-            out of partially-working rows; these are REMOVED from WORK. Pinned
-            issues are the exception: they mirror here and stay in WORK. */}
-        {working.length > 0 && (
-          <div className="min-w-0">
-            <CollapsibleSection
-              label="WORKING"
-              storageKey="podium:sidebar:collapsed:working"
-              count={working.length}
-            >
-              {working.map(renderWorkingEntry)}
-            </CollapsibleSection>
-          </div>
-        )}
-
-        {/* PINNED — pinned session panels. */}
-        {workItems.pinnedPanels.length > 0 && (
-          <div className="min-w-0">
-            <CollapsibleSection
-              label="PINNED"
-              storageKey="podium:sidebar:collapsed:pinned"
-              count={workItems.pinnedPanels.length}
-            >
-              {workItems.pinnedPanels.map((session) => (
-                <PanelRow
-                  key={session.sessionId}
-                  session={session}
-                  pinned={true}
-                  active={paneA === session.sessionId}
-                  onSelect={() => selectPanel(session.cwd, session.sessionId)}
-                  onPinned={(p) => void setPinned('panel', session.sessionId, p)}
-                />
-              ))}
-            </CollapsibleSection>
-          </div>
-        )}
-
-        {/* ── WORK LIST: drafts + active human issues + with-session worktrees,
-            one row design, ordered by aggregated child-session urgency. ── */}
-        <div className="flex items-center justify-between px-3 pt-3 pb-1">
-          <span className="text-[11px] font-semibold tracking-[0.08em] text-muted-foreground">
-            WORK
-          </span>
-          <Select
-            value={sidebarSettings.groupByRepo ? 'repo' : 'none'}
-            onValueChange={(v) => void setSidebarSettings({ groupByRepo: v === 'repo' })}
-          >
-            <SelectTrigger
-              aria-label="Group work list"
-              className="h-5 w-auto gap-1 border-0 px-1 text-[10px] text-muted-foreground/70 shadow-none hover:text-foreground focus:ring-0"
-            >
-              {/* Render the human label, not the raw enum value — Base UI's
-                  SelectValue shows the bare `value` otherwise. */}
-              <span>{sidebarSettings.groupByRepo ? 'Group: repo' : 'Group: none'}</span>
-            </SelectTrigger>
-            <SelectContent align="end">
-              <SelectItem value="none" className="text-xs">
-                Group: none
-              </SelectItem>
-              <SelectItem value="repo" className="text-xs">
-                Group: repo
-              </SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-        {work.length === 0 && working.length === 0 && (
-          <div className="p-3 text-xs text-muted-foreground/70">
-            Nothing yet — start an agent or create an issue above.
-          </div>
-        )}
-        {(() => {
-          if (!sidebarSettings.groupByRepo) return work.map((r) => renderWorkRow(r))
-          return groupUnifiedWorkRows(work).map((group) => (
-            <CollapsibleSection
-              key={group.key}
-              label={group.label}
-              storageKey={`podium:sidebar:unified-repo:${group.key}`}
-              count={group.rows.length}
-            >
-              {/* Wrap so Array.map's index isn't passed as `suppressUnread`. */}
-              {group.rows.map((r) => renderWorkRow(r))}
-            </CollapsibleSection>
-          ))
-        })()}
-      </div>
-      <HostIndicators />
-      {newIssueOpen && <NewIssueDialog onClose={() => setNewIssueOpen(false)} />}
-      {repoScanOpen && (
-        <RepoScanFlow
-          onClose={() => setRepoScanOpen(false)}
-          onDone={() => setRepoScanOpen(false)}
-        />
       )}
+
+      {/* PINNED — pinned session panels. */}
+      {workItems.pinnedPanels.length > 0 && (
+        <div className="min-w-0">
+          <CollapsibleSection
+            label="PINNED"
+            storageKey="podium:sidebar:collapsed:pinned"
+            count={workItems.pinnedPanels.length}
+          >
+            {workItems.pinnedPanels.map((session) => (
+              <PanelRow
+                key={session.sessionId}
+                session={session}
+                pinned={true}
+                active={paneA === session.sessionId}
+                onSelect={() => selectPanel(session.cwd, session.sessionId)}
+                onPinned={(p) => void setPinned('panel', session.sessionId, p)}
+              />
+            ))}
+          </CollapsibleSection>
+        </div>
+      )}
+
+      {/* ── WORK LIST: drafts + active human issues + with-session worktrees,
+          one row design, ordered by aggregated child-session urgency. ── */}
+      <div className="flex items-center justify-between px-3 pt-3 pb-1">
+        <span className="text-[11px] font-semibold tracking-[0.08em] text-muted-foreground">
+          WORK
+        </span>
+        <Select
+          value={sidebarSettings.groupByRepo ? 'repo' : 'none'}
+          onValueChange={(v) => void setSidebarSettings({ groupByRepo: v === 'repo' })}
+        >
+          <SelectTrigger
+            aria-label="Group work list"
+            className="h-5 w-auto gap-1 border-0 px-1 text-[10px] text-muted-foreground/70 shadow-none hover:text-foreground focus:ring-0"
+          >
+            {/* Render the human label, not the raw enum value — Base UI's
+                SelectValue shows the bare `value` otherwise. */}
+            <span>{sidebarSettings.groupByRepo ? 'Group: repo' : 'Group: none'}</span>
+          </SelectTrigger>
+          <SelectContent align="end">
+            <SelectItem value="none" className="text-xs">
+              Group: none
+            </SelectItem>
+            <SelectItem value="repo" className="text-xs">
+              Group: repo
+            </SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+      {work.length === 0 && working.length === 0 && (
+        <div className="p-3 text-xs text-muted-foreground/70">
+          Nothing yet — start an agent or create an issue above.
+        </div>
+      )}
+      {(() => {
+        if (!sidebarSettings.groupByRepo) return work.map((r) => renderWorkRow(r))
+        return groupUnifiedWorkRows(work).map((group) => (
+          <CollapsibleSection
+            key={group.key}
+            label={group.label}
+            storageKey={`podium:sidebar:unified-repo:${group.key}`}
+            count={group.rows.length}
+          >
+            {/* Wrap so Array.map's index isn't passed as `suppressUnread`. */}
+            {group.rows.map((r) => renderWorkRow(r))}
+          </CollapsibleSection>
+        ))
+      })()}
     </>
   )
 }

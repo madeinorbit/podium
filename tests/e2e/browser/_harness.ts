@@ -44,14 +44,17 @@ export async function openApp(page: Page): Promise<void> {
 }
 
 /**
- * The app lands on the command-center home view; these specs exercise the
- * workspace. The unified sidebar is work-centric: it only lists rows for
- * worktrees/issues that already have work. Desktop: click the top work row
- * when one exists (reopening the workspace the most recent sessions live in —
- * same tab-order key); on a fresh empty state the only path into a workspace
- * is spawning, so click the `New <Agent> in <Repo>` split button (optimistic
- * spawn navigates immediately). Mobile: the workspace strip is always
- * present, so nothing to do.
+ * The app lands on the home view; these specs exercise the workspace. The work
+ * list is work-centric: it only lists rows for worktrees/issues that already
+ * have work. Click the top work row when one exists (reopening the workspace
+ * the most recent sessions live in — same tab-order key); on a fresh empty
+ * state the only path into a workspace is spawning, so click the
+ * `New <Agent> in <Repo>` split button (optimistic spawn navigates
+ * immediately).
+ *
+ * Desktop renders that list in an always-present <aside>. Mobile renders the
+ * same rows as its home view (#227), reached via the header's Work button — so
+ * both layouts take the same path, differing only in where the rows live.
  */
 export async function gotoWorkspace(page: Page): Promise<void> {
   // If the "New panel" button is already visible we're already in the workspace.
@@ -61,21 +64,20 @@ export async function gotoWorkspace(page: Page): Promise<void> {
   }
 
   // Desktop layout renders an <aside> sidebar. Mobile renders MobileApp without
-  // the aside. Wait up to 10s for the sidebar to appear; if it doesn't, we're on
-  // mobile (or the workspace is already rendered another way) — bail.
+  // one; there the work list is the home view, so navigate to it first.
   const sidebar = page.locator('aside').first()
-  try {
-    await sidebar.waitFor({ state: 'visible', timeout: 10_000 })
-  } catch {
-    // Mobile layout — the workspace strip is always present on mobile; bail.
-    return
-  }
+  const onDesktop = await sidebar
+    .waitFor({ state: 'visible', timeout: 10_000 })
+    .then(() => true)
+    .catch(() => false)
+  const list = onDesktop ? sidebar : page.locator('.mobile-shell')
+  if (!onDesktop) await page.locator('button[title="Work"]').click({ timeout: 15_000 })
 
   // Work rows load with the repos/sessions feeds — give the top row a short
   // window to appear (it exists whenever earlier specs or a pre-reload page
   // already created sessions). Its main select button carries flex-1 (the
   // sibling chevron button, when present, is the expand toggle).
-  const firstRow = sidebar
+  const firstRow = list
     .locator('[data-testid="unified-worktree-row"], [data-testid="unified-issue-row"]')
     .first()
   const rowVisible = await firstRow
@@ -87,7 +89,7 @@ export async function gotoWorkspace(page: Page): Promise<void> {
   } else {
     // Empty state — spawn a fresh agent; the split button paints the draft row
     // and switches to the new workspace synchronously (#119).
-    await sidebar.getByRole('button', { name: /^New .+ in .+/ }).click({ timeout: 15_000 })
+    await list.getByRole('button', { name: /^New .+ in .+/ }).click({ timeout: 15_000 })
   }
   // Confirm the workspace loaded by waiting for the "New panel" button.
   await newPanelBtn.waitFor({ state: 'visible', timeout: 15_000 })
